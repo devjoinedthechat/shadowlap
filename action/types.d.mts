@@ -203,6 +203,8 @@ export interface BaseSession {
 export interface HistoryPlan {
   /** Keep the store between jobs in the Actions cache. */
   keep: boolean;
+  /** Why it is never kept on the event the job runs for, which the action refuses (events.mjs); null on one it runs on. */
+  refused: string | null;
   /** The store's file, with its write-ahead log and shared memory. */
   path: string[];
   /** One per run, so each run saves what it adds. */

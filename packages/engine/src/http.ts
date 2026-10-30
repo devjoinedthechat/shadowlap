@@ -1,6 +1,8 @@
 import { ACCOUNT_HEADERS } from './account-headers.js';
 import { maskEmbeddedJson, maskEventStream, maskGraphqlArguments, maskJsonLines, maskKeyValueLines, maskMultipart, maskXml, skipJsonValue, unwrapJson, walkJson, type MultipartPartText, type StringMask } from './credential-shapes.js';
 import { parseJsonExact } from './json-exact.js';
+import { rewriteWords, scriptWord, shellWords } from './shell-words.js';
+import { quoteArgv } from './text.js';
 import { isObject } from './is-object.js';
 
 /**
@@ -402,27 +404,59 @@ function credentialFreeArgument(value: string): string {
   return URL_SHAPED.test(value) ? maskUrlCredentials(value) : value;
 }
 
+/** A shell a command line hands a script to with `-c`: `sh`, `bash`, `zsh` and their kin, by name, a folder before it or `.exe` after it. */
+const SHELL = /(?:^|[\\/])(?:sh|bash|zsh|dash|ksh|mksh|ash|fish|csh|tcsh)(?:\.exe)?$/i;
+/** The option that hands a shell its script: `-c`, or `-c` last in a cluster of options (`-lc`, `-ec`). */
+const SCRIPT_FLAG = /^-[A-Za-z]*c$/;
+/** How many scripts deep a script inside a script is read word by word; one deeper is masked as any other argument. */
+const MAX_SCRIPTS = 4;
+
+/**
+ * A script a shell runs (`sh -c '…'`'s), masked word by word as credentialFreeArgv masks a command
+ * line's arguments, each word read as the shell reads it (shellWords): an assignment's value up to
+ * where its word ends, the rest of the script kept, a flag's value and a header line as in any
+ * command line, and a script it hands a shell in turn. A word that changes is written again in its
+ * place (scriptWord), every other character as it was. A script whose quote is left open, or one
+ * inside MAX_SCRIPTS others, is masked as any other argument.
+ */
+function credentialFreeScript(script: string, depth: number): string {
+  const words = depth < MAX_SCRIPTS ? shellWords(script) : null;
+  if (!words) return credentialFreeArgument(script);
+  // No program before its first word, which is read as any other (`API_KEY=… node agent.js`).
+  const values = ['', ...words.map((w) => w.value)];
+  const masked = argvWithoutCredentials(values, depth + 1);
+  return masked === values ? script : rewriteWords(script, words, masked.slice(1), scriptWord);
+}
+
 /**
  * A command line as every copy that leaves the machine writes it (a pack, an HTML file or a share
  * link, a push, a trace, a dataset), its credentials masked with CREDENTIAL_PLACEHOLDER: the value
  * of each flag that takes one (`--api-key <value>`, `--api-key=<value>`, `-token <value>` as Go's
- * flags are written: credentialFlag), and in any other argument or flag value a JWT, an assignment's
- * or a header line's credential, and a URL's (credentialFreeArgument). The program stays as it is.
- * The store keeps the command as it ran, which a replay runs again. The same array when nothing
- * changes.
+ * flags are written: credentialFlag), in any other argument or flag value a JWT, an assignment's
+ * or a header line's credential, and a URL's (credentialFreeArgument), and in a script a shell runs
+ * (`sh -c '…'`, `bash -lc '…'`) each of those word by word (credentialFreeScript). The program stays
+ * as it is. The store keeps the command as it ran, which a replay runs again. The same array when
+ * nothing changes.
  */
 export function credentialFreeArgv(argv: readonly string[]): readonly string[] {
+  return argvWithoutCredentials(argv, 0);
+}
+
+/** credentialFreeArgv, `depth` scripts deep. */
+function argvWithoutCredentials(argv: readonly string[], depth: number): readonly string[] {
   let out: string[] | null = null;
   const set = (i: number, value: string) => {
     if (value === argv[i]) return;
     out ??= [...argv];
     out[i] = value;
   };
+  // The first shell named, whose `-c` takes a script wherever it stands: `env MODE=1 bash -lc '…'`, `docker exec app sh -c '…'`.
+  const shell = argv.findIndex((a) => SHELL.test(a));
   for (let i = 1; i < argv.length; i++) {
     const arg = argv[i]!;
     const flag = FLAG_ARG.exec(arg);
     if (!flag) {
-      set(i, credentialFreeArgument(arg));
+      set(i, shell >= 0 && shell < i - 1 && SCRIPT_FLAG.test(argv[i - 1]!) ? credentialFreeScript(arg, depth) : credentialFreeArgument(arg));
       continue;
     }
     const [, name = '', value] = flag;
@@ -443,6 +477,21 @@ export function credentialFreeArgv(argv: readonly string[]): readonly string[] {
 /** Whether two command lines are one, but for the credentials a copy masks in them (credentialFreeArgv). */
 export function sameCommandLine(a: readonly string[], b: readonly string[]): boolean {
   return JSON.stringify(credentialFreeArgv(a)) === JSON.stringify(credentialFreeArgv(b));
+}
+
+/**
+ * A command line written as one text, as quoteArgv writes it (the command a blame, a verdict or a
+ * repair keeps, as the CLI printed it), with its credentials masked as credentialFreeArgv masks its
+ * words, each word read as a shell reads it (shellWords): a word that changes is written again in
+ * its place, quoted as quoteArgv quotes it, every other character as it was. A text whose quote is
+ * left open has each of its words between white space masked as one. The same string when nothing
+ * changes.
+ */
+export function credentialFreeCommandLine(text: string): string {
+  const words = shellWords(text) ?? [...text.matchAll(/\S+/g)].map((m) => ({ start: m.index, end: m.index + m[0].length, value: m[0] }));
+  const values = words.map((w) => w.value);
+  const masked = credentialFreeArgv(values);
+  return masked === values ? text : rewriteWords(text, words, masked, (v) => quoteArgv([v]));
 }
 
 /**
@@ -503,14 +552,15 @@ export function maskJsonCredentials(value: unknown): unknown {
 
 /**
  * A string in a body as a recording keeps it: CREDENTIAL_PLACEHOLDER when it is a credential (under
- * a credential member; its member read as one with it; a JWT, whatever its member is named); else
- * with the credentials inside it masked by its shape (maskTextCredentials: JSON in the string, a URL,
- * a query string, a connection string, a GraphQL query). Null to keep it as it is.
+ * a credential member; its member read as one with it, or by its name alone with `byName`; a JWT,
+ * whatever its member is named); else with the credentials inside it masked by its shape
+ * (maskTextCredentials, `byName` passed on: JSON in the string, a URL, a query string, a connection
+ * string, a GraphQL query). Null to keep it as it is.
  */
-function maskedString(key: string | null, value: string, under: boolean, depth: number): string | null {
+function maskedString(key: string | null, value: string, under: boolean, depth: number, byName: boolean): string | null {
   if (value === CREDENTIAL_PLACEHOLDER) return null;
-  if (under || (key !== null && credentialParam(key, value)) || JWT.test(value)) return CREDENTIAL_PLACEHOLDER;
-  return depth < MAX_NESTING ? maskTextCredentials(value, depth + 1) : null;
+  if (under || (key !== null && credentialParam(key, byName ? undefined : value)) || JWT.test(value)) return CREDENTIAL_PLACEHOLDER;
+  return depth < MAX_NESTING ? maskTextCredentials(value, depth + 1, byName) : null;
 }
 
 /**
@@ -520,11 +570,11 @@ function maskedString(key: string | null, value: string, under: boolean, depth: 
  */
 const credentialMember = (key: string): boolean => credentialParam(key, '');
 
-/** The string rule for strings `depth` deep, as walkJson takes it. */
+/** The string rule for strings `depth` deep, as walkJson takes it; with `byName`, as a redirect's JSON is read (maskedString). */
 const stringsAt =
-  (depth: number): StringMask =>
+  (depth: number, byName = false): StringMask =>
   (key, value, under) =>
-    maskedString(key, value, under, depth);
+    maskedString(key, value, under, depth, byName);
 
 /**
  * JSON text with its credentials masked as maskJsonCredentials masks a parsed value, each string
@@ -545,11 +595,11 @@ export function maskJsonTextCredentials(text: string): string | null {
  * attributes; a GraphQL query's arguments; `key: value` and `key = value` lines (YAML, an INI or a
  * .env file); and the JSON objects among other text (maskEmbeddedJson).
  * Each value by its name (credentialParam), and a JWT whatever its name. `depth` counts the strings it is inside of; `byName` reads parameters by their
- * name alone, as a redirect's are. Every character it doesn't replace stays as it was; null when it
- * replaced nothing.
+ * name alone, as a redirect's are, and so the members of its JSON and what its strings hold (htmx's
+ * `hx-location`). Every character it doesn't replace stays as it was; null when it replaced nothing.
  */
 export function maskTextCredentials(text: string, depth = 0, byName = false): string | null {
-  const strings = stringsAt(depth);
+  const strings = stringsAt(depth, byName);
   const wrapped = unwrapJson(text);
   const json = walkJson(wrapped.json, strings, credentialMember);
   if (json !== undefined) return json === null ? null : wrapped.prefix + json + wrapped.suffix;
@@ -564,7 +614,9 @@ export function maskTextCredentials(text: string, depth = 0, byName = false): st
   const shaped =
     maskConnectionString(text) ??
     maskMultipart(text, (part) => maskedPart(part, depth)) ??
-    maskEventStream(text, (payload) => maskTextCredentials(payload, depth)) ??
+    // An event's data is a string inside this one, a level deeper: a data line inside a data line,
+    // over and over, is read no deeper than any other string inside a string, so a level at a time.
+    maskEventStream(text, (payload) => (depth < MAX_NESTING ? maskTextCredentials(payload, depth + 1) : null)) ??
     maskJsonLines(text, (line) => walkJson(line, strings, credentialMember)) ??
     maskXml(text, (name, value) => credentialParam(name, value) || JWT.test(value), credentialMember, CREDENTIAL_PLACEHOLDER) ??
     maskGraphqlArguments(text, (name, value) => credentialParam(name, value), CREDENTIAL_PLACEHOLDER) ??

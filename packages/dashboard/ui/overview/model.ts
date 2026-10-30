@@ -1,3 +1,4 @@
+import { lostWords } from '../../../engine/src/run-verdicts.js';
 import { cents, durLong, num, plural } from '../format.js';
 import { ORIGIN_CODE, type Origin7 } from '../origins.js';
 import type { GlyphKind } from '../runs.js';
@@ -42,14 +43,24 @@ export function reproducedNote(o: OverviewSummary['outcomes']['reproduced']): st
 
 /**
  * How a blame on Today's line came out, in the words Needs a look and the fix use: where the run
- * was lost, that no model call rescued it (or, when its first probe couldn't tell, that it is not
- * settled), or that it stopped early; while it still probes, that nothing is placed yet.
+ * was lost (at a call, or gradually around two), that no model call rescued it (or, when its first
+ * probe couldn't tell, that it is not settled), or that it stopped early; while it still probes, that
+ * nothing is placed yet.
  */
-export function blameWords(b: Pick<OverviewSummary['today']['blame']['runs'][number], 'outcome' | 'lostAt'> & { unsettled?: boolean }): string {
-  if (b.outcome === 'blamed' && b.lostAt) return `lost at #${b.lostAt}`;
+export function blameWords(b: Pick<OverviewSummary['today']['blame']['runs'][number], 'outcome' | 'lostAt'> & { unsettled?: boolean; range?: unknown }): string {
+  if (b.outcome === 'blamed' && b.lostAt) return lostWords(b.lostAt, b.range);
   if (b.outcome === 'unrescuable') return b.unsettled ? 'not settled from the first model call' : 'not rescued from any model call';
   if (b.outcome === 'stopped') return 'blame stopped early';
   return 'not placed yet';
+}
+
+/** How Today's newest failed test replay came out, in the words Runs uses: where it diverged, was lost or what failed. */
+export function outcomeWords(o: { kind: string; callNo?: number; range?: unknown }): string {
+  if (o.kind === 'diverged' && o.callNo) return `diverged at #${o.callNo}`;
+  if (o.kind === 'lost' && o.callNo) return lostWords(o.callNo, o.range);
+  if (o.kind === 'check-failed') return 'check failed';
+  if (o.kind === 'inconclusive') return 'inconclusive';
+  return 'failed';
 }
 
 /** The line under Fixes verified. */

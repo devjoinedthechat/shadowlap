@@ -49,7 +49,7 @@ inputs:
     description: The store that keeps the test history and the replays, relative to working-directory. Empty uses the project's, .shadowlap/shadowlap.db.
     default: ''
   inconclusive:
-    description: What an inconclusive golden does to the step, as shadowlap test --inconclusive takes it (fail or warn). An inconclusive golden is one whose gate ran out of attempts between its bounds, or whose check could not be judged. fail counts it in the failed output and fails the step; warn lets it through with a warning annotation. Empty does as shadowlap test does by default, fail, except that a gate against history whose golden has too few sessions yet only warns, until the plan reads a decline or a drop in its sessions. Either way the inconclusive output counts it.
+    description: What an inconclusive golden does to the step, as shadowlap test --inconclusive takes it (fail or warn). An inconclusive golden is one whose gate ran out of attempts between its bounds, whose check could not be decided, whose injection gate showed too little to say, or whose provider was unavailable too many attempts in a row. fail counts it in the failed output and fails the step; warn lets it through with a warning annotation. Empty does as shadowlap test does by default, fail, except that a gate against history whose golden has fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop in its sessions (99 to 1). Either way the inconclusive output counts it.
     default: ''
   max-attempts:
     description: Raise every gate's limit for this run, as shadowlap test --max-attempts. Empty keeps each gate's own max.
@@ -70,7 +70,7 @@ inputs:
     description: A shell command that builds the agent once a fix changes its source, such as npm run build, as for shadowlap repair --build. It runs in each candidate's worktree, which has a copy of the working tree's node_modules rather than links to it, so nothing it writes reaches the working tree, and in the working tree around the replay of the fix's branch, then once more after the fix is taken back out. Empty runs the agent as it is.
     default: ''
   repairer:
-    description: The model that proposes fixes, as for shadowlap repair --repairer (claude-code, anthropic, anthropic:<model>, openai:<model>). Empty uses repair.repairer in shadowlap.config.json.
+    description: The model that proposes fixes, as for shadowlap repair --repairer (claude-code, claude-code:<model>, anthropic, anthropic:<model>, openai:<model>). Empty uses repair.repairer in shadowlap.config.json.
     default: ''
   github-token:
     description: The token fix-on-failure pushes a fix's branch and opens its pull request with, and the pull request comment is kept with. A GitHub App's token or a personal access token makes GitHub start the fix pull request's workflows. Empty uses the job's GITHUB_TOKEN, for which GitHub starts none, so the action then starts the workflow it runs in on the fix's branch, which needs a workflow_dispatch trigger and actions write permission; the pull request says which happened. The CLI and the agent never get this token.
@@ -84,10 +84,10 @@ outputs:
     description: Recordings that passed.
     value: ${{ steps.test.outputs.passed }}
   failed:
-    description: Recordings that fail the step - diverged, made a live call, exited with an error or failed a check - and inconclusive ones unless inconclusive is warn. The Alerts workflow posts when it isn't 0.
+    description: Recordings that fail the step - diverged, made a live call, exited with an error, or failed a check or an injection gate - and inconclusive ones, unless inconclusive is warn or, left empty, the recording's gate against history ran out of attempts with fewer than 30 sessions behind it, until the plan reads a decline or a drop in them (99 to 1). The Alerts workflow posts when it isn't 0.
     value: ${{ steps.test.outputs.failed }}
   inconclusive:
-    description: Recordings whose verdict is inconclusive (a gate that ran out of attempts between its bounds, or a check that could not be judged), whatever the inconclusive input made of them.
+    description: Recordings whose verdict is inconclusive (a gate that ran out of attempts between its bounds, a check that could not be decided, an injection gate that showed too little to say, or a provider unavailable too many attempts in a row), whatever the inconclusive input made of them.
     value: ${{ steps.test.outputs.inconclusive }}
   diverged:
     description: Recordings that failed because the agent sent a different request.

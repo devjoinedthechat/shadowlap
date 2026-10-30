@@ -15,7 +15,7 @@
  * buttons run, and exports the rest.
  */
 
-import { applyLeft, commitTitle, DEFAULT_REPAIRER, expectArgs, fixCost, type FixData, FixIdError, fixRecords, type FixRecords, gitApplyCommand, noFixToTry, patchFiles, repairArgv, repairJobArgv, type RepairOutcome, repairPatchProblem, repairToApply, resolveFix, type RunRecord, shownBlame, type StoredBlame, type StoredFix, type StoredRepair, type StoreOf, unsettledFirst, verifyArgv } from '@shadowlap/engine';
+import { applyLeft, commitTitle, DEFAULT_REPAIRER, expectArgs, fixCost, type FixData, FixIdError, fixRecords, type FixRecords, gitApplyCommand, lostAround, noFixToTry, patchFiles, repairArgv, repairJobArgv, type RepairOutcome, repairPatchProblem, repairToApply, resolveFix, type RunRecord, shownBlame, type StoredBlame, type StoredFix, type StoredRepair, type StoreOf, unsettledFirst, verifyArgv } from '@shadowlap/engine';
 import { type FixRow, rowOf } from './fix-list.js';
 import { acceptedCandidate, commandLine, counting, fieldsSet, type FixActions, type PatchCheck, patchMerged, patchToCheck, runHref, short, shownRepair, type StepKey, unrepairedVerdict } from './fix-shared.js';
 import { blameNext, blameStep, type BlameStep } from './fix-blame-step.js';
@@ -54,8 +54,11 @@ export interface FixDetail extends FixRow {
   actions: FixActions;
   /** The blame the Blame step shows (the latest that found a call, else the latest), and every blame, newest first. */
   blame: BlameStep | null;
-  /** Every blame, newest first: `unsettled` for one that placed the failure on no call only because its first probe couldn't tell. */
-  blames: Array<{ blameId: string; runId: string; at: number; outcome: StoredBlame['outcome']; unsettled?: true; lostAt: number | null; confidence: string }>;
+  /**
+   * Every blame, newest first: `unsettled` for one that placed the failure on no call only because its
+   * first probe couldn't tell; `range`, the two calls the run was lost gradually around, when no one call lost it.
+   */
+  blames: Array<{ blameId: string; runId: string; at: number; outcome: StoredBlame['outcome']; unsettled?: true; lostAt: number | null; range: { from: number; to: number; gradual: true } | null; confidence: string }>;
   /** The repair the Repair step shows (the latest accepted that counts, else the latest accepted, else the latest), and every repair, newest first. */
   repair: RepairStep | null;
   repairs: Array<{ repairId: string; at: number; outcome: RepairOutcome; accepted: boolean; title: string }>;
@@ -185,7 +188,7 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
       ...blameNext(store, rec, b),
     },
     blame: b ? blameStep(store, b, commands.blame) : null,
-    blames: [...rec.blames].reverse().map((x) => ({ blameId: x.blameId, runId: x.runId, at: x.at, outcome: x.outcome, ...(unsettledFirst(x.report) ? { unsettled: true as const } : {}), lostAt: x.report.blamed?.callNo ?? null, confidence: x.report.confidence })),
+    blames: [...rec.blames].reverse().map((x) => ({ blameId: x.blameId, runId: x.runId, at: x.at, outcome: x.outcome, ...(unsettledFirst(x.report) ? { unsettled: true as const } : {}), lostAt: x.report.blamed?.callNo ?? null, range: lostAround(x.report.range), confidence: x.report.confidence })),
     repair: p ? repairStep(store, rec, p, fix.fixId, pulled(p), commands.repair) : null,
     repairs: [...rec.repairs].reverse().map((x) => {
       const c = acceptedCandidate(x);

@@ -628,10 +628,21 @@ def with_fence(options: Opts, effects: Optional[Mapping[str, str]] = None, **fen
     return dataclasses.replace(options, hooks=hooks, **({"env": env} if quiet else {}))
 
 
+_MCP_NAME_OTHER = re.compile(r"[^A-Za-z0-9_-]")
+
+
+def _mcp_name_part(name: str) -> str:
+    """A server's or a tool's name as Claude Code puts it in ``mcp__<server>__<tool>``: every character
+    but a letter, a digit, ``_`` or ``-`` turned into ``_``, as the TypeScript adapter turns it."""
+    return _MCP_NAME_OTHER.sub("_", name)
+
+
 def with_effects(server: str, tools: Sequence[ToolT], effects: Mapping[str, Any]) -> list[ToolT]:
     """The tools of an in-process MCP server (``create_sdk_mcp_server``), recorded and fenced like any
     SDK tool under the name the model calls them by, ``mcp__<server>__<tool>``, with the tool's input
-    as the call's arguments::
+    as the call's arguments. Claude Code turns every character of either name but a letter, a digit,
+    ``_`` and ``-`` into ``_``, and so does the recorded name: the ``look up`` tool of ``order desk``
+    is ``mcp__order_desk__look_up``. The effects are keyed by each tool's own name::
 
         tools = with_effects("orders", [lookup_order, issue_refund], {"lookup_order": "read", "issue_refund": "write"})
         orders = create_sdk_mcp_server(name="orders", version="1.0.0", tools=tools)
@@ -657,7 +668,7 @@ def with_effects(server: str, tools: Sequence[ToolT], effects: Mapping[str, Any]
             raise TypeError(f'with_effects: {name}: effect must be "pure", "read" or "write", not {effect!r}')
         if trust is not None and trust not in ("trusted", "untrusted"):
             raise TypeError(f'with_effects: {name}: trust must be "trusted" or "untrusted", not {trust!r}')
-        handler = _recorded_handler(f"mcp__{server}__{name}", name, str(effect), getattr(t, "handler"), on_fork, trust)
+        handler = _recorded_handler(f"mcp__{_mcp_name_part(server)}__{_mcp_name_part(name)}", name, str(effect), getattr(t, "handler"), on_fork, trust)
         if dataclasses.is_dataclass(t) and not isinstance(t, type):
             out.append(dataclasses.replace(t, handler=handler))
         else:

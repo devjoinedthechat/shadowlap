@@ -1,5 +1,6 @@
 import type { BlameReport } from './blame.js';
 import { canonicalize } from './canonical.js';
+import { credentialFreeCommandLine } from './http.js';
 import { ulid } from './ids.js';
 import type { RepairReport } from './repair.js';
 import type { FixData, FixStatus, StepRerun, StoreOf, StoredBlame, StoredFix, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
@@ -206,9 +207,9 @@ export interface BlameToRecord {
   /** The `--expect` the oracle came from, as given; null for the exit code alone. */
   expect: unknown;
   scope: string | null;
-  /** A command that blames the run the same way again. */
+  /** A command that blames the run the same way again, as the CLI printed it: kept with its credentials masked (credentialFreeCommandLine). */
   command: string;
-  /** The flags it ran with beyond its report, which Blame again runs it with (`StepRerun`). */
+  /** The flags it ran with beyond its report, which Blame again runs it with (`StepRerun`), kept as they ran. */
   rerun?: StepRerun | null;
   /** For a fix this blame opens: its title and its check in words, derived from the check. */
   title: string;
@@ -237,7 +238,7 @@ export interface RecordedBlame {
 export function recordBlame(store: StoreOf<'recording' | 'fixes'>, input: BlameToRecord): RecordedBlame {
   const at = input.at ?? Date.now();
   const expect = input.expect ?? null;
-  const blame: StoredBlame = { blameId: newBlameId(at), runId: input.runId, at, outcome: input.report.outcome, report: input.report, expect, scope: input.scope, command: input.command, ...(input.rerun ? { rerun: input.rerun } : {}) };
+  const blame: StoredBlame = { blameId: newBlameId(at), runId: input.runId, at, outcome: input.report.outcome, report: input.report, expect, scope: input.scope, command: credentialFreeCommandLine(input.command), ...(input.rerun ? { rerun: input.rerun } : {}) };
   // Immediate: two blames finishing at once must not both open a fix for the same failure.
   return store.transaction(() => {
     store.putBlame(blame);
@@ -271,6 +272,7 @@ export function recordBlame(store: StoreOf<'recording' | 'fixes'>, input: BlameT
 export interface VerdictToRecord {
   report: VerifyReport;
   expect: unknown;
+  /** The command it ran, as the CLI printed it: kept with its credentials masked (credentialFreeCommandLine). */
   command: string;
   /** The flags it ran with beyond its report, which Run more attempts and Verify again run it with (`StepRerun`). */
   rerun?: StepRerun | null;
@@ -303,7 +305,7 @@ function keepVerdict(store: StoreOf<'recording' | 'fixes'>, input: VerdictToReco
   const at = input.at ?? Date.now();
   const r = input.report;
   const expect = input.expect ?? null;
-  const verdict: StoredVerdict = { verifyId: newVerdictId(at), at, verdict: r.verdict, repairId: input.repairId ?? null, candidate: input.candidate ?? null, report: r, expect, command: input.command, ...(input.rerun ? { rerun: input.rerun } : {}) };
+  const verdict: StoredVerdict = { verifyId: newVerdictId(at), at, verdict: r.verdict, repairId: input.repairId ?? null, candidate: input.candidate ?? null, report: r, expect, command: credentialFreeCommandLine(input.command), ...(input.rerun ? { rerun: input.rerun } : {}) };
   store.putVerdict(verdict);
   const failing = r.runs.filter((x) => x.role !== 'good');
   const fixes = input.fixIds ? input.fixIds.map((id) => store.getFix(id)).filter((f): f is StoredFix => f !== null) : fixesOfRuns(store, failing.map((x) => x.runId), expect);
@@ -338,6 +340,7 @@ export interface RepairToRecord {
   dir: string;
   report: RepairReport;
   expect: unknown;
+  /** The command that repairs the same way again, as the CLI printed it: kept with its credentials masked (credentialFreeCommandLine). */
   command: string;
   at?: number;
   /** With `--apply --goldens <dir>`: where the recordings of the fixed runs were copied in the project. */
@@ -366,7 +369,7 @@ export function recordRepair(store: StoreOf<'recording' | 'fixes'>, input: Repai
   const r = input.report;
   const expect = input.expect ?? null;
   const accepted = r.outcome === 'fixed' ? (r.candidates.find((c) => c.id === r.accepted) ?? null) : null;
-  const repair: StoredRepair = { repairId: input.repairId, at, dir: input.dir, outcome: r.outcome, accepted: accepted !== null, report: r, expect, command: input.command };
+  const repair: StoredRepair = { repairId: input.repairId, at, dir: input.dir, outcome: r.outcome, accepted: accepted !== null, report: r, expect, command: credentialFreeCommandLine(input.command) };
   return store.transaction(() => {
     store.putRepair(repair);
     const failing = [...new Set([...r.targets.map((t) => t.runId), ...r.holdout])];
@@ -384,7 +387,7 @@ export function recordRepair(store: StoreOf<'recording' | 'fixes'>, input: Repai
       }
       if (r.output.pr) store.mergeFixData(fix.fixId, { source: { pr: { url: r.output.pr, number: prNumber(r.output.pr), state: 'open', at } } });
     }
-    const kept = accepted?.verify ? keepVerdict(store, { report: accepted.verify, expect, command: input.command, repairId: repair.repairId, candidate: accepted.id, at, fixIds: fixes.map((f) => f.fixId) }) : null;
+    const kept = accepted?.verify ? keepVerdict(store, { report: accepted.verify, expect, command: repair.command, repairId: repair.repairId, candidate: accepted.id, at, fixIds: fixes.map((f) => f.fixId) }) : null;
     // `repair --apply` left the change in the working tree: a fix it verified is applied already.
     if (kept && r.output.applied) {
       for (const { fix, standing } of kept.fixes) {

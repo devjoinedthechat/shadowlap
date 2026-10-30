@@ -1091,17 +1091,16 @@ describe("the fix's test on its branch", () => {
 
 describe('a repair that ends before it reports', () => {
   it.skipIf(process.platform === 'win32')('names the signal that ended it, which leaves no exit status', async () => {
-    // A repair killed before it printed anything (for memory, say) has no exit status, only the signal.
+    // A repair killed before it printed anything (for memory, say) has no exit status, only the signal. It starts: the checkout is the workflow's repository.
     const dir = mkdtempSync(join(tmpdir(), 'sl-fix-killed-'));
     try {
       execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
       writeFileSync(join(dir, 'agent.mjs'), 'export {};\n');
-      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'add', '-A'], { cwd: dir });
-      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qm', 'agent'], { cwd: dir });
+      for (const args of [['add', '-A'], ['commit', '-qm', 'agent'], ['remote', 'add', 'origin', 'https://github.test/northwind/agent.git']]) execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd: dir });
       const cli = join(dir, 'killed.mjs');
       writeFileSync(cli, "process.kill(process.pid, 'SIGKILL');\n");
       const result: ReportResult = { name: 'refund-flow', golden: 'goldens/refund-flow', dir: 'goldens/refund-flow', mode: 'replay', ok: false, failure: 'check', checks: [{ ok: false, status: 'failed', label: 'send_email called 0 times', detail: 'called once' }], expect: { tools: { send_email: 0 } }, runs: [{ runId: '01KILLED000000000000000000', ok: false, verdict: 'failed' }] };
-      const fixes = await runFixes({ cli, db: join(dir, 'shadowlap.db'), workdir: dir, report: { results: [result] }, budget: 1, repairer: 'anthropic', env: { ...process.env, RUNNER_TEMP: dir } });
+      const fixes = await runFixes({ cli, db: join(dir, 'shadowlap.db'), workdir: dir, report: { results: [result] }, budget: 1, repairer: 'anthropic', env: { ...process.env, RUNNER_TEMP: dir, GITHUB_SERVER_URL: 'https://github.test', GITHUB_REPOSITORY: 'northwind/agent' } });
       expect(fixes).toMatchObject([{ outcome: 'no-fix', why: 'repair exited SIGKILL' }]);
     } finally {
       rmSync(dir, { recursive: true, force: true });

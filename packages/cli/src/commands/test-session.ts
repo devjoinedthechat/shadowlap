@@ -622,7 +622,8 @@ async function reportSession(request: TestRequest, pusher: Pusher | null, s: Ses
   if (flags.junit) writeFileSync(flags.junit, junitXml('shadowlap', s.cases));
   const report = testReport(results, { id: s.session.sessionId, revision: s.revision, interrupted: signal !== null }, s.planned ? suiteJson(s.planned.plan) : null);
   if (flags.json) writeFileSync(flags.json, JSON.stringify(report, null, 2) + '\n');
-  if (flags.markdown) writeFileSync(flags.markdown, markdownReport(report), { flag: 'a' });
+  // What CI did with an inconclusive golden, as the summary names it: the --inconclusive given, or the default and a young golden's rule.
+  if (flags.markdown) writeFileSync(flags.markdown, markdownReport(report, request.inconclusiveGiven), { flag: 'a' });
   if (flags.annotations && (report.failed || report.inconclusive)) process.stdout.write(githubAnnotations(report) + '\n');
   if (pusher) await pusher.finish(report);
   emitJobEvent({ type: 'result', data: report });

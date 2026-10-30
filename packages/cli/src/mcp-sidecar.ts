@@ -44,12 +44,13 @@ export function discoverSidecar(env: NodeJS.ProcessEnv = process.env, cwd = proc
  * The run this proxy records into. The environment, when the client passed it on; else the
  * registration of the nearest ancestor Shadowlap started (see agent-registry.ts), which is how a
  * proxy started with a minimal environment under `shadowlap test`, `blame`, `verify` or
- * `replay --repeat` finds its run; else, where the process tree can't be read, the active run's
- * file in the working directory. On Windows, where the tree takes PowerShell (seconds on a busy
+ * `replay --repeat` finds its run, and under any of `agentCommands` with none to find is told its
+ * writes are refused; else, where the process tree can't be read, the active run's file in the
+ * working directory. On Windows, where the tree takes PowerShell (seconds on a busy
  * machine), the parent's registration is looked for first: an agent whose own MCP client started
  * the proxy is found without the tree.
  */
-export async function findSidecar(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd(), skip: DiscoverySkip = () => {}, o: { home?: string | null; waitMs?: number; platform?: NodeJS.Platform } = {}): Promise<SidecarLookup> {
+export async function findSidecar(env: NodeJS.ProcessEnv, cwd: string, skip: DiscoverySkip, o: { agentCommands: ReadonlySet<string>; home?: string | null; waitMs?: number; platform?: NodeJS.Platform }): Promise<SidecarLookup> {
   if (env.SHADOWLAP_URL) {
     // Without a run id, as a test runner's host sets it (a slot's URL), the URL itself picks the run, as for the SDKs.
     if (isLoopbackUrl(env.SHADOWLAP_URL)) return { kind: 'sidecar', target: { url: env.SHADOWLAP_URL.replace(/\/$/, ''), runId: env.SHADOWLAP_RUN_ID ?? '' }, from: 'SHADOWLAP_URL' };
@@ -60,7 +61,7 @@ export async function findSidecar(env: NodeJS.ProcessEnv = process.env, cwd = pr
     if (direct) return direct;
   }
   const chain = processAncestors(skip);
-  const registered = await lookupRegistration({ cwd, chain, skip, ...(o.home !== undefined ? { home: o.home } : {}), ...(o.waitMs !== undefined ? { waitMs: o.waitMs } : {}) });
+  const registered = await lookupRegistration({ agentCommands: o.agentCommands, cwd, chain, skip, ...(o.home !== undefined ? { home: o.home } : {}), ...(o.waitMs !== undefined ? { waitMs: o.waitMs } : {}) });
   if (registered.kind !== 'none' || chain) return registered;
   const active = discoverSidecar({}, cwd, skip);
   return active ? { kind: 'sidecar', target: active, from: join(cwd, '.shadowlap', 'active.json') } : { kind: 'none' };

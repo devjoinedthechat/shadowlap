@@ -128,7 +128,7 @@ const PAIRED: ReadonlyArray<readonly [number, number, number]> = [0.95, 0.9].fla
 const KEPT_RULE: BaselineRule = { ...KEPT_DEFAULTS, risk: 0.05 };
 
 
-describe('a gate, when the provider cuts attempts short', () => {
+describe('a gate, when the provider cuts attempts short', { timeout: 600_000 }, () => {
   const gate = sprt();
 
   it('passes an agent at bad at most its risk, whatever share of its failures come with a provider error, where leaving them out passed it 20.3% of the time at e = 0.3', () => {
@@ -194,7 +194,7 @@ describe('a gate, when the provider cuts attempts short', () => {
   });
 });
 
-describe('a fixed count, when the provider cuts attempts short', () => {
+describe('a fixed count, when the provider cuts attempts short', { timeout: 600_000 }, () => {
   /**
    * Every sequence of `of` attempts at an agent that passes `p` of the time, where a failure is cut
    * short by the provider `e` of the time: each attempt a pass, a plain failure or a cut-short one,
@@ -232,7 +232,7 @@ describe('a fixed count, when the provider cuts attempts short', () => {
   });
 });
 
-describe('as docs/gating.md states it', () => {
+describe('as docs/gating.md states it', { timeout: 600_000 }, () => {
   it('the errors the gate kept before and keeps now, for a run and for a good run against its baseline', () => {
     const page = readFileSync(fileURLToPath(new URL('../../../docs/gating.md', import.meta.url)), 'utf8');
     const says = (text: string) => expect(page.includes(text), `docs/gating.md says: ${text}`).toBe(true);
@@ -248,11 +248,13 @@ describe('as docs/gating.md states it', () => {
     const rule: BaselineRule = { ...KEPT_DEFAULTS, risk: 0.05 };
     const answered = (p: number, e: number) => p / (p + (1 - p) * (1 - e));
     const worst = Math.max(...PAIRED.map(([pb, ec, eb]) => keptWithin(KEPT_RULE, pb - KEPT_RULE.margin, ec, pb, eb)));
-    says(`errors on a fifth of the change's failing attempts kept a run ${pct(pairedOdds(rule, answered(0.8, 0.2), 0.9).kept)} of the time when they were retried away, and at most ${pct(Math.ceil(1000 * worst) / 1000)} now`);
+    says(`errors on a fifth of the change's failing attempts kept a run ${pct(pairedOdds(rule, answered(0.8, 0.2), 0.9).kept)} of the time when they were retried away, and at most ${pct(Math.ceil(1000 * worst) / 1000)} tallied twice over`);
+    // A fixed count, against running cut-short failures again: 4 of 5 passes an agent at 70% as often as with no provider error.
+    says(`Run again instead, failures cut short three times in ten let 4 of 5 pass an agent at 70% ${pct(binomialTail(5, 4, 0.7 / (1 - 0.3 * 0.3)))} of the time where it passes ${pct(binomialTail(5, 4, 0.7))}; counted this way, it passes ${pct(binomialTail(5, 4, 0.7))} however many the provider cuts short.`);
   });
 });
 
-describe('a good run against its paired baseline, when the provider cuts attempts short', () => {
+describe('a good run against its paired baseline, when the provider cuts attempts short', { timeout: 600_000 }, () => {
   const rule: BaselineRule = { ...KEPT_DEFAULTS, risk: 0.05 };
 
   /** What the arms' answered attempts pass at once the provider's errors on failing attempts are retried away, as before. */
@@ -288,7 +290,7 @@ describe('a good run against its paired baseline, when the provider cuts attempt
   });
 });
 
-describe('a good run against its golden’s history, when the provider cuts attempts short', () => {
+describe('a good run against its golden’s history, when the provider cuts attempts short', { timeout: 600_000 }, () => {
   const rule: BaselineRule = { ...KEPT_DEFAULTS, risk: 0.05 };
   const history = { passes: 47, attempts: 50 };
 

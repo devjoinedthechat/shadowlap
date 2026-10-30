@@ -76,9 +76,10 @@ export interface TodayPanel {
    * the model calls they probed, their attempts (bundled under the run they probed), and the runs
    * they probed, newest first, each with how its blame came out (null while it is still probing;
    * `unsettled` when it placed the failure on no call only because its first probe couldn't tell),
-   * where it was lost, and the fix it belongs to.
+   * where it was lost (`range`: the two calls it was lost gradually around, when no one call lost it),
+   * and the fix it belongs to.
    */
-  blame: { blames: number; probes: number; attempts: number; runs: Array<{ runId: string; outcome: BlameOutcome | null; unsettled?: true; lostAt: number | null; title: string | null; fixId: string | null }> };
+  blame: { blames: number; probes: number; attempts: number; runs: Array<{ runId: string; outcome: BlameOutcome | null; unsettled?: true; lostAt: number | null; range: { from: number; to: number; gradual: true } | null; title: string | null; fixId: string | null }> };
 }
 
 /** How a blame came out (`meta.blame.outcome`): it found the model call that lost the run, no model call rescued it, or it stopped before the search finished. */
@@ -452,7 +453,8 @@ function todayPanel(store: Store, index: RunIndex, inWindow: IndexedRun[], stats
         const fix = fixOfRun(store, runId);
         const outcome = run?.meta.blame?.outcome;
         // Placed on no call only because its first probe couldn't tell: not settled, not "not rescued".
-        return { runId, outcome: outcome === 'blamed' || outcome === 'unrescuable' || outcome === 'stopped' ? outcome : null, ...(run?.meta.blame?.unsettled ? { unsettled: true as const } : {}), lostAt: run ? lostAt(classifiable(run)) : null, title: fix?.title ?? null, fixId: fix?.fixId ?? null };
+        // Lost gradually around two calls when no one call lost it: Today says so, never that one call did.
+        return { runId, outcome: outcome === 'blamed' || outcome === 'unrescuable' || outcome === 'stopped' ? outcome : null, ...(run?.meta.blame?.unsettled ? { unsettled: true as const } : {}), lostAt: run ? lostAt(classifiable(run)) : null, range: run?.meta.blame?.range ?? null, title: fix?.title ?? null, fixId: fix?.fixId ?? null };
       }),
     },
   };

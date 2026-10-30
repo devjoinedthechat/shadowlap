@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appliedButton, applyText, attemptMark, blameNextStep, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, keepAt, laterStamp, markText, mergeTreeJobs, moreLine, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, probeVerdictWords, repairAside, repairAsk, repairBy, repairReceipt, roleBadges, sameFolder, statusBadge, stepFor, stepLeads, treeBusy, updateOutdatedAsk, verdictTone, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
+import { appliedButton, applyText, attemptMark, blameNextStep, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, keepAt, laterStamp, markText, mergeTreeJobs, moreLine, nothingAcceptedWhy, otherBlameWords, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, probeVerdictWords, repairAside, repairAsk, repairBy, repairReceipt, roleBadges, sameFolder, statusBadge, stepFor, stepLeads, treeBusy, updateOutdatedAsk, verdictTone, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '../ui/types.js';
 
@@ -542,6 +542,14 @@ describe('the job drawer', () => {
 
   it('ends a blame, a repair and a fix apply on how they came out', () => {
     expect(jobStatus(job('blame', 0, { outcome: 'blamed', blamed: { callNo: 5 } }), [])).toEqual({ text: 'lost at #5 · exit 0', tone: 'ok' });
+    // No one call lost it: the two it was lost gradually around, as blame's report has them.
+    expect(jobStatus(job('blame', 0, { outcome: 'blamed', blamed: { callNo: 5 }, range: { from: 5, to: 7, fromStep: 3, toStep: 4, gradual: true } }), [])).toEqual({ text: 'lost gradually around #5 and #7 · exit 0', tone: 'ok' });
+    // The Blame step's other blames, in the same words.
+    const other = { blameId: 'b1', runId: '01M5', at: 1, outcome: 'blamed' as const, lostAt: 5, range: null, confidence: 'high' };
+    expect(otherBlameWords(other)).toBe('lost at #5');
+    expect(otherBlameWords({ ...other, range: { from: 5, to: 7, gradual: true } })).toBe('lost gradually around #5 and #7');
+    expect(otherBlameWords({ ...other, outcome: 'unrescuable', lostAt: null, unsettled: true })).toBe('not settled');
+    expect(otherBlameWords({ ...other, outcome: 'stopped', lostAt: null })).toBe('stopped');
     expect(jobStatus(job('blame', 0, { outcome: 'unrescuable', blamed: null }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'warn' });
     // Its first probe couldn't tell, and nothing else was found: not settled, never "not rescued".
     const unsettled = { outcome: 'unrescuable', blamed: null, sameAnswer: null, failedWrite: null, probes: [{ callNo: 1, decision: 'inconclusive' }] };

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { wholeInput } from '../../../engine/src/tokens.js';
 import { JOB_KINDS, type BlameView, type CheckView, type RunDetail, type RunOffers } from '../api.js';
 import type { TestBannerOffer } from '../types.js';
@@ -153,6 +153,21 @@ export interface BannerProps {
   onAction: (p: PendingAction) => void;
   /** An error-path preset's attempt: the preset and its verdict, from its recording's presets. */
   preset?: PresetAttempt | null;
+}
+
+/**
+ * Words that name calls, as the engine's lostWords says where a run was lost (`lost at #5`, `lost
+ * gradually around #5 and #7`): what comes before the first call is the banner's label, and each call
+ * a button that selects it.
+ */
+function CallWords({ words, call }: { words: string; call: (n: number) => ReactNode }) {
+  const [label = '', ...rest] = words.split(/(#\d+)/);
+  return (
+    <>
+      <span className="bk">{label.trim()}</span>
+      <span>{rest.map((part, i) => (/^#\d+$/.test(part) ? <Fragment key={i}>{call(Number(part.slice(1)))}</Fragment> : part))}</span>
+    </>
+  );
 }
 
 /** The run's one banner: recording now, a preset's attempt, how it forked, where it was lost, what was not recorded, its checks, or that it failed. */
@@ -386,8 +401,7 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
     case 'lost':
       return (
         <section className="banner blame">
-          <span className="bk">lost at</span>
-          {call(b.callNo)}
+          <CallWords words={b.words} call={call} />
           <Why>{b.why}</Why>
           <span className="end">
             {b.rescuedRunId ? (

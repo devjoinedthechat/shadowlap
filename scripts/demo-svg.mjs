@@ -6,22 +6,24 @@
 // key is needed and nothing leaves this machine. Each command runs in a pseudo-terminal (`script`,
 // on macOS and Linux), so the colours are the CLI's own.
 //
-//   npm run build && node scripts/demo-svg.mjs
+//   npm run build && node scripts/demo-svg.mjs [--out <folder>]
 //
-// It writes .github/assets/readme/terminal.svg, which types each command and shows what it printed,
-// holds the whole session for a minute and loops, and terminal-static.svg, the same session drawn
-// whole, for where motion is unwanted. Both come again in 80 columns, terminal-medium.svg and
-// terminal-medium-static.svg, for a tablet or a narrow window, and in 47, terminal-narrow.svg and
-// terminal-narrow-static.svg, for a phone, which shows them at about 10 px. A command too long for
-// the width goes on in a second line after a backslash, as a shell takes it, and a longer line breaks
-// at the end of a clause, never inside a quoted string where it can break elsewhere.
+// It writes .github/assets/readme/terminal.svg (into <folder> instead with --out, as its test does),
+// which types each command and shows what it printed, holds the whole session for a minute and
+// loops, and terminal-static.svg, the same session drawn whole, for where motion is unwanted. Both
+// come again in 80 columns, terminal-medium.svg and terminal-medium-static.svg, for a tablet or a
+// narrow window, and in 47, terminal-narrow.svg and terminal-narrow-static.svg, for a phone, which
+// shows them at about 10 px. A command too long for the width goes on in a second line after a
+// backslash, as a shell takes it, and a longer line breaks at the end of a clause, never inside a
+// quoted string where it can break elsewhere.
 //
 // A line is shown as the CLI printed it, or left out; none is changed. Left out: the progress a
-// command prints while it works (`[shadowlap] recording run …`, blame's probes and their attempts),
-// the commands it suggests next (`shadowlap show …`), and the detail under a result (blame's
-// statistics, probe table and cost; where a fork diverged, its unused calls and the run it was
-// compared with). Any other line stops the script, so a change in what the CLI prints is looked at
-// before it is drawn. Run ids carry the time they were made; the rest comes out the same on every run.
+// command prints while it works (`[shadowlap] recording run …`, blame's probes, their attempts and
+// its check of the call they pin, pair by pair), the commands it suggests next (`shadowlap show …`),
+// and the detail under a result (blame's statistics, what its check found, probe table and cost;
+// where a fork diverged, its unused calls and the run it was compared with). Any other line stops
+// the script, so a change in what the CLI prints is looked at before it is drawn. Run ids carry the
+// time they were made; the rest comes out the same on every run.
 import { execFileSync, spawn } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { devNull, tmpdir } from 'node:os';
@@ -31,7 +33,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = join(root, 'packages', 'cli', 'bin', 'shadowlap.js');
 const kit = join(root, 'scripts', 'demo-store');
-const outDir = join(root, '.github', 'assets', 'readme');
+const outAt = process.argv.indexOf('--out');
+const outDir = outAt > 0 && process.argv[outAt + 1] ? resolve(process.argv[outAt + 1]) : join(root, '.github', 'assets', 'readme');
 
 for (const built of ['packages/cli/dist/index.js', 'testing/mock-anthropic/dist/index.js']) {
   if (!existsSync(join(root, built))) {
@@ -213,9 +216,14 @@ try {
         /^ {2}✓ replays as recorded and fails/,
         /^ {2}model call #\d+ \(/,
         /^ {4}attempt \d+ /,
+        /^ {4}\d+ attempts?: /,
+        /^ {2}check of #\d+ /,
+        /^ {4}\d+ pairs?: /,
+        /^ {4}Checked with \d+ fresh pairs: /,
         /^ {4}(rescued|lost)\b/,
         // the detail under its result, and what to run next
         /^ {2}The re-asked call #\d+: /,
+        /^ {2}Checked with \d+ fresh pairs: /,
         /^ {2}Probes /,
         /^ {10}\S/,
         /^ {4}#\d+ /,
@@ -534,4 +542,6 @@ const files = [
 ];
 for (const [name, svg] of files) writeFileSync(join(outDir, name), svg);
 const shown = timeline.at(-1).lines.at(-1).at;
-console.log(`wrote ${files.map(([name, svg]) => `${relative(root, join(outDir, name))} (${(Buffer.byteLength(svg) / 1024).toFixed(0)} KB)`).join(', ')}: ${scenes.length} commands, ${wide.rows.length} rows of ${wide.cols} columns (medium: ${medium.rows.length} of ${medium.cols}, narrow: ${narrow.rows.length} of ${narrow.cols}), a ${TOTAL.toFixed(1)} s loop, the whole session shown from ${shown.toFixed(1)} s to ${(TOTAL - P.fade).toFixed(1)} s`);
+// Inside the repository by its path there, else whole.
+const shownPath = (file) => (file.startsWith(root + '/') ? relative(root, file) : file);
+console.log(`wrote ${files.map(([name, svg]) => `${shownPath(join(outDir, name))} (${(Buffer.byteLength(svg) / 1024).toFixed(0)} KB)`).join(', ')}: ${scenes.length} commands, ${wide.rows.length} rows of ${wide.cols} columns (medium: ${medium.rows.length} of ${medium.cols}, narrow: ${narrow.rows.length} of ${narrow.cols}), a ${TOTAL.toFixed(1)} s loop, the whole session shown from ${shown.toFixed(1)} s to ${(TOTAL - P.fade).toFixed(1)} s`);
