@@ -1,10 +1,11 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { recordBlame, recordRepair, recordVerdict, Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
+import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { removeTempProject, tempProject } from '../../../testing/temp-project.mjs';
 
 /**
@@ -594,6 +595,20 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     } finally {
       s.close();
     }
+  });
+
+  it('says to verify an open fix holding out the run its repair held out, without the scope its blame searched, which verify doesn’t take', async () => {
+    mkdirSync(join(project, '.shadowlap'));
+    const s = store();
+    const [shown, held] = [makeRun(s, { labels: ['refund-bug'] }), makeRun(s, { labels: ['refund-bug'] })];
+    const fixId = recordBlame(s, { runId: shown, report: blameReport(shown), expect: EXPECT, scope: 'agent', command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}' }).fix.fixId;
+    recordRepair(s, { repairId: 'repair-mv9gxsdm', dir: '.shadowlap/repairs/repair-mv9gxsdm', report: repairReport({ targets: [shown], holdout: [held], accepted: false }), expect: EXPECT, command: 'shadowlap repair --fixes label:refund-bug --scope agent' });
+    // A change accepted under the exit code alone, which doesn't count for the fix.
+    recordVerdict(s, { report: verifyReport([{ runId: shown, role: 'target', pass: true }], { oracle: ['the agent exits 0'] }), expect: null, command: 'shadowlap verify --fixes label:refund-bug' });
+    s.close();
+    const refused = await shadowlap(['fix', 'apply', fixId]);
+    expect(refused.code).toBe(2);
+    expect(refused.out).toContain(`Verify it under this fix's check:\n  shadowlap verify --fixes ${shown} --holdout ${held} --expect '${ORACLE}'\n`);
   });
 
   it('keeps a repair whose pull request could not be opened, applied by --apply, and lets fix apply finish it', async () => {

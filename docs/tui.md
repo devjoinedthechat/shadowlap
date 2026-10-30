@@ -231,7 +231,7 @@ The menu's actions:
 | `p` | Pack this run (asks for a directory) | — | `shadowlap pack <run> <dir>` |
 | `B` | Find the call it was lost at | a failed run | `shadowlap blame <run> [--expect <json>]` |
 | `R` | Repair the fix it fails in | a run in an open fix | `shadowlap repair --fixes … [--keeps …] [--scope …] [--expect <json>] [--repairer claude-code]` |
-| `V` | Verify a change for the fix | a run in a fix | `shadowlap verify --fixes … [--keeps …] [--expect <json>]` |
+| `V` | Verify a change for the fix | a run in a fix | `shadowlap verify --fixes … [--holdout …] [--keeps …] [--expect <json>]` |
 
 - **`e` on a replay** runs again from its parent, with the flags that made it, its own command and its `--expect`.
 - **`s` on a replay** runs again from its parent too.
@@ -264,9 +264,10 @@ A run that failed a check none of those name asks for one (`--expect`), since bl
 
 `R` ([repair](./repair.md)) and `V` ([verify](./verify.md)) work on the fix the run fails in, with the command the dashboard's Fixes page runs for it:
 
-- **its failing runs**, by the fix's label when that selects exactly them;
+- **its failing runs**, by the fix's label when that selects exactly the runs to fix;
+- **for `V`, the runs held out** (`--holdout`): those a repair or a verify of the fix held out, unless a later repair showed them to its repairer, so the change is tried on failing runs it was not written for. `R` holds every other run out itself;
 - **the good runs it keeps**: those an earlier repair or verify of it kept, else the runs labelled good that run the same agent (`label:good` when that is all of them), never a failing run;
-- **the scope its blame searched**, and its check.
+- **its check**, and for `R` the scope its blame searched.
 
 Each is worked out when you press it, shows the exact command, and runs on `Enter`. When the job's pane closes, the run is read again.
 

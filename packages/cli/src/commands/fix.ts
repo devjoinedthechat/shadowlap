@@ -1,5 +1,5 @@
 import { Command, Option } from 'commander';
-import { applyLeft, BLAME_DEFAULTS, describeBaselineRule, FIX_STATUSES, FixIdError, fixRecords, type FixStatus, KEPT_DEFAULTS, prNumber, type ReadPolicy, repairerProblem, resolveFix, setFixTitle, SPRT_DEFAULTS, type StoredFix, type StoreOf } from '@shadowlap/engine';
+import { applyLeft, BLAME_DEFAULTS, describeBaselineRule, FIX_STATUSES, FixIdError, fixRecords, type FixStatus, KEPT_DEFAULTS, prNumber, type ReadPolicy, repairerProblem, resolveFix, setFixTitle, SPRT_DEFAULTS, type StoredFix, type StoreOf, verifyArgv } from '@shadowlap/engine';
 import { fieldChange, fixDetail, fixHref, fixList, ghReader, patchesInTree, patchesToCheck, prHost, readableHosts, type PrRead } from '@shadowlap/dashboard';
 import { acceptedRepair, ApplyError, applyFix } from '../fix-apply.js';
 import { formatFixDetail, formatFixList, repairLine, shortFixId } from '../fix-format.js';
@@ -294,13 +294,17 @@ async function readPr(store: StoreOf<'fixes'>, found: StoredFix): Promise<{ pr: 
   return { pr, note: read.unusable ? 'gh is not installed or not signed in, so its state is as recorded' : 'gh could not read it, so its state is as recorded' };
 }
 
-/** Why an open fix can't be applied, and what to run first: its repair, or a verify under its own check when a change was accepted under another. */
+/**
+ * Why an open fix can't be applied, and what to run first: its repair, or, when a change was accepted
+ * under another check, its verify under its own check, as its Verify step shows it (`verifyArgv`).
+ */
 function openFixError(store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, found: StoredFix): ApplyError {
   const detail = fixDetail(store, found.fixId);
   const next = detail?.actions.repair?.argv;
   const other = detail?.verify.find((v) => v.verdict === 'accepted' && !v.counts);
   const why = other ? `a change was accepted, but under another check than this fix's (${detail!.check}), so it doesn't count.` : 'no change has been verified for it yet, so there is nothing to apply.';
-  const fixFirst = other ? `Verify it under this fix's check:\n  ${quoteArgv(['shadowlap', 'verify', ...(next?.slice(1) ?? [])])}` : next ? `Repair it first:\n  ${repairLine(next, configuredRepairer())}` : '';
+  const verify = other ? verifyArgv(store, fixRecords(store, found)) : [];
+  const fixFirst = verify.length ? `Verify it under this fix's check:\n  ${quoteArgv(['shadowlap', ...verify])}` : next ? `Repair it first:\n  ${repairLine(next, configuredRepairer())}` : '';
   return new ApplyError(`${shortFixId(found.fixId)} is open: ${why}${fixFirst ? ` ${fixFirst}` : ''}`, EXIT.usage);
 }
 
