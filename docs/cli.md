@@ -4252,26 +4252,117 @@ shadowlap tasks serve [goldens...] [--port 4779] [--base-url <url> [--key-env <n
 shadowlap tasks models [--json]
 ```
 
-Goldens as tasks a model can be scored on: a model under test takes over at one model call, the calls before it replay from the recording for free, and the golden's checks score what it did from there. `tasks` lists them: where the model takes over and why, what each rewards, which tools run live or are stubbed after the takeover, and whether each is ready, blocked (its test fails, its last test is inconclusive, its test may fork and forked before the takeover, which `test --update` fixes, or it was packed from a capture and has no command), not a task (its checks only cap tokens and cost, or its model calls are made in more than one scope) or has no golden, with a warning when every ready task rewards the same behaviour. The takeover, why, what a task rewards and the agent's scope can be set in a `task` object next to its `expect` in the config. [Training](./training.md) explains the defaults.
+Goldens as tasks a model can be scored on. A model under test takes over at one model call, the calls
+before it replay from the recording for free, and the golden's checks score what it did from there.
+[Training](./training.md) explains the defaults.
 
-`tasks score` scores a model on every ready task, or on the goldens given (`.` for every golden of the project): each attempt is a run, the score is the share of checks it passed of those that applied (a [`when`](./checks.md#conditions) whose condition never held is left out), and scores are kept per model (scoring a model again replaces its scores, unless the re-score stops short). `--model <name>` asks the recording's provider for another model, `anthropic:<name>` and `openai:<name>` that provider's API, and `--base-url` an OpenAI-compatible server such as Ollama or vLLM; when that isn't the API the recording spoke, the conversation is translated at the takeover and the answer back. Either way a small upstream on 127.0.0.1 asks the model under test from the takeover call on, whatever the agent asked before it, and answers in the recording's own API: Anthropic's, OpenAI's (chat completions or the Responses API), Gemini's, Amazon Bedrock's (Claude, and the Converse API) or Vertex AI's and Azure OpenAI's. Another model of Bedrock, Vertex AI or Azure OpenAI themselves can't be asked: score Anthropic's or OpenAI's API, or a model at your own endpoint, on those recordings. [Training](./training.md#how-the-model-takes-over) has which model can answer which recording, every option and the JSON.
+`tasks` (or `tasks ls`) lists them: where the model takes over and why, what each rewards, which tools
+run live or are stubbed after the takeover, and whether each is:
 
-| Option | Effect |
-|---|---|
-| `--model <model>` | The model to score (required) |
-| `--base-url <url>` | An OpenAI-compatible endpoint, such as `http://127.0.0.1:8000/v1` (no user or password in it) |
-| `--key-env <name>` | The variable holding the endpoint's key; default `OPENAI_API_KEY` for api.openai.com, `ANTHROPIC_API_KEY` for `anthropic:` on a recording that isn't Anthropic's (another model of the recording's own provider goes with the agent's own key) |
-| `--attempts <n>` | Attempts per task. Default 5 |
-| `--reads live\|replay` | What read tools do after the takeover. Default `live` |
-| `--concurrency <n>`, `--budget <usd>`, `--timeout <seconds>`, `--guard` | As for `blame` |
-| `-y`, `--yes` | Run the recorded command of a golden from a pack the repository doesn't track without asking; without it such a golden asks first, as `test` asks of one, and without a terminal it is skipped, saying why |
-| `--json` | The scores as JSON on stdout |
+- **ready**;
+- **blocked**: its test fails, its last test is inconclusive, its test may fork and forked before the
+  takeover (which `test --update` fixes), or it was packed from a capture and has no command;
+- **not a task**: its checks only cap tokens and cost, or its model calls are made in more than one
+  scope;
+- **or has no golden**.
 
-Exit status 0 when every task was scored in full; 1 when a task was skipped or stopped; 3 when the budget stopped it; 2 when nothing given can be scored.
+It warns when every ready task rewards the same behaviour. The takeover, why, what a task rewards and
+the agent's scope can be set in a `task` object next to its `expect` in the config.
 
-`tasks serve` answers one attempt per HTTP request, for a training loop that wants a reward: `POST /v1/tasks/<task>/attempts` with `{"model": …, "baseUrl": …}` returns each check's result, the score, the run and its cost. It listens on 127.0.0.1, checks the `Host` header and needs the token it prints (`SHADOWLAP_TASKS_TOKEN` sets it, at least 16 characters). `--base-url <url>` is the endpoint requests that name none ask, and `--key-env <name>` the variable whose key goes to that endpoint and nowhere else. A golden from a pack the repository doesn't track, recorded elsewhere, is served only once you say yes to its command as it starts, or with `-y`/`--yes`; a request for one nobody said yes to gets a 409. [Training](./training.md) shows a request and its response.
+| Flag     | What it does                                                            | Default |
+| -------- | ----------------------------------------------------------------------- | ------- |
+| `--json` | `tasks`, `tasks models`: print them as JSON ([Training](./training.md)) | —       |
 
-`tasks models` lists models to score: the one the recordings used, each configured provider's models (Anthropic's and OpenAI's with the keys in the environment, Ollama's on this machine) and the models scored before, each with its price per attempt, last score and the ready tasks it can answer (a model that can answer none says why). A provider that doesn't answer within `--timeout` (1500 ms) becomes a note.
+### `tasks score`
+
+Scores a model on every ready task, or on the goldens given (`.` for every golden of the project).
+[Training](./training.md#how-the-model-takes-over) has which model can answer which recording, every
+option and the JSON.
+
+```sh
+shadowlap tasks score --model qwen3:8b --base-url http://127.0.0.1:11434/v1
+```
+
+- **Each attempt is a run.** The score is the share of checks it passed, of those that applied. A
+  [`when`](./checks.md#conditions) whose condition never held is left out.
+- **Scores are kept per model.** Scoring a model again replaces its scores, unless the re-score stops
+  short.
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--model <model>` | The model to score (required; below) | — |
+| `--base-url <url>` | An OpenAI-compatible endpoint, such as `http://127.0.0.1:8000/v1` (no user or password in it) | — |
+| `--key-env <name>` | The variable holding the endpoint's key (below) | `OPENAI_API_KEY` for api.openai.com, `ANTHROPIC_API_KEY` for `anthropic:` |
+| `--attempts <n>` | Attempts per task | 5 |
+| `--reads live\|replay` | What read tools do after the takeover | `live` |
+| `--concurrency <n>`, `--budget <usd>`, `--timeout <seconds>`, `--guard` | As for [`blame`](#blame) | — |
+| `-y, --yes` | Run the recorded command of a golden from a pack the repository doesn't track, without asking (below) | — |
+| `--json` | Print the scores as JSON on stdout | — |
+
+**Which model it asks.** `--model <name>` asks the recording's provider for another model.
+`anthropic:<name>` and `openai:<name>` ask that provider's API, and `--base-url` an OpenAI-compatible
+server, such as Ollama or vLLM. When that isn't the API the recording spoke, the conversation is
+translated at the takeover, and the answer back.
+
+Either way, a small upstream on 127.0.0.1 asks the model under test from the takeover call on, whatever
+the agent asked before it. It answers in the recording's own API: Anthropic's, OpenAI's (chat
+completions or the Responses API), Gemini's, Amazon Bedrock's (Claude, and the Converse API) or Vertex
+AI's and Azure OpenAI's. Another model of Bedrock, Vertex AI or Azure OpenAI themselves can't be asked:
+score Anthropic's or OpenAI's API, or a model at your own endpoint, on those recordings.
+
+- **`--key-env`**: `ANTHROPIC_API_KEY` is its default for `anthropic:` on a recording that isn't
+  Anthropic's. Another model of the recording's own provider goes with the agent's own key.
+- **`--yes`**: without it, such a golden asks first, as `test` asks of one, and without a terminal it is
+  skipped, saying why.
+
+`tasks score` exits with:
+
+| Status | Meaning                       |
+| ------ | ----------------------------- |
+| `0`    | Every task was scored in full |
+| `1`    | A task was skipped or stopped |
+| `2`    | Nothing given can be scored   |
+| `3`    | The budget stopped it         |
+
+### `tasks serve`
+
+Answers one attempt per HTTP request, for a training loop that wants a reward. [Training](./training.md)
+shows a request and its response.
+
+`POST /v1/tasks/<task>/attempts` with `{"model": …, "baseUrl": …}` returns each check's result, the
+score, the run and its cost. It listens on 127.0.0.1, checks the `Host` header, and needs the token it
+prints. `SHADOWLAP_TASKS_TOKEN` sets it, at least 16 characters.
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--port <port>` | The port to listen on | 4779, or a free one if it is taken |
+| `--base-url <url>` | The endpoint requests that name none ask | — |
+| `--key-env <name>` | The variable whose key goes to that endpoint, and nowhere else | — |
+| `--concurrency <n>` | Attempts running at once; more requests wait their turn | 2 |
+| `--reads live\|replay` | What read tools do after the takeover, unless a request says | `live` |
+| `--timeout <seconds>` | Stop an attempt after this long, and count it as failed | — |
+| `--guard <mode>` | The network guard: `warn`, `block` or `off` | `warn` |
+| `-y, --yes` | Serve goldens from packs the repository doesn't track without asking (below) | — |
+
+A golden from a pack the repository doesn't track, recorded elsewhere, is served only once you say yes
+to its command as it starts, or with `-y`/`--yes`. A request for one nobody said yes to gets a 409.
+
+### `tasks models`
+
+Lists models to score:
+
+- the one the recordings used;
+- each configured provider's models: Anthropic's and OpenAI's with the keys in the environment, and
+  Ollama's on this machine;
+- the models scored before.
+
+Each comes with its price per attempt, last score and the ready tasks it can answer. A model that can
+answer none says why.
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--timeout <ms>` | How long to wait for each provider's list; a provider that doesn't answer within it becomes a note | 1500 ms |
+| `--json` | Print them as JSON | — |
 
 ## The configuration file
 
