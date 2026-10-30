@@ -9,6 +9,8 @@ export { REDACTION_EXPORTS, REMEDIES, carriesCredentials, clipChange, credential
 // Credentials in recorded traffic: the one list of credential parameters (credentialParam), the
 // headers that carry one, and the stored shapes with them masked, for the sidecar and every copy.
 export { nestsDeeper } from './credential-shapes.js';
+// A secret's name kept, or masked as a recording made before such names were kept masked it.
+export { withSecretNames } from './http.js';
 export { CREDENTIAL_HEADERS, CREDENTIAL_PLACEHOLDER, STATE_HEADERS, TOKEN_IN_VALUE, capturedHttp, credentialFreeArgv, credentialFreeBody, credentialFreeCallName, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, credentialFreeUrl, credentialHeader, credentialParam, credentialQueryParam, credentialValue, decodedParam, formShaped, maskBytesCredentials, maskChallenge, maskJsonCredentials, maskJsonTextCredentials, maskLocation, maskMultipartBytes, maskPathCredentials, maskTextCredentials, maskUrlCredentials, rawJsonMember, responseBodyWithoutCredentials, resultBlob, sameCommandLine, withoutCredentials, withoutStoredCredentials } from './http.js';
 export { calibrationTarget, covered, generalize, proposeNormalizers, type CalibrationStep, type Proposal } from './calibrate.js';
 export { asParsed, isRawNumber, matchable, parseJsonExact, reportable } from './json-exact.js';

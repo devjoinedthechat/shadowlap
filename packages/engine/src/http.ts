@@ -24,8 +24,59 @@ export const CREDENTIAL_PLACEHOLDER = '<CREDENTIAL>';
  * `X-Upstream-Authorization`, and the lists `signatures`.
  */
 const SECRET_LAST = new Set(['secret', 'signature', 'signatures', 'password', 'passwd', 'pwd', 'credential', 'credentials', 'assertion', 'verifier', 'authorization']);
-/** Words that make a name a credential wherever they are in it: `password_confirmation`, `secret_id`, `client_secrets`. */
+/**
+ * Words that make a name a credential wherever they are in it (`password_confirmation`, `secret_id`,
+ * `client_secrets`, `SecretString`), unless its last words name or describe the secret (namesASecret).
+ */
 const SECRET_WORD = new Set(['password', 'passwd', 'passphrase', 'secret', 'secrets']);
+/** A word of SECRET_WORD, or one a password's starts (`passwords`, `passwordless`). */
+const secretWord = (w: string): boolean => SECRET_WORD.has(w) || w.startsWith('password');
+/**
+ * Last words that make a name with a secret word in it name or describe the secret rather than hold
+ * it: its name (`secret_name`, Kubernetes' `secretName`), its ARN (`SecretArn`), its version and stage
+ * (`secret_version_id`, `SecretVersionStages`), a policy (IAM's `PasswordPolicy`), the e-mail address a
+ * reset goes to (`password_reset_email`), its length, count, type, description and tags, its
+ * rotation's settings (`secret_rotation_enabled`), and when it was made, changed or expires
+ * (`password_expires_at`). Never an id (Vault AppRole's `secret_id` is a credential, though AWS's
+ * `SecretId` names one), a hint (often the password itself, or one that gives it away), a URL (a reset
+ * link carries its token, and a secret URL is the secret), nor any other word (`secret_value`).
+ */
+const NAMES_A_SECRET = new Set(['name', 'names', 'arn', 'arns', 'version', 'versions', 'version id', 'version ids', 'version stage', 'version stages', 'policy', 'policies', 'email', 'length', 'count', 'type', 'description', 'tags', 'rotation', 'rotation enabled', 'rotation rules', 'rotation schedule', 'rotation period', 'rotation interval', 'rotation days', 'expires at', 'created at', 'updated at']);
+
+/**
+ * Whether a name with a secret word in it names or describes the secret rather than holding it: its
+ * last word or two are one of NAMES_A_SECRET, or the words after its last secret word say when it was
+ * last done something to (`secret_last_rotated_date`).
+ */
+function namesASecret(words: readonly string[]): boolean {
+  const n = words.length;
+  if (NAMES_A_SECRET.has(words[n - 1]!) || (n > 1 && NAMES_A_SECRET.has(`${words[n - 2]!} ${words[n - 1]!}`))) return true;
+  let after = n;
+  while (after > 0 && !secretWord(words[after - 1]!)) after--;
+  return words[n - 1] === 'date' && words.indexOf('last', after) >= 0;
+}
+
+/**
+ * Whether a name that names or describes a secret (namesASecret) keeps its value: false while
+ * masking as a recording made before such names were kept masked them (withSecretNames).
+ */
+let secretNamesKept = true;
+
+/**
+ * What `mask` gives, with every name that names or describes a secret (`secret_name`,
+ * `password_policy`) kept as a recording keeps it (`kept`), or masked, as one made before such names
+ * were kept masked them all (RunMeta.secretNames): a replay of such a recording reads a live call so
+ * to match it. Masking reads no time, so nothing else masks while `mask` runs.
+ */
+export function withSecretNames<T>(kept: boolean, mask: () => T): T {
+  const was = secretNamesKept;
+  secretNamesKept = kept;
+  try {
+    return mask();
+  } finally {
+    secretNamesKept = was;
+  }
+}
 /**
  * Whole names (their words run together) that are credentials: `api_key`, `apiKey`, `apikeys`, `sig`,
  * `appid`, `auth`, a `cookie` or `cookies` (a session's), a one-time password (`otp`, `totp`), and
@@ -79,7 +130,10 @@ function runTogether(word: string, suffix: 'key' | 'token' | 'code'): boolean {
  * two calls that differ only in it match the same recorded call: a sort key, a page token or an
  * error code stays a value like any other. A bare `key`, `token` or `code` is a credential when its
  * `value` (decoded) reads as one (credentialValue); with no value given, it is taken for one, as a
- * model call's query takes it.
+ * model call's query takes it. So is a name with a password or secret word in it, wherever the word
+ * stands (`SecretString`, `password_confirmation`), but one whose last words name or describe the
+ * secret (`secret_name`, `password_policy`: namesASecret), which keeps its value when one is given,
+ * so lookups of two secrets stay two calls; read by its name alone, it is taken for one too.
  */
 export function credentialParam(name: string, value?: string): boolean {
   const words = wordsOf(name);
@@ -89,7 +143,7 @@ export function credentialParam(name: string, value?: string): boolean {
   const before = words.slice(0, -1);
   if (EITHER_NAME.has(joined)) return value === undefined || credentialValue(value);
   if (SECRET_NAME.has(joined) || SECRET_LAST.has(last)) return true;
-  if (words.some((w) => SECRET_WORD.has(w) || w.startsWith('password'))) return true;
+  if (words.some(secretWord) && !(value !== undefined && secretNamesKept && namesASecret(words))) return true;
   if (last === 'key' || last === 'keys') return before.some((w) => KEY_OWNER.has(w));
   if (last === 'token') return !before.some((w) => CURSOR.includes(w));
   if (last === 'tokens') return before.some((w) => TOKEN_OWNER.has(w));

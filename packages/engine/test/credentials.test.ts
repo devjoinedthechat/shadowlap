@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CREDENTIAL_PLACEHOLDER, credentialFreeBody, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, credentialHeader, credentialParam, maskChallenge, maskJsonCredentials, maskJsonTextCredentials, maskLocation, maskMultipartBytes, rawJsonMember, resultBlob, withoutCredentials, withoutStoredCredentials } from '../src/http.js';
+import { CREDENTIAL_PLACEHOLDER, credentialFreeBody, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, credentialHeader, credentialParam, maskChallenge, maskJsonCredentials, maskJsonTextCredentials, maskLocation, maskMultipartBytes, maskTextCredentials, rawJsonMember, resultBlob, withoutCredentials, withoutStoredCredentials, withSecretNames } from '../src/http.js';
 import { parseMultipart } from '../src/multipart.js';
 
 describe('credentialParam: the one list of credential parameters', () => {
@@ -66,6 +66,107 @@ describe('credentialParam: the one list of credential parameters', () => {
     // A name that says what it holds is a credential whatever its value.
     expect(credentialParam('subscription-key', 'x')).toBe(true);
     expect(withoutCredentials('?subscription-key=3f7c0e2a9b&client_secret=s3cr%3Dt&password=hunter2&auth=Zm9v&q=refund')).toBe(`?subscription-key=${CREDENTIAL_PLACEHOLDER}&client_secret=${CREDENTIAL_PLACEHOLDER}&password=${CREDENTIAL_PLACEHOLDER}&auth=${CREDENTIAL_PLACEHOLDER}&q=refund`);
+  });
+});
+
+describe('a name with a password or secret word in it', () => {
+  const C = CREDENTIAL_PLACEHOLDER;
+  // Each holds a secret by its name. Every value is invented.
+  const SECRETS: Record<string, string> = {
+    // AWS Secrets Manager's secret itself.
+    SecretString: '{"username":"app","password":"EXAMPLE-pw-0123"}',
+    SecretBinary: 'RVhBTVBMRS1iaW5hcnktMDEyMw==',
+    secret_value: 'EXAMPLE-value-0123',
+    secretValue: 'EXAMPLE-value-4567',
+    secret_data: 'EXAMPLE-data-0123',
+    secret_text: 'EXAMPLE-text-0123',
+    secret_key: 'EXAMPLE-key-0123',
+    // Vault AppRole's secret_id signs in, though AWS's SecretId names a secret: an id is taken for one.
+    secret_id: 'EXAMPLE-0000-1111-2222',
+    SecretId: 'prod/db',
+    secrets: 'EXAMPLE-one',
+    client_secret: 'EXAMPLE-client-0123',
+    new_password: 'EXAMPLE-pw-8901',
+    password_confirmation: 'EXAMPLE-pw-8901',
+    password_hash: '$2b$12$EXAMPLEhashEXAMPLEhashEXAMPLE',
+    passphrase_value: 'EXAMPLE pass phrase',
+    // A hint is often the password itself; a reset link carries its token; a secret URL is the secret.
+    password_hint: 'EXAMPLE-pw-4567',
+    user_password_hint: 'EXAMPLE-pw-4567',
+    password_reset_url: 'https://app.example.com/reset/EXAMPLE0123456789abcdef',
+    secret_url: 'https://calendar.example.com/ical/private-EXAMPLE0123/basic.ics',
+    password_reset_token: 'EXAMPLE-reset-0123',
+    // Only the last words count: these end in what holds the secret.
+    secret_rotation_value: 'EXAMPLE-rotated-0123',
+    secret_name_value: 'EXAMPLE-0123',
+    SecretList: 'EXAMPLE-list',
+  };
+  // Each names or describes a secret, and is a lookup's identity.
+  const NAMES: Record<string, string> = {
+    secret_name: 'prod/db',
+    SecretName: 'prod/cache',
+    secretName: 'db-credentials',
+    secret_names: 'prod/db',
+    secret_arn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db-AbCdEf',
+    SecretARN: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db-AbCdEf',
+    secret_version: 'v3',
+    SecretVersionId: 'EXAMPLE1-90ab-cdef-fedc-ba987EXAMPLE',
+    secret_version_stage: 'AWSCURRENT',
+    SecretVersionStages: 'AWSPENDING',
+    password_policy: 'min 12, one symbol',
+    PasswordPolicy: 'strict',
+    password_reset_email: 'ops@example.com',
+    passwordless_email: 'ops@example.com',
+    minimum_password_length: '12',
+    secret_count: '3',
+    secret_type: 'SecureString',
+    secret_description: 'the reporting database',
+    secret_tags: 'team:data',
+    secret_rotation: 'rate(30 days)',
+    secret_rotation_enabled: 'true',
+    secret_rotation_rules: 'cron(0 4 1 * ? *)',
+    password_rotation_days: '90',
+    password_expires_at: '2027-01-01T00:00:00Z',
+    password_created_at: '2026-01-01T00:00:00Z',
+    secret_updated_at: '2026-10-01T00:00:00Z',
+    secret_last_rotated_date: '2026-10-01',
+    password_last_changed_date: '2026-09-01',
+  };
+  const masked = (names: Record<string, string>) => Object.fromEntries(Object.keys(names).map((k) => [k, C]));
+
+  it('is a credential whatever its value, unless its last words name or describe the secret', () => {
+    for (const [name, value] of Object.entries(SECRETS)) expect(credentialParam(name, value), name).toBe(true);
+    for (const [name, value] of Object.entries(NAMES)) expect(credentialParam(name, value), name).toBe(false);
+  });
+
+  it('keeps what names or describes a secret in each shape a body is read by, and masks the secret', () => {
+    expect(maskJsonCredentials({ ...SECRETS, ...NAMES })).toEqual({ ...masked(SECRETS), ...NAMES });
+    // An object or a list under a name that describes one is read by its own names.
+    const described = { secret_tags: [{ Key: 'team', Value: 'data' }], PasswordPolicy: { MinimumPasswordLength: 12, RequireSymbols: true }, secret_rotation_rules: { ScheduleExpression: 'rate(30 days)' } };
+    expect(maskJsonCredentials(described)).toBe(described);
+    expect(maskJsonCredentials({ secret: { name: 'prod/db' }, SecretList: [{ Name: 'prod/db' }] })).toEqual({ secret: { name: C }, SecretList: [{ Name: C }] });
+    expect(withoutCredentials('?secret_name=prod%2Fdb&secret_arn=arn%3Aaws&SecretString=EXAMPLE-0123')).toBe(`?secret_name=prod%2Fdb&secret_arn=arn%3Aaws&SecretString=${C}`);
+    expect(maskTextCredentials('<Describe><SecretName>prod/db</SecretName><SecretString>EXAMPLE-0123</SecretString></Describe>')).toBe('<Describe><SecretName>prod/db</SecretName><SecretString>&lt;CREDENTIAL&gt;</SecretString></Describe>');
+    expect(maskTextCredentials('secret_name: prod/db\nsecret_value: EXAMPLE-0123\n')).toBe(`secret_name: prod/db\nsecret_value: ${C}\n`);
+    expect(maskTextCredentials('Server=db;Password Policy=strict;Password=EXAMPLE-0123;')).toBe(`Server=db;Password Policy=strict;Password=${C};`);
+  });
+
+  it('is a credential when read by its name alone, so a model call’s query leaves it out as before', () => {
+    expect(credentialParam('secret_name')).toBe(true);
+    expect(credentialFreeQuery('secret_name=prod%2Fdb&alt=sse')).toBe('alt=sse');
+  });
+
+  it('is masked as a recording made before such names were kept masked it, for a replay of one to match it', () => {
+    expect(withSecretNames(false, () => maskJsonCredentials({ ...SECRETS, ...NAMES }))).toEqual({ ...masked(SECRETS), ...masked(NAMES) });
+    expect(withSecretNames(false, () => withoutCredentials('?secret_arn=arn%3Aaws&q=1'))).toBe(`?secret_arn=${C}&q=1`);
+    expect(withSecretNames(false, () => withSecretNames(true, () => credentialParam('secret_name', 'prod/db')))).toBe(false);
+    // The rule is as it was once the masking ends, however it ends.
+    expect(() =>
+      withSecretNames(false, () => {
+        throw new Error('stopped');
+      }),
+    ).toThrow('stopped');
+    expect(credentialParam('secret_name', 'prod/db')).toBe(false);
   });
 });
 

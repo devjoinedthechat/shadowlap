@@ -139,6 +139,12 @@ export class RunContext {
      * made before calls kept them, or imported, never does.
      */
     readonly headerParameters = true,
+    /**
+     * Whether a captured call keeps a name that names or describes a secret as sent (`secret_name`),
+     * as it is matched and stored: not when the parent masked them (RunMeta.secretNames), as one made
+     * before they were kept did, so the live call is masked the same way (withSecretNames).
+     */
+    readonly secretNames = true,
   ) {}
 
   /**
