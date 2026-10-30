@@ -200,19 +200,24 @@ describe('calls paired across two runs', () => {
     store.close();
   });
 
-  it('tells two lookups by a secret’s name apart, and reads a run made before such names were kept as a replay of it matches', () => {
+  it('tells two lookups by a secret’s name apart, and reads a run that kept fewer of such names as a replay of it matches', () => {
     const store = Store.open(':memory:');
-    const lookup = (run: RunRecord, fingerprint: string, secretName: string) => put(store, run, 1, { kind: 'tool', name: 'POST secrets.example.com/v1/describe', fingerprint, request: { args: { method: 'POST', url: 'https://secrets.example.com/v1/describe', body: { secret_name: secretName, secret_value: '<CREDENTIAL>' }, encoding: 'json' } }, meta: { http: 'secrets.example.com' }, answer: '{"result":{"status":200,"headers":{},"body":{"ok":true},"encoding":"json"}}' });
-    const named = (): RunRecord => store.createRun({ mode: 'record', command: cmd, meta: { exactNumbers: true, secretNames: true } });
+    const lookup = (run: RunRecord, fingerprint: string, member: string, name: string) => put(store, run, 1, { kind: 'tool', name: 'POST secrets.example.com/v1/describe', fingerprint, request: { args: { method: 'POST', url: 'https://secrets.example.com/v1/describe', body: { [member]: name, secret_value: '<CREDENTIAL>' }, encoding: 'json' } }, meta: { http: 'secrets.example.com' }, answer: '{"result":{"status":200,"headers":{},"body":{"ok":true},"encoding":"json"}}' });
+    const run = (meta: Partial<RunMeta>): RunRecord => store.createRun({ mode: 'record', command: cmd, meta: { exactNumbers: true, ...meta } });
     const compared = (x: RunRecord, y: RunRecord) => compareRuns(store, x, store.getCalls(x.runId), y, store.getCalls(y.runId));
-    const [a, b] = [named(), named()];
-    lookup(a, '1'.repeat(64), 'prod/db');
-    lookup(b, '2'.repeat(64), 'prod/cache');
+    const [a, b] = [run({ secretNames: 2 }), run({ secretNames: 2 })];
+    lookup(a, '1'.repeat(64), 'secret_name', 'prod/db');
+    lookup(b, '2'.repeat(64), 'secret_name', 'prod/cache');
     expect(compared(a, b).firstRequestDifference).toMatchObject({ callNo: 1, diff: [{ path: '$.args.body.secret_name', op: 'changed', before: 'prod/db', after: 'prod/cache' }] });
     // A recording made before stored the name masked: the same lookup, read with the name masked on both sides.
-    const older = store.createRun({ mode: 'record', command: cmd, meta: { exactNumbers: true } });
-    lookup(older, '3'.repeat(64), '<CREDENTIAL>');
+    const older = run({});
+    lookup(older, '3'.repeat(64), 'secret_name', '<CREDENTIAL>');
     for (const [x, y] of [[older, a], [a, older]] as const) expect(compared(x, y)).toMatchObject({ identicalPrefix: 1, firstRequestDifference: null });
+    // One marked `true` stored an id masked, where a run made now keeps it: read as that one's rule reads it.
+    const [byId, byIdBefore] = [run({ secretNames: 2 }), run({ secretNames: true })];
+    lookup(byId, '4'.repeat(64), 'SecretId', 'prod/db');
+    lookup(byIdBefore, '5'.repeat(64), 'SecretId', '<CREDENTIAL>');
+    for (const [x, y] of [[byIdBefore, byId], [byId, byIdBefore]] as const) expect(compared(x, y)).toMatchObject({ identicalPrefix: 1, firstRequestDifference: null });
     store.close();
   });
 

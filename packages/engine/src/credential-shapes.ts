@@ -14,21 +14,42 @@
  */
 export type StringMask = (key: string | null, value: string, under: boolean) => string | null;
 
-/** Whether a member's value, when it is an object or an array, is a credential through and through (`client_secret: {…}`, `api_keys: […]`). */
-export type CredentialMember = (key: string) => boolean;
+/** A test a string value is read by. */
+export type StringTest = (value: string) => boolean;
+
+/**
+ * Whether a member's value, when it is an object or an array, is a credential through and through
+ * (`client_secret: {…}`, `api_keys: […]`): true or false, or a test its strings are read by, which
+ * makes it one when any string in it passes (a member that names a secret, holding a key:
+ * `secret_tags: [{"Value": "ghp_…"}]`).
+ */
+export type CredentialMember = (key: string) => boolean | StringTest;
+
+/**
+ * The values a JSON document holds a secret in by the shape around them rather than by their
+ * member's name (a secret store's answer, secret-stores.ts), each by where it starts in the text:
+ * everything in it a credential (true), or only when a string in it passes the test.
+ */
+export type HeldValues = ReadonlyMap<number, true | StringTest>;
+
+/** The values the JSON document that starts at `start` in `text` holds a secret in (HeldValues). */
+export type FindHeld = (text: string, start: number) => HeldValues;
 
 /** One open object or array, as the JSON reader walks it. */
 interface Frame {
   object: boolean;
   /** Everything in it is a credential. */
   under: boolean;
+  /** Its strings were read for the test of a member above it, and none passed: no member in it is read so again. */
+  clean: boolean;
   /** An object's current member, or the member an array is the value of. */
   key: string | null;
   expect: 'key' | 'colon' | 'value' | 'comma';
   first: boolean;
 }
 
-const NUMBER_OR_LITERAL = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/y;
+/** A JSON number or literal, read where `lastIndex` says. */
+export const NUMBER_OR_LITERAL = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/y;
 
 /** A string value `mask` replaced: where its token starts and ends in the text, and the JSON string written in its place. */
 type Replaced = [start: number, end: number, json: string];
@@ -44,16 +65,18 @@ function spliced(text: string, replaced: readonly Replaced[]): string {
   return out.join('') + text.slice(copied);
 }
 
-const isJsonSpace = (c: number) => c === 0x20 || c === 0x09 || c === 0x0a || c === 0x0d;
+/** Whether a character is JSON's white space. */
+export const isJsonSpace = (c: number) => c === 0x20 || c === 0x09 || c === 0x0a || c === 0x0d;
 
 /**
  * Reads the one JSON value that starts at `start` in `text` (whitespace before it skipped), noting
- * in `replaced` each string value `mask` replaces. `whole` when the value is complete: `at` is then
- * just past it. Otherwise `at` is where the text stopped being JSON (its length, when it ended
- * first), and `replaced` holds what was masked before there. Iterative, so a document nested
- * thousands deep reads like any other; each character is read once.
+ * in `replaced` each string value `mask` replaces, everything in a value `held` names a credential.
+ * `whole` when the value is complete: `at` is then just past it. Otherwise `at` is where the text
+ * stopped being JSON (its length, when it ended first), and `replaced` holds what was masked before
+ * there. Iterative, so a document nested thousands deep reads like any other; each character is read
+ * once.
  */
-function walkValue(text: string, start: number, mask: StringMask, credentialMember: CredentialMember, replaced: Replaced[]): { at: number; whole: boolean } {
+function walkValue(text: string, start: number, mask: StringMask, credentialMember: CredentialMember, replaced: Replaced[], held: HeldValues | null): { at: number; whole: boolean } {
   const stack: Frame[] = [];
   const n = text.length;
   let i = start;
@@ -134,16 +157,14 @@ function walkValue(text: string, start: number, mask: StringMask, credentialMemb
       const raw = scanString();
       const value = raw === null ? undefined : decode(raw);
       if (value === undefined) return { at: i, whole: false };
-      const replacement = mask(top?.key ?? null, value, top?.under ?? false);
+      const replacement = mask(top?.key ?? null, value, underHere(top, held?.get(from), value));
       if (replacement !== null && replacement !== value) replaced.push([from, i, JSON.stringify(replacement)]);
       if (ended()) return { at: i, whole: true };
       continue;
     }
     if (c === '{' || c === '[') {
+      stack.push(opened(text, i, top, c === '{', credentialMember, held));
       i++;
-      const key = top?.key ?? null;
-      const under = (top?.under ?? false) || (top?.object === true && key !== null && credentialMember(key));
-      stack.push({ object: c === '{', under, key: c === '[' ? key : null, expect: c === '{' ? 'key' : 'value', first: true });
       continue;
     }
     NUMBER_OR_LITERAL.lastIndex = i;
@@ -154,15 +175,57 @@ function walkValue(text: string, start: number, mask: StringMask, credentialMemb
   }
 }
 
+/** Whether a string value is a credential through and through: under one, or where a secret store holds one (`held`, its rule at the string). */
+function underHere(top: Frame | undefined, held: true | StringTest | undefined, value: string): boolean {
+  return top?.under === true || held === true || (held !== undefined && held(value));
+}
+
+/**
+ * The frame an object or an array opens below `top`, its `{` or `[` at `at`: everything in it a
+ * credential when it is under one, when `top`'s member is one, when that member's test passes a
+ * string in it (holdsString), or as `held` says of the value at `at`, whichever masks more. Its
+ * strings are read for a test once: a frame they passed in is under a credential, and one they didn't
+ * is clean, so no member inside either reads them again.
+ */
+function opened(text: string, at: number, top: Frame | undefined, object: boolean, credentialMember: CredentialMember, held: HeldValues | null): Frame {
+  const key = top?.key ?? null;
+  const own = top?.object === true && key !== null ? credentialMember(key) : false;
+  const rule = held?.get(at);
+  const member = rule === undefined || own === true ? own : rule;
+  const inherited = top?.under ?? false;
+  const clean = top?.clean ?? false;
+  const test = typeof member === 'function' && !inherited && !clean ? member : null;
+  const keyed = test !== null && holdsString(text, at, test);
+  return { object, under: inherited || member === true || keyed, clean: clean || (test !== null && !keyed), key: object ? null : key, expect: object ? 'key' : 'value', first: true };
+}
+
+/** Whether a string value in the JSON value at `at` passes `test`, its members' names read by no rule. */
+function holdsString(text: string, at: number, test: StringTest): boolean {
+  let found = false;
+  walkValue(
+    text,
+    at,
+    (_key, value) => {
+      found ||= test(value);
+      return null;
+    },
+    () => false,
+    [],
+    null,
+  );
+  return found;
+}
+
 /**
  * One JSON document (any value, whitespace around it) with each string value `mask` replaces
  * written as the JSON string of its replacement, every other character as it was: a number of any
- * length, the layout, escapes in the strings kept. Undefined when the text isn't JSON, null when it
+ * length, the layout, escapes in the strings kept. Every string in a value `findHeld` finds holding a
+ * secret is passed to `mask` as under a credential. Undefined when the text isn't JSON, null when it
  * is and nothing was replaced. Iterative, so a document nested thousands deep reads like any other.
  */
-export function walkJson(text: string, mask: StringMask, credentialMember: CredentialMember): string | null | undefined {
+export function walkJson(text: string, mask: StringMask, credentialMember: CredentialMember, findHeld: FindHeld | null = null): string | null | undefined {
   const replaced: Replaced[] = [];
-  const { at, whole } = walkValue(text, 0, mask, credentialMember, replaced);
+  const { at, whole } = walkValue(text, 0, mask, credentialMember, replaced, findHeld?.(text, 0) ?? null);
   if (!whole) return undefined;
   let i = at;
   while (i < text.length && isJsonSpace(text.charCodeAt(i))) i++;
@@ -177,12 +240,13 @@ export function walkJson(text: string, mask: StringMask, credentialMember: Crede
  * jQuery JSONP call, the state a page's script holds (`__NEXT_DATA__`, `window.__STATE__ = …`).
  * Each `{` that no object read so far holds opens one, read as far as it is JSON: what it held
  * before it stopped being JSON is masked, and the search goes on from there, so each character is
- * read once. Null when nothing was replaced.
+ * read once (and once more by `findHeld`, which stops where the walk does). Null when nothing was
+ * replaced.
  */
-export function maskEmbeddedJson(text: string, mask: StringMask, credentialMember: CredentialMember): string | null {
+export function maskEmbeddedJson(text: string, mask: StringMask, credentialMember: CredentialMember, findHeld: FindHeld | null = null): string | null {
   const replaced: Replaced[] = [];
   for (let i = text.indexOf('{'); i >= 0; ) {
-    const { at } = walkValue(text, i, mask, credentialMember, replaced);
+    const { at } = walkValue(text, i, mask, credentialMember, replaced, findHeld?.(text, i) ?? null);
     i = text.indexOf('{', Math.max(at, i + 1));
   }
   return replaced.length ? spliced(text, replaced) : null;
@@ -436,11 +500,84 @@ const VALUE_ATTRIBUTES = new Set(['value', 'content']);
 /** HTML's void elements, which have no end tag: what follows one is never inside it. */
 const VOID_ELEMENTS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
 
-/** An element the reader is inside: its tag, the name it goes by, and whether everything in it is a credential. */
+/**
+ * An element the reader is inside: its tag, the name it goes by, whether everything in it is a
+ * credential, and whether what it holds was read for the test of an element around it, none passing
+ * (so no element in it is read so again).
+ */
 interface XmlElement {
   tag: string;
   name: string;
   under: boolean;
+  clean: boolean;
+}
+
+/**
+ * Whether everything in the element whose start tag ends at `after` is a credential (`under`): it is
+ * inside one; its `name` or `key` attribute (`named`) is one by itself (`member`); or its name, by
+ * that attribute or by its tag, is a member's whose test passes a value it holds (xmlHolds), read once
+ * for every element inside it (`clean`).
+ */
+function xmlElementState(text: string, after: number, tag: { qname: string; local: string; attrs: string }, parent: XmlElement | undefined, named: string | null, member: CredentialMember): { under: boolean; clean: boolean } {
+  if (parent?.under === true || (named !== null && member(named) === true)) return { under: true, clean: false };
+  const test = parent?.clean === true ? null : member(named ?? tag.local);
+  if (typeof test !== 'function') return { under: false, clean: parent?.clean ?? false };
+  const keyed = xmlHolds(text, after, tag, test);
+  return { under: keyed, clean: !keyed };
+}
+
+/** Whether `test` passes a value of a start tag's attributes. */
+const attributeHolds = (attrs: string, test: StringTest): boolean => [...attrs.matchAll(XML_ATTRIBUTE)].some((a) => test(xmlText(a[5]!.slice(1, -1))));
+
+/**
+ * Whether `test` passes a value an element holds: one of its attributes, or, from `after` its start
+ * tag to its end tag (or the text's end), a text, a CDATA section or an attribute of what it holds,
+ * read tag by tag as maskXml reads them.
+ */
+function xmlHolds(text: string, after: number, tag: { qname: string; local: string; attrs: string }, test: StringTest): boolean {
+  if (attributeHolds(tag.attrs, test)) return true;
+  if (tag.attrs.trimEnd().endsWith('/') || VOID_ELEMENTS.has(tag.local.toLowerCase())) return false;
+  const open = [tag.qname];
+  let i = after;
+  while (open.length) {
+    const lt = text.indexOf('<', i);
+    const to = lt < 0 ? text.length : lt;
+    if (to > i && test(xmlText(text.slice(i, to)))) return true;
+    if (lt < 0) return false;
+    const skip = xmlSkipped(text, lt, test);
+    if (skip !== null) {
+      if (skip < 0) return skip === -2;
+      i = skip;
+      continue;
+    }
+    const gt = text.indexOf('>', lt + 1);
+    if (gt < 0) return false;
+    i = gt + 1;
+    const parts = XML_TAG_PARTS.exec(text.slice(lt, i));
+    if (!parts) continue;
+    const [, closing, qname = '', local = '', attrs = ''] = parts;
+    if (closing) {
+      const at = open.lastIndexOf(qname);
+      if (at >= 0) open.length = at;
+    } else if (attributeHolds(attrs, test)) return true;
+    else if (!attrs.trimEnd().endsWith('/') && !VOID_ELEMENTS.has(local.toLowerCase())) open.push(qname);
+  }
+  return false;
+}
+
+/**
+ * Past a comment or a CDATA section at `lt` (xmlHolds): the index after it; -1 when it doesn't end,
+ * -2 when `test` passes the CDATA section's text; null when neither starts there.
+ */
+function xmlSkipped(text: string, lt: number, test: StringTest): number | null {
+  if (text.startsWith('<!--', lt)) {
+    const end = text.indexOf('-->', lt + 4);
+    return end < 0 ? -1 : end + 3;
+  }
+  if (!text.startsWith('<![CDATA[', lt)) return null;
+  const end = text.indexOf(']]>', lt + 9);
+  if (end < 0) return -1;
+  return test(text.slice(lt + 9, end)) ? -2 : end + 3;
 }
 
 /**
@@ -453,10 +590,13 @@ interface XmlElement {
  * attribute `member` reads as a credential by itself (a SAML `<Attribute Name="password">`'s
  * `<AttributeValue>`). An element named so by its tag holds its own text alone, each element in it
  * judged by its own name: an AWS STS answer's `<Credentials>` keeps its key id and expiry, which a
- * client reads on replay, and masks its `<SecretAccessKey>` and `<SessionToken>`. Read tag by tag, each character once; a comment is skipped, and text after the
- * document is left as it is. Null when it isn't XML, or nothing changed.
+ * client reads on replay, and masks its `<SecretAccessKey>` and `<SessionToken>`. An element whose
+ * name, by attribute or tag, `member` gives a test for (one that names a secret) is a credential
+ * through and through when the test passes a value it holds (xmlElementState). Read tag by tag, each
+ * character once but for what such an element holds, read once more; a comment is skipped, and text
+ * after the document is left as it is. Null when it isn't XML, or nothing changed.
  */
-export function maskXml(text: string, credential: (name: string, value: string) => boolean, member: (name: string) => boolean, replacement: string): string | null {
+export function maskXml(text: string, credential: (name: string, value: string) => boolean, member: CredentialMember, replacement: string): string | null {
   if (!XML_START.test(text)) return null;
   const placed = asXmlText(replacement);
   const out: string[] = [];
@@ -506,9 +646,8 @@ export function maskXml(text: string, credential: (name: string, value: string) 
     }
     let named: string | null = null;
     for (const a of attrs.matchAll(XML_ATTRIBUTE)) if (named === null && NAMING_ATTRIBUTES.has(a[3]!.toLowerCase())) named = xmlText(a[5]!.slice(1, -1));
-    const outer = open[open.length - 1]?.under ?? false;
     const name = named ?? local;
-    const under = outer || (named !== null && member(named));
+    const { under, clean } = xmlElementState(text, i, { qname, local, attrs }, open[open.length - 1], named, member);
     const masked = attrs.replace(XML_ATTRIBUTE, (whole, lead: string, attr: string, own: string, eq: string, quoted: string) => {
       const value = xmlText(quoted.slice(1, -1));
       if (value === replacement || !value) return whole;
@@ -517,7 +656,7 @@ export function maskXml(text: string, credential: (name: string, value: string) 
       return `${lead}${attr}${eq}${quoted[0]!}${placed}${quoted[0]!}`;
     });
     if (masked !== attrs) replace(lt + 1 + qname.length, lt + 1 + qname.length + attrs.length, masked);
-    if (!attrs.trimEnd().endsWith('/') && !VOID_ELEMENTS.has(local.toLowerCase())) open.push({ tag: qname, name, under });
+    if (!attrs.trimEnd().endsWith('/') && !VOID_ELEMENTS.has(local.toLowerCase())) open.push({ tag: qname, name, under, clean });
   }
   return out.length ? out.join('') + text.slice(copied) : null;
 }

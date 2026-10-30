@@ -1,7 +1,9 @@
 import { ACCOUNT_HEADERS } from './account-headers.js';
-import { maskEmbeddedJson, maskEventStream, maskGraphqlArguments, maskJsonLines, maskKeyValueLines, maskMultipart, maskXml, skipJsonValue, unwrapJson, walkJson, type MultipartPartText, type StringMask } from './credential-shapes.js';
+import { maskEmbeddedJson, maskEventStream, maskGraphqlArguments, maskJsonLines, maskKeyValueLines, maskMultipart, maskXml, skipJsonValue, unwrapJson, walkJson, type FindHeld, type MultipartPartText, type StringMask, type StringTest } from './credential-shapes.js';
 import { parseJsonExact } from './json-exact.js';
+import { mayHoldSecrets, secretStoreValues, vaultKv1Read } from './secret-stores.js';
 import { isObject } from './is-object.js';
+import type { RunMeta } from './types.js';
 
 /**
  * Credentials in recorded HTTP traffic: which query and form parameters carry one (credentialParam,
@@ -37,44 +39,68 @@ const secretWord = (w: string): boolean => SECRET_WORD.has(w) || w.startsWith('p
  * (`secret_version_id`, `SecretVersionStages`), a policy (IAM's `PasswordPolicy`), the e-mail address a
  * reset goes to (`password_reset_email`), its length, count, type, description and tags, its
  * rotation's settings (`secret_rotation_enabled`), and when it was made, changed or expires
- * (`password_expires_at`). Never an id (Vault AppRole's `secret_id` is a credential, though AWS's
- * `SecretId` names one), a hint (often the password itself, or one that gives it away), a URL (a reset
- * link carries its token, and a secret URL is the secret), nor any other word (`secret_value`).
+ * (`password_expires_at`). Never a hint (often the password itself, or one that gives it away), a URL
+ * (a reset link carries its token, and a secret URL is the secret), nor any other word (`secret_value`).
  */
 const NAMES_A_SECRET = new Set(['name', 'names', 'arn', 'arns', 'version', 'versions', 'version id', 'version ids', 'version stage', 'version stages', 'policy', 'policies', 'email', 'length', 'count', 'type', 'description', 'tags', 'rotation', 'rotation enabled', 'rotation rules', 'rotation schedule', 'rotation period', 'rotation interval', 'rotation days', 'expires at', 'created at', 'updated at']);
+/**
+ * Last words that name a secret too, under the rule a run stores as RunMeta.secretNames 2: where it
+ * is kept (`secret_path`, Vault's; `secret_scope`, Databricks'; `secret_namespace`), a reference to it
+ * (`secret_ref`, Kubernetes' `secretKeyRef`), and its id (AWS's `SecretId`). An id signs in as often
+ * as it names (Vault AppRole's `secret_id`): kept, as each of these is, only when it doesn't read as a
+ * key (readsAsKey), as a name, an ARN or a path doesn't, and a UUID does.
+ */
+const NAMES_A_SECRET_TOO = new Set(['path', 'paths', 'ref', 'refs', 'reference', 'scope', 'scopes', 'namespace', 'namespaces', 'key ref', 'id', 'ids']);
 
 /**
- * Whether a name with a secret word in it names or describes the secret rather than holding it: its
- * last word or two are one of NAMES_A_SECRET, or the words after its last secret word say when it was
- * last done something to (`secret_last_rotated_date`).
+ * Which names that name or describe a secret a run's captured calls keep, as RunMeta.secretNames
+ * says (secretNamesOf): 0 none, as a run made before any were kept masked them all; 1 those of
+ * NAMES_A_SECRET (`true`, as runs made before a path, a ref, a scope, a namespace or an id was kept
+ * mark it); 2 those and NAMES_A_SECRET_TOO. Either keeps only a value that doesn't read as a key.
  */
-function namesASecret(words: readonly string[]): boolean {
+export type SecretNamesRule = 0 | 1 | 2;
+
+/** The rule a run stores, as RunMeta.secretNames says it: none, `true` or `2`; one it doesn't know reads as 0, which masks most. */
+export function secretNamesOf(meta: Pick<RunMeta, 'secretNames'> | null | undefined): SecretNamesRule {
+  const kept: unknown = meta?.secretNames;
+  return kept === 2 ? 2 : kept === true ? 1 : 0;
+}
+
+/** RunMeta.secretNames for a run stored under `rule`: none for 0, `true` for 1, `2` for 2. */
+export function secretNamesMeta(rule: SecretNamesRule): Pick<RunMeta, 'secretNames'> {
+  return rule === 0 ? {} : { secretNames: rule === 1 ? true : 2 };
+}
+
+/**
+ * Whether a name with a secret word in it names or describes the secret rather than holding it, under
+ * `rule`: its last word or two are one of NAMES_A_SECRET (or with 2, NAMES_A_SECRET_TOO), or the words
+ * after its last secret word say when it was last done something to (`secret_last_rotated_date`).
+ */
+function namesASecret(words: readonly string[], rule: SecretNamesRule): boolean {
   const n = words.length;
-  if (NAMES_A_SECRET.has(words[n - 1]!) || (n > 1 && NAMES_A_SECRET.has(`${words[n - 2]!} ${words[n - 1]!}`))) return true;
+  const tails = [words[n - 1]!, ...(n > 1 ? [`${words[n - 2]!} ${words[n - 1]!}`] : [])];
+  if (tails.some((tail) => NAMES_A_SECRET.has(tail) || (rule === 2 && NAMES_A_SECRET_TOO.has(tail)))) return true;
   let after = n;
   while (after > 0 && !secretWord(words[after - 1]!)) after--;
   return words[n - 1] === 'date' && words.indexOf('last', after) >= 0;
 }
 
-/**
- * Whether a name that names or describes a secret (namesASecret) keeps its value: false while
- * masking as a recording made before such names were kept masked them (withSecretNames).
- */
-let secretNamesKept = true;
+/** The rule masking reads a name that names or describes a secret by while it runs (withSecretNames); a recording made now keeps 2. */
+let secretNames: SecretNamesRule = 2;
 
 /**
- * What `mask` gives, with every name that names or describes a secret (`secret_name`,
- * `password_policy`) kept as a recording keeps it (`kept`), or masked, as one made before such names
- * were kept masked them all (RunMeta.secretNames): a replay of such a recording reads a live call so
- * to match it. Masking reads no time, so nothing else masks while `mask` runs.
+ * What `mask` gives, with the names that name or describe a secret read under `rule`: as a recording
+ * made now keeps them (2), or as one that RunMeta.secretNames says kept fewer, or none, kept them, so
+ * a replay of it reads a live call as it reads the recording to match it. Masking reads no time, so
+ * nothing else masks while `mask` runs.
  */
-export function withSecretNames<T>(kept: boolean, mask: () => T): T {
-  const was = secretNamesKept;
-  secretNamesKept = kept;
+export function withSecretNames<T>(rule: SecretNamesRule, mask: () => T): T {
+  const was = secretNames;
+  secretNames = rule;
   try {
     return mask();
   } finally {
-    secretNamesKept = was;
+    secretNames = was;
   }
 }
 /**
@@ -90,10 +116,10 @@ const SECRET_NAME = new Set(['apikey', 'apikeys', 'appid', 'appkey', 'sig', 'hma
  */
 const EITHER_NAME = new Set(['key', 'token', 'code']);
 /**
- * Words before `key` that make it a credential (`x-api-key`, `Subscription-Key`, `user_key`), unlike
- * a `sort_key` or an `idempotency_key`.
+ * Words before `key` that make it a credential (`x-api-key`, `Subscription-Key`, `user_key`, a TLS
+ * private key's `tls.key`), unlike a `sort_key` or an `idempotency_key`.
  */
-const KEY_OWNER = new Set(['api', 'access', 'app', 'secret', 'private', 'subscription', 'auth', 'client', 'consumer', 'developer', 'dev', 'master', 'admin', 'service', 'account', 'signing', 'session', 'license', 'encryption', 'user']);
+const KEY_OWNER = new Set(['api', 'access', 'app', 'secret', 'private', 'subscription', 'auth', 'client', 'consumer', 'developer', 'dev', 'master', 'admin', 'service', 'account', 'signing', 'session', 'license', 'encryption', 'user', 'tls']);
 /** Words before `token` that make it a pagination cursor, not a credential: `page_token`, `nextPageToken`. */
 const CURSOR = ['page', 'next', 'prev', 'previous', 'continuation', 'sync', 'cursor', 'resume', 'start', 'pagination'];
 /** Words before `code` or `codes` that make it a credential (`auth_code`, `device_code`, `mfa_code`, `recovery_codes`), unlike an `error_code`. */
@@ -132,8 +158,9 @@ function runTogether(word: string, suffix: 'key' | 'token' | 'code'): boolean {
  * `value` (decoded) reads as one (credentialValue); with no value given, it is taken for one, as a
  * model call's query takes it. So is a name with a password or secret word in it, wherever the word
  * stands (`SecretString`, `password_confirmation`), but one whose last words name or describe the
- * secret (`secret_name`, `password_policy`: namesASecret), which keeps its value when one is given,
- * so lookups of two secrets stay two calls; read by its name alone, it is taken for one too.
+ * secret (`secret_name`, `password_policy`: namesASecret), which keeps a value given it that doesn't
+ * read as a key (readsAsKey), so lookups of two secrets stay two calls, while a key under such a name
+ * (`secret_name: "ghp_…"`) is masked; read by its name alone, it is taken for one too.
  */
 export function credentialParam(name: string, value?: string): boolean {
   const words = wordsOf(name);
@@ -143,7 +170,7 @@ export function credentialParam(name: string, value?: string): boolean {
   const before = words.slice(0, -1);
   if (EITHER_NAME.has(joined)) return value === undefined || credentialValue(value);
   if (SECRET_NAME.has(joined) || SECRET_LAST.has(last)) return true;
-  if (words.some(secretWord) && !(value !== undefined && secretNamesKept && namesASecret(words))) return true;
+  if (words.some(secretWord) && !(value !== undefined && secretNames > 0 && namesASecret(words, secretNames) && !readsAsKey(value))) return true;
   if (last === 'key' || last === 'keys') return before.some((w) => KEY_OWNER.has(w));
   if (last === 'token') return !before.some((w) => CURSOR.includes(w));
   if (last === 'tokens') return before.some((w) => TOKEN_OWNER.has(w));
@@ -200,6 +227,48 @@ const WORDLIKE = /^(?:[a-z]{1,20}|[A-Z][a-z]{0,19}|[A-Z]{1,20}|\d{1,20}|[A-Za-z]
 export function credentialValue(value: string): boolean {
   if (value.length < 16) return false;
   return value.split(/[^A-Za-z0-9]+/).some((part) => part !== '' && !WORDLIKE.test(part));
+}
+
+/** A time as RFC 3339 writes it: `2026-10-30T12:00:00Z`, `2026-10-30T12:00:00.125+01:00`. */
+const RFC3339 = /^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:[Zz]|[+-]\d{2}:\d{2})$/;
+/** A time as HTTP writes it, RFC 9110's IMF-fixdate: `Thu, 30 Oct 2026 12:00:00 GMT`. */
+const HTTP_DATE = /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/;
+/** The units of a duration as Go writes it, those of two letters first. */
+const DURATION_UNITS = ['ns', 'us', 'µs', 'ms', 'h', 'm', 's'];
+/** An Amazon Resource Name, whose last part may end in a suffix AWS makes up (`arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db-AbCdEf`). */
+const ARN_SHAPED = /^arn:[\w-]+:[\w-]+:[\w-]*:\d*:\S+$/;
+
+/**
+ * Whether a value is a duration as Go writes one, and OpenAI's rate limits with it: one to six
+ * numbers of at most 20 characters, a fraction allowed, each followed by its unit (`6m0s`,
+ * `1h2m3.5s`, `150ms`). Read by hand, character by character.
+ */
+function goDuration(value: string): boolean {
+  let i = 0;
+  let parts = 0;
+  while (i < value.length) {
+    const start = i;
+    while (i < value.length && value.charCodeAt(i) >= 0x30 && value.charCodeAt(i) <= 0x39) i++;
+    if (value[i] === '.') i++;
+    while (i < value.length && value.charCodeAt(i) >= 0x30 && value.charCodeAt(i) <= 0x39) i++;
+    const unit = DURATION_UNITS.find((u) => value.startsWith(u, i));
+    if (i === start || i - start > 20 || value[start] === '.' || value[i - 1] === '.' || !unit || ++parts > 6) return false;
+    i += unit.length;
+  }
+  return parts > 0;
+}
+
+/** Whether a value is a time or a duration as a service writes one: RFC 3339, an HTTP date, Go's `6m0s`. */
+function timeShaped(value: string): boolean {
+  return RFC3339.test(value) || HTTP_DATE.test(value) || goDuration(value);
+}
+
+/**
+ * Whether a value under a name that holds none (a secret's name) reads as a key (credentialValue)
+ * all the same: never a time or a duration, nor an ARN, whose suffix AWS makes up reads as a key's part.
+ */
+function readsAsKey(value: string): boolean {
+  return credentialValue(value) && !timeShaped(value) && !ARN_SHAPED.test(value);
 }
 
 /** A URL-encoded name or value as text: `+` a space, `%xx` its character; as it is when it doesn't decode. */
@@ -438,7 +507,7 @@ export function maskJsonCredentials(value: unknown): unknown {
   } catch {
     return value;
   }
-  const masked = text === undefined ? null : walkJson(text, stringsAt(0), credentialMember);
+  const masked = text === undefined ? null : walkJson(text, stringsAt(0), credentialMember, heldIn(text));
   return masked == null ? value : (JSON.parse(masked) as unknown);
 }
 
@@ -458,9 +527,26 @@ function maskedString(key: string | null, value: string, under: boolean, depth: 
 /**
  * Whether a member's object or array value is a credential through and through, every string in it
  * masked: its name read as one by itself (`client_secret`, `api_keys`, `recovery_codes`, `cookies`),
- * which a bare `key`, `token` or `code` never is.
+ * which a bare `key`, `token` or `code` never is; and, for a name that names or describes a secret
+ * (`secret_version`, `secret_tags`), when any string in it reads as a key (readsAsKey), as one
+ * given it directly would (`{"secret_version": {"value": "ghp_…"}}`).
  */
-const credentialMember = (key: string): boolean => credentialParam(key, '');
+const credentialMember = (key: string): boolean | StringTest => (credentialParam(key, '') ? true : describesASecret(key) ? readsAsKey : false);
+
+/** Every word of SECRET_WORD, and every one a password's starts, holds one of these, in any case. */
+const SECRET_WORD_IN = /pass|secret/i;
+
+/**
+ * Whether a name names or describes a secret under the rule masking reads by (namesASecret), so it
+ * keeps a value that reads as no key. A name with no secret word's letters in it (SECRET_WORD_IN), as
+ * most are, isn't split into its words: a body nested deep opens an object under a member at every
+ * level.
+ */
+function describesASecret(name: string): boolean {
+  if (secretNames === 0 || !SECRET_WORD_IN.test(name)) return false;
+  const words = wordsOf(name);
+  return words.some(secretWord) && namesASecret(words, secretNames);
+}
 
 /** The string rule for strings `depth` deep, as walkJson takes it; with `byName`, as a redirect's JSON is read (maskedString). */
 const stringsAt =
@@ -469,14 +555,27 @@ const stringsAt =
     maskedString(key, value, under, depth, byName);
 
 /**
+ * Where the JSON in `text` holds a secret by its shape, as walkJson reads it: a secret store's answer
+ * (secretStoreValues), looked for only in a text that can hold one. `callName` names the captured
+ * call `text` answers: a read under `/v1/secret/` (vaultKv1Read) is answered by Vault's KV engine,
+ * version 1, whose secret is the answer's `data`.
+ */
+function heldIn(text: string, callName?: string): FindHeld | null {
+  const kv1 = callName !== undefined && vaultKv1Read(callName);
+  if (!kv1 && !mayHoldSecrets(text)) return null;
+  return (doc, start) => secretStoreValues(doc, start, kv1, readsAsKey);
+}
+
+/**
  * JSON text with its credentials masked as maskJsonCredentials masks a parsed value, each string
  * replaced written as `"<CREDENTIAL>"` (or as the string with what is in it masked), every other byte
  * kept (whitespace, numbers of any length such as a 64-bit id or `20.0`, the other strings), so a
- * body stored as received can be masked without being re-serialised. Null when it holds no
+ * body stored as received can be masked without being re-serialised. `callName` names the captured
+ * call it answers, which says where a Vault KV answer holds its secret (heldIn). Null when it holds no
  * credential to mask, or doesn't read as JSON.
  */
-export function maskJsonTextCredentials(text: string): string | null {
-  return walkJson(text, stringsAt(0), credentialMember) ?? null;
+export function maskJsonTextCredentials(text: string, callName?: string): string | null {
+  return walkJson(text, stringsAt(0), credentialMember, heldIn(text, callName)) ?? null;
 }
 
 /**
@@ -486,14 +585,17 @@ export function maskJsonTextCredentials(text: string): string | null {
  * body's fields and parts; an event stream's data; lines of JSON (NDJSON); XML elements and
  * attributes; a GraphQL query's arguments; `key: value` and `key = value` lines (YAML, an INI or a
  * .env file); and the JSON objects among other text (maskEmbeddedJson).
- * Each value by its name (credentialParam), and a JWT whatever its name. `depth` counts the strings it is inside of; `byName` reads parameters by their
+ * Each value by its name (credentialParam), and a JWT whatever its name; in JSON, the secret a secret
+ * store's answer holds (heldIn). `depth` counts the strings it is inside of; `byName` reads parameters by their
  * name alone, as a redirect's are, and so the members of its JSON and what its strings hold (htmx's
- * `hx-location`). Every character it doesn't replace stays as it was; null when it replaced nothing.
+ * `hx-location`); `callName` names the captured call a whole JSON text answers (heldIn). Every
+ * character it doesn't replace stays as it was; null when it replaced nothing.
  */
-export function maskTextCredentials(text: string, depth = 0, byName = false): string | null {
+export function maskTextCredentials(text: string, depth = 0, byName = false, callName?: string): string | null {
   const strings = stringsAt(depth, byName);
   const wrapped = unwrapJson(text);
-  const json = walkJson(wrapped.json, strings, credentialMember);
+  const held = heldIn(text);
+  const json = walkJson(wrapped.json, strings, credentialMember, callName === undefined ? held : heldIn(text, callName));
   if (json !== undefined) return json === null ? null : wrapped.prefix + json + wrapped.suffix;
   if (URL_SHAPED.test(text)) {
     const masked = maskUrlCredentials(text, byName, depth);
@@ -509,14 +611,14 @@ export function maskTextCredentials(text: string, depth = 0, byName = false): st
     // An event's data is a string inside this one, a level deeper: a data line inside a data line,
     // over and over, is read no deeper than any other string inside a string, so a level at a time.
     maskEventStream(text, (payload) => (depth < MAX_NESTING ? maskTextCredentials(payload, depth + 1) : null)) ??
-    maskJsonLines(text, (line) => walkJson(line, strings, credentialMember)) ??
+    maskJsonLines(text, (line) => walkJson(line, strings, credentialMember, held)) ??
     maskXml(text, (name, value) => credentialParam(name, value) || JWT.test(value), credentialMember, CREDENTIAL_PLACEHOLDER) ??
     maskGraphqlArguments(text, (name, value) => credentialParam(name, value), CREDENTIAL_PLACEHOLDER) ??
     maskLooseForm(text, byName, depth) ??
     maskKeyValueLines(text, (name, value) => credentialParam(name, value) || JWT.test(value), CREDENTIAL_PLACEHOLDER);
   // JSON among other text, which no shape above read whole: after a comment, before `;`, run
   // together, in a page's script. What a shape masked already is read again, and stays as it is.
-  const embedded = text.includes('{') ? (maskEmbeddedJson(shaped ?? text, strings, credentialMember) ?? shaped) : shaped;
+  const embedded = text.includes('{') ? (maskEmbeddedJson(shaped ?? text, strings, credentialMember, held) ?? shaped) : shaped;
   // A URL's user info and a JWT, wherever they stand in what is left: a .env line's database URL, a sentence's token.
   const read = embedded ?? text;
   const loose = maskJwtsInText(maskUrlUserInfo(read));
@@ -607,11 +709,11 @@ function maskLooseForm(text: string, byName: boolean, depth: number): string | n
 /**
  * Bytes (a body that isn't UTF-8, stored as base64: one in Latin-1, a JSON document holding raw
  * bytes, a form with a file) with their credentials masked by their shape, as maskTextCredentials
- * masks text: read one byte to a character, so every byte it doesn't replace stays as it was. Null
- * when it replaced nothing.
+ * masks text (`callName`, the call they answer, too): read one byte to a character, so every byte it
+ * doesn't replace stays as it was. Null when it replaced nothing.
  */
-export function maskBytesCredentials(bytes: Buffer): Buffer | null {
-  const masked = maskTextCredentials(bytes.toString('latin1'));
+export function maskBytesCredentials(bytes: Buffer, callName?: string): Buffer | null {
+  const masked = maskTextCredentials(bytes.toString('latin1'), 0, false, callName);
   return masked === null ? null : Buffer.from(masked, 'latin1');
 }
 
@@ -801,8 +903,13 @@ const TOKEN_COUNT = new Set(['count', 'counts', 'usage', 'limit', 'limits', 'rem
  */
 const ROUTING_HEADERS = ['azureml-model-session'];
 
-/** A count, a limit, a duration or a time as a header gives it: digits, and only a time's punctuation and letters (`12`, `6m0s`, `2026-10-30T12:00:00Z`). */
-const COUNT_SHAPED = /^[\d .:+\-TZhmsun]*$/i;
+/**
+ * A count or a limit of tokens as a header gives it: at most 12 digits, a trillion, more than any
+ * provider counts or limits tokens in, and fewer than a card number or a numeric token has.
+ */
+const SHORT_COUNT = /^\d{1,12}$/;
+/** The session Azure names in `azureml-model-session`: a letter and a few digits, then the 14 digits of when it started (`d065-20240606224238`). */
+const AZURE_SESSION = /^[a-z]\d{1,6}-\d{14}$/;
 
 /**
  * Whether the token word at `i` of a header's name is a count's or a limit's: the word after it is
@@ -821,8 +928,9 @@ function countsTokens(words: readonly string[], i: number): boolean {
  * (`x-session-token-raw`), but a page's token (`x-next-page-token`), which a client sends back. The
  * explicit list covers the echoed request headers, which read by their words alone aren't
  * credentials. A count or a limit of tokens (countsTokens) and a routing hint (ROUTING_HEADERS) hold
- * none: given its `value`, one is a credential only when that reads as a key (credentialValue)
- * rather than as a count, a duration or a time; with no value given, it is taken for one.
+ * none: given its `value`, one is kept only in the shape its name says it has, a count of at most 12
+ * digits, a time or a duration (SHORT_COUNT, timeShaped), and Azure's session as Azure writes it
+ * (AZURE_SESSION), and taken for a credential otherwise, as with no value given.
  */
 export function credentialHeader(name: string, value?: string): boolean {
   const lower = name.toLowerCase();
@@ -832,7 +940,8 @@ export function credentialHeader(name: string, value?: string): boolean {
   const words = wordsOf(lower);
   const counted = words.map((w, i) => w === 'token' && countsTokens(words, i));
   if (words.some((w, i) => HEADER_SECRET_WORD.has(w) && !counted[i])) return !words.some((w) => CURSOR.includes(w));
-  return (routing || counted.includes(true)) && (value === undefined || (credentialValue(value) && !COUNT_SHAPED.test(value)));
+  if (!routing && !counted.includes(true)) return false;
+  return value === undefined || !(routing ? AZURE_SESSION.test(value) : SHORT_COUNT.test(value) || timeShaped(value));
 }
 
 /** A header value that is a JWT, alone or after an auth scheme (`Bearer eyJ…`): a bearer credential, whatever the header is named. */
@@ -1024,10 +1133,11 @@ export function credentialFreeRequest(bytes: Buffer): Buffer | null {
  * recording keeps it: its headers as credentialFreeHeaders keeps them, and its body with its
  * credentials masked in place by its shape, whatever its content type said (an OAuth token
  * response's `access_token` in JSON, typed as text or behind a prefix; a form-encoded answer's
- * token; an event stream's; an STS answer's XML), every other byte as the service sent it; null when
- * it holds nothing to mask (or is no such result).
+ * token; an event stream's; an STS answer's XML; a secret store's secret, by `callName` too, the
+ * name of the call it answers), every other byte as the service sent it; null when it holds nothing
+ * to mask (or is no such result).
  */
-export function credentialFreeResult(bytes: Buffer): Buffer | null {
+export function credentialFreeResult(bytes: Buffer, callName?: string): Buffer | null {
   const text = bytes.toString('utf8');
   let doc: unknown;
   try {
@@ -1045,19 +1155,19 @@ export function credentialFreeResult(bytes: Buffer): Buffer | null {
   if (result.encoding === 'json' && body !== undefined) {
     const raw = rawJsonMember(text, ['result', 'body']);
     if (raw !== null) {
-      const masked = maskJsonTextCredentials(raw);
+      const masked = maskJsonTextCredentials(raw, callName);
       return kept === headers && masked === null ? null : resultBlob(next, masked ?? raw);
     }
   }
-  const maskedBody = typeof body === 'string' && (result.encoding === 'text' || result.encoding === 'base64') ? maskedResponseBody(body, result.encoding) : body;
+  const maskedBody = typeof body === 'string' && (result.encoding === 'text' || result.encoding === 'base64') ? maskedResponseBody(body, result.encoding, callName) : body;
   if (kept === headers && maskedBody === body) return null;
   return Buffer.from(JSON.stringify({ result: maskedBody === undefined ? next : { ...next, body: maskedBody } }), 'utf8');
 }
 
-/** A stored text or base64 response body with its credentials masked by its shape; the same string when there are none. */
-function maskedResponseBody(body: string, encoding: 'text' | 'base64'): string {
-  if (encoding === 'text') return maskTextCredentials(body) ?? body;
-  return maskBytesCredentials(Buffer.from(body, 'base64'))?.toString('base64') ?? body;
+/** A stored text or base64 response body, the answer to `callName`, with its credentials masked by its shape; the same string when there are none. */
+function maskedResponseBody(body: string, encoding: 'text' | 'base64', callName?: string): string {
+  if (encoding === 'text') return maskTextCredentials(body, 0, false, callName) ?? body;
+  return maskBytesCredentials(Buffer.from(body, 'base64'), callName)?.toString('base64') ?? body;
 }
 
 /**
@@ -1065,18 +1175,19 @@ function maskedResponseBody(body: string, encoding: 'text' | 'base64'): string {
  * whatever its content type said: for a JSON body, the string value of each credential member
  * (maskJsonTextCredentials); for text, as maskTextCredentials reads it (JSON typed as text or behind
  * a prefix, a form-encoded answer, an event stream, lines of JSON, XML); for bytes that aren't
- * UTF-8, the same, read one byte to a character. Every other byte as sent; the bytes as they are
- * when nothing is masked.
+ * UTF-8, the same, read one byte to a character. A secret store's secret is masked by the answer's
+ * shape, and by `callName`, the name of the call it answers (heldIn). Every other byte as sent; the
+ * bytes as they are when nothing is masked.
  */
-export function responseBodyWithoutCredentials(received: Buffer, encoding: unknown): Buffer {
+export function responseBodyWithoutCredentials(received: Buffer, encoding: unknown, callName?: string): Buffer {
   if (encoding === 'json') {
-    const masked = maskJsonTextCredentials(received.toString('utf8'));
+    const masked = maskJsonTextCredentials(received.toString('utf8'), callName);
     return masked === null ? received : Buffer.from(masked, 'utf8');
   }
   if (encoding === 'text') {
-    const masked = maskTextCredentials(received.toString('utf8'));
+    const masked = maskTextCredentials(received.toString('utf8'), 0, false, callName);
     return masked === null ? received : Buffer.from(masked, 'utf8');
   }
-  if (encoding === 'base64') return maskBytesCredentials(received) ?? received;
+  if (encoding === 'base64') return maskBytesCredentials(received, callName) ?? received;
   return received;
 }

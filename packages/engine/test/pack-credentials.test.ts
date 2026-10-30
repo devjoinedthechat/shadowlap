@@ -233,3 +233,48 @@ describe("a copy of a run whose command line and a captured call's address carry
     store.close();
   });
 });
+
+/**
+ * A run an earlier version recorded of a secret store's answers, stored as they came: a read of
+ * Vault's KV engine, version 1, a Kubernetes Secret, and a Secret's manifest sent to create one;
+ * the first `count` of them.
+ */
+function withSecretStores(store: Store, count = 3) {
+  const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '/tmp' } });
+  const manifest = { apiVersion: 'v1', kind: 'Secret', metadata: { name: 'api' }, stringData: { note: 'SLSEC_STORE_MANIFEST' } };
+  const calls: Array<[string, string, unknown, string]> = [
+    ['GET vault.example.com:8200/v1/secret/prod/db', 'vault.example.com:8200', { method: 'GET', url: 'https://vault.example.com:8200/v1/secret/prod/db' }, '{"request_id":"b0e1c2d3-0000-4000-8000-000000000001","lease_duration":2764800,"data":{"db":"SLSEC_STORE_VAULT","user":"app"}}'],
+    ['GET k8s.example.com/api/v1/namespaces/prod/secrets/db', 'k8s.example.com', { method: 'GET', url: 'https://k8s.example.com/api/v1/namespaces/prod/secrets/db' }, `{"apiVersion":"v1","data":{"url":"${Buffer.from('SLSEC_STORE_K8S').toString('base64')}"},"kind":"Secret","metadata":{"name":"db","namespace":"prod"}}`],
+    ['POST k8s.example.com/api/v1/namespaces/prod/secrets', 'k8s.example.com', { method: 'POST', url: 'https://k8s.example.com/api/v1/namespaces/prod/secrets', body: manifest, encoding: 'json' }, '{"kind":"Secret","metadata":{"name":"api"}}'],
+  ];
+  calls.slice(0, count).forEach(([name, host, args, answer], i) => {
+    const call = { kind: 'tool' as const, name, fingerprint: String(i).repeat(64), occurrence: 1 };
+    store.appendCallStart({ runId: run.runId, callNo: i + 1, ...call, origin: 'live', effect: 'read', requestRef: store.putJson({ args }), meta: { http: host }, at: 2 * i + 1 });
+    store.appendCallEnd(call, { runId: run.runId, callNo: i + 1, attempt: 0, responseRef: store.putBlob(resultBlob({ status: 200, headers: { 'content-type': 'application/json' }, encoding: 'json' }, answer)), outcome: 'ok', meta: {}, at: 2 * i + 2 });
+  });
+  store.endRun(run.runId, 'completed');
+  return run;
+}
+
+describe('a copy of a recording an earlier version made of a secret store’s answers', () => {
+  const STORE_SECRETS = ['SLSEC_STORE_VAULT', Buffer.from('SLSEC_STORE_K8S').toString('base64'), 'SLSEC_STORE_MANIFEST'];
+
+  it('carries none of the secrets, a pack with no rules and a push too, and keeps what names them', () => {
+    const store = Store.open(':memory:');
+    const run = withSecretStores(store);
+    expect(carriesCredentials(store, run.runId)).toBe(true);
+    // A Vault read alone, its secret said by the path it read.
+    expect(carriesCredentials(store, withSecretStores(store, 1).runId)).toBe(true);
+    const packed = everything(packOf(store, run.runId));
+    const pushed = credentialFreeCalls(store, store.getCalls(run.runId))
+      .flatMap((c) => [c.requestRef, c.end?.responseRef])
+      .filter((ref): ref is string => !!ref)
+      .map((ref) => store.getBlob(ref)!.toString('latin1'))
+      .join('\n');
+    for (const [copy, bytes] of [['pack', packed], ['push', pushed]]) {
+      for (const secret of STORE_SECRETS) expect(bytes, `${secret} in a ${copy}`).not.toContain(secret);
+      for (const kept of ['b0e1c2d3-0000-4000-8000-000000000001', '"namespace":"prod"', '"name":"api"']) expect(bytes, `${kept} in a ${copy}`).toContain(kept);
+    }
+    store.close();
+  });
+});

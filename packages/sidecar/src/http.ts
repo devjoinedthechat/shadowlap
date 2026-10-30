@@ -121,11 +121,12 @@ export interface HttpResult extends StoredBody {
  * back in its body is stored as `<CREDENTIAL>` too, in place, by the body's shape whatever its
  * content type said (responseBodyWithoutCredentials): an OAuth token response's `access_token` and
  * `refresh_token` in JSON (typed as text, or behind a prefix), a form-encoded answer's token, an
- * event stream's or an STS answer's. The agent gets the response as it came, live.
+ * event stream's or an STS answer's; and a secret a secret store hands back, by the answer's shape
+ * and the name of the call it answers (`callName`). The agent gets the response as it came, live.
  */
-export function storedResult(result: HttpResult, received: Buffer): Buffer {
+export function storedResult(result: HttpResult, received: Buffer, callName?: string): Buffer {
   try {
-    return storedResultMasked(result, received);
+    return storedResultMasked(result, received, callName);
   } catch {
     // How a result is stored never loses its call: one masking can't read is kept as a placeholder.
     return unreadResult(result.status);
@@ -137,25 +138,30 @@ export function unreadResult(status: number): Buffer {
   return Buffer.from(JSON.stringify({ result: { status, headers: {}, body: CREDENTIAL_PLACEHOLDER, encoding: 'text' } }), 'utf8');
 }
 
-/** What a captured call's answer is stored from, besides its body: its status, its headers as kept (keptResponseHeaders), and the content type its body is read by. */
+/**
+ * What a captured call's answer is stored from, besides its body: its status, its headers as kept
+ * (keptResponseHeaders), the content type its body is read by, and the call's name (`GET host/path`),
+ * which says where a Vault KV answer holds its secret.
+ */
 export interface ResponseHead {
   status: number;
   headers: Record<string, string>;
   contentType: string | undefined;
+  callName?: string;
 }
 
 /** A captured call's answer as stored: its body read by its content type (decodeBody), then stored as storedResult stores it. */
 export function storedResponse(head: ResponseHead, bytes: Buffer): Buffer {
-  return storedResult({ status: head.status, headers: head.headers, ...decodeBody(bytes, head.contentType) }, bytes);
+  return storedResult({ status: head.status, headers: head.headers, ...decodeBody(bytes, head.contentType) }, bytes, head.callName);
 }
 
-function storedResultMasked(result: HttpResult, received: Buffer): Buffer {
+function storedResultMasked(result: HttpResult, received: Buffer, callName: string | undefined): Buffer {
   const kept: HttpResult = { ...result, headers: credentialFreeHeaders(result.headers) };
   const { body, ...rest } = kept;
-  if (kept.encoding === 'text' && typeof body === 'string') return Buffer.from(JSON.stringify({ result: { ...kept, body: responseBodyWithoutCredentials(Buffer.from(body, 'utf8'), 'text').toString('utf8') } }), 'utf8');
-  if (kept.encoding === 'base64' && typeof body === 'string') return Buffer.from(JSON.stringify({ result: { ...kept, body: responseBodyWithoutCredentials(received, 'base64').toString('base64') } }), 'utf8');
+  if (kept.encoding === 'text' && typeof body === 'string') return Buffer.from(JSON.stringify({ result: { ...kept, body: responseBodyWithoutCredentials(Buffer.from(body, 'utf8'), 'text', callName).toString('utf8') } }), 'utf8');
+  if (kept.encoding === 'base64' && typeof body === 'string') return Buffer.from(JSON.stringify({ result: { ...kept, body: responseBodyWithoutCredentials(received, 'base64', callName).toString('base64') } }), 'utf8');
   if (kept.encoding !== 'json' || body === undefined) return Buffer.from(JSON.stringify({ result: kept }), 'utf8');
-  return resultBlob(rest, responseBodyWithoutCredentials(received, 'json'));
+  return resultBlob(rest, responseBodyWithoutCredentials(received, 'json', callName));
 }
 
 /**

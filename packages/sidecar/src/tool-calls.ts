@@ -261,7 +261,7 @@ export function recordToolStart(core: SidecarCore, ctx: RunContext, callNo: numb
  * Record: a tool call's fingerprint in the cache for the next replay to start from, once its
  * request is stored, with the dates its arguments hold (fingerprint-cache.ts). `matched` is the
  * name and rules it was fingerprinted under; a captured call's arguments were read with a secret's
- * name kept or masked as the run keeps it (RunContext.secretNames).
+ * names under the run's rule (RunContext.secretNames).
  */
 export function cacheToolFingerprint(core: SidecarCore, ctx: RunContext, callNo: number, matched: { name: string; normalizers: Normalizer[] }, captured: boolean, fingerprint: string, args: unknown, requestRef: () => string | null): void {
   core.writer.write({
