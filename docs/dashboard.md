@@ -1108,6 +1108,154 @@ While a setup is under way:
 
 A setup finished before says so, with the way to Settings → Store.
 
+## Projects
+
+A project is a folder with your agent's code. Its store is in that folder (`.shadowlap/shadowlap.db`), so each project has its own runs, fixes, tests, configuration and activity.
+
+One dashboard serves several projects. Switching projects switches the store it reads, and every action runs in that project's folder, against its store. The folder `shadowlap dashboard` starts in is always one of them, and the dashboard opens on it. `shadowlap dashboard --read-only` and the dashboard the terminal UI opens serve that one store only.
+
+### The project switcher
+
+The project at the top of the sidebar opens the switcher. It lists every project on this machine, with its folder and run count, marked *current*, *setting up* or *no runs yet*, then **Add project…**.
+
+- **Picking one** switches to it and opens its Overview.
+- **A job already running** keeps to the project it started in. Once the page shows another, its drawer says which (*in support-agent*), and its links switch back before they open.
+- **While there is more than one project**, each has a × that opens **Remove from dashboard**. From the keyboard: ↓ to the project, then Delete.
+
+**A project whose folder is gone** (deleted, or moved, even while the dashboard shows it) stays listed as *folder not found*. Its pages say so and offer to remove it, and its actions are refused with the reason. They come back once the folder does.
+
+**A store deleted while the dashboard serves it**, its folder still there, is said to be, by the file it was rather than its name. Its pages say so, its actions are refused with the reason, and nothing reads the deleted file any more. A store made where it was (a run recorded) is read anew, with none of the old one's runs. A dashboard that serves one store, as the terminal UI's does, says so and asks to be started again.
+
+### Switching projects
+
+Switching is for every tab at once: the dashboard serves one project at a time. A tab that still shows the project you switched away from catches up within seconds, or at once when you come back to it.
+
+- **A change it asks for meanwhile** is refused rather than made in the other project. The page says so, and turns to the current one.
+- **The page it shows** stays when every project has that page (the Overview, Runs, Tests, Fixes, Training, Settings), with whatever is typed on it, so a refused change can be sent again to the current project. A run, a comparison or a fix of the other project gives way to the Overview.
+- **A dialog that was open** closes, since what it asked about (a folder to record in, a golden to update, runs to delete) is the other project's, and nothing is done in either. One that holds only what you typed (a rule to add, a server's command) stays, and says it adds to the current project instead.
+- **A first run's confirmation** names the project it was asked in, so it is never used up in another.
+
+### The project list
+
+The dashboard keeps the list in `~/.shadowlap/projects.json`. `SHADOWLAP_HOME` moves the folder; give it as an absolute path.
+
+The list holds no recordings. For each project it holds its name, folder and when it was added, how far its setup got, and the commands you confirmed for recording there. It holds the same for projects you removed, so adding one again brings it back. It is written atomically and readable only by you, and keys it doesn't know are kept.
+
+- **Listing projects** reads their stores without changing them. So a project pinned to an older Shadowlap keeps working, and a store in a folder you can't write to is still read.
+- **A store that can't be read at all** (a newer Shadowlap's) is listed with the reason.
+- **If the list can't be read**, or a newer Shadowlap wrote it, the dashboard still opens on its folder, and says why it can't list or add others.
+
+### Adding a project
+
+**Add project…** asks for the folder your agent's code is in. As you type, it suggests folders and says what each holds (`Python · uv · pyproject.toml · uv.lock`, `Node · pnpm · package.json · pnpm-lock.yaml`).
+
+- **A folder of projects**, without project files of its own, lists the projects it holds in its place (`~/code/invoice-bot` rather than `~/code`). Typing a project's name finds it there too.
+- **A folder that isn't a project**, without a `pyproject.toml`, `package.json`, requirements file or other project file, can't be added, and says so. Clicking it lists what is inside.
+- **A folder that was a project before** comes back as it was: its runs, its setup where it left off, and the commands you confirmed there.
+- **A moved folder**: a project's folder is listed once, by its real path. One you moved with a link left at its old path is already in the dashboard, and adding it by the path it moved to moves the project there.
+- **A folder that already has runs**, recorded in a terminal, opens on its Overview, as when `shadowlap dashboard` starts there.
+
+### Folder suggestions
+
+Suggesting folders means the dashboard lists directories, so it does that within limits a web page can't stretch.
+
+**Access.** Like every request, suggestions need the session token. Adding a project, like every change, is also refused from another origin.
+
+**Where they reach.** Suggestions reach your home folder, and roots you add: `"roots": ["/work/agents"]` in `projects.json`, or `SHADOWLAP_PROJECT_ROOTS` (separated like `PATH`).
+
+- A root can't be `/`, a system folder, or a folder that holds your home folder.
+- With nothing typed, a root is listed too; when it has no project files of its own, the projects in it are listed in its place, as typing its path lists them. A folder of it without project files gives way to the projects one level inside, as `code/invoice-bot`.
+- A path that leads elsewhere, through `..` or a symbolic link, lists nothing.
+
+**What they list.** Suggestions list one folder level at a time: folder names, what kind of project each is, and the projects one level inside a folder without project files. They look in at most 40 such folders, and 25 subfolders of each, looking into the usual places for code first: `code`, `projects`, `src`, `repos`, `work` and the like.
+
+- They never list files, and a file gets the same answer as a path where nothing is.
+- A link is never followed to find them.
+- Hidden folders (`~/.ssh`) and system folders (`~/Library`, `~/AppData` and `~/snap` in your home folder, `node_modules` anywhere) are never listed or entered. The exception is a root you add inside one, such as your iCloud Drive folder under `~/Library`.
+
+**How a typed path is checked.** It is checked as typed before anything is looked up, then where it really leads, and only then whether it is a folder. So a path into a hidden folder gets the same answer whether or not something is there.
+
+**How much is read.** At most 2,000 entries are read from a folder, and 100 suggestions returned.
+
+### Setting it up
+
+Adding a project opens its setup.
+
+- **A project with no runs** shows it on every page but Settings.
+- **One that is partway through** shows it on the Overview (and at `#/setup`).
+- **Skip the rest**, or, once its golden's test passes, **Go to the overview**, finishes it.
+
+The setup has four steps. Each runs the command beside it in the project's folder, the same one you could type in a terminal:
+
+| Step | What it does          | Command                                                                     |
+| ---: | --------------------- | --------------------------------------------------------------------------- |
+|    1 | Inspect the folder    | `shadowlap init`                                                            |
+|    2 | Record a first run    | `shadowlap run -- <command>`                                                |
+|    3 | Make the replay clean | `shadowlap calibrate <run> --write`                                         |
+|    4 | Keep it as a test     | `shadowlap pack <run> goldens/<name>`, then `shadowlap test goldens/<name>` |
+
+**1. Inspect the folder.** Inspecting finds the SDKs, the start command, and every tool with its effect. Tools that aren't wrapped are flagged, with the code to wrap them. The dashboard reads what [`init --json`](./cli.md#init) prints, from the job, and the job's drawer shows what `init` found, a line each.
+
+- Inspecting is done once `init` has run in the folder. A project recorded in a terminal first shows it as skipped, and can still be inspected.
+- A Node the project pins before 18.18 (`.nvmrc` or `.node-version`) is flagged there: an agent on it never starts under Shadowlap. So **Record a run** stays off until the pin is raised and the folder checked again.
+
+**2. Record a first run.** A recording counts once it holds calls. One whose command didn't start (a typo), or whose agent stopped before its first model call, recorded nothing, and the step says so.
+
+- When tools weren't wrapped while it was recorded, their calls aren't in it: wrap them, check again, and **Record again**.
+- Until the replay is made clean, the newest recording is the setup's, so recording again in a terminal works too.
+
+**3. Make the replay clean.** This replays the recording offline. When it replays clean as it is, the step is done by itself. When calibrate proposes normalizers for values the agent makes anew on every run, **Add it** writes them to `shadowlap.config.json`.
+
+**4. Keep it as a test.** The golden goes in a folder of its own, `goldens/<project>` unless you name another. Shadowlap never packs over a golden that is already there, and offers the next free name instead.
+
+- **Pack as a golden** packs it and runs its test in one job, so leaving the page doesn't stop it halfway. The step is done once the test passes.
+- **A golden whose test failed** keeps the step open, with why and **Run the test again**. Fix what changed (or record again), then run it.
+
+**Skip the rest** appears after the first recording. Finishing before the test passed counts the last step as skipped.
+
+The same commands typed in a terminal move the setup on:
+
+- `init` records what it finds.
+- A recording counts once it holds calls.
+- A clean replay of it (`shadowlap replay <run>`) completes step 3, and a pack of it under `goldens/` whose test passed (`shadowlap test`, which keeps each golden's result in the store) completes step 4.
+- Packed but not yet tested, the step offers **Run the test**.
+
+One step is current at a time. Once a golden is packed, making the replay clean shows as passed by (it can still be run), and a test of the golden that passed counts as a clean replay too. `calibrate --write` in a terminal leaves nothing behind by itself; the setup's **Calibrate** then finds the replay clean as it is.
+
+### The command that starts your agent
+
+The browser never sends a command line, with one exception that already exists for a capture's replay: the command that starts your agent. It only ever goes after `--` in `shadowlap run -- <command>`.
+
+The server splits it into arguments without a shell, reading quotes as a terminal on macOS or Linux does. So the command the setup shows reads back as the same arguments:
+
+- **Quotes**: single quotes keep text as it is, and a backslash makes the next character text (`'it'\''s'`, `my\ file`).
+- **Windows paths**: so that one works, a backslash before a letter, a digit, `.`, `_` or `-` is kept (`C:\agents\run.py`). Two backslashes in a row are refused.
+
+What only a shell would understand is refused rather than passed on as text, so put the rest in a script. The server refuses:
+
+- a pipe, `&&`, a redirection, `$VAR`, a leading `~`, a wildcard or a comment outside quotes;
+- `$VAR` or a substitution inside double quotes;
+- `$'…'`;
+- a backslash at the end of the line.
+
+The first time a command runs in a folder, the dashboard asks before running it. The same command in the same folder doesn't ask again, unless its model calls would go to another model server than before.
+
+`init` can find that the project talks to a model server of its own: `OPENAI_BASE_URL` in its `.env`, or a local base URL in its code, as with Ollama or vLLM. Recording then sets `SHADOWLAP_UPSTREAM_OPENAI` to that server, as `init` tells you to in a terminal, so the calls go there and not to the provider's API. A server address with credentials in it (a password, or a key in its query) is never stored or shown, so such a project is recorded in a terminal.
+
+### Removing a project
+
+**Remove from dashboard** takes the project off the list. Nothing on disk changes: the folder and its code, its store, `shadowlap.config.json` and the goldens stay. The list remembers how far its setup got and the commands you confirmed, so adding the folder again undoes it.
+
+**Also delete its recordings** deletes the store as well (`.shadowlap/shadowlap.db` and the files SQLite keeps beside it), once you type the project's name. The list forgets the project: added again, its setup starts afresh.
+
+- **It won't while a run is recording there**: a run whose process is still there, however long ago it started. One a killed process left marked running doesn't hold it up.
+- **It won't when the folder can't be written to.**
+- **It never touches the goldens** in your repository.
+
+Repair reports, exports and files sent to jobs, in `.shadowlap/repairs`, `.shadowlap/exports` and `.shadowlap/uploads`, are copies of their own and stay too. The dialog names the ones there, so delete them yourself if they hold what you mean to delete. With a [team store](./team.md), the dialog says how many of the runs are in it too, which stay there, and how many exist only here.
+
+The only project can't be removed.
+
 ## Actions
 
 Labels, notes and actions run only from a dashboard started with `shadowlap dashboard`; elsewhere their buttons say why they are off. **Replay** re-runs the recorded command. **Fork at #n** (or a row's fork button, or `f`) offers what the terminal UI's fork menu offers for that call, one line each with its flag: at a model call, inject an instruction (always as the user), switch the model, fork with your changed prompt, an HTTP failure (`--fail-at`) or diverge; at a tool call, override its result, answer with a tool error, plant a prompt injection (reads only), force it live or diverge; at a recorded user input, answer differently as the user or diverge; and for the whole run, repeat the replay and compare the attempts (`--repeat`), stub the writes, or find the commit that broke it ([`bisect`](./cli.md#bisect), which asks for a commit where the run still worked and offers the ones its command was recorded at that this checkout has, searching up to HEAD when the run failed at a commit it lacks, such as a teammate's; on a run that passed, the first commit after its own that changed what it does, once there is a commit after it; a run that failed at the repository's first commit, or the oldest a shallow clone has, has nothing before it to search, and the item says so instead; a run that failed on its own is replayed with `--fork`, and the dialog says that one live replay decides each commit, which a failure that doesn't happen every time can pass); a fork is made again from its parent, with the flags, command and checks that made it. An action that needs something from you (the instruction to inject, the status to fail with, the model to switch to) asks for it in a dialog first; the inject dialog shows the command it runs. What you type is passed as text, never read as a file. See [Interventions](./interventions.md). A run imported from a capture has no command, so its menu shows a note and one action, **Replay** with your command; that replay records every kind of call, and every fork works on it. **Share** copies the run, each copy a job: an HTML file with the runs it came from and a HAR, which also download; a pack, into a folder inside the project; a dataset for evals, in a format and with the examples you pick; or an OpenTelemetry trace, sent to a collector or written to a file (a file only: it is sent nowhere else). Copies are written into `.shadowlap/exports/` in the project unless a pack names another folder, never through a link that is already there, and the menu says how many redaction rules each applies (a trace carries no prompt text, so only the rules without a path). A run is copied once it has ended. With a [team store](./team.md), a share link comes first, its drawer ending on **Copy link** (the report opens for anyone with the link until it expires, 7 days at most), and a run only on this machine has **Push** in its header, as does a run in the store whose attempts aren't (Push sends them). **Delete** removes a run, with the attempts bundled under it, which its dialog names and its toast counts, as `shadowlap rm` does, and the recorded data nothing else uses.
@@ -1127,53 +1275,6 @@ More on a run's actions. **Plant a prompt injection** starts from a few sample i
 ## Read-only
 
 `shadowlap dashboard --read-only` shows every page and changes nothing in your runs: replay, fork and the other actions, labels, notes, uploads and deletes are refused, and each says why where you would have used it. The top bar says *read-only*, with the reason on hover, and Search or jump to leaves the actions out. Downloading a run as HTML (**Share → HTML file**) still works, since it changes nothing: the file comes straight from the dashboard instead of being written into the project. Use it to show a colleague your runs, or to look around without the risk of a click changing something. It needs an existing store and never creates one, and it leaves the uploads folder alone (even files another dashboard left there); it opens that store the way every command does, which brings an older store's layout up to date and lets search build its index. A dashboard started without the CLI behind it (embedded elsewhere) is read-only in the same way, and its top bar and buttons say to start it with `shadowlap dashboard`.
-
-## Projects
-
-A project is a folder with your agent's code. Its store is in that folder (`.shadowlap/shadowlap.db`), so each project has its own runs, fixes, tests, configuration and activity, and one dashboard serves several: switching projects switches the store it reads, and every action runs in that project's folder, against its store. The folder `shadowlap dashboard` starts in is always one of them, and the dashboard opens on it. `shadowlap dashboard --read-only` and the dashboard the terminal UI opens serve that one store only.
-
-The project at the top of the sidebar opens the switcher: every project on this machine with its folder and run count, marked *current*, *setting up* or *no runs yet*, then **Add project…**. Picking one switches to it and opens its Overview; a job already running keeps to the project it started in, and its drawer says which (*in support-agent*) once the page shows another, its links switching back before they open. While there is more than one project, each has a × that opens **Remove from dashboard** (from the keyboard: ↓ to the project, then Delete). A project whose folder is gone (deleted, or moved, even while the dashboard shows it) stays listed as *folder not found*: its pages say so and offer to remove it, its actions are refused with the reason, and they come back once the folder does. A store deleted while the dashboard serves it (its folder still there) is said to be, by the file it was rather than its name: its pages say so, its actions are refused with the reason, and nothing reads the deleted file any more; a store made where it was (a run recorded) is read anew, with none of the old one's runs. A dashboard that serves one store, as the terminal UI's does, says so and asks to be started again.
-
-Switching is for every tab at once: the dashboard serves one project at a time. A tab that still shows the project you switched away from catches up within seconds (at once when you come back to it), and a change it asks for meanwhile is refused rather than made in the other project: the page says so and turns to the current one. It stays on the page it shows when every project has that page (the Overview, Runs, Tests, Fixes, Training, Settings), with whatever is typed on it, so a refused change can be sent again to the current project; a run, a comparison or a fix of the other project gives way to the Overview. A dialog that was open closes, since what it asked about (a folder to record in, a golden to update, runs to delete) is the other project's, and nothing is done in either; one that holds only what you typed (a rule to add, a server's command) stays, and says it now adds to the current project. A first run's confirmation names the project it was asked in, so it is never used up in another.
-
-The dashboard keeps the list in `~/.shadowlap/projects.json` (`SHADOWLAP_HOME` moves the folder; give it as an absolute path). It holds no recordings: for each project its name, folder and when it was added, how far its setup got, and the commands you confirmed for recording there, and the same for projects you removed, so adding one again brings it back. It is written atomically and readable only by you, and keys it doesn't know are kept. Listing projects reads their stores without changing them, so a project pinned to an older Shadowlap keeps working, and a store in a folder you can't write to is still read; one that can't be read at all (a newer Shadowlap's) is listed with the reason. If the list can't be read, or a newer Shadowlap wrote it, the dashboard still opens on its folder and says why it can't list or add others.
-
-### Adding a project
-
-**Add project…** asks for the folder your agent's code is in. As you type, it suggests folders and says what each holds (`Python · uv · pyproject.toml · uv.lock`, `Node · pnpm · package.json · pnpm-lock.yaml`). A folder without project files of its own that holds projects lists them in its place (`~/code/invoice-bot` rather than `~/code`), and typing a project's name finds it there too. A folder without a `pyproject.toml`, `package.json`, requirements file or other project file can't be added, and says so; clicking it lists what is inside. Adding a folder that was a project before brings it back as it was: its runs, its setup where it left off, and the commands you confirmed there. A project's folder is listed once, by its real path: one you moved with a link left at its old path is already in the dashboard, and adding it by its new path moves the project there. A folder that already has runs, recorded in a terminal, opens on its Overview, as when `shadowlap dashboard` starts there.
-
-Suggesting folders means the dashboard lists directories, so it does that within limits a web page can't stretch:
-
-- Like every request, suggestions need the session token; adding a project, like every change, is also refused from another origin.
-- They reach your home folder, and roots you add: `"roots": ["/work/agents"]` in `projects.json`, or `SHADOWLAP_PROJECT_ROOTS` (separated like `PATH`). With nothing typed, a root is listed too: when it has no project files of its own, by the projects in it, in its place, as typing its path lists them (a folder of it without project files gives way to the projects one level inside, as `code/invoice-bot`). A root can't be `/`, a system folder, or a folder that holds your home folder. A path that leads elsewhere, through `..` or a symbolic link, lists nothing.
-- They list one folder level at a time, folder names and what kind of project each is, and the projects one level inside a folder without project files (in at most 40 such folders, and 25 subfolders of each, looking into the usual places for code first: `code`, `projects`, `src`, `repos`, `work` and the like); never files, and a file gets the same answer as a path where nothing is. A link is never followed to find them. Hidden folders (`~/.ssh`) and system folders (`~/Library`, `~/AppData` and `~/snap` in your home folder, `node_modules` anywhere) are never listed or entered, unless you add a root inside one, such as your iCloud Drive folder under `~/Library`.
-- A typed path is checked as typed before anything is looked up, then where it really leads, and only then whether it is a folder: a path into a hidden folder gets the same answer whether or not something is there.
-- At most 2,000 entries are read from a folder, and 100 suggestions returned.
-
-### Setting it up
-
-Adding a project opens its setup. A project with no runs shows it on every page but Settings; one that is partway through shows it on the Overview (and at `#/setup`), and **Skip the rest** or, once its golden's test passes, **Go to the overview** finishes it. There are four steps, and each runs the command beside it in the project's folder, the same one you could type in a terminal:
-
-| Step | Command |
-|---|---|
-| Inspect the folder: SDKs, the start command, and every tool with its effect. Tools that aren't wrapped are flagged with the code to wrap them | `shadowlap init` (the dashboard reads what [`init --json`](./cli.md#init) prints, from the job) |
-| Record a first run | `shadowlap run -- <command>` |
-| Make the replay clean | `shadowlap calibrate <run> --write` |
-| Keep it as a test | `shadowlap pack <run> goldens/<name>`, then `shadowlap test goldens/<name>` |
-
-Inspecting is done once `init` has run in the folder; a project recorded in a terminal first shows it as skipped, and can still be inspected. The job's drawer shows what `init` found, a line each. A Node the project pins before 18.18 (`.nvmrc` or `.node-version`) is flagged there: an agent on it never starts under Shadowlap, so **Record a run** stays off until the pin is raised and the folder checked again. A recording counts once it holds calls: one whose command didn't start (a typo), or whose agent stopped before its first model call, recorded nothing, and the step says so. When tools weren't wrapped while it was recorded, their calls aren't in it: wrap them, check again, and **Record again**. Until the replay is made clean, the newest recording is the setup's, so recording again in a terminal works too.
-
-Making the replay clean replays the recording offline: when it replays clean as it is, the step is done by itself; when calibrate proposes normalizers for values the agent makes anew on every run, **Add it** writes them to `shadowlap.config.json`. The golden goes in a folder of its own, `goldens/<project>` unless you name another; Shadowlap never packs over a golden that is already there, and offers the next free name instead. **Pack as a golden** packs it and runs its test in one job, so leaving the page doesn't stop it halfway; the step is done once the test passes. A golden whose test failed keeps the step open with why and **Run the test again**; fix what changed (or record again), then run it. **Skip the rest** appears after the first recording, and finishing before the test passed counts the last step as skipped.
-
-The same commands typed in a terminal move the setup on: `init` records what it finds, a recording counts once it holds calls, a clean replay of it (`shadowlap replay <run>`) completes step 3, and a pack of it under `goldens/` whose test passed (`shadowlap test`, which keeps each golden's result in the store) completes step 4; packed but not yet tested, the step offers **Run the test**. One step is current at a time: once a golden is packed, making the replay clean shows as passed by (it can still be run), and a test of the golden that passed counts as a clean replay too. `calibrate --write` in a terminal leaves nothing behind by itself; the setup's **Calibrate** then finds the replay clean as it is.
-
-The browser never sends a command line, with one exception that already exists for a capture's replay: the command that starts your agent, which only ever goes after `--` in `shadowlap run -- <command>`. The server splits it into arguments without a shell, reading quotes as a terminal on macOS or Linux does, so the command the setup shows reads back as the same arguments: single quotes keep text as it is, and a backslash makes the next character text (`'it'\''s'`, `my\ file`). What only a shell would understand is refused rather than passed on as text: a pipe, `&&`, a redirection, `$VAR`, a leading `~`, a wildcard or a comment outside quotes, `$VAR` or a substitution inside double quotes, `$'…'`, and a backslash at the end of the line. So that a Windows path works, a backslash before a letter, a digit, `.`, `_` or `-` is kept (`C:\agents\run.py`), and two backslashes in a row are refused. Put the rest in a script. The first time a command runs in a folder, the dashboard asks before running it; the same command in the same folder doesn't ask again, unless its model calls would now go to another model server.
-
-When `init` finds that the project talks to a model server of its own (`OPENAI_BASE_URL` in its `.env`, or a local base URL in its code, as with Ollama or vLLM), recording sets `SHADOWLAP_UPSTREAM_OPENAI` to that server, as `init` tells you to in a terminal, so the calls go there and not to the provider's API. A server address with credentials in it (a password, or a key in its query) is never stored or shown, so such a project is recorded in a terminal.
-
-### Removing a project
-
-**Remove from dashboard** takes the project off the list. Nothing on disk changes: the folder and its code, its store, `shadowlap.config.json` and the goldens stay, and the list remembers how far its setup got and the commands you confirmed, so adding the folder again undoes it. **Also delete its recordings** deletes the store as well (`.shadowlap/shadowlap.db` and the files SQLite keeps beside it) once you type the project's name, and the list forgets the project: added again, its setup starts afresh. It won't while a run is recording there (a run whose process is still there, however long ago it started; one a killed process left marked running doesn't hold it up) or when the folder can't be written to, and it never touches the goldens in your repository. Repair reports, exports and files sent to jobs, in `.shadowlap/repairs`, `.shadowlap/exports` and `.shadowlap/uploads`, are copies of their own and stay too: the dialog names the ones there, so delete them yourself if they hold what you mean to delete. With a [team store](./team.md), the dialog says how many of the runs are in it too, which stay there, and how many exist only here. The only project can't be removed.
 
 ## Keys
 
