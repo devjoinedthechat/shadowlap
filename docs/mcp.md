@@ -221,6 +221,10 @@ reach each running proxy of yours it finds there, at its address and at `localho
   and the client's response is broken off too (an event stream ends after its last whole event). A
   replay breaks the client's response off again where it was broken off live, rather than answer
   with the error.
+- **HTTP errors.** A tool call answered with no MCP message, such as a 503, or the 502 the proxy
+  gives when the server can't be reached, ends in the recording as an error that keeps the answer.
+  A replay gives the client the same status, body, `Content-Type`, `Cache-Control`,
+  `WWW-Authenticate` and `Retry-After`.
 - **Headers.** `--header`, `--effect` and `--allow-http` work as with `--url` alone. The client's own
   `Authorization` goes on to the server unless a `--header` sets one.
 - **OAuth.** Signing in with OAuth through the proxy isn't supported: pass a token.

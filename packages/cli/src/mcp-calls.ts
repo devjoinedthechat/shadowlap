@@ -128,6 +128,32 @@ export interface McpOrigin {
  */
 const CUT_SHORT = 'McpAnswerCutShort';
 
+/**
+ * The name a call's error is recorded under when the client's answer was no JSON-RPC message
+ * (`--listen`): an HTTP error such as a 503, or the 502 the proxy gives when the server can't be
+ * reached. The answer is kept with it (HttpAnswer), so a replay gives the client the same.
+ */
+const HTTP_ANSWER = 'McpHttpAnswer';
+
+/** The headers of an HTTP answer kept for a replay: what it is, and how to retry or sign in. Never the session's own. */
+export const REPLAYED_HEADERS = ['content-type', 'cache-control', 'www-authenticate', 'retry-after'];
+
+/** An HTTP answer as the client got it: its status, the REPLAYED_HEADERS it had, and its body, in base64 when it isn't UTF-8. */
+export interface HttpAnswer {
+  status: number;
+  headers: Record<string, string>;
+  body: string;
+  base64?: true;
+}
+
+/** A recorded HttpAnswer, as a replay may serve it: null for anything else, and only REPLAYED_HEADERS are kept. */
+function httpAnswer(data: unknown): HttpAnswer | null {
+  if (!isObject(data) || !Number.isInteger(data.status) || (data.status as number) < 100 || (data.status as number) > 599 || typeof data.body !== 'string' || !isObject(data.headers)) return null;
+  const headers: Record<string, string> = {};
+  for (const name of REPLAYED_HEADERS) if (typeof data.headers[name] === 'string') headers[name] = data.headers[name];
+  return { status: data.status as number, headers, body: data.body, ...(data.base64 === true ? { base64: true as const } : {}) };
+}
+
 /** A text bound for the sidecar: control characters as spaces, cut to `max`. */
 const bounded = (s: string, max: number) => s.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, max);
 
@@ -187,11 +213,12 @@ export class ToolCalls {
   }
 
   /**
-   * Routes a `tools/call`: `answer` is the response to give the client here, and `cut` says the
-   * recording broke the client's answer off, which a transport that can does again; otherwise the
-   * request goes to the server, and `live` is set when its answer is to be recorded.
+   * Routes a `tools/call`: `answer` is the response to give the client here, and `cut` and `http`
+   * say the recording broke the client's answer off, or gave it an HTTP answer, which a transport
+   * that can does again; otherwise the request goes to the server, and `live` is set when its answer
+   * is to be recorded.
    */
-  async route(m: JsonRpcMessage & { id: JsonRpcId }): Promise<{ answer: unknown; cut?: true } | { forward: true; live?: LiveCall }> {
+  async route(m: JsonRpcMessage & { id: JsonRpcId }): Promise<{ answer: unknown; cut?: true; http?: HttpAnswer } | { forward: true; live?: LiveCall }> {
     if (this.sidecar === null) return { forward: true };
     const name = typeof m.params?.name === 'string' ? m.params.name : '';
     const args = m.params?.arguments ?? {};
@@ -212,7 +239,7 @@ export class ToolCalls {
         // A tool failed with --fail-at answers as an MCP server does when a tool's handler fails: a
         // result with isError, which the client hands to the model. A recorded error stays as recorded.
         if (r.outcome === 'error' && r.injected) return { answer: { jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: r.error.message }], isError: true } } };
-        return { answer: r.outcome === 'ok' ? { jsonrpc: '2.0', id: m.id, result: r.result } : { jsonrpc: '2.0', id: m.id, error: rpcError(r.error) }, ...(r.outcome === 'error' && r.error.name === CUT_SHORT ? { cut: true as const } : {}) };
+        return r.outcome === 'ok' ? { answer: { jsonrpc: '2.0', id: m.id, result: r.result } } : recordedError(m.id, r.error);
       case 'blocked':
         // The model sees the refusal as a tool error and can carry on, as an SDK agent would after ShadowlapWriteBlocked.
         return { answer: { jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: r.error.message }], isError: true } } };
@@ -243,19 +270,32 @@ export class ToolCalls {
     return { forward: true };
   }
 
-  /** Records the server's answer to a call sent on; with `cut`, an error for an answer the client got broken off. */
-  async complete(call: LiveCall, m: JsonRpcMessage, o: { cut?: boolean } = {}): Promise<void> {
+  /**
+   * Records the server's answer to a call sent on; with `cut`, an error for an answer the client got
+   * broken off, and with `http`, one for the HTTP answer it got instead of a JSON-RPC message.
+   */
+  async complete(call: LiveCall, m: JsonRpcMessage, o: { cut?: boolean; http?: HttpAnswer } = {}): Promise<void> {
     if (this.sidecar === null || 'unusable' in this.sidecar) return;
     const latencyMs = Date.now() - call.started;
-    const body = m.error
-      ? { outcome: 'error', error: { name: o.cut ? CUT_SHORT : 'JsonRpcError', message: m.error.message, code: String(m.error.code), ...(m.error.data !== undefined ? { data: m.error.data } : {}) }, latencyMs }
-      : { outcome: 'ok', result: m.result ?? null, latencyMs };
+    const name = o.cut ? CUT_SHORT : o.http ? HTTP_ANSWER : 'JsonRpcError';
+    const data = o.http ?? m.error?.data;
+    const body = m.error ? { outcome: 'error', error: { name, message: m.error.message, code: String(m.error.code), ...(data !== undefined ? { data } : {}) }, latencyMs } : { outcome: 'ok', result: m.result ?? null, latencyMs };
     try {
       await post(this.sidecar, `/v1/calls/${call.callNo}/complete`, body);
     } catch (err) {
       this.log?.(`could not record the result of ${call.name}: ${messageOf(err)}`);
     }
   }
+}
+
+/**
+ * A recorded error as the client gets it again: a JSON-RPC error, and with it `cut` where the
+ * client's answer was broken off, or `http` where the client got an HTTP answer (HTTP_ANSWER).
+ */
+function recordedError(id: JsonRpcId, error: SerializedError): { answer: unknown; cut?: true; http?: HttpAnswer } {
+  const http = error.name === HTTP_ANSWER ? httpAnswer(error.data) : null;
+  if (http) return { answer: { jsonrpc: '2.0', id, error: { code: -32000, message: error.message } }, http };
+  return { answer: { jsonrpc: '2.0', id, error: rpcError(error) }, ...(error.name === CUT_SHORT ? { cut: true as const } : {}) };
 }
 
 function rpcError(e: SerializedError): JsonRpcError {

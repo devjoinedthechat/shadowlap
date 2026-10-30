@@ -183,16 +183,39 @@ describe('shadowlap mcp --listen', () => {
     expect(server.calls.map((x) => x.name)).toEqual(['send_note']);
   });
 
-  it('records a call the server answers with an HTTP error, so a replay serves the same failure', async () => {
+  it('records a call the server answers with an HTTP error, and a replay answers with it as recorded', async () => {
+    /** What the client got for a call: the status, the headers that say what it is, and the body. */
+    const answer = async (session: string, name: string) => {
+      const res = await fetch(listener.url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': session }, body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name, arguments: {} } }) });
+      return { status: res.status, type: res.headers.get('content-type'), retry: res.headers.get('retry-after'), session: res.headers.get('mcp-session-id'), body: await res.text() };
+    };
     const rec = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '/' } });
     current = target(rec.runId);
     const c = httpClient(listener.url);
     await c.handshake();
-    const failed = await fetch(listener.url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': c.session! }, body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'flaky', arguments: {} } }) });
-    expect(failed.status).toBe(500);
+    // The server's own error, and the proxy's when the server closed the connection without an answer.
+    const failed = await answer(c.session!, 'flaky');
+    expect(failed).toEqual({ status: 500, type: 'text/plain', retry: '7', session: null, body: 'upstream exploded' });
+    const dropped = await answer(c.session!, 'drop');
+    expect(dropped).toMatchObject({ status: 502, type: 'application/json' });
+    expect(JSON.parse(dropped.body)).toMatchObject({ jsonrpc: '2.0', id: 9, error: { code: -32000, message: expect.stringMatching(/^could not reach the MCP server at 127\.0\.0\.1:\d+: /) as unknown } });
     sidecar.endRun(rec.runId, 'completed');
-    const [call] = store.getCalls(rec.runId);
-    expect(call.end?.outcome).toBe('error');
+    expect(store.getCalls(rec.runId).map((x) => [x.name, x.end?.outcome])).toEqual([
+      ['flaky', 'error'],
+      ['drop', 'error'],
+    ]);
+
+    // Replayed: each answer as the client got it, status and all, without the server.
+    const rep = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['agent'], cwd: '/' } });
+    current = target(rep.runId);
+    const r = httpClient(listener.url);
+    await r.handshake();
+    const seen = server.seen.length;
+    expect(await answer(r.session!, 'flaky')).toEqual(failed);
+    expect(await answer(r.session!, 'drop')).toEqual(dropped);
+    const replayed = sidecar.endRun(rep.runId, 'completed');
+    expect([replayed.summary.divergence, replayed.summary.byOrigin.replayed]).toEqual([null, 2]);
+    expect(server.seen.slice(seen)).toEqual([]);
     current = null;
   });
 

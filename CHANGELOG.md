@@ -23,6 +23,7 @@ The first release: record, replay and fork AI agent runs, find the call that los
 - **[Recording waits out a busy store](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/how-it-works.md)**. No run is left marked as running, and a run whose start can't be written whole, as on a full disk, leaves nothing behind. `run`, `replay` and `test` say in their summary what couldn't be written.
 - **[HTTP hosts as tools](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/sdk.md#http-services-without-wrapping)**. Hosts declared under `http` in `shadowlap.config.json`, such as a vector database or an internal API, are recorded as tool calls with an effect, from Node and Python. So [a service the agent calls](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/downstream-services.md) replays without the service.
 - **[MCP servers](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/mcp.md)** behind `shadowlap mcp`, a proxy that records, replays and fences `tools/call`, with effects from the tools' annotations. It starts a server or reaches one over HTTP, and serves the client over stdio or, with `--listen`, over HTTP on a loopback address.
+- **[An MCP server's HTTP errors replay as the client got them](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/mcp.md#other-behaviour)**. Through `--listen`, a tool call answered with a 503 or another answer that is no MCP message replays with the same status, headers and body, and so does the 502 the proxy gives when the server can't be reached.
 
 #### SDKs and frameworks
 

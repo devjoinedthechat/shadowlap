@@ -10,7 +10,7 @@ import { ancestorsOf, findRegistration, lookupDirs, peerProcess, registeredRuns,
 import { STOP_SIGNALS } from './agent-signals.js';
 import { signalExit } from './exit-codes.js';
 import { isLoopbackHost } from './loopback.js';
-import { idKey, isRequest, isToolCall, refuseBatch, ToolCalls, type JsonRpcId, type JsonRpcMessage, type LiveCall, type McpOrigin, type ProxySidecar } from './mcp-calls.js';
+import { idKey, isRequest, isToolCall, refuseBatch, REPLAYED_HEADERS, ToolCalls, type HttpAnswer, type JsonRpcId, type JsonRpcMessage, type LiveCall, type McpOrigin, type ProxySidecar } from './mcp-calls.js';
 import { registerProxy } from './mcp-proxies.js';
 import { discoverSidecar, type DiscoverySkip } from './mcp-sidecar.js';
 
@@ -143,15 +143,6 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
     return out;
   }
 
-  function relayHead(res: ServerResponse, from: IncomingMessage): void {
-    const headers: OutgoingHttpHeaders = {};
-    for (const name of RELAYED_HEADERS) {
-      const v = from.headers[name];
-      if (v !== undefined) headers[name] = v;
-    }
-    res.writeHead(from.statusCode ?? 502, headers);
-  }
-
   /** A request to the server, its answer handed to `answered`; null when the server can't be reached. */
   function ask(method: string, req: IncomingMessage, body: Buffer | null, answered: (res: IncomingMessage) => void, failed: (err: Error) => void): ClientRequest | null {
     let out: ClientRequest;
@@ -238,8 +229,8 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
     let live: LiveCall | undefined;
     if (isRequest(m) && m.method === 'tools/call') {
       const route = await calls.route(m);
-      // An answer the server broke off live is broken off again, as the client saw it then.
-      if ('answer' in route) return route.cut ? void res.destroy() : rpcAnswer(res, 200, route.answer);
+      // An answer the server broke off live is broken off again, and an HTTP answer given again, as the client saw it then.
+      if ('answer' in route) return route.cut ? void res.destroy() : route.http ? httpAnswer(res, route.http) : rpcAnswer(res, 200, route.answer);
       live = route.live;
     }
     const id = isRequest(m) ? m.id : null;
@@ -254,10 +245,11 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
         if (live) await calls.complete(live, one);
       }
     };
-    const unanswered = async (why: string, cut = false) => {
+    /** The request's end without its answer: broken off (`cut`), or with an answer that is no JSON-RPC message (`http`). */
+    const unanswered = async (why: string, how: { cut?: boolean; http?: HttpAnswer } = {}) => {
       if (settled || !live) return;
       settled = true;
-      await calls.complete(live, { error: { code: -32000, message: why } }, { cut });
+      await calls.complete(live, { error: { code: -32000, message: why } }, how);
     };
 
     await new Promise<void>((resolve) => {
@@ -275,15 +267,16 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
           // A body the server's connection broke off part way through: the call ends as the agent saw
           // it end, and the client's response is broken off too, never passed on as the whole of it.
           const cutShort = async (cut: string) => {
-            await unanswered(`the MCP server's answer was cut short: ${cut}`, true);
+            await unanswered(`the MCP server's answer was cut short: ${cut}`, { cut: true });
             res.destroy();
             resolve();
           };
           if (status >= 400 || status === 202 || status === 204 || !/^(application\/json|text\/event-stream)/i.test(type)) {
-            // An HTTP error, an accepted notification, or something that isn't MCP: as it came.
+            // An HTTP error, an accepted notification, or something that isn't MCP: as it came. A
+            // call's is recorded as the client got it, so a replay gives it again.
             void readAll(r).then(async ({ bytes, cut }) => {
               if (cut) return cutShort(cut);
-              if (status >= 400) await unanswered(`the MCP server answered ${status}${bytes.length ? `: ${bytes.toString('utf8').slice(0, 300)}` : ''}`);
+              await unanswered(`the MCP server answered ${status}${bytes.length ? `: ${bytes.toString('utf8').slice(0, 300)}` : ''}`, { http: asRecorded(status, r.headers, bytes) });
               res.end(bytes);
               resolve();
             });
@@ -331,8 +324,10 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
           r.on('error', end);
         },
         (err) => {
-          void unanswered(`could not reach the MCP server at ${upstream.host}: ${err.message}`).then(() => {
-            rpcAnswer(res, 502, { jsonrpc: '2.0', id, error: { code: -32000, message: `could not reach the MCP server at ${upstream.host}: ${err.message}` } });
+          const why = `could not reach the MCP server at ${upstream.host}: ${err.message}`;
+          const answer = asRecorded(502, { 'content-type': 'application/json' }, Buffer.from(JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32000, message: why } })));
+          void unanswered(why, { http: answer }).then(() => {
+            httpAnswer(res, answer);
             resolve();
           });
         },
@@ -388,9 +383,36 @@ class RawEventStream {
   }
 }
 
+/** The head of the server's answer, as the client gets it: its status, and the headers it needs (RELAYED_HEADERS). */
+function relayHead(res: ServerResponse, from: IncomingMessage): void {
+  const headers: OutgoingHttpHeaders = {};
+  for (const name of RELAYED_HEADERS) {
+    const v = from.headers[name];
+    if (v !== undefined) headers[name] = v;
+  }
+  res.writeHead(from.statusCode ?? 502, headers);
+}
+
 function rpcAnswer(res: ServerResponse, status: number, message: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json' });
   res.end(JSON.stringify(message));
+}
+
+/** An answer that is no JSON-RPC message, as the client got it: kept with the call (mcp-calls.ts), to give it again on a replay. */
+function asRecorded(status: number, headers: IncomingMessage['headers'], bytes: Buffer): HttpAnswer {
+  const kept: Record<string, string> = {};
+  for (const name of REPLAYED_HEADERS) {
+    const v = headers[name];
+    if (typeof v === 'string') kept[name] = v;
+  }
+  const text = bytes.toString('utf8');
+  return Buffer.from(text, 'utf8').equals(bytes) ? { status, headers: kept, body: text } : { status, headers: kept, body: bytes.toString('base64'), base64: true };
+}
+
+/** Gives the client an HTTP answer as it was recorded (asRecorded). */
+function httpAnswer(res: ServerResponse, answer: HttpAnswer): void {
+  res.writeHead(answer.status, answer.headers);
+  res.end(Buffer.from(answer.body, answer.base64 ? 'base64' : 'utf8'));
 }
 
 /**
