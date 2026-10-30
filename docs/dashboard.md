@@ -1711,57 +1711,353 @@ A run's page asks for the run again only when runs move, or, while it records, w
 
 For a recording, the server reads and places in conversations only the calls that arrived since it last looked, so following a run of 50,000 calls costs what its newest calls cost. A call that feeds the model call after it waits for that call to arrive, and the run is worked out whole once it ends.
 
-For contributors, `npm run test:browser` (from `packages/dashboard`) opens the dashboard in Chromium over the whole demo store built by real commands (`scripts/demo-store.mjs`, or the one `SHADOWLAP_DEMO_DIR` names) and checks it with axe-core: no serious or critical violation on any page, Settings tab, run, view, inspector tab, menu or dialog, Fixes and each fix's steps, the palette, the shortcuts on Overview, Runs, Fixes and Settings, a toast with Undo or the bar that says the dashboard can't be reached, and every page, Settings tab and fix step again, with a few runs and Import a capture, at a phone's width (390 px); the contrast, the focus order, the skip link, the focus rings and every overlay's focus; 24 px targets; a phone's width; and that every link the server writes opens a page. The server builds its links with `packages/dashboard/src/links.ts`, the builder the page uses too, and which runs are attempts is one rule, `packages/engine/src/run-roles.ts`. The server's endpoints are registered by feature in `packages/dashboard/src/routes/`, and the shapes they answer with are in `packages/dashboard/src/views.ts` and `api.ts`. A read of something the store doesn't hold is a 404 with `{ error }`; the page asks its reads with `x-shadowlap-not-found: answer` and gets a 200 with `{ error, notFound: true }` instead, as it says what is missing itself and the browser would log the 404 as a failed load. The endpoints:
+## HTTP API
 
-| Endpoint | |
-|---|---|
+The page reads and changes the store through the dashboard server's HTTP API. This section lists its endpoints by area, then the [job kinds](#job-kinds) and the [job events](#job-events). Where the code for each lives is under [For contributors](#for-contributors).
+
+### Requests
+
+Every request needs the session token in `x-shadowlap-token`.
+
+- **The project.** With several projects, a page sends the project it shows in `x-shadowlap-project`. A request that changes something while another project is current answers 409 with `current` (`{ id, name }`). Switching, adding and removing a project, and stopping a job, are the exceptions: they name what they act on.
+- **A job's project.** A job's view names the project it runs in (`project`).
+- **Not found.** A read of something the store doesn't hold is a 404 with `{ error }`. The page asks its reads with `x-shadowlap-not-found: answer`, and gets a 200 with `{ error, notFound: true }` instead, as it says what is missing itself, and the browser would log the 404 as a failed load.
+
+### The dashboard and its feed
+
+| Endpoint | What it answers |
+| --- | --- |
 | `GET /api/meta` | Version, store and its size, address, read-only and why, runs and attempts counted apart, live runs, job kinds, project folder |
 | `GET /api/changes?since=<cursor>` | What changed since the cursor: runs, calls, activity, jobs, and the live runs with their call counts and call events (starts and answers) |
-| `GET /api/activity?limit=&before=` | The activity feed, newest first, `limit` entries a page; pass `next` (opaque) as `before` for the page after, or a time in milliseconds for everything older |
-| `GET /api/runs`, `/api/runs/:id[?after=<n>]`, `/calls/:n`, `/lineage`, `/export` | Runs, one run (with `after`, only its calls numbered after `n`, for a recording's page), one call, its family, the HTML download. A run comes with the first page of its calls (500 at most), `callsTotal`, `callsNext` (where the next page starts, or `null`) and, while more are to come, `origins` (every call's origin, one character per call as the run list encodes them); one that ended with 1,000 calls or more is answered from its first 200 and says `warming: { done, total }` while the whole run is analysed, and asked again says the same of the same calls. Each run, in the list, on its own and in its family, carries its `about` line: `text`, where it comes from (`from`: `user`, `agent`, `input`, `golden`, `change`, `nothing`, `source` or `command`), and for a replay or a fork its `change` (the flag, the call it changed and where it forked); a preset's attempt in the family carries its `preset`, the preset's words and the verdict of the session that decided it. A run's `state` (kind, outcome, failed, interrupted) is the one the run list works out for it, and its status is the list's: a run its recorder left running reads `crashed`, ended at its last call. Each run of the family carries the same `status`, `kind`, `outcome` and `failed`, an attempt the list leaves out included. The HTML file holds such a run the same way. A call row carries `via` for a model call made to a host of another provider's format (the host; `provider` is then its format) and `extraRead` for a replay's extra read, and a run its `websockets` (`target`, `count`, `action`: `tunnelled` or `refused`) when it keeps them. The download is made on a thread of its own: a run still recording is a 409, one that takes more than two minutes a 422 naming the likely rule, other downloads being made or a store another command holds a 503 |
-| `GET /api/runs/:id/calls?from=&limit=&whole=` | A page of a run's calls from call `from` on, `limit` of them (500 at most): `calls`, `callsTotal`, `callsNext`. While a long run that ended is analysed, a page past its first 2,000 calls comes at once from the calls around it, 200 before to 100 after, and says so (`around: { from, to }`): each call's `conversation` is then `null`, as conversations are numbered from the run's first call; `whole=1` waits for the analysis and has every fact. `/api/runs/:id/calls/:n` takes `whole=1` the same way |
-| `GET /api/summary?tz=` | The Overview, in the viewer's time zone (IANA, UTC without one): each grid row's and each recording in progress's `about` line, and a failed run's never blamed in Needs a look, as `/api/runs` gives it. Until the totals of the runs it adds up are kept, `{ warming: { done, total } }` at once |
-| `GET /api/runs/page?limit&cursor&from&to&types&q&sort` | A page of the Runs table (at most 500 rows), each row with its `about` line; `q` matches every word in a run's id, about line, labels, command, source or revision, and `label:<name>` the runs with that label exactly; pass `next` as `cursor` for the page after. While the about lines `q` reads, or the totals `sort=spent` reads, are still being worked out, it answers from those known and says `warming: { done, total }` |
-| `GET /api/runs/days?weeks&tz&types&q` | Runs per day for the calendar, in the viewer's days |
-| `GET /api/runs/bisect?from&to&types&q` | Find the commit for the days picked: their first failure, and what bisect can start from; when that one failed at the first commit, with nothing before it to search, the first that started later, with the one passed over and why in `earlier` |
-| `POST /api/runs/labels { ids, add, remove }`, `POST /api/runs/delete { ids }` | Label or delete several runs at once, by their full ids |
-| `POST /api/runs/known { ids }` | Which of these runs are still in the store (changes nothing, so a read-only dashboard answers it too) |
-| `GET /api/search?q&limit` | What runs recorded that matches every word, at most two hits a run: hits from recordings, forks, tests and captures first, then hits from attempts of a run with none of its own, each naming that run (`attemptOf`). It answers from what the index holds, once it has taken in what runs still recording said since the last search (20 ms at most, waited for 0.3 s at most); while the index catches up, `indexing` says how many runs it has yet to read, of how many |
-| `GET /api/store` | The team store as this machine knows it (or `null`), and who this machine records as |
-| `GET /api/store/setup`, `GET /api/store/setup/url?provider=&url=`, `POST /api/store/setup { ci?, ciProvider?, finished? }` | The store's setup page: where it stands and the step that is next, each provider with the credentials this machine would use, the CI steps and the commit; a typed URL checked against the provider picked, with the access to ask for; Push from CI added or skipped, and the setup finished |
-| `GET /api/imports` | Whether each trace store's keys are set where the dashboard runs (Langfuse, LangSmith, Phoenix, Logfire), their hosts (a user name or password in one left out), and Phoenix's project |
-| `POST /api/runs/:id/labels`, `/notes`; `DELETE /api/runs/:id` | Changes to a run |
-| `GET /api/runs/:id/provenance`, `/show` | The run's record for Provenance, with what a copy made now would mask (`mask.values` as the redaction preview counts it for a pack, read on a thread of its own; `mask.returned`, when there are any, what a path rule masks in what calls got back, which only `export html` and `dataset` mask; and `mask.unmasked`, when there are any, the values the rules match that a pack leaves as they are; null with `mask.why` when a rule took too long or the run was read only in part, and with `mask.busy` when the preview threads were busy, to ask again); `shadowlap show --json` as the CLI prints it |
-| `GET /api/runs/:id/unrecorded` | The tools the model called that the run never recorded, read beside the server from every model call's answer: each with its `name`, `count`, `firstCallNo`, `effect` (`write`, `read` or `unknown`, as the config's `tools.unrecorded` declares it or a built-in's or its name says) and `why`; and `partial`, for a run that holds its model calls alone |
-| `GET /api/runs/:id/differences` | What a fork did differently from its parent (`null` for a run that is no fork of a run in the store): `from`, the call it left its parent at; each change with its `rank` (as [`decisions`](./decisions.md) ranks one), `kind`, `tool`, `detail`, the parent's side and the fork's (`before`, `after`) and the call in each run; how each run `ended`; and the fork's `writes`, each with its `fate` |
-| `GET /api/runs/:id/offers` | What the run's page offers: how many redaction rules each copy applies, where the run stands with the team store, whether Run blame applies (and the check it would likely use), Find the commit's revisions, and the actions of a test that diverged, or that its normalizer was added and the replay that passed since |
-| `POST /api/jobs { kind: "export-html" \| "export-har" \| "pack" \| "export-dataset" \| "export-otel", … }` | The Share menu's copies: `{ runId }`, a pack's `{ runId, dir }`, a dataset's `{ runIds, format, calls }`, a trace's `{ runId, endpoint }` or `{ runId, out }`; a run still recording is refused (409), and one its recorder left running is copied as interrupted, ended at its last call, the store left as it is |
-| `GET /api/search?q=`, `GET /api/compare?a=&b=[&part=head]` | Search recorded content; compare two runs. `part=head` answers at once with what the page shows while the whole comparison is worked out: `a` and `b` (each `runId` and `calls`), `identicalPrefix`, `firstRequestDifference` as the whole comparison has it, `onlyInA`, `onlyInB`, and `answersDiffer`, the calls before the first request that differs that got another answer to the same request; `null` when that would mean reading more than 16 pairs of requests whole (calls whose fingerprints differ and that no replay served from one another, as in runs fingerprinted under other normalizers) |
-| `POST /api/jobs { kind, … }` | Start a job of a registered kind (`/api/meta` lists them), such as `import { format, uploadId }` or `{ format: "langfuse", traceId, host? }` (`project?` too for `phoenix`), `push { runIds }` or `{ all: true }`, `pull`, `share { runId }`, `store-set { url, provider }` (`store set --check`), `check { expect?, recordings? }` ([`shadowlap check`](./cli.md#check): a check tried on run ids, `label:<name>` or the project's goldens, every recording without them, nothing replayed; its result is the report), `skill-install { agent, replace? }` ([`skill install`](./cli.md#skill), `--force` with `replace`), `override { runId, callNo, uploadId, yes? }` (Edit and fork: `replay --override` of a tool's result or a person's answer, from an upload checked as untrusted data), and `action { runId, key, callNo?, value?, yes? }`, a run action the terminal UI shares (replay, the fork menu, repeat, pack, the suggested normalizer), which `POST /api/runs/:id/actions` starts too. A replay of a run from someone else's pack, the team store or a program that sent the sidecar its command starts only with `yes` set to the `confirm` of the 409 that named both its command and the `shadowlap` line, whatever `value` says, and the upload is kept for the request that says yes |
-| `GET /api/jobs`, `GET /api/jobs/:id?after=n`, `POST /api/jobs/:id/stop` | Recent jobs (without output or result); one job's output from line `n`, its runs, links, files and result; stop it, with its agent |
-| `GET /api/fixes?status=`, `/api/fixes/:id`; `PUT /api/fixes/:id/title` | The fixes (all, open, verified or applied) with their counts; one fix, by its id or a prefix, with its three steps; its title. Its jobs are the kinds `blame { runId, expect?, yes? }` (with the check the run failed: the one given, else the one it was judged by, else a 422 that asks for it), or `blame { fixId, again: true, yes? }` and `blame { fixId, model, yes? }` (an open fix's blame again, under its check, when it couldn't settle or stopped part way, or with another model when nothing rescued its run), `verify { fixId, verifyId, yes? }` (Run more attempts, or Verify again, for a verdict left incomplete: its runs from the start, the limit doubled where a gate ran out of attempts, without the budget that stopped it), `repair { fixId, repairer?, yes? }` (an open fix, from its failing and good runs, by the repairer its confirm dialog named: one `shadowlap.config.json` no longer names is a 409, and nothing runs) and `apply { fixId }` ([`fix apply`](./cli.md#fix): a verified fix's patch into the working tree, its goldens tested) |
-| `GET /api/fixes/:id/groups` | A fix's attempts grouped by what each did: for its blame's probes and for each verified run, each group's `path` (the tool calls from where the attempts left the run), `verdict`, `count`, `why` (the first failure) and an `example` attempt to open |
-| `GET /api/fixes/family/:runId` | The attempts blame and verify made in a run's family, bundled per probe and per verified run, each with the fix step it leads to, its verdict as a gate's is said (`verdictLine`: the word, the tally and the bound), its `tone` and the `rule` it was decided by |
+| `GET /api/activity?limit=&before=` | The activity feed, newest first, `limit` entries a page |
+| `GET /api/summary?tz=` | The Overview, in the viewer's time zone (IANA, UTC without one) |
+| `GET /api/search?q&limit` | What runs recorded that matches every word, at most two hits a run |
 | `GET /api/files/:fileId` | A file a job wrote, as an attachment |
 | `POST /api/uploads` | A file for a job of the current project (raw body, name in `x-filename`); answers its `uploadId` |
-| `GET /api/tests` | The Tests screen: the goldens on disk, the verdict of their last results with the line of the newest session that ran them all (`session`, with `live` while its process runs) and what ran since on its own (`since`), inconclusive goldens counted apart (`inconclusive`), each golden's history by revision (each cell's `verdict`, its pass `rate` as passes of attempts, and `dropped` where a [gate](./gating.md) against history found a drop), whether a golden has an injection test, which runs live (`injection`), each golden's checks as its last result came out on each (`checkResults`: the label; the `status`, null before a result, when that test couldn't run the golden, or for a check `added` to the config since; the `detail`; a judge's `reason` and `source`, and for a verdict asked live `live`: what asking it `cost` and in how many attempts it was `asked`, null when that isn't known; and over several attempts `attempts`: how many of those that judged it `passed` it, `of` how many, null for one attempt, when an attempt's run is gone, or when attempts were carried over from an earlier session), each golden's `gate` and what it decided last (`last.gate`: its decision, the `rule` it was decided by, each attempt's outcome, the interval, its `bound` with the `method` it was worked out by, the attempts, the evidence path of scores against both bounds, or for a gate against history the chance of a drop after each attempt, the cost of an attempt and, when inconclusive, Run more attempts as `more`: the `test` job that continues it to twice its limit, carrying its attempts over, with the attempts that adds on average, how often it then settles and what that would cost), each golden's error-path `presets` as their last session left them (`null` when none ran: their verdict, how many ran, passed, failed and were inconclusive, a `line`, and the attempt to open), the divergences and other failures as the CLI printed them, each with Find the commit's range, what it last said about this failure (`found`, or `missed` with why and its `outcome`) and the commits its dialog offers (`revisions`, with subjects), the inconclusive goldens apart from them (with `judge` when a judge check had no verdict it could use: its name and model, why, what its pack `held` (`none`; `older`, a verdict given to an older form of the judge's request; or `material`, one given on other material, with where it `changed`), and what settles it, `update` for a golden that replays offline, or the `keys` its provider reads for one that forks), a test session running now wherever it was started (`running`, and the session's counts `passed`, `failed` and `inconclusive`, by each result's verdict), error-path presets on goldens running now, wherever they were started: a terminal, another dashboard or a job (`chaosRunning`: the session's `id`, `command` and `startedAt`), and the commands. Its jobs are the kinds `test { golden?, maxAttempts?, continue? }`, where `maxAttempts` raises each gate's limit for that session (`test --max-attempts`) and `continue` carries an inconclusive gate's attempts over (`test --continue`), `test-update { goldens }` or `{ golden }` (re-recorded live with writes stubbed, each replaced when its checks pass; one that replayed clean and lacks a judge's verdict it can use gets the verdict asked and kept instead), `bisect { golden \| runId, good, bad? }` (Find the commit) and `normalize-and-test { golden \| runId, path? }` (a normalizer for each value made anew on every run, then `test` on the golden); one at a time in a project, and none while a test session or error-path presets on goldens run, wherever they were started: a terminal, another dashboard or a job (409) |
-| `GET /api/tests/gate?good=&bad=&risk=&max=`, `?baseline=history&drop=&window=&min=&max=&history=47/50` | What a [gate](./gating.md)'s figures would do: the rule its verdicts state (`description`, `tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`), the attempts an agent that always passes needs and one that always fails, the exact odds of each verdict and the attempts on average at six pass rates (for a gate against history, at seven pass rates against the baseline `history` names, 47 of 50 unless given: the chance it fails, by the pass rate now, is its power to catch a drop), how often 100 forked goldens of a healthy agent turn a CI run red under `--inconclusive fail` and `warn` (`ci`), and the defaults; figures the config would refuse are a 400 with its message |
-| `GET /api/tests/runs/:id?before=<ms>` | For a run's page: the diverged-test banner of a replay `shadowlap test` made (`rulesAdded` once the config has its rules), and Find the commit's choices (target, good and bad commits, revisions to pick from with their subjects, the check a run is judged by in `expect`, whether it costs tokens, or why it can't start); `before` limits the good commits to runs before it |
-| `GET /api/ci/workflows?fix=&alerts=&budget=&repairer=&onlyMain=&secret=&inconclusive=` | Settings → CI: your workflow for those options (`fix`, `alerts` and `onlyMain` on or off, `budget` in dollars, `repairer` as `repair --repairer` takes it, `secret` the webhook secret's name, `inconclusive` fail or warn), one job that runs the goldens once (`workflow`), what it needs, and for each part its own step and a preview of what lands; whether the step pushes is no option: it follows Push from CI in `shadowlap.config.json`, read as `/settings/store` reads it (`fixOnFailure.teamStore`) |
-| `GET /api/settings/matching`, `/redaction[?run=]`, `/redaction/preview?run=`, `/agents`, `/tools`, `/tools/mcp?command=\|url=`, `/project`, `/store` | Settings, one read per tab (a tab that edits the config also gets its `version`; `/agents` also carries `skill`: the [skills](./agents.md#the-skills) with their commands, and what the project has of the Claude Code plugin and of the skills in `.agents/skills`, each with its `state`, its `installedVersion` and the `install` a click runs (`null` where there is nothing to install), and which of Claude Code's settings files turns on the plugin installed from its marketplace); the preview masks one run as a pack would (`redact preview --json`, each rule's `returned` and `unmasked` included), read on a thread of its own within limits (a rule that takes too long on one call is a 422; other previews being read, or a store another command holds, a 503) |
-| `POST /api/settings/rules/normalize\|redact`, `DELETE /api/settings/rules/:list/:n?expect=`, `PUT /api/settings/clock`, `PUT /api/settings/store/ci-push`, `POST /api/settings/calibrate/write` | Changes to `shadowlap.config.json`, each with the `version` it read as `expect` (a file changed since is a 409, a rule the CLI refuses a 400); the last adds what a calibrate job proposed. Settings' jobs are the kinds `calibrate { runId?, write? }` (the setup's recording, else the newest finished one made here, unless one is named) and `gc { olderThanDays? }`, always a dry run first, then `gc { confirm }` with that dry run's job id, which deletes exactly the runs it listed |
+
+- **`/api/activity`**: pass `next` (opaque) as `before` for the page after, or a time in milliseconds for everything older.
+- **`/api/summary`** gives each grid row's and each recording in progress's `about` line, and a failed run's never blamed in Needs a look, as `/api/runs` gives it. Until the totals of the runs it adds up are kept, it answers `{ warming: { done, total } }` at once.
+
+**Search** (`/api/search`): hits from recordings, forks, tests and captures come first, then hits from attempts of a run with none of its own, each naming that run (`attemptOf`). It answers from what the index holds, once it has taken in what runs still recording said since the last search (20 ms at most, waited for 0.3 s at most). While the index catches up, `indexing` says how many runs it has yet to read, of how many.
+
+### Runs
+
+| Endpoint | What it does |
+| --- | --- |
+| `GET /api/runs`, `/api/runs/:id[?after=<n>]`, `/calls/:n`, `/lineage`, `/export` | Runs; one run (with `after`, only its calls numbered after `n`, for a recording's page); one call; its family; the HTML download |
+| `GET /api/runs/:id/calls?from=&limit=&whole=` | A page of a run's calls from call `from` on, `limit` of them (500 at most): `calls`, `callsTotal`, `callsNext` |
+| `GET /api/runs/page?limit&cursor&from&to&types&q&sort` | A page of the Runs table (at most 500 rows), each row with its `about` line |
+| `GET /api/runs/days?weeks&tz&types&q` | Runs per day for the calendar, in the viewer's days |
+| `GET /api/runs/bisect?from&to&types&q` | Find the commit for the days picked: their first failure, and what bisect can start from |
+| `POST /api/runs/labels { ids, add, remove }`, `POST /api/runs/delete { ids }` | Label or delete several runs at once, by their full ids |
+| `POST /api/runs/known { ids }` | Which of these runs are still in the store (changes nothing, so a read-only dashboard answers it too) |
+| `POST /api/runs/:id/labels`, `/notes`; `DELETE /api/runs/:id` | Changes to a run |
+| `GET /api/runs/:id/provenance`, `/show` | The run's record for Provenance, with what a copy made at this point would mask; `shadowlap show --json` as the CLI prints it |
+| `GET /api/runs/:id/unrecorded` | The tools the model called that the run never recorded, read beside the server from every model call's answer |
+| `GET /api/runs/:id/differences` | What a fork did differently from its parent (`null` for a run that is no fork of a run in the store) |
+| `GET /api/runs/:id/offers` | What the run's page offers |
+| `GET /api/search?q=`, `GET /api/compare?a=&b=[&part=head]` | Search recorded content; compare two runs |
+
+**A run** (`/api/runs/:id`) comes with the first page of its calls (500 at most), `callsTotal`, `callsNext` (where the next page starts, or `null`) and, while more are to come, `origins`: every call's origin, one character per call, as the run list encodes them.
+
+- **A long run**: one that ended with 1,000 calls or more is answered from its first 200, and says `warming: { done, total }` while the whole run is analysed. Asked again, it says the same of the same calls.
+- **Its about line**: each run, in the list, on its own and in its family, carries its `about` line. That is its `text`, where it comes from (`from`: `user`, `agent`, `input`, `golden`, `change`, `nothing`, `source` or `command`), and for a replay or a fork its `change` (the flag, the call it changed and where it forked).
+- **A preset's attempt** in the family carries its `preset`: the preset's words, and the verdict of the session that decided it.
+- **Its state**: a run's `state` (kind, outcome, failed, interrupted) is the one the run list works out for it, and its status is the list's. A run its recorder left running reads `crashed`, ended at its last call.
+- **Its family**: each run of the family carries the same `status`, `kind`, `outcome` and `failed`, an attempt the list leaves out included. The HTML file holds such a run the same way.
+- **Its calls**: a call row carries `via` for a model call made to a host of another provider's format (the host; `provider` is then its format), and `extraRead` for a replay's extra read.
+- **Its WebSockets**: a run carries its `websockets` (`target`, `count`, `action`: `tunnelled` or `refused`) when it keeps them.
+- **The download** is made on a thread of its own. A run still recording is a 409, one that takes more than two minutes a 422 naming the likely rule, and other downloads being made or a store another command holds a 503.
+
+**A page of calls.** While a long run that ended is analysed, a page past its first 2,000 calls comes at once from the calls around it, 200 before to 100 after, and says so (`around: { from, to }`). Each call's `conversation` is then `null`, as conversations are numbered from the run's first call. `whole=1` waits for the analysis and has every fact. `/api/runs/:id/calls/:n` takes `whole=1` the same way.
+
+**The Runs table.** `q` matches every word in a run's id, about line, labels, command, source or revision, and `label:<name>` the runs with that label exactly. Pass `next` as `cursor` for the page after. While the about lines `q` reads, or the totals `sort=spent` reads, are still being worked out, it answers from those known and says `warming: { done, total }`.
+
+**Find the commit for days.** When the first failure failed at the first commit, with nothing before it to search, `/api/runs/bisect` gives the first that started later, with the one passed over and why in `earlier`.
+
+**Provenance** gives what a copy made at this point would mask:
+
+- `mask.values`, as the redaction preview counts it for a pack, read on a thread of its own;
+- `mask.returned`, when there are any: what a path rule masks in what calls got back, which only `export html` and `dataset` mask;
+- `mask.unmasked`, when there are any: the values the rules match that a pack leaves as they are;
+- null with `mask.why` when a rule took too long or the run was read only in part, and with `mask.busy` when the preview threads were busy, to ask again.
+
+**Unrecorded tools**: each with its `name`, `count`, `firstCallNo`, `effect` (`write`, `read` or `unknown`, as the config's `tools.unrecorded` declares it or a built-in's or its name says) and `why`; and `partial`, for a run that holds its model calls alone.
+
+**Differences**:
+
+- `from`, the call it left its parent at;
+- each change with its `rank` (as [`decisions`](./decisions.md) ranks one), `kind`, `tool`, `detail`, the parent's side and the fork's (`before`, `after`) and the call in each run;
+- how each run `ended`;
+- the fork's `writes`, each with its `fate`.
+
+**Offers**: how many redaction rules each copy applies, where the run stands with the team store, whether Run blame applies (and the check it would likely use), and Find the commit's revisions. For a test that diverged, the actions it offers, or that its normalizer was added and the replay that passed since.
+
+**Compare.** `part=head` answers at once with what the page shows while the whole comparison is worked out:
+
+- `a` and `b`, each `runId` and `calls`;
+- `identicalPrefix`, and `firstRequestDifference` as the whole comparison has it;
+- `onlyInA` and `onlyInB`;
+- `answersDiffer`: the calls before the first request that differs that got another answer to the same request.
+
+It is `null` when that would mean reading more than 16 pairs of requests whole: calls whose fingerprints differ and that no replay served from one another, as in runs fingerprinted under other normalizers.
+
+### Jobs
+
+| Endpoint | What it does |
+| --- | --- |
+| `POST /api/jobs { kind, … }` | Start a job of a registered kind (`/api/meta` lists them; [Job kinds](#job-kinds) describes each) |
+| `POST /api/jobs { kind: "export-html" \| "export-har" \| "pack" \| "export-dataset" \| "export-otel", … }` | The Share menu's copies |
+| `POST /api/runs/:id/actions` | A run action the terminal UI shares, as the `action` job kind starts it |
+| `GET /api/jobs`, `GET /api/jobs/:id?after=n`, `POST /api/jobs/:id/stop` | Recent jobs (without output or result); one job's output from line `n`, its runs, links, files and result; stop it, with its agent |
+
+**The Share menu's copies** take `{ runId }`, a pack's `{ runId, dir }`, a dataset's `{ runIds, format, calls }`, or a trace's `{ runId, endpoint }` or `{ runId, out }`. A run still recording is refused (409). One its recorder left running is copied as interrupted, ended at its last call, the store left as it is.
+
+**Someone else's command.** A replay of a run from someone else's pack, the team store or a program that sent the sidecar its command starts only with `yes` set to a `confirm`. That is the `confirm` of the 409 that named both its command and the `shadowlap` line, whatever `value` says. The upload is kept for the request that says yes.
+
+### Fixes
+
+| Endpoint | What it does |
+| --- | --- |
+| `GET /api/fixes?status=`, `/api/fixes/:id`; `PUT /api/fixes/:id/title` | The fixes (all, open, verified or applied) with their counts; one fix, by its id or a prefix, with its three steps; its title |
+| `GET /api/fixes/:id/groups` | A fix's attempts grouped by what each did |
+| `GET /api/fixes/family/:runId` | The attempts blame and verify made in a run's family, bundled per probe and per verified run |
+
+- **Groups**: for its blame's probes and for each verified run, each group's `path` (the tool calls from where the attempts left the run), `verdict`, `count`, `why` (the first failure), and an `example` attempt to open.
+- **A run's family**: each bundle with the fix step it leads to, its verdict as a gate's is said (`verdictLine`: the word, the tally and the bound), its `tone`, and the `rule` it was decided by.
+
+### Tests and CI
+
+| Endpoint | What it does |
+| --- | --- |
+| `GET /api/tests` | The Tests screen |
+| `GET /api/tests/gate?good=&bad=&risk=&max=`, `?baseline=history&drop=&window=&min=&max=&history=47/50` | What a [gate](./gating.md)'s figures would do |
+| `GET /api/tests/runs/:id?before=<ms>` | For a run's page: the diverged-test banner of a replay `shadowlap test` made, and Find the commit's choices |
+| `GET /api/ci/workflows?fix=&alerts=&budget=&repairer=&onlyMain=&secret=&inconclusive=` | Settings → CI: your workflow for those options |
+
+**The Tests screen** (`/api/tests`) holds:
+
+- the goldens on disk;
+- the verdict of their last results, with the line of the newest session that ran them all (`session`, with `live` while its process runs), and what ran since on its own (`since`);
+- inconclusive goldens counted apart (`inconclusive`);
+- each golden's history by revision: each cell's `verdict`, its pass `rate` as passes of attempts, and `dropped` where a [gate](./gating.md) against history found a drop;
+- whether a golden has an injection test, which runs live (`injection`);
+- each golden's checks as its last result came out on each (`checkResults`, below);
+- each golden's `gate`, and what it decided last (`last.gate`, below);
+- each golden's error-path `presets` as their last session left them: `null` when none ran, else their verdict, how many ran, passed, failed and were inconclusive, a `line`, and the attempt to open;
+- the divergences and other failures as the CLI printed them, each with Find the commit's range, what it last said about this failure (`found`, or `missed` with why and its `outcome`), and the commits its dialog offers (`revisions`, with subjects);
+- the inconclusive goldens apart from them, with `judge` (below);
+- a test session in progress wherever it was started (`running`), with the session's counts `passed`, `failed` and `inconclusive`, by each result's verdict;
+- error-path presets on goldens in progress wherever they were started, a terminal, another dashboard or a job (`chaosRunning`: the session's `id`, `command` and `startedAt`);
+- and the commands.
+
+`checkResults` holds, for each check:
+
+- the label;
+- the `status`: null before a result, when that test couldn't run the golden, or for a check `added` to the config since;
+- the `detail`;
+- a judge's `reason` and `source`, and for a verdict asked live, `live`: what asking it `cost`, and in how many attempts it was `asked`, null when that isn't known;
+- over several attempts, `attempts`: how many of those that judged it `passed` it, `of` how many. It is null for one attempt, when an attempt's run is gone, or when attempts were carried over from an earlier session.
+
+`last.gate` holds:
+
+- its decision, and the `rule` it was decided by;
+- each attempt's outcome, the interval, and its `bound` with the `method` it was worked out by;
+- the attempts, and the evidence path of scores against both bounds, or, for a gate against history, the chance of a drop after each attempt;
+- the cost of an attempt;
+- when inconclusive, Run more attempts as `more`: the `test` job that continues it to twice its limit, carrying its attempts over, with the attempts that adds on average, how often it then settles, and what that would cost.
+
+`judge` is on an inconclusive golden whose judge check had no verdict it could use:
+
+- its name and model, and why;
+- what its pack `held`: `none`; `older`, a verdict given to an older form of the judge's request; or `material`, one given on other material, with where it `changed`;
+- what settles it: `update` for a golden that replays offline, or the `keys` its provider reads for one that forks.
+
+**Gate figures** (`/api/tests/gate`):
+
+- the rule its verdicts state (`description`, `tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`);
+- the attempts an agent that always passes needs, and one that always fails;
+- the exact odds of each verdict, and the attempts on average, at six pass rates;
+- how often 100 forked goldens of a healthy agent turn a CI run red under `--inconclusive fail` and `warn` (`ci`);
+- the defaults.
+
+A gate against history is figured at seven pass rates against the baseline `history` names, 47 of 50 unless given: the chance it fails at each of those pass rates is its power to catch a drop. Figures the config would refuse are a 400 with its message.
+
+**A run's test** (`/api/tests/runs/:id`): the diverged-test banner has `rulesAdded` once the config has its rules. Find the commit's choices are the target, good and bad commits, revisions to pick from with their subjects, the check a run is judged by in `expect`, whether it costs tokens, or why it can't start. `before` limits the good commits to runs before it.
+
+**Your workflow** (`/api/ci/workflows`) takes its options: `fix`, `alerts` and `onlyMain` on or off, `budget` in dollars, `repairer` as `repair --repairer` takes it, `secret` the webhook secret's name, and `inconclusive` fail or warn. It answers with one job that runs the goldens once (`workflow`), what it needs, and for each part its own step and a preview of what lands. Whether the step pushes is no option: it follows Push from CI in `shadowlap.config.json`, read as `/settings/store` reads it (`fixOnFailure.teamStore`).
+
+### Settings
+
+| Endpoint | What it does |
+| --- | --- |
+| `GET /api/settings/matching`, `/redaction[?run=]`, `/redaction/preview?run=`, `/agents`, `/tools`, `/tools/mcp?command=\|url=`, `/project`, `/store` | Settings, one read per tab; a tab that edits the config also gets its `version` |
+| `POST /api/settings/rules/normalize\|redact`, `DELETE /api/settings/rules/:list/:n?expect=`, `PUT /api/settings/clock`, `PUT /api/settings/store/ci-push`, `POST /api/settings/calibrate/write` | Changes to `shadowlap.config.json`, each with the `version` it read as `expect`; the last adds what a calibrate job proposed |
+
+- **`/agents`** also carries `skill`: the [skills](./agents.md#the-skills) with their commands, and what the project has of the Claude Code plugin and of the skills in `.agents/skills`. Each has its `state`, its `installedVersion` and the `install` a click runs (`null` where there is nothing to install). It also says which of Claude Code's settings files turns on the plugin installed from its marketplace.
+- **The preview** masks one run as a pack would (`redact preview --json`, each rule's `returned` and `unmasked` included), read on a thread of its own within limits. A rule that takes too long on one call is a 422; other previews being read, or a store another command holds, a 503.
+- **A change** to a file changed since is a 409, and a rule the CLI refuses a 400.
+
+### Projects and setup
+
+| Endpoint | What it does |
+| --- | --- |
 | `GET /api/projects`; `POST /api/projects/:id/select` | The switcher: every project with its path, runs and setup; switch to one |
 | `GET /api/projects/folders?q=&pick=`; `POST /api/projects { path }` | Folder suggestions for a typed path, the picked one checked; add a folder and switch to it |
 | `GET /api/projects/:id/remove`; `POST /api/projects/:id/remove { deleteRecordings?, name? }` | What the Remove dialog shows; remove the project, deleting its store only when `name` matches |
-| `GET /api/setup`; `POST /api/setup/record { command }`, `/golden { golden }`, `/finish` | The current project's setup; what recording a command runs and whether it asks first, and where a golden would go (both change nothing); finish the setup. Its jobs are the kinds `init`, `record { command, confirmed? }` and `pack-test { golden? }` (pack, then test; the test alone once packed) |
-| `GET /api/training?filter=all\|high\|medium` | Training: the strip, the pairs grouped per call with their sources and fixes, the goldens as tasks (a task blocked by an early fork with what Update the golden runs), and each model's scores. Its jobs are the kinds `pairs { format?, minConfidence? }` (written to `.shadowlap/exports/pairs.jsonl`), `score { model, baseUrl?, attempts?, goldens? }` (5 or 10 attempts a task, 5 unless given; every ready task unless some are named) and `task-update { golden }` (Update the golden) |
-| `GET /api/models` | The models to score, each with its price per attempt and last score, and the picker made from them; a provider that couldn't be listed is a note, and a read-only dashboard asks none |
-| `GET /api/decisions?kind=decisions\|migrate`, `/api/decisions/:id`, `GET /api/runs/:id/decisions`, `GET /api/retirements` | The [decision diff](./decisions.md): the sessions kept, newest first, with the models the goldens use that retire; one session as `decisions --json` or `migrate --json` printed it, with its `matrix` (a row per run, a cell per model call with its rank, the most consequential change any sample showed, 0 for the same and `null` for not asked, its `majority`, the rank most samples show, how many of the samples `answered` and `changed`, for a cell drawn split, and `judge`, how the judge checks that read a text-only change came out: `inconclusive` when the step waits on a judge (a sample's words could not be judged, and its samples don't flag it without them), else `changed` when one came out otherwise for the new words (the cell ranks 2), `unchanged` when every one came out as recorded, `null` when none read it); a run's decisions under each session that asked it again; the retirement notices on their own (the agent's models: Shadowlap's own judge calls left out). Its jobs are the kinds `decisions { runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?, thenVerify? }` (`samples` as [`--samples`](./cli.md#decisions) takes it, 1 included; without it, each step is asked 3 times under the change and 3 times as recorded, six requests a step), `migrate { to, goldens?, runs?, from?, scope?, set? }` (every golden unless some are named) and `decisions-verify { sessionId, runId? }`, which runs `decisions --verify`: each run the session flagged verified under its own checks (its golden's, or for a run named by id those of the recording it comes from), one verify per set of checks, in the role its recording plays under them, and the result kept in the session |
-| `GET /api/injection?run=&golden=&limit=`, `/api/injection/:id`, `/api/injection/:id/report`, `/api/injection/needs-look`, `/api/injection/runs/:id`, `/api/injection/templates`, `/api/injection/tools` | [Injection tests](./injection.md): the results kept, newest first, of a run or a golden (`limit` of them, at most 1,000), each with its counts of attempts that obeyed, were influenced, ignored the payload or were inconclusive, its `verdict`, what its `gate` came to and its one `line`; one result as `injection --json` printed it, with its row and the runs it names that gc has deleted since (`gone`); its security report, an HTML download with the project's redaction rules applied; the newest result of each run or golden that obeyed, was influenced or is inconclusive, for Needs a look; a run's untrusted reads, its tests and the test it is an attempt of, with the canary and the line that joins the read to the write; the built-in payload templates, versioned; and every recorded tool with its trust and where that comes from, for Settings → Tools. Its job is the kind `injection { runId \| golden, repeat?, templates?, payloadsUpload?, baselines?, clean?, writes?, liveReads?, yes? }`: `injection <run\|golden> --json`, planting the templates (`all`, `none` or their ids) or an uploaded payload file at every untrusted read, or with `clean`, a call number (a run only), whether that read caused the run's writes (`writes` picks them by call number); a run whose command came from a pack, the team store or a program that sent the sidecar its command runs only with `yes`, the `confirm` of the 409 that named both its command and the test's own line, so a yes to one test runs no other |
-| `GET /api/chaos`, `/api/chaos/runs/:id` | [Error-path presets](./error-paths.md): the presets, a matrix for every recording they ran on, newest first (a cell per preset: its verdict, the call it hit, passes and attempts, why, each attempt's run and verdict, inconclusive when its replay never reached the call or only a check no attempt can decide held it back, and the preset's gate), and the newest sessions (each with `live` while its process runs); one run's matrix, or for a preset's attempt the matrix of the session that decided it, on its recording (`null` when no preset ran on either); each attempt in a cell carries why it failed or couldn't say (`reason`). Its job is the kind `chaos { golden, presets?, tool? }` (`test <golden> --chaos`, refused with a 409 while a test session, an update or a pack runs, as they are while it runs, or while presets run on goldens, wherever they were started: a terminal, another dashboard or a job) or `chaos { runId, presets?, tool?, confirmed? }` (`replay <run> --chaos`; a run whose command came from a pack, the team store or a program that sent the sidecar its command runs only `confirmed`, the `confirm` of the 409 that named both its command and the presets' own line, so a yes to one preset runs no other, and none an injection test) |
-| `GET /api/coverage` | [Production coverage](./coverage.md): the last `shadowlap coverage` scan as it was kept (`scan`, `null` when none ran), the imported runs that came in after it (`newRuns`), each behaviour it found, not covered first, with the goldens that cover it, its runs, the nearest golden and what Pack one runs (`pack`), the count not covered, the line Needs a look shows, and the `commands` that scan again and pack. Its jobs are the kinds `coverage {}` (scan again) and `coverage-pack { key?, command?, confirmed?, fork?, expect? }` (`coverage --pack`: a golden of the behaviour `key` names, or of each no golden covers, reproduced with the agent's command a run here gives or the one typed, which runs only once confirmed; with `fork` and `expect`, a golden that forks), refused with a 409 while a test session, an update or another pack runs |
+| `GET /api/setup`; `POST /api/setup/record { command }`, `/golden { golden }`, `/finish` | The current project's setup; what recording a command runs and whether it asks first; where a golden would go; finish the setup |
 
-Every request needs the session token in `x-shadowlap-token`. With several projects, a page sends the project it shows in `x-shadowlap-project`: a request that changes something while another project is current answers 409 with `current` (`{ id, name }`), except switching, adding and removing a project and stopping a job, which name what they act on; a job's view names the project it runs in (`project`). A command reports to its job by writing one JSON object per line to the descriptor `SHADOWLAP_EVENTS_FD` names: `{"type":"run","runId":…,"role":"new"|"attempt"}`, `{"type":"link","label":…,"href":"#/…"}`, `{"type":"file","path":…,"label":…}` and `{"type":"result","data":…}` (`emitJobEvent` in the CLI does it). Outside a dashboard job the variable is unset and nothing is written.
+`/api/setup/record` and `/golden` change nothing.
+
+### Team store and imports
+
+| Endpoint | What it does |
+| --- | --- |
+| `GET /api/store` | The team store as this machine knows it (or `null`), and who this machine records as |
+| `GET /api/store/setup`, `GET /api/store/setup/url?provider=&url=`, `POST /api/store/setup { ci?, ciProvider?, finished? }` | The store's setup page; a typed URL checked; Push from CI added or skipped, and the setup finished |
+| `GET /api/imports` | Whether each trace store's keys are set where the dashboard runs (Langfuse, LangSmith, Phoenix, Logfire), their hosts, and Phoenix's project |
+
+- **The setup page** gives where it stands and the step that is next, each provider with the credentials this machine would use, the CI steps and the commit. A typed URL is checked against the provider picked, with the access to ask for.
+- **Imports**: a user name or password in a host is left out.
+
+### Training, decisions, injection, presets and coverage
+
+| Endpoint | What it does |
+| --- | --- |
+| `GET /api/training?filter=all\|high\|medium` | Training: the strip, the pairs grouped per call with their sources and fixes, the goldens as tasks, and each model's scores |
+| `GET /api/models` | The models to score, each with its price per attempt and last score, and the picker made from them |
+| `GET /api/decisions?kind=decisions\|migrate`, `/api/decisions/:id`, `GET /api/runs/:id/decisions`, `GET /api/retirements` | The [decision diff](./decisions.md): its sessions, one session, a run's decisions, and the retirement notices |
+| `GET /api/injection?run=&golden=&limit=`, `/api/injection/:id`, `/api/injection/:id/report`, `/api/injection/needs-look`, `/api/injection/runs/:id`, `/api/injection/templates`, `/api/injection/tools` | [Injection tests](./injection.md): results, one result, its report, Needs a look, a run's untrusted reads, the templates and the tools |
+| `GET /api/chaos`, `/api/chaos/runs/:id` | [Error-path presets](./error-paths.md): the presets and their matrices; one run's matrix |
+| `GET /api/coverage` | [Production coverage](./coverage.md): the last `shadowlap coverage` scan and what it found |
+
+**Training.** A task blocked by an early fork comes with what Update the golden runs. For `/api/models`, a provider that couldn't be listed is a note, and a read-only dashboard asks none.
+
+**The decision diff:**
+
+- `/api/decisions`: the sessions kept, newest first, with the models the goldens use that retire.
+- `/api/decisions/:id`: one session as `decisions --json` or `migrate --json` printed it, with its `matrix`.
+- `/api/runs/:id/decisions`: a run's decisions under each session that asked it again.
+- `/api/retirements`: the retirement notices on their own, for the agent's models, Shadowlap's own judge calls left out.
+
+The `matrix` has a row per run and a cell per model call. Each cell holds:
+
+- its rank: the most consequential change any sample showed, 0 for the same, and `null` for not asked;
+- its `majority`, the rank most samples show;
+- how many of the samples `answered` and `changed`, for a cell drawn split;
+- `judge`, how the judge checks that read a text-only change came out:
+  - `inconclusive` when the step waits on a judge (a sample's words could not be judged, and its samples don't flag it without them);
+  - else `changed` when one came out otherwise for the changed words (the cell ranks 2);
+  - `unchanged` when every one came out as recorded;
+  - `null` when none read it.
+
+**Injection tests:**
+
+- `/api/injection`: the results kept, newest first, of a run or a golden (`limit` of them, at most 1,000). Each has its counts of attempts that obeyed, were influenced, ignored the payload or were inconclusive, its `verdict`, what its `gate` came to, and its one `line`.
+- `/api/injection/:id`: one result as `injection --json` printed it, with its row, and the runs it names that gc has deleted since (`gone`).
+- `/api/injection/:id/report`: its security report, an HTML download with the project's redaction rules applied.
+- `/api/injection/needs-look`: the newest result of each run or golden that obeyed, was influenced or is inconclusive, for Needs a look.
+- `/api/injection/runs/:id`: a run's untrusted reads, its tests and the test it is an attempt of, with the canary and the line that joins the read to the write.
+- `/api/injection/templates`: the built-in payload templates, versioned.
+- `/api/injection/tools`: every recorded tool with its trust and where that comes from, for Settings → Tools.
+
+**Error-path presets:**
+
+- `/api/chaos`: the presets; a matrix for every recording they ran on, newest first; and the newest sessions, each with `live` while its process runs.
+- `/api/chaos/runs/:id`: one run's matrix, or for a preset's attempt the matrix of the session that decided it, on its recording (`null` when no preset ran on either).
+
+A matrix has a cell per preset: its verdict, the call it hit, passes and attempts, why, each attempt's run and verdict, and the preset's gate. A cell is inconclusive when its replay never reached the call, or only a check no attempt can decide held it back. Each attempt in a cell carries why it failed or couldn't say (`reason`).
+
+**Production coverage** gives:
+
+- the last `shadowlap coverage` scan as it was kept (`scan`, `null` when none ran);
+- the imported runs that came in after it (`newRuns`);
+- each behaviour it found, not covered first, with the goldens that cover it, its runs, the nearest golden, and what Pack one runs (`pack`);
+- the count not covered, and the line Needs a look shows;
+- the `commands` that scan again and pack.
+
+### Job kinds
+
+`POST /api/jobs` starts a job of one of these kinds:
+
+| Job | What it runs |
+| --- | --- |
+| `action { runId, key, callNo?, value?, yes? }` | A run action the terminal UI shares: replay, the fork menu, repeat, pack, the suggested normalizer |
+| `apply { fixId }` | [`fix apply`](./cli.md#fix): a verified fix's patch into the working tree, its goldens tested |
+| `bisect { golden \| runId, good, bad? }` | Find the commit |
+| `blame { runId, expect?, yes? }` | Blame with the check the run failed: the one given, else the one it was judged by, else a 422 that asks for it |
+| `blame { fixId, again: true, yes? }`, `blame { fixId, model, yes? }` | An open fix's blame again, under its check, when it couldn't settle or stopped part way, or with another model when nothing rescued its run |
+| `calibrate { runId?, write? }` | The setup's recording, else the newest finished one made here, unless one is named |
+| `chaos { golden, presets?, tool? }` | `test <golden> --chaos` |
+| `chaos { runId, presets?, tool?, confirmed? }` | `replay <run> --chaos` |
+| `check { expect?, recordings? }` | [`shadowlap check`](./cli.md#check): a check tried on run ids, `label:<name>` or the project's goldens, nothing replayed |
+| `coverage {}` | Scan again |
+| `coverage-pack { key?, command?, confirmed?, fork?, expect? }` | `coverage --pack` |
+| `decisions { runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?, thenVerify? }` | A decision diff |
+| `decisions-verify { sessionId, runId? }` | `decisions --verify` |
+| `export-html`, `export-har`, `pack`, `export-dataset`, `export-otel` | The Share menu's copies, as [Jobs](#jobs) describes them |
+| `gc { olderThanDays? }` | Always a dry run first; then `gc { confirm }` with that dry run's job id, which deletes exactly the runs it listed |
+| `import { format, uploadId }` | An uploaded capture or trace; or `{ format: "langfuse", traceId, host? }`, with `project?` too for `phoenix` |
+| `init`, `record { command, confirmed? }` | The setup's inspection, and its first recording |
+| `injection { runId \| golden, repeat?, templates?, payloadsUpload?, baselines?, clean?, writes?, liveReads?, yes? }` | `injection <run\|golden> --json` |
+| `migrate { to, goldens?, runs?, from?, scope?, set? }` | A migration, every golden unless some are named |
+| `normalize-and-test { golden \| runId, path? }` | A normalizer for each value made anew on every run, then `test` on the golden |
+| `override { runId, callNo, uploadId, yes? }` | Edit and fork: `replay --override` of a tool's result or a person's answer, from an upload checked as untrusted data |
+| `pack-test { golden? }` | Pack, then test; the test alone once packed |
+| `pairs { format?, minConfidence? }` | Export pairs, written to `.shadowlap/exports/pairs.jsonl` |
+| `push { runIds }`, `pull` | Push runs to the team store, or `{ all: true }`; pull from it |
+| `repair { fixId, repairer?, yes? }` | An open fix, from its failing and good runs, by the repairer its confirm dialog named |
+| `score { model, baseUrl?, attempts?, goldens? }` | 5 or 10 attempts a task, 5 unless given; every ready task unless some are named |
+| `share { runId }` | A share link |
+| `skill-install { agent, replace? }` | [`skill install`](./cli.md#skill), `--force` with `replace` |
+| `store-set { url, provider }` | `store set --check` |
+| `task-update { golden }` | Update the golden, from Training |
+| `test { golden?, maxAttempts?, continue? }` | A test session |
+| `test-update { goldens }` | Re-recorded live with writes stubbed, each replaced when its checks pass; or `{ golden }` |
+| `verify { fixId, verifyId, yes? }` | Run more attempts, or Verify again, for a verdict left incomplete |
+
+What some of them do:
+
+- **`blame`**, **`verify`**, **`repair`** and **`apply`** are a fix's jobs. `verify` runs its runs from the start, the limit doubled where a gate ran out of attempts, without the budget that stopped it. A `repair` whose repairer `shadowlap.config.json` no longer names is a 409, and nothing runs.
+- **`test`**: `maxAttempts` raises each gate's limit for that session (`test --max-attempts`), and `continue` carries an inconclusive gate's attempts over (`test --continue`).
+- **`test-update`**: one that replayed clean and lacks a judge's verdict it can use gets the verdict asked and kept instead.
+- **Tests' jobs** (`test`, `test-update`, `bisect`, `normalize-and-test`) run one at a time in a project, and none while a test session or error-path presets on goldens run, wherever they were started: a terminal, another dashboard or a job (409).
+- **`chaos` on a golden** is refused with a 409 while a test session, an update or a pack runs, as they are while it runs, or while presets run on goldens, wherever they were started: a terminal, another dashboard or a job.
+- **`chaos` on a run** whose command came from a pack, the team store or a program that sent the sidecar its command runs only `confirmed`. That is the `confirm` of the 409 that named both its command and the presets' own line, so a yes to one preset runs no other, and none an injection test.
+- **`check`** without run ids, a label or the goldens tries every recording; its result is the report.
+- **`coverage-pack`** packs a golden of the behaviour `key` names, or of each no golden covers, reproduced with the agent's command a run here gives or the one typed, which runs only once confirmed. With `fork` and `expect`, it packs a golden that forks. It is refused with a 409 while a test session, an update or another pack runs.
+- **`decisions`**: `samples` as [`--samples`](./cli.md#decisions) takes it, 1 included. Without it, each step is asked 3 times under the change and 3 times as recorded, six requests a step.
+- **`decisions-verify`** verifies each run the session flagged under its own checks (its golden's, or for a run named by id, those of the recording it comes from). It runs one verify per set of checks, in the role its recording plays under them, and keeps the result in the session.
+- **`injection`** plants the templates (`all`, `none` or their ids) or an uploaded payload file at every untrusted read. With `clean`, a call number (a run only), it tests whether that read caused the run's writes; `writes` picks them by call number.
+- **`injection` on a run** whose command came from a pack, the team store or a program that sent the sidecar its command runs only with `yes`. That is the `confirm` of the 409 that named both its command and the test's own line, so a yes to one test runs no other.
+
+### Job events
+
+A command reports to its job by writing one JSON object per line to the descriptor `SHADOWLAP_EVENTS_FD` names (`emitJobEvent` in the CLI does it):
+
+- `{"type":"run","runId":…,"role":"new"|"attempt"}`: a run it started, or an attempt.
+- `{"type":"link","label":…,"href":"#/…"}`: where to go next.
+- `{"type":"file","path":…,"label":…}`: a file or folder it wrote.
+- `{"type":"result","data":…}`: its result.
+
+Outside a dashboard job the variable is unset, and nothing is written.
+
+## For contributors
+
+`npm run test:browser` (from `packages/dashboard`) opens the dashboard in Chromium over the whole demo store, built by real commands (`scripts/demo-store.mjs`, or the one `SHADOWLAP_DEMO_DIR` names). It checks it with axe-core for no serious or critical violation:
+
+- on any page, Settings tab, run, view, inspector tab, menu or dialog;
+- on Fixes and each fix's steps, the palette, and the shortcuts on Overview, Runs, Fixes and Settings;
+- on a toast with Undo, or the bar that says the dashboard can't be reached;
+- on every page, Settings tab and fix step again, with a few runs and Import a capture, at a phone's width (390 px).
+
+It also checks the contrast, the focus order, the skip link, the focus rings and every overlay's focus; 24 px targets; a phone's width; and that every link the server writes opens a page.
+
+Where the code is:
+
+- **Links**: the server builds its links with `packages/dashboard/src/links.ts`, the builder the page uses too.
+- **Attempts**: which runs are attempts is one rule, `packages/engine/src/run-roles.ts`.
+- **Endpoints**: the server's endpoints are registered by feature in `packages/dashboard/src/routes/`, and the shapes they answer with are in `packages/dashboard/src/views.ts` and `api.ts`.
 
 ## Troubleshooting
 

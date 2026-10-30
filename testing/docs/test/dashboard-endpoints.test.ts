@@ -1,7 +1,8 @@
-// docs/dashboard.md keeps a table of the dashboard server's endpoints and job kinds for contributors.
-// Each feature registers its own (packages/dashboard/src/routes/), so one can land without a row and
-// nobody notices: injection, the error-path presets and coverage did. These checks read the routes
-// from the sources and the job kinds from a running dashboard, and fail on any the table leaves out.
+// docs/dashboard.md keeps tables of the dashboard server's endpoints, an area each, and of its job kinds,
+// for contributors. Each feature registers its own (packages/dashboard/src/routes/), so one can land
+// without a row and nobody notices: injection, the error-path presets and coverage did. These checks
+// read the routes from the sources and the job kinds from a running dashboard, and fail on any the
+// tables leave out.
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,12 +14,14 @@ import { Store } from '@shadowlap/engine';
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const ROUTES = join(ROOT, 'packages', 'dashboard', 'src', 'routes');
 
-/** The endpoint table's rows, from its header to the first line that is no row. */
+/** The rows of every endpoint table and of the job kinds table, each from its header to the first line that is no row. */
 const rows = (() => {
   const lines = readFileSync(join(ROOT, 'docs', 'dashboard.md'), 'utf8').split('\n');
-  const at = lines.findIndex((l) => l.startsWith('| Endpoint |'));
   const out: string[] = [];
-  for (let i = at + 2; at >= 0 && i < lines.length && lines[i].startsWith('|'); i++) out.push(lines[i]);
+  lines.forEach((line, at) => {
+    if (!/^\|\s*(Endpoint|Job)\s*\|/.test(line)) return;
+    for (let i = at + 2; i < lines.length && lines[i].startsWith('|'); i++) out.push(lines[i]);
+  });
   return out;
 })();
 
@@ -66,12 +69,12 @@ afterAll(async () => {
   if (project) rmSync(project, { recursive: true, force: true });
 });
 
-describe("docs/dashboard.md's endpoint table", () => {
+describe("docs/dashboard.md's endpoint tables", () => {
   it('names every route the server registers', () => {
     expect(rows.length).toBeGreaterThan(20);
     expect(routes.length).toBeGreaterThan(50);
     const missing = routes.filter((r) => !named(r.pattern)).map((r) => `${r.method} /api${r.pattern} (routes/${r.file})`);
-    expect(missing, 'routes the table leaves out').toEqual([]);
+    expect(missing, 'routes the tables leave out').toEqual([]);
   });
 
   it('names every job kind the server registers', async () => {
@@ -79,7 +82,7 @@ describe("docs/dashboard.md's endpoint table", () => {
     expect(meta.jobKinds).toContain('injection');
     const table = rows.join('\n');
     const missing = meta.jobKinds.filter((k) => !table.includes(`\`${k}\``) && !table.includes(`\`${k} {`) && !table.includes(`"${k}"`));
-    expect(missing, 'job kinds the table leaves out').toEqual([]);
+    expect(missing, 'job kinds the tables leave out').toEqual([]);
   });
 
   it('notices a route it leaves out', () => {
