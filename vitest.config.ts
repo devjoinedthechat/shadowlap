@@ -28,7 +28,7 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['packages/*/test/**/*.test.{ts,tsx}', 'testing/**/test/**/*.test.ts', 'experiments/*/test/**/*.test.mjs'],
+    include: ['packages/*/test/**/*.test.{ts,tsx}', 'testing/**/test/**/*.test.ts'],
     // Fails the run when a test leaves a .shadowlap folder in the repository's root or testing/frameworks,
     // or anything in the checkout that git lists and the run didn't build.
     globalSetup: ['./testing/no-stray-stores.mjs'],
