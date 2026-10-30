@@ -137,14 +137,14 @@ Each command's section lists its fields. This table says where:
 
 | Command | What it prints |
 | --- | --- |
-| `run --summary-json <file>` | The run's summary ([fields](#run)) |
-| `replay --summary-json <file>` | The replay's summary and checks, or every attempt and the report ([fields](#replay)) |
+| `run --summary-json <file>` | The run's summary ([fields](#run-summary-as-json)) |
+| `replay --summary-json <file>` | The replay's summary and checks, or every attempt and the report ([fields](#replay-summary-as-json)) |
 | `show`, `ls`, `search`, `diff` | A run, the runs, the matches, a comparison ([show](#show), [ls](#ls), [search](#search), [diff](#diff)) |
 | `label` | The run's labels ([fields](#label-note)) |
 | `blame`, `verify`, `repair` | Their reports ([blame](./blame.md#json), [verify](./verify.md#json), [repair](./repair.md#json)) |
 | `fix ls`, `fix show`, `fix pr`, `fix apply` | The dashboard's read model of Fixes ([fields](#fix)) |
-| `decisions`, `migrate` | The report the dashboard reads ([decisions](#decisions), [migrate](#migrate)) |
-| `test --json <file>` | The session's report ([fields](#test)) |
+| `decisions`, `migrate` | The report the dashboard reads ([decisions](#decisions-report-as-json), [migrate](#migrate-report-as-json)) |
+| `test --json <file>` | The session's report ([fields](#test-report-as-json)) |
 | `bisect`, `check`, `injection`, `coverage` | Their results ([bisect](#bisect), [check](#check), [injection](#injection), [coverage](#coverage)) |
 | `calibrate`, `init`, `doctor`, `skill install` | What each found or did ([calibrate](#calibrate), [init](#init), [doctor](#doctor), [skill](#skill)) |
 | `normalize ls`, `redact ls`, `redact preview` | The rules, and what they would mask ([fields](#normalize-redact)) |
@@ -1943,6 +1943,501 @@ for `review`: its `path`, `line` and `text`.
 
 A refusal before anything is asked prints `kind`, `outcome` (`error`) and `error`, as `decisions` does.
 
+## test
+
+```sh
+shadowlap test <pack...> [--junit <file>] [--json <file>] [--markdown <file>] [--annotations]
+               [--update] [--online] [--writes <policy>] [--cwd <dir>] [--guard <mode>] [--push]
+               [--inconclusive fail|warn] [--max-attempts <n>] [--suite-risk <r>] [--continue]
+               [--allow-unrecorded <names>] [-y]
+shadowlap test <pack...> --chaos [--presets <list>] [--chaos-tool <name>] [--inconclusive fail|warn] [-y]
+```
+
+[CI mode](./ci.md): replays packed recordings offline, re-running each recorded command. Checks, and
+recordings allowed to fork, are configured under `tests` in `shadowlap.config.json`.
+
+```sh
+shadowlap test goldens/*
+shadowlap test goldens/* --junit junit.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations
+```
+
+Any of these fails the pack:
+
+- a divergence;
+- a live call;
+- a non-zero exit;
+- a replay that [ends before its recording does](./ci.md#a-replay-that-ends-early);
+- a failed [outcome check](./ci.md#outcome-checks).
+
+A `*` in the last part of a path (`goldens/*`) is expanded by the command itself.
+
+Each replay's agent gets a [placeholder key](./how-it-works.md#keys) for each provider its recording
+called whose credentials the environment lacks, so a job without secrets tests it. `--online`,
+`--update`, `--chaos` and a golden that may fork give none, and need the real keys.
+
+`test` takes these flags:
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--junit <file>` | Write a JUnit XML report | — |
+| `--json <file>` | Write a JSON report (below) | — |
+| `--markdown <file>` | Append a Markdown report: a results table, and the diff and agent output for each failure. Point it at `$GITHUB_STEP_SUMMARY` for a GitHub job summary | — |
+| `--annotations` | Print a GitHub Actions annotation for each pack that didn't pass, attached to its `run.json` (below) | — |
+| `--update` | [Re-record each golden that diverged](./ci.md#update-a-golden-after-an-intended-change), live with writes stubbed, and replace its pack (below) | — |
+| `--online` | Allow live calls after a divergence | Every provider offline: a live call fails the pack |
+| `-y`, `--yes` | Run the recorded command of a golden from someone else's pack, which the repository doesn't track, without asking | — |
+| `--writes block\|stub\|allow` | What `write` tools do after a divergence | `block` |
+| `--cwd <dir>` | Where the recorded commands run | The current directory |
+| `--guard block\|warn\|off` | The [network guard](./how-it-works.md#the-network-guard) | `block` |
+| `--allow-unrecorded <names>` | Run these tools again for real, though a golden never recorded them: names separated by commas (repeatable; below) | — |
+| `--push` | Push every test run, with the golden it replayed, and the session's report to the [team store](./team.md#push-from-ci) (below) | — |
+| `--inconclusive fail\|warn` | What an inconclusive verdict does: `fail` the run, or `warn` (below) | `fail`, with an exception (below) |
+| `--max-attempts <n>` | Raise every [gate](./gating.md)'s limit, its `max`, for this session only, to settle an inconclusive golden without changing the config | — |
+| `--suite-risk <r>` | The most a healthy suite may go red for nothing in this session, split across its gated goldens (below) | `suiteRisk` under `tests` in the config, else 0.05 |
+| `--continue` | Carry an inconclusive gate's attempts over from the golden's last result, and run only the attempts still needed (below) | — |
+| `--chaos` | Run the [error-path presets](#error-path-presets) instead of the session above | — |
+| `--presets <list>` | With `--chaos`: the presets to run, comma-separated (`timeout`, `empty`, `malformed`, `oversized`, `429`, `500`, or `all`) | The golden's `chaos.presets`, else all |
+| `--chaos-tool <name>` | With `--chaos`: the tool whose first call the tool presets hit | The golden's `chaos.tool`, else the first tool call that reads the world |
+
+More on some of them:
+
+- **`--annotations`**: an error, or a warning for an inconclusive one let through, with why it only
+  warns or counts.
+- **`--update`**: it also re-records each golden that may fork and forked before its task's takeover.
+  It replaces the pack (`run.json`, `calls.jsonl`, `blobs/`, and a `.gitattributes` when the folder has
+  none; other files in its folder stay) in the working tree, when the agent exits 0 and its checks
+  pass.
+- **What `--update` prints**: what the agent sends differently. When the divergence is a value that
+  changes every run and the config has no rule at its path, it warns, with the normalizer to add.
+- **`--update` and judges**: a golden that replayed clean but holds no verdict for a
+  [judge check](./judges.md#recorded-once-judged-free-after) gets it asked live, and kept in its pack.
+- **`--allow-unrecorded`**: for tools that [write](./how-it-works.md#tools-shadowlap-did-not-record), or
+  that nothing says what they do. Without it, a session with a golden whose model called such a tool is
+  refused before any golden runs, every such golden named, exit status 2. A read is named, one line per
+  golden.
+- **`--push`**: a pull request's CI job pushes to [its own folder](./team.md#pull-requests). A missing
+  store or missing credentials is a warning; the tests still decide the exit status.
+- **`--continue`**: it carries attempts over when the golden's recording, checks and gate are
+  unchanged. With `--max-attempts`, it runs up to the higher limit. A gate continued this way decides
+  exactly as one that had that limit from the start. A golden whose last result isn't an inconclusive
+  gate's runs afresh, and says why.
+- **`--suite-risk`**: see [one risk for the whole suite](./gating.md#one-risk-for-the-whole-suite).
+- **`--chaos`**: each golden forked at one call with a tool timeout, an empty result, malformed JSON,
+  an oversized result, a provider 429 and a 500.
+
+`--inconclusive` covers an inconclusive verdict of any kind:
+
+- a gate's;
+- a check's;
+- an [injection gate](./injection.md#gate-ci-on-it)'s, one whose test showed too little to say;
+- with `--chaos`, a preset's: one whose gate ran out of attempts between its bounds, whose replay never
+  reached the call, or that only a check no attempt can decide kept from passing.
+
+Under `warn`, the pack counts as passed for the exit status, a JUnit report marks it skipped,
+`--annotations` gives it a warning, and every report still says it is inconclusive.
+
+With neither `fail` nor `warn` given, each fails the run, but for a gate against history whose golden
+has fewer than 30 sessions (three of its `window`s). That one only warns when it runs out of attempts, saying it needs
+more history (its result's `warned`). It counts after all, saying why (`counted`), when the session's
+plan reads its last sessions below the ones before them, 99 to 1 likely or more, or beyond chance at
+its share.
+
+`test` exits with:
+
+| Status    | Meaning                                                                                  |
+| --------- | ---------------------------------------------------------------------------------------- |
+| `0`       | Every pack passed                                                                        |
+| `1`       | A pack failed, other than a pack it needs `--yes` to run                                 |
+| `2`       | The packs can't be tested as given (below)                                               |
+| `3`       | None failed, and one is inconclusive (below)                                             |
+| `128 + n` | A signal stopped the session: 130 for Ctrl-C, 129 for a closed terminal, 143 for SIGTERM |
+
+- **`2`** is for packs that can't be tested as given: none matches, a config it can't read, or a golden
+  that would run a [write Shadowlap never recorded](./how-it-works.md#tools-shadowlap-did-not-record)
+  again. It is 2 too when a path named as it is holds no pack, whatever else failed.
+- **`2`, too,** when the only goldens that failed are packs it needs `--yes` to run (someone else's,
+  which nobody said yes to). Each fails as a golden in every report, while the others run.
+- **`3` becomes `0`** when every inconclusive one only warns: under `--inconclusive warn`, or, with
+  none given, a gate against history whose golden has too few sessions, as `--inconclusive` says.
+- **`128 + n`**: the session then keeps the results of the packs that finished.
+
+### The command a golden runs
+
+A golden replays the recording and the command its own pack holds. The store may already hold another
+recording under the pack's run id: a copy pulled from a pull request's folder, a pack someone sent that
+reused the id, or the golden a copied one came from.
+
+- If only the command differs, the pack's command runs.
+- If the calls differ, the golden fails, naming where the store's copy came from.
+- The store's copy's command never runs.
+- A store's copy that differs only in its [redaction rules](./normalizers-and-redaction.md#redaction),
+  more of them or fewer, is the pack's recording. That is the run recorded here under the golden packed
+  from it, or a newer pack's copy under an older checkout's pack. It replays with every rule either one
+  carries as a normalizer.
+
+A golden this machine recorded, or one whose pack the project's git repository tracks (its `run.json`
+is in the index), runs its command without asking. A pack from anyone else, outside the repository or
+not added to it, asks first, as `replay` asks of an imported run:
+
+- it runs after a yes at a terminal, or with `-y`;
+- without a terminal (CI), or after a no, it isn't run, and fails saying why;
+- with several goldens tested side by side, they ask one at a time.
+
+### Test history and gates
+
+Each session is kept in the project's store as [test history](./ci.md#test-history): the command, the
+revision, passed and failed (an inconclusive golden is neither: its result says so), and each golden's
+result with why it failed. Global `--db :memory:` keeps nothing.
+
+- **Why a divergence failed**: the first change the normalizers in force don't mask. The report lists
+  the masked ones too, without a hint to add a rule the config has.
+- **A session still running**: until it ends, the store also names the process running it. So the
+  dashboard shows a session started in a terminal as running, and one whose process was killed as one
+  that did not finish.
+- **Each replay** prints `replaying run <id>`, and is marked as made by `test` for its golden.
+- **A golden replayed more than once** (`repeat`, or a `gate`) numbers its attempts, and files them
+  under the one its result shows, so the dashboard lists them as one test run.
+
+With several goldens, their attempts run in turns, one at a time: the first attempt of each golden,
+then the second of each one whose gate hasn't decided, and so on. So a burst of failures lands on many
+goldens once each ([attempts are independent](./gating.md#attempts-are-independent)). Each golden's
+result is printed in order, once every golden's replays have ended.
+
+A golden with a [gate](./gating.md) runs attempts until the gate decides. It says how in one line, the
+verdict word, the tally, the bound and the rule
+(`passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`),
+with pass^k under it (`pass^5 1.00`).
+
+- **The forecast**: before any golden runs, the session prints its
+  [forecast](./gating.md#one-risk-for-the-whole-suite): the attempts it runs on average and at most,
+  and what they cost. With several gated goldens, it splits its one risk across them (`--suite-risk`).
+- **An unavailable provider**: an attempt the agent failed while its provider was
+  [unavailable](./gating.md#when-the-provider-is-unavailable) before the model answered is run again,
+  and not counted. One the provider cut short after is counted against either verdict.
+- **Inconclusive**: a gate that runs out of attempts between its bounds is *inconclusive*. So is a pack
+  whose only checks that did not pass could not be decided, such as a
+  [judge check](./judges.md#not-judged) with no verdict, and one whose injection gate showed too
+  little to say. Each is marked `?` in amber and counted apart (`1 passed, 0 failed, 1 inconclusive`).
+
+### A golden's injection test
+
+A golden whose entry has an [injection gate](./injection.md#gate-ci-on-it)
+(`"injection": { "obeyed": 0, "repeat": 3 }`) gets its injection test once its replay passed. Payloads
+are planted in its untrusted reads, live from the model call that reads them, with writes stubbed and
+reads the recording doesn't hold fenced.
+
+It fails, as an `injection` failure, when more attempts obey (or are influenced) than the gate allows.
+It fails too when the test showed too little to say:
+
+- no untrusted read to plant in;
+- an attempt in which a model call failed, or the agent exited non-zero;
+- no attempt a model read;
+- a test cut short.
+
+That verdict is inconclusive, and `--inconclusive warn` lets it through.
+
+### Test report as JSON
+
+`--json <file>` writes a JSON report: the session, counts and, per pack, the result and the kind of
+failure. The report is `{ version, session, revision, passed, failed, inconclusive, interrupted, results }`,
+and `suite` with a gated golden:
+
+| Field | Meaning |
+| --- | --- |
+| `version`, `session`, `revision` | The report's version, the session in the store's history, and the revision it tested |
+| `passed`, `failed` | The packs, counted by what CI does with them (below) |
+| `inconclusive` | The inconclusive packs, either way (below) |
+| `interrupted` | Whether a signal stopped the session; `results` has the goldens that finished before it |
+| `results` | One result per pack (below) |
+| `suite` | With a gated golden: the session's one risk, and how it was split (below) |
+
+An inconclusive pack counts as failed, or as passed when it only warns: under `--inconclusive warn`, or,
+with none given, a gate against history with too few sessions (its `warned`). `inconclusive` counts the
+inconclusive ones either way:
+
+- a gate that ran out of attempts between its bounds;
+- a pack that fell short only on a check that [could not be decided](./checks.md#how-a-check-comes-out);
+- one whose provider was unavailable too many attempts in a row.
+
+`suite` has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `risk` | The session's one risk |
+| `perGoldenRisk` | Each gated golden's share of it |
+| `method` | How it was split: `bonferroni` |
+| `goldens` | How many goldens shared it |
+| `inconclusive` | What `inconclusive` verdicts did |
+| `red`, `averaged` | The chance the session went red for nothing, as planned (below) |
+| `over` | When any golden could not keep within its share, how many could not (below) |
+| `early` | How many have too few sessions to keep within their share |
+| `drop` | How many gates against history saw their last sessions sit below the sessions before them, beyond chance |
+| `short` | How many have too few sessions for an inconclusive to count |
+| `forecast` | Made before it ran: `attempts` on average, `most`, and their `cost` on average in USD (below) |
+
+- **`red`** is at most that at each SPRT gate's good rate. With `averaged`, it is on average over the
+  pass rates the sessions of its gates against history leave open.
+- **`over`**: once their chances add up past the risk, the summary states `red`, not `risk`.
+- **`forecast.cost`** is null with no price; `unpriced` counts the goldens without one.
+
+One result per pack, in `results`, has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `name`, `dir`, `golden` | The pack, its folder, and the golden as test history names it |
+| `mode` | `replay`, or `fork` for a recording that forks on purpose |
+| `ok` | Whether CI lets it through |
+| `warned` | Why an inconclusive one only warns, when no `--inconclusive` was given: `needs more history: 3 of 30 sessions` |
+| `counted` | Why one counts though its golden's history is that short (below) |
+| `verdict` | `passed`, `failed` or `inconclusive`, whatever CI does with it |
+| `failure` | The kind of failure (below) |
+| `message`, `details` | Its one-line message, and the details the terminal shows |
+| `output` | The agent's last lines of output, when it failed |
+| `seconds` | How long it took |
+| `runId`, `runs` | The replay shown, and every attempt (below) |
+| `goldenRunId` | The recording replayed |
+| `calls` | Calls by origin: `total`, `replayed`, `live`, `blocked`, `stubbed` |
+| `upstreamRequests`, `tokensNotRespent` | Upstream requests, the judge's included, and tokens not re-spent |
+| `divergence` | `type`, `callNo`, `kind`, `name`, and for one that [ended early](./ci.md#a-replay-that-ends-early) `recorded`, the calls its recording holds |
+| `checks`, `expect` | Each check (below), and the `expect` they came from |
+| `attempts` | For a recording that repeats or has a gate (below) |
+| `gate` | For a golden with a gate (below); null otherwise |
+| `judge` | What its judge checks' calls did and cost over every attempt, apart from the agent's (below), or `null` |
+| `updated` | With `--update`, what it updated: `from`, `to`, `calls`, `changes` |
+| `injection` | Its injection gate (below), or null |
+
+More on a result's fields:
+
+- **`counted`**, for example:
+  `counts though it has only 15 of 30 sessions: its last 10 sessions sit below the 5 before them, …`.
+- **`failure`**: `diverged`, `check`, `exit`, `no-calls`, `error`, `inconclusive` (for an inconclusive
+  one), or `injection` for a golden's injection gate.
+- **`gate`** is null, too, when an attempt a check could not decide stopped it before it decided
+  anything.
+- **`judge`**: `calls`, `replayed`, `live`, `notAsked`, `upstreamRequests`, `spent`, `saved` and
+  `unknownModels`.
+
+Each attempt in `runs` has its `runId`, `ok` (true for one that passed), and its `verdict`:
+
+- `passed` or `failed`;
+- `inconclusive`, when all it fell short on is a check that could not be decided;
+- `unavailable`, when the agent failed while its provider was. It is run again, and never counted,
+  unless the provider cut it short after the model answered and a gate or a fixed count counted it.
+
+Each of `checks` has its `status` (`passed`, `failed`, `inconclusive` or `not-applicable`), with `ok`,
+`label` and `detail`; see [how a check comes out](./checks.md#how-a-check-comes-out). A
+[judge check](./judges.md#in-the-reports)'s has its `reason`, `source` and `judge` too: `name`,
+`model`, `of`, `verdict`, `source`, `cost`, `redactions`, `normalized`, `cut` and `callNo`.
+
+`attempts`, for a recording that repeats or has a gate:
+
+| Field | Meaning |
+| --- | --- |
+| `total` | The attempts counted |
+| `passed` | The attempts that passed |
+| `inconclusive` | The attempts a check could not decide, which count neither way |
+| `required` | The attempts that must pass; null with a gate |
+| `unavailable` | The attempts the provider was unavailable for, which `total` leaves out |
+| `cutShort` | Those it cut short after the model answered, which a gate or a fixed count counted against either verdict, and `total` holds |
+
+`injection` holds its injection gate, or null:
+
+| Field | Meaning |
+| --- | --- |
+| `resultId` | The result it is kept under |
+| `attempts` | Its attempts |
+| `obeyed`, `influenced`, `ignored`, `inconclusive` | How many attempts obeyed, were influenced, ignored it, or were inconclusive |
+| `allowed` | What it allowed, as `obeyed` and `influenced` |
+| `verdict` | `passed`, `failed` or `inconclusive`, or null when it did not run |
+| `reason` | The reason it failed, or is inconclusive |
+| `skipped` | Why it did not run |
+
+A result's `gate` holds the gate's figures as this session ran it:
+
+| Field | Meaning |
+| --- | --- |
+| `kind` | `sprt` or `baseline` |
+| `good`, `bad`, `risk`, `max` | With `sprt`: its figures |
+| `failRisk` | With `sprt`: a lower risk for a failure, when its share of the suite's risk set one |
+| `drop`, `risk`, `window`, `min`, `max` | With `baseline`: its figures |
+| `widened` | With `baseline`, for a golden with a record (below) |
+
+`widened` has `from`, the most attempts a gate against history runs by default. Past it, a pass also
+holds against the golden's `record` at `risk`, however its `max` came past it: the plan, the config,
+`--max-attempts` or Run more attempts. The `record` is every attempt of its last sessions (`passes`,
+`attempts`, `sessions`), or, with `before`, of the sessions before its last `before`.
+
+Then `gate` holds what it made of the attempts:
+
+| Field | Meaning |
+| --- | --- |
+| `decision` | `pass`, `fail` or `inconclusive` |
+| `passes`, `attempts` | `passes` of `attempts` |
+| `outcomes` | Each attempt in order, true for a pass |
+| `carried` | With `--continue`: how many of them were carried over from the session it continued |
+| `interval` | The interval of the pass rate at 1 − risk: `lo`, `hi`, `confidence` |
+| `bound` | The bound its verdict line shows (below) |
+| `unavailable` | When the provider was unavailable for some attempts |
+| `unavailableAt` | When it cut some short after the model answered: their places in `outcomes` (below) |
+| `passK` | `k`, `value`, for k up to 8 |
+| `clean` | A replay that forked nowhere settled it with one attempt |
+| `sentence` | The sentence the terminal prints: its verdict line, the verdict word, the tally, the bound and the rule |
+| `evidence` | What it decided on (below) |
+
+- **`attempts`** beside the gate counts this session's own attempts, with `--continue` too.
+- **`bound`**: `lo` for a pass, `hi` for a failure, both otherwise, with its `confidence` and `method`.
+  The method is `stagewise`, exact under the gate's own stopping, or `confidence-sequence` for attempts
+  it didn't stop on by its rule; see [reading the evidence](./gating.md#reading-the-evidence).
+- **`unavailableAt`**: each is a failure in `outcomes`, counted against either verdict.
+
+`evidence`, for an SPRT gate, has the score after each attempt (`scores`), what a pass and a failure
+add (`pass`, `fail`), and the bounds it passes and fails at (`upper`, `lower`).
+
+`evidence`, for a history gate, has:
+
+- the `history` it pooled: `passes`, `attempts`, `sessions`, or null when there is none and the golden's
+  recording is the baseline;
+- the `baseline` rate;
+- the `probability` of a drop after the last attempt, and after each one (`probabilities`, null before
+  `min`);
+- the `threshold` it fails above, and the chance it passes at or below (`passAt`, 1/2);
+- with `widened`: its `from`, `risk`, `record` and `before`, and the chance of a drop from that record
+  after each attempt (`probabilities`, null up to `from`).
+
+[Gating](./gating.md) has the maths.
+
+### Error-path presets
+
+`test --chaos` runs a golden's [error-path presets](./error-paths.md) instead of replaying it: the
+failures a recording of a healthy run never holds, each played in at one call so the agent's own error
+path runs.
+
+| Preset | What the agent gets |
+| --- | --- |
+| `timeout` | The tool call times out: the tool doesn't run, and the agent's SDK raises the timeout it would |
+| `empty` | The tool answers with nothing: an empty list, object or text, as it recorded one |
+| `malformed` | The tool answers with its JSON cut short. A tool that returned data gets the cut JSON text in its place |
+| `oversized` | The tool answers with its longest text repeated until it is a million characters long (`chaos.oversize`); JSON stays JSON |
+| `429`, `500` | The model call that reads the tool's answer fails with that status, every attempt of it |
+
+```
+⚡ goldens/forecast: 6 error-path presets at get_forecast (#3) and model call #4
+  ✓ tool timeout      passed  timed out: the agent exited 0
+  ✓ empty result      passed  answered with nothing: the agent exited 0
+  ✗ malformed JSON    failed  answered malformed JSON: the agent exited with code 1
+      SyntaxError: Unterminated string in JSON at position 52 (line 1 column 53)
+  ✓ oversized result  passed  answered 1,000,000 characters: the agent exited 0
+  ✓ provider 429      passed  failed with HTTP 429: the agent exited 0
+  ✓ provider 500      passed  failed with HTTP 500: the agent exited 0
+```
+
+**Where they hit.** The tool presets hit the first tool call that reads the world, or the first call of
+`--chaos-tool`. The provider presets hit the model call after it. A tool call that reads the world is
+a `read`, else a tool whose effect nothing declares, else a write. It is never a pure tool, a person's
+input or a call that failed when recorded.
+
+**How an attempt passes.** Each preset is a fork from there, live with writes stubbed (`--writes`
+changes that), so like a [golden that forks](./ci.md#recordings-that-fork-on-purpose) it needs the
+providers. An attempt passes when the agent exits 0 and passes the checks an error path must pass:
+
+- those under `chaos.expect` in the golden's `tests` entry;
+- else the write limits of its own `expect`: the upper bounds it sets on write tools, which hold on any
+  path. The rest describes the path its recording took, which a path through a failure needn't take.
+
+A preset's attempts are gated as they come in: by `chaos.gate` (`{ good, bad, risk, max }`, each
+optional) when the entry has one, else by the golden's `repeat` and `passes`. An attempt stops after
+`chaos.timeout` seconds (default 300) and fails: an error path can hang.
+
+**Its verdict** is one of:
+
+- `passed` or `failed`;
+- `inconclusive`, when:
+  - the gate ran out of attempts between its bounds;
+  - the replay never reached the call, which a golden that no longer replays does;
+  - or all that kept an attempt from passing is a check no attempt can decide, such as a judge with no
+    way to be asked;
+- `not-applicable`: the recording has no call the preset can hit, or no result it can change, such as
+  a binary one or one that is empty already.
+
+**The provider failing for real**, beyond the failure a preset plays in, is the provider's, as under
+`test` ([gating](./gating.md#when-the-provider-is-unavailable)):
+
+- An attempt it failed before the model answered is run again, and never counted.
+- One it cut short after is counted against either verdict, by a `chaos.gate` and by the golden's
+  `repeat` alike.
+- Enough in a row, counted across the session's presets, leave the preset that met the last
+  inconclusive, with the provider named, and every preset after it, never failed. Enough is 3 for one
+  preset, one more for each tenfold: 4 from 2, 5 from 11.
+
+`"chaos": false` leaves a golden out of `test --chaos`. Each attempt is a run bundled under the
+golden's recording, and the session and every result are kept in the store for the dashboard.
+
+**The table.** When a `chaos.gate` decided the presets, every line gives the tally and the bound of the
+pass rate, exact under the gate's stopping. A line under the table states the gate's rule once
+(`gate: tells 90%+ from 50%- at <= 10% risk, up to 6 attempts`). Under the table, a line names the
+checks that judged every attempt and where they came from
+(`checks: send_alert called at most 1 time (the write limits of the golden's expect)`). When only the
+exit status did, two lines say how to give them.
+
+`test --chaos` exits with:
+
+| Status    | Meaning                                                                 |
+| --------- | ----------------------------------------------------------------------- |
+| `1`       | A preset failed, or a golden couldn't be run                            |
+| `2`       | The only goldens that couldn't be run are packs it needs `--yes` to run |
+| `3`       | A preset was inconclusive (`0` under `--inconclusive warn`)             |
+| `128 + n` | A stop signal; 130 for Ctrl-C                                           |
+
+**The other reports.** `--junit` writes a case per preset, whose failure lists every attempt by its
+verdict. `--markdown` writes a table of them, listing under it any golden whose presets couldn't run.
+Both state a `chaos.gate`'s rule, once under the table, and in every case it decided.
+
+#### Error-path presets as JSON
+
+`--json <file>` writes
+`{ version, session, revision, presets, passed, failed, inconclusive, notApplicable, interrupted, results }`.
+
+In `results`, each recording has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `golden` | The golden |
+| `runId` | The run the presets forked |
+| `outcomes` | Each preset (below) |
+| `judge` | The judge of its presets: the `source` of their checks (`chaos.expect`, `--expect`, `write-limits` or `exit`), and the `checks` as a failure names them |
+| `rule` | The rule a `chaos.gate` decided its presets by, as the table states it, or null |
+| `error`, `skipped` | The error that kept it from running, or why it was skipped |
+
+In `outcomes`, each preset has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `preset`, `label` | The preset, and its label |
+| `verdict` | Its verdict |
+| `callNo`, `target` | The call it hit, and its `target`: `kind`, `name` |
+| `passes`, `attempts` | The attempts that passed, of those it ran |
+| `detail`, `summary` | A sentence naming what came of it, and its summary, without the call, as the table shows it |
+| `reason` | The reason it failed (its first failing attempt's) or is inconclusive; null when its gate ran out of attempts |
+| `gate` | The gate it was decided by |
+| `upstreamRequests`, `spent` | Its upstream requests, and what it spent |
+| `unavailable`, `cutShort` | When its provider failed for real: attempts never counted, and attempts cut short and counted |
+| `runs` | Each attempt (below) |
+
+In `runs`, each attempt has these fields:
+
+| Field                | Meaning                                                                        |
+| -------------------- | ------------------------------------------------------------------------------ |
+| `runId`              | The attempt's run                                                              |
+| `verdict`            | `passed`, `failed`, or `inconclusive` (below)                                  |
+| `passed`             | True for a passed attempt only                                                 |
+| `exitCode`, `checks` | The agent's exit code, and its checks                                          |
+| `reason`             | The reason it failed, or is inconclusive                                       |
+| `lastLine`           | For an agent that exited with an error: the error it died of, as it printed it |
+
+An attempt is `inconclusive` when its replay never reached the call, when all that kept it from passing
+is a check no attempt can decide, or when its provider failed for real, with `unavailable` then
+`retried` or `counted`.
+
 ## init
 
 ```sh
@@ -1994,124 +2489,6 @@ Exit status 0 when every task was scored in full; 1 when a task was skipped or s
 `tasks serve` answers one attempt per HTTP request, for a training loop that wants a reward: `POST /v1/tasks/<task>/attempts` with `{"model": …, "baseUrl": …}` returns each check's result, the score, the run and its cost. It listens on 127.0.0.1, checks the `Host` header and needs the token it prints (`SHADOWLAP_TASKS_TOKEN` sets it, at least 16 characters). `--base-url <url>` is the endpoint requests that name none ask, and `--key-env <name>` the variable whose key goes to that endpoint and nowhere else. A golden from a pack the repository doesn't track, recorded elsewhere, is served only once you say yes to its command as it starts, or with `-y`/`--yes`; a request for one nobody said yes to gets a 409. [Training](./training.md) shows a request and its response.
 
 `tasks models` lists models to score: the one the recordings used, each configured provider's models (Anthropic's and OpenAI's with the keys in the environment, Ollama's on this machine) and the models scored before, each with its price per attempt, last score and the ready tasks it can answer (a model that can answer none says why). A provider that doesn't answer within `--timeout` (1500 ms) becomes a note.
-
-## test
-
-```sh
-shadowlap test <pack...> [--junit <file>] [--json <file>] [--markdown <file>] [--annotations]
-               [--update] [--online] [--writes <policy>] [--cwd <dir>] [--guard <mode>] [--push]
-               [--inconclusive fail|warn] [--max-attempts <n>] [--suite-risk <r>] [--continue] [-y]
-shadowlap test <pack...> --chaos [--presets <list>] [--chaos-tool <name>] [--inconclusive fail|warn] [-y]
-```
-
-[CI mode](./ci.md): replays packed recordings offline, re-running each recorded command; a divergence, a live call, a non-zero exit, a replay that [ends before its recording does](./ci.md#a-replay-that-ends-early) or a failed [outcome check](./ci.md#outcome-checks) fails the pack. Checks, and recordings allowed to fork, are configured under `tests` in `shadowlap.config.json`. Each replay's agent gets a [placeholder key](./how-it-works.md#keys) for each provider its recording called whose credentials the environment lacks, so a job without secrets tests it; `--online`, `--update`, `--chaos` and a golden that may fork give none, and need the real keys. A `*` in the last part of a path (`goldens/*`) is expanded by the command itself. A golden replays the recording and the command its own pack holds: when the store already holds another recording under the pack's run id (a copy pulled from a pull request's folder, a pack someone sent that reused the id, the golden a copied one came from), the pack's command runs if only the command differs, and the golden fails, naming where the store's copy came from, if the calls differ. The store's copy's command never runs. A golden this machine recorded, or one whose pack the project's git repository tracks (its `run.json` is in the index), runs its command without asking; a pack from anyone else, outside the repository or not added to it, asks first, as `replay` asks of an imported run: it runs after a yes at a terminal or with `-y`, and without a terminal (CI), or after a no, it isn't run, and fails saying why. With several goldens tested side by side, they ask one at a time. A store's copy that differs only in its [redaction rules](./normalizers-and-redaction.md#redaction), more of them or fewer (the run recorded here under the golden packed from it, or a newer pack's copy under an older checkout's pack), is the pack's recording, and replays with every rule either one carries as a normalizer. With several goldens, their attempts run in turns, one at a time: the first attempt of each golden, then the second of each one whose gate hasn't decided, and so on, so a burst of failures lands on many goldens once each ([attempts are independent](./gating.md#attempts-are-independent)); each golden's result is printed in order once every golden's replays have ended.
-
-A golden whose entry has an [injection gate](./injection.md#gate-ci-on-it) (`"injection": { "obeyed": 0, "repeat": 3 }`) gets its injection test once its replay passed: payloads planted in its untrusted reads, live from the model call that reads them, writes stubbed and reads the recording doesn't hold fenced. It fails, as an `injection` failure, when more attempts obey (or are influenced) than the gate allows, and when the test showed too little to say: no untrusted read to plant in, an attempt in which a model call failed or the agent exited non-zero, no attempt a model read, or a test cut short. That verdict is inconclusive, and `--inconclusive warn` lets it through.
-
-Each session is kept in the project's store as [test history](./ci.md#test-history): the command, the revision, passed and failed (an inconclusive golden is neither: its result says so), and each golden's result with why it failed (for a divergence, the first change the normalizers in force don't mask: the report lists the masked ones too, without a hint to add a rule the config has); global `--db :memory:` keeps nothing. Until it ends, the store also names the process running it, so the dashboard shows a session started in a terminal as running, and one whose process was killed as one that did not finish. Each replay prints `replaying run <id>` and is marked as made by `test` for its golden; a golden replayed more than once (`repeat`, or a `gate`) numbers its attempts, and files them under the one its result shows, so the dashboard lists them as one test run. A golden with a [gate](./gating.md) runs attempts until the gate decides, and says how in one line, the verdict word, the tally, the bound and the rule (`passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`), with pass^k under it (`pass^5 1.00`). Before any golden runs, the session prints its [forecast](./gating.md#one-risk-for-the-whole-suite), the attempts it runs on average and at most, and what they cost, and with several gated goldens it splits its one risk across them (`--suite-risk`); an attempt the agent failed while its provider was [unavailable](./gating.md#when-the-provider-is-unavailable) before the model answered is run again and not counted, and one the provider cut short after is counted against either verdict; a gate that runs out of attempts between its bounds is *inconclusive*, as is a pack whose only checks that did not pass could not be decided, such as a [judge check](./judges.md#not-judged) with no verdict, and one whose injection gate showed too little to say: marked `?` in amber and counted apart (`1 passed, 0 failed, 1 inconclusive`). Exit status: 0 when every pack passed; 1 when one failed, other than a pack it needs `--yes` to run; 3 when none failed and one is inconclusive (0 when every inconclusive one only warns: under `--inconclusive warn`, or with none given, a gate against history whose golden has too few sessions, as [`--inconclusive`](#test) says); 2 when the packs can't be tested as given (none matches, a config it can't read, a golden that would run a [write Shadowlap never recorded](./how-it-works.md#tools-shadowlap-did-not-record) again), when a path named as it is holds no pack, whatever else failed, and when the only goldens that failed are packs it needs `--yes` to run (someone else's, which nobody said yes to), each of which fails as a golden in every report while the others run; and 128 + n when a signal stopped the session (130 for Ctrl-C, 129 for a closed terminal, 143 for SIGTERM), which then keeps the results of the packs that finished.
-
-| Option | Effect |
-|---|---|
-| `--junit <file>` | Write a JUnit XML report |
-| `--json <file>` | Write a JSON report: the session, counts and, per pack, the result and the kind of failure (`diverged`, `check`, `exit`, `no-calls`, `error`, `inconclusive`, or `injection` for a golden's injection gate), its replays' run ids, calls by origin, tokens not re-spent, the divergence, each check, the checks as configured and, for a repeated recording, how many attempts passed |
-| `--markdown <file>` | Append a Markdown report: a results table, and the diff and agent output for each failure. Point it at `$GITHUB_STEP_SUMMARY` for a GitHub job summary |
-| `--annotations` | Print a GitHub Actions annotation for each pack that didn't pass, attached to its `run.json`: an error, or a warning for an inconclusive one let through, with why it only warns or counts |
-| `--update` | [Re-record each golden that diverged](./ci.md#update-a-golden-after-an-intended-change), and each that may fork and forked before its task's takeover, live with writes stubbed, and replace its pack (`run.json`, `calls.jsonl`, `blobs/`, and a `.gitattributes` when the folder has none; other files in its folder stay) in the working tree when the agent exits 0 and its checks pass. Prints what the agent sends differently. Warns, with the normalizer to add, when the divergence is a value that changes every run and the config has no rule at its path. A golden that replayed clean but holds no verdict for a [judge check](./judges.md#recorded-once-judged-free-after) gets it asked live and kept in its pack |
-| `--online` | Allow live calls after a divergence. By default every provider is offline and a live call fails the pack |
-| `-y`, `--yes` | Run the recorded command of a golden from someone else's pack, which the repository doesn't track, without asking |
-| `--writes block\|stub\|allow` | What `write` tools do after a divergence. Default `block` |
-| `--cwd <dir>` | Where the recorded commands run. Default: the current directory |
-| `--guard block\|warn\|off` | The [network guard](./how-it-works.md#the-network-guard). Default `block` |
-| `--allow-unrecorded <names>` | Run these tools again for real though a golden never recorded them and they [write](./how-it-works.md#tools-shadowlap-did-not-record), or nothing says what they do: names separated by commas (repeatable). Without it, a session with a golden whose model called such a tool is refused before any golden runs, every such golden named, exit status 2; a read is named, one line per golden |
-| `--push` | Push every test run, with the golden it replayed, and the session's report to the [team store](./team.md#push-from-ci); a pull request's CI job pushes to [its own folder](./team.md#pull-requests). A missing store or missing credentials is a warning; the tests still decide the exit status |
-| `--inconclusive fail\|warn` | What an inconclusive verdict does, a gate's, a check's, an [injection gate](./injection.md#gate-ci-on-it)'s (one whose test showed too little to say) or, with `--chaos`, a preset's (one whose gate ran out of attempts between its bounds, whose replay never reached the call, or that only a check no attempt can decide kept from passing): `fail` the run, or `warn`: the pack counts as passed for the exit status, a JUnit report marks it skipped, `--annotations` gives it a warning, and every report still says it is inconclusive. With neither given, each fails the run but a gate against history whose golden has fewer than 30 sessions (three of its `window`s), which only warns when it runs out of attempts, saying it needs more history (its result's `warned`), unless the session's plan reads its last sessions below the ones before them, 99 to 1 likely or more or beyond chance at its share: that one counts, saying why (`counted`) |
-| `--max-attempts <n>` | Raise every [gate](./gating.md)'s limit, its `max`, for this session only, to settle an inconclusive golden without changing the config |
-| `--suite-risk <r>` | The most a healthy suite may go red for nothing in this session, split across its gated goldens ([one risk for the whole suite](./gating.md#one-risk-for-the-whole-suite)). Default: `suiteRisk` under `tests` in the config, else 0.05 |
-| `--continue` | Carry an inconclusive gate's attempts over from the golden's last result, when its recording, checks and gate are unchanged, and run only the attempts still needed: with `--max-attempts`, up to the higher limit. A gate continued this way decides exactly as one that had that limit from the start. A golden whose last result isn't an inconclusive gate's runs afresh, and says why |
-| `--chaos` | Run the [error-path presets](#error-path-presets) instead of the session above: each golden forked at one call with a tool timeout, an empty result, malformed JSON, an oversized result, a provider 429 and a 500 |
-| `--presets <list>` | With `--chaos`: the presets to run, comma-separated (`timeout`, `empty`, `malformed`, `oversized`, `429`, `500`, or `all`). Default: the golden's `chaos.presets`, else all |
-| `--chaos-tool <name>` | With `--chaos`: the tool whose first call the tool presets hit. Default: the golden's `chaos.tool`, else the first tool call that reads the world |
-
-The `--json` report is `{ version, session, revision, passed, failed, inconclusive, interrupted, results }`, and `suite` with a gated golden: `passed` and `failed` count the packs by what CI does with them (an inconclusive one counts as failed, or as passed when it only warns: under `--inconclusive warn`, or with none given, a gate against history with too few sessions, its `warned`), and `inconclusive` counts the inconclusive ones either way: a gate that ran out of attempts between its bounds, a pack that fell short only on a check that [could not be decided](./checks.md#how-a-check-comes-out), or one whose provider was unavailable too many attempts in a row. `suite` is the session's one risk (`risk`), each gated golden's share of it (`perGoldenRisk`), how it was split (`method`, `bonferroni`), how many `goldens` shared it, what `inconclusive` verdicts did, the chance the session went red for nothing as planned (`red`: at most that at each SPRT gate's good rate, or, with `averaged`, on average over the pass rates the sessions of its gates against history leave open), how many goldens could not keep within their share when any could not (`over`; once their chances add up past the risk, the summary states `red`, not `risk`), how many have too few sessions yet to (`early`), how many gates against history saw their last sessions sit below the sessions before them beyond chance (`drop`), how many have too few sessions for an inconclusive to count (`short`), and the `forecast` made before it ran: `attempts` on average, `most`, and their `cost` on average in USD (null with no price; `unpriced` counts the goldens without one). One result per pack: its `name`, `dir` and `golden` (as test history names it), `mode` (`replay`, or `fork` for a recording that forks on purpose), `ok` (whether CI lets it through), why an inconclusive one only warns when no `--inconclusive` was given (`warned`: `needs more history: 3 of 30 sessions`), or counts though its golden's history is that short (`counted`: `counts though it has only 15 of 30 sessions: its last 10 sessions sit below the 5 before them, …`), its `verdict` (`passed`, `failed` or `inconclusive`, whatever CI does with it), the `failure` kind (`inconclusive` for an inconclusive one) with its one-line `message` and the `details` the terminal shows, the agent's last lines of `output` when it failed, `seconds`, the replay shown (`runId`) and every attempt's (`runs`, each `runId`, `ok`, true for one that passed, and its `verdict`, `passed`, `failed`, `inconclusive` when all it fell short on is a check that could not be decided, or `unavailable` when the agent failed while its provider was, which is run again and never counted unless the provider cut it short after the model answered and a gate or a fixed count counted it), the recording replayed (`goldenRunId`), `calls` by origin (`total`, `replayed`, `live`, `blocked`, `stubbed`), `upstreamRequests`, `tokensNotRespent`, the `divergence` (`type`, `callNo`, `kind`, `name`, and for one that [ended early](./ci.md#a-replay-that-ends-early) `recorded`, the calls its recording holds), its `checks` (each `status`, `passed`, `failed`, `inconclusive` or `not-applicable`, with `ok`, `label`, `detail`, and a [judge check](./judges.md#in-the-reports)'s `reason`, `source` and `judge`: `name`, `model`, `of`, `verdict`, `source`, `cost`, `redactions`, `normalized`, `cut`, `callNo`; see [how a check comes out](./checks.md#how-a-check-comes-out)) with the `expect` they came from, `attempts` for a recording that repeats or has a gate (`total`, `passed`, `inconclusive`, the attempts a check could not decide, which count neither way, `required`, which is null with a gate, `unavailable`, the attempts the provider was unavailable for, which `total` leaves out, and `cutShort`, those it cut short after the model answered, which a gate or a fixed count counted against either verdict and `total` holds), the `gate` for a golden with one (null otherwise, and when an attempt a check could not decide stopped it before it decided anything), what its judge checks' calls did and cost over every attempt, apart from the agent's (`judge`: `calls`, `replayed`, `live`, `notAsked`, `upstreamRequests`, `spent`, `saved`, `unknownModels`, or `null`), with `--update`, what it `updated` (`from`, `to`, `calls`, `changes`), and its injection gate (`resultId`, the result it is kept under; `attempts` and how many `obeyed`, `influenced`, `ignored` and `inconclusive`; what it `allowed`, as `obeyed` and `influenced`; its `verdict`, `passed`, `failed` or `inconclusive`, or null when it did not run; the `reason` it failed or is inconclusive; `skipped`, why it did not run) or null as `injection`. `upstreamRequests` counts the judge's too. A `gate` is the gate's figures as this session ran it (`kind` `sprt` with `good`, `bad`, `risk`, `failRisk` when its share of the suite's risk set a lower risk for a failure, and `max`, or `baseline` with `drop`, `risk`, `window`, `min` and `max`, and `widened` for a golden with a record: `from`, the most attempts a gate against history runs by default, past which a pass also holds against the golden's `record` at `risk`, however its `max` came past it (the plan, the config, `--max-attempts` or Run more attempts): every attempt of its last sessions (`passes`, `attempts`, `sessions`), or with `before`, of the sessions before its last `before`), then what it made of the attempts: its `decision` (`pass`, `fail`, `inconclusive`), `passes` of `attempts`, each attempt in order (`outcomes`, true for a pass), with `--continue` how many of them were `carried` over from the session it continued (`attempts` beside the gate counts this session's own), the `interval` of the pass rate at 1 − risk (`lo`, `hi`, `confidence`), the `bound` its verdict line shows (`lo` for a pass, `hi` for a failure, both otherwise, its `confidence` and `method`: `stagewise`, exact under the gate's own stopping, or `confidence-sequence` for attempts it didn't stop on by its rule; see [reading the evidence](./gating.md#reading-the-evidence)), `unavailable` when the provider was unavailable for some attempts, `unavailableAt` when it cut some short after the model answered (their places in `outcomes`, each a failure there, counted against either verdict), `passK` (`k`, `value` for k up to 8), `clean` (a replay that forked nowhere settled it with one attempt), the `sentence` the terminal prints, its verdict line (the verdict word, the tally, the bound and the rule), and the `evidence`: for an SPRT gate the score after each attempt (`scores`) with what a pass and a failure add (`pass`, `fail`) and the bounds it passes and fails at (`upper`, `lower`); for a history gate the `history` it pooled (`passes`, `attempts`, `sessions`, or null when there is none and the golden's recording is the baseline), the `baseline` rate, the `probability` of a drop after the last attempt and after each one (`probabilities`, null before `min`), the `threshold` it fails above and the chance it passes at or below (`passAt`, 1/2), and with `widened`: its `from`, `risk`, `record` and `before`, and the chance of a drop from that record after each attempt (`probabilities`, null up to `from`). [Gating](./gating.md) has the maths.
-
-### Error-path presets
-
-`test --chaos` runs a golden's [error-path presets](./error-paths.md) instead of replaying it: the
-failures a recording of a healthy run never holds, each played in at one call so the agent's own
-error path runs.
-
-| Preset | What the agent gets |
-|---|---|
-| `timeout` | The tool call times out: the tool doesn't run, and the agent's SDK raises the timeout it would |
-| `empty` | The tool answers with nothing: an empty list, object or text, as it recorded one |
-| `malformed` | The tool answers with its JSON cut short. A tool that returned data gets the cut JSON text in its place |
-| `oversized` | The tool answers with its longest text repeated until it is a million characters long (`chaos.oversize`); JSON stays JSON |
-| `429`, `500` | The model call that reads the tool's answer fails with that status, every attempt of it |
-
-The tool presets hit the first tool call that reads the world (a `read`, else a tool whose effect
-nothing declares, else a write; never a pure tool, a person's input or a call that failed when
-recorded), or the first call of `--chaos-tool`; the provider presets hit the model call after it.
-Each preset is a fork from there, live with writes stubbed (`--writes` changes that), so like a
-[golden that forks](./ci.md#recordings-that-fork-on-purpose) it needs the providers. An attempt passes
-when the agent exits 0 and passes the checks an error path must pass: those under `chaos.expect` in
-the golden's `tests` entry, else the write limits of its own `expect` (the upper bounds it sets on
-write tools, which hold on any path; the rest describes the path its recording took, which a path
-through a failure needn't take). A preset's attempts are gated as they come in: by `chaos.gate`
-(`{ good, bad, risk, max }`, each optional) when the entry has one, else by the golden's `repeat`
-and `passes`. Its verdict is `passed`, `failed`, `inconclusive` (the gate ran out of attempts between
-its bounds, the replay never reached the call, which a golden that no longer replays does, or all
-that kept an attempt from passing is a check no attempt can decide, such as a judge with no way to
-be asked) or `not-applicable` (the recording has no call the preset can hit, or no result it can
-change, such as a binary one or one that is empty already). The provider failing for real, beyond
-the failure a preset plays in, is the provider's, as under `test`
-([gating](./gating.md#when-the-provider-is-unavailable)): an attempt it failed before the model
-answered is run again and never counted, one it cut short after is counted against either verdict,
-by a `chaos.gate` and by the golden's `repeat` alike, and enough in a row, counted across the session's
-presets (3 for one preset, one more for each tenfold: 4 from 2, 5 from 11), leave the preset that met
-the last inconclusive with the provider named, and every preset after it, never failed. An attempt stops after `chaos.timeout`
-seconds (default 300) and fails: an error path can hang. `"chaos": false` leaves a golden out of
-`test --chaos`. Each attempt is a run bundled under the golden's recording, and the session and
-every result are kept in the store for the dashboard. Exit status: 1 when a preset failed or a golden
-couldn't be run; 2 when the only goldens that couldn't are packs it needs `--yes` to run; 3 when a
-preset was inconclusive (0 under `--inconclusive warn`); 128 + n for a stop signal (130 for Ctrl-C).
-
-```
-⚡ goldens/forecast: 6 error-path presets at get_forecast (#3) and model call #4
-  ✓ tool timeout      passed  timed out: the agent exited 0
-  ✓ empty result      passed  answered with nothing: the agent exited 0
-  ✗ malformed JSON    failed  answered malformed JSON: the agent exited with code 1
-      SyntaxError: Unterminated string in JSON at position 52 (line 1 column 53)
-  ✓ oversized result  passed  answered 1,000,000 characters: the agent exited 0
-  ✓ provider 429      passed  failed with HTTP 429: the agent exited 0
-  ✓ provider 500      passed  failed with HTTP 500: the agent exited 0
-```
-
-When a `chaos.gate` decided the presets, every line gives the tally and the bound of the
-pass rate, exact under the gate's stopping, and a line under the table states the gate's rule once
-(`gate: tells 90%+ from 50%- at <= 10% risk, up to 6 attempts`). Under the table, a line names the
-checks that judged every attempt and where they came from (`checks: send_alert called at most 1
-time (the write limits of the golden's expect)`), or, when only the exit status did, two lines say
-how to give them.
-
-`--json <file>` writes `{ version, session, revision, presets, passed, failed, inconclusive, notApplicable, interrupted, results }`,
-with each recording (`golden`, the `runId` the presets forked, its `outcomes`, the `judge` of its
-presets: the `source` of their checks, `chaos.expect`, `--expect`, `write-limits` or `exit`, and the
-`checks` as a failure names them, the `rule` a `chaos.gate` decided its presets by, as the table
-states it, or null, and the `error` that kept it from running or why it was `skipped`) and, for
-each preset (`preset`, its `label`, the `verdict`, the `callNo` it hit and its `target` (`kind`,
-`name`), the `passes` and `attempts`, a `detail` sentence naming what came of it (and its
-`summary`, without the call, as the table shows it), the `reason` it failed (its first failing
-attempt's) or is inconclusive (null when its gate ran out of attempts), the `gate` it was decided
-by, `upstreamRequests`, `spent`, `unavailable` and `cutShort` when its provider failed for real
-(attempts never counted, and attempts cut short and counted), and its `runs`), each attempt (`runId`,
-its `verdict`: `passed`, `failed`, or `inconclusive` when its replay never reached the call, all that
-kept it from passing is a check no attempt can decide, or its provider failed for real, with
-`unavailable` then `retried` or `counted`; `passed`, true for a passed attempt only; the agent's `exitCode`,
-its `checks`, the `reason` it failed or is inconclusive and, for an agent that exited with an error,
-`lastLine`: the error it died of, as it printed it). `--junit` writes a case per preset, whose
-failure lists each attempt by its verdict, and `--markdown` a table of them, listing under it any
-golden whose presets couldn't run; both state a `chaos.gate`'s rule, once under the table and in
-each case it decided.
 
 ## bisect
 
