@@ -33,7 +33,7 @@ export function ToolsTab() {
         <span className="sub">what runs again after a fork</span>
       </header>
       <div className="pbody">
-        <p className="muted">Declared in the agent’s code. After a fork, reads run live and writes are blocked or stubbed, so a replay never acts on the world twice.</p>
+        <p className="muted">Declared in the agent’s code. After a fork, reads run live and writes are blocked or stubbed unless you allow them, so by default a replay never acts on the world twice.</p>
       </div>
       {gone ? (
         <div className="egrp">
