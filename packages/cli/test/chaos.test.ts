@@ -119,7 +119,7 @@ describe('test --chaos', () => {
     // The table: preset × outcome, under the calls they hit; a failure ends on what the agent died of.
     // docs/cli.md shows it as it is (each runtime words its JSON error its own way).
     const docs = readFileSync(fileURLToPath(new URL('../../../docs/cli.md', import.meta.url)), 'utf8');
-    const sample = /^```\n(⚡ goldens\/forecast[\s\S]*?)^```/m.exec(docs)![1];
+    const sample = /^```(?:text)?\n(⚡ goldens\/forecast[\s\S]*?)^```/m.exec(docs)![1];
     const mask = (t: string) => t.replace(/SyntaxError: .*/g, 'SyntaxError: …').trimEnd();
     expect(mask(r.stdout)).toContain(mask(sample));
     expect(r.stdout).toContain('⚡ goldens/forecast: 6 error-path presets at get_forecast (#3) and model call #4');

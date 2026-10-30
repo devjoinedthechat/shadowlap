@@ -21,8 +21,9 @@ export interface Shape {
   grows?: true;
   /**
    * Where the section lists this shape's fields, when it lists several shapes' (show lists the run's
-   * and each call's): the words just before the parentheses that hold the list. Its fields must be
-   * named in that list, not merely somewhere in the section.
+   * and each call's): the words just before the parentheses that hold the list, or the words that end
+   * the line leading into the table that lists them ("Each cell has these fields:"). Its fields must
+   * be named in that list or table, not merely somewhere in the section.
    */
   list?: string;
 }
@@ -40,8 +41,8 @@ export const SHAPES = {
   // A tool the model called that the run never recorded (show --json, --summary-json).
   unrecordedTool: { section: 'show', list: 'the tools its model called that the run never recorded, `unrecordedTools`', fields: ['name', 'count', 'firstCallNo', 'effect', 'why', 'fix'] },
   showUntrusted: { section: 'show', list: 'as the dashboard\'s `GET /api/injection/runs/:id` lists them', fields: ['callNo', 'name', 'from'] },
-  showRun: { section: 'show', list: 'the run as stored', fields: ['runId', 'parentRunId', 'mode', 'status', 'divergence', 'command', 'codeVersion', 'startedAt', 'endedAt', 'meta'] },
-  showCall: { section: 'show', list: 'every call as stored', fields: ['runId', 'callNo', 'kind', 'name', 'fingerprint', 'occurrence', 'origin', 'effect', 'requestRef', 'meta', 'at', 'end', 'attempts'] },
+  showRun: { section: 'show', list: 'The run as stored', fields: ['runId', 'parentRunId', 'mode', 'status', 'divergence', 'command', 'codeVersion', 'startedAt', 'endedAt', 'meta'] },
+  showCall: { section: 'show', list: 'Every call as stored', fields: ['runId', 'callNo', 'kind', 'name', 'fingerprint', 'occurrence', 'origin', 'effect', 'requestRef', 'meta', 'at', 'end', 'attempts'] },
   ls: { section: 'ls', fields: ['runId', 'parentRunId', 'mode', 'status', 'calls', 'command', 'codeVersion', 'startedAt', 'endedAt', 'labels', 'forkedAt', 'hasCommand', 'imported', 'partial', 'repeat', 'checks'] },
   label: { section: 'label', fields: ['runId', 'labels'] },
   search: { section: 'search', fields: ['runId', 'callNo', 'kind', 'name', 'field', 'snippet', 'runStartedAt'] },
@@ -135,7 +136,7 @@ export const SHAPES = {
   bisectCommit: { section: 'bisect', grows: true, fields: ['rev', 'short', 'subject', 'author', 'date'] },
   bisectStep: { section: 'bisect', grows: true, fields: ['rev', 'short', 'subject', 'ok', 'skipped', 'result', 'seconds'] },
   // Injection tests: the report of injection --json, per run tested by planting or by --clean.
-  injection: { section: 'injection', list: 'otherwise, with `--json` it prints', fields: ['templates', 'results', 'totals', 'verdict', 'passed', 'html'] },
+  injection: { section: 'injection', list: 'Otherwise, with `--json` it prints', fields: ['templates', 'results', 'totals', 'verdict', 'passed', 'html'] },
   injectionTotals: { section: 'injection', list: '`totals` adds up', fields: ['runs', 'attempts', 'obeyed', 'influenced', 'ignored', 'inconclusive'] },
   injectionPlant: { section: 'injection', list: 'A run tested by planting', fields: ['resultId', 'mode', 'runId', 'golden', 'templates', 'repeat', 'reads', 'unrecordedReads', 'skipped', 'payloads', 'cells', 'attempts', 'baselines', 'totals', 'verdict', 'gate', 'stopReason', 'cost', 'startedAt', 'endedAt'] },
   injectionRead: { section: 'injection', list: 'Each untrusted read', fields: ['callNo', 'name', 'from', 'readAt', 'args', 'planted', 'why'] },
@@ -231,9 +232,15 @@ export const docsOf = (shape: ShapeName) => {
   return s.list === undefined ? section : listText(section, s.list);
 };
 
-/** The parenthesized list that follows `words` in a section, nested parentheses and all. */
+/**
+ * The fields that follow `words` in a section: the table the line ending in them leads into (the
+ * words, then up to a colon that ends the line, with no parenthesis before it), else the
+ * parenthesized list that follows them, nested parentheses and all.
+ */
 export function listText(section: string, words: string): string {
   const at = section.indexOf(words);
+  const table = at < 0 ? null : /^[^\n(]*:\n\n((?:\|[^\n]*(?:\n|$))+)/.exec(section.slice(at + words.length));
+  if (table) return table[1];
   const open = at < 0 ? -1 : section.indexOf('(', at + words.length);
   if (open < 0) throw new Error(`the section has no list after "${words}"`);
   let depth = 0;
