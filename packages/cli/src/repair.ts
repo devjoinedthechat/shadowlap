@@ -1,9 +1,10 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { applyEdit, messageOf, commitTitle, eachRun, estimateCost, packRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, takeLock, type HeldLock, type Price, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type VerifyRole, lostWhere } from '@shadowlap/engine';
 import { type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { loadConfig } from './config.js';
+import { recoverWorkingTree } from './repair-journal.js';
 import { fileInside, readInside, removeCandidateTrees, writeInside } from './repair-tree.js';
 import { CLAUDE_CODE_TURNS, DEFAULT_ANTHROPIC_REPAIRER, REPAIRER_ANSWER_TOKENS, type Repairer } from './repairer.js';
 import { physicalPath } from './real-path.js';
@@ -89,8 +90,6 @@ export class HandOverError extends RepairError {
   }
 }
 
-const journalPath = (cwd: string) => join(cwd, '.shadowlap', 'repair-journal.json');
-
 /**
  * The characters one token of the repairer's prompt is taken to hold when what asking it could cost is
  * worked out: fewer than tokenizers fit into a token of English (about 4), so its tokens are counted
@@ -116,41 +115,25 @@ export function repairerMost(r: Pick<Repairer, 'provider' | 'model'>, prompt: { 
   return estimateCost(model, { inputTokens: turns * promptTokens + (turns - 1) * REPAIRER_ANSWER_TOKENS, outputTokens: turns * REPAIRER_ANSWER_TOKENS }, prices);
 }
 
-/** Puts back whatever an interrupted repair left in the working tree. Returns the files it restored. */
-export function recoverWorkingTree(cwd: string): string[] {
-  const path = journalPath(cwd);
-  if (!existsSync(path)) return [];
-  const journal = JSON.parse(readFileSync(path, 'utf8')) as { files: Array<{ path: string; original: string; patched: string }> };
-  const restored: string[] = [];
-  for (const f of journal.files) {
-    const now = existsSync(f.path) ? readFileSync(f.path, 'utf8') : null;
-    // Only undo our own edit: a file someone changed since is theirs now.
-    if (now === Buffer.from(f.patched, 'base64').toString('utf8')) {
-      writeFileSync(f.path, Buffer.from(f.original, 'base64'));
-      restored.push(f.path);
-    }
-  }
-  rmSync(path, { force: true });
-  return restored;
-}
-
 /**
- * Starts a repair in `cwd`: takes `.shadowlap/repair.lock` (the engine's lock file), held until the
- * repair ends, then cleans up after one that died: the worktrees it verified candidates in, and the
- * working tree an older Shadowlap, which tried candidates in place, may have left edited (its
- * journal). One repair runs in a folder at a time, as `--apply` writes the working tree, so what is
- * found here is never a running repair's: the repair that left it died, and the lock of a process
- * that died is taken over at once. A repair runs for minutes, so a lock whose holder this machine
- * can't check (one in a container or on another machine that shares the folder) is never taken over
- * by its age: it waits until someone deletes it. Throws when another repair runs here.
+ * Starts a repair in `cwd`, in the git repository whose root is `root` (found from `cwd` when not
+ * given): takes `.shadowlap/repair.lock` (the engine's lock file), held until the repair ends, then
+ * cleans up after one that died: the worktrees it verified candidates in, and the working tree an
+ * older Shadowlap, which tried candidates in place, may have left edited (its journal, which
+ * repair-journal.ts takes only when it is the checkout's own; `ignored` says why one was not). One
+ * repair runs in a folder at a time, as `--apply` writes the working tree, so what is found here is
+ * never a running repair's: the repair that left it died, and the lock of a process that died is
+ * taken over at once. A repair runs for minutes, so a lock whose holder this machine can't check (one
+ * in a container or on another machine that shares the folder) is never taken over by its age: it
+ * waits until someone deletes it. Throws when another repair runs here.
  */
-export function startRepair(cwd: string): { lock: HeldLock; restored: string[] } {
+export function startRepair(cwd: string, root?: string): { lock: HeldLock; restored: string[]; ignored: string | null } {
   mkdirSync(join(cwd, '.shadowlap'), { recursive: true, mode: 0o700 });
   const path = join(cwd, '.shadowlap', 'repair.lock');
   const lock = takeLock(path, { wait: 0, mode: 0o600, ageOut: false, busy: () => new RepairError(`another shadowlap repair is running in this folder: wait for it to end (if none is running, delete ${path})`) });
   try {
     removeCandidateTrees(cwd);
-    return { lock, restored: recoverWorkingTree(cwd) };
+    return { lock, ...recoverWorkingTree(cwd, root) };
   } catch (err) {
     releaseLock(lock);
     throw err;

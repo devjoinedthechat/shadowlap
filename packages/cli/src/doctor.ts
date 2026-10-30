@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CREDENTIAL_PLACEHOLDER, JUDGE_REQUEST_VERSION, SCHEMA_VERSION, Store, isObject, messageOf, type StoreOf, judgeTarget, loadApiRequest, maskLocation, quoteArgv, retirementOf, toolDefinitions, type CallRecord, type JudgeProvider, type RunRecord } from '@shadowlap/engine';
+import { CREDENTIAL_PLACEHOLDER, JUDGE_REQUEST_VERSION, SCHEMA_VERSION, Store, isObject, messageOf, type StoreOf, judgeTarget, loadApiRequest, maskLocation, quoteArgv, retirementOf, safeLine, toolDefinitions, type CallRecord, type JudgeProvider, type RunRecord } from '@shadowlap/engine';
 // Whether a process runs, as every command asks it (liveness.ts): a pid of 0 or below is none.
 import { processAlive as alive } from '@shadowlap/engine';
 import { packRecording } from './check-recordings.js';
@@ -10,6 +10,7 @@ import { closestName, evaluateChecks, JUDGE_KEYS, judgeChecksOf, pathsNamed, sto
 import { CONFIG_FILE, configPath as configFile, defaultDbPath, loadConfig, loadTests, upstreamOverrides } from './config.js';
 import { expandRecordings, testsKeyFor } from './goldens.js';
 import { cannotJudge, heldVerdict, liveJudge } from './judge.js';
+import { readJournal } from './repair-journal.js';
 
 /**
  * `shadowlap doctor`: the environment, the store and the configuration, checked the way support
@@ -103,6 +104,21 @@ export function shownUrl(url: string): string {
   return maskLocation(url).replace(/^(https?:\/\/(?:127(?:\.\d{1,3}){3}|localhost|\[::1\])(?::\d+)?\/t\/)[^/?#]+/i, `$1${CREDENTIAL_PLACEHOLDER}`);
 }
 
+/**
+ * What the journal of an older Shadowlap's repair in `cwd` says, read as repair reads it
+ * (repair-journal.ts): one an interrupted repair left names the files it may have left edited, and
+ * one that is no repair's of this checkout, which repair restores nothing from, says why. Null for
+ * none, and for one whose repair still runs.
+ */
+function journalCheck(cwd: string): Check | null {
+  const j = readJournal(cwd);
+  if (j.kind === 'none') return null;
+  if (j.kind === 'ignored') return { name: 'repair', verdict: 'warn', detail: `.shadowlap/repair-journal.json is no interrupted repair's of this checkout: ${j.why}`, fix: 'shadowlap repair restores nothing from it and leaves it as it is: check where it came from, and delete it.' };
+  if (j.pid !== null && alive(j.pid)) return null;
+  const files = j.files.map((f) => safeLine(f.file)).join(', ') || 'a file';
+  return { name: 'repair', verdict: 'warn', detail: `an interrupted shadowlap repair may have left a candidate's edit in ${files}`, fix: 'Run shadowlap repair again to restore it first, or check the file and delete .shadowlap/repair-journal.json.' };
+}
+
 export function runDoctor(options: DoctorOptions): Check[] {
   const cwd = options.cwd ?? process.cwd();
   const env = options.env ?? process.env;
@@ -180,18 +196,8 @@ export function runDoctor(options: DoctorOptions): Check[] {
   }
 
   // A repair that died with a candidate still applied
-  const journal = join(cwd, '.shadowlap', 'repair-journal.json');
-  if (existsSync(journal)) {
-    let files = 'a file';
-    try {
-      const j = JSON.parse(readFileSync(journal, 'utf8')) as { files?: Array<{ path?: string }>; pid?: number };
-      if (typeof j.pid === 'number' && alive(j.pid)) files = '';
-      else files = (j.files ?? []).map((f) => f.path ?? '?').join(', ') || files;
-    } catch {
-      // an unreadable journal still means an edit may be in place
-    }
-    if (files) push('repair', 'warn', `an interrupted shadowlap repair may have left a candidate's edit in ${files}`, 'Run shadowlap repair again to restore it first, or check the file and delete .shadowlap/repair-journal.json.');
-  }
+  const journal = journalCheck(cwd);
+  if (journal) checks.push(journal);
 
   // Configuration
   const configPath = configFile(cwd);

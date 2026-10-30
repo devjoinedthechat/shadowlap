@@ -127,17 +127,18 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
   const root = gitRoot(cwd);
   // A hand-over that can't work is refused before anything runs, not after the repair.
   if (input.outputs.branch && input.outputs.goldens) goldensInRepo(root, cwd, input.outputs.goldens);
-  const { lock, restored } = startRepair(cwd);
+  const { lock, restored, ignored } = startRepair(cwd, root);
   try {
-    return handOver(await repairHere(input, cwd, root, restored), input);
+    return handOver(await repairHere(input, cwd, root, { restored, ignored }), input);
   } finally {
     releaseLock(lock);
   }
 }
 
 /** The repair itself, holding the folder's repair lock. */
-async function repairHere(input: RepairInput, cwd: string, root: string, restored: string[]): Promise<RepairReport> {
-  for (const f of restored) input.log(p.yellow(`  ! restored ${relative(cwd, f)}, which an interrupted repair had left edited`));
+async function repairHere(input: RepairInput, cwd: string, root: string, recovered: { restored: string[]; ignored: string | null }): Promise<RepairReport> {
+  for (const f of recovered.restored) input.log(p.yellow(`  ! restored ${relative(cwd, f)}, which an interrupted repair had left edited`));
+  if (recovered.ignored) input.log(p.yellow(`  ! .shadowlap/repair-journal.json is no interrupted repair's of this checkout, so nothing was restored from it: ${recovered.ignored}`));
   const config = loadConfig(cwd);
   // The repairer is a model of the user's choosing, often another machine's: what it is shown of a
   // run goes through the redaction rules first, as every export, pack and share link of a run does.

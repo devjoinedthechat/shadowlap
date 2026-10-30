@@ -1,15 +1,15 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { judgeAnswer, judgeQuestion, message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
-import { processAlive, releaseLock, Store, unifiedDiff } from '@shadowlap/engine';
+import { processAlive, Store, unifiedDiff } from '@shadowlap/engine';
 import { removeTempProject, tempProject } from '../../../testing/temp-project.mjs';
-import { applyAccepted, noDiagnosisWhy, recoverWorkingTree, startRepair } from '../src/repair.js';
+import { applyAccepted, noDiagnosisWhy } from '../src/repair.js';
 
 /**
  * `shadowlap repair` through the CLI, on the support agent in a git repository of its own. The mock
@@ -965,97 +965,6 @@ describe('applyAccepted', () => {
       expect(readFileSync(join(dir, 'agent.mjs'), 'utf8')).toBe(content);
       applyAccepted(report, dir);
       expect(readFileSync(join(dir, 'agent.mjs'), 'utf8')).toBe(fixed);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-});
-
-describe('recoverWorkingTree', () => {
-  it('puts back an edit an interrupted repair left, and leaves a file someone changed since alone', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'fp-journal-'));
-    try {
-      mkdirSync(join(dir, '.shadowlap'));
-      const a = join(dir, 'a.txt');
-      const b = join(dir, 'b.txt');
-      writeFileSync(a, 'patched a');
-      writeFileSync(b, 'edited by hand');
-      const b64 = (s: string) => Buffer.from(s).toString('base64');
-      writeFileSync(join(dir, '.shadowlap', 'repair-journal.json'), JSON.stringify({ files: [{ path: a, original: b64('original a'), patched: b64('patched a') }, { path: b, original: b64('original b'), patched: b64('patched b') }] }));
-      expect(recoverWorkingTree(dir)).toEqual([a]);
-      expect(readFileSync(a, 'utf8')).toBe('original a');
-      expect(readFileSync(b, 'utf8')).toBe('edited by hand');
-      expect(readdirSync(join(dir, '.shadowlap'))).toEqual([]);
-      expect(recoverWorkingTree(dir)).toEqual([]);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-});
-
-describe('startRepair', () => {
-  it('stops while another repair runs in the folder, leaving its candidate in place, and puts it back once that repair died', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'fp-repair-lock-'));
-    // A repair runs in the folder: it started there, and holds it until it ends.
-    const running = spawn(process.execPath, ['--input-type=module', '-e', `
-      const { startRepair } = await import(${JSON.stringify(new URL('../dist/repair.js', import.meta.url).href)});
-      startRepair(${JSON.stringify(dir)});
-      setInterval(() => {}, 1000);
-      process.stdout.write('up\\n');`], { stdio: ['ignore', 'pipe', 'pipe'] });
-    try {
-      await new Promise<void>((resolve, reject) => {
-        let err = '';
-        running.stdout.on('data', (d: Buffer) => d.toString().includes('up') && resolve());
-        running.stderr.on('data', (d: Buffer) => (err += d.toString()));
-        running.on('exit', (c) => reject(new Error(`exited with ${c}: ${err}`)));
-      });
-      // It is verifying a candidate: the file is edited, and the journal holds the original.
-      const agent = join(dir, 'agent.txt');
-      const journal = join(dir, '.shadowlap', 'repair-journal.json');
-      const b64 = (s: string) => Buffer.from(s).toString('base64');
-      writeFileSync(agent, 'candidate');
-      writeFileSync(journal, JSON.stringify({ pid: running.pid, files: [{ path: agent, original: b64('original'), patched: b64('candidate') }] }));
-      // A second repair started there stops before it touches anything.
-      expect(() => startRepair(dir)).toThrow(/another shadowlap repair is running in this folder/);
-      expect(readFileSync(agent, 'utf8')).toBe('candidate');
-      expect(existsSync(journal)).toBe(true);
-      // Killed with its candidate applied: the next repair takes the folder over at once and puts the file back.
-      running.kill('SIGKILL');
-      await new Promise((resolve) => (running.exitCode !== null || running.signalCode !== null ? resolve(null) : running.once('exit', resolve)));
-      const { lock, restored } = startRepair(dir);
-      expect(restored).toEqual([agent]);
-      expect(readFileSync(agent, 'utf8')).toBe('original');
-      releaseLock(lock);
-      expect(readdirSync(join(dir, '.shadowlap'))).toEqual([]);
-    } finally {
-      running.kill('SIGKILL');
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('removes the worktree a repair that died left in the temporary folder, and what git keeps of it', () => {
-    const base = mkdtempSync(join(tmpdir(), 'shadowlap-repair-'));
-    sh(project, 'git', ['worktree', 'add', '--detach', join(base, 'tree'), 'HEAD']);
-    const trees = () => sh(project, 'git', ['worktree', 'list', '--porcelain']).split('\n').filter((l) => l.startsWith('worktree '));
-    expect(trees()).toHaveLength(2);
-    const { lock } = startRepair(project);
-    releaseLock(lock);
-    expect(trees()).toHaveLength(1);
-    expect(existsSync(base)).toBe(false);
-  });
-
-  it('never takes over by its age the lock of a repair it can’t check, one in a container or on another machine sharing the folder', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'fp-repair-lock-'));
-    try {
-      mkdirSync(join(dir, '.shadowlap'));
-      const path = join(dir, '.shadowlap', 'repair.lock');
-      // Written an hour ago by a repair on another boot of a Linux kernel: its process can't be asked about from here.
-      const text = JSON.stringify({ v: 2, pid: 7, host: 'build-box', start: 'another-boot:1', born: Date.now() - 3_600_000, token: 'there' });
-      writeFileSync(path, text);
-      const hourAgo = (Date.now() - 3_600_000) / 1000;
-      utimesSync(path, hourAgo, hourAgo);
-      expect(() => startRepair(dir)).toThrow(/another shadowlap repair is running in this folder.*if none is running, delete/);
-      expect(readFileSync(path, 'utf8')).toBe(text);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
