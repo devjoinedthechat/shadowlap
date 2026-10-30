@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, lstatSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { applyEdit, messageOf, commitTitle, eachRun, estimateCost, packRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, takeLock, titleText, type HeldLock, type Price, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type VerifyRole, lostWhere } from '@shadowlap/engine';
 import { type AttemptSettings, type AttemptTarget } from './attempts.js';
@@ -120,7 +120,8 @@ export function repairerMost(r: Pick<Repairer, 'provider' | 'model'>, prompt: { 
  * given): takes `.shadowlap/repair.lock` (the engine's lock file), held until the repair ends, then
  * cleans up after one that died: the worktrees it verified candidates in, and the working tree an
  * older Shadowlap, which tried candidates in place, may have left edited (its journal, which
- * repair-journal.ts takes only when it is the checkout's own; `ignored` says why one was not). One
+ * repair-journal.ts takes only when it is the checkout's own; `ignored` says why one was not). A
+ * `.shadowlap` that is a link is refused before anything is made, so nothing goes through it. One
  * repair runs in a folder at a time, as `--apply` writes the working tree, so what is found here is
  * never a running repair's: the repair that left it died, and the lock of a process that died is
  * taken over at once. A repair runs for minutes, so a lock whose holder this machine can't check (one
@@ -128,6 +129,8 @@ export function repairerMost(r: Pick<Repairer, 'provider' | 'model'>, prompt: { 
  * waits until someone deletes it. Throws when another repair runs here.
  */
 export function startRepair(cwd: string, root?: string): { lock: HeldLock; restored: string[]; ignored: string | null } {
+  // A repository can ship .shadowlap as a link, which would send the lock, the journal's reading and the reports elsewhere.
+  if (lstatSync(join(cwd, '.shadowlap'), { throwIfNoEntry: false })?.isSymbolicLink()) throw new RepairError(`.shadowlap in ${cwd} is a link, which repair never writes through: make it a folder of its own`);
   mkdirSync(join(cwd, '.shadowlap'), { recursive: true, mode: 0o700 });
   const path = join(cwd, '.shadowlap', 'repair.lock');
   const lock = takeLock(path, { wait: 0, mode: 0o600, ageOut: false, busy: () => new RepairError(`another shadowlap repair is running in this folder: wait for it to end (if none is running, delete ${path})`) });

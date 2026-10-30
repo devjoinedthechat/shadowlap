@@ -154,7 +154,8 @@ describe('a journal planted in the repository', () => {
     writeFileSync(join(project, 'prompt.md'), 'Escalate refunds above the limit.\n');
     const planted = journal([{ path: join(gitTop(), 'prompt.md'), original: 'Refund everything.\n', patched: 'Escalate refunds above the limit.\n' }], join(project, 'state'));
     symlinkSync('state', join(project, '.shadowlap'));
-    expect(startAndEnd()).toMatchObject({ restored: [], ignored: expect.stringMatching(/^it can't be read as a file of the repository's own \(\.shadowlap is a link/) });
+    // As doctor reads it; a repair refuses such a .shadowlap before it reads anything (startRepair).
+    expect(recoverWorkingTree(project)).toMatchObject({ restored: [], ignored: expect.stringMatching(/^it can't be read as a file of the repository's own \(\.shadowlap is a link/) });
     expect(readFileSync(join(project, 'prompt.md'), 'utf8')).toBe('Escalate refunds above the limit.\n');
     expect(existsSync(planted)).toBe(true);
   });
@@ -230,6 +231,18 @@ describe('startRepair', () => {
       expect(readdirSync(join(dir, '.shadowlap'))).toEqual([]);
     } finally {
       running.kill('SIGKILL');
+    }
+  });
+
+  it.skipIf(!LINKS)('refuses a .shadowlap that is a link before it takes the lock: nothing is made through it', () => {
+    const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), 'sl-repair-elsewhere-')));
+    try {
+      // As a repository can ship one, to send what a repair writes somewhere else.
+      symlinkSync(elsewhere, join(project, '.shadowlap'));
+      expect(() => startRepair(project)).toThrow(/^\.shadowlap in .* is a link, which repair never writes through/);
+      expect(readdirSync(elsewhere)).toEqual([]);
+    } finally {
+      rmSync(elsewhere, { recursive: true, force: true });
     }
   });
 
