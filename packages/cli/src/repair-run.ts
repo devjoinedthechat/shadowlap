@@ -1,5 +1,5 @@
 import { relative } from 'node:path';
-import { agentCallsOf, applyEdit, BLAME_DEFAULTS, CHARS_PER_TOKEN, checkEdit, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, formatUsd, isJudgeCall, isObject, loadApiRequest, lostWhere, messageOf, NO_REPAIRER, normalizeConversation, notTheAnswer, redactRun, releaseLock, repairNeverRewrites, rewriteGrowth, rewriteText, safeLine, Store, toolDefinitions, unavailableStop, unifiedDiff, unrescuedWords, unsettledFirst, type Anchor, type Conversation, type Normalizer, type RepairCandidate, type RepairRange, type RepairReport, type RepairTarget, type SourceFile, type StoreOf, type Surface, type VerifyRole } from '@shadowlap/engine';
+import { agentCallsOf, applyEdit, BLAME_DEFAULTS, CHARS_PER_TOKEN, checkEdit, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, formatUsd, isJudgeCall, isObject, loadApiRequest, lostWhere, messageOf, NO_REPAIRER, normalizeConversation, notTheAnswer, redactRun, releaseLock, repairNeverRewrites, repairNeverRewritesAt, rewriteGrowth, rewriteText, safeLine, Store, toolDefinitions, unavailableStop, unifiedDiff, unrescuedWords, unsettledFirst, type Anchor, type Conversation, type Normalizer, type RepairCandidate, type RepairRange, type RepairReport, type RepairTarget, type SourceFile, type StoreOf, type Surface, type VerifyRole } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { judgeRecording, oracleLabels, type AttemptTarget } from './attempts.js';
 import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
@@ -385,10 +385,12 @@ class RepairRun {
     const instructions = surfacesOf(learned[0]!.shownRequest ?? learned[0]!.request);
     // A span a recording holds (a golden's run.json, its calls) or Shadowlap's config is no fix's to
     // rewrite: they are read, so a copy of a span there keeps it from passing for its source's only
-    // one, but no anchor is placed in them (repairNeverRewrites, which a patch from the team store is
-    // held to as well).
+    // one, but no anchor is placed in them (repairNeverRewrites). Nor in code outside a string, or in
+    // a file whose text can't be told from what runs, such as a workflow (repairNeverRewritesAt). A
+    // patch from the team store is held to both.
+    const byPath = new Map(files.map((f) => [f.path, f]));
     const anchors = findAnchors(surfaces, files)
-      .filter((a) => !repairNeverRewrites(a.file))
+      .filter((a) => !repairNeverRewrites(a.file) && !repairNeverRewritesAt(byPath.get(a.file)!, a.offset, a.text.length))
       .map((a, i) => ({ ...a, id: i + 1 }));
     this.report.anchors = anchors.length;
     const failingTexts = learned.map((b) => b.caseText ?? '');
@@ -408,6 +410,16 @@ class RepairRun {
       return;
     }
     const at = quoted[0]!;
+    // Held to where and how a repair rewrites text, as the repairer's candidates are, and as a pull
+    // holds a switch from the team store.
+    const file = files.find((f) => f.path === at.file)!;
+    const where = repairNeverRewrites(at.file) ?? repairNeverRewritesAt(file, at.offset, from.length);
+    const check = checkEdit({ anchor: 1, replace: s.stronger, strategy: '', why: '' }, [{ id: 1, surface: 'model', text: from, file: at.file, offset: at.offset, prev: file.content[at.offset - 1] ?? '', next: file.content[at.offset + from.length] ?? '' }], new Set());
+    const unfit = where ? `the model name ${from} is in ${at.file}, where a repair rewrites no text` : check.ok ? null : check.reason;
+    if (unfit) {
+      this.warnings.push(`${s.stronger} rescued the runs, but no model switch was proposed: ${unfit}`);
+      return;
+    }
     this.candidates.push({
       c: { id: this.nextId++, source: 'model', strategy: `Use ${s.stronger} instead of ${from}`, why: `Asking ${from} again did not rescue the failing runs; ${s.stronger} did.`, surface: 'model', file: at.file, offset: at.offset, before: from, after: s.stronger, size: editSize(from, s.stronger), state: 'untried', reason: null, verify: null },
       edit: { file: at.file, offset: at.offset, text: from, sent: from },

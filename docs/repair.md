@@ -69,7 +69,7 @@ What it is shown of a run goes through the project's [redaction rules](./normali
 
 ### Fixes that need no model come first
 
-If asking the recorded model again rescues nothing, but `--stronger <model>` does, the first candidate is to switch to that model: its name, found once as a string in the source, replaced. The repairer is only asked when that isn't enough, or doesn't apply.
+If asking the recorded model again rescues nothing, but `--stronger <model>` does, the first candidate is to switch to that model: its name, found once as a string in the source, replaced where an anchor could go ([below](#where-an-anchor-goes)). The repairer is only asked when that isn't enough, or doesn't apply.
 
 ### The fix kept passed the gate twice
 
@@ -93,6 +93,17 @@ A fixed count (`--attempts`, `--passes`) states no risk, so it has no such limit
 A rewrite replaces one **anchor**: a span of the system prompt or of a tool description, as the recording shows it, that appears exactly once in the project's files (tracked, or untracked and not ignored). That makes every candidate applicable where the text lives, and every patch one readable change.
 
 A prompt assembled from pieces still anchors: each sentence or line that appears once is its own span. When nothing anchors, the report says so, and the fix is for a person or a coding agent to make.
+
+### Where an anchor goes
+
+An anchor is text a rewrite can change without changing what runs. It is in one of two places:
+
+- **JavaScript, TypeScript or Python source**: text inside one string, from its start to its end. A template literal's `${…}` and an f-string's `{…}` are code, so the span holds each whole or not at all.
+- **A Markdown, plain text, prompt or Jinja file** (`.md`, `.markdown`, `.txt`, `.rst`, `.prompt`, `.j2`, `.jinja`, `.jinja2`): any text, with each placeholder whole.
+
+Text anywhere else is never anchored: code, a comment or a regular expression, and any other file, such as a workflow, a `package.json`, a shell script, MDX or another language's source. Shadowlap can't tell its text from what runs there.
+
+The switch to a stronger model is held to the same rule.
 
 ### Where no anchor is placed
 
@@ -132,7 +143,7 @@ So a rewrite keeps exactly the placeholders of the text it replaces, each as it 
 | JavaScript and TypeScript | A template literal's `${…}`; `{name}`, `{{ … }}`, `{% … %}` and `<% … %>`, which template libraries read; `%s` and Node's other format conversions |
 | Python | An f-string's or `.format`'s `{…}`, and the `{{` and `}}` that escape a brace; `%s` and `%(name)s`; Jinja's `{{ … }}` and `{% … %}`; `string.Template`'s `$name` |
 | Markdown and text | The same as Python, as a template engine or `.format` may render the file |
-| Other code | All of the above, and Ruby's `#{…}` and the shell's `$(…)` |
+| Jinja templates | All of the above, and Ruby's `#{…}` and the shell's `$(…)` |
 
 A rewrite is set aside, and the repairer is told so, when it:
 
@@ -140,7 +151,7 @@ A rewrite is set aside, and the repairer is told so, when it:
 - has a brace of its own;
 - would make a placeholder with the characters on either side of its span: a `$` before it and a `{` it starts with.
 
-A rewrite of a one-line span stays on one line. A span in code sits in a string, so its rewrite may not bring in quotes or backslashes. A span in a Markdown or text file, such as a policy the agent is given, is prose, and may.
+A rewrite of a one-line span stays on one line. A span in code sits in a string, so its rewrite may not bring in quotes or backslashes, and neither may one in a Jinja template. A span in a Markdown or text file, such as a policy the agent is given, is prose, and may.
 
 ## Guarding against fixes that fit the examples
 

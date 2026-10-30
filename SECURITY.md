@@ -506,6 +506,8 @@ An edit in the bucket can't change a replay here.
 
 ### What a rewrite may hold
 
+A rewrite goes only inside one string of JavaScript, TypeScript or Python source, or in a Markdown, plain text, prompt or Jinja file. It never goes in code, a comment, or a file such as a workflow or a script, whose text Shadowlap can't tell from what runs.
+
 A rewrite has to keep exactly the placeholders of the text it replaces, and add none. It may hold no quote or backslash beyond what the span it replaces already held. One that brings in `${process.env.GH_TOKEN}` or `{os.environ}`, or a backtick that would end the string literal a span sits in, is set aside before anything runs.
 
 ### What it reads

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { applyEdit, REPAIR_FILE_LIMIT, unifiedDiff, type RepairCandidate } from '../src/repair.js';
-import { patchFiles, repairNeverRewrites, repairPatchProblem } from '../src/repair-patch.js';
+import { patchFiles, repairNeverRewrites, repairNeverRewritesAt, repairPatchProblem } from '../src/repair-patch.js';
 import { times, timesOf } from './timing.js';
 
 /**
@@ -166,6 +166,43 @@ describe('repairPatchProblem', () => {
       expect(repairPatchProblem(report(c, AGENT, unifiedDiff(file, AGENT, AGENT.replace(BEFORE, AFTER)))), file).toMatch(/is not a plain path inside the repository$/);
     }
     expect(repairPatchProblem({ ...report(), accepted: 9 })).toBe('no accepted candidate comes with it');
+  });
+});
+
+describe('repairNeverRewritesAt', () => {
+  const at = (path: string, content: string, text: string) => repairNeverRewritesAt({ path, content }, content.indexOf(text), text.length);
+
+  it('takes text inside one string of JavaScript, TypeScript or Python, and any text of a Markdown, plain text, prompt or Jinja file', () => {
+    expect(at('agent.mjs', AGENT, BEFORE)).toBeNull();
+    expect(at('agent.mjs', AGENT, 'Hand the case to a manager.')).toBeNull();
+    expect(at('src/prompt.tsx', 'export const p = (limit: number) => `Refunds above ${limit} need a manager.`;\n', 'Refunds above ${limit} need a manager.')).toBeNull();
+    expect(at('tools.py', 'def refund():\n    """Refund an order.\n\n    Never twice."""\n', 'Refund an order.\n\n    Never twice.')).toBeNull();
+    expect(at('agent.py', 'SYSTEM = f"Refunds above {limit} need a manager."\n', 'Refunds above {limit} need a manager.')).toBeNull();
+    expect(at('agent.py', "MODEL = os.environ.get('MODEL', 'small-model')\n", 'small-model')).toBeNull();
+    for (const path of ['prompts/policy.md', 'system.txt', 'docs/agent.rst', 'refund.prompt', 'templates/system.j2', 'templates/system.jinja2']) {
+      expect(at(path, 'Refunds above {{ limit }} need a manager.\n', 'above {{ limit }} need'), path).toBeNull();
+    }
+  });
+
+  it('refuses code, a comment, text past the end of its string, and text that starts or ends inside a placeholder', () => {
+    const outside = 'is outside any string: in code, a repair rewrites only text inside a string';
+    expect(at('agent.mjs', AGENT, 'const tools = [')).toBe(outside);
+    expect(at('agent.mjs', `// ${BEFORE}\nconst a = 1;\n`, BEFORE)).toBe(outside);
+    expect(at('agent.py', `# ${BEFORE}\nrun(cmd, shell=False)\n`, 'shell=False')).toBe(outside);
+    expect(at('agent.mjs', 'const re = /Follow the refund policy/;\n', 'Follow the refund policy')).toBe(outside);
+    const past = 'runs past the end of the string it starts in: a repair rewrites text inside one string';
+    expect(at('agent.mjs', AGENT, "refund policy.';")).toBe(past);
+    expect(at('agent.mjs', "const a = 'one', b = 'two';\n", "one', b = 'two")).toBe(past);
+    const inside = (p: string) => `starts or ends inside ${p}: a rewrite keeps each placeholder whole`;
+    expect(at('agent.py', 'SYSTEM = f"Refunds above {limit} need a manager."\n', 'limit} need a manager.')).toBe(inside('{limit}'));
+    expect(at('agent.mjs', 'const s = `Refunds above ${policy.limit} need a manager.`;\n', 'Refunds above ${policy')).toBe(inside('${policy.limit}'));
+    expect(at('prompts/policy.md', 'Refunds above {{ limit }} need a manager.\n', 'limit }} need a manager.')).toBe(inside('{{ limit }}'));
+  });
+
+  it("refuses every other kind of file, whose text Shadowlap can't tell from what runs", () => {
+    for (const [path, kind] of [['.github/workflows/ci.yml', 'a .yml file'], ['package.json', 'a .json file'], ['scripts/release.sh', 'a .sh file'], ['Makefile', 'a file with no extension'], ['docs/page.mdx', 'a .mdx file'], ['notebook.ipynb', 'a .ipynb file']]) {
+      expect(at(path, 'run: npm test\n', 'npm test'), path).toBe(`is in ${kind}: a repair rewrites text only in a string of JavaScript, TypeScript or Python source, or in a Markdown, plain text, prompt or Jinja file`);
+    }
   });
 });
 

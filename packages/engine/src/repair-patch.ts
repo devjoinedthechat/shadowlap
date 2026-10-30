@@ -1,10 +1,13 @@
-import { longestRewrite, REPAIR_FILE_LIMIT, type RepairReport } from './repair.js';
+import { longestRewrite, placeholders, REPAIR_FILE_LIMIT, templateSyntax, type Placeholder, type RepairReport, type SourceFile } from './repair.js';
+import { sourceStrings, type SourceString } from './source-strings.js';
 import { safeLine } from './text.js';
 
 /**
- * What a repair's patch may change. `shadowlap fix apply` hands a patch to `git apply`, and the store
- * it comes from can be someone else's (a teammate's bucket, a copied file), so a patch is held to the
- * one rewrite its accepted candidate makes (`repairPatchProblem`).
+ * What a repair's patch may change, and where a repair rewrites text. `shadowlap fix apply` hands a
+ * patch to `git apply`, and the store it comes from can be someone else's (a teammate's bucket, a
+ * copied file), so a patch is held to the one rewrite its accepted candidate makes
+ * (`repairPatchProblem`). A repair rewrites text only inside a string of JavaScript, TypeScript or
+ * Python source, or in a prose file, where it places its anchors (`repairNeverRewritesAt`).
  */
 
 /**
@@ -213,4 +216,66 @@ function occursBetween(text: string, piece: string, lo: number, hi: number): boo
     if (k === piece.length) return true;
   }
   return false;
+}
+
+// ---- Where a repair rewrites text ----------------------------------------------------------------
+
+/** Where a repair rewrites text, as a reason that refuses a rewrite elsewhere says it. */
+const REWRITTEN_TEXT = 'a string of JavaScript, TypeScript or Python source, or in a Markdown, plain text, prompt or Jinja file';
+
+/** What a repair rewrites in a file: the text inside its strings (`js`, `python`), or any of its text (`prose`). */
+export type RewriteKind = 'js' | 'python' | 'prose';
+
+/**
+ * What a repair rewrites in `file`, by its name, or null for a file it rewrites nothing in. The text
+ * an agent sends its model is in a string of its code, or in a prose or template file it reads. In
+ * any other file, a workflow, a manifest, a script or another language's source, Shadowlap can't
+ * tell such text from what runs, so a repair rewrites none of it. MDX is left out too: it is JSX,
+ * whose code runs when it is built.
+ */
+export function rewriteKind(file: string): RewriteKind | null {
+  const syntax = templateSyntax(file);
+  if (syntax === 'js' || syntax === 'python') return syntax;
+  return /\.(?:md|markdown|txt|rst|prompt|j2|jinja2?)$/i.test(file) ? 'prose' : null;
+}
+
+/** A file's kind as a reason names it: `a .yml file`, or `a file with no extension` (`.gitignore` is a name). */
+function kindWords(file: string): string {
+  const name = file.slice(file.lastIndexOf('/') + 1);
+  const ext = /\.([^.]+)$/.exec(name.slice(1))?.[1];
+  return ext ? `a .${safeLine(ext).slice(0, 20)} file` : 'a file with no extension';
+}
+
+/** Each file's strings in code, and its placeholders in prose, read once however many spans of it are checked. */
+const stringsOf = new WeakMap<SourceFile, SourceString[]>();
+const placeholdersOf = new WeakMap<SourceFile, Placeholder[]>();
+
+/**
+ * Why a repair never rewrites the `length` characters at `offset` of `file`, or null when it may:
+ * the kind of file (`rewriteKind`), and in code, where the text is. It has to be inside one string,
+ * from start to end, and in any file it may hold a placeholder only whole: a rewrite never starts or
+ * ends inside a template literal's `${…}`, an f-string's `{…}` or a Jinja expression, whose code
+ * `checkEdit` would otherwise let it change. Read as what follows "the text": `is outside any string`.
+ */
+export function repairNeverRewritesAt(file: SourceFile, offset: number, length: number): string | null {
+  const kind = rewriteKind(file.path);
+  if (!kind) return `is in ${kindWords(file.path)}: a repair rewrites text only in ${REWRITTEN_TEXT}`;
+  const end = offset + length;
+  let code: ReadonlyArray<{ start: number; end: number }>;
+  if (kind === 'prose') {
+    let found = placeholdersOf.get(file);
+    if (!found) placeholdersOf.set(file, (found = placeholders(file.content, templateSyntax(file.path))));
+    code = found;
+  } else {
+    let strings = stringsOf.get(file);
+    if (!strings) stringsOf.set(file, (strings = sourceStrings(file.content, kind)));
+    // The innermost string it starts in: one in a template literal's ${…} starts after the template literal.
+    const str = strings.filter((s) => s.start <= offset && offset < s.end).at(-1);
+    if (!str) return 'is outside any string: in code, a repair rewrites only text inside a string';
+    if (end > str.end) return 'runs past the end of the string it starts in: a repair rewrites text inside one string';
+    const inside = placeholders(file.content.slice(str.start, str.end), kind).map((p) => ({ start: str.start + p.start, end: str.start + p.end }));
+    code = [...str.code.map(([start, stop]) => ({ start, end: stop })), ...inside];
+  }
+  const cut = code.find((p) => p.start < end && offset < p.end && (p.start < offset || p.end > end));
+  return cut ? `starts or ends inside ${safeLine(file.content.slice(cut.start, cut.end)).slice(0, 80)}: a rewrite keeps each placeholder whole` : null;
 }
