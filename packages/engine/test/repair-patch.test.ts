@@ -3,7 +3,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { applyEdit, patchFiles, REPAIR_FILE_LIMIT, repairNeverRewrites, repairPatchProblem, unifiedDiff, type RepairCandidate } from '../src/repair.js';
+import { applyEdit, REPAIR_FILE_LIMIT, unifiedDiff, type RepairCandidate } from '../src/repair.js';
+import { patchFiles, repairNeverRewrites, repairPatchProblem } from '../src/repair-patch.js';
 import { times, timesOf } from './timing.js';
 
 /**

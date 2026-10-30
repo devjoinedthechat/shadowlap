@@ -350,8 +350,7 @@
     "packages/engine/src/repair.ts": {
       "formatRepair": 36,
       "placeholders": 45,
-      "repairMarkdown": 41,
-      "repairPatchProblem": 39
+      "repairMarkdown": 41
     },
     "packages/engine/src/report.ts": {
       "formatSummary": 43,
