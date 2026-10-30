@@ -1,25 +1,157 @@
 # CLI
 
-Global options: `--db <path>` (default `./.shadowlap/shadowlap.db`), `-v` / `--verbose` (sidecar log on stderr, and every attempt's own line where a terminal folds them, as [blame](#blame), verify and repair do), given before the command or after it: `shadowlap --db other.db ls` and `shadowlap ls --db other.db` are the same. Each command's `--help` lists them. Run ids can be abbreviated to any unique prefix.
+The reference for the `shadowlap` command: every command, its flags, how it exits and the JSON it
+prints. Read it for the exact behaviour of a flag or the fields of a report. The
+[quickstart](./quickstart.md) walks through a first run.
 
-The CLI runs on Node 22.16 or later, but not on Node 23: every store keeps a full-text index, which Node's built-in SQLite has from 22.16 on and in 24 and later. On another Node it names the Node it needs and exits 2. On a Node in that range whose SQLite was built without full-text search, such as a custom build, opening a store says to use an official build, as [`doctor`](#doctor) does.
+```sh
+shadowlap run -- node agent.js        # record a run
+shadowlap replay 01M2P9PVCP --strict  # replay it; exit 1 if it diverges
+shadowlap blame 01M2P9PVCP            # find the model call where a failed run was lost
+shadowlap test goldens/*              # replay the packed goldens, as CI does
+```
 
-Every command ends with an [exit status](#exit-status) a script or a CI step can tell apart: 1 for a check that failed, 2 for a command it can't run as given, 3 for a verdict that couldn't be reached.
+## Commands
 
-A store is created by the first command that records into it. Commands that only read it (`ls`, `show`, `search`, `diff`, `pack`, the exports, `fix ls`, `tasks`), or change only what it already holds (`label`, `note`, `rm`, `fix title`, and `coverage`, which keeps its scans there), never create one: where there is none they find nothing, and when the project's store is in a folder above (run from `src/`, say) they name it.
+The commands, in the groups `shadowlap --help` lists them in:
+
+| Group | Commands |
+| --- | --- |
+| Try it | [`demo`](#demo) |
+| Record and replay | [`run`](#run), [`replay`](#replay), [`calibrate`](#calibrate), [`mcp`](#mcp) |
+| Look at runs | [`dashboard`](#dashboard), [`ui`](#ui), [`show`](#show), [`ls`](#ls), [`search`](#search), [`diff`](#diff), [`label`, `note`](#label-note) |
+| Find and fix | [`blame`](#blame), [`verify`](#verify), [`repair`](#repair), [`fix`](#fix) |
+| Preview a change | [`decisions`](#decisions), [`migrate`](#migrate) |
+| Test | [`test`](#test), [`bisect`](#bisect), [`pack`, `unpack`](#pack-unpack), [`serve`](#serve), [`check`](#check), [`injection`](#injection), [`coverage`](#coverage) |
+| Set up | [`init`](#init), [`doctor`](#doctor), [`normalize`, `redact`](#normalize-redact), [`skill`](#skill) |
+| Import | [`import`](#import) |
+| Export and clean up | [`export html`](#export-html), [`export dataset`](#export-dataset), [`export pairs`](#export-pairs), [`export har`](#export-har), [`export otel`](#export-otel), [`rm`, `gc`](#rm-gc) |
+| Train | [`tasks`](#tasks) |
+| Team store | [`push`, `pull`](#push-pull), [`share`](#share), [`store`](#store) |
+
+What every command shares: the [requirements](#requirements), the [global options](#global-options),
+the [exit statuses](#exit-status), the [JSON output](#json-output), the
+[configuration file](#the-configuration-file) and the [environment variables](#environment).
+
+## Requirements
+
+The CLI runs on Node 22.16 or later, but not on Node 23. Every store keeps a full-text index. Node's
+built-in SQLite has one from 22.16 on, and in 24 and later.
+
+- **Another Node**: the CLI names the Node it needs and exits 2.
+- **A SQLite without full-text search**: a Node in that range can have a SQLite built without it,
+  such as a custom build. Opening a store on it says to use an official build, as
+  [`doctor`](#doctor) does.
+
+## Global options
+
+Every command takes these options:
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--db <path>` | The store to use | `./.shadowlap/shadowlap.db` |
+| `-v`, `--verbose` | Print the sidecar's log on stderr. Give every attempt its own line where a terminal folds them, as [blame](#blame), verify and repair do | — |
+| `-h`, `--help` | Print the command's help, with its options and these | — |
+| `-V`, `--version` | Print the version number | — |
+
+`--db` and `--verbose` go before the command or after it: `shadowlap --db other.db ls` and
+`shadowlap ls --db other.db` are the same. Run ids can be abbreviated to any unique prefix.
+
+### Where a store is created
+
+A store is created by the first command that records into it. These commands never create one:
+
+- **Commands that only read it**: `ls`, `show`, `search`, `diff`, `pack`, the exports, `fix ls` and
+  `tasks`.
+- **Commands that change only what it already holds**: `label`, `note`, `rm`, `fix title`, and
+  `coverage`, which keeps its scans there.
+
+Where there is no store, they find nothing. When the project's store is in a folder above (run from
+`src/`, say), they name it.
 
 ## Exit status
 
-| Status | Meaning |
-|---|---|
-| `0` | Ok: the command did what it was asked, and what it judged passed |
-| `1` | Failed: a check, gate or test failed, a replay diverged where it may not (`--strict`, `test`), verify or repair rejected the change, a search found nothing; or the work could not be finished: a host that didn't answer, a patch that didn't apply, a store another process held too long |
-| `2` | Usage or configuration: a flag, argument or command it doesn't take, a run or fix it can't find or can't use yet (one still recording), a file it can't read, an invalid `shadowlap.config.json`, a live command with no key, a recorded command it needs `--yes` to run, a replay that would run a [write Shadowlap never recorded](./how-it-works.md#tools-shadowlap-did-not-record) again, an agent on a Node too old for the guard |
-| `3` | Inconclusive: a gate or check that could not decide (`0` when it only warns: `--inconclusive warn`, or with none given, a gate against history whose golden has fewer than 30 sessions that ran out of attempts with no decline or drop in them), a budget spent before a verdict, the provider unavailable |
-| `70` | Internal error: a bug in Shadowlap. The message says so: run the command again with `SHADOWLAP_DEBUG=1` to see where it happened, and report it |
-| `128 + n` | Stopped by signal *n*: `130` for Ctrl-C, `129` for a closed terminal (SIGHUP), `143` for SIGTERM, however the command wound down (the dashboard, `serve`, `tasks serve`, `mcp`, `demo` and `replay --watch` too), one that came during its last work too (repair removing its worktree after its last verify). A signal in the last moment before the process exits, a few milliseconds, may find it already ending with its own status |
+Every command ends with an exit status a script or a CI step can tell apart: 1 for a check that
+failed, 2 for a command it can't run as given, 3 for a verdict that couldn't be reached, 70 for a bug.
+Each command's section says which statuses it ends with.
 
-`run` and `replay` end with the agent's own status where none of these applies, as the agent would have ended without Shadowlap: `127` for a command that isn't on the PATH, and `128 + n` for an agent a signal stopped. Each command's section says which statuses it ends with. `SHADOWLAP_DEBUG=1` prints the stack of any error, for a bug report.
+| Status    | Meaning                                                             |
+| --------- | ------------------------------------------------------------------- |
+| `0`       | Ok: the command did what it was asked, and what it judged passed    |
+| `1`       | Failed: what it judged failed, or the work could not be finished    |
+| `2`       | Usage or configuration: something to fix before the command can run |
+| `3`       | Inconclusive: a gate or check that could not decide                 |
+| `70`      | Internal error: a bug in Shadowlap                                  |
+| `128 + n` | Stopped by signal *n*                                               |
+
+**`1`, failed**, covers:
+
+- a check, gate or test that failed;
+- a replay that diverged where it may not (`--strict`, `test`);
+- a change verify or repair rejected;
+- a search that found nothing;
+- work that could not be finished: a host that didn't answer, a patch that didn't apply, a store
+  another process held too long.
+
+**`2`, usage or configuration**, covers:
+
+- a flag, argument or command it doesn't take;
+- a run or fix it can't find, or can't use yet (one still recording);
+- a file it can't read, or an invalid `shadowlap.config.json`;
+- a live command with no key;
+- a recorded command it needs `--yes` to run;
+- a replay that would run a [write Shadowlap never recorded](./how-it-works.md#tools-shadowlap-did-not-record)
+  again;
+- an agent on a Node too old for the guard.
+
+**`3`, inconclusive**, covers a gate or check that could not decide, a budget spent before a
+verdict, and the provider unavailable. It is `0` when the result only warns:
+
+- under `--inconclusive warn`;
+- with no `--inconclusive` given, for a gate against history whose golden has fewer than 30
+  sessions that ran out of attempts with no decline or drop in them.
+
+**`70`, internal error**: the message says so. Run the command again with `SHADOWLAP_DEBUG=1` to see
+where it happened, and report it.
+
+**`128 + n`, a stop signal**: `130` for Ctrl-C, `129` for a closed terminal (SIGHUP), `143` for
+SIGTERM. That holds however the command wound down, the dashboard, `serve`, `tasks serve`, `mcp`,
+`demo` and `replay --watch` too. It holds for a signal that came during its last work too, such as
+repair removing its worktree after its last verify. A signal in the last moment before the process
+exits, a few milliseconds, may find it already ending with its own status.
+
+`run` and `replay` end with the agent's own status where none of these applies, as the agent would
+have ended without Shadowlap: `127` for a command that isn't on the PATH, and `128 + n` for an agent a
+signal stopped. `SHADOWLAP_DEBUG=1` prints the stack of any error, for a bug report.
+
+## JSON output
+
+Most commands can print what they did as JSON, for scripts, CI and coding agents:
+
+- **`--json`** prints the result as JSON on stdout. The commands that report progress as they work
+  (`blame`, `verify`, `repair`, `fix apply`, `decisions`, `migrate`, `bisect`, `injection` and
+  `tasks score`) still print it on stderr.
+- **`--summary-json <file>`** (`run`, `replay`) and **`test --json <file>`** write the JSON to a file.
+
+Each command's section lists its fields. This table says where:
+
+| Command | What it prints |
+| --- | --- |
+| `run --summary-json <file>` | The run's summary ([fields](#run)) |
+| `replay --summary-json <file>` | The replay's summary and checks, or every attempt and the report ([fields](#replay)) |
+| `show`, `ls`, `search`, `diff` | A run, the runs, the matches, a comparison ([show](#show), [ls](#ls), [search](#search), [diff](#diff)) |
+| `label` | The run's labels ([fields](#label-note)) |
+| `blame`, `verify`, `repair` | Their reports ([blame](./blame.md#json), [verify](./verify.md#json), [repair](./repair.md#json)) |
+| `fix ls`, `fix show`, `fix pr`, `fix apply` | The dashboard's read model of Fixes ([fields](#fix)) |
+| `decisions`, `migrate` | The report the dashboard reads ([decisions](#decisions), [migrate](#migrate)) |
+| `test --json <file>` | The session's report ([fields](#test)) |
+| `bisect`, `check`, `injection`, `coverage` | Their results ([bisect](#bisect), [check](#check), [injection](#injection), [coverage](#coverage)) |
+| `calibrate`, `init`, `doctor`, `skill install` | What each found or did ([calibrate](#calibrate), [init](#init), [doctor](#doctor), [skill](#skill)) |
+| `normalize ls`, `redact ls`, `redact preview` | The rules, and what they would mask ([fields](#normalize-redact)) |
+| `import` | The runs it made and what it skipped ([fields](#--json)) |
+| `gc` | What it deleted or would delete ([fields](#rm-gc)) |
+| `tasks`, `tasks score`, `tasks models` | The tasks, a score, the models ([Training](./training.md)) |
+| `push`, `pull`, `share`, `store` | What went and came, the link, the store ([push, pull](#push-pull), [share](#share), [store](#store)) |
 
 ## demo
 
