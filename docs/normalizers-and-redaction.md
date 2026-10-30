@@ -609,12 +609,13 @@ Every copy masks the credentials the agent's command line carries, rules or none
 | A flag that says where the credential is: `--token-file`, `--api-key-env`, `--password-stdin` | nothing |
 | An assignment whose name reads as a credential: `OPENAI_API_KEY=…` after `env`, `--set auth.password=…` | its value, to the end of the argument it is in |
 | Any other assignment: `DATABASE_URL=postgres://app:…@db`, git's `-c http.extraheader=AUTHORIZATION: …` | the URL's password, the JWT or the header line it gives |
+| A libpq connection string, given whole, assigned or after `-d`: `psql 'host=db password=…'` | its `password` and `sslpassword` |
 | A header line: `-H 'Authorization: Bearer …'` | its credential |
 | A JWT given as an argument of its own | all of it |
 | A URL | its password, query credentials and webhook secret |
 | Any argument's text: one with a space or an `=` in it, or JSON | a URL's password, a JWT, and what the body masking reads in text (`key: value` lines, a form, JSON members) |
 
-**Passwords under a name that doesn't say so:**
+**Secrets under a name that doesn't say so:**
 
 | Program | Option | What is masked |
 |---|---|---|
@@ -623,13 +624,30 @@ Every copy masks the credentials the agent's command line carries, rules or none
 | mysql's and mariadb's tools | `-p…`, glued | the password; a word after a bare `-p` is the database |
 | mongo's tools, sshpass | `-p`, glued or not | the password |
 | docker, podman, nerdctl | `login -p` | the password |
+| az | `login -p`, `acr login -p`, glued or not | the password |
+| twine | `-p`, glued or not | the password |
 | redis-cli | `-a` | the password |
 | sqlcmd, bcp | `-P` | the password |
 | An LDAP tool | `-w` | the password |
 | smbclient | `-U user%…` | the password |
+| kubectl, oc | `create secret … --from-literal key=…` | every literal's value |
+| Any other program | `--user user:…` | the password; a container's `--user user:group`, a URL and a drive's path kept |
 | curl | `-d`, `--data`, `--data-raw`, `--data-binary`, `--data-urlencode`, `--json`, `-F` | the body, read as a form or as JSON, its other fields kept |
 
 Anywhere else, `-p` is a port or a path, and kept.
+
+**Secrets a program takes by a word's place:**
+
+| Command | What is masked |
+|---|---|
+| Any program's `config set` or `configure set`: `aws configure set`, `npm config set`, `kubectl config set` | the value given a credential's name: `aws_secret_access_key`, `//registry.example.com/:_authToken` |
+| `mc alias set NAME URL ACCESS SECRET`, `mc config host add` | the secret key |
+| `mc admin user add ALIAS USER PASSWORD` | the password |
+| `vault login`, `vault unwrap`, `vault operator unseal` | the token, or the unseal key's share |
+| `vault kv put`, `vault kv patch` | every value written, but one read from a file (`@…`) or the input (`-`) |
+
+- **A setting's name** is read by its words, or by its last part, as npm's `//registry.example.com/:_auth` is.
+- **An AWS access key id** is kept, as `aws_access_key_id` or mc's access key: it names the key pair, as a user names a user, and the secret beside it is masked.
 
 **Scripts a program runs** are read word by word, as a shell reads them:
 
@@ -644,7 +662,7 @@ Anywhere else, `-p` is a port or a path, and kept.
 | Node | `-e` |
 | Ruby, Perl | `-e` |
 
-In a script, each form above is masked, and an assignment's value to the end of its word. Each word that changes is written in the quotes its language wrote it in (`os.environ['GITHUB_TOKEN']='<CREDENTIAL>'`), and the rest of the script is kept.
+In a script, each form above is masked, and an assignment's value to the end of its word. So is a string in quotes that code gives a credential with spaces around its `=` (`api_key = "…"`) or as a member (`{"api_key": "…"}`); code that reads one from elsewhere (`os.environ[…]`) is kept. Each word that changes is written in the quotes its language wrote it in (`os.environ['GITHUB_TOKEN']='<CREDENTIAL>'`), and the rest of the script is kept.
 
 **What runs.** The store keeps the command line as it ran, since a replay runs it again. A pack's replay elsewhere runs `<CREDENTIAL>` in its place, so give it your own key there. A golden packed here still runs as recorded here: its command is the store's, but for what the pack masks.
 

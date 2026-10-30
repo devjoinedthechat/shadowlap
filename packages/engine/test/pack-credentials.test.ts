@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -230,6 +230,28 @@ describe("a copy of a run whose command line and a captured call's address carry
     const pushed = credentialFreeCalls(store, store.getCalls(run.runId));
     const sent = JSON.stringify([pushed, ...pushed.map((c) => store.getBlob(c.requestRef!)!.toString('latin1'))]);
     for (const secret of ARGV_SECRETS) expect(sent, secret).not.toContain(secret);
+    store.close();
+  });
+});
+
+describe('a copy of a run whose command line carries a secret by a word’s place', () => {
+  const PLACED = ['wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY', 'hvs.EXAMPLEtokenEXAMPLEtoken0123', 'pw_FAKE_PLACE_0123'];
+  const script = (key: string, token: string, pw: string, api: string) => `aws configure set aws_secret_access_key ${key} && vault login ${token} && psql "host=db password=${pw}" -c 'select 1' && node agent.js --api-key ${api}`;
+
+  it('carries none of them, and a pack an earlier version wrote with them in it is still the recording made here', () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: { argv: ['sh', '-c', script(PLACED[0]!, PLACED[1]!, PLACED[2]!, 'sk-test-EXAMPLE0000')], cwd: '/tmp' } });
+    store.endRun(run.runId, 'completed');
+    expect(carriesCredentials(store, run.runId)).toBe(true);
+    const dir = packOf(store, run.runId);
+    const bytes = everything(dir);
+    for (const secret of PLACED) expect(bytes, secret).not.toContain(secret);
+    expect(unpackRun(store, dir).mismatched).toEqual([]);
+    // As an earlier version wrote the pack: these as the command ran, the flag's key masked.
+    const manifest = JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')) as { runs: Array<{ command: { argv: string[] } }> };
+    manifest.runs[0]!.command.argv = ['sh', '-c', script(PLACED[0]!, PLACED[1]!, PLACED[2]!, `"${CREDENTIAL_PLACEHOLDER}"`)];
+    writeFileSync(join(dir, 'run.json'), JSON.stringify(manifest));
+    expect(unpackRun(store, dir).mismatched).toEqual([]);
     store.close();
   });
 });

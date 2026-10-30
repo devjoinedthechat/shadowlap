@@ -453,6 +453,7 @@ Runs go up as recorded, but without their credentials.
 - an assignment's value, when its name reads as a credential (`OPENAI_API_KEY=…` after `env`, `--set auth.password=…`), and else the URL's password, the JWT or the header line it gives (`DATABASE_URL=postgres://app:…@db`, git's `-c http.extraheader=…`);
 - a header line (`-H 'Authorization: …'`), a JWT, and a URL's password, query credentials and webhook secret;
 - a password a program takes under a name that doesn't say so: curl's `-u user:…`, mysql's glued `-p…` and `docker login -p` among them;
+- a secret a program takes by a word's place (`aws configure set aws_secret_access_key …`, `vault login …`, mc's secret key), and a libpq connection string's password;
 - a body curl sends with `-d`, `--data…`, `--json` or `-F`, read as a form or as JSON;
 - each of them in a script a program runs, read word by word as a shell reads it, such as `sh -c 'OPENAI_API_KEY=… node agent.js'`.
 
