@@ -3550,6 +3550,388 @@ read or written there.
 A file's `action` is `written`, `replaced`, `removed` or `unchanged`. For a refused install, it is
 `differs` or `extra`: what it left.
 
+## import
+
+```sh
+shadowlap import har traffic.har         # model calls out of a HAR, as a recording
+shadowlap import nock recording.json     # the same, from a nock recording
+shadowlap import vcr cassette.json       # the same, from a VCR cassette (JSON serialization)
+shadowlap import litellm cap/*.jsonl     # production traffic a LiteLLM proxy captured
+shadowlap import otel otel-traces.json   # OpenTelemetry traces with the GenAI conventions
+shadowlap import langfuse <trace-id>     # a Langfuse trace, read with the project's keys
+shadowlap import langsmith <trace-id>    # a LangSmith trace, read with your API key
+shadowlap import phoenix <trace-id>      # an Arize Phoenix trace, from Phoenix's REST API
+shadowlap import logfire <trace-id>      # a Pydantic Logfire trace, read with a read token
+shadowlap import langfuse --since 7d     # each Langfuse trace of the last 7 days, one run per trace
+shadowlap import har traffic.har --json  # every run made, by its full id, and the entries skipped
+```
+
+Turns a capture something else made, or a [trace you already keep](#traces), into a recording you can
+replay your own code against.
+
+These formats are captures:
+
+| Format | What writes it |
+| --- | --- |
+| `har` | mitmproxy, Charles, Proxyman, a browser's devtools, Polly.js |
+| `nock` | `nock.recorder.rec({ output_objects: true })` |
+| `vcr` | VCR.py with its JSON serializer (`vcr.VCR(serializer='json')`) (below) |
+| `litellm` | A LiteLLM proxy, through `shadowlap.litellm_callback`: production traffic, one run per correlation id (below) |
+
+- **`vcr`**: a YAML cassette has to be converted first. Shadowlap reads JSON so that no YAML parser is
+  trusted with a cassette from anywhere.
+- **`litellm`** takes several files, since a proxy writes one per worker. The calls of one agent run
+  spread over several workers' files are put back together, in the order they started. See
+  [Capturing production traffic](./gateways.md).
+
+`otel`, `langfuse`, `langsmith`, `phoenix` and `logfire` read [traces](#traces).
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--name <name>` | The name to record as the run's source (below) | The file's name |
+| `--json` | Print every run made, by its full id, and what it skipped ([below](#--json)) | — |
+| `--host <url>` | Trace stores: the store's API, for a self-hosted instance or another region | [Below](#traces) |
+| `--allow-http` | Trace stores: send the keys over plain http to a `--host` on a network you trust | Plain http only to this machine |
+| `--since <when>` | Without a trace id: import the traces that started from then on; `logfire` takes it with one too | 30 days ago |
+| `--until <when>` | Without a trace id: the traces that started before then | The current time |
+| `--limit <n>` | Without a trace id: the most traces to import, newest first; at most 10,000 | 100 |
+| `--trace-name <name>` | Without a trace id: only the traces of this name | — |
+| `--project <name>` | `phoenix`: the project the traces are in | `PHOENIX_PROJECT` or `PHOENIX_PROJECT_NAME`, else `default` |
+
+`--since`, `--until`, `--limit` and `--trace-name` are for `langfuse`, `phoenix` and `logfire`:
+[the traces in a window](#the-traces-in-a-window).
+
+**What is kept.** Anthropic, OpenAI, Gemini, Azure, Vertex and Bedrock hosts are recognised:
+
+- Every other entry is skipped, and `--json` lists the reasons. So is an entry whose fields aren't what
+  the format says (a method that isn't text, a null entry), naming the field.
+- The capture's credential headers (`authorization`, `x-api-key`, `api-key`, cookies,
+  `proxy-authorization`, `x-goog-api-key`, `x-amz-security-token`) and its query's credentials are never
+  stored.
+- The rest of an answer's headers is kept as captured, and masked in every copy.
+- Header names and values are escaped and bounded, because a capture is a file from anywhere.
+- An import that stops part way leaves no run behind.
+
+**The request bodies are the real ones**, which is what matters. Replay matches on a fingerprint of the
+outgoing request, so a reconstructed body would fork at call 1. Every format produces the same
+fingerprint for the same request, so it does not matter which tool captured it.
+
+**An imported run is a [partial recording](./how-it-works.md#partial-recordings).** A capture of the
+network holds no tool, clock or randomness calls, so a replay runs those live rather than diverging on
+their absence, and `--writes` still fences write tools. No format carries SSE event boundaries, so a
+streamed response replays in one piece, rather than at its recorded pacing.
+
+**It has no command.** A capture says what was sent, not what sent it, so the run has no command to
+re-run:
+
+- `ls` and `show` display `<no-recorded-command>` in its place, and `ls --json` says
+  `"hasCommand": false`;
+- `replay` without a command refuses, and says what to run;
+- its cost is reported as captured, not spent: that traffic was paid for where it ran.
+
+Give your own command:
+
+```sh
+shadowlap import har traffic.har
+shadowlap replay <run> -- python agent.py
+```
+
+That replay is also how an import becomes a CI golden. The model calls come from the capture and
+everything else is recorded live, so the resulting run covers everything, and `shadowlap pack` turns it
+into a golden for `shadowlap test`.
+
+**Labels and authors.** Every imported run is labelled `imported`, and appears in the dashboard's
+activity feed. It names who imported it as its author: `SHADOWLAP_AUTHOR` when set, `ci` in CI,
+otherwise git's `user.email`. Its source is the file's name; `--name <name>` records another. The
+dashboard's Import a capture passes the name of the file you picked, which it keeps under a name of its
+own while it imports.
+
+`import` exits with:
+
+| Status | Meaning                                                                                                   |
+| ------ | --------------------------------------------------------------------------------------------------------- |
+| `0`    | It imported a run; for a window, otherwise, an empty window included                                      |
+| `1`    | Nothing could be imported (`runs` is empty), or a window held traces and none of them is imported (below) |
+| `1`    | A trace store that failed, or didn't answer                                                               |
+| `2`    | Keys a trace store refused                                                                                |
+
+### Traces
+
+```sh
+shadowlap import otel otel-traces.json [otel-logs.json]
+shadowlap import langfuse 7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07 [--host https://langfuse.example.com] [--allow-http]
+shadowlap import langsmith 0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a2b3c [--host https://langsmith.example.com/api/v1] [--allow-http]
+shadowlap import phoenix 4a2db41deabc4aec332fb9fbfa0fc3e2 [--project support-agent] [--host https://phoenix.example.com] [--allow-http]
+shadowlap import logfire 01a16460e2f311342463057f62b79fa9 [--since 90d] [--host https://logfire-eu.pydantic.dev] [--allow-http]
+```
+
+A trace keeps what its instrumentation logged: the messages and the model settings, tool outputs when
+someone logged them, rarely the tool definitions.
+
+- Each model call is rebuilt as the request its provider's SDK sends and the response it got, and
+  stored like a capture's.
+- It is rebuilt in Anthropic's, OpenAI's or Gemini's format: the provider the trace names, else the
+  model's family, else OpenAI's, which most other servers speak.
+- The run is a partial recording: what the trace didn't keep runs live on replay, with writes fenced.
+
+**The order of the calls.** The run holds the calls in the order they started, read as finely as the
+source keeps the time: to the microsecond in Phoenix, Logfire and LangSmith, and the nanosecond in OTLP.
+That is because a tool and the model call that reads its result often start in the same millisecond.
+Calls that started at the same instant go in the order one needed another:
+
+- a span before the calls that ran inside it;
+- a model call before the tool call it asked for;
+- a tool call before the model call whose request carries its result.
+
+Calls that say nothing of each other keep the order the source lists them in.
+
+Each source reads:
+
+| Source | What it reads | Key |
+| --- | --- | --- |
+| `otel` | OTLP JSON files: spans with the GenAI or OpenInference conventions | — |
+| `langfuse` | The trace's observations | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` |
+| `langsmith` | The trace's runs, from `POST /runs/query`, every page | `LANGSMITH_API_KEY` |
+| `phoenix` | The trace's spans, from `GET /v1/projects/<project>/spans`, every page | `PHOENIX_API_KEY`, when it is set |
+| `logfire` | The trace's spans, from one SQL query on the `records` table (`POST /v2/query`) | `LOGFIRE_READ_TOKEN`, a read token |
+
+**`otel`** reads OTLP JSON, as an OTLP/HTTP exporter sends it, the collector's file exporter writes it
+(one request per line), or Grafana Tempo downloads a trace. Several files are read as one, so traces and
+their logs can come separately. One run is made per trace. It reads spans with the OpenTelemetry GenAI
+conventions:
+
+- `gen_ai.input.messages` and `gen_ai.output.messages`, with `gen_ai.system_instructions` and
+  `gen_ai.tool.definitions`, also from a `gen_ai.client.inference.operation.details` event;
+- the older `gen_ai.prompt` and `gen_ai.completion`: as JSON, on `gen_ai.content.*` events, or flattened
+  as OpenLLMetry writes them;
+- or the per-message `gen_ai.*.message` and `gen_ai.choice` events, on the span or as log records
+  (`resourceLogs`, tied to the span by its id). That is where the official instrumentations
+  (openai-v2, vertexai, google-genai) send them;
+- the model, provider, settings, token usage and finish reason;
+- `execute_tool` spans, for tool calls.
+
+It reads OpenInference's conventions too (Arize Phoenix, and the LlamaIndex, DSPy and smolagents
+instrumentations): LLM spans with `llm.input_messages`, `llm.output_messages`, `llm.tools` and
+`llm.invocation_parameters`, and TOOL spans. They are rebuilt exactly from `input.value` and
+`output.value` where its OpenAI and Anthropic instrumentations log the request and response themselves.
+When a framework's span wraps the client library's span for the same call, the inner one is kept.
+
+**`langfuse`** reads the trace's observations from the Observations API v2
+(`GET /api/public/v2/observations`, a page of 1,000 at a time), or `GET /api/public/traces/<id>` from a
+self-hosted Langfuse without it. Generations are model calls. TOOL observations, and spans named after a
+tool a generation asked for, are tool calls.
+
+**`langsmith`**: `llm` runs are model calls: LangChain's serialized messages, or the request and response
+themselves from LangSmith's wrapped OpenAI and Anthropic clients, which rebuild exactly. `tool` runs are
+tool calls.
+
+**`phoenix`**:
+
+- A Phoenix without authentication needs no key.
+- The API takes no order for spans, so they are put in the order they started once read. A trace of more
+  than 20,000 spans is refused rather than cut.
+- The project is `--project`, else `PHOENIX_PROJECT` or its older name `PHOENIX_PROJECT_NAME`, as
+  Phoenix's own client reads them, else `default`.
+- It reads OpenInference's conventions, as `otel` reads them. LLM spans are model calls, rebuilt exactly
+  where the OpenAI or Anthropic instrumentation logged the request itself as JSON. TOOL spans are tool
+  calls.
+- It needs Phoenix 13.9 or later, which reads spans by trace. An older one is refused, with the reason.
+
+**`logfire`**:
+
+- It reads among spans that started since `--since`: a date, a time, or how long ago, such as `90d`;
+  30 days by default.
+- Logfire's instrumentations and Pydantic AI write the current GenAI conventions, read as `otel` reads
+  them. Where Pydantic AI's model span wraps the client library's own (the Anthropic SDK's), that span
+  adds what was sent that Pydantic AI leaves out, such as `max_tokens` and streaming.
+- A function wrapped with `@logfire.instrument` is a tool call when the model asked for a tool of its
+  name: its span's (`@logfire.instrument('lookup_order')`), or the function's own under the decorator's
+  default message (`Calling tools.lookup_order`). It keeps its arguments, and its result with
+  `record_return=True`.
+- A block an agent handed back as the Anthropic SDK returned it is read back as the block.
+  `logfire.instrument_anthropic()` logs it as the text the SDK prints for it
+  (`ToolUseBlock(id='toolu_…', …)`).
+
+**Keys and hosts.** The keys are read from the environment, and sent only to the host. Nothing of the
+keys is stored. The host is `--host`, else the variable the store's own SDK reads, else its usual
+address:
+
+| Store | Variable | Usual address |
+| --- | --- | --- |
+| `langfuse` | `LANGFUSE_HOST` | `https://cloud.langfuse.com` |
+| `langsmith` | `LANGSMITH_ENDPOINT` | `https://api.smith.langchain.com` |
+| `phoenix` | `PHOENIX_ENDPOINT`, `PHOENIX_COLLECTOR_ENDPOINT` or `PHOENIX_BASE_URL` | `http://localhost:6006`, Phoenix as `phoenix serve` starts it |
+| `logfire` | `LOGFIRE_BASE_URL` | The Logfire region the read token names: `https://logfire-us.pydantic.dev` or `https://logfire-eu.pydantic.dev` |
+
+- A self-hosted LangSmith is reached at its `/api/v1` path.
+- Plain http is accepted for this machine (`localhost`, `127.0.0.0/8`, `::1`), since the keys travel with
+  every request. `--allow-http` accepts it for another host, on a network you trust.
+- A Phoenix that asks for no key, with `PHOENIX_API_KEY` unset, is read over plain http on any host, such
+  as the `http://phoenix:6006` of a compose file, since nothing secret travels.
+
+The run's source reads `langfuse:<first 8 characters of the id>` (or `langsmith:…`, `phoenix:…`,
+`logfire:…`), or the file's name for `otel`. The run is labelled with the source as well as
+`imported`.
+
+**What replays from a trace.** Replay matches each model call on its whole request, but for the API
+version an Anthropic client names (`anthropic-version`), which no trace keeps:
+
+- An imported call names none, and is matched whatever version the agent's SDK names. Its replay names
+  none either, so a golden packed from it replays on any release of the SDK.
+- A trace that kept everything the agent sends replays it with nothing live. Where it left something
+  out, typically the tool definitions, the replay forks at the first model call that differs and runs
+  live from there, which the import says.
+- A tool call replays when the trace kept its arguments (as an object) and its output, and only if every
+  call of that tool was kept. Such tools are listed in `meta.covers` as `tool:<name>`; any other tool runs
+  live on replay.
+- A model call that failed where it ran, or kept no messages or output, is skipped and runs live.
+
+**Two kinds of agent fork early**, because what they send isn't what their traces keep. Both still
+import, and replay runs live from the fork with writes fenced.
+
+- **A Pydantic AI agent** forks at its first model call, whatever the store. Pydantic AI logs the
+  conversation, not the request it sends, which writes text as content blocks and sets `tool_choice`.
+- **An agent that hands the Anthropic SDK's own response objects back as messages**
+  (`"content": reply.content`) forks at its second model call, where the trace kept the response whole
+  but those blocks only as the text the SDK prints for them, as OpenInference's Anthropic instrumentation
+  logs them.
+
+The request is then rebuilt from `llm.input_messages`, which leaves out fields the SDK sends with those
+blocks (`citations`, `caller`, `toolset_name`), and holds a tool result as the user's text. Where the
+trace logged the blocks as JSON, or by the GenAI conventions, such an agent replays from the
+trace alone, as one that builds its messages as plain dicts does. Traced by
+`logfire.instrument_anthropic()`, which logs each block as the text the SDK prints for it, it replays
+from the trace alone too: that text is read back as the block.
+
+A trace from [`export otel`](#export-otel) carries no prompt text, so it has nothing to replay: share the
+run as a [pack](#pack-unpack) instead.
+
+`--json` adds what the source kept:
+
+```json
+"kept": { "traces": 1, "spans": 14, "modelCalls": 9, "modelCallsImported": 9, "withSettings": 9, "withToolDefinitions": 0, "toolCalls": 5, "toolCallsKept": 3 }
+```
+
+### The traces in a window
+
+```sh
+shadowlap import langfuse --since 7d
+shadowlap import phoenix --since 2026-10-01 --until 2026-10-08 --project support-agent
+shadowlap import logfire --since 24h --trace-name support-agent --limit 20
+```
+
+Without a trace id, `import langfuse`, `import phoenix` and `import logfire` import each trace that
+started in a window, one run per trace, newest first:
+
+- from `--since`: a date, a time, or how long ago, such as `7d` or `12h`; 30 days ago by default;
+- to `--until`: the same; the current time by default;
+- up to `--limit` traces: 100 by default, at most 10,000;
+- only those named `--trace-name`, when it is given: Langfuse's trace name, the root span's name in
+  Phoenix and Logfire.
+
+Give a trace id or these flags, not both. Only `import logfire` takes `--since` with a trace id too, for
+how far back to look for it.
+
+Each store is asked through its own API for the traces' roots:
+
+- **Langfuse**, for the root observations in the window: `GET /api/public/v2/observations`, or its traces
+  list, `GET /api/public/traces`, where it has no v2 API;
+- **Phoenix**, for the root spans: `GET /v1/projects/<project>/spans` with `parent_id=null`;
+- **Logfire**, with one SQL query for the root spans in the `records` table.
+
+Each trace is then read as a single import reads it, with the same keys, hosts and flags.
+
+A trace store's import keeps the trace's id with the run (`meta.imported.key`), so a trace imported
+before, by a window or by its id, is skipped and not read again. A trace still running when it was
+imported keeps what it had by then: import it by its id once it has ended, to bring in the rest. It
+prints one line per trace, as it goes:
+
+```text
+3 traces in Langfuse on cloud.langfuse.com that started from 2026-10-16 09:12 UTC to 2026-10-23 09:12 UTC:
+  11111111-41b8-4d  imported as 01M5N2NX8F: 3 model calls and 1 tool result  support-chat
+  22222222-41b8-4d  imported before, as 01M5N2NVXR  support-chat
+  33333333-41b8-4d  skipped: no model calls in its 3 observations  nightly-eval
+Imported 1 of 3 traces: 1 imported before, 1 skipped.
+```
+
+- **Skipped**: a trace with nothing to import is skipped, and so is one the store can't give whole: gone
+  since it was listed, or more spans than an import reads.
+- **A failure** (the store refusing, failing or not answering) stops the import at that trace. The runs
+  it made stay, and the same command run again goes on from there.
+
+The exit status is that failure's: 2 for keys the store refused, 1 for a store that failed or didn't
+answer. It is 1 when the window held traces and none of them is imported, in this import or before;
+otherwise 0, an empty window included.
+
+`--json` adds the window it read, `window`:
+
+| Field            | Meaning                    |
+| ---------------- | -------------------------- |
+| `since`, `until` | The window's start and end |
+| `limit`          | The most traces it imports |
+| `traceName`      | The `--trace-name` given   |
+
+`traces` lists each trace it found, newest first:
+
+| Field | Meaning |
+| --- | --- |
+| `id`, `name` | The trace, and its name |
+| `startedAt` | When it started |
+| `outcome` | `imported`, `already` (imported before, as `runId`), `skipped` (for its `reason`), `failed` (where the import stopped) or `unread` (after that) |
+| `runId` | The run it was imported as |
+| `reason` | Why it was skipped |
+
+`kept` counts what the traces it imported kept, and `entries` every observation or span it read.
+
+### `--json`
+
+Every `import` subcommand takes `--json` and prints one object, whatever the format: each run it made,
+by its full id, with its source and what it holds, then everything it skipped. One LiteLLM file can
+make several runs, one per correlation id; they are all listed.
+
+```json
+{
+  "format": "litellm",
+  "entries": 4,
+  "runs": [
+    {
+      "runId": "01K5CQ9C4H8M2XWQH6V3T9RB1D",
+      "source": "shadowlap-4121.jsonl, shadowlap-4122.jsonl",
+      "key": "incident-42",
+      "calls": { "model": 2, "tool": 0 },
+      "labels": ["imported"],
+      "imported": [{ "callNo": 1, "kind": "api", "name": "POST /v1/messages", "provider": "anthropic", "model": "claude-haiku-4-5" }]
+    }
+  ],
+  "skipped": [{ "url": "line 4", "reason": "not JSON (a partly written line?)" }]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `format` | The format read |
+| `entries` | What was read: HAR entries, nock definitions, cassette interactions, capture lines, spans, observations or runs |
+| `runs` | Each run made (below); empty when nothing could be imported |
+| `skipped` | Each entry skipped, and why |
+
+Each of `runs` has these fields:
+
+| Field      | Meaning                                                                                        |
+| ---------- | ---------------------------------------------------------------------------------------------- |
+| `runId`    | The run, by its full id                                                                        |
+| `source`   | Where the run records it came from (below)                                                     |
+| `key`      | The correlation id for LiteLLM, the trace id for `otel` and the trace stores, otherwise `null` |
+| `calls`    | Its calls: `model` and `tool`                                                                  |
+| `labels`   | Its labels                                                                                     |
+| `imported` | The calls it imported                                                                          |
+
+`source` is the file's name (never its folder, which belongs to this machine and would travel with the
+store), the names of the files a LiteLLM run was put together from, or `langfuse:…`, `langsmith:…`,
+`phoenix:…` or `logfire:…`.
+
+When nothing could be imported, `runs` is empty, and the exit code is 1. Started from the dashboard, the
+command also reports each run to the job that started it.
+
 ## tasks
 
 ```sh
@@ -3579,222 +3961,6 @@ Exit status 0 when every task was scored in full; 1 when a task was skipped or s
 `tasks serve` answers one attempt per HTTP request, for a training loop that wants a reward: `POST /v1/tasks/<task>/attempts` with `{"model": …, "baseUrl": …}` returns each check's result, the score, the run and its cost. It listens on 127.0.0.1, checks the `Host` header and needs the token it prints (`SHADOWLAP_TASKS_TOKEN` sets it, at least 16 characters). `--base-url <url>` is the endpoint requests that name none ask, and `--key-env <name>` the variable whose key goes to that endpoint and nowhere else. A golden from a pack the repository doesn't track, recorded elsewhere, is served only once you say yes to its command as it starts, or with `-y`/`--yes`; a request for one nobody said yes to gets a 409. [Training](./training.md) shows a request and its response.
 
 `tasks models` lists models to score: the one the recordings used, each configured provider's models (Anthropic's and OpenAI's with the keys in the environment, Ollama's on this machine) and the models scored before, each with its price per attempt, last score and the ready tasks it can answer (a model that can answer none says why). A provider that doesn't answer within `--timeout` (1500 ms) becomes a note.
-
-## import
-
-```sh
-shadowlap import har traffic.har         # model calls out of a HAR, as a recording
-shadowlap import nock recording.json     # the same, from a nock recording
-shadowlap import vcr cassette.json       # the same, from a VCR cassette (JSON serialization)
-shadowlap import litellm cap/*.jsonl     # production traffic a LiteLLM proxy captured
-shadowlap import otel otel-traces.json   # OpenTelemetry traces with the GenAI conventions
-shadowlap import langfuse <trace-id>     # a Langfuse trace, read with the project's keys
-shadowlap import langsmith <trace-id>    # a LangSmith trace, read with your API key
-shadowlap import phoenix <trace-id>      # an Arize Phoenix trace, from Phoenix's REST API
-shadowlap import logfire <trace-id>      # a Pydantic Logfire trace, read with a read token
-shadowlap import langfuse --since 7d     # each Langfuse trace of the last 7 days, one run per trace
-shadowlap import har traffic.har --json  # every run made, by its full id, and the entries skipped
-```
-
-Turns a capture something else made, or a [trace you already keep](#traces), into a recording you
-can replay your own code against.
-
-| Format | What writes it |
-|---|---|
-| `har` | mitmproxy, Charles, Proxyman, a browser's devtools, Polly.js |
-| `nock` | `nock.recorder.rec({ output_objects: true })` |
-| `vcr` | VCR.py with its JSON serializer (`vcr.VCR(serializer='json')`). A YAML cassette has to be converted first: Shadowlap reads JSON so that no YAML parser is trusted with a cassette from anywhere |
-| `litellm` | A LiteLLM proxy, through `shadowlap.litellm_callback` — production traffic, one run per correlation id. Takes several files, since a proxy writes one per worker: the calls of one agent run spread over several workers' files are put back together, in the order they started. See [Capturing production traffic](./gateways.md) |
-
-Anthropic, OpenAI, Gemini, Azure, Vertex and Bedrock hosts are recognised; every other entry is
-skipped, and `--json` lists the reasons. So is an entry whose fields aren't what the format says
-(a method that isn't text, a null entry), naming the field. The capture's credential headers
-(`authorization`, `x-api-key`, `api-key`, cookies, `proxy-authorization`, `x-goog-api-key`,
-`x-amz-security-token`) and its query's credentials are never stored, the rest of an answer's
-headers is kept as captured and masked in every copy, and header names and values are escaped and bounded, because a capture is a file from
-anywhere. An import that stops part way leaves no run behind.
-
-The request bodies are the real ones, which is what matters: replay matches on a fingerprint of the
-outgoing request, so a reconstructed body would fork at call 1. Every format produces the same
-fingerprint for the same request, so it does not matter which tool captured it.
-
-An imported run is a [partial recording](./how-it-works.md#partial-recordings): a capture of the
-network holds no tool, clock or randomness calls, so a replay runs those live rather than diverging
-on their absence, and `--writes` still fences write tools. No format carries SSE event boundaries,
-so a streamed response replays in one piece rather than at its recorded pacing.
-
-A capture says what was sent, not what sent it, so the run has no command to re-run: `ls` and `show`
-display `<no-recorded-command>` in its place, `ls --json` says `"hasCommand": false`, and `replay`
-without a command refuses and says what to run. Its cost is reported as captured, not spent: that
-traffic was paid for where it ran. Give your own command:
-
-```sh
-shadowlap import har traffic.har
-shadowlap replay <run> -- python agent.py
-```
-
-That replay is also how an import becomes a CI golden: the model calls come from the capture and
-everything else is recorded live, so the resulting run covers everything and `shadowlap pack` turns
-it into a golden for `shadowlap test`.
-
-Every imported run is labelled `imported`, names who imported it as its author (`SHADOWLAP_AUTHOR`
-when set, `ci` in CI, otherwise git's `user.email`), and appears in the dashboard's activity feed.
-Its source is the file's name; `--name <name>` records another (the dashboard's Import a capture
-passes the name of the file you picked, which it keeps under a name of its own while it imports).
-
-### Traces
-
-```sh
-shadowlap import otel otel-traces.json [otel-logs.json]
-shadowlap import langfuse 7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07 [--host https://langfuse.example.com] [--allow-http]
-shadowlap import langsmith 0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a2b3c [--host https://langsmith.example.com/api/v1] [--allow-http]
-shadowlap import phoenix 4a2db41deabc4aec332fb9fbfa0fc3e2 [--project support-agent] [--host https://phoenix.example.com] [--allow-http]
-shadowlap import logfire 01a16460e2f311342463057f62b79fa9 [--since 90d] [--host https://logfire-eu.pydantic.dev] [--allow-http]
-```
-
-A trace keeps what its instrumentation logged: the messages and the model settings, tool outputs
-when someone logged them, rarely the tool definitions. Each model call is rebuilt as the request its
-provider's SDK sends and the response it got, in Anthropic's, OpenAI's or Gemini's format (the
-provider the trace names, else the model's family, else OpenAI's, which most other servers speak),
-and stored like a capture's. The run is a partial recording: what the trace didn't keep runs live on
-replay, with writes fenced.
-
-The run holds the calls in the order they started, read as finely as the source keeps the time (to
-the microsecond in Phoenix, Logfire and LangSmith, the nanosecond in OTLP), since a tool and the
-model call that reads its result often start in the same millisecond. Calls that started at the
-same instant go in the order one needed another: a span before the calls that ran inside it, a model
-call before the tool call it asked for, and a tool call before the model call whose request carries
-its result. Calls that say nothing of each other keep the order the source lists them in.
-
-| Source | What it reads |
-|---|---|
-| `otel` | OTLP JSON, as an OTLP/HTTP exporter sends it, the collector's file exporter writes it (one request per line), or Grafana Tempo downloads a trace; several files are read as one, so traces and their logs can come separately. Spans with the OpenTelemetry GenAI conventions: `gen_ai.input.messages` and `gen_ai.output.messages` (with `gen_ai.system_instructions` and `gen_ai.tool.definitions`, also from a `gen_ai.client.inference.operation.details` event), the older `gen_ai.prompt` and `gen_ai.completion` (as JSON, on `gen_ai.content.*` events, or flattened as OpenLLMetry writes them), or the per-message `gen_ai.*.message` and `gen_ai.choice` events, on the span or as log records (`resourceLogs`, tied to the span by its id), which is where the official instrumentations (openai-v2, vertexai, google-genai) send them; the model, provider, settings, token usage and finish reason; `execute_tool` spans for tool calls. Also OpenInference's conventions (Arize Phoenix, and the LlamaIndex, DSPy and smolagents instrumentations): LLM spans with `llm.input_messages`, `llm.output_messages`, `llm.tools` and `llm.invocation_parameters`, rebuilt exactly from `input.value` and `output.value` where its OpenAI and Anthropic instrumentations log the request and response themselves, and TOOL spans. One run per trace. When a framework's span wraps the client library's span for the same call, the inner one is kept |
-| `langfuse` | The trace's observations from the Observations API v2 (`GET /api/public/v2/observations`, a page of 1,000 at a time), or `GET /api/public/traces/<id>` from a self-hosted Langfuse without it, with `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`. Generations are model calls; TOOL observations, and spans named after a tool a generation asked for, are tool calls |
-| `langsmith` | `POST /runs/query` for the trace, every page, with `LANGSMITH_API_KEY`. `llm` runs are model calls (LangChain's serialized messages, or the request and response themselves from LangSmith's wrapped OpenAI and Anthropic clients, which rebuild exactly); `tool` runs are tool calls |
-| `phoenix` | `GET /v1/projects/<project>/spans` for the trace, every page, with `PHOENIX_API_KEY` when it is set (a Phoenix without authentication needs none). The API takes no order for spans, so they are put in the order they started once read, and a trace of more than 20,000 spans is refused rather than cut. The project is `--project`, else `PHOENIX_PROJECT` or its older name `PHOENIX_PROJECT_NAME`, as Phoenix's own client reads them, else `default`. Read with OpenInference's conventions, as `otel` reads them: LLM spans are model calls, rebuilt exactly where the OpenAI or Anthropic instrumentation logged the request itself as JSON; TOOL spans are tool calls. Needs Phoenix 13.9 or later, which reads spans by trace; an older one is refused with the reason |
-| `logfire` | One SQL query for the trace's spans in the `records` table (`POST /v2/query`), with the read token in `LOGFIRE_READ_TOKEN`, among spans that started since `--since` (a date, a time, or how long ago, such as `90d`; 30 days by default). Logfire's instrumentations and Pydantic AI write the current GenAI conventions, read as `otel` reads them; where Pydantic AI's model span wraps the client library's own (the Anthropic SDK's), that span adds what was sent that Pydantic AI leaves out, such as `max_tokens` and streaming. A function wrapped with `@logfire.instrument` is a tool call when the model asked for a tool of its name: its span's (`@logfire.instrument('lookup_order')`), or the function's own under the decorator's default message (`Calling tools.lookup_order`). It keeps its arguments, and its result with `record_return=True`. A block an agent handed back as the Anthropic SDK returned it, which `logfire.instrument_anthropic()` logs as the text the SDK prints for it (`ToolUseBlock(id='toolu_…', …)`), is read back as the block |
-
-The keys are read from the environment and sent only to the host: `--host`, else the variable the
-store's own SDK reads (`LANGFUSE_HOST`, `LANGSMITH_ENDPOINT`, `PHOENIX_ENDPOINT`,
-`PHOENIX_COLLECTOR_ENDPOINT` or `PHOENIX_BASE_URL`, `LOGFIRE_BASE_URL`), else its usual address:
-`https://cloud.langfuse.com`, `https://api.smith.langchain.com`, `http://localhost:6006` (Phoenix as
-`phoenix serve` starts it), or the Logfire region the read token names
-(`https://logfire-us.pydantic.dev` or `https://logfire-eu.pydantic.dev`). A self-hosted LangSmith is
-reached at its `/api/v1` path. Plain http is accepted for this machine (`localhost`, `127.0.0.0/8`,
-`::1`), since the keys travel with every request; `--allow-http` accepts it for another host, on a
-network you trust. A Phoenix that asks for no key, with `PHOENIX_API_KEY` unset, is read over plain
-http on any host, such as the `http://phoenix:6006` of a compose file, since nothing secret travels.
-Nothing of the keys is stored. The run's source reads `langfuse:<first 8 characters of the id>` (or
-`langsmith:…`, `phoenix:…`, `logfire:…`), or the file's name for `otel`, and the run is labelled
-with the source as well as `imported`.
-
-Replay matches each model call on its whole request, but for the API version an Anthropic client
-names (`anthropic-version`), which no trace keeps: an imported call names none, and is matched
-whatever version the agent's SDK names. Its replay names none either, so a golden packed from it
-replays on any release of the SDK. A trace that kept everything the agent sends replays it with
-nothing live; where it left something out, typically the tool definitions, the replay forks at the
-first model call that differs and runs live from there, which the import says. A tool call replays
-when the trace kept its arguments (as an object) and its output, and only if every call of that tool
-was kept: such tools are listed in `meta.covers` as `tool:<name>`, and any other tool runs live on
-replay. A model call that failed where it ran, or kept no messages or output, is skipped and runs
-live.
-
-Two kinds of agent fork early, because what they send isn't what their traces keep. A Pydantic AI
-agent forks at its first model call, whatever the store: Pydantic AI logs the conversation, not the
-request it sends, which writes text as content blocks and sets `tool_choice`. An agent that hands
-the Anthropic SDK's own response objects back as messages (`"content": reply.content`) forks at its
-second model call where the trace kept the response whole but those blocks only as the text the SDK
-prints for them, as OpenInference's Anthropic instrumentation logs them: the request is then rebuilt
-from `llm.input_messages`, which leaves out fields the SDK sends with those blocks (`citations`,
-`caller`, `toolset_name`) and holds a tool result as the user's text. Where the trace logged the
-blocks as JSON, or by the GenAI conventions, such an agent replays from the trace alone, as one that
-builds its messages as plain dicts does. Traced by `logfire.instrument_anthropic()`, which logs each
-block as the text the SDK prints for it, it replays from the trace alone too: that text is read back
-as the block. Both kinds still import, and replay runs live from the fork with writes fenced. A
-trace from [`export otel`](#export-otel) carries no prompt text, so it has nothing to replay: share
-the run as a [pack](#pack-unpack) instead. `--json` adds what the source kept:
-
-```json
-"kept": { "traces": 1, "spans": 14, "modelCalls": 9, "modelCallsImported": 9, "withSettings": 9, "withToolDefinitions": 0, "toolCalls": 5, "toolCallsKept": 3 }
-```
-
-### The traces in a window
-
-```sh
-shadowlap import langfuse --since 7d
-shadowlap import phoenix --since 2026-10-01 --until 2026-10-08 --project support-agent
-shadowlap import logfire --since 24h --trace-name support-agent --limit 20
-```
-
-Without a trace id, `import langfuse`, `import phoenix` and `import logfire` import each trace that
-started in a window, one run per trace, newest first: from `--since` (a date, a time, or how long
-ago, such as `7d` or `12h`; 30 days ago by default) to `--until` (the same, now by default), up to
-`--limit` traces (100 by default, at most 10,000), only those named `--trace-name` when it is given:
-Langfuse's trace name, the root span's name in Phoenix and Logfire. Give a trace id or these flags,
-not both; only `import logfire` takes `--since` with a trace id too, for how far back to look for
-it. Each store is asked
-through its own API for the traces' roots: Langfuse for the root observations in the window
-(`GET /api/public/v2/observations`, or its traces list, `GET /api/public/traces`, where it has no v2
-API), Phoenix for the root spans (`GET /v1/projects/<project>/spans` with `parent_id=null`), Logfire
-with one SQL query for the root spans in the `records` table. Each trace is then read as a single
-import reads it, with the same keys, hosts and flags.
-
-A trace store's import keeps the trace's id with the run (`meta.imported.key`), so a trace imported
-before, by a window or by its id, is skipped and not read again. A trace still running when it was
-imported keeps what it had by then: import it by its id once it has ended to bring in the rest. One
-line per trace, as it goes:
-
-```text
-3 traces in Langfuse on cloud.langfuse.com that started from 2026-10-16 09:12 UTC to 2026-10-23 09:12 UTC:
-  11111111-41b8-4d  imported as 01M5N2NX8F: 3 model calls and 1 tool result  support-chat
-  22222222-41b8-4d  imported before, as 01M5N2NVXR  support-chat
-  33333333-41b8-4d  skipped: no model calls in its 3 observations  nightly-eval
-Imported 1 of 3 traces: 1 imported before, 1 skipped.
-```
-
-A trace with nothing to import is skipped, and so is one the store can't give whole: gone since it
-was listed, or more spans than an import reads. Any other failure, the store refusing, failing or
-not answering, stops the import at that trace: the runs it made stay, and the same command run again
-goes on from there. The exit status is that failure's (2 for keys the store refused, 1 for a store
-that failed or didn't answer); 1 when the window held traces and none of them is imported, now or
-before; otherwise 0, an empty window included. `--json` adds the window it read (`window`: `since`,
-`until`, `limit`, `traceName`) and each trace it found, newest first (`traces`: `id`, `name`,
-`startedAt`, `outcome`, `runId`, `reason`). A trace's `outcome` is `imported`, `already` (imported
-before, as `runId`), `skipped` (for its `reason`), `failed` (where the import stopped) or `unread`
-(after that). `kept` counts what the traces it imported kept, and `entries` every observation or
-span it read.
-
-### `--json`
-
-Every `import` subcommand takes `--json` and prints one object, whatever the format: each run it
-made, by its full id, with its source and what it holds, then everything it skipped. One LiteLLM
-file can make several runs, one per correlation id; they are all listed.
-
-```json
-{
-  "format": "litellm",
-  "entries": 4,
-  "runs": [
-    {
-      "runId": "01K5CQ9C4H8M2XWQH6V3T9RB1D",
-      "source": "shadowlap-4121.jsonl, shadowlap-4122.jsonl",
-      "key": "incident-42",
-      "calls": { "model": 2, "tool": 0 },
-      "labels": ["imported"],
-      "imported": [{ "callNo": 1, "kind": "api", "name": "POST /v1/messages", "provider": "anthropic", "model": "claude-haiku-4-5" }]
-    }
-  ],
-  "skipped": [{ "url": "line 4", "reason": "not JSON (a partly written line?)" }]
-}
-```
-
-`entries` counts what was read (HAR entries, nock definitions, cassette interactions, capture
-lines, spans, observations or runs). `source` is what the run records as where it came from: the
-file's name (never its folder, which belongs to this machine and would travel with the store), the
-names of the files a LiteLLM run was put together from, or `langfuse:…`, `langsmith:…`,
-`phoenix:…` or `logfire:…`. `key` is the correlation id for LiteLLM, the trace id for `otel` and the
-trace stores, otherwise `null`. When nothing could be imported, `runs` is empty and the exit code
-is 1. Started from the dashboard, the command also reports each run to the job that started it.
 
 ## The configuration file
 
