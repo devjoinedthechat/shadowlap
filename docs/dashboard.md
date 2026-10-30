@@ -696,15 +696,279 @@ The fork that blame rescued says it was rescued. Each [outcome check](./ci.md#ou
 
 A run imported from someone else's pack carries what they recorded about it. Anything malformed there is left out rather than shown.
 
+## Compare
+
+Compare puts any two runs side by side. Pick them at the top, from lists of runs each by its id and its about line.
+
+### What changed
+
+Compare starts with what changed between the two runs:
+
+- **The code**: the two revisions, and from the project's git the commits between them, with the newest one's subject (all of them on hover). It reads *uncommitted changes* when only the working tree differed, and *on separate branches* when neither follows the other.
+- **The system prompt**: an unchanged one is named by its hash.
+- **The tools**, added and removed.
+- **The model.**
+
+Two runs of one commit whose revisions git abbreviated with different lengths read as unchanged code.
+
+### Where the runs part
+
+Then it shows where the runs part, in order:
+
+1. **The identical prefix.**
+2. **What made the fork**, as `shadowlap diff` says it, when one run is the other's replay and its flag changed an answer rather than a request. It shows what each run got: *#19 got HTTP 529 instead of an answer*, *#16 lookup_policy returned … instead of …*, a planted instruction, a person's other answer.
+3. **The first request that differs.** Each field that differs is named by what it is in the request, such as `tool_result lookup_policy`, the system prompt or a tool's definition, with its path on hover.
+4. **Each run's calls from there.** A call the other run also made at the same place is dimmed: the same tool with the same arguments, or a model call that asked for the same tools.
+5. **Calls where the same request got a different answer.** For a model call, it shows what it answered each time (`"Issuing the refund.", issue_refund(…) → "Above the limit.", escalate(…)`).
+
+A call the model answered the same way in another response is counted in the line above instead (`6 calls got the same answer in new responses`). This is the case, for example, in two live runs of one agent where only the response's id or token counts differ.
+
+Each side's calls are headed by its kind (*fork @7*), failed or not.
+
+### Two long runs
+
+Two long runs take seconds to compare whole, since every model call's request of both is read. Meanwhile:
+
+- **The identical prefix and the first request that differs** come at once and show, unless the runs were fingerprinted under other normalizers, with no replay between them.
+- **The page says what is still being compared.**
+- **When the rest takes longer** than the two minutes a request is given, what came first stays, with the `shadowlap diff` command that compares the two in a terminal, with no time limit.
+
+A run still recording is compared again as its calls arrive.
+
+### Open a comparison
+
+- **`#/compare`** alone opens the newest fork or replay against its parent. With fewer than two runs, it says how to make a second.
+- **`#/compare/<run>`** opens that run against its newest fork, else its newest replay (a test's last), else its parent. A run with none says there is nothing to compare yet, with the replay that makes something.
+- **A fork or a replay** has *Compare with parent*. A recording compares with its first fork or replay, never an attempt bundled under it (a blame probe, a verify or `--repeat` attempt).
+- **Two runs ticked on Runs**, and the palette, open it too.
+
+When a side can't be compared, Compare says so:
+
+- **The same run on both sides** says so, rather than compare it with itself.
+- **A run the store doesn't hold** is named, and so is an id that starts several runs' ids (*01M5GRV matches several runs; use more of the id*), with the side to pick again.
+
+### Compare in an exported copy
+
+An exported copy compares the runs it holds: every pair up to six runs, and beyond that each run with the first. It opens on the first against the newest other, and the pickers offer only those.
+
+## Fixes
+
+Fixes follows each failure from where it was lost to a fix that held.
+
+### The list of fixes
+
+One row per fix shows:
+
+- **Its status**: open, verified or applied.
+- **Its title and label.**
+- **Where a fix from CI came from**, and how its pull request stands (*from CI · PR #138 merged*).
+- **How many runs failed**, what they did, and the check they must meet (*Failed: send_email called twice, not once · Must: send_email called once*).
+- **How far blame, repair and verify got.** A step that ran and needs a look is amber: a blame no call rescued, one that couldn't settle or stopped part way, or a verify left inconclusive.
+
+All, Open and Verified filter them.
+
+- **The pull request** is read from GitHub with `gh pr view` in the background while the page is open, when `gh` is installed and signed in, as [`fix pr`](./cli.md#fix) does. It is read only for pull requests on github.com, the host `GH_HOST` names or the host of the project's `origin` remote, since a fix pulled from the team store can name any address. A read-only dashboard asks no one.
+- **What they did** is the title blame gave the fix when it opened it, so the row names it only once someone renames the fix.
+
+### A fix's page
+
+A fix's page names what failed and its check as the list does, its failing and good runs, and when it was opened and verified. It opens on its last finished step: Blame, Repair or Verify. What you can do from it is under Actions on a fix.
+
+### Blame step
+
+The Blame step shows:
+
+- **Where the run was lost**, on its row of calls, with each probe marked.
+- **The recorded answer** at that call next to the rescued fork's, and the training pairs they make.
+- **The probes**, each row opening the run at its call.
+- **Every attempt**, bundled per probe and grouped by what each did: the tool calls it made from the probed call on, and how it came out. A call that didn't plainly run is marked, as *issue_refund (blocked)*.
+- **What finding out cost**, with the command.
+
+Each group of attempts shows how many took that path, why the first of a failing group failed, and one of them to open.
+
+Where blame's report says more than its probes, so does the step:
+
+- a probe's attempts the provider left unavailable, never tallied;
+- the method behind a probe's bound, on hover;
+- the calls it lost the run between, when no one call is pinned (*lost between #3 and #5*);
+- the two it was lost gradually around, when the check of the call the probes pinned found no drop there (*lost gradually around #5 and #6*);
+- the error bound its confidence comes from.
+
+Needs a look and the activity feed say *lost gradually around #5 and #6* the same way, and the Fixes list says *lost gradually, #5–#6*, never that #5 lost it.
+
+A blame that rescued the run from no call shows the check and how the recording failed it, instead of the answers. It says why when it knows no answer of the model's lost the run: every attempt met the error a write got when it was recorded, or the attempts that passed answered as the recording did ([blame](./blame.md#the-rescue)).
+
+### Repair step
+
+The Repair step shows:
+
+- **The change**: its file, the part of the prompt or tool description it rewrites, the text it adds, and how each role held under it.
+- **Why the failing runs were lost**, and the repairer's diagnosis.
+- **Every candidate tried**, with why each was dropped.
+- **The files handed over**: `fix.patch`, `report.md`, `report.json`, `goldens/`.
+- **The pull request body.**
+
+A repair that accepted nothing leaves the fix open, with the candidates it tried and why.
+
+Its header says when it ran (*Accepted*, or *Ran* for one that accepted nothing) and who proposed the candidates. When no repairer did, it says why, with what to do (*the repairer could not be asked: claude was not found: install Claude Code, or set SHADOWLAP_CLAUDE to its path*). The stepper says it in a few words; *no repairer needed* is only for a fix that needed no model.
+
+A grey line above its command gives how many attempts it ran and what every stage cost: blame, the repairer and the verification of every candidate it tried. The cost reads as the CLI prints it (*87 attempts · cost: blame ≈$0.054 · repairer ≈$0.0085 · verify ≈$0.239*).
+
+A repair that came with a pull from the [team store](./team.md) says it ran on a teammate's machine, whose `goldens/` stay there to be committed from it.
+
+### Verify step
+
+The Verify step shows one change verified at a time, each at a link of its own, named by what changed:
+
+- a repair's candidate;
+- the request fields a `--set` or `--model` change set, and from which call (*temperature=1 from each run's first model call · at 35034be*);
+- or the code version.
+
+It opens on the newest verdict that counts for the fix. A verdict is headed by the runs it checked:
+
+- *Every failing run fixed, every good run kept*, only when it checked every failing run of the fix;
+- else what it did role by role (*Fixes 1 of 1 target run, keeps 1 of 1 good*).
+
+One that doesn't count for the fix is drawn plain and headed with why (*Doesn't count for this fix: its check leaves out send_email called 1 time*). It is marked so in the switch.
+
+**An incomplete verdict** is amber, as inconclusive is everywhere, and leads with what settles it, the fix's header plain meanwhile:
+
+- **Run more attempts**, for a run its gate couldn't settle in its attempts, or that the verify stopped before it settled. Its runs are verified again from the start, named in their roles, since verify has no `--continue`: the limit doubled where a gate ran out of attempts, and without the budget that stopped it.
+- **Verify again**, for one that an attempt that couldn't be judged stopped.
+
+Both are built from the verdict's report and the flags kept beside it, never from its command line:
+
+- A verdict kept before its flags were offers neither.
+- One a pull brought from the [team store](./team.md) asks first, showing the exact command. It runs without a teammate's `--build`, `--base` and command after `--`, and spends at most twice what Shadowlap runs by itself: a gate up to 160 attempts a run, a fixed count up to 10.
+
+A line under the verdict says which run is open and why, and what settling it takes (*about 12 attempts, ≈$0.045*), at the run's pass rate so far and the verdict's spend per attempt.
+
+Then come:
+
+- **Its oracle.**
+- **Each run's role, attempts, outcome and where it went**, and, when the verdict says them, the run's baseline (paired at the base revision or from history) and the bound on its drop from it. The bound reads as the CLI says it, *drop <= 0.10 (95%)*, the margin on hover.
+- **Each run's attempts the provider left unavailable**, and the method behind its bound on hover.
+- **Each run's attempts grouped by what each did**, as on the Blame step.
+- **What the change does to input tokens and cost per run**, in one quiet line as verify prints it.
+- **What finding out cost**; for an incomplete verdict, only what it spent.
+
+The stepper counts the runs the verdicts that hold fixed and kept (*3 fixed · 1 kept*). A fix verified with a change of request fields has no patch: **Mark applied** says which fields, for you to set in your agent, and so does `fix apply`'s drawer.
+
+## Tests
+
+Tests lists every [golden](./ci.md) on disk, the packs in `goldens/` and those the config's `tests` name, and how each did. What its buttons run is under Actions on Tests.
+
+### The verdict
+
+A verdict leads: how many goldens fail by their last results, the first one named. With none failing, it says how many are inconclusive, in amber: a [gate](./gating.md) that ran out of attempts between its bounds.
+
+With it comes the line of the newest session that ran them all (CI's, or **Run tests**): its command, revision, time, its own passed and failed counts, and upstream requests. That session reads:
+
+- *running* while its process is there, started from this dashboard, another one or a terminal;
+- *interrupted* when a signal stopped it;
+- *did not finish* when its process was killed.
+
+Goldens run again on their own since (by **Add normalizer and re-run**, say) follow it, as *since: refund-in-limit passed*, each with its result on hover.
+
+### A row per golden
+
+Then comes a row per golden. A row opens the golden's latest run.
+
+| Column      | Shows                                                                                              |
+| ----------- | -------------------------------------------------------------------------------------------------- |
+| Golden      | Its name with its mode under it, and where it came from                                            |
+| Checks      | Each check, marked by how its last result came out on it                                           |
+| By revision | Its result at each recent revision of a session that ran them all                                  |
+| Last result | *passed*, *updated at `<rev>`* after an update, or a gate's verdict, then how its presets came out |
+
+**The mode** is `replay`, `fork ×5`, or `fork · gate` and `fork · history` for a golden with a gate, with what it means on hover.
+
+**Check marks** say how each check's last result came out:
+
+| Mark    | Means                            |
+| ------- | -------------------------------- |
+| ✓       | Passed                           |
+| ✗       | Failed, with what it found       |
+| ?       | Inconclusive, in amber, with why |
+| –       | Not applicable                   |
+| No mark | Not tested yet                   |
+
+- **✓** on a judge check says where its verdict came from: the recording, free, or the judge asked live, with what that cost.
+- **✗** on a golden run more than once also says how many attempts passed it, unless some were carried over from an earlier session.
+- **No mark** shows before the golden's first result, when its last test couldn't run it, or when the check was added to the config since.
+
+**By revision** shows why a golden failed on hover, and a ring where it was updated. A golden run again on its own shows in the column of its commit, with changes on top named on hover, and adds no column of its own.
+
+**Last result** for a golden with a [gate](./gating.md) is its verdict, then its tally and bound; against history, with its baseline. The pass rate's interval is drawn against the gate's two rates or its baseline. Each gate's rule is stated once under the table, beside its goldens' mode, and where two rules share a mode, with the goldens each decided.
+
+Under the last result comes how the golden's [error-path presets](./error-paths.md) came out, opening the attempt that failed. A golden whose presets ran but whose replay hasn't yet says so, never *not run yet*.
+
+The table fits its panel at every width. With less room the oldest revisions give way, then the checks move under the golden's name. On a phone the revisions become a strip there too, while the last result keeps its width.
+
+### Failures
+
+Each failure follows as the CLI prints it. A divergence offers:
+
+- **Add normalizer and re-run**, which leads when a value made anew on every run is all that changed. It becomes **Re-run** once the rule is in the config.
+- **Update golden.**
+- **Find the commit**, whose answer then shows above the buttons while the golden keeps failing as it did when the search started.
+
+Find the commit's answer is the first bad commit, or why there is none between the commits it searched, with **Find the commit…** to search from an older one.
+
+- **An answer given while the golden passed**, or about an earlier failure, never shows over a later one.
+- **A golden passing at the commit it fails at**: when the search found that, the failure is in changes not committed there, or doesn't happen every time. It says so, and offers no other commit until it fails at another one.
+
+A failed check, a non-zero exit or a replay with no calls shows with its checks and the agent's last lines of output, as `test --markdown` prints them. It offers **Find the commit** unless the pack can't be read.
+
+### Inconclusive goldens
+
+An inconclusive golden follows too:
+
+- **A [gate](./gating.md) that ran out of attempts** offers **Run more attempts**.
+- **A [judge check](./judges.md#not-judged) with no verdict its replay could use** offers **Update golden**, as below.
+- **A golden marked `fork`**, whose judges are asked live, names the key the judge's provider lacked.
+
+A judge's verdict in a pack can be missing, given to an older form of the judge's request, or given on other material, and a test that replays offline can't ask the judge. **Update golden** asks first, then runs `shadowlap test <golden> --update`. The judge is asked once, live, with the key in the dashboard's environment, and its verdict kept in the pack; nothing is re-recorded.
+
+For a verdict given on other material, it says first that a value that changes every run needs a [normalizer](./normalizers-and-redaction.md#normalizers) before the update, or the next test reads not judged again.
+
+### The network guard in a test
+
+**A blocked connection.** A connection the [network guard](./how-it-works.md#the-network-guard) blocked in a replay is named on the golden's row, in its history and in its report: the agent went to a host directly, past Shadowlap, which a test refuses. It is named also when the agent caught the refusal and the golden passed.
+
+**No preload.** A golden whose replay no Shadowlap preload loaded in fails under `--guard block` as *no preload loaded: the network guard never watched it*. It shows what the command shows of why, and what to do: run the agent on Node or Python with the environment `shadowlap` gives it, or test with `--guard warn`.
+
+**Unguarded.** A golden that a process the guard can't watch ran in, such as the Claude Code CLI the Claude Agent SDK runs, fails as *unguarded: a process the network guard can’t watch ran*. It shows what `shadowlap doctor` says to do: reach a remote MCP server through `shadowlap mcp`, which records and fences its calls, and test with `--guard warn` to accept the rest.
+
+### In CI
+
+**In CI** says how CI runs the goldens:
+
+- **A replay golden** runs offline, needing no key.
+- **A golden marked `fork`** runs live from where it forks, needing the providers' keys, as an [injection test](./injection.md) does from each payload it plants, when a golden has one.
+- **What fails a golden**: a divergence, a non-zero exit, no calls, or a check or gate that fails or can't decide. A gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop.
+
+It shows the one command, `shadowlap test 'goldens/*' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`, with **Copy**. When a golden has a gate against history, it says that CI has to keep the store between runs.
+
+Recordings that pytest and Vitest keep in `__recordings__/` run under their own test runner and are not listed.
+
+## Training
+
+Training shows:
+
+- **The preference pairs** blame, verify and `--repeat` left in the store, grouped per call: the answer that lost the run beside the ones that went on to pass, where each came from, and how sure it is.
+- **The goldens as tasks**: where a model takes over, what scores it, and whether it can be scored.
+- **Each scored model's mean**, with a pip per attempt that opens its run.
+
+**Export pairs** and **Score a model** run [`export pairs` and `tasks score`](./training.md#in-the-dashboard) as jobs.
+
+- **Score a model** offers only the models that can answer a ready task, and names the ones it leaves out, with why. A recording on Bedrock, Vertex AI, Azure OpenAI or the Gemini API is translated for another provider's model.
+- **Score a model is off** while a repair or an applied patch changes the working tree.
+
+A task whose test forks before its takeover opens that test's run where it forked. It offers **Update the golden…**, which adds the normalizer a value that changes every run needs, and runs `test --update` on the golden.
+
 ## What you see
 
-- **Tests**: every [golden](./ci.md) on disk (the packs in `goldens/` and those the config's `tests` name) and how it did. A verdict leads: how many fail by their last results (or, with none failing, how many are inconclusive, in amber: a [gate](./gating.md) that ran out of attempts between its bounds), the first one named, with the line of the newest session that ran them all (CI's, or **Run tests**): its command, revision, time, its own passed and failed counts and upstream requests, *running* while its process is there (started from this dashboard, another one or a terminal), *interrupted* when a signal stopped it, *did not finish* when its process was killed. Goldens run again on their own since (by **Add normalizer and re-run**, say) follow it, as *since: refund-in-limit passed*, each with its result on hover. Then a row per golden: its name with its mode under it (`replay`, `fork ×5`, or `fork · gate` and `fork · history` for a golden with a gate, with what it means on hover) and where it came from, its checks, each marked by how its last result came out on it (✓ passed, a judge check's with where its verdict came from: the recording, free, or the judge asked live, with what that cost; ✗ failed, with what it found and, for a golden run more than once, how many attempts passed it, unless some were carried over from an earlier session; ? inconclusive, in amber, with why; – not applicable; no mark on a check not tested yet: before the golden's first result, when its last test couldn't run it, or when the check was added to the config since), its result at each recent revision of a session that ran them all (why it failed on hover, a ring where it was updated; a golden run again on its own shows in the column of its commit, with changes on top named on hover, and adds no column of its own) and its last result (*passed*, *updated at `<rev>`* after an update; a golden with a [gate](./gating.md) by its verdict, then its tally and bound, against history with its baseline, and the pass rate's interval drawn against the gate's two rates or its baseline, each gate's rule stated once under the table, beside its goldens' mode, and where two rules share a mode, with the goldens each decided); under it, how the golden's [error-path presets](./error-paths.md) came out, opening the attempt that failed, and a golden whose presets ran but whose replay hasn't yet says so, never *not run yet*; a row opens the golden's latest run. The table fits its panel at every width: with less room the oldest revisions give way, then the checks move under the golden's name, and on a phone the revisions become a strip there too, while the last result keeps its width. Each failure follows as the CLI prints it: a divergence with **Add normalizer and re-run** (it leads when a value made anew on every run is all that changed, and becomes **Re-run** once the rule is in the config), **Update golden** and **Find the commit**, whose answer then shows above the buttons while the golden keeps failing as it did when the search started (the first bad commit, or why there is none between the commits it searched, with **Find the commit…** to search from an older one; an answer given while the golden passed, or about an earlier failure, never shows over a later one; and when the search found the golden passing at the commit it fails at, the failure is in changes not committed there, or doesn't happen every time, which it says, offering no other commit until it fails at another one); a failed check, a non-zero exit or a replay with no calls with its checks and the agent's last lines of output, as `test --markdown` prints them, with **Find the commit** unless the pack can't be read. An inconclusive golden follows too: one whose [gate](./gating.md) ran out of attempts offers **Run more attempts**; one whose [judge check](./judges.md#not-judged) had no verdict in its pack that its replay could use (none, one given to an older form of the judge's request, or one given on other material), which a test that replays offline can't ask, offers **Update golden**, which asks first and runs `shadowlap test <golden> --update` (the judge is asked once, live, with the key in the dashboard's environment, and its verdict kept in the pack; nothing is re-recorded), and for a verdict given on other material it says first that a value that changes every run needs a [normalizer](./normalizers-and-redaction.md#normalizers) before the update, or the next test reads not judged again; and for a golden marked `fork`, whose judges are asked live, it names the key the judge's provider lacked. A connection the [network guard](./how-it-works.md#the-network-guard) blocked in a replay (the agent went to a host directly, past Shadowlap, which a test refuses) is named on the golden's row, in its history and in its report, also when the agent caught the refusal and the golden passed. A golden whose replay no Shadowlap preload loaded in fails under `--guard block` as *no preload loaded: the network guard never watched it*, with what the command shows of why and what to do: run the agent on Node or Python with the environment `shadowlap` gives it, or test with `--guard warn`. One that a process the guard can't watch ran in, such as the Claude Code CLI the Claude Agent SDK runs, fails as *unguarded: a process the network guard can’t watch ran*, with what `shadowlap doctor` says to do: reach a remote MCP server through `shadowlap mcp`, which records and fences its calls, and test with `--guard warn` to accept the rest. **In CI** says how CI runs them: replay goldens offline, needing no key, and a golden marked `fork` live from where it forks, needing the providers' keys (as an [injection test](./injection.md) does from each payload it plants, when a golden has one); a divergence, a non-zero exit, no calls, or a check or gate that fails or can't decide fails a golden, but a gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop. It shows the one command, `shadowlap test 'goldens/*' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`, with **Copy**, and when a golden has a gate against history, that CI has to keep the store between runs. Recordings that pytest and Vitest keep in `__recordings__/` run under their own test runner and are not listed.
-- **Training**: the preference pairs blame, verify and `--repeat` left in the store, grouped per call with the answer that lost the run beside the ones that went on to pass, where each came from and how sure it is; the goldens as tasks, with where a model takes over, what scores it and whether it can be scored; and each scored model's mean, with a pip per attempt that opens its run. **Export pairs** and **Score a model** run [`export pairs` and `tasks score`](./training.md#in-the-dashboard) as jobs; Score a model offers only the models that can answer a ready task (a recording on Bedrock, Vertex AI, Azure OpenAI or the Gemini API is translated for another provider's model), names the ones it leaves out with why, and is off while a repair or an applied patch changes the working tree. A task whose test forks before its takeover opens that test's run where it forked and offers **Update the golden…**, which adds the normalizer a value that changes every run needs and runs `test --update` on the golden.
-- **Compare**: any two runs, picked at the top from lists of runs each by its id and its about line, starting with what changed between them: the code (the two revisions, and from the project's git the commits between them with the newest one's subject, all of them on hover; *uncommitted changes* when only the working tree differed, *on separate branches* when neither follows the other), the system prompt (an unchanged one named by its hash), the tools (added and removed) and the model. Then the identical prefix and, when one run is the other's replay and its flag changed an answer rather than a request, what made the fork, as `shadowlap diff` says it, with what each run got (*#19 got HTTP 529 instead of an answer*, *#16 lookup_policy returned … instead of …*, a planted instruction, a person's other answer), then the first request that differs (each field that differs named by what it is in the request, such as `tool_result lookup_policy`, the system prompt or a tool's definition, with its path on hover), each run's calls from there (a call the other run also made at the same place is dimmed: the same tool with the same arguments, or a model call that asked for the same tools), and calls where the same request got a different answer: for a model call, what it answered each time (`"Issuing the refund.", issue_refund(…) → "Above the limit.", escalate(…)`). A call the model answered the same way in a new response, as in two live runs of one agent where only the response's id or token counts differ, is counted in the line above instead (*6 calls got the same answer in new responses*). Two long runs take seconds to compare whole (every model call's request of both is read): meanwhile the page shows the identical prefix and the first request that differs, which come at once (unless the runs were fingerprinted under other normalizers, with no replay between them), and says what is still being compared; when the rest takes longer than the two minutes a request is given, what came first stays, with the `shadowlap diff` command that compares the two in a terminal, with no time limit. A run still recording is compared again as its calls arrive. `#/compare` alone opens the newest fork or replay against its parent; with fewer than two runs it says how to make a second. `#/compare/<run>` opens that run against its newest fork, else its newest replay (a test's last), else its parent; a run with none says there is nothing to compare yet, with the replay that makes something. The same run on both sides says so rather than compare it with itself, a run the store doesn't hold is named, and so is an id that starts several runs' ids (*01M5GRV matches several runs; use more of the id*), with the side to pick again. Each side's calls are headed by its kind (*fork @7*), failed or not. A fork or a replay has *Compare with parent*; a recording compares with its first fork or replay, never an attempt bundled under it (a blame probe, a verify or `--repeat` attempt); two runs ticked on Runs, and the palette, open it too. An exported copy compares the runs it holds: every pair up to six runs, beyond that each run with the first, which it opens on against the newest other, and the pickers offer only those. Two runs of one commit whose revisions git abbreviated with different lengths read as unchanged code.
-- **Fixes**: each failure from where it was lost to a fix that held. One row per fix: its status (open, verified, applied), title and label, where a fix from CI came from and how its pull request stands (*from CI · PR #138 merged*: read from GitHub with `gh pr view` in the background while the page is open, when `gh` is installed and signed in, as [`fix pr`](./cli.md#fix) does, and only for pull requests on github.com, the host `GH_HOST` names or the host of the project's `origin` remote, since a fix pulled from the team store can name any address; a read-only dashboard asks no one), how many runs failed, what they did and the check they must meet (*Failed: send_email called twice, not once · Must: send_email called once*; what they did is the title blame gave the fix when it opened it, so the row names it only once someone renames the fix), and how far blame, repair and verify got (a step that ran and needs a look, such as a blame no call rescued, one that couldn't settle or stopped part way, or a verify left inconclusive, in amber); All, Open and Verified filter them. A fix's page names what failed and its check as the list does, its failing and good runs and when it was opened and verified, and opens on its last finished step:
-  - *Blame*: where the run was lost, on its row of calls with each probe marked; the recorded answer at that call next to the rescued fork's, and the training pairs they make; the probes, each row opening the run at its call; every attempt, bundled per probe, grouped by what each did (the tool calls it made from the probed call on, a call that didn't plainly run marked, as *issue_refund (blocked)*, and how it came out), with how many took each path, why the first of a failing group failed, and one of them to open; and what finding out cost, with the command. Where blame's report says more than its probes, so does the step: a probe's attempts the provider left unavailable (never tallied), the method behind a probe's bound on hover, the calls it lost the run between when no one call is pinned (*lost between #3 and #5*), or the two it was lost gradually around when the check of the call the probes pinned found no drop there (*lost gradually around #5 and #6*, as Needs a look and the activity feed say it too, and the Fixes list *lost gradually, #5–#6*, never that #5 lost it), and the error bound its confidence comes from. A blame that rescued the run from no call shows the check and how the recording failed it instead of the answers, and says why when it knows no answer of the model's lost the run: every attempt met the error a write got when it was recorded, or the attempts that passed answered as the recording did ([blame](./blame.md#the-rescue)).
-  - *Repair*: the change, with its file, the part of the prompt or tool description it rewrites and the text it adds, and how each role held under it; why the failing runs were lost and the repairer's diagnosis; every candidate tried, with why each was dropped; the files handed over (`fix.patch`, `report.md`, `report.json`, `goldens/`); and the pull request body. A repair that accepted nothing leaves the fix open, with the candidates it tried and why. Its header says when it ran (*Accepted*, or *Ran* for one that accepted nothing) and who proposed them, or why no repairer did, with what to do (*the repairer could not be asked: claude was not found: install Claude Code, or set SHADOWLAP_CLAUDE to its path*), and the stepper says it in a few words; *no repairer needed* is only for a fix that needed no model. How many attempts it ran and what every stage cost (blame, the repairer and the verification of every candidate it tried) are a grey line above its command, the cost as the CLI prints it (*87 attempts · cost: blame ≈$0.054 · repairer ≈$0.0085 · verify ≈$0.239*). A repair that came with a pull from the [team store](./team.md) says it ran on a teammate's machine, whose `goldens/` stay there to be committed from it.
-  - *Verify*: one change verified at a time, each at a link of its own and named by what changed: a repair's candidate, the request fields a `--set` or `--model` change set and from which call (*temperature=1 from each run's first model call · at 35034be*), or the code version. It opens on the newest verdict that counts for the fix. A verdict is headed by the runs it checked: *Every failing run fixed, every good run kept* only when it checked every failing run of the fix, else what it did role by role (*Fixes 1 of 1 target run, keeps 1 of 1 good*). One that doesn't count for the fix is drawn plain and headed with why (*Doesn't count for this fix: its check leaves out send_email called 1 time*), and marked so in the switch. An incomplete one is amber, as inconclusive is everywhere, and leads with what settles it, the fix's header plain meanwhile: **Run more attempts** for a run its gate couldn't settle in its attempts, or that the verify stopped before it settled (its runs verified again from the start, named in their roles, since verify has no `--continue`; the limit doubled where a gate ran out of attempts, and without the budget that stopped it), or **Verify again** for one an attempt that couldn't be judged stopped. Both are built from the verdict's report and the flags kept beside it, never from its command line: a verdict kept before its flags were offers neither, and one a pull brought from the [team store](./team.md) asks first, showing the exact command, and runs without a teammate's `--build`, `--base` and command after `--`, and spends at most twice what Shadowlap runs by itself: a gate up to 160 attempts a run, a fixed count up to 10. A line under the verdict says which run is open and why, and what settling it takes (*about 12 attempts, ≈$0.045*), at the run's pass rate so far and the verdict's spend per attempt. Then its oracle, each run's role, attempts, outcome and where it went (with the run's baseline, paired at the base revision or from history, and the bound on its drop from it as the CLI says it, *drop <= 0.10 (95%)*, the margin on hover, when the verdict says them; its attempts the provider left unavailable, and the method behind its bound on hover), each run's attempts grouped by what each did as on the Blame step, what the change does to input tokens and cost per run, in one quiet line as verify prints it, and what finding out cost (for an incomplete verdict, only what it spent). The stepper counts the runs the verdicts that hold fixed and kept (*3 fixed · 1 kept*). A fix verified with a change of request fields has no patch: **Mark applied** says which fields, for you to set in your agent, and so does `fix apply`'s drawer.
 - **Settings** (`#/settings/<tab>`), the one page a project with no runs opens too: *Matching*, the normalizers with **Add normalizer** (a scope, a path, a named pattern, or under Advanced a regex, a tool or call name, or the whole value; a regex the [pattern check](./normalizers-and-redaction.md#patterns-that-could-take-too-long) refuses, as `(a+)+`, which can take minutes on some text, is named with why before it is added) and **Remove**, the clock, and **Calibrate**, which names the run it replays (the setup's, else the newest recording made here); *Redaction*, the rules, where each kind of copy applies them, and what they would mask in a run you pick (the newest recording made here, to start with, each run in the picker by its id and its about line, as Compare's are), path rules included, counted per rule with up to two samples before and after, exactly as a pack masks them (a long run is read up to 2,000 calls, 64 MB or 5 seconds, and the page says how far it got; `shadowlap redact preview` reads it all). Under a rule come quiet lines: for a path rule on what calls got back, how many values HTML, HAR and dataset copies mask there, which a pack keeps for its replay, with them on hover; and for values a pack leaves as they are (a number: a copy masks a JSON document's strings and keeps its numbers as recorded), how many, with the values and where they are on hover, then the path of the first place's path rule with the command that adds it behind **Copy** (one for a request masks them in every copy; one for what a call got back only in HTML, HAR and dataset copies), how many other places have one (`shadowlap redact preview` lists them), the rule that already masks them in those copies, or why none can: a clock or random read, which a replay needs as recorded, a stream's events, the top of a request, or a key no path can name; *CI* (`#/settings/alerts`), [your workflow](./ci.md#one-job-for-all-of-it): one job, in which the action runs the goldens once (`id: goldens`) and the parts you turn on follow it, built from its switches, **Fix pull requests** and **Tell Slack** (the checkout, Node 22 and a line for the agent's dependencies before the action; with a fix pull request on, the checkout is of the branch its pull request goes into), with what it needs for what is on and what fails a golden in it; then a panel for each part, its settings and what lands, for the repository's default branch, dimmed while it is off. The step's `env` names the keys of the providers the goldens' recordings call: with Fix pull requests on, every golden's, since blame and verify run the agent live, else those of the goldens that run live (one marked `fork`, or with an injection gate, and a forking golden's judges), with how many there are among what it needs; where a golden's keys can't be named, a comment in the `env` says to add them. A list of keys breaks only after a comma. What fails a golden lists the injection gate too, and in amber a gate, judge or injection test that can't decide, which **An inconclusive golden** sets for the step (**Warns** writes `inconclusive: warn`; **Fails** leaves the input out, so a gate against history with too few sessions still only warns); the pull request is shown as CI opens it, its branch named after the golden, blame where the run was lost and verify's line with its rule stated once. The step follows the [team store](./team.md#push-from-ci)'s Push from CI, with no switch of its own: its Team store row says how Push from CI stands and leads to Settings → Store, where it is set, and while it is on the step pushes the test runs and each fix, what it needs names the bucket's credentials (for short-lived ones, the two credentials steps `shadowlap store ci` prints and `id-token: write`; for R2, its keys as secrets, which only your branches' jobs get, and only those push), and what lands in the team store adds the test runs, the fix on teammates' Fixes page and what a pull request's job writes ([Fixes in the team store](./ci.md#fixes-in-the-team-store)); *Coding agents*, which need no MCP server, the CLI being their interface: which of `CLAUDE.md`, `AGENTS.md`, `.agents/skills`, and where the project has them `.cursor/rules` and `.github/copilot-instructions.md`, mention Shadowlap; on the `.agents/skills` row [the skills for Codex, Cursor, Copilot and the others](./agents.md#codex-cursor-copilot-and-others), with **Add the skills**, after which the row reads *found · shadowlap-setup-agent, shadowlap-debug-agent* and its version, and the files of the agents that read them say the skills give them the section; over another version's copy, **Update to** moves them to the CLI's own, and over one edited here, **Replace with** puts the CLI's own copy in its place (it asks first, since that replaces it); where the skills can't go in, the row says why; and the section to paste; *Tools*, every tool the recordings called by what happens to it after a fork, and the MCP servers the project's client configs list, each with the `shadowlap mcp` line that records it, and each config with `shadowlap mcp` in front of its servers to copy (a header's value becomes a variable in the entry's `env`, a URL's user and password are never shown or copied: a remote server's become an `Authorization: Basic` header from a variable, or are left out when it sends its own Authorization header, and one in a command shows as `•••@` to put back; the page names every value the copy leaves out, and in `.mcp.json`, whose `${NAME}` Claude Code fills in from the environment it starts from, says to set each variable there). **Add a server…** shows the line and entry for a command or URL you type, credentials hidden as the table hides them, and copies the entry as you typed it, a URL's query and path included, less a URL's user and password; *Project*, its store, runs and attempts, size and address, **Clean up old runs** and **Remove from dashboard**; *Store*, the [team store](./team.md): the bucket, the last sync with the runs in the store and only on this machine (by run, attempts filed under their run), **Push local runs**, **Pull** and Push from CI (every test run, its report and each fix CI opens) with its step to copy (the Fix on failure step on the CI tab follows it), and while a setup is under way the step that is next with **Continue the setup**; with none, **Set up the store** opens the store's setup page. While `shadowlap.config.json` can't be read, the tabs say so where their rules would be, and offer neither **Calibrate** nor **Set up the store**, which would read or write the same file; *CI* says so too, and each step says in its `env` what it leaves out until the file is fixed, as an amber row of what it needs does. When the project's folder is gone, Settings says so in its header, with **Remove from the dashboard**, says its rules, store, instruction files, recorded tool calls and MCP configs can't be read, shows no clock mode as chosen (nor while the file can't be read), and changes nothing until the folder is back.
 - **The team store's setup** (`#/setup/store`): its own page, reached from Settings → Store's **Set up the store** and the palette's **Set up the team store**. [Four steps](./team.md#set-it-up), each unlocking the next with its command beside it where it has one: connect your bucket (**Check access and connect** runs `store set --check`, which writes the config only once the check passes), push your runs, push from CI (**I added it** or **Skip for now**), bring your team (**Finish**). While a setup is under way, Needs a look leads back to it first, Settings → Store names the next step, the palette offers **Continue setting up the store**, and the status bar says *setting up*. A setup finished before says so, with the way to Settings → Store.
 
