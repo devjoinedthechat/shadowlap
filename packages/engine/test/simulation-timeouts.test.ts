@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
  * from half a minute to several, past vitest's 30-second default, and a suite that leans on it fails
  * for being slow, not for being wrong.
  */
-const SUITES = ['unavailable-gates.test.ts', 'gate-history-budget.test.ts', 'gate-history-regression.test.ts'];
+const SUITES = ['unavailable-gates.test.ts', 'gate-history-budget.test.ts', 'gate-history-regression.test.ts', 'gating-figures.test.ts'];
 
 describe('the simulation suites', () => {
   it('give each of their describes a timeout of its own', () => {
