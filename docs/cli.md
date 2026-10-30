@@ -3161,21 +3161,394 @@ With `--pack`, `pack` says what each became:
 shadowlap init [--json]
 ```
 
-Reads the project in the current directory and prints the steps to a first recording, filled in for it:
+Reads the project in the current directory, and prints the steps to a first recording, filled in for it.
+The detection reads source text; it runs nothing.
 
-- the language and package manager, from `package.json`, `pyproject.toml`, requirements files and lockfiles. In a package of a workspace, whose lockfile is at the workspace's root, it is the workspace's manager: the root above it, up to the repository's root, that takes the folder in (`pnpm-workspace.yaml`, `workspaces` in `package.json` with its lockfile or `packageManager` field, or `[tool.uv.workspace]`);
-- the model SDKs (Anthropic, OpenAI, Gemini, and the AI SDK, LangChain, LlamaIndex and Agent Framework provider packages), from dependencies or imports, and the models a framework names for its own client to call: Mastra's router ids (`model: 'anthropic/claude-sonnet-4-5'`), the AI SDK's string ids (`model: 'openai/gpt-5'`, Vercel's AI Gateway), LangChain's `init_chat_model`, Pydantic AI's, CrewAI's, Google ADK's, Agno's and Strands' model strings, and the model classes those frameworks and smolagents import; an agent given no model counts as its framework's default (Strands: Bedrock; Agno and CrewAI: OpenAI);
-- the agent framework and its version: the Vercel AI SDK, OpenAI Agents SDK, Mastra, LangChain and LangGraph, the Anthropic tool runner, the Claude Agent SDK, Pydantic AI, the OpenAI Agents SDK for Python, LangChain and LangGraph for Python, CrewAI, Google ADK, LlamaIndex, Microsoft Agent Framework, Strands Agents, smolagents, Agno;
-- the command that starts the agent, from `package.json` scripts (not one that starts a web dev server or a watcher, nor `mastra dev` or `mastra start`, which serve agents and wait for requests: record a script or a test that calls one), the file `package.json` names (its `bin`, then its `main`), a script `pyproject.toml` declares (`[project.scripts]`, run with `uv run` in a uv project and `poetry run` in a Poetry one), a conventional entry file (`agent.py`, `main.py`, `agent.ts`, `index.js`…; a Python one runs with `uv run agent.py` or `poetry run python agent.py` there), or else the one file at the top of the folder that imports a model SDK and that no other file there imports (`node triage.mjs`). With several such files it names none;
-- every tool definition it can find, whether it declares an effect, and a suggested effect for those that don't: decorated functions (Strands', smolagents' and the Claude Agent SDK's `@tool`, Pydantic AI's `@agent.tool`), LangChain's and CrewAI's `BaseTool` classes by their `name`, the plain functions an agent is given (`Agent(tools=[search_web])` in Pydantic AI, Google ADK, Agent Framework and Agno, LlamaIndex's `FunctionTool.from_defaults(fn=…)`), and each framework's own tool calls. An effect given where a tool is used counts (`with_effect(SendEmail(), "write")`, the Claude Agent SDK's `withEffects('orders', [...], { refund_order: 'write' })`). An AI SDK tool kept in a constant (`const searchDocs = tool({ … })`) counts too, under the key that gives it to the model (`tools: { search_docs: searchDocs }`), or its own name in shorthand. The suggestion goes by the tool name's verbs, where a name puts them ([how](./how-it-works.md#tools-shadowlap-did-not-record)), and a name with no hint gets `write`, which never runs again after a fork;
-- whether a Claude Agent SDK query runs through the [fence](./frameworks.md#claude-agent-sdk): a call of `withFence` (`with_fence` in Python), or of its hooks, in a file that imports Shadowlap's adapters. The SDK's built-in tools (Bash, Write, Edit and the rest) run inside Claude Code, where no wrapper reaches them, so until a query does, the step after the install is to run it through the fence: `query({ prompt, options: withFence(options) })`, or `with_fence(options)` in Python. The SDK's in-process tools keep the step that declares their effects (`withEffects`, `with_effects`);
-- a model server the project already points at, such as Ollama in `OPENAI_BASE_URL`, and the `SHADOWLAP_UPSTREAM_OPENAI` value that keeps it as the upstream. `OPENAI_BASE_URL` counts unless every model client the project has is another provider's: an OpenAI SDK (`langchain-openai` and `@ai-sdk/openai` among them, and a framework's `[openai]` extra, which installs it), a framework that brings one (Pydantic AI as a whole, the OpenAI Agents SDK, CrewAI, Mastra), `openai` in a lockfile, or SDKs `init` can't tell all count. An agent on Anthropic's or Gemini's SDK alone (or Pydantic AI's slim package with its `[anthropic]` extra) never sends to it, and neither does Pydantic AI when every model its code names is another provider's (`Agent("anthropic:claude-sonnet-4-5")`) and it builds no OpenAI model or provider: Pydantic AI makes a client only for the providers of its models, so the OpenAI client it installs, and the `openai` that puts in a lockfile, go unused.
+`init` writes one file: an empty `shadowlap.config.json`, only when there is none. Run it again after
+wrapping the tools it names, to check again: the config is left as it is, and the tools are scanned
+afresh.
 
-It warns about a model client constructed with a literal base URL: `shadowlap run` cannot redirect it, so its calls would not be recorded. So too a model a framework names whose calls go to a host Shadowlap doesn't know: a Mastra router id or a LiteLLM or CrewAI string with another provider (`groq/…`, `openrouter/…`), smolagents' `InferenceClientModel` (Hugging Face): [declare its host](./providers.md#hosts-of-another-providers-format) in the config when it speaks OpenAI's, Anthropic's or Gemini's API. It warns too about a Node the project pins before 18.18 (`.nvmrc` or `.node-version`, `18.17`): an agent on it never starts under Shadowlap, since that Node refuses the guard.
+| Flag     | What it does                                                 | Default |
+| -------- | ------------------------------------------------------------ | ------- |
+| `--json` | Print the findings as JSON ([below](#init-findings-as-json)) | —       |
 
-Its install step adds the SDKs with the project's package manager, and the CLI: `shadowlap` as a dev dependency, which the steps after it run with `npx`, or for a Python project `npm install --global shadowlap`. Run by a global `shadowlap`, it leaves the CLI out, and the steps run that one.
+### What `init` finds
 
-`init` writes one file: an empty `shadowlap.config.json`, only when there is none. The detection reads source text; it runs nothing. `--json` prints the findings as JSON, with the lines the dashboard's setup shows (`summary`: the language with its pinned runtime and package manager, the model SDKs with their versions, the framework, the command and where it came from, what happened to the config, and `node`, the Node the project pins with its minor and whether it is older than the guard takes, `tooOld`), each tool marked `wrapped` or not, the tools that aren't (`unwrapped`), and the code that wraps them in the project's language, through its framework's adapter, with the fence for a Claude Agent SDK query that runs through none (`wrap`). The models it warns about are `unrecordedModels` (each with its `file`, `line`, `model`, and the framework that builds its client, `via`). The addresses it prints (`modelServer`, `hardcodedBaseUrls`) never carry credentials: a password, or a key in the query, is left out, and a model server that had one gets no `upstream`. Run it again after wrapping them to check again: the config is left as it is and the tools are scanned afresh. In a folder that is a [project in the dashboard](./dashboard.md#projects), `init` also marks the first step of its setup done, and `project` says whether it could (`noted`), and why not (the project list was busy, or a newer Shadowlap wrote it); in a terminal, a line on stderr says so. Run by the dashboard, whose setup has its own buttons for the next steps, it prints only what it found, a line each, and what it did with `shadowlap.config.json`. The rest of the object is what was found: `cwd`, `languages`, `packageManager`, `providers` (each SDK and the package it came `via`), `frameworks`, `command` (its `argv` and where it came `from`), `tools` (each with its `file`, `line`, `effect`, `suggested` effect, `why` and `wrapped`), `fence` (each Claude Agent SDK the project uses: its `framework`, the `language` of the code that fences its query, and where a query runs through the fence, `at`, or null), `scannedFiles`, `config` (its `path`, whether it `existed` and was `created`) and `folder` (the kind of project the folder holds).
+- **The language and package manager**, from `package.json`, `pyproject.toml`, requirements files and
+  lockfiles.
+- **The model SDKs**, from dependencies or imports: Anthropic, OpenAI, Gemini, and the AI SDK,
+  LangChain, LlamaIndex and Agent Framework provider packages. And the models a framework names for its
+  own client to call.
+- **The agent framework and its version.**
+- **The command that starts the agent.**
+- **Every tool definition it can find**, whether it declares an effect, and a suggested effect for
+  those that don't.
+- **Whether a Claude Agent SDK query runs through the [fence](./frameworks.md#claude-agent-sdk).**
+- **A model server the project already points at**, such as Ollama in `OPENAI_BASE_URL`, and the
+  `SHADOWLAP_UPSTREAM_OPENAI` value that keeps it as the upstream.
+
+**The package manager in a workspace.** In a package of a workspace, whose lockfile is at the
+workspace's root, it is the workspace's manager. That is the root above it, up to the repository's
+root, that takes the folder in: `pnpm-workspace.yaml`, `workspaces` in `package.json` with its lockfile
+or `packageManager` field, or `[tool.uv.workspace]`.
+
+**The models a framework names**: Mastra's router ids (`model: 'anthropic/claude-sonnet-4-5'`), the AI
+SDK's string ids (`model: 'openai/gpt-5'`, Vercel's AI Gateway), LangChain's `init_chat_model`,
+Pydantic AI's, CrewAI's, Google ADK's, Agno's and Strands' model strings, and the model classes those
+frameworks and smolagents import. An agent given no model counts as its framework's default (Strands:
+Bedrock; Agno and CrewAI: OpenAI).
+
+**The frameworks it knows** are the Vercel AI SDK, OpenAI Agents SDK, Mastra, LangChain and LangGraph,
+the Anthropic tool runner, the Claude Agent SDK and Pydantic AI. It knows the OpenAI Agents SDK for
+Python, LangChain and LangGraph for Python, CrewAI, Google ADK, LlamaIndex, Microsoft Agent Framework,
+Strands Agents, smolagents and Agno too.
+
+**The command that starts the agent** comes from the first of these:
+
+1. `package.json` scripts: not one that starts a web dev server or a watcher, nor `mastra dev` or
+   `mastra start`, which serve agents and wait for requests. Record a script or a test that calls one.
+2. The file `package.json` names: its `bin`, then its `main`.
+3. A script `pyproject.toml` declares (`[project.scripts]`), run with `uv run` in a uv project and
+   `poetry run` in a Poetry one.
+4. A conventional entry file (`agent.py`, `main.py`, `agent.ts`, `index.js`…). A Python one runs with
+   `uv run agent.py` or `poetry run python agent.py` there.
+5. Else the one file at the top of the folder that imports a model SDK and that no other file there
+   imports (`node triage.mjs`). With several such files, it names none.
+
+**Tool definitions** it finds:
+
+- decorated functions: Strands', smolagents' and the Claude Agent SDK's `@tool`, Pydantic AI's
+  `@agent.tool`;
+- LangChain's and CrewAI's `BaseTool` classes, by their `name`;
+- the plain functions an agent is given: `Agent(tools=[search_web])` in Pydantic AI, Google ADK, Agent
+  Framework and Agno, and LlamaIndex's `FunctionTool.from_defaults(fn=…)`;
+- each framework's own tool calls.
+
+An effect given where a tool is used counts: `with_effect(SendEmail(), "write")`, or the Claude Agent
+SDK's `withEffects('orders', [...], { refund_order: 'write' })`. An AI SDK tool kept in a constant
+(`const searchDocs = tool({ … })`) counts too, under the key that gives it to the model
+(`tools: { search_docs: searchDocs }`), or its own name in shorthand.
+
+The suggested effect goes by the tool name's verbs, where a name puts them
+([how](./how-it-works.md#tools-shadowlap-did-not-record)). A name with no hint gets `write`, which never
+runs again after a fork.
+
+**The fence.** A Claude Agent SDK query runs through the fence when a file that imports Shadowlap's
+adapters calls `withFence` (`with_fence` in Python), or its hooks. The SDK's built-in tools (Bash,
+Write, Edit and the rest) run inside Claude Code, where no wrapper reaches them. So, until a query does,
+the step after the install is to run it through the fence: `query({ prompt, options: withFence(options) })`,
+or `with_fence(options)` in Python. The SDK's in-process tools keep the step that declares their effects
+(`withEffects`, `with_effects`).
+
+**A model server.** `OPENAI_BASE_URL` counts unless every model client the project has is another
+provider's. Each of these counts as an OpenAI client:
+
+- an OpenAI SDK, `langchain-openai` and `@ai-sdk/openai` among them, and a framework's `[openai]`
+  extra, which installs it;
+- a framework that brings one: Pydantic AI as a whole, the OpenAI Agents SDK, CrewAI, Mastra;
+- `openai` in a lockfile;
+- SDKs `init` can't tell.
+
+An agent on Anthropic's or Gemini's SDK alone (or Pydantic AI's slim package with its `[anthropic]`
+extra) never sends to it. Neither does Pydantic AI when every model its code names is another
+provider's (`Agent("anthropic:claude-sonnet-4-5")`) and it builds no OpenAI model or provider. Pydantic
+AI makes a client only for the providers of its models, so the OpenAI client it installs, and the
+`openai` that puts in a lockfile, go unused.
+
+### What `init` warns about
+
+- **A model client constructed with a literal base URL**: `shadowlap run` cannot redirect it, so its
+  calls would not be recorded.
+- **A model a framework names whose calls go to a host Shadowlap doesn't know**: a Mastra router id or
+  a LiteLLM or CrewAI string with another provider (`groq/…`, `openrouter/…`), or smolagents'
+  `InferenceClientModel` (Hugging Face). Declare its host in the config when it speaks OpenAI's,
+  Anthropic's or Gemini's API ([how](./providers.md#hosts-of-another-providers-format)).
+- **A Node the project pins before 18.18** (`.nvmrc` or `.node-version`, `18.17`): an agent on it never
+  starts under Shadowlap, since that Node refuses the guard.
+
+**Its install step** adds the SDKs with the project's package manager, and the CLI: `shadowlap` as a dev
+dependency, which the steps after it run with `npx`, or, for a Python project,
+`npm install --global shadowlap`. Run by a global `shadowlap`, it leaves the CLI out, and the steps run
+that one.
+
+**In the dashboard.** In a folder that is a [project in the dashboard](./dashboard.md#projects), `init`
+also marks the first step of its setup done. In a terminal, a line on stderr says whether it could. Run
+by the dashboard, whose setup has its own buttons for the next steps, it prints only what it found, a
+line each, and what it did with `shadowlap.config.json`.
+
+### `init` findings as JSON
+
+`--json` prints the findings, with the lines the dashboard's setup shows:
+
+| Field | Meaning |
+| --- | --- |
+| `summary` | The lines the dashboard's setup shows (below) |
+| `cwd` | The folder it read |
+| `languages`, `packageManager` | The languages found, and the package manager |
+| `providers` | Each SDK, and the package it came `via` |
+| `frameworks` | The frameworks found |
+| `command` | Its `argv`, and where it came `from` |
+| `tools` | Each with its `file`, `line`, `effect`, `suggested` effect, `why` and `wrapped` |
+| `unwrapped` | The tools that aren't wrapped |
+| `wrap` | The code that wraps them (below) |
+| `fence` | Each Claude Agent SDK the project uses (below) |
+| `unrecordedModels` | The models it warns about: each with its `file`, `line`, `model`, and the framework that builds its client, `via` |
+| `modelServer`, `hardcodedBaseUrls` | The model server the project points at, and the model clients built with a literal base URL (below) |
+| `scannedFiles` | How many source files it read |
+| `config` | Its `path`, whether it `existed`, and whether it was `created` |
+| `folder` | The kind of project the folder holds |
+| `project` | In a dashboard project: whether it could mark the first step done (below) |
+
+- **`summary`**: the language with its pinned runtime and package manager, the model SDKs with their
+  versions, the framework, the command and where it came from, and what happened to the config. With
+  them, `node`: the Node the project pins with its minor, and whether it is older than the guard takes
+  (`tooOld`).
+- **`wrap`**: the code that wraps the tools in the project's language, through its framework's adapter,
+  with the fence for a Claude Agent SDK query that runs through none.
+- **`fence`**: each Claude Agent SDK's `framework`, the `language` of the code that fences its query,
+  and where a query runs through the fence, `at`, or null.
+- **The addresses it prints** (`modelServer`, `hardcodedBaseUrls`) never carry credentials: a password,
+  or a key in the query, is left out. A model server that had one gets no `upstream`.
+- **`project`** says whether it could (`noted`), and why not: the project list was busy, or a newer
+  Shadowlap wrote it.
+
+## doctor
+
+```sh
+shadowlap doctor [--json]
+```
+
+Checks what support would check, and says how to fix each problem it finds.
+
+| Flag     | What it does                       | Default |
+| -------- | ---------------------------------- | ------- |
+| `--json` | Print the checks as a list (below) | —       |
+
+It checks:
+
+- **Node and its built-in SQLite**, with the full-text index every store has. A Node build whose SQLite
+  has none is told to use an official build, and the store is left unread rather than called damaged.
+- **The guard preloads.**
+- **Python on the PATH**, as `python3`, `python` or both, since an agent's command names one.
+- **The store**: runs, size, schema, and runs a killed process left marked running.
+- **A stale or incomplete `.shadowlap/active.json`.**
+- **The configuration**: every rule, price and MCP effect parsed, and the checks under `tests` (below).
+- **Agent-process environment that leaked into your shell**: `SHADOWLAP_URL`, `NODE_OPTIONS`,
+  `PYTHONPATH`.
+
+Under `tests`, it names:
+
+- each [rule that names a tool](./checks.md#checking-the-checks) no recording called or offered to its
+  model, or reads a value no recorded call of its tool has, with the name it most likely meant. It holds
+  the rules against the packs the entries apply to, and the store's 200 newest runs;
+- each [judge check](./judges.md) whose model retires, by the
+  [retirement table](./decisions.md#model-retirements) that ships with Shadowlap;
+- each judge check whose provider has no key in this environment and no upstream set for it. No judge
+  can be asked for it live, so it reads [not judged](./judges.md#not-judged) wherever its verdict isn't
+  recorded;
+- each golden that holds no recorded verdict, or only one given to an older form of the judge's request,
+  for a judge check that applies to it, with the `test --update` that records it.
+
+A judge under a [`when`](./checks.md#conditions) whose condition never held in the golden is not
+applicable there, and needs no recorded verdict.
+
+A URL it names (a base URL, an upstream, the telemetry collector, a sidecar's) shows no password, no
+credential in its query and no session token, each `<CREDENTIAL>`. So the report can be pasted where
+others read it.
+
+`doctor` exits 1 when something is blocking.
+
+`--json` prints the checks as a list, each `{ "name", "verdict", "detail" }`:
+
+| Field     | Meaning                             |
+| --------- | ----------------------------------- |
+| `name`    | The check                           |
+| `verdict` | `ok`, `warn` or `fail`              |
+| `detail`  | What it found                       |
+| `fix`     | How to fix it, where there is a fix |
+
+## normalize, redact
+
+```sh
+shadowlap normalize add [--path <jsonpath>] [--pattern <pattern>] [--kind api|tool|clock|random] [--name <name>] [--replace <text>] [--expect <version>]
+shadowlap normalize rm <n|name> [--expect <version>]
+shadowlap normalize ls [--json]
+shadowlap redact add [--path <jsonpath>] [--pattern <pattern>] [--kind api|tool] [--name <name>] [--replace <text>] [--expect <version>]
+shadowlap redact rm <n|name> [--expect <version>]
+shadowlap redact ls [--json]
+shadowlap redact preview [run] [--json]
+```
+
+Both edit `shadowlap.config.json` in the working directory.
+[Normalizers](./normalizers-and-redaction.md) mask values before matching. Redaction rules mask stored
+content in every export, pack and share link of a run. Each add and rm is recorded in the project's
+activity, in a store that exists.
+
+```sh
+shadowlap normalize add --pattern uuid --replace '<uuid>'
+shadowlap redact add --path '$.args.api_key'
+```
+
+| Subcommand | What it does |
+| --- | --- |
+| `add` | Add a rule: a pattern, a path, or both (below) |
+| `rm` | Remove a rule: the number `ls` shows (`2` or `#2`), or the tool name, path or pattern of exactly one rule |
+| `ls` | List the rules, each with its number |
+| `redact preview` | Show what the redaction rules would mask in a run that has ended ([below](#redact-preview)) |
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--pattern <pattern>` | `add`: a named pattern (`uuid`, `ulid`, `iso-date`, `iso-datetime`, `number`, `email`) or `/regex/flags` | — |
+| `--path <jsonpath>` | `add`: where in a request, such as `$.metadata.user_id`; a tool's arguments are under `$.args` | — |
+| `--name <name>` | `add`: scope the rule to one tool or call: a tool name, or such as `"POST /v1/messages"` | — |
+| `--kind <kind>` | `add`: only calls of this kind: `api`, `tool`, `clock` or `random` for a normalizer; `api` or `tool` for redaction | — |
+| `--replace <text>` | `add`: the replacement text | `<MASKED>`; for redaction, `<REDACTED>` |
+| `--expect <version>` | `add`, `rm`: refuse the edit when the file is no longer the version `ls --json` printed | — |
+| `--json` | `ls`, `redact preview`: print as JSON (below) | — |
+
+**How `add` matches.**
+
+- A pattern alone masks matches in every string. For redaction, it masks those of every string but a
+  clock or random read's, which every copy keeps as recorded.
+- A path alone replaces the whole value there, numbers included.
+- `--name` scopes the rule to one tool or call.
+- It refuses a rule that would change nothing, or that it can't read, and, for redaction, a replacement
+  the rule would rewrite again. Adding a rule that is already there changes nothing.
+
+**Where a redaction rule's path reaches.** It reaches requests in every copy. What a call got back, a
+response or tool result that is JSON (a tool's result is under `$.result`), and an attempt's error
+(`$.error`), it reaches only in a copy that is read (`export html`, `har`, `dataset`). It never reaches
+them in a pack, whose replay hands them to the agent, nor in a clock or random read. `$` alone, and a
+path that starts with a wildcard, reach requests only.
+
+`ls --json` prints `{ file, exists, version, error, rules }`:
+
+| Field            | Meaning                                                                       |
+| ---------------- | ----------------------------------------------------------------------------- |
+| `file`, `exists` | The config file, and whether it exists                                        |
+| `version`        | Its version, as `--expect` takes it                                           |
+| `error`          | Why the list can't be read (it isn't a list; `ls` then exits 2), else `null`  |
+| `rules`          | Each rule, with its number `n`; one the config can't load has `error` instead |
+
+### `redact preview`
+
+`redact preview` shows what the rules would mask in a run that has ended (default: the newest). Nothing
+is written. See [Preview](./normalizers-and-redaction.md#preview).
+
+- **Per rule**: what each would mask, counted, with up to two samples. It reads the run through the
+  functions `pack` applies the rules with, the run's own record included: a fork's flags, the
+  divergence report, the checks and the last blame.
+- **What a pack leaves as it is**: under each rule, what it matches that a pack keeps. That is a number,
+  since a copy masks the strings of a JSON document and keeps its numbers as recorded, or anything in a
+  clock or random read, which every copy keeps as recorded.
+- **Where each is**: for each place, the path rule that would mask it, a rule that already does, or why
+  none can. In what a call got back, that is a path rule that only the copies that are read apply.
+- **`details`**: on a line of its own, what the rules match in the run's command line, labels and
+  notes, which `export html`, `dataset` and `otel` mask and `pack` keeps.
+
+`--json` prints `{ "runId", "calls", "unreadable", "partial", "total", "returned", "unmasked", "rules", "details" }`:
+
+| Field | Meaning |
+| --- | --- |
+| `runId` | The run |
+| `calls`, `unreadable` | The calls read, and those that couldn't be |
+| `partial` | Whether the run is a partial recording |
+| `total` | What a pack masks |
+| `returned` | What only the copies that are read mask |
+| `unmasked` | What is left as it is |
+| `rules` | Each rule (below) |
+| `details` | What the rules match in the run's command line, labels and notes: a `count`, `samples` and the `rules` that match there |
+
+Each of `rules` has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `n`, `rule` | Its number, and the rule |
+| `count`, `samples` | What it masks, and up to two `samples`, each `before` and `after` |
+| `reached` | How many values a path rule reached |
+| `note` | When it masks nothing, why |
+| `returned` | The `count` and `samples` of what a path rule masks in what calls got back, which only `export html`, `har` and `dataset` mask |
+| `unmasked` | What it matches that is left as it is (below) |
+
+A rule's `unmasked` has:
+
+- its `count`, and up to two `samples`;
+- each sample's `value`, whether it is a `key`, the `callNo`, `kind` and `name` of its call, whether it
+  is `in` the call's request, response or error, its `path` there, and the stream's `event` it is in, or
+  null;
+- the `places` a path rule would mask them at;
+- the `remedies` for up to 20 of those: each the `rule`, the `command` that adds it, and `copies`
+  (`all` for a request; `read` for what a call got back, which only the copies that are read mask);
+- the rules already `covered` that do in those copies, by their numbers;
+- the `reasons` the rest get none (below).
+
+The reasons are:
+
+- `replay`: a clock or random read;
+- `stream`: in a stream's events;
+- `whole`: the whole request or response, or a key at its top;
+- `key`: under a key holding `]`;
+- `signed`: in a model call's signed reasoning, which a pack keeps as recorded.
+
+## skill
+
+```sh
+shadowlap skill install [claude-code|agents|kiro] [--force] [--json]
+```
+
+Puts the [coding agents' instructions](./agents.md) into the project you run it in, from the copy that
+comes with the CLI. Nothing is downloaded, and the commands they name are the ones this CLI takes. They
+are two skills, `setup-agent` and `debug-agent`.
+
+Where it writes them:
+
+| Argument | Where |
+| --- | --- |
+| `claude-code` (the default) | The Claude Code plugin, with both, in `.claude/skills/shadowlap/`, where Claude Code loads it for everyone working on the project once the folder is trusted |
+| `agents` | The skills alone, in `.agents/skills/shadowlap-setup-agent/` and `.agents/skills/shadowlap-debug-agent/` (below) |
+| `kiro` | The skills alone, in `.kiro/skills/` |
+
+`.agents/skills/` is where Codex, Cursor, GitHub Copilot, Gemini CLI, Antigravity, Windsurf, OpenCode,
+Cline, Amp, goose, Zed and Junie read skills. Each of those agents' names (`codex`, `cursor`,
+`copilot`, `gemini`, `antigravity`, `windsurf`, `devin`, `opencode`, `cline`, `amp`, `goose`, `zed`,
+`junie`) does the same as `agents`.
+
+In those two folders, which every tool's skills share, each skill is named `shadowlap-<skill>`, and
+leaves out `allowed-tools`, which names Claude Code's tools. Nothing but the `shadowlap-` folders is
+read or written there.
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--force` | Replace what is there when it isn't this version's copy, and remove the files of ours this version doesn't have (below) | — |
+| `--json` | Print what it did as JSON (below) | — |
+
+- **A copy that is already this version's** is left as it is.
+- **Anything else there** (another version's copy, or one edited here) is left as it is too, and the
+  command exits 1, saying which files differ.
+- **`--force`** replaces them, which is how a project moves to the copy of a newer Shadowlap. It removes
+  the files of ours that this version doesn't have (in the plugin's folder, or in a `shadowlap-` skill's),
+  so an older version's skill stops loading.
+- **A link** on the way that leads out of the project, or a link where the install puts a file, is
+  refused, with or without `--force`.
+
+`skill install` exits 0 unless it was refused. Settings → Coding agents in the
+[dashboard](./dashboard.md) runs it as the `skill-install` job.
+
+`--json` prints `{ agent, path, version, before, installedVersion, outcome, files, reason }`:
+
+| Field | Meaning |
+| --- | --- |
+| `agent` | Where it installed: `claude-code`, `agents` or `kiro` |
+| `path` | The folder it installed into |
+| `version` | This version, the copy it installs |
+| `before` | What was there: `missing`, `current`, `other-version` or `changed` |
+| `installedVersion` | The version the copy there says it is: the plugin's manifest, or each skill's `metadata.version` |
+| `outcome` | `installed`, `updated`, `unchanged` or `refused` |
+| `files` | Each file's `path` and `action` (below) |
+| `reason` | Why it was refused |
+
+A file's `action` is `written`, `replaced`, `removed` or `unchanged`. For a refused install, it is
+`differs` or `extra`: what it left.
 
 ## tasks
 
@@ -3463,48 +3836,6 @@ written for a newer version still works, while the schema rejects it — which i
 `"normalise"` from a rule that silently never applies into an error you see as you type.
 
 `shadowlap doctor` checks the file too, and reports every rule, price and effect it parsed.
-
-## normalize, redact
-
-```sh
-shadowlap normalize add [--path <jsonpath>] [--pattern <pattern>] [--kind api|tool|clock|random] [--name <name>] [--replace <text>] [--expect <version>]
-shadowlap normalize rm <n|name> [--expect <version>]
-shadowlap normalize ls [--json]
-shadowlap redact add [--path <jsonpath>] [--pattern <pattern>] [--kind api|tool] [--name <name>] [--replace <text>] [--expect <version>]
-shadowlap redact rm <n|name> [--expect <version>]
-shadowlap redact ls [--json]
-shadowlap redact preview [run] [--json]
-```
-
-Both edit `shadowlap.config.json` in the working directory. [Normalizers](./normalizers-and-redaction.md) mask values before matching; redaction rules mask stored content in every export, pack and share link of a run.
-
-- `add` takes a pattern (named, such as `uuid` or `email`, or `/regex/flags`), a path, or both. A pattern alone masks matches in every string (for redaction, but those of a clock or random read, which every copy keeps as recorded); a path alone replaces the whole value there, numbers included; `--name` scopes the rule to one tool or call. A redaction rule's path reaches requests in every copy; what a call got back, a response or tool result that is JSON (a tool's result is under `$.result`) and an attempt's error (`$.error`), it reaches only in a copy that is read (`export html`, `har`, `dataset`), never in a pack, whose replay hands it to the agent, nor in a clock or random read; `$` alone and a path that starts with a wildcard reach requests only. It refuses a rule that would change nothing or that it can't read, and for redaction a replacement the rule would rewrite again. Adding a rule that is already there changes nothing.
-- `rm` takes the number `ls` shows (`2` or `#2`), or the tool name, path or pattern of exactly one rule.
-- `ls --json` prints `{ file, exists, version, error, rules }`: `error` says why the list can't be read (it isn't a list; `ls` then exits 2), else `null`; each rule has its number `n`, and one the config can't load has `error` instead.
-- `--expect <version>` refuses the edit when the file is no longer the version `ls --json` printed.
-- `redact preview` shows what the rules would mask in a run that has ended (default: the newest), counted per rule with up to two samples, read through the functions `pack` applies them with (the run's own record included: a fork's flags, the divergence report, the checks and the last blame); under each rule, what it matches that a pack leaves as it is (a number: a copy masks the strings of a JSON document and keeps its numbers as recorded; anything in a clock or random read, which every copy keeps as recorded), with where each is and, for each place, the path rule that would mask it (in what a call got back, one that only the copies that are read apply), a rule that already does, or why none can; and on a line of its own what the rules match in the run's command line, labels and notes (`details`), which `export html`, `dataset` and `otel` mask and `pack` keeps. Nothing is written. [Preview](./normalizers-and-redaction.md#preview). `--json` prints `{ "runId", "calls", "unreadable", "partial", "total", "returned", "unmasked", "rules", "details" }`: the calls read and those that couldn't be, `total` masked in a pack, `returned` masked only by the copies that are read and `unmasked` left as they are, each rule with its number `n`, the `rule`, its `count`, up to two `samples` (`before`, `after`), how many values a path rule `reached`, a `note` when it masks nothing, its `returned` (the `count` and `samples` of what a path rule masks in what calls got back, which only `export html`, `har` and `dataset` mask) and its `unmasked`: their `count`, up to two `samples` (each `value`, whether it is a `key`, the `callNo`, `kind` and `name` of its call, whether it is `in` the call's request, response or error, its `path` there, and the stream's `event` it is in, or null), the `places` a path rule would mask them at, the `remedies` for up to 20 of those (each the `rule`, the `command` that adds it, and `copies`: `all` for a request, `read` for what a call got back, which only the copies that are read mask), the rules already `covered` that do in those copies (their numbers), and the `reasons` the rest get none (`replay`: a clock or random read; `stream`: in a stream's events; `whole`: the whole request or response, or a key at its top; `key`: under a key holding `]`; `signed`: in a model call's signed reasoning, which a pack keeps as recorded); `details` has a `count`, `samples` and the `rules` that match there.
-
-Each add and rm is recorded in the project's activity, in a store that exists.
-
-## doctor
-
-```sh
-shadowlap doctor [--json]
-```
-
-Checks what support would check: Node and its built-in SQLite, with the full-text index every store has (a Node build whose SQLite has none is told to use an official build, and the store is left unread rather than called damaged), the guard preloads, Python on the PATH (as `python3`, `python` or both, since an agent's command names one), the store (runs, size, schema, runs a killed process left marked running), a stale or incomplete `.shadowlap/active.json`, the configuration (every rule, price and MCP effect parsed, and under `tests` each [rule that names a tool](./checks.md#checking-the-checks) no recording called or offered to its model, or reads a value no recorded call of its tool has, held against the packs the entries apply to and the store's 200 newest runs, with the name it most likely meant, each [judge check](./judges.md) whose model retires, by the [retirement table](./decisions.md#model-retirements) that ships with Shadowlap, each judge check whose provider has no key in this environment and no upstream set for it, so no judge can be asked for it live and it reads [not judged](./judges.md#not-judged) wherever its verdict isn't recorded, and each golden that holds no recorded verdict, or only one given to an older form of the judge's request, for a judge check that applies to it, with the `test --update` that records it: a judge under a [`when`](./checks.md#conditions) whose condition never held in the golden is not applicable there, and needs none), and agent-process environment that leaked into your shell (`SHADOWLAP_URL`, `NODE_OPTIONS`, `PYTHONPATH`). Each problem comes with the fix. A URL it names (a base URL, an upstream, the telemetry collector, a sidecar's) shows no password, no credential in its query and no session token, each `<CREDENTIAL>`, so the report can be pasted where others read it. Exit status 1 when something is blocking. `--json` prints the checks as a list, each `{ "name", "verdict", "detail" }` with `verdict` `ok`, `warn` or `fail`, and a `fix` where there is one.
-
-## skill
-
-```sh
-shadowlap skill install [claude-code|agents|kiro] [--force] [--json]
-```
-
-Puts the [coding agents' instructions](./agents.md) into the project you run it in, from the copy that comes with the CLI: nothing is downloaded, and the commands they name are the ones this CLI takes. They are two skills, `setup-agent` and `debug-agent`. `claude-code`, the default, writes the Claude Code plugin with both to `.claude/skills/shadowlap/`, where Claude Code loads it for everyone working on the project once the folder is trusted. `agents` writes the skills alone to `.agents/skills/shadowlap-setup-agent/` and `.agents/skills/shadowlap-debug-agent/`, where Codex, Cursor, GitHub Copilot, Gemini CLI, Antigravity, Windsurf, OpenCode, Cline, Amp, goose, Zed and Junie read skills; each of those agents' names (`codex`, `cursor`, `copilot`, `gemini`, `antigravity`, `windsurf`, `devin`, `opencode`, `cline`, `amp`, `goose`, `zed`, `junie`) does the same. `kiro` writes them to `.kiro/skills/`. In those two folders, which every tool's skills share, each skill is named `shadowlap-<skill>` and leaves out `allowed-tools`, which names Claude Code's tools; nothing but the `shadowlap-` folders is read or written there. A copy that is already this version's is left as it is.
-
-Anything else there (another version's copy, or one edited here) is left as it is too, and the command exits 1 saying which files differ. `--force` replaces them, which is how a project moves to the copy of a newer Shadowlap, and removes the files of ours that this version doesn't have (in the plugin's folder, or in a `shadowlap-` skill's), so an older version's skill stops loading. A link on the way that leads out of the project, or a link where the install puts a file, is refused with or without `--force`.
-
-`--json` prints `{ agent, path, version, before, installedVersion, outcome, files, reason }`: `agent` is where it installed (`claude-code`, `agents` or `kiro`), `before` is what was there (`missing`, `current`, `other-version` or `changed`), `installedVersion` the version the copy there says it is (the plugin's manifest, or each skill's `metadata.version`), `outcome` is `installed`, `updated`, `unchanged` or `refused`, `files` lists each file's `path` and `action` (`written`, `replaced`, `removed` or `unchanged`, or for a refused install `differs` and `extra`, what it left), and `reason` says why it was refused. Exit status 0 unless it was refused. Settings → Coding agents in the [dashboard](./dashboard.md) runs it as the `skill-install` job.
 
 ## rm, gc
 
