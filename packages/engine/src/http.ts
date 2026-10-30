@@ -788,19 +788,53 @@ export const STATE_HEADERS: readonly string[] = ['set-cookie', 'set-cookie2'];
 const HEADER_SECRET_WORD = new Set(['token', 'secret', 'password', 'passwd', 'credential']);
 
 /**
+ * Words that make the token word before them in a header's name a count or a limit of tokens, not a
+ * token (countsTokens): Bedrock's `x-amzn-bedrock-input-token-count`. The rate limits' families count
+ * `tokens`, which no rule reads as a token (`anthropic-ratelimit-input-tokens-remaining`,
+ * `x-ratelimit-reset-tokens`).
+ */
+const TOKEN_COUNT = new Set(['count', 'counts', 'usage', 'limit', 'limits', 'remaining', 'reset', 'used']);
+
+/**
+ * Headers named as a session's that hold none: Azure's `azureml-model-session`, which Azure OpenAI
+ * and Azure ML endpoints send with every answer, names the model deployment's session that served
+ * the call, so a client can send it back to be routed there again. It signs nobody in: a call that
+ * sends it back still needs its key.
+ */
+const ROUTING_HEADERS = ['azureml-model-session'];
+
+/** A count, a limit, a duration or a time as a header gives it: digits, and only a time's punctuation and letters (`12`, `6m0s`, `2026-10-30T12:00:00Z`). */
+const COUNT_SHAPED = /^[\d .:+\-TZhmsun]*$/i;
+
+/**
+ * Whether the token word at `i` of a header's name is a count's or a limit's: the word after it is
+ * one of TOKEN_COUNT, and ends the name (`…-token-count`). Before it, it says what the token is for:
+ * a `reset-token` is a password reset's.
+ */
+function countsTokens(words: readonly string[], i: number): boolean {
+  return i === words.length - 2 && TOKEN_COUNT.has(words[i + 1]!);
+}
+
+/**
  * Whether a response header's whole value is a credential: one of CREDENTIAL_HEADERS, a name
  * `credentialParam` reads as one (`x-access-token`, `x-vault-token`, a service's own `*-token` or
  * `*-key`), a session's (`x-session`, `*-session`), an auth header of a service's own (`x-auth`,
  * `*-auth`), or one with a token, secret, password or credential word anywhere in its name
  * (`x-session-token-raw`), but a page's token (`x-next-page-token`), which a client sends back. The
  * explicit list covers the echoed request headers, which read by their words alone aren't
- * credentials.
+ * credentials. A count or a limit of tokens (countsTokens) and a routing hint (ROUTING_HEADERS) hold
+ * none: given its `value`, one is a credential only when that reads as a key (credentialValue)
+ * rather than as a count, a duration or a time; with no value given, it is taken for one.
  */
-export function credentialHeader(name: string): boolean {
+export function credentialHeader(name: string, value?: string): boolean {
   const lower = name.toLowerCase();
-  if (CREDENTIAL_HEADERS.includes(lower) || credentialParam(lower) || /(?:^|-)(?:session|auth)$/.test(lower)) return true;
+  if (CREDENTIAL_HEADERS.includes(lower) || credentialParam(lower)) return true;
+  const routing = ROUTING_HEADERS.includes(lower);
+  if (!routing && /(?:^|-)(?:session|auth)$/.test(lower)) return true;
   const words = wordsOf(lower);
-  return words.some((w) => HEADER_SECRET_WORD.has(w)) && !words.some((w) => CURSOR.includes(w));
+  const counted = words.map((w, i) => w === 'token' && countsTokens(words, i));
+  if (words.some((w, i) => HEADER_SECRET_WORD.has(w) && !counted[i])) return !words.some((w) => CURSOR.includes(w));
+  return (routing || counted.includes(true)) && (value === undefined || (credentialValue(value) && !COUNT_SHAPED.test(value)));
 }
 
 /** A header value that is a JWT, alone or after an auth scheme (`Bearer eyJ…`): a bearer credential, whatever the header is named. */
@@ -869,7 +903,8 @@ export function maskChallenge(value: string): string {
 }
 
 /**
- * Headers as a recording keeps them: each credential header (credentialHeader), and each whose value
+ * Headers as a recording keeps them: each credential header (credentialHeader, read with its value,
+ * so a count of tokens stays as sent unless it reads as a key), and each whose value
  * is a JWT (alone or after a scheme, `Bearer eyJ…`), with CREDENTIAL_PLACEHOLDER for its value; the credential inside a URL a header names or
  * a challenge masked in place (TOKEN_IN_VALUE); and the headers that set a cookie or name the account
  * a call was made with (ACCOUNT_HEADERS) left out. Names are read in any case. The same object when
@@ -881,7 +916,7 @@ export function credentialFreeHeaders(headers: Readonly<Record<string, string>>)
     const lower = name.toLowerCase();
     const state = STATE_HEADERS.includes(lower) || ACCOUNT_HEADERS.includes(lower);
     const inValue = !state ? TOKEN_IN_VALUE[lower] : undefined;
-    const credential = !state && !inValue && value !== CREDENTIAL_PLACEHOLDER && (credentialHeader(lower) || jwtValue(value));
+    const credential = !state && !inValue && value !== CREDENTIAL_PLACEHOLDER && (credentialHeader(lower, value) || jwtValue(value));
     const masked = inValue ? inValue(value) : value;
     if (!state && !credential && masked === value) continue;
     out ??= { ...headers };

@@ -136,6 +136,57 @@ describe('response headers as a recording keeps them', () => {
     expect(credentialHeader('x-request-id')).toBe(false);
   });
 
+  it('keep a count or a limit of tokens and Azure’s model session as sent, whatever their value reads as', () => {
+    // What langchain-aws reads with int(headers.get("x-amzn-bedrock-input-token-count", 0)), and the rate limits' families.
+    const kept = {
+      'x-amzn-bedrock-input-token-count': '12',
+      'x-amzn-bedrock-output-token-count': '5',
+      'x-amzn-bedrock-cache-read-input-token-count': '0',
+      'x-amzn-bedrock-cache-write-input-token-count': '1024',
+      'anthropic-ratelimit-tokens-limit': '480000',
+      'anthropic-ratelimit-input-tokens-remaining': '399000',
+      'anthropic-ratelimit-output-tokens-reset': '2026-10-30T12:00:00Z',
+      'x-ratelimit-limit-tokens': '150000',
+      'x-ratelimit-remaining-tokens': '149984',
+      'x-ratelimit-reset-tokens': '6m0s',
+      'x-tokens-used': '17',
+      // A count's word after the token word, whatever the value reads as: a time.
+      'x-gateway-token-reset': '2026-10-30T12:00:00.125+01:00',
+      // Azure's routing to the deployment's session that served the call: it signs nobody in.
+      'azureml-model-session': 'd065-20240606224238',
+    };
+    expect(credentialFreeHeaders(kept)).toBe(kept);
+    expect(credentialHeader('x-amzn-bedrock-input-token-count', '12')).toBe(false);
+    expect(credentialHeader('azureml-model-session', 'd065-20240606224238')).toBe(false);
+    // Read by its name alone, with no value to read, one is taken for a credential.
+    expect(credentialHeader('x-amzn-bedrock-input-token-count')).toBe(true);
+    expect(credentialHeader('azureml-model-session')).toBe(true);
+  });
+
+  it('mask a header that holds a token whatever counting word it has, and a count whose value reads as a key or a JWT', () => {
+    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJFWEFNUExFIn0.c2lnbmF0dXJlLWV4YW1wbGU';
+    const headers = {
+      'x-auth-token': 'EXAMPLE-auth-0123',
+      'x-amz-security-token': 'EXAMPLE-sts-0123',
+      'x-session-token-raw': 'EXAMPLE-raw-0123',
+      'x-session': 'EXAMPLE-session',
+      'x-gateway-session': 'EXAMPLE-gw-session',
+      'x-gateway-auth': 'EXAMPLE-gw-auth',
+      // A password reset's token: a count's word before it, but no rate limit's name.
+      'x-reset-token': 'EXAMPLE-reset-0123',
+      'x-password-reset-token': 'EXAMPLE-reset-4567',
+      // A count's word that doesn't end the name: what it names is the key, or the secret.
+      'x-token-limit-key': 'EXAMPLE-limit-key',
+      'x-token-count-secret': 'EXAMPLE-count-secret',
+      // A count or a session named as one whose value is a key or a JWT.
+      'x-amzn-bedrock-input-token-count': 'sk-test-EXAMPLE0123456789abcdef',
+      'x-amzn-bedrock-output-token-count': jwt,
+      'azureml-model-session': `Bearer ${jwt}`,
+      'x-gateway-token-reset': 'ghp_EXAMPLE0123456789abcdefABCDEF',
+    };
+    expect(credentialFreeHeaders(headers)).toEqual(Object.fromEntries(Object.keys(headers).map((k) => [k, CREDENTIAL_PLACEHOLDER])));
+  });
+
   it('mask a Negotiate token68 blob but leave a plain redirect and a bare realm alone', () => {
     expect(maskChallenge('Negotiate oYG3MIG0oAMKAQWhAwoBAKKBqw==')).toBe(`Negotiate ${CREDENTIAL_PLACEHOLDER}`);
     expect(maskChallenge('Basic realm="corp"')).toBe('Basic realm="corp"');

@@ -1,3 +1,5 @@
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
@@ -58,6 +60,36 @@ describe('a model call’s response headers', () => {
       expect(Object.keys(kept)).toEqual(expect.arrayContaining(['x-auth-token', 'x-amzn-oidc-data', 'x-gateway-token', 'link']));
     } finally {
       await sidecar.close();
+    }
+  });
+
+  it('give a replay the token counts Bedrock gave the call live, which a client reads as numbers', async () => {
+    const counts = { 'x-amzn-bedrock-input-token-count': '12', 'x-amzn-bedrock-output-token-count': '5', 'x-amzn-bedrock-cache-read-input-token-count': '0', 'x-amzn-bedrock-cache-write-input-token-count': '3' };
+    const bedrock = createServer((req, res) => {
+      req.resume();
+      req.on('end', () => res.writeHead(200, { 'content-type': 'application/json', ...counts }).end('{"generation":"ok"}'));
+    });
+    await new Promise<void>((r) => bedrock.listen(0, '127.0.0.1', () => r()));
+    const own = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store: own, upstreams: { bedrock: `http://127.0.0.1:${(bedrock.address() as AddressInfo).port}` } });
+    // langchain-aws's ChatBedrock: int(headers.get("x-amzn-bedrock-input-token-count", 0)).
+    const invoke = async (runId: string) => {
+      const res = await fetch(`${sidecar.url}/r/${runId}/bedrock/model/meta.llama3-x/invoke`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE0000/20261030/us-east-1/bedrock/aws4_request, SignedHeaders=host;x-amz-date, Signature=abc' }, body: '{"prompt":"hi"}' });
+      await res.text();
+      return Object.fromEntries(Object.keys(counts).map((h) => [h, res.headers.get(h)]));
+    };
+    try {
+      const rec = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '.' } });
+      expect(await invoke(rec.runId)).toEqual(counts);
+      sidecar.endRun(rec.runId, 'completed');
+      const rep = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['agent'], cwd: '.' }, offline: true });
+      expect(await invoke(rep.runId)).toEqual(counts);
+      expect(sidecar.endRun(rep.runId, 'completed').summary.divergence).toBeNull();
+      expect(own.getCalls(rec.runId)[0].end!.meta.headers).toMatchObject(counts);
+    } finally {
+      await sidecar.close();
+      own.close();
+      bedrock.close();
     }
   });
 });
