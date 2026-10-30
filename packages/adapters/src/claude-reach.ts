@@ -1,6 +1,7 @@
 import { componentFiles, hookItems, managedFileOf, projectDirs, settingsDocuments, type SettingsDocument, type SettingsPlaces } from './claude-hooks.js';
 import { frontmatter } from './frontmatter.js';
 import { isObject } from './is-object.js';
+import { load } from './load.js';
 
 /**
  * What the Claude Code CLI the Claude Agent SDK runs can connect to that Shadowlap's network guard
@@ -53,8 +54,6 @@ const filled = (v: string | undefined) => v !== undefined && v.trim() !== '';
 /** A name from a config file, as the summary quotes it: short, and with no control characters. */
 const quote = (name: string) => JSON.stringify((name.length > 40 ? `${name.slice(0, 39)}…` : name).replace(/[\p{Cc}\p{Cf}]/gu, ' '));
 const trimSlash = (url: string) => url.trim().replace(/\/+$/, '');
-
-const load = (name: string): Promise<unknown> => import(/* webpackIgnore: true */ /* @vite-ignore */ name);
 
 /** A server Claude Code reaches over the network. */
 interface Server {

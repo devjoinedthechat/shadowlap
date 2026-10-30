@@ -1,4 +1,4 @@
-import { CAPS_ONLY_NOTE, countPairs, findPairs, isObject, oneSided as findOneSided, fixLabelInfo, fixOfRun, isInconclusiveNote, mainRefusal, modelReach, normalizeAddArgs, PAIR_FORMATS, refusedLine, ruleInForce, volatileValues, type ModelChoice, type ModelListing, type ModelReach, type Normalizer, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type StoreOf, type Task, type TaskScoreRow } from '@shadowlap/engine';
+import { CAPS_ONLY_NOTE, countPairs, findPairs, isObject, oneSided as findOneSided, fixLabelInfo, fixOfRun, isInconclusiveNote, mainRefusal, modelReach, normalizeAddArgs, PAIR_FORMATS, plural, refusedLine, ruleInForce, volatileValues, type ModelChoice, type ModelListing, type ModelReach, type Normalizer, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type StoreOf, type Task, type TaskScoreRow } from '@shadowlap/engine';
 import { fixForRun } from './fixes.js';
 import { links } from './links.js';
 
@@ -363,7 +363,6 @@ export interface TrainingView {
   scoreDialog: ScoreDialogView | null;
 }
 
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
 /** An amount as the mock writes it: `$0.0041`, `$0.017`, `$1.25`, trailing zeros dropped. */
 export const money = (v: number) => (v ? `$${(v < 0.01 ? v.toFixed(4) : v < 1 ? v.toFixed(3) : v.toFixed(2)).replace(/0+$/, '').replace(/\.$/, '')}` : '$0');

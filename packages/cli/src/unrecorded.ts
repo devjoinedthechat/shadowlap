@@ -1,4 +1,4 @@
-import { unrecordedTools, type RunRecord, type StoreOf, type UnrecordedTool } from '@shadowlap/engine';
+import { jsString as literal, unrecordedTools, type RunRecord, type StoreOf, type UnrecordedTool } from '@shadowlap/engine';
 import { loadConfig } from './config.js';
 import { usageError } from './exit-codes.js';
 import { palette as p, quoteArgv, safe, shortId } from './ui.js';
@@ -56,9 +56,6 @@ export function unrecordedLines(tools: readonly UnrecordedTool[], indent = '    
   const width = Math.max(...tools.map((t) => safe(t.name).length));
   return tools.map((t) => `${indent}${safe(t.name).padEnd(width)}  ${t.count} call${t.count === 1 ? '' : 's'} from model call #${t.firstCallNo} · ${safe(t.why)}`);
 }
-
-/** A tool's name as a JavaScript string literal, in the single quotes the SDK's examples use. */
-export const literal = (name: string) => `'${name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 
 /**
  * How to have a tool recorded and replayed, as a clause: a Claude Code built-in (in a run from Claude

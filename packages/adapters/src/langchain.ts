@@ -1,6 +1,7 @@
 import { tool } from '@shadowlap/sdk';
 import { toOptions, type EffectSpec } from './core.js';
 import { isObject } from './is-object.js';
+import { load } from './load.js';
 
 /**
  * LangChain / LangGraph (`@langchain/core` tools): wraps the tool instance's `_call`, the step
@@ -121,8 +122,6 @@ async function decode(value: unknown): Promise<unknown> {
   };
   return rebuild(value);
 }
-
-const load = (name: string): Promise<unknown> => import(/* webpackIgnore: true */ /* @vite-ignore */ name);
 
 /**
  * A module of the agent's framework, as the agent's own code imports it: from where this package

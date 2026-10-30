@@ -1,6 +1,6 @@
-import { cpSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { agentCallsOf, describeChanges, formatUsd, judgeLine, maskedChange, messageOf, normalizeAddCommand, packRun, ruleInForce, runChanges, volatileValues, writePackAttributes, type CallRecord, type DivergenceReport, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type RunSummary, type Store, type StoreOf } from '@shadowlap/engine';
+import { agentCallsOf, describeChanges, formatUsd, judgeLine, lexists as present, maskedChange, messageOf, movePath as move, normalizeAddCommand, PACK_ENTRIES, packRun, ruleInForce, runChanges, volatileValues, writePackAttributes, type CallRecord, type DivergenceReport, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type RunSummary, type Store, type StoreOf } from '@shadowlap/engine';
 import { type CheckResult, type TestSpec } from './checks.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { scratchDir } from './goldens.js';
@@ -125,29 +125,6 @@ export function requestChanges(store: StoreOf<'recording'>, before: RunRecord, a
     }
   }
   return out;
-}
-
-/** What a pack is made of, as `packRun` writes it; run.json last, since a folder is taken for a pack by it. */
-const PACK_ENTRIES = ['blobs', 'calls.jsonl', 'run.json'] as const;
-
-const present = (path: string) => {
-  try {
-    lstatSync(path);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-/** A rename, or across filesystems a copy and a removal. */
-function move(from: string, to: string): void {
-  try {
-    renameSync(from, to);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
-    cpSync(from, to, { recursive: true, verbatimSymlinks: true });
-    rmSync(from, { recursive: true, force: true });
-  }
 }
 
 /**

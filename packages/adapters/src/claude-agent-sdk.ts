@@ -3,6 +3,7 @@ import { asOutput, combine, hookRunsFor, matcherPicks, runHooks, settingsPreTool
 import { claudeReach, type ReachOptions } from './claude-reach.js';
 import { toOptions, wrapFirstArg, type EffectSpec } from './core.js';
 import { isObject } from './is-object.js';
+import { load } from './load.js';
 
 /**
  * Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`), and Claude Code headless underneath it.
@@ -166,7 +167,6 @@ interface Scratch {
 }
 
 async function makeScratch(dir: string | undefined): Promise<Scratch> {
-  const load = (name: string): Promise<unknown> => import(/* webpackIgnore: true */ /* @vite-ignore */ name);
   const fs = (await load('node:fs')) as typeof import('node:fs');
   const os = (await load('node:os')) as typeof import('node:os');
   const path = (await load('node:path')) as typeof import('node:path');

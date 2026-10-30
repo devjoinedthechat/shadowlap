@@ -6,6 +6,7 @@ import { plain } from './report.js';
 import { formatTally } from './stats.js';
 import { quoteArgv, safeLine } from './text.js';
 import { eachRun, footprintDelta, keptTally, outcomeOf, type VerifiedRun, type VerifyReport } from './verify.js';
+import { shortRunId as short } from './words.js';
 
 /**
  * The deterministic half of `shadowlap repair`. A model proposes fixes; everything that decides whether
@@ -994,8 +995,6 @@ export function noRepairerOf(r: Pick<RepairReport, 'noRepairer' | 'repairer' | '
   }
   return null;
 }
-
-const short = (id: string) => id.slice(0, 10);
 
 const one = (s: string, n = 90) => {
   const line = safeLine(s).replace(/\s+/g, ' ').trim();

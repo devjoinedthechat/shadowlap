@@ -9,6 +9,7 @@ import {
   lostWhere,
   plain,
   runOutcome,
+  shortRunId as short,
   statusTally,
   unrecordedTools,
   unrescuedWords,
@@ -34,8 +35,6 @@ export interface Fact {
 
 /** `tools.unrecorded` from shadowlap.config.json: a tool's effect, by name. */
 export type Declared = Readonly<Record<string, 'read' | 'write'>>;
-
-const short = (id: string) => id.slice(0, 10);
 
 /** How the run came out, as the engine decides it for the dashboard's Runs table. */
 export function outcomeFor(store: StoreOf<'recording'>, run: RunRecord, calls: readonly CallRecord[]): RunOutcome {

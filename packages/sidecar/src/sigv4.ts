@@ -2,6 +2,7 @@ import { createHash, createHmac } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { encodeRfc3986 as rfc3986 } from '@shadowlap/engine';
 
 /**
  * Signing a Bedrock request again after an intervention changed it. AWS clients sign every request
@@ -73,7 +74,6 @@ export function credentialsFromEnvironment(env: NodeJS.ProcessEnv = process.env,
 
 const sha256 = (data: Buffer | string) => createHash('sha256').update(data).digest('hex');
 const hmac = (key: Buffer | string, data: string) => createHmac('sha256', key).update(data).digest();
-const rfc3986 = (s: string) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 
 export interface SignInput {
   method: string;

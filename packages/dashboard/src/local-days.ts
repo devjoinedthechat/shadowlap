@@ -1,3 +1,5 @@
+import { twoDigits as pad } from '@shadowlap/engine';
+
 /**
  * Days as the viewer lives them: calendar days in their own time zone, an IANA name the browser
  * reports, whatever zone the server runs in. The calendar, "today" and the Overview's week all
@@ -63,8 +65,6 @@ function startOf(ymd: Ymd, tz: string): number {
   const guess = Date.UTC(ymd.y, ymd.m - 1, ymd.d);
   return guess - offset(guess - offset(guess, tz), tz);
 }
-
-const pad = (n: number) => String(n).padStart(2, '0');
 
 /** One local calendar day: its key, the instant it starts, the instant the next one starts, and its weekday. */
 export interface LocalDay {

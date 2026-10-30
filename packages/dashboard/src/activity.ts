@@ -1,5 +1,6 @@
 import { basename } from 'node:path';
 import { asTheyStand, checkStatus, hintsFor, lostRange, lostWords, pulledRun, summarizeRun, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type StoreOf, type StoredEvent } from '@shadowlap/engine';
+import { num } from './fields.js';
 import { links } from './links.js';
 import { projectEventText } from './projects.js';
 import { cachedRuns } from './run-cache.js';
@@ -29,7 +30,6 @@ export interface EventText {
 type Describe = (event: StoredEvent, data: Record<string, unknown>) => EventText;
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : typeof v === 'number' ? String(v) : null);
-const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 /** A time from run meta, which a pack someone else made can carry as anything. */
 const time = (v: unknown, fallback: number): number => num(v) ?? fallback;
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
