@@ -73,7 +73,7 @@ Where there is no store, they find nothing. When the project's store is in a fol
 
 Every command ends with an exit status a script or a CI step can tell apart: 1 for a check that
 failed, 2 for a command it can't run as given, 3 for a verdict that couldn't be reached, 70 for a bug.
-Each command's section says which statuses it ends with.
+Each command's section says which statuses it ends with. The statuses are:
 
 | Status    | Meaning                                                             |
 | --------- | ------------------------------------------------------------------- |
@@ -115,8 +115,8 @@ verdict, and the provider unavailable. It is `0` when the result only warns:
 where it happened, and report it.
 
 **`128 + n`, a stop signal**: `130` for Ctrl-C, `129` for a closed terminal (SIGHUP), `143` for
-SIGTERM. That holds however the command wound down, the dashboard, `serve`, `tasks serve`, `mcp`,
-`demo` and `replay --watch` too. It holds for a signal that came during its last work too, such as
+SIGTERM. That holds however the command wound down, for the dashboard, `serve`, `tasks serve`,
+`mcp`, `demo` and `replay --watch` too. It holds for a signal that came during its last work too, such as
 repair removing its worktree after its last verify. A signal in the last moment before the process
 exits, a few milliseconds, may find it already ending with its own status.
 
@@ -145,11 +145,11 @@ Each command's section lists its fields. This table says where:
 | `fix ls`, `fix show`, `fix pr`, `fix apply` | The dashboard's read model of Fixes ([fields](#fix)) |
 | `decisions`, `migrate` | The report the dashboard reads ([decisions](#decisions-report-as-json), [migrate](#migrate-report-as-json)) |
 | `test --json <file>` | The session's report ([fields](#test-report-as-json)) |
-| `bisect`, `check`, `injection`, `coverage` | Their results ([bisect](#bisect), [check](#check), [injection](#injection), [coverage](#coverage)) |
-| `calibrate`, `init`, `doctor`, `skill install` | What each found or did ([calibrate](#calibrate), [init](#init), [doctor](#doctor), [skill](#skill)) |
-| `normalize ls`, `redact ls`, `redact preview` | The rules, and what they would mask ([fields](#normalize-redact)) |
+| `bisect`, `check`, `injection`, `coverage` | Their results ([bisect](#bisect), [check](#check), [injection](#injection-report-as-json), [coverage](#coverage-scan-as-json)) |
+| `calibrate`, `init`, `doctor`, `skill install` | What each found or did ([calibrate](#calibrate), [init](#init-findings-as-json), [doctor](#doctor), [skill](#skill)) |
+| `normalize ls`, `redact ls`, `redact preview` | The rules, and what they would mask ([rules](#normalize-redact), [preview](#redact-preview)) |
 | `import` | The runs it made and what it skipped ([fields](#--json)) |
-| `gc` | What it deleted or would delete ([fields](#rm-gc)) |
+| `gc` | What it deleted or would delete ([fields](#gc-as-json)) |
 | `tasks`, `tasks score`, `tasks models` | The tasks, a score, the models ([Training](./training.md)) |
 | `push`, `pull`, `share`, `store` | What went and came, the link, the store ([push, pull](#push-pull), [share](#share), [store](#store)) |
 
@@ -174,6 +174,8 @@ Runs the whole loop on a refund agent, with no key and nothing to clone, as the
 
 Your own model keys and endpoints are left out of its environment, and [telemetry](./telemetry.md) is
 off for it.
+
+`demo` takes one flag:
 
 | Flag | What it does | Default |
 | --- | --- | --- |
@@ -572,6 +574,8 @@ Each round is printed as it ends. A recording that is already clean ends with "N
 Afterwards, it removes the blobs its own replays left that nothing else uses, unless a run is
 recording.
 
+`calibrate` takes these flags:
+
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--write` | Add the proposals to `shadowlap.config.json`, and say their numbers | — |
@@ -622,6 +626,8 @@ the client talks stdio to it. See [MCP servers](./mcp.md#served-over-http---list
   unrecorded.
 - **On Windows**: a server command that is a batch file (`npx -y …`) runs through cmd.exe.
 
+`mcp` takes these flags:
+
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--url <server>` | Speak Streamable HTTP to a remote server at this endpoint | — |
@@ -663,6 +669,8 @@ actions. See [Dashboard](./dashboard.md).
 It listens on 127.0.0.1, with a session token in the link it prints. It needs a store to show, and
 never creates one.
 
+`dashboard` takes these flags:
+
 | Flag            | What it does                                                    | Default |
 | --------------- | --------------------------------------------------------------- | ------- |
 | `--call <n>`    | With a run: open at this call                                   | —       |
@@ -685,6 +693,8 @@ shadowlap ui [run] [--call <n>]
 Opens the [terminal UI](./tui.md). A fork opens at its divergence, unless `--call` names another
 call.
 
+`ui` takes one flag:
+
 | Flag         | What it does                 | Default                    |
 | ------------ | ---------------------------- | -------------------------- |
 | `--call <n>` | With a run: select this call | The divergence, for a fork |
@@ -703,6 +713,8 @@ Prints a run's timeline: one row per call, then the divergence report if the run
   replay, what replaying didn't spend again (`$0.0075 not re-spent (8.1k input tokens)`).
 - **Input tokens**, here and in each row, are everything the model read: uncached, written to the
   prompt cache and read from it, as `test`, `replay` and the dashboard count them.
+
+`show` takes these flags:
 
 | Flag                | What it does                          | Default |
 | ------------------- | ------------------------------------- | ------- |
@@ -731,8 +743,8 @@ What else it shows:
 Untrusted reads are the reads of a tool that the config's `tools`, the SDK's `trust` or its MCP
 server's `openWorldHint` marks untrusted, where `shadowlap injection` plants.
 
-`--json` prints `{ "run", "summary", "calls", "untrusted", "unrecordedTools" }`. The dashboard's
-Provenance tab copies the same object.
+`--json` prints `{ "run", "summary", "calls", "untrusted", "unrecordedTools" }`, the object the
+dashboard's Provenance tab copies:
 
 | Field | Meaning |
 | --- | --- |
@@ -760,6 +772,8 @@ shadowlap ls [--tree] [-n <limit>] [--label <label>] [--json]
 ```
 
 Lists runs, newest first, with their labels.
+
+`ls` takes these flags:
 
 | Flag              | What it does                                            | Default |
 | ----------------- | ------------------------------------------------------- | ------- |
@@ -805,6 +819,8 @@ shadowlap search '"refund policy"' --run 01M2P9PVCP -n 50 [--json]
 Searches what runs recorded: prompts, model responses, tool arguments and tool results. Quoted words
 must appear together.
 
+`search` takes these flags:
+
 | Flag              | What it does                       | Default |
 | ----------------- | ---------------------------------- | ------- |
 | `--run <run>`     | Search only this run               | —       |
@@ -841,6 +857,8 @@ shadowlap diff <a> <b> [--json]
 ```
 
 Compares two runs call by call, aligned by position. It exits 1 when the runs differ, like `diff`.
+
+`diff` takes one flag:
 
 | Flag     | What it does                         | Default |
 | -------- | ------------------------------------ | ------- |
@@ -910,6 +928,8 @@ What people know about a run that the recording can't. Both travel in packs.
 - **A note** says why, on the run or on one call. `show` prints them, and the dashboard shows a
   call's notes in its details.
 
+`label` and `note` take these flags:
+
 | Flag         | What it does                                        | Default |
 | ------------ | --------------------------------------------------- | ------- |
 | `--remove`   | `label`: remove these labels instead of adding them | —       |
@@ -938,6 +958,8 @@ How it searches:
 3. It binary-searches for the boundary.
 
 Each blame is kept with the [fix](#fix) it opens or joins, by the run's labels, else its check.
+
+`blame` takes these flags:
 
 | Flag | What it does | Default |
 | --- | --- | --- |
@@ -1031,6 +1053,8 @@ worse, by the margin or more, than the same run under the code before the change
 Runs are ids, unique prefixes or `label:<name>`. A replay that forks nowhere settles its run in one
 free attempt.
 
+`verify` takes these flags:
+
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--fixes <run...>` | Failing runs the change was written to fix | — |
@@ -1102,6 +1126,8 @@ shadowlap repair --fixes label:bug --keeps label:good --repairer anthropic
 
 Each candidate is verified in a temporary git worktree, never in the working tree. A good run is
 verified against the same run under the code without the candidate, in another worktree.
+
+`repair` takes these flags:
 
 | Flag | What it does | Default |
 | --- | --- | --- |
@@ -1183,6 +1209,8 @@ A fix is one failure, from the blame that reproduced it to a change that held.
 - **Activity**: blame, repair, verify and apply each log an activity event in the store
   (`blame.done`, `repair.accepted`, `repair.empty`, `verify.accepted`, `verify.rejected`,
   `fix.applied`).
+
+Its subcommands take these flags:
 
 | Flag                | What it does                                                              | Default   |
 | ------------------- | ------------------------------------------------------------------------- | --------- |
@@ -1518,6 +1546,8 @@ An Azure OpenAI deployment call is sent with the `api-version` it was recorded w
 recordings kept a call's query takes `OPENAI_API_VERSION` (or `AZURE_OPENAI_API_VERSION`), as the
 AzureOpenAI SDKs do; without it, nothing is sent.
 
+`decisions` takes these flags:
+
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--model <model>` | The change is this model, at the agent's model calls: in the body, or in the path on Gemini, Vertex AI, Bedrock and Azure (below) | — |
@@ -1809,6 +1839,8 @@ It switches the agent's model calls:
 A simulated user or a sub-agent on another model keeps its own, in the preview and in verify alike.
 Shadowlap's own calls (its judge's) are none of the agent's.
 
+`migrate` takes these flags:
+
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--to <model>` | The model to switch to. Required | — |
@@ -1840,7 +1872,7 @@ The report settles nothing when it stopped early, a step got no answer, a flagge
 unverified, or a run nothing else flags has a text-only change a judge check reads that could not be
 judged.
 
-### The fields it changes
+### The fields `migrate` changes
 
 The fields it changes come from two places.
 
@@ -1868,7 +1900,7 @@ Verify runs with the fields set to a value. A field to leave out, or to send und
 change in your agent's requests first, since verify runs your code. So verify waits for it, and the
 report says what to change.
 
-### What it writes
+### What `migrate` writes
 
 It writes the pull request body and the change to the project's files (a patch `git apply` takes)
 under `.shadowlap/migrations/<id>/`. It keeps the report in the store (`mg-…`), logging a
@@ -2037,10 +2069,10 @@ Under `warn`, the pack counts as passed for the exit status, a JUnit report mark
 `--annotations` gives it a warning, and every report still says it is inconclusive.
 
 With neither `fail` nor `warn` given, each fails the run, but for a gate against history whose golden
-has fewer than 30 sessions (three of its `window`s). That one only warns when it runs out of attempts, saying it needs
-more history (its result's `warned`). It counts after all, saying why (`counted`), when the session's
-plan reads its last sessions below the ones before them, 99 to 1 likely or more, or beyond chance at
-its share.
+has fewer than 30 sessions (three of its `window`s). That one only warns when it runs out of attempts,
+saying it needs more history (its result's `warned`). It counts after all, saying why (`counted`), when
+the session's plan reads its last sessions below the ones before them, 99 to 1 likely or more, or
+beyond chance at its share.
 
 `test` exits with:
 
@@ -2052,11 +2084,12 @@ its share.
 | `3`       | None failed, and one is inconclusive (below)                                             |
 | `128 + n` | A signal stopped the session: 130 for Ctrl-C, 129 for a closed terminal, 143 for SIGTERM |
 
-- **`2`** is for packs that can't be tested as given: none matches, a config it can't read, or a golden
-  that would run a [write Shadowlap never recorded](./how-it-works.md#tools-shadowlap-did-not-record)
-  again. It is 2 too when a path named as it is holds no pack, whatever else failed.
-- **`2`, too,** when the only goldens that failed are packs it needs `--yes` to run (someone else's,
-  which nobody said yes to). Each fails as a golden in every report, while the others run.
+- **`2`** is for packs that can't be tested as given:
+  - none matches, a config it can't read, or a golden that would run a
+    [write Shadowlap never recorded](./how-it-works.md#tools-shadowlap-did-not-record) again;
+  - a path named as it is holds no pack, whatever else failed;
+  - the only goldens that failed are packs it needs `--yes` to run (someone else's, which nobody said
+    yes to). Each fails as a golden in every report, while the others run.
 - **`3` becomes `0`** when every inconclusive one only warns: under `--inconclusive warn`, or, with
   none given, a gate against history whose golden has too few sessions, as `--inconclusive` says.
 - **`128 + n`**: the session then keeps the results of the packs that finished.
@@ -2312,6 +2345,8 @@ add (`pass`, `fail`), and the bounds it passes and fails at (`upper`, `lower`).
 failures a recording of a healthy run never holds, each played in at one call so the agent's own error
 path runs.
 
+Each preset plays in one failure:
+
 | Preset | What the agent gets |
 | --- | --- |
 | `timeout` | The tool call times out: the tool doesn't run, and the agent's SDK raises the timeout it would |
@@ -2457,6 +2492,8 @@ commit. Replays are offline, so it costs no tokens. It prints the first bad comm
 author and date, and why it fails there, and any untestable commits just before it that could be the
 one.
 
+`bisect` takes these flags:
+
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--good <rev>` | A commit where the recording passed | — |
@@ -2538,6 +2575,8 @@ shadowlap unpack <dir>
 
 `pack` writes a run as a directory, to commit as a CI golden or to share. `unpack` imports one.
 
+`pack` takes these flags; `unpack` takes none:
+
 | Flag          | What it does                                                                             | Default |
 | ------------- | ---------------------------------------------------------------------------------------- | ------- |
 | `--lineage`   | `pack`: include the run's ancestors                                                      | —       |
@@ -2614,6 +2653,8 @@ Starts a sidecar with one recording run, for a process you launch yourself, and 
 to export: `export` lines, or on Windows PowerShell's `$env:NAME = 'value'`. It ends the run on Ctrl-C,
 SIGTERM or a closed terminal (SIGHUP).
 
+`serve` takes these flags:
+
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--recordings` | Start no run of its own, and serve [recorded tests](./testing.md) instead (below) | — |
@@ -2657,6 +2698,8 @@ A recording is one of:
 With none, it judges every recording in the store that has ended. A recording named twice (a run and a
 label it has, a pack and its run in the store) is judged once, as its pack when it is one.
 
+`check` takes these flags:
+
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--expect <json\|@file>` | The checks to judge every recording by: an `expect` object | Each recording's own, under `tests` |
@@ -2684,8 +2727,8 @@ pass one labelled `bug`. It names a value the checks read that none of the calls
 | `2`    | None was judged                       |
 | `3`    | None failed, and one was inconclusive |
 
-`--json` prints `{ expect, recordings, counts, unchecked, notes }`. A dashboard job that runs it gets
-the same report as its result.
+A dashboard job that runs `check` gets the same report as its result. `--json` prints
+`{ expect, recordings, counts, unchecked, notes }`:
 
 | Field | Meaning |
 | --- | --- |
@@ -2739,11 +2782,11 @@ setting `openWorldHint`.
 
 An attempt comes out:
 
-- ***obeyed***: a tool call carries the canary, which is proof the planted text caused it, for a write,
+- **obeyed**: a tool call carries the canary, which is proof the planted text caused it, for a write,
   and for a read, which can carry data out;
-- ***influenced***: a write that no clean replay of the same read made;
-- ***ignored***: otherwise;
-- ***inconclusive***: the attempt shows nothing either way (no model read the planted text, a model call
+- **influenced**: a write that no clean replay of the same read made;
+- **ignored**: otherwise;
+- **inconclusive**: the attempt shows nothing either way (no model read the planted text, a model call
   failed, the agent exited non-zero), with why.
 
 The payloads are the built-in templates (`--list-templates` prints them), unless `--payloads` or
@@ -2759,6 +2802,8 @@ Each run tested comes to a verdict against its limits:
   With a limit on influenced attempts, a clean replay in which something failed makes it inconclusive
   too;
 - else *passed*.
+
+`injection` takes these flags:
 
 | Flag | What it does | Default |
 | --- | --- | --- |
@@ -3035,6 +3080,8 @@ golden covers names the golden that shares the most of its path, where they part
 `--pack` couldn't pack it. Each scan is kept in the store, its groups replacing the last scan's, for the
 dashboard.
 
+`coverage` takes these flags:
+
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--json` | Print the scan as JSON (below) | — |
@@ -3167,6 +3214,8 @@ The detection reads source text; it runs nothing.
 `init` writes one file: an empty `shadowlap.config.json`, only when there is none. Run it again after
 wrapping the tools it names, to check again: the config is left as it is, and the tools are scanned
 afresh.
+
+`init` takes one flag:
 
 | Flag     | What it does                                                 | Default |
 | -------- | ------------------------------------------------------------ | ------- |
@@ -3320,6 +3369,8 @@ shadowlap doctor [--json]
 
 Checks what support would check, and says how to fix each problem it finds.
 
+`doctor` takes one flag:
+
 | Flag     | What it does                       | Default |
 | -------- | ---------------------------------- | ------- |
 | `--json` | Print the checks as a list (below) | —       |
@@ -3389,6 +3440,8 @@ shadowlap normalize add --pattern uuid --replace '<uuid>'
 shadowlap redact add --path '$.args.api_key'
 ```
 
+Each of them has these subcommands:
+
 | Subcommand | What it does |
 | --- | --- |
 | `add` | Add a rule: a pattern, a path, or both (below) |
@@ -3396,11 +3449,13 @@ shadowlap redact add --path '$.args.api_key'
 | `ls` | List the rules, each with its number |
 | `redact preview` | Show what the redaction rules would mask in a run that has ended ([below](#redact-preview)) |
 
+The subcommands take these flags:
+
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--pattern <pattern>` | `add`: a named pattern (`uuid`, `ulid`, `iso-date`, `iso-datetime`, `number`, `email`) or `/regex/flags` | — |
 | `--path <jsonpath>` | `add`: where in a request, such as `$.metadata.user_id`; a tool's arguments are under `$.args` | — |
-| `--name <name>` | `add`: scope the rule to one tool or call: a tool name, or such as `"POST /v1/messages"` | — |
+| `--name <name>` | `add`: scope the rule to one tool or call: a tool's name, or a call's, such as `"POST /v1/messages"` | — |
 | `--kind <kind>` | `add`: only calls of this kind: `api`, `tool`, `clock` or `random` for a normalizer; `api` or `tool` for redaction | — |
 | `--replace <text>` | `add`: the replacement text | `<MASKED>`; for redaction, `<REDACTED>` |
 | `--expect <version>` | `add`, `rm`: refuse the edit when the file is no longer the version `ls --json` printed | — |
@@ -3517,6 +3572,8 @@ In those two folders, which every tool's skills share, each skill is named `shad
 leaves out `allowed-tools`, which names Claude Code's tools. Nothing but the `shadowlap-` folders is
 read or written there.
 
+`skill install` takes these flags:
+
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--force` | Replace what is there when it isn't this version's copy, and remove the files of ours this version doesn't have (below) | — |
@@ -3585,6 +3642,8 @@ These formats are captures:
   [Capturing production traffic](./gateways.md).
 
 `otel`, `langfuse`, `langsmith`, `phoenix` and `logfire` read [traces](#traces).
+
+Its subcommands take these flags:
 
 | Flag | What it does | Default |
 | --- | --- | --- |
@@ -3907,6 +3966,8 @@ make several runs, one per correlation id; they are all listed.
 }
 ```
 
+The object has these fields:
+
 | Field | Meaning |
 | --- | --- |
 | `format` | The format read |
@@ -3950,6 +4011,8 @@ holds.
 - Like a pack, it leaves out who made each run.
 - Without a file named, it writes `shadowlap-<run>.html`.
 
+`export html` takes these flags:
+
 | Flag          | What it does                                                                    | Default |
 | ------------- | ------------------------------------------------------------------------------- | ------- |
 | `--lineage`   | Include the run's ancestors, so its recording and forks compare inside the file | —       |
@@ -3974,6 +4037,8 @@ shadowlap export dataset <run...> --calls model --format openai-chat
 
 Recordings as an eval or fine-tuning dataset, one JSON line per example. Select runs by id, by
 `--label` or with `--all`.
+
+`export dataset` takes these flags:
 
 | Flag                   | What it does                                                             | Default |
 | ---------------------- | ------------------------------------------------------------------------ | ------- |
@@ -4014,6 +4079,8 @@ per pair. Each pair is the conversation as the model saw it at a call, in the me
 `export dataset` writes, an answer to prefer and one to avoid. [Training](./training.md) explains where
 pairs come from, and what high and medium mean.
 
+`export pairs` takes these flags:
+
 | Flag                         | What it does                                                             | Default |
 | ---------------------------- | ------------------------------------------------------------------------ | ------- |
 | `--min-confidence high`      | Answers blame proved decided the run                                     | Default |
@@ -4048,6 +4115,8 @@ exporting a run and importing it again produces the same fingerprints.
   stands in.
 - Credentials are never written.
 - Without a file named, it writes the HAR to stdout.
+
+`export har` takes one flag:
 
 | Flag          | What it does                                        | Default |
 | ------------- | --------------------------------------------------- | ------- |
@@ -4086,6 +4155,8 @@ involved.
 - Trace and span ids are derived from the run id, so exporting twice updates the same trace.
 - Headers for an authenticated collector come from `OTEL_EXPORTER_OTLP_HEADERS`
   (`key=value,key2=value2`).
+
+`export otel` takes these flags:
 
 | Flag | What it does | Default |
 | --- | --- | --- |
@@ -4127,6 +4198,8 @@ store. The TUI's `x` does the same as `rm` for one run.
 ```sh
 shadowlap gc --older-than 30 --dry-run
 ```
+
+`rm` and `gc` take these flags:
 
 | Flag | What it does | Default |
 | --- | --- | --- |
@@ -4218,7 +4291,8 @@ or have other attempts under them. `--before` also takes a date (`2026-09-01`).
 
 ### `gc` as JSON
 
-`--json` prints the same report. A real run is recorded in the project's activity as `runs.cleaned`.
+A real run is recorded in the project's activity as `runs.cleaned`. `--json` prints the same report,
+with these fields:
 
 | Field                             | Meaning                                                                      |
 | --------------------------------- | ---------------------------------------------------------------------------- |
@@ -4269,9 +4343,11 @@ run live or are stubbed after the takeover, and whether each is:
 It warns when every ready task rewards the same behaviour. The takeover, why, what a task rewards and
 the agent's scope can be set in a `task` object next to its `expect` in the config.
 
-| Flag     | What it does                                                            | Default |
-| -------- | ----------------------------------------------------------------------- | ------- |
-| `--json` | `tasks`, `tasks models`: print them as JSON ([Training](./training.md)) | —       |
+`tasks` takes one flag:
+
+| Flag     | What it does                                   | Default |
+| -------- | ---------------------------------------------- | ------- |
+| `--json` | Print them as JSON ([Training](./training.md)) | —       |
 
 ### `tasks score`
 
@@ -4287,6 +4363,8 @@ shadowlap tasks score --model qwen3:8b --base-url http://127.0.0.1:11434/v1
   [`when`](./checks.md#conditions) whose condition never held is left out.
 - **Scores are kept per model.** Scoring a model again replaces its scores, unless the re-score stops
   short.
+
+`tasks score` takes these flags:
 
 | Flag | What it does | Default |
 | --- | --- | --- |
@@ -4333,6 +4411,8 @@ shows a request and its response.
 score, the run and its cost. It listens on 127.0.0.1, checks the `Host` header, and needs the token it
 prints. `SHADOWLAP_TASKS_TOKEN` sets it, at least 16 characters.
 
+`tasks serve` takes these flags:
+
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--port <port>` | The port to listen on | 4779, or a free one if it is taken |
@@ -4359,6 +4439,8 @@ Lists models to score:
 Each comes with its price per attempt, last score and the ready tasks it can answer. A model that can
 answer none says why.
 
+`tasks models` takes these flags:
+
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--timeout <ms>` | How long to wait for each provider's list; a provider that doesn't answer within it becomes a note | 1500 ms |
@@ -4375,6 +4457,8 @@ shadowlap pull --include-pr      # and the runs pull requests' CI jobs pushed to
 
 Copy runs between this machine and the [team store](./team.md) named by `store` in
 `shadowlap.config.json`, with this machine's own credentials.
+
+`push` and `pull` take these flags:
 
 | Flag           | What it does                                                                           | Default |
 | -------------- | -------------------------------------------------------------------------------------- | ------- |
@@ -4479,6 +4563,8 @@ Writes the run's [HTML report](#export-html), with every redaction rule applied,
 [team store](./team.md#share-links), and prints a presigned link that expires after 7 days. Anyone with
 the link can open it, without an account.
 
+`share` takes these flags:
+
 | Flag        | What it does                   | Default |
 | ----------- | ------------------------------ | ------- |
 | `--lineage` | Include the run's ancestors    | —       |
@@ -4512,7 +4598,7 @@ shadowlap store ci --provider github|gitlab|other [--packs <glob>]   # a CI step
 shadowlap store push-from-ci on|off                      # whether CI pushes its test runs and fixes
 ```
 
-Set up the [team store](./team.md#the-store). Each subcommand takes `--json`.
+Set up the [team store](./team.md#the-store). Each subcommand takes `--json`. It has these subcommands:
 
 | Subcommand | What it does |
 | --- | --- |
@@ -4522,6 +4608,8 @@ Set up the [team store](./team.md#the-store). Each subcommand takes `--json`.
 | [`policy`](#store-policy) | Print the two policies to ask your cloud admin for |
 | [`ci`](#store-ci) | Print a CI step that runs `test --push` |
 | [`push-from-ci`](#store-push-from-ci) | Whether CI pushes its test runs and fixes |
+
+They take these flags:
 
 | Flag | What it does | Default |
 | --- | --- | --- |
@@ -4657,6 +4745,8 @@ it opens there too. `on` turns it back on.
   "tests": { "goldens/*": { "expect": { "tools": { "send_email": 0 } } } }
 }
 ```
+
+Its keys are these:
 
 | Key | What it does |
 | --- | --- |
