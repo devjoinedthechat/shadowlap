@@ -237,7 +237,8 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
     let live: LiveCall | undefined;
     if (isRequest(m) && m.method === 'tools/call') {
       const route = await calls.route(m);
-      if ('answer' in route) return rpcAnswer(res, 200, route.answer);
+      // An answer the server broke off live is broken off again, as the client saw it then.
+      if ('answer' in route) return route.cut ? void res.destroy() : rpcAnswer(res, 200, route.answer);
       live = route.live;
     }
     const id = isRequest(m) ? m.id : null;
@@ -252,10 +253,10 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
         if (live) await calls.complete(live, one);
       }
     };
-    const unanswered = async (why: string) => {
+    const unanswered = async (why: string, cut = false) => {
       if (settled || !live) return;
       settled = true;
-      await calls.complete(live, { error: { code: -32000, message: why } });
+      await calls.complete(live, { error: { code: -32000, message: why } }, { cut });
     };
 
     await new Promise<void>((resolve) => {
@@ -273,7 +274,7 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
           // A body the server's connection broke off part way through: the call ends as the agent saw
           // it end, and the client's response is broken off too, never passed on as the whole of it.
           const cutShort = async (cut: string) => {
-            await unanswered(`the MCP server's answer was cut short: ${cut}`);
+            await unanswered(`the MCP server's answer was cut short: ${cut}`, true);
             res.destroy();
             resolve();
           };
