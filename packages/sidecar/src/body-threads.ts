@@ -1,5 +1,5 @@
 import { Worker } from 'node:worker_threads';
-import { withSecretNames } from '@shadowlap/engine';
+import { withSecretNames, type SecretNamesRule } from '@shadowlap/engine';
 import { storedRequestBody, storedResponse, unreadBody, unreadResult, type ResponseHead, type StoredBody } from './http.js';
 
 /**
@@ -25,9 +25,9 @@ export const BODY_THREADS = {
 
 /**
  * A body to store on a thread: a request's, read by its content type, or an answer's; with a secret's
- * name kept, or masked as the run's recording did (`secretNames`, RunMeta.secretNames).
+ * names read under the run's rule (`secretNames`, RunMeta.secretNames).
  */
-type BodyWork = ({ kind: 'request'; bytes: Uint8Array; contentType: string | undefined } | { kind: 'response'; bytes: Uint8Array; head: ResponseHead }) & { secretNames: boolean };
+type BodyWork = ({ kind: 'request'; bytes: Uint8Array; contentType: string | undefined } | { kind: 'response'; bytes: Uint8Array; head: ResponseHead }) & { secretNames: SecretNamesRule };
 
 /** A body as a thread is given it, with the id its answer comes back with. */
 export type BodyJob = BodyWork & { id: number };
@@ -55,15 +55,15 @@ export class BodyThreads {
   private nextId = 1;
   private closed = false;
 
-  /** A request body as stored (storedRequestBody), a secret's name kept or masked as the run keeps it (`secretNames`). */
-  async request(bytes: Buffer, contentType: string | undefined, secretNames = true): Promise<StoredBody> {
+  /** A request body as stored (storedRequestBody), a secret's names read under the run's rule (`secretNames`). */
+  async request(bytes: Buffer, contentType: string | undefined, secretNames: SecretNamesRule = 2): Promise<StoredBody> {
     if (bytes.length < BODY_THREADS.apartBytes) return withSecretNames(secretNames, () => storedRequestBody(bytes, contentType));
     const answer = await this.apart({ kind: 'request', bytes, contentType, secretNames });
     return answer?.kind === 'request' ? answer.stored : unreadBody();
   }
 
-  /** An answer as stored (storedResponse), its blob, a secret's name kept or masked as the run keeps it (`secretNames`). */
-  async response(head: ResponseHead, bytes: Buffer, secretNames = true): Promise<Buffer> {
+  /** An answer as stored (storedResponse), its blob, a secret's names read under the run's rule (`secretNames`). */
+  async response(head: ResponseHead, bytes: Buffer, secretNames: SecretNamesRule = 2): Promise<Buffer> {
     if (bytes.length < BODY_THREADS.apartBytes) return withSecretNames(secretNames, () => storedResponse(head, bytes));
     const answer = await this.apart({ kind: 'response', bytes, head, secretNames });
     return answer?.kind === 'response' ? Buffer.from(answer.blob.buffer, answer.blob.byteOffset, answer.blob.byteLength) : unreadResult(head.status);

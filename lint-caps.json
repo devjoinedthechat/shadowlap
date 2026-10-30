@@ -422,9 +422,6 @@
       "RequestInterventions.apply": 39,
       "describeInterventions": 38
     },
-    "packages/sidecar/src/lifecycle.ts": {
-      "startRun": 31
-    },
     "packages/sidecar/src/provider-state.ts": {
       "ProviderState.recorded": 47
     },

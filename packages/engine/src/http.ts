@@ -4,6 +4,7 @@ import { parseJsonExact } from './json-exact.js';
 import { rewriteWords, scriptWord, shellWords } from './shell-words.js';
 import { quoteArgv } from './text.js';
 import { isObject } from './is-object.js';
+import type { RunMeta } from './types.js';
 
 /**
  * Credentials in recorded HTTP traffic: which query and form parameters carry one (credentialParam,
@@ -39,44 +40,68 @@ const secretWord = (w: string): boolean => SECRET_WORD.has(w) || w.startsWith('p
  * (`secret_version_id`, `SecretVersionStages`), a policy (IAM's `PasswordPolicy`), the e-mail address a
  * reset goes to (`password_reset_email`), its length, count, type, description and tags, its
  * rotation's settings (`secret_rotation_enabled`), and when it was made, changed or expires
- * (`password_expires_at`). Never an id (Vault AppRole's `secret_id` is a credential, though AWS's
- * `SecretId` names one), a hint (often the password itself, or one that gives it away), a URL (a reset
- * link carries its token, and a secret URL is the secret), nor any other word (`secret_value`).
+ * (`password_expires_at`). Never a hint (often the password itself, or one that gives it away), a URL
+ * (a reset link carries its token, and a secret URL is the secret), nor any other word (`secret_value`).
  */
 const NAMES_A_SECRET = new Set(['name', 'names', 'arn', 'arns', 'version', 'versions', 'version id', 'version ids', 'version stage', 'version stages', 'policy', 'policies', 'email', 'length', 'count', 'type', 'description', 'tags', 'rotation', 'rotation enabled', 'rotation rules', 'rotation schedule', 'rotation period', 'rotation interval', 'rotation days', 'expires at', 'created at', 'updated at']);
+/**
+ * Last words that name a secret too, under the rule a run stores as RunMeta.secretNames 2: where it
+ * is kept (`secret_path`, Vault's; `secret_scope`, Databricks'; `secret_namespace`), a reference to it
+ * (`secret_ref`, Kubernetes' `secretKeyRef`), and its id (AWS's `SecretId`). An id signs in as often
+ * as it names (Vault AppRole's `secret_id`): kept, as each of these is, only when it doesn't read as a
+ * key (readsAsKey), as a name, an ARN or a path doesn't, and a UUID does.
+ */
+const NAMES_A_SECRET_TOO = new Set(['path', 'paths', 'ref', 'refs', 'reference', 'scope', 'scopes', 'namespace', 'namespaces', 'key ref', 'id', 'ids']);
 
 /**
- * Whether a name with a secret word in it names or describes the secret rather than holding it: its
- * last word or two are one of NAMES_A_SECRET, or the words after its last secret word say when it was
- * last done something to (`secret_last_rotated_date`).
+ * Which names that name or describe a secret a run's captured calls keep, as RunMeta.secretNames
+ * says (secretNamesOf): 0 none, as a run made before any were kept masked them all; 1 those of
+ * NAMES_A_SECRET (`true`, as runs made before a path, a ref, a scope, a namespace or an id was kept
+ * mark it); 2 those and NAMES_A_SECRET_TOO. Either keeps only a value that doesn't read as a key.
  */
-function namesASecret(words: readonly string[]): boolean {
+export type SecretNamesRule = 0 | 1 | 2;
+
+/** The rule a run stores, as RunMeta.secretNames says it: none, `true` or `2`; one it doesn't know reads as 0, which masks most. */
+export function secretNamesOf(meta: Pick<RunMeta, 'secretNames'> | null | undefined): SecretNamesRule {
+  const kept: unknown = meta?.secretNames;
+  return kept === 2 ? 2 : kept === true ? 1 : 0;
+}
+
+/** RunMeta.secretNames for a run stored under `rule`: none for 0, `true` for 1, `2` for 2. */
+export function secretNamesMeta(rule: SecretNamesRule): Pick<RunMeta, 'secretNames'> {
+  return rule === 0 ? {} : { secretNames: rule === 1 ? true : 2 };
+}
+
+/**
+ * Whether a name with a secret word in it names or describes the secret rather than holding it, under
+ * `rule`: its last word or two are one of NAMES_A_SECRET (or with 2, NAMES_A_SECRET_TOO), or the words
+ * after its last secret word say when it was last done something to (`secret_last_rotated_date`).
+ */
+function namesASecret(words: readonly string[], rule: SecretNamesRule): boolean {
   const n = words.length;
-  if (NAMES_A_SECRET.has(words[n - 1]!) || (n > 1 && NAMES_A_SECRET.has(`${words[n - 2]!} ${words[n - 1]!}`))) return true;
+  const tails = [words[n - 1]!, ...(n > 1 ? [`${words[n - 2]!} ${words[n - 1]!}`] : [])];
+  if (tails.some((tail) => NAMES_A_SECRET.has(tail) || (rule === 2 && NAMES_A_SECRET_TOO.has(tail)))) return true;
   let after = n;
   while (after > 0 && !secretWord(words[after - 1]!)) after--;
   return words[n - 1] === 'date' && words.indexOf('last', after) >= 0;
 }
 
-/**
- * Whether a name that names or describes a secret (namesASecret) keeps its value: false while
- * masking as a recording made before such names were kept masked them (withSecretNames).
- */
-let secretNamesKept = true;
+/** The rule masking reads a name that names or describes a secret by while it runs (withSecretNames); a recording made now keeps 2. */
+let secretNames: SecretNamesRule = 2;
 
 /**
- * What `mask` gives, with every name that names or describes a secret (`secret_name`,
- * `password_policy`) kept as a recording keeps it (`kept`), or masked, as one made before such names
- * were kept masked them all (RunMeta.secretNames): a replay of such a recording reads a live call so
- * to match it. Masking reads no time, so nothing else masks while `mask` runs.
+ * What `mask` gives, with the names that name or describe a secret read under `rule`: as a recording
+ * made now keeps them (2), or as one that RunMeta.secretNames says kept fewer, or none, kept them, so
+ * a replay of it reads a live call as it reads the recording to match it. Masking reads no time, so
+ * nothing else masks while `mask` runs.
  */
-export function withSecretNames<T>(kept: boolean, mask: () => T): T {
-  const was = secretNamesKept;
-  secretNamesKept = kept;
+export function withSecretNames<T>(rule: SecretNamesRule, mask: () => T): T {
+  const was = secretNames;
+  secretNames = rule;
   try {
     return mask();
   } finally {
-    secretNamesKept = was;
+    secretNames = was;
   }
 }
 /**
@@ -146,7 +171,7 @@ export function credentialParam(name: string, value?: string): boolean {
   const before = words.slice(0, -1);
   if (EITHER_NAME.has(joined)) return value === undefined || credentialValue(value);
   if (SECRET_NAME.has(joined) || SECRET_LAST.has(last)) return true;
-  if (words.some(secretWord) && !(value !== undefined && secretNamesKept && namesASecret(words) && !readsAsKey(value))) return true;
+  if (words.some(secretWord) && !(value !== undefined && secretNames > 0 && namesASecret(words, secretNames) && !readsAsKey(value))) return true;
   if (last === 'key' || last === 'keys') return before.some((w) => KEY_OWNER.has(w));
   if (last === 'token') return !before.some((w) => CURSOR.includes(w));
   if (last === 'tokens') return before.some((w) => TOKEN_OWNER.has(w));

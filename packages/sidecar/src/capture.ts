@@ -103,7 +103,7 @@ async function routeHttpCall(core: SidecarCore, req: IncomingMessage, res: Serve
   }
   if (client.gone) return null;
   // A long body is stored on a thread of its own (BodyThreads): the agent can leave meanwhile.
-  // A secret's name is kept, or masked as the run's recording masked them (RunContext.secretNames).
+  // A secret's names are kept, or masked, as the run's rule says (RunContext.secretNames).
   const body = await core.bodies.request(rawBody, req.headers['content-type'], ctx.secretNames);
   if (client.gone) return null;
   // Stored and matched without the credentials in its address: a webhook's secret in its path, its query's (credentialFreeUrl).

@@ -5,7 +5,7 @@
  * (refingerprint); its model calls are read as matching reads them (asMatched, withoutParameters,
  * matchName), and its requests as a divergence report shows them (loadRequest).
  */
-import { apiCallName, fingerprintApi, fingerprintMisc, fingerprintTool, isJudgeCall, judgeRules, loadApiRequest, matchable, matchedAs, messageOf, multipartView, apiNumbers, queryPairs, redactApiPath, redactHeaderValues, reportable, withoutStoredCredentials, withSecretNames, type CallRecord, type Normalizer } from '@shadowlap/engine';
+import { apiCallName, fingerprintApi, fingerprintMisc, fingerprintTool, isJudgeCall, judgeRules, loadApiRequest, matchable, matchedAs, messageOf, multipartView, apiNumbers, queryPairs, redactApiPath, redactHeaderValues, reportable, withoutStoredCredentials, withSecretNames, type SecretNamesRule, type CallRecord, type Normalizer } from '@shadowlap/engine';
 import type { SidecarCore } from './core.js';
 import { allowedHeaders, clockMarks, decodeMarks, encodeMarks, fingerprintKey, rulesId, servesClock, toolRules, type ClockMark, type FingerprintRules } from './fingerprint-cache.js';
 import { identityQuery } from './query.js';
@@ -16,15 +16,14 @@ import { withoutHeaderParameters, type Provider } from './providers.js';
  * normalizers, the times dates are masked against, whether prompts are left out (`--prompt-from`),
  * and whether a request's numbers are read rounded, as a recording made before requests kept their
  * numbers stored them (RunMeta.exactNumbers). A captured call's arguments are read with a secret's
- * name kept (`secretNames`), or masked, as a recording made before such names were kept stored them
- * (RunMeta.secretNames).
+ * names kept, or masked, under the rule the parent stored them by (`secretNames`, RunMeta.secretNames).
  */
 export interface MatchingRules {
   normalizers: Normalizer[];
   clockRef: readonly number[] | undefined;
   withoutPrompt: boolean;
   roundedNumbers: boolean;
-  secretNames: boolean;
+  secretNames: SecretNamesRule;
 }
 
 /**
@@ -191,9 +190,9 @@ export function sentRequest(core: SidecarCore, rec: CallRecord): unknown {
  * A recorded call's request as a divergence report shows it: each number as it was stored, or, for a
  * parent recorded before requests kept their numbers (`rounded`), every model request's number as
  * the double it reads as, the way it was matched. A captured call's arguments read with a secret's
- * name kept, or masked as a parent made before such names were kept masked it (`secretNames`).
+ * names kept, or masked, under the parent's rule (`secretNames`).
  */
-export function loadRequest(core: SidecarCore, rec: CallRecord, rounded = false, secretNames = true): unknown {
+export function loadRequest(core: SidecarCore, rec: CallRecord, rounded = false, secretNames: SecretNamesRule = 2): unknown {
   if (!rec.requestRef) return undefined;
   if (rec.kind === 'api') return rounded ? loadApiRequest(core.store, rec.requestRef) : reportable(loadApiRequest(core.store, rec.requestRef, { exact: true }));
   const req = reportable(core.getJsonExact<{ args?: unknown }>(rec.requestRef)) as { args?: unknown } | null;

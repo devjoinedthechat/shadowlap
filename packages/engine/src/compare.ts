@@ -5,7 +5,7 @@ import { normalizeConversation } from './conversation.js';
 import type { Block } from './deltas.js';
 import { headerDiff, hintsFor, isHeaderEntry, queryDiff, structuralDiff } from './diff.js';
 import { maskGeminiCallIds, queryPairs } from './fingerprint.js';
-import { capturedHttp, withoutStoredCredentials, withSecretNames } from './http.js';
+import { capturedHttp, secretNamesOf, withoutStoredCredentials, withSecretNames, type SecretNamesRule } from './http.js';
 import { pathOf } from './repeat.js';
 import { finalAnswer, normalizeResponse } from './responses.js';
 import { sha256 } from './ids.js';
@@ -193,16 +193,17 @@ export function runChanges(store: StoreOf<'recording'>, a: RunRecord, aCalls: Ca
  * it was sent, an integer past 2^53 by its digits, so two ids a double rounds alike show as the change
  * they are. A model call of a run made before requests kept their numbers (`rounded`,
  * RunMeta.exactNumbers) has every number read as the double it was stored as, on both sides, as
- * matching reads it; a captured call of a run made before a secret's name was kept (`secretNames`
- * false, RunMeta.secretNames) has every such name masked, on both sides, as a replay of it matches.
+ * matching reads it; a captured call of a run that kept fewer of a secret's names, or none
+ * (`secretNames`, RunMeta.secretNames), has its arguments read under that run's rule, on both sides,
+ * as a replay of it matches.
  * A Gemini conversation's made-up call ids are numbered as matching numbers them (maskGeminiCallIds).
  */
-function request(store: StoreOf<'recording'>, c: CallRecord, rounded: boolean, secretNames: boolean): unknown {
+function request(store: StoreOf<'recording'>, c: CallRecord, rounded: boolean, secretNames: SecretNamesRule): unknown {
   if (!c.requestRef) return null;
   if (c.kind === 'api') return maskGeminiCallIds(reportable(loadApiRequest(store, c.requestRef, { exact: !rounded })));
   const bytes = store.getBlob(c.requestRef);
   const req = bytes === null ? null : reportable(parseJsonExact(bytes.toString('utf8')));
-  return !secretNames && capturedHttp(c) && isObject(req) ? { ...req, args: withSecretNames(false, () => withoutStoredCredentials(req.args)) } : req;
+  return secretNames < 2 && capturedHttp(c) && isObject(req) ? { ...req, args: withSecretNames(secretNames, () => withoutStoredCredentials(req.args)) } : req;
 }
 
 /** A model call's answer as the provider's response says it, or null when it can't be read (an error, nothing stored). */
@@ -452,7 +453,8 @@ function requestDifference(store: StoreOf<'recording'>, a: RunRecord, x: CallRec
   if (x.kind !== y.kind || x.name !== y.name) return [{ path: '$', op: 'changed', before: `${x.kind} ${x.name}`, after: `${y.kind} ${y.name}`, what: 'call' }];
   if (x.fingerprint === y.fingerprint || servedFrom(b, y, a, x) || servedFrom(a, x, b, y)) return null;
   const rounded = a.meta?.exactNumbers !== true || b.meta?.exactNumbers !== true;
-  const secretNames = a.meta?.secretNames === true && b.meta?.secretNames === true;
+  // The rule of the run that kept fewer names: the other's are masked as that one's are.
+  const secretNames = Math.min(secretNamesOf(a.meta), secretNamesOf(b.meta)) as SecretNamesRule;
   const qx = request(store, x, rounded, secretNames);
   const qy = request(store, y, rounded, secretNames);
   const diff = [

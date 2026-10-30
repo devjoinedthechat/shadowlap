@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { CREDENTIAL_PLACEHOLDER, credentialFreeBody, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, credentialHeader, credentialParam, maskChallenge, maskJsonCredentials, maskJsonTextCredentials, maskLocation, maskMultipartBytes, maskTextCredentials, rawJsonMember, resultBlob, withoutCredentials, withoutStoredCredentials, withSecretNames } from '../src/http.js';
+import { CREDENTIAL_PLACEHOLDER, credentialFreeBody, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, credentialHeader, credentialParam, maskChallenge, maskJsonCredentials, maskJsonTextCredentials, maskLocation, maskMultipartBytes, maskTextCredentials, rawJsonMember, resultBlob, secretNamesMeta, secretNamesOf, withoutCredentials, withoutStoredCredentials, withSecretNames } from '../src/http.js';
 import { parseMultipart } from '../src/multipart.js';
+import type { RunMeta } from '../src/types.js';
 
 describe('credentialParam: the one list of credential parameters', () => {
   it('names every credential a service takes in a query or a form, in any case', () => {
@@ -81,9 +82,6 @@ describe('a name with a password or secret word in it', () => {
     secret_data: 'EXAMPLE-data-0123',
     secret_text: 'EXAMPLE-text-0123',
     secret_key: 'EXAMPLE-key-0123',
-    // Vault AppRole's secret_id signs in, though AWS's SecretId names a secret: an id is taken for one.
-    secret_id: 'EXAMPLE-0000-1111-2222',
-    SecretId: 'prod/db',
     secrets: 'EXAMPLE-one',
     client_secret: 'EXAMPLE-client-0123',
     new_password: 'EXAMPLE-pw-8901',
@@ -132,6 +130,19 @@ describe('a name with a password or secret word in it', () => {
     secret_updated_at: '2026-10-01T00:00:00Z',
     secret_last_rotated_date: '2026-10-01',
     password_last_changed_date: '2026-09-01',
+    // Where it is kept, a reference to it, and its id: AWS's SecretId names one by its name or its ARN.
+    secret_path: 'kv/data/prod/db',
+    secret_paths: 'kv/data/prod/db',
+    secret_ref: 'db-credentials',
+    secretRef: 'db-credentials',
+    secret_reference: 'db-credentials',
+    secretKeyRef: 'db',
+    secret_key_ref: 'db',
+    secret_scope: 'team-a',
+    secret_namespace: 'prod',
+    SecretId: 'prod/db',
+    secret_id: 'prod/cache',
+    SecretIds: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db-AbCdEf',
   };
   const masked = (names: Record<string, string>) => Object.fromEntries(Object.keys(names).map((k) => [k, C]));
 
@@ -178,16 +189,38 @@ describe('a name with a password or secret word in it', () => {
   });
 
   it('is masked as a recording made before such names were kept masked it, for a replay of one to match it', () => {
-    expect(withSecretNames(false, () => maskJsonCredentials({ ...SECRETS, ...NAMES }))).toEqual({ ...masked(SECRETS), ...masked(NAMES) });
-    expect(withSecretNames(false, () => withoutCredentials('?secret_arn=arn%3Aaws&q=1'))).toBe(`?secret_arn=${C}&q=1`);
-    expect(withSecretNames(false, () => withSecretNames(true, () => credentialParam('secret_name', 'prod/db')))).toBe(false);
+    expect(withSecretNames(0, () => maskJsonCredentials({ ...SECRETS, ...NAMES }))).toEqual({ ...masked(SECRETS), ...masked(NAMES) });
+    expect(withSecretNames(0, () => withoutCredentials('?secret_arn=arn%3Aaws&q=1'))).toBe(`?secret_arn=${C}&q=1`);
+    expect(withSecretNames(0, () => withSecretNames(2, () => credentialParam('secret_name', 'prod/db')))).toBe(false);
     // The rule is as it was once the masking ends, however it ends.
     expect(() =>
-      withSecretNames(false, () => {
+      withSecretNames(0, () => {
         throw new Error('stopped');
       }),
     ).toThrow('stopped');
     expect(credentialParam('secret_name', 'prod/db')).toBe(false);
+  });
+
+  it('keeps an id that reads as a name, an ARN or a path, and masks Vault AppRole’s, a UUID', () => {
+    expect(credentialParam('SecretId', 'prod/db')).toBe(false);
+    expect(credentialParam('SecretId', 'arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db-AbCdEf')).toBe(false);
+    expect(credentialParam('secret_id', 'kv/data/prod/db')).toBe(false);
+    expect(credentialParam('secret_id', '841771dc-11c9-bbc7-bcac-6a3945a69cd9')).toBe(true);
+    expect(maskJsonCredentials({ secret_id: '841771dc-11c9-bbc7-bcac-6a3945a69cd9', SecretId: 'prod/db' })).toEqual({ secret_id: C, SecretId: 'prod/db' });
+  });
+
+  it('reads a run marked true, made before a path, a ref, a scope, a namespace or an id was kept, by its own rule', () => {
+    const too = ['secret_path', 'secret_paths', 'secret_ref', 'secretRef', 'secret_reference', 'secretKeyRef', 'secret_key_ref', 'secret_scope', 'secret_namespace', 'SecretId', 'secret_id', 'SecretIds'];
+    const read = withSecretNames(1, () => maskJsonCredentials(NAMES)) as Record<string, string>;
+    for (const [name, value] of Object.entries(NAMES)) expect(read[name], name).toBe(too.includes(name) ? C : value);
+    // A key under a name it kept is masked under it too.
+    expect(withSecretNames(1, () => credentialParam('secret_name', KEYS.ghp_))).toBe(true);
+  });
+
+  it('says which rule a run kept by its mark, one it doesn’t know read as the rule that masks most', () => {
+    expect([undefined, {}, { secretNames: true as const }, { secretNames: 2 as const }].map((m) => secretNamesOf(m))).toEqual([0, 0, 1, 2]);
+    expect(secretNamesOf({ secretNames: 3 } as unknown as RunMeta)).toBe(0);
+    expect(([0, 1, 2] as const).map((rule) => secretNamesMeta(rule))).toEqual([{}, { secretNames: true }, { secretNames: 2 }]);
   });
 });
 

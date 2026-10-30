@@ -4,7 +4,7 @@
  * agent's processes said along the way. One RunContext per run the sidecar has open; every module
  * that handles a call reads and changes the call's run through it.
  */
-import { judgeRules, type CallEndRow, type CallKind, type CallRecord, type CallStartRow, type Decision, type Effect, type Normalizer, type Origin, type ResolveInput, type RunRecord, type Session } from '@shadowlap/engine';
+import { judgeRules, type SecretNamesRule, type CallEndRow, type CallKind, type CallRecord, type CallStartRow, type Decision, type Effect, type Normalizer, type Origin, type ResolveInput, type RunRecord, type Session } from '@shadowlap/engine';
 import { rulesId } from './fingerprint-cache.js';
 import type { CallPlace, RequestInterventions } from './interventions.js';
 import type { GuardMode, Hello } from './preloads.js';
@@ -140,11 +140,11 @@ export class RunContext {
      */
     readonly headerParameters = true,
     /**
-     * Whether a captured call keeps a name that names or describes a secret as sent (`secret_name`),
-     * as it is matched and stored: not when the parent masked them (RunMeta.secretNames), as one made
-     * before they were kept did, so the live call is masked the same way (withSecretNames).
+     * Which names that name or describe a secret a captured call keeps as sent (`secret_name`,
+     * `SecretId`), as it is matched and stored: the parent's rule (RunMeta.secretNames), so the live
+     * call is read as the parent stored its calls (withSecretNames); a recording made now keeps 2.
      */
-    readonly secretNames = true,
+    readonly secretNames: SecretNamesRule = 2,
   ) {}
 
   /**

@@ -1,4 +1,4 @@
-import { canonicalize, FINGERPRINT_VERSION, maskClock, nearClock, sha256, type ClockReference, type Normalizer } from '@shadowlap/engine';
+import { canonicalize, FINGERPRINT_VERSION, maskClock, nearClock, sha256, type ClockReference, type Normalizer, type SecretNamesRule } from '@shadowlap/engine';
 
 /**
  * Replay start without reading every recorded request again. A replay matches its recording's calls
@@ -30,9 +30,11 @@ import { canonicalize, FINGERPRINT_VERSION, maskClock, nearClock, sha256, type C
  * JWT as a word of its own anywhere in text. 13: but a name that names or describes a secret
  * (`secret_name`, `password_policy`), which keeps its value, unless the run masked them, as one made
  * before did (RunMeta.secretNames), which the key names. 14: but a value under such a name that reads
- * as a key (`secret_name: "ghp_…"`), which is masked.
+ * as a key (`secret_name: "ghp_…"`), which is masked. 15: and a secret's path, ref, scope, namespace and
+ * id, which keep their value too, under the rule a run stores as RunMeta.secretNames 2: the key names
+ * any other rule a run's captured calls were read under.
  */
-const CACHE_VERSION = 14;
+const CACHE_VERSION = 15;
 
 /** How a stored call is fingerprinted, besides its request: everything its cache key names. */
 export type FingerprintRules =
@@ -53,8 +55,8 @@ export type FingerprintRules =
       numbers: 'exact' | 'rounded';
     }
   | { kind: 'judge'; method: string; path: string; matchPath: string | null; headers: Record<string, string>; allow: readonly string[]; rules: string; query: string | null; numbers: 'exact' | 'rounded' }
-  /** `secretNames`: a captured call's arguments read with a secret's name masked, as a run made before such names were kept stored them. */
-  | { kind: 'tool'; name: string; normalizers: string; clock: boolean; captured: boolean; secretNames?: 'masked' };
+  /** `secretNames`: a captured call's arguments read under a rule that keeps fewer of a secret's names than a run made now (SecretNamesRule). */
+  | { kind: 'tool'; name: string; normalizers: string; clock: boolean; captured: boolean; secretNames?: 0 | 1 };
 
 /** A list of rules as a key names it. */
 export function rulesId(rules: readonly Normalizer[]): string {
@@ -63,11 +65,11 @@ export function rulesId(rules: readonly Normalizer[]): string {
 
 /**
  * How a tool call is fingerprinted, as its key names it: its name, its normalizers' id, whether dates
- * are masked, and for a captured call, whether its arguments are read with a secret's name masked
- * (`secretNames` false, RunMeta.secretNames).
+ * are masked, and for a captured call, the rule its arguments are read under when it keeps fewer of a
+ * secret's names than a run made now (`secretNames`, RunMeta.secretNames).
  */
-export function toolRules(name: string, normalizers: string, clock: boolean, captured: boolean, secretNames: boolean): FingerprintRules {
-  return { kind: 'tool', name, normalizers, clock, captured, ...(captured && !secretNames ? { secretNames: 'masked' as const } : {}) };
+export function toolRules(name: string, normalizers: string, clock: boolean, captured: boolean, secretNames: SecretNamesRule): FingerprintRules {
+  return { kind: 'tool', name, normalizers, clock, captured, ...(captured && secretNames !== 2 ? { secretNames } : {}) };
 }
 
 /** The cache key of a stored request's fingerprint under `rules`. */

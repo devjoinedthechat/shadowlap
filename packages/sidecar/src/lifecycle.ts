@@ -5,7 +5,7 @@
  * (endRun), with the summary made from its calls as this process kept them, never read back from
  * the store, and what could not be written said once it is (endWritten).
  */
-import { Session, isJudgeCall, normalizersHash, recordNotRecorded, storedModelResolver, summarizeJudge, summarizeRun, ulidNow, type CallRecord, type JudgeSummary, type Normalizer, type OverrideSources, type ReplayOptions, type RunCommand, type RunMeta, type RunMode, type RunRecord, type RunStatus, type RunSummary } from '@shadowlap/engine';
+import { Session, isJudgeCall, normalizersHash, recordNotRecorded, storedModelResolver, summarizeJudge, summarizeRun, ulidNow, secretNamesMeta, secretNamesOf, type SecretNamesRule, type CallRecord, type JudgeSummary, type Normalizer, type OverrideSources, type ReplayOptions, type RunCommand, type RunMeta, type RunMode, type RunRecord, type RunStatus, type RunSummary } from '@shadowlap/engine';
 import { HttpError } from './answers.js';
 import type { SidecarCore } from './core.js';
 import { describeInterventions, RequestInterventions, type Interventions } from './interventions.js';
@@ -121,7 +121,7 @@ export function startRun(core: SidecarCore, input: StartRunInput): RunRecord {
     // Its model requests are stored with each number as the agent sent it.
     exactNumbers: true,
     ...(headerParameters ? { headerParameters: true } : {}),
-    ...(secretNames ? { secretNames: true } : {}),
+    ...secretNamesMeta(secretNames),
     ...(input.commandFromImport ? { commandFromImport: true } : {}),
     ...(described ? { interventions: described } : {}),
   };
@@ -179,19 +179,19 @@ interface ReplayParent {
    */
   headerParameters: boolean;
   /**
-   * Whether its captured calls kept a secret's name as sent (RunMeta.secretNames): one that masked
-   * them is matched with a live call's masked the same way, and this run masks them too, so its own
-   * replays match the same way.
+   * The rule its captured calls kept a secret's names under (RunMeta.secretNames, secretNamesOf): a
+   * live call is matched with them read under it, and this run keeps them so and is marked so, so its
+   * own replays match the same way.
    */
-  secretNames: boolean;
+  secretNames: SecretNamesRule;
 }
 
 /**
  * What a run is matched and kept under: its parent's normalizers, redactions and rules for a replay
- * (ReplayParent); a recording's own otherwise, which keeps its header parameters and a secret's name.
+ * (ReplayParent); a recording's own otherwise, which keeps its header parameters and a secret's names.
  */
 function rulesOf(core: SidecarCore, parent: ReplayParent | undefined): Pick<ReplayParent, 'normalizers' | 'redactions' | 'roundedNumbers' | 'headerParameters' | 'secretNames'> {
-  return parent ?? { normalizers: core.normalizers, redactions: [], roundedNumbers: false, headerParameters: true, secretNames: true };
+  return parent ?? { normalizers: core.normalizers, redactions: [], roundedNumbers: false, headerParameters: true, secretNames: 2 };
 }
 
 /**
@@ -211,7 +211,7 @@ function replayParent(core: SidecarCore, input: StartRunInput, startedAt: number
   const kept = core.store.getCalls(input.parentRunId);
   const stored = headerParameters ? kept : kept.map((c) => withoutParameters(core, c));
   const roundedNumbers = parent.meta?.exactNumbers !== true;
-  const secretNames = parent.meta?.secretNames === true;
+  const secretNames = secretNamesOf(parent.meta);
   if (input.replay?.promptFrom !== undefined) {
     const target = stored.find((c) => c.callNo === input.replay!.promptFrom);
     if (!target || target.kind !== 'api' || isJudgeCall(target)) throw new HttpError(400, `--prompt-from: call #${input.replay.promptFrom} is not a model call of run ${input.parentRunId}${target && isJudgeCall(target) ? ' (it is a judge check\'s)' : ''}`);
@@ -278,7 +278,7 @@ export function openForJudge(core: SidecarCore, runId: string): void {
   const clockRef = core.clock !== 'auto' ? undefined : parent ? [parent.startedAt, run.startedAt] : [run.startedAt];
   const roundedNumbers = parent !== null && parent.meta?.exactNumbers !== true;
   // A judge's calls are model calls: a captured call's rule for a secret's name reaches none of them.
-  const recorded = parent ? refingerprint(core, core.store.getCalls(parent.runId).filter(isJudgeCall), { normalizers, clockRef, withoutPrompt: false, roundedNumbers, secretNames: true, redactions }).calls : [];
+  const recorded = parent ? refingerprint(core, core.store.getCalls(parent.runId).filter(isJudgeCall), { normalizers, clockRef, withoutPrompt: false, roundedNumbers, secretNames: 2, redactions }).calls : [];
   const session = new Session({ mode: parent ? 'replay' : 'record', parentRunId: parent?.runId ?? null, parentCalls: recorded });
   const ctx = new RunContext(run, session, null, normalizers, false, null, clockRef, false, redactions, undefined, undefined, roundedNumbers);
   ctx.nextCallNo = core.store.getCalls(runId).reduce((n, c) => Math.max(n, c.callNo), 0) + 1;

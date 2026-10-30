@@ -246,12 +246,14 @@ export interface RunMeta {
   /**
    * The run's captured calls keep a member, parameter or element whose name names or describes a
    * secret as sent (`secret_name`, `SecretArn`, `password_policy`: the engine's credentialParam), but
-   * for a value that reads as a key. A run without it, made before they were kept, stored each as
-   * `<CREDENTIAL>`: a replay of it is matched, and kept, with them masked the same way
-   * (withSecretNames), so its own replays match so too. One made before the value was read kept a key
-   * there too: a replay masks it, on both sides, as it masks any.
+   * for a value that reads as a key: `2`, and its path, ref, scope, namespace or id too (`secret_path`,
+   * `secretKeyRef`, AWS's `SecretId`); `true`, a run made before those were kept, which stored them as
+   * `<CREDENTIAL>` (SecretNamesRule 1). A run without it, made before any were kept, stored each as
+   * `<CREDENTIAL>`. A replay of either is matched, and kept, with them masked the same way
+   * (withSecretNames) and the same mark, so its own replays match so too. One made before a value was
+   * read kept a key there too: a replay masks it, on both sides, as it masks any.
    */
-  secretNames?: true;
+  secretNames?: true | 2;
   /**
    * Set by `unpack` and `pull`: the run came from a pack or the team store, so its recorded command
    * is someone else's. `from`: the pack's folder, or the store's URL (`s3://…`, `gs://…`, `az://…`,
