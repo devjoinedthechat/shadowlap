@@ -489,15 +489,15 @@ describe('read models on threads beside the server', () => {
   });
 
   it('gives a request that reads long runs longer, in step with their calls, and one that reads short runs its time', async () => {
-    // Threads that take 600 ms over a comparison: past the time a request is given here, but within
-    // what a pair of runs of 2,500 calls is given.
-    const { pool: two, said } = timedPool({ compare: 600 }, 'long-pair');
+    // Threads that take 2 s over a comparison: far past the time a request is given here, and well
+    // within what a pair of runs of 20,000 calls is given (6 s).
+    const { pool: two, said } = timedPool({ compare: 2000 }, 'long-pair');
     const was = { jobMs: READ_LIMITS.jobMs, jobCalls: READ_LIMITS.jobCalls };
     READ_LIMITS.jobMs = 300;
     READ_LIMITS.jobCalls = 1000;
     try {
       for (let i = 0; i < 400 && !two.warmed; i++) await new Promise((r) => setTimeout(r, 10));
-      expect(said(await two.run({ kind: 'compare', a: 'A', b: 'B', cwd: null }, { calls: 2500 })).kind).toBe('compare');
+      expect(said(await two.run({ kind: 'compare', a: 'A', b: 'B', cwd: null }, { calls: 20_000 })).kind).toBe('compare');
       await expect(two.run({ kind: 'compare', a: 'C', b: 'D', cwd: null }, { calls: 500 })).rejects.toMatchObject({ status: 503, message: 'a compare job took more than 0.3 s, so it was stopped' });
     } finally {
       Object.assign(READ_LIMITS, was);
