@@ -3932,6 +3932,317 @@ store), the names of the files a LiteLLM run was put together from, or `langfuse
 When nothing could be imported, `runs` is empty, and the exit code is 1. Started from the dashboard, the
 command also reports each run to the job that started it.
 
+## export html
+
+```sh
+shadowlap export html <run>                    # shadowlap-01m2p15fwy.html
+shadowlap export html <run> run.html --lineage # with the run's ancestors, so they compare inside the file
+shadowlap export html <run> --no-redact        # skip the config's redaction rules
+```
+
+One HTML file with the dashboard's views and the run's data built into it: calls, conversations,
+responses, the divergence diff, the context and timeline views, and comparison between the runs it
+holds.
+
+- It opens from a file, an artifact or a pull request comment, on a machine that has neither Shadowlap
+  nor the recording, and it loads nothing from the network.
+- Actions, live updates and search across runs belong to the dashboard, not to a copy.
+- Like a pack, it leaves out who made each run.
+- Without a file named, it writes `shadowlap-<run>.html`.
+
+| Flag          | What it does                                                                    | Default |
+| ------------- | ------------------------------------------------------------------------------- | ------- |
+| `--lineage`   | Include the run's ancestors, so its recording and forks compare inside the file | —       |
+| `--no-redact` | Skip the redaction rules in `shadowlap.config.json`                             | —       |
+
+It is a copy of recorded data, so the redaction rules in `shadowlap.config.json` apply, as they do to
+`pack`. The command says how many applied, that there were none, or, with `--no-redact`, how many it
+skipped.
+
+A run still recording is refused, exit status 2: every export waits for a run to end, or the copy would
+show it recording for good. With `--lineage`, so is a run whose ancestor is still recording.
+
+A 30-call run comes to about 1.2 MB, most of it the dashboard's own code, styles and fonts, which every
+copy carries.
+
+## export dataset
+
+```sh
+shadowlap export dataset --label good --out good.jsonl
+shadowlap export dataset <run...> --calls model --format openai-chat
+```
+
+Recordings as an eval or fine-tuning dataset, one JSON line per example. Select runs by id, by
+`--label` or with `--all`.
+
+| Flag                   | What it does                                                             | Default |
+| ---------------------- | ------------------------------------------------------------------------ | ------- |
+| `--label <label>`      | Select the runs with this label (repeatable: all of them)                | —       |
+| `--all`                | Select every run in the store                                            | —       |
+| `--calls final`        | One example per run: its last model call                                 | Default |
+| `--calls model`        | One example per model call                                               | —       |
+| `--format jsonl`       | `{ input: { messages, tools }, output: { text, tool_calls }, metadata }` | Default |
+| `--format braintrust`  | `{ input, expected, metadata }`                                          | —       |
+| `--format langfuse`    | `{ input, expectedOutput, metadata }`                                    | —       |
+| `--format openai-chat` | `{ messages }`, the recorded answer as the last assistant message        | —       |
+| `--out <file>`         | Write here instead of stdout                                             | stdout  |
+| `--no-redact`          | Skip the redaction rules                                                 | —       |
+
+A run named that is still recording is refused, exit status 2. One picked by `--label` or `--all` is
+left for a later export, and the command says how many.
+
+- **Messages** are the conversation exactly as the model saw it, in a provider-neutral shape: system,
+  user, assistant (with its tool calls and their ids) and tool results, whichever provider recorded it.
+- **`metadata`** carries the run and call, the model, labels, notes, outcome check results, the
+  command, code version and fork point.
+
+**Redaction.** The redaction rules apply to each model call's request and response as `pack` applies
+them, path rules included, before its conversation and answer are read. Then the rules without a path
+apply to every string of the row, its command line, labels and notes too. A rule that can't be read
+stops the export. The command says how many rules applied, that there were none, or, with
+`--no-redact`, how many it skipped.
+
+## export pairs
+
+```sh
+shadowlap export pairs --out pairs.jsonl
+shadowlap export pairs --min-confidence medium --format trl --out pairs.jsonl
+```
+
+Preference pairs read from the attempts blame, verify and `--repeat` left in the store, one JSON line
+per pair. Each pair is the conversation as the model saw it at a call, in the messages
+`export dataset` writes, an answer to prefer and one to avoid. [Training](./training.md) explains where
+pairs come from, and what high and medium mean.
+
+| Flag                         | What it does                                                             | Default |
+| ---------------------------- | ------------------------------------------------------------------------ | ------- |
+| `--min-confidence high`      | Answers blame proved decided the run                                     | Default |
+| `--min-confidence medium`    | Also where a failing and a passing attempt first answered differently    | —       |
+| `--format openai-preference` | `{ input: { messages, tools }, preferred_output, non_preferred_output }` | Default |
+| `--format trl`               | `{ prompt, chosen, rejected }` as chat messages, with `tools`            | —       |
+| `--out <file>`               | Write here instead of stdout                                             | stdout  |
+| `--no-redact`                | Skip the redaction rules (below)                                         | —       |
+
+It prints every source it read (including those that made no pairs, and why), the count and how many
+were left out, the shape, the redaction line and the file.
+
+- **What left the machine**: each export is kept in the store as what left the machine.
+- **No pair**: when no pair is at the confidence asked for, nothing is written, and a file already there
+  is left as it was.
+- **Redaction**: the rules apply to the copy, rules without a path to every string, and rules with a
+  path to the message fields kept. `--no-redact` skips them.
+
+## export har
+
+```sh
+shadowlap export har <run>                 # HAR to stdout
+shadowlap export har <run> traffic.har
+shadowlap export har <run> --no-redact     # skip the config's redaction rules
+```
+
+A run's model API calls as a HAR, for any tool that reads one, and the reverse of [`import`](#import):
+exporting a run and importing it again produces the same fingerprints.
+
+- Tool, clock and randomness calls are left out, because a HAR describes HTTP.
+- Azure, Vertex and Bedrock hosts depend on the account, so a representative host for the provider
+  stands in.
+- Credentials are never written.
+- Without a file named, it writes the HAR to stdout.
+
+| Flag          | What it does                                        | Default |
+| ------------- | --------------------------------------------------- | ------- |
+| `--no-redact` | Skip the redaction rules in `shadowlap.config.json` | —       |
+
+**Redaction.** A HAR carries full requests and responses, so the redaction rules in
+`shadowlap.config.json` apply, as they do to `export html`:
+
+- every rule to the request bodies, and to a response that is JSON: rules with a path included, since a
+  HAR is only read;
+- the rules without a path to the URL, the headers and every response, streamed or not.
+
+A model streams its text in pieces, so an address it writes back arrives split across events. Each run
+of pieces (a block's text, a tool call's arguments) is masked as the text it adds up to, and the masked
+text is spread back over the same events. The rules are named in the log (`_shadowlap.redactions`).
+`--no-redact` skips them; the command says when there are none to apply, and how many it skipped.
+
+A run still recording is refused, exit status 2, as by every export.
+
+## export otel
+
+```sh
+shadowlap export otel <run>                                   # OTLP JSON to stdout
+shadowlap export otel <run> --out trace.json                  # a file only, even with OTEL_EXPORTER_OTLP_ENDPOINT set
+shadowlap export otel <run> --endpoint http://localhost:4318  # or OTEL_EXPORTER_OTLP_ENDPOINT
+shadowlap export otel <run> --no-redact                       # skip the config's redaction rules
+shadowlap export otel <run> --service refund-agent            # service.name, default shadowlap-agent
+```
+
+A run as one OpenTelemetry trace: a span for the run, and a child span per call. No OpenTelemetry SDK is
+involved.
+
+- It uses the GenAI semantic conventions (`gen_ai.operation.name`, `gen_ai.system`,
+  `gen_ai.request.model`, `gen_ai.usage.*`, `gen_ai.response.finish_reasons`, `gen_ai.tool.name`), plus
+  `shadowlap.*` attributes for the origin, effect, fingerprint and cost.
+- Trace and span ids are derived from the run id, so exporting twice updates the same trace.
+- Headers for an authenticated collector come from `OTEL_EXPORTER_OTLP_HEADERS`
+  (`key=value,key2=value2`).
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--out <file>` | Write the trace to this file, and send it nowhere else unless `--endpoint` is given too | stdout |
+| `--endpoint <url>` | The OTLP/HTTP endpoint, such as `http://localhost:4318` | `OTEL_EXPORTER_OTLP_ENDPOINT`, unless `--out` is given |
+| `--service <name>` | The `service.name` resource attribute | `shadowlap-agent` |
+| `--no-redact` | Skip the redaction rules in `shadowlap.config.json` | — |
+
+With `--out`, the trace goes to that file and nowhere else unless `--endpoint` is given too. Without
+either, it goes to `OTEL_EXPORTER_OTLP_ENDPOINT` when that is set, else to stdout.
+
+A collector that doesn't answer stops it with exit status 1, and says where the trace went and why
+(`connection refused (ECONNREFUSED)`, `no such host (ENOTFOUND)`). A file asked for with `--out` is
+written first.
+
+**Redaction.** A trace carries no prompt text, tool arguments or results. The redaction rules without a
+path apply to what it does carry from the run:
+
+- span names;
+- the command line (`process.command_args`), masked as one text, as every copy masks it, and before the
+  run's span is named after its first 200 characters;
+- model and tool names;
+- error messages.
+
+Shadowlap's own ids and fixed values stay as they are, and the command says how many rules applied. A
+rule that can't be read stops the export. A run still recording is refused, exit status 2, as by every
+export.
+
+## rm, gc
+
+```sh
+shadowlap rm <run...> [--forks]
+shadowlap gc [--older-than <days> | --before <time>] [--keep <n>] [--expect <count>-<digest>] [--dry-run] [--json]
+```
+
+`rm` deletes runs. `gc` deletes old runs, removes blobs nothing references any more, and vacuums the
+store. The TUI's `x` does the same as `rm` for one run.
+
+```sh
+shadowlap gc --older-than 30 --dry-run
+```
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--forks` | `rm`: also delete the forks of each run, recursively | — |
+| `--older-than <days>` | `gc`: delete runs that started more than this many days ago, such as `--older-than 30` | — |
+| `--before <time>` | `gc`: delete runs that started before this time: the cutoff a dry run prints (epoch milliseconds), or a date (`2026-09-01`) | — |
+| `--keep <n>` | `gc`: keep only the newest *n* runs, such as `--keep 200` (below) | — |
+| `--expect <count>-<digest>` | `gc`: delete only the runs a dry run listed ([below](#deleting-what-a-dry-run-listed)) | — |
+| `--dry-run` | `gc`: change nothing, and say what a real run would free | — |
+| `--json` | `gc`: print the report as JSON (below) | — |
+
+**What `rm` deletes.** `rm` deletes runs as the dashboard deletes them, each with the attempts bundled
+under it: `--repeat`, blame's probes, verify's attempts, a golden's repeats in one test session, an
+error-path preset's attempts, and theirs in turn. So none is left behind as a run of its own. Their forks
+keep their data, but lose the link.
+
+It leaves these, with the reason, as the dashboard leaves them, and then exits 1:
+
+- a run still recording;
+- one a run in progress replays from (a replay, fork or attempt of it serves its answers from it);
+- one with an attempt still running.
+
+**What `gc` deletes.** `gc` deletes old runs, each with the attempts bundled under it, however recent,
+as `rm` takes them. Runs are counted as the lists count them, so `--keep 200` keeps the newest 200 runs,
+each attempt counted with the run it came from. Runs still recording are never touched. One a run in
+progress replays from, or with an attempt still running, is left, with the reason, as `rm` leaves it.
+It then removes blobs nothing references any more, and vacuums the store.
+
+**While a run is recording**, in this project's store and from any process, no blob is collected and
+the store isn't vacuumed. A recording stores a blob just before the call that references it, and reuses a
+blob already stored, so a blob that looks unreferenced may be one it is about to use. `gc` still deletes
+the old runs, says which runs are recording, and frees their blobs on a later run. `rm` collects blobs
+under the same rule.
+
+**Abandoned runs.** A run whose recording process was killed (`kill -9`, out of memory, a machine that
+went away) stays marked running. But it isn't recording, and it holds nothing up. The store names the
+process that records each run until the run ends:
+
+- a run whose process is gone from this machine is abandoned at once;
+- one whose process can't be asked (it ran on another machine) is abandoned after a day without a call;
+- one whose process is still there is abandoned after a week without one.
+
+`gc` lists abandoned runs, marks them interrupted as of the last thing they recorded, and deletes them
+like any other run when they match `--older-than` or `--keep`. Until then, every copy of such a run
+holds it that way: `pack`, `export html`, `export otel` and `share` write it interrupted, ended at its
+last call (a teammate who unpacks it never sees it recording). `bisect` takes it so, leaving the store
+as it is.
+
+### A dry run
+
+`--dry-run` changes nothing, and says what a real run would free:
+
+```text
+▸ runs older than 30 days: 3 of 120 · runs still recording are never touched
+    01M2R1HDVD  record  completed  41d ago  node agent.js
+    …
+  blobs nothing would reference: 14 · 2.1 MB
+✓ dry run: would delete 3 runs and free 2.1 MB. To delete exactly these runs: shadowlap gc --before 1757000000000 --expect 3-9c1f0e2a6b7d4c5e
+```
+
+The size is what those blobs take in the store. When no run matches, it says what a plain
+`shadowlap gc` would give back instead, with no command that deletes runs: blobs nothing references, and
+unused space of 1 MB or more that deleted runs left in the store.
+
+```text
+▸ runs older than 30 days: none · runs still recording are never touched
+  blobs nothing would reference: 14 · 2.1 MB
+  unused space in the store: 51.4 MB
+✓ dry run: no runs to delete; would give back 2.1 MB of blobs nothing references and 51.4 MB of unused space. To do that: shadowlap gc
+```
+
+While a run is recording, gc gives none of it back, so the dry run says it can be given back once no
+run is recording:
+`✓ dry run: no runs to delete; 51.4 MB of unused space can be given back with shadowlap gc once no run is recording.`
+
+In a project that has never recorded, `gc` reports nothing to clean, and creates no store.
+
+### Deleting what a dry run listed
+
+To delete exactly what a dry run listed, pass its cutoff and its `expect` back:
+
+```sh
+shadowlap gc --before <cutoff> --expect <count>-<digest>
+```
+
+That names those runs: how many, and a digest of their ids and their attempts'. It refuses, deleting
+nothing and with exit status 2, when the runs that match are different, even the same number of others,
+or have other attempts under them. `--before` also takes a date (`2026-09-01`).
+
+### `gc` as JSON
+
+`--json` prints the same report. A real run is recorded in the project's activity as `runs.cleaned`.
+
+| Field                             | Meaning                                                                      |
+| --------------------------------- | ---------------------------------------------------------------------------- |
+| `dryRun`, `olderThanDays`, `keep` | The run's options                                                            |
+| `cutoff`                          | Runs that started before it go, in epoch milliseconds                        |
+| `total`                           | The runs in the store before, as the lists count them                        |
+| `count`                           | How many runs it deletes, or would                                           |
+| `attempts`                        | The attempts bundled under them, which go with them                          |
+| `runs`                            | The first 100 of those runs                                                  |
+| `expect`                          | The value to pass back to `--expect`                                         |
+| `blobs`, `bytes`                  | The blobs, and the bytes, freed                                              |
+| `recording`, `recordingCount`     | The runs still recording: the first 100, and how many                        |
+| `abandoned`, `abandonedCount`     | The abandoned runs: the first 100, and how many                              |
+| `held`, `heldCount`               | The matching runs held, each with `why` (below): the first 100, and how many |
+| `deferred`                        | Whether blobs were deferred because of a recording                           |
+| `store`                           | The store (below)                                                            |
+
+A run is held because a run in progress replays from it, or an attempt of it is still running.
+
+`store` has its `path`, its size `before`, its unused space `free` (which vacuuming gives back), and,
+after a real run, `after`. The lists stop at 100, so the report stays small however many runs a
+clean-up deletes. The store's size counts the database's pages, whatever its write-ahead log holds, so
+another process holding the store open (a dashboard) doesn't make a cleanup look like growth.
+
 ## tasks
 
 ```sh
@@ -4002,132 +4313,6 @@ written for a newer version still works, while the schema rejects it — which i
 `"normalise"` from a rule that silently never applies into an error you see as you type.
 
 `shadowlap doctor` checks the file too, and reports every rule, price and effect it parsed.
-
-## rm, gc
-
-```sh
-shadowlap rm <run...> [--forks]
-shadowlap gc [--older-than <days> | --before <time>] [--keep <n>] [--expect <count>-<digest>] [--dry-run] [--json]
-```
-
-`rm` deletes runs, each with the attempts bundled under it (`--repeat`, blame's probes, verify's attempts, a golden's repeats in one test session, an error-path preset's attempts, and theirs in turn), as the dashboard deletes them, so none is left behind as a run of its own; their forks keep their data but lose the link. A run still recording, one a run in progress replays from (a replay, fork or attempt of it serves its answers from it), and one with an attempt still running, is left, with the reason, as the dashboard leaves it, and `rm` then exits 1. `gc` deletes old runs (`--older-than 30`, `--keep 200`), each with the attempts bundled under it, however new, as `rm` takes them; runs are counted as the lists count them, so `--keep 200` keeps the newest 200 runs, each attempt counted with the run it came from. Runs still recording are never touched, and one a run in progress replays from, or with an attempt still running, is left, with the reason, as `rm` leaves it. It then removes blobs nothing references any more, and vacuums the store. The TUI's `x` does the same as `rm` for one run.
-
-While any run is still recording, in this project's store and from any process, no blob is collected and the store isn't vacuumed: a recording stores a blob just before the call that references it, and reuses a blob already stored, so a blob that looks unreferenced may be one it is about to use. `gc` still deletes the old runs, says which runs are recording, and frees their blobs on a later run. `rm` collects blobs under the same rule.
-
-A run whose recording process was killed (`kill -9`, out of memory, a machine that went away) stays marked running, but it isn't recording, and it holds nothing up. The store names the process that records each run until the run ends: a run whose process is gone from this machine is abandoned at once; one whose process can't be asked (it ran on another machine) is abandoned after a day without a call, and one whose process is still there after a week without one. `gc` lists abandoned runs, marks them interrupted as of the last thing they recorded, and deletes them like any other run when they match `--older-than` or `--keep`. Until then every copy of such a run holds it that way: `pack`, `export html`, `export otel` and `share` write it interrupted, ended at its last call (a teammate who unpacks it never sees it recording), and `bisect` takes it so, leaving the store as it is.
-
-`--dry-run` changes nothing and says what a real run would free:
-
-```
-▸ runs older than 30 days: 3 of 120 · runs still recording are never touched
-    01M2R1HDVD  record  completed  41d ago  node agent.js
-    …
-  blobs nothing would reference: 14 · 2.1 MB
-✓ dry run: would delete 3 runs and free 2.1 MB. To delete exactly these runs: shadowlap gc --before 1757000000000 --expect 3-9c1f0e2a6b7d4c5e
-```
-
-The size is what those blobs take in the store. When no run matches, it says what a plain `shadowlap gc` would give back instead (blobs nothing references, and unused space of 1 MB or more that deleted runs left in the store), with no command that deletes runs:
-
-```
-▸ runs older than 30 days: none · runs still recording are never touched
-  blobs nothing would reference: 14 · 2.1 MB
-  unused space in the store: 51.4 MB
-✓ dry run: no runs to delete; would give back 2.1 MB of blobs nothing references and 51.4 MB of unused space. To do that: shadowlap gc
-```
-
-While a run is recording, gc gives none of it back, so the dry run says it can be given back once no run is recording: `✓ dry run: no runs to delete; 51.4 MB of unused space can be given back with shadowlap gc once no run is recording.`
-
-`--json` prints the same report: `dryRun`, `olderThanDays`, `keep`, the `cutoff` (runs that started before it go, in epoch milliseconds), `total` runs, how many runs it deletes (`count`, or would), the `attempts` bundled under them that go with them, and the first 100 runs (`runs`), `expect`, `blobs` and `bytes` freed, the runs still `recording`, the `abandoned` ones and the matching runs `held` because a run in progress replays from them or an attempt of them is still running (each with `why`) (the first 100 of each, with `recordingCount`, `abandonedCount` and `heldCount`), whether blobs were `deferred` because of a recording, and the `store`: its `path`, its size `before`, its unused space `free` (which vacuuming gives back), and, after a real run, `after`. The lists stop at 100 so the report stays small however many runs a clean-up deletes. The store's size counts the database's pages whatever its write-ahead log holds, so another process holding the store open (a dashboard) doesn't make a cleanup look like growth. A real run is recorded in the project's activity as `runs.cleaned`.
-
-To delete exactly what a dry run listed, pass its cutoff and its `expect` back: `shadowlap gc --before <cutoff> --expect <count>-<digest>` names those runs (how many, and a digest of their ids and their attempts'), and refuses, deleting nothing and with exit status 2, when the runs that match now are different, even the same number of others, or have other attempts under them. `--before` also takes a date (`2026-09-01`). In a project that has never recorded, `gc` reports nothing to clean and creates no store.
-
-## export html
-
-```sh
-shadowlap export html <run>                    # shadowlap-01m2p15fwy.html
-shadowlap export html <run> run.html --lineage # with the run's ancestors, so they compare inside the file
-shadowlap export html <run> --no-redact        # skip the config's redaction rules
-```
-
-One HTML file with the dashboard's views and the run's data built into it: calls, conversations, responses, the divergence diff, the context and timeline views, and comparison between the runs it holds. It opens from a file, an artifact or a pull request comment, on a machine that has neither Shadowlap nor the recording, and it loads nothing from the network. Actions, live updates and search across runs belong to the dashboard, not to a copy.
-
-It is a copy of recorded data: the redaction rules in `shadowlap.config.json` apply, as they do to `pack`, and the command says how many applied, that there were none, or, with `--no-redact`, how many it skipped. A run still recording is refused, exit status 2 (every export waits for a run to end, or the copy would show it recording for good); with `--lineage`, so is a run whose ancestor is still recording. Like a pack, it leaves out who made each run. A 30-call run comes to about 1.2 MB, most of it the dashboard's own code, styles and fonts, which every copy carries.
-
-## export dataset
-
-```sh
-shadowlap export dataset --label good --out good.jsonl
-shadowlap export dataset <run...> --calls model --format openai-chat
-```
-
-Recordings as an eval or fine-tuning dataset, one JSON line per example. Select runs by id, by `--label` (repeatable: all of them) or `--all`. A run named that is still recording is refused, exit status 2; one picked by `--label` or `--all` is left for a later export, and the command says how many.
-
-| Option | Effect |
-|---|---|
-| `--calls final` (default) | One example per run: its last model call |
-| `--calls model` | One example per model call |
-| `--format jsonl` (default) | `{ input: { messages, tools }, output: { text, tool_calls }, metadata }` |
-| `--format braintrust` | `{ input, expected, metadata }` |
-| `--format langfuse` | `{ input, expectedOutput, metadata }` |
-| `--format openai-chat` | `{ messages }`, the recorded answer as the last assistant message |
-| `--no-redact` | Skip the redaction rules |
-
-Messages are the conversation exactly as the model saw it, in a provider-neutral shape: system, user, assistant (with its tool calls and their ids) and tool results, whichever provider recorded it. `metadata` carries the run and call, the model, labels, notes, outcome check results, the command, code version and fork point. The redaction rules apply to each model call's request and response as `pack` applies them, path rules included, before its conversation and answer are read; then the rules without a path apply to every string of the row, its command line, labels and notes too. A rule that can't be read stops the export. The command says how many rules applied, that there were none, or, with `--no-redact`, how many it skipped.
-
-## export pairs
-
-```sh
-shadowlap export pairs --out pairs.jsonl
-shadowlap export pairs --min-confidence medium --format trl --out pairs.jsonl
-```
-
-Preference pairs read from the attempts blame, verify and `--repeat` left in the store, one JSON line per pair: the conversation as the model saw it at a call, in the messages `export dataset` writes, an answer to prefer and one to avoid. It prints every source it read (including those that made no pairs, and why), the count and how many were left out, the shape, the redaction line and the file. Each export is kept in the store as what left the machine; when no pair is at the confidence asked for, nothing is written and a file already there is left as it was. [Training](./training.md) explains where pairs come from and what high and medium mean.
-
-| Option | Effect |
-|---|---|
-| `--min-confidence high` (default) | Answers blame proved decided the run |
-| `--min-confidence medium` | Also where a failing and a passing attempt first answered differently |
-| `--format openai-preference` (default) | `{ input: { messages, tools }, preferred_output, non_preferred_output }` |
-| `--format trl` | `{ prompt, chosen, rejected }` as chat messages, with `tools` |
-| `--out <file>` | Write here instead of stdout |
-| `--no-redact` | Skip the redaction rules, which otherwise apply to the copy: rules without a path to every string, rules with a path to the message fields kept |
-
-## export har
-
-```sh
-shadowlap export har <run>                 # HAR to stdout
-shadowlap export har <run> traffic.har
-shadowlap export har <run> --no-redact     # skip the config's redaction rules
-```
-
-A run's model API calls as a HAR, for any tool that reads one, and the reverse of
-[`import`](#import): exporting a run and importing it again produces the same
-fingerprints. Tool, clock and randomness calls are left out, because a HAR describes HTTP. Azure,
-Vertex and Bedrock hosts depend on the account, so a representative host for the provider stands in.
-Credentials are never written.
-
-A HAR carries full requests and responses, so the redaction rules in `shadowlap.config.json` apply,
-as they do to `export html`: every rule to the request bodies and to a response that is JSON
-(rules with a path included, since a HAR is only read), and the rules without a path to the URL,
-the headers and every response, streamed or not.
-A model streams its text in pieces, so an address it writes back arrives split across events; each
-run of pieces (a block's text, a tool call's arguments) is masked as the text it adds up to, and the
-masked text is spread back over the same events. The rules are named in the log
-(`_shadowlap.redactions`). `--no-redact` skips them; the command says when there are none to apply, and how many it skipped. A run still recording is refused, exit status 2, as by every export.
-
-## export otel
-
-```sh
-shadowlap export otel <run>                                   # OTLP JSON to stdout
-shadowlap export otel <run> --out trace.json                  # a file only, even with OTEL_EXPORTER_OTLP_ENDPOINT set
-shadowlap export otel <run> --endpoint http://localhost:4318  # or OTEL_EXPORTER_OTLP_ENDPOINT
-shadowlap export otel <run> --no-redact                       # skip the config's redaction rules
-shadowlap export otel <run> --service refund-agent            # service.name, default shadowlap-agent
-```
-
-A run as one OpenTelemetry trace: a span for the run and a child span per call, using the GenAI semantic conventions (`gen_ai.operation.name`, `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.*`, `gen_ai.response.finish_reasons`, `gen_ai.tool.name`) plus `shadowlap.*` attributes for the origin, effect, fingerprint and cost. Trace and span ids are derived from the run id, so exporting twice updates the same trace. Headers for an authenticated collector come from `OTEL_EXPORTER_OTLP_HEADERS` (`key=value,key2=value2`). No OpenTelemetry SDK is involved. With `--out` the trace goes to that file and nowhere else unless `--endpoint` is given too; without either, it goes to `OTEL_EXPORTER_OTLP_ENDPOINT` when that is set, else to stdout. A collector that doesn't answer stops it with exit status 1 and says where the trace went and why (`connection refused (ECONNREFUSED)`, `no such host (ENOTFOUND)`); a file asked for with `--out` is written first.
-
-A trace carries no prompt text, tool arguments or results. The redaction rules without a path apply to what it does carry from the run: span names, the command line (`process.command_args`, masked as one text as every copy masks it, and before the run's span is named after its first 200 characters), model and tool names, and error messages; Shadowlap's own ids and fixed values stay as they are, and the command says how many rules applied. A rule that can't be read stops the export. A run still recording is refused, exit status 2, as by every export.
 
 ## push, pull
 
