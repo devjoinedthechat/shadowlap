@@ -4659,43 +4659,100 @@ it opens there too. `on` turns it back on.
 ```
 
 | Key | What it does |
-|---|---|
+| --- | --- |
 | `normalize` | Masks values before fingerprinting, so an id the agent makes on every run does not fork a replay ([details](./normalizers-and-redaction.md)) |
-| `redact` | Masks stored content in every export, pack and share link of a run ([where](./normalizers-and-redaction.md#where-the-rules-apply)); a redacted pack still replays, and a push copies runs to the team store as recorded |
+| `redact` | Masks stored content in every export, pack and share link of a run (below) |
 | `clock` | `auto` (default) matches dates near each run's start across days; `exact` requires equality |
 | `http` | Hosts called straight from a client library, recorded as tool calls with an effect ([details](./sdk.md#http-services-without-wrapping)) |
 | `mcp.effects` | Effects by MCP tool name, overriding the server's annotations ([details](./mcp.md)) |
-| `tools` | `trust` by tool name (or a host under `http`): `untrusted` for a read that brings outside text in, where [`shadowlap injection`](./injection.md) plants payloads. Recorded on each call of the tool as it is made, and, read when a run is tested, it wins over every recorded mark (the SDK's, an MCP server's, an earlier config's). `unrecorded` maps the tools the agent runs without Shadowlap recording them to `read` or `write`, which decides whether every command that replays a run may run them again ([details](./how-it-works.md#tools-shadowlap-did-not-record)) |
+| `tools` | `trust` by tool name, and `unrecorded` (below) |
 | `prices` | USD per million tokens by model prefix, for cost estimates |
-| `tests` | Outcome checks for `shadowlap test`, by recording directory ([details](./ci.md#outcome-checks); `calls`, `when` and `judge` in [Checks](./checks.md), and [judge checks](./judges.md)), a `gate` that decides on a forked golden's attempts with stated error rates ([gating](./gating.md)), an `injection` gate ([details](./injection.md#gate-ci-on-it)), a `task` object with where a model under test takes over, why, what the task rewards and the agent's scope (see [Training](./training.md)), and a `chaos` object with the golden's [error-path presets](./error-paths.md#configure-a-goldens-presets) (or `false` to leave it out of them) |
-| `repair` | `repairer` (`provider:model`), `baseUrl` and `timeout` (seconds it may take to answer, default 600) for the model [`shadowlap repair`](./repair.md#the-repairer) asks for fixes |
+| `tests` | Outcome checks for `shadowlap test`, by recording directory, and each golden's gates, task and presets (below) |
+| `repair` | `repairer` (`provider:model`), `baseUrl` and `timeout` for the model [`shadowlap repair`](./repair.md#the-repairer) asks for fixes (below) |
 | `store` | The [team store](./team.md), a bucket you own (`s3://`, `gs://`, `az://`, `r2://`), written by [`shadowlap store set`](#store). Never credentials |
-| `ciPush` | `false` keeps `test --push` from pushing to the team store in CI, and the GitHub Action from pushing the fixes it opens (`shadowlap store push-from-ci on\|off`) |
-| `guard` | `accept: ["claude-code"]` takes the Claude Code CLI the [Claude Agent SDK](./frameworks.md#claude-agent-sdk) runs as it is under `--guard block`: what it can reach that the guard can't watch is named, and fails nothing, while every Node and Python process keeps block. `SHADOWLAP_GUARD_ACCEPT=claude-code` and the GitHub Action's `guard-accept` input add to it. Any other value is refused, exit status 2, before anything runs |
+| `ciPush` | `false` keeps CI from pushing to the team store (`shadowlap store push-from-ci on\|off`; below) |
+| `guard` | `accept: ["claude-code"]`: take the Claude Code CLI as it is under `--guard block` (below) |
 
-The schema is [`shadowlap.config.schema.json`](https://github.com/devjoinedthechat/shadowlap/blob/main/shadowlap.config.schema.json) in the repository. It gives completion in any
-editor that reads `$schema`, and it lets CI check a config without running Shadowlap. It is
-stricter than the parser on purpose: the parser ignores a key it doesn't know, so that a config
-written for a newer version still works, while the schema rejects it — which is what turns
-`"normalise"` from a rule that silently never applies into an error you see as you type.
+More on some of them:
+
+- **`redact`**: [where the rules apply](./normalizers-and-redaction.md#where-the-rules-apply). A redacted
+  pack still replays, and a push copies runs to the team store as recorded.
+- **`tools`**: `trust` by tool name (or a host under `http`) is `untrusted` for a read that brings outside
+  text in, where [`shadowlap injection`](./injection.md) plants payloads. It is recorded on each call of
+  the tool as it is made. Read when a run is tested, it wins over every recorded mark: the SDK's, an MCP
+  server's, an earlier config's.
+- **`tools.unrecorded`** maps the tools the agent runs without Shadowlap recording them to `read` or
+  `write`. That decides whether every command that replays a run may run them again
+  ([details](./how-it-works.md#tools-shadowlap-did-not-record)).
+- **`repair.timeout`**: the seconds the repairer may take to answer, default 600.
+- **`ciPush`**: `false` keeps `test --push` from pushing to the team store in CI, and the GitHub Action
+  from pushing the fixes it opens.
+- **`guard`**: what the Claude Code CLI the [Claude Agent SDK](./frameworks.md#claude-agent-sdk) runs can
+  reach that the guard can't watch is named, and fails nothing, while every Node and Python process keeps
+  block. `SHADOWLAP_GUARD_ACCEPT=claude-code` and the GitHub Action's `guard-accept` input add to it. Any
+  other value is refused, exit status 2, before anything runs.
+
+A golden's entry under `tests` holds:
+
+- its outcome checks ([details](./ci.md#outcome-checks)): `calls`, `when` and `judge` in
+  [Checks](./checks.md), and [judge checks](./judges.md);
+- a `gate` that decides on a forked golden's attempts with stated error rates ([gating](./gating.md));
+- an `injection` gate ([details](./injection.md#gate-ci-on-it));
+- a `task` object, with where a model under test takes over, why, what the task rewards and the agent's
+  scope (see [Training](./training.md));
+- a `chaos` object, with the golden's [error-path presets](./error-paths.md#configure-a-goldens-presets),
+  or `false` to leave it out of them.
+
+The schema is
+[`shadowlap.config.schema.json`](https://github.com/devjoinedthechat/shadowlap/blob/main/shadowlap.config.schema.json)
+in the repository. It gives completion in any editor that reads `$schema`, and it lets CI check a config
+without running Shadowlap.
+
+It is stricter than the parser on purpose. The parser ignores a key it doesn't know, so that a config
+written for a newer version still works, while the schema rejects it. That is what turns `"normalise"`
+from a rule that silently never applies into an error you see as you type.
 
 `shadowlap doctor` checks the file too, and reports every rule, price and effect it parsed.
 
 ## Environment
 
-| Variable | Meaning |
-|---|---|
-| `SHADOWLAP_UPSTREAM_ANTHROPIC`, `_OPENAI`, `_GEMINI`, `_AZURE`, `_VERTEX`, `_BEDROCK` | Override a provider's upstream (a mock, or an OpenAI-compatible server such as Ollama). Without one, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` and `GOOGLE_GEMINI_BASE_URL` are used when they are set |
-| `SHADOWLAP_GUARD_ACCEPT=claude-code` | Accept the Claude Code CLI's unwatched connections under `--guard block`, as `guard.accept` in the [config](#the-configuration-file) does. Any other value ends every command that takes `--guard` with 2 as it starts, before anything runs |
-| `SHADOWLAP_CAPTURE=off` | Don't capture model calls inside Node and Python agents; only the base-URL variables apply ([details](./providers.md#in-process-capture)) |
-| `SHADOWLAP_TELEMETRY=0`, `DO_NOT_TRACK=1` | Disable [telemetry](./telemetry.md) |
-| `SHADOWLAP_TELEMETRY_URL` | Send [telemetry](./telemetry.md) to a collector you run. Without it nothing is sent |
-| `SHADOWLAP_AUTHOR` | Who made the runs and activity entries a command records, as the dashboard shows them. Otherwise `ci` in CI, else git's `user.email`, else the OS user |
-| `SHADOWLAP_PR` | A pull request's number, set in its CI build where Shadowlap doesn't recognise pull requests by itself (it does on GitHub Actions and GitLab CI): the build writes only to that pull request's folder in the [team store](./team.md#pull-requests) |
-| `SHADOWLAP_HOME` | The folder for this machine's own files, such as the dashboard's [project list](./dashboard.md#projects), as an absolute path (default `~/.shadowlap`; a relative path is ignored) |
-| `SHADOWLAP_PROJECT_ROOTS` | Folders besides your home folder that the dashboard may suggest and add projects from, separated like `PATH` |
-| `SHADOWLAP_TASKS_TOKEN` | The token `tasks serve` requires, at least 16 characters; a random one is printed without it |
-| `OLLAMA_HOST` | Where `tasks models` lists Ollama's installed models (default `127.0.0.1:11434`) |
-| `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` | Reach the team store and the clouds' sign-in services through a proxy ([details](./team.md#the-store)). The agent never reaches the sidecar through one: `run`, `replay`, `test` and `serve --recordings` add `127.0.0.1`, `localhost` and `::1` to `NO_PROXY` and `no_proxy` |
-| `NO_COLOR` | Plain output |
-| `SHADOWLAP_UI_THEME` | `dark`, `light` or `ansi`: the [terminal UI](./tui.md#colours)'s palette, instead of the one picked from what the terminal reports |
+These environment variables change what Shadowlap does:
+
+| Variable | What it does | Default |
+| --- | --- | --- |
+| `SHADOWLAP_UPSTREAM_ANTHROPIC`, `_OPENAI`, `_GEMINI`, `_AZURE`, `_VERTEX`, `_BEDROCK` | Override a provider's upstream: a mock, or an OpenAI-compatible server such as Ollama | The base-URL variables (below) |
+| `SHADOWLAP_GUARD_ACCEPT=claude-code` | Accept the Claude Code CLI's unwatched connections under `--guard block`, as `guard.accept` in the [config](#the-configuration-file) does (below) | — |
+| `SHADOWLAP_CAPTURE=off` | Don't capture model calls inside Node and Python agents; only the base-URL variables apply ([details](./providers.md#in-process-capture)) | — |
+| `SHADOWLAP_TELEMETRY=0`, `DO_NOT_TRACK=1` | Disable [telemetry](./telemetry.md) | — |
+| `SHADOWLAP_TELEMETRY_URL` | Send [telemetry](./telemetry.md) to a collector you run | Nothing is sent |
+| `SHADOWLAP_AUTHOR` | Who made the runs and activity entries a command records, as the dashboard shows them | `ci` in CI, else git's `user.email`, else the OS user |
+| `SHADOWLAP_PR` | A pull request's number, set in its CI build (below) | — |
+| `SHADOWLAP_HOME` | The folder for this machine's own files, such as the dashboard's [project list](./dashboard.md#projects), as an absolute path | `~/.shadowlap` |
+| `SHADOWLAP_PROJECT_ROOTS` | Folders besides your home folder that the dashboard may suggest and add projects from, separated like `PATH` | — |
+| `SHADOWLAP_TASKS_TOKEN` | The token `tasks serve` requires, at least 16 characters | A random one, printed |
+| `SHADOWLAP_ALLOW_UNRECORDED` | For `serve --recordings`, in a recording's environment: what `--allow-unrecorded <names>` says ([`serve`](#serve)) | — |
+| `SHADOWLAP_DEBUG=1` | Print the stack of any error, for a bug report ([exit status](#exit-status)) | — |
+| `OLLAMA_HOST` | Where `tasks models` lists Ollama's installed models | `127.0.0.1:11434` |
+| `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` | Reach the team store and the clouds' sign-in services through a proxy ([details](./team.md#the-store); below) | — |
+| `NO_COLOR` | Plain output | — |
+| `SHADOWLAP_UI_THEME` | `dark`, `light` or `ansi`: the [terminal UI](./tui.md#colours)'s palette | The one picked from what the terminal reports |
+
+- **The upstreams**: without one, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` and `GOOGLE_GEMINI_BASE_URL`
+  are used when they are set.
+- **`SHADOWLAP_GUARD_ACCEPT`**: any other value ends every command that takes `--guard` with 2 as it
+  starts, before anything runs.
+- **`SHADOWLAP_PR`** is for where Shadowlap doesn't recognise pull requests by itself; it does on GitHub
+  Actions and GitLab CI. The build then writes only to that pull request's folder in the
+  [team store](./team.md#pull-requests).
+- **`SHADOWLAP_HOME`**: a relative path is ignored.
+- **The proxy variables**: the agent never reaches the sidecar through one. `run`, `replay`, `test` and
+  `serve --recordings` add `127.0.0.1`, `localhost` and `::1` to `NO_PROXY` and `no_proxy`.
+
+## See also
+
+- [Quickstart](./quickstart.md): a first recording, step by step.
+- [How it works](./how-it-works.md): recording, replaying and forking.
+- [CI](./ci.md): goldens, outcome checks and test history.
+- [Interventions](./interventions.md): what each flag that changes a replay does.
+- [Blame](./blame.md), [Verify](./verify.md) and [Repair](./repair.md): finding and fixing a failure.
+- [Team store](./team.md): sharing runs with your team.
