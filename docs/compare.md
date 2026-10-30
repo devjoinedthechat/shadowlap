@@ -10,7 +10,7 @@ model call that lost a run and to prove a fix. Several other tools touch the sam
 different side. This page says what each one does and where it is the better choice.
 
 What it says about other products was checked against their own documentation, repositories and
-announcements on 2026-10-23.
+announcements on 2026-10-30.
 
 ## Which to use
 
@@ -33,26 +33,26 @@ Each row asks one question of every kind of tool. A cell answers yes, partly or 
 | | Shadowlap | Cassettes | Tracing and evals | Replay evals | Agent debuggers | Time travel | Durable execution |
 |---|---|---|---|---|---|---|---|
 | Examples |  | VCR.py, Polly.js, nock | LangSmith, Langfuse, Braintrust, Phoenix, Weave, Logfire, Helicone | Kitaru | Laminar, OrcaReplay | LangGraph, Microsoft Agent Framework, Google ADK, Claude Agent SDK | Inngest, DBOS, Restate, Cloudflare Workflows, Temporal |
-| Re-runs your code against the model's recorded answers | **yes** — every call before the first changed request, at zero tokens | partly — while requests match; VCR.py's default match ignores the body | no — a playground or an experiment asks the model again | no — the agent's model calls run live, by design | partly — up to a call you choose; Laminar's cache key leaves out the system message | no — continuing from a checkpoint asks the model again | partly — a model call made as a step keeps its result before the restart point |
-| Forks at the first changed request, with a diff | **yes** — a structural diff of that request, then live from there | no — a miss raises an error or goes live, by library | no — every call runs live | no — every replay starts from the top | partly — live from a call you choose, or from Laminar's first cache miss | no — from a checkpoint you choose | no — from a step you choose |
+| Re-runs your code against the model's recorded answers | **yes** — every call before the first changed request, at zero tokens | partly — while requests match; VCR.py's default match ignores the body | partly — LangSmith's pytest cache and Braintrust's gateway can answer a request seen before; a playground or an experiment asks the model again | no — the agent's model calls run live, by design | partly — up to a call you choose; Laminar's cache key leaves out the system message | no — continuing from a checkpoint asks the model again | partly — a model call made as a step keeps its result before the restart point |
+| Forks at the first changed request, with a diff | **yes** — a structural diff of that request, then live from there | no — a miss raises an error or goes live, by library | no — every call runs live | no — every replay starts from the top | partly — live from a call you choose, or from Laminar's first cache miss; OrcaReplay's `--loose` sends a request with no match live | no — from a checkpoint you choose | no — from a step you choose |
 | Fences write tools after a fork | **yes** — blocked in `replay` and `test`, stubbed in `blame`, `verify` and `repair`, by default; `--writes` changes it | no — tools outside HTTP run every time | no — tools run unless your agent blocks them (LangSmith Engine's docs give `safe_tools` middleware) | partly — a policy per tool; with none set, tools run live | no — tool calls run again; OrcaReplay says replay is not a sandbox | no — tools run again after the checkpoint | no — every step after the restart point runs, writes included |
-| Finds the model call that lost a run | **yes** — `blame` re-asks calls from forks and names the last one that can still save the run | no | partly — LangSmith Engine diagnoses recurring issues from traces and your code | no — you review sessions, in investigations a coding assistant drafts | no — you read the trace (Laminar) or its causal graph (OrcaReplay) | no | no |
+| Finds the model call that lost a run | **yes** — `blame` re-asks calls from forks and names the last one that can still save the run | no | partly — assistants read traces and propose a cause: LangSmith's Polly and Engine, Braintrust's Loop, Phoenix's PXI | partly — a failure matrix shows where failed sessions first go wrong, at an error or at a step a reviewer marks | partly — Laminar's Signals read traces for failures you describe; OrcaReplay draws the chain that produced a failure | no | no |
 | Proves a fix holds | **yes** — `verify` replays failing, held-out and good runs, each at a stated error rate; `repair` proposes fixes | no | partly — LangSmith Engine replays up to 5 traces live against its pull request (private beta, LangSmith Cloud) | partly — an experiment scores your change across a cohort, with the model live | partly — a rerun of your change, graded by an eval (Laminar) or a command (OrcaReplay) | no | no |
-| Gates a pull request offline, with no model key | **yes** — goldens, replayed by `shadowlap test` and the GitHub Action | yes — tests replay what the cassette recorded | no — evals in CI call the model, unless LangSmith's test cache answers | no — the model runs live; `--wait` fails only on a failed run | partly — OrcaReplay replays offline and reports in JSON, for a script you write | no | no |
+| Gates a pull request offline, with no model key | **yes** — goldens, replayed by `shadowlap test` and the GitHub Action | yes — tests replay what the cassette recorded | partly — LangSmith's pytest cache replays requests it has seen; other evals in CI call the model | no — the model runs live; `--wait` fails only on a failed run | partly — OrcaReplay replays offline and reports in JSON, for a script you write | no | no |
 | Judges output quality | partly — judge checks, recorded so a clean replay is judged free; not evals at scale | no | **yes** — LLM judges, scorers and human review over datasets | **yes** — evaluators, LLM judges and human labels | partly — evals (Laminar), a command you name (OrcaReplay) | no | no |
-| Shows production traffic at scale | no — it runs on your machine and in CI; production runs come in as imports | no | **yes** | **yes** — sessions recorded in production or imported | partly — Laminar traces production; OrcaReplay records the runs it launches | no | **yes** — workflow history |
-| Works with any framework, TypeScript and Python | **yes** — model calls at the HTTP layer; tools through SDKs for TypeScript and Python, MCP, declared HTTP hosts or the wire protocol | partly — one language each | partly — through each platform's SDK, OpenTelemetry or a proxy | partly — adapters for six frameworks, in Python and TypeScript, or imported traces | partly — Laminar caches four Python integrations and the AI SDK; OrcaReplay, any agent its proxy reaches | no — that framework only | no — the agent written as a workflow for that runtime |
+| Shows production traffic at scale | no — it runs on your machine and in CI; production runs come in as imports | no | **yes** | **yes** — sessions recorded in production or imported | partly — Laminar traces production; OrcaReplay records the runs it launches, and an OrcaRouter gateway the runs it routes | no | **yes** — workflow history |
+| Works with any framework, TypeScript and Python | **yes** — model calls at the HTTP layer; tools through SDKs for TypeScript and Python, MCP, declared HTTP hosts or the wire protocol | partly — one language each | **yes** — through each platform's SDK, OpenTelemetry or a gateway | partly — adapters for six frameworks, in Python and TypeScript, or imported traces | partly — Laminar caches four Python integrations and the AI SDK; OrcaReplay, any agent its proxy reaches | no — that framework only | no — the agent written as a workflow for that runtime |
 
 ## HTTP record and replay libraries
 
 VCR.py, Polly.js and nock record HTTP exchanges and replay them in tests. Which requests count as the
 same depends on the library:
 
-| Library  | Matches by default on                           | On a miss, by default                 |
-|----------|-------------------------------------------------|---------------------------------------|
-| VCR.py   | The method and the URL                          | Raises an error                       |
-| Polly.js | The body, the headers and the order of requests | Sends the request live and records it |
-| nock     | A recorded body, exactly                        | nock.back lets it through unrecorded  |
+| Library  | Matches by default on                            | On a miss, by default                                     |
+|----------|--------------------------------------------------|-----------------------------------------------------------|
+| VCR.py   | The method and the URL                           | Raises an error                                           |
+| Polly.js | The method, URL, headers, body and request order | Sends the request live and records it                     |
+| nock     | A recorded body, exactly                         | Throws an error; other hosts are reached live, unrecorded |
 
 So with VCR.py, a call to a model endpoint matches a recorded call to that endpoint, whatever its
 prompt says, and gets that call's answer.
@@ -62,8 +62,10 @@ change to a prompt or a tool result changes that request and every later one, an
 matches none of them. Parallel requests arrive in a different order on each run.
 
 Tool calls that don't go over HTTP, clock reads and random ids are not in a cassette at all.
-LangSmith's pytest plugin has a cache of this kind: with `LANGSMITH_TEST_CACHE` set, it keeps HTTP
-requests on disk, so evals in CI don't call the model again.
+
+LangSmith's pytest plugin has a cache of this kind. With `LANGSMITH_TEST_CACHE` set, it keeps HTTP
+requests on disk and replays one whose method, URL and body match one it kept; any other is sent live
+and kept as well. Its Vitest and Jest integrations have none.
 
 Shadowlap instead:
 
@@ -89,7 +91,7 @@ Shadowlap when it is an agent, whose requests grow with every turn and whose too
 
 LangSmith, Langfuse, Braintrust, Arize Phoenix, W&B Weave, Pydantic Logfire and Helicone show what
 runs did in production: spans, prompts, latencies, costs, feedback. Helicone does it as a gateway in
-the request path.
+the request path by default, or off that path through an async integration.
 
 Most of them also run evals, with LLM judges, code scorers and human review over datasets, and run
 them in CI. Langfuse's GitHub Action fails a pull request when a score breaks your threshold, and
@@ -98,16 +100,20 @@ Braintrust's posts the results on it.
 Several have changed hands:
 
 - Langfuse joined ClickHouse in January 2026;
-- Weights & Biases (Weave) joined CoreWeave in May 2025;
+- Weights & Biases (Weave) joined CoreWeave in May 2025, and CoreWeave's docs call CoreWeave Agent
+  Lens the successor to Weave;
 - Dynatrace completed its purchase of Arize (Phoenix) on 2026-10-01.
 
-Langfuse and Phoenix stay open source and can be self-hosted.
+Langfuse (MIT, but for its `ee` folders) and Phoenix (Elastic License 2.0) can still be self-hosted
+from their public code.
 
-None of them runs your code against a trace's recorded answers. A playground sends one recorded call
-to the model again (Langfuse's Open in Playground, Phoenix's span replay, Weave's Open chat in
-Playground), and an experiment runs your code over a dataset's inputs, live. Either way the model
-answers again: that costs tokens, the answer can differ, and a playground exercises one prompt, not
-the code around it.
+None of them runs your code against a trace's recorded answers. Braintrust's gateway can answer a
+request it has seen in the last week, by default only one sent at temperature 0 or with a seed.
+
+A playground sends one recorded call to the model again (Langfuse's Add to Playground, Phoenix's span
+replay, Weave's Open chat in Playground), and an experiment runs your code over a dataset's inputs,
+live. Either way the model answers again: that costs tokens, the answer can differ, and a playground
+exercises one prompt, not the code around it.
 
 Shadowlap is the debugger to their dashboard: a recording is a trace you can execute. The two
 compose:
@@ -131,12 +137,13 @@ prove the fix.
 
 ### LangSmith Engine
 
-LangSmith Engine scans a tracing project for recurring issues, diagnoses each one against the traces
-and your connected source code, and proposes a fix as a pull request, code changes included.
+LangSmith Engine scans a tracing project for recurring issues, and diagnoses each one against the
+traces and your connected source code. With a repository connected, it proposes a fix as a pull
+request: a prompt change, or a code change for an agent built with Deep Agents, LangChain or LangGraph.
 
 Its fix validation, in private beta, checks a fix by running the agent. It replays the inputs of up to
-five of the issue's traces against your deployment, then against a preview deployment built from the
-pull request, and judges whether each replay shows the issue again. The fix comes out Verified, Not
+five of the issue's traces against a baseline deployment, then against a preview deployment built from
+the pull request, and judges whether each replay shows the issue again. The fix comes out Verified, Not
 fixed (Engine revises it, for up to three attempts in all) or Inconclusive.
 
 Fix validation is available only on LangSmith Cloud, for agents that run on LangSmith Cloud
@@ -159,10 +166,10 @@ written for. It decides each at a stated error rate:
 Repair rewrites the system prompt, a tool description or the model's name; a fix in code is yours or a
 coding agent's to write, and verify checks it.
 
-Use LangSmith Engine when your agent runs on LangSmith Cloud deployments and you want issues found in
-production traffic and fixes opened as pull requests. Use Shadowlap when the agent runs anywhere else,
-when no write may run again, or when a fix has to hold on runs it wasn't written for and on runs that
-already worked.
+Use LangSmith Engine when your agent is traced to LangSmith and you want issues found in production
+traffic and fixes opened as pull requests; for Engine to check a fix, the agent must run on LangSmith
+Cloud deployments. Use Shadowlap to check a fix for an agent that runs anywhere else, when no write may
+run again, or when a fix has to hold on runs it wasn't written for and on runs that already worked.
 
 ## Replay-based evals
 
@@ -186,8 +193,11 @@ such as the model, the system prompt or the sampling parameters.
 - **Recording.** Sessions are recorded through adapters for PydanticAI, LangGraph, the OpenAI Agents
   SDK, the Claude Agent SDK, Mastra and the Vercel AI SDK, with SDKs for Python and TypeScript. Or
   they are imported from Langfuse, LangSmith, Braintrust, Logfire, Phoenix and MLflow.
-- **Scoring.** Fixed cohorts of sessions are replayed as experiments and scored by evaluators:
-  built-in deterministic ones, LLM judges and human labels.
+- **Scoring.** Fixed cohorts of sessions are replayed as experiments and scored by evaluators,
+  built-in deterministic ones or LLM judges. Human labels, written on sessions, calibrate them.
+- **Review.** A coding assistant drafts investigations of sessions, which you answer. A failure matrix
+  places each failed session at its first failing step: where it raised an error, or a step a reviewer
+  marks.
 - **Running.** It runs as a server on Postgres, with workers in your environment, and a hosted plan
   exists.
 - **In CI.** `kitaru experiment run start --wait` exits nonzero when the run fails, which a failed
@@ -212,9 +222,10 @@ Laminar and OrcaReplay re-run an agent against the model's recorded answers, so 
 before a change costs nothing, and can continue live from a point you choose.
 
 **Laminar** is an open-source tracing platform, hosted or self-hosted, whose debugger is built for a
-coding agent to drive. A run started with `LMNR_DEBUG_REPLAY_TRACE_ID` gets its model responses from a
-recorded trace up to the call named in `LMNR_DEBUG_CACHE_UNTIL`, or up to the first cache miss, and
-runs live after it.
+coding agent to drive. A debug run (`LMNR_DEBUG`) replays when it names a recorded trace
+(`LMNR_DEBUG_REPLAY_TRACE_ID`) and the last model call to serve from it (`LMNR_DEBUG_CACHE_UNTIL`). It
+gets its model responses from the trace through that call, or up to the first cache miss, and runs
+live after it.
 
 The cache is served from Laminar's backend, keyed by the trace and a hash of the call's input messages
 without the system message. An edited system prompt therefore still replays the cached calls, which
@@ -226,8 +237,9 @@ Only model responses are cached, so tool calls run again.
 and it records agent frameworks too. A local proxy, set through base-URL variables (or TLS
 interception for a harness that can't be pointed elsewhere), records the run.
 
-- `orca replay` reproduces it byte for byte with no model called, and refuses any request it can't
-  serve.
+- `orca replay` reproduces it byte for byte with no model called. A request close to a recorded one,
+  or ending in the same message, gets that one's answer, reported as a divergence; one with no match
+  stops the replay, or with `--loose` goes live.
 - `orca replay last --from 4 --model <model>` keeps the turns up to checkpoint 4 and lets another model
   take over.
 - `orca compare` does that for several models, graded by a command you name.
@@ -287,10 +299,10 @@ it:
 - **Cloudflare Workflows** restarts an instance from a named step (`restart()`).
 - **Temporal** resets a workflow to a point in its event history (`temporal workflow reset`).
 
-The mechanism is close to Shadowlap's, and a model call can be one of those steps. None of them knows
-it is one: you pick the step to restart from, nothing compares the request with the recorded one, and
-every step after the restart point runs live, writes included. The agent has to be written as a
-workflow for that runtime.
+The mechanism is close to Shadowlap's, and a model call can be one of those steps; Inngest's `step.ai`
+makes it one, and with `step.ai.wrap` you can edit its prompt and rerun from that step. Still, you pick
+the step to restart from, nothing compares the request with the recorded one, and every step after the
+restart point runs live, writes included. The agent has to be written as a workflow for that runtime.
 
 Use durable execution to make long-running agents survive crashes, and to resume or patch a failed run
 in production. Use Shadowlap to find what changed in a run, and to test a change before it ships.
