@@ -35,7 +35,7 @@ The command takes these flags:
 | `--call <n>`    | With a run, open at this call                                                     | —       |
 | `--port <port>` | The port to listen on: `0` for any free one; a taken one falls back to a free one | `4777`  |
 | `--no-open`     | Print the link instead of opening a browser                                       | —       |
-| `--read-only`   | Show every page and change nothing: see [Read-only](#read-only)                   | —       |
+| `--read-only`   | Show every page and change nothing: see [Read-only mode](#read-only-mode)         | —       |
 
 See [`dashboard`](./cli.md#dashboard) in the CLI reference.
 
@@ -1477,14 +1477,47 @@ Some jobs take a file from your browser, such as a capture to import. The dashbo
 
 Uploaded files are untrusted data: the command that reads one parses it as it would any file you point it at.
 
-## Read-only
+## Read-only mode
 
-`shadowlap dashboard --read-only` shows every page and changes nothing in your runs: replay, fork and the other actions, labels, notes, uploads and deletes are refused, and each says why where you would have used it. The top bar says *read-only*, with the reason on hover, and Search or jump to leaves the actions out. Downloading a run as HTML (**Share → HTML file**) still works, since it changes nothing: the file comes straight from the dashboard instead of being written into the project. Use it to show a colleague your runs, or to look around without the risk of a click changing something. It needs an existing store and never creates one, and it leaves the uploads folder alone (even files another dashboard left there); it opens that store the way every command does, which brings an older store's layout up to date and lets search build its index. A dashboard started without the CLI behind it (embedded elsewhere) is read-only in the same way, and its top bar and buttons say to start it with `shadowlap dashboard`.
+```sh
+shadowlap dashboard --read-only
+```
 
-## Keys
+Read-only mode shows every page and changes nothing in your runs. Use it to show a colleague your runs, or to look around without the risk of a click changing something.
 
-| Key | |
-|---|---|
+- **Refused**: replay, fork and the other actions, labels, notes, uploads and deletes. Each says why where you would have used it.
+- **The top bar** says *read-only*, with the reason on hover, and Search or jump to leaves the actions out.
+- **Downloading a run as HTML** (**Share → HTML file**) still works, since it changes nothing: the file comes straight from the dashboard instead of being written into the project.
+- **The store**: read-only mode needs an existing store and never creates one. It opens that store the way every command does, which brings an older store's layout up to date and lets search build its index.
+- **Uploads**: it leaves the uploads folder alone, even files another dashboard left there.
+
+A dashboard started without the CLI behind it (embedded elsewhere) is read-only in the same way. Its top bar and buttons say to start it with `shadowlap dashboard`.
+
+## Send a run to someone
+
+Export a run as one HTML file:
+
+```sh
+shadowlap export html <run> --lineage run.html
+```
+
+The file has the same views as the dashboard, with the run's data built in and nothing to install or run. Attach it to a pull request, keep it as a CI artifact, or send it to whoever asks what the agent did.
+
+- **What it holds**: it opens on the run that was shared, and holds Runs (the runs in the file) and, when it holds two or more, Compare between them.
+- **What it leaves out**: there is nothing to run from it and no search across runs, so `/` filters a run's calls.
+- **Redaction**: it holds recorded prompts and tool data, so the project's redaction rules apply by default; see [`export html`](./cli.md#export-html).
+
+From the dashboard:
+
+- **Share → HTML file**, in a run's header, writes the same file for that run and the runs it came from into `.shadowlap/exports/`, and downloads it. Its output says whether redaction rules applied. On a read-only dashboard it downloads the file without writing it.
+- **Share → HAR** does the same for the model calls, and names how many rules it applied.
+
+## Keyboard shortcuts
+
+The dashboard's keys:
+
+| Key | What it does |
+| --- | --- |
 | ⌘K or Ctrl K | Search or jump to anything |
 | `/` | Filter the calls on a run; search anywhere else |
 | `j` / `k`, `↓` / `↑` | Next or previous call |
@@ -1500,32 +1533,80 @@ Uploaded files are untrusted data: the command that reads one parses it as it wo
 | `?` | All shortcuts |
 | Esc | Close a menu, then a dialog, then a panel, then the sidebar on a phone |
 
-Tab's first stop on every page is **Skip to the page**, which takes the focus past the top bar and the sidebar to the page itself. **Search or jump to** keeps the focus in its field while ↑ and ↓ move through what it offers, as a screen reader expects of a combobox. Closing a menu, a dialog, the palette, a job's drawer or the sidebar on a phone hands the focus back to what had it (a menu also closes on Tab). A link in the page that opens another (a fix from the list, another fix's verdict) hands the focus to the page it opened, and a run picked in Compare leaves it on the picker. A focus ring is drawn whole in every pane that scrolls, and a pane that scrolls with no control in it (the Timeline, Turns and Context, a run's calls on Provenance, a code block, a command to copy, a job's output) takes the focus itself, so the keyboard can scroll it. Every target is 24 px at least, as WCAG 2.5.8 asks, and text reaches WCAG AA's contrast on every surface it is drawn on.
+### Focus and accessibility
 
-When the server stops answering (the dashboard was stopped), a bar says what the page last loaded, actions pause, and it tries again after 5, 10, 20 and then every 30 seconds. A link whose session token the dashboard refuses, one from before a restart or another dashboard's, gets a card that says so, with **Paste the new link**: it opens the link the dashboard printed, read from the clipboard, and the page starts again with its token.
+- **Skip to the page** is Tab's first stop on every page. It takes the focus past the top bar and the sidebar to the page itself.
+- **Search or jump to** keeps the focus in its field while ↑ and ↓ move through what it offers, as a screen reader expects of a combobox.
+- **Closing** a menu, a dialog, the palette, a job's drawer or the sidebar on a phone hands the focus back to what had it. A menu also closes on Tab.
+- **A link in the page that opens another** (a fix from the list, another fix's verdict) hands the focus to the page it opened. A run picked in Compare leaves it on the picker.
+- **A focus ring** is drawn whole in every pane that scrolls. A pane that scrolls with no control in it (the Timeline, Turns and Context, a run's calls on Provenance, a code block, a command to copy, a job's output) takes the focus itself, so the keyboard can scroll it.
+- **Every target** is 24 px at least, as WCAG 2.5.8 asks, and text reaches WCAG AA's contrast on every surface it is drawn on.
 
-## Send a run to someone
+## Limits
 
-```sh
-shadowlap export html <run> --lineage run.html
-```
+The dashboard's limits, in one place:
 
-The same views as one HTML file, with the run's data built in and nothing to install or run: attach it to a pull request, keep it as a CI artifact, or send it to whoever asks what the agent did. It opens on the run that was shared, and holds Runs (the runs in the file) and, when it holds two or more, Compare between them; there is nothing to run from it and no search across runs, so `/` filters a run's calls. It holds recorded prompts and tool data, so the project's redaction rules apply by default; see [`export html`](./cli.md#export-html). **Share → HTML file** in a run's header writes the same file for that run and the runs it came from into `.shadowlap/exports/` and downloads it; its output says whether redaction rules applied. On a read-only dashboard it downloads the file without writing it. **Share → HAR** does the same for the model calls and names how many rules it applied.
+| What                                          | Limit                                                             |
+| --------------------------------------------- | ----------------------------------------------------------------- |
+| Runs that Search or jump to lists             | The newest 500; any other run by its id                           |
+| Recorded text that Search or jump to finds    | From three characters; up to six matches, two per run             |
+| A row of This week's runs, on the Overview    | Past 60 calls, a cell stands for a range                          |
+| Lines of one kind in Needs a look             | Ten, then one line says how many more there are                   |
+| A lineage in the sidebar                      | Four steps deep                                                   |
+| The calendar on Runs                          | Twelve weeks                                                      |
+| Runs in one dataset                           | 500; past that, `shadowlap export dataset --label`                |
+| Runs packed in one job                        | 100                                                               |
+| A page of Runs, or of a run's calls           | 500 rows, or 500 calls                                            |
+| The origin strip                              | Past 360 calls, a cell covers a range                             |
+| The Context view                              | Past 360 model calls, a bar stands for a range                    |
+| A cache miss                                  | A cache read short by 1,024 tokens or more                        |
+| A fork's writes, one by one                   | Three, then grouped; **Show each** lists a hundred at most        |
+| A fork's changes                              | The first four, then **Show all**                                 |
+| An edited tool result                         | JSON of at most 2 MB                                              |
+| An edited person's answer                     | At most 65,536 characters                                         |
+| Compare, in a request                         | Two minutes; `shadowlap diff` has no time limit                   |
+| Comparisons in an exported copy               | Every pair up to six runs, beyond that each run with the first    |
+| A share link                                  | 7 days at most                                                    |
+| Uploads                                       | 64 MB and 32 files at once; a file no job used goes after an hour |
+| Redaction's preview of a long run             | 2,000 calls, 64 MB or 5 seconds                                   |
+| Folder suggestions                            | 2,000 entries read from a folder, and 100 suggestions             |
+| Projects found inside folders                 | In 40 folders, and 25 subfolders of each                          |
+| **Clean up old runs**                         | Runs older than 30 days                                           |
+| A teammate's verdict, run again               | A gate up to 160 attempts a run, a fixed count up to 10           |
+| **Stop**, on an agent that ignores the signal | Killed after five seconds                                         |
+| Reconnecting                                  | After 5, 10, 20, then every 30 seconds                            |
 
-## Security
+How the dashboard stays quick on a large store is under [Large stores and long runs](#large-stores-and-long-runs).
+
+## Security and consent
 
 Recordings hold prompts and tool data, so the dashboard is built to stay local:
 
-- It listens on 127.0.0.1 only, and refuses requests whose `Host` is not localhost, so a web page on another name that resolves to your machine cannot read it.
-- Every data request needs the session token that `shadowlap dashboard` generates at start and puts in the link's fragment (the part after `#`, which browsers never send to servers or in a Referer). Restarting the dashboard invalidates old links.
-- The browser is opened on a file only you can read, in your temporary folder, that sends it on to the link; the file goes two minutes later, or when the dashboard stops. The token never appears in a process's command line, which any user of the machine can read.
-- Requests that change something are refused when they come from another origin, and when the page sending them shows another project than the current one (it says which in `x-shadowlap-project`).
-- The browser never sends a command line: it names an action or a job and its fields, and the server builds the CLI arguments from the run, the call and those fields. The command you give a capture's replay, and the one a [project's](#projects) setup records, are placed only after `--`, split without a shell, and a project's asks before it first runs in a folder.
-- A download is only a file a job reported writing, only from inside the project folder (checked again when you download it, links followed), and always saved rather than opened. Uploaded files stay inside the project folder and are deleted as described under Actions.
-- A read-only dashboard refuses every request that would change something.
-- The page loads nothing from the network (fonts are bundled) and runs under a Content-Security-Policy that allows only its own script.
+- **Localhost only.** It listens on 127.0.0.1 only, and refuses requests whose `Host` is not localhost, so a web page on another name that resolves to your machine cannot read it.
+- **A session token.** Every data request needs the session token that `shadowlap dashboard` generates at start and puts in the link's fragment (the part after `#`, which browsers never send to servers or in a Referer). Restarting the dashboard invalidates old links.
+- **No token on a command line.** The browser is opened on a file only you can read, in your temporary folder, that sends it on to the link; the file goes two minutes later, or when the dashboard stops. The token never appears in a process's command line, which any user of the machine can read.
+- **Same origin, same project.** Requests that change something are refused when they come from another origin, and when the page sending them shows another project than the current one (it says which in `x-shadowlap-project`).
+- **No command lines from the browser.** The browser names an action or a job and its fields, and the server builds the CLI arguments from the run, the call and those fields. The command you give a capture's replay, and the one a [project's](#projects) setup records, are placed only after `--`, split without a shell, and a project's asks before it first runs in a folder.
+- **Downloads.** A download is only a file a job reported writing, only from inside the project folder (checked again when you download it, links followed), and always saved rather than opened. Uploaded files stay inside the project folder, and are deleted as [Files you upload](#files-you-upload) describes.
+- **Read-only.** A read-only dashboard refuses every request that would change something.
+- **Nothing from the network.** The page loads nothing from the network (fonts are bundled), and runs under a Content-Security-Policy that allows only its own script.
 
-To use it on a remote machine, forward the port over SSH (`ssh -L 4777:127.0.0.1:4777 host`) rather than binding it to a public interface. Closing the terminal stops the dashboard and its jobs; to keep it running after you log out, start it inside `tmux` or `screen`.
+To use it on a remote machine, forward the port over SSH rather than binding it to a public interface:
+
+```sh
+ssh -L 4777:127.0.0.1:4777 host
+```
+
+Closing the terminal stops the dashboard and its jobs. To keep it running after you log out, start it inside `tmux` or `screen`.
+
+**Consent.** Some actions ask before they run. Each is described with its action:
+
+- [The command that starts your agent](#the-command-that-starts-your-agent) is asked about the first time it runs in a folder.
+- [Commands from someone else](#commands-from-someone-else) (a pack's, a teammate's, a program's) run only once you confirm the exact lines.
+- **Repair from here** and **Apply the patch** ask first: see [Actions on a fix](#actions-on-a-fix).
+- **Update golden** asks first: see [Actions on Tests](#actions-on-tests).
+- **Delete N runs** and **Free 53.5 MB** ask first: see [Actions in Settings](#actions-in-settings).
+- **Also delete its recordings** asks you to type the project's name: see [Removing a project](#removing-a-project).
 
 ## Large stores and long runs
 
@@ -1592,3 +1673,48 @@ For contributors, `npm run test:browser` (from `packages/dashboard`) opens the d
 | `GET /api/coverage` | [Production coverage](./coverage.md): the last `shadowlap coverage` scan as it was kept (`scan`, `null` when none ran), the imported runs that came in after it (`newRuns`), each behaviour it found, not covered first, with the goldens that cover it, its runs, the nearest golden and what Pack one runs (`pack`), the count not covered, the line Needs a look shows, and the `commands` that scan again and pack. Its jobs are the kinds `coverage {}` (scan again) and `coverage-pack { key?, command?, confirmed?, fork?, expect? }` (`coverage --pack`: a golden of the behaviour `key` names, or of each no golden covers, reproduced with the agent's command a run here gives or the one typed, which runs only once confirmed; with `fork` and `expect`, a golden that forks), refused with a 409 while a test session, an update or another pack runs |
 
 Every request needs the session token in `x-shadowlap-token`. With several projects, a page sends the project it shows in `x-shadowlap-project`: a request that changes something while another project is current answers 409 with `current` (`{ id, name }`), except switching, adding and removing a project and stopping a job, which name what they act on; a job's view names the project it runs in (`project`). A command reports to its job by writing one JSON object per line to the descriptor `SHADOWLAP_EVENTS_FD` names: `{"type":"run","runId":…,"role":"new"|"attempt"}`, `{"type":"link","label":…,"href":"#/…"}`, `{"type":"file","path":…,"label":…}` and `{"type":"result","data":…}` (`emitJobEvent` in the CLI does it). Outside a dashboard job the variable is unset and nothing is written.
+
+## Troubleshooting
+
+### The server can't be reached
+
+When the server stops answering (the dashboard was stopped), a bar says what the page last loaded, and actions pause. The page tries again after 5, 10, 20 and then every 30 seconds.
+
+### The dashboard refuses the link
+
+A link whose session token the dashboard refuses, one from before a restart or another dashboard's, gets a card that says so, with `Paste the new link`. It opens the link the dashboard printed, read from the clipboard, and the page starts again with its token.
+
+### A button is off
+
+A button that is off says why on hover. The usual reasons:
+
+| Why it is off | What to do |
+| --- | --- |
+| The dashboard is [read-only](#read-only-mode), or was started without the CLI behind it | Start it with `shadowlap dashboard` |
+| A repair or an apply [holds the working tree](#one-job-at-a-time-on-your-working-tree) | Wait until it is done |
+| A test job is running in the project | Wait: the button says what is running |
+| `shadowlap.config.json` can't be read | Fix the file: **Calibrate** and **Set up the store** come back |
+| Repair: `claude` can't be found | Install Claude Code, or set `SHADOWLAP_CLAUDE` to its path |
+| Find the commit, on a run from someone else's pack | Replay it with your own command first, and find the commit from that run |
+| The project's folder is gone | Put the folder back, or remove the project |
+
+### A page took too long
+
+Work on one of the dashboard's threads that runs past two minutes (ten for what can wait) is stopped, and its page says it took too long; see [Large stores and long runs](#large-stores-and-long-runs).
+
+- **Compare**: what came first stays, with the `shadowlap diff` command, which has no time limit.
+- **Share → HTML file** on a read-only dashboard: it is stopped, naming the redaction rule most likely at fault. `shadowlap export html` makes it from a terminal.
+- **Redaction's preview** of a long run reads up to its limits and says how far it got; `shadowlap redact preview` reads it all.
+
+### The dashboard runs on another machine
+
+Forward its port over SSH (`ssh -L 4777:127.0.0.1:4777 host`) rather than binding it to a public interface, as [Security and consent](#security-and-consent) says. To keep it running after you log out, start it inside `tmux` or `screen`.
+
+## See also
+
+- [Terminal UI](./tui.md): the same runs and actions in the terminal.
+- [Interventions](./interventions.md): what each fork in the fork menu does.
+- [Blame](./blame.md), [Repair](./repair.md) and [Verify](./verify.md): the steps of a fix.
+- [CI](./ci.md): goldens, test history and the workflow Settings → CI builds.
+- [Team store](./team.md): sharing runs and fixes across a team.
+- [CLI reference](./cli.md#dashboard): every flag of `shadowlap dashboard`.
