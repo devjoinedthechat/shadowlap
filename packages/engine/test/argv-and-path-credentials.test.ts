@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { quoteArgv } from '../src/text.js';
-import { CREDENTIAL_PLACEHOLDER as C, credentialFreeArgv, credentialFreeCallName, credentialFreeCommandLine, credentialFreeQuery, credentialFreeUrl, maskJsonTextCredentials, maskPathCredentials, sameCommandLine, withoutCredentials, withoutStoredCredentials } from '../src/http.js';
+import { credentialFreeArgv, credentialFreeCommandLine, sameCommandLine } from '../src/argv-credentials.js';
+import { CREDENTIAL_PLACEHOLDER as C, credentialFreeCallName, credentialFreeQuery, credentialFreeUrl, maskJsonTextCredentials, maskPathCredentials, withoutCredentials, withoutStoredCredentials } from '../src/http.js';
 
 /**
  * What the review found reaching a pack, an HTML file, a push, a share link and a trace: a key
@@ -48,9 +49,10 @@ describe('a command line', () => {
     expect(credentialFreeArgv(['docker', 'exec', 'app', 'sh', '-c', `bash -c 'TOKEN=sk-test-EXAMPLE0004 ./run' > out.log`])).toEqual(['docker', 'exec', 'app', 'sh', '-c', `bash -c 'TOKEN="${C}" ./run' > out.log`]);
     const plain = ['sh', '-c', 'MODE=fast node agent.js | tee out.log'];
     expect(credentialFreeArgv(plain)).toBe(plain);
-    // Outside a shell's script, an assignment's value with spaces is masked whole, as before; so is a script whose quote is left open.
+    // Outside a script, an assignment's value with spaces is masked whole, as before; so is a script whose quote is left open.
     expect(credentialFreeArgv(['env', 'DB_PASSWORD=correct horse battery staple', 'node', 'agent.js'])).toEqual(['env', `DB_PASSWORD=${C}`, 'node', 'agent.js']);
-    expect(credentialFreeArgv(['python', '-c', 'API_KEY="sk-test-EXAMPLE0005"; run()'])).toEqual(['python', '-c', `API_KEY=${C}`]);
+    // Python's code is a script too, its value masked in the quotes Python wrote it in (argv-shapes.test.ts has the other languages).
+    expect(credentialFreeArgv(['python', '-c', 'API_KEY="sk-test-EXAMPLE0005"; run()'])).toEqual(['python', '-c', `API_KEY="${C}"; run()`]);
     expect(credentialFreeArgv(['sh', '-c', "OPENAI_API_KEY='sk-test-EXAMPLE0006 node agent.js"])).toEqual(['sh', '-c', `OPENAI_API_KEY=${C}`]);
   });
 

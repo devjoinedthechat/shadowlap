@@ -89,7 +89,8 @@ describe('a fix in the team store', () => {
     const run = makeRun(dana.store, { labels: ['refund-bug'] });
     const key = 'sk-test-EXAMPLE0123456789';
     const agent = ['node', 'agent.mjs', '--api-key', key];
-    const build = `OPENAI_API_KEY=${key} npm run build`;
+    // A build script with a key in a header, a URL and an assignment, as the security re-check's repro had it.
+    const build = `curl -sH "Authorization: Bearer ${key}" https://ci:${key}@build.example.com/x && OPENAI_API_KEY=${key} npm run build`;
     const script = ['sh', '-c', `OPENAI_API_KEY=${key} node agent.mjs`];
     const { fix, blame } = recordBlame(dana.store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: quoteArgv(['shadowlap', 'blame', run, '--', ...agent]), rerun: { flags: ['--writes', 'block'], command: agent }, title: 'Refunds above the limit issued without approval', checkText: 'issue_refund called 0 times' });
     const { verdict } = recordVerdict(dana.store, { report: verifyReport([{ runId: run, role: 'target', pass: false }]), expect: EXPECT, command: quoteArgv(['shadowlap', 'verify', '--fixes', run, '--build', build, '--', ...script]), rerun: { flags: ['--build', build], command: script } });
@@ -106,7 +107,7 @@ describe('a fix in the team store', () => {
     expect(sent).not.toContain(key);
     const doc = JSON.parse(sent) as FixDoc;
     expect(doc.blames[0].rerun).toEqual({ flags: ['--writes', 'block'], command: ['node', 'agent.mjs', '--api-key', C] });
-    expect(doc.verdicts.find((v) => v.verifyId === verdict.verifyId)!.rerun).toEqual({ flags: ['--build', `OPENAI_API_KEY=${C}`], command: ['sh', '-c', `OPENAI_API_KEY="${C}" node agent.mjs`] });
+    expect(doc.verdicts.find((v) => v.verifyId === verdict.verifyId)!.rerun).toEqual({ flags: ['--build', `curl -sH "Authorization: ${C}" "https://ci:${C}@build.example.com/x" && OPENAI_API_KEY="${C}" npm run build`], command: ['sh', '-c', `OPENAI_API_KEY="${C}" node agent.mjs`] });
     // Nothing is sent again: this machine's copy, masked as it goes, is the store's.
     expect((await push(dana, { runIds: [] })).fixes.sent).toEqual([]);
 

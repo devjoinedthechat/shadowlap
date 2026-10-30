@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { encodeEventStreamFrame, eventStreamFrames, type EventStreamFrame } from './eventstream.js';
-import { capturedHttp, credentialFreeArgv, credentialFreeCallName, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, decodedParam, wellFormed, withoutStoredCredentials } from './http.js';
+import { argvCarriesCredentials, credentialFreeArgv } from './argv-credentials.js';
+import { capturedHttp, credentialFreeCallName, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, decodedParam, wellFormed, withoutStoredCredentials } from './http.js';
 import { reachesResultsOf, rewriteJsonDocument, untouched, type CallScope } from './json-doc.js';
 import { loadApiRequest, manifestRefs, storeApiRequest, type RequestManifest } from './manifest.js';
 import { messageOf } from './message-of.js';
@@ -730,8 +731,7 @@ export function credentialFreeCalls(store: StoreOf<'recording'>, calls: readonly
  * rule applies.
  */
 export function carriesCredentials(store: StoreOf<'recording' | 'readModels'>, runId: string): boolean {
-  const run = store.getRun(runId);
-  if (run && credentialFreeArgv(run.command.argv) !== run.command.argv) return true;
+  if (argvCarriesCredentials(store.getRun(runId)?.command.argv)) return true;
   // Read from the rows that can hold one, without loading the run's calls: an export reads those once.
   for (const row of store.query(CALL_METAS_SQL, runId)) {
     const meta = JSON.parse(String(row.meta)) as CallMeta;
