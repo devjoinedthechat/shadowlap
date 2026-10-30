@@ -1639,7 +1639,7 @@ The work done on those threads:
 - what the project switcher and a project's setup count of its store;
 - Training's pairs, and Copy JSON.
 
-**Spare threads.** While every thread is busy, a spare thread answers what comes behind them. It starts after half a second while requests hold every thread (two whole Compares of long runs). While what can wait (a long run's whole analysis, the warm-up) holds one, it starts at once, and a second may start in place of that thread. Each ends once it has had nothing to do for a while.
+**Spare threads.** While every thread is busy, a spare thread answers what comes behind them. It starts after half a second while requests hold every thread (two whole Compares of long runs). While what can wait (a long run's whole analysis, the warm-up) holds one, it starts at once, and a second may start in place of that thread. What waits goes to whichever thread is free first, a spare one once it has started. Each ends once it has had nothing to do for a while.
 
 **A run keeps its thread.** A run stays with the thread that read it, which keeps it, and a request about it goes there.
 

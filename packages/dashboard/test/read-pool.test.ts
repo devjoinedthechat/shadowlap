@@ -305,6 +305,50 @@ describe('read models on threads beside the server', () => {
     }
   }, 30_000);
 
+  it('gives what a spare thread started for to a thread free before it is ready', async () => {
+    // Threads that take 2 s to start, 4 s over a run's whole analysis and 300 ms over the Overview.
+    const script = join(dir, 'slow-start.mjs');
+    writeFileSync(
+      script,
+      [
+        "import { parentPort, threadId } from 'node:worker_threads';",
+        "setTimeout(() => parentPort.postMessage({ type: 'ready' }), 2000);",
+        'parentPort.on(\'message\', (m) => {',
+        "  if (m.type === 'close') return parentPort.postMessage({ type: 'closed' });",
+        '  const answer = (extra = {}) => parentPort.postMessage({ type: \'answer\', id: m.id, answer: { status: 200, body: JSON.stringify({ kind: m.job.kind, thread: threadId }), etag: null, ...extra } });',
+        "  if (m.job.kind === 'warm') return answer({ warm: { done: true, walked: 0, total: 0 } });",
+        "  if (m.job.kind === 'run') return answer({ warming: true, then: { kind: 'analyse', runId: m.job.runId } });",
+        "  if (m.job.kind === 'analyse') return setTimeout(() => answer(), 4000);",
+        "  if (m.job.kind === 'summary') return setTimeout(() => answer(), 300);",
+        '  answer();',
+        '});',
+      ].join('\n'),
+    );
+    const two = new ReadPool({ dbPath, keep: { stats: () => undefined, asks: () => undefined }, size: 2, script: pathToFileURL(script) });
+    const said = (a: { body: string }) => JSON.parse(a.body) as { kind: string; thread: number };
+    const idle = READ_LIMITS.spareIdleMs;
+    READ_LIMITS.spareIdleMs = 50;
+    try {
+      for (let i = 0; i < 1000 && !two.warmed; i++) await new Promise((r) => setTimeout(r, 10));
+      // A long run's whole analysis on one thread, the Overview on the other.
+      const first = said(await two.run({ kind: 'run', runId: 'R', read: {} }, { affinity: 'R' }));
+      const overview = two.run({ kind: 'summary', work: { tz: 'UTC', now: NOW, goldens: [], team: null, project: null } });
+      // The sidebar behind them starts a spare thread, but the Overview's thread is free first, and answers it.
+      const recent = said(await two.run({ kind: 'recent', read: {} }));
+      const o = said(await overview);
+      expect(recent.thread).toBe(o.thread);
+      expect(recent.thread).not.toBe(first.thread);
+      // The spare thread, ready with nothing to do, ends once nothing can wait any more.
+      const slots = () => (two as unknown as { slots: unknown[] }).slots.length;
+      expect(slots()).toBe(3);
+      for (let i = 0; i < 400 && slots() > 2; i++) await new Promise((r) => setTimeout(r, 25));
+      expect(slots()).toBe(2);
+    } finally {
+      READ_LIMITS.spareIdleMs = idle;
+      await two.close();
+    }
+  }, 30_000);
+
   it('answers on a spare thread what waits behind two long requests, once it has waited a moment', async () => {
     const { pool: two, said } = timedPool({ compare: 4000 }, 'spare-requests');
     const order: string[] = [];
