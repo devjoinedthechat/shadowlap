@@ -346,10 +346,12 @@ function PullRequest({ pr }: { pr: PullRequestPreview }) {
 /**
  * What each choice for an inconclusive golden (a gate, a judge or an injection test that can't
  * decide) does, in the design's words for its "in CI" row (the Gates panel's), as the action's
- * `inconclusive` input takes it.
+ * `inconclusive` input takes it. Fails writes no input, so the step does as `shadowlap test` does by
+ * default: a gate against a history shorter than 30 sessions only warns, until the plan reads a
+ * decline or a drop in it.
  */
 const INCONCLUSIVE_WORDS: Record<'fail' | 'warn', ReactNode> = {
-  fail: <>Fails the step, as a failed one does. Run more attempts can settle it.</>,
+  fail: <>Fails the step, as a failed one does, but a gate against a history of fewer than 30 sessions only warns while the plan reads no decline or drop in them. Run more attempts can settle it.</>,
   warn: (
     <>
       Lets the step pass with a warning: <code>inconclusive: warn</code>. Every report still says inconclusive.
@@ -359,7 +361,7 @@ const INCONCLUSIVE_WORDS: Record<'fail' | 'warn', ReactNode> = {
 
 /** What the toast says when the choice changes. */
 const INCONCLUSIVE_TOAST: Record<'fail' | 'warn', string> = {
-  fail: 'An inconclusive golden fails the step, the default',
+  fail: 'An inconclusive golden fails the step, the default · a gate against fewer than 30 sessions only warns',
   warn: 'An inconclusive golden warns · the step says inconclusive: warn',
 };
 

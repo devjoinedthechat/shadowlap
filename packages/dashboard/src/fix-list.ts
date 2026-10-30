@@ -1,5 +1,5 @@
-import { commitTitle, fixCost, fixLabelInfo, type FixRecords, fixRecords, type FixStatus, formatUsd, noRepairerOf, outcomeOf, type RepairCandidate, shownBlame, type StoredFix, type StoreOf, unrescuedHead, unsettledFirst } from '@shadowlap/engine';
-import { acceptedCandidate, acceptedVerdict, brokenOf, counting, fixHref, gradualRange, repairCounts, repairerLabel, s, shownRepair, type StepKey } from './fix-shared.js';
+import { commitTitle, fixCost, fixLabelInfo, type FixRecords, fixRecords, type FixStatus, formatUsd, lostWords, noRepairerOf, outcomeOf, type RepairCandidate, shownBlame, type StoredFix, type StoreOf, unrescuedHead, unsettledFirst } from '@shadowlap/engine';
+import { acceptedCandidate, acceptedVerdict, brokenOf, counting, fixHref, repairCounts, repairerLabel, s, shownRepair, type StepKey } from './fix-shared.js';
 
 /** The Fixes list: a row for each fix, the most recently opened first, with its status, its failing runs and how far blame, repair and verify got. */
 
@@ -114,11 +114,8 @@ function stepsOf(rec: FixRecords): FixStep[] {
   else {
     const r = b.report;
     const cost = `${r.attempts} attempt${s(r.attempts)} · ${approx(r.spent)}`;
-    const g = gradualRange(r);
-    if (b.outcome === 'blamed' && r.blamed)
-      blame = g
-        ? { key: 'blame', n: '01', state: 'done', short: `lost gradually, #${g.from}–#${g.to}`, title: `Lost gradually around model calls #${g.from} and #${g.to}`, meta: `confidence ${r.confidence} · ${cost}` }
-        : { key: 'blame', n: '01', state: 'done', short: `lost at #${r.blamed.callNo}`, title: `Lost at model call #${r.blamed.callNo}`, meta: `confidence ${r.confidence} · ${cost}` };
+    // At the call blame names, or gradually around two when no one call lost the run.
+    if (b.outcome === 'blamed' && r.blamed) blame = { key: 'blame', n: '01', state: 'done', short: lostWords(r.blamed.callNo, r.range), title: lostWords(r.blamed.callNo, r.range, 'title'), meta: `confidence ${r.confidence} · ${cost}` };
     // Its first probe couldn't tell: not settled, never a finding that no call rescues the run.
     // Not rescued from any model call only where blame's bound bears it out; else from the first, as blame's report heads it.
     else if (b.outcome === 'unrescuable') blame = { key: 'blame', n: '01', state: 'warn', short: unsettledFirst(r) ? 'not settled' : 'not rescued', title: unrescuedHead(r).replace(/^\S+ /, ''), meta: cost };

@@ -10,7 +10,7 @@ import { cents, clock, ktok, money, num, plural, shortId, whenShort } from '../f
 import { ORIGIN_CODE, ORIGIN_COLOR, ORIGIN_NAME } from '../origins.js';
 import { href } from '../route.js';
 import type { ActivityItem, CacheUse, DaySums, FixesFunnel, GridFamily, GridRow, LiveRun, NeedsLookRow, OverviewSummary, RunGrid, TestsTile, TodayPanel as Today } from '../types.js';
-import { activityGlyph, activityLine, blameWords, chartScale, dayText, kindGlyph, needsLookAction, needsLookKey, needsLookShown, originCounts, originRows, personName, reproducedNote, share, SHOW_ORIGINS, spentNote, testsKpi, tickText, todayBlameCount, todayTestsLine, verifiedNote } from './model.js';
+import { activityGlyph, activityLine, blameWords, chartScale, dayText, kindGlyph, needsLookAction, needsLookKey, needsLookShown, originCounts, originRows, outcomeWords, personName, reproducedNote, share, SHOW_ORIGINS, spentNote, testsKpi, tickText, todayBlameCount, todayTestsLine, verifiedNote } from './model.js';
 
 /**
  * The Overview's panels, as the mock draws them: the outcome strip, this week's runs as rows of
@@ -191,14 +191,6 @@ export function NeedsLook({ items, total }: { items: readonly NeedsLookRow[]; to
 }
 
 // ---------------------------------------------------------------------------------------------- today
-
-function outcomeWords(o: { kind: string; callNo?: number }): string {
-  if (o.kind === 'diverged' && o.callNo) return `diverged at #${o.callNo}`;
-  if (o.kind === 'lost' && o.callNo) return `lost at #${o.callNo}`;
-  if (o.kind === 'check-failed') return 'check failed';
-  if (o.kind === 'inconclusive') return 'inconclusive';
-  return 'failed';
-}
 
 /**
  * What ran today: one line each, with a count or a status on the right. Tests counts each golden by

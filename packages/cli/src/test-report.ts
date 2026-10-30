@@ -1,4 +1,4 @@
-import { aboutUsd, checkStatus, formatPassK, formatTokens, markdownCode, markdownText, riskPercent, safeText, statusTally, type CheckStatus, type DivergenceType, type GateResult, type InjectionGateData, type JudgeSummary, type StoredCheck, type TestFailure } from '@shadowlap/engine';
+import { aboutUsd, BASELINE_DEFAULTS, checkStatus, formatPassK, formatTokens, markdownCode, markdownText, RECORD_WINDOWS, riskPercent, safeText, statusTally, type CheckStatus, type DivergenceType, type GateResult, type InjectionGateData, type JudgeSummary, type StoredCheck, type TestFailure } from '@shadowlap/engine';
 import { judgeSource } from './checks.js';
 
 /**
@@ -183,7 +183,43 @@ function passedLabel(r: PackResult): string {
 /** The result cell for a recording that didn't pass: why, which for a gate is its verdict line, and its pass^k. */
 const notPassedLabel = (r: PackResult): string => (r.gate ? `${r.message ?? r.gate.sentence}${passKAfter(r.gate)}` : (r.message ?? 'failed'));
 
-export function markdownReport(report: TestReport): string {
+/**
+ * What CI does with the session's inconclusive recordings, as the session decided it (`inconclusiveFor`):
+ * the `--inconclusive` given, or with none, the default, which fails the run, and a young gate against
+ * history's rule: it only warns, saying it needs more history, until the plan reads a decline at 99 to 1
+ * or a drop in its last sessions, and then counts, saying why. Each young one says which it did.
+ */
+function inconclusiveRule(unsure: readonly PackResult[], given: 'fail' | 'warn' | null): string {
+  if (given === 'warn') return 'This run lets inconclusive recordings through (`--inconclusive warn`).';
+  if (given === 'fail') return 'This run fails on each of them (`--inconclusive fail`).';
+  const young = unsure.filter((r) => r.warned || r.counted);
+  const each = young.map((r) => `${markdownCode(safeText(r.name))} ${r.warned ? `only warns (${cell(r.warned)})` : cell(r.counted!)}.`);
+  const rule = young.length ? ` A gate against history whose golden has fewer than ${RECORD_WINDOWS * BASELINE_DEFAULTS.window} sessions (three of its windows) only warns, unless the plan reads its last sessions below the ones before them, a decline at 99 to 1 or a drop: then it counts. ${each.join(' ')}` : '';
+  return `By default an inconclusive recording fails the run; \`--inconclusive warn\` lets it through.${rule}`;
+}
+
+/** Why the session's inconclusive recordings are inconclusive, what CI did with them, and what settles them. */
+function inconclusiveNote(unsure: readonly PackResult[], given: 'fail' | 'warn' | null): string {
+  // Why each is inconclusive: a check that could not be decided, or a gate that ran out of attempts between its bounds.
+  const unjudged = unsure.some((r) => r.checks?.some((c) => checkStatus(c) === 'inconclusive'));
+  const injected = unsure.some((r) => r.injection?.verdict === 'inconclusive');
+  // A gate that ran out of attempts: not one an attempt a check could not decide stopped first,
+  // which decided nothing, nor one that passed a golden its injection gate then left inconclusive.
+  const gated = unsure.some((r) => r.gate?.decision === 'inconclusive') || (!unjudged && !injected);
+  const causes = [
+    ...(unjudged ? ['a check could not be decided, such as a judge check with no recorded verdict and no way to ask the judge, or a condition whose value the run does not have: it never passes, but the agent failed no check'] : []),
+    ...(gated ? ["neither verdict holds at the gate's stated risk after the most attempts it runs"] : []),
+    ...(injected ? ['an injection gate showed too little to say, as its reason says: no untrusted read to plant in, a model call that failed, or no attempt a model read'] : []),
+  ];
+  return `Inconclusive means ${causes.join('; or ')}. ${inconclusiveRule(unsure, given)}${unjudged ? ' Record a judge\'s verdict with `shadowlap test <recording> --update` where the judge can be asked.' : ''}${gated ? ' More attempts settle a gate: raise its `max`, or run `shadowlap test <recording> --max-attempts <n> --continue` once, which carries its attempts over.' : ''}`;
+}
+
+/**
+ * The job summary: the results table, each failure's checks, details and output, and what to do.
+ * `given` is the `--inconclusive` the session was given, null with none, which the summary names as
+ * what CI did with an inconclusive recording.
+ */
+export function markdownReport(report: TestReport, given: 'fail' | 'warn' | null = null): string {
   const lines: string[] = [];
   const total = report.results.length;
   const recordings = `recording${total === 1 ? '' : 's'}`;
@@ -236,25 +272,7 @@ export function markdownReport(report: TestReport): string {
   if (failures.some((r) => r.checks?.some((c) => checkStatus(c) === 'failed'))) {
     lines.push('', 'A failed check means the agent did something its recording\'s checks in `shadowlap.config.json` rule out.');
   }
-  if (inconclusive) {
-    // Why each is inconclusive: a check that could not be decided, or a gate that ran out of attempts between its bounds.
-    const unsure = report.results.filter((r) => verdictOf(r) === 'inconclusive');
-    const unjudged = unsure.some((r) => r.checks?.some((c) => checkStatus(c) === 'inconclusive'));
-    const injected = unsure.some((r) => r.injection?.verdict === 'inconclusive');
-    // A gate that ran out of attempts: not one an attempt a check could not decide stopped first,
-    // which decided nothing, nor one that passed a golden its injection gate then left inconclusive.
-    const gated = unsure.some((r) => r.gate?.decision === 'inconclusive') || (!unjudged && !injected);
-    const causes = [
-      ...(unjudged ? ['a check could not be decided, such as a judge check with no recorded verdict and no way to ask the judge, or a condition whose value the run does not have: it never passes, but the agent failed no check'] : []),
-      ...(gated ? ["neither verdict holds at the gate's stated risk after the most attempts it runs"] : []),
-      ...(injected ? ['an injection gate showed too little to say, as its reason says: no untrusted read to plant in, a model call that failed, or no attempt a model read'] : []),
-    ];
-    const warned = unsure.some((r) => r.ok);
-    lines.push(
-      '',
-      `Inconclusive means ${causes.join('; or ')}. ${warned ? 'This run lets inconclusive recordings through (`--inconclusive warn`).' : 'It fails the run unless `--inconclusive warn` is given.'}${unjudged ? ' Record a judge\'s verdict with `shadowlap test <recording> --update` where the judge can be asked.' : ''}${gated ? ' More attempts settle a gate: raise its `max`, or run `shadowlap test <recording> --max-attempts <n> --continue` once, which carries its attempts over.' : ''}`,
-    );
-  }
+  if (inconclusive) lines.push('', inconclusiveNote(report.results.filter((r) => verdictOf(r) === 'inconclusive'), given));
   if (report.interrupted) lines.push('', 'The session was interrupted: only the recordings above finished, and the rest did not run.');
   const updated = report.results.filter((r) => r.updated);
   if (updated.length) {

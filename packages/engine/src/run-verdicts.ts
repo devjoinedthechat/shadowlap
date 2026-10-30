@@ -1,7 +1,7 @@
 /**
  * How a run stands, as the dashboard and the terminal UI both say it: why a run failed, first reason
- * first, and how one of a gate's attempts came out. Plain functions of what a run kept, with no store:
- * the dashboard's browser code imports them too.
+ * first, where blame found it lost, and how one of a gate's attempts came out. Plain functions of what
+ * a run kept, with no store: the dashboard's browser code imports them too.
  */
 
 /** A check as a run keeps it: whether it passed and, for one that didn't, whether it could be decided at all. */
@@ -32,6 +32,34 @@ export function failureReason<C extends KeptCheck>(run: { status: string; checks
   if (o?.kind === 'check-failed' && o.check) return { kind: 'fix-check', check: o.check };
   if (run.status === 'crashed') return { kind: 'interrupted' };
   return run.blame ? { kind: 'blame' } : null;
+}
+
+/**
+ * The two calls blame found a run lost gradually around, as its range keeps them: when the check of the
+ * call the probes pinned found no drop from it to the next (`gradual`), so no one call lost the run.
+ * Null for a run lost at one call, and for anything that isn't such a range, two whole call numbers,
+ * the first before the second: a report, a run's blame, an event or a page from a pack can carry anything.
+ */
+export function lostAround(range: unknown): { from: number; to: number; gradual: true } | null {
+  if (typeof range !== 'object' || range === null) return null;
+  const { from, to, gradual } = range as { from?: unknown; to?: unknown; gradual?: unknown };
+  if (gradual !== true || typeof from !== 'number' || typeof to !== 'number') return null;
+  return Number.isInteger(from) && Number.isInteger(to) && from >= 1 && to > from ? { from, to, gradual: true } : null;
+}
+
+/**
+ * Where blame found a run lost, as the dashboard and the terminal UI say it: `lost at #5`, or `lost
+ * gradually around #5 and #7` when it found no one call lost it (lostAround). `calls` names them as
+ * model calls, as a sentence does (`lost at model call #5`, `lost gradually around model calls #5 and
+ * #7`), and `title` does so as a title starts (`Lost at model call #5`). `callNo` is the call blame
+ * names; a range the probes left open between two calls is said at it, as these views have it, the
+ * Blame step naming the range beside it (the CLI's report words that one too: lostWhere).
+ */
+export function lostWords(callNo: number, range?: unknown, form: 'short' | 'calls' | 'title' = 'short'): string {
+  const around = lostAround(range);
+  const calls = form === 'short' ? '' : around ? 'model calls ' : 'model call ';
+  const words = around ? `gradually around ${calls}#${around.from} and #${around.to}` : `at ${calls}#${callNo}`;
+  return `${form === 'title' ? 'Lost' : 'lost'} ${words}`;
 }
 
 export type AttemptVerdict = 'passed' | 'failed' | 'inconclusive';

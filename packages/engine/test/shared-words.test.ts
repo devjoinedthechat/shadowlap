@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { compareFork, forkEnd } from '../src/fork-changes.js';
 import { storeApiRequest } from '../src/manifest.js';
 import { markChange, markKey, markToast } from '../src/run-marks.js';
-import { attemptVerdict, failureReason, FAILURE_WORDS, keptAttemptVerdict } from '../src/run-verdicts.js';
+import { attemptVerdict, failureReason, FAILURE_WORDS, keptAttemptVerdict, lostAround, lostWords } from '../src/run-verdicts.js';
 import { Store } from '../src/store.js';
 import type { Effect, Origin } from '../src/types.js';
 
 /**
  * What the dashboard and the terminal UI both say of a run, worked out once here: why it failed and
- * in which order, how a fork ended and what it did differently, how an attempt came out, and the
- * good/bad key.
+ * in which order, where blame found it lost, how a fork ended and what it did differently, how an
+ * attempt came out, and the good/bad key.
  */
 
 describe('why a run failed', () => {
@@ -25,6 +25,29 @@ describe('why a run failed', () => {
   });
   it('takes a check that could not be decided for no failure', () => {
     expect(failureReason({ status: 'completed', checks: [check(false, 'inconclusive')] })).toBeNull();
+  });
+});
+
+describe('where blame found a run lost', () => {
+  it('says the call it names, or, where no one call lost the run, the two it was lost gradually around', () => {
+    expect(lostWords(5)).toBe('lost at #5');
+    expect(lostWords(5, null, 'calls')).toBe('lost at model call #5');
+    expect(lostWords(5, undefined, 'title')).toBe('Lost at model call #5');
+    const gradual = { from: 5, to: 7, fromStep: 3, toStep: 4, gradual: true };
+    expect(lostWords(5, gradual)).toBe('lost gradually around #5 and #7');
+    expect(lostWords(5, gradual, 'calls')).toBe('lost gradually around model calls #5 and #7');
+    expect(lostWords(5, gradual, 'title')).toBe('Lost gradually around model calls #5 and #7');
+    // Pinned to one call, or a range the probes left open, it is said at the call blame names.
+    expect(lostWords(5, { from: 5, to: 5 })).toBe('lost at #5');
+    expect(lostWords(7, { from: 7, to: 9 })).toBe('lost at #7');
+  });
+
+  it('reads a range as gradual only when it is two whole calls in order: a run from a pack can carry anything', () => {
+    expect(lostAround({ from: 5, to: 7, fromStep: 3, toStep: 4, gradual: true })).toEqual({ from: 5, to: 7, gradual: true });
+    for (const odd of [null, undefined, 'x', [], { from: 5, to: 7 }, { from: 5, to: 7, gradual: 'yes' }, { from: 7, to: 5, gradual: true }, { from: 5, to: 5, gradual: true }, { from: 0, to: 2, gradual: true }, { from: 1.5, to: 3, gradual: true }, { from: '5', to: '7', gradual: true }]) {
+      expect(lostAround(odd), JSON.stringify(odd)).toBeNull();
+    }
+    expect(lostWords(5, { from: 7, to: 5, gradual: true })).toBe('lost at #5');
   });
 });
 
@@ -104,6 +127,7 @@ describe('a fork against its parent', () => {
     expect(forkEnd('running', { kind: 'running' })).toEqual({ status: 'running', failed: false, words: 'still running', tone: null });
     expect(forkEnd('crashed', { kind: 'none' })).toEqual({ status: 'crashed', failed: false, words: 'interrupted', tone: null });
     expect(forkEnd('completed', { kind: 'lost', callNo: 7 })).toEqual({ status: 'completed', failed: true, words: 'failed, lost at #7', tone: 'err' });
+    expect(forkEnd('completed', { kind: 'lost', callNo: 7, range: { from: 7, to: 9, gradual: true } }).words).toBe('failed, lost gradually around #7 and #9');
     expect(forkEnd('failed', { kind: 'none' })).toEqual({ status: 'failed', failed: false, words: 'exited with an error', tone: null });
     expect(forkEnd('completed', { kind: 'inconclusive', check: 'polite' })).toMatchObject({ words: 'check inconclusive: polite', tone: 'warn' });
   });

@@ -135,7 +135,7 @@
       "teamPull": 39
     },
     "packages/cli/src/test-report.ts": {
-      "markdownReport": 46
+      "markdownReport": 39
     },
     "packages/cli/src/verify.ts": {
       "runVerify": 62,
@@ -167,7 +167,7 @@
       "workflowYaml": 31
     },
     "packages/dashboard/src/fix-blame-step.ts": {
-      "blameStep": 44
+      "blameStep": 41
     },
     "packages/dashboard/src/fix-bundles.ts": {
       "fixBundles": 82
@@ -176,7 +176,7 @@
       "fixForRun": 44
     },
     "packages/dashboard/src/fix-list.ts": {
-      "stepsOf": 33
+      "stepsOf": 32
     },
     "packages/dashboard/src/fix-verify-step.ts": {
       "verifyMore": 41
@@ -548,7 +548,7 @@
       "RunHeader": 198
     },
     "packages/dashboard/ui/run/parts.tsx": {
-      "Banner": 264
+      "Banner": 263
     },
     "packages/dashboard/ui/runspage/Calendar.tsx": {
       "Calendar": 208

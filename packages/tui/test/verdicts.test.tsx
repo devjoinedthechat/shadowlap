@@ -1,8 +1,9 @@
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { markToast, Store, unpackRun, type CallRecord, type RunRecord } from '@shadowlap/engine';
 import { App } from '../src/app.js';
-import { attemptResult, attemptsText, attemptTallies } from '../src/attempts.js';
+import { attemptResult, attemptsText, attemptTallies, leftRunning } from '../src/attempts.js';
 import { forkEffects } from '../src/fork-effects.js';
 import { marked } from '../src/marks.js';
 import { failedCheckText, standing, unrecordedConsequence, unrecordedName, verdictOf } from '../src/verdict.js';
@@ -112,6 +113,22 @@ describe('how a run stands, in the terminal', () => {
     s.close();
   });
 
+  it('says a run blame found lost gradually around two calls was, in the run list and its timeline, never lost at the first', async () => {
+    const { s, rec } = story();
+    s.updateRunMeta(rec, { blame: { ...s.getRun(rec)!.meta!.blame!, range: { from: 9, to: 11, fromStep: 4, toStep: 5, gradual: true } } });
+    const list = renderAt(<App store={s} columns={160} rows={30} />, 160, 30);
+    const frame = await frameWhere(list.lastFrame, (f) => f.includes('2 runs'));
+    expect(frame).toMatch(/recording\s+Research request.*✗ 1\/2\s+lost gradually around #9 and #11\s+refund/);
+    expect(frame).not.toContain('lost at #9');
+    list.unmount();
+    // The red line before the first of the two says so too, where a run lost at one call says "lost here".
+    const page = renderAt(<App store={s} runId={rec} columns={120} rows={40} />, 120, 40);
+    const lines = (await frameWhere(page.lastFrame, (f) => f.includes('How this run stands'))).split('\n');
+    expect(lines[lines.findIndex((l) => /> #9\s/.test(l)) - 1]).toContain('── lost gradually around #9 and #11 · blame, high confidence');
+    page.unmount();
+    s.close();
+  });
+
   it('marks a run good or bad with + and -, never both, as the dashboard does', async () => {
     const { s, rec } = story();
     const { lastFrame, stdin, unmount } = renderAt(<App store={s} columns={120} rows={30} />, 120, 30);
@@ -208,7 +225,30 @@ describe('how a run stands, in the terminal', () => {
     expect(attemptResult(run({ repeat: { group: 'g', attempt: 1, of: 2 } }, 'crashed'))).toBe('interrupted');
     // Stopped before it ended, it is interrupted whatever blame kept on it: the engine's rule, the dashboard's too.
     expect(attemptResult(run({ probe: { of: 'p', callNo: 3, passed: true } }, 'crashed'))).toBe('interrupted');
-    expect(attemptTallies([run({ repeat: { group: 'g', attempt: 1, of: 2 } }, 'crashed'), run({ repeat: { group: 'g', attempt: 2, of: 2 } })])).toEqual([{ kind: 'repeat', count: 2, passed: 1, interrupted: 1 }]);
+    expect(attemptTallies([run({ repeat: { group: 'g', attempt: 1, of: 2 } }, 'crashed'), run({ repeat: { group: 'g', attempt: 2, of: 2 } })], new Set())).toEqual([{ kind: 'repeat', count: 2, passed: 1, interrupted: 1 }]);
+    // Still marked running, but its recorder went away: interrupted too, as the dashboard lists it. One a process records is running.
+    expect(attemptResult(run({ repeat: { group: 'g', attempt: 1, of: 2 } }, 'running'), new Set(['r']))).toBe('interrupted');
+    expect(attemptResult(run({ probe: { of: 'p', callNo: 3, passed: true } }, 'running'), new Set(['r']))).toBe('interrupted');
+    expect(attemptResult(run({ repeat: { group: 'g', attempt: 1, of: 2 } }, 'running'))).toBe('running');
+    expect(attemptTallies([run({ repeat: { group: 'g', attempt: 1, of: 2 } }, 'running'), run({ repeat: { group: 'g', attempt: 2, of: 2 } })], new Set(['r']))).toEqual([{ kind: 'repeat', count: 2, passed: 1, interrupted: 1 }]);
+  });
+
+  it('counts an attempt its recorder left running as interrupted, in the run list and on the run, as the dashboard does', async () => {
+    const { s, rec } = story();
+    // A sixth attempt whose recorder was killed: the store still names it, and it is gone.
+    const left = s.createRun({ mode: 'replay', parentRunId: rec, command: { argv: ['node', 'agent.js'], cwd: '.' }, meta: { repeat: { group: 'g', attempt: 6, of: 6 } } });
+    const db = (s as unknown as { db: { prepare(sql: string): { run(...args: unknown[]): unknown } } }).db;
+    db.prepare('UPDATE run_owners SET pid = ? WHERE run_id = ?').run(spawnSync(process.execPath, ['-e', '0']).pid, left.runId);
+    expect(leftRunning(s, [s.getRun(left.runId)!])).toEqual(new Set([left.runId]));
+    const list = renderAt(<App store={s} columns={160} rows={30} />, 160, 30);
+    expect(await frameWhere(list.lastFrame, (f) => f.includes('2 runs'))).toContain('6 attempts, 4 passed, 1 interrupted');
+    list.unmount();
+    const page = renderAt(<App store={s} runId={rec} columns={120} rows={40} />, 120, 40);
+    await frameWhere(page.lastFrame, (f) => f.includes('How this run stands'));
+    page.stdin.write('z');
+    expect(await frameWhere(page.lastFrame, (f) => f.includes('z unzoom') && f.includes('Attempts'))).toContain('6 attempts, 4 passed, 1 interrupted');
+    page.unmount();
+    s.close();
   });
 
   it('says blame confirmed it fails, not that the agent exited with an error, for a blamed run that exited 0', () => {

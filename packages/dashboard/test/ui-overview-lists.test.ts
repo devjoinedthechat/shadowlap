@@ -30,7 +30,7 @@ const TODAY: TodayPanel = {
     blames: 4,
     probes: 12,
     attempts: 48,
-    runs: ['01M5H2DJ1WDXDJVF85FRE4DWH5', '01M5H2DJR44BY5EG2RQD7M4TXP', '01M5H2E9Q2C6YDRJ11VPNM4W0J'].map((runId, i) => ({ runId, outcome: 'blamed' as const, lostAt: 5 + i, title: 'Refunds above the limit issued without approval', fixId: 'fx-01M5H2DV7NHAEH1GM5ARZXX3BG' })),
+    runs: ['01M5H2DJ1WDXDJVF85FRE4DWH5', '01M5H2DJR44BY5EG2RQD7M4TXP', '01M5H2E9Q2C6YDRJ11VPNM4W0J'].map((runId, i) => ({ runId, outcome: 'blamed' as const, lostAt: 5 + i, range: null, title: 'Refunds above the limit issued without approval', fixId: 'fx-01M5H2DV7NHAEH1GM5ARZXX3BG' })),
   },
 };
 
