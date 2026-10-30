@@ -480,7 +480,7 @@ golden `shadowlap test` replayed). The checks are those of an [outcome check](./
 - With `--repeat`, every attempt is judged. The report says in how many attempts each check failed,
   could not be decided (inconclusive) or did not apply:
 
-```
+```text
   Checks (--expect)
     ✗ send_email called 0 times: failed in 2 of 3 attempts (#1, #3)
 ```
@@ -501,7 +501,7 @@ Everything after a fork is live, so a model may do something different each time
 doesn't show that a change fixed the behavior. `--repeat n` runs the same replay *n* times, each
 attempt its own run, and summarizes them:
 
-```
+```text
 ⑂ 5 attempts from 01M2P9PVCP, each forked at call 11
   5 of 5 exited 0 · 20 upstream requests · 16.2k input tokens not re-spent
 
@@ -2320,7 +2320,7 @@ path runs.
 | `oversized` | The tool answers with its longest text repeated until it is a million characters long (`chaos.oversize`); JSON stays JSON |
 | `429`, `500` | The model call that reads the tool's answer fails with that status, every attempt of it |
 
-```
+```text
 ⚡ goldens/forecast: 6 error-path presets at get_forecast (#3) and model call #4
   ✓ tool timeout      passed  timed out: the agent exited 0
   ✓ empty result      passed  answered with nothing: the agent exited 0
