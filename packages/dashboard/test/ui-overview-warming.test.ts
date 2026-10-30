@@ -1,5 +1,5 @@
 import { createElement, useState } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { overviewSummary } from '../src/overview.js';
 import type { Client, OverviewSummary, OverviewWarming } from '../ui/api.js';
@@ -16,10 +16,15 @@ import { render, type Rendered } from './ui-render.js';
  */
 
 let r: Rendered | null = null;
+// The Overview asks again on a fake timer: the second it waits passes as the test moves its clock (r.wait).
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+});
 afterEach(async () => {
   await r?.unmount();
   r = null;
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 const NOW = Date.UTC(2026, 9, 22, 12);

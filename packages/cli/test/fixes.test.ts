@@ -109,6 +109,12 @@ interface Result {
 /** Not under CI, wherever the suite runs: a fix opened under CI says it came from there. */
 const NOT_CI = Object.fromEntries(['CI', 'GITHUB_ACTIONS', 'GITLAB_CI', 'BUILDKITE', 'CIRCLECI', 'JENKINS_URL', 'TF_BUILD', 'BITBUCKET_BUILD_NUMBER'].map((k) => [k, '']));
 
+/**
+ * A command's clock fixed at `at` (ms since the epoch), for its process alone: how long ago it says
+ * something happened is then known to the second, however long a busy machine took to get there.
+ */
+const clockAt = (at: number): NodeJS.ProcessEnv => ({ NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import=data:text/javascript,Date.now=()=>${at}`].filter(Boolean).join(' ') });
+
 function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<Result> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, ...args], {
@@ -209,9 +215,10 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     expect(listed.fixes[0]).toMatchObject({ fixId, status: 'open', title: 'Refunds above the limit issued without approval', label: 'refund-over-limit', failing: 2, good: 0, check: 'issue_refund never called with {"amount":240}', source: null });
     expect(listed.fixes[0].steps.map((x: { short: string }) => x.short)).toEqual([`lost at #${decision}`, 'no fix yet', 'not verified']);
     expect(listed.fixes[0].attempts).toBeGreaterThan(0);
-    const table = (await shadowlap(['fix', 'ls'])).stdout;
+    // Listed 42 s after it opened, by the command's clock: the blames before it can take more than a minute.
+    const table = (await shadowlap(['fix', 'ls'], clockAt(listed.fixes[0].openedAt + 42_000))).stdout;
     // What its runs did, now that the title no longer says it, and what they must do.
-    expect(table).toMatch(new RegExp(`open +${fixId.slice(0, 13)} +Refunds above the limit issued without approval +refund-over-limit · 2 failing +lost at #${decision} · no fix yet · not verified\n +failed: issue_refund called with amount 240 · must: issue_refund never called with \\{"amount":240\\} · opened \\d+s ago\n`));
+    expect(table).toMatch(new RegExp(`open +${fixId.slice(0, 13)} +Refunds above the limit issued without approval +refund-over-limit · 2 failing +lost at #${decision} · no fix yet · not verified\n +failed: issue_refund called with amount 240 · must: issue_refund never called with \\{"amount":240\\} · opened 42s ago\n`));
 
     // The code as it is fixes nothing: the verdict is kept, rejected, and the fix stays open.
     const rejected = await shadowlap(['verify', '--fixes', 'label:refund-over-limit', '--keeps', 'label:good', '--expect', ORACLE, '--json']);
