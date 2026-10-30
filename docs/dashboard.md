@@ -230,7 +230,7 @@ Each row shows these columns:
 | Spent | What it spent |
 | Status | Its outcome: a fork's says what came of its writes (*forked · 2 writes blocked*), or names the check it failed under *check failed* |
 | When | When it ran |
-| *good · bad* | The good/bad key |
+| *good · bad* | The [good/bad key](#labels-and-notes) |
 
 While the about line would get too little room, what only adds to a row gives way, measured: first the calls by origin, then the labels, then who made it. Only then, and on a tablet or a phone, the about line goes under the id.
 
@@ -316,27 +316,388 @@ Phoenix's project starts as `PHOENIX_PROJECT` or `PHOENIX_PROJECT_NAME`, else `d
 
 The job runs [`shadowlap import`](./cli.md#import) under the name of the file you picked. Its drawer links to each run it made, or past three, to Runs filtered to them.
 
+## A run's page
+
+A run's page shows one run: its header and banners, a strip of its calls, views of the run beside an inspector for the selected call, and its labels and notes. What you can do from it is under [Actions](#actions).
+
+### The header
+
+The header says each thing once:
+
+| Where | What it says |
+| --- | --- |
+| The line above the id | What kind of run it is (*recording*, *fork @17*, *blame attempt*) |
+| The chip beside the id | How it stands: *in progress*, *failed*, *inconclusive*, *interrupted*, or no chip when all is well |
+| The meta line, under it | Why it failed |
+
+The header shows what the run is and where it came from, its command, revision and timing, and why it failed:
+
+- **The check it failed**, in the CLI's words, with the arguments it names and how a tool's calls were fenced, as `send_email called 1 time, but called 2 times (2 blocked)`.
+- **The agent's exit.**
+- **Where a test diverged.**
+
+Its counts come first: calls, replayed, live, fenced, upstream requests and spent. Then comes what replaying saved: not re-spent, and the time not waited (each replayed call's duration where it was recorded).
+
+- **A capture** whose file kept no times (nock, VCR) shows no duration. One of the model calls alone says its tool calls were not captured.
+- **A recording unpacked from someone's pack** says *recording · from a pack*.
+- **A teammate's run pulled from the [team store](./team.md)** is a recording like any. It shows the requests it sent and what it spent where it was recorded, by whom (*≈$0.0030 spent · by maya*, and the same in Provenance's Upstream row). Its replay asks first, as a pack's does.
+
+The meta line says why the run failed, and the agent's exit with its last line. It also says:
+
+- how it forked, what the flag did and what came before it ("answered with HTTP 529 by `--fail-at 19=529` · nothing sent", "tool #16 overridden with `--override 16=@policy.json` · 15 replayed and #16 overridden before it");
+- where blame found it lost, with the fork it rescued and its fix;
+- which checks it passed, and what was not recorded;
+- or that it failed and was not blamed yet.
+
+### The next step
+
+The header's one lime button is the run's next step:
+
+| Button                            | Leads for                                                                    |
+| --------------------------------- | ---------------------------------------------------------------------------- |
+| **Open the fix**                  | A failure a fix holds                                                        |
+| **Run blame**                     | A failure never blamed                                                       |
+| **Compare with parent**           | A fork or an attempt                                                         |
+| **Add normalizer**, on the banner | A test or a replay that left its recording on a value made anew on every run |
+| **Replay**                        | A run where nothing needs doing                                              |
+
+Every other action stays beside it, plain, and the banner doesn't offer the step again.
+
+- **Open the fix**: its hover names the fix, and the banner says how the fix stands, *fix open* or *fix verified*, where it linked it.
+- **Run blame** isn't offered on a run that made no model call, or on one that was stopped: blame needs a run that fails again as recorded.
+- **Compare with parent** leads for a fork, and for an attempt: a blame probe's, a verify's, a `--repeat`'s, an injection test's, a model's scoring, an error-path preset's, or a golden's repeated replay in one test session, whose failure counts towards its golden's result.
+
+A fork that failed, by its check or its agent's exit, says *failed* beside its id, as any run that failed does. It keeps the banner that says how it forked, and leads with **Run blame**, or **Open the fix** once a fix holds it. Until it is blamed, it counts among the failures not blamed yet.
+
+### Where a run opens
+
+A run opens at the call that matters most, unless the link names a call:
+
+| Run | Opens at |
+| --- | --- |
+| A fork | Its divergence |
+| A run blame found lost | The call that lost it |
+| Any other run that failed | Its first call that failed: a model call answered with an error, or a tool that threw; never a write fenced after a fork |
+| Any other run | Its first call, past any clock or random reads, which hold a value rather than a step of the agent's |
+
+### Banners
+
+Under the header, a banner says how a run came about, when there's more to say than its kind.
+
+**An attempt.** An attempt of blame, verify or `replay --repeat` says it is one: *blame attempt*, *verify attempt* or *repeat attempt* above its id. The fork blame rescued a run with is its *rescued fork*. Its banner says, in order:
+
+1. How it came out: *passed*, *failed*, *inconclusive* or *interrupted*.
+2. What was asked again, and which attempt it is of those made.
+3. How the writes after it went.
+4. For one that could not be decided, the check that couldn't be.
+
+For example:
+
+- *failed · resampled #5, attempt 2 of 4: the model was asked #5 again, the request as recorded · writes stubbed*
+- *passed · verify · target, attempt 1 of 12 · code 35034be: the change it verified is in the request (~ $.system)*, or the flag a `--model` or `--set` change was made with
+- *replay --repeat 5 at #16, attempt 2 of 5: forced live with `--live-tool lookup_policy`*
+
+A gate that settles makes fewer attempts than its limit, and the count is of the attempts made. The banner wraps rather than cut its words. It links back to the attempt's probe on its fix's Blame step, or to the verdict it counted towards, and to all its attempts in Forks. It offers no Run blame, since its failure counts towards what made it.
+
+**An error-path preset's attempt.** One banner says how an [error-path preset](./error-paths.md)'s attempt came out, by the verdict of the session that decided it. An earlier session's attempt keeps its own once the presets run again. Then it names the preset and the golden it ran on, which attempt of the preset it was, and what the preset played in where, wrapping rather than cut:
+
+*failed · tool timeout preset on goldens/list-inbox, attempt 1 of 1: list_inbox (#2) timed out, played in by the preset · writes stubbed*
+
+A golden's banner has **Tests →**. The attempt's status chip goes by that verdict.
+
+**A fork.** A replay an injection test, a model's scoring or an error-path preset made keeps its fork banner. A fork whose only flag is `--writes` forked where its request changed, and its banner says that.
+
+**A test that diverged.** A test that diverged on a value made anew on every run says what the value looks like, and offers:
+
+- **Add normalizer**, which adds the rule and runs the golden again. Once the rule is in the config, the banner says *normalizer added* and links the replay that passed.
+- **Update golden**, which asks first, as on Tests.
+
+Sometimes the rule alone can't make the replay match: the request carries a field the recording never had, as a per-run id added since. The button then reads **Add normalizer and update…**, and asks first too, in the Tests screen's dialog with both commands, since the golden is then re-recorded live after the rule. Once the rule is in, **Update golden** stays beside *normalizer added* until a replay of the golden passes.
+
+**Show diff** shows the request that changed, and the normalizer to add when the change is a date or an id. For a test that diverged, it shows the value its banner found made anew on every run, what it looks like and its normalizer. So the diff never says that no normalizer is suggested where the banner offers one.
+
+### How a run stands
+
+The server works out how a run stands once, for its page and every list:
+
+- **A test of a golden that may fork** is judged by its checks, not where it left the recording. Its banner lists the checks it passed and where it forked, or the check it failed.
+- **A run a fix lists among its failing runs** (verify's target) fails that fix's check, here and in Runs, with how the fix stands.
+- **A run whose agent exited with an error** reads *failed*; one that failed a check reads *check failed*.
+- **A run that stopped before it ended** (Ctrl-C, a kill, a crash, a recorder that went away) reads *interrupted* in grey after what it is (*recording · interrupted*, *fork @3 · interrupted*), ended at its last call. It stopped; it did not fail.
+
+An interrupted run's page says so in a banner: a fork's banner says how it forked, and its header that it stopped. Open while it recorded, the page ends on *Recording interrupted*. Runs, the sidebar, the Forks view (a `--repeat`'s attempts too), Provenance's lineage, the Overview and the activity feed say *interrupted* too.
+
+### What a fork did differently
+
+Under a fork's banner, from the call it left its parent at on, the page lists what changed.
+
+**Its decisions** come first: the tool calls it made that its parent didn't and the other way round, those it made with other arguments, and how each run ended and its last words. Each shows the call it was in, in either run. They are ranked as [`decisions`](./decisions.md) ranks a changed decision:
+
+1. a write;
+2. how the run ends;
+3. a read added or removed;
+4. a read asked differently;
+5. other words.
+
+**Its writes** follow, each with what became of it: *blocked*, *stubbed* or *ran live*. Up to three show one by one. More are grouped by tool and what became of them, each group from its first call (*send_email ×9 blocked, from #950*).
+
+**Show each** lists the writes one by one, a hundred at most; Compare has the rest. Arguments and words are compared after the project's normalizers, so an id or a time made anew is no change. The first four changes show, **Show all** opens the rest, and **Compare →** opens the whole comparison.
+
+An exported copy holds this list when the file holds the fork's parent too (`export html --lineage`, **Share → HTML file**), masked by the redaction rules. Otherwise it leaves it out.
+
+### What Shadowlap did not record
+
+Under the banner, a line each, the most pressing first:
+
+1. **Unrecorded tools**: the tools the model called whose calls the run never recorded.
+2. **No preload**: a run whose agent loaded no Shadowlap preload, so the network guard never watched it.
+3. **An unguarded process**: a process of the agent the guard could not watch.
+4. **WebSockets** that went to a provider live and are in no recording, and those an offline replay refused.
+5. **A replay's extra reads**: the clock, random and pure reads it answered live because its recording held no counterpart for them, each opening its call.
+
+**Unrecorded tools.** Each line gives the tool, how often it was called, from which model call (a click opens it), and what it does, as `tools.unrecorded` in `shadowlap.config.json` declares it or a built-in's or its name says. These tools ran in the agent unseen, and a replay runs them for real. So every command that replays the run refuses one that writes, or may (one whose effect nothing tells, *may write*), until it is recorded, declared a read, or allowed with `--allow-unrecorded`.
+
+- **How to record them**: the line says how to have them recorded (a Claude Code built-in through the Claude Agent SDK's fence, an MCP server's tool through `shadowlap mcp`, anything else wrapped). It gives the config's lines that declare them, with **Copy**.
+- **A refused replay**: a replay the CLI refuses for one, a fix's rerun among them (it passes no `--allow-unrecorded`), ends its drawer on why, *refused · an unrecorded tool may write · exit 2*, above the CLI's words on what to do.
+- **A run that holds its model calls alone** (a capture, a trace): the line names the tools its replay runs live, refusing nothing.
+- **An exported copy**, which replays nothing, leaves the unrecorded tools out.
+
+**No preload** shows in red under `--guard block`, which failed the run for it, with what the command shows of why.
+
+**An unguarded process**, such as the Claude Code CLI the Claude Agent SDK runs, shows in the run's own words, with what `shadowlap doctor` says to do (*unguarded*, red under `--guard block` too).
+
+**Extra reads**: Calls tags an extra read *extra*, and its details say so.
+
+### The origin strip
+
+The origin strip has one cell per call, colored by what happened to it: replayed, live, overridden, injected, failed, blocked or stubbed. The legend lists those present. *Injected* is a failure Shadowlap answered with instead of the provider, from [`--fail-at`](./interventions.md#inject-a-failure). The fork and the call blame named are flagged.
+
+- **Click a cell** to open that call.
+- **From the keyboard**, the strip is one stop for Tab: ← and → (Home and End) move between its cells, and Enter opens the call.
+- **In a run of more than 360 calls**, each cell covers a range of calls and takes the color of its rarest origin, so a single blocked write still shows. Hovering it counts the range.
+
+### Scopes
+
+A run made with `scope()` gets a chip per scope, nested ones included, with counts. Picking one dims the strip outside it and narrows every view to it.
+
+The line beside the chips gives the `shadowlap blame --scope` command for the scope picked. With none picked, it gives it for the one that acts: the scope that hands work to a nested one, or makes the most tool calls, not a model that plays its user. With one other scope that calls no tools, it says so (*Blame only the agent, not the customer it answers*).
+
+### Views of the run
+
+Beside the inspector, six views show the run, and `v` cycles the first five:
+
+| View                           | Shows                                                                 |
+| ------------------------------ | --------------------------------------------------------------------- |
+| [Calls](#calls-view)           | Every call with its kind, name, origin, tokens and time               |
+| [Turns](#turns-view)           | Each model call, what it said, and the tool calls that followed it    |
+| [Context](#context-view)       | Tokens per model call, split by the cache, and where the cache missed |
+| [Timeline](#timeline-view)     | Every call on a clock, scope by scope                                 |
+| [Forks](#forks-view)           | The run's family: its recording, and every replay and fork of it      |
+| [Provenance](#provenance-view) | The run's record, its lineage, and what a copy would mask             |
+
+Every mark selects its call. The lists draw only the rows in view. So a run of 50,000 calls scrolls, steps with `j` and `k` and switches views as quickly as a short one. A run opened at a call (`#/run/<id>/600`) keeps that call in view while the rows above it are drawn and the rest of its calls come, until you scroll. While a long run is on its way, the page says *Loading the run…*.
+
+### Calls view
+
+Calls lists every call with its kind, name, origin, tokens and time. Each kind of call adds what matters about it:
+
+| Call                                | Shows                                                                         |
+| ----------------------------------- | ----------------------------------------------------------------------------- |
+| A model call                        | The tools it asked for                                                        |
+| A model call that asked for no tool | What it answered, on a second line: the agent's final answer                  |
+| A tool call                         | What it returned, on a second line, or that it was blocked, stubbed or failed |
+| A clock or random call              | The value it gave                                                             |
+| A person's answer the agent read    | Tagged *input* ([what a person types](./sdk.md#what-a-person-types))          |
+
+A replayed call's time is its recorded duration, in grey, because the replay did not wait for it. A clock or random read records none, so its time is blank.
+
+Filter by origin or text: *Fenced* holds the writes blocked or stubbed after a fork. A filter lists what it matches flat. Each row has a fork button.
+
+Each call sits under the call it belongs to, the list still in the run's order:
+
+- **A tool call** sits under the model call that asked for it.
+- **Any other call** sits under the latest model call of its own scope and conversation.
+- **A sub-agent's calls** (a scope inside another, as `agent/policy-checker` in `agent`) sit under the model call whose tool started it.
+- **In a batch**, a run that works through several conversations one after another in one scope, each conversation sits under its first call, named beside it (*conversation 3 of 40*).
+
+A call with calls under it has a fold mark that hides them and shows them again; folded, it says how many it holds. **Fold all** folds every group, and once one is folded, **Unfold all** opens them again.
+
+- **←** folds the selected call's group, or goes to the call it sits under.
+- **→** opens it, or goes to its first call.
+- **`j` and `k`** step over what is folded.
+
+The groups the selected call sits in never stay folded, so a link, the strip or `n` always shows its call.
+
+### Turns view
+
+Turns shows each model call with its tokens and stop reason, what it said, and the tool calls that followed it, grouped by scope.
+
+### Context view
+
+Context shows tokens per model call, as a chart or a table. Input is split into what was read from the cache, written to it and uncached, with output below. Past 360 model calls, a bar stands for a range of them, drawn at its largest context, and holds a miss when any call in it is one.
+
+A call is flagged where the cache missed: it read less from the cache than the previous model call in the same scope and conversation sent in all, by 1,024 tokens or more. A miss sends the prompt again and writes it to the cache anew, so the calls after it read it from there.
+
+What the misses tell you:
+
+- **A fork's change** costs the call it forked at, and the note says only that call missed.
+- **Every call after the first misses**: something early in the prompt changes on every call (a time, an id). It is the most expensive bug an agent has.
+- **An agent that never caches its prompt** sends its history again on every turn. So every turn after the first is flagged, and the view says the cache was never read.
+
+### Timeline view
+
+Timeline shows every call on a clock, colored by origin, scope by scope, with the first token of streamed responses marked. It shows how long model calls and tools took, the longest call, and what ran at once.
+
+### Forks view
+
+Forks shows the run's family: its recording, and every replay and fork of it, with a line on what each did.
+
+- **A test replay of a golden that may fork** says where it forked and what it did live (*test · forked at #3 · 25 live · ≈$0.018*). One that diverged where its golden may not says where it diverged.
+- **An [error-path preset](./error-paths.md)'s attempt** that failed reads *preset failed*, and one that couldn't say reads *preset inconclusive*, each by the session that decided it.
+- **The fork blame rescued a run with** stays a fork of its own.
+
+Attempts are bundled:
+
+| Attempts                       | Bundled                                                                          |
+| ------------------------------ | -------------------------------------------------------------------------------- |
+| One `replay --repeat`'s        | Together, with how many passed and how many were interrupted                     |
+| A golden's in one test session | The same way (*test · refund-over-limit*)                                        |
+| Blame's                        | Per probe, under the run they replayed; the probe blame named is marked *blamed* |
+| Verify's                       | Per run, under each change it checked, named as the fix's Verify step names it   |
+
+- **Interrupted attempts** show in grey: an attempt stopped before it ended neither passed nor failed.
+- **A golden with a gate** says what the gate made of its attempts, as Tests does, with its verdict, tally and bound, and its rule once under them.
+- **A verified run** has an icon saying how it came out. A verdict that doesn't count for the fix says so, *doesn't count*, with a plain icon.
+- **Under a run several fixes share**, such as a good run every repair kept, each bundle names its fix.
+
+Each bundle says its verdict as a gate's is said: the word, the tally and the bound (*rescued · 2 of 2 · rate >= 0.15 (95%)*). A good run verify kept against its own baseline shows both tallies and the bound on its drop (*kept · 38 of 38, baseline 38 of 38 · drop <= 0.10 (95%)*, under the baseline's rule). Then comes what its attempts spent. A verify's bundle then names the change it checked and how that came out (*fixed · 12 of 12 · rate >= 0.73 (95%) · ≈$0.046 · repair candidate 3 · accepted*).
+
+Each rule they were decided by is stated once in the family. Each bundle opens its fix at that step, a verify at its verdict.
+
+### Provenance view
+
+Provenance is the run's record. It shows:
+
+- **The run**: its about line whole, with where it comes from; its command and revision; times, in local time as every page says them (the instant in UTC on hover); models as recorded; the provider; upstream requests; and origins.
+- **The host** that calls made to a host of another's format went through: `openai via openrouter.ai` (a host the config declares), Claude on Microsoft Foundry, OpenAI's API on Amazon Bedrock.
+- **The guard** the agent ran under, with the processes whose preload loaded, by runtime (*block · loaded in 2 Node processes*), or that none did. The Claude Code CLI shows as unwatched.
+- **Its lineage**, with how each run stands (what a failed one failed, in red; an interrupted one in grey) and its revision.
+- **What a copy made at this point applies**, and what it would mask.
+- **Each call's fingerprint and blobs.**
+- **Its labels and notes.**
+
+**Copy show --json** copies what `shadowlap show <run> --json` prints.
+
+What a copy would mask is counted as Settings → Redaction's preview counts it for a pack: each value once, however many requests send it again. It is counted apart from the dashboard's own work.
+
+- **A path rule on what calls got back**: only `export html` and `dataset` mask there (a pack keeps it for its replay), and Provenance gives their count too.
+- **Values a pack leaves as they are**: when the rules also match them (numbers, which a pattern never rewrites), it says how many stay as they are.
+- **A slow rule**: when a rule takes too long on the run's text, it says the values weren't counted, with why on hover.
+- **Busy previews**: while Settings → Redaction's previews hold every thread it uses, it says they are being counted, and asks again until they are.
+
+### The inspector
+
+The inspector shows the selected call, in four tabs:
+
+| Tab          | Shows                                                                                                |
+| ------------ | ---------------------------------------------------------------------------------------------------- |
+| Conversation | The conversation exactly as the model saw it at this call, with tool calls and thinking blocks shown |
+| Response     | The response as text and tool calls; for a tool call, the recorded result or error                   |
+| Request      | The stored request (or tool arguments) as a collapsible tree                                         |
+| Details      | Origin, outcome, model, usage, cost and timing, fingerprint, response headers and notes              |
+
+**Conversation** works the same for Anthropic, OpenAI (Chat Completions and Responses) and Gemini requests.
+
+- **Format JSON** lays out tool results that are JSON.
+- **Jump to change**, on a fork, opens the message the fork changed.
+- **A call answered with `--fail-at`**: it says the request was never sent.
+- **A tool call** shows its arguments and its result, then the model call of its own conversation that asked for it (in a batch of many conversations, which one), with **Show its conversation**.
+
+**Response**: **Play** replays a streamed response at its recorded pacing (1×, 2×, 4× or instant). *Raw* shows the stream as recorded.
+
+**Details** lists origin, outcome and HTTP status, provider and the host it went through, model, whether it was an extra read, stop reason, token usage by cache tier, cost, latency and first token, size, retries, fingerprint and occurrence, response headers, and notes.
+
+### Edit and fork
+
+**Edit and fork…**, under the call's name on every tab, opens a tool's result or what a person answered to edit, as JSON or as text, and forks with it. It is the fork menu's own `--override`, with every call before it replayed.
+
+- **Checked as untrusted data**: what you edit goes to the dashboard as an upload, and is checked before the dashboard builds the command. It must be UTF-8 text: for a tool's result, JSON of at most 2 MB; for a person's answer, at most 65,536 characters.
+- **A long result**: one too long to keep on the fork's record goes to the CLI as that file.
+- **A model call's answer** can't be edited: `--override` changes a tool's result or what a person answered, nothing else.
+
+### Labels and notes
+
+Label a run from its header (`bug`, `good`, `refund-flow`), or several from Runs. Leave notes on a call in its details.
+
+The **good/bad key** labels a run `good` or `bad` in one press:
+
+- two buttons beside a run's labels, and at the end of each row of Runs;
+- `+` and `-` on a run's page, and on the row of Runs that has the focus;
+- and Search or jump to.
+
+What the two labels mean:
+
+- **`good`** marks a run a fix must not make worse than its own baseline. Repair from here takes a fix's good runs from the runs labelled `good`, as `repair --keeps label:good` does, and keeps a change only if each is kept against its baseline.
+- **`bad`** names a run that went wrong, for `repair --fixes label:bad`.
+
+A run is never both: marking it good takes bad off, and a press of the label it has takes it off. Each press says what it did in a toast with **Undo**, and `u` does the same from anywhere while the toast shows. Either puts the labels back as they were, and hands the focus back to the key. The toast's words are said in a live region that is always on the page, so a screen reader hears them.
+
+On Runs, the key's column is headed *good · bad*, each word listing the runs labelled so. The filter takes `label:good` for the runs with that label exactly, as the CLI does (a word matches anywhere). A label's chip on Runs lists its runs too.
+
+### What a run's page is worked out from
+
+Besides each call as recorded, the run's endpoint (`/api/runs/<id>`, which the page and an [exported copy](./cli.md#export-html) read) works out the following for the run.
+
+**Conversations.** A run can hold many: an overnight batch works through forty tickets in one process, and a multi-agent run has one per agent.
+
+- **Continuing a conversation**: a model request continues a conversation when it extends that conversation's latest request in the same [scope](./sdk.md). The messages sent last time (Gemini's contents, the Responses API's input items) come first again, with the answer and what followed it appended.
+- **What doesn't count**: cache breakpoints, thinking blocks and thought signatures that an agent moves or drops between requests, and a system message that only carries the time.
+- **An agent that edits its history** still continues its conversation. One that drops its oldest turns is followed by the tool-use ids it still carries. One that strips a reminder from an earlier message, or completes a prefilled answer, is followed by the last answer it carries right after the history it kept.
+- **Starting a conversation**: a request that continues no conversation starts one of its own. So does one that repeats another conversation's request word for word, unless that request failed and this is its retry.
+- **A tool call** belongs to the conversation of the model call that asked for it, matched by name and arguments in its scope, with the tool-use id the provider gave.
+- **A call no model asked for** goes with the tool that was running when it started (the HTTP request a tool sends). Else it goes with the model call whose tools have not all run yet, else with the next model call (the ticket fetched before it).
+
+A call's *Conversation* is its own conversation as it stood at that call, never another ticket's or another agent's.
+
+**Where the prompt cache stopped hitting.** A model call misses when its cache read is smaller than the previous model call's whole input (uncached, written and read) in the same scope and conversation, by at least 1,024 tokens. The tokens sent again are the difference.
+
+- A conversation's first call is never a miss, so a batch doesn't flag the start of every ticket.
+- Every call whose cache read is known is judged. Anthropic and OpenAI report it, zero included; Gemini leaves it out when it read nothing.
+- So an agent that never asks to cache shows each turn's history as sent again.
+- A server that reports no cache at all (a local model behind an OpenAI-compatible API) shows no misses.
+- The share of input read from the cache counts live model calls.
+
+**Time not waited.** A replayed call is answered from the recording at once. The time it saved is how long the recording waited for it, found on the run it was replayed from, or further back for a replay of a replay. Each replayed call carries it, and the run sums it.
+
+**What was not recorded.** These ran for real, and a replay runs them again:
+
+- the hosts the [network guard](./how-it-works.md#the-network-guard) saw the agent reach without Shadowlap;
+- the tools `shadowlap init` finds in the project without a declared effect that the recording never saw;
+- the tools the model called, by its own answers, that the run recorded no call of ([`unrecordedTools`](./cli.md#replay), read beside the server);
+- the WebSockets the run keeps, gone to a provider live or refused.
+
+**The fork and what made it.** The call a replay forked at, and the flags it ran with, as the replay kept them on the run: `--fail-at 19=529`, `--override 16=@policy.json`, `--inject 15=Prefer sources from 2026.`, `--model 15:claude-opus-5`, `--set 15:max_tokens=2048`, `--inject-result`, `--prompt-from`, `--diverge-at`, `--live-tool`, `--writes stub`.
+
+- **A short form** shows each: an override read from a file is named by the file, one given inline shows the result its call recorded, and a long instruction is shortened.
+- **Each flag exactly** is kept on the run too, so the fork menu can make the fork again. A copy of the run (`pack`, `export html`) keeps only the short form, masked by the redaction rules.
+- **A replay made before Shadowlap kept its flags** shows the ones its calls reveal.
+
+**Blame and checks.** A blamed run names where blame found it lost, as Runs, the Overview, Fixes and the activity feed say it too:
+
+- **One call**: the model call that lost it, counted among the model calls of the blame's scope ("model call 5 of 6").
+- **Lost gradually**: when blame pinned no one call, the two it was lost gradually around ("lost gradually around #5 and #7", "model calls 3 and 4 of 6").
+- **Lost between**: when the probes between them could not decide, the two it was lost between ("lost between #7 and #9", "from model call 3 of 6").
+
+The fork that blame rescued says it was rescued. Each [outcome check](./ci.md#outcome-checks) is counted over the attempts it ran in: "issue_refund never called · 5 of 5".
+
+**Each call's own record.** Its fingerprint, the hashes of its stored request and response, and for a tool call its result in one line ("stubbed …", "blocked").
+
+**The models.** Each model the run's calls named, as every view of the page names it: the id without a date stamp (`claude-opus-5`). Provenance shows a dated id the provider answered with on hover.
+
+A run imported from someone else's pack carries what they recorded about it. Anything malformed there is left out rather than shown.
+
 ## What you see
 
-- **A run**: what it is and where it came from, its command, revision and timing, and why it failed (the check it failed in the CLI's words, with the arguments it names and how a tool's calls were fenced, as `send_email called 1 time, but called 2 times (2 blocked)`; the agent's exit; where a test diverged); a capture whose file kept no times (nock, VCR) shows no duration, and one of the model calls alone says its tool calls were not captured; its counts first (calls, replayed, live, fenced, upstream requests, spent), then what replaying saved: not re-spent, and the time not waited (each replayed call's duration where it was recorded). A recording unpacked from someone's pack says *recording · from a pack*; a teammate's run pulled from the [team store](./team.md) is a recording like any, with the requests it sent and what it spent where it was recorded, by whom (*≈$0.0030 spent · by maya*, and the same in Provenance's Upstream row), and its replay asks first, as a pack's does. One banner says how an [error-path preset](./error-paths.md)'s attempt came out, by the verdict of the session that decided it (an earlier session's attempt keeps its own once the presets run again), then the preset and the golden it ran on, which attempt of the preset it was and what the preset played in where (*failed · tool timeout preset on goldens/list-inbox, attempt 1 of 1: list_inbox (#2) timed out, played in by the preset · writes stubbed*, with **Tests →** for a golden's), wrapping rather than cut; its status chip goes by that verdict, and the meta line says why it failed, the agent's exit with its last line, how it forked, what the flag did and what came before it ("answered with HTTP 529 by `--fail-at 19=529` · nothing sent", "tool #16 overridden with `--override 16=@policy.json` · 15 replayed and #16 overridden before it"), where blame found it lost (with the fork it rescued and its fix), which checks it passed, what was not recorded, or that it failed and was not blamed yet. The header says each thing once: the line above the id what kind of run it is (*recording*, *fork @17*, *blame attempt*), the chip beside the id how it stands (*in progress*, *failed*, *inconclusive*, *interrupted*, or no chip when all is well) and the line under it why it failed. The header's one lime button is the run's next step: **Open the fix** for a failure a fix holds (its hover names the fix, and the banner says how it stands, *fix open* or *fix verified*, where it linked it), **Run blame** for a failure never blamed (not on a run that made no model call, or one that was stopped: blame needs a run that fails again as recorded), **Compare with parent** for a fork or an attempt (a blame probe's, a verify's, a `--repeat`'s, an injection test's, a model's scoring, an error-path preset's, or a golden's repeated replay in one test session, whose failure counts towards its golden's result), the banner's **Add normalizer** for a test or a replay that left its recording on a value made anew on every run, and **Replay** only where nothing needs doing; every other action stays beside it, plain, and the banner doesn't offer the step again. A fork that failed, by its check or its agent's exit, says *failed* beside its id as any run that failed does, keeps the banner that says how it forked, and leads with **Run blame** (or **Open the fix**, once a fix holds it); until it is blamed, it counts among the failures not blamed yet. An attempt of blame, verify or `replay --repeat` says it is one (*blame attempt*, *verify attempt*, *repeat attempt* above its id; the fork blame rescued a run with is its *rescued fork*), and its banner says how it came out first (*passed*, *failed*, *inconclusive*, or *interrupted*), then what was asked again and which attempt it is of those made (*failed · resampled #5, attempt 2 of 4: the model was asked #5 again, the request as recorded · writes stubbed*; *passed · verify · target, attempt 1 of 12 · code 35034be: the change it verified is in the request (~ $.system)*, or the flag a `--model` or `--set` change was made with; *replay --repeat 5 at #16, attempt 2 of 5: forced live with `--live-tool lookup_policy`*), then how the writes after it went and, for one that could not be decided, the check that couldn't be. A gate that settles makes fewer attempts than its limit, and the count is of the attempts made. The banner wraps rather than cut its words, and links back to the attempt's probe on its fix's Blame step or to the verdict it counted towards, and to all its attempts in Forks; it offers no Run blame, since its failure counts towards what made it. A replay an injection test, a model's scoring or an error-path preset made keeps its fork banner. A fork whose only flag is `--writes` forked where its request changed, and its banner says that. A test that diverged on a value made anew on every run says what the value looks like, with **Add normalizer** (it adds the rule and runs the golden again; once the rule is in the config, the banner says *normalizer added* and links the replay that passed) and **Update golden**, which asks first, as on Tests. When the rule alone can't make the replay match (the request carries a field the recording never had, as a per-run id added since), the button reads **Add normalizer and update…** and asks first too, in the Tests screen's dialog with both commands, since the golden is then re-recorded live after the rule; once the rule is in, **Update golden** stays beside *normalizer added* until a replay of the golden passes. A fork opens at its divergence, a run blame found lost at the call that lost it, and any other run that failed at its first call that failed (a model call answered with an error, a tool that threw; never a write fenced after a fork); else a run opens at its first call, past any clock or random reads, which hold a value rather than a step of the agent's. **Show diff** shows the request that changed, and the normalizer to add when the change is a date or an id: for a test that diverged, the value its banner found made anew on every run, what it looks like and its normalizer, so the diff never says that no normalizer is suggested where the banner offers one.
-- **How a run stands**, worked out once, by the server, for its page and every list: a test of a golden that may fork is judged by its checks, not where it left the recording (its banner lists the checks it passed and where it forked, or the check it failed); a run a fix lists among its failing runs (verify's target) fails that fix's check here and in Runs, with how the fix stands; a run whose agent exited with an error reads *failed*, one that failed a check *check failed*. A run that stopped before it ended (Ctrl-C, a kill, a crash, a recorder that went away) reads *interrupted* in grey after what it is (*recording · interrupted*, *fork @3 · interrupted*), ended at its last call: it stopped, it did not fail. Its page says so in a banner (a fork's banner says how it forked, and its header that it stopped), and, open while it recorded, ends on *Recording interrupted*; Runs, the sidebar, the Forks view (a `--repeat`'s attempts too), Provenance's lineage, the Overview and the activity feed say *interrupted* too.
-- **What a fork did differently**: under a fork's banner, from the call it left its parent at on: the tool calls it made that its parent didn't and the other way round, those it made with other arguments, how each run ended and its last words, ranked as [`decisions`](./decisions.md) ranks a changed decision (a write first, then how the run ends, a read added or removed, a read asked differently, other words), each with the call it was in either run; then its writes, each with what became of it (*blocked*, *stubbed*, *ran live*): up to three one by one, more grouped by tool and what became of them, each group from its first call (*send_email ×9 blocked, from #950*), and **Show each** lists them one by one (a hundred at most; Compare has the rest). Arguments and words are compared after the project's normalizers, so an id or a time made anew is no change. The first four changes show, **Show all** opens the rest, and **Compare →** the whole comparison. An exported copy holds it when the file holds the fork's parent too (`export html --lineage`, **Share → HTML file**), masked by the redaction rules, and leaves it out otherwise.
-- **What Shadowlap did not record**, a line each under the banner, the most pressing first: the tools the model called whose calls the run never recorded, each with how often, from which model call (a click opens it) and what it does, as `tools.unrecorded` in `shadowlap.config.json` declares it or a built-in's or its name says: they ran in the agent unseen, and a replay runs them for real, so every command that replays the run refuses one that writes, or may (one whose effect nothing tells, *may write*), until it is recorded, declared a read, or allowed with `--allow-unrecorded`; the line says how to have them recorded (a Claude Code built-in through the Claude Agent SDK's fence, an MCP server's tool through `shadowlap mcp`, anything else wrapped) and gives the config's lines that declare them, with **Copy**. A replay the CLI refuses for one, a fix's rerun among them (it passes no `--allow-unrecorded`), ends its drawer on why, *refused · an unrecorded tool may write · exit 2*, above the CLI's words on what to do. For a run that holds its model calls alone (a capture, a trace), it names the tools its replay runs live, refusing nothing. Then a run whose agent loaded no Shadowlap preload, so the network guard never watched it, in red under `--guard block`, which failed the run for it, with what the command shows of why; a process of the agent the guard could not watch, such as the Claude Code CLI the Claude Agent SDK runs, in the run's own words and with what `shadowlap doctor` says to do (*unguarded*, red under `--guard block` too); the WebSockets that went to a provider live and are in no recording, and those an offline replay refused; and a replay's extra reads, the clock, random and pure reads it answered live because its recording held no counterpart for them, each opening its call. Calls tags an extra read *extra*, and its details say so. An exported copy, which replays nothing, leaves the unrecorded tools out.
-- **The origin strip**: one cell per call, colored by what happened to it (replayed, live, overridden, injected, failed, blocked, stubbed); the legend lists those present. *Injected* is a failure Shadowlap answered with instead of the provider, from [`--fail-at`](./interventions.md#inject-a-failure). The fork and the call blame named are flagged. Click a cell to open that call; from the keyboard the strip is one stop for Tab, ← and → (Home and End) move between its cells, and Enter opens the call. In a run of more than 360 calls, each cell covers a range of calls and takes the color of its rarest origin, so a single blocked write still shows; hovering it counts the range.
-- **Scopes**: a run made with `scope()` gets a chip per scope, nested ones included, with counts; picking one dims the strip outside it and narrows every view to it. The line beside them gives the `shadowlap blame --scope` command for the scope picked, or else for the one that acts (the scope that hands work to a nested one, or makes the most tool calls), not a model that plays its user: with one other scope that calls no tools, it says so (*Blame only the agent, not the customer it answers*).
-- **Views of the run**, beside the inspector (`v` cycles the first five). Every mark selects its call. The lists draw only the rows in view, so a run of 50,000 calls scrolls, steps with `j` and `k` and switches views as quickly as a short one, and a run opened at a call (`#/run/<id>/600`) keeps that call in view while the rows above it are drawn and the rest of its calls come, until you scroll; while a long run is on its way, the page says *Loading the run…*:
-  - *Calls*: every call with its kind, name, origin, tokens and time; a model call names the tools it asked for, a tool call shows what it returned on a second line (or that it was blocked, stubbed or failed), a clock or random call the value it gave, a model call that asked for no tool what it answered on a second line (the agent's final answer), and a person's answer the agent read ([what a person types](./sdk.md#what-a-person-types)) is tagged *input*. A replayed call's time is its recorded duration, in grey, because the replay did not wait for it (a clock or random read records none, so its time is blank). Filter by origin (*Fenced* holds the writes blocked or stubbed after a fork) or text; each row has a fork button. Each call sits under the call it belongs to, the list still in the run's order: a tool call under the model call that asked for it, any other call under the latest model call of its own scope and conversation, a sub-agent's calls (a scope inside another, as `agent/policy-checker` in `agent`) under the model call whose tool started it, and in a batch, a run that works through several conversations one after another in one scope, each conversation under its first call, named beside it (*conversation 3 of 40*). A call with calls under it has a fold mark that hides them and shows them again, and folded it says how many it holds; **Fold all** folds every group, and once one is folded **Unfold all** opens them again. ← folds the selected call's group or goes to the call it sits under, → opens it or goes to its first call, and `j` and `k` step over what is folded; the groups the selected call sits in never stay folded, so a link, the strip or `n` always shows its call. A filter lists what it matches flat.
-  - *Turns*: each model call with its tokens and stop reason, what it said, and the tool calls that followed it, grouped by scope.
-  - *Context*: tokens per model call, split into input read from the cache, written to it and uncached, with output below, as a chart or a table; past 360 model calls a bar stands for a range of them, drawn at its largest context, and holds a miss when any call in it is one. A call is flagged where the cache missed: it read less from the cache than the previous model call in the same scope and conversation sent in all, by 1,024 tokens or more. A miss sends the prompt again and writes it to the cache anew, so the calls after it read it from there: a fork's change costs the call it forked at, and the note says only that call missed. When every call after the first misses, something early in the prompt changes on every call (a time, an id): the most expensive bug an agent has. An agent that never caches its prompt sends its history again on every turn, so every turn after the first is flagged, and the view says the cache was never read.
-  - *Timeline*: every call on a clock, colored by origin, with the first token of streamed responses marked, scope by scope; how long model calls and tools took, the longest call, and what ran at once.
-  - *Forks*: the run's family: its recording, every replay and fork of it, with a line on what each did; a test replay of a golden that may fork says where it forked and what it did live (*test · forked at #3 · 25 live · ≈$0.018*), and one that diverged where its golden may not, where it diverged. Attempts of one `replay --repeat` are bundled with how many passed, and how many were interrupted (in grey: an attempt stopped before it ended neither passed nor failed), and so are a golden's attempts in one test session (*test · refund-over-limit*); a golden with a gate says what the gate made of them, as Tests does, with its verdict, tally and bound, and its rule once under them. Blame's attempts are bundled per probe under the run they replayed, the probe blame named marked *blamed*, and verify's per run under each change it checked, named as the fix's Verify step names it, its icon saying how the run came out (a verdict that doesn't count for the fix says so, *doesn't count*, with a plain icon); each bundle says its verdict as a gate's is said, the word, the tally and the bound (*rescued · 2 of 2 · rate >= 0.15 (95%)*), a good run verify kept against its own baseline by both tallies and the bound on its drop (*kept · 38 of 38, baseline 38 of 38 · drop <= 0.10 (95%)*, under the baseline's rule), then what its attempts spent, a verify's then the change it checked and how that came out (*fixed · 12 of 12 · rate >= 0.73 (95%) · ≈$0.046 · repair candidate 3 · accepted*), and each rule they were decided by is stated once in the family. Each opens its fix at that step, a verify at its verdict. An [error-path preset](./error-paths.md)'s attempt that failed reads *preset failed*, and one that couldn't say *preset inconclusive*, each by the session that decided it. Under a run several fixes share, such as a good run every repair kept, each bundle names its fix. The fork blame rescued a run with stays a fork of its own.
-  - *Provenance*: the run's record (its about line whole, with where it comes from; command, revision, times in local time as every page says them (the instant in UTC on hover), models as recorded, provider, and for calls made to a host of another's format, the host they went through (`openai via openrouter.ai`, a host the config declares; Claude on Microsoft Foundry; OpenAI's API on Amazon Bedrock), the guard the agent ran under with the processes whose preload loaded, by runtime (*block · loaded in 2 Node processes*), or that none did, and the Claude Code CLI as unwatched, upstream requests, origins), its lineage with how each run stands (what a failed one failed, in red; an interrupted one in grey) and its revision, what a copy made now applies, each call's fingerprint and blobs, and its labels and notes. **Copy show --json** copies what `shadowlap show <run> --json` prints. What a copy would mask is counted as Settings → Redaction's preview counts it for a pack (each value once, however many requests send it again), apart from the dashboard's own work. When a path rule masks what calls got back, which only `export html` and `dataset` do (a pack keeps it for its replay), it gives their count too; when the rules also match values a pack leaves as they are (numbers, which a pattern never rewrites), it says how many stay as they are. When a rule takes too long on the run's text, it says the values weren't counted, with why on hover; while Settings → Redaction's previews hold every thread it uses, it says they are being counted, and asks again until they are.
-- **The inspector** for the selected call:
-  - *Conversation*: the conversation exactly as the model saw it at this call, with tool calls and thinking blocks shown. It works the same for Anthropic, OpenAI (Chat Completions and Responses) and Gemini requests. **Format JSON** lays out tool results that are JSON; on a fork, **Jump to change** opens the message the fork changed. For a call answered with `--fail-at`, it says the request was never sent. A tool call shows its arguments and its result, then the model call of its own conversation that asked for it (in a batch of many conversations, which one), with **Show its conversation**.
-  - *Response*: the response as text and tool calls. **Play** replays a streamed response at its recorded pacing (1×, 2×, 4× or instant). *Raw* shows the stream as recorded. For a tool call, the recorded result or error. **Edit and fork…**, under the call's name on every tab, for a tool's result or what a person answered, opens it to edit, as JSON or as text, and forks with it: the fork menu's own `--override`, every call before it replayed. What you edit goes to the dashboard as an upload and is checked as untrusted data (UTF-8 text: for a tool's result JSON of at most 2 MB, for a person's answer at most 65,536 characters) before the dashboard builds the command; a result too long to keep on the fork's record goes to the CLI as that file. A model call's answer can't be edited: `--override` changes a tool's result or what a person answered, nothing else.
-  - *Request*: the stored request (or tool arguments) as a collapsible tree.
-  - *Details*: origin, outcome and HTTP status, provider and the host it went through, model, whether it was an extra read, stop reason, token usage by cache tier, cost, latency and first token, size, retries, fingerprint and occurrence, response headers, and notes.
-- **Labels and notes**: label a run from its header (`bug`, `good`, `refund-flow`), or several from Runs, and leave notes on a call in its details. The good/bad key labels a run `good` or `bad` in one press: two buttons beside a run's labels, and at the end of each row of Runs, or `+` and `-` on a run's page and on the row of Runs that has the focus (Search or jump to has them too). A run labelled good is one a fix must not make worse than its own baseline: Repair from here takes a fix's good runs from the runs labelled `good`, as `repair --keeps label:good` does, and keeps a change only if each is kept against its baseline; bad names a run that went wrong, for `repair --fixes label:bad`. A run is never both: marking it good takes bad off, and a press of the label it has takes it off. Each press says what it did in a toast with **Undo**, and `u` does the same from anywhere while the toast shows; either puts the labels back as they were and hands the focus back to the key. The toast's words are said in a live region that is always on the page, so a screen reader hears them. On Runs the key's column is headed *good · bad*, each word listing the runs labelled so, and the filter takes `label:good` for the runs with that label exactly, as the CLI does (a word matches anywhere); a label's chip on Runs lists its runs too.
 - **Tests**: every [golden](./ci.md) on disk (the packs in `goldens/` and those the config's `tests` name) and how it did. A verdict leads: how many fail by their last results (or, with none failing, how many are inconclusive, in amber: a [gate](./gating.md) that ran out of attempts between its bounds), the first one named, with the line of the newest session that ran them all (CI's, or **Run tests**): its command, revision, time, its own passed and failed counts and upstream requests, *running* while its process is there (started from this dashboard, another one or a terminal), *interrupted* when a signal stopped it, *did not finish* when its process was killed. Goldens run again on their own since (by **Add normalizer and re-run**, say) follow it, as *since: refund-in-limit passed*, each with its result on hover. Then a row per golden: its name with its mode under it (`replay`, `fork ×5`, or `fork · gate` and `fork · history` for a golden with a gate, with what it means on hover) and where it came from, its checks, each marked by how its last result came out on it (✓ passed, a judge check's with where its verdict came from: the recording, free, or the judge asked live, with what that cost; ✗ failed, with what it found and, for a golden run more than once, how many attempts passed it, unless some were carried over from an earlier session; ? inconclusive, in amber, with why; – not applicable; no mark on a check not tested yet: before the golden's first result, when its last test couldn't run it, or when the check was added to the config since), its result at each recent revision of a session that ran them all (why it failed on hover, a ring where it was updated; a golden run again on its own shows in the column of its commit, with changes on top named on hover, and adds no column of its own) and its last result (*passed*, *updated at `<rev>`* after an update; a golden with a [gate](./gating.md) by its verdict, then its tally and bound, against history with its baseline, and the pass rate's interval drawn against the gate's two rates or its baseline, each gate's rule stated once under the table, beside its goldens' mode, and where two rules share a mode, with the goldens each decided); under it, how the golden's [error-path presets](./error-paths.md) came out, opening the attempt that failed, and a golden whose presets ran but whose replay hasn't yet says so, never *not run yet*; a row opens the golden's latest run. The table fits its panel at every width: with less room the oldest revisions give way, then the checks move under the golden's name, and on a phone the revisions become a strip there too, while the last result keeps its width. Each failure follows as the CLI prints it: a divergence with **Add normalizer and re-run** (it leads when a value made anew on every run is all that changed, and becomes **Re-run** once the rule is in the config), **Update golden** and **Find the commit**, whose answer then shows above the buttons while the golden keeps failing as it did when the search started (the first bad commit, or why there is none between the commits it searched, with **Find the commit…** to search from an older one; an answer given while the golden passed, or about an earlier failure, never shows over a later one; and when the search found the golden passing at the commit it fails at, the failure is in changes not committed there, or doesn't happen every time, which it says, offering no other commit until it fails at another one); a failed check, a non-zero exit or a replay with no calls with its checks and the agent's last lines of output, as `test --markdown` prints them, with **Find the commit** unless the pack can't be read. An inconclusive golden follows too: one whose [gate](./gating.md) ran out of attempts offers **Run more attempts**; one whose [judge check](./judges.md#not-judged) had no verdict in its pack that its replay could use (none, one given to an older form of the judge's request, or one given on other material), which a test that replays offline can't ask, offers **Update golden**, which asks first and runs `shadowlap test <golden> --update` (the judge is asked once, live, with the key in the dashboard's environment, and its verdict kept in the pack; nothing is re-recorded), and for a verdict given on other material it says first that a value that changes every run needs a [normalizer](./normalizers-and-redaction.md#normalizers) before the update, or the next test reads not judged again; and for a golden marked `fork`, whose judges are asked live, it names the key the judge's provider lacked. A connection the [network guard](./how-it-works.md#the-network-guard) blocked in a replay (the agent went to a host directly, past Shadowlap, which a test refuses) is named on the golden's row, in its history and in its report, also when the agent caught the refusal and the golden passed. A golden whose replay no Shadowlap preload loaded in fails under `--guard block` as *no preload loaded: the network guard never watched it*, with what the command shows of why and what to do: run the agent on Node or Python with the environment `shadowlap` gives it, or test with `--guard warn`. One that a process the guard can't watch ran in, such as the Claude Code CLI the Claude Agent SDK runs, fails as *unguarded: a process the network guard can’t watch ran*, with what `shadowlap doctor` says to do: reach a remote MCP server through `shadowlap mcp`, which records and fences its calls, and test with `--guard warn` to accept the rest. **In CI** says how CI runs them: replay goldens offline, needing no key, and a golden marked `fork` live from where it forks, needing the providers' keys (as an [injection test](./injection.md) does from each payload it plants, when a golden has one); a divergence, a non-zero exit, no calls, or a check or gate that fails or can't decide fails a golden, but a gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop. It shows the one command, `shadowlap test 'goldens/*' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`, with **Copy**, and when a golden has a gate against history, that CI has to keep the store between runs. Recordings that pytest and Vitest keep in `__recordings__/` run under their own test runner and are not listed.
 - **Training**: the preference pairs blame, verify and `--repeat` left in the store, grouped per call with the answer that lost the run beside the ones that went on to pass, where each came from and how sure it is; the goldens as tasks, with where a model takes over, what scores it and whether it can be scored; and each scored model's mean, with a pip per attempt that opens its run. **Export pairs** and **Score a model** run [`export pairs` and `tasks score`](./training.md#in-the-dashboard) as jobs; Score a model offers only the models that can answer a ready task (a recording on Bedrock, Vertex AI, Azure OpenAI or the Gemini API is translated for another provider's model), names the ones it leaves out with why, and is off while a repair or an applied patch changes the working tree. A task whose test forks before its takeover opens that test's run where it forked and offers **Update the golden…**, which adds the normalizer a value that changes every run needs and runs `test --update` on the golden.
 - **Compare**: any two runs, picked at the top from lists of runs each by its id and its about line, starting with what changed between them: the code (the two revisions, and from the project's git the commits between them with the newest one's subject, all of them on hover; *uncommitted changes* when only the working tree differed, *on separate branches* when neither follows the other), the system prompt (an unchanged one named by its hash), the tools (added and removed) and the model. Then the identical prefix and, when one run is the other's replay and its flag changed an answer rather than a request, what made the fork, as `shadowlap diff` says it, with what each run got (*#19 got HTTP 529 instead of an answer*, *#16 lookup_policy returned … instead of …*, a planted instruction, a person's other answer), then the first request that differs (each field that differs named by what it is in the request, such as `tool_result lookup_policy`, the system prompt or a tool's definition, with its path on hover), each run's calls from there (a call the other run also made at the same place is dimmed: the same tool with the same arguments, or a model call that asked for the same tools), and calls where the same request got a different answer: for a model call, what it answered each time (`"Issuing the refund.", issue_refund(…) → "Above the limit.", escalate(…)`). A call the model answered the same way in a new response, as in two live runs of one agent where only the response's id or token counts differ, is counted in the line above instead (*6 calls got the same answer in new responses*). Two long runs take seconds to compare whole (every model call's request of both is read): meanwhile the page shows the identical prefix and the first request that differs, which come at once (unless the runs were fingerprinted under other normalizers, with no replay between them), and says what is still being compared; when the rest takes longer than the two minutes a request is given, what came first stays, with the `shadowlap diff` command that compares the two in a terminal, with no time limit. A run still recording is compared again as its calls arrive. `#/compare` alone opens the newest fork or replay against its parent; with fewer than two runs it says how to make a second. `#/compare/<run>` opens that run against its newest fork, else its newest replay (a test's last), else its parent; a run with none says there is nothing to compare yet, with the replay that makes something. The same run on both sides says so rather than compare it with itself, a run the store doesn't hold is named, and so is an id that starts several runs' ids (*01M5GRV matches several runs; use more of the id*), with the side to pick again. Each side's calls are headed by its kind (*fork @7*), failed or not. A fork or a replay has *Compare with parent*; a recording compares with its first fork or replay, never an attempt bundled under it (a blame probe, a verify or `--repeat` attempt); two runs ticked on Runs, and the palette, open it too. An exported copy compares the runs it holds: every pair up to six runs, beyond that each run with the first, which it opens on against the newest other, and the pickers offer only those. Two runs of one commit whose revisions git abbreviated with different lengths read as unchanged code.
@@ -346,21 +707,6 @@ The job runs [`shadowlap import`](./cli.md#import) under the name of the file yo
   - *Verify*: one change verified at a time, each at a link of its own and named by what changed: a repair's candidate, the request fields a `--set` or `--model` change set and from which call (*temperature=1 from each run's first model call · at 35034be*), or the code version. It opens on the newest verdict that counts for the fix. A verdict is headed by the runs it checked: *Every failing run fixed, every good run kept* only when it checked every failing run of the fix, else what it did role by role (*Fixes 1 of 1 target run, keeps 1 of 1 good*). One that doesn't count for the fix is drawn plain and headed with why (*Doesn't count for this fix: its check leaves out send_email called 1 time*), and marked so in the switch. An incomplete one is amber, as inconclusive is everywhere, and leads with what settles it, the fix's header plain meanwhile: **Run more attempts** for a run its gate couldn't settle in its attempts, or that the verify stopped before it settled (its runs verified again from the start, named in their roles, since verify has no `--continue`; the limit doubled where a gate ran out of attempts, and without the budget that stopped it), or **Verify again** for one an attempt that couldn't be judged stopped. Both are built from the verdict's report and the flags kept beside it, never from its command line: a verdict kept before its flags were offers neither, and one a pull brought from the [team store](./team.md) asks first, showing the exact command, and runs without a teammate's `--build`, `--base` and command after `--`, and spends at most twice what Shadowlap runs by itself: a gate up to 160 attempts a run, a fixed count up to 10. A line under the verdict says which run is open and why, and what settling it takes (*about 12 attempts, ≈$0.045*), at the run's pass rate so far and the verdict's spend per attempt. Then its oracle, each run's role, attempts, outcome and where it went (with the run's baseline, paired at the base revision or from history, and the bound on its drop from it as the CLI says it, *drop <= 0.10 (95%)*, the margin on hover, when the verdict says them; its attempts the provider left unavailable, and the method behind its bound on hover), each run's attempts grouped by what each did as on the Blame step, what the change does to input tokens and cost per run, in one quiet line as verify prints it, and what finding out cost (for an incomplete verdict, only what it spent). The stepper counts the runs the verdicts that hold fixed and kept (*3 fixed · 1 kept*). A fix verified with a change of request fields has no patch: **Mark applied** says which fields, for you to set in your agent, and so does `fix apply`'s drawer.
 - **Settings** (`#/settings/<tab>`), the one page a project with no runs opens too: *Matching*, the normalizers with **Add normalizer** (a scope, a path, a named pattern, or under Advanced a regex, a tool or call name, or the whole value; a regex the [pattern check](./normalizers-and-redaction.md#patterns-that-could-take-too-long) refuses, as `(a+)+`, which can take minutes on some text, is named with why before it is added) and **Remove**, the clock, and **Calibrate**, which names the run it replays (the setup's, else the newest recording made here); *Redaction*, the rules, where each kind of copy applies them, and what they would mask in a run you pick (the newest recording made here, to start with, each run in the picker by its id and its about line, as Compare's are), path rules included, counted per rule with up to two samples before and after, exactly as a pack masks them (a long run is read up to 2,000 calls, 64 MB or 5 seconds, and the page says how far it got; `shadowlap redact preview` reads it all). Under a rule come quiet lines: for a path rule on what calls got back, how many values HTML, HAR and dataset copies mask there, which a pack keeps for its replay, with them on hover; and for values a pack leaves as they are (a number: a copy masks a JSON document's strings and keeps its numbers as recorded), how many, with the values and where they are on hover, then the path of the first place's path rule with the command that adds it behind **Copy** (one for a request masks them in every copy; one for what a call got back only in HTML, HAR and dataset copies), how many other places have one (`shadowlap redact preview` lists them), the rule that already masks them in those copies, or why none can: a clock or random read, which a replay needs as recorded, a stream's events, the top of a request, or a key no path can name; *CI* (`#/settings/alerts`), [your workflow](./ci.md#one-job-for-all-of-it): one job, in which the action runs the goldens once (`id: goldens`) and the parts you turn on follow it, built from its switches, **Fix pull requests** and **Tell Slack** (the checkout, Node 22 and a line for the agent's dependencies before the action; with a fix pull request on, the checkout is of the branch its pull request goes into), with what it needs for what is on and what fails a golden in it; then a panel for each part, its settings and what lands, for the repository's default branch, dimmed while it is off. The step's `env` names the keys of the providers the goldens' recordings call: with Fix pull requests on, every golden's, since blame and verify run the agent live, else those of the goldens that run live (one marked `fork`, or with an injection gate, and a forking golden's judges), with how many there are among what it needs; where a golden's keys can't be named, a comment in the `env` says to add them. A list of keys breaks only after a comma. What fails a golden lists the injection gate too, and in amber a gate, judge or injection test that can't decide, which **An inconclusive golden** sets for the step (**Warns** writes `inconclusive: warn`; **Fails** leaves the input out, so a gate against history with too few sessions still only warns); the pull request is shown as CI opens it, its branch named after the golden, blame where the run was lost and verify's line with its rule stated once. The step follows the [team store](./team.md#push-from-ci)'s Push from CI, with no switch of its own: its Team store row says how Push from CI stands and leads to Settings → Store, where it is set, and while it is on the step pushes the test runs and each fix, what it needs names the bucket's credentials (for short-lived ones, the two credentials steps `shadowlap store ci` prints and `id-token: write`; for R2, its keys as secrets, which only your branches' jobs get, and only those push), and what lands in the team store adds the test runs, the fix on teammates' Fixes page and what a pull request's job writes ([Fixes in the team store](./ci.md#fixes-in-the-team-store)); *Coding agents*, which need no MCP server, the CLI being their interface: which of `CLAUDE.md`, `AGENTS.md`, `.agents/skills`, and where the project has them `.cursor/rules` and `.github/copilot-instructions.md`, mention Shadowlap; on the `.agents/skills` row [the skills for Codex, Cursor, Copilot and the others](./agents.md#codex-cursor-copilot-and-others), with **Add the skills**, after which the row reads *found · shadowlap-setup-agent, shadowlap-debug-agent* and its version, and the files of the agents that read them say the skills give them the section; over another version's copy, **Update to** moves them to the CLI's own, and over one edited here, **Replace with** puts the CLI's own copy in its place (it asks first, since that replaces it); where the skills can't go in, the row says why; and the section to paste; *Tools*, every tool the recordings called by what happens to it after a fork, and the MCP servers the project's client configs list, each with the `shadowlap mcp` line that records it, and each config with `shadowlap mcp` in front of its servers to copy (a header's value becomes a variable in the entry's `env`, a URL's user and password are never shown or copied: a remote server's become an `Authorization: Basic` header from a variable, or are left out when it sends its own Authorization header, and one in a command shows as `•••@` to put back; the page names every value the copy leaves out, and in `.mcp.json`, whose `${NAME}` Claude Code fills in from the environment it starts from, says to set each variable there). **Add a server…** shows the line and entry for a command or URL you type, credentials hidden as the table hides them, and copies the entry as you typed it, a URL's query and path included, less a URL's user and password; *Project*, its store, runs and attempts, size and address, **Clean up old runs** and **Remove from dashboard**; *Store*, the [team store](./team.md): the bucket, the last sync with the runs in the store and only on this machine (by run, attempts filed under their run), **Push local runs**, **Pull** and Push from CI (every test run, its report and each fix CI opens) with its step to copy (the Fix on failure step on the CI tab follows it), and while a setup is under way the step that is next with **Continue the setup**; with none, **Set up the store** opens the store's setup page. While `shadowlap.config.json` can't be read, the tabs say so where their rules would be, and offer neither **Calibrate** nor **Set up the store**, which would read or write the same file; *CI* says so too, and each step says in its `env` what it leaves out until the file is fixed, as an amber row of what it needs does. When the project's folder is gone, Settings says so in its header, with **Remove from the dashboard**, says its rules, store, instruction files, recorded tool calls and MCP configs can't be read, shows no clock mode as chosen (nor while the file can't be read), and changes nothing until the folder is back.
 - **The team store's setup** (`#/setup/store`): its own page, reached from Settings → Store's **Set up the store** and the palette's **Set up the team store**. [Four steps](./team.md#set-it-up), each unlocking the next with its command beside it where it has one: connect your bucket (**Check access and connect** runs `store set --check`, which writes the config only once the check passes), push your runs, push from CI (**I added it** or **Skip for now**), bring your team (**Finish**). While a setup is under way, Needs a look leads back to it first, Settings → Store names the next step, the palette offers **Continue setting up the store**, and the status bar says *setting up*. A setup finished before says so, with the way to Settings → Store.
-
-## What a run's page is worked out from
-
-Besides each call as recorded, the run's endpoint (`/api/runs/<id>`, which the page and an [exported copy](./cli.md#export-html) read) works out the following for it.
-
-- **Conversations.** A run can hold many: an overnight batch works through forty tickets in one process, and a multi-agent run has one per agent. A model request continues a conversation when it extends that conversation's latest request in the same [scope](./sdk.md): the messages (Gemini's contents, the Responses API's input items) sent last time come first again, with the answer and what followed it appended. Cache breakpoints, thinking blocks and thought signatures that an agent moves or drops between requests don't count, and neither does a system message that only carries the time. An agent that edits its history still continues its conversation: one that drops its oldest turns, by the tool-use ids it still carries, and one that strips a reminder from an earlier message or completes a prefilled answer, by the last answer it carries right after the history it kept. A request that continues no conversation starts a new one; so does one that repeats another conversation's request word for word, unless that request failed and this is its retry. A tool call belongs to the conversation of the model call that asked for it, matched by name and arguments in its scope, with the tool-use id the provider gave. A call no model asked for goes with the tool that was running when it started (the HTTP request a tool sends), else with the model call whose tools have not all run yet, else with the next model call (the ticket fetched before it). A call's *Conversation* is its own conversation as it stood at that call, never another ticket's or another agent's.
-- **Where the prompt cache stopped hitting.** A model call misses when its cache read is smaller than the previous model call's whole input (uncached, written and read) in the same scope and conversation, by at least 1,024 tokens; the tokens sent again are the difference. A conversation's first call is never a miss, so a batch doesn't flag the start of every ticket. Every call whose cache read is known is judged: Anthropic and OpenAI report it, zero included, and Gemini leaves it out when it read nothing. An agent that never asks to cache therefore shows each turn's history as sent again; a server that reports no cache at all (a local model behind an OpenAI-compatible API) shows no misses. The share of input read from the cache counts live model calls.
-- **Time not waited.** A replayed call is answered from the recording at once. The time it saved is how long the recording waited for it, found on the run it was replayed from, or further back for a replay of a replay; each replayed call carries it, and the run sums it.
-- **What was not recorded.** The hosts the [network guard](./how-it-works.md#the-network-guard) saw the agent reach without Shadowlap, and the tools `shadowlap init` finds in the project without a declared effect that the recording never saw; the tools the model called, by its own answers, that the run recorded no call of ([`unrecordedTools`](./cli.md#replay), read beside the server); and the WebSockets the run keeps, gone to a provider live or refused. They ran for real, and a replay runs them again.
-- **The fork and what made it.** The call a replay forked at, and the flags it ran with, as the replay kept them on the run: `--fail-at 19=529`, `--override 16=@policy.json`, `--inject 15=Prefer sources from 2026.`, `--model 15:claude-opus-5`, `--set 15:max_tokens=2048`, `--inject-result`, `--prompt-from`, `--diverge-at`, `--live-tool`, `--writes stub`. Each is shown in a short form: an override read from a file is named by the file, one given inline shows the result its call recorded, and a long instruction is shortened. The run also keeps each flag exactly, so the fork menu can make the fork again; a copy of the run (`pack`, `export html`) keeps only the short form, masked by the redaction rules. A replay made before Shadowlap kept its flags shows the ones its calls reveal.
-- **Blame and checks.** A blamed run names the model call that lost it, counted among the model calls of the blame's scope ("model call 5 of 6"), or, when blame pinned no one call, the two it was lost gradually around ("lost gradually around #5 and #7", "model calls 3 and 4 of 6") or between, when the probes between them could not decide ("lost between #7 and #9", "from model call 3 of 6"), as Runs, the Overview, Fixes and the activity feed say it too; and the fork that blame rescued says it was rescued. Each [outcome check](./ci.md#outcome-checks) is counted over the attempts it ran in: "issue_refund never called · 5 of 5".
-- **Each call's own record.** Its fingerprint, the hashes of its stored request and response, and for a tool call its result in one line ("stubbed …", "blocked").
-- **The models.** Each model the run's calls named, as every view of the page names it: the id without a date stamp (`claude-opus-5`). Provenance shows a dated id the provider answered with on hover.
-
-A run imported from someone else's pack carries what they recorded about it; anything malformed there is left out rather than shown.
 
 ## Actions
 
