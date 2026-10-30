@@ -514,6 +514,7 @@ Under such a name:
 - **A key is masked**, as a count header's is: `secret_name: "ghp_…"`.
 - **An object or a list under it**, or an element named so in XML, is masked through, as a credential member's is, when any string in it reads as a key: `{"secret_version": {"value": "ghp_…"}}`.
 - **Vault AppRole's `secret_id`**, a UUID, reads as a key, so it stays masked.
+- **An ARN is kept** only as AWS writes one: a partition, a service, a region or none, and an account's 12 digits or none. A key that only begins `arn:` (`arn:x:y::1:ghp_…`) is masked.
 - **Read by its name alone**, as a model call's query and a redirect's parameters are, such a name is a credential too.
 - **A hint or a URL** doesn't describe the secret: a hint is often the password itself, and a reset link carries its token in its URL. Either is a credential whatever its value.
 
@@ -532,6 +533,7 @@ Under such a name:
 | A bare `key`, `token` or `code` | a captured call | when its value reads as one (`?key=AIzaSy…`, not `?key=checkout_v2`), since a lookup by key is common there |
 | A bare `key`, `token` or `code` | a model call's query | always |
 | `session`, `sid`, `ticket`, `appsecret_proof` | a query string or a form | always |
+| SigV2's `AWSAccessKeyId`, who signed a URL | a query string or a form | always, as SigV4's `X-Amz-Credential` is |
 | `sk`, `ak`, `hash` | a query string or a form | when their value reads as one; in a model call's query, always |
 
 ### Secret stores
@@ -694,6 +696,11 @@ A key the agent puts anywhere else is stored like any other value, so mask it wi
 - in another part of a URL's path.
 
 A write to Vault's KV engine, version 1, at another mount sends the secret as its whole body, and neither its address nor its body says so. A read there is masked when Vault's answer names its mount.
+
+**Kept on purpose:**
+
+- **An AWS access key id** (`AKIA…`, `ASIA…`) names a key pair, as a user names a user, and signs nothing alone. The secret beside it is masked, and an IAM call names the key it acts on by it, so two such calls stay two. SigV2's `AWSAccessKeyId` is the exception: it signs a URL.
+- **The headers a model call keeps for its identity**, such as Bedrock's guardrail identifier, make the call the call it is, so matching needs them as sent. An account's id in one signs nothing; a [redaction rule](#redaction) masks it in every copy.
 
 **Encoded secrets.** So is a key left encoded, as masking reads what a credential is written as, and not what it is encoded into:
 

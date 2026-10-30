@@ -339,6 +339,58 @@ describe('credentials in a captured call', () => {
     }
   });
 
+  it("SigV2 names a URL's signer by, and a key only begun as an ARN under a secret's id, stored as sent by an earlier version, still match with the same key and a rotated one", async () => {
+    const upstream = createServer((req, res) => {
+      req.resume();
+      req.on('end', () => res.writeHead(200, { 'content-type': 'application/json' }).end('{"ok":true}'));
+    });
+    await new Promise<void>((r) => upstream.listen(0, '127.0.0.1', () => r()));
+    const host = `127.0.0.1:${(upstream.address() as AddressInfo).port}`;
+    const store = Store.open(':memory:');
+    const id = (key: string) => `arn:x:y::1:${key}`;
+    const calls = async (base: string, runId: string, signer: string, key: string) => {
+      const object = await fetch(`${base}/r/${runId}/http/bucket/report.csv?AWSAccessKeyId=${signer}&Expires=1761825600&Signature=EXAMPLE%2Bsignature%3D`, { headers: { 'x-shadowlap-upstream': `http://${host}` } });
+      await object.text();
+      const secret = await fetch(`${base}/r/${runId}/http/`, { method: 'POST', headers: { 'x-shadowlap-upstream': `http://${host}`, 'content-type': 'application/x-amz-json-1.1' }, body: JSON.stringify({ SecretId: id(key) }) });
+      await secret.text();
+      return [object.status, secret.status];
+    };
+    const sidecars: Sidecar[] = [];
+    try {
+      const recording = await Sidecar.start({ store, http: [{ host, effect: 'read' }], clock: 'exact' });
+      sidecars.push(recording);
+      const run = recording.startRun({ mode: 'record', command: { argv: ['x'], cwd: '.' } });
+      expect(await calls(recording.url, run.runId, 'AKIAIOSFODNN7EXAMPLE', 'ghp_EXAMPLE16C7e42F292c6912E7710c838347A')).toEqual([200, 200]);
+      recording.endRun(run.runId, 'completed');
+      const kept = store.getCalls(run.runId).map((c) => JSON.stringify(store.getJson(c.requestRef!)));
+      for (const secret of ['AKIAIOSFODNN7EXAMPLE', 'ghp_EXAMPLE16C7e42F292c6912E7710c838347A']) expect(kept.join('\n'), secret).not.toContain(secret);
+      // As an earlier version stored the run: the key id and the key as sent, fingerprinted so.
+      const sent = [
+        { method: 'GET', url: `http://${host}/bucket/report.csv?AWSAccessKeyId=AKIAIOSFODNN7EXAMPLE&Expires=1761825600&Signature=<CREDENTIAL>` },
+        { method: 'POST', url: `http://${host}/`, body: { SecretId: id('ghp_EXAMPLE16C7e42F292c6912E7710c838347A') }, encoding: 'json' },
+      ];
+      const old = store.createRun({ mode: 'record', command: { argv: ['x'], cwd: '.' }, meta: { normalizersHash: normalizersHash([], 'exact', false), secretNames: 2 } });
+      store.getCalls(run.runId).forEach((call, i) => {
+        const fingerprint = fingerprintTool(call.name, sent[i], []).fingerprint;
+        store.appendCallStart({ ...call, runId: old.runId, fingerprint, requestRef: store.putJson({ args: sent[i] }) });
+        store.appendCallEnd({ kind: call.kind, name: call.name, fingerprint, occurrence: call.occurrence }, { ...call.end!, runId: old.runId });
+      });
+      store.endRun(old.runId, 'completed');
+      const sidecar = await Sidecar.start({ store, http: [{ host, effect: 'read' }], clock: 'exact' });
+      sidecars.push(sidecar);
+      for (const [signer, key] of [['AKIAIOSFODNN7EXAMPLE', 'ghp_EXAMPLE16C7e42F292c6912E7710c838347A'], ['AKIAI44QH8DHBEXAMPLE', 'ghp_EXAMPLErotatedEXAMPLErotated01234567']]) {
+        const replay = sidecar.startRun({ mode: 'replay', parentRunId: old.runId, command: { argv: ['x'], cwd: '.' }, offline: true });
+        expect(await calls(sidecar.url, replay.runId, signer, key)).toEqual([200, 200]);
+        expect(sidecar.endRun(replay.runId, 'completed').summary.divergence, signer).toBeNull();
+        expect(store.getCalls(replay.runId).map((c) => c.origin)).toEqual(['replayed', 'replayed']);
+      }
+    } finally {
+      for (const s of sidecars) await s.close();
+      store.close();
+      upstream.close();
+    }
+  });
+
   it("in a webhook's address are stored masked, and a recording that kept them as sent still matches, with a rotated secret too", async () => {
     const seen: string[] = [];
     const upstream = createServer((req, res) => {

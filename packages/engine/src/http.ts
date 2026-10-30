@@ -160,7 +160,11 @@ function runTogether(word: string, suffix: 'key' | 'token' | 'code'): boolean {
  * stands (`SecretString`, `password_confirmation`), but one whose last words name or describe the
  * secret (`secret_name`, `password_policy`: namesASecret), which keeps a value given it that doesn't
  * read as a key (readsAsKey), so lookups of two secrets stay two calls, while a key under such a name
- * (`secret_name: "ghp_…"`) is masked; read by its name alone, it is taken for one too.
+ * (`secret_name: "ghp_…"`) is masked; read by its name alone, it is taken for one too. An AWS access
+ * key's id (`AccessKeyId`, `aws_access_key_id`) is none: it names a key pair, as a user names a user,
+ * and signs nothing alone, the secret beside it masked; and an IAM call names the key it acts on by
+ * it (`DeleteAccessKey`), so calls on two keys stay two calls. Where it signs a URL, SigV2's
+ * `AWSAccessKeyId`, it is one (SIGNER).
  */
 export function credentialParam(name: string, value?: string): boolean {
   const words = wordsOf(name);
@@ -191,14 +195,20 @@ const PARAM_SECRET_NAME = new Set(['session', 'sid', 'ticket', 'appsecretproof']
  * one (credentialValue), or when no value is given, as a model call's query takes it.
  */
 const PARAM_EITHER_NAME = new Set(['sk', 'ak', 'hash']);
+/**
+ * The parameter SigV2 names who signed a URL by, as it spells it (`AWSAccessKeyId=AKIA…`, beside its
+ * `Signature`): masked, as SigV4's `X-Amz-Credential` is, so a URL signed again with a rotated key
+ * still matches. An access key's id under any other name is kept (credentialParam).
+ */
+const SIGNER = 'AWSAccessKeyId';
 
 /**
  * Whether a URL-encoded parameter (a query's, a form body's, a path's) carries a credential: a name
- * credentialParam reads as one, and the names parameters carry one under (PARAM_SECRET_NAME, and
- * PARAM_EITHER_NAME by its value).
+ * credentialParam reads as one, and the names parameters carry one under (SIGNER, PARAM_SECRET_NAME,
+ * and PARAM_EITHER_NAME by its value).
  */
 export function credentialQueryParam(name: string, value?: string): boolean {
-  if (credentialParam(name, value)) return true;
+  if (name === SIGNER || credentialParam(name, value)) return true;
   const joined = wordsOf(name).join('');
   if (PARAM_SECRET_NAME.has(joined)) return true;
   return PARAM_EITHER_NAME.has(joined) && (value === undefined || credentialValue(value));
@@ -235,8 +245,14 @@ const RFC3339 = /^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:[Zz]|[
 const HTTP_DATE = /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/;
 /** The units of a duration as Go writes it, those of two letters first. */
 const DURATION_UNITS = ['ns', 'us', 'µs', 'ms', 'h', 'm', 's'];
-/** An Amazon Resource Name, whose last part may end in a suffix AWS makes up (`arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db-AbCdEf`). */
-const ARN_SHAPED = /^arn:[\w-]+:[\w-]+:[\w-]*:\d*:\S+$/;
+/**
+ * An Amazon Resource Name as AWS writes one: `arn:`, a partition (`aws`, `aws-cn`, `aws-us-gov`,
+ * `aws-iso-b`), a service in lower case, a region (`us-east-1`, `us-gov-west-1`) or none, an
+ * account's 12 digits or none, and a resource, whose last part may end in a suffix AWS makes up
+ * (`arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db-AbCdEf`). A value only `arn:` and
+ * colons begin (`arn:x:y::1:ghp_…`) is none, and reads as the key it holds.
+ */
+const ARN_SHAPED = /^arn:aws(?:-[a-z]+)*:[a-z][a-z0-9-]*:(?:[a-z]{2,}-(?:[a-z]+-)+\d+)?:(?:\d{12})?:\S+$/;
 
 /**
  * Whether a value is a duration as Go writes one, and OpenAI's rate limits with it: one to six
