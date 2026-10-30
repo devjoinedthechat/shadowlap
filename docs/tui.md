@@ -148,6 +148,7 @@ Play mode replays the selected response at its recorded pacing (×1, ×2, ×4, i
 - **The footer line** is the keys of the pane in focus, `? help` first, or a message, or what a filter or a delete asks.
 - **A run that is still recording** is tailed live.
 - **Resizing**: the layout follows terminal resizes. The minimum is 60×12, and every screen fits it.
+- **The alternate screen**: it draws there, as full-screen programs do. Quitting puts back the screen it opened on, with the prompt on a line of its own, whether by `q`, Ctrl-C or an error, whose message follows.
 
 ## Keyboard shortcuts
 
