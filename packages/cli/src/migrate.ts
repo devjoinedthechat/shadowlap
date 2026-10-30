@@ -1,11 +1,13 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { argsDelta, byRule, controlOpen, formatUsd, judgeOpen, RANK_LABELS, safeLine, decisionLine, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type RetirementNotice, type SprtGate, type Store, type StoreOf } from '@shadowlap/engine';
 import { judgeRecording } from './attempts.js';
 import { type TestSpec } from './checks.js';
 import { loadConfig } from './config.js';
 import { keepDecisions, newSessionId, runDecisions, type DecisionTarget } from './decisions.js';
+import { physicalPath } from './real-path.js';
+import { fileInside, gitFolders, readInside } from './repair-tree.js';
 import { type GuardMode } from './run-agent.js';
 import { openStore, type GlobalOpts } from './shared.js';
 import { palette as p, shortId } from './ui.js';
@@ -145,26 +147,40 @@ function verifiedRules(r: Pick<MigrateReport, 'passes' | 'decisions'>): Array<{ 
   ).flatMap((g) => (g.rule === null ? [] : [{ rule: g.rule, runs: g.runs }]));
 }
 
-/** Files the project tracks or would (not ignored), with text, outside recordings and the store. */
+/** Paths whose text is no place the agent names its model: the store, packages, recordings' blobs and lockfiles. */
+const NOT_SOURCE = /(^|\/)(\.shadowlap|node_modules|blobs)\/|(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|uv\.lock|poetry\.lock|Cargo\.lock)$/;
+
+/**
+ * Files the project tracks or would (not ignored), with text, outside recordings and the store. A link
+ * is read as the file it ends at, under that file's own path, and only when that file is the
+ * project's too and not git's own (fileInside, as repair reads them): the patch's context lines and
+ * the review never quote a key file kept elsewhere, nor git's config, which can hold a credential.
+ */
 function projectTextFiles(cwd: string): Array<{ path: string; content: string }> | null {
   let listed: string;
+  let gitOwn: string[];
   try {
     listed = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 }).toString();
+    gitOwn = gitFolders(cwd);
   } catch {
     return null;
   }
+  const real = physicalPath(cwd);
+  const seen = new Set<string>();
   const out: Array<{ path: string; content: string }> = [];
-  for (const path of listed.split('\0')) {
-    if (!path || /(^|\/)(\.shadowlap|node_modules|blobs)\//.test(path) || /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|uv\.lock|poetry\.lock|Cargo\.lock)$/.test(path)) continue;
+  for (const name of listed.split('\0')) {
+    if (!name || NOT_SOURCE.test(name)) continue;
+    const path = fileInside(real, name, gitOwn);
+    if (!path || NOT_SOURCE.test(path) || seen.has(path)) continue;
+    seen.add(path);
     // A pack's recording holds the requests the model was sent, not where the agent names it.
-    if (/(^|\/)(run\.json|calls\.jsonl)$/.test(path) && existsSync(join(cwd, dirname(path), 'run.json'))) continue;
+    if (/(^|\/)(run\.json|calls\.jsonl)$/.test(path) && existsSync(join(real, dirname(path), 'run.json'))) continue;
     try {
-      const abs = join(cwd, path);
-      if (statSync(abs).size > 1024 * 1024) continue;
-      const content = readFileSync(abs, 'utf8');
+      if (statSync(join(real, path)).size > 1024 * 1024) continue;
+      const content = readInside(real, path);
       if (!content.includes('\u0000')) out.push({ path, content });
     } catch {
-      // gone, or unreadable
+      // gone, unreadable, or a file with another name
     }
   }
   return out;
