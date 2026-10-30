@@ -154,6 +154,31 @@ export const tools = {
     ]);
   });
 
+  it("gives a Claude Agent SDK query the fence, in TypeScript and Python, beside the effects of its in-process tools, until it runs through it", () => {
+    const query = "import { query } from '@anthropic-ai/claude-agent-sdk';\n\nfor await (const message of query({ prompt: 'Tidy the changelog', options: { allowedTools: ['Bash'] } })) console.log(message);\n";
+    const ts = json(project({ 'package.json': JSON.stringify({ dependencies: { '@anthropic-ai/claude-agent-sdk': '^0.3.0' } }), 'agent.ts': query }));
+    expect(ts.fence).toEqual([{ framework: 'claude-agent-sdk', language: 'typescript', at: null }]);
+    // Bash is no tool of the project's: nothing is unwrapped, and the fence is the code to add.
+    expect(ts.unwrapped).toEqual([]);
+    expect(ts.wrap).toEqual([{ language: 'typescript', tools: [], code: "import { withFence } from '@shadowlap/adapters/claude-agent-sdk';\n\nquery({ prompt, options: withFence(options) });" }]);
+    // An in-process tool to wrap as well: one import for both.
+    const py = json(
+      project({
+        'requirements.txt': 'claude-agent-sdk\n',
+        'agent.py': 'from claude_agent_sdk import ClaudeAgentOptions, create_sdk_mcp_server, query, tool\n\n@tool("lookup_order", "Look an order up", {"order_id": str})\nasync def lookup(args):\n    ...\n\norders = create_sdk_mcp_server(name="orders", version="1.0.0", tools=[lookup])\n\nasync def main():\n    async for message in query(prompt="Where is A-1042?", options=ClaudeAgentOptions(mcp_servers={"orders": orders}, allowed_tools=["Bash"])):\n        print(message)\n',
+      }),
+    );
+    expect(py.fence).toEqual([{ framework: 'claude-agent-sdk-python', language: 'python', at: null }]);
+    expect(py.unwrapped).toEqual(['lookup_order']);
+    expect(py.wrap).toEqual([
+      { language: 'python', tools: ['lookup_order'], code: 'from shadowlap.adapters.claude_agent_sdk import with_effects, with_fence\n\ntools = with_effects("<server>", [ … ], {"lookup_order": "read"})\nquery(prompt=prompt, options=with_fence(options))' },
+    ]);
+    // Checked again once the query runs through it: nothing left to add.
+    const fenced = json(project({ 'package.json': JSON.stringify({ dependencies: { '@anthropic-ai/claude-agent-sdk': '^0.3.0', '@shadowlap/adapters': '^0.1.0' } }), 'agent.ts': query.replace("import { query } from '@anthropic-ai/claude-agent-sdk';\n", "import { query } from '@anthropic-ai/claude-agent-sdk';\nimport { withFence } from '@shadowlap/adapters/claude-agent-sdk';\n").replace("options: { allowedTools: ['Bash'] }", "options: withFence({ allowedTools: ['Bash'] })") }));
+    expect(fenced.fence).toEqual([{ framework: 'claude-agent-sdk', language: 'typescript', at: { file: 'agent.ts', line: 4 } }]);
+    expect(fenced.wrap).toEqual([]);
+  });
+
   it('writes one block per framework, each with its import', () => {
     const tools = [
       { name: 'refund', file: 'agents.mjs', line: 3, via: 'openai-agents', effect: null, suggested: 'write' as const, why: '' },

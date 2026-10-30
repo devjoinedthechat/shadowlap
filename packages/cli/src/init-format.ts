@@ -5,7 +5,7 @@ import { CONFIG_FILE } from './config.js';
 import { providers as sidecarProviders } from '@shadowlap/sidecar';
 import { quoteArgv } from './ui.js';
 import { FRAMEWORK_NAMES } from './init-models.js';
-import { type FoundTool, type InitReport, type Language, type Provider } from './init-report.js';
+import { type Fence, type FoundTool, type InitReport, type Language, type Provider } from './init-report.js';
 import { installedVersion, readJson, readText, tomlRequirements } from './init-source.js';
 
 /**
@@ -59,6 +59,15 @@ const ADAPTER_SNIPPETS: Record<string, (name: string, effect: Effect, tool?: Fou
   smolagents: (n, e, t) => `${t?.decorator ?? '@tool'} over @tool(effect="${e}") on def ${n}   # from shadowlap import tool`,
 };
 
+/** A Claude Agent SDK query run through the fence, and the import that brings it, in each language, as docs/frameworks.md gives them. */
+const FENCED_QUERY = {
+  js: { code: 'query({ prompt, options: withFence(options) })', from: "import { withFence } from '@shadowlap/adapters/claude-agent-sdk'" },
+  python: { code: 'query(prompt=prompt, options=with_fence(options))', from: 'from shadowlap.adapters.claude_agent_sdk import with_fence' },
+} as const;
+
+/** The packages that bring the Claude Agent SDK, as a model SDK found through one names it (`via`). */
+const CLAUDE_AGENT_PACKAGES: ReadonlySet<string> = new Set(['@anthropic-ai/claude-agent-sdk', 'claude-agent-sdk']);
+
 /**
  * What `shadowlap init` prints: what it found, then the steps to a first recording. Run by a global
  * `shadowlap` (`globalCli`), the steps use it as it is: they add only the SDKs to the project, and
@@ -80,6 +89,7 @@ export function formatInit(r: InitReport, p: Palette, wroteConfig: boolean, { gl
   found(w, shown?.url ?? r.modelServer?.url ?? null);
   warnings(w);
   install(w);
+  fence(w);
   tools(w);
   record(w);
   out(wroteConfig ? `Created ${CONFIG_FILE} for normalizers and redaction rules.` : `${basename(r.config.path)} already exists; left as it is.`);
@@ -161,6 +171,32 @@ function install(w: InitWriter): void {
   out();
 }
 
+/**
+ * The step that runs a Claude Agent SDK query through the fence, while none does: Claude Code runs
+ * the SDK's built-in tools itself, where no wrapper reaches them, and the fence records them through
+ * the SDK's hooks.
+ */
+function fence(w: InitWriter): void {
+  const { r, p, out } = w;
+  const open = r.fence.filter((f) => !f.at);
+  if (!open.length) return;
+  head(w, "Fence Claude Code's built-in tools");
+  for (const f of open) {
+    const query = f.language === 'python' ? FENCED_QUERY.python : FENCED_QUERY.js;
+    out(`     ${query.code}   ${f.language === 'python' ? '#' : '//'} ${query.from}`);
+  }
+  out(`     ${p.dim("Bash, Write, Edit and the rest run inside Claude Code, where no wrapper reaches them: the fence records them through the SDK's hooks, so a fork never repeats a side effect.")}`);
+  out();
+}
+
+/**
+ * Whether the project has a framework or a model SDK besides the Claude Agent SDK, whose tools are
+ * wrapped one by one. The Claude Agent SDK's own are fenced, and its in-process tools are found.
+ */
+function wrapsOwnTools(r: InitReport): boolean {
+  return r.frameworks.some((f) => f.id !== 'claude-agent-sdk' && f.id !== 'claude-agent-sdk-python') || r.providers.some((x) => !CLAUDE_AGENT_PACKAGES.has(x.via));
+}
+
 /** The step that gives each tool its effect: those found without one, and how to declare it; or, with none found, how to wrap one. */
 function tools(w: InitWriter): void {
   const { r, p, out } = w;
@@ -177,7 +213,7 @@ function tools(w: InitWriter): void {
       out(`     ${p.dim('read: may run again after a fork · write: never runs again after a fork · pure: depends only on its input')}`);
     }
     out();
-  } else if (r.frameworks.length || r.providers.length) {
+  } else if (wrapsOwnTools(r)) {
     head(w, 'Wrap your tools');
     out(`     ${p.dim('No tool definitions found. Wrap each tool with its effect so a fork never repeats a side effect:')}`);
     out(`     ${w.ts ? "tool('send_email', { effect: 'write' }, impl)   // import { tool } from '@shadowlap/sdk'" : '@tool(effect="write")   # from shadowlap import tool'}`);
@@ -273,7 +309,10 @@ export interface InitJson extends Omit<InitReport, 'tools' | 'config' | 'modelSe
   tools: InitJsonTool[];
   /** Names of the tools that aren't wrapped: a replay runs them for real, since their calls aren't recorded. */
   unwrapped: string[];
-  /** Code that wraps them, per language; empty when every tool is wrapped. */
+  /**
+   * Code that wraps them, per language, and that runs a Claude Agent SDK query through the fence while
+   * none does (`fence`); empty when every tool is wrapped and every such query fenced.
+   */
   wrap: WrapSnippet[];
   /** What the command did for the folder's setup in the dashboard ({@link noteInspected}); `shadowlap init` always says. */
   project?: InspectedNote;
@@ -400,9 +439,24 @@ const jsKey = (name: string) => (/^[A-Za-z_$][\w$]*$/.test(name) ? name : `'${na
 
 const camel = (name: string) => name.replace(/[-_.]+(\w)/g, (_, c: string) => c.toUpperCase()).replace(/^[^A-Za-z_$]+/, '') || 'myTool';
 
-/** One block per framework, each with its own import, for the tools of one language. */
-function wrapCode(language: WrapSnippet['language'], tools: FoundTool[]): string {
+/**
+ * The Claude Agent SDK's block, under one import: the effects of its in-process tools (the server
+ * named by its key in the query's mcpServers), and the query through the fence when it needs it.
+ */
+function claudeAgentCode(py: boolean, tools: readonly FoundTool[], fence: boolean): string {
+  const names = [...(tools.length ? [py ? 'with_effects' : 'withEffects'] : []), ...(fence ? [py ? 'with_fence' : 'withFence'] : [])];
+  const effects = py ? `tools = with_effects("<server>", [ … ], {${tools.map((t) => `"${t.name}": "${t.suggested}"`).join(', ')}})` : `const tools = withEffects('<server>', [ … ], { ${tools.map((t) => `${jsKey(t.name)}: '${t.suggested}'`).join(', ')} });`;
+  const query = py ? FENCED_QUERY.python.code : `${FENCED_QUERY.js.code};`;
+  return [py ? `from shadowlap.adapters.claude_agent_sdk import ${names.join(', ')}` : `import { ${names.join(', ')} } from '@shadowlap/adapters/claude-agent-sdk';`, '', ...(tools.length ? [effects] : []), ...(fence ? [query] : [])].join('\n');
+}
+
+/**
+ * One block per framework, each with its own import, for the tools of one language; with `fence`,
+ * the Claude Agent SDK's block runs its query through the fence too, with or without tools of its own.
+ */
+function wrapCode(language: WrapSnippet['language'], tools: FoundTool[], fence: boolean): string {
   const groups = new Map<string, FoundTool[]>();
+  if (fence) groups.set(language === 'python' ? 'claude-agent-sdk-python' : 'claude-agent-sdk', []);
   for (const t of tools) groups.set(t.via, [...(groups.get(t.via) ?? []), t]);
   const blocks: string[] = [];
   for (const [via, list] of groups) {
@@ -413,7 +467,7 @@ function wrapCode(language: WrapSnippet['language'], tools: FoundTool[]): string
       else if (via === 'pydantic-ai') blocks.push(['from shadowlap import tool', '', list.map((t) => def([t.decorator ?? '@agent.tool', `@tool(effect="${t.suggested}")`], t)).join('\n\n')].join('\n'));
       // Strands and smolagents keep their own @tool over Shadowlap's.
       else if (via === 'strands' || via === 'smolagents') blocks.push(['from shadowlap import tool', '', list.map((t) => def([t.decorator ?? '@tool', `@tool(effect="${t.suggested}")`], t)).join('\n\n')].join('\n'));
-      else if (via === 'claude-agent-sdk-python') blocks.push(['from shadowlap.adapters.claude_agent_sdk import with_effects', '', `tools = with_effects("<server>", [ … ], {${list.map((t) => `"${t.name}": "${t.suggested}"`).join(', ')}})`].join('\n'));
+      else if (via === 'claude-agent-sdk-python') blocks.push(claudeAgentCode(true, list, fence));
       else blocks.push(['from shadowlap import tool', '', list.map((t) => def([`@tool(effect="${t.suggested}")`], t)).join('\n\n')].join('\n'));
       continue;
     }
@@ -423,21 +477,27 @@ function wrapCode(language: WrapSnippet['language'], tools: FoundTool[]): string
     else if (via === 'mastra') adapter('mastra', (t) => `createTool(withEffect({ id: '${t.name}', … }, '${t.suggested}'));`);
     else if (via === 'langchain') adapter('langchain', (t) => `withEffect(tool(…, { name: '${t.name}', … }), '${t.suggested}');`);
     else if (via === 'anthropic-tool-runner') adapter('anthropic', (t) => `betaZodTool(withEffect({ name: '${t.name}', … }, '${t.suggested}'));`);
-    else if (via === 'claude-agent-sdk') blocks.push([`import { withEffects } from '@shadowlap/adapters/claude-agent-sdk';`, '', `const tools = withEffects('<server>', [ … ], { ${list.map((t) => `${jsKey(t.name)}: '${t.suggested}'`).join(', ')} });`].join('\n'));
+    else if (via === 'claude-agent-sdk') blocks.push(claudeAgentCode(false, list, fence));
     else blocks.push([`import { tool } from '@shadowlap/sdk';`, '', ...list.map((t) => `export const ${camel(t.name)} = tool('${t.name}', { effect: '${t.suggested}' }, async (args) => { … });`)].join('\n'));
   }
   return blocks.join('\n\n');
 }
 
-/** Code that wraps the tools that aren't, with the suggested effect declared, per language. */
-export function wrapSnippets(tools: readonly FoundTool[]): WrapSnippet[] {
+/**
+ * Code that wraps the tools that aren't, with the suggested effect declared, per language, and that
+ * runs a Claude Agent SDK query through the fence while none does (`fence`, as inspectProject found it).
+ */
+export function wrapSnippets(tools: readonly FoundTool[], fence: readonly Fence[] = []): WrapSnippet[] {
   const byLanguage = new Map<WrapSnippet['language'], FoundTool[]>();
+  // A query to fence is code to add in its language, with no tool of the project's.
+  const fenced = new Set(fence.filter((f) => !f.at).map((f) => f.language));
+  for (const language of fenced) byLanguage.set(language, []);
   for (const t of tools) {
     if (t.effect) continue;
     const language: WrapSnippet['language'] = t.file.endsWith('.py') ? 'python' : /\.(ts|tsx|mts|cts)$/.test(t.file) ? 'typescript' : 'javascript';
     byLanguage.set(language, [...(byLanguage.get(language) ?? []), t]);
   }
-  return [...byLanguage].map(([language, list]) => ({ language, tools: list.map((t) => t.name), code: wrapCode(language, list) }));
+  return [...byLanguage].map(([language, list]) => ({ language, tools: list.map((t) => t.name), code: wrapCode(language, list, fenced.has(language)) }));
 }
 
 export function initJson(r: InitReport, wroteConfig: boolean): InitJson {
@@ -467,7 +527,7 @@ export function initJson(r: InitReport, wroteConfig: boolean): InitJson {
     },
     tools: r.tools.map((t) => ({ ...t, wrapped: t.effect !== null })),
     unwrapped: r.tools.filter((t) => !t.effect).map((t) => t.name),
-    wrap: wrapSnippets(r.tools),
+    wrap: wrapSnippets(r.tools, r.fence),
   };
 }
 

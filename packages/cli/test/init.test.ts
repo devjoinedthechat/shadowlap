@@ -24,6 +24,12 @@ function project(files: Record<string, string>): string {
 afterAll(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
 const palette = { ...plain, cyan: (s: string) => s };
 
+/** A Claude Agent SDK agent that lets Claude Code run Bash, in each language, and its query through the fence as init gives it. */
+const TS_QUERY = "import { query } from '@anthropic-ai/claude-agent-sdk';\n\nfor await (const message of query({ prompt: 'Tidy the changelog', options: { allowedTools: ['Bash'] } })) console.log(message);\n";
+const PY_QUERY = 'import anyio\nfrom claude_agent_sdk import ClaudeAgentOptions, query\n\nasync def main():\n    async for message in query(prompt="Tidy the changelog", options=ClaudeAgentOptions(allowed_tools=["Bash"])):\n        print(message)\n\nanyio.run(main)\n';
+const TS_FENCE = "query({ prompt, options: withFence(options) })   // import { withFence } from '@shadowlap/adapters/claude-agent-sdk'";
+const PY_FENCE = 'query(prompt=prompt, options=with_fence(options))   # from shadowlap.adapters.claude_agent_sdk import with_fence';
+
 describe('shadowlap init', () => {
   const ts = project({
     'package.json': JSON.stringify({ name: 'support-agent', scripts: { dev: 'next dev', agent: 'tsx src/agent.ts' }, dependencies: { ai: '^7.0.0', '@ai-sdk/anthropic': '^3.0.0', '@shadowlap/adapters': '^0.1.0', zod: '^4.0.0' } }),
@@ -260,6 +266,55 @@ const result = await generateText({ model: process.env.MODEL ?? 'openai/gpt-5', 
       expect(ts.r.frameworks.map((f) => f.id)).toEqual(['claude-agent-sdk']);
       expect(ts.r.providers).toEqual([{ id: 'anthropic', via: '@anthropic-ai/claude-agent-sdk' }]);
       expect(ts.tools).toEqual([{ name: 'refund_order', via: 'claude-agent-sdk', effect: 'write', suggested: 'write' }]);
+      // Neither query runs through the fence: it comes first, with the in-process tools' effects after it.
+      expect(py.text).toContain(`2. Fence Claude Code's built-in tools\n     ${PY_FENCE}\n`);
+      expect(py.text).toMatch(/\n3\. Declare what each tool does\n {5}agent\.py:3 +lookup_order +read /);
+      expect(ts.text).toContain(`2. Fence Claude Code's built-in tools\n     ${TS_FENCE}\n`);
+      expect(ts.text).toContain('\n3. Tools\n     Every tool found declares an effect.\n');
+    });
+
+    it("the Claude Agent SDK, in TypeScript and Python: step 2 runs the query through the fence, as Bash runs inside Claude Code, where no wrapper reaches it", () => {
+      const ts = found({
+        'package.json': JSON.stringify({ dependencies: { '@anthropic-ai/claude-agent-sdk': '^0.3.0' } }),
+        'agent.ts': TS_QUERY,
+      });
+      expect(ts.r.fence).toEqual([{ framework: 'claude-agent-sdk', language: 'typescript', at: null }]);
+      expect(ts.text).toContain(`\n2. Fence Claude Code's built-in tools\n     ${TS_FENCE}\n     Bash, Write, Edit and the rest run inside Claude Code, where no wrapper reaches them`);
+      // Not a tool of its own to wrap with the SDK's tool(): the step that says so is for other frameworks.
+      expect(ts.text).not.toContain('No tool definitions found');
+      expect(ts.text).not.toContain("tool('send_email'");
+      expect(ts.text).toContain('\n3. Record a run\n');
+      const py = found({ 'requirements.txt': 'claude-agent-sdk\n', 'agent.py': PY_QUERY });
+      expect(py.r.fence).toEqual([{ framework: 'claude-agent-sdk-python', language: 'python', at: null }]);
+      expect(py.text).toContain(`\n2. Fence Claude Code's built-in tools\n     ${PY_FENCE}\n`);
+      expect(py.text).not.toContain('No tool definitions found');
+      expect(py.text).toContain('\n3. Record a run\n');
+      // Beside another framework, whose tools init found none of, the step that says how to wrap one follows.
+      const both = found({ 'package.json': JSON.stringify({ dependencies: { '@anthropic-ai/claude-agent-sdk': '^0.3.0', ai: '^7.0.0', '@ai-sdk/openai': '^3.0.0' } }), 'agent.ts': TS_QUERY });
+      expect(both.text).toContain(`\n2. Fence Claude Code's built-in tools\n     ${TS_FENCE}\n`);
+      expect(both.text).toContain('\n3. Wrap your tools\n     No tool definitions found.');
+    });
+
+    it('the Claude Agent SDK with its query run through the fence already: no step for it', () => {
+      const ts = found({
+        'package.json': JSON.stringify({ dependencies: { '@anthropic-ai/claude-agent-sdk': '^0.3.0', '@shadowlap/adapters': '^0.1.0' } }),
+        'agent.ts': "import { query } from '@anthropic-ai/claude-agent-sdk';\nimport { withFence } from '@shadowlap/adapters/claude-agent-sdk';\n\n// withFence(options) records Bash and fences it on replay.\nfor await (const message of query({ prompt: 'Tidy the changelog', options: withFence({ allowedTools: ['Bash'] }) })) console.log(message);\n",
+      });
+      // The call, not the import or the comment.
+      expect(ts.r.fence).toEqual([{ framework: 'claude-agent-sdk', language: 'typescript', at: { file: 'agent.ts', line: 5 } }]);
+      expect(ts.text).not.toContain("Fence Claude Code's built-in tools");
+      expect(ts.text).not.toContain('No tool definitions found');
+      expect(ts.text).toContain('\n2. Record a run\n');
+      const py = found({
+        'requirements.txt': 'claude-agent-sdk\n',
+        'agent.py': 'from claude_agent_sdk import ClaudeAgentOptions, query\nfrom shadowlap.adapters.claude_agent_sdk import with_fence\n\n# with_fence(options) records Bash.\nasync def main():\n    async for message in query(prompt="Tidy the changelog", options=with_fence(ClaudeAgentOptions(allowed_tools=["Bash"]))):\n        print(message)\n',
+      });
+      expect(py.r.fence).toEqual([{ framework: 'claude-agent-sdk-python', language: 'python', at: { file: 'agent.py', line: 6 } }]);
+      expect(py.text).not.toContain("Fence Claude Code's built-in tools");
+      expect(py.text).toContain('\n2. Record a run\n');
+      // A file that names the fence without Shadowlap's adapter is not it.
+      const other = found({ 'package.json': JSON.stringify({ dependencies: { '@anthropic-ai/claude-agent-sdk': '^0.3.0' } }), 'agent.ts': TS_QUERY, 'fence.ts': 'export const withFence = (o: object) => o;\nwithFence({});\n' });
+      expect(other.r.fence).toEqual([{ framework: 'claude-agent-sdk', language: 'typescript', at: null }]);
     });
 
     it("Pydantic AI, LangChain and CrewAI: the providers their model strings name, CrewAI's default, and BaseTool classes", () => {
