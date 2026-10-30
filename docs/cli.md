@@ -159,21 +159,496 @@ Each command's section lists its fields. This table says where:
 shadowlap demo [--keep <dir>]
 ```
 
-The whole loop on a refund agent, with no key and nothing to clone, as the
-[quickstart](./quickstart.md#see-the-whole-loop-first) shows it. In a temporary folder made a git
-repository, which it removes at the end, it writes the agent, the check its runs must pass and a
-`shadowlap.config.json` naming the repairer, and starts a scripted model on 127.0.0.1: it answers
-the agent in Anthropic's Messages API and the repairer in OpenAI's Chat Completions, and the demo
-says it is scripted. Then it runs `run`, `label`, `replay`, `blame`, `repair` and `fix apply` there,
-each printing as it does in a terminal, and ends with how long that took and how many requests the
-scripted model answered, and where they went: the recordings, blame's attempts and repair's. After
-blame it says, in a line, how to read a probe's verdict from the probes it made. Your own model keys and endpoints are left out of its environment, and
-[telemetry](./telemetry.md) is off for it. `--keep <dir>` runs it in that folder, a new or an empty
-one, and keeps it, to look around with `shadowlap dashboard`. It needs git. It ends with 0 when
-every step did what the demo expects; otherwise with the status of the step that didn't, which it
-names; 2 for a `--keep` folder that isn't empty, or without git. A stop signal (Ctrl-C, SIGTERM, or
-the SIGHUP of a closed terminal) ends it once the command it runs then has ended, which a
-terminal's signal stops too: it removes its folder and ends with 128 + the signal's number.
+Runs the whole loop on a refund agent, with no key and nothing to clone, as the
+[quickstart](./quickstart.md#see-the-whole-loop-first) shows it. It needs git.
+
+1. It makes a temporary folder a git repository, which it removes at the end.
+2. It writes the agent there, the check its runs must pass, and a `shadowlap.config.json` naming the
+   repairer.
+3. It starts a scripted model on 127.0.0.1, which answers the agent in Anthropic's Messages API and
+   the repairer in OpenAI's Chat Completions. The demo says it is scripted.
+4. It runs `run`, `label`, `replay`, `blame`, `repair` and `fix apply` there, each printing as it
+   does in a terminal. After blame, a line says how to read a probe's verdict from the probes it made.
+5. It ends with how long that took, how many requests the scripted model answered, and where they
+   went: the recordings, blame's attempts and repair's.
+
+Your own model keys and endpoints are left out of its environment, and [telemetry](./telemetry.md) is
+off for it.
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--keep <dir>` | Run in this folder, a new or an empty one, and keep it, to look around with `shadowlap dashboard` | A temporary folder, removed |
+
+`demo` exits with:
+
+| Status          | Meaning                                                            |
+| --------------- | ------------------------------------------------------------------ |
+| `0`             | Every step did what the demo expects                               |
+| A step's status | A step that didn't, which it names                                 |
+| `2`             | A `--keep` folder that isn't empty, or no git                      |
+| `128 + n`       | A stop signal: Ctrl-C, SIGTERM, or the SIGHUP of a closed terminal |
+
+A stop signal ends the demo once the command it runs then has ended, which a terminal's signal stops
+too. It removes its folder and ends with 128 + the signal's number.
+
+## run
+
+```sh
+shadowlap run [--summary-json <file>] [--guard warn|off] -- <command> [args...]
+```
+
+Records a run: it runs the command under Shadowlap and exits with the command's exit code.
+
+```sh
+shadowlap run -- node agent.js
+shadowlap run --summary-json run.json -- python agent.py
+```
+
+Before the command starts, `run`:
+
+- starts a sidecar;
+- sets `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `GOOGLE_GEMINI_BASE_URL`, `SHADOWLAP_URL` and
+  `SHADOWLAP_RUN_ID` for the child;
+- preloads [in-process capture](./providers.md#in-process-capture), the network guard and
+  [recorded user input](./sdk.md#what-a-person-types) into Node and Python children.
+
+The run's status is `completed`, `failed` (a non-zero exit) or `crashed` (interrupted: Ctrl-C, or a
+stop signal that reached Shadowlap or the agent).
+
+`run` takes these flags:
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--summary-json <file>` | Also write the run's summary as JSON to this file ([fields](#run-summary-as-json)) | — |
+| `--guard warn\|off` | The [network guard](./how-it-works.md#the-network-guard) for connections that bypass Shadowlap | `warn` |
+
+`run` exits with:
+
+| Status      | Meaning                                                                   |
+| ----------- | ------------------------------------------------------------------------- |
+| The agent's | The agent's own exit code                                                 |
+| `127`       | The command never started ([below](#when-the-command-never-starts))       |
+| `128 + n`   | A signal ended the agent: 130 for SIGINT, 129 for SIGHUP, 143 for SIGTERM |
+
+What the run did unrecorded is kept on it, for its page in the
+[dashboard](./dashboard.md#what-a-runs-page-is-worked-out-from): the hosts the guard saw it reach
+without Shadowlap, and the tools [`init`](#init) finds in the project with no declared effect that the
+run never recorded. At its end, `run` names the tools the model called that the run recorded no call
+of, which a replay runs for real ([details](./how-it-works.md#tools-shadowlap-did-not-record)).
+
+### When the command never starts
+
+- **Not on the PATH**: `run` (and `replay`) says so (`✗ pythn: command not found on PATH`). Where
+  `python` is missing but `python3` is there, it gives the command with `python3`. It keeps no run and
+  exits 127.
+- **Can't start for another reason**: the same, with that reason in the system's own words: a path to
+  a file that isn't there, or a program that is there but can't run.
+- **Under `test` and `bisect`**: a golden whose command never started fails with the same words. One
+  replayed in a working directory that doesn't exist (`--cwd`, or a folder a commit doesn't have yet)
+  says so, rather than blaming the command.
+- **On Windows**: a command that is a batch file, such as `npm start` or `npx tsx agent.ts`, runs
+  through cmd.exe, its arguments passed on as given.
+
+A Node agent on a Node before 18.18 never starts either. That Node refuses the preload (`--import` in
+`NODE_OPTIONS`) and exits 9 before any of the agent runs:
+
+- `run` and `replay` then say the agent's Node is too old for Shadowlap's guard, which needs Node 18.18
+  or later, and keep no run.
+- `test` fails the golden with those words. `replay --repeat`, `blame`, `verify`, `repair` and
+  `decisions` stop with them, exit status 2.
+
+Where the agent prints straight to the terminal, as under `run` and `replay`, Shadowlap can't read
+that refusal. So it asks the agent's Node again: the one the command names, else the `node` on its
+PATH.
+
+A Node that a launcher or a script picks, such as `npx node@18.17.0` or `volta run`, can't be asked.
+An agent it starts that exits 9 before any call keeps its run. The summary adds that if Node printed
+`--import= is not allowed in NODE_OPTIONS` above, the agent's Node is too old.
+
+### Stopping a run
+
+A stop signal reaches the agent once:
+
+- **In a terminal**, the agent shares Shadowlap's process group, so the terminal's Ctrl-C reaches
+  both, as it would reach the agent alone. The agent keeps the terminal to read from (`/dev/tty`
+  included, as a password prompt opens it).
+- **As a dashboard job**, it shares the job's process group, which the dashboard stops as a whole,
+  and kills when it can't wait.
+- **Elsewhere** (CI, a script), the agent leads a process group of its own. Shadowlap passes it each
+  SIGINT, SIGTERM or SIGHUP it gets, once. An agent still running three seconds later is killed with
+  its group, and a second signal kills it at once.
+
+Closing the terminal (SIGHUP) ends the run as interrupted too, and kills an agent that ignores it. A
+signal that comes while the run's [judge checks](./judges.md) are asked is kept for when they are
+done; a second one ends the run as interrupted at once.
+
+An agent a signal ended exits with 128 + its number: 130 for SIGINT, 129 for SIGHUP, 143 for SIGTERM.
+`replay --repeat`, `test`, `blame`, `verify` and `decisions --from-code` stop their agents the same
+way. An agent still running when Shadowlap itself exits is killed with its group.
+
+### Run summary as JSON
+
+`--summary-json` writes `{ "exitCode", "summary", "unrecordedTools" }`:
+
+| Field | Meaning |
+| --- | --- |
+| `exitCode` | The agent's exit code |
+| `summary` | The run's summary (below) |
+| `unrecordedTools` | The tools the model called that the run never recorded: each `name`, `count`, `firstCallNo`, `effect`, `why` and `fix`, as [`show --json`](#show) lists them |
+
+The summary has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `runId`, `mode`, `status` | The run, its mode and its status |
+| `total` | Calls |
+| `byOrigin`, `byKind` | Calls per origin and per kind |
+| `upstreamRequests` | Live calls that reached a provider |
+| `injected` | Calls `--fail-at` answered |
+| `refused` | Calls answered with why they weren't sent: an intervention that couldn't be applied, or a [placeholder key](./how-it-works.md#keys) a live call would carry |
+| `imported` | Whether the run came from elsewhere: a pack someone recorded, or a capture |
+| `tokensNotRespent` | Tokens the replayed calls didn't spend again |
+| `cost` | `spent`, `saved` and `captured` in USD, and `unknownModels` with no price |
+| `durationMs` | How long the run took, in milliseconds, once it has ended |
+| `notReached` | Recorded calls the replay never made |
+| `extraReads` | Clock, random and pure reads the recording held no counterpart for, answered live while the replay went on ([extra reads](./how-it-works.md#the-replay-state-machine)) |
+| `warnings` | The run's warnings |
+| `divergence` | The divergence report, or `null` |
+| `judge` | With [judge checks](./judges.md): what the judge's calls did and cost (below) |
+
+Every count and cost is the agent's. A run with judge checks has `judge` too: what the judge's calls
+did and cost apart from them. It has `calls`, `replayed` from the recording, `live`, `upstreamRequests`,
+`spent`, `saved`, `unknownModels`, and `notAsked`: kept for runs recorded when a call no one answered
+was kept, and 0 since.
+
+A replay whose every request matched but that stopped before its recording did has a divergence too,
+of type `ended_early`, kept on the run like any other:
+
+- `callNo`, `kind` and `name` are the first recorded model call, or call of a tool that isn't pure,
+  it never made;
+- `replayedBefore` is the calls it was served;
+- `recorded` is the calls the recording holds.
+
+## replay
+
+```sh
+shadowlap replay <run> [options] [-- <command> [args...]]
+```
+
+Replays a recorded run; forks at the first changed call. It re-runs the recorded command unless one
+follows `--`.
+
+```sh
+shadowlap replay 01M2P9PVCP                    # replay as recorded
+shadowlap replay 01M2P9PVCP --strict           # exit 1 if it diverges, for CI
+shadowlap replay 01M2P9PVCP --fail-at 12=429   # make model call 12 fail with a 429
+shadowlap replay 01M2P9PVCP -- node agent.js   # replay against your own command
+```
+
+A clean replay needs no real key. The agent gets a [placeholder key](./how-it-works.md#keys) for each
+provider whose key the recording's environment held and this one has no credential for:
+
+- A live call that would carry one, after a fork, is refused with one line:
+  `a live call needs a real key: set ANTHROPIC_API_KEY, or keep the replay offline`.
+- Whatever the agent signs in with itself (a key you set, one it loads from `.env`, a profile, a token
+  provider, an instance role) is used as it is.
+
+A run imported with `unpack`, or a replay of one, carries a command someone else recorded. `replay`
+shows it and asks before running it. Without a terminal to ask on, it refuses: pass `--yes` once you
+have read the command, or give your own after `--`.
+
+These flags decide how the replay runs:
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--strict` | Exit 1 if the replay diverges, or ends before its recording does (for CI) | — |
+| `--writes block\|stub\|allow` | What `write` tools do after divergence | `block` |
+| `--reads live\|replay` | What `read` tools do after divergence | `live` |
+| `--live-tool <name>` | Force this tool live: its first call, and every call of it after a fork (repeatable). Use it after fixing a tool | — |
+| `--live-input` | After the fork, ask for what a person types instead of serving the recorded answers in order ([recorded input](./sdk.md#what-a-person-types)) | — |
+| `--expect <json\|@file>` | Checks the replay (each attempt, with `--repeat`) must pass besides exiting 0, as for `blame`: `'{"tools":{"send_email":0}}'` | The checks `shadowlap.config.json` gives the recording ([below](#checks-on-a-replay)) |
+| `--watch` | Replay again whenever a file in the project changes (below). Ctrl-C to stop | — |
+| `--summary-json <file>` | Also write the summary (with `--repeat`, every attempt and the report) as JSON to a file ([fields](#replay-summary-as-json)) | — |
+| `--guard warn\|block\|off` | The [network guard](./how-it-works.md#the-network-guard) for connections that bypass Shadowlap. `run` accepts `warn\|off`; `test` defaults to `block` | `warn` |
+| `--allow-unrecorded <names>` | Run these tools again for real, though the recording never recorded them: names separated by commas (repeatable; below) | — |
+| `-y`, `--yes` | Run the recorded command of a run imported from a pack, or pulled from the [team store](./team.md), without asking | — |
+
+These flags change what the replay does. [Interventions](./interventions.md) says what each one does
+to the conversation prefix, and what each provider takes:
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--diverge-at <call>` | Force call *n* live | — |
+| `--fail-at <call>=<failure>` | Fail call *n* instead of serving it, so the agent's own error path runs (repeatable; below) | — |
+| `--override <call>=<json\|@file>` | Substitute a recorded tool result; the run forks at the first model call that sees it (repeatable) | — |
+| `--inject-result <call>=<text\|@file>` | Plant an instruction in what read tool call *n* returned, as an attacker would leave it; the rest of the result stays (repeatable; below) | — |
+| `--inject <call>=<text>` | Add an instruction at model call *n*, and keep it in place in every later request of the conversation ([details](./interventions.md#inject-an-instruction)) | — |
+| `--inject-as user\|system` | `user`: in the user turn the model answers next, on every provider. `system`: a system message after the conversation; refused on Gemini and Bedrock Converse | `user` |
+| `--prompt-from <call>` | Apply your changed system prompt and tool definitions only from model call *n*: earlier model calls replay from the recording ([details](./interventions.md#apply-a-changed-prompt-from-a-later-call)) | — |
+| `--set <call>:<key>=<value>` | Set a request field from model call *n* on, where the provider keeps it; a dotted key is a path (repeatable; below) | — |
+| `--model <call>:<model>` | Switch the model from model call *n* on: in the body, or in the path on Gemini, Vertex AI, Bedrock and Azure | — |
+
+These flags run the replay more than once:
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--repeat <n>` | Run the replay *n* times and report how the attempts differ after the fork ([Repeating a fork](#repeating-a-fork)) | — |
+| `--concurrency <n>` | With `--repeat`: attempts running at once | `1` |
+| `--chaos` | Run the [error-path presets](#error-path-presets) on this run instead of one replay (below) | — |
+| `--presets <list>`, `--chaos-tool <name>`, `--inconclusive fail\|warn` | With `--chaos`: as for [`test --chaos`](#test) | `--inconclusive`: `fail` |
+
+More on some of them:
+
+- **`--fail-at`**: a model call takes an HTTP status (`--fail-at 12=429`,
+  [details](./interventions.md#inject-a-failure)). A tool call takes `timeout`, `error`,
+  `error:<message>` or a status (`--fail-at 19=timeout`), and the tool does not run
+  ([details](./interventions.md#fail-a-tool)).
+- **`--inject-result`**: text that starts with `@` is written `@@…`
+  ([details](./interventions.md#plant-an-instruction-in-a-tool-result)).
+- **`--set`**: the field is where the provider keeps it: `temperature` is
+  `generationConfig.temperature` on Gemini, and `inferenceConfig.temperature` on Bedrock Converse
+  ([details](./interventions.md#patch-parameters)).
+- **`--watch`**: what a replay writes itself (the agent's own files, the store, the `--summary-json`
+  file) starts no other. A file that changes while a replay runs is taken for one of its writes, and
+  the replay says so, so a save made then needs saving again.
+- **`--allow-unrecorded`**: it is for tools that [write](./how-it-works.md#tools-shadowlap-did-not-record),
+  or that nothing says what they do. Without it, a replay whose model called such a tool is refused
+  before anything runs, exit status 2.
+- **`--chaos`**: a fork for each preset, judged by `--expect`, or, for a golden's run, by its
+  `chaos.expect` or the write limits of its `expect`. Writes are stubbed unless `--writes` is given,
+  and `--summary-json` writes their report. It doesn't combine with the flags that change a replay.
+
+A change the recorded request can't take (a system message on Gemini, a field Converse has no place
+for, a write tool to plant in) is refused before anything runs, with the reason. An intervention the
+replay never reached is named in its summary.
+
+`replay` exits with the agent's status, except:
+
+| Status | Meaning |
+| --- | --- |
+| `1` | With `--strict`, the replay diverged or ended early |
+| `1` | A [check](#checks-on-a-replay) failed |
+| `1` | Under `--guard block`, the [network guard](./how-it-works.md#the-network-guard) never watched the agent (below) |
+| `2` | The run is still recording |
+| `3` | The agent exited 0 and a check could not be decided |
+
+Under `--guard block`, the guard never watched the agent when it made model or tool calls and either
+no Shadowlap preload loaded in its processes, or one of them runs with no guard. The process with no
+guard is the Claude Code CLI the Claude Agent SDK runs, while it can still reach something the guard
+can't watch and `guard.accept` doesn't take it ([details](./frameworks.md#claude-agent-sdk)). Its summary then
+reads `✗ Replay not watched`, never clean.
+
+With `--repeat`, the status is 0 only when every attempt asked for ran, exited 0, was watched by the
+guard under `--guard block` and passed its checks. Otherwise it is:
+
+- 1, and with `--strict`, also when any attempt diverged or ended early;
+- 3 when all that kept an attempt from passing is a check that could not be decided;
+- 128 + n for a `--repeat` that a stop signal cut short, 130 for Ctrl-C.
+
+A run still recording is refused, exit status 2, until it has ended: it has no end to replay to yet,
+as the dashboard's Replay and Fork wait for it. One whose recording process was killed (see
+[`gc`](#rm-gc)) replays as it is.
+
+### What a replay keeps
+
+The replay keeps the options that change what it does on its run: `--fail-at`, `--override`,
+`--inject`, `--inject-result`, `--model`, `--set`, `--prompt-from`, `--diverge-at`, `--live-tool`, and
+`--writes` or `--reads` when not the default. Its page in the
+[dashboard](./dashboard.md#what-a-runs-page-is-worked-out-from) then names what made the fork, and the
+fork menu can make it again.
+
+The run keeps each flag exactly as given, an override's result included, beside a short form to show:
+
+- an override read from a file is named by the file (`--override 16=@policy.json`);
+- one given inline is named by its call;
+- a long instruction is shortened.
+
+A copy of the run (`pack`, `export html`) keeps only the short form, with the project's redaction
+rules applied to it.
+
+### Checks on a replay
+
+A replay is judged by checks when it has them: `--expect`, or, without it, the `tests` entry of
+`shadowlap.config.json` for the recording the run came from (the pack it was unpacked from, or the
+golden `shadowlap test` replayed). The checks are those of an [outcome check](./ci.md#outcome-checks),
+[`calls` and `when` rules](./checks.md) included.
+
+- The replay exits 1 when a check fails, and 3 when the agent exited 0, none failed and one could not
+  be decided.
+- The checks are kept on the run, with the `--expect` they came from, so making the fork again from
+  the fork menu judges it the same way.
+- With `--repeat`, every attempt is judged. The report says in how many attempts each check failed,
+  could not be decided (inconclusive) or did not apply:
+
+```
+  Checks (--expect)
+    ✗ send_email called 0 times: failed in 2 of 3 attempts (#1, #3)
+```
+
+The agent's output is captured, while still shown, only when a check reads it (`output`, or a judge
+check of the output). A replay that plants text with `--inject-result` and has no checks says that
+nothing judged whether the agent obeyed it.
+
+A [judge check](./judges.md) is asked once the agent exits, before the replay's run ends. A clean
+replay is answered from its recording, and a fork asks the judge live; either way the call is the
+replay's own. Its line gives the verdict, the judge's reason and where it came from. Its entry in
+`checks` has `status` (`passed`, `failed`, or `inconclusive` when it was not judged), `reason`,
+`source` and `judge`.
+
+### Repeating a fork
+
+Everything after a fork is live, so a model may do something different each time. One good attempt
+doesn't show that a change fixed the behavior. `--repeat n` runs the same replay *n* times, each
+attempt its own run, and summarizes them:
+
+```
+⑂ 5 attempts from 01M2P9PVCP, each forked at call 11
+  5 of 5 exited 0 · 20 upstream requests · 16.2k input tokens not re-spent
+
+  Paths after the fork
+    5×  open_ticket (stubbed) → open_ticket (stubbed) → open_ticket (stubbed)
+  every attempt took the same path
+
+  Tools after the fork
+    tool         attempts   calls
+    open_ticket  5 of 5     15 (15 stubbed)
+
+  Final model responses: 5 different
+```
+
+A path is the sequence of tool calls after the fork and what happened to each: blocked, stubbed,
+overridden or an error.
+
+- Tools called between the same two model calls match in any order, since agents often run them at
+  once.
+- Attempts with the same path are grouped, most common first.
+- Arguments aren't part of a path. `shadowlap diff` compares two attempts in full, and the report
+  names the pair to start with.
+- The prefix before the fork is served from the recording, so it costs nothing however many attempts
+  there are. If attempts fork at different calls, the report says the prefix isn't deterministic.
+- An attempt that stopped before its recording did, with every request matching, forked nowhere but
+  is no clean replay either. The first line counts those apart (`· 1 of 5 ended early, at call 7`),
+  and each attempt in the JSON report has `endedEarly`: the first recorded call it never made, or
+  `null`.
+
+With `--concurrency`, attempts run at the same time through one sidecar, and each attempt's output is
+printed whole when it finishes. `--strict` exits 1 if any attempt diverged or ended early. Otherwise
+the exit status is as [above](#replay): 0 only when every attempt ran, exited 0, was
+watched under `--guard block` and passed its [checks](#checks-on-a-replay), and 3 when all that kept
+one from passing is a check that could not be decided.
+
+### Replay summary as JSON
+
+`--summary-json` writes what [`run`](#run-summary-as-json) writes, with these differences:
+
+| Field | Meaning |
+| --- | --- |
+| `exitCode` | The agent's, or 1 where the guard never watched it under `--guard block` |
+| `checks` | When the replay has checks: each check as it [came out](./checks.md#how-a-check-comes-out), with `status`, `ok`, `label` and `detail` |
+| `unrecordedTools` | The tools this replay ran for real without recording them |
+
+With `--repeat`, it writes `{ "attempts", "report" }`:
+
+| Field | Meaning |
+| --- | --- |
+| `attempts` | Each attempt's `exitCode` (so counted), `summary`, `checks` and `unrecordedTools` |
+| `report` | The report the terminal prints: `parentRunId`, `attempts`, `forkedAt`, `paths`, `tools`, `distinctFinalResponses`, `succeeded`, `spent`, `saved` and `tokensNotRespent` |
+
+## calibrate
+
+```sh
+shadowlap calibrate [run] [--write] [--max-rounds <n>] [--json] [--guard <mode>] [--allow-unrecorded <names>] [-y]
+```
+
+Replays a recording offline, repeatedly, and proposes a normalizer for every value that differs
+between two runs of the same code, until the replay is clean, trying up to `--max-rounds` replays.
+It makes no model calls, and writes are blocked. See [Calibrate](./normalizers-and-redaction.md#calibrate).
+
+Without a run named, it takes the recording the dashboard's [setup](./dashboard.md#setting-it-up) made
+for this project. Else it takes the newest finished recording made here: one that completed or failed,
+not one imported from a pack or a capture. When there is none, it asks you to record a run first.
+
+Each round is printed as it ends. A recording that is already clean ends with "Nothing to add".
+Afterwards, it removes the blobs its own replays left that nothing else uses, unless a run is
+recording.
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--write` | Add the proposals to `shadowlap.config.json`, and say their numbers | — |
+| `--max-rounds <n>` | How many replays to try first | `8` |
+| `--json` | Print the result as JSON when calibration ends (below) | — |
+| `--guard <mode>`, `--allow-unrecorded <names>`, `-y` | As for [`replay`](#replay) | `--guard`: `warn` |
+
+`calibrate` exits with:
+
+| Status | Meaning |
+| --- | --- |
+| `0` | The replay ends clean, with or without proposals |
+| `1` | Calibration stops before it is clean |
+| `2` | The run named is still recording, there is no recording to calibrate, or its model called an unrecorded tool that [writes](./how-it-works.md#tools-shadowlap-did-not-record) |
+
+`--json` prints the result:
+
+| Field | Meaning |
+| --- | --- |
+| `runId` | The recording calibrated |
+| `source` | `given` when you named the run, `setup` for the setup's recording, `newest` when it picked the newest |
+| `clean` | Whether the replay ended clean |
+| `rounds` | Each round it ran: its divergence, and the normalizers it proposed |
+| `normalizers` | The proposed normalizers, each with `why` it was proposed |
+| `written` | Whether `--write` added any rule |
+| `added` | The numbers of the rules it added; a proposal already in the file isn't counted |
+| `stopped` | Why it stopped, when it isn't clean |
+
+## mcp
+
+```sh
+shadowlap mcp [--effect <tool=effect>]... -- <server command>
+shadowlap mcp --url <server> [--header "Name: value"]... [--allow-http] [--effect <tool=effect>]...
+shadowlap mcp --url <server> --listen <address> [--header "Name: value"]... [--allow-http] [--effect <tool=effect>]...
+```
+
+A proxy for an MCP server. Put it in the client's server configuration in place of the server itself;
+the client talks stdio to it. See [MCP servers](./mcp.md#served-over-http---listen).
+
+- **The server**: it starts a local server from its command, or speaks Streamable HTTP to a remote
+  one at `--url`, sending each `--header` with every request.
+- **What it records**: `tools/call` is recorded, replayed, blocked or stubbed like an SDK tool call,
+  so a remote write never runs again on replay. Every other message passes through.
+- **Effects**: they come from the server's tool annotations (`readOnlyHint` → `read`, otherwise
+  `write`), overridden by `--effect` or `mcp.effects` in the config.
+- **Its run**: the proxy finds its run even when the client starts it with a minimal environment.
+  When it was started under Shadowlap but can't record, it refuses write tools rather than run them
+  unrecorded.
+- **On Windows**: a server command that is a batch file (`npx -y …`) runs through cmd.exe.
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--url <server>` | Speak Streamable HTTP to a remote server at this endpoint | — |
+| `--header <header>` | Send this header with every request to the `--url` server; `$VAR` or `${VAR}` is read from the environment (repeatable) | — |
+| `--allow-http` | Send headers over plain http to a host other than this machine | Plain http only to this machine |
+| `--effect <tool=effect>` | `pure`, `read` or `write` for a tool, overriding the server's annotations (repeatable) | The server's annotations |
+| `--listen <address>` | Serve the `--url` server over Streamable HTTP at `http://<address>/mcp` (below) | Stdio |
+
+With `--listen`, the proxy serves the `--url` server over HTTP instead, for a client that speaks
+HTTP. It runs until stopped.
+
+- It listens on a loopback address: `127.0.0.1:8931`, or a port alone.
+- Each session goes in the server's own session id.
+- It records into the run its command started. Started on its own, it records into the run of the
+  Shadowlap command that started the session's client.
+- It refuses writes in a session it finds no run for.
+
+`mcp` exits with:
+
+| Status       | Meaning                                                             |
+| ------------ | ------------------------------------------------------------------- |
+| The server's | In front of a command: the server's own status                      |
+| `127`        | In front of a command: the server can't be started                  |
+| `0`          | With `--url`: the client closed its end                             |
+| `2`          | A flag, an address or a config to fix                               |
+| `70`         | A bug                                                               |
+| `128 + n`    | A stop signal, which a `--listen` proxy runs until (130 for Ctrl-C) |
 
 ## init
 
@@ -196,99 +671,6 @@ It warns about a model client constructed with a literal base URL: `shadowlap ru
 Its install step adds the SDKs with the project's package manager, and the CLI: `shadowlap` as a dev dependency, which the steps after it run with `npx`, or for a Python project `npm install --global shadowlap`. Run by a global `shadowlap`, it leaves the CLI out, and the steps run that one.
 
 `init` writes one file: an empty `shadowlap.config.json`, only when there is none. The detection reads source text; it runs nothing. `--json` prints the findings as JSON, with the lines the dashboard's setup shows (`summary`: the language with its pinned runtime and package manager, the model SDKs with their versions, the framework, the command and where it came from, what happened to the config, and `node`, the Node the project pins with its minor and whether it is older than the guard takes, `tooOld`), each tool marked `wrapped` or not, the tools that aren't (`unwrapped`), and the code that wraps them in the project's language, through its framework's adapter, with the fence for a Claude Agent SDK query that runs through none (`wrap`). The models it warns about are `unrecordedModels` (each with its `file`, `line`, `model`, and the framework that builds its client, `via`). The addresses it prints (`modelServer`, `hardcodedBaseUrls`) never carry credentials: a password, or a key in the query, is left out, and a model server that had one gets no `upstream`. Run it again after wrapping them to check again: the config is left as it is and the tools are scanned afresh. In a folder that is a [project in the dashboard](./dashboard.md#projects), `init` also marks the first step of its setup done, and `project` says whether it could (`noted`), and why not (the project list was busy, or a newer Shadowlap wrote it); in a terminal, a line on stderr says so. Run by the dashboard, whose setup has its own buttons for the next steps, it prints only what it found, a line each, and what it did with `shadowlap.config.json`. The rest of the object is what was found: `cwd`, `languages`, `packageManager`, `providers` (each SDK and the package it came `via`), `frameworks`, `command` (its `argv` and where it came `from`), `tools` (each with its `file`, `line`, `effect`, `suggested` effect, `why` and `wrapped`), `fence` (each Claude Agent SDK the project uses: its `framework`, the `language` of the code that fences its query, and where a query runs through the fence, `at`, or null), `scannedFiles`, `config` (its `path`, whether it `existed` and was `created`) and `folder` (the kind of project the folder holds).
-
-## run
-
-```sh
-shadowlap run -- <command> [args...]
-```
-
-Records a run. `--summary-json <file>` also writes its summary as JSON, and `--guard warn|off` sets the [network guard](./how-it-works.md#the-network-guard) (default `warn`). Starts a sidecar, sets `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `GOOGLE_GEMINI_BASE_URL`, `SHADOWLAP_URL` and `SHADOWLAP_RUN_ID` for the child, preloads [in-process capture](./providers.md#in-process-capture), the network guard and [recorded user input](./sdk.md#what-a-person-types) into Node and Python children, and exits with the child's exit code. The run's status is `completed`, `failed` (non-zero exit) or `crashed` (interrupted: Ctrl-C, or a stop signal that reached Shadowlap or the agent). A command that isn't on the PATH never starts: `run` (and `replay`) says so (`✗ pythn: command not found on PATH`, and where `python` is missing but `python3` is there, the command with `python3`), keeps no run and exits 127. So does one that can't start for another reason, with that reason: a path to a file that isn't there, or a program that is there but can't run, in the system's own words. In `test` and `bisect` a golden whose command never started fails with the same words, and one replayed in a working directory that doesn't exist (`--cwd`, or a folder a commit doesn't have yet) says so rather than blaming the command. A Node agent on a Node before 18.18 never starts either: that Node refuses the preload (`--import` in `NODE_OPTIONS`) and exits 9 before any of the agent runs. `run` and `replay` then say the agent's Node is too old for Shadowlap's guard, which needs Node 18.18 or later, and keep no run; `test` fails the golden with those words, and `replay --repeat`, `blame`, `verify`, `repair` and `decisions` stop with them, exit status 2. Where the agent prints straight to the terminal, as under `run` and `replay`, Shadowlap can't read that refusal, so it asks the agent's Node again: the one the command names, else the `node` on its PATH. A Node that a launcher or a script picks, such as `npx node@18.17.0` or `volta run`, can't be asked: an agent it starts that exits 9 before any call keeps its run, and the summary adds that if Node printed `--import= is not allowed in NODE_OPTIONS` above, the agent's Node is too old. On Windows a command that is a batch file, such as `npm start` or `npx tsx agent.ts`, runs through cmd.exe, its arguments passed on as given. What the run did unrecorded is kept on it for its page in the [dashboard](./dashboard.md#what-a-runs-page-is-worked-out-from): the hosts the guard saw it reach without Shadowlap, and the tools [`init`](#init) finds in the project with no declared effect that the run never recorded. At its end, `run` names the tools the model called that the run recorded no call of, which a replay runs for real ([details](./how-it-works.md#tools-shadowlap-did-not-record)).
-
-Stopping a run: a stop signal reaches the agent once. In a terminal the agent shares Shadowlap's process group, so the terminal's Ctrl-C reaches both, as it would reach the agent alone, and the agent keeps the terminal to read from (`/dev/tty` included, as a password prompt opens it). As a dashboard job it shares the job's process group, which the dashboard stops, and kills when it can't wait, as a whole. Elsewhere (CI, a script) the agent leads a process group of its own, and Shadowlap passes it each SIGINT, SIGTERM or SIGHUP it gets, once; an agent still running three seconds later is killed with its group, and a second signal kills it at once. Closing the terminal (SIGHUP) ends the run as interrupted too, and kills an agent that ignores it. A signal that comes while the run's [judge checks](./judges.md) are asked is kept for when they are done; a second one ends the run as interrupted at once. An agent a signal ended exits with 128 + its number: 130 for SIGINT, 129 for SIGHUP, 143 for SIGTERM. `replay --repeat`, `test`, `blame`, `verify` and `decisions --from-code` stop their agents the same way, and an agent still running when Shadowlap itself exits is killed with its group.
-
-`--summary-json` writes `{ "exitCode", "summary", "unrecordedTools" }`: the agent's exit code, the tools the model called that the run never recorded (each `name`, `count`, `firstCallNo`, `effect`, `why` and `fix`, as [`show --json`](#show) lists them), and the run's summary, which has `runId`, `mode`, `status`, `total` (calls), `byOrigin` and `byKind` (calls per origin and per kind), `upstreamRequests` (live calls that reached a provider), `injected` (calls `--fail-at` answered), `refused` (calls answered with why they weren't sent: an intervention that couldn't be applied, or a [placeholder key](./how-it-works.md#keys) a live call would carry), `imported`, `tokensNotRespent`, `cost` (`spent`, `saved` and `captured` in USD, and `unknownModels` with no price), `durationMs`, `notReached` (recorded calls the replay never made), `extraReads` (clock, random and pure reads the recording held no counterpart for, answered live while the replay went on: [extra reads](./how-it-works.md#the-replay-state-machine)), `warnings` and `divergence`: the report, or `null`. Every count and cost is the agent's: a run with [judge checks](./judges.md) has `judge` too, what the judge's calls did and cost apart from them (`calls`, `replayed` from the recording, `live`, `notAsked`, kept for runs recorded when a call no one answered was kept and 0 since, `upstreamRequests`, `spent`, `saved`, `unknownModels`). A replay whose every request matched but that stopped before its recording did has one too, of type `ended_early`, kept on the run like any other: `callNo`, `kind` and `name` are the first recorded model call, or call of a tool that isn't pure, it never made, `replayedBefore` the calls it was served, and `recorded` the calls the recording holds.
-
-## replay
-
-```sh
-shadowlap replay <run> [options] [-- <command> [args...]]
-```
-
-Replays a recorded run; forks at the first changed call. Re-runs the recorded command unless one follows `--`.
-
-A clean replay needs no real key. The agent gets a [placeholder key](./how-it-works.md#keys) for each provider whose key the recording's environment held and this one has no credential for; a live call that would carry one, after a fork, is refused with one line (`a live call needs a real key: set ANTHROPIC_API_KEY, or keep the replay offline`), and whatever the agent signs in with itself (a key you set, one it loads from `.env`, a profile, a token provider, an instance role) is used as it is.
-
-A run imported with `unpack`, or a replay of one, carries a command someone else recorded. `replay` shows it and asks before running it. Without a terminal to ask on, it refuses: pass `--yes` once you have read the command, or give your own after `--`.
-
-| Option | Effect |
-|---|---|
-| `--strict` | Exit 1 if the replay diverges, or ends before its recording does (for CI) |
-| `--writes block\|stub\|allow` | What `write` tools do after divergence. Default `block` |
-| `--reads live\|replay` | What `read` tools do after divergence. Default `live` |
-| `--live-tool <name>` | Force this tool live: its first call, and every call of it after a fork (repeatable); use after fixing a tool |
-| `--live-input` | After the fork, ask for what a person types instead of serving the recorded answers in order ([recorded input](./sdk.md#what-a-person-types)) |
-| `--diverge-at <call>` | Force call *n* live |
-| `--fail-at <call>=<failure>` | Fail call *n* instead of serving it, so the agent's own error path runs: a model call with an HTTP status (`--fail-at 12=429`, [details](./interventions.md#inject-a-failure)), a tool call with `timeout`, `error`, `error:<message>` or a status (`--fail-at 19=timeout`); the tool does not run ([details](./interventions.md#fail-a-tool)). Repeatable |
-| `--inject-result <call>=<text\|@file>` | Plant an instruction in what read tool call *n* returned, as an attacker would leave it; the rest of the result stays. Text that starts with `@` is written `@@…`. Repeatable ([details](./interventions.md#plant-an-instruction-in-a-tool-result)) |
-| `--expect <json\|@file>` | Checks the replay (each attempt, with `--repeat`) must pass besides exiting 0, as for `blame`: `'{"tools":{"send_email":0}}'`. Default: the checks `shadowlap.config.json` gives the recording ([below](#checks-on-a-replay)) |
-| `--watch` | Replay again whenever a file in the project changes. What a replay writes itself (the agent's own files, the store, the `--summary-json` file) starts no other: a file that changes while a replay runs is taken for one of its writes, and the replay says so, so a save made then needs saving again. Ctrl-C to stop |
-| `--summary-json <file>` | Also write the summary (with `--repeat`, every attempt and the report) as JSON to a file |
-| `--prompt-from <call>` | Apply your changed system prompt and tool definitions only from model call *n*: earlier model calls replay from the recording ([details](./interventions.md#apply-a-changed-prompt-from-a-later-call)) |
-| `--override <call>=<json\|@file>` | Substitute a recorded tool result; the run forks at the first model call that sees it |
-| `--inject <call>=<text>` | Add an instruction at model call *n* and keep it in place in every later request of the conversation ([details](./interventions.md#inject-an-instruction)) |
-| `--inject-as user\|system` | `user` (default): part of the user turn the model answers next, on every provider. `system`: a system message after the conversation; refused on Gemini and Bedrock Converse |
-| `--set <call>:<key>=<value>` | Set a request field from model call *n* on, where the provider keeps it (`temperature` is `generationConfig.temperature` on Gemini, `inferenceConfig.temperature` on Bedrock Converse); a dotted key is a path (repeatable, [details](./interventions.md#patch-parameters)) |
-| `-y`, `--yes` | Run the recorded command of a run imported from a pack, or pulled from the [team store](./team.md), without asking (see below) |
-| `--repeat <n>` | Run the replay *n* times and report how the attempts differ after the fork (see below) |
-| `--concurrency <n>` | With `--repeat`: attempts running at once. Default 1 |
-| `--model <call>:<model>` | Switch the model from model call *n* on: in the body, or in the path on Gemini, Vertex AI, Bedrock and Azure |
-| `--guard warn\|block\|off` | [Network guard](./how-it-works.md#the-network-guard) for connections that bypass Shadowlap. Default `warn` (`run` accepts `warn\|off`; `test` defaults to `block`) |
-| `--allow-unrecorded <names>` | Run these tools again for real though the recording never recorded them and they [write](./how-it-works.md#tools-shadowlap-did-not-record), or nothing says what they do: names separated by commas (repeatable). Without it, a replay whose model called such a tool is refused before anything runs, exit status 2 |
-| `--chaos` | Run the [error-path presets](#error-path-presets) on this run instead of one replay: a fork for each, judged by `--expect` (or, for a golden's run, by its `chaos.expect` or the write limits of its `expect`), writes stubbed unless `--writes` is given. `--summary-json` writes their report. It doesn't combine with the flags that change a replay |
-| `--presets <list>`, `--chaos-tool <name>`, `--inconclusive fail\|warn` | With `--chaos`, as for [`test --chaos`](#test) |
-
-Exit status: the agent's, except 1 with `--strict` when the replay diverged or ended early, 1 when a [check](#checks-on-a-replay) failed, 1 under `--guard block` when the agent made model or tool calls and no Shadowlap preload loaded in its processes, or one of them runs with no guard (the Claude Code CLI the Claude Agent SDK runs, while it can still reach something the guard can't watch and `guard.accept` doesn't take it: [details](./frameworks.md#claude-agent-sdk)), so the [network guard](./how-it-works.md#the-network-guard) never watched it (its summary then reads `✗ Replay not watched`, never clean), and 3 when the agent exited 0 and a check could not be decided. With `--repeat`, 0 only when every attempt asked for ran, exited 0, was watched by the guard under `--guard block` and passed its checks; else 1 (with `--strict`, also when any attempt diverged or ended early), or 3 when all that kept an attempt from passing is a check that could not be decided; a `--repeat` that a stop signal cut short exits 128 + n, 130 for Ctrl-C. A run still recording is refused, exit status 2, until it has ended: it has no end to replay to yet, as the dashboard's Replay and Fork wait for it; one whose recording process was killed (see [`gc`](#rm-gc)) replays as it is. `--summary-json` writes what `run` writes, its `exitCode` the agent's, or 1 where the guard never watched it under `--guard block`, with `checks` (each check as it [came out](./checks.md#how-a-check-comes-out): `status`, `ok`, `label`, `detail`) when the replay has checks, and as `unrecordedTools` the tools this replay ran for real without recording them; with `--repeat`, `{ "attempts", "report" }`: each attempt's `exitCode`, so counted, `summary`, `checks` and `unrecordedTools`, and the report the terminal prints (`parentRunId`, `attempts`, `forkedAt`, `paths`, `tools`, `distinctFinalResponses`, `succeeded`, `spent`, `saved`, `tokensNotRespent`).
-
-See [Interventions](./interventions.md) for what each one does to the conversation prefix, and what each provider takes. A change the recorded request can't take (a system message on Gemini, a field Converse has no place for, a write tool to plant in) is refused before anything runs, with the reason; an intervention the replay never reached is named in its summary.
-
-The replay keeps the options that change what it does (`--fail-at`, `--override`, `--inject`, `--inject-result`, `--model`, `--set`, `--prompt-from`, `--diverge-at`, `--live-tool`, and `--writes` or `--reads` when not the default) on its run, so its page in the [dashboard](./dashboard.md#what-a-runs-page-is-worked-out-from) names what made the fork and the fork menu can make it again. The run keeps each flag exactly as given, an override's result included, beside a short form to show: an override read from a file is named by the file (`--override 16=@policy.json`), one given inline by its call, and a long instruction is shortened. A copy of the run (`pack`, `export html`) keeps only the short form, with the project's redaction rules applied to it.
-
-### Checks on a replay
-
-A replay is judged by checks when it has them: `--expect`, or, without it, the `tests` entry of `shadowlap.config.json` for the recording the run came from (the pack it was unpacked from, or the golden `shadowlap test` replayed). The checks are those of an [outcome check](./ci.md#outcome-checks), [`calls` and `when` rules](./checks.md) included; the replay exits 1 when one fails, and 3 when the agent exited 0, none failed and one could not be decided, and they are kept on the run, with the `--expect` they came from, so making the fork again from the fork menu judges it the same way. With `--repeat`, every attempt is judged, and the report says in how many attempts each check failed, could not be decided (inconclusive) or did not apply:
-
-```
-  Checks (--expect)
-    ✗ send_email called 0 times: failed in 2 of 3 attempts (#1, #3)
-```
-
-The agent's output is captured, while still shown, only when a check reads it (`output`, or a judge check of the output). A replay that plants text with `--inject-result` and has no checks says that nothing judged whether the agent obeyed it.
-
-A [judge check](./judges.md) is asked once the agent exits, before the replay's run ends: a clean replay is answered from its recording, a fork asks the judge live, and either way the call is the replay's own. Its line gives the verdict, the judge's reason and where it came from, and its entry in `checks` has `status` (`passed`, `failed`, or `inconclusive` when it was not judged), `reason`, `source` and `judge`.
-
-### Repeating a fork
-
-Everything after a fork is live, so a model may do something different each time. One good attempt doesn't show that a change fixed the behavior. `--repeat n` runs the same replay *n* times, each attempt its own run, and summarizes them:
-
-```
-⑂ 5 attempts from 01M2P9PVCP, each forked at call 11
-  5 of 5 exited 0 · 20 upstream requests · 16.2k input tokens not re-spent
-
-  Paths after the fork
-    5×  open_ticket (stubbed) → open_ticket (stubbed) → open_ticket (stubbed)
-  every attempt took the same path
-
-  Tools after the fork
-    tool         attempts   calls
-    open_ticket  5 of 5     15 (15 stubbed)
-
-  Final model responses: 5 different
-```
-
-A path is the sequence of tool calls after the fork and what happened to each: blocked, stubbed, overridden or an error. Tools called between the same two model calls match in any order, since agents often run them at once. Attempts with the same path are grouped, most common first. Arguments aren't part of a path; `shadowlap diff` compares two attempts in full, and the report names the pair to start with. The prefix before the fork is served from the recording, so it costs nothing however many attempts there are. If attempts fork at different calls, the report says the prefix isn't deterministic. An attempt that stopped before its recording did, with every request matching, forked nowhere but is no clean replay either: the first line counts those apart (`· 1 of 5 ended early, at call 7`), and each attempt in the JSON report has `endedEarly`, the first recorded call it never made, or `null`.
-
-With `--concurrency`, attempts run at the same time through one sidecar; each attempt's output is printed whole when it finishes. `--strict` exits 1 if any attempt diverged or ended early; otherwise the exit status is as [above](#replay): 0 only when every attempt ran, exited 0, was watched under `--guard block` and passed its [checks](#checks-on-a-replay), and 3 when all that kept one from passing is a check that could not be decided.
 
 ## blame
 
@@ -1120,14 +1502,6 @@ and `outcome`, or the `error` that kept it from being read); and, with `--pack`,
 it ran with where that came from, the `mode` of the golden, `replay` or `fork`, and the `reason`
 and `why` it wasn't packed), else `null`.
 
-## calibrate
-
-```sh
-shadowlap calibrate [run] [--write] [--max-rounds <n>] [--json] [--guard <mode>] [--allow-unrecorded <names>] [-y]
-```
-
-Replays a recording offline, repeatedly, and proposes a normalizer for every value that differs between two runs of the same code, until the replay is clean. Without a run named it takes the recording the dashboard's [setup](./dashboard.md#setting-it-up) made for this project, else the newest finished recording made here (one that completed or failed, not one imported from a pack or a capture), and asks you to record a run first when there is none. Each round is printed as it ends; a recording that is already clean ends with "Nothing to add". `--write` adds the proposals to `shadowlap.config.json` and says their numbers; `--max-rounds` is how many replays to try first (default 8); `--guard`, `--allow-unrecorded` and `-y` are as for `replay`. `--json` prints the result when calibration ends: `runId`, `source` (`given` when you named the run, `setup` for the setup's recording, `newest` when it picked the newest), `clean`, `rounds`, the proposed `normalizers` (each with `why` it was proposed), `written` and the numbers of the rules it `added` (a proposal already in the file isn't counted), and `stopped` with why when it isn't clean. No model calls; writes are blocked. Afterwards it removes the blobs its own replays left that nothing else uses, unless a run is recording. Exit status 0 when the replay ends clean, with or without proposals, 1 when calibration stops before it is clean, and 2 when the run named is still recording, there is no recording to calibrate, or its model called a tool it never recorded that [writes](./how-it-works.md#tools-shadowlap-did-not-record). See [Calibrate](./normalizers-and-redaction.md#calibrate).
-
 ## The configuration file
 
 `shadowlap.config.json`, in the directory you run Shadowlap from. Every key is optional, and
@@ -1198,18 +1572,6 @@ shadowlap serve [--recordings [--allow-unrecorded <names>]]
 ```
 
 Starts a sidecar with one recording run for a process you launch yourself and prints the environment to export: `export` lines, or on Windows PowerShell's `$env:NAME = 'value'`. Ends the run on Ctrl-C, SIGTERM or a closed terminal (SIGHUP). Serve never sees the command that starts your process, so the run has none, as a capture has none: replaying it, or a fork, blame or Find the commit, needs your command after `--`. Hosts that manage several runs (a test runner) can create them through the sidecar's `/v1/runs` API. Each run's environment pins it: the provider base URLs carry the run id, and SDK calls send an `X-Shadowlap-Run` header, so several processes can record through one sidecar at once. With `--recordings` it starts no run of its own and serves [recorded tests](./testing.md) instead, for the pytest and Vitest integrations, which start it themselves: a recording whose model called a tool it never recorded that writes, or may, is refused before its replay starts, unless `--allow-unrecorded <names>` or `SHADOWLAP_ALLOW_UNRECORDED` in its environment names it. The printed environment has the base URLs only; clients that need [in-process capture](./providers.md#in-process-capture) (Bedrock, and Azure or Vertex with the endpoint in code) record under `shadowlap run`.
-
-## mcp
-
-```sh
-shadowlap mcp [--effect <tool=effect>]... -- <server command>
-shadowlap mcp --url <server> [--header "Name: value"]... [--allow-http] [--effect <tool=effect>]...
-shadowlap mcp --url <server> --listen <address> [--header "Name: value"]... [--allow-http] [--effect <tool=effect>]...
-```
-
-A proxy for an MCP server: put it in the client's server configuration in place of the server itself; the client talks stdio to it. It starts a local server from its command, or speaks Streamable HTTP to a remote one at `--url`, sending each `--header` (`$VAR` or `${VAR}` read from the environment) with every request; headers go over plain http only to this machine, or anywhere with `--allow-http`. `tools/call` is recorded, replayed, blocked or stubbed like an SDK tool call, so a remote write never runs again on replay; every other message passes through. Effects come from the server's tool annotations (`readOnlyHint` → `read`, otherwise `write`), overridden by `--effect` or `mcp.effects` in the config. The proxy finds its run even when the client starts it with a minimal environment, and when it was started under Shadowlap but can't record, it refuses write tools rather than run them unrecorded. On Windows a server command that is a batch file (`npx -y …`) runs through cmd.exe. With `--listen` the proxy serves the `--url` server over Streamable HTTP at `http://<address>/mcp` instead, for a client that speaks HTTP: a loopback address (`127.0.0.1:8931`, or a port alone), each session in the server's own session id, recording into the run its command started, or, started on its own, into the run of the Shadowlap command that started the session's client, and refusing writes in a session it finds no run for. It runs until stopped. See [MCP servers](./mcp.md#served-over-http---listen).
-
-Exit status: in front of a command, the server's own, and 127 when the server can't be started; with `--url`, 0 once the client closes its end; 2 for a flag, an address or a config to fix; 70 for a bug; 128 + n for a stop signal, which a `--listen` proxy runs until (130 for Ctrl-C).
 
 ## diff
 
