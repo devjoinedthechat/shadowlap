@@ -260,3 +260,78 @@ describe('a run that starts or ends while another process holds the store', () =
     }
   }, 30_000);
 });
+
+describe('a run deleted while another process holds the store', () => {
+  /** A recording of one clock read, ended and written: what a clean replay a test keeps nothing of is, for the store. */
+  async function endedRun(sidecar: Sidecar): Promise<string> {
+    const run = sidecar.startRun({ mode: 'record', command });
+    await clockRead(sidecar, run.runId);
+    sidecar.endRun(run.runId, 'completed');
+    await sidecar.settled(run.runId);
+    return run.runId;
+  }
+
+  it('goes once the store is free, never holding the thread for the lock meanwhile', async () => {
+    const path = join(dir, 'delete-held.db');
+    const store = Store.open(path);
+    const sidecar = await Sidecar.start({ store });
+    const beside = readBeside(path);
+    try {
+      const runId = await endedRun(sidecar);
+      const lock = await holdLock(path, 20_000);
+      // Let go by this process's timer, which runs only while nothing waits on the thread: a deletion
+      // made there would wait the store's busy timeout, ten seconds, and fail.
+      let letGo = false;
+      setTimeout(() => {
+        letGo = true;
+        void lock.release();
+      }, 400);
+      sidecar.deleteRun(runId);
+      expect(letGo).toBe(false);
+      expect(beside.run(runId)).toMatchObject({ status: 'completed' });
+      await sidecar.settled(runId);
+      expect(letGo).toBe(true);
+      expect(beside.run(runId)).toBeUndefined();
+      expect(beside.calls(runId)).toBe(0);
+    } finally {
+      beside.close();
+      await sidecar.close();
+      store.close();
+    }
+  }, 30_000);
+
+  it('goes before the store closes, when the sidecar closes while the store is still held', async () => {
+    const path = join(dir, 'delete-close.db');
+    const store = Store.open(path);
+    const sidecar = await Sidecar.start({ store });
+    const beside = readBeside(path);
+    try {
+      const runId = await endedRun(sidecar);
+      // Let go by the other process itself, while the sidecar closes.
+      await holdLock(path, 600);
+      sidecar.deleteRun(runId);
+      expect(beside.run(runId)).toMatchObject({ status: 'completed' });
+      await sidecar.close();
+      expect(beside.run(runId)).toBeUndefined();
+      expect(store.getRun(runId)).toBeNull();
+    } finally {
+      beside.close();
+      store.close();
+    }
+  }, 30_000);
+
+  it('is refused while the run is still open', async () => {
+    const store = Store.open(join(dir, 'delete-open.db'));
+    const sidecar = await Sidecar.start({ store });
+    try {
+      const run = sidecar.startRun({ mode: 'record', command });
+      expect(() => sidecar.deleteRun(run.runId)).toThrow(/still open/);
+      sidecar.endRun(run.runId, 'completed');
+      sidecar.deleteRun(run.runId);
+      expect(store.getRun(run.runId)).toBeNull();
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+  });
+});

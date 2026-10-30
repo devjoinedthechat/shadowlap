@@ -331,6 +331,25 @@ export function updateRunMeta(core: SidecarCore, runId: string, patch: Partial<R
 }
 
 /**
+ * Deletes a run this sidecar has ended, such as a clean replay a test keeps nothing of, through the
+ * store writer after the run's own writes: at once when the store is free, else once it is, on the
+ * writer's timer, so another process holding the store (the dashboard, gc, another test's
+ * recording) never holds up the thread every agent's answers stream on. Tried for as long as the
+ * store is held, and made before it closes (close makes what the writer holds); a read of the run in
+ * this process makes it first.
+ */
+export function deleteRun(core: SidecarCore, runId: string): void {
+  if (core.runs.has(runId)) throw new HttpError(409, `run ${runId} is still open: end it before deleting it`);
+  core.writer.write({
+    what: `run ${runId}'s deletion`,
+    of: { runId, part: 'run' },
+    run: () => core.store.deleteRun(runId),
+    retain: true,
+    failed: (reason) => core.log(`run ${runId} could not be deleted (${reason}): it stays in the store`),
+  });
+}
+
+/**
  * Waits for a run this sidecar ended to be written, its queued rows and its end, as settled waits,
  * and gives what could not be: the store trouble its summary, made before, could not say. A command
  * that prints the summary adds these lines to it.

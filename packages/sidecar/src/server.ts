@@ -9,7 +9,7 @@ import { handleApi } from './api.js';
 import { proxyHttp } from './capture.js';
 import { SidecarCore, type SidecarOptions } from './core.js';
 import { matchHttpRule, type HttpRule } from './http.js';
-import { closeForJudge, endRun, endWritten, envFor, envForSlot, expectPreloads, openForJudge, startRun, updateRunMeta, type EndRunResult, type StartRunInput } from './lifecycle.js';
+import { closeForJudge, deleteRun, endRun, endWritten, envFor, envForSlot, expectPreloads, openForJudge, startRun, updateRunMeta, type EndRunResult, type StartRunInput } from './lifecycle.js';
 import { proxy } from './model-calls.js';
 import { carriesPlaceholder, placeholderRefusal } from './placeholders.js';
 import type { GuardMode } from './preloads.js';
@@ -186,6 +186,11 @@ export class Sidecar {
   /** Waits for a run this sidecar ended to be written, and gives what could not be (lifecycle.ts). */
   endWritten(runId: string): Promise<string[]> {
     return endWritten(this.core, runId);
+  }
+
+  /** Deletes a run this sidecar has ended, through the store writer: never on the thread for another process's lock (lifecycle.ts). */
+  deleteRun(runId: string): void {
+    deleteRun(this.core, runId);
   }
 
   /** Ends a run: its summary from its calls as this process kept them (lifecycle.ts). */
