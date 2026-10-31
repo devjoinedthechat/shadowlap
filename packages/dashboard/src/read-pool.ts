@@ -277,10 +277,11 @@ export class ReadPool implements ReadModels {
   }
 
   /**
-   * Gives each thread with nothing to do the next thing to do: what was asked of it, then of any,
-   * then what waits for a busy one (`unpin`). What can wait runs on one thread at a time, and only
-   * while another stays free for the next request: a long run's whole analysis first (on the thread
-   * that read the run), then a slice of the warm-up. With one thread, it runs when that one is free.
+   * Gives each thread with nothing to do the next thing to do: what was asked of it, then the next of
+   * what any may answer and what waits for a busy one (`next`). What can wait runs on one thread at a
+   * time, and only while another stays free for the next request: a long run's whole analysis first
+   * (on the thread that read the run), then a slice of the warm-up. With one thread, it runs when that
+   * one is free.
    */
   private dispatch(): void {
     if (this.closing) return;
@@ -327,8 +328,9 @@ export class ReadPool implements ReadModels {
    * When a spare thread is to start ahead of what comes, while every thread is busy, in place of what
    * can wait (Infinity for never): once it has held a thread two slices of the warm-up, as many as
    * `spareAfter` lets start. A slice can't stop, and one that works out a run of 100,000 calls held its
-   * thread 9 to 15 s: a spare started only as the Overview came behind it and a whole Compare left it
-   * waiting 0.2 s to start, where one started ahead answered it in 10 ms.
+   * thread 9 to 15 s: a spare started only as the Overview and a small run's page came behind it and a
+   * whole Compare left them waiting 0.15 to 0.24 s for it to start; one started ahead answered them in
+   * 28 and 49 ms.
    */
   private standInDue(): number {
     const held = this.slots.filter((s) => s.busy?.background);
