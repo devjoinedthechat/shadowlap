@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareDecisions, decisionOf, decisionOfResponse, decisionView, effectsOf, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, judgeOpen, majorityRank, modelFamily, NO_TOKENS, promoteByJudge, RANK_LABELS, sameModel, shownSample, unjudgedSample, type DecisionJudge, type DecisionsReport, type EffectOf, type ModelDecision } from '../src/decisions.js';
+import { compareDecisions, decisionOf, decisionOfResponse, decisionsHeadline, decisionsMoved, decisionsName, decisionView, effectsOf, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, judgeOpen, majorityRank, modelFamily, NO_TOKENS, promoteByJudge, RANK_LABELS, sameModel, shownSample, unjudgedSample, type DecisionJudge, type DecisionRun, type DecisionsReport, type EffectOf, type ModelDecision } from '../src/decisions.js';
 import type { Effect } from '../src/types.js';
 
 /**
@@ -316,6 +316,52 @@ describe('formatDecisions', () => {
     // Runs that hold no model call still say so.
     const empty = formatDecisions({ ...report, runs: [{ ...sameRun, steps: 0, asked: 0, counts: { ...none }, decisions: [] }], counts: { ...none }, flagged: [] });
     expect(empty.split('\n')[0]).toBe('✓ Nothing to ask: the runs hold no model call, under the prompt and tools in the working tree');
+  });
+
+  it('gives its headline in parts, for the dashboard to say a preview in the same words', () => {
+    const none = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, same: 0, untouched: 0, notAsked: 0 };
+    const run = (runId: string, refused: string | null = null) => ({ runId, refused, decisions: [] });
+    expect(decisionsHeadline({ counts: { ...none, same: 4 }, flagged: [], runs: [run('A')] })).toEqual({ mark: '✓', lead: 'The same decisions', rest: ' at every step asked', unasked: null, asked: true });
+    // One decision differs, two differ: the verb agrees.
+    expect(decisionsHeadline({ counts: { ...none, 3: 1, same: 3 }, flagged: [], runs: [run('A')] })).toMatchObject({ mark: '!', lead: 'No write and no stop changes', rest: ': 1 decision differs in reads or text' });
+    expect(decisionsHeadline({ counts: { ...none, 3: 1, 5: 1 }, flagged: [], runs: [run('A')] })).toMatchObject({ rest: ': 2 decisions differ in reads or text' });
+    // A run that could not be asked: the headline when no step was, said beside it otherwise.
+    expect(decisionsHeadline({ counts: { ...none }, flagged: [], runs: [run('A', 'its first request differs in more than its prompt')] })).toEqual({ mark: '!', lead: '1 of 1 run could not be asked', rest: '', unasked: '1 of 1 run could not be asked', asked: false });
+    expect(decisionsHeadline({ counts: { ...none, same: 2 }, flagged: [], runs: [run('A'), run('B', 'refused')] })).toMatchObject({ mark: '!', lead: 'The same decisions', unasked: '1 of 2 runs could not be asked', asked: true });
+    expect(decisionsHeadline({ counts: { ...none, notAsked: 3 }, flagged: [], runs: [run('A')] })).toMatchObject({ mark: '!', lead: 'No step was answered', rest: ' (the warnings say why)' });
+    expect(decisionsHeadline({ counts: { ...none, untouched: 2 }, flagged: [], runs: [run('A')] })).toMatchObject({ mark: '✓', lead: 'Nothing to ask', rest: ': the change leaves every request as recorded' });
+    // A run flagged by a write.
+    const write = { runId: 'A', refused: null, decisions: [{ majority: 1, changes: [{ rank: 1, kind: 'write-removed', tool: 'send_email', effect: 'write', before: {}, after: null, detail: 'send_email is no longer called' }] }] } as unknown as Parameters<typeof decisionsHeadline>[0]['runs'][number];
+    expect(decisionsHeadline({ counts: { ...none, 1: 1, same: 5 }, flagged: ['A'], runs: [write, run('B')] })).toMatchObject({ mark: '✗', lead: '1 of 2 runs', rest: ' decides a write or when to stop differently' });
+  });
+
+  it('prints the headline it gives, its verb agreeing with one decision', () => {
+    const counts = { 1: 0, 2: 0, 3: 1, 4: 0, 5: 0, same: 3, untouched: 0, notAsked: 0 };
+    const run: DecisionRun = { runId: '01K1AAAAAAAAAAAAAAAAAAAAAA', golden: null, steps: 4, asked: 4, rank: 3, majority: 3, counts, cost: { before: null, after: null, spent: 0 }, tokens: { before: NO_TOKENS, after: NO_TOKENS }, thinkingStripped: 0, refused: null, decisions: [], warnings: [] };
+    const report: DecisionsReport = { decisionsId: null, kind: 'decisions', at: 0, change: { model: 'claude-haiku-4-5', fields: {}, from: null, fromCode: null, text: 'the model claude-haiku-4-5' }, command: 'shadowlap decisions 01K1 --model claude-haiku-4-5', samples: 1, runs: [run], counts, flagged: [], cost: { before: null, after: null, spent: 0, upstreamRequests: 4, unknownModels: [] }, tokens: { before: NO_TOKENS, after: NO_TOKENS }, retirements: [], notes: [], warnings: [], verify: null, judge: null, remedies: [], stopReason: null };
+    expect(formatDecisions(report).split('\n')[0]).toBe('! No write and no stop changes: 1 decision differs in reads or text, under the model claude-haiku-4-5');
+  });
+
+  it('names a session as the dialog that makes it, and a migration by its switch', () => {
+    expect(decisionsName({ kind: 'decisions', change: { model: 'claude-haiku-4-5', fields: {}, fromCode: null } })).toBe('Model switch to claude-haiku-4-5');
+    expect(decisionsName({ kind: 'decisions', change: { model: null, fields: {}, fromCode: { calls: 3 } } })).toBe('Changed prompt and tools');
+    expect(decisionsName({ kind: 'decisions', change: { model: null, fields: { temperature: 0 }, fromCode: null } })).toBe('Field change to temperature=0');
+    // What else the change set comes after its name, never dropped.
+    expect(decisionsName({ kind: 'decisions', change: { model: 'claude-sonnet-5-5', fields: { temperature: 1, stop: 'END' }, fromCode: null } })).toBe('Model switch to claude-sonnet-5-5 with temperature=1, stop=END');
+    expect(decisionsName({ kind: 'decisions', change: { model: 'claude-haiku-4-5', fields: { top_p: 0.9 }, fromCode: { calls: 1 } } })).toBe('Changed prompt and tools with the model claude-haiku-4-5 and top_p=0.9');
+    expect(decisionsName({ kind: 'migrate', change: { model: 'claude-sonnet-5-5' }, from: ['claude-sonnet-4-5', 'claude-sonnet-4-5-20250929'], to: 'claude-sonnet-5-5' })).toBe('claude-sonnet-4-5, claude-sonnet-4-5-20250929 → claude-sonnet-5-5');
+    // A kept report missing a part: named by what it has.
+    expect(decisionsName({ kind: 'migrate', change: null, from: [], to: 'claude-haiku-4-5' })).toBe('Migration to claude-haiku-4-5');
+    expect(decisionsName({ kind: 'decisions', change: null })).toBe('No change');
+  });
+
+  it('counts what a preview moved by rank, a judged change apart from a stop', () => {
+    const none = { 1: 0, 2: 0, 3: 0, 4: 0 };
+    expect(decisionsMoved({ counts: { ...none, 1: 2, 2: 3, 3: 1, 4: 2 }, judge: { changed: 1 } })).toEqual(['2 writes changed', '2 stops or hand-overs changed', '1 judged otherwise', '3 reads changed']);
+    expect(decisionsMoved({ counts: { ...none, 1: 1, 2: 1 } })).toEqual(['1 write changed', '1 stop or hand-over changed']);
+    expect(decisionsMoved({ counts: { ...none, 2: 1, 4: 1 }, judge: { changed: 1 } })).toEqual(['1 judged otherwise', '1 read changed']);
+    // Text alone, or nothing: nothing moved.
+    expect(decisionsMoved({ counts: none, judge: null })).toEqual([]);
   });
 });
 
