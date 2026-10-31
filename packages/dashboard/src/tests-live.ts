@@ -3,12 +3,12 @@ import type { GoldenSource, TestsJob } from './tests.js';
 
 /**
  * What a Tests job runs live, so that it asks before it does. `shadowlap test` replays a golden
- * offline, at no cost, but for what its tests entry may give it: a golden marked `fork` runs live
- * from where its replay forks, asking its judge checks live too, and an injection gate runs live from
- * each payload it plants. Until Spending decides it by the job's estimate, a job that would run any
- * of them answers 409 with the question (`liveAsk`): the goldens that go live and why, and the
- * `confirm` of the lines it names, which the request sends back as `yes`. A job that only replays
- * starts at once, whatever `yes` it sent.
+ * offline, at no cost, but for what its tests entry may give it (`liveReasons`): a golden marked
+ * `fork` runs live from where its replay forks, asking its judge checks live too, and an injection
+ * gate runs live from each payload it plants. Until Spending decides it by the job's estimate, a job
+ * that would run any of them answers 409 with the question (`liveAsk`): the goldens that go live and
+ * why, and the `confirm` of the lines it names, which the request sends back as `yes`. A job that
+ * only replays starts at once, whatever `yes` it sent.
  *
  * Re-recording a golden that diverged (`--update`) runs live too: Update golden and Add normalizer
  * and update say so in their own dialogs before they send the job, so that alone asks nothing here.
@@ -18,18 +18,18 @@ import type { GoldenSource, TestsJob } from './tests.js';
 export type LiveReason = { kind: 'fork' } | { kind: 'judges'; models: string[] } | { kind: 'injection' };
 
 /** A golden a session runs live, and why. */
-export interface LiveGolden {
+export interface SessionLiveGolden {
   path: string;
   why: LiveReason[];
 }
 
 /**
- * Why `shadowlap test` runs a golden live: none for one that only replays, or whose pack can't be
- * read (its test fails before anything runs). A judge with no verdict for a new answer is asked
- * live, which only a golden that forks gives it.
+ * Why `shadowlap test` runs a golden live, by what its tests entry says: none for one that only
+ * replays. A judge with no verdict for a new answer is asked live, which only a golden that forks
+ * gives it. The one rule for it: Settings → CI says by it which goldens run live in CI and the keys
+ * they need (goldenProviders), and Tests asks by it before a session runs them (liveAsk).
  */
-export function liveReasons(g: GoldenSource): LiveReason[] {
-  if (g.error) return [];
+export function liveReasons(g: { mode: 'replay' | 'fork'; injection?: boolean; judges?: readonly string[] }): LiveReason[] {
   const why: LiveReason[] = [];
   if (g.mode === 'fork') why.push({ kind: 'fork' });
   if (g.mode === 'fork' && g.judges?.length) why.push({ kind: 'judges', models: [...new Set(g.judges)] });
@@ -62,12 +62,16 @@ export function testedGoldens(goldens: readonly GoldenSource[], args: readonly s
 /** A job's command lines, after `shadowlap`: the one it runs, or each of its steps. */
 const commandsOf = (job: Exclude<TestsJob, { error: string }>): string[][] => ('args' in job ? [job.args] : job.steps);
 
-/** What a Tests job runs live: each golden its `test` commands run that goes live, with why, in the order the goldens are listed. */
-export function liveGoldens(goldens: readonly GoldenSource[], job: TestsJob): LiveGolden[] {
+/**
+ * What a Tests job runs live: each golden its `test` commands run that goes live, with why, in the
+ * order the goldens are listed; never one whose pack can't be read, whose test fails before anything
+ * runs.
+ */
+export function sessionLiveGoldens(goldens: readonly GoldenSource[], job: TestsJob): SessionLiveGolden[] {
   if ('error' in job) return [];
   const tested = new Set(commandsOf(job).flatMap((c) => testedGoldens(goldens, c)));
   return goldens.flatMap((g) => {
-    const why = tested.has(g) ? liveReasons(g) : [];
+    const why = tested.has(g) && !g.error ? liveReasons(g) : [];
     return why.length ? [{ path: g.path, why }] : [];
   });
 }
@@ -83,7 +87,7 @@ const reasonLine = (w: LiveReason): string => (w.kind === 'judges' ? `judges ${w
  */
 export function liveAsk(goldens: readonly GoldenSource[], job: TestsJob, yes: unknown): { error: string; status: 409; confirm: string } | null {
   if ('error' in job) return null;
-  const live = liveGoldens(goldens, job);
+  const live = sessionLiveGoldens(goldens, job);
   if (!live.length) return null;
   const lines = [...commandsOf(job).map((c) => ['shadowlap', ...c]), ...live.map((g) => [g.path, ...g.why.map(reasonLine)])];
   return saidYes(yes, lines) ? null : askConsent(liveWords(live), lines);
@@ -96,7 +100,7 @@ function names(paths: readonly string[]): string {
 }
 
 /** One golden's words, or several's. */
-const one = (goldens: readonly LiveGolden[], it: string, they: string): string => `${names(goldens.map((g) => g.path))} ${goldens.length === 1 ? it : they}`;
+const one = (goldens: readonly SessionLiveGolden[], it: string, they: string): string => `${names(goldens.map((g) => g.path))} ${goldens.length === 1 ? it : they}`;
 
 /**
  * The question's words, a clause for each reason naming its goldens: `evals/x is marked fork, so it
@@ -104,7 +108,7 @@ const one = (goldens: readonly LiveGolden[], it: string, they: string): string =
  * it plants. Live calls are billed by your provider. Confirm it to run it`. A fork's judges are said
  * in its clause when every fork has them (`…, asking its judges live (claude-haiku-4-5)`), else apart.
  */
-function liveWords(live: readonly LiveGolden[]): string {
+function liveWords(live: readonly SessionLiveGolden[]): string {
   const having = (kind: LiveReason['kind']) => live.filter((g) => g.why.some((w) => w.kind === kind));
   const [fork, judged, injected] = [having('fork'), having('judges'), having('injection')];
   const models = [...new Set(judged.flatMap((g) => g.why.flatMap((w) => (w.kind === 'judges' ? w.models : []))))].join(', ');

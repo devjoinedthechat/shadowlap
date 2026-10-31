@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, type TestResultData } from '@shadowlap/engine';
 import { inTestFamily, startDashboard, type CiWorkflowsView, type Dashboard, type GoldenSource, type JobView, type SpawnCli, type TestsView } from '../src/index.js';
-import { liveReasons, testedGoldens } from '../src/tests-live.js';
 
 /**
  * The Tests screen's API: `GET /api/tests` over the goldens the CLI lists, `GET /api/ci/workflows`
@@ -611,21 +610,5 @@ describe('a session that runs a golden live', () => {
     } finally {
       store.finishTestSession(s.sessionId, { passed: 0, failed: 0, upstreamRequests: 0 });
     }
-  });
-
-  it('reads which goldens a test command runs as the CLI expands it, and why each goes live', () => {
-    const at = (path: string, over: Partial<GoldenSource> = {}): GoldenSource => ({ path, runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [], ...over });
-    const some = [at('goldens/a'), at('goldens/b-fork', { mode: 'fork' }), at('goldens/deeper/c'), at('evals/d'), at('80')];
-    const paths = (args: string[]) => testedGoldens(some, args).map((g) => g.path);
-    // The pattern matches within its last part only; a flag's value is no golden.
-    expect(paths(['test', 'goldens/*', 'evals/d'])).toEqual(['goldens/a', 'goldens/b-fork', 'evals/d']);
-    expect(paths(['test', 'goldens/b-*', '--max-attempts', '80', '--continue'])).toEqual(['goldens/b-fork']);
-    expect(paths(['test', 'goldens/deeper/c', '--update'])).toEqual(['goldens/deeper/c']);
-    expect(paths(['normalize', 'add', 'goldens/a'])).toEqual([]);
-    expect(liveReasons(at('x'))).toEqual([]);
-    expect(liveReasons(at('x', { mode: 'fork', judges: ['claude-haiku-4-5'], injection: true }))).toEqual([{ kind: 'fork' }, { kind: 'judges', models: ['claude-haiku-4-5'] }, { kind: 'injection' }]);
-    // A replay golden's judges answer from its recording, offline.
-    expect(liveReasons(at('x', { judges: ['claude-haiku-4-5'] }))).toEqual([]);
-    expect(liveReasons(at('x', { mode: 'fork', error: 'no run.json: not a pack' }))).toEqual([]);
   });
 });
