@@ -93,6 +93,10 @@ describe('reading what a verdict says beyond its tally', () => {
     expect(blameEvidence({ outcome: 'blamed', probes: [{ callNo: 3, rescued: true }], errorBound: 0.04 }).risk).toBeNull();
     expect(blameEvidence({ outcome: 'blamed', probes, pin: { callNo: 5, next: 7, verdict: 'pinned' }, errorBound: 0.04 }).risk).toBeNull();
     expect(blameEvidence({ outcome: 'blamed', probes, nonMonotone: 'none', errorBound: 0.04 }).risk).toBeNull();
+    // Every attempt that passed answered the call as the recording did: the bound is the search's, not
+    // the claim that no call rescues the run, and `shadowlap blame` prints no confidence line for it.
+    const sameAnswer = { callNo: 3, runId: '01M5GRX8K406H4KHQ7DEKYWTSZ', why: 'Every attempt that passed at #3 answered it as the recording did' };
+    expect(blameEvidence({ outcome: 'unrescuable', probes, nonMonotone: [], range: null, errorBound: 0.04, sameAnswer })).toEqual({ range: null, errorBound: 0.04, risk: null });
     expect(methodWords('anytime_valid')).toBe('anytime-valid');
     expect(methodWords('beta-binomial')).toBe('beta binomial');
   });

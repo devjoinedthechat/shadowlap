@@ -42,7 +42,8 @@ export interface BlameEvidence {
   /**
    * The error bound as the CLI prints it after the blame's confidence, with what it rests on (the
    * engine's confidenceWhy): `<= 3% risk that the call is wrong: 3 probes decided, at <= 1.3% risk
-   * each`. Null with no bound, or for a report whose probes don't say what bounds it.
+   * each`. Null with no bound, where the CLI prints no confidence line, or for a report whose probes
+   * don't say what bounds it.
    */
   risk: string | null;
 }
@@ -115,12 +116,16 @@ const pinCheck = (v: unknown): v is PinCheck | null => v === null || (isObject(v
  * A blame's error bound in the CLI's words (confidenceWhy), from what of the report they read, each
  * of its shape: every probe that decided something carries its risk, each rise past the boundary
  * names its two calls, and a check of the pinned call that decided carries its call and risk. Null
- * when any doesn't, so a report from elsewhere never prints a bound it doesn't hold.
+ * when any doesn't, so a report from elsewhere never prints a bound it doesn't hold. Null too where
+ * `shadowlap blame` prints no confidence line (formatBlame): a blame whose passing attempts answered
+ * the call as the recording did (`sameAnswer`) keeps the search's bound, which is not one on the
+ * claim it makes, that no call rescues the run.
  */
 function riskWords(r: Record<string, unknown>, errorBound: number, range: BlameEvidence['range']): string | null {
   const { outcome, probes } = r;
   const nonMonotone = r.nonMonotone ?? [];
   const pin = r.pin ?? null;
+  if (r.sameAnswer) return null;
   if ((outcome !== 'blamed' && outcome !== 'unrescuable') || !decidedProbes(probes) || !rises(nonMonotone) || !pinCheck(pin)) return null;
   return confidenceWhy({ outcome, probes, nonMonotone, errorBound, range, pin });
 }

@@ -151,6 +151,19 @@ describe('the Blame step', () => {
     await open(blame(older).fix.fixId, 'blame');
     expect(text(r!.one('.sh p'))).toMatch(/ · confidence high(?! \()/);
   });
+
+  it('prints no bound where the CLI prints no confidence line: every attempt that passed answered the call as the recording did', async () => {
+    const run = newRun({ labels: ['refund-bug'], calls: ['api', 'tool', 'api', 'tool', 'api'] });
+    // As blame leaves such a report: no call blamed, the search's bound kept, with its probes' risks.
+    const why = 'Every attempt that passed at #5 answered it as the recording did, so what made them pass came after that answer.';
+    const report: BlameReport = { ...blameReport(run), outcome: 'unrescuable', blamed: null, lost: null, range: null, contrast: null, errorBound: 0.03, sameAnswer: { callNo: 5, runId: run, why } };
+    for (const p of report.probes) p.risk = 0.01;
+    expect(formatBlame(report)).not.toContain('Confidence:');
+    await open(blame(run, { report }).fix.fixId, 'blame');
+    const head = text(r!.one('.sh p'));
+    expect(head).toContain(why);
+    expect(head).not.toMatch(/risk/);
+  });
 });
 
 describe('the Repair step', () => {
