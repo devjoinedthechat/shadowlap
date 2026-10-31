@@ -59,7 +59,7 @@ export function shownBlame(rec: FixRecords): StoredBlame | null {
  * run: its passing attempts answered as the recording did, or every attempt met a write's recorded
  * error again. A prompt repair is no fix for such a run; the tools, the harness or the command are.
  */
-function noAnswerLost(b: StoredBlame | null): boolean {
+export function noAnswerLost(b: StoredBlame | null): boolean {
   return !!b && b.outcome === 'unrescuable' && !!(b.report.sameAnswer || b.report.failedWrite);
 }
 

@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { CONFIG_FILE, DEFAULT_REPLACE, NO_COMMAND, RULE_KINDS, isObject, messageOf, namedPatterns, readConfigFile, readRules, type CallKind, type ConfigFile, type Normalizer, type RuleList, type RunRecord, type Store, type StoreOf } from '@shadowlap/engine';
+import { str } from './fields.js';
 
 /** What Settings' tabs share: what each is given, the config file as a tab reads it, a rule as a row, and a run as the pickers name it. */
 
@@ -77,7 +78,7 @@ export function configFileError(cwd: string): string | null {
   return loadConfigFile(cwd).info.error;
 }
 
-export const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+export { str };
 
 export function ruleRows(file: ConfigFile | null, list: RuleList): RuleRow[] {
   if (!file) return [];

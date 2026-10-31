@@ -8,6 +8,7 @@ import type { Palette } from './report.js';
 import { dimLines, plain } from './report.js';
 import { safeLine } from './text.js';
 import type { UnrecordedTool } from './unrecorded-tools.js';
+import { shortRunId as short } from './words.js';
 
 /**
  * Where a failed run was lost. A run can go wrong long before it visibly fails: the model picks the
@@ -577,8 +578,6 @@ export interface BlameReport extends BlameSearchResult {
   /** What the replays warned about, such as a connection that bypassed Shadowlap. */
   warnings: string[];
 }
-
-const short = (id: string) => id.slice(0, 10);
 
 export function describeRescue(fields: Record<string, unknown>): string {
   const entries = rescueFields(fields);

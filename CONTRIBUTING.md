@@ -141,6 +141,12 @@ An entry may shrink, never grow. Every other function in that file is held to th
 - **`node scripts/lint-caps.mjs --write`** lowers the list once a function has shrunk.
 - **`--write --add`** keeps the ceiling of a function renamed or moved, which the list no longer knows by its old name.
 
+A pull request may lower an entry or take one off, but never add one or raise one. CI checks the list against where the request left its base branch, and fails on an entry added or raised. A function renamed or moved shows there as an entry added: say so in the pull request. The same check runs locally against a branch you name:
+
+```sh
+node scripts/lint-caps-raised.mjs origin/main
+```
+
 ## The docs
 
 `docs/*.md` are the documentation, read on GitHub as they are.

@@ -9,6 +9,7 @@ import { safeLine } from './text.js';
 import type { CallRecord } from './types.js';
 import { unavailableStop } from './unavailable.js';
 import type { UnrecordedTool } from './unrecorded-tools.js';
+import { shortRunId as short } from './words.js';
 
 /**
  * Whether a change does what it was made for without breaking what worked. Three kinds of recorded
@@ -182,7 +183,6 @@ export interface VerifyDecision {
 }
 
 const ROLE: Record<VerifyRole, string> = { target: 'target', holdout: 'held-out', good: 'good' };
-const short = (id: string) => id.slice(0, 10);
 
 /** What happened to a run, in the words of its role: fixed or not, kept or broken; or that its gate couldn't tell, or an attempt couldn't be judged. */
 export function outcomeOf(r: Pick<VerifiedRun, 'role' | 'verdict'> & { decision?: GateDecision | undefined; undecided?: string | null | undefined }): 'fixed' | 'not fixed' | 'kept' | 'broken' | 'unsettled' | 'inconclusive' {

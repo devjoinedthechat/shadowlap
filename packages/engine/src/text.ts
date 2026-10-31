@@ -86,3 +86,12 @@ export function decodedSegment(segment: string): string {
     return segment;
   }
 }
+
+/**
+ * Text percent-encoded as RFC 3986 has it, as an AWS signature encodes a request's path and query:
+ * encodeURIComponent's encoding, with `!`, `'`, `(`, `)` and `*` encoded too.
+ */
+export const encodeRfc3986 = (s: string) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+
+/** A tool's name as a JavaScript string literal, in the single quotes the SDK's examples use. */
+export const jsString = (name: string) => `'${name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;

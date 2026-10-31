@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { JUDGE_SCOPE, judgeAskId, Store, storeApiRequest, type CallRecord } from '@shadowlap/engine';
-import { attemptJudgeMissing, judgeRecording, oracleLabels, undecidableChecks } from '../src/attempts.js';
+import { attemptJudgeMissing, judgeRecording, undecidableChecks } from '../src/attempts.js';
 import { checkLine, evaluateChecks, hasChecks, judgeResults, judgeSource, parseExpect, parseTests } from '../src/checks.js';
 import { judgedOptions, judgesOf, liveJudge, recordedVerdicts } from '../src/judge.js';
+import { oracleLabels } from '../src/oracle.js';
 
 /** Judge checks as the config writes them, and as results: passed, failed, or inconclusive with why. */
 

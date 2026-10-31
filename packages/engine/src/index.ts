@@ -33,7 +33,7 @@ export type { BlameToRecord, FixCost, FixRecords, RecordedBlame, RecordedRepair,
 export { lookupRun } from './run-lookup.js';
 // The commands a repair from a fix and a verify of it run, and the yes they need first, as the
 // dashboard builds them, so the terminal UI runs the same lines and asks about the same runs.
-export { DEFAULT_REPAIRER, agentOfArgv, agentOfRun, askConsent, consentKey, expectArgs, findProgram, fixRunArgs, jobConsent, keepArgs, labelSelectsFix, leftWords, needsConsent, noFixToTry, repairArgv, repairJobArgv, repairerProblem, saidYes, scopeArg, selectedRuns, shownBlame, verifyArgv, type JobConsent } from './fix-jobs.js';
+export { DEFAULT_REPAIRER, agentOfArgv, agentOfRun, askConsent, consentKey, expectArgs, findProgram, fixRunArgs, jobConsent, keepArgs, labelSelectsFix, leftWords, needsConsent, noAnswerLost, noFixToTry, repairArgv, repairJobArgv, repairerProblem, saidYes, scopeArg, selectedRuns, shownBlame, verifyArgv, type JobConsent } from './fix-jobs.js';
 // The check a blame starts from when nobody names one, as the dashboard and the terminal UI pick it.
 export { blameCheckFor, checkSuggestion, configExpect, failedCheckLabels, labelledFixes, type BlameCheck } from './fix-jobs.js';
 // The tests entry a run is judged by when it was given no --expect (the CLI's replays, the dashboard's Run blame).
@@ -83,10 +83,10 @@ export type { ClaudeTakes, GivenAnswer, JudgeAsk, JudgeMaterial, JudgeProvider, 
 export { aboutUsd, judgeLine, judgeParts, summarizeJudge } from './report.js';
 export { DEFAULT_PRICES, canonicalModel, estimateCost, formatDuration, formatUsd, priceFor, shortModel } from './prices.js';
 export type { Price } from './prices.js';
-export { EXTERNAL_COMMAND, NO_COMMAND, PACK_FORMAT, PACK_GITATTRIBUTES, PACK_VERSION, TEST_COMMAND, asImportedRun, asTheyStand, commandIsImported, hasRecordedCommand, heldFrom, importedCommandSource, packRun, unpackRun, withoutCommand, writePackAttributes } from './pack.js';
+export { EXTERNAL_COMMAND, NO_COMMAND, PACK_ENTRIES, PACK_FORMAT, PACK_GITATTRIBUTES, PACK_VERSION, TEST_COMMAND, asImportedRun, asTheyStand, commandIsImported, hasRecordedCommand, heldFrom, importedCommandSource, lexists, movePath, packRun, unpackRun, withoutCommand, writePackAttributes } from './pack.js';
 export { CONTROL, PACK_LIMITS, PackError } from './pack-schema.js';
 export { callRefs, validateCall, validateRun } from './pack-schema.js';
-export { decodedSegment, quoteArgv, safeLine, safeText } from './text.js';
+export { decodedSegment, encodeRfc3986, jsString, quoteArgv, safeLine, safeText } from './text.js';
 // Text safe in the Markdown GitHub renders, for pull request bodies, comments and job summaries.
 export { markdownCode, markdownFence, markdownText, titleText } from './markdown.js';
 export { shortCallName } from './labels.js';
@@ -108,12 +108,15 @@ export { BodyTooLarge, MODEL_BODY_LIMIT, readBody, type BodyLimits } from './bod
 // value says: a lint rule refuses another of either.
 export { isObject } from './is-object.js';
 export { messageOf } from './message-of.js';
+// A count with its noun, a run's and a fix's short id, a part of a date, a tool failure in words: said
+// the same way by the CLI, the terminal UI, the dashboard and its pages.
+export { plural, pluralS, shortFixId, shortRunId, toolFailure, twoDigits } from './words.js';
 export { rollBack } from './sqlite.js';
 export { actionContext, actionMissing, bisectAction, buildActions, CAPTURE_NOTE, forkArgs, forkCommand, forkMenuTitle, isUserInput, notRun, PLANTED_INSTRUCTIONS, recordingNow, splitCommand, terminalActions, type Action, type ActionContext } from './run-actions.js';
 export type { AttemptKind, ClassifiableMeta, ClassifiableRun, ClassifyContext, DisplayOrigin, KindFacts, OriginCode, OriginCounts, OutcomeContext, RunClass, RunKind, RunOutcome } from './classify.js';
 export { IMPORT_FILE_FORMATS, guessImportFormat, type ImportFileFormat, type ImportFormatGuess } from './import-format.js';
 export { withoutPrompt } from './prompt.js';
-export { GATEWAY_UNCHANGED, SHAPE_NAMES, applyInjection, isGatewayRequest, formatToolFailure, literalValue, modelInRequest, noLateSystemMessage, parseToolFailure, placeFields, placeInjection, plantInResult, plantInToolResult, refused, requestShape, setRequestFields, switchModel, toolFailureError } from './interventions.js';
+export { GATEWAY_UNCHANGED, SHAPE_NAMES, applyInjection, isGatewayRequest, fieldValue, formatToolFailure, literalValue, modelInRequest, noLateSystemMessage, parseToolFailure, placeFields, placeInjection, plantInResult, plantInToolResult, refused, requestShape, setRequestFields, switchModel, toolFailureError } from './interventions.js';
 export type { InjectAs, InjectionPlace, Refusal, RequestShape, ToolFailure } from './interventions.js';
 export { DATASET_FORMATS, datasetRows, type DatasetExample, type DatasetFormat } from './dataset.js';
 export { indexSearch, MATCH_END, MATCH_START, searchCalls, searchExpression, searchIndexBehind, updateSearchIndex, type SearchHit, type SearchIndexRun } from './search.js';

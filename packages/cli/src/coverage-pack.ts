@@ -17,6 +17,7 @@ import {
   requestMessage,
   responseInfo,
   safeLine,
+  shortRunId as short,
   Store,
   type StoreOf,
   type CallMeta,
@@ -310,7 +311,6 @@ interface Reproduction {
   sent: string | null;
 }
 
-const short = (id: string) => id.slice(0, 10);
 const quoted = (s: string) => `“${safeLine(s.length > 80 ? `${s.slice(0, 79)}…` : s)}”`;
 
 /** Rebuilds a capture and replays it with a command, offline, in a store in memory of its own. */

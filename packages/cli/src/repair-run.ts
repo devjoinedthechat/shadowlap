@@ -1,9 +1,10 @@
 import { relative } from 'node:path';
 import { agentCallsOf, applyEdit, BLAME_DEFAULTS, CHARS_PER_TOKEN, checkEdit, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, formatUsd, isJudgeCall, isObject, loadApiRequest, lostWhere, messageOf, NO_REPAIRER, normalizeConversation, notTheAnswer, redactRun, releaseLock, repairNeverRewrites, rewriteGrowth, rewriteText, safeLine, Store, toolDefinitions, unavailableStop, unifiedDiff, unrescuedWords, unsettledFirst, type Anchor, type Conversation, type Normalizer, type RepairCandidate, type RepairRange, type RepairReport, type RepairTarget, type SourceFile, type StoreOf, type Surface, type VerifyRole } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
-import { judgeRecording, oracleLabels, type AttemptTarget } from './attempts.js';
+import { judgeRecording, type AttemptTarget } from './attempts.js';
 import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
 import { loadConfig } from './config.js';
+import { oracleLabels } from './oracle.js';
 import { physicalPath } from './real-path.js';
 import { gitRoot, goldensInRepo, growthReason, handOver, noDiagnosisWhy, projectFiles, RepairError, repairerMost, repairerTurns, runBuild, startRepair, type RepairInput, type RepairSettings } from './repair.js';
 import { CandidatePicker, untriedWords } from './repair-pick.js';

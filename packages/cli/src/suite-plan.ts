@@ -1,5 +1,5 @@
 import { agentCallsOf, estimateCost, formatUsd, gateHistory, planSuite, recentAttempts, riskPercent, RECORD_WINDOWS, type Gate, type Price, type RunRecord, type Store, type StoreOf, type SuiteGolden, type SuitePlan, type Tally } from '@shadowlap/engine';
-import { oracleLabels } from './attempts.js';
+import { oracleLabels } from './oracle.js';
 import { suiteRed } from './test-report.js';
 import { specFor, type TestEntry, type TestSpec } from './checks.js';
 import { importGolden } from './golden-test.js';
