@@ -6,7 +6,7 @@ import { formatUsd } from './prices.js';
 import { atLeast, atMost, attemptsToPass, BLAME_DEFAULTS, confidenceSequence, countOdds, gateOdds, rateBound, riskPercent, type GateDecision, type GateResult, type SprtGate } from './stats.js';
 import type { Palette } from './report.js';
 import { dimLines, plain } from './report.js';
-import { fitLine, fitLines, safeLine } from './text.js';
+import { fitLine, fitRow, safeLine } from './text.js';
 import type { UnrecordedTool } from './unrecorded-tools.js';
 
 /**
@@ -833,10 +833,8 @@ export function formatBlame(r: BlameReport, p: Palette = plain, columns?: number
     const label = `At #${r.contrast.callNo}`;
     const pad = ' '.repeat(label.length);
     // Each answer after its name, the lines it wraps to in a terminal under where it starts.
-    const under = ' '.repeat(label.length + 20);
-    const answer = (head: string, blocks: readonly Block[]) => fitLines(under, safeLine(describeBlocks(blocks)), columns).map((line, i) => (i ? line : head + line.slice(under.length)));
-    lines.push('', ...answer(`  ${label}  ${p.dim('the recording ')}  `, r.contrast.recorded));
-    lines.push(...answer(`  ${pad}  ${p.dim('a rescued fork')}  `, r.contrast.rescued));
+    lines.push('', ...fitRow(`  ${label}  ${p.dim('the recording ')}  `, safeLine(describeBlocks(r.contrast.recorded)), columns));
+    lines.push(...fitRow(`  ${pad}  ${p.dim('a rescued fork')}  `, safeLine(describeBlocks(r.contrast.rescued)), columns));
   }
 
   if (r.probes.length) {
@@ -858,7 +856,7 @@ export function formatBlame(r: BlameReport, p: Palette = plain, columns?: number
     for (const pooled of pooledRates(r)) lines.push(p.dim(`    ${pooled.calls.map((c) => `#${c}`).join(', ')} read as one rate, ${pooled.rate.toFixed(2)}: rescue rose after it fell`));
   }
 
-  if (r.warnings.length) lines.push('', ...r.warnings.map((w) => `  ${p.yellow('!')} ${safeLine(w)}`));
+  if (r.warnings.length) lines.push('', ...r.warnings.flatMap((w) => fitLine(`  ${p.yellow('!')} ${safeLine(w)}`, columns)));
   const attempts = r.attempts;
   const unpriced = r.unknownModels.length ? ` (no price for ${r.unknownModels.map(safeLine).join(', ')})` : '';
   const judged = r.judge ? ` · judge checks: ${r.judge.upstreamRequests} upstream request${r.judge.upstreamRequests === 1 ? '' : 's'}, ≈${formatUsd(r.judge.spent)}` : '';

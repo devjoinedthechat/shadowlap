@@ -1012,10 +1012,11 @@ Its progress goes to stderr:
 - **With `-v`, or anywhere else** (a CI log, a file, the dashboard), every attempt keeps its line,
   with its run id.
 
-In a terminal, a line wider than the terminal wraps at whole words, before it starts, as it goes
-and in its report. Each line it wraps to is indented as the first, and past a mark that leads it
-(`!`, `✗`); a command or a flag with its value stays in one piece. Written to a pipe or a file, each
-line stays whole.
+In a terminal, a line of prose wider than the terminal wraps at whole words, before it starts, as it
+goes and in its report. Each line it wraps to is indented as the first, past a mark that leads it
+(`!`, `✗`), or under the text of a row. A command, or a flag with its value, stays in one piece. The
+lines that give commands or paths, and the rows of its tallies, stay whole. Written to a pipe or a
+file, each line stays whole.
 
 Verify and repair print theirs the same way.
 

@@ -4,7 +4,7 @@ import { formatUsd } from './prices.js';
 import type { Palette } from './report.js';
 import { dimLines, plain } from './report.js';
 import { formatTally } from './stats.js';
-import { fitLine, quoteArgv, safeLine, wrapWords } from './text.js';
+import { fitLine, fitRow, quoteArgv, safeLine, wrapWords } from './text.js';
 import { eachRun, footprintDelta, keptTally, outcomeOf, type VerifiedRun, type VerifyReport } from './verify.js';
 
 /**
@@ -1033,16 +1033,19 @@ function verifiedLine(v: VerifyReport): string {
 /** The report as the CLI prints it, its dim lines of prose fit to a terminal `columns` wide; whole with none, for a pipe or a file. */
 export function formatRepair(r: RepairReport, p: Palette = plain, columns?: number | null): string {
   const lines: string[] = [];
+  // A line of the report: in a terminal it wraps at whole words, as the dim lines do.
+  const say = (line: string) => lines.push(...fitLine(line, columns));
   const accepted = r.candidates.find((c) => c.id === r.accepted) ?? null;
   if (r.outcome === 'fixed' && accepted) {
     lines.push(`${p.green('✓')} ${p.bold(`Fixed: ${commitTitle(accepted)}`)}`);
     lines.push(`  ${p.dim(`${safeLine(accepted.file)} · ${safeLine(accepted.surface)}`)}`);
-    lines.push(`  ${p.red(`- ${one(accepted.before, 200)}`)}`, `  ${p.green(`+ ${one(accepted.after, 200)}`)}`);
+    say(`  ${p.red(`- ${one(accepted.before, 200)}`)}`);
+    say(`  ${p.green(`+ ${one(accepted.after, 200)}`)}`);
     // The counts, then how each run was decided, under them, wrapped to fit an 80-column terminal.
     if (accepted.verify) lines.push('', `  Verified: ${verifiedCounts(accepted.verify)},`, ...wrapWords(eachRun(accepted.verify), 66).map((l) => `            ${l}`));
   } else {
     const head = r.outcome === 'stopped' ? `${p.yellow('!')} ${p.bold('Stopped')}` : r.outcome === 'no-diagnosis' ? `${p.yellow('!')} ${p.bold('No fix to try')}` : `${p.red('✗')} ${p.bold('Not fixed')}`;
-    lines.push(`${head}${r.why ? `: ${safeLine(r.why)}` : ''}`);
+    say(`${head}${r.why ? `: ${safeLine(r.why)}` : ''}`);
   }
 
   if (r.targets.length) {
@@ -1054,7 +1057,7 @@ export function formatRepair(r: RepairReport, p: Palette = plain, columns?: numb
           : t.outcome === 'unrescuable'
             ? unrescuedWords(t.unsettled === true)
             : safeLine(t.note ?? t.outcome);
-      lines.push(`    ${short(t.runId)}  ${where}`);
+      lines.push(...fitRow(`    ${short(t.runId)}  `, where, columns));
     }
   }
   if (r.diagnosis) lines.push('', `  ${p.bold('Diagnosis')} ${p.dim(`(${r.repairer ? safeLine(r.repairer.served ?? r.repairer.model) : 'repairer'})`)}`, ...fitLine(`    ${one(r.diagnosis, 300)}`, columns));
@@ -1064,12 +1067,12 @@ export function formatRepair(r: RepairReport, p: Palette = plain, columns?: numb
     const w = Math.max(...r.candidates.map((c) => c.state.length));
     for (const c of r.candidates) {
       const state = c.state === 'accepted' ? p.green(c.state.padEnd(w)) : c.state === 'untried' ? p.dim(c.state.padEnd(w)) : p.yellow(c.state.padEnd(w));
-      lines.push(`    ${String(c.id).padStart(2)}  ${state}  ${one(`${c.surface}: ${c.after}`, 80)}`);
+      lines.push(...fitRow(`    ${String(c.id).padStart(2)}  ${state}  `, one(`${c.surface}: ${c.after}`, 80), columns));
       if (c.reason) lines.push(...dimLines(p, '        ', one(c.reason, 150), columns));
     }
   }
 
-  if (r.warnings.length) lines.push('', ...r.warnings.map((w) => `  ${p.yellow('!')} ${safeLine(w)}`));
+  if (r.warnings.length) lines.push('', ...r.warnings.flatMap((w) => fitLine(`  ${p.yellow('!')} ${safeLine(w)}`, columns)));
 
   const repairer = r.repairer ? ` · repairer ${r.repairer.cost === null ? `(no price for ${safeLine(r.repairer.served ?? r.repairer.model)})` : `≈${formatUsd(r.repairer.cost)}`}` : '';
   const judged = r.cost.judge ? ` · judge checks ≈${formatUsd(r.cost.judge)}` : '';

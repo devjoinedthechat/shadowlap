@@ -452,7 +452,7 @@ describe('probes decided by a gate', () => {
 
   it('wraps where the run was lost and how sure blame is at whole words to a terminal’s width, a flag kept with its value', () => {
     const [b, lost, unsure] = [gated(5, 3, [true, true, true, false]), gated(7, 4, [false, false, false, false]), gated(1, 1, UNSURE)];
-    const blamed = report({ blamed: b, lost, probes: [b, lost], errorBound: 0.004 });
+    const blamed = report({ blamed: b, lost, probes: [b, lost], errorBound: 0.004, warnings: ['search_web changed since it was recorded: run it live with --live-tool search_web'] });
     const unsettled = report({ outcome: 'unrescuable', probes: [unsure], lost: unsure, errorBound: 0.05, confidence: 'low' });
     const words = (text: string) => text.split(/\s+/).filter(Boolean);
     for (const r of [blamed, unsettled]) {
@@ -461,9 +461,12 @@ describe('probes decided by a gate', () => {
       expect(words(fit)).toEqual(words(whole));
       const wrapped = fit.split('\n').filter((l) => !whole.split('\n').includes(l));
       expect(wrapped.length, fit).toBeGreaterThanOrEqual(3);
-      for (const l of wrapped) expect(l.length <= 60 && /^ {2}\S/.test(l), l).toBe(true);
+      // Indented as the line, and past its mark for a warning's.
+      for (const l of wrapped) expect(l.length <= 60 && /^ {2}(?: {2})?\S/.test(l), l).toBe(true);
     }
     expect(formatBlame(blamed, plain, 60)).toContain('\n  The re-asked call #5: rescued · 3 of 4 · rate >= 0.14\n  (95%); #7, the next model call: lost · 0 of 4 · rate <=\n  0.61 (95%).\n');
+    // A warning wraps past its mark.
+    expect(formatBlame(blamed, plain, 60)).toMatch(/\n {2}! search_web changed since it was recorded: run it[^\n]*\n {4}\S/);
     // What settles it is a flag and its value: on one line.
     expect(formatBlame(unsettled, plain, 60)).toMatch(/\n {2}(?:\S+ )*--gate '\{"good":[\d.]+,"max":\d+\}'\./);
   });

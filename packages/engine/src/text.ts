@@ -104,6 +104,12 @@ export function fitLines(indent: string, text: string, columns: number | null | 
   return (columns ? wrapWords(text.replace(QUOTED_FLAG, whole), Math.max(1, columns - indent.length)) : [unglued(text)]).map((line) => indent + line);
 }
 
+/** A row of a report: its head, then its text, which wraps at whole words to fit, the lines after the first under where it starts. */
+export function fitRow(head: string, text: string, columns: number | null | undefined): string[] {
+  const under = ' '.repeat(columnsTaken(head));
+  return fitLines(under, text, columns).map((line, i) => (i ? line : head + line.slice(under.length)));
+}
+
 /**
  * A line as a terminal `columns` wide shows it whole: its words wrapped to lines within the width,
  * each indented as the line is, and past the mark that leads it (`! `, `✗ `), a colour carried on
