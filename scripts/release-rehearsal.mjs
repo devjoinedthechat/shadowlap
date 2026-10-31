@@ -21,6 +21,10 @@ const PORT = Number(process.env.REGISTRY_PORT ?? 4873);
 const REGISTRY = `http://127.0.0.1:${PORT}/`;
 const work = mkdtempSync(join(tmpdir(), 'shadowlap-release-'));
 const keep = process.argv.includes('--keep');
+// Shadowlap's files for this machine (the dashboard's project list, the agents registered while they
+// run) go in the rehearsal's own folder, for every process it starts, and go with it: never in the
+// real ~/.shadowlap.
+process.env.SHADOWLAP_HOME = join(work, 'sl-home');
 
 const results = [];
 const children = [];
@@ -212,9 +216,9 @@ check('installs the skills from the packages, for Claude Code and the other agen
 
 // ---- 5. The dashboard: its bundled UI and API from the installed package, its runs the ones the
 // CLI lists (the recording, its replay, its fork and the golden's test run).
-// Its list of projects goes in the rehearsal's own folder, not the real ~/.shadowlap.
+// Its list of projects goes in the rehearsal's own folder (SHADOWLAP_HOME, above).
 const listed = JSON.parse(fp(['ls', '--json']).stdout || '[]').map((r) => r.runId).sort();
-const dash = spawn(bin, ['dashboard', '--no-open', '--port', '4799'], { cwd: app, env: { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_HOME: join(work, 'sl-home') }, stdio: ['ignore', 'ignore', 'pipe'] });
+const dash = spawn(bin, ['dashboard', '--no-open', '--port', '4799'], { cwd: app, env: { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1' }, stdio: ['ignore', 'ignore', 'pipe'] });
 children.push(dash);
 let dashLog = '';
 dash.stderr.on('data', (c) => (dashLog += c));
