@@ -104,8 +104,20 @@ export function literalValue(text: string): string {
   return text.startsWith('@') ? `@${text}` : text;
 }
 
-/** A request field's value as `--set field=value` gives it: a string as it is, anything else as JSON. */
-export const fieldValue = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v));
+/**
+ * A request field's value as `--set field=value` gives it, for a parser that reads it as JSON or else
+ * as a bare string: anything but a string as JSON, and a string as it is, unless `--set` would read it
+ * back as something else (`1`, `true`, `[1]`), when it goes as JSON too.
+ */
+export function fieldValue(v: unknown): string {
+  if (typeof v !== 'string') return JSON.stringify(v);
+  try {
+    JSON.parse(v);
+    return JSON.stringify(v);
+  } catch {
+    return v;
+  }
+}
 
 /** Gemini and Vertex accept a model as `models/<name>` or by its publisher path; the URL carries the name alone. */
 function pathModelName(provider: string | null | undefined, model: string): string | Refusal {
