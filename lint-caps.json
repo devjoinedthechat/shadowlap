@@ -473,7 +473,7 @@
       "startMcpHttpProxy": 246
     },
     "packages/cli/src/mcp-listen.ts": {
-      "startMcpListener": 242
+      "startMcpListener": 228
     },
     "packages/cli/src/verify.ts": {
       "runVerify": 290,

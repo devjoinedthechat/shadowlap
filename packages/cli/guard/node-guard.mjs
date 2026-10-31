@@ -6,13 +6,15 @@
 // agent's and changes nothing, and Node's dns.lookup never comes here at all.
 //
 // SHADOWLAP_GUARD=off disables it; SHADOWLAP_GUARD_ALLOW=host:port,host:port whitelists targets.
-// SHADOWLAP_MCP_PROXIES names the `shadowlap mcp --listen` proxies the command that started the
-// agent found running: they record the tool calls they carry, so reaching one bypasses nothing.
+// SHADOWLAP_MCP_REGISTRY names the folder the `shadowlap mcp --listen` proxies of this user's
+// register in: they record the tool calls they carry, so reaching one bypasses nothing. It is read
+// when the agent connects (node-proxies.mjs).
 import dgram from 'node:dgram';
 import { readFileSync, realpathSync } from 'node:fs';
 import net from 'node:net';
 import http from 'node:http';
 import { dirname, join } from 'node:path';
+import { isLoopbackHost, proof, proxyKeys, runOf } from './node-proxies.mjs';
 
 /**
  * globalThis as the preloads share it: whether each set itself up, and what they hand each other
@@ -32,7 +34,9 @@ if (url && mode !== 'off' && !shared.__shadowlapGuard) {
     const h2 = new URL(process.env.SHADOWLAP_HTTP2_URL);
     allowed.add(`${h2.hostname}:${h2.port}`);
   }
-  for (const item of [...(process.env.SHADOWLAP_GUARD_ALLOW ?? '').split(','), ...(process.env.SHADOWLAP_MCP_PROXIES ?? '').split(',')]) if (item.trim()) allowed.add(item.trim());
+  for (const item of (process.env.SHADOWLAP_GUARD_ALLOW ?? '').split(',')) if (item.trim()) allowed.add(item.trim());
+  const registry = process.env.SHADOWLAP_MCP_REGISTRY;
+  const run = runOf(url, process.env.SHADOWLAP_RUN_ID ?? '');
   // `shadowlap mcp --url` talks to its server for the agent and records the tool calls itself, so
   // its connections are not traffic that bypasses Shadowlap: that process alone may allow its
   // server's host:port. No other process gets the hook, so an agent's code can't lift the guard.
@@ -113,6 +117,37 @@ if (url && mode !== 'off' && !shared.__shadowlapGuard) {
 
   // ---- TCP: net.Socket#connect, which net, tls, http(s), http2 and fetch open their connections with ----
   const original = net.Socket.prototype.connect;
+  /** A connection of the guard's own, never checked: to ask a proxy to prove itself. */
+  const own = (/** @type {{ host: string; port: number }} */ options) => /** @type {net.Socket} */ (Reflect.apply(original, new net.Socket(), [options]));
+
+  /**
+   * A connection to a registered proxy (node-proxies.mjs), held until what answers at its address
+   * proves it is that proxy, or nothing listens there: then it goes through, as the sidecar's does,
+   * else as any other connection. It is under way while it is held, so what the agent writes waits.
+   * @param {net.Socket} socket
+   * @param {{ host: string; port: number }} t
+   * @param {string[]} keys
+   * @param {unknown[]} args
+   */
+  function connectOnceProven(socket, t, keys, args) {
+    /** @type {{ connecting: boolean }} */ (/** @type {unknown} */ (socket)).connecting = true;
+    // Destroyed while it is held, it stays so; a socket connected again after its close is not.
+    let closed = false;
+    const onClose = () => (closed = true);
+    socket.once('close', onClose);
+    void proof(own, t.host, t.port, keys).then((answer) => {
+      socket.off('close', onClose);
+      if (closed) return;
+      if (answer === 'unproven' && !letThrough(t.host, t.port)) return void socket.destroy(refusal('outbound connection', `${t.host}:${t.port}`));
+      try {
+        Reflect.apply(original, socket, args);
+      } catch (err) {
+        socket.destroy(/** @type {Error} */ (err));
+      }
+    });
+    return socket;
+  }
+
   net.Socket.prototype.connect = /** @type {typeof original} */ (
     /**
      * @this {net.Socket}
@@ -121,10 +156,14 @@ if (url && mode !== 'off' && !shared.__shadowlapGuard) {
      */
     function guardedConnect(...args) {
       const t = target(args);
-      if (t && Number.isFinite(t.port) && !letThrough(t.host, t.port)) {
-        const err = refusal('outbound connection', `${t.host}:${t.port}`);
-        process.nextTick(() => this.destroy(err));
-        return this;
+      if (t && Number.isFinite(t.port) && !allowed.has(`${t.host}:${t.port}`)) {
+        const keys = registry && isLoopbackHost(t.host) ? proxyKeys(registry, run, `${t.host}:${t.port}`) : [];
+        if (keys.length) return connectOnceProven(this, t, keys, args);
+        if (!letThrough(t.host, t.port)) {
+          const err = refusal('outbound connection', `${t.host}:${t.port}`);
+          process.nextTick(() => this.destroy(err));
+          return this;
+        }
       }
       return /** @type {net.Socket} */ (Reflect.apply(original, this, args));
     }

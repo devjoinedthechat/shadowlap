@@ -1,25 +1,31 @@
-import { lstatSync, readdirSync, readFileSync } from 'node:fs';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { join } from 'node:path';
-import { processAlive } from '@shadowlap/engine';
-import { publish, safeHome, untrusted } from './agent-registry.js';
-import { isLoopbackHost } from './loopback.js';
+import { publish, safeHome, type SidecarTarget } from './agent-registry.js';
 
 /**
  * The `shadowlap mcp --listen` proxies running for this user, for the network guard of the agents
- * Shadowlap commands start. A proxy started on its own records the tool calls of every command's
- * agents (each session into its client's run), so a connection to one bypasses nothing; yet the
- * guard lets an agent reach only what it is told, and `shadowlap test` blocks the rest. So such a
- * proxy registers its address while it runs, in `~/.shadowlap/mcp/<pid>.json`, owner-only and
- * under the folder's lock as an agent's registration is (agent-registry.ts), and a command that
- * starts agents lets them through to each it finds there (SHADOWLAP_MCP_PROXIES).
+ * Shadowlap commands start. A proxy records the tool calls it carries, so a connection to one bypasses
+ * nothing; yet the guard lets an agent reach only what it is told, and `shadowlap test` blocks the
+ * rest. So a proxy registers its address while it runs, as `<pid>.json` in Shadowlap's home folder's
+ * `mcp` (`~/.shadowlap/mcp`, or in SHADOWLAP_HOME), owner-only and under the folder's lock as an
+ * agent's registration is (agent-registry.ts). Every agent a Shadowlap command starts is told the
+ * folder (SHADOWLAP_MCP_REGISTRY), and its guard reads it when the agent connects
+ * (guard/node-proxies.mjs, guard/_shadowlap_proxies.py), so a proxy started after the agent, by the
+ * agent's own command say, counts too.
  *
- * Only a running proxy of this user's counts: a file is read only from the home folder, which no
- * repository can put one in, and only when it is the user's own, owner-only, not a link, in a folder
- * that is so too, names the process it is filed under, and that process is alive, with a loopback
- * address, the only kind a proxy serves on.
+ * A registration counts only while its proxy is there to prove it: it holds a key the proxy keeps, and
+ * the guard lets a connection through once what answers at the address it names proves it holds that
+ * key (PROOF_PATH), or when nothing listens there, so the connection fails as it would. So one a killed
+ * proxy left lets no connection reach anything, even after its process id is given to another process.
+ * A proxy started on its own records each session into its client's run, so it lets every agent
+ * through; one started under a Shadowlap command records into that command's run, so it lets only that
+ * run's agents through (`run`).
  */
 
 const FOLDER = 'mcp'; // in Shadowlap's home folder (safeHome): ~/.shadowlap, or SHADOWLAP_HOME
+
+/** Where a proxy answers a guard's challenge with proofOf, `?challenge=<hex>`. */
+export const PROOF_PATH = '/.well-known/shadowlap-proxy';
 
 interface ProxyRegistration {
   v: 1;
@@ -28,44 +34,40 @@ interface ProxyRegistration {
   /** The loopback address it serves on, as `--listen` named it, and its port. */
   host: string;
   port: number;
+  /** What it proves it holds (proofOf): 32 hex digits, in its registration and its memory alone. */
+  key: string;
+  /** The run it records every session into, as runOf names it; null when each session's is its client's. */
+  run: string | null;
 }
 
-/** Registers this process as a proxy serving on `at`, until the returned function is called; `file` is null when the home folder can't take it. */
-export function registerProxy(at: { host: string; port: number }, o: { home?: string | null } = {}): { unregister: () => void; file: string | null } {
+/** The folder this user's proxies register in: `mcp` in Shadowlap's home folder (safeHome: SHADOWLAP_HOME, else ~/.shadowlap), or null without one. */
+export function proxyFolder(o: { home?: string | null } = {}): string | null {
   const home = o.home === undefined ? safeHome() : o.home;
-  const body: ProxyRegistration = { v: 1, pid: process.pid, host: at.host, port: at.port };
-  return publish(home ? [join(home, FOLDER)] : [], process.pid, JSON.stringify(body) + '\n');
+  return home ? join(home, FOLDER) : null;
+}
+
+/** A key for a proxy to prove itself with: its registration's, kept in the proxy's memory too. */
+export function proxyKey(): string {
+  return randomBytes(16).toString('hex');
+}
+
+/** A proxy's answer to a guard's `challenge`: its HMAC-SHA256 under the proxy's key, in hex. */
+export function proofOf(key: string, challenge: string): string {
+  return createHmac('sha256', Buffer.from(key, 'hex')).update(challenge).digest('hex');
+}
+
+/** The run a sidecar's address and a run id name, as a registration and the guard name it: a digest, which holds no session token. */
+export function runOf(target: SidecarTarget): string {
+  return createHash('sha256').update(`${target.url.replace(/\/$/, '')}\n${target.runId}`).digest('hex');
 }
 
 /**
- * The addresses of this user's running proxies, as the guard names a connection (`host:port`): each
- * proxy's own, and `localhost` at its port, a name its clients reach it by too.
+ * Registers this process as a proxy serving on `at` that proves itself with `key`, recording into
+ * `run` or, with null, each session's own, until the returned function is called; `file` is null when
+ * the home folder can't take it.
  */
-export function liveProxies(o: { home?: string | null } = {}): string[] {
-  const home = o.home === undefined ? safeHome() : o.home;
-  if (!home) return [];
-  const dir = join(home, FOLDER);
-  let names: string[];
-  try {
-    if (untrusted(lstatSync(dir), dir, 'dir')) return [];
-    names = readdirSync(dir);
-  } catch {
-    return [];
-  }
-  const out = new Set<string>();
-  for (const name of names) {
-    const m = /^(\d+)\.json$/.exec(name);
-    if (!m) continue;
-    const file = join(dir, name);
-    try {
-      if (untrusted(lstatSync(file), file, 'file')) continue;
-      const j = JSON.parse(readFileSync(file, 'utf8')) as Partial<ProxyRegistration>;
-      if (j.v !== 1 || j.pid !== Number(m[1]) || typeof j.host !== 'string' || !isLoopbackHost(j.host) || !Number.isInteger(j.port) || j.port! < 1 || j.port! > 65535 || !processAlive(j.pid)) continue;
-      out.add(`${j.host}:${j.port!}`);
-      out.add(`localhost:${j.port!}`);
-    } catch {
-      // unreadable, or gone meanwhile
-    }
-  }
-  return [...out];
+export function registerProxy(at: { host: string; port: number }, o: { key: string; run: SidecarTarget | null; home?: string | null }): { unregister: () => void; file: string | null } {
+  const dir = proxyFolder(o);
+  const body: ProxyRegistration = { v: 1, pid: process.pid, host: at.host, port: at.port, key: o.key, run: o.run ? runOf(o.run) : null };
+  return publish(dir ? [dir] : [], process.pid, JSON.stringify(body) + '\n');
 }

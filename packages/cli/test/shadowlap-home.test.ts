@@ -4,8 +4,9 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { proxyKeys } from '../guard/node-proxies.mjs';
 import { lookupDirs, registerAgent, registeredRuns, safeHome } from '../src/agent-registry.js';
-import { liveProxies, registerProxy } from '../src/mcp-proxies.js';
+import { proxyFolder, registerProxy, runOf } from '../src/mcp-proxies.js';
 import { startFakeMcpHttpServer, type FakeMcpHttpServer } from './fake-mcp-http-server.js';
 
 /**
@@ -17,6 +18,9 @@ import { startFakeMcpHttpServer, type FakeMcpHttpServer } from './fake-mcp-http-
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const MCP_AGENT = fileURLToPath(new URL('./mcp-client-agent.mjs', import.meta.url));
+/** The key a proxy registered here proves itself with, and the run an agent here belongs to, as the guard names it. */
+const KEY = 'a1'.repeat(16);
+const RUN = runOf({ url: 'http://127.0.0.1:5000/t/abc', runId: '01HOME' });
 
 const dirs: string[] = [];
 const fresh = (prefix: string): string => {
@@ -44,17 +48,22 @@ describe("Shadowlap's home folder", () => {
     vi.stubEnv('SHADOWLAP_HOME', own);
     // This process plays the command and the agent it started, both running.
     const agent = registerAgent(process.pid, { url: 'http://127.0.0.1:5000/t/abc', runId: '01HOME' }, { cwd: project });
-    const proxy = registerProxy({ host: '127.0.0.1', port: 8931 });
+    const proxy = registerProxy({ host: '127.0.0.1', port: 8931 }, { key: KEY, run: null });
+    /** The proxies the guard finds at each address, in the folder a command started now names to its agents. */
+    const found = () => ['127.0.0.1:8931', 'localhost:8931'].map((at) => proxyKeys(proxyFolder()!, RUN, at));
     try {
       expect(agent.file).toBe(join(own, 'agents', `${process.pid}.json`));
       expect(proxy.file).toBe(join(own, 'mcp', `${process.pid}.json`));
+      expect(proxyFolder()).toBe(join(own, 'mcp'));
       expect(lookupDirs(project, undefined)[0]).toEqual({ dir: join(own, 'agents'), strict: true });
       expect(registeredRuns({ cwd: project }).map((r) => r.target.runId)).toEqual(['01HOME']);
-      expect(liveProxies()).toEqual(['127.0.0.1:8931', 'localhost:8931']);
+      expect(found()).toEqual([[KEY], [KEY]]);
       // A process given another home finds neither.
-      vi.stubEnv('SHADOWLAP_HOME', fresh('sl-home-other-'));
+      const other = fresh('sl-home-other-');
+      vi.stubEnv('SHADOWLAP_HOME', other);
       expect(registeredRuns({ cwd: project })).toEqual([]);
-      expect(liveProxies()).toEqual([]);
+      expect(proxyFolder()).toBe(join(other, 'mcp'));
+      expect(found()).toEqual([[], []]);
     } finally {
       agent.unregister();
       proxy.unregister();
@@ -111,14 +120,20 @@ describe('commands and proxies given the same SHADOWLAP_HOME', () => {
     });
     expect(readdirSync(join(own, 'mcp'))).toEqual([`${started.pid}.json`]);
 
-    const AGENT = 'console.log("proxies: " + (process.env.SHADOWLAP_MCP_PROXIES || "none"))';
-    const shared = await shadowlap(['run', '--', process.execPath, '-e', AGENT], env(own));
+    // The agent says which folder its command named for the proxies, and reaches the proxy under the command's guard (warn).
+    const AGENT = `console.log('registry: ' + process.env.SHADOWLAP_MCP_REGISTRY); console.log('reached: ' + (await fetch('http://127.0.0.1:${port}/mcp')).status);`;
+    const run = (slHome: string) => shadowlap(['run', '--guard', 'warn', '--', process.execPath, '--input-type=module', '-e', AGENT], env(slHome));
+    const shared = await run(own);
     expect(shared.code, shared.out).toBe(0);
-    expect(shared.out).toContain(`proxies: 127.0.0.1:${port},localhost:${port}`);
-    // A command given another home doesn't see it.
-    const apart = await shadowlap(['run', '--', process.execPath, '-e', AGENT], env(fresh('sl-home-apart-')));
+    expect(shared.out).toContain(`registry: ${join(own, 'mcp')}`);
+    expect(shared.out).toMatch(/reached: \d+/);
+    expect(shared.out).not.toMatch(/outbound connection|bypassed Shadowlap/);
+    // A command given another home doesn't see it: the agent's connection bypasses Shadowlap, as far as its guard can tell.
+    const elsewhere = fresh('sl-home-apart-');
+    const apart = await run(elsewhere);
     expect(apart.code, apart.out).toBe(0);
-    expect(apart.out).toContain('proxies: none');
+    expect(apart.out).toContain(`registry: ${join(elsewhere, 'mcp')}`);
+    expect(apart.out).toContain(`warning: an outbound connection to 127.0.0.1:${port} bypasses Shadowlap`);
 
     const code = new Promise<number | null>((resolve) => started.once('exit', resolve));
     started.kill('SIGTERM');
