@@ -153,3 +153,8 @@ ol.setup.storesetup p.muted.cinote { margin: -4px 0 10px; font-size: 12px; line-
 ol.setup.storesetup dd .warnt { color: var(--warn); }
 ol.setup.storesetup dl.kvs dd { word-break: normal; overflow-wrap: anywhere; }
 ol.setup.storesetup .recline + .fieldnote { margin-top: 8px; }
+
+/* Forced colours (a high-contrast theme) set every colour to the user's own, and drop shadows and fills: what says something
+   by its colour alone keeps its colour, edged in the user's text colour (CanvasText) so it shows on any ground; a chosen
+   option whose fill is lost is underlined; where you are is marked in the highlight colour. */
+@media (forced-colors: active) { .recline .ic { forced-color-adjust: none; box-shadow: 0 0 0 1px CanvasText; } }

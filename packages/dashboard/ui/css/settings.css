@@ -218,3 +218,8 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 /* a note under an MCP server's name wraps rather than widening the Server column past the mock's */
 .egrp.mcp td small.mnote { max-width: 240px; }
 .egrp.mcp .mcptable th:first-child { width: 22%; }
+
+/* Forced colours (a high-contrast theme) set every colour to the user's own, and drop shadows and fills: what says something
+   by its colour alone keeps its colour, edged in the user's text colour (CanvasText) so it shows on any ground; a chosen
+   option whose fill is lost is underlined; where you are is marked in the highlight colour. */
+@media (forced-colors: active) { .prl i, .cilist li i { forced-color-adjust: none; box-shadow: 0 0 0 1px CanvasText; } }

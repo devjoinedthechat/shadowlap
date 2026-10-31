@@ -205,3 +205,17 @@ a.fxcall:hover code { text-decoration: underline; text-underline-offset: 3px; }
   .fxtable td::before { content: attr(data-h); display: block; font: 500 10px/1.5 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
 }
 .fxmore { padding: 0 18px 14px; }
+
+/* Forced colours (a high-contrast theme) set every colour to the user's own, and drop shadows and fills: what says something
+   by its colour alone keeps its colour, edged in the user's text colour (CanvasText) so it shows on any ground; a chosen
+   option whose fill is lost is underlined; where you are is marked in the highlight colour. */
+@media (forced-colors: active) {
+  /* blame's dots keep their colours, so a model call's ring still says rescued, lost or unsure; the blamed call is ringed */
+  .callrow .cn { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText; }
+  .callrow .m .cn { box-shadow: none; }
+  .callrow .hot .cn { box-shadow: 0 0 0 2px Canvas, 0 0 0 3.5px CanvasText; }
+  .callrow .cn:focus-visible { outline-color: Highlight; }
+  /* a step's dot keeps its colour, edged in the text colour; one not started is the edge alone */
+  .psteps i, .psteps .done i, .psteps .no i, .psteps .warn i, .stepper .k i, .stepper .done .k i, .stepper .no .k i, .stepper .warn .k i { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText; }
+  .stepper a[aria-current="step"]::after { background: CanvasText; }
+}

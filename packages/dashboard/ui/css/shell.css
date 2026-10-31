@@ -188,3 +188,13 @@ button.jobchip:hover { color: var(--ink); }
 .run .r2 em.inc { color: var(--warn); }
 /* a line with no room even for its shortest form gives its place up, and its dot goes with it */
 .rab:empty + .r2s .dot { display: none; }
+
+/* Forced colours (a high-contrast theme) set every colour to the user's own, and drop shadows and fills: what says something
+   by its colour alone keeps its colour, edged in the user's text colour (CanvasText) so it shows on any ground; a chosen
+   option whose fill is lost is underlined; where you are is marked in the highlight colour. */
+@media (forced-colors: active) {
+  /* the current page's fill is lost: a bar in the highlight colour marks it, as the current run's does */
+  .navlist a[aria-current="page"]::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 3px; border-radius: 0 2px 2px 0; background: Highlight; }
+  .run[aria-current="true"]::before { background: Highlight; }
+  .connbar .cdot { forced-color-adjust: none; box-shadow: 0 0 0 1px CanvasText; }
+}

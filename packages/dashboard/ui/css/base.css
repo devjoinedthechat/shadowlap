@@ -520,3 +520,24 @@ code.rnm { white-space: nowrap; }
 
 /* inconclusive, the consequence amber: a status chip and a banner that neither passed nor failed */
 .tag.inc { color: var(--cq-amber); border-color: color-mix(in srgb, var(--cq-amber) 45%, transparent); }
+
+/* Forced colours (a high-contrast theme) set every colour to the user's own, and drop shadows and fills: what says something
+   by its colour alone keeps its colour, edged in the user's text colour (CanvasText) so it shows on any ground; a chosen
+   option whose fill is lost is underlined; where you are is marked in the highlight colour. */
+@media (forced-colors: active) {
+  .seg button[aria-pressed="true"], .seg a[aria-pressed="true"], .seg a[aria-current="page"], .chips button[aria-pressed="true"] { text-decoration: underline 2px; text-underline-offset: 4px; }
+  .dotlive, .glyph.live i, .glyph.live.done i, .st i { forced-color-adjust: none; box-shadow: 0 0 0 1px CanvasText; }
+  .org i, .pips i, .legend i, .wib { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText; }
+  .wib .mk { background: CanvasText; }
+  /* the mini strip's cells are too narrow for an edge: they keep their colours on their own dark ground */
+  .ms { forced-color-adjust: none; background: var(--bg); box-shadow: 0 0 0 2px var(--bg); }
+  /* a switch's track is outlined and its knob drawn in the button text colour; on, the track takes the highlight colour */
+  .switch i { outline: 1px solid ButtonText; outline-offset: -1px; }
+  .switch i::after { background: ButtonText; }
+  .switch[aria-checked="true"] i { background: Highlight; outline-color: Highlight; }
+  .switch[aria-checked="true"] i::after { background: HighlightText; }
+  .stabs a[aria-current="page"]::after { background: CanvasText; }
+}
+/* a focused field's border and glow are dropped too: every field and the drop zone with the keyboard's focus shows an
+   outline in the highlight colour, whatever the field's own rule says */
+@media (forced-colors: active) { :is(input, select, textarea, .drop):focus-visible { outline: 2px solid Highlight !important; outline-offset: 1px; } }

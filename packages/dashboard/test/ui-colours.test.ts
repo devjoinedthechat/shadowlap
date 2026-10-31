@@ -244,3 +244,25 @@ describe('lime', () => {
     expect(glow.map((r) => r.selectors.join(', '))).toEqual([]);
   });
 });
+
+describe('forced colours', () => {
+  /** The rules a high-contrast theme applies: selector → property → value. */
+  const forced = new Map<string, Map<string, string>>();
+  for (const r of styleRules()) {
+    if (!r.conditions.some((c) => /forced-colors:\s*active/.test(c))) continue;
+    for (const s of r.selectors) for (const [p, v] of r.decls) forced.set(s, (forced.get(s) ?? new Map<string, string>()).set(p, v));
+  }
+
+  it('keeps the colour of every mark that says something by its colour alone, edged so it shows on any ground', () => {
+    const marks = ['.cells button', '.ms', '.gs', '.segbar', '.org i', '.legend i', '.pips i', '.st i', '.dotlive', '.oleg i', '.grp i', 'td.hist i', '.cal .cd:not(.fut)', '.callrow .cn', '.wib', '.attempts span i', '.tl-row .bar', '.prl i', '.cilist li i'];
+    for (const s of marks) expect(forced.get(s)?.get('forced-color-adjust'), s).toBe('none');
+  });
+
+  it('marks where you are in the highlight colour, and underlines a chosen option whose fill is lost', () => {
+    expect(forced.get('.navlist a[aria-current="page"]::before')?.get('background')).toBe('Highlight');
+    expect(forced.get('.run[aria-current="true"]::before')?.get('background')).toBe('Highlight');
+    expect(forced.get('table.calls tr[aria-selected="true"]')?.get('outline')).toBe('2px solid Highlight');
+    for (const s of ['.seg button[aria-pressed="true"]', '.chips button[aria-pressed="true"]', '.ofilter button[aria-pressed="true"]']) expect(forced.get(s)?.get('text-decoration'), s).toBe('underline 2px');
+    expect(forced.get(':is(input, select, textarea, .drop):focus-visible')?.get('outline')).toBe('2px solid Highlight !important');
+  });
+});

@@ -139,3 +139,15 @@ table.gt td.glast .gpre { display: block; margin-top: 4px; text-decoration: none
 table.gt td.glast .gpre.err { color: var(--cq-red); }
 table.gt td.glast .gpre.warn { color: var(--cq-amber); }
 table.gt td.glast a.gpre:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+/* Forced colours (a high-contrast theme) set every colour to the user's own, and drop shadows and fills: what says something
+   by its colour alone keeps its colour, edged in the user's text colour (CanvasText) so it shows on any ground; a chosen
+   option whose fill is lost is underlined; where you are is marked in the highlight colour. */
+@media (forced-colors: active) {
+  /* a revision's dot keeps its colour, edged in the text colour; "no run" is a dash in it, an update's ring too */
+  td.hist i { forced-color-adjust: none; }
+  td.hist i::before { box-shadow: inset 0 0 0 1px CanvasText; }
+  td.hist i.none::before { background: CanvasText; box-shadow: none; }
+  td.hist i.upd::after { box-shadow: 0 0 0 1.5px CanvasText; }
+  .gtw .gstrip i { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText; }
+}
