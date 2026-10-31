@@ -211,6 +211,10 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .org.over { color: var(--o-over); } .org.over i { background: var(--o-over); }
 .eff { font: 10px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--faint); margin-left: 6px; }
 .eff.write { color: var(--k-write); }
+/* a call that was the user's input; a replay's read its recording had no counterpart for, answered live while it went on
+   replaying. In a call both runs made alike on Compare, the row's faint ink takes the tag too. */
+.eff.input { color: var(--accent); }
+.eff.extra { color: var(--dim); }
 .pips { display: inline-flex; gap: 3px; vertical-align: middle; }
 .pips i { width: 9px; height: 9px; border-radius: 3px; background: var(--o-rep); }
 .pips i.no { background: var(--o-block); }
@@ -1673,9 +1677,6 @@ ol.setup .sb > .plist { margin: 12px 0 0; }
 
 /* Goldens and bisect. An updated golden's history cell gets a ring. */
 td.hist i.upd::after { content: ""; position: absolute; left: 50%; top: 50%; width: 17px; height: 17px; margin: -8.5px 0 0 -8.5px; border-radius: 50%; box-shadow: 0 0 0 1.5px var(--o-rep); }
-.eff.input { color: var(--accent); }
-/* a replay's read its recording had no counterpart for, answered live while it went on replaying */
-.eff.extra { color: var(--dim); }
 .prov .err { color: var(--err); } .prov .warn { color: var(--warn); }
 .chip.ci { color: var(--accent); border-color: color-mix(in srgb, var(--accent-line) 45%, transparent); margin-left: 6px; }
 .bisect { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 13px; }
