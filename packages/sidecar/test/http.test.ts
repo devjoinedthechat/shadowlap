@@ -324,7 +324,7 @@ describe('credentials in a captured call', () => {
       expect(await token(recording.url, run.runId, 'EXAMPLE-secret-0123')).toBe(200);
       recording.endRun(run.runId, 'completed');
       // A normalizer that changes nothing here: the stored request is fingerprinted again, not taken from the cache.
-      const sidecar = await Sidecar.start({ store, http: [{ host, effect: 'read' }], clock: 'exact', normalizers: [{ kind: 'api', pattern: 'uuid' }] });
+      const sidecar = await Sidecar.start({ store, http: [{ host, effect: 'read' }], clock: 'exact', normalizers: [{ kind: 'api', pattern: 'uuid', replace: '<UUID>' }] });
       sidecars.push(sidecar);
       for (const secret of ['EXAMPLE-secret-0123', 'EXAMPLE-rotated-4567']) {
         const replay = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command: { argv: ['x'], cwd: '.' }, offline: true });
