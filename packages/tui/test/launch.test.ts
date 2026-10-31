@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { Store, storeView } from '@shadowlap/engine';
 import { launchTui, type TuiTerminal } from '../src/index.js';
 import { Keyboard } from './terminal.js';
 
@@ -90,7 +90,7 @@ describe('the screen shadowlap ui leaves', () => {
   it('puts the screen back when it ends on an error, which it then throws for the CLI to print', async () => {
     const t = terminal();
     // A store that can't be read: the runs view fails as it draws.
-    const broken = Object.assign(Object.create(store) as Store, {
+    const broken = storeView(store, {
       listRuns: () => {
         throw new Error('the store could not be read');
       },
