@@ -5,6 +5,7 @@ import { SPRT_DEFAULTS } from '../stats.js';
 import { blameBound } from './blame.js';
 import { counted, liveFrom, noEstimate, noPriceWords, probedCalls, type Estimate, type PricedCall, type Prices } from './estimate.js';
 import { amountWords } from './spending.js';
+import type { VerifyReport } from '../verify.js';
 import { verifyCeiling, verifyParts, type VerifyRule, type VerifyRunCost } from './verify.js';
 
 /**
@@ -83,6 +84,8 @@ export interface RepairPlan {
   repairer?: string;
   /** Set when the repair would end "No fix to try" before it runs anything (fix-jobs.ts noFixToTry). */
   noFix?: NoFixToTry | null;
+  /** The fix's last verify, for the price's card: what it took. */
+  last?: Pick<VerifyReport, 'attempts' | 'spent' | 'judge'> | null;
   prices?: Prices;
 }
 
@@ -165,7 +168,7 @@ export function repairEstimate(o: RepairPlan): Estimate {
         ...(blame.runs ? [`Blame: ${amountWords(blame.usd)}, from the first model call`] : []),
         `Repairer: its answer, ${amountWords(repairer.usd)} at most`,
         `A verify: ${amountWords(each.usd)} at most, ${verifyParts(failing, runs.length - failing, each.limits)}`,
-        'A run that replays clean settles in one free attempt.',
+        o.last ? `The last verify of this fix took ${counted(o.last.attempts, 'attempt')}, ${amountWords(o.last.spent + (o.last.judge?.spent ?? 0))}.` : 'A run that replays clean settles in one free attempt.',
       ],
     },
     attempts: 2 * k * each.attempts,

@@ -189,6 +189,9 @@ describe('Run repair', () => {
     expect(e.items![2].usd).toBeCloseTo(verify, 10);
     expect(e.attempts).toBe(2 * 6 * (80 + 80 + 400));
     expect(REPAIR_CANDIDATES).toBe(3);
+    expect(e.card!.lines.at(-1)).toBe('A run that replays clean settles in one free attempt.');
+    // With a verify of the fix before it, what that one took.
+    expect(repairEstimate({ failing: failing(), good, last: { attempts: 12, spent: 0.24, judge: { spent: 0.03, upstreamRequests: 12 } } }).card!.lines.at(-1)).toBe(`The last verify of this fix took 12 attempts, ${amountWords(0.27)}.`);
   });
 
   it('reuses a kept blame that searched to the end, and blames a stopped one again', () => {
