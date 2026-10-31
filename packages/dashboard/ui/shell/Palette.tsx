@@ -12,7 +12,7 @@ import { navigate } from '../router.js';
 import { normalizeRuns } from '../normalize.js';
 import { isAttempt, kindWord, runSource, type RunLike } from '../runs.js';
 import { useApp, useLayer, type PaletteCommand } from '../state.js';
-import { runTestsAsk, startTestsJob } from '../tests-ask.js';
+import { paletteTestsAsk, startTestsJob } from '../tests-ask.js';
 
 /**
  * Search or jump to (⌘K, Ctrl K, or / away from a run): This run, Go to, Actions, Runs, Fixes,
@@ -79,9 +79,10 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
         ];
     for (const [label, to] of pages) out.push({ group: 'Go to', label, hint: '', run: () => go(to) });
     // Not a second session while one started here runs: Tests' own button says so meanwhile. One that
-    // would run goldens live asks first, over whatever page is open, as Tests' Run tests does.
+    // would run goldens live asks first, over whatever page is open, as Tests' Run tests does, with
+    // the command read from Tests once the server asks (paletteTestsAsk).
     if (!app.actionsOff && app.hasKind(JOB_KINDS.tests) && !jobRunning(app.jobs, TEST_KINDS))
-      out.push({ group: 'Actions', label: 'Run the tests', hint: 'shadowlap test goldens/*', job: true, run: () => startTestsJob(app, JOB_KINDS.tests, {}, runTestsAsk()) });
+      out.push({ group: 'Actions', label: 'Run the tests', hint: 'shadowlap test goldens/*', job: true, run: () => startTestsJob(app, JOB_KINDS.tests, {}, paletteTestsAsk(app)) });
     out.push({ group: 'Actions', label: 'Keyboard shortcuts', hint: '?', run: () => app.setHelp(true) });
     for (const source of paletteSources()) {
       try {

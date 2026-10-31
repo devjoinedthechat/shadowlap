@@ -1,5 +1,6 @@
 import { consentAsked } from './actions.js';
 import type { JobView } from './api.js';
+import { mergeTreeJobs, treeBusy, type TreeJob } from './fixes/model.js';
 import { commandText } from './goldens.js';
 import type { TestBannerOffer, TestsView } from './types.js';
 
@@ -18,9 +19,15 @@ import type { TestBannerOffer, TestsView } from './types.js';
 export interface TestsAsk {
   title: string;
   ok: string;
-  /** Each command as a person would type it (`shadowlap test goldens/*`); none where the page that starts it doesn't know them exactly. */
+  /** Each command as a person would type it (`shadowlap test goldens/*`). */
   commands?: readonly string[];
 }
+
+/**
+ * What a job's question says, or how to read it once the server asks one: the palette, which lists
+ * no goldens, reads its command then (`paletteTestsAsk`), and may find it can't ask at all.
+ */
+export type TestsAskSource = TestsAsk | (() => Promise<TestsAsk>);
 
 /** The question a job waits on: the server's words and `confirm`, and the job to send again once it is answered. */
 export interface TestsQuestion extends TestsAsk {
@@ -59,18 +66,21 @@ function ask(q: TestsQuestion | null): void {
 
 /**
  * Starts a Tests job, its drawer showing it once the server has taken it. A 409 that asks a yes
- * (`consentAsked`) waits as the question, with `say`'s title, button and commands; a job started
- * without them shows it as any refusal, in its drawer, as does a second question to a job that
- * already sent a yes (a session that changed under it: asked again in its own words, never in a loop).
+ * (`consentAsked`) waits as the question, with `say`'s title, button and commands, read then when
+ * `say` reads them. Any other refusal shows as every refused job's does, in an error toast, and so
+ * does a question `say` can't be read for (the reason it gives), one to a job started without `say`,
+ * and a second one to a job that already sent a yes (a session that changed under it: asked again
+ * in its own words, never in a loop).
  */
-export function startTestsJob(app: TestsJobApp, kind: string, fields: Record<string, unknown>, say?: TestsAsk): void {
+export function startTestsJob(app: TestsJobApp, kind: string, fields: Record<string, unknown>, say?: TestsAskSource): void {
+  const refused = (err: unknown) => app.watchJob(Promise.reject(err));
   app.guard(() => {
     void app.client.startJob(kind, fields).then(
       (job) => app.watchJob(Promise.resolve(job)),
       (err: unknown) => {
         const asked = fields.yes === undefined ? consentAsked(err) : null;
-        if (asked && say) ask({ ...say, ...asked, kind, fields });
-        else app.watchJob(Promise.reject(err));
+        if (!asked || !say) refused(err);
+        else void (typeof say === 'function' ? say() : Promise.resolve(say)).then((s) => ask({ ...s, ...asked, kind, fields }), refused);
       },
     );
   });
@@ -85,9 +95,31 @@ export function answerTestsQuestion(app: TestsJobApp, yes: boolean): void {
 
 // ---- what each button's question says ----
 
-/** Run tests: every golden, as the page's command runs them. The palette, which doesn't list the goldens, names no command. */
-export function runTestsAsk(view?: Pick<TestsView, 'commands'> | null): TestsAsk {
-  return { title: 'Run tests', ok: 'Run tests', ...(view ? { commands: [commandText(view.commands.run)] } : {}) };
+/** Run tests: every golden, as the page's command runs them. */
+export function runTestsAsk(view: Pick<TestsView, 'commands'>): TestsAsk {
+  return { title: 'Run tests', ok: 'Run tests', commands: [commandText(view.commands.run)] };
+}
+
+/** What the palette's question reads of the app (`AppState`). */
+export interface PaletteTestsApp {
+  client: { tests(): Promise<Pick<TestsView, 'commands'>>; jobs(): Promise<readonly TreeJob[]> };
+  jobs: ReadonlyArray<{ job: TreeJob; lost?: boolean }>;
+  meta: { project?: { path: string } | null } | null;
+}
+
+/**
+ * The palette's Run the tests, which lists no goldens: once the server asks, its question names the
+ * command from what Tests lists, as Tests' own Run tests does. That button waits while a job holds
+ * the working tree (`treeBusy`), which the server checks only once it has the yes; so this asks
+ * nothing then, and says why instead, as the refusal after the yes would.
+ */
+export function paletteTestsAsk(app: PaletteTestsApp): () => Promise<TestsAsk> {
+  return () =>
+    Promise.all([app.client.tests(), app.client.jobs()]).then(([view, listed]) => {
+      const held = treeBusy(mergeTreeJobs(listed, app.jobs), 'reads', 'run the tests', app.meta?.project?.path ?? null);
+      if (held) throw new Error(held);
+      return runTestsAsk(view);
+    });
 }
 
 /** Run more attempts on a golden whose gate ran out of them, with the command the page shows on its hover. */

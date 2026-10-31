@@ -55,11 +55,12 @@ interface Sent {
 /**
  * The app as the shell gives it. Its server asks before a job runs live (`live`) until the request
  * says yes with the confirm, or, `again`, whatever it says: a session that changed since the question.
+ * `serverJobs` are the jobs it lists, every tab's.
  */
-function app(sent: Sent[], watched: Array<Promise<JobView>>, o: { live: boolean; again?: boolean; tests?: TestsView } = { live: true }): AppState {
+function app(sent: Sent[], watched: Array<Promise<JobView>>, o: { live: boolean; again?: boolean; tests?: TestsView; serverJobs?: unknown[] } = { live: true }): AppState {
   const client = {
     tests: () => Promise.resolve(o.tests ?? view()),
-    jobs: () => Promise.resolve([]),
+    jobs: () => Promise.resolve(o.serverJobs ?? []),
     search: () => Promise.resolve({ hits: [] }),
     startJob: (kind: string, fields: Record<string, unknown>) => {
       sent.push({ kind, fields });
@@ -233,15 +234,28 @@ describe('the same question from elsewhere', () => {
     ]);
   });
 
-  it('asks over whatever page is open when the palette runs the tests, naming no command it doesn’t know', async () => {
+  it('asks over whatever page is open when the palette runs the tests, with the command Tests lists', async () => {
     const sent: Sent[] = [];
     const watched: Array<Promise<JobView>> = [];
     const page = await shown(app(sent, watched), createElement(Palette, { route: { page: 'overview' } }));
     await page.click(page.all('.palit').find((el) => el.textContent.startsWith('Run the tests'))!);
     await page.until('the question', () => dialog(page) !== null);
-    expect(said(dialog(page)!)).toEqual({ title: 'Run tests', text: `${WORDS}.`, commands: [], ok: 'Run tests' });
+    expect(said(dialog(page)!)).toEqual({ title: 'Run tests', text: `${WORDS}.`, commands: ['$shadowlap test goldens/*'], ok: 'Run tests' });
     await page.click(page.one('.dialog .dlg-ok'));
     await page.until('the job', () => watched.length === 1);
     expect(sent.map((s) => s.fields)).toEqual([{}, { yes: CONFIRM }]);
+  });
+
+  it('asks nothing from the palette while a job holds the working tree, which would refuse the session after the yes, and says so', async () => {
+    const sent: Sent[] = [];
+    const watched: Array<Promise<JobView>> = [];
+    const repair = { id: 'j-repair', kind: 'repair', done: false, worktree: { use: 'writes', doing: 'a repair is verifying candidates made from your working tree', folder: null } };
+    const page = await shown(app(sent, watched, { live: true, serverJobs: [repair] }), createElement(Palette, { route: { page: 'overview' } }));
+    await page.click(page.all('.palit').find((el) => el.textContent.startsWith('Run the tests'))!);
+    await page.until('the refusal', () => watched.length === 1);
+    expect(dialog(page)).toBeNull();
+    expect(testsQuestion()).toBeNull();
+    expect(((await watched[0]) as unknown as { error: Error }).error.message).toBe('A repair is verifying candidates made from your working tree: run the tests once it is done.');
+    expect(sent.map((s) => s.fields)).toEqual([{}]);
   });
 });
