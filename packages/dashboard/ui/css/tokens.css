@@ -1,0 +1,38 @@
+/* Tokens: the fonts, and every colour the pages draw with, each with its one job beside it. Dark only. Chart colours
+   were run through the palette validator (lightness band, chroma, colour-blind separation) for each surface. */
+/* Fonts are bundled (latin subsets from Fontsource, SIL Open Font License, texts beside them): the page
+   loads nothing from the network. Unbounded for titles and numbers, Inter for text, JetBrains Mono for data. */
+@font-face { font-family: Unbounded; font-style: normal; font-weight: 200 900; font-display: swap; src: url('../fonts/unbounded-latin-wght.woff2') format('woff2'); }
+@font-face { font-family: Inter; font-style: normal; font-weight: 100 900; font-display: swap; src: url('../fonts/inter-latin-wght.woff2') format('woff2'); }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 100 800; font-display: swap; src: url('../fonts/jetbrains-mono-latin-wght.woff2') format('woff2'); }
+:root {
+  --lime: #c4f233; --shadow: #86ad12; --tar: #15140f;
+  --disp: Unbounded, ui-sans-serif, system-ui, sans-serif;
+  --body: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --side: 252px;
+}
+:root {
+  --chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%238a887a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --bg: #0b0c09; --bg2: #0f100c; --panel: #12130e; --raise: #16170f; --hover: #17180f; --sel: #1c1e14;
+  --line: #22231b; --line2: #34352b;
+  /* Text: each token reaches WCAG AA's 4.5:1 on every surface below (test/ui-contrast.test.ts). */
+  --ink: #eeede6; --dim: #a8a699; --faint: #8a8873;
+  --accent: #c4f233; --accent-line: #c4f233;
+  --o-rep: #c4f233; --o-live: #e4e3da; --o-block: #ff6b5e; --o-stub: #f2c94c; --o-over: #b99cff;
+  --warn: #f2c94c; --err: #ff6b5e; --ok: #c4f233;
+  /* Consequence colours, for verdicts and what changed, kept apart from the origin colours above, which say where a call's
+     answer came from: red only for failed or blocked, amber only for needs a look or inconclusive, muted for not applicable,
+     lime for passed. A run's own strip never uses them. */
+  --cq-red: var(--err); --cq-amber: var(--warn); --cq-muted: var(--faint); --cq-lime: var(--ok);
+  /* What a call was, apart from both: a write in teal, never the failure red; an error in magenta. Checked for separation
+     from the origin and consequence colours, under protanopia and deuteranopia too. */
+  --k-model: var(--o-live); --k-read: color-mix(in srgb, var(--o-live) 40%, var(--panel)); --k-write: #2dd4bf; --k-err: #e030c0;
+  --code: #0f100c; --del: #ff8a80; --add: #c4f233;
+  --c-read: #779c10; --c-write: #3987e5; --c-unc: #c98500; --c-out: #9085e9; --c-spent: var(--o-live); --c-saved: var(--o-rep);
+  --shadow-pop: 0 24px 60px -20px rgba(0,0,0,.75), 0 0 0 1px var(--line2);
+  color-scheme: dark;
+}
+
+/* the seven origins: injected and failed are drawn as the real dashboard draws them */
+:root { --o-inject: color-mix(in srgb, var(--o-over) 55%, transparent); --o-fail: color-mix(in srgb, var(--o-block) 55%, transparent); }

@@ -1,0 +1,154 @@
+/* Setting a project up: Add a project (#/new), a project's setup (#/setup) and the team store's (Settings → Store). */
+/* a project with no runs */
+.onboard { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.onboard li { display: flex; gap: 16px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+.onboard .on { font: 700 13px var(--disp); color: var(--accent); padding-top: 2px; }
+.onboard h3 { margin: 0; font: 600 16px var(--disp); letter-spacing: -.02em; }
+.onboard p { margin: 6px 0 12px; color: var(--dim); font-size: 13px; }
+.onboard > li > div { min-width: 0; flex: 1; }
+.waiting { display: flex; align-items: center; gap: 10px; margin-top: 18px; color: var(--faint); font-size: 13px; }
+
+@media (max-width: 1000px) {
+  .onboard { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* add a project */
+.newgrid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.pathin { display: block; }
+.pathin .k { display: block; margin-bottom: 6px; }
+.pathin input { width: 100%; height: 40px; border-radius: 10px; border: 1px solid var(--line2); background: var(--bg2); color: var(--ink); font: 14px var(--mono); padding: 0 12px; outline: none; }
+.pathin input:focus { border-color: var(--accent-line); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lime) 16%, transparent); }
+.folders { margin-top: 12px; display: flex; flex-direction: column; gap: 4px; }
+.fold { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; border: 1px solid transparent; border-radius: 10px; background: none; color: var(--ink); text-align: left; cursor: pointer; }
+.fold:hover:not([disabled]) { background: var(--hover); }
+.fold[aria-selected="true"] { border-color: var(--accent-line); background: color-mix(in srgb, var(--lime) 7%, transparent); }
+.fold[disabled] { opacity: .45; cursor: default; }
+.fold svg { width: 16px; height: 16px; color: var(--faint); flex: none; }
+.fold b { display: block; font: 500 13px var(--mono); }
+.fold small { display: block; margin-top: 2px; color: var(--faint); font-size: 12px; }
+.fold .tick { margin-left: auto; font-style: normal; color: var(--accent); }
+/* A long folder path wraps in its row; the Add button names the folder and shrinks to its panel, the whole path on hover. */
+.fold > span { min-width: 0; }
+.fold b, .fold small { overflow-wrap: anywhere; }
+.addfoot .btn { flex: none; }
+.addfoot .btn.lime { flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.addfoot .btn.lime > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.newgrid .fieldnote { overflow-wrap: anywhere; }
+
+.pfoot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); }
+.nextsteps ol { list-style: none; counter-reset: ns; margin: 0; padding: 14px 18px 8px; }
+.nextsteps li { counter-increment: ns; display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 2px 8px; padding: 6px 0; }
+.nextsteps li::before { content: counter(ns, decimal-leading-zero); grid-row: span 2; font: 700 11px var(--disp); color: var(--accent); padding-top: 2px; }
+.nextsteps b { font-weight: 500; }
+.nextsteps span { color: var(--faint); font-size: 12.5px; }
+/* setting a project up */
+ol.setup { list-style: none; margin: 0; padding: 0; position: relative; }
+ol.setup::before { content: ""; position: absolute; left: 15px; top: 18px; bottom: 18px; width: 2px; background: var(--line); }
+ol.setup > li { position: relative; display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 18px; padding: 0 0 22px; }
+ol.setup .sn { position: relative; z-index: 1; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font: 700 12px var(--disp); background: var(--bg); box-shadow: inset 0 0 0 2px var(--line2); color: var(--faint); }
+ol.setup .cur .sn { box-shadow: inset 0 0 0 2px var(--lime); color: var(--accent); }
+ol.setup .done .sn { background: var(--lime); color: var(--tar); box-shadow: none; }
+ol.setup .sb { min-width: 0; padding: 16px 20px 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+ol.setup .todo .sb { background: none; border-style: dashed; }
+ol.setup .todo h3 { color: var(--faint); }
+ol.setup h3 { margin: 0; font: 600 16px var(--disp); letter-spacing: -.02em; }
+ol.setup .sb > p { margin: 6px 0 12px; color: var(--dim); font-size: 13px; max-width: 76ch; }
+ol.setup .todo .sb > p { color: var(--faint); }
+ol.setup .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.cli { display: flex; align-items: baseline; gap: 10px; margin-top: 12px; font-size: 12px; color: var(--faint); }
+.cli code { color: var(--dim); }
+dl.found { display: grid; grid-template-columns: 110px minmax(0, 1fr); margin: 12px 0 0; font-size: 13px; }
+dl.found dt, dl.found dd { margin: 0; padding: 6px 0; border-bottom: 1px solid var(--line); }
+dl.found dt { color: var(--faint); font-size: 12px; }
+dl.found dd small { color: var(--faint); font-size: 11.5px; margin-left: 4px; }
+.tools { margin-top: 14px; }
+.tools .k { display: block; margin-bottom: 4px; }
+.trow { display: grid; grid-template-columns: 170px 54px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--dim); }
+.trow .eff { margin: 0; }
+.trow.warn > span:last-child { color: var(--warn); }
+.trow small { color: var(--faint); font: 11px var(--mono); margin-left: 6px; }
+.warnbox { margin-top: 14px; padding: 12px 14px; border-radius: 12px; font-size: 13px; line-height: 1.55; background: color-mix(in srgb, var(--warn) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 32%, transparent); }
+
+.cmdin { display: flex; align-items: center; gap: 10px; height: 38px; margin-bottom: 12px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line2); background: var(--bg2); }
+.cmdin b { color: var(--accent); font: 500 13px var(--mono); }
+.cmdin input { flex: 1; min-width: 0; height: 100%; border: 0; background: none; color: var(--ink); font: 13px var(--mono); outline: none; }
+.cmdin:focus-within { border-color: var(--accent-line); }
+.cmdin input:disabled { color: var(--faint); }
+.recline { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; }
+.recline .ic { width: 9px; height: 9px; border-radius: 50%; background: var(--o-rep); }
+.recline .btn { margin-left: auto; }
+.setupdone { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-left: 50px; padding: 16px 20px; border-radius: 14px; background: color-mix(in srgb, var(--lime) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-line) 45%, transparent); }
+.setupdone div { flex: 1; min-width: 0; }
+.setupdone b { display: block; font: 600 16px var(--disp); letter-spacing: -.02em; }
+.setupdone span { display: block; margin-top: 2px; color: var(--dim); font-size: 13px; }
+
+@media (max-width: 1000px) {
+  .newgrid { grid-template-columns: minmax(0, 1fr); }
+  .trow { grid-template-columns: minmax(0, 1fr) 54px; }
+  .trow > span:last-child { grid-column: 1 / -1; }
+  dl.found { grid-template-columns: 90px minmax(0, 1fr); }
+  .setupdone { margin-left: 0; }
+}
+
+@media (max-width: 640px) {
+  ol.setup { margin-left: -4px; }
+  ol.setup > li { grid-template-columns: 26px minmax(0, 1fr); gap: 10px; }
+  ol.setup::before { left: 12px; }
+  ol.setup .sn { width: 26px; height: 26px; }
+  ol.setup .sb { padding: 14px 14px 16px; }
+  .cli { flex-direction: column; gap: 2px; }
+}
+
+details.foundsum { margin-top: 8px; }
+details.foundsum > summary { cursor: pointer; list-style: none; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; color: var(--dim); font-size: 13px; }
+details.foundsum > summary::-webkit-details-marker { display: none; }
+details.foundsum > summary::before { content: ""; align-self: center; width: 0; height: 0; border-left: 5px solid var(--faint); border-top: 4px solid transparent; border-bottom: 4px solid transparent; margin-right: 2px; transition: transform .15s; }
+details.foundsum[open] > summary::before { transform: rotate(90deg); }
+
+/* Getting started (#/setup): the switches, files, forms and notes inside a step, checklists with a line under each choice, and a table with a select per row. */
+ol.setup .seg { flex-wrap: wrap; max-width: 100%; margin: 2px 0 12px; }
+ol.setup .codebox .add { color: var(--add); }
+ol.setup .drop { margin-top: 4px; }
+ol.setup .foundsum { margin-top: 14px; }
+ol.setup .foundsum .btn { margin-bottom: 4px; }
+ol.setup .cmdline { margin-bottom: 0; }
+ol.setup .cmdin { margin: 12px 0; }
+ol.setup .form { margin-top: 12px; }
+dl.kvs.onbkv { margin: 12px 0 0; padding: 0; }
+.onbnote { margin: 8px 0 0; font-size: 12.5px; }
+
+.onbroles { margin-top: 4px; }
+.onbroles select { height: 30px; min-width: 130px; padding: 0 30px 0 10px; border-radius: 8px; border: 1px solid var(--line2); background: var(--panel) var(--chev) no-repeat right 10px center / 10px 10px; color: var(--ink); font: 12.5px var(--body); -webkit-appearance: none; appearance: none; cursor: pointer; }
+.onbroles select:hover { border-color: var(--faint); }
+
+.onbnote code { white-space: normal; overflow-wrap: anywhere; }
+
+ol.setup .sb > .plist { margin: 12px 0 0; }
+
+/* projects: the switcher, Add a project, the setup and the Remove dialog (what the mock drew inline) */
+.nextsteps .nextnote { padding: 0 18px 16px; margin: 0; }
+ol.setup .again { margin-top: 14px; }
+ol.setup .again .cmdin { margin: 0 0 12px; }
+ol.setup .fieldnote a.more { margin-left: 2px; }
+ol.setup .warnbox .actions { margin-top: 2px; }
+
+/* a step's warning and error keep their colour against the step's own text colour */
+ol.setup .sb > p.fieldnote.err { color: var(--err); }
+ol.setup .sb > p.fieldnote.warn { color: var(--warn); }
+/* a finished step's summary: the marker, then the words, which wrap beside it and never leave it alone on a line */
+details.foundsum > summary { flex-wrap: nowrap; }
+details.foundsum > summary > .sumtext { min-width: 0; }
+/* a step's result: the dot stays with its words; when they need the room, the button goes below */
+.recline > .ic, .recline > .dotlive { flex: none; }
+.recline > .rtext { flex: 1 1 16em; min-width: 0; }
+
+/* the team store's setup (Settings → Store): the access to ask for, the CI step's notes, credentials not found */
+.stepempty.nostore .cli { margin-top: 0; }
+ol.setup.storesetup .foundsum .policypart { margin-top: 10px; }
+ol.setup.storesetup .foundsum .policypart p.muted { margin: 0; font-size: 12.5px; }
+ol.setup.storesetup .foundsum .policypart .codebox { margin: 6px 0 8px; max-height: 320px; overflow-y: auto; }
+ol.setup.storesetup .foundsum { margin-bottom: 18px; }
+ol.setup.storesetup p.muted.cinote { margin: -4px 0 10px; font-size: 12px; line-height: 1.5; max-width: 76ch; }
+ol.setup.storesetup dd .warnt { color: var(--warn); }
+ol.setup.storesetup dl.kvs dd { word-break: normal; overflow-wrap: anywhere; }
+ol.setup.storesetup .recline + .fieldnote { margin-top: 8px; }

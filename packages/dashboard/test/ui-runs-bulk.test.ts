@@ -1,10 +1,10 @@
-import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Client } from '../ui/api.js';
 import { BulkBar, type PickedRun } from '../ui/runspage/BulkBar.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { DeleteResult, JobView } from '../ui/types.js';
+import { sheet } from './css-sheet.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -107,7 +107,7 @@ describe('the bulk bar’s Dataset', () => {
   });
 });
 
-const css = readFileSync(new URL('../ui/app.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+const css = sheet().replace(/\/\*[\s\S]*?\*\//g, '');
 
 /** The value a window `width` px wide gives `property` of `selector`: its rules at the top level and in each `@media (max-width: …)` that takes the width in, the last one winning. */
 function valueAt(width: number, selector: string, property: string): string | undefined {

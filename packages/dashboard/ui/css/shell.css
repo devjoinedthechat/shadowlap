@@ -1,0 +1,189 @@
+/* The shell: the top bar, the sidebar (the project, the pages, the runs as a tree), the status bar, and the bar and the
+   card that say the dashboard server can't be reached. */
+.app { display: grid; grid-template-columns: var(--side) minmax(0, 1fr); grid-template-rows: 52px minmax(0, 1fr) 28px; height: 100vh; }
+.top { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; padding: 0 24px 0 16px; border-bottom: 1px solid var(--line); background: var(--bg); min-width: 0; }
+.brand { display: flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; flex: none; }
+.brand .tile { width: 26px; height: 26px; }
+.brand .word { height: 14px; width: auto; }
+.pill { font: 500 10px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--faint); border: 1px solid var(--line2); border-radius: 999px; padding: 3px 9px; flex: none; }
+.crumbs { display: flex; align-items: center; gap: 8px; min-width: 0; margin-left: 10px; font-size: 13px; color: var(--faint); white-space: nowrap; overflow: hidden; }
+.crumbs a { text-decoration: none; color: var(--faint); }
+.crumbs a:hover { color: var(--ink); }
+.crumbs b { font-weight: 500; color: var(--ink); font-family: var(--mono); font-size: 12.5px; }
+.crumbs i { font-style: normal; color: var(--line2); }
+
+.menu-toggle { display: none; }
+
+.livechip { display: inline-flex; align-items: center; gap: 7px; font: 11.5px var(--mono); color: var(--faint); }
+
+.side { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
+.side-top { padding: 14px 12px 8px; }
+.search { position: relative; display: block; }
+.search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: var(--faint); }
+.search input { width: 100%; height: 34px; padding: 0 30px 0 32px; border-radius: 9px; border: 1px solid var(--line2); background: var(--panel); color: var(--ink); font: 13px var(--body); outline: none; }
+.search input:focus { border-color: var(--accent-line); }
+.search input::-webkit-search-cancel-button { display: none; }
+.search .kbd { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); }
+.navlist { padding: 6px 8px 8px; border-bottom: 1px solid var(--line); }
+.navlist a { position: relative; display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px; text-decoration: none; color: var(--dim); font-weight: 500; }
+.navlist a svg { width: 15px; height: 15px; color: var(--faint); }
+.navlist a:hover { background: var(--hover); color: var(--ink); }
+.navlist a[aria-current="page"] { background: var(--sel); color: var(--ink); }
+.navlist a[aria-current="page"] svg { color: var(--accent); }
+.navlist a .count { margin-left: auto; font: 11px var(--mono); color: var(--faint); }
+.side-k { display: flex; align-items: center; padding: 12px 16px 6px; font: 500 10px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }
+.side-k a { margin-left: auto; letter-spacing: 0; text-transform: none; font-size: 11px; color: var(--faint); text-decoration: none; }
+.side-k a:hover { color: var(--ink); }
+.runs { flex: 1; overflow-y: auto; padding: 0 0 12px; }
+.run { position: relative; display: grid; grid-template-columns: 14px minmax(0, 1fr); column-gap: 10px; width: 100%; text-align: left; border: 0; background: none; padding: 8px 12px 8px calc(16px + var(--d, 0) * 18px); cursor: pointer; text-decoration: none; }
+.run:hover { background: var(--hover); }
+.run[aria-current="true"] { background: var(--sel); }
+.run[aria-current="true"]::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 0 3px 3px 0; background: var(--lime); }
+/* the tree: a replay or a fork one step (18px) in under the run it came from, as deep as the family goes. Level k's line
+   sits under the icon of the run at depth k - 1: on through a row (.tl), bending into this run's icon (.te), down from
+   its own icon (.tc). The icon's middle is 16px down the row. */
+.run .tree { position: absolute; inset: 0; pointer-events: none; }
+.run .tree i { position: absolute; left: calc(4px + var(--k) * 18px); border-left: 1px solid var(--line2); }
+.run .tree .tl { top: 0; bottom: 0; }
+.run .tree .te { top: 0; height: 16px; width: 9px; border-bottom: 1px solid var(--line2); border-bottom-left-radius: 6px; }
+.run .tree .tc { top: 16px; bottom: 0; }
+.run .ri { grid-row: 1; align-self: center; }
+
+.run .r1 { grid-column: 2; display: flex; align-items: center; gap: 7px; min-width: 0; }
+.run .id { font: 500 12px var(--mono); color: var(--ink); }
+.run .when { margin-left: auto; font-size: 11px; color: var(--faint); white-space: nowrap; }
+.run .r2 { grid-column: 2; margin-top: 2px; font-size: 11.5px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.run .r2 em { font-style: normal; color: var(--err); }
+.run .r2 em.inc { color: var(--warn); }
+.run .r2 b { font-weight: 500; color: var(--accent); }
+
+.hit { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 8px 16px; cursor: pointer; border-top: 1px solid var(--line); text-decoration: none; }
+.hit:hover { background: var(--hover); }
+.hit .h1 { display: block; font: 500 11px var(--mono); color: var(--faint); }
+.hit .h2 { display: block; margin-top: 2px; font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hit mark { background: color-mix(in srgb, var(--lime) 35%, transparent); color: var(--ink); border-radius: 3px; padding: 0 2px; }
+
+.status { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; padding: 0 16px; border-top: 1px solid var(--line); font: 11px var(--mono); color: var(--faint); background: var(--bg); white-space: nowrap; overflow: hidden; }
+.status .sep { width: 1px; height: 12px; background: var(--line2); flex: none; }
+/* Drawn over what scrolls under it: a switch (Format JSON) in the views pane would otherwise paint over the bar. */
+.status { position: relative; z-index: 2; }
+
+@media (max-width: 1000px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .side { position: fixed; z-index: 25; left: 0; top: 52px; bottom: 28px; width: 280px; transform: translateX(-100%); visibility: hidden; transition: transform .2s ease, visibility .2s; box-shadow: var(--shadow-pop); }
+  .side.open { transform: none; visibility: visible; }
+  .menu-toggle { display: inline-grid; }
+  .livechip { display: none; }
+  .top { padding: 0 16px; }
+  .cmdk { display: none; }
+  .app { height: auto; min-height: 100vh; }
+}
+
+/* sidebar: project and settings */
+.proj { display: flex; align-items: center; gap: 10px; width: 100%; margin-bottom: 10px; padding: 7px 10px 7px 7px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); color: var(--ink); text-align: left; cursor: pointer; }
+.proj:hover { border-color: var(--line2); }
+.proj .pa { width: 26px; height: 26px; flex: none; border-radius: 7px; display: grid; place-items: center; background: var(--sel); color: var(--accent); font: 700 12px var(--disp); }
+.proj .pn { min-width: 0; }
+.proj b { display: block; font-weight: 500; font-size: 13px; }
+.proj small { display: block; font: 11px var(--mono); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.proj .caret { margin-left: auto; width: 10px; height: 10px; color: var(--faint); flex: none; }
+.pop .cur { margin-left: 6px; font: 500 9.5px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.side-foot { border-top: 1px solid var(--line); padding: 6px 0 8px; }
+.side-foot .navlist { border-bottom: 0; padding: 0 8px; }
+
+.pop button b .cur { font-weight: 500; }
+
+.run { min-width: 0; }
+.run .r2 { display: block; max-width: 100%; }
+
+/* removing a project */
+.prow { display: flex; align-items: center; gap: 2px; }
+.prow > button:first-child { flex: 1; min-width: 0; }
+.pop .px { flex: none; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; margin-right: 4px; border-radius: 7px; font-size: 16px; color: var(--faint); visibility: hidden; }
+.prow:hover .px, .px:focus-visible { visibility: visible; }
+.pop .px:hover { background: color-mix(in srgb, var(--err) 12%, transparent); color: var(--err); }
+
+@media (hover: none) { .pop .px { visibility: visible; } }
+
+/* command palette */
+.cmdk { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px 0 10px; border-radius: 9px; border: 1px solid var(--line2); background: var(--panel); color: var(--faint); font: 12.5px var(--body); cursor: pointer; }
+.cmdk:hover { color: var(--ink); border-color: var(--dim); }
+.cmdk svg { width: 13px; height: 13px; }
+
+/* connection */
+.connbar { position: fixed; z-index: 18; top: 52px; left: var(--side); right: 0; display: flex; align-items: center; gap: 12px; padding: 10px 24px; font-size: 13px; background: color-mix(in srgb, var(--warn) 12%, var(--bg)); border-bottom: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); }
+.connbar .cdot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); flex: none; }
+.connbar .ct { flex: 1; min-width: 0; color: var(--dim); }
+.connbar .ct b { color: var(--ink); font-weight: 500; }
+/* The dim ink: on the bar's amber wash the faint one is 4.4:1, under AA's 4.5. */
+.connbar .cr { font: 12px var(--mono); color: var(--dim); white-space: nowrap; }
+body.is-offline main.view { padding-top: 44px; }
+.status .off { color: var(--warn); font-weight: 500; }
+.connblock { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 24px; background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(6px); }
+.connblock .cb { width: min(480px, 100%); padding: 26px 26px 22px; border-radius: 18px; background: var(--raise); border: 1px solid var(--line2); box-shadow: var(--shadow-pop); }
+.connblock .cbi { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 11px; background: color-mix(in srgb, var(--err) 14%, transparent); color: var(--err); margin-bottom: 14px; }
+.connblock .cbi svg { width: 16px; height: 16px; }
+.connblock h2 { margin: 0 0 8px; font: 600 20px var(--disp); letter-spacing: -.025em; }
+.connblock p { margin: 0 0 10px; color: var(--dim); font-size: 13.5px; line-height: 1.55; }
+.connblock .cmdline { margin: 6px 0 14px; }
+.connblock .actions .fieldnote { flex-basis: 100%; margin: 4px 0 0; }
+@media (max-width: 1000px) { .connbar { left: 0; padding: 10px 16px; flex-wrap: wrap; } }
+
+/* one search: the sidebar field opens the palette */
+.search.sbtn { display: flex; align-items: center; gap: 9px; width: 100%; height: 34px; padding: 0 8px 0 10px; border-radius: 9px; border: 1px solid var(--line2); background: var(--panel); color: var(--faint); font: 13px var(--body); text-align: left; cursor: pointer; }
+.search.sbtn svg { position: static; transform: none; width: 14px; height: 14px; flex: none; }
+.search.sbtn .st { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.search.sbtn .kbd { position: static; transform: none; flex: none; }
+.search.sbtn:hover { color: var(--dim); border-color: var(--faint); }
+
+@media (max-width: 640px) { .status .sp ~ * { display: none; } }
+
+.who { display: inline-flex; align-items: center; height: 32px; padding: 0 10px 0 7px; border: 1px solid var(--line2); border-radius: 9px; background: none; color: var(--ink); font: 500 12.5px var(--body); cursor: pointer; }
+.who .av { margin-right: 7px; width: 20px; height: 20px; font-size: 10px; }
+.who small { margin-left: 6px; color: var(--faint); font-size: 11px; }
+.who:hover { border-color: var(--dim); }
+@media (max-width: 1000px) { .who span:not(.av), .who small { display: none; } .who { padding: 0 7px; } .who .av { margin-right: 0; } }
+
+@media (max-width: 640px) { .who { display: none; } }
+
+.pop .pwho { padding: 4px 12px 10px; }
+
+.proj.is-static { cursor: default; }
+.proj.is-static:hover { border-color: var(--line); }
+a.livechip { text-decoration: none; }
+a.livechip:hover { color: var(--ink); }
+/* the jobs running, from every tab: a click opens the newest one's drawer again; on a phone too, without "running" */
+button.jobchip { border: 0; background: none; padding: 0; cursor: pointer; flex: none; white-space: nowrap; }
+button.jobchip:hover { color: var(--ink); }
+.jobchip .spin { width: 10px; height: 10px; flex: none; }
+@media (max-width: 1000px) { .livechip.jobchip { display: inline-flex; } }
+@media (max-width: 640px) { .jobchip .jrun { display: none; } }
+
+/* the gate: a link with no session token */
+.connblock.gate { background: var(--bg); }
+/* the status bar gives way from the store path, so the version stays */
+.status > span:not(.sp) { flex: none; }
+.status > span:first-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* on a narrow window the status bar's team store gives way once the store path has, before the
+   counts and the version, cut with an ellipsis (whole on hover) */
+@media (max-width: 860px) { .status > span.storeat { flex: 0 .02 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }
+
+/* the crumbs carry the run's lineage by id, from 641px up; where the bar is short the oldest give way to "…" first */
+.crumbs > a, .crumbs > span, .crumbs > i { flex: none; }
+.crumbs .cg { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.crumbs .cg[hidden] { display: none; }
+.crumbs a b.rt { color: var(--dim); }
+.crumbs a:hover b.rt { color: var(--ink); }
+@media (max-width: 640px) { .crumbs { display: none; } }
+
+/* the sidebar: a run in two lines, its id and when, then its about line and what needs a look, each line one line */
+.run .r1 { align-items: baseline; }
+.run .r1 .id { flex: 0 1 auto; min-width: 0; }
+.run .r2 { display: flex; align-items: baseline; white-space: nowrap; overflow: hidden; text-overflow: clip; }
+.run .r2 .rab { flex: 0 1 auto; color: var(--faint); }
+.run .r2 .r2s { flex: none; }
+.run .r2 .dot { margin: 0 5px; }
+.run .r2 em.inc { color: var(--warn); }
+/* a line with no room even for its shortest form gives its place up, and its dot goes with it */
+.rab:empty + .r2s .dot { display: none; }

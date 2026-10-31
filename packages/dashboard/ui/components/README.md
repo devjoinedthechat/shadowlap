@@ -1,7 +1,8 @@
 # Dashboard components
 
-The parts every screen is built from. The stylesheet is `ui/app.css` (the design system: tokens on
-`:root`, dark only, class names shared by every screen); a component renders those classes, so a
+The parts every screen is built from. The stylesheet is `ui/app.css`, which joins a file per area
+from `ui/css/` (the design system: tokens on `:root` in `tokens.css`, dark only, what several pages
+draw in `base.css`, class names shared by every screen); a component renders those classes, so a
 new screen ports its markup by class and reaches for these instead of drawing its own.
 
 The page's Content-Security-Policy allows no inline `style` attribute in markup and no inline

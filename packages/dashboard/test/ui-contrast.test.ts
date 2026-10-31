@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { sheet } from './css-sheet.js';
 
 /**
  * Every colour the stylesheet sets text in reaches WCAG AA's 4.5:1: on the background its own rule
@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
  * browser checks the pages themselves (browser/a11y.spec.ts).
  */
 
-const css = readFileSync(new URL('../ui/app.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+const css = sheet().replace(/\/\*[\s\S]*?\*\//g, '');
 
 /** Every rule, those inside media queries too: its selectors and declarations. */
 function rules(text = css): Array<{ selectors: string[]; decls: Map<string, string> }> {

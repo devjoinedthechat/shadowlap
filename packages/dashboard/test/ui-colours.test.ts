@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { sheet } from './css-sheet.js';
 
 /**
  * Each colour means one thing (the mock's consequence tokens): red only failed or blocked, amber
@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
  * the last top-level rule that names a selector wins.
  */
 
-const css = readFileSync(new URL('../ui/app.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+const css = sheet().replace(/\/\*[\s\S]*?\*\//g, '');
 
 /** Every top-level rule (outside media queries): its selectors and its declarations. */
 function rules(): Array<{ selectors: string[]; body: string }> {

@@ -1,0 +1,66 @@
+/* Compare (#/compare/<a>/<b>): the two runs picked, what changed between them, the prefix they share, their paths. */
+.pickers { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pickers .pick { position: relative; display: inline-flex; }
+.pickers select { -webkit-appearance: none; appearance: none; height: 34px; border-radius: 9px; border: 1px solid var(--line2); background: var(--panel); color: var(--ink); font: 12.5px var(--mono); padding: 0 34px 0 12px; cursor: pointer; outline: none; }
+.pickers select:hover { border-color: var(--faint); }
+.pickers select:focus-visible { border-color: var(--accent-line); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lime) 18%, transparent); }
+.pickers .caret { position: absolute; right: 12px; top: 50%; width: 10px; height: 10px; transform: translateY(-50%); color: var(--faint); pointer-events: none; }
+.changes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.changes div { padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); }
+.changes div.diff { border-color: color-mix(in srgb, var(--warn) 50%, transparent); background: color-mix(in srgb, var(--warn) 5%, var(--panel)); }
+.changes b { display: block; margin-top: 4px; font-weight: 500; }
+.changes small { display: block; margin-top: 2px; font: 11.5px var(--mono); color: var(--faint); }
+.prefix { margin-top: 16px; display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--lime) 7%, transparent); }
+.prefix .ms { width: 260px; height: 12px; }
+/* what made a fork can quote a tool's JSON: the line wraps inside it rather than run past a narrow window */
+.prefix > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.paths { margin-top: 16px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.paths h4 { margin: 0 0 8px; display: flex; align-items: center; gap: 8px; font: 500 10.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+.pcall { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line); font: 12.5px var(--mono); }
+.pcall .pn { color: var(--faint); text-align: right; }
+/* A call the other run also made at the same place, dimmed in the faint ink, which keeps AA's contrast: never by fading it. */
+.pcall.same, .pcall.same * { color: var(--faint); }
+
+@media (max-width: 1000px) {
+  .changes, .paths { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* compare */
+.pickers .arrow { color: var(--faint); }
+.diffpanel.boxed { margin-top: 16px; border: 1px solid var(--line); border-radius: 14px; }
+.diffpanel .hint .hline { display: block; margin-top: 4px; }
+.paths a.pcall { color: inherit; text-decoration: none; }
+.paths a.pcall:hover { background: var(--hover); }
+.pcall.more { display: block; color: var(--faint); font-family: var(--body); }
+.pans { margin: 10px 0 0; color: var(--faint); font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cmpnote { margin: 16px 0 0; color: var(--faint); font-size: 12.5px; }
+.panel.cmpresp { margin-top: 16px; }
+table.t td.wrapcell { white-space: normal; }
+/* the run ids in the headings read as the mock's plain ids, and open the run at that call */
+.diffpanel h4 a, .paths h4 a { color: inherit; text-decoration: none; }
+.diffpanel h4 a:hover, .paths h4 a:hover { color: var(--ink); text-decoration: underline; }
+/* the change cards' notes wrap, as a commit subject is long; the answers table fits a phone */
+.changes small { overflow-wrap: anywhere; }
+.cmpresp .tscroll table.t { min-width: 0; }
+.cmpresp table.t td.wrapcell { overflow-wrap: anywhere; }
+/* its number columns' headings read as every heading does, not as the numbers under them */
+.cmpresp table.t th.num { font: 500 10px var(--mono); }
+
+@media (max-width: 560px) {
+  .cmpresp table.t th, .cmpresp table.t td { padding-left: 6px; padding-right: 6px; }
+}
+
+/* run pickers (Compare): the id, then its about line as the hint, fitted to the rest of the button, and a list of runs in
+   the same form */
+.rpick { display: inline-flex; align-items: baseline; gap: 10px; width: 320px; max-width: 100%; min-width: 0; height: 34px; padding: 0 12px; border: 1px solid var(--line2); border-radius: 9px; background: var(--panel); color: var(--ink); font: 13px var(--body); line-height: 32px; text-align: left; cursor: pointer; }
+.rpick:hover { border-color: var(--faint); }
+.rpick:focus-visible { outline: none; border-color: var(--accent-line); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lime) 18%, transparent); }
+.rpick .pid { flex: none; font: 500 12.5px var(--mono); color: var(--ink); }
+
+.rpick .rab { flex: 1 1 auto; color: var(--faint); font-size: 12.5px; }
+
+.rpick .caret, .pickers .rpick .caret { position: static; flex: none; align-self: center; width: 10px; height: 10px; transform: none; color: var(--faint); }
+
+@media (max-width: 640px) { .pickers { width: 100%; } .pickers .pick { width: 100%; } .rpick { width: 100%; } .pickers .arrow { display: none; } }
+/* Compare's Open in: each run by its whole id */
+.cmpresp td a code.rnm { font-size: 12px; }
