@@ -30,7 +30,8 @@ export default defineConfig({
   test: {
     include: ['packages/*/test/**/*.test.{ts,tsx}', 'testing/**/test/**/*.test.ts'],
     // Fails the run when a test leaves a .shadowlap folder in the repository's root or testing/frameworks,
-    // or anything in the checkout that git lists and the run didn't build.
+    // or anything in the checkout that git lists and the run didn't build. Gives the run a Shadowlap
+    // home of its own (SHADOWLAP_HOME), and under CI fails it when a test writes in the real ~/.shadowlap.
     globalSetup: ['./testing/no-stray-stores.mjs'],
     // Python, which the guard's and the SDK's tests start, writes no __pycache__ beside what it imports.
     env: { PYTHONDONTWRITEBYTECODE: '1' },

@@ -607,7 +607,7 @@ None of that text starts a line of the job's log either. The runner would read s
 | `~/.shadowlap/agents/<pid>.json` | it is a regular file you own, readable by you alone, naming the process it is filed under and that process's parent, pointing at loopback |
 | `.shadowlap/active.json` | on the same terms, naming a process still running; read only where the process tree can't be read |
 
-- **The agents file.** Shadowlap writes one for each agent it starts, and it carries the session token. Its folder is owner-only. It is in the project's `.shadowlap/agents` when the home folder can't be written.
+- **The agents file.** Shadowlap writes one for each agent it starts, in an owner-only folder, and it carries the session token. It is in the `agents` folder of `SHADOWLAP_HOME` when that is set, and in the project's `.shadowlap/agents` when the folder can't be written.
 - **No run to record into.** Started under a Shadowlap command that runs agents but unable to record into its run, it refuses write tools and passes reads through unrecorded.
 - **Nothing pointing at Shadowlap.** It passes tool calls straight through, and says why. [Finding the run](docs/mcp.md#finding-the-run) has the detail.
 
@@ -617,8 +617,8 @@ None of that text starts a line of the job's log either. The runner would read s
 
 - **Loopback only.** It takes only a loopback address, and answers only requests that name that address in `Host` and, from a browser, in `Origin`. So a web page can't reach the server through it.
 - **Any local process can.** Any process on this machine that can reach the port can reach the server through it, with the `--header` values the proxy holds.
-- **Its registration.** Started on its own, it registers its address while it runs, in `~/.shadowlap/mcp`. The network guard of the agents Shadowlap commands start lets them reach it.
-- **When a registration counts.** Only when it is read from the home folder, is the user's own, owner-only and not a link, in an owner-only folder, and names the process it is filed under, which is running, at a loopback address. So one left behind by a proxy that died, or planted, lets nothing through.
+- **Its registration.** Started on its own, it registers its address while it runs, in `~/.shadowlap/mcp` (in `SHADOWLAP_HOME` when that is set). The network guard of the agents Shadowlap commands start lets them reach it.
+- **When a registration counts.** Only when it is read from that folder, is the user's own, owner-only and not a link, in an owner-only folder, and names the process it is filed under, which is running, at a loopback address. So one left behind by a proxy that died, or planted, lets nothing through.
 
 ## Telemetry
 

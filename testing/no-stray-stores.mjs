@@ -1,4 +1,4 @@
-// No test leaves anything in the checkout. Two checks, around the whole run:
+// No test leaves anything in the checkout, or in the real home's Shadowlap files. Around the whole run:
 //
 // - No .shadowlap folder where the suites run: the repository's root, where Vitest runs, and
 //   testing/frameworks, where the framework tests do. A test keeps its store and the active-run file
@@ -13,14 +13,25 @@
 //   CI, where nothing else touches the checkout, so does anything else new, and a tracked file that
 //   changed. Elsewhere those two are said, not failed on: whoever runs the tests may be editing, or
 //   adding a file, while they run. What tests leave is ignored by git or named with a dot.
+// - A Shadowlap home of the run's own: SHADOWLAP_HOME, which every process the run starts inherits, is
+//   a temporary folder, removed after the run. So the project list, the agents commands register
+//   while they run and the proxies `mcp --listen` registers go there, never in the real ~/.shadowlap.
+//   HOME stays as it is: uv keeps its caches there.
+// - Nothing written in the real ~/.shadowlap: what it holds is compared before and after the run, as
+//   the .shadowlap folders above are. The owner's own Shadowlap writes there while the tests run too
+//   (a dashboard keeps its project list, an agent of theirs is registered and removed), and nothing
+//   tells its writes from a test's: they are the same files, and a test's are gone by the end, the
+//   folder's time all that is left of them. So, as with a file a person adds to the checkout, a
+//   change there fails the run under CI, where nothing else runs Shadowlap, and is said elsewhere.
 //
-// As Vitest's global setup (vitest.config.ts) it notes both before the tests and fails the run on
-// what appeared or changed after, but for the checkout in watch mode, where files change as you
-// edit. Run as a script, it does the same around a command: `node ../no-stray-stores.mjs node --test …`
-// (testing/frameworks/package.json), or with `--watch <dir>` (repeatable) before the command, around
-// those folders alone.
+// As Vitest's global setup (vitest.config.ts) it notes them before the tests and fails the run on
+// what appeared or changed after, but for the checkout and the real home in watch mode, where files
+// change as you edit and your own Shadowlap runs beside it. Run as a script, it does the same around
+// a command: `node ../no-stray-stores.mjs node --test …` (testing/frameworks/package.json), or with
+// `--watch <dir>` (repeatable) before the command, around those folders alone.
 import { execFileSync, spawn } from 'node:child_process';
-import { lstatSync, readdirSync } from 'node:fs';
+import { lstatSync, mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join, posix, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -28,6 +39,28 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 /** The folders watched: a .shadowlap in each place a suite runs from. */
 export const WATCHED = [join(ROOT, '.shadowlap'), join(ROOT, 'testing', 'frameworks', '.shadowlap')];
+
+/** The real home's Shadowlap folder, the owner's: watched around the suites, which keep their files in a home of their own. */
+export const REAL_HOME = join(homedir(), '.shadowlap');
+
+/**
+ * A Shadowlap home of the run's own: a temporary folder, set as SHADOWLAP_HOME in this process's
+ * environment, which every process it starts inherits. `remove` takes the folder away, and puts
+ * back what SHADOWLAP_HOME was.
+ */
+export function ownHome() {
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'shadowlap-tests-home-')));
+  const was = process.env.SHADOWLAP_HOME;
+  process.env.SHADOWLAP_HOME = dir;
+  return {
+    dir,
+    remove() {
+      if (was === undefined) delete process.env.SHADOWLAP_HOME;
+      else process.env.SHADOWLAP_HOME = was;
+      rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    },
+  };
+}
 
 /** A folder's entries, itself included, as `path -> mtime:size`, to a depth of 3 and at most 1,000; null when it isn't there. */
 function listing(dir) {
@@ -152,6 +185,16 @@ export function addedMessage(added) {
   return `files appeared in the checkout while the tests ran: ${added.join(', ')}. If a test left them, it writes in a temporary folder of its own instead (testing/temp-project.mjs).`;
 }
 
+/** Why the run fails under CI, naming what changed in the real home's Shadowlap folder. */
+export function homeMessage(found) {
+  return `tests wrote in the real home folder's Shadowlap files: ${found.join('; ')}. A test runs the CLI with the run's own SHADOWLAP_HOME, which process.env carries, or a folder of its own, never with the real home.`;
+}
+
+/** What is said outside CI, where the owner's own Shadowlap may have written there while the tests ran. */
+export function homeChangedMessage(found) {
+  return `Shadowlap files changed in the real home folder while the tests ran: ${found.join('; ')}. Unless a Shadowlap of yours wrote them (a dashboard, an agent, a proxy), a test did: it runs the CLI with the run's own SHADOWLAP_HOME, which process.env carries, or a folder of its own.`;
+}
+
 /** Whether what git lists is the kind a test leaves, not a person: ignored by git (a cache, a store), or named with a dot (a project, a script). */
 const testLike = (path, xy) => xy === '!!' || posix.basename(path.replace(/\/$/, '')).startsWith('.');
 
@@ -162,10 +205,12 @@ const testLike = (path, xy) => xy === '!!' || posix.basename(path.replace(/\/$/,
  * an earlier run left in the checkout, and the teardown that fails on what the tests left. `strict`
  * (the default under CI) fails on anything new and on a tracked file changed, where otherwise a new
  * file of the kind a person adds, and a tracked file changed, are warnings. `root: null` leaves the
- * checkout out.
+ * checkout out. `home`, the real home's Shadowlap folder (REAL_HOME) to watch, is compared as `dirs`
+ * are: what changed there fails under `strict` and is said otherwise (see the top of this file).
  */
-export function check(dirs = WATCHED, warn = (line) => console.warn(line), { root = ROOT, strict = !!process.env.CI } = {}) {
+export function check(dirs = WATCHED, warn = (line) => console.warn(line), { root = ROOT, home = null, strict = !!process.env.CI } = {}) {
   const before = snapshot(dirs);
+  const homeBefore = home === null ? null : snapshot([home]);
   for (const [dir, held] of before) if (held) warn(`${shown(dir)}/ is there from before this run, left by a shadowlap command run there: a test that runs the CLI in a folder inside the repository finds it as its project's store. Remove it.`);
   const checkout = root === null ? null : checkoutStatus(root);
   for (const [path, xy] of checkout ?? []) {
@@ -184,18 +229,29 @@ export function check(dirs = WATCHED, warn = (line) => console.warn(line), { roo
       if (changed.length && strict) problems.push(changedMessage(changed));
       else if (changed.length) warn(changedMessage(changed));
     }
+    const touched = homeBefore ? strays(homeBefore) : [];
+    if (touched.length && strict) problems.push(homeMessage(touched));
+    else if (touched.length) warn(homeChangedMessage(touched));
     if (problems.length) throw new Error(problems.join('\n'));
   };
 }
 
-/** What the check around a Vitest run covers, given the project Vitest runs: the checkout too, but in watch mode. */
+/** What the check around a Vitest run covers, given the project Vitest runs: the checkout and the real home too, but in watch mode. */
 export function setupOptions(project) {
-  return project?.config?.watch ? { root: null } : {};
+  return project?.config?.watch ? { root: null } : { home: REAL_HOME };
 }
 
-/** Vitest's global setup (its argument is the project Vitest runs): the check around the whole run. */
+/** Vitest's global setup (its argument is the project Vitest runs): a Shadowlap home of the run's own, and the check around the whole run. */
 export default function setup(project) {
-  return check(WATCHED, undefined, setupOptions(project));
+  const home = ownHome();
+  const teardown = check(WATCHED, undefined, setupOptions(project));
+  return () => {
+    try {
+      teardown();
+    } finally {
+      home.remove();
+    }
+  };
 }
 
 // As a script: the command after it, then the same check, ending with the command's status, or 1.
@@ -208,11 +264,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.stderr.write('usage: node no-stray-stores.mjs [--watch <dir>]... <command> [args...]\n');
     process.exit(2);
   }
-  // Folders given with --watch are checked alone; around the suites, the checkout is checked too.
-  const teardown = check(dirs.length ? dirs : WATCHED, (line) => process.stderr.write(`! ${line}\n`), dirs.length ? { root: null } : {});
+  // The command and what it starts keep Shadowlap's files in a home of the run's own.
+  const home = ownHome();
+  // Folders given with --watch are checked alone; around the suites, the checkout and the real home are checked too.
+  const teardown = check(dirs.length ? dirs : WATCHED, (line) => process.stderr.write(`! ${line}\n`), dirs.length ? { root: null } : { home: REAL_HOME });
   // Python writes no __pycache__ into the checkout for what the tests import (the SDK, the guard).
   const child = spawn(command === 'node' ? process.execPath : command, rest, { stdio: 'inherit', env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } });
   child.on('error', (err) => {
+    home.remove();
     process.stderr.write(`no-stray-stores: ${command}: ${err.message}\n`);
     process.exit(127);
   });
@@ -224,6 +283,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       left = true;
       process.stderr.write(`\n✖ ${err.message}\n`);
     }
+    home.remove();
     const status = code ?? (signal ? 1 : 0);
     process.exit(status !== 0 ? status : left ? 1 : 0);
   });

@@ -1148,7 +1148,7 @@ Switching is for every tab at once: the dashboard serves one project at a time. 
 
 ### The project list
 
-The dashboard keeps the list in `~/.shadowlap/projects.json`. `SHADOWLAP_HOME` moves the folder; give it as an absolute path.
+The dashboard keeps the list in `~/.shadowlap/projects.json`. `SHADOWLAP_HOME` moves the folder, with every other file Shadowlap keeps for this machine ([environment](./cli.md#environment)); give it as an absolute path.
 
 The list holds no recordings. For each project it holds its name, folder and when it was added, how far its setup got, and the commands you confirmed for recording there. It holds the same for projects you removed, so adding one again brings it back. It is written atomically and readable only by you, and keys it doesn't know are kept.
 

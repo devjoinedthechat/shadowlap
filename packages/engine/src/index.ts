@@ -54,6 +54,8 @@ export { CONFIG_FILE, ConfigBusyError, ConfigConflictError, ConfigFileError, DEF
 export type { ConfigEvent, ConfigFile, EditOptions, RuleAdded, RuleList } from './config-file.js';
 // The lock file those edits take, for any small file several Shadowlap processes change.
 export { LOCK_STALE_MS, releaseLock, takeLock, withLockFile, type HeldLock, type LockOptions } from './lock-file.js';
+// Shadowlap's folder for this machine's files (SHADOWLAP_HOME, else ~/.shadowlap): the project list, and the agents and proxies registered while they run.
+export { shadowlapHome } from './projects/index.js';
 // Projects: the list of folders opened in the dashboard, folder suggestions, setup and recording from it.
 export { ProjectError, ProjectHost, ProjectRegistry, emptySetup, nameConfirms, projectDbPath, setupRunOf, tildePath } from './projects/index.js';
 export { checkFolder, describeFolder, suggestFolders } from './projects/index.js';

@@ -8,10 +8,12 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
  */
 
 /**
- * Shadowlap's folder for this machine's files (the project list): `SHADOWLAP_HOME`, else
- * `~/.shadowlap`. Only an absolute path (or one starting with `~/`) counts: a relative one would
- * name a different folder in every directory a command runs in, so `init` in a project and the
- * dashboard would keep different lists. It is ignored ({@link shadowlapHomeProblem} says so).
+ * Shadowlap's folder for this machine's files: `SHADOWLAP_HOME`, else `~/.shadowlap`. It holds the
+ * project list (`projects.json`), and the registrations of the agents commands start (`agents/`) and
+ * of the `mcp --listen` proxies (`mcp/`) while they run, so processes that share an environment find
+ * each other's. Only an absolute path (or one starting with `~/`) counts: a relative one would name
+ * a different folder in every directory a command runs in, so `init` in a project and the dashboard
+ * would keep different lists. It is ignored ({@link shadowlapHomeProblem} says so).
  */
 export function shadowlapHome(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string {
   const explicit = env.SHADOWLAP_HOME?.trim();
