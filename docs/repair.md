@@ -96,12 +96,32 @@ A prompt assembled from pieces still anchors: each sentence or line that appears
 
 ### Where an anchor goes
 
-An anchor is text a rewrite can change without changing what runs. It is in one of two places:
+An anchor is text a rewrite can change without changing what runs. It is in one of three places:
 
 - **JavaScript, TypeScript or Python source**: text inside one string, from its start to its end. A template literal's `${…}` and an f-string's `{…}` are code, so the span holds each whole or not at all.
-- **A Markdown, plain text, prompt or Jinja file** (`.md`, `.markdown`, `.txt`, `.rst`, `.prompt`, `.j2`, `.jinja`, `.jinja2`): any text, with each placeholder whole.
+- **YAML, JSON or TOML** (`.yaml`, `.yml`, `.json`, `.toml`): text inside one string value, such as a CrewAI agent's `role`, `goal` or `backstory`, or a model's name in a config. In YAML that is a quoted, plain or block scalar, a line of it at a time, and in TOML a basic or literal string. A key is never one, nor a number, a boolean or a null.
+- **A Markdown, plain text, prompt or Jinja file** (`.md`, `.markdown`, `.txt`, `.rst`, `.prompt`, `.j2`, `.jinja`, `.jinja2`): any text.
 
-Text anywhere else is never anchored: code, a comment or a regular expression, and any other file, such as a workflow, a `package.json`, a shell script, MDX or another language's source. Shadowlap can't tell its text from what runs there.
+In each, a placeholder (`{…}`, `{{ … }}`, `${…}`) is held whole or not at all. A rewrite of a plain YAML value stays text: it may not start the value with YAML's own syntax, such as `*`, `&` or `!`, nor put a `: ` or a ` #` in it.
+
+Text anywhere else is never anchored: code, a comment or a regular expression, MDX, and another language's source, where Shadowlap can't tell a string from code.
+
+**Never in what runs.** No anchor is placed in a file that runs what it holds, whatever its format, nor in a value that runs. This table lists each, with why:
+
+| What runs | Why |
+|---|---|
+| `.github/workflows/`, `.github/actions/`, `action.yml`, `.gitlab-ci.yml`, `.circleci/`, `azure-pipelines*.yml`, `bitbucket-pipelines.yml`, `.buildkite/`, `.travis.yml` | A CI pipeline runs its steps' commands |
+| `Jenkinsfile` | A Jenkins pipeline is Groovy code |
+| `Dockerfile` | Its instructions run as the image is built |
+| `Makefile` | Its recipes run commands |
+| `*.sh`, `*.ps1` | A script runs itself |
+| `package.json`'s `scripts` | npm runs them |
+| `pyproject.toml`'s `[project.scripts]`, `[project.gui-scripts]` and `[tool.poetry.scripts]` | Installing the package makes each a command |
+| `pyproject.toml`'s `[project.entry-points]` | They name code other programs load |
+| `pyproject.toml`'s `[build-system]` | It says what runs to build the package |
+| A compose file's `command` and `entrypoint` | They run in the container, and so can an anchored value, through an alias |
+
+In a file whose other values a rewrite may change, the key path decides: `package.json`'s `description` is text, and its `scripts` are not.
 
 The switch to a stronger model is held to the same rule, and so is a patch a pull brings from the [team store](./team.md#a-teammates-patch-is-held-to-a-repairs-rewrites), read where it goes in your working tree.
 
@@ -143,7 +163,7 @@ So a rewrite keeps exactly the placeholders of the text it replaces, each as it 
 | JavaScript and TypeScript | A template literal's `${…}`; `{name}`, `{{ … }}`, `{% … %}` and `<% … %>`, which template libraries read; `%s` and Node's other format conversions |
 | Python | An f-string's or `.format`'s `{…}`, and the `{{` and `}}` that escape a brace; `%s` and `%(name)s`; Jinja's `{{ … }}` and `{% … %}`; `string.Template`'s `$name` |
 | Markdown and text | The same as Python, as a template engine or `.format` may render the file |
-| Jinja templates | All of the above, and Ruby's `#{…}` and the shell's `$(…)` |
+| YAML, JSON, TOML and Jinja templates | All of the above, and Ruby's `#{…}` and the shell's `$(…)` |
 
 A rewrite is set aside, and the repairer is told so, when it:
 
@@ -151,7 +171,7 @@ A rewrite is set aside, and the repairer is told so, when it:
 - has a brace of its own;
 - would make a placeholder with the characters on either side of its span: a `$` before it and a `{` it starts with.
 
-A rewrite of a one-line span stays on one line. A span in code sits in a string, so its rewrite may not bring in quotes or backslashes, and neither may one in a Jinja template. A span in a Markdown or text file, such as a policy the agent is given, is prose, and may.
+A rewrite of a one-line span stays on one line. A span in code sits in a string, so its rewrite may not bring in quotes or backslashes, and neither may one in YAML, JSON, TOML or a Jinja template. A span in a Markdown or text file, such as a policy the agent is given, is prose, and may.
 
 ## Guarding against fixes that fit the examples
 

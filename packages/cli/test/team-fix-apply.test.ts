@@ -119,7 +119,7 @@ describe("a teammate's fix through the team store", () => {
     expect(await teamPull(maya, [])).toBe(0);
     const out = maya.out.join('');
     expect(out).toContain(`${fixId}  `);
-    expect(out).toContain('its accepted candidate rewrites .github/workflows/ci.yml, a .yml file: a repair rewrites text only in a string of JavaScript, TypeScript or Python source, or in a Markdown, plain text, prompt or Jinja file');
+    expect(out).toContain('its accepted candidate rewrites .github/workflows/ci.yml, a GitHub Actions workflow, whose steps run commands: a repair never rewrites a file that runs');
     expect(existsSync(join(maya.cwd, '.shadowlap', 'repairs', 'repair-mwf1'))).toBe(false);
     const store = Store.open(maya.dbPath);
     try {

@@ -1,4 +1,5 @@
-import { checkEdit, longestRewrite, placeholders, REPAIR_FILE_LIMIT, templateSyntax, type Placeholder, type RepairReport, type SourceFile } from './repair.js';
+import { dataStrings, yamlPlainProblem, type DataString } from './data-strings.js';
+import { checkEdit, findAnchors, longestRewrite, placeholders, REPAIR_FILE_LIMIT, templateSyntax, type Anchor, type Placeholder, type RepairReport, type SourceFile, type Surface } from './repair.js';
 import { sourceStrings, type SourceString } from './source-strings.js';
 import { safeLine } from './text.js';
 
@@ -7,10 +8,11 @@ import { safeLine } from './text.js';
  * it comes from can be someone else's (a teammate's bucket, a copied file), so a patch is held to the
  * one rewrite its accepted candidate makes (`repairPatchProblem`). A patch a pull brought is held to
  * the rewrites repair itself makes, in the working tree it goes into (`rewriteHere`): text inside a
- * string of JavaScript, TypeScript or Python source, or text of a prose file, where repair places
- * its anchors too (`repairNeverRewritesAt`), and a rewrite of it that `checkEdit` would let repair
- * try. A teammate's machine or the bucket can be someone else's, so a fix from there can do no more
- * than one repair made here could.
+ * string of JavaScript, TypeScript or Python source, inside a string value of YAML, JSON or TOML, or
+ * of a prose file, but never in a file or a value that runs (a CI pipeline, a script, package.json's
+ * scripts), where repair places its anchors too (`repairNeverRewritesAt`), and a rewrite of it that
+ * `checkEdit` would let repair try. A teammate's machine or the bucket can be someone else's, so a
+ * fix from there can do no more than one repair made here could.
  */
 
 /**
@@ -114,6 +116,8 @@ export function repairPatchProblem(report: Pick<RepairReport, 'patch' | 'candida
   if (!plainRepoPath(file)) return `its accepted candidate names "${safeLine(file)}", which is not a plain path inside the repository`;
   const never = repairNeverRewrites(file);
   if (never) return `its accepted candidate rewrites ${safeLine(file)}, ${never}: a repair rewrites only the text the agent sends the model, where the agent's source holds it`;
+  const runs = fileThatRuns(file);
+  if (runs) return `its accepted candidate rewrites ${safeLine(file)}, ${runs}: a repair never rewrites a file that runs`;
   if (!rewriteKind(file)) return `its accepted candidate rewrites ${safeLine(file)}, ${kindWords(file)}: a repair rewrites text only in ${REWRITTEN_TEXT}`;
   // Nothing larger than a repair makes is read any further: the text a candidate rewrites is in a
   // file repair read, and its rewrite is held to longestRewrite. The patch holds the lines around
@@ -225,63 +229,186 @@ function occursBetween(text: string, piece: string, lo: number, hi: number): boo
 // ---- Where a repair rewrites text ----------------------------------------------------------------
 
 /** Where a repair rewrites text, as a reason that refuses a rewrite elsewhere says it. */
-const REWRITTEN_TEXT = 'a string of JavaScript, TypeScript or Python source, or in a Markdown, plain text, prompt or Jinja file';
+const REWRITTEN_TEXT = 'a string of JavaScript, TypeScript or Python source, a string value of YAML, JSON or TOML, or a Markdown, plain text, prompt or Jinja file';
 
-/** What a repair rewrites in a file: the text inside its strings (`js`, `python`), or any of its text (`prose`). */
-export type RewriteKind = 'js' | 'python' | 'prose';
+/**
+ * What a repair rewrites in a file: the text inside its strings (`js`, `python`), inside its string
+ * values (`yaml`, `json`, `toml`), or any of its text (`prose`).
+ */
+export type RewriteKind = 'js' | 'python' | 'yaml' | 'json' | 'toml' | 'prose';
 
 /**
  * What a repair rewrites in `file`, by its name, or null for a file it rewrites nothing in. The text
- * an agent sends its model is in a string of its code, or in a prose or template file it reads. In
- * any other file, a workflow, a manifest, a script or another language's source, Shadowlap can't
- * tell such text from what runs, so a repair rewrites none of it. MDX is left out too: it is JSX,
- * whose code runs when it is built.
+ * an agent sends its model is in a string of its code, a string value of its config (CrewAI keeps
+ * its prompts in YAML, and a model's name can be in JSON or TOML), or a prose or template file it
+ * reads. In another language's source Shadowlap can't tell a string from code, so a repair rewrites
+ * none of it. MDX is left out too: it is JSX, whose code runs when it is built.
  */
 export function rewriteKind(file: string): RewriteKind | null {
   const syntax = templateSyntax(file);
   if (syntax === 'js' || syntax === 'python') return syntax;
+  const data = /\.(ya?ml|json|toml)$/i.exec(file)?.[1]!.toLowerCase();
+  if (data) return data === 'yml' ? 'yaml' : (data as RewriteKind);
   return /\.(?:md|markdown|txt|rst|prompt|j2|jinja2?)$/i.test(file) ? 'prose' : null;
 }
 
-/** A file's kind as a reason names it: `a .yml file`, or `a file with no extension` (`.gitignore` is a name). */
+/** A file's kind as a reason names it: `a .go file`, or `a file with no extension` (`.gitignore` is a name). */
 function kindWords(file: string): string {
   const name = file.slice(file.lastIndexOf('/') + 1);
   const ext = /\.([^.]+)$/.exec(name.slice(1))?.[1];
   return ext ? `a .${safeLine(ext).slice(0, 20)} file` : 'a file with no extension';
 }
 
-/** Each file's strings in code, and its placeholders in prose, read once however many spans of it are checked. */
-const stringsOf = new WeakMap<SourceFile, SourceString[]>();
-const placeholdersOf = new WeakMap<SourceFile, Placeholder[]>();
+/** A path's names as Windows reads them too: in lower case, without the dots and spaces it drops from a name's end. */
+const namesOf = (file: string) => file.split('/').map((p) => p.replace(/[. ]+$/, '').toLowerCase());
+const inFolder = (names: readonly string[], folder: string, sub: string) => names.some((n, i) => n === folder && names[i + 1] === sub);
 
 /**
- * Why a repair never rewrites the `length` characters at `offset` of `file`, or null when it may:
- * the kind of file (`rewriteKind`), and in code, where the text is. It has to be inside one string,
- * from start to end, and in any file it may hold a placeholder only whole: a rewrite never starts or
- * ends inside a template literal's `${…}`, an f-string's `{…}` or a Jinja expression, whose code
- * `checkEdit` would otherwise let it change. Read as what follows "the text": `is outside any string`.
+ * The files that run what they hold, whatever their format, each with why. A rewrite of any of their
+ * text could change what runs, so a repair rewrites none of it, and a pull leaves out a fix whose
+ * patch does: a CI pipeline runs its steps' commands, a Dockerfile its instructions as its image is
+ * built, a Makefile its recipes, and a script itself.
  */
-export function repairNeverRewritesAt(file: SourceFile, offset: number, length: number): string | null {
+const RUNNER_FILES: ReadonlyArray<{ is: (names: readonly string[], name: string) => boolean; what: string }> = [
+  { is: (n) => inFolder(n, '.github', 'workflows'), what: 'a GitHub Actions workflow, whose steps run commands' },
+  { is: (n) => inFolder(n, '.github', 'actions'), what: "one of the repository's GitHub Actions, whose steps run commands" },
+  { is: (_, f) => f === 'action.yml' || f === 'action.yaml', what: 'a GitHub Action, which runs what it says where a workflow uses it' },
+  { is: (_, f) => f === '.gitlab-ci.yml' || f === '.gitlab-ci.yaml', what: "GitLab CI's pipeline, whose scripts run commands" },
+  { is: (n) => n.includes('.circleci'), what: "CircleCI's config, whose steps run commands" },
+  { is: (_, f) => /^azure-pipelines.*\.ya?ml$/.test(f), what: 'an Azure Pipelines pipeline, whose scripts run commands' },
+  { is: (_, f) => f === 'bitbucket-pipelines.yml', what: "Bitbucket Pipelines' pipeline, whose scripts run commands" },
+  { is: (n) => n.includes('.buildkite'), what: 'a Buildkite pipeline, whose steps run commands' },
+  { is: (_, f) => f === 'jenkinsfile' || f.endsWith('.jenkinsfile'), what: 'a Jenkins pipeline, which is Groovy code' },
+  { is: (_, f) => f === '.travis.yml', what: "Travis CI's config, whose scripts run commands" },
+  { is: (_, f) => f === 'dockerfile' || f === 'containerfile' || f.startsWith('dockerfile.') || f.endsWith('.dockerfile'), what: 'a Dockerfile, whose instructions run as its image is built' },
+  { is: (_, f) => f === 'makefile' || f === 'gnumakefile' || f.endsWith('.mk'), what: 'a Makefile, whose recipes run commands' },
+  { is: (_, f) => f.endsWith('.sh'), what: 'a shell script' },
+  { is: (_, f) => f.endsWith('.ps1'), what: 'a PowerShell script' },
+];
+
+/** What `file` is when it runs what it holds (RUNNER_FILES), or null. */
+export function fileThatRuns(file: string): string | null {
+  const names = namesOf(file);
+  return RUNNER_FILES.find((r) => r.is(names, names.at(-1) ?? ''))?.what ?? null;
+}
+
+/** A compose file: `compose.yaml`, `docker-compose.yml`, and their overrides (`docker-compose.prod.yml`). */
+const COMPOSE = /^(?:docker-)?compose(?:\.[^/]+)?\.ya?ml$/;
+
+/**
+ * The values that run, in files whose other string values a repair may rewrite, by the file and the
+ * key path, each with why. npm runs package.json's scripts. Installing a Python package makes a
+ * command of each script pyproject.toml names, its entry points name code other programs load, and
+ * its build system says what runs to build it. A compose file's command and entrypoint run in its
+ * container, and so can an anchored value, through an alias.
+ */
+const RUNNING_VALUES: ReadonlyArray<{ file: (name: string) => boolean; runs: (path: readonly string[], value: DataString) => boolean; what: string }> = [
+  { file: (f) => f === 'package.json', runs: (p) => p[0] === 'scripts', what: "package.json's scripts, which npm runs" },
+  { file: (f) => f === 'pyproject.toml', runs: (p) => p[0] === 'project' && (p[1] === 'scripts' || p[1] === 'gui-scripts'), what: "pyproject.toml's scripts, each a command installing the package makes" },
+  { file: (f) => f === 'pyproject.toml', runs: (p) => p[0] === 'project' && p[1] === 'entry-points', what: "pyproject.toml's entry points, which name code other programs load" },
+  { file: (f) => f === 'pyproject.toml', runs: (p) => p[0] === 'tool' && p[1] === 'poetry' && p[2] === 'scripts', what: "Poetry's scripts in pyproject.toml, each a command installing the package makes" },
+  { file: (f) => f === 'pyproject.toml', runs: (p) => p[0] === 'build-system', what: "pyproject.toml's build-system, which says what runs to build the package" },
+  { file: (f) => COMPOSE.test(f), runs: (p, v) => p.includes('command') || p.includes('entrypoint') || v.anchored === true, what: "a compose file's command or entrypoint, which runs in its container, or an anchored value an alias can make one" },
+];
+
+/** Each file read once however many spans of it are checked: its strings in code, its string values in YAML, JSON or TOML, its placeholders in prose. */
+const stringsOf = new WeakMap<SourceFile, SourceString[]>();
+const valuesOf = new WeakMap<SourceFile, DataString[]>();
+const placeholdersOf = new WeakMap<SourceFile, Placeholder[]>();
+
+type Holes = ReadonlyArray<{ start: number; end: number }>;
+
+/** The placeholders in a prose file. */
+function proseHoles(file: SourceFile): Holes {
+  let found = placeholdersOf.get(file);
+  if (!found) placeholdersOf.set(file, (found = placeholders(file.content, templateSyntax(file.path))));
+  return found;
+}
+
+/** The places of code in the string of `file` that the text from `offset` to `end` is inside, or why it isn't inside one. */
+function inString(file: SourceFile, kind: 'js' | 'python', offset: number, end: number): Holes | string {
+  let strings = stringsOf.get(file);
+  if (!strings) stringsOf.set(file, (strings = sourceStrings(file.content, kind)));
+  // The innermost string it starts in: one in a template literal's ${…} starts after the template literal.
+  const str = strings.filter((s) => s.start <= offset && offset < s.end).at(-1);
+  if (!str) return 'is outside any string: in code, a repair rewrites only text inside a string';
+  if (end > str.end) return 'runs past the end of the string it starts in: a repair rewrites text inside one string';
+  const inside = placeholders(file.content.slice(str.start, str.end), kind).map((p) => ({ start: str.start + p.start, end: str.start + p.end }));
+  return [...str.code.map(([start, stop]) => ({ start, end: stop })), ...inside];
+}
+
+/**
+ * The placeholders in the string value of `file` that the text from `offset` to `end` is inside, or
+ * why a repair never rewrites it: outside one, past its end (in YAML, over its lines), or a value
+ * that runs. With `replace`, a YAML plain value's rewrite may not read as YAML's own syntax.
+ */
+function inValue(file: SourceFile, kind: 'yaml' | 'json' | 'toml', at: { offset: number; end: number; replace: string | undefined }): Holes | string {
+  let values = valuesOf.get(file);
+  if (!values) valuesOf.set(file, (values = dataStrings(file.content, kind)));
+  const { offset, end, replace } = at;
+  const value = values.filter((v) => v.start <= offset && offset < v.end).at(-1);
+  if (!value) return 'is outside any string value: in YAML, JSON or TOML, a repair rewrites only text inside one string value';
+  if (end > value.end) return kind === 'yaml' && file.content.slice(offset, end).includes('\n') ? "runs over lines of a YAML value: a rewrite there stays on one line, since YAML reads a line's indentation" : 'runs past the end of the string value it starts in: a repair rewrites text inside one string value';
+  const name = namesOf(file.path).at(-1) ?? '';
+  const runs = RUNNING_VALUES.find((r) => r.file(name) && r.runs(value.path, value));
+  if (runs) return `is in ${runs.what}: a repair never rewrites what runs`;
+  const was = file.content.slice(value.start, value.end);
+  if (replace !== undefined && value.plain) {
+    const problem = yamlPlainProblem(was.slice(0, offset - value.start) + replace + was.slice(end - value.start));
+    if (problem && problem !== yamlPlainProblem(was)) return `is a plain YAML value its rewrite ${problem}`;
+  }
+  return placeholders(was, templateSyntax(file.path)).map((p) => ({ start: value.start + p.start, end: value.start + p.end }));
+}
+
+/**
+ * Why a repair never rewrites the `length` characters at `offset` of `file`, or null when it may.
+ * The file may not run what it holds (`fileThatRuns`), and has to be of a kind a repair rewrites text
+ * in (`rewriteKind`). In code the text has to be inside one string; in YAML, JSON or TOML inside one
+ * string value that doesn't run (`RUNNING_VALUES`), and in YAML on one line of it. In any file it
+ * holds a placeholder only whole: a rewrite never starts or ends inside a template literal's `${…}`,
+ * an f-string's `{…}` or a Jinja expression, whose code `checkEdit` would otherwise let it change.
+ * With `replace`, a YAML plain value's rewrite is held to text too (`yamlPlainProblem`). Read as what
+ * follows "the text": `is outside any string`.
+ */
+export function repairNeverRewritesAt(file: SourceFile, offset: number, length: number, replace?: string): string | null {
+  const runs = fileThatRuns(file.path);
+  if (runs) return `is in ${runs}: a repair never rewrites what runs`;
   const kind = rewriteKind(file.path);
   if (!kind) return `is in ${kindWords(file.path)}: a repair rewrites text only in ${REWRITTEN_TEXT}`;
   const end = offset + length;
-  let code: ReadonlyArray<{ start: number; end: number }>;
-  if (kind === 'prose') {
-    let found = placeholdersOf.get(file);
-    if (!found) placeholdersOf.set(file, (found = placeholders(file.content, templateSyntax(file.path))));
-    code = found;
-  } else {
-    let strings = stringsOf.get(file);
-    if (!strings) stringsOf.set(file, (strings = sourceStrings(file.content, kind)));
-    // The innermost string it starts in: one in a template literal's ${…} starts after the template literal.
-    const str = strings.filter((s) => s.start <= offset && offset < s.end).at(-1);
-    if (!str) return 'is outside any string: in code, a repair rewrites only text inside a string';
-    if (end > str.end) return 'runs past the end of the string it starts in: a repair rewrites text inside one string';
-    const inside = placeholders(file.content.slice(str.start, str.end), kind).map((p) => ({ start: str.start + p.start, end: str.start + p.end }));
-    code = [...str.code.map(([start, stop]) => ({ start, end: stop })), ...inside];
-  }
+  const code = kind === 'prose' ? proseHoles(file) : kind === 'js' || kind === 'python' ? inString(file, kind, offset, end) : inValue(file, kind, { offset, end, replace });
+  if (typeof code === 'string') return code;
   const cut = code.find((p) => p.start < end && offset < p.end && (p.start < offset || p.end > end));
   return cut ? `starts or ends inside ${safeLine(file.content.slice(cut.start, cut.end)).slice(0, 80)}: a rewrite keeps each placeholder whole` : null;
+}
+
+/**
+ * The anchors a repair may rewrite: the spans `findAnchors` finds, but none in a file a repair never
+ * rewrites (`repairNeverRewrites`) or at text it never rewrites (`repairNeverRewritesAt`), numbered
+ * from 1. A copy of a span in such a place still keeps it from passing for its source's only one.
+ */
+export function rewritableAnchors(surfaces: readonly Surface[], files: readonly SourceFile[]): Anchor[] {
+  const byPath = new Map(files.map((f) => [f.path, f]));
+  return findAnchors(surfaces, files)
+    .filter((a) => !repairNeverRewrites(a.file) && !repairNeverRewritesAt(byPath.get(a.file)!, a.offset, a.text.length))
+    .map((a, i) => ({ ...a, id: i + 1 }));
+}
+
+/**
+ * Where a repair switches the model `from` to `to`, or why it switches none: its name quoted once in
+ * the project's files (`'from'`, `"from"` or `` `from` ``), at text a repair rewrites, and rewritten
+ * as `checkEdit` lets a repair rewrite text. A name kept in a string of code, or in a string value of
+ * a JSON, TOML or YAML config, is switched where it is.
+ */
+export function modelSwitch(files: readonly SourceFile[], from: string, to: string): { file: string; offset: number } | { why: string } {
+  const name = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const quoted = files.flatMap((f) => [...f.content.matchAll(new RegExp(`(['"\`])${name}\\1`, 'g'))].map((m) => ({ file: f, offset: m.index + 1 })));
+  if (quoted.length !== 1) return { why: `the model name ${from} appears ${quoted.length ? `${quoted.length} times` : 'nowhere'} in the source as a string` };
+  const { file, offset } = quoted[0]!;
+  if (repairNeverRewrites(file.path) ?? repairNeverRewritesAt(file, offset, from.length, to)) return { why: `the model name ${from} is in ${file.path}, where a repair rewrites no text` };
+  const anchor: Anchor = { id: 1, surface: 'model', text: from, file: file.path, offset, prev: file.content[offset - 1] ?? '', next: file.content[offset + from.length] ?? '' };
+  const check = checkEdit({ anchor: 1, replace: to, strategy: '', why: '' }, [anchor], new Set());
+  return check.ok ? { file: file.path, offset } : { why: check.reason };
 }
 
 /** Where `lines`, whole lines of text, are in `text`: each place a line of it starts, and at its end when the last has no line break. Two at most. */
@@ -345,7 +472,7 @@ export function rewriteHere(report: Pick<RepairReport, 'patch' | 'candidates' | 
   const after = lf(c.after);
   const offset = placeOf(text, result, before, after);
   if (offset < 0) return { problem: `here, the text its accepted candidate rewrites is not where its patch changes ${c.file}` };
-  const where = repairNeverRewritesAt({ path: c.file, content: text }, offset, before.length);
+  const where = repairNeverRewritesAt({ path: c.file, content: text }, offset, before.length, after);
   if (where) return { problem: `here, the text its accepted candidate rewrites in ${c.file} ${where}` };
   if (after !== after.trim()) return { problem: "its accepted candidate's rewrite starts or ends with white space, which a repair trims" };
   const anchor = { id: 1, surface: c.surface, text: before, file: c.file, offset, prev: text[offset - 1] ?? '', next: text[offset + before.length] ?? '' };

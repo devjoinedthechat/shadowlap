@@ -1448,7 +1448,8 @@ place: no file made, deleted, renamed or copied, and no mode or binary change. I
 - a file of a recording: a pack's `run.json`, which holds the command a replay runs, its `calls.jsonl`
   and blobs, or anything in `__recordings__`;
 - `shadowlap.config.json` or the `.shadowlap` folder;
-- a file a repair rewrites no text in, such as a workflow, a `package.json` or a shell script.
+- a file that runs, such as a CI workflow, a `Dockerfile`, a `Makefile` or a script, or one a repair rewrites
+  no text in, such as Go source.
 
 A repair rewrites the text the agent sends the model where its source holds it, and never reads those.
 A patch that is anything more is refused, and nothing is changed. So is one to a file git ignores,
@@ -1457,8 +1458,8 @@ folder, which `git apply` refuses too.
 
 **A teammate's patch**, from a pull, is held to a repair's own rewrites in your working tree. The text
 it rewrites is read where the patch goes. It has to be inside one string of JavaScript, TypeScript or
-Python source, or in a Markdown, plain text, prompt or Jinja file, with each placeholder whole, and its
-rewrite has to be one a repair would try. See [where an anchor goes](./repair.md#where-an-anchor-goes)
+Python source, a string value of YAML, JSON or TOML that doesn't run, or a Markdown, plain text, prompt
+or Jinja file. It holds each placeholder whole, and its rewrite has to be one a repair would try. See [where an anchor goes](./repair.md#where-an-anchor-goes)
 and [the team store](./team.md#a-teammates-patch-is-held-to-a-repairs-rewrites).
 
 **Line endings.** The patch goes in on the file's bytes as they are, so the file is the one the repair
