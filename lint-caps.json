@@ -45,7 +45,6 @@
       "formatGc": 36
     },
     "packages/cli/src/commands/fix-repair.ts": {
-      "repairTargets": 31,
       "reportRepair": 36
     },
     "packages/cli/src/commands/import.ts": {
@@ -612,7 +611,7 @@
   "max-lines": {
     "packages/cli/src/checks.ts": 1051,
     "packages/cli/src/decisions.ts": 1151,
-    "packages/cli/test/ci-fix.test.ts": 941,
+    "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,
     "packages/dashboard/src/tests.ts": 1104,

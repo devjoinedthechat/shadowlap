@@ -83,6 +83,10 @@ Under CI, anything else that appears, and a tracked file that changed, fail the 
 - runs the CLI in a temporary folder of its own (`cwd`), with its own store (`--db`);
 - makes a project an agent runs in with `testing/temp-project.mjs`, in the temporary folder below links to the packages it imports.
 
+Your own `~/.shadowlap` is left alone too. The run sets `SHADOWLAP_HOME` to a temporary folder of its own, for the suites and every process they start, and removes it after. So the project list, and the agents and proxies registered while they run, never reach yours. A test that runs the CLI keeps `process.env` in the environment it gives it, or sets a folder of its own.
+
+What changes in the real `~/.shadowlap` while the tests run fails the run under CI. Elsewhere it is only reported, as your own Shadowlap may write there meanwhile.
+
 ### The golden recording
 
 `npm run golden` re-records `testing/golden/reference-agent`. Only do that when the reference scenario changes on purpose: the golden is what proves replay fidelity in CI.

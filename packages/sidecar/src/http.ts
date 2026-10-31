@@ -49,15 +49,16 @@ export { CREDENTIAL_PLACEHOLDER, credentialParam, credentialValue, rawJsonMember
  * by the rule a recorded call's arguments are read by (credentialFreeBody), by the body's shape
  * whatever its content type said: a JSON body's credential members (`api_key`, `client_secret`),
  * also in JSON sent as text (a `fetch` string body) or as lines of JSON; a form body's parameters (an
- * OAuth token request's, or a text body written as one); a multipart body's credential fields; XML.
+ * OAuth token request's, or a text body written as one); a multipart body's credential fields; XML;
+ * and the secret a write to a secret store sends, by `callName`, the call's name (`PUT host/path`).
  * A body whose content type says it is a form is masked as one even when its text doesn't read like
  * one. The call is forwarded with the body as it was sent.
  */
-export function storedRequestBody(bytes: Buffer, contentType: string | undefined): StoredBody {
+export function storedRequestBody(bytes: Buffer, contentType: string | undefined, callName?: string): StoredBody {
   try {
     const body = decodeBody(bytes, contentType);
     if (body.encoding === 'text' && /^\s*application\/x-www-form-urlencoded\b/i.test(contentType ?? '') && !formShaped(body.body as string)) return { ...body, body: withoutCredentials(body.body as string) };
-    return credentialFreeBody(body);
+    return credentialFreeBody(body, callName);
   } catch {
     // How a body is stored never holds its call up: one masking can't read is kept as a placeholder.
     return unreadBody();

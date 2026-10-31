@@ -128,11 +128,11 @@ Calls to the hosts declared under `http` in `shadowlap.config.json` are captured
 - **Their request headers are never stored.**
 - **Credentials are stored as `<CREDENTIAL>`**: in the call's address and its name, in its body, read by its shape whatever its content type says, and in what the response hands back, its body and its headers.
 - **A response's `set-cookie` is never stored.**
-- **Kept on purpose.** A count or a limit of tokens, such as Bedrock's `x-amzn-bedrock-input-token-count`, is kept as sent only as a count of at most 12 digits, a time or a duration. Azure's `azureml-model-session`, a routing hint that signs nobody in, is kept only as Azure writes it.
+- **Kept on purpose.** A count or a limit of tokens, such as Bedrock's `x-amzn-bedrock-input-token-count`, is kept as sent only as a count of at most 12 digits, a time or a duration. Azure's `azureml-model-session`, a routing hint that signs nobody in, is kept only as Azure writes it. So is an AWS access key id, which names a key pair as a user names a user, beside its masked secret.
 - **Each credential is masked in place**, the rest of the body kept as the service sent it.
 - **The agent gets the real values while recording**, and a client that reads its token from the response still finds it there on replay.
 
-[Credentials](docs/normalizers-and-redaction.md#credentials) lists what is read as one: webhook secrets in a path, sessions, every body shape, the secrets a secret store hands back, and each response header.
+[Credentials](docs/normalizers-and-redaction.md#credentials) lists what is read as one: webhook secrets in a path, sessions, every body shape, the secrets a secret store hands back and those a call writes to one, and each response header.
 
 ### What each copy masks
 
@@ -453,6 +453,7 @@ Runs go up as recorded, but without their credentials.
 - an assignment's value, when its name reads as a credential (`OPENAI_API_KEY=…` after `env`, `--set auth.password=…`), and else the URL's password, the JWT or the header line it gives (`DATABASE_URL=postgres://app:…@db`, git's `-c http.extraheader=…`);
 - a header line (`-H 'Authorization: …'`), a JWT, and a URL's password, query credentials and webhook secret;
 - a password a program takes under a name that doesn't say so: curl's `-u user:…`, mysql's glued `-p…` and `docker login -p` among them;
+- a secret a program takes by a word's place (`aws configure set aws_secret_access_key …`, `vault login …`, mc's secret key), and a libpq connection string's password;
 - a body curl sends with `-d`, `--data…`, `--json` or `-F`, read as a form or as JSON;
 - each of them in a script a program runs, read word by word as a shell reads it, such as `sh -c 'OPENAI_API_KEY=… node agent.js'`.
 
@@ -606,7 +607,7 @@ None of that text starts a line of the job's log either. The runner would read s
 | `~/.shadowlap/agents/<pid>.json` | it is a regular file you own, readable by you alone, naming the process it is filed under and that process's parent, pointing at loopback |
 | `.shadowlap/active.json` | on the same terms, naming a process still running; read only where the process tree can't be read |
 
-- **The agents file.** Shadowlap writes one for each agent it starts, and it carries the session token. Its folder is owner-only. It is in the project's `.shadowlap/agents` when the home folder can't be written.
+- **The agents file.** Shadowlap writes one for each agent it starts, in an owner-only folder, and it carries the session token. It is in the `agents` folder of `SHADOWLAP_HOME` when that is set, and in the project's `.shadowlap/agents` when the folder can't be written.
 - **No run to record into.** Started under a Shadowlap command that runs agents but unable to record into its run, it refuses write tools and passes reads through unrecorded.
 - **Nothing pointing at Shadowlap.** It passes tool calls straight through, and says why. [Finding the run](docs/mcp.md#finding-the-run) has the detail.
 
@@ -616,8 +617,8 @@ None of that text starts a line of the job's log either. The runner would read s
 
 - **Loopback only.** It takes only a loopback address, and answers only requests that name that address in `Host` and, from a browser, in `Origin`. So a web page can't reach the server through it.
 - **Any local process can.** Any process on this machine that can reach the port can reach the server through it, with the `--header` values the proxy holds.
-- **Its registration.** It registers its address while it runs, in `~/.shadowlap/mcp`, with a key it keeps. The network guard of the agents Shadowlap commands start lets them reach it: every command's agents when it was started on its own, its own command's alone when started under one.
-- **When a registration counts.** Only when it is read from the home folder, is the user's own, owner-only and not a link, in an owner-only folder, and names the process it is filed under, which is running, at a loopback address.
+- **Its registration.** It registers its address while it runs, in `~/.shadowlap/mcp` (in `SHADOWLAP_HOME` when that is set), with a key it keeps. The network guard of the agents Shadowlap commands start lets them reach it: every command's agents when it was started on its own, its own command's alone when started under one.
+- **When a registration counts.** Only when it is read from that folder, is the user's own, owner-only and not a link, in an owner-only folder, and names the process it is filed under, which is running, at a loopback address.
 - **It proves it runs.** A connection goes on only once what answers at that address proves it holds the registration's key. So one left behind by a proxy that died, even after its process id is reused, or planted, lets nothing through.
 
 ## Telemetry

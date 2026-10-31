@@ -1,10 +1,10 @@
 """The `shadowlap mcp --listen` proxies of this user's, for the network guard (sitecustomize.py).
 
 A proxy records the tool calls it carries, so reaching one bypasses nothing. It registers while it
-runs, in the folder the command that started the agent names (SHADOWLAP_MCP_REGISTRY, the home
-folder's .shadowlap/mcp), and the guard reads the folder when the agent connects, so a proxy started
-after the agent counts too. The CLI writes the files (src/mcp-proxies.ts), and the Node guard reads
-them as this does (node-proxies.mjs).
+runs, in the folder the command that started the agent names (SHADOWLAP_MCP_REGISTRY: mcp in
+Shadowlap's home folder, ~/.shadowlap or SHADOWLAP_HOME), and the guard reads it when the agent
+connects, so a proxy started after the agent counts too. The CLI writes the files
+(src/mcp-proxies.ts), and the Node guard reads them as this does (node-proxies.mjs).
 
 A registration counts only when it is this user's alone, in a folder that is too, names the process
 it is filed under, which runs, and a loopback address, and its proxy records the agent's run or each

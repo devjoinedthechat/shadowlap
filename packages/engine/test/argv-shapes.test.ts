@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { CREDENTIAL_PLACEHOLDER as C, credentialFreeArgv, credentialFreeCommandLine, quoteArgv } from '../src/index.js';
+import { CREDENTIAL_PLACEHOLDER as C, credentialFreeArgv, credentialFreeCommandLine, quoteArgv, sameCommandLine } from '../src/index.js';
 
 /**
  * The shapes the security re-check found a command line's credentials in, which every copy of a run
  * (a pack, an HTML report, a push, a share link, a trace, a dataset) and a fix a push sends must
  * mask: a password after a short option or a user's colon, a body sent with curl, a URL or a JWT an
- * assignment gives, git's extra header, and the scripts programs other than a POSIX shell run. And
- * what masking must leave alone: a command line with no credential stays as it was. Every value is
- * invented.
+ * assignment gives, git's extra header, the scripts programs other than a POSIX shell run, a secret
+ * a tool takes by a word's place, a connection string's password and a string code gives a key. And
+ * what masking must leave alone: a command line with no credential stays as it was, and one an
+ * earlier version masked is the same command. Every value is invented.
  */
 
 const T = 'ghp_FAKEfakeFAKEfake0123456789abcdefABCD';
@@ -84,6 +85,92 @@ describe('a script a program other than a POSIX shell runs', () => {
     const line = `shadowlap verify --fixes x --build 'curl -sH "Authorization: Bearer ${T}" https://ci:${PW}@build.example.com/x' -- node agent.js`;
     expect(credentialFreeCommandLine(line)).toBe(`shadowlap verify --fixes x --build 'curl -sH "Authorization: ${C}" "https://ci:${C}@build.example.com/x"' -- node agent.js`);
     expect(credentialFreeArgv(['', '--build', `export GITHUB_TOKEN=${T} && make`, '--base', 'HEAD~1'])).toEqual(['', '--build', `export GITHUB_TOKEN="${C}" && make`, '--base', 'HEAD~1']);
+  });
+});
+
+describe("a secret a program takes by a word's place", () => {
+  const AWS_SECRET = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
+  const AWS_ID = 'AKIAIOSFODNN7EXAMPLE';
+  const VAULT = 'hvs.EXAMPLEtokenEXAMPLEtoken0123';
+
+  it("masks the value config set gives a credential's name, by its words or its last part, and keeps every other setting", () => {
+    expect(credentialFreeArgv(['aws', 'configure', 'set', 'aws_secret_access_key', AWS_SECRET])).toEqual(['aws', 'configure', 'set', 'aws_secret_access_key', C]);
+    // A flag's value before the command or between it and the name, and a profile's own key.
+    expect(credentialFreeArgv(['aws', '--profile', 'dev', 'configure', 'set', 'profile.dev.aws_session_token', T])).toEqual(['aws', '--profile', 'dev', 'configure', 'set', 'profile.dev.aws_session_token', C]);
+    expect(credentialFreeArgv(['aws', 'configure', 'set', '--profile', 'dev', 'aws_secret_access_key', AWS_SECRET])).toEqual(['aws', 'configure', 'set', '--profile', 'dev', 'aws_secret_access_key', C]);
+    expect(credentialFreeArgv(['npm', 'config', 'set', '//registry.example.com/:_authToken', T])).toEqual(['npm', 'config', 'set', '//registry.example.com/:_authToken', C]);
+    // npm's `_auth` read by the part after its registry's colon, given apart or after `=`.
+    expect(credentialFreeArgv(['npm', 'config', 'set', '//registry.example.com/:_auth', PW])).toEqual(['npm', 'config', 'set', '//registry.example.com/:_auth', C]);
+    expect(credentialFreeArgv(['pnpm', 'config', 'set', `//registry.example.com/:_auth=${PW}`])).toEqual(['pnpm', 'config', 'set', `//registry.example.com/:_auth=${C}`]);
+    expect(credentialFreeArgv(['yarn', 'config', 'set', 'npmAuthToken', T])).toEqual(['yarn', 'config', 'set', 'npmAuthToken', C]);
+    expect(credentialFreeArgv(['kubectl', 'config', 'set', 'users.admin.token', T])).toEqual(['kubectl', 'config', 'set', 'users.admin.token', C]);
+    // An access key's id names the key pair, as a user names a user: kept, its secret masked.
+    for (const argv of [['aws', 'configure', 'set', 'aws_access_key_id', AWS_ID], ['aws', 'configure', 'set', 'region', 'us-east-1'], ['npm', 'config', 'set', 'registry', 'https://registry.example.com/'], ['git', 'config', 'set', 'user.name', 'Shadowlap demo'], ['aws', 'configure', 'get', 'aws_secret_access_key']]) expect(credentialFreeArgv(argv), argv.join(' ')).toBe(argv);
+  });
+
+  it("masks mc's secret key and a user's password, vault's token and unseal key, and every value vault kv put writes", () => {
+    expect(credentialFreeArgv(['mc', 'alias', 'set', 'store', 'https://minio.example.com', AWS_ID, AWS_SECRET])).toEqual(['mc', 'alias', 'set', 'store', 'https://minio.example.com', AWS_ID, C]);
+    // mc's --api and --path take a word of their own, wherever they stand.
+    expect(credentialFreeArgv(['mc', 'alias', 'set', '--api', 'S3v4', 'store', 'https://minio.example.com', AWS_ID, AWS_SECRET, '--path', 'auto'])).toEqual(['mc', 'alias', 'set', '--api', 'S3v4', 'store', 'https://minio.example.com', AWS_ID, C, '--path', 'auto']);
+    expect(credentialFreeArgv(['mc', 'config', 'host', 'add', 'store', 'https://minio.example.com', AWS_ID, AWS_SECRET])).toEqual(['mc', 'config', 'host', 'add', 'store', 'https://minio.example.com', AWS_ID, C]);
+    expect(credentialFreeArgv(['mc', 'admin', 'user', 'add', 'store', 'alice', PW])).toEqual(['mc', 'admin', 'user', 'add', 'store', 'alice', C]);
+    expect(credentialFreeArgv(['vault', 'login', VAULT])).toEqual(['vault', 'login', C]);
+    expect(credentialFreeArgv(['vault', 'login', '-address', 'https://vault.example.com:8200', '-no-print', VAULT])).toEqual(['vault', 'login', '-address', 'https://vault.example.com:8200', '-no-print', C]);
+    expect(credentialFreeArgv(['vault', 'unwrap', VAULT])).toEqual(['vault', 'unwrap', C]);
+    expect(credentialFreeArgv(['vault', 'operator', 'unseal', PW])).toEqual(['vault', 'operator', 'unseal', C]);
+    expect(credentialFreeArgv(['vault', 'kv', 'put', '-mount=secret', 'db', 'user=app', `password=${PW}`, 'region=eu'])).toEqual(['vault', 'kv', 'put', '-mount=secret', 'db', `user=${C}`, `password=${C}`, `region=${C}`]);
+    // A method that signs in with assignments has its password masked by its name, as any assignment's.
+    expect(credentialFreeArgv(['vault', 'login', '-method=userpass', 'username=alice', `password=${PW}`])).toEqual(['vault', 'login', '-method=userpass', 'username=alice', `password=${C}`]);
+    // In a script, the token alone: the next command's words are its own.
+    expect(credentialFreeArgv(['sh', '-c', `vault login ${VAULT} && make deploy`])).toEqual(['sh', '-c', `vault login "${C}" && make deploy`]);
+    for (const argv of [['vault', 'login', '-method', 'github'], ['vault', 'login', '-'], ['vault', 'kv', 'get', '-mount=secret', 'db'], ['vault', 'kv', 'put', 'secret/db', '@data.json'], ['mc', 'alias', 'set', 'store', 'https://minio.example.com'], ['mc', 'ls', 'store/bucket']]) expect(credentialFreeArgv(argv), argv.join(' ')).toBe(argv);
+  });
+
+  it('masks the password az login and twine take after -p, and every literal kubectl create secret makes', () => {
+    expect(credentialFreeArgv(['az', 'login', '--service-principal', '-u', 'app-id', '-p', PW, '--tenant', 'example.onmicrosoft.com'])).toEqual(['az', 'login', '--service-principal', '-u', 'app-id', '-p', C, '--tenant', 'example.onmicrosoft.com']);
+    // As Azure writes one that starts with a dash, and glued; --password as any program's.
+    expect(credentialFreeArgv(['az', 'login', '-u', 'alice@example.com', `-p=-${PW}`])).toEqual(['az', 'login', '-u', 'alice@example.com', `-p${C}`]);
+    expect(credentialFreeArgv(['az', 'acr', 'login', '-n', 'registry', '-u', 'bot', `-p${PW}`])).toEqual(['az', 'acr', 'login', '-n', 'registry', '-u', 'bot', `-p${C}`]);
+    expect(credentialFreeArgv(['az', 'login', '-u', 'alice@example.com', '--password', PW])).toEqual(['az', 'login', '-u', 'alice@example.com', '--password', C]);
+    expect(credentialFreeArgv(['twine', 'upload', '-u', '__token__', '-p', 'pypi-EXAMPLE0123456789', 'dist/*'])).toEqual(['twine', 'upload', '-u', '__token__', '-p', C, 'dist/*']);
+    expect(credentialFreeArgv(['python', '-m', 'twine', 'upload', '-p', 'pypi-EXAMPLE0123456789', 'dist/*'])).toEqual(['python', '-m', 'twine', 'upload', '-p', C, 'dist/*']);
+    expect(credentialFreeArgv(['kubectl', 'create', 'secret', 'generic', 'db', `--from-literal=password=${PW}`, '--from-literal', 'url=postgres://db.example.com/app', '--from-literal=region=eu'])).toEqual(['kubectl', 'create', 'secret', 'generic', 'db', `--from-literal=password=${C}`, '--from-literal', `url=${C}`, `--from-literal=region=${C}`]);
+    expect(credentialFreeArgv(['oc', 'create', 'secret', 'generic', 'db', `--from-literal=key=${PW}`])).toEqual(['oc', 'create', 'secret', 'generic', 'db', `--from-literal=key=${C}`]);
+    // -p is az's parameters file elsewhere; a ConfigMap's literals are no secret.
+    for (const argv of [['az', 'deployment', 'group', 'create', '-g', 'rg', '-f', 'main.bicep', '-p', 'params.json'], ['kubectl', 'create', 'configmap', 'cfg', '--from-literal=region=eu']]) expect(credentialFreeArgv(argv), argv.join(' ')).toBe(argv);
+  });
+
+  it("masks a libpq connection string's password, and --user's password for a program no rule names", () => {
+    expect(credentialFreeArgv(['psql', `host=db.example.com port=5432 user=app password=${PW} dbname=shop`])).toEqual(['psql', `host=db.example.com port=5432 user=app password=${C} dbname=shop`]);
+    // Its spaces around `=`, a quoted value, the key file's password; and in an assignment.
+    expect(credentialFreeArgv(['pg_dump', '-d', "host = db sslpassword = 'pw with spaces' dbname=shop"])).toEqual(['pg_dump', '-d', `host = db sslpassword = ${C} dbname=shop`]);
+    expect(credentialFreeArgv(['env', `PG_DSN=host=db user=app password=${PW}`, 'node', 'agent.js'])).toEqual(['env', `PG_DSN=host=db user=app password=${C}`, 'node', 'agent.js']);
+    expect(credentialFreeArgv(['etcdctl', '--user', `root:${PW}`, 'get', 'config'])).toEqual(['etcdctl', '--user', `root:${C}`, 'get', 'config']);
+    expect(credentialFreeArgv(['agent', `--user=alice@example.com:${PW}`, '--user', 'u:p'])).toEqual(['agent', `--user=alice@example.com:${C}`, '--user', `u:${C}`]);
+    // A user and group, a URL, a drive's path, a user alone and a flag that takes nothing stay.
+    for (const argv of [['psql', 'host=db dbname=shop'], ['docker-compose', 'run', '--user', '1000:1000', 'agent'], ['podman', 'run', '--user', 'app:app', 'img'], ['pip', 'install', '--user', 'git+https://github.com/o/r'], ['pip', 'install', '--user', 'C:\\wheels\\agent.whl'], ['systemctl', '--user', 'start', 'agent'], ['wget', '--user', 'alice', 'https://example.com/x']]) expect(credentialFreeArgv(argv), argv.join(' ')).toBe(argv);
+  });
+
+  it('masks a string a script assigns a credential with spaces around its =, or gives one as a member, in its own quotes', () => {
+    expect(credentialFreeArgv(['python', '-c', `api_key = "${T}"; run()`])).toEqual(['python', '-c', `api_key = "${C}"; run()`]);
+    expect(credentialFreeArgv(['python', '-c', `import openai; openai.api_key = '${T}'; import agent`])).toEqual(['python', '-c', `import openai; openai.api_key = '${C}'; import agent`]);
+    expect(credentialFreeArgv(['python', '-c', `api_key= "${T}"; token ="${T}"`])).toEqual(['python', '-c', `api_key= "${C}"; token ="${C}"`]);
+    expect(credentialFreeArgv(['node', '-e', `const apiKey = '${T}'; main({ apiKey: '${T}', model: 'm' })`])).toEqual(['node', '-e', `const apiKey = '${C}'; main({ apiKey: '${C}', model: 'm' })`]);
+    expect(credentialFreeArgv(['python', '-c', `run({"api_key": "${T}", "model": "m"})`])).toEqual(['python', '-c', `run({"api_key": "${C}", "model": "m"})`]);
+    // Code is kept: what reads a key from elsewhere, a type, a comparison, and a value that isn't a credential's.
+    for (const argv of [['python', '-c', 'import os; api_key = os.environ["OPENAI_API_KEY"]; run(api_key)'], ['python', '-c', 'def run(api_key: str): pass'], ['python', '-c', 'if password == "": run()'], ['python', '-c', 'retries = "3"; run(retries)']]) expect(credentialFreeArgv(argv), argv[2]).toBe(argv);
+  });
+
+  it('reads a command line an earlier version kept these in as the same command, and two commands as two', () => {
+    // As a pack an earlier version wrote it, the secrets these rules read as they ran, the rest masked its way.
+    const ran = ['sh', '-c', `aws configure set aws_secret_access_key ${AWS_SECRET} && mc alias set store https://minio.example.com ${AWS_ID} ${AWS_SECRET} && vault login ${VAULT} && node agent.js --api-key ${T}`];
+    const earlier = ['sh', '-c', `aws configure set aws_secret_access_key ${AWS_SECRET} && mc alias set store https://minio.example.com ${AWS_ID} ${AWS_SECRET} && vault login ${VAULT} && node agent.js --api-key "${C}"`];
+    expect(sameCommandLine(ran, earlier)).toBe(true);
+    expect(sameCommandLine(ran, credentialFreeArgv(ran))).toBe(true);
+    // Masking leaves apart what isn't a secret: another account's address, another secret's name.
+    expect(sameCommandLine(['vault', 'login', '-address', 'https://a.example.com', VAULT], ['vault', 'login', '-address', 'https://b.example.com', VAULT])).toBe(false);
+    expect(sameCommandLine(['kubectl', 'create', 'secret', 'generic', 'db', `--from-literal=password=${PW}`], ['kubectl', 'create', 'secret', 'generic', 'cache', `--from-literal=password=${PW}`])).toBe(false);
+    expect(sameCommandLine(['mc', 'alias', 'set', 'a', 'https://minio.example.com', AWS_ID, AWS_SECRET], ['mc', 'alias', 'set', 'a', 'https://minio.example.com', 'AKIAI44QH8DHBEXAMPLE', AWS_SECRET])).toBe(false);
   });
 });
 

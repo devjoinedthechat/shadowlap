@@ -52,6 +52,29 @@ export function quoteArgv(argv: readonly string[]): string {
     .join(' ');
 }
 
+/** Words wrapped to lines of at most `width` columns (a longer word has a line of its own). */
+export function wrapWords(text: string, width: number): string[] {
+  const lines: string[] = [];
+  let line = '';
+  for (const word of text.split(' ')) {
+    if (line && line.length + 1 + word.length > width) {
+      lines.push(line);
+      line = word;
+    } else line = line ? `${line} ${word}` : word;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+/**
+ * A line of prose after `indent`, fit to a terminal `columns` wide: its words wrapped to lines within
+ * the width, each indented as the first, so the terminal never breaks a word in two. With no
+ * `columns` (a pipe or a file, which wrap nothing), the one line as it is.
+ */
+export function fitLines(indent: string, text: string, columns: number | null | undefined): string[] {
+  return (columns ? wrapWords(text, Math.max(1, columns - indent.length)) : [text]).map((line) => indent + line);
+}
+
 /**
  * A URL path segment decoded, as a provider reads it, or as it was sent when it doesn't decode
  * (`anthropic.claude%ZZ`): a malformed path names what it names as it stands.

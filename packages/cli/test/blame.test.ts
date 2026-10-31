@@ -7,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { decide, Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext, type ScriptResult } from '@shadowlap-testing/mock-anthropic';
 import { unpricedOnly } from '../src/blame.js';
+import { limitHangs, watch } from './hang-limit.js';
 
 /**
  * `shadowlap blame` through the CLI, on a support agent whose run turns on one decision: at its third
@@ -57,6 +58,9 @@ function answer(ctx: ScriptContext): ScriptResult {
   }
 }
 
+// A blame runs dozens of attempts, each an agent of its own: one that hangs is stopped before its test times out.
+limitHangs();
+
 beforeAll(async () => {
   mock = await startMockAnthropic({ script, eventDelayMs: () => 0 });
 });
@@ -74,9 +78,10 @@ beforeEach(() => {
 
 /** `interrupt`: Ctrl-C once what it printed says so; `afterInterrupt` is how long it ran on after that, ms. */
 function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}, o: { interrupt?: (out: string) => boolean } = {}): Promise<{ code: number | null; out: string; stdout: string; afterInterrupt: number | null }> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [CLI, '--db', db, ...args], { cwd: work, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', AGENT_OUTBOX: join(work, 'outbox.jsonl'), ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
+    watch(child, `shadowlap ${args.join(' ')}`, () => out, reject);
     let stdout = '';
     let interruptedAt: number | null = null;
     const interrupt = () => {

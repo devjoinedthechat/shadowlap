@@ -18,13 +18,13 @@ import { startFakeMcpHttpServer, type FakeMcpHttpServer } from './fake-mcp-http-
 
 /**
  * A `shadowlap mcp --listen` records the tool calls of the agents it serves, so their network guard
- * lets them reach it. It registers its address and a key, owner-only, in the home folder while it
- * runs, and the guard of every agent a Shadowlap command starts reads the folder when the agent
- * connects: it lets the connection through, `shadowlap test`'s block included, with no warning that
- * it bypasses Shadowlap, once what answers there proves it holds that key. A proxy started on its own
- * lets every agent through, one started under a command only that command's. A registration that is
- * stale, not this user's alone, anything but a proxy on this machine, or one whose process id another
- * process has lets nothing through.
+ * lets them reach it. It registers its address and a key, owner-only, in Shadowlap's home folder
+ * (`~/.shadowlap`, or SHADOWLAP_HOME) while it runs, and the guard of every agent a Shadowlap command
+ * starts reads the folder when the agent connects: it lets the connection through, `shadowlap test`'s
+ * block included, with no warning that it bypasses Shadowlap, once what answers there proves it holds
+ * that key. A proxy started on its own lets every agent through, one started under a command only
+ * that command's. A registration that is stale, not this user's alone, anything but a proxy on this
+ * machine, or one whose process id another process has lets nothing through.
  */
 
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
@@ -59,7 +59,7 @@ function expectFound(folder: string, queries: Array<[string, string]>, keys: str
 
 describe('the MCP proxies a command lets its agents reach', () => {
   let home: string;
-  const folder = () => join(home, '.shadowlap', 'mcp');
+  const folder = () => join(home, 'mcp');
   beforeEach(() => {
     home = realpathSync(mkdtempSync(join(tmpdir(), 'sl-proxies-')));
   });
@@ -117,8 +117,8 @@ describe('the MCP proxies a command lets its agents reach', () => {
    * The registrations the review crafted that it found refused, each refused by both guards still:
    * every field but the one crafted is a running proxy's, at 127.0.0.1:9001. The ones it found let
    * through are a process that isn't the proxy (no proof answers: below), a hard link to a file of
-   * this user's, a process of another user's (EPERM counts as running), and a `.shadowlap` others can
-   * read, or a link: the folder's own `mcp` is what holds to the rules.
+   * this user's, a process of another user's (EPERM counts as running), and a Shadowlap home folder
+   * (`~/.shadowlap`, or SHADOWLAP_HOME) others can read, or a link: its `mcp` is what holds to the rules.
    */
   it.skipIf(!POSIX)('finds nothing for any registration the review crafted', () => {
     const sleeper = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
@@ -146,12 +146,11 @@ describe('the MCP proxies a command lets its agents reach', () => {
       ['no JSON', (d) => put(d, `${live}.json`, 'nope')],
     ];
     const folders: Case[] = [
-      ['the mcp folder of mode 755', (h) => (mkdirSync(join(h, '.shadowlap', 'mcp'), { recursive: true }), chmodSync(join(h, '.shadowlap', 'mcp'), 0o755), put(join(h, '.shadowlap', 'mcp'), `${live}.json`, body({})))],
+      ['the mcp folder of mode 755', (h) => (mkdirSync(join(h, 'mcp')), chmodSync(join(h, 'mcp'), 0o755), put(join(h, 'mcp'), `${live}.json`, body({})))],
       ['the mcp folder a link to a good one', (h) => {
         mkdirSync(join(h, 'real'), { mode: 0o700 });
         put(join(h, 'real'), `${live}.json`, body({}));
-        mkdirSync(join(h, '.shadowlap'), { mode: 0o700 });
-        symlinkSync(join(h, 'real'), join(h, '.shadowlap', 'mcp'));
+        symlinkSync(join(h, 'real'), join(h, 'mcp'));
       }],
     ];
     try {
@@ -217,7 +216,7 @@ describe("a proxy's address, under the network guard", () => {
   let port: number;
   let home: string;
   const run = promisify(execFile);
-  const folder = () => join(home, '.shadowlap', 'mcp');
+  const folder = () => join(home, 'mcp');
 
   beforeAll(async () => {
     store = Store.open(':memory:');
@@ -325,19 +324,21 @@ console.log(JSON.stringify({ read: read.result.content[0].text, sent: sent.resul
 `;
 
 /**
- * A folder for the commands of a test, with a home folder of its own (HOME, and on Windows
- * USERPROFILE: proxies register there, and every command reads it), a project, and CLIENT in
- * client.mjs; `shadowlap` runs the CLI in the project.
+ * A folder for the commands of a test, with a home folder (HOME, and on Windows USERPROFILE) and a
+ * Shadowlap home folder (SHADOWLAP_HOME, `slhome`: proxies register in its `mcp`, and every command
+ * reads it) of its own, a project, and CLIENT in client.mjs; `shadowlap` runs the CLI in the project.
  */
 function sandbox(prefix: string) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
   const home = join(dir, 'home');
+  const slhome = join(dir, 'slhome');
   const cwd = join(dir, 'project');
   mkdirSync(home);
+  mkdirSync(slhome, { mode: 0o700 });
   mkdirSync(cwd);
   const client = join(dir, 'client.mjs');
   writeFileSync(client, CLIENT);
-  const env = (extra: Record<string, string>) => ({ ...process.env, HOME: home, USERPROFILE: home, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_GUARD: undefined, SHADOWLAP_URL: undefined, SHADOWLAP_RUN_ID: undefined, ...extra });
+  const env = (extra: Record<string, string>) => ({ ...process.env, HOME: home, USERPROFILE: home, SHADOWLAP_HOME: slhome, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_GUARD: undefined, SHADOWLAP_URL: undefined, SHADOWLAP_RUN_ID: undefined, ...extra });
   const shadowlap = (args: string[], extra: Record<string, string> = {}): Promise<{ code: number | null; out: string }> =>
     new Promise((resolve) => {
       const child = spawn(process.execPath, [CLI, '--db', join(cwd, 'store.db'), ...args], { cwd, env: env(extra), stdio: ['ignore', 'pipe', 'pipe'] });
@@ -346,7 +347,7 @@ function sandbox(prefix: string) {
       child.stderr.on('data', (d: Buffer) => (out += d.toString()));
       child.on('exit', (code) => resolve({ code, out }));
     });
-  return { dir, home, cwd, client, env, shadowlap, remove: () => rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }) };
+  return { dir, home, slhome, cwd, client, env, shadowlap, remove: () => rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }) };
 }
 
 /**
@@ -356,7 +357,6 @@ function sandbox(prefix: string) {
 describe('shadowlap mcp --listen started on its own, beside run, pack and test', () => {
   let server: FakeMcpHttpServer;
   let box: ReturnType<typeof sandbox>;
-  let home: string;
   let cwd: string;
   let client: string;
   let proxy: ChildProcess | null = null;
@@ -364,7 +364,7 @@ describe('shadowlap mcp --listen started on its own, beside run, pack and test',
   beforeAll(async () => {
     server = await startFakeMcpHttpServer();
     box = sandbox('sl-listen-guard-');
-    ({ home, cwd, client } = box);
+    ({ cwd, client } = box);
   });
   afterAll(async () => {
     proxy?.kill('SIGKILL');
@@ -387,7 +387,7 @@ describe('shadowlap mcp --listen started on its own, beside run, pack and test',
       });
       started.once('exit', (code) => reject(new Error(`exited ${code}: ${said}`)));
     });
-    expect(readdirSync(join(home, '.shadowlap', 'mcp'))).toEqual([`${started.pid}.json`]);
+    expect(readdirSync(join(box.slhome, 'mcp'))).toEqual([`${started.pid}.json`]);
 
     const rec = await shadowlap(['run', '--', process.execPath, client, endpoint]);
     expect(rec.code, rec.out).toBe(0);
@@ -410,7 +410,7 @@ describe('shadowlap mcp --listen started on its own, beside run, pack and test',
     started.kill('SIGTERM');
     expect(await code).toBe(143);
     proxy = null;
-    expect(readdirSync(join(home, '.shadowlap', 'mcp'))).toEqual([]);
+    expect(readdirSync(join(box.slhome, 'mcp'))).toEqual([]);
   }, 120_000);
 });
 
@@ -475,7 +475,7 @@ try {
     expect(test.out).not.toMatch(/outbound connection|bypassed Shadowlap|blocked/);
     expect(server.calls).toHaveLength(2);
     // Each proxy, stopped, took its registration with it.
-    expect(readdirSync(join(box.home, '.shadowlap', 'mcp'))).toEqual([]);
+    expect(readdirSync(join(box.slhome, 'mcp'))).toEqual([]);
   }, 120_000);
 });
 
@@ -499,7 +499,7 @@ describe('a registration whose process id another process has', () => {
     await new Promise<void>((r) => target.listen(0, '127.0.0.1', r));
     sleeper = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)'], { stdio: 'ignore' });
     // Complete in every field a proxy writes, its process running: only what holds the port, and the id, are another's.
-    const folder = join(box.home, '.shadowlap', 'mcp');
+    const folder = join(box.slhome, 'mcp');
     mkdirSync(folder, { recursive: true, mode: 0o700 });
     writeFileSync(join(folder, `${sleeper.pid}.json`), `${JSON.stringify({ v: 1, pid: sleeper.pid, host: '127.0.0.1', port: (target.address() as AddressInfo).port, key: 'a1'.repeat(16), run: null })}\n`, { mode: 0o600 });
     writeFileSync(join(box.cwd, 'agent.mjs'), `try { console.log(await (await fetch(process.env.TARGET)).text()); } catch (err) { console.log(String(err.cause?.code ?? err)); }\n`);

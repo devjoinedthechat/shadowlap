@@ -1,5 +1,5 @@
 import { createElement, Fragment, useEffect } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Changes, Client, Meta, RunListItem } from '../ui/api.js';
 import { AppProvider, RUNS_WARMING_MS, useApp, useAppSelector } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
@@ -13,10 +13,16 @@ import { render, type Rendered } from './ui-render.js';
  */
 
 let r: Rendered | null = null;
+// The shell's polls and its next look at the run list come on fake timers: seconds of them pass as
+// the test moves its clock (r.wait), at once, where the tests waited them out for real.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+});
 afterEach(async () => {
   await r?.unmount();
   r = null;
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 const META = { version: '0.1.0', dbPath: null, actions: true, readOnly: false, readOnlyReason: null, address: '127.0.0.1:4777', storeBytes: null, counts: { runs: 1, attempts: 0 }, live: [], jobKinds: [], uploadLimit: null, project: null } as unknown as Meta;

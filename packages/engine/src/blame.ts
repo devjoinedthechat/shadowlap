@@ -5,7 +5,7 @@ import { KEPT_MAX, decidePairedAround, pairedWorstCase, type BaselineRule, type 
 import { formatUsd } from './prices.js';
 import { atLeast, atMost, attemptsToPass, BLAME_DEFAULTS, confidenceSequence, countOdds, gateOdds, rateBound, riskPercent, type GateDecision, type GateResult, type SprtGate } from './stats.js';
 import type { Palette } from './report.js';
-import { plain } from './report.js';
+import { dimLines, plain } from './report.js';
 import { safeLine } from './text.js';
 import type { UnrecordedTool } from './unrecorded-tools.js';
 
@@ -782,7 +782,8 @@ export function confidenceWhy(r: Pick<BlameReport, 'outcome' | 'probes' | 'nonMo
   return `<= ${share(r.errorBound)} risk that ${what} is wrong: ${claims.length} probe${claims.length === 1 ? '' : 's'} decided${each}${checked}${rose}`;
 }
 
-export function formatBlame(r: BlameReport, p: Palette = plain): string {
+/** The report as the CLI prints it, its dim lines of prose fit to a terminal `columns` wide; whole with none, for a pipe or a file. */
+export function formatBlame(r: BlameReport, p: Palette = plain, columns?: number | null): string {
   const lines: string[] = [];
   const call = (x: { callNo: number }) => `#${x.callNo}`;
   const where = (x: BlameProbe) => `model call ${call(x)} (${x.step} of ${r.steps})`;
@@ -858,8 +859,9 @@ export function formatBlame(r: BlameReport, p: Palette = plain): string {
   const judged = r.judge ? ` · judge checks: ${r.judge.upstreamRequests} upstream request${r.judge.upstreamRequests === 1 ? '' : 's'}, ≈${formatUsd(r.judge.spent)}` : '';
   // Attempts the provider was unavailable for ran and were paid for, but never counted.
   const down = r.unavailable ? ` (and ${r.unavailable} the provider was unavailable for, not counted)` : '';
-  lines.push('', p.dim(`  ${attempts} attempt${attempts === 1 ? '' : 's'}${down} · ${r.upstreamRequests} upstream requests · ≈${formatUsd(r.spent)} spent${unpriced}${judged} · every call before a probe replayed from the recording`));
-  lines.push(p.dim(`  oracle: ${r.oracle.map(safeLine).join('; ')}`));
+  lines.push('', ...dimLines(p, '  ', `${attempts} attempt${attempts === 1 ? '' : 's'}${down} · ${r.upstreamRequests} upstream requests · ≈${formatUsd(r.spent)} spent${unpriced}${judged} · every call before a probe replayed from the recording`, columns));
+  lines.push(...dimLines(p, '  ', `oracle: ${r.oracle.map(safeLine).join('; ')}`, columns));
+  // The commands to run next stay on one line each, as they are copied.
   if (r.contrast) lines.push(p.dim(`  rescued fork: shadowlap diff ${short(r.runId)} ${short(r.contrast.rescuedRunId)}    shadowlap ui ${short(r.contrast.rescuedRunId)} --call ${r.contrast.callNo}`));
   else if (r.outcome === 'unrescuable' && r.sameAnswer) lines.push(p.dim(`  an attempt that passed: shadowlap diff ${short(r.runId)} ${short(r.sameAnswer.runId)}    shadowlap ui ${short(r.sameAnswer.runId)} --call ${r.sameAnswer.callNo}`));
   return lines.join('\n');

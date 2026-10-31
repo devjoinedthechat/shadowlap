@@ -15,7 +15,7 @@ Each job below, done without Shadowlap and with it:
 | Fix a prompt the agent keeps misreading | Edit it by hand, rerun, repeat | `shadowlap repair`: a model you choose proposes rewrites, and the smallest one `verify` accepts comes back as a patch with its evidence |
 | Know a fix works before it ships | Rerun the failing case once and hope | `shadowlap verify`: the failing runs fixed, runs it was not written against too, and the good runs kept, several attempts each |
 | Fix a harness bug (parsing, dispatch, state, stop condition) | Re-run live; the model may behave differently this time | Full replay against the recorded model behavior; the bug reproduces every time |
-| Verify a fix that changes later requests | Re-run everything live, side effects included | Unchanged prefix replays; only the changed suffix runs live; writes are blocked |
+| Verify a fix that changes later requests | Re-run everything live, side effects included | Unchanged prefix replays; only the changed suffix runs live; writes are blocked or stubbed |
 | Ask "what if call 9 had returned X?" | Hand-edit code and re-run | `--override 9=@x.json`, and only the calls after it run live |
 | Catch unintended prompt changes in CI | String snapshot tests | `shadowlap test` fails the build on the first changed request |
 | Know what a prompt edit or a model switch decides differently | Run every golden live and read the transcripts | `shadowlap decisions`: each recorded model call asked again with only the change, ranked by consequence, writes first; `shadowlap migrate` for a model switch, verified and priced |

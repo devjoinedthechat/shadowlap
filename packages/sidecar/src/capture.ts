@@ -102,14 +102,16 @@ async function routeHttpCall(core: SidecarCore, req: IncomingMessage, res: Serve
     throw err;
   }
   if (client.gone) return null;
-  // A long body is stored on a thread of its own (BodyThreads): the agent can leave meanwhile.
-  // A secret's names are kept, or masked, as the run's rule says (RunContext.secretNames).
-  const body = await core.bodies.request(rawBody, req.headers['content-type'], ctx.secretNames);
-  if (client.gone) return null;
   // Stored and matched without the credentials in its address: a webhook's secret in its path, its query's (credentialFreeUrl).
   const [path, query] = withSecretNames(ctx.secretNames, () => [maskPathCredentials(subpath), withoutCredentials(search)] as const);
+  const name = `${method} ${origin.host}${path}`;
+  // A long body is stored on a thread of its own (BodyThreads): the agent can leave meanwhile.
+  // A secret's names are kept, or masked, as the run's rule says (RunContext.secretNames); a secret
+  // a write to a secret store sends, by the call's name (credentialFreeBody).
+  const body = await core.bodies.request(rawBody, req.headers['content-type'], ctx.secretNames, name);
+  if (client.gone) return null;
   const args = { method, url: `${origin.origin}${path}${query}`, ...body };
-  return { ctx, req, res, client, scope, host: origin.host, effect: rule.effect, method, rawBody, name: `${method} ${origin.host}${path}`, url: `${origin.origin}${subpath}${search}`, search, args };
+  return { ctx, req, res, client, scope, host: origin.host, effect: rule.effect, method, rawBody, name, url: `${origin.origin}${subpath}${search}`, search, args };
 }
 
 /**

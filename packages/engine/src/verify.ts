@@ -4,7 +4,7 @@ import { baselineShort, describeBaselineRule, dropBound, type BaselineDecision, 
 import { formatUsd } from './prices.js';
 import { atLeast, atMost, decideCountUnavailable, decideUnavailable, describeGate, rateBound, riskPercent, type GateDecision, type GateResult, type SprtGate } from './stats.js';
 import type { Palette } from './report.js';
-import { plain } from './report.js';
+import { dimLines, plain } from './report.js';
 import { safeLine } from './text.js';
 import type { CallRecord } from './types.js';
 import { unavailableStop } from './unavailable.js';
@@ -357,7 +357,8 @@ export function eachRun(v: Pick<VerifyReport, 'needed' | 'attemptsPerRun' | 'gat
   return `each failing run ${gate}, and each good one against ${v.kept.source === 'history' ? "its golden's history" : 'its baseline'}, which ${baselineShort(v.kept)}`;
 }
 
-export function formatVerify(r: VerifyReport, p: Palette = plain): string {
+/** The report as the CLI prints it, its dim lines fit to a terminal `columns` wide; whole with none, for a pipe or a file. */
+export function formatVerify(r: VerifyReport, p: Palette = plain, columns?: number | null): string {
   const lines: string[] = [];
   const count = (role: VerifyRole) => {
     const of = r.runs.filter((x) => x.role === role);
@@ -379,7 +380,7 @@ export function formatVerify(r: VerifyReport, p: Palette = plain): string {
   // What the change failed in red; a run it could not settle, inconclusive or not settled, in amber.
   for (const reason of r.reasons) lines.push(`  ${unsettledReason(reason) ? p.yellow('·') : p.red('·')} ${safeLine(reason)}`);
 
-  lines.push('', p.dim(`  ${verifyRule(r)}`));
+  lines.push('', ...dimLines(p, '  ', verifyRule(r), columns));
 
   if (r.runs.length) {
     lines.push('');
@@ -405,13 +406,13 @@ export function formatVerify(r: VerifyReport, p: Palette = plain): string {
   if (d) {
     const input = `${tokens(d.recorded.inputTokens)} → ${tokens(d.now.inputTokens)} input tokens (${pct(d.recorded.inputTokens, d.now.inputTokens)})`;
     const cost = d.recorded.cost !== null && d.now.cost !== null ? ` · ≈${formatUsd(d.recorded.cost)} → ≈${formatUsd(d.now.cost)} (${pct(d.recorded.cost, d.now.cost)})` : '';
-    lines.push(p.dim(`  per run, as it would run live: ${input}${cost}`));
+    lines.push(...dimLines(p, '  ', `per run, as it would run live: ${input}${cost}`, columns));
   }
   const unpriced = r.unknownModels.length ? ` (no price for ${r.unknownModels.map(safeLine).join(', ')})` : '';
   const judged = r.judge ? ` · judge checks: ${r.judge.upstreamRequests} upstream request${r.judge.upstreamRequests === 1 ? '' : 's'}, ≈${formatUsd(r.judge.spent)}` : '';
   // Attempts the provider was unavailable for ran and were paid for, but never counted; those it cut short were.
   const down = r.unavailable ? ` (and ${r.unavailable} the provider was unavailable for, not counted)` : '';
   const cut = r.cutShort ? `, ${r.cutShort} cut short by the provider` : '';
-  lines.push(p.dim(`  verifying: ${r.attempts} attempt${r.attempts === 1 ? '' : 's'}${cut}${down} · ${r.upstreamRequests} upstream requests · ≈${formatUsd(r.spent)} spent${unpriced}${judged}${r.codeVersion ? ` · code ${safeLine(r.codeVersion)}` : ''}`));
+  lines.push(...dimLines(p, '  ', `verifying: ${r.attempts} attempt${r.attempts === 1 ? '' : 's'}${cut}${down} · ${r.upstreamRequests} upstream requests · ≈${formatUsd(r.spent)} spent${unpriced}${judged}${r.codeVersion ? ` · code ${safeLine(r.codeVersion)}` : ''}`, columns));
   return lines.join('\n');
 }

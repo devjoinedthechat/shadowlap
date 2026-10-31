@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
 import { InvalidArgumentError } from 'commander';
-import { describeGate, formatRepair, messageOf, SPRT_DEFAULTS, type ReadPolicy, type RepairReport, type RunRecord, type StoredFix, type VerdictStanding } from '@shadowlap/engine';
+import { describeGate, dimLines, formatRepair, messageOf, SPRT_DEFAULTS, type ReadPolicy, type RepairReport, type RunRecord, type StoredFix, type VerdictStanding } from '@shadowlap/engine';
 import { fixHref } from '@shadowlap/dashboard';
 import { formatAttemptsUnrecorded } from '../attempt-unrecorded.js';
 import { formatBudget, undecidableRefusal } from '../attempts.js';
@@ -15,7 +15,7 @@ import { runRepair } from '../repair-run.js';
 import { parseRepairer, type Repairer } from '../repairer.js';
 import type { GuardMode } from '../run-agent.js';
 import { readStore, type GlobalOpts } from '../shared.js';
-import { palette as p, shortId } from '../ui.js';
+import { columnsOf, palette as p, shortId } from '../ui.js';
 import { allowedUnrecorded, refuseUnrecorded } from '../unrecorded.js';
 import { attemptRule, parseFields, readExpectJson, selectRuns, targetsOf } from './fix-flags.js';
 import { fixLine, keptFixes, standingWords, stoppedStatus, verifyAttempts, verifyJson } from './fix-report.js';
@@ -59,7 +59,7 @@ export interface RepairFlags {
 }
 
 /** What a repair was asked, read: how verify decides, the checks, the repairer as given and as read. */
-interface RepairRequest {
+export interface RepairRequest {
   rule: ReturnType<typeof attemptRule>;
   expect: ReturnType<typeof readExpectJson> | null;
   config: ReturnType<typeof loadConfig>;
@@ -135,14 +135,26 @@ function chooseRuns(opts: GlobalOpts, flags: RepairFlags): { fixes: RunRecord[];
   return { fixes, holdout, keeps };
 }
 
+/**
+ * What the repair will do, said before it starts: the runs it repairs, holds out and keeps, then who
+ * proposes the candidates, the gate and the writes, in a dim line fit to a terminal `columns` wide
+ * (null: a pipe or a file).
+ */
+export function repairPlan({ rule, repairer }: Pick<RepairRequest, 'rule' | 'repairer'>, runs: { targets: readonly unknown[]; held: readonly unknown[]; good: readonly unknown[]; heldOutAutomatically: boolean }, flags: Pick<RepairFlags, 'writes' | 'budget'>, columns: number | null): string[] {
+  const { targets, held, good, heldOutAutomatically } = runs;
+  return [
+    `${p.yellow('⑂')} Repairing ${targets.length} failing run${targets.length === 1 ? '' : 's'}${held.length ? `, with ${held.length} held out from the repairer${heldOutAutomatically ? ' (every other one)' : ''}` : ''}${good.length ? `, keeping ${good.length} good run${good.length === 1 ? '' : 's'}` : ''}`,
+    ...dimLines(p, '  ', `repairer: ${repairer ? (repairer.model ? `${repairer.provider}:${repairer.model}` : `${repairer.provider}, with its own default model`) : 'none (--repairer)'} · the gate: ${rule.gate ? describeGate(rule.gate) : `${rule.needed} of ${rule.attempts} attempts per run`} · writes ${flags.writes === 'stub' ? 'stubbed' : 'blocked'}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}`, columns),
+  ];
+}
+
 /** The repair and its hand-over, said before it starts, then reported; a repair refused before anything ran ends with 2. */
 async function repairTargets(opts: GlobalOpts, request: RepairRequest, runs: { targets: Target[]; held: Target[]; good: Target[]; heldOutAutomatically: boolean }, command: string[], flags: RepairFlags): Promise<void> {
   const { rule, expect, config, repairer } = request;
   const { targets, held, good, heldOutAutomatically } = runs;
   const progress = progressLog(process.stderr, !opts.verbose);
   const log = progress.log;
-  log(`${p.yellow('⑂')} Repairing ${targets.length} failing run${targets.length === 1 ? '' : 's'}${held.length ? `, with ${held.length} held out from the repairer${heldOutAutomatically ? ' (every other one)' : ''}` : ''}${good.length ? `, keeping ${good.length} good run${good.length === 1 ? '' : 's'}` : ''}`);
-  log(p.dim(`  repairer: ${repairer ? (repairer.model ? `${repairer.provider}:${repairer.model}` : `${repairer.provider}, with its own default model`) : 'none (--repairer)'} · the gate: ${rule.gate ? describeGate(rule.gate) : `${rule.needed} of ${rule.attempts} attempts per run`} · writes ${flags.writes === 'stub' ? 'stubbed' : 'blocked'}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}`));
+  for (const line of repairPlan(request, runs, flags, columnsOf(process.stderr))) log(line);
 
   const settings = { attempts: rule.attempts, needed: rule.needed, gate: rule.gate, concurrency: flags.concurrency, candidates: flags.candidates, stronger: flags.stronger ?? null, scope: flags.scope ?? null, rescueFields: parseFields(flags.set, undefined), maxGrowth: flags.maxGrowth, build: flags.build ?? null, repairer: repairer ?? { provider: 'anthropic' as const, model: '' }, spec: expect?.spec ?? null, expect: expect?.json ?? null, writes: flags.writes, reads: flags.reads, liveTools: [], budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard, allowUnrecorded: [...allowedUnrecorded(flags.allowUnrecorded)] };
   const outputs = { apply: !!flags.apply, branch: flags.branch ?? null, pr: !!flags.pr, goldens: flags.goldens ?? null };
@@ -209,7 +221,7 @@ function reportRepair(opts: GlobalOpts, report: RepairReport, handOverFailed: Ha
   else {
     // Open still, with the candidates it tried, or with none when no repairer proposed any (the report says why).
     const what = (f: StoredFix, standing: VerdictStanding | null) => (!kept!.repair.accepted ? (report.candidates.length ? 'still open, with the candidates tried' : 'still open') : standing ? standingWords('accepted', standing, f.status) : f.status);
-    process.stdout.write('\n' + formatRepair(report, p) + '\n' + (kept?.fixes ?? []).map(({ fix: f, standing }) => fixLine(f, what(f, standing))).join(''));
+    process.stdout.write('\n' + formatRepair(report, p, columnsOf(process.stdout)) + '\n' + (kept?.fixes ?? []).map(({ fix: f, standing }) => fixLine(f, what(f, standing))).join(''));
     if (handOverFailed) process.stderr.write(`\n${p.red('✗')} ${handOverFailed.message}\n`);
   }
   // Each candidate's verify: what its attempts ran that nothing recorded (the blame's attempts named theirs as they ran).

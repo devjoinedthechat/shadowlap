@@ -13,6 +13,7 @@ import { isLoopbackHost } from '../src/loopback.js';
  * the run of the agent Shadowlap started: one file per agent, named by its process id.
  */
 const posix = process.platform !== 'win32';
+/** Shadowlap's home folder, as the registry takes it (`~/.shadowlap`, or SHADOWLAP_HOME): the test's own. */
 let home: string;
 let project: string;
 const children: ChildProcessWithoutNullStreams[] = [];
@@ -70,20 +71,20 @@ const tree = (agentParent = process.pid): ProcessInfo[] => [
 ];
 
 describe('the agent registry', () => {
-  it('writes an owner-only file per agent under the home folder, and removes it when asked', () => {
+  it("writes an owner-only file per agent in Shadowlap's home folder, and removes it when asked", () => {
     const { file, unregister } = registerAgent(4242, { url: 'http://127.0.0.1:5000/t/abc', runId: '01RUN' }, { cwd: project, home });
-    expect(file).toBe(join(home, '.shadowlap', 'agents', '4242.json'));
+    expect(file).toBe(join(home, 'agents', '4242.json'));
     expect(JSON.parse(readFileSync(file!, 'utf8'))).toEqual({ v: 1, pid: 4242, parent: process.pid, url: 'http://127.0.0.1:5000/t/abc', runId: '01RUN' });
     if (posix) {
       expect(statSync(file!).mode & 0o777).toBe(0o600);
-      expect(statSync(join(home, '.shadowlap', 'agents')).mode & 0o777).toBe(0o700);
+      expect(statSync(join(home, 'agents')).mode & 0o777).toBe(0o700);
     }
     unregister();
     expect(existsSync(file!)).toBe(false);
   });
 
-  it("falls back to the project's folder when the home folder can't be used, and prunes files of agents that are gone", () => {
-    writeFileSync(join(home, '.shadowlap'), 'not a folder');
+  it("falls back to the project's folder when Shadowlap's home folder can't be used, and prunes files of agents that are gone", () => {
+    writeFileSync(join(home, 'agents'), 'not a folder');
     const dead = join(project, '.shadowlap', 'agents', `${2 ** 22 - 7}.json`);
     mkdirSync(join(project, '.shadowlap', 'agents'), { recursive: true, mode: 0o700 });
     writeFileSync(dead, '{}', { mode: 0o600 });
@@ -102,15 +103,15 @@ describe('the agent registry', () => {
     expect(JSON.parse(readFileSync(second.file!, 'utf8'))).toMatchObject({ runId: '01SECOND' });
     second.unregister();
     // Neither file, nor the folder's lock, is left.
-    expect(readdirSync(join(home, '.shadowlap', 'agents'))).toEqual([]);
+    expect(readdirSync(join(home, 'agents'))).toEqual([]);
   });
 
   it('never prunes a file written after it found the one there left over', async () => {
     // An agent's process ended and its file was left. No process has its id, as above: past macOS's
     // ids, at the very top of Linux's, and no multiple of four, as Windows's are.
     const gone = 2 ** 22 - 7;
-    const left = join(home, '.shadowlap', 'agents', `${gone}.json`);
-    mkdirSync(join(home, '.shadowlap', 'agents'), { recursive: true, mode: 0o700 });
+    const left = join(home, 'agents', `${gone}.json`);
+    mkdirSync(join(home, 'agents'), { recursive: true, mode: 0o700 });
     writeFileSync(left, '{}', { mode: 0o600 });
     // A command registers an agent, and stops right before it removes the file it has just judged left over.
     const pruning = start(`
@@ -147,7 +148,7 @@ describe('the agent registry', () => {
 
   it('finds the nearest registered ancestor, and checks that it is the one Shadowlap started', () => {
     registerAgent(4242, { url: 'http://127.0.0.1:5000/t/abc', runId: '01RUN' }, { cwd: project, home });
-    const dirs = [{ dir: join(home, '.shadowlap', 'agents'), strict: true }];
+    const dirs = [{ dir: join(home, 'agents'), strict: true }];
     expect(findRegistration(tree(), dirs)).toEqual({ kind: 'sidecar', target: { url: 'http://127.0.0.1:5000/t/abc', runId: '01RUN' }, from: join(dirs[0].dir, '4242.json') });
     // A process id reused by a process another one started: the file is stale.
     const skipped: string[] = [];
@@ -156,7 +157,7 @@ describe('the agent registry', () => {
   });
 
   it('distrusts a file that is not owner-only, is a link, or points away from this machine', () => {
-    const dir = join(home, '.shadowlap', 'agents');
+    const dir = join(home, 'agents');
     const strict = [{ dir, strict: true }];
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const file = join(dir, '4242.json');
@@ -214,7 +215,7 @@ describe('the agent registry', () => {
     registerAgent(process.ppid, { url: 'http://127.0.0.1:5000/t/abc', runId: '01PARENT' }, { cwd: project, home });
     expect(parentRegistration({ cwd: project, home })).toMatchObject({ kind: 'sidecar', target: { runId: '01PARENT' } });
     // A file left by a CLI that was killed: its writer is gone, so the file is stale even where the parent can't be compared.
-    const file = join(home, '.shadowlap', 'agents', `${process.ppid}.json`);
+    const file = join(home, 'agents', `${process.ppid}.json`);
     rmSync(file);
     writeFileSync(file, JSON.stringify({ v: 1, pid: process.ppid, parent: 2 ** 22 - 7, url: 'http://127.0.0.1:5000/t/abc', runId: '01STALE' }), { mode: 0o600 });
     const skipped: string[] = [];
@@ -225,7 +226,7 @@ describe('the agent registry', () => {
   it('looks for the parent first on Windows, where the process tree takes PowerShell', async () => {
     registerAgent(process.ppid, { url: 'http://127.0.0.1:5000/t/abc', runId: '01WIN' }, { cwd: project, home });
     const found = await findSidecar({}, project, () => {}, { agentCommands: commands, home, platform: 'win32', waitMs: 0 });
-    expect(found).toEqual({ kind: 'sidecar', target: { url: 'http://127.0.0.1:5000/t/abc', runId: '01WIN' }, from: join(home, '.shadowlap', 'agents', `${process.ppid}.json`) });
+    expect(found).toEqual({ kind: 'sidecar', target: { url: 'http://127.0.0.1:5000/t/abc', runId: '01WIN' }, from: join(home, 'agents', `${process.ppid}.json`) });
   });
 
   it('lists processes on Windows without a cmdlet, so PowerShell never reads its modules to find one', () => {

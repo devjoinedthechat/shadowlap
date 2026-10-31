@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { blameSpan, confidenceWhy, decidePin, describeBlocks, describeRescue, formatBlame, maxProbes, notTheAnswer, pinRisk, pinRule, pinWords, probeBound, probeFinding, probeGate, probeRisk, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedHead, unrescuedWhy, unsettledFirst, type BlameProbe, type BlameReport, type PinCheck } from '../src/blame.js';
 import { addPair, NO_PAIRS, pairedOdds, pairedWorstCase } from '../src/noninferiority.js';
+import { plain } from '../src/report.js';
 import { BLAME_DEFAULTS, decide, gateResult, type SprtGate } from '../src/stats.js';
 
 /**
@@ -265,6 +266,19 @@ describe('formatBlame', () => {
     // In the report, under the rule, broken where it would pass 80 columns.
     const text = formatBlame(base({ blamed: probe(3, 1, 3, 3, true), probes: [probe(3, 1, 3, 3, true)], rescue: { fields } }));
     expect(text).toContain('\n          resample from the probed call on with\n          model=claude-opus-5-5, temperature=1)\n');
+  });
+
+  it('wraps its dim lines at whole words to a terminal’s width, each line indented as the first, and leaves each whole for a pipe', () => {
+    const [b, c] = [probe(11, 3, 2, 2, true), probe(15, 4, 0, 4, false)];
+    const r = base({ blamed: b, lost: c, probes: [b, c], attempts: 87, upstreamRequests: 236, spent: 0.42, judge: { spent: 0.01, upstreamRequests: 4 }, unknownModels: ['scripted-model'], oracle: ['the agent exits 0', 'issue_refund with {"amount":240} called 0 times', 'judge "escalated" answers yes'] });
+    const whole = formatBlame(r);
+    const fit = formatBlame(r, plain, 80);
+    const words = (text: string) => text.split(/\s+/).filter(Boolean);
+    expect(words(fit)).toEqual(words(whole));
+    const wrapped = fit.split('\n').filter((l) => !whole.split('\n').includes(l));
+    // What finding out took, and the oracle, each over two lines or more.
+    expect(wrapped.length).toBeGreaterThanOrEqual(4);
+    for (const l of wrapped) expect(l.length <= 80 && /^ {2}\S/.test(l), l).toBe(true);
   });
 });
 

@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer as createHttpServer, type Server } from 'node:http';
 import { createServer } from 'node:net';
@@ -11,6 +11,7 @@ import { message, startMockAnthropic, text, toolUse, type ScriptContext, type Mo
 import { branchName, branchNote, cannotPush, fixSummary, forkPullRequest, goldenNote, groupFixes, otherOnBranch, planFixes, pushFix, pushLine, refreshGoldens, repairArgs, repairPlan, runFixes } from '../../../action/fix.mjs';
 import type { ReportResult } from '../../../action/types.mjs';
 import { startFakeS3 } from '../../remote/test/fakes/s3.js';
+import { limitHangs, runNode } from './hang-limit.js';
 
 /**
  * Fix on failure in the GitHub Action, run as action.yml runs it, on the support agent in a git
@@ -92,15 +93,8 @@ function script(ctx: ScriptContext) {
 const sh = (cwd: string, cmd: string, args: string[]) => execFileSync(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
 const env = () => ({ ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, ANTHROPIC_BASE_URL: mock.url, ANTHROPIC_API_KEY: 'test-key', SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', PATH: `${bin}${delimiter}${process.env.PATH}` });
 
-function run(cmd: string[], extra: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string }> {
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, cmd, { cwd: project, env: { ...env(), ...extra }, stdio: ['ignore', 'pipe', 'pipe'] });
-    let out = '';
-    child.stdout.on('data', (d: Buffer) => (out += d.toString()));
-    child.stderr.on('data', (d: Buffer) => (out += d.toString()));
-    child.on('exit', (code) => resolve({ code, out }));
-  });
-}
+/** Runs the action or the CLI in a process group of its own: one that hangs is stopped with the CLI the action runs and the agents that runs. */
+const run = (cmd: string[], extra: NodeJS.ProcessEnv = {}) => runNode(cmd, { cwd: project, env: { ...env(), ...extra }, group: true });
 
 async function action(inputs: Record<string, string>, extraEnv: NodeJS.ProcessEnv = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'sl-cifix-'));
@@ -140,6 +134,9 @@ async function action(inputs: Record<string, string>, extraEnv: NodeJS.ProcessEn
   rmSync(dir, { recursive: true, force: true });
   return result;
 }
+
+// A fix on failure runs the CLI, and it the agent, dozens of times: a command that hangs is stopped before its test times out.
+limitHangs();
 
 beforeAll(async () => {
   mock = await startMockAnthropic({ script, eventDelayMs: () => 0 });
