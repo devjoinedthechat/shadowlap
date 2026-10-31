@@ -117,7 +117,7 @@ Each command's section says which statuses it ends with. The statuses are:
 where it happened, and report it.
 
 **`128 + n`, a stop signal**: `130` for Ctrl-C, `129` for a closed terminal (SIGHUP), `143` for
-SIGTERM. That holds however the command wound down, for the dashboard, `serve`, `tasks serve`,
+SIGTERM. That holds however the command wound down, for the dashboard, `ui`, `serve`, `tasks serve`,
 `mcp`, `demo` and `replay --watch` too. It holds for a signal that came during its last work too, such as
 repair removing its worktree after its last verify. A signal in the last moment before the process
 exits, a few milliseconds, may find it already ending with its own status.
