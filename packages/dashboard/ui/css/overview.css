@@ -89,11 +89,14 @@ a.kcell:hover { background: var(--hover); }
 .gs i { border-radius: 2px; }
 .gs i.rep, .segbar i.rep, .oleg i.rep { background: var(--o-rep); }
 .gs i.live, .segbar i.live, .oleg i.live { background: var(--o-live); }
-.gs i.block, .segbar i.block, .oleg i.block { background: var(--o-block); }
+.gs i.block { background: var(--o-block-fill); }
+.segbar i.block, .oleg i.block { background: var(--o-block-fill); box-shadow: inset 0 0 0 1px var(--o-block); }
 .gs i.stub, .segbar i.stub, .oleg i.stub { background: var(--o-stub); }
 .gs i.over, .segbar i.over, .oleg i.over { background: var(--o-over); }
 .gs i.inject, .segbar i.inject, .oleg i.inject { background: var(--o-inject); }
-.gs i.fail, .segbar i.fail, .oleg i.fail { background: var(--o-fail); }
+.gs i.fail, .segbar i.fail, .oleg i.fail { background: var(--o-fail-fill); }
+/* the prompt cache's reads are its quiet part, as the Context view draws them: never the replayed colour */
+.ovc .segbar i.rep { background: var(--c-read); }
 .gs i.pend { background: var(--line); }
 .gs i.fk { box-shadow: 0 0 0 1.5px var(--warn); }
 .ovside { display: flex; flex-direction: column; gap: 16px; min-width: 0; }

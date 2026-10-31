@@ -75,7 +75,7 @@ dl.found dd small { color: var(--faint); font-size: 11.5px; margin-left: 4px; }
 .cmdin:focus-within { border-color: var(--accent-line); }
 .cmdin input:disabled { color: var(--faint); }
 .recline { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; }
-.recline .ic { width: 9px; height: 9px; border-radius: 50%; background: var(--o-rep); }
+.recline .ic { width: 9px; height: 9px; border-radius: 50%; background: var(--cq-lime); }
 .recline .btn { margin-left: auto; }
 .setupdone { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-left: 50px; padding: 16px 20px; border-radius: 14px; background: color-mix(in srgb, var(--lime) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-line) 45%, transparent); }
 .setupdone div { flex: 1; min-width: 0; }

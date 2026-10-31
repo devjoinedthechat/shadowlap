@@ -44,7 +44,9 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .glyph.live i { width: 8px; height: 8px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lime) 22%, transparent); animation: pulse 1.6s ease-in-out infinite; }
 .glyph.live.done i { animation: none; box-shadow: none; }
 .glyph.rec, .glyph.test, .glyph.project, .glyph.setting { color: var(--dim); }
-.glyph.clean, .glyph.fixok { color: var(--accent); }
+/* a clean replay's glyph in the replayed colour; an accepted fix's in passed's lime */
+.glyph.clean { color: var(--o-rep); }
+.glyph.fixok { color: var(--cq-lime); }
 .glyph.fork, .glyph.blame { color: var(--warn); }
 .glyph.cap { color: var(--o-over); }
 .glyph.fail, .glyph.fixbad { color: var(--err); }
@@ -113,12 +115,12 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .k { font: 500 10px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
 .org { display: inline-flex; align-items: center; gap: 6px; font: 12px var(--mono); white-space: nowrap; }
 .org i { width: 8px; height: 8px; border-radius: 2px; flex: none; }
-.org.rep { color: var(--accent); }
+.org.rep { color: var(--o-rep); }
 .org.rep i { background: var(--o-rep); }
 .org.live { color: var(--ink); }
 .org.live i { background: var(--o-live); }
-.org.block { color: var(--err); }
-.org.block i { background: var(--o-block); }
+.org.block { color: var(--o-block); }
+.org.block i { background: var(--o-block-fill); box-shadow: inset 0 0 0 1px var(--o-block); }
 .org.stub { color: var(--o-stub); }
 .org.stub i { background: var(--o-stub); }
 .org.over { color: var(--o-over); }
@@ -130,8 +132,9 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .eff.input { color: var(--accent); }
 .eff.extra { color: var(--dim); }
 .pips { display: inline-flex; gap: 3px; vertical-align: middle; }
-.pips i { width: 9px; height: 9px; border-radius: 3px; background: var(--o-rep); }
-.pips i.no { background: var(--o-block); }
+/* an attempt passed or failed: a verdict, in the consequence colours, never a call's origin */
+.pips i { width: 9px; height: 9px; border-radius: 3px; background: var(--cq-lime); }
+.pips i.no { background: var(--cq-red); }
 /* An attempt that could not be judged: neither passed nor failed. */
 .pips i.unsure, .legend i.lg.unsure { background: var(--cq-amber); }
 
@@ -173,13 +176,13 @@ table.t .num.lime { color: var(--accent); }
 .ms i { border-radius: 1px; background: var(--line2); }
 .ms i.rep { background: var(--o-rep); }
 .ms i.live { background: var(--o-live); }
-.ms i.block { background: var(--o-block); }
+.ms i.block { background: var(--o-block-fill); }
 .ms i.stub { background: var(--o-stub); }
 .st { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; white-space: nowrap; }
 .st i { width: 7px; height: 7px; border-radius: 50%; }
 /* only a failure colours its words; a healthy outcome keeps a lime dot beside plain text */
 .st.ok { color: var(--dim); }
-.st.ok i { background: var(--o-rep); }
+.st.ok i { background: var(--cq-lime); }
 .st.err { color: var(--err); }
 .st.err i { background: var(--err); }
 .st.warn { color: var(--cq-amber); }
@@ -280,7 +283,7 @@ table.t .num.lime { color: var(--accent); }
 
 .ms i.over { background: var(--o-over); }
 .ms i.inject { background: var(--o-inject); }
-.ms i.fail { background: var(--o-fail); }
+.ms i.fail { background: var(--o-fail-fill); }
 
 .org.inject { color: var(--o-over); }
 .org.inject i { background: transparent; box-shadow: inset 0 0 0 1.5px var(--o-over); }
@@ -290,9 +293,16 @@ table.t .num.lime { color: var(--accent); }
 .legend i.lg.live { background: var(--o-live); }
 .legend i.lg.over { background: var(--o-over); }
 .legend i.lg.inject { background: var(--o-inject); }
-.legend i.lg.fail { background: var(--o-fail); }
-.legend i.lg.block { background: var(--o-block); }
+.legend i.lg.fail { background: var(--o-fail-fill); box-shadow: inset 0 0 0 1.5px var(--o-fail); }
+.legend i.lg.block { background: var(--o-block-fill); box-shadow: inset 0 0 0 1px var(--o-block); }
 .legend i.lg.stub { background: var(--o-stub); }
+/* A blocked mark that may be narrower than the hatch can draw (a mini strip's cells, a binned range, the Overview's
+   grid on a phone, a share of a bar, a timeline bar) is the hatch's tone as a solid under 6px; a failed one is its tint
+   ringed in the one red from 6px, the tint alone below. */
+:is(.ms i, .gs i, .segbar i):is(.block, .fail) { position: relative; }
+:is(.cells button, .ms i, .gs i, .segbar i, .tl-row .bar):is(.block, .fail) { container-type: inline-size; }
+@container (max-width: 5.99px) { :is(.cells button, .ms i, .gs i, .segbar i, .tl-row .bar).block::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--o-block-solid); } }
+@container (min-width: 6px) { :is(.cells button, .ms i, .gs i, .segbar i, .tl-row .bar).fail::before { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1.5px var(--o-fail); } }
 
 .muted { color: var(--faint); font-size: 12.5px; }
 p.muted { margin: 0 0 12px; }
@@ -374,7 +384,7 @@ code, pre, kbd, .mono, .kbd, .codebox, .cmdline { font-variant-ligatures: none; 
 
 .verdict.warn { background: color-mix(in srgb, var(--warn) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 35%, transparent); }
 
-.pips i.part { background: var(--o-stub); }
+.pips i.part { background: var(--cq-amber); }
 
 @media (max-width: 640px) {
   .verdict.warn { flex-wrap: wrap; }
@@ -383,10 +393,10 @@ code, pre, kbd, .mono, .kbd, .codebox, .cmdline { font-variant-ligatures: none; 
 .verdict p code { white-space: nowrap; }
 /* Authors: avatars and names, the tag on a run kept local, a person's button in the top bar, and lists with a check per item */
 .av { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; flex: none; color: var(--ink); font: 600 10.5px/1 var(--body); }
-.av.t1 { background: color-mix(in srgb, var(--lime) 42%, var(--raise)); }
-.av.t2 { background: color-mix(in srgb, #86ad12 34%, var(--raise)); }
-.av.t3 { background: color-mix(in srgb, #f2c94c 32%, var(--raise)); }
-.av.t4 { background: color-mix(in srgb, #8fb8ff 30%, var(--raise)); }
+.av.t1 { background: color-mix(in srgb, var(--av1) 34%, var(--raise)); }
+.av.t2 { background: color-mix(in srgb, var(--av2) 34%, var(--raise)); }
+.av.t3 { background: color-mix(in srgb, var(--av3) 32%, var(--raise)); }
+.av.t4 { background: color-mix(in srgb, var(--av4) 30%, var(--raise)); }
 .av.bot { background: var(--raise); box-shadow: inset 0 0 0 1px var(--line2); color: var(--dim); font: 600 8px/1 var(--mono); letter-spacing: .02em; }
 .person { display: inline-flex; align-items: center; gap: 9px; vertical-align: middle; min-width: 0; }
 .person .pn { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }

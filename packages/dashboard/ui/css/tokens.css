@@ -37,25 +37,43 @@
      5.8:1 on the page and every overlay, 5.5 on a field, 5.2 under the pointer, 5.0 on a chosen option and 4.9 on a selected
      row, still well under --dim's 8:1, so the three levels read as three. Opacity never dims text. */
   --ink: #eeede6; --dim: #a8a699; --faint: #8e8c79;
+  /* Each signal colour has one job. Lime is the primary action and passed, nothing else: where you are (the current page,
+     tab, step, row) is ink, a live run's dot is the live colour, and the keyboard's focus ring and a focused field are the
+     one place lime marks no meaning. */
   --accent: #c4f233; --accent-line: #c4f233;
-  --o-rep: #c4f233; --o-live: #e4e3da; --o-block: #ff6b5e; --o-stub: #f2c94c; --o-over: #b99cff;
+  /* Where a call's answer came from. Replayed is the logo's second colour, quieter than lime, so what a run did reads before
+     what it saved; live the live colour; stubbed a quiet steel blue, 20 or more apart (delta E) from every other origin
+     colour under each kind of colour blindness; overridden violet. A write Shadowlap blocked is Shadowlap working, so it is
+     neutral and fenced: a hatch in --o-block wherever it is a cell, a bar or a swatch (--o-block-fill), the word in --o-block;
+     a mark too narrow for the hatch (under 6px) draws its tone as a solid. A fork is drawn in ink. */
+  --o-rep: var(--shadow); --o-live: #e4e3da; --o-block: var(--dim); --o-stub: #6fa3c7; --o-over: #b99cff;
+  --o-block-fill: repeating-linear-gradient(135deg, var(--o-block) 0 1.5px, transparent 1.5px 4.5px);
+  --o-block-solid: color-mix(in srgb, var(--ink) 29%, var(--bg)); /* #4d4d49 */
   --warn: #f2c94c; --err: #ff6b5e; --ok: #c4f233;
   /* Consequence colours, for verdicts and what changed, kept apart from the origin colours above, which say where a call's
-     answer came from: red only for failed or blocked, amber only for needs a look or inconclusive, muted for not applicable,
-     lime for passed. A run's own strip never uses them. */
+     answer came from: red when something failed or changed for real (a failed check, a lost run, a write that changed),
+     amber only for what needs a look or is inconclusive, muted for the same or not applicable, lime for passed. A run's own
+     strip never uses them. */
   --cq-red: var(--err); --cq-amber: var(--warn); --cq-muted: var(--faint); --cq-lime: var(--ok);
   /* The muted colour as a cell's fill, where a row of cells at full --cq-muted would be loud and a read's colour lost: a
      cell that decided as recorded (the decision matrix and its key, Compare's identical prefix, an attempt strip's quiet
      cells); a swatch or a word stays --cq-muted. */
   --cq-muted-fill: color-mix(in srgb, var(--ink) 21%, var(--bg)); /* #3b3b37 */
-  /* What a call was, apart from both: a write in teal, never the failure red; an error in magenta. Checked for separation
-     from the origin and consequence colours, under protanopia and deuteranopia too. */
-  --k-model: var(--o-live); --k-read: color-mix(in srgb, var(--o-live) 40%, var(--panel)); --k-write: #2dd4bf; --k-err: #e030c0;
-  --code: var(--bg2); --del: #ff8a80; --add: #c4f233;
-  --c-read: #779c10; --c-write: #3987e5; --c-unc: #c98500; --c-out: #9085e9; --c-spent: var(--o-live); --c-saved: var(--o-rep);
+  /* What a call was, apart from both: a write a deeper teal, never the failure red; an error the one red. Checked for
+     separation from the origin and consequence colours, under protanopia and deuteranopia too. */
+  --k-model: var(--o-live); --k-read: color-mix(in srgb, var(--o-live) 40%, var(--panel)); --k-write: #13ad9c; --k-err: var(--err);
+  /* A diff's added text is ink on a faint ink ground, what it removes the one red; a link inside a preview of another
+     product (a Slack message, a pull request) keeps that product's blue. */
+  --code: var(--bg2); --del: var(--err); --add: var(--ink); --add-bg: color-mix(in srgb, var(--ink) 9%, transparent); --x-link: #4ea6ff;
+  /* The charts. A prompt's cache reads are its quiet part, a neutral: the replayed colour means a replayed call and nothing
+     else, save "not re-spent" in the spend chart, which a replay saved. */
+  --c-read: color-mix(in srgb, var(--ink) 40%, var(--panel)); --c-write: #3987e5; --c-unc: #c98500; --c-out: #9085e9; --c-spent: var(--o-live); --c-saved: var(--o-rep);
+  /* The avatars: stone, sage, sand and slate, never a signal colour. */
+  --av1: #c9c6b8; --av2: #9db29a; --av3: #c8b28a; --av4: #8fb8ff;
   --shadow-pop: 0 24px 60px -20px rgba(0,0,0,.75), 0 0 0 1px var(--pop-edge);
   color-scheme: dark;
 }
 
-/* the seven origins: injected and failed are drawn as the real dashboard draws them */
-:root { --o-inject: color-mix(in srgb, var(--o-over) 55%, transparent); --o-fail: color-mix(in srgb, var(--o-block) 55%, transparent); }
+/* The seven origins: injected is overridden at 55%; a failed call is the one red as a ring around its own tint (--o-fail-fill,
+   the red at 55%), so under deuteranopia it doesn't read as one more replayed call; a mark under 6px is the tint alone. */
+:root { --o-inject: color-mix(in srgb, var(--o-over) 55%, transparent); --o-fail: var(--err); --o-fail-fill: color-mix(in srgb, var(--o-fail) 55%, transparent); }

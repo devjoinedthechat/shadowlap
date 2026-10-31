@@ -32,7 +32,8 @@
 .mcard .mn { display: block; font: 500 13px var(--mono); }
 .mcard .ovbig { margin-top: 12px; }
 .sbar { display: block; height: 6px; margin: 10px 0 8px; border-radius: 3px; background: var(--bg2); overflow: hidden; }
-.sbar i { display: block; height: 100%; border-radius: 3px; background: var(--o-rep); }
+/* a score's bar is neutral: a score is no verdict */
+.sbar i { display: block; height: 100%; border-radius: 3px; background: var(--dim); }
 
 table.score th.mh { font: 500 12px var(--mono); letter-spacing: 0; text-transform: none; color: var(--dim); }
 table.score th.mh small { display: block; margin-top: 2px; font: 11px var(--mono); color: var(--faint); }

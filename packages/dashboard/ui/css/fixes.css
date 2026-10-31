@@ -12,8 +12,8 @@
 .callrow .nr { height: 18px; display: flex; align-items: center; }
 .callrow .cn { width: 9px; height: 9px; border-radius: 50%; background: var(--line2); }
 .callrow .m .cn { width: 15px; height: 15px; border: 2px solid var(--dim); background: var(--panel); }
-.callrow .ok .cn { border-color: var(--o-rep); }
-.callrow .lost .cn { border-color: var(--o-block); }
+.callrow .ok .cn { border-color: var(--cq-lime); }
+.callrow .lost .cn { border-color: var(--cq-red); }
 /* the blamed call in ink with a halo: amber means only that a probe couldn't decide */
 .callrow .hot .cn { border-color: var(--ink); background: var(--ink); box-shadow: 0 0 0 5px color-mix(in srgb, var(--ink) 16%, transparent); }
 .callrow .cl { font: 11px var(--mono); color: var(--faint); }
@@ -23,8 +23,8 @@
 .callrow .unsure .pl { color: var(--cq-amber); }
 .callrow .ok .pl { color: var(--accent); }
 .ans { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
-.ans div { border-top: 2px solid var(--o-block); padding-top: 10px; }
-.ans div.good { border-top-color: var(--o-rep); }
+.ans div { border-top: 2px solid var(--cq-red); padding-top: 10px; }
+.ans div.good { border-top-color: var(--cq-lime); }
 .ans code { display: block; margin-top: 6px; font-size: 12.5px; line-height: 1.6; color: var(--del); overflow-wrap: anywhere; }
 .ans .good code { color: var(--add); }
 table.probes td, table.probes th { padding: 10px 12px; }
@@ -37,7 +37,7 @@ table.probes tr.hot td { background: var(--sel); }
 .deltas span.n { display: block; margin-top: 8px; font: 12px var(--mono); color: var(--faint); }
 .pdiff .was { margin: 0; font-size: 15px; line-height: 1.6; color: var(--faint); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--err) 60%, transparent); }
 .pdiff .now { margin: 8px 0 0; font-size: 17px; line-height: 1.6; }
-.pdiff mark { color: inherit; background: color-mix(in srgb, var(--lime) 30%, transparent); padding: 0 3px; border-radius: 4px; }
+.pdiff mark { color: inherit; background: color-mix(in srgb, var(--ink) 16%, transparent); padding: 0 3px; border-radius: 4px; }
 .cands { display: grid; gap: 0; }
 .cand { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 12px 18px; border-top: 1px solid var(--line); }
 .cand:first-child { border-top: 0; }
@@ -73,7 +73,8 @@ table.probes tr.hot td { background: var(--sel); }
 .psteps span + span::before { content: ""; width: 14px; height: 1px; background: var(--line2); margin-right: 2px; }
 .psteps i { width: 8px; height: 8px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line2); }
 .psteps .done { color: var(--dim); }
-.psteps .done i { background: var(--o-rep); box-shadow: none; }
+/* a finished step is done, not a verdict: a filled grey dot */
+.psteps .done i { background: var(--dim); box-shadow: none; }
 .psteps .no { color: var(--err); }
 .psteps .no i { background: var(--err); box-shadow: none; }
 .psteps .warn { color: var(--cq-amber); }
@@ -94,7 +95,7 @@ table.probes tr.hot td { background: var(--sel); }
 .stepper a + a { padding-left: 18px; border-left: 1px solid var(--line); }
 .stepper .k { display: flex; align-items: center; gap: 8px; font: 500 10.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
 .stepper .k i { width: 9px; height: 9px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line2); }
-.stepper .done .k i { background: var(--o-rep); box-shadow: none; }
+.stepper .done .k i { background: var(--dim); box-shadow: none; }
 .stepper .no .k i { background: var(--err); box-shadow: none; }
 .stepper .warn .k i { background: var(--cq-amber); box-shadow: none; }
 .stepper b { display: block; margin-top: 8px; font: 600 15px/1.3 var(--disp); letter-spacing: -.02em; color: var(--ink); }

@@ -20,7 +20,8 @@
 .metrics { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 26px; padding: 10px 24px 12px; border-top: 1px solid var(--line); }
 .metric { display: flex; align-items: baseline; gap: 7px; white-space: nowrap; min-width: 0; max-width: 100%; }
 .metric b { font: 700 17px/1 var(--disp); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
-.metric b.lime { color: var(--accent); }
+/* the run's replayed calls, a figure in the replayed colour (metrics.ts names it lime) */
+.metric b.lime { color: var(--o-rep); }
 .metric b.q { font-size: 15px; color: var(--dim); }
 .metric span { font-size: 12px; color: var(--faint); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .banner { display: flex; align-items: center; gap: 12px; padding: 9px 24px; border-top: 1px solid var(--line); font-size: 13px; flex-wrap: wrap; }
@@ -90,7 +91,7 @@
 .diffpanel { border-top: 1px solid var(--line); padding: 14px 24px 16px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; background: var(--bg2); }
 .diffpanel h4 { margin: 0 0 8px; font: 500 10.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
 .diffpanel pre { margin: 0; padding: 12px 14px; border-radius: 10px; background: var(--code); border: 1px solid var(--line); font: 12px/1.7 var(--mono); color: var(--dim); overflow-x: auto; }
-.diffpanel .add { color: var(--add); background: color-mix(in srgb, var(--lime) 10%, transparent); display: block; margin: 0 -14px; padding: 0 14px; }
+.diffpanel .add { color: var(--add); background: var(--add-bg); display: block; margin: 0 -14px; padding: 0 14px; }
 .diffpanel .val { display: block; }
 
 /* Where the two requests stack, a value too long for its pane wraps in it, after a comma where it can,
@@ -106,7 +107,7 @@
 .cells button { position: relative; height: 22px; padding: 0; border: 0; border-radius: 3px; cursor: pointer; background: var(--line2); }
 .cells button.rep { background: var(--o-rep); }
 .cells button.live { background: var(--o-live); }
-.cells button.block { background: var(--o-block); }
+.cells button.block { background: var(--o-block-fill); box-shadow: inset 0 0 0 1px var(--o-block); }
 .cells button.stub { background: var(--o-stub); }
 .cells button.over { background: var(--o-over); }
 .cells button.pending { background: transparent; cursor: default; visibility: hidden; }
@@ -225,7 +226,7 @@ table.ctab tr.miss td { color: var(--warn); }
 .tl-row .bar { position: absolute; top: 6px; height: 10px; border-radius: 3px; min-width: 3px; }
 .tl-row .bar.rep { background: var(--o-rep); }
 .tl-row .bar.live { background: var(--o-live); }
-.tl-row .bar.block { background: var(--o-block); }
+.tl-row .bar.block { background: var(--o-block-fill); box-shadow: inset 0 0 0 1px var(--o-block); }
 .tl-row .bar.stub { background: var(--o-stub); }
 .tl-row .ft { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--bg); }
 .tl-sum .ftkey { display: inline-block; width: 16px; height: 8px; margin-right: 6px; vertical-align: 0; border-radius: 2px; background: linear-gradient(90deg, var(--dim) 0 6px, var(--bg) 6px 8px, var(--dim) 8px); }
@@ -244,8 +245,8 @@ table.ctab tr.miss td { color: var(--warn); }
 .fkids { margin-left: 22px; padding-left: 12px; border-left: 1px solid var(--line2); }
 .attempts { margin-top: 8px; display: grid; gap: 3px; }
 .attempts span { display: flex; align-items: center; gap: 8px; font: 12px var(--mono); color: var(--dim); }
-.attempts span i { width: 7px; height: 7px; border-radius: 2px; background: var(--o-rep); }
-.attempts span i.no { background: var(--o-block); }
+.attempts span i { width: 7px; height: 7px; border-radius: 2px; background: var(--cq-lime); }
+.attempts span i.no { background: var(--cq-red); }
 .checks { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; font: 12px var(--mono); color: var(--ok); }
 /* inspector */
 .insp { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
@@ -277,7 +278,7 @@ table.ctab tr.miss td { color: var(--warn); }
 .jbox { margin-top: 6px; padding: 8px 10px; border-radius: 8px; background: var(--code); border: 1px solid var(--line); font: 12px/1.6 var(--mono); color: var(--dim); white-space: pre-wrap; word-break: break-word; }
 .msg.changed { background: color-mix(in srgb, var(--warn) 6%, transparent); margin: 0 -18px; padding-left: 18px; padding-right: 18px; box-shadow: inset 3px 0 0 var(--warn); }
 .msg .chg { display: inline-block; margin-top: 6px; font: 500 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--warn); }
-.ins-add { color: var(--add); background: color-mix(in srgb, var(--lime) 14%, transparent); border-radius: 3px; padding: 0 2px; }
+.ins-add { color: var(--add); background: var(--add-bg); border-radius: 3px; padding: 0 2px; }
 
 .resp { font-size: 14px; line-height: 1.65; white-space: pre-wrap; }
 .caret-blink { display: inline-block; width: 7px; height: 1.05em; vertical-align: -2px; background: var(--ink); animation: blink 1s steps(2) infinite; }
@@ -331,11 +332,11 @@ table.ctab tr.miss td { color: var(--warn); }
 }
 
 .cells button.inject { background: var(--o-inject); }
-.cells button.fail { background: var(--o-fail); }
+.cells button.fail { background: var(--o-fail-fill); }
 
 .tl-row .bar.over { background: var(--o-over); }
 .tl-row .bar.inject { background: var(--o-inject); }
-.tl-row .bar.fail { background: var(--o-fail); }
+.tl-row .bar.fail { background: var(--o-fail-fill); }
 
 table.calls .det.err { color: var(--err); }
 .metric b.err { color: var(--err); }
@@ -512,8 +513,8 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 
 .attempts a { display: flex; align-items: center; gap: 8px; min-height: 24px; font: 12px var(--mono); color: var(--dim); text-decoration: none; white-space: nowrap; }
 .attempts a:hover { color: var(--ink); }
-.attempts a i { flex: none; width: 7px; height: 7px; border-radius: 2px; background: var(--o-rep); }
-.attempts a i.no { background: var(--o-block); }
+.attempts a i { flex: none; width: 7px; height: 7px; border-radius: 2px; background: var(--cq-lime); }
+.attempts a i.no { background: var(--cq-red); }
 /* an attempt's line ends in an ellipsis rather than past its panel; the whole line is on hover */
 .attempts > a, .attempts > span { min-width: 0; }
 .attempts > span > i { flex: none; }

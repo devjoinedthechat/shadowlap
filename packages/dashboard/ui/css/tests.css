@@ -6,20 +6,20 @@ th.hist, td.hist { width: 1%; white-space: nowrap; }
 th.hist span { display: inline-block; width: 52px; text-align: center; font: 10px var(--mono); letter-spacing: 0; text-transform: none; }
 td.hist i { display: inline-block; width: 52px; height: 12px; position: relative; }
 td.hist i::before { content: ""; position: absolute; left: 50%; top: 50%; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; border-radius: 50%; }
-td.hist i.pass::before { background: var(--o-rep); }
+td.hist i.pass::before { background: var(--cq-lime); }
 td.hist i.fail::before { background: var(--err); }
 td.hist i.inc::before { background: var(--cq-amber); }
 td.hist i.none::before { width: 10px; height: 2px; margin: -1px 0 0 -5px; border-radius: 1px; background: var(--line2); }
 pre.report { margin: 0; padding: 14px 16px; border-radius: 10px; background: var(--bg2); border: 1px solid var(--line); font: 12px/1.6 var(--mono); color: var(--dim); white-space: pre-wrap; overflow-x: auto; }
 pre.report .no, pre.report .del { color: var(--err); }
-pre.report .add { color: var(--accent); }
+pre.report .add { color: var(--add); }
 
 @media (max-width: 640px) {
   .tscroll table.gt { min-width: 0; }
 }
 
 /* Goldens and bisect. An updated golden's history cell gets a ring. */
-td.hist i.upd::after { content: ""; position: absolute; left: 50%; top: 50%; width: 17px; height: 17px; margin: -8.5px 0 0 -8.5px; border-radius: 50%; box-shadow: 0 0 0 1.5px var(--o-rep); }
+td.hist i.upd::after { content: ""; position: absolute; left: 50%; top: 50%; width: 17px; height: 17px; margin: -8.5px 0 0 -8.5px; border-radius: 50%; box-shadow: 0 0 0 1.5px var(--ink); }
 
 .bisect { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 13px; }
 .bisect .k { font: 500 10.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
