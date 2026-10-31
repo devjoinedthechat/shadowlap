@@ -1,5 +1,6 @@
 import { useSyncExternalStore, type ReactNode } from 'react';
-import { ConsentDialog } from '../components/Dialog.js';
+import { CmdLine } from '../components/bits.js';
+import { Dialog } from '../components/Dialog.js';
 import { useApp } from '../state.js';
 import { answerTestsQuestion, onTestsQuestion, testsQuestion } from '../tests-ask.js';
 import { useTestsWait } from './tree.js';
@@ -24,11 +25,18 @@ export function TestsJobButton({ verb, off, title, className, onClick, children 
  * The question a Tests job waits on before it runs anything live (tests-ask.ts), wherever it was
  * started: Tests' buttons, a test replay's banner, the palette. The server's words name the goldens
  * that go live and why, the commands the job runs follow, and only its button sends the yes. It
- * opens on Cancel, as every such question does. The shell draws it once, over every page.
+ * opens on that button, as the other asks before a job that bills do (Repair from here, Update
+ * golden, Find the commit): Cancel takes the focus first only where a dialog deletes or stops
+ * something, or runs a command someone else recorded (ConsentDialog). The shell draws it once, over
+ * every page.
  */
 export function TestsAskHost() {
   const app = useApp();
   const q = useSyncExternalStore(onTestsQuestion, testsQuestion);
   if (!q) return null;
-  return <ConsentDialog title={q.title} why={q.why} commands={q.commands ?? []} ok={q.ok} onOk={() => answerTestsQuestion(app, true)} onClose={() => answerTestsQuestion(app, false)} />;
+  return (
+    <Dialog title={q.title} text={`${q.why}.`} ok={q.ok} onOk={() => answerTestsQuestion(app, true)} onClose={() => answerTestsQuestion(app, false)}>
+      {q.commands?.length ? q.commands.map((c, i) => <CmdLine key={`${i}:${c}`}>{c}</CmdLine>) : null}
+    </Dialog>
+  );
 }

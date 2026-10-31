@@ -15,9 +15,10 @@ import { render, type FakeElement, type Rendered } from './ui-render.js';
 /**
  * A Tests job that would run goldens live asks first, wherever it starts. The server answers it with
  * a 409 naming the goldens that go live and why, and the confirm that says yes to it; the shell's
- * dialog then shows those words, the commands the job runs, and the button, opening on Cancel. Only
- * that button sends the job again, with the confirm as its yes. A session that only replays starts on
- * the click. Rendered as the shell renders the dialog, beside the page that started the job.
+ * dialog then shows those words, the commands the job runs, and the button, opening on it as the
+ * other asks before a job that bills do. Only that button sends the job again, with the confirm as
+ * its yes. A session that only replays starts on the click. Rendered as the shell renders the
+ * dialog, beside the page that started the job.
  */
 
 const T0 = Date.UTC(2026, 9, 20, 10, 0);
@@ -132,8 +133,9 @@ describe('a Tests job that would run goldens live', () => {
     await page.click(page.byText('button', 'Run tests'));
     await page.until('the question', () => dialog(page) !== null);
     expect(said(dialog(page)!)).toEqual({ title: 'Run tests', text: `${WORDS}.`, commands: ['$shadowlap test goldens/*'], ok: 'Run tests' });
-    // It opens on Cancel: an Enter pressed once too often runs nothing.
-    expect(page.focused()).toBe(page.one('.dialog .dlg-cancel'));
+    // It opens on its button, as the other asks before a job that bills do: Cancel takes the focus
+    // first only in a dialog that deletes, or runs a command someone else recorded.
+    expect(page.focused()).toBe(page.one('.dialog .dlg-ok'));
     expect(watched).toEqual([]);
     await page.click(page.one('.dialog .dlg-ok'));
     await page.until('the job', () => watched.length === 1);
@@ -151,8 +153,7 @@ describe('a Tests job that would run goldens live', () => {
     const page = await tests(app(sent, watched));
     await page.click(page.byText('button', 'Run tests'));
     await page.until('the question', () => dialog(page) !== null);
-    // Enter on the focused button, Cancel, clicks it, as a browser does.
-    await page.click(page.focused());
+    await page.click(page.one('.dialog .dlg-cancel'));
     expect(dialog(page)).toBeNull();
     expect(testsQuestion()).toBeNull();
     expect(watched).toEqual([]);

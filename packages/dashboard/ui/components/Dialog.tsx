@@ -246,15 +246,9 @@ export function ConfirmDialog({ title, text, ok, danger = false, command, onOk, 
 /**
  * The yes a job waits for before it runs the command of a run from someone else's pack or the team
  * store (`consentAsked`): where it came from, the server's words naming the command, and the action.
- * A job that names its own question, a Tests job that would run goldens live (tests-ask.ts), gives
- * its `title`, and the `commands` it runs under the server's words. It opens on Cancel, as it comes
- * up after a click or an Enter of its own: an Enter pressed once too often never runs someone else's
- * command, nor spends anything.
+ * It opens on Cancel, as it comes up after a click or an Enter of its own: an Enter pressed once too
+ * often never runs someone else's command.
  */
-export function ConsentDialog({ why, ok, title, commands, onOk, onClose }: { why: string; ok: string; title?: string; commands?: readonly string[]; onOk: () => void; onClose: () => void }) {
-  return (
-    <Dialog title={title ?? consentTitle(why)} text={`${why}.`} ok={ok} initialFocus="cancel" onOk={onOk} onClose={onClose}>
-      {commands?.length ? commands.map((c, i) => <CmdLine key={`${i}:${c}`}>{c}</CmdLine>) : null}
-    </Dialog>
-  );
+export function ConsentDialog({ why, ok, onOk, onClose }: { why: string; ok: string; onOk: () => void; onClose: () => void }) {
+  return <Dialog title={consentTitle(why)} text={`${why}.`} ok={ok} initialFocus="cancel" onOk={onOk} onClose={onClose} />;
 }
