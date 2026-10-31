@@ -115,7 +115,9 @@ export function writeSpending(askAbove: Spending, o: UserSettingsOptions = {}): 
     if (typeof raw.version === 'number' && raw.version > USER_SETTINGS_VERSION) throw new UserSettingsError(`${file} was written by a newer Shadowlap: update this one to change its settings`);
     const was = spendingOf(raw, file).askAbove;
     const spending = isObject(raw.spending) ? raw.spending : {};
-    writeFileAtomic(file, `${JSON.stringify({ ...raw, version: USER_SETTINGS_VERSION, spending: { ...spending, askAbove } }, null, 2)}\n`);
-    return { askAbove, set: true, file, problems: homeProblems(o), was };
+    // Whole cents as written: 0.1 + 0.2 is kept as 0.3.
+    const cents = askAbove === null ? null : Math.round(askAbove * 100) / 100;
+    writeFileAtomic(file, `${JSON.stringify({ ...raw, version: USER_SETTINGS_VERSION, spending: { ...spending, askAbove: cents } }, null, 2)}\n`);
+    return { askAbove: cents, set: true, file, problems: homeProblems(o), was };
   });
 }

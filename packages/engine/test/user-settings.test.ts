@@ -40,6 +40,9 @@ describe('Spending, kept in this machine’s settings', () => {
     expect(writeSpending(0, o).was).toBeNull();
     expect(readSpending(o).askAbove).toBe(0);
     expect(JSON.parse(readFileSync(join(own, 'settings.json'), 'utf8'))).toEqual({ version: 1, spending: { askAbove: 0 } });
+    // Kept in whole cents, as a sum that floating point holds a hair off.
+    expect(writeSpending(0.1 + 0.2, o).askAbove).toBe(0.3);
+    expect(readSpending(o).askAbove).toBe(0.3);
     if (process.platform !== 'win32') expect(statSync(join(own, 'settings.json')).mode & 0o777).toBe(0o600);
   });
 
