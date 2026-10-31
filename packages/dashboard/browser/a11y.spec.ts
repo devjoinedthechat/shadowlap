@@ -324,3 +324,30 @@ test('the Request tab’s fold marks are 24 px tall at least, as WCAG 2.5.8 asks
   expect(heights.length).toBeGreaterThan(0);
   for (const h of heights) expect(h).toBeGreaterThanOrEqual(24);
 });
+
+test('on a phone no label is under 11px, an avatar’s initials aside', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const small: string[] = [];
+  const pages: Array<[string, string]> = [
+    ['/', 'main#view .ovg'],
+    ['/runs', 'main#view table.runst tbody tr'],
+    [`/run/${demoId('override')}`, 'run'],
+    [`/fixes/${demoId('refundFix')}/blame`, 'fix'],
+    ['/tests', 'main#view table.gt'],
+  ];
+  for (const [path, drawn] of pages) {
+    await openPage(page, path, drawn);
+    const found = await page.evaluate((where) => {
+      const out: string[] = [];
+      for (const el of document.querySelectorAll<HTMLElement>('body *')) {
+        const s = getComputedStyle(el);
+        if (el.closest('.av, .sr') || s.visibility === 'hidden' || !el.getClientRects().length) continue;
+        const text = [...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && n.textContent?.trim());
+        if (text && parseFloat(s.fontSize) < 11) out.push(`${where}: ${el.tagName.toLowerCase()}.${String(el.className).trim().split(/\s+/).join('.')} “${el.textContent?.trim().slice(0, 30)}” at ${s.fontSize}`);
+      }
+      return out;
+    }, path);
+    small.push(...found);
+  }
+  expect(small).toEqual([]);
+});

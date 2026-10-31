@@ -1,5 +1,6 @@
-/* Tokens: the fonts, and every colour the pages draw with, each with its one job beside it. Dark only. Chart colours
-   were run through the palette validator (lightness band, chroma, colour-blind separation) for each surface. */
+/* Tokens: the fonts, and every colour, size, radius and space the pages draw with, each with its one job beside it. Dark
+   only. Chart colours were run through the palette validator (lightness band, chroma, colour-blind separation) for each
+   surface. */
 /* Fonts are bundled (latin subsets from Fontsource, SIL Open Font License, texts beside them): the page
    loads nothing from the network. Unbounded for titles and numbers, Inter for text, JetBrains Mono for data. */
 @font-face { font-family: Unbounded; font-style: normal; font-weight: 200 900; font-display: swap; src: url('../fonts/unbounded-latin-wght.woff2') format('woff2'); }
@@ -10,6 +11,35 @@
   --disp: Unbounded, ui-sans-serif, system-ui, sans-serif;
   --body: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* The type scale, locked. Inter, the UI face, at 400, 500 and 600: */
+  --fs-label: 11px;   /* a label: a flag on the strip, a message's role, a tag, the calendar's months; every label on a phone */
+  --fs-small: 12px;   /* a fact's words, a quiet line */
+  --fs-quiet: 12.5px; /* a section's sub, a hint, a part's heading (600, dim), a link in a quiet line */
+  --fs-body: 13.5px;  /* the body, a button, a select */
+  --fs-section: 14px; /* a section's heading (600) */
+  --fs-step: 15px;    /* a step's title (600), a report's own verdict */
+  --fs-heading: 17px; /* a heading, a verdict line's words (600), a pull quote */
+  --fs-title: 24px;   /* a fix's title, a sentence */
+  /* JetBrains Mono only for data (ids, calls, arguments, JSON, commands), at --fs-label, --fs-quiet and: */
+  --fs-caps: 10px;    /* a small-caps label, tracked --caps; a call's number under its role, a write tool's tag */
+  /* Unbounded, the display face, only for a page's title (--fs-title at 600), the stat figures (--fs-heading at 700,
+     money --fs-step) and the marks (the logo, a project's initial). Data that is a title keeps its own size: a run's id
+     (mono, --fs-title), the inspector's call (14.5), a golden's name over its report (13.5 at 500), code in a dialog's
+     title (15.5). Nothing falls off the scale by inheritance: inline code no rule sizes is at most --fs-quiet. */
+  --caps: .1em;       /* a small-caps label's tracking */
+  /* Five radii and two shapes, locked. The previews of a Slack message and a pull request keep their products' own. */
+  --r-mark: 2px;      /* a mark: a cell, a bar, a swatch, a highlight */
+  --r-chip: 6px;      /* a chip, a tag, a key, a choice */
+  --r-control: 8px;   /* a control: a button, a field, a menu's item */
+  --r-box: 10px;      /* a box: a command or code box, a note, a toast, a drop zone */
+  --r-overlay: 14px;  /* an overlay or a panel: a menu, a dialog, the palette, the drawer */
+  --r-pill: 999px;    /* a pill */
+  --r-dot: 50%;       /* a dot */
+  /* Spacing, the page's only vertical rhythm between blocks: */
+  --gap-text: 12px;    /* text over the box it describes */
+  --gap-verdict: 24px; /* under a verdict line, whatever follows */
+  --gap-section: 32px; /* between sections */
+  --bleed: 12px;       /* a row's hover or picked ground past its text, on both sides, in a list or table in a section */
   --side: 252px;
 }
 :root {

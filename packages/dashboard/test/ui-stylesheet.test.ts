@@ -1,12 +1,13 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { sheet, sheetFiles } from './css-sheet.js';
+import { sheet, sheetFiles, styleRules } from './css-sheet.js';
 
 /**
  * The stylesheet is a file per area of the dashboard (ui/css/), joined by ui/app.css's @imports in an
  * order that keeps every rule after the ones it overrides: app.css holds nothing else, each area file
  * is joined once and imports nothing itself, and what a file loads (the fonts) is where its path says.
+ * Its tokens hold the design's locked scales: the type, the radii and the spacing.
  */
 
 const APP = new URL('../ui/app.css', import.meta.url);
@@ -33,5 +34,55 @@ describe('the stylesheet’s files', () => {
       for (const m of text.matchAll(/url\(\s*['"]?(?!data:)([^'")]+)['"]?\s*\)/g)) expect(existsSync(new URL(m[1], file)), `${fileURLToPath(file)}: ${m[1]}`).toBe(true);
     }
     expect(strip(sheet())).toMatch(/@font-face/);
+  });
+});
+
+describe('the type, radius and spacing tokens', () => {
+  /** The value each custom property takes on :root. */
+  const root = new Map(styleRules().filter((r) => r.selectors.includes(':root')).flatMap((r) => r.decls));
+
+  it('locks the type scale, its small-caps tracking, the five radii and two shapes, and the spacing', () => {
+    const scale = ['--fs-caps', '--fs-label', '--fs-small', '--fs-quiet', '--fs-body', '--fs-section', '--fs-step', '--fs-heading', '--fs-title'].map((t) => root.get(t));
+    expect(scale).toEqual(['10px', '11px', '12px', '12.5px', '13.5px', '14px', '15px', '17px', '24px']);
+    expect(root.get('--caps')).toBe('.1em');
+    expect(['--r-mark', '--r-chip', '--r-control', '--r-box', '--r-overlay', '--r-pill', '--r-dot'].map((t) => root.get(t))).toEqual(['2px', '6px', '8px', '10px', '14px', '999px', '50%']);
+    expect(['--gap-text', '--gap-verdict', '--gap-section', '--bleed'].map((t) => root.get(t))).toEqual(['12px', '24px', '32px', '12px']);
+  });
+
+  it('sizes inline code no rule sizes at most at the quiet size, and sets bold at 600', () => {
+    const base = new Map(styleRules().filter((r) => !r.conditions.length && (r.selectors.includes('code') || r.selectors.includes('b'))).flatMap((r) => r.decls));
+    expect(base.get('font-size')).toBe('min(1em, var(--fs-quiet))');
+    expect(base.get('font-weight')).toBe('600');
+  });
+
+  /** A compound's tag and classes, its :not() left out. */
+  const parts = (compound: string) => {
+    const c = compound.replace(/:not\([^)]*\)/g, '');
+    return { tag: /^[a-z][\w-]*/.exec(c)?.[0] ?? null, classes: [...c.matchAll(/\.([\w-]+)/g)].map((m) => m[1]) };
+  };
+  /** Whether an element `s` names is one `x` names too: x's last compound in s's, and x's other classes around it. */
+  const covers = (x: string, s: string) => {
+    const xs = x.trim().split(/\s+/);
+    const ss = s.trim().split(/\s+/);
+    const [xl, sl] = [parts(xs.at(-1)!), parts(ss.at(-1)!)];
+    const around = new Set(ss.slice(0, -1).flatMap((c) => parts(c).classes));
+    return (!xl.tag || xl.tag === sl.tag) && xl.classes.every((c) => sl.classes.includes(c)) && xs.slice(0, -1).every((c) => parts(c).classes.every((k) => around.has(k)));
+  };
+
+  it('raises every label under 11px to the label size on a phone, its avatars’ initials aside', () => {
+    const floor = styleRules().find((r) => r.conditions.includes('@media (max-width: 640px)') && r.selectors.some((s) => s.startsWith(':is(#root, body) :is(')) && r.decls.some(([p, v]) => p === 'font-size' && v === 'var(--fs-label)'));
+    expect(floor).toBeDefined();
+    const raised = floor!.selectors.flatMap((s) => /^:is\(#root, body\) :is\(([\s\S]*)\)$/.exec(s)?.[1].split(',').map((x) => x.trim()) ?? []);
+    const small: string[] = [];
+    for (const r of styleRules()) {
+      if (r.conditions.some((c) => /forced-colors/.test(c))) continue;
+      const font = r.decls.find(([p]) => p === 'font-size' || p === 'font');
+      const px = font ? Number(/(\d+(?:\.\d+)?)px/.exec(font[1])?.[1]) : NaN;
+      if (!(px < 11)) continue;
+      // An avatar's initials, and a tick drawn in its circle, keep the size their circle sets.
+      for (const s of r.selectors) if (!/\.av\b|\.ondisk(\.steps)? li i$/.test(s) && !raised.some((x) => covers(x, s))) small.push(s);
+    }
+    // what a pseudo-element can't be raised by inside :is() is raised by a rule of its own
+    expect(small.filter((s) => s !== '.fxtable td::before')).toEqual([]);
   });
 });
