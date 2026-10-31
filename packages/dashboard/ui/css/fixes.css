@@ -132,6 +132,10 @@ table.probes tr.hot td { background: var(--sel); }
 .callrow li.gap .nr { font: 11px var(--mono); color: var(--faint); }
 .callrow a.cn:hover { box-shadow: 0 0 0 4px var(--hover); }
 .fxlegend { margin-top: 16px; }
+/* the probes' key says passed and failed as their attempts' pips do, in the consequence colours: the markup names the
+   replayed and blocked origins' swatches, which say where a call's answer came from */
+.fxlegend i.lg.rep { background: var(--cq-lime); }
+.fxlegend i.lg.block { background: var(--cq-red); box-shadow: none; }
 .ans.one { grid-template-columns: minmax(0, 1fr); }
 .fxbundle + .fxbundle { margin-top: 12px; }
 /* A gate's attempts grouped by what each did: how many, the path they took, how they came out, why, and one to open. */
