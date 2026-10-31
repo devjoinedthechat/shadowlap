@@ -27,10 +27,10 @@ import type { Keeper } from './run-stats.js';
  * leaves the run with the thread that holds it, but one that reads the whole of a long run
  * (`stealCallsMax`) waits for that thread a while (`stealLongMs`, a moment behind what can wait), and
  * is then taken with its run (`handed`), the run's next requests following it. While every thread is
- * busy, a spare thread answers what comes behind them (`Slot.spare`): one behind requests once one
- * has waited a moment (`spareAfterMs`), and while what can wait holds a thread, one more in its place,
- * each at once (`spareAfter`). What a thread works out that is worth keeping comes back here, and goes
- * to the keeper's thread (keeper.ts) to be written.
+ * busy, a spare thread answers what comes behind them (`Slot.spare`): once a request has waited a
+ * moment (`spareAfterMs`), or at once while what can wait holds a thread, when a second may start in
+ * that thread's place (`spareAfter`). What a thread works out that is worth keeping comes back here,
+ * and goes to the keeper's thread (keeper.ts) to be written.
  */
 
 export interface ReadModels {
