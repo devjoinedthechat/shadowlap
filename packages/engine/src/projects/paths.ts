@@ -25,7 +25,7 @@ export function shadowlapHome(env: NodeJS.ProcessEnv = process.env, home: string
 export function shadowlapHomeProblem(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string | null {
   const explicit = env.SHADOWLAP_HOME?.trim();
   if (!explicit || isAbsolute(expandHome(explicit, home))) return null;
-  return `SHADOWLAP_HOME is ${explicit}, which isn’t an absolute path, so it is ignored: the project list is in ${join(home, '.shadowlap')}.`;
+  return `SHADOWLAP_HOME is ${explicit}, which isn’t an absolute path, so it is ignored: the folder for all the files Shadowlap keeps for this machine is ${join(home, '.shadowlap')} instead.`;
 }
 
 /** `~` and `~/x` (or `~\x`) become the home folder; anything else is returned as given. */
