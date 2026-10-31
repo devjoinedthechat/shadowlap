@@ -203,6 +203,8 @@ export { DECISIONS_ID, JUDGED_IN_RECORDED_STATE, MIGRATE_ID, NO_TOKENS, RANK_LAB
 export type { DecisionCall, DecisionChange, DecisionChangeKind, DecisionComparison, DecisionCounts, DecisionJudge, DecisionJudgeSide, DecisionOptions, DecisionRank, DecisionRemedy, DecisionRun, DecisionStep, DecisionStop, DecisionsChange, DecisionsJudged, DecisionsReport, DecisionsVerify, DecisionView, EffectOf, FromCodeChange, ModelDecision, TokenCount } from './decisions.js';
 // A session's headline, its name and what it moved, in the words the CLI and the dashboard's Verdicts share.
 export { decisionsHeadline, decisionsMoved, decisionsName, type DecisionsHeadline } from './decisions.js';
+// What a test session and a verify came to, in the words of the command that gave each verdict.
+export { testTally, verifySentence } from './verdict-words.js';
 export { longDate, replacementModels, retiredFields, retirementOf, retirementPlatform, retirementsOf, retirementTable, retirementTableProblems, tableModel } from './model-retirements.js';
 export type { FieldRetirement, ModelRetirement, RetirementNotice, RetirementPlatform, RetirementSource, RetirementTable } from './model-retirements.js';
 export type { DecisionRunRow, DecisionSessionRow, NewDecisionSession } from './store.js';
