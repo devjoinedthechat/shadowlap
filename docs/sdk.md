@@ -533,6 +533,7 @@ places are stored as `<CREDENTIAL>` instead:
 | An XML body | Its credential elements |
 | A response | A token in a response header, a redirect's `location` or a `www-authenticate` challenge; an OAuth token response's `access_token` and `refresh_token` |
 | A secret store's answer | The secret it holds, read by its shape: a Kubernetes Secret's `data`, Secret Manager's `payload.data`, Azure Key Vault's `value`, Vault's KV `data` |
+| A write to a secret store | The secret it sends, by the call's address: a Vault KV write's, Key Vault's `value`, Secret Manager's `payload`, a Kubernetes Secret patch's `data` |
 | The URL's path | A webhook's secret (Slack's, Discord's, a Telegram bot's), and a path parameter named as a credential (`;jsessionid=`) |
 
 - **Query strings and form bodies.** A credential there is forwarded as sent and stored as

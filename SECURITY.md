@@ -128,11 +128,11 @@ Calls to the hosts declared under `http` in `shadowlap.config.json` are captured
 - **Their request headers are never stored.**
 - **Credentials are stored as `<CREDENTIAL>`**: in the call's address and its name, in its body, read by its shape whatever its content type says, and in what the response hands back, its body and its headers.
 - **A response's `set-cookie` is never stored.**
-- **Kept on purpose.** A count or a limit of tokens, such as Bedrock's `x-amzn-bedrock-input-token-count`, is kept as sent only as a count of at most 12 digits, a time or a duration. Azure's `azureml-model-session`, a routing hint that signs nobody in, is kept only as Azure writes it.
+- **Kept on purpose.** A count or a limit of tokens, such as Bedrock's `x-amzn-bedrock-input-token-count`, is kept as sent only as a count of at most 12 digits, a time or a duration. Azure's `azureml-model-session`, a routing hint that signs nobody in, is kept only as Azure writes it. So is an AWS access key id, which names a key pair as a user names a user, beside its masked secret.
 - **Each credential is masked in place**, the rest of the body kept as the service sent it.
 - **The agent gets the real values while recording**, and a client that reads its token from the response still finds it there on replay.
 
-[Credentials](docs/normalizers-and-redaction.md#credentials) lists what is read as one: webhook secrets in a path, sessions, every body shape, the secrets a secret store hands back, and each response header.
+[Credentials](docs/normalizers-and-redaction.md#credentials) lists what is read as one: webhook secrets in a path, sessions, every body shape, the secrets a secret store hands back and those a call writes to one, and each response header.
 
 ### What each copy masks
 
@@ -453,6 +453,7 @@ Runs go up as recorded, but without their credentials.
 - an assignment's value, when its name reads as a credential (`OPENAI_API_KEY=…` after `env`, `--set auth.password=…`), and else the URL's password, the JWT or the header line it gives (`DATABASE_URL=postgres://app:…@db`, git's `-c http.extraheader=…`);
 - a header line (`-H 'Authorization: …'`), a JWT, and a URL's password, query credentials and webhook secret;
 - a password a program takes under a name that doesn't say so: curl's `-u user:…`, mysql's glued `-p…` and `docker login -p` among them;
+- a secret a program takes by a word's place (`aws configure set aws_secret_access_key …`, `vault login …`, mc's secret key), and a libpq connection string's password;
 - a body curl sends with `-d`, `--data…`, `--json` or `-F`, read as a form or as JSON;
 - each of them in a script a program runs, read word by word as a shell reads it, such as `sh -c 'OPENAI_API_KEY=… node agent.js'`.
 
