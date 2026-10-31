@@ -1643,11 +1643,11 @@ The work done on those threads:
 
 - **Behind requests** that hold every thread (two whole Compares of long runs), it starts after half a second.
 - **Behind what can wait** (a long run's whole analysis, the warm-up), it starts at once, and a second may start in place of the thread that work holds. Once that work has held its thread half a second, and requests hold the others, the spare starts ahead, ready for what comes.
-- **What waits** goes to whichever thread is free first, a spare one once it has started, and what has waited longest goes first.
+- **What waits** goes to whichever thread is free first, a spare one once it has started: what has waited longest first, a request that reads a run over 20,000 calls after the rest.
 
 **A run keeps its thread.** A run stays with the thread that read it, which keeps it, and a request about it goes there.
 
-- While that thread is busy with another request, a free thread takes one about the run after a tenth of a second, or at once while that other request reads a run over 20,000 calls (a whole Compare of long runs).
+- While that thread is busy with another request, a free thread takes one about the run after a tenth of a second. One about a run of 20,000 calls or fewer is taken at once while that other request reads a longer run (a whole Compare of long runs).
 - A request that reads the whole of a run over 20,000 calls waits for that thread up to 5 s (half a second while it does what can wait), rather than read the run again on another.
 - Past that, another thread takes it and keeps the run, and the run's requests waiting for the first thread follow it there.
 - The warm-up works on the thread that answered a request least lately, so the run you are reading keeps the thread that holds it.
