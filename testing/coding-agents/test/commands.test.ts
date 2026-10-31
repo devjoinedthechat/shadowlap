@@ -454,6 +454,13 @@ describe('what the instructions say to read and to write', () => {
     for (const { where, points: list } of points) expect(list.flatMap((p) => p.spans).some((s) => s.kind === 'named' && s.word === 'summary.divergence'), where).toBe(true);
   });
 
+  it('says a write runs again after a fork only when the replay allows writes', () => {
+    // Under `--writes allow` a write after the fork runs live: a point that says one never runs again names that.
+    for (const { where, points: list } of points) for (const point of list) if (/never runs? again/.test(point.text)) expect(point.text, where).toContain('`--writes allow`');
+    const setup = points.find((p) => p.where.endsWith('setup-agent/SKILL.md'))!;
+    expect(setup.points.some((p) => p.text.includes('a write never runs again after a fork unless the replay allows writes (`--writes allow`)'))).toBe(true);
+  });
+
   it('gives checks the CLI takes, as --expect parses them', () => {
     let examples = 0;
     for (const { where, points: list } of points) {

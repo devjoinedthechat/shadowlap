@@ -3296,7 +3296,7 @@ SDK's `withEffects('orders', [...], { refund_order: 'write' })`. An AI SDK tool 
 
 The suggested effect goes by the tool name's verbs, where a name puts them
 ([how](./how-it-works.md#tools-shadowlap-did-not-record)). A name with no hint gets `write`, which never
-runs again after a fork.
+runs again after a fork unless the replay allows writes (`--writes allow`).
 
 **The fence.** A Claude Agent SDK query runs through the fence when a file that imports Shadowlap's
 adapters calls `withFence` (`with_fence` in Python), or its hooks. The SDK's built-in tools (Bash,

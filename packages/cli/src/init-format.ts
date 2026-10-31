@@ -185,7 +185,7 @@ function fence(w: InitWriter): void {
     const query = f.language === 'python' ? FENCED_QUERY.python : FENCED_QUERY.js;
     out(`     ${query.code}   ${f.language === 'python' ? '#' : '//'} ${query.from}`);
   }
-  out(`     ${p.dim("Bash, Write, Edit and the rest run inside Claude Code, where no wrapper reaches them: the fence records them through the SDK's hooks, so a fork never repeats a side effect.")}`);
+  out(`     ${p.dim("Bash, Write, Edit and the rest run inside Claude Code, where no wrapper reaches them: the fence records them through the SDK's hooks, so a fork repeats a side effect only with --writes allow.")}`);
   out();
 }
 
@@ -210,12 +210,12 @@ function tools(w: InitWriter): void {
       const example = unwrapped[0]!;
       const snippet = ADAPTER_SNIPPETS[example.via] ?? (example.file.endsWith('.py') ? ADAPTER_SNIPPETS.python : undefined);
       if (snippet) out(`     ${p.dim('for example:')} ${snippet(example.name, example.suggested, example)}`);
-      out(`     ${p.dim('read: may run again after a fork · write: never runs again after a fork · pure: depends only on its input')}`);
+      out(`     ${p.dim('read: may run again after a fork · write: runs again after a fork only with --writes allow · pure: depends only on its input')}`);
     }
     out();
   } else if (wrapsOwnTools(r)) {
     head(w, 'Wrap your tools');
-    out(`     ${p.dim('No tool definitions found. Wrap each tool with its effect so a fork never repeats a side effect:')}`);
+    out(`     ${p.dim('No tool definitions found. Wrap each tool with its effect so a fork repeats a side effect only with --writes allow:')}`);
     out(`     ${w.ts ? "tool('send_email', { effect: 'write' }, impl)   // import { tool } from '@shadowlap/sdk'" : '@tool(effect="write")   # from shadowlap import tool'}`);
     out();
   }
