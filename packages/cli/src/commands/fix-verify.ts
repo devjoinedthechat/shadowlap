@@ -161,7 +161,7 @@ function reportVerify(opts: GlobalOpts, report: VerifyReport, { rule, expect, fi
   const kept = recordVerifyFix(opts, report, { expect: expect?.json ?? null, command: line, rerun: verifyRerun(step) });
   const json = verifyJson(report, kept ? { verifyId: kept.verdict.verifyId, fixes: kept.fixes } : null);
   if (flags.json) process.stdout.write(JSON.stringify(json, null, 2) + '\n');
-  else process.stdout.write('\n' + formatVerify(report, p, columnsOf(process.stdout)) + '\n' + (kept?.fixes ?? []).map(({ fix: f, standing }) => fixLine(f, standingWords(report.verdict, standing, f.status))).join(''));
+  else process.stdout.write('\n' + formatVerify(report, p, columnsOf(process.stdout)) + '\n' + (kept?.fixes ?? []).map(({ fix: f, standing }) => fixLine(f, standingWords(report.verdict, standing, f.status), columnsOf(process.stdout))).join(''));
   const ranVerify = formatAttemptsUnrecorded(verifyAttempts(report).map((a) => a.unrecordedTools));
   if (ranVerify) process.stderr.write('\n' + ranVerify);
   for (const { fix: f } of kept?.fixes ?? []) emitJobEvent({ type: 'link', label: 'Open the fix', href: fixHref(f.fixId, 'verify', kept!.verdict.verifyId) });

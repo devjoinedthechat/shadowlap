@@ -221,7 +221,7 @@ function reportRepair(opts: GlobalOpts, report: RepairReport, handOverFailed: Ha
   else {
     // Open still, with the candidates it tried, or with none when no repairer proposed any (the report says why).
     const what = (f: StoredFix, standing: VerdictStanding | null) => (!kept!.repair.accepted ? (report.candidates.length ? 'still open, with the candidates tried' : 'still open') : standing ? standingWords('accepted', standing, f.status) : f.status);
-    process.stdout.write('\n' + formatRepair(report, p, columnsOf(process.stdout)) + '\n' + (kept?.fixes ?? []).map(({ fix: f, standing }) => fixLine(f, what(f, standing))).join(''));
+    process.stdout.write('\n' + formatRepair(report, p, columnsOf(process.stdout)) + '\n' + (kept?.fixes ?? []).map(({ fix: f, standing }) => fixLine(f, what(f, standing), columnsOf(process.stdout))).join(''));
     if (handOverFailed) process.stderr.write(`\n${p.red('✗')} ${handOverFailed.message}\n`);
   }
   // Each candidate's verify: what its attempts ran that nothing recorded (the blame's attempts named theirs as they ran).

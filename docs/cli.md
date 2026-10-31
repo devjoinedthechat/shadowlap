@@ -174,6 +174,9 @@ Runs the whole loop on a refund agent, with no key and nothing to clone, as the
 5. It ends with how long that took, how many requests the scripted model answered, and where they
    went: the recordings, blame's attempts and repair's.
 
+In a terminal, its own lines wrap at whole words to the terminal's width, as [blame's](#blame) do,
+and each command it runs is shown as it is typed.
+
 Your own model keys and endpoints are left out of its environment, and [telemetry](./telemetry.md) is
 off for it.
 
@@ -1009,9 +1012,10 @@ Its progress goes to stderr:
 - **With `-v`, or anywhere else** (a CI log, a file, the dashboard), every attempt keeps its line,
   with its run id.
 
-In a terminal, the dim lines that say how it decides and what it took, before it starts and in its
-report, wrap at whole words to the terminal's width, each line indented as the first. Written to a
-pipe or a file, each stays one line.
+In a terminal, a line wider than the terminal wraps at whole words, before it starts, as it goes
+and in its report. Each line it wraps to is indented as the first, and past a mark that leads it
+(`!`, `✗`); a command or a flag with its value stays in one piece. Written to a pipe or a file, each
+line stays whole.
 
 Verify and repair print theirs the same way.
 

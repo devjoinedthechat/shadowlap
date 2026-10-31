@@ -6,7 +6,7 @@ import { formatUsd } from './prices.js';
 import { atLeast, atMost, attemptsToPass, BLAME_DEFAULTS, confidenceSequence, countOdds, gateOdds, rateBound, riskPercent, type GateDecision, type GateResult, type SprtGate } from './stats.js';
 import type { Palette } from './report.js';
 import { dimLines, plain } from './report.js';
-import { safeLine } from './text.js';
+import { fitLine, fitLines, safeLine } from './text.js';
 import type { UnrecordedTool } from './unrecorded-tools.js';
 
 /**
@@ -785,6 +785,8 @@ export function confidenceWhy(r: Pick<BlameReport, 'outcome' | 'probes' | 'nonMo
 /** The report as the CLI prints it, its dim lines of prose fit to a terminal `columns` wide; whole with none, for a pipe or a file. */
 export function formatBlame(r: BlameReport, p: Palette = plain, columns?: number | null): string {
   const lines: string[] = [];
+  // What blame found, in sentences: in a terminal each wraps at whole words, as its dim lines do.
+  const say = (line: string) => lines.push(...fitLine(line, columns));
   const call = (x: { callNo: number }) => `#${x.callNo}`;
   const where = (x: BlameProbe) => `model call ${call(x)} (${x.step} of ${r.steps})`;
 
@@ -793,7 +795,7 @@ export function formatBlame(r: BlameReport, p: Palette = plain, columns?: number
     const b = r.blamed;
     const end = span?.end ?? null;
     const gradual = r.range?.gradual === true;
-    lines.push(`${p.yellow('⑂')} ${p.bold(end ? `The run was lost ${gradual ? 'gradually, around' : 'between'} model calls ${call(b)} and ${call(end)} (${b.step} to ${end.step} of ${r.steps})` : `The run was lost at ${where(b)}`)}`);
+    say(`${p.yellow('⑂')} ${p.bold(end ? `The run was lost ${gradual ? 'gradually, around' : 'between'} model calls ${call(b)} and ${call(end)} (${b.step} to ${end.step} of ${r.steps})` : `The run was lost at ${where(b)}`)}`);
     // What closes the range: the next model call when it was probed, else the first call after it found lost.
     const closing = span ? span.closing : r.lost;
     const tail = (finding: (x: BlameProbe) => string) =>
@@ -806,32 +808,35 @@ export function formatBlame(r: BlameReport, p: Palette = plain, columns?: number
           : 'no call after it was found lost, and the recording, which kept every answer, fails.';
     if (r.gate && b.decision) {
       // Decided by a gate: each side's verdict and tally; the rule is said once, over the probes.
-      lines.push(`  The re-asked call ${call(b)}: ${probeFinding(b, r.gate)}; ${tail((x) => probeFinding(x, r.gate))}`);
+      say(`  The re-asked call ${call(b)}: ${probeFinding(b, r.gate)}; ${tail((x) => probeFinding(x, r.gate))}`);
     } else {
       const counted = (x: BlameProbe) => (x.undecided ? `inconclusive, ${probeTally(x, ' passed')}` : `rescued ${probeTally(x)}`);
       const after = !end && r.lost?.undecided ? `${call(r.lost)}, the next model call, was inconclusive: ${probeTally(r.lost, ' passed')}.` : !end && r.lost ? `resampling ${call(r.lost)}, the next model call, rescued ${probeTally(r.lost)}.` : tail(counted);
-      lines.push(`  Resampling ${call(b)} rescued ${probeTally(b, ' attempts')}; ${after}`);
+      say(`  Resampling ${call(b)} rescued ${probeTally(b, ' attempts')}; ${after}`);
     }
-    if (span?.between.length) lines.push(`  ${span.between.map(call).join(', ')} between them ${span.between.length === 1 ? 'was' : 'were'} inconclusive: the run may have been lost at any call from ${call(b)} to ${call(end ?? b)}.`);
-    if (r.pin) lines.push(`  ${safeLine(pinWords(r.pin))}`);
+    if (span?.between.length) say(`  ${span.between.map(call).join(', ')} between them ${span.between.length === 1 ? 'was' : 'were'} inconclusive: the run may have been lost at any call from ${call(b)} to ${call(end ?? b)}.`);
+    if (r.pin) say(`  ${safeLine(pinWords(r.pin))}`);
   } else if (r.outcome === 'unrescuable') {
     const why = unrescuedWhy(r);
-    lines.push(unrescuedHead(r, p));
-    if (why.evidence) lines.push(`  ${safeLine(why.evidence)}`);
-    lines.push(`  ${why.look}`);
+    say(unrescuedHead(r, p));
+    if (why.evidence) say(`  ${safeLine(why.evidence)}`);
+    say(`  ${why.look}`);
   } else {
-    lines.push(`${p.yellow('!')} ${p.bold('Stopped before the search finished')}${r.stopReason ? `: ${r.stopReason}` : ''}`);
+    say(`${p.yellow('!')} ${p.bold('Stopped before the search finished')}${r.stopReason ? `: ${r.stopReason}` : ''}`);
     // The probe past the last rescue lost the run there, or could not tell, which is no loss.
     const after = r.lost ? (probeWord(r.lost) === 'inconclusive' ? `, inconclusive at ${call(r.lost)}` : `, lost from ${call(r.lost)}`) : '';
-    lines.push(r.blamed ? `  So far: rescued up to ${call(r.blamed)}${after}.` : '  So far no probe had settled.');
+    say(r.blamed ? `  So far: rescued up to ${call(r.blamed)}${after}.` : '  So far no probe had settled.');
   }
-  if (!r.sameAnswer) lines.push(`  Confidence: ${r.confidence === 'high' ? p.green('high') : r.confidence === 'medium' ? p.yellow('medium') : p.red('low')} ${p.dim(`(${confidenceWhy(r)})`)}`);
+  if (!r.sameAnswer) say(`  Confidence: ${r.confidence === 'high' ? p.green('high') : r.confidence === 'medium' ? p.yellow('medium') : p.red('low')} ${p.dim(`(${confidenceWhy(r)})`)}`);
 
   if (r.contrast) {
     const label = `At #${r.contrast.callNo}`;
     const pad = ' '.repeat(label.length);
-    lines.push('', `  ${label}  ${p.dim('the recording ')}  ${safeLine(describeBlocks(r.contrast.recorded))}`);
-    lines.push(`  ${pad}  ${p.dim('a rescued fork')}  ${safeLine(describeBlocks(r.contrast.rescued))}`);
+    // Each answer after its name, the lines it wraps to in a terminal under where it starts.
+    const under = ' '.repeat(label.length + 20);
+    const answer = (head: string, blocks: readonly Block[]) => fitLines(under, safeLine(describeBlocks(blocks)), columns).map((line, i) => (i ? line : head + line.slice(under.length)));
+    lines.push('', ...answer(`  ${label}  ${p.dim('the recording ')}  `, r.contrast.recorded));
+    lines.push(...answer(`  ${pad}  ${p.dim('a rescued fork')}  `, r.contrast.rescued));
   }
 
   if (r.probes.length) {

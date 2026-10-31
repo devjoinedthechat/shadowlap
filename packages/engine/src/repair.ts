@@ -4,7 +4,7 @@ import { formatUsd } from './prices.js';
 import type { Palette } from './report.js';
 import { dimLines, plain } from './report.js';
 import { formatTally } from './stats.js';
-import { quoteArgv, safeLine, wrapWords } from './text.js';
+import { fitLine, quoteArgv, safeLine, wrapWords } from './text.js';
 import { eachRun, footprintDelta, keptTally, outcomeOf, type VerifiedRun, type VerifyReport } from './verify.js';
 
 /**
@@ -1057,7 +1057,7 @@ export function formatRepair(r: RepairReport, p: Palette = plain, columns?: numb
       lines.push(`    ${short(t.runId)}  ${where}`);
     }
   }
-  if (r.diagnosis) lines.push('', `  ${p.bold('Diagnosis')} ${p.dim(`(${r.repairer ? safeLine(r.repairer.served ?? r.repairer.model) : 'repairer'})`)}`, `    ${one(r.diagnosis, 300)}`);
+  if (r.diagnosis) lines.push('', `  ${p.bold('Diagnosis')} ${p.dim(`(${r.repairer ? safeLine(r.repairer.served ?? r.repairer.model) : 'repairer'})`)}`, ...fitLine(`    ${one(r.diagnosis, 300)}`, columns));
 
   if (r.candidates.length) {
     lines.push('', `  ${p.bold('Candidates')} ${p.dim('(tried smallest first; the first the gate accepts twice is kept)')}`);

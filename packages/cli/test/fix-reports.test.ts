@@ -4,7 +4,7 @@ import { fixDetail } from '@shadowlap/dashboard';
 import { blameReport, EXPECT, makeRun, runId, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { blamePlan } from '../src/commands/fix-blame.js';
 import { repairPlan } from '../src/commands/fix-repair.js';
-import { verifyJson } from '../src/commands/fix-report.js';
+import { fixLine, verifyJson } from '../src/commands/fix-report.js';
 import { verifyPlan } from '../src/commands/fix-verify.js';
 import { formatFixDetail } from '../src/fix-format.js';
 import { parseRepairer } from '../src/repairer.js';
@@ -116,5 +116,16 @@ describe('what blame, repair and verify say they will do, before they start', ()
       store.close();
     }
     expectFits((columns) => repairPlan({ rule: { gate, attempts: gate.max, needed: 0 }, repairer: parseRepairer('openai:scripted-repairer') }, { targets: [1], held: [2], good: [3], heldOutAutomatically: true }, { writes: 'stub', budget: 0.5 }, columns), 100);
+  });
+});
+
+describe('the fix a command reported to, after its report', () => {
+  it('wraps at whole words to a terminal’s width, the command that shows the fix in one piece; a pipe gets one line', () => {
+    const fix = { fixId: 'fx-01K5CQ2E8M7Z0000000000000', title: 'Refunds above the limit issued without a manager approving them first' };
+    expect(fixLine(fix, 'verified')).toBe('  fix fx-01K5CQ2E8M · Refunds above the limit issued without a manager approving them first · verified · shadowlap fix show fx-01K5CQ2E8M\n');
+    const lines = fixLine(fix, 'verified', 60).trimEnd().split('\n');
+    expect(lines.length).toBeGreaterThan(1);
+    for (const l of lines) expect(l.length <= 60 && /^ {2}\S/.test(l), l).toBe(true);
+    expect(lines.at(-1)).toBe('  shadowlap fix show fx-01K5CQ2E8M');
   });
 });
