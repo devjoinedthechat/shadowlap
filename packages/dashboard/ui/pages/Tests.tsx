@@ -15,6 +15,7 @@ import { addPaletteSource, paletteSourcesChanged } from '../palette-sources.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
+import { divergedAsk, moreAttemptsAsk, runTestsAsk, startTestsJob, type TestsAsk } from '../tests-ask.js';
 import { keepTests, onTestsChanged, testsPaletteCommands } from '../tests-palette.js';
 import { FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from './TestsDialogs.js';
 
@@ -40,7 +41,7 @@ onTestsChanged(paletteSourcesChanged);
 
 export function TestsPage() {
   const app = useApp();
-  const { client, tick, feeds, hasKind, actionsOff, guard, watchJob, jobs, toast, meta } = app;
+  const { client, tick, feeds, hasKind, actionsOff, guard, jobs, toast, meta } = app;
   // Read again when runs or calls move, and when a session of error-path presets starts or ends:
   // that moves only their own count, and the actions wait for one on goldens (`chaosRunning`).
   const loaded = useLoad(() => client.tests(), 'tests', `${tick}:${feeds.chaos ?? 0}`);
@@ -80,9 +81,11 @@ export function TestsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- asked once: `wait`, new each render, is read as it is when the ask is taken
   }, [asked, view, actionsOff, hasKind, toast]);
 
-  const start = (kind: string, fields: Record<string, unknown>) => {
+  // A job that would run goldens live asks first, in the shell's dialog, saying `ask`'s words around
+  // the server's; one that only replays starts on the click (tests-ask.ts).
+  const start = (kind: string, fields: Record<string, unknown>, ask?: TestsAsk) => {
     setOpen(null);
-    guard(() => watchJob(client.startJob(kind, fields)));
+    startTestsJob(app, kind, fields, ask);
   };
   const header = (actions?: ReactNode) => <PageHeader eyebrow="goldens · shadowlap test" title="Tests" text="Every golden CI runs, and how it did at each revision." actions={actions} />;
 
@@ -123,7 +126,7 @@ export function TestsPage() {
         </button>
       ) : null}
       {hasKind(JOB_KINDS.tests) ? (
-        <button className="btn lime" type="button" disabled={!!runWait} title={runWait ?? undefined} onClick={() => start(JOB_KINDS.tests, {})}>
+        <button className="btn lime" type="button" disabled={!!runWait} title={runWait ?? undefined} onClick={() => start(JOB_KINDS.tests, {}, runTestsAsk(view))}>
           Run tests
         </button>
       ) : null}
@@ -132,10 +135,10 @@ export function TestsPage() {
 
   const normalize = (d: DivergenceView) => {
     const run = divergenceButtons(d, hasKind).normalize?.run;
-    if (run === 'rerun') start(JOB_KINDS.tests, { golden: d.golden });
+    if (run === 'rerun') start(JOB_KINDS.tests, { golden: d.golden }, divergedAsk(view, d.golden, run));
     // The rules alone can't make it match: the golden is re-recorded after them, so it asks first.
     else if (run === 'normalize-update' && d.normalizeAndTest) setOpen({ kind: 'normalize-update', name: d.name, golden: d.golden, steps: d.normalizeAndTest });
-    else if (run === 'normalize') start(JOB_KINDS.normalizeAndTest, { golden: d.golden });
+    else if (run === 'normalize') start(JOB_KINDS.normalizeAndTest, { golden: d.golden }, divergedAsk(view, d.golden, run));
   };
   const findCommit = (f: Pick<DivergenceView, 'name' | 'golden' | 'bisect' | 'missed' | 'revisions'>) => {
     // Once a search over the known range named no first bad commit, it asks for an older good one.
@@ -227,7 +230,7 @@ export function TestsPage() {
           v={v}
           off={runWait ?? undefined}
           canRun={hasKind(JOB_KINDS.tests)}
-          onMore={(job) => start(JOB_KINDS.tests, job)}
+          onMore={(job, ask) => start(JOB_KINDS.tests, job, ask)}
           updateOff={updateGoldenWait ?? undefined}
           canUpdate={hasKind(JOB_KINDS.testUpdate)}
           onUpdate={() => guard(() => setOpen({ kind: 'update', paths: [v.golden] }))}
@@ -278,7 +281,7 @@ export function TestsPage() {
           has={hasKind}
           onClose={() => setOpen(null)}
           onUpdate={() => start(JOB_KINDS.testUpdate, open.paths.length === 1 ? { golden: open.paths[0] } : { goldens: open.paths })}
-          onInstead={(i) => start(i.run === 'rerun' ? JOB_KINDS.tests : JOB_KINDS.normalizeAndTest, { golden: i.golden })}
+          onInstead={(i) => start(i.run === 'rerun' ? JOB_KINDS.tests : JOB_KINDS.normalizeAndTest, { golden: i.golden }, divergedAsk(view, i.golden, i.run))}
         />
       ) : null}
       {open?.kind === 'bisect' ? (
@@ -293,7 +296,7 @@ export function TestsPage() {
           onRun={(good, bad) => start(JOB_KINDS.bisect, { golden: open.golden, good, ...(bad ? { bad } : {}) })}
         />
       ) : null}
-      {open?.kind === 'normalize-update' ? <NormalizeUpdateDialog name={open.name} steps={open.steps} onClose={() => setOpen(null)} onRun={() => start(JOB_KINDS.normalizeAndTest, { golden: open.golden })} /> : null}
+      {open?.kind === 'normalize-update' ? <NormalizeUpdateDialog name={open.name} steps={open.steps} onClose={() => setOpen(null)} onRun={() => start(JOB_KINDS.normalizeAndTest, { golden: open.golden }, divergedAsk(view, open.golden, 'normalize-update'))} /> : null}
     </Page>
   );
 }
@@ -640,16 +643,17 @@ function ReportPanel({ name, runId, lines, found, missed, children }: { name: st
  * couldn't be decided. Its report, and what settles it: for a gate, Run more attempts, which continues
  * it to twice its limit with the attempts it has; for a judge check a replay golden couldn't ask
  * offline, Update golden, which asks it once and keeps its verdict (it asks first); for one a golden
- * that forks had no key for, the key, in the hint.
+ * that forks had no key for, the key, in the hint. More attempts of a golden that forks run live, so
+ * they ask first: `ask` is what that question says besides the server's words, the command among it.
  */
-function InconclusivePanel({ v, off, canRun, onMore, updateOff, canUpdate, onUpdate }: { v: InconclusiveView; off: string | undefined; canRun: boolean; onMore: (job: { golden: string; maxAttempts: number; continue: true }) => void; updateOff: string | undefined; canUpdate: boolean; onUpdate: () => void }) {
+function InconclusivePanel({ v, off, canRun, onMore, updateOff, canUpdate, onUpdate }: { v: InconclusiveView; off: string | undefined; canRun: boolean; onMore: (job: { golden: string; maxAttempts: number; continue: true }, ask: TestsAsk) => void; updateOff: string | undefined; canUpdate: boolean; onUpdate: () => void }) {
   const more = v.gate?.more ?? null;
   const update = v.judge?.update ?? null;
   return (
     <ReportPanel name={v.name} runId={v.runId} lines={inconclusiveLines(v)} found={null} missed={null}>
       {more && canRun ? (
         <div className="actions">
-          <button className="btn lime" type="button" disabled={!!off} title={off ?? commandText(more.args)} onClick={() => onMore(more.job)}>
+          <button className="btn lime" type="button" disabled={!!off} title={off ?? commandText(more.args)} onClick={() => onMore(more.job, moreAttemptsAsk(v.name, more.args))}>
             Run more attempts
           </button>
         </div>
