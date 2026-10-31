@@ -207,12 +207,12 @@ function programOf(word: string): string {
 
 /**
  * A secret a program takes by a word's place among the words after a command of its (`command`,
- * its words one after another, a flag and its value aside): the first of them, unless it is an
- * assignment (`first`: vault's `login TOKEN`); each assignment's value after the first, which is the
- * path written to (`values`: all of `vault kv put secret/db user=app password=…` is the secret); the
- * value given a setting whose name is a credential's (`named`: `aws configure set
- * aws_secret_access_key …`); or the word that many after the command, counted from 0 (`mc alias set
- * NAME URL ACCESS SECRET`: 3).
+ * its words one after another; a flag holds no place, nor the value VALUE_FLAGS says it takes): the
+ * first of them, unless it is an assignment (`first`: vault's `login TOKEN`); each assignment's value
+ * after the first, which is the path written to (`values`: all of `vault kv put secret/db user=app
+ * password=…` is the secret); the value given a setting whose name is a credential's (`named`: `aws
+ * configure set aws_secret_access_key …`); or the word that many after the command, counted from 0
+ * (`mc alias set NAME URL ACCESS SECRET`: 3).
  */
 interface PlaceRule {
   command: readonly string[];
