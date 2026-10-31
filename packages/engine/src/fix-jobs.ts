@@ -16,10 +16,11 @@ import type { RunRecord } from './types.js';
  * The commands a repair from a fix and a verify of it run, and the yes they need first, built here
  * for the dashboard and the terminal UI alike, so every place that starts one runs the same line and
  * asks about the same runs:
- * the failing runs (by the fix's label when that selects exactly them), the good runs of the same
- * agent it keeps, the scope its blame searched, its check, and the repairer when the config names
- * none. A run whose command came from someone else's pack or the team store, among every run the
- * line selects, runs only once the user said yes to the exact lines the question showed.
+ * the failing runs (by the fix's label when that selects exactly them; a verify names those a repair
+ * held out from its repairer apart), the good runs of the same agent it keeps, the scope its blame
+ * searched, its check, and the repairer when the config names none. A run whose command came from
+ * someone else's pack or the team store, among every run the line selects, runs only once the user
+ * said yes to the exact lines the question showed.
  */
 
 /**
@@ -63,14 +64,36 @@ function noAnswerLost(b: StoredBlame | null): boolean {
 }
 
 /**
- * Whether `label:<label>` selects exactly the fix's failing runs that are left: none of another
- * fix's (a customer's label, say), no run in no fix (a run that passed, labelled with the failure
- * it was recorded for), and every one of the fix's. Anything else would be repaired as failing.
+ * Whether `label:<label>` selects exactly `runs`, the fix's failing runs a line names: none of
+ * another fix's (a customer's label, say), no run in no fix (a run that passed, labelled with the
+ * failure it was recorded for), none a verify holds out, and every one of them. Anything else would
+ * be repaired, or verified, as a run to fix.
  */
-export function labelSelectsFix(store: StoreOf<'recording'>, label: string, left: readonly string[]): boolean {
-  const failing = new Set(left);
+export function labelSelectsFix(store: StoreOf<'recording'>, label: string, runs: readonly string[]): boolean {
+  const failing = new Set(runs);
   const labelled = store.allRuns().filter((r) => r.meta?.labels?.includes(label));
   return labelled.length === failing.size && labelled.every((r) => failing.has(r.runId));
+}
+
+/**
+ * The fix's held-out runs among `left`, its failing runs in the store: those a repair of it held out
+ * from its repairer, or a verify of it held out, unless a repair since showed them to its repairer
+ * (a repair from the fix splits its runs anew). A verify shows a run to no one, so one that named a
+ * held-out run a target leaves it held out. None when that would leave no run to fix: a run is held
+ * out beside the runs a change was written for.
+ */
+function heldOutRuns(rec: FixRecords, left: readonly string[]): string[] {
+  const steps = [
+    ...rec.repairs.map((r) => ({ at: r.at, shown: r.report.targets.map((t) => t.runId), held: r.report.holdout })),
+    ...rec.verdicts.map((v) => ({ at: v.at, shown: [], held: v.report.runs.filter((x) => x.role === 'holdout').map((x) => x.runId) })),
+  ].sort((a, b) => a.at - b.at);
+  const held = new Set<string>();
+  for (const step of steps) {
+    for (const id of step.shown) held.delete(id);
+    for (const id of step.held) held.add(id);
+  }
+  const out = left.filter((id) => held.has(id));
+  return out.length < left.length ? out : [];
 }
 
 /** A word of a command that names the script it runs: `agent.mjs`, `src/agent.ts`, `refund_agent.py`. */
@@ -122,8 +145,12 @@ export function keepArgs(store: StoreOf<'recording'>, rec: FixRecords, left: rea
   return same.length === good.length ? [`label:${GOOD_LABEL}`] : same.map((r) => r.runId);
 }
 
-/** What a repair from a fix and a verify of it are given: its failing runs, the good runs it keeps, and its check. */
-export function fixRunArgs(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords): { fixes: string[]; keeps: string[]; expect: string[] } | null {
+/**
+ * What a repair from a fix and a verify of it are given: its failing runs, the good runs it keeps,
+ * and its check. With `holdout` (a verify's), the runs the fix held out (`heldOutRuns`) are apart
+ * from the runs to fix; a repair is given them all, and holds every other one out itself.
+ */
+export function fixRunArgs(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords, o: { holdout?: boolean } = {}): { fixes: string[]; holdout: string[]; keeps: string[]; expect: string[] } | null {
   // Without a failing run left, a label would select nothing, and repair would refuse it.
   const left = rec.failing.filter((id) => store.getRun(id) !== null);
   if (!left.length) return null;
@@ -131,8 +158,11 @@ export function fixRunArgs(store: StoreOf<'recording' | 'fixes'>, rec: FixRecord
   // A check that is no object (one a pull brought, say) is no `--expect`: nothing runs under it.
   const expect = expectArgs(rec.fix.check.expect);
   if (!expect) return null;
+  const holdout = o.holdout ? heldOutRuns(rec, left) : [];
+  const fixes = left.filter((id) => !holdout.includes(id));
   return {
-    fixes: label && labelSelectsFix(store, label, left) ? [`label:${label}`] : left,
+    fixes: label && labelSelectsFix(store, label, fixes) ? [`label:${label}`] : fixes,
+    holdout,
     keeps: keepArgs(store, rec, left),
     expect,
   };
@@ -178,11 +208,15 @@ export function noFixToTry(store: StoreOf<'recording' | 'fixes'>, rec: FixRecord
   return 'No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.';
 }
 
-/** `shadowlap verify` of a change for a fix, as its empty Verify step shows it: the runs and the check a repair from it would take. Empty as `repairArgv` is. */
+/**
+ * `shadowlap verify` of a change for a fix, as its empty Verify step shows it: the runs and the check
+ * a repair from it would take, with the runs a repair held out from its repairer as `--holdout`, so
+ * the change is tried on failing runs it was not written for. Empty as `repairArgv` is.
+ */
 export function verifyArgv(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords): string[] {
-  const runs = fixRunArgs(store, rec);
+  const runs = fixRunArgs(store, rec, { holdout: true });
   if (!runs) return [];
-  return ['verify', '--fixes', ...runs.fixes, ...(runs.keeps.length ? ['--keeps', ...runs.keeps] : []), ...runs.expect];
+  return ['verify', '--fixes', ...runs.fixes, ...(runs.holdout.length ? ['--holdout', ...runs.holdout] : []), ...(runs.keeps.length ? ['--keeps', ...runs.keeps] : []), ...runs.expect];
 }
 
 /** The repairer a repair from the dashboard (or `fix show`'s next step) uses when the config names none. */

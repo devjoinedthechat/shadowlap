@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { decideVerify, gateResult, plain, recordBlame, recordVerdict, SPRT_DEFAULTS, Store, type SprtGate } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, decideVerify, gateResult, plain, recordBlame, recordVerdict, SPRT_DEFAULTS, Store, type SprtGate } from '@shadowlap/engine';
 import { fixDetail } from '@shadowlap/dashboard';
 import { blameReport, EXPECT, makeRun, runId, verifyReport } from '../../engine/test/fix-fixtures.js';
+import { blamePlan } from '../src/commands/fix-blame.js';
+import { repairPlan } from '../src/commands/fix-repair.js';
 import { verifyJson } from '../src/commands/fix-report.js';
+import { verifyPlan } from '../src/commands/fix-verify.js';
 import { formatFixDetail } from '../src/fix-format.js';
+import { parseRepairer } from '../src/repairer.js';
 
-/** `shadowlap fix show` in a terminal, from the read model its --json prints, and `verify --json`. */
+/** `shadowlap fix show` in a terminal, from the read model its --json prints, `verify --json`, and what blame, repair and verify say before they start. */
 describe('shadowlap fix show', () => {
   it("counts an attempt that could not be judged apart in a probe's and a verified run's tally, never as one that failed", () => {
     const store = Store.open(':memory:');
@@ -83,5 +87,34 @@ describe('verify --json', () => {
     // Its gate decided nothing: no rate, and so no verdict line other than the four words.
     expect(json.runs[1]).toMatchObject({ outcome: 'inconclusive', rate: null, undecided: why });
     expect(JSON.stringify(json)).not.toContain('undecided ·');
+  });
+});
+
+describe('what blame, repair and verify say they will do, before they start', () => {
+  const gate: SprtGate = { kind: 'sprt', ...SPRT_DEFAULTS };
+  const words = (lines: string[]) => lines.join(' ').split(/\s+/).filter(Boolean);
+  /** The lines a terminal `columns` wide gets, against a pipe's: the same words, none broken, and each line that wrapped within the width, indented by two. */
+  function expectFits(plan: (columns: number | null) => string[], columns: number): void {
+    const whole = plan(null);
+    const lines = plan(columns);
+    expect(words(lines)).toEqual(words(whole));
+    const wrapped = lines.filter((l) => !whole.includes(l));
+    expect(wrapped.length).toBeGreaterThanOrEqual(2);
+    for (const l of wrapped) expect(l.length <= columns && /^ {2}\S/.test(l), l).toBe(true);
+  }
+
+  it('wraps each dim line at whole words to a terminal’s width, indented as it is, and leaves it whole for a pipe', () => {
+    // A 116-column terminal broke verify's at "its f|irst" and "5% r|isk".
+    const base = { revision: '3a4f5e1c', label: 'HEAD (3a4f5e1)', build: null };
+    expectFits((columns) => verifyPlan({ rule: { gate, attempts: gate.max, needed: 0 }, baseline: { source: 'paired', base } }, [{ role: 'target' }, { role: 'holdout' }, { role: 'good' }], { writes: 'stub', budget: 0.5 }, columns), 116);
+    const store = Store.open(':memory:');
+    try {
+      const parent = store.getRun(makeRun(store))!;
+      const blameGate: SprtGate = { kind: 'sprt', ...BLAME_DEFAULTS };
+      expectFits((columns) => blamePlan({ rule: { gate: blameGate, attempts: blameGate.max, needed: 0 }, fields: {}, parent, steps: 5, argv: ['node', 'agent.mjs'] }, { scan: 2, writes: 'stub' }, columns), 116);
+    } finally {
+      store.close();
+    }
+    expectFits((columns) => repairPlan({ rule: { gate, attempts: gate.max, needed: 0 }, repairer: parseRepairer('openai:scripted-repairer') }, { targets: [1], held: [2], good: [3], heldOutAutomatically: true }, { writes: 'stub', budget: 0.5 }, columns), 100);
   });
 });
