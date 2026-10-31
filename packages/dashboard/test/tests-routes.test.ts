@@ -523,8 +523,8 @@ describe('a session that runs a golden live', () => {
     { ...goldens[3], judges: ['claude-haiku-4-5', 'claude-haiku-4-5'] },
     { path: 'goldens/unreadable', runId: null, packedAt: null, mode: 'fork', repeat: 1, passes: 1, checks: [], error: 'no run.json: not a pack' },
   ];
-  const FORK = 'evals/kept-elsewhere is marked fork, so it runs live from where it forks, asking its judges live (claude-haiku-4-5)';
-  const INJECTION = 'goldens/refund-in-limit has an injection gate, which runs live from each payload it plants';
+  const FORK = 'evals/kept-elsewhere is marked fork, so it runs live from where it forks, writes blocked, and asks its judges live (claude-haiku-4-5)';
+  const INJECTION = 'goldens/refund-in-limit has an injection gate, which runs live from each payload it plants, writes stubbed';
   const BILLED = 'Live calls are billed by your provider. Confirm it to run it';
   let d: Dashboard;
   beforeAll(async () => {

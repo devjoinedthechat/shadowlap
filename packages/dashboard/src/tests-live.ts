@@ -4,11 +4,11 @@ import type { GoldenSource, TestsJob } from './tests.js';
 /**
  * What a Tests job runs live, so that it asks before it does. `shadowlap test` replays a golden
  * offline, at no cost, but for what its tests entry may give it (`liveReasons`): a golden marked
- * `fork` runs live from where its replay forks, asking its judge checks live too, and an injection
- * gate runs live from each payload it plants. Until Spending decides it by the job's estimate, a job
- * that would run any of them answers 409 with the question (`liveAsk`): the goldens that go live and
- * why, and the `confirm` of the lines it names, which the request sends back as `yes`. A job that
- * only replays starts at once, whatever `yes` it sent.
+ * `fork` runs live from where its replay forks, writes blocked, asking its judge checks live too, and
+ * an injection gate runs live from each payload it plants, writes stubbed. Until Spending decides it
+ * by the job's estimate, a job that would run any of them answers 409 with the question (`liveAsk`):
+ * the goldens that go live and why, and the `confirm` of the lines it names, which the request sends
+ * back as `yes`. A job that only replays starts at once, whatever `yes` it sent.
  *
  * Re-recording a golden that diverged (`--update`) runs live too: Update golden and Add normalizer
  * and update say so in their own dialogs before they send the job, so that alone asks nothing here.
@@ -104,19 +104,21 @@ const one = (goldens: readonly SessionLiveGolden[], it: string, they: string): s
 
 /**
  * The question's words, a clause for each reason naming its goldens: `evals/x is marked fork, so it
- * runs live from where it forks; goldens/y has an injection gate, which runs live from each payload
- * it plants. Live calls are billed by your provider. Confirm it to run it`. A fork's judges are said
- * in its clause when every fork has them (`…, asking its judges live (claude-haiku-4-5)`), else apart.
+ * runs live from where it forks, writes blocked; goldens/y has an injection gate, which runs live
+ * from each payload it plants, writes stubbed. Live calls are billed by your provider. Confirm it to
+ * run it`. Its writes are as `shadowlap test` runs them, which the job never changes: blocked after a
+ * fork, stubbed in an injection gate. A fork's judges are said in its clause when every fork has
+ * them (`…, writes blocked, and asks its judges live (claude-haiku-4-5)`), else apart.
  */
 function liveWords(live: readonly SessionLiveGolden[]): string {
   const having = (kind: LiveReason['kind']) => live.filter((g) => g.why.some((w) => w.kind === kind));
   const [fork, judged, injected] = [having('fork'), having('judges'), having('injection')];
   const models = [...new Set(judged.flatMap((g) => g.why.flatMap((w) => (w.kind === 'judges' ? w.models : []))))].join(', ');
-  const asking = judged.length && judged.length === fork.length ? `, asking ${fork.length === 1 ? 'its' : 'their'} judges live (${models})` : '';
+  const asking = judged.length && judged.length === fork.length ? `, and ${fork.length === 1 ? 'asks its' : 'ask their'} judges live (${models})` : '';
   const clauses = [
-    fork.length ? `${one(fork, 'is marked fork, so it runs live from where it forks', 'are marked fork, so they run live from where they fork')}${asking}` : null,
+    fork.length ? `${one(fork, 'is marked fork, so it runs live from where it forks, writes blocked', 'are marked fork, so they run live from where they fork, writes blocked')}${asking}` : null,
     judged.length && !asking ? one(judged, `asks its judges live (${models})`, `ask their judges live (${models})`) : null,
-    injected.length ? one(injected, 'has an injection gate, which runs live from each payload it plants', 'have injection gates, which run live from each payload they plant') : null,
+    injected.length ? one(injected, 'has an injection gate, which runs live from each payload it plants, writes stubbed', 'have injection gates, which run live from each payload they plant, writes stubbed') : null,
   ];
   return `${clauses.filter((c) => c !== null).join('; ')}. Live calls are billed by your provider. Confirm it to run it`;
 }

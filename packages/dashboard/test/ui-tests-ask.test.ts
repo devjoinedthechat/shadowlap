@@ -23,7 +23,7 @@ import { render, type FakeElement, type Rendered } from './ui-render.js';
 
 const T0 = Date.UTC(2026, 9, 20, 10, 0);
 const CONFIRM = 'c0ffee'.padEnd(32, '0');
-const WORDS = 'goldens/flaky is marked fork, so it runs live from where it forks. Live calls are billed by your provider. Confirm it to run it';
+const WORDS = 'goldens/flaky is marked fork, so it runs live from where it forks, writes blocked. Live calls are billed by your provider. Confirm it to run it';
 const STEPS = [['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/refund-in-limit']];
 
 const sprt = { kind: 'sprt' as const, good: 0.9, bad: 0.7, risk: 0.05, max: 20 };
