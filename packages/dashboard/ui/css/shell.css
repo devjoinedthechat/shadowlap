@@ -29,7 +29,8 @@
 .navlist a svg { width: 15px; height: 15px; color: var(--faint); }
 .navlist a:hover { background: var(--hover); color: var(--ink); }
 .navlist a[aria-current="page"] { background: var(--sel); color: var(--ink); }
-.navlist a[aria-current="page"] svg { color: var(--accent); }
+/* where you are is ink: the current page's icon, the current run's bar */
+.navlist a[aria-current="page"] svg { color: var(--ink); }
 .navlist a .count { margin-left: auto; font: 11px var(--mono); color: var(--faint); }
 .side-k { display: flex; align-items: center; padding: 12px 16px 6px; font: 500 10px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }
 .side-k a { margin-left: auto; letter-spacing: 0; text-transform: none; font-size: 11px; color: var(--faint); text-decoration: none; }
@@ -38,7 +39,7 @@
 .run { position: relative; display: grid; grid-template-columns: 14px minmax(0, 1fr); column-gap: 10px; width: 100%; text-align: left; border: 0; background: none; padding: 8px 12px 8px calc(16px + var(--d, 0) * 18px); cursor: pointer; text-decoration: none; }
 .run:hover { background: var(--hover); }
 .run[aria-current="true"] { background: var(--sel); }
-.run[aria-current="true"]::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 0 3px 3px 0; background: var(--lime); }
+.run[aria-current="true"]::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 0 3px 3px 0; background: var(--ink); }
 /* the tree: a replay or a fork one step (18px) in under the run it came from, as deep as the family goes. Level k's line
    sits under the icon of the run at depth k - 1: on through a row (.tl), bending into this run's icon (.te), down from
    its own icon (.tc). The icon's middle is 16px down the row. */
@@ -55,13 +56,13 @@
 .run .r2 { grid-column: 2; margin-top: 2px; font-size: 11.5px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .run .r2 em { font-style: normal; color: var(--err); }
 .run .r2 em.inc { color: var(--warn); }
-.run .r2 b { font-weight: 500; color: var(--accent); }
+.run .r2 b { font-weight: 500; color: var(--ink); }
 
 .hit { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 8px 16px; cursor: pointer; border-top: 1px solid var(--line); text-decoration: none; }
 .hit:hover { background: var(--hover); }
 .hit .h1 { display: block; font: 500 11px var(--mono); color: var(--faint); }
 .hit .h2 { display: block; margin-top: 2px; font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hit mark { background: color-mix(in srgb, var(--lime) 35%, transparent); color: var(--ink); border-radius: 3px; padding: 0 2px; }
+.hit mark { background: color-mix(in srgb, var(--ink) 18%, transparent); color: var(--ink); border-radius: 3px; padding: 0 2px; }
 
 .status { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; padding: 0 16px; border-top: 1px solid var(--line); font: 11px var(--mono); color: var(--faint); background: var(--bg); white-space: nowrap; overflow: hidden; }
 .status .sep { width: 1px; height: 12px; background: var(--line2); flex: none; }
@@ -82,12 +83,12 @@
 /* sidebar: project and settings */
 .proj { display: flex; align-items: center; gap: 10px; width: 100%; margin-bottom: 10px; padding: 7px 10px 7px 7px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); color: var(--ink); text-align: left; cursor: pointer; }
 .proj:hover { border-color: var(--line2); }
-.proj .pa { width: 26px; height: 26px; flex: none; border-radius: 7px; display: grid; place-items: center; background: var(--sel); color: var(--accent); font: 700 12px var(--disp); }
+.proj .pa { width: 26px; height: 26px; flex: none; border-radius: 7px; display: grid; place-items: center; background: var(--sel); color: var(--ink); font: 700 12px var(--disp); }
 .proj .pn { min-width: 0; }
 .proj b { display: block; font-weight: 500; font-size: 13px; }
 .proj small { display: block; font: 11px var(--mono); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .proj .caret { margin-left: auto; width: 10px; height: 10px; color: var(--faint); flex: none; }
-.pop .cur { margin-left: 6px; font: 500 9.5px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.pop .cur { margin-left: 6px; font: 500 9.5px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink); }
 .side-foot { border-top: 1px solid var(--line); padding: 6px 0 8px; }
 .side-foot .navlist { border-bottom: 0; padding: 0 8px; }
 

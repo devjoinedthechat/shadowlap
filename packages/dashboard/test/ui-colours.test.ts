@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sheet } from './css-sheet.js';
+import { sheet, styleRules } from './css-sheet.js';
 
 /**
  * Each colour means one thing (the mock's tokens): red only what failed or changed for real, amber
@@ -36,6 +36,13 @@ function rules(): Array<{ selectors: string[]; body: string }> {
     }
   }
   return out;
+}
+
+/** The value a property takes on a selector at the top level, the last rule naming it winning: a list split as CSS splits it. */
+function final(selector: string, prop: string): string | null {
+  let found: string | null = null;
+  for (const r of styleRules()) if (!r.conditions.length && r.selectors.includes(selector)) for (const [p, v] of r.decls) if (p === prop) found = v;
+  return found;
 }
 
 /** The value a property takes on a selector, the last rule naming it winning. */
@@ -169,5 +176,71 @@ describe('what each colour may mean', () => {
   it('draws what is inconclusive in the consequence amber', () => {
     for (const s of ['.st.warn', '.glyph.warn', '.tag.inc', 'pre.report .y']) expect(value(s, 'color'), s).toBe('var(--cq-amber)');
     expect(value('td.hist i.inc::before', 'background')).toBe('var(--cq-amber)');
+  });
+
+  it('marks where you are in ink: the current page, run, tab and step, the selected call and turn, the step you are on', () => {
+    expect(value('.navlist a[aria-current="page"] svg', 'color')).toBe('var(--ink)');
+    for (const s of ['.run[aria-current="true"]::before', '.tabs [aria-selected="true"]::after', '.stabs a[aria-current="page"]::after', '.stepper a[aria-current="step"]::after']) expect(value(s, 'background'), s).toBe('var(--ink)');
+    expect(value('table.calls tr[aria-selected="true"] td:first-child', 'box-shadow')).toBe('inset 3px 0 0 var(--ink)');
+    expect(value('.turn.sel', 'box-shadow')).toBe('inset 3px 0 0 var(--ink)');
+    expect(value('ol.setup .cur .sn', 'box-shadow')).toBe('inset 0 0 0 2px var(--ink)');
+    expect(value('table.runst tr.picked td', 'background')).toBe('var(--sel)');
+  });
+
+  it('reads a link in ink, and draws a fork in ink and a live run in the live colour, never lime or amber', () => {
+    for (const s of ['.more', '.attn-more', '.dlink']) expect(final(s, 'color'), s).toBe('var(--ink)');
+    expect(value('.cells button.mark', 'box-shadow')).toBe('0 0 0 2px var(--bg), 0 0 0 4px var(--ink)');
+    for (const s of ['.cells button .flag', 'table.calls .n .fk', '.banner.fork .bk']) expect(value(s, 'color'), s).toBe('var(--ink)');
+    expect(value('.eyebrow', 'color')).toBe('var(--faint)');
+    for (const s of ['.dotlive', '.glyph.live i', '.st.live i', '.livebtn .pulse']) expect(value(s, 'background'), s).toBe('var(--o-live)');
+  });
+});
+
+describe('lime', () => {
+  /** Lime, by its tokens and by its value. */
+  const LIME = /var\(--(lime|accent|accent-line|ok|cq-lime)\)|#c4f233|196,\s*242,\s*51/i;
+  /** Passed, wherever it is drawn: a verdict's word, dot, cell, mark or ring. */
+  const PASSED: Record<string, string> = {
+    '.pips i': 'an attempt that passed',
+    '.attempts span i': 'an attempt that passed',
+    '.attempts a i': 'an attempt that passed',
+    '.st.ok i': 'a run that came out well',
+    'td.hist i.pass::before': 'a golden that passed at a revision',
+    '.gtw .gstrip i.pass': 'a golden that passed at a revision',
+    'table.gt .chk .ck.passed .cm': 'a check that passed',
+    '.checks': 'a fork’s checks, passed',
+    '.callrow .ok .cn': 'a probe that rescued the run',
+    '.callrow .ok .pl': 'a probe that rescued the run',
+    '.ans div.good': 'the rescued fork’s answer',
+    '.wib .iv': 'a gate’s bound that passes',
+    '.fdiff em.ok': 'how an attempt came out: passed',
+    '.banner .why em.ok': 'how an attempt came out: passed',
+    '.badge.ok': 'passed',
+    '.verdict.ok': 'a passed verdict',
+    '.setupdone': 'a setup that is done: “set up”',
+    '.drawer .st2.ok': 'a job that ended well',
+    '.drawer pre .ok': 'a job that ended well',
+    '.prl i.ok': 'the pull request comment’s line that passed',
+    '.recline .ic': 'a setup step’s run that came back',
+    '.glyph.fixok': 'a fix that was accepted',
+    '.plist.checks li.met::before': 'a requirement met',
+    '.runkey .rk.good[aria-pressed="true"]': 'a run labelled good: passed, by your own judgement',
+  };
+  /** Where lime marks no meaning: the keyboard's focus, a focused field, the text you select. */
+  const FOCUS = /:focus(-visible|-within)?\b|^::selection$|^\.labelbar input$/;
+
+  it('means the primary action and passed, and nothing else but where the keyboard is', () => {
+    const off: string[] = [];
+    for (const r of styleRules()) {
+      if (r.selectors.includes(':root')) continue;
+      const lime = r.decls.filter(([, v]) => LIME.test(v));
+      for (const s of r.selectors) if (lime.length && !/^\.btn\.lime\b/.test(s) && !PASSED[s] && !FOCUS.test(s)) off.push(`${s} { ${lime.map(([p, v]) => `${p}: ${v}`).join('; ')} }`);
+    }
+    expect(off).toEqual([]);
+  });
+
+  it('puts no glow under the lime button', () => {
+    const glow = styleRules().filter((r) => r.selectors.some((s) => s.startsWith('.btn.lime')) && r.decls.some(([p, v]) => p === 'box-shadow' && LIME.test(v)));
+    expect(glow.map((r) => r.selectors.join(', '))).toEqual([]);
   });
 });

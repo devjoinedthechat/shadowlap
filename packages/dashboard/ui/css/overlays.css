@@ -46,13 +46,13 @@
 
 /* A job's output wraps rather than run past the drawer's edge, every line read whole; it scrolls down, by keyboard too. */
 .drawer pre { margin: 0; padding: 12px 14px; max-height: 260px; overflow: auto; font: 12px/1.7 var(--mono); color: var(--dim); background: var(--code); white-space: pre-wrap; overflow-wrap: anywhere; }
-.drawer pre .p { color: var(--accent); }
+.drawer pre .p { color: var(--faint); }
 .drawer pre .ok { color: var(--ok); }
 .drawer pre .y { color: var(--warn); }
 .drawer pre .no { color: var(--err); }
 .drawer footer { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); }
 .toast { position: fixed; z-index: 50; left: 50%; bottom: 44px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 12px; background: var(--ink); color: var(--bg); font-size: 13px; box-shadow: 0 18px 40px -16px rgba(0,0,0,.5); }
-.toast i { width: 8px; height: 8px; border-radius: 50%; background: var(--lime); }
+.toast i { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
 .toast.err { width: max-content; max-width: min(560px, calc(100vw - 32px)); align-items: flex-start; line-height: 1.45; }
 .toast.err i { flex: none; margin-top: 5px; background: var(--err); }
 .toast .tx { flex: none; width: 24px; height: 24px; margin: -3px -6px -3px 2px; border: 0; border-radius: 7px; background: none; color: inherit; opacity: .55; font-size: 16px; line-height: 1; cursor: pointer; }
@@ -91,7 +91,7 @@
 .dialog .confirm input { height: 34px; border-radius: 9px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 13px var(--mono); padding: 0 10px; outline: none; }
 .dialog .confirm input:focus { border-color: var(--err); }
 .dialog .rmp { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
-.dialog .rmp .pa { width: 34px; height: 34px; flex: none; border-radius: 9px; display: grid; place-items: center; background: var(--sel); color: var(--accent); font: 700 14px var(--disp); }
+.dialog .rmp .pa { width: 34px; height: 34px; flex: none; border-radius: 9px; display: grid; place-items: center; background: var(--sel); color: var(--ink); font: 700 14px var(--disp); }
 .dialog .rmp .pn { min-width: 0; }
 .dialog .rmp .pn b { display: block; font-weight: 600; font-size: 14px; }
 .dialog .rmp .pn small { display: block; font: 12px var(--mono); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -100,9 +100,9 @@
 .dialog .ondisk ul { list-style: none; margin: 8px 0 0; padding: 0; border: 1px solid var(--line); border-radius: 12px; }
 .dialog .ondisk li { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 9px 12px; font-size: 13px; color: var(--dim); }
 .dialog .ondisk li + li { border-top: 1px solid var(--line); }
-.dialog .ondisk li i { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font: 700 10px var(--body); font-style: normal; background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+.dialog .ondisk li i { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font: 700 10px var(--body); font-style: normal; background: none; color: var(--dim); }
 .dialog .ondisk li code { font: 12px var(--mono); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
-.dialog .ondisk li.gone i { background: color-mix(in srgb, var(--err) 16%, transparent); color: var(--err); }
+.dialog .ondisk li.gone i { background: none; color: var(--err); }
 .dialog .ondisk li.gone span { color: var(--err); }
 .dialog .ondisk li.gone code { text-decoration: line-through; }
 .dialog .rmnote { margin: 10px 0 0; font-size: 12.5px; color: var(--faint); }
@@ -136,7 +136,7 @@ body:has(.bulkbar) .drawer { bottom: 100px; }
 .palit .pl { font-size: 13.5px; white-space: nowrap; }
 .palit .pl.mono { font: 12.5px var(--mono); }
 .palit .ph2 { flex: 1; min-width: 0; color: var(--faint); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.palit mark { background: none; color: var(--accent); }
+.palit mark { background: none; color: var(--ink); font-weight: 600; }
 .palnote { padding: 8px 10px 4px; color: var(--faint); font-size: 12px; }
 .palfoot { display: flex; gap: 16px; padding: 9px 16px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--faint); }
 .palfoot span { display: inline-flex; align-items: center; gap: 4px; }

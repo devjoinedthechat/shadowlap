@@ -11,14 +11,15 @@ code, pre, .mono { font-family: var(--mono); }
 /* Chrome makes a scrolling pane focusable on its own; the selected row already shows where you are, so the pane draws no ring */
 main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visible, .ibody:focus-visible, .pallist:focus-visible, .rawsse:focus-visible { outline: none; }
 /* A pane that takes the focus to be scrolled by keyboard (it holds no control of its own) says it has it. */
-.vbody[tabindex="0"]:focus-visible, .tscroll[tabindex="0"]:focus-visible, .drawer pre:focus-visible, .codebox:focus-visible, pre.report:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.vbody[tabindex="0"]:focus-visible, .tscroll[tabindex="0"]:focus-visible, .drawer pre:focus-visible, .codebox:focus-visible, pre.report:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
 /* A pane that scrolls cuts off what is drawn past its edge, a control's ring among them: inside one, the ring is drawn
    inside the control, so it shows whole wherever the control sits. The page itself keeps its padding clear of rings. */
 :is(.runs, .vbody, .ibody, .pallist, .pallist > [role="listbox"], .pop, .help, .dialog .db, .dialog pre.fxpatch, .drawer pre, .drawer .jfiles, .tscroll, .fxtable, .stabs, .views .tabs, .bulkbar, .rawsse, .codebox, pre.report, .diffpanel pre) :focus-visible { outline-offset: -2px; }
-/* Skip to the page: the first stop for Tab, out of sight until it has the focus. */
-.skip { position: fixed; z-index: 70; left: 12px; top: 10px; padding: 7px 12px; border-radius: 9px; background: var(--lime); color: var(--tar); font-weight: 600; text-decoration: none; transform: translateY(-200%); }
+/* Skip to the page: the first stop for Tab, out of sight until it has the focus; it shows as an overlay does, the page's
+   own ground set apart by an edge and a shadow, never lime, which means the primary action and passed. */
+.skip { position: fixed; z-index: 70; left: 12px; top: 10px; padding: 7px 12px; border-radius: 9px; background: var(--pop); box-shadow: var(--shadow-pop); color: var(--ink); font-weight: 600; text-decoration: none; transform: translateY(-200%); }
 .skip:focus { transform: none; }
-.skip:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.skip:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 10px; border: 3px solid var(--bg); }
@@ -36,32 +37,31 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 
 .kbd { font: 500 10.5px var(--mono); color: var(--faint); border: 1px solid var(--line2); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; }
 
-.dotlive { width: 7px; height: 7px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lime) 22%, transparent); animation: pulse 1.6s ease-in-out infinite; flex: none; }
+.dotlive { width: 7px; height: 7px; border-radius: 50%; background: var(--o-live); box-shadow: 0 0 0 3px color-mix(in srgb, var(--o-live) 22%, transparent); animation: pulse 1.6s ease-in-out infinite; flex: none; }
 @keyframes pulse { 50% { opacity: .35; } }
 
 .glyph { width: 14px; height: 14px; flex: none; display: grid; place-items: center; color: var(--faint); position: relative; z-index: 1; }
 .glyph svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-.glyph.live i { width: 8px; height: 8px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lime) 22%, transparent); animation: pulse 1.6s ease-in-out infinite; }
+.glyph.live i { width: 8px; height: 8px; border-radius: 50%; background: var(--o-live); box-shadow: 0 0 0 3px color-mix(in srgb, var(--o-live) 22%, transparent); animation: pulse 1.6s ease-in-out infinite; }
 .glyph.live.done i { animation: none; box-shadow: none; }
 .glyph.rec, .glyph.test, .glyph.project, .glyph.setting { color: var(--dim); }
 /* a clean replay's glyph in the replayed colour; an accepted fix's in passed's lime */
 .glyph.clean { color: var(--o-rep); }
 .glyph.fixok { color: var(--cq-lime); }
-.glyph.fork, .glyph.blame { color: var(--warn); }
-.glyph.cap { color: var(--o-over); }
+/* a fork, blame and a capture are kinds of run, in the glyphs' grey: amber means only what needs a look */
+.glyph.fork, .glyph.blame { color: var(--dim); }
+.glyph.cap { color: var(--dim); }
 .glyph.fail, .glyph.fixbad { color: var(--err); }
 .glyph.warn { color: var(--cq-amber); }
 /* A verify's attempts under a verdict that doesn't count for the fix: no verdict on it, so no verdict's colour. */
 .glyph.plain { color: var(--dim); }
 
 .tag { display: inline-flex; align-items: center; gap: 5px; font: 500 9.5px var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line2); color: var(--dim); white-space: nowrap; flex: none; }
-.tag.clean { color: var(--accent); border-color: color-mix(in srgb, var(--accent-line) 45%, transparent); }
-.tag.fork { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
-.tag.cap { color: var(--o-over); border-color: color-mix(in srgb, var(--o-over) 45%, transparent); }
-.tag.test { color: var(--c-write); border-color: color-mix(in srgb, var(--c-write) 45%, transparent); }
+/* a clean replay's tag in the replayed colour; a fork, a capture and a test are said by their words in the tag's grey */
+.tag.clean { color: var(--o-rep); border-color: color-mix(in srgb, var(--o-rep) 45%, transparent); }
 .tag.fail { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, transparent); }
-.tag.live { color: var(--accent); border-color: color-mix(in srgb, var(--accent-line) 45%, transparent); }
-.tag.live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--lime); animation: pulse 1.6s ease-in-out infinite; }
+.tag.live { color: var(--o-live); border-color: color-mix(in srgb, var(--o-live) 45%, transparent); }
+.tag.live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--o-live); animation: pulse 1.6s ease-in-out infinite; }
 .chip { display: inline-flex; align-items: center; gap: 4px; font: 11px var(--mono); color: var(--dim); background: var(--raise); border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; white-space: nowrap; }
 .empty { padding: 28px 16px; color: var(--faint); font-size: 13px; text-align: center; }
 
@@ -72,19 +72,16 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .ph h1 { margin: 6px 0 0; font: 700 26px/1.12 var(--disp); letter-spacing: -.035em; }
 .ph p { margin: 8px 0 0; color: var(--dim); max-width: 64ch; }
 .ph .actions { margin-left: auto; }
-.eyebrow { display: flex; align-items: center; gap: 10px; font: 500 11px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--accent); }
-.eyebrow i { width: 7px; height: 7px; border-radius: 2px; background: var(--lime); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lime) 22%, transparent); }
-.eyebrow.fork { color: var(--warn); }
-.eyebrow.fork i { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent); }
+.eyebrow { display: flex; align-items: center; gap: 10px; font: 500 11px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }
+/* the eyebrow is a muted line for what the page is, a fork's included, with no square and never lime */
+.eyebrow > i:first-child { display: none; }
 .eyebrow.err { color: var(--err); }
-.eyebrow.err i { background: var(--err); box-shadow: 0 0 0 3px color-mix(in srgb, var(--err) 22%, transparent); }
 .eyebrow a { color: inherit; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
 .btn { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border-radius: 9px; border: 1px solid var(--line2); background: none; color: var(--ink); font: 500 13px var(--body); cursor: pointer; white-space: nowrap; text-decoration: none; }
 .btn:hover { border-color: var(--dim); }
 .btn svg { width: 14px; height: 14px; }
 .btn.sm { height: 28px; padding: 0 10px; font-size: 12px; border-radius: 8px; }
-.btn.lime { background: var(--lime); border-color: var(--lime); color: var(--tar); font-weight: 600; box-shadow: inset 0 1px 0 rgba(255,255,255,.45), 0 8px 22px -12px rgba(196,242,51,.7); }
-.btn.lime:hover { box-shadow: inset 0 1px 0 rgba(255,255,255,.45), 0 12px 28px -12px rgba(196,242,51,.9); }
+.btn.lime { background: var(--lime); border-color: var(--lime); color: var(--tar); font-weight: 600; box-shadow: inset 0 1px 0 rgba(255,255,255,.45); }
 .btn.quiet { border-color: transparent; color: var(--faint); }
 .btn.quiet:hover:not([disabled]) { color: var(--ink); background: var(--hover); }
 .btn.quiet.dz:hover:not([disabled]) { color: var(--err); background: color-mix(in srgb, var(--err) 10%, transparent); }
@@ -102,7 +99,8 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .linkbtn { display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; padding: 3px 7px; margin: -3px 0; border-radius: 6px; cursor: pointer; font: 500 12px var(--body); letter-spacing: 0; text-transform: none; color: var(--dim); text-decoration: none; white-space: nowrap; }
 .linkbtn:hover { color: var(--ink); background: var(--hover); }
 .linkbtn svg { width: 12px; height: 12px; flex: none; }
-.more { color: var(--accent); text-decoration: none; font-weight: 500; }
+/* a link reads in ink, at 500, underlined on hover */
+.more { color: var(--ink); text-decoration: none; font-weight: 500; }
 .more:hover { text-decoration: underline; text-underline-offset: 3px; }
 .panel { border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
 .panel > header { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
@@ -129,7 +127,7 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .eff.write { color: var(--k-write); }
 /* a call that was the user's input; a replay's read its recording had no counterpart for, answered live while it went on
    replaying. In a call both runs made alike on Compare, the row's faint ink takes the tag too. */
-.eff.input { color: var(--accent); }
+.eff.input { color: var(--dim); }
 .eff.extra { color: var(--dim); }
 .pips { display: inline-flex; gap: 3px; vertical-align: middle; }
 /* an attempt passed or failed: a verdict, in the consequence colours, never a call's origin */
@@ -144,7 +142,7 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .badge.y { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
 .badge.n { background: var(--raise); color: var(--dim); box-shadow: inset 0 0 0 1px var(--line2); }
 .cmdline { display: block; padding: 10px 12px; border-radius: 10px; background: var(--code); border: 1px solid var(--line); font: 12px/1.65 var(--mono); color: var(--dim); overflow-wrap: anywhere; }
-.cmdline b { color: var(--accent); font-weight: 400; margin-right: 6px; }
+.cmdline b { color: var(--faint); font-weight: 400; margin-right: 6px; }
 
 .legend { display: flex; flex-wrap: wrap; gap: 14px; font: 11.5px var(--mono); color: var(--faint); }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
@@ -154,7 +152,8 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .chips button { border: 1px solid var(--line); background: none; border-radius: 999px; padding: 4px 11px; cursor: pointer; font: 500 12px var(--body); color: var(--faint); }
 .chips button b { font: 500 11px var(--mono); margin-left: 5px; color: var(--faint); }
 .chips button:hover { color: var(--ink); border-color: var(--line2); }
-.chips button[aria-pressed="true"] { color: var(--ink); border-color: var(--accent-line); background: color-mix(in srgb, var(--lime) 8%, transparent); }
+/* the chosen chip: ink on a raised ground with a hairline ring, as every picker's chosen option */
+.chips button[aria-pressed="true"] { color: var(--ink); border-color: var(--line2); background: var(--raise); }
 
 table.t { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.t th { position: sticky; top: 0; z-index: 1; background: var(--panel); text-align: left; font: 500 10px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
@@ -165,7 +164,8 @@ table.t tbody tr { cursor: pointer; }
 table.t tbody tr:hover td { background: var(--hover); }
 table.t tbody tr:last-child td { border-bottom: 0; }
 table.t .num { text-align: right; font: 12.5px var(--mono); font-variant-numeric: tabular-nums; color: var(--dim); white-space: nowrap; }
-table.t .num.lime { color: var(--accent); }
+/* what a replay saved (the daily table's "not re-spent", which the code calls lime) is a receipt, in grey */
+table.t .num.lime { color: var(--dim); }
 .rid { display: flex; align-items: center; gap: 8px; }
 .rid code { font-size: 12.5px; color: var(--ink); }
 .rsub { display: block; margin-top: 2px; color: var(--faint); font-size: 12px; }
@@ -199,7 +199,7 @@ table.t .num.lime { color: var(--accent); }
 
 .nil { color: var(--faint); }
 .st.live { color: var(--ink); }
-.st.live i { background: var(--lime); animation: pulse 1.6s infinite; }
+.st.live i { background: var(--o-live); animation: pulse 1.6s infinite; }
 
 /* the good/bad key: two quiet toggles; pressed, good in lime and bad in red, each with its own border */
 .runkey { display: inline-flex; gap: 3px; }
@@ -214,7 +214,7 @@ table.t .num.lime { color: var(--accent); }
 .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
 .switch i { width: 28px; height: 16px; border-radius: 999px; background: var(--line2); position: relative; transition: background .15s; }
 .switch i::after { content: ""; position: absolute; left: 2px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--bg); transition: transform .15s; }
-.switch[aria-checked="true"] i { background: var(--lime); }
+.switch[aria-checked="true"] i { background: var(--ink); }
 .switch[aria-checked="true"] i::after { transform: translateX(12px); background: var(--tar); }
 
 @keyframes blink { 50% { opacity: 0; } }
@@ -234,7 +234,7 @@ table.t .num.lime { color: var(--accent); }
 .verdict h2 { margin: 0; font: 600 18px var(--disp); letter-spacing: -.02em; }
 .verdict p { margin: 2px 0 0; color: var(--faint); font-size: 12.5px; }
 
-.spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line2); border-top-color: var(--lime); animation: spin .8s linear infinite; }
+.spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line2); border-top-color: var(--ink); animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 1000px) {
@@ -348,7 +348,7 @@ h1, h2, h3 { text-wrap: balance; }
 .drop svg { width: 22px; height: 22px; color: var(--faint); margin-bottom: 4px; }
 .drop b { font-weight: 500; color: var(--ink); }
 .drop span { font-size: 12px; color: var(--faint); }
-.drop:hover, .drop.over { border-color: var(--accent-line); background: color-mix(in srgb, var(--lime) 6%, transparent); }
+.drop:hover, .drop.over { border-color: var(--dim); background: var(--hover); }
 .drop:focus-visible { outline: none; border-color: var(--accent-line); }
 .drop.has { padding: 14px 16px; }
 
@@ -367,7 +367,7 @@ code, pre, kbd, .mono, .kbd, .codebox, .cmdline { font-variant-ligatures: none; 
 .stabs a { position: relative; padding: 9px 12px 11px; color: var(--faint); text-decoration: none; font-weight: 500; white-space: nowrap; }
 .stabs a:hover { color: var(--ink); }
 .stabs a[aria-current="page"] { color: var(--ink); }
-.stabs a[aria-current="page"]::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--lime); }
+.stabs a[aria-current="page"]::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--ink); }
 
 /* no stubs: short multi-line text splits evenly, and labels never break inside */
 .attn .d, .verdict p, .ph p.pmeta, .kvs dd, .stepper b, .stepper .m, .nextsteps span, .ans code, .pdiff p, .prbody li, .egrp p.muted, .rule span, .sh p, .inote { text-wrap: balance; }
@@ -404,7 +404,7 @@ code, pre, kbd, .mono, .kbd, .codebox, .cmdline { font-variant-ligatures: none; 
 .person .nm em { font-style: normal; margin-left: 6px; color: var(--faint); font-size: 11.5px; }
 .person small { margin-top: 1px; color: var(--faint); font-size: 11.5px; white-space: nowrap; }
 
-.tag-local { margin-left: 8px; padding: 1px 5px; border-radius: 5px; border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); color: var(--warn); font: 500 9.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; vertical-align: 1px; }
+.tag-local { margin-left: 8px; padding: 1px 5px; border-radius: 5px; border: 1px solid var(--line2); color: var(--faint); font: 500 9.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; vertical-align: 1px; }
 
 .plist { margin: 0; padding-left: 18px; color: var(--dim); }
 .plist li { margin: 0 0 8px; }
@@ -417,7 +417,7 @@ code, pre, kbd, .mono, .kbd, .codebox, .cmdline { font-variant-ligatures: none; 
 .checklist { display: flex; flex-direction: column; gap: 10px; font-size: 13.5px; }
 .checklist label { display: flex; align-items: center; gap: 10px; color: var(--ink); }
 .checklist input[disabled] + span { color: var(--faint); }
-.checklist input { width: 15px; height: 15px; margin: 0; flex: none; accent-color: var(--accent-line); cursor: pointer; }
+.checklist input { width: 15px; height: 15px; margin: 0; flex: none; accent-color: var(--ink); cursor: pointer; }
 .checklist input[disabled] { cursor: default; }
 
 .plist { font-family: var(--body); font-size: 13px; }
@@ -431,7 +431,7 @@ code, pre, kbd, .mono, .kbd, .codebox, .cmdline { font-variant-ligatures: none; 
 
 .nw { white-space: nowrap; }
 
-.chip.ci { color: var(--accent); border-color: color-mix(in srgb, var(--accent-line) 45%, transparent); margin-left: 6px; }
+.chip.ci { margin-left: 6px; }
 
 .codewrap { margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg2); overflow: hidden; }
 .codehead { display: flex; align-items: center; gap: 10px; padding: 7px 8px 7px 14px; border-bottom: 1px solid var(--line); font: 11.5px var(--mono); color: var(--faint); }
@@ -463,7 +463,6 @@ table.t tbody tr.wspace:hover td { background: none; }
 /* a run that was interrupted (stopped before it ended, failing nothing else): its page, Runs, the
    sidebar, the Overview and a --repeat's attempts in Forks say so in grey, never as a failure */
 .eyebrow.n { color: var(--dim); }
-.eyebrow.n i { background: var(--faint); box-shadow: 0 0 0 3px color-mix(in srgb, var(--faint) 22%, transparent); }
 .eyebrow .n { color: var(--dim); }
 
 .verdict.n { background: var(--raise); box-shadow: inset 0 0 0 1px var(--line2); }
@@ -476,7 +475,7 @@ code.flag { white-space: nowrap; font-size: .92em; }
 
 p.hintx.tfoot { display: block; margin: 14px 2px 0; }
 
-.dlink { color: var(--dim); text-decoration: none; }
+.dlink { color: var(--ink); text-decoration: none; }
 .dlink:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 
 /* a page's line under its title, in clauses: with less room than the line needs it breaks between them, never inside one */

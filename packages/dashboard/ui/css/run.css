@@ -27,11 +27,11 @@
 .banner { display: flex; align-items: center; gap: 12px; padding: 9px 24px; border-top: 1px solid var(--line); font-size: 13px; flex-wrap: wrap; }
 .banner.fork { background: color-mix(in srgb, var(--warn) 5%, transparent); }
 .banner.blame { background: color-mix(in srgb, var(--err) 5%, transparent); }
-.banner.live { background: color-mix(in srgb, var(--lime) 6%, transparent); }
+.banner.live { background: color-mix(in srgb, var(--o-live) 6%, transparent); }
 .banner .bk { font: 500 10.5px var(--mono); letter-spacing: .16em; text-transform: uppercase; }
-.banner.fork .bk, .banner.fork .bn { color: var(--warn); }
+.banner.fork .bk, .banner.fork .bn { color: var(--ink); }
 .banner.blame .bk, .banner.blame .bn { color: var(--err); }
-.banner.live .bk { color: var(--accent); }
+.banner.live .bk { color: var(--ink); }
 .banner .bn { font: 600 14px var(--mono); cursor: pointer; border: 0; background: none; padding: 0; }
 .banner code { font-size: 12.5px; }
 .banner .why { color: var(--faint); }
@@ -112,9 +112,10 @@
 .cells button.over { background: var(--o-over); }
 .cells button.pending { background: transparent; cursor: default; visibility: hidden; }
 .cells button.pending.next { visibility: visible; box-shadow: inset 0 0 0 1px var(--line2); animation: pulse 1.6s ease-in-out infinite; }
-.cells button.mark { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--warn); }
+/* a fork is marked in ink; a lost call in the one red */
+.cells button.mark { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ink); }
 .cells button.mark.bl { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--err); }
-.cells button .flag { position: absolute; left: 50%; bottom: calc(100% + 7px); transform: translateX(-50%); font: 600 9.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; color: var(--warn); }
+.cells button .flag { position: absolute; left: 50%; bottom: calc(100% + 7px); transform: translateX(-50%); font: 600 9.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; color: var(--ink); }
 .cells button.bl .flag { color: var(--err); }
 .cells button[aria-current="true"]::after { content: ""; position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%); border: 5px solid transparent; border-bottom-color: var(--ink); }
 .cells button:hover:not(.pending) { filter: brightness(1.15); }
@@ -125,7 +126,7 @@
 .tabs button, .tabs a { position: relative; border: 0; background: none; cursor: pointer; padding: 8px 10px 10px; font: 500 13px var(--body); color: var(--faint); text-decoration: none; }
 .tabs button:hover, .tabs a:hover { color: var(--ink); }
 .tabs [aria-selected="true"] { color: var(--ink); }
-.tabs [aria-selected="true"]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--lime); }
+.tabs [aria-selected="true"]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--ink); }
 .tabs .count { font: 11px var(--mono); color: var(--faint); margin-left: 4px; }
 .toolbar { display: flex; align-items: center; gap: 10px; padding: 9px 18px; border-bottom: 1px solid var(--line); }
 .ofilter { display: flex; gap: 2px; }
@@ -145,9 +146,9 @@ table.calls td { padding: 7px 10px; border-bottom: 1px solid var(--line); white-
 table.calls tbody tr { cursor: pointer; }
 table.calls tbody tr:hover td { background: var(--hover); }
 table.calls tr[aria-selected="true"] td { background: var(--sel); }
-table.calls tr[aria-selected="true"] td:first-child { box-shadow: inset 3px 0 0 var(--lime); }
+table.calls tr[aria-selected="true"] td:first-child { box-shadow: inset 3px 0 0 var(--ink); }
 table.calls .n { width: 54px; text-align: right; font: 12px var(--mono); color: var(--faint); }
-table.calls .n .fk { font: 600 9px var(--mono); letter-spacing: .1em; color: var(--warn); margin-right: 5px; }
+table.calls .n .fk { font: 600 9px var(--mono); letter-spacing: .1em; color: var(--ink); margin-right: 5px; }
 table.calls .n .fk.bl { color: var(--err); }
 table.calls .name { font-weight: 500; }
 table.calls .name small { font: 11px var(--mono); color: var(--faint); margin-right: 8px; }
@@ -172,10 +173,10 @@ table.calls .rowact { width: 36px; padding: 0 8px 0 0; text-align: right; }
 table.calls .rowact button { visibility: hidden; width: 24px; height: 24px; display: inline-grid; place-items: center; border-radius: 6px; border: 1px solid var(--line2); background: var(--panel); color: var(--dim); cursor: pointer; }
 table.calls .rowact button svg { width: 12px; height: 12px; }
 table.calls tbody tr:hover .rowact button, table.calls tr[aria-selected="true"] .rowact button { visibility: visible; }
-table.calls .rowact button:hover { color: var(--warn); border-color: var(--warn); }
+table.calls .rowact button:hover { color: var(--ink); border-color: var(--dim); }
 .turn { padding: 12px 18px; border-bottom: 1px solid var(--line); cursor: pointer; }
 .turn:hover { background: var(--hover); }
-.turn.sel { background: var(--sel); box-shadow: inset 3px 0 0 var(--lime); }
+.turn.sel { background: var(--sel); box-shadow: inset 3px 0 0 var(--ink); }
 .turn .t1 { display: flex; align-items: center; gap: 10px; }
 .turn .tn { font: 600 11px var(--mono); color: var(--faint); width: 40px; }
 .turn .tm { font-weight: 500; }
@@ -240,14 +241,14 @@ table.ctab tr.miss td { color: var(--warn); }
 .fnode .f1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .fnode .f1 code { font-size: 12.5px; }
 .fnode .f2 { margin-top: 3px; font-size: 12.5px; color: var(--faint); }
-.fnode .f2 b { color: var(--accent); font-weight: 500; }
+.fnode .f2 b { color: var(--ink); font-weight: 500; }
 .fnode .fr { font: 11.5px var(--mono); color: var(--faint); text-align: right; white-space: nowrap; }
 .fkids { margin-left: 22px; padding-left: 12px; border-left: 1px solid var(--line2); }
 .attempts { margin-top: 8px; display: grid; gap: 3px; }
 .attempts span { display: flex; align-items: center; gap: 8px; font: 12px var(--mono); color: var(--dim); }
 .attempts span i { width: 7px; height: 7px; border-radius: 2px; background: var(--cq-lime); }
 .attempts span i.no { background: var(--cq-red); }
-.checks { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; font: 12px var(--mono); color: var(--ok); }
+.checks { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; font: 12px var(--mono); color: var(--cq-lime); }
 /* inspector */
 .insp { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .ihead { display: flex; align-items: center; gap: 10px; padding: 12px 18px 0; }
@@ -267,8 +268,9 @@ table.ctab tr.miss td { color: var(--warn); }
 .msg:last-child { border-bottom: 0; }
 .msg .role { font: 500 10px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); padding-top: 2px; }
 .msg .role small { display: block; margin-top: 2px; font-size: 10px; letter-spacing: 0; }
-.msg.system .role { color: var(--o-over); }
-.msg.user .role { color: var(--accent); }
+/* a message's role is a label, muted: the overridden colour means an overridden call, lime the primary action */
+.msg.system .role { color: var(--faint); }
+.msg.user .role { color: var(--faint); }
 .msg.assistant .role { color: var(--ink); }
 .msg .txt { white-space: pre-wrap; word-break: break-word; }
 .msg.system .txt { color: var(--dim); }
@@ -277,7 +279,7 @@ table.ctab tr.miss td { color: var(--warn); }
 .tu .ar { color: var(--faint); }
 .jbox { margin-top: 6px; padding: 8px 10px; border-radius: 8px; background: var(--code); border: 1px solid var(--line); font: 12px/1.6 var(--mono); color: var(--dim); white-space: pre-wrap; word-break: break-word; }
 .msg.changed { background: color-mix(in srgb, var(--warn) 6%, transparent); margin: 0 -18px; padding-left: 18px; padding-right: 18px; box-shadow: inset 3px 0 0 var(--warn); }
-.msg .chg { display: inline-block; margin-top: 6px; font: 500 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--warn); }
+.msg .chg { display: inline-block; margin-top: 6px; font: 500 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink); }
 .ins-add { color: var(--add); background: var(--add-bg); border-radius: 3px; padding: 0 2px; }
 
 .resp { font-size: 14px; line-height: 1.65; white-space: pre-wrap; }
@@ -286,7 +288,7 @@ table.ctab tr.miss td { color: var(--warn); }
 .play { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 .play .ev { margin-left: auto; font: 11.5px var(--mono); color: var(--faint); }
 .prog { height: 3px; border-radius: 2px; background: var(--line2); margin-bottom: 14px; overflow: hidden; }
-.prog i { display: block; height: 100%; width: 0; background: var(--lime); }
+.prog i { display: block; height: 100%; width: 0; background: var(--ink); }
 .tree { font: 12.5px/1.7 var(--mono); }
 .tree details { margin-left: 14px; }
 /* Each fold mark is a target 24 px tall at least (WCAG 2.5.8): a line of the tree is 21. */
@@ -297,8 +299,8 @@ table.ctab tr.miss td { color: var(--warn); }
 .tree .kv { white-space: nowrap; }
 .tree .tk { color: var(--dim); }
 .tree .s { color: var(--add); }
-.tree .num { color: var(--o-over); }
-.tree .b { color: var(--warn); }
+.tree .num { color: var(--ink); }
+.tree .b { color: var(--ink); }
 .tree .muted { color: var(--faint); }
 
 .notes { display: flex; flex-direction: column; gap: 8px; }
@@ -348,7 +350,7 @@ table.calls .det.err { color: var(--err); }
 .inote.err { background: color-mix(in srgb, var(--err) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--err) 30%, transparent); }
 .ibar.err { color: var(--err); font-family: var(--mono); }
 .rawsse { margin: 0; padding: 12px 14px; border-radius: 10px; background: var(--bg2); border: 1px solid var(--line); font: 11.5px/1.55 var(--mono); color: var(--dim); white-space: pre-wrap; word-break: break-all; max-height: 62vh; overflow: auto; }
-.rawsse .ev { color: var(--accent); }
+.rawsse .ev { color: var(--ink); }
 .kvs.hdrs dt { font-family: var(--mono); font-size: 11.5px; }
 
 @media (min-width: 1001px) { .rhead .actions { flex-wrap: nowrap; flex: none; } }
@@ -414,7 +416,7 @@ table.ledger code { font-size: 11.5px; color: var(--dim); }
 .plist.checks { list-style: none; padding: 0; }
 .plist.checks li { position: relative; padding-left: 24px; color: var(--ink); }
 .plist.checks li::before { content: ""; position: absolute; left: 0; top: 2px; width: 14px; height: 14px; border-radius: 4px; }
-.plist.checks li.met::before { background: var(--lime) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='%2315140f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/10px no-repeat; }
+.plist.checks li.met::before { background: var(--cq-lime) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='%2315140f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/10px no-repeat; }
 .plist.checks li.unmet { color: var(--err); }
 .plist.checks li.unmet::before { box-shadow: inset 0 0 0 1.5px var(--err); }
 
@@ -484,7 +486,7 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 .rnote .why { margin: 0; color: var(--dim); text-wrap: pretty; overflow-wrap: anywhere; }
 .rnote code { font-size: 12.5px; color: var(--ink); }
 .rnote .bn { font: 600 13px var(--mono); color: var(--ink); cursor: pointer; border: 0; background: none; padding: 0; }
-.rnote .bn:hover { color: var(--accent); }
+.rnote .bn:hover { text-decoration: underline; text-underline-offset: 3px; }
 .rntools { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 3px; }
 .rntools li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; color: var(--dim); font-size: 12.5px; }
 .rntools .eff { font: 10.5px var(--mono); margin: 0; }

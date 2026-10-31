@@ -10,8 +10,10 @@
 .changes div.diff { border-color: color-mix(in srgb, var(--warn) 50%, transparent); background: color-mix(in srgb, var(--warn) 5%, var(--panel)); }
 .changes b { display: block; margin-top: 4px; font-weight: 500; }
 .changes small { display: block; margin-top: 2px; font: 11.5px var(--mono); color: var(--faint); }
-.prefix { margin-top: 16px; display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--lime) 7%, transparent); }
+.prefix { margin-top: 16px; display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: 12px; }
 .prefix .ms { width: 260px; height: 12px; }
+/* the prefix both runs share, quiet: every call of it in the muted cell fill */
+.prefix .ms i { background: var(--cq-muted-fill); }
 /* what made a fork can quote a tool's JSON: the line wraps inside it rather than run past a narrow window */
 .prefix > span:last-child { min-width: 0; overflow-wrap: anywhere; }
 .paths { margin-top: 16px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }

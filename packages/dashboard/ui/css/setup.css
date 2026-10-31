@@ -2,7 +2,7 @@
 /* a project with no runs */
 .onboard { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .onboard li { display: flex; gap: 16px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
-.onboard .on { font: 700 13px var(--disp); color: var(--accent); padding-top: 2px; }
+.onboard .on { font: 700 13px var(--disp); color: var(--faint); padding-top: 2px; }
 .onboard h3 { margin: 0; font: 600 16px var(--disp); letter-spacing: -.02em; }
 .onboard p { margin: 6px 0 12px; color: var(--dim); font-size: 13px; }
 .onboard > li > div { min-width: 0; flex: 1; }
@@ -21,12 +21,12 @@
 .folders { margin-top: 12px; display: flex; flex-direction: column; gap: 4px; }
 .fold { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; border: 1px solid transparent; border-radius: 10px; background: none; color: var(--ink); text-align: left; cursor: pointer; }
 .fold:hover:not([disabled]) { background: var(--hover); }
-.fold[aria-selected="true"] { border-color: var(--accent-line); background: color-mix(in srgb, var(--lime) 7%, transparent); }
+.fold[aria-selected="true"] { border-color: var(--line2); background: var(--sel); }
 .fold[disabled] { opacity: .45; cursor: default; }
 .fold svg { width: 16px; height: 16px; color: var(--faint); flex: none; }
 .fold b { display: block; font: 500 13px var(--mono); }
 .fold small { display: block; margin-top: 2px; color: var(--faint); font-size: 12px; }
-.fold .tick { margin-left: auto; font-style: normal; color: var(--accent); }
+.fold .tick { margin-left: auto; font-style: normal; color: var(--ink); }
 /* A long folder path wraps in its row; the Add button names the folder and shrinks to its panel, the whole path on hover. */
 .fold > span { min-width: 0; }
 .fold b, .fold small { overflow-wrap: anywhere; }
@@ -38,7 +38,7 @@
 .pfoot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); }
 .nextsteps ol { list-style: none; counter-reset: ns; margin: 0; padding: 14px 18px 8px; }
 .nextsteps li { counter-increment: ns; display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 2px 8px; padding: 6px 0; }
-.nextsteps li::before { content: counter(ns, decimal-leading-zero); grid-row: span 2; font: 700 11px var(--disp); color: var(--accent); padding-top: 2px; }
+.nextsteps li::before { content: counter(ns, decimal-leading-zero); grid-row: span 2; font: 700 11px var(--disp); color: var(--faint); padding-top: 2px; }
 .nextsteps b { font-weight: 500; }
 .nextsteps span { color: var(--faint); font-size: 12.5px; }
 /* setting a project up */
@@ -46,8 +46,9 @@ ol.setup { list-style: none; margin: 0; padding: 0; position: relative; }
 ol.setup::before { content: ""; position: absolute; left: 15px; top: 18px; bottom: 18px; width: 2px; background: var(--line); }
 ol.setup > li { position: relative; display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 18px; padding: 0 0 22px; }
 ol.setup .sn { position: relative; z-index: 1; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font: 700 12px var(--disp); background: var(--bg); box-shadow: inset 0 0 0 2px var(--line2); color: var(--faint); }
-ol.setup .cur .sn { box-shadow: inset 0 0 0 2px var(--lime); color: var(--accent); }
-ol.setup .done .sn { background: var(--lime); color: var(--tar); box-shadow: none; }
+/* the step you are on in ink; a finished one is done, not a verdict: grey */
+ol.setup .cur .sn { box-shadow: inset 0 0 0 2px var(--ink); color: var(--ink); }
+ol.setup .done .sn { background: var(--dim); color: var(--bg); box-shadow: none; }
 ol.setup .sb { min-width: 0; padding: 16px 20px 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
 ol.setup .todo .sb { background: none; border-style: dashed; }
 ol.setup .todo h3 { color: var(--faint); }
@@ -70,7 +71,7 @@ dl.found dd small { color: var(--faint); font-size: 11.5px; margin-left: 4px; }
 .warnbox { margin-top: 14px; padding: 12px 14px; border-radius: 12px; font-size: 13px; line-height: 1.55; background: color-mix(in srgb, var(--warn) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 32%, transparent); }
 
 .cmdin { display: flex; align-items: center; gap: 10px; height: 38px; margin-bottom: 12px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--field); background: var(--bg2); }
-.cmdin b { color: var(--accent); font: 500 13px var(--mono); }
+.cmdin b { color: var(--faint); font: 500 13px var(--mono); }
 .cmdin input { flex: 1; min-width: 0; height: 100%; border: 0; background: none; color: var(--ink); font: 13px var(--mono); outline: none; }
 .cmdin:focus-within { border-color: var(--accent-line); }
 .cmdin input:disabled { color: var(--faint); }
