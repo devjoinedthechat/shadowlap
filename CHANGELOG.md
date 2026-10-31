@@ -162,8 +162,4 @@ The first release: record, replay and fork AI agent runs, find the call that los
 - **Light to install**. Every package together is 4.1 MB to download and 16 MB installed. The `shadowlap` package exports its module and `package.json` only; its command is the `bin` the manifest names.
 - **Source maps without the source**. Source maps name each file's TypeScript without carrying it, except in the SDKs, the adapters and `@shadowlap/test`, which ship their source. Their CommonJS copies are type-checked as CommonJS, and mapped too.
 
-### Fixed
-
-- **[A suggested `--set` keeps a recorded string a string](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/cli.md)**. A string field that reads as JSON (`"123"`, `"true"`, `"null"`) goes in quotes in the `--set` Shadowlap writes for a command: a fix's blame or verify run again, what `decisions` and `changes migrate` suggest, a job the dashboard starts. `--set` reads it back as that string, not a number or a boolean.
-
 [Unreleased]: https://github.com/devjoinedthechat/shadowlap/commits/main
