@@ -21,7 +21,7 @@
 .dialog.editfork .fieldnote { margin: 6px 0 10px; font-size: 12px; color: var(--faint); }
 .dialog.editfork .fieldnote.err { color: var(--err); }
 .dialog.editfork .warnline { color: var(--warn); font-weight: 500; }
-.dialog textarea, .dialog input[type="text"] { width: 100%; border-radius: 10px; border: 1px solid var(--line2); background: var(--panel); color: var(--ink); font: 13px var(--body); padding: 10px 12px; outline: none; }
+.dialog textarea, .dialog input[type="text"] { width: 100%; border-radius: 10px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 13px var(--body); padding: 10px 12px; outline: none; }
 .dialog textarea { min-height: 84px; resize: vertical; }
 .dialog textarea:focus, .dialog input:focus { border-color: var(--accent-line); }
 .dialog .cmdline { margin-top: 10px; }
@@ -88,7 +88,7 @@
 .dialog .check { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: var(--dim); line-height: 1.5; cursor: pointer; }
 .dialog .check input { margin-top: 3px; accent-color: var(--err); }
 .dialog .confirm { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; font-size: 12.5px; color: var(--faint); }
-.dialog .confirm input { height: 34px; border-radius: 9px; border: 1px solid var(--line2); background: var(--panel); color: var(--ink); font: 13px var(--mono); padding: 0 10px; outline: none; }
+.dialog .confirm input { height: 34px; border-radius: 9px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 13px var(--mono); padding: 0 10px; outline: none; }
 .dialog .confirm input:focus { border-color: var(--err); }
 .dialog .rmp { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
 .dialog .rmp .pa { width: 34px; height: 34px; flex: none; border-radius: 9px; display: grid; place-items: center; background: var(--sel); color: var(--accent); font: 700 14px var(--disp); }

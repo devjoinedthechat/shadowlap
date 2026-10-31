@@ -2,7 +2,7 @@
 .tbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
 
 .tin { position: relative; margin-left: auto; }
-.tin input { height: 32px; width: 240px; border-radius: 9px; border: 1px solid var(--line2); background: var(--panel); color: var(--ink); font: 13px var(--body); padding: 0 10px; outline: none; }
+.tin input { height: 32px; width: 240px; border-radius: 9px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 13px var(--body); padding: 0 10px; outline: none; }
 .tin input:focus { border-color: var(--accent-line); }
 
 table.runst .rsub { padding-left: 22px; }

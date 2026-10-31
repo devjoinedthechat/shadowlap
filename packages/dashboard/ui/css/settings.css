@@ -116,7 +116,7 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .cip.off :is(.cimain .setrow, .codewrap, .prcard, .slackmsg, .teamside ul), .cip.off :is(.cimain .setrow, .codewrap, .prcard, .slackmsg, .teamside ul) * { color: var(--faint); }
 .cip .teamside .k { display: block; margin: 0 0 8px; }
 .cip .teamside .alertcard + .k { margin-top: 20px; }
-.setrow select.sel, .setrow input.inp { height: 32px; min-width: 170px; border-radius: 9px; border: 1px solid var(--line2); background: var(--panel); color: var(--ink); font: 12.5px var(--mono); padding: 0 10px; outline: none; flex: none; }
+.setrow select.sel, .setrow input.inp { height: 32px; min-width: 170px; border-radius: 9px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 12.5px var(--mono); padding: 0 10px; outline: none; flex: none; }
 .setrow select.sel { -webkit-appearance: none; appearance: none; padding-right: 30px; background: var(--panel) var(--chev) no-repeat right 10px center / 10px 10px; cursor: pointer; }
 .setrow select.sel:hover { border-color: var(--faint); }
 .setrow select.sel:focus, .setrow input.inp:focus { border-color: var(--accent-line); }

@@ -300,14 +300,14 @@ p.muted { margin: 0 0 12px; }
 .hintx { color: var(--faint); font-size: 12.5px; align-self: center; }
 
 .pick { position: relative; display: inline-flex; }
-.pick select { -webkit-appearance: none; appearance: none; height: 32px; max-width: 100%; border-radius: 9px; border: 1px solid var(--line2); background: var(--panel); color: var(--ink); font: 12px var(--mono); padding: 0 32px 0 11px; cursor: pointer; outline: none; }
+.pick select { -webkit-appearance: none; appearance: none; height: 32px; max-width: 100%; border-radius: 9px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 12px var(--mono); padding: 0 32px 0 11px; cursor: pointer; outline: none; }
 .pick select:focus-visible { border-color: var(--accent-line); }
 .pick select:hover { border-color: var(--faint); }
 .pick .caret { position: absolute; right: 11px; top: 50%; width: 10px; height: 10px; transform: translateY(-50%); color: var(--faint); pointer-events: none; }
 
 .form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .form label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--faint); }
-.form input, .form select { height: 34px; border-radius: 9px; border: 1px solid var(--line2); background: var(--panel); color: var(--ink); font: 12.5px var(--mono); padding: 0 10px; outline: none; }
+.form input, .form select { height: 34px; border-radius: 9px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 12.5px var(--mono); padding: 0 10px; outline: none; }
 .form input:focus, .form select:focus { border-color: var(--accent-line); }
 
 /* line breaks: no orphan words in prose, balanced headings */
@@ -334,7 +334,7 @@ h1, h2, h3 { text-wrap: balance; }
 @media (max-width: 1140px) { table.t .hide-md { display: none; } }
 
 .codebox.md { white-space: pre-wrap; max-height: 260px; overflow: auto; }
-.drop { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 26px 16px; border: 1.5px dashed var(--line2); border-radius: 12px; text-align: center; cursor: pointer; color: var(--dim); }
+.drop { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 26px 16px; border: 1.5px dashed var(--field); border-radius: 12px; text-align: center; cursor: pointer; color: var(--dim); }
 .drop svg { width: 22px; height: 22px; color: var(--faint); margin-bottom: 4px; }
 .drop b { font-weight: 500; color: var(--ink); }
 .drop span { font-size: 12px; color: var(--faint); }

@@ -20,7 +20,7 @@
 .side-top { padding: 14px 12px 8px; }
 .search { position: relative; display: block; }
 .search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: var(--faint); }
-.search input { width: 100%; height: 34px; padding: 0 30px 0 32px; border-radius: 9px; border: 1px solid var(--line2); background: var(--panel); color: var(--ink); font: 13px var(--body); outline: none; }
+.search input { width: 100%; height: 34px; padding: 0 30px 0 32px; border-radius: 9px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 13px var(--body); outline: none; }
 .search input:focus { border-color: var(--accent-line); }
 .search input::-webkit-search-cancel-button { display: none; }
 .search .kbd { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); }
@@ -106,7 +106,7 @@
 @media (hover: none) { .pop .px { visibility: visible; } }
 
 /* command palette */
-.cmdk { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px 0 10px; border-radius: 9px; border: 1px solid var(--line2); background: var(--panel); color: var(--faint); font: 12.5px var(--body); cursor: pointer; }
+.cmdk { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px 0 10px; border-radius: 9px; border: 1px solid var(--field); background: var(--panel); color: var(--faint); font: 12.5px var(--body); cursor: pointer; }
 .cmdk:hover { color: var(--ink); border-color: var(--dim); }
 .cmdk svg { width: 13px; height: 13px; }
 
@@ -130,7 +130,7 @@ body.is-offline main.view { padding-top: 44px; }
 @media (max-width: 1000px) { .connbar { left: 0; padding: 10px 16px; flex-wrap: wrap; } }
 
 /* one search: the sidebar field opens the palette */
-.search.sbtn { display: flex; align-items: center; gap: 9px; width: 100%; height: 34px; padding: 0 8px 0 10px; border-radius: 9px; border: 1px solid var(--line2); background: var(--panel); color: var(--faint); font: 13px var(--body); text-align: left; cursor: pointer; }
+.search.sbtn { display: flex; align-items: center; gap: 9px; width: 100%; height: 34px; padding: 0 8px 0 10px; border-radius: 9px; border: 1px solid var(--field); background: var(--panel); color: var(--faint); font: 13px var(--body); text-align: left; cursor: pointer; }
 .search.sbtn svg { position: static; transform: none; width: 14px; height: 14px; flex: none; }
 .search.sbtn .st { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .search.sbtn .kbd { position: static; transform: none; flex: none; }

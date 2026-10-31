@@ -57,17 +57,26 @@ test('the fix’s steps group their attempts by what each did, with no serious o
 });
 
 /** Text tokens, and the surfaces text is drawn on, as the browser computed them on the page. */
-const TEXT = ['--ink', '--dim', '--faint', '--err', '--warn', '--accent', '--o-over', '--o-stub', '--k-write', '--c-write', '--del', '--add'];
-const SURFACES = ['--bg', '--bg2', '--panel', '--raise', '--hover', '--sel', '--code'];
+const TEXT = ['--ink', '--dim', '--faint', '--err', '--warn', '--accent', '--o-rep', '--o-over', '--o-stub', '--o-block', '--k-write', '--c-write', '--del', '--add'];
+const SURFACES = ['--bg', '--bg2', '--panel', '--raise', '--hover', '--sel', '--code', '--pop'];
 
-test('every text colour reaches 4.5:1 on the page and on every panel, as the browser draws them', async ({ page }) => {
+test('every text colour reaches 4.5:1 on the page and on every panel, and a field’s edge 3:1, as the browser draws them', async ({ page }) => {
   await openPage(page, '/', 'main#view .ovg');
+  // Each token as the browser draws it: set as an element's colour and read back, a mix worked out.
   const tokens = await page.evaluate((names) => {
-    const s = getComputedStyle(document.documentElement);
-    return Object.fromEntries(names.map((n) => [n, s.getPropertyValue(n).trim()]));
-  }, [...TEXT, ...SURFACES]);
+    const probe = document.body.appendChild(document.createElement('i'));
+    const out = Object.fromEntries(
+      names.map((n) => {
+        probe.style.color = `var(${n})`;
+        return [n, getComputedStyle(probe).color];
+      }),
+    );
+    probe.remove();
+    return out;
+  }, [...TEXT, ...SURFACES, '--field']);
   const low: string[] = [];
   for (const t of TEXT) for (const s of SURFACES) if (contrast(tokens[t]!, tokens[s]!) < 4.5) low.push(`${t} on ${s}: ${contrast(tokens[t]!, tokens[s]!).toFixed(2)}`);
+  for (const s of ['--bg', '--pop', '--bg2', '--panel']) if (contrast(tokens['--field']!, tokens[s]!) < 3) low.push(`--field on ${s}: ${contrast(tokens['--field']!, tokens[s]!).toFixed(2)}`);
   expect(low).toEqual([]);
   // And faint text where it is drawn, on what is under it.
   const pairs = await page.evaluate(() => {

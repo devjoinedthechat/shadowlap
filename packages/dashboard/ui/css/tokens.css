@@ -14,10 +14,29 @@
 }
 :root {
   --chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%238a887a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  --bg: #0b0c09; --bg2: #0f100c; --panel: #12130e; --raise: #16170f; --hover: #17180f; --sel: #1c1e14;
-  --line: #22231b; --line2: #34352b;
-  /* Text: each token reaches WCAG AA's 4.5:1 on every surface below (test/ui-contrast.test.ts). */
-  --ink: #eeede6; --dim: #a8a699; --faint: #8a8873;
+  /* The page's ground, and every ground, tint and line drawn on it: the page with a little ink mixed in, so each stays the
+     page's own neutral, black to grey and never a green-grey, and they keep one order, darkest first. Grounds are black or
+     near-black; a state is a tint (under the pointer, chosen, where you are); a line is a hairline. */
+  --bg: #0b0c09;                                          /* the page, and every overlay's (--pop) */
+  --bg2: color-mix(in srgb, var(--ink) 2%, var(--bg));    /* #10110d the code ground: a code or command box, a diff, a log, a report */
+  --panel: color-mix(in srgb, var(--ink) 3%, var(--bg));  /* #121310 a field's ground, a key cap, a table's head outside a section */
+  --hover: color-mix(in srgb, var(--ink) 6%, var(--bg));  /* #191a16 under the pointer: a row, a menu's item, a quiet button */
+  --raise: color-mix(in srgb, var(--ink) 7%, var(--bg));  /* #1b1c18 chosen: a picker's chosen option; a label chip, a note, an avatar's base */
+  --sel: color-mix(in srgb, var(--ink) 8%, var(--bg));    /* #1d1e1b where you are: the selected row, the current page, a menu's arrowed item */
+  --line: color-mix(in srgb, var(--ink) 10%, var(--bg));  /* #22231f a hairline: between rows, under tabs, above a section */
+  --line2: color-mix(in srgb, var(--ink) 18%, var(--bg)); /* #343531 a stronger hairline: a button's border, a chosen option's ring */
+  /* An overlay (a menu, a dialog, the palette, the shortcuts, a hover card, the bulk bar, the connection card, the skip link)
+     takes the page's own ground, set apart from what it covers by one edge, a step brighter than a hairline, and its shadow
+     (--shadow-pop). */
+  --pop: var(--bg); --pop-edge: color-mix(in srgb, var(--ink) 22%, var(--bg)); /* #3d3e3a */
+  /* A form field's edge (an input, a select, a picker, the search field, the drop zone): 3.4:1 on the page and an overlay,
+     3.2 on a field's own ground, as a control's boundary must be (WCAG 1.4.11); --line2 stays the hairline and a button's
+     border, whose words say what it is. */
+  --field: color-mix(in srgb, var(--ink) 40%, var(--bg)); /* #666661 */
+  /* Text: each token reaches WCAG AA's 4.5:1 on every surface above (test/ui-contrast.test.ts). --faint, the quietest, is
+     5.8:1 on the page and every overlay, 5.5 on a field, 5.2 under the pointer, 5.0 on a chosen option and 4.9 on a selected
+     row, still well under --dim's 8:1, so the three levels read as three. Opacity never dims text. */
+  --ink: #eeede6; --dim: #a8a699; --faint: #8e8c79;
   --accent: #c4f233; --accent-line: #c4f233;
   --o-rep: #c4f233; --o-live: #e4e3da; --o-block: #ff6b5e; --o-stub: #f2c94c; --o-over: #b99cff;
   --warn: #f2c94c; --err: #ff6b5e; --ok: #c4f233;
@@ -25,12 +44,16 @@
      answer came from: red only for failed or blocked, amber only for needs a look or inconclusive, muted for not applicable,
      lime for passed. A run's own strip never uses them. */
   --cq-red: var(--err); --cq-amber: var(--warn); --cq-muted: var(--faint); --cq-lime: var(--ok);
+  /* The muted colour as a cell's fill, where a row of cells at full --cq-muted would be loud and a read's colour lost: a
+     cell that decided as recorded (the decision matrix and its key, Compare's identical prefix, an attempt strip's quiet
+     cells); a swatch or a word stays --cq-muted. */
+  --cq-muted-fill: color-mix(in srgb, var(--ink) 21%, var(--bg)); /* #3b3b37 */
   /* What a call was, apart from both: a write in teal, never the failure red; an error in magenta. Checked for separation
      from the origin and consequence colours, under protanopia and deuteranopia too. */
   --k-model: var(--o-live); --k-read: color-mix(in srgb, var(--o-live) 40%, var(--panel)); --k-write: #2dd4bf; --k-err: #e030c0;
-  --code: #0f100c; --del: #ff8a80; --add: #c4f233;
+  --code: var(--bg2); --del: #ff8a80; --add: #c4f233;
   --c-read: #779c10; --c-write: #3987e5; --c-unc: #c98500; --c-out: #9085e9; --c-spent: var(--o-live); --c-saved: var(--o-rep);
-  --shadow-pop: 0 24px 60px -20px rgba(0,0,0,.75), 0 0 0 1px var(--line2);
+  --shadow-pop: 0 24px 60px -20px rgba(0,0,0,.75), 0 0 0 1px var(--pop-edge);
   color-scheme: dark;
 }
 

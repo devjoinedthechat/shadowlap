@@ -133,7 +133,7 @@
 .ofilter button:hover { color: var(--ink); }
 .ofilter button[aria-pressed="true"] { background: var(--raise); color: var(--ink); box-shadow: 0 0 0 1px var(--line2); }
 .filter-in { margin-left: auto; position: relative; }
-.filter-in input { height: 30px; width: 200px; border-radius: 8px; border: 1px solid var(--line2); background: var(--panel); color: var(--ink); font: 12.5px var(--body); padding: 0 30px 0 10px; outline: none; }
+.filter-in input { height: 30px; width: 200px; border-radius: 8px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 12.5px var(--body); padding: 0 30px 0 10px; outline: none; }
 .filter-in input:focus { border-color: var(--accent-line); }
 .filter-in .kbd { position: absolute; right: 7px; top: 50%; transform: translateY(-50%); }
 /* The list puts its rows itself (window-hook.ts), keeping the call asked for in view as rows above it change height: no anchoring of the browser's own moves it as well. */
@@ -304,7 +304,7 @@ table.ctab tr.miss td { color: var(--warn); }
 .note { padding: 10px 12px; border-radius: 10px; background: var(--raise); border: 1px solid var(--line); font-size: 13px; }
 .note small { display: block; margin-top: 4px; font: 11px var(--mono); color: var(--faint); }
 .addnote { display: flex; gap: 8px; margin-top: 8px; }
-.addnote textarea { flex: 1; min-height: 38px; max-height: 120px; resize: vertical; border-radius: 9px; border: 1px solid var(--line2); background: var(--panel); color: var(--ink); font: 13px var(--body); padding: 8px 10px; outline: none; }
+.addnote textarea { flex: 1; min-height: 38px; max-height: 120px; resize: vertical; border-radius: 9px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 13px var(--body); padding: 8px 10px; outline: none; }
 .addnote textarea:focus { border-color: var(--accent-line); }
 
 @media (max-width: 1280px) {

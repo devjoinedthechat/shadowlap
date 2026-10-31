@@ -91,7 +91,7 @@ function ratio(a: Rgb, b: Rgb): number {
 }
 
 /** What text sits on: the page ground, the panels, code, and a row or control hovered, raised or picked. */
-const SURFACES = ['--bg', '--bg2', '--panel', '--raise', '--hover', '--sel', '--code'];
+const SURFACES = ['--bg', '--bg2', '--panel', '--raise', '--hover', '--sel', '--code', '--pop'];
 
 /**
  * Text drawn only as decoration, which WCAG 1.4.3 leaves out, hidden from assistive technology
@@ -133,5 +133,26 @@ describe('text contrast', () => {
     const on = resolve('var(--bg)')!;
     expect(ratio(resolve('var(--dim)')!, on)).toBeGreaterThan(ratio(resolve('var(--faint)')!, on) * 1.3);
     expect(ratio(resolve('var(--ink)')!, on)).toBeGreaterThan(ratio(resolve('var(--dim)')!, on) * 1.3);
+  });
+});
+
+describe('a field’s edge', () => {
+  it('reaches 3:1 on the page, an overlay, the code ground and a field’s own, as WCAG 1.4.11 asks of a control', () => {
+    for (const s of ['--bg', '--pop', '--bg2', '--panel']) expect(ratio(resolve('var(--field)')!, resolve(`var(${s})`)!), s).toBeGreaterThanOrEqual(3);
+  });
+
+  it('is --field on every input, select, text area, picker, search field and drop zone', () => {
+    // A field by its own last compound: the element, or the class that draws it.
+    const FIELD = /(^|[\s>])(input|select|textarea)(?=$|[.:[])|\.(rpick|sbtn|cmdin|drop)(?=$|[.:[])/;
+    // The label field shows only while a label is typed, with the focus: its edge is a focused field's.
+    const FOCUSED = new Set(['.labelbar input']);
+    const off: string[] = [];
+    for (const r of rules()) {
+      const border = r.decls.get('border');
+      if (!border || /^(0|none)$/.test(border)) continue;
+      const fields = r.selectors.filter((s) => FIELD.test(s.split(/\s+/).at(-1)!) && !/:(hover|focus)/.test(s) && !FOCUSED.has(s));
+      if (fields.length && !border.includes('var(--field)')) off.push(`${fields.join(', ')}: ${border}`);
+    }
+    expect(off).toEqual([]);
   });
 });

@@ -16,7 +16,7 @@
 .newgrid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 .pathin { display: block; }
 .pathin .k { display: block; margin-bottom: 6px; }
-.pathin input { width: 100%; height: 40px; border-radius: 10px; border: 1px solid var(--line2); background: var(--bg2); color: var(--ink); font: 14px var(--mono); padding: 0 12px; outline: none; }
+.pathin input { width: 100%; height: 40px; border-radius: 10px; border: 1px solid var(--field); background: var(--bg2); color: var(--ink); font: 14px var(--mono); padding: 0 12px; outline: none; }
 .pathin input:focus { border-color: var(--accent-line); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lime) 16%, transparent); }
 .folders { margin-top: 12px; display: flex; flex-direction: column; gap: 4px; }
 .fold { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; border: 1px solid transparent; border-radius: 10px; background: none; color: var(--ink); text-align: left; cursor: pointer; }
@@ -69,7 +69,7 @@ dl.found dd small { color: var(--faint); font-size: 11.5px; margin-left: 4px; }
 .trow small { color: var(--faint); font: 11px var(--mono); margin-left: 6px; }
 .warnbox { margin-top: 14px; padding: 12px 14px; border-radius: 12px; font-size: 13px; line-height: 1.55; background: color-mix(in srgb, var(--warn) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 32%, transparent); }
 
-.cmdin { display: flex; align-items: center; gap: 10px; height: 38px; margin-bottom: 12px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line2); background: var(--bg2); }
+.cmdin { display: flex; align-items: center; gap: 10px; height: 38px; margin-bottom: 12px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--field); background: var(--bg2); }
 .cmdin b { color: var(--accent); font: 500 13px var(--mono); }
 .cmdin input { flex: 1; min-width: 0; height: 100%; border: 0; background: none; color: var(--ink); font: 13px var(--mono); outline: none; }
 .cmdin:focus-within { border-color: var(--accent-line); }
@@ -118,7 +118,7 @@ dl.kvs.onbkv { margin: 12px 0 0; padding: 0; }
 .onbnote { margin: 8px 0 0; font-size: 12.5px; }
 
 .onbroles { margin-top: 4px; }
-.onbroles select { height: 30px; min-width: 130px; padding: 0 30px 0 10px; border-radius: 8px; border: 1px solid var(--line2); background: var(--panel) var(--chev) no-repeat right 10px center / 10px 10px; color: var(--ink); font: 12.5px var(--body); -webkit-appearance: none; appearance: none; cursor: pointer; }
+.onbroles select { height: 30px; min-width: 130px; padding: 0 30px 0 10px; border-radius: 8px; border: 1px solid var(--field); background: var(--panel) var(--chev) no-repeat right 10px center / 10px 10px; color: var(--ink); font: 12.5px var(--body); -webkit-appearance: none; appearance: none; cursor: pointer; }
 .onbroles select:hover { border-color: var(--faint); }
 
 .onbnote code { white-space: normal; overflow-wrap: anywhere; }
