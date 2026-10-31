@@ -218,3 +218,6 @@ export type { CoverageBehaviour, CoverageNotPacked, CoveragePackMode, CoverageSc
 export { CHAOS_PRESETS, OVERSIZE_CHARS, PRESET_LABELS, chaosTargets, cutJson, isChaosPreset, parsePresets, presetHits, presetReplay, presetResult, resultShape } from './chaos.js';
 export type { ChaosPreset, ChaosTarget, ChaosTargets, ResultShape } from './chaos.js';
 export type { ChaosResult, ChaosResultData, ChaosSession, ChaosVerdict, NewChaosResult, NewChaosSession } from './store.js';
+// Each billed job's estimate before it runs, and Spending, the per-user rule for when a job asks first, kept in this machine's settings.
+export * from './estimates/index.js';
+export { USER_SETTINGS_FILE, USER_SETTINGS_VERSION, UserSettingsError, readSpending, userSettingsFile, writeSpending, type SpendingSetting, type UserSettingsOptions } from './user-settings.js';
