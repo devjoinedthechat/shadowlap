@@ -6,11 +6,13 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, type TestResultData } from '@shadowlap/engine';
 import { inTestFamily, startDashboard, type CiWorkflowsView, type Dashboard, type GoldenSource, type JobView, type SpawnCli, type TestsView } from '../src/index.js';
+import { liveReasons, testedGoldens } from '../src/tests-live.js';
 
 /**
  * The Tests screen's API: `GET /api/tests` over the goldens the CLI lists, `GET /api/ci/workflows`
  * for Settings → CI, and the four jobs the screen starts, each built from checked fields and run by
- * a stand-in CLI that reports what `shadowlap test` reports.
+ * a stand-in CLI that reports what `shadowlap test` reports. A session that would run a golden live
+ * asks first, and runs only once the request says yes to that question.
  */
 const FAKE = fileURLToPath(new URL('./fake-tests-cli.mjs', import.meta.url));
 const T0 = Date.UTC(2026, 8, 30, 10, 0);
@@ -46,6 +48,15 @@ const getJson = async <T>(d: Dashboard, path: string): Promise<T> => {
   return (await res.json()) as T;
 };
 const post = (body: unknown) => api(dash, 'jobs', { method: 'POST', body: JSON.stringify(body) });
+
+/** The request again, with a yes to the question it was asked: a session that runs a golden live asks first (a 409 and its `confirm`). */
+async function withYes(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const res = await post(body);
+  expect(res.status, await res.clone().text()).toBe(409);
+  const { confirm } = (await res.json()) as { confirm: string };
+  expect(confirm).toMatch(/^[0-9a-f]{32}$/);
+  return { ...body, yes: confirm };
+}
 
 async function job(body: unknown): Promise<JobView> {
   const res = await post(body);
@@ -210,7 +221,8 @@ describe('one job at a time on the goldens', () => {
 
   it('refuses a test, an update, a normalizer or Find the commit on a golden while a test job runs in the project, naming it', async () => {
     await holding(async () => {
-      const started = await post({ kind: 'test' });
+      // The session runs evals/kept-elsewhere live: it starts once the request says yes to that.
+      const started = await post(await withYes({ kind: 'test' }));
       expect(started.status, await started.clone().text()).toBe(202);
       await refused([
         [{ kind: 'test' }, 'A test session is running: run the tests once it is done'],
@@ -418,7 +430,8 @@ describe('the Tests jobs', () => {
 
   it('runs every golden, the server expanding none of them by a shell', async () => {
     spawned.length = 0;
-    const view = await job({ kind: 'test' });
+    // evals/kept-elsewhere is marked fork: the question comes first, and spawns nothing.
+    const view = await job(await withYes({ kind: 'test' }));
     expect(view).toMatchObject({ title: 'Running the tests', args: ['test', 'goldens/*', 'evals/kept-elsewhere'], code: 0 });
     expect(spawned).toEqual([['test', 'goldens/*', 'evals/kept-elsewhere']]);
   });
@@ -498,5 +511,121 @@ describe('the Tests jobs', () => {
     const res = await post({ kind: 'normalize-and-test', golden: 'goldens/refund-flow' });
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: string }).error).toBe('goldens/refund-flow did not diverge the last time it ran');
+  });
+});
+
+describe('a session that runs a golden live', () => {
+  // The goldens a session runs, as the CLI lists them: one that only replays, one whose tests entry
+  // plants payloads (an injection gate), one marked fork whose judge is asked live, and a fork whose
+  // pack can't be read, which fails before anything runs.
+  const list: GoldenSource[] = [
+    goldens[0],
+    { ...goldens[1], injection: true },
+    { ...goldens[3], judges: ['claude-haiku-4-5', 'claude-haiku-4-5'] },
+    { path: 'goldens/unreadable', runId: null, packedAt: null, mode: 'fork', repeat: 1, passes: 1, checks: [], error: 'no run.json: not a pack' },
+  ];
+  const FORK = 'evals/kept-elsewhere is marked fork, so it runs live from where it forks, asking its judges live (claude-haiku-4-5)';
+  const INJECTION = 'goldens/refund-in-limit has an injection gate, which runs live from each payload it plants';
+  const BILLED = 'Live calls are billed by your provider. Confirm it to run it';
+  let d: Dashboard;
+  beforeAll(async () => {
+    d = await startDashboard({ store, spawnCli, readOnly: false, project: { path: project }, goldens: () => list });
+  });
+  afterAll(async () => {
+    await d?.close();
+  });
+
+  const send = (body: unknown) => api(d, 'jobs', { method: 'POST', body: JSON.stringify(body) });
+  /** The question a request is asked: the 409's words and its `confirm`. */
+  const asked = async (body: Record<string, unknown>) => {
+    const res = await send(body);
+    expect(res.status, await res.clone().text()).toBe(409);
+    return (await res.json()) as { error: string; confirm: string };
+  };
+  /** The job a request starts, once it has ended. */
+  const ran = async (body: Record<string, unknown>): Promise<JobView> => {
+    const res = await send(body);
+    expect(res.status, await res.clone().text()).toBe(202);
+    const started = (await res.json()) as JobView;
+    for (let i = 0; i < 400; i++) {
+      const view = await getJson<JobView>(d, `jobs/${started.id}`);
+      if (view.done) return view;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    throw new Error(`job ${started.id} did not finish`);
+  };
+
+  it('asks first, naming the goldens that go live and why, and runs only once the request says yes to that question', async () => {
+    spawned.length = 0;
+    const q = await asked({ kind: 'test' });
+    expect(q).toEqual({ error: `${FORK}; ${INJECTION}. ${BILLED}`, confirm: expect.stringMatching(/^[0-9a-f]{32}$/) });
+    // A yes to another question is no yes to this one: asked again, the same.
+    expect(await asked({ kind: 'test', yes: 'f'.repeat(32) })).toEqual(q);
+    expect(spawned).toEqual([]);
+    expect((await ran({ kind: 'test', yes: q.confirm })).args).toEqual(['test', 'goldens/*', 'evals/kept-elsewhere']);
+    expect(spawned).toEqual([['test', 'goldens/*', 'evals/kept-elsewhere']]);
+  });
+
+  it('starts a session that only replays at once, a yes sent anyway reaching nothing', async () => {
+    spawned.length = 0;
+    expect((await ran({ kind: 'test', golden: 'goldens/refund-flow' })).args).toEqual(['test', 'goldens/refund-flow']);
+    expect((await ran({ kind: 'test', golden: 'goldens/refund-flow', yes: 'f'.repeat(32) })).args).toEqual(['test', 'goldens/refund-flow']);
+    expect(spawned).toEqual([
+      ['test', 'goldens/refund-flow'],
+      ['test', 'goldens/refund-flow'],
+    ]);
+  });
+
+  it('asks each session its own question: a yes to every golden runs neither one of them nor its more attempts', async () => {
+    const all = await asked({ kind: 'test' });
+    const one = await asked({ kind: 'test', golden: 'evals/kept-elsewhere' });
+    expect(one.error).toBe(`${FORK}. ${BILLED}`);
+    expect(one.confirm).not.toBe(all.confirm);
+    expect(await asked({ kind: 'test', golden: 'evals/kept-elsewhere', yes: all.confirm })).toEqual(one);
+    // Run more attempts is a session of its own, with its own command line.
+    const more = await asked({ kind: 'test', golden: 'evals/kept-elsewhere', maxAttempts: 6, continue: true });
+    expect(more.error).toBe(one.error);
+    expect(more.confirm).not.toBe(one.confirm);
+    expect(await asked({ kind: 'test', golden: 'evals/kept-elsewhere', maxAttempts: 6, continue: true, yes: one.confirm })).toEqual(more);
+    spawned.length = 0;
+    expect((await ran({ kind: 'test', golden: 'evals/kept-elsewhere', maxAttempts: 6, continue: true, yes: more.confirm })).title).toBe('Running more attempts');
+    expect(spawned).toEqual([['test', 'evals/kept-elsewhere', '--max-attempts', '6', '--continue']]);
+  });
+
+  it('asks before a normalizer’s re-run that plants payloads, and adds nothing until it is answered', async () => {
+    spawned.length = 0;
+    const q = await asked({ kind: 'normalize-and-test', golden: 'goldens/refund-in-limit' });
+    expect(q.error).toBe(`${INJECTION}. ${BILLED}`);
+    expect(spawned).toEqual([]);
+    await ran({ kind: 'normalize-and-test', golden: 'goldens/refund-in-limit', yes: q.confirm });
+    expect(spawned).toEqual([['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/refund-in-limit']]);
+  });
+
+  it('says what holds the goldens before it asks anything', async () => {
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'd2e8a1f' });
+    try {
+      const res = await send({ kind: 'test' });
+      expect(res.status).toBe(409);
+      // No question: the session couldn't start anyway.
+      expect(await res.json()).toEqual({ error: 'shadowlap test goldens/* is running: run the tests once it is done' });
+    } finally {
+      store.finishTestSession(s.sessionId, { passed: 0, failed: 0, upstreamRequests: 0 });
+    }
+  });
+
+  it('reads which goldens a test command runs as the CLI expands it, and why each goes live', () => {
+    const at = (path: string, over: Partial<GoldenSource> = {}): GoldenSource => ({ path, runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [], ...over });
+    const some = [at('goldens/a'), at('goldens/b-fork', { mode: 'fork' }), at('goldens/deeper/c'), at('evals/d'), at('80')];
+    const paths = (args: string[]) => testedGoldens(some, args).map((g) => g.path);
+    // The pattern matches within its last part only; a flag's value is no golden.
+    expect(paths(['test', 'goldens/*', 'evals/d'])).toEqual(['goldens/a', 'goldens/b-fork', 'evals/d']);
+    expect(paths(['test', 'goldens/b-*', '--max-attempts', '80', '--continue'])).toEqual(['goldens/b-fork']);
+    expect(paths(['test', 'goldens/deeper/c', '--update'])).toEqual(['goldens/deeper/c']);
+    expect(paths(['normalize', 'add', 'goldens/a'])).toEqual([]);
+    expect(liveReasons(at('x'))).toEqual([]);
+    expect(liveReasons(at('x', { mode: 'fork', judges: ['claude-haiku-4-5'], injection: true }))).toEqual([{ kind: 'fork' }, { kind: 'judges', models: ['claude-haiku-4-5'] }, { kind: 'injection' }]);
+    // A replay golden's judges answer from its recording, offline.
+    expect(liveReasons(at('x', { judges: ['claude-haiku-4-5'] }))).toEqual([]);
+    expect(liveReasons(at('x', { mode: 'fork', error: 'no run.json: not a pack' }))).toEqual([]);
   });
 });
