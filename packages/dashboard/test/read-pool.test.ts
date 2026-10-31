@@ -305,6 +305,32 @@ describe('read models on threads beside the server', () => {
     }
   }, 30_000);
 
+  it('starts a spare thread ahead while what can wait has held one thread a while and a request every other, for what comes next', async () => {
+    const { pool: two, said } = timedPool({ analyse: 3000, compare: 3000 }, 'stand-in');
+    const idle = READ_LIMITS.spareIdleMs;
+    READ_LIMITS.spareIdleMs = 50;
+    const slots = () => (two as unknown as { slots: unknown[] }).slots.length;
+    try {
+      for (let i = 0; i < 400 && !two.warmed; i++) await new Promise((r) => setTimeout(r, 10));
+      // A long run's whole analysis on one thread, a whole Compare on the other.
+      const first = said(await two.run({ kind: 'run', runId: 'R', read: {} }, { affinity: 'R' }));
+      const compare = two.run({ kind: 'compare', a: 'X', b: 'Y', cwd: null });
+      // Nothing waits, but what can wait has held its thread longer than two slices of the warm-up: a
+      // spare thread starts in its place, and answers what comes next.
+      await new Promise((r) => setTimeout(r, 2 * READ_LIMITS.warmSliceMs + 400));
+      expect(slots()).toBe(3);
+      const recent = said(await two.run({ kind: 'recent', read: {} }));
+      const c = said(await compare);
+      expect(new Set([first.thread, c.thread, recent.thread]).size).toBe(3);
+      // It ends once nothing can wait any more and it has had nothing to do.
+      for (let i = 0; i < 400 && slots() > 2; i++) await new Promise((r) => setTimeout(r, 25));
+      expect(slots()).toBe(2);
+    } finally {
+      READ_LIMITS.spareIdleMs = idle;
+      await two.close();
+    }
+  }, 30_000);
+
   it('gives what a spare thread started for to a thread free before it is ready', async () => {
     // Threads that take 2 s to start, 4 s over a run's whole analysis and 300 ms over the Overview.
     const script = join(dir, 'slow-start.mjs');
@@ -487,6 +513,63 @@ describe('read models on threads beside the server', () => {
       // Taken, the short run stayed its holder's: its next request goes there.
       expect(said(await two.run({ kind: 'unrecorded', runId: 'S', declared: {} }, { affinity: 'S', calls: 30 })).thread).toBe(holder);
     } finally {
+      await two.close();
+    }
+  }, 30_000);
+
+  it('takes a page from a thread busy with a request that reads a long run at once, and from one busy with a short run’s once it has waited a moment', async () => {
+    const { pool: two, said } = timedPool({ unrecorded: 2000 }, 'busy-long');
+    const was = READ_LIMITS.stealMs;
+    READ_LIMITS.stealMs = 1000;
+    try {
+      for (let i = 0; i < 400 && !two.warmed; i++) await new Promise((r) => setTimeout(r, 10));
+      for (const [runId, calls, first] of [
+        ['LONG', 100_000, 'page'],
+        ['SHORT', 30, 'sidebar'],
+      ] as const) {
+        const order: string[] = [];
+        const noted = (name: string, p: Promise<{ body: string }>) => p.then((a) => (order.push(name), said(a)));
+        // A thread reads the run, then takes a request that reads all of it, which takes a while.
+        said(await two.run({ kind: 'calls', runId, read: {}, from: 1, limit: 500 }, { affinity: runId, calls }));
+        const busy = two.run({ kind: 'unrecorded', runId, declared: {} }, { affinity: runId, calls });
+        // A page of the run, and the sidebar a moment later: the other thread is free all along.
+        const page = noted('page', two.run({ kind: 'calls', runId, read: {}, from: 501, limit: 500 }, { affinity: runId, calls }));
+        await new Promise((r) => setTimeout(r, 200));
+        const sidebar = noted('sidebar', two.run({ kind: 'recent', read: {} }));
+        await Promise.all([page, sidebar, busy]);
+        // Behind a request that reads the whole of a long run (as a whole Compare does), the page is
+        // taken at once; behind a short run's, after a moment, the sidebar first.
+        expect(order[0], `behind a request that reads ${calls} calls`).toBe(first);
+      }
+    } finally {
+      READ_LIMITS.stealMs = was;
+      await two.close();
+    }
+  }, 30_000);
+
+  it('gives a free thread what has waited longest, a request waiting for a busy one among it', async () => {
+    const { pool: two, said } = timedPool({ unrecorded: 3000, 'injection-run': 1000 }, 'oldest-first');
+    const was = { stealMs: READ_LIMITS.stealMs, spareAfterMs: READ_LIMITS.spareAfterMs };
+    READ_LIMITS.stealMs = 300;
+    READ_LIMITS.spareAfterMs = 60_000;
+    const order: string[] = [];
+    const noted = (name: string, p: Promise<{ body: string }>) => p.then((a) => (order.push(name), said(a)));
+    try {
+      for (let i = 0; i < 400 && !two.warmed; i++) await new Promise((r) => setTimeout(r, 10));
+      // One thread holds run S and reads its tools for 3 s; the other a request of 1 s about another run.
+      const holder = said(await two.run({ kind: 'calls', runId: 'S', read: {}, from: 1, limit: 500 }, { affinity: 'S', calls: 30 })).thread;
+      const busy = [two.run({ kind: 'unrecorded', runId: 'S', declared: {} }, { affinity: 'S', calls: 30 }), two.run({ kind: 'injection-run', runId: 'U' }, { affinity: 'U', calls: 30 })];
+      // S's page waits for its thread, and may be taken after a moment; the sidebar comes half a second later.
+      const page = noted('page', two.run({ kind: 'calls', runId: 'S', read: {}, from: 501, limit: 500 }, { affinity: 'S', calls: 30 }));
+      await new Promise((r) => setTimeout(r, 500));
+      const sidebar = noted('sidebar', two.run({ kind: 'recent', read: {} }));
+      // The thread free first takes the page, which came first, then the sidebar.
+      const [p, s] = await Promise.all([page, sidebar, ...busy]);
+      expect(order).toEqual(['page', 'sidebar']);
+      expect(p.thread).not.toBe(holder);
+      expect(s.thread).toBe(p.thread);
+    } finally {
+      Object.assign(READ_LIMITS, was);
       await two.close();
     }
   }, 30_000);
