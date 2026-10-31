@@ -98,7 +98,9 @@ export function sessionBusy(store: StoreOf<'tests' | 'chaos'>, verb: string): st
  * A tests job as the job runner takes it: `steps` become the first command and the ones `then` runs.
  * Refused for what the request got wrong first, then while another job or session holds the goldens
  * (`busy`), and only then does it ask what it waits on (`ask`, a 409 with its `confirm`: liveAsk), so
- * a yes is never asked for a job that couldn't start anyway.
+ * the question is never asked for a bad request, or for goldens another job or session holds. The
+ * job runner checks the working tree only once the job is built, after the yes: the pages that ask
+ * it wait while a job holds the tree instead, as the palette does (ui/tests-ask.ts).
  */
 export function testsBuild(job: TestsJob, busy: string | null = null, ask: { error: string; status: 409; confirm: string } | null = null): JobBuildResult {
   if ('error' in job) return { error: job.error };
