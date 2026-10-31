@@ -81,8 +81,18 @@ describe('reading what a verdict says beyond its tally', () => {
     expect(verifyEvidence({ ...kept, drop: { lo: 'x', hi: 3, confidence: 2 } }).drop).toBeNull();
     expect(verifyEvidence({ drop: kept.drop, decision: 'pass' }).drop).toBeNull();
     expect(verifyEvidence({ baseline: { passes: 47, attempts: 50, source: 'history', revision: '$(rm -rf)' } }).baseline).toEqual({ passes: 47, attempts: 50, source: 'history', revision: null });
-    expect(blameEvidence({ range: { from: 3, to: 5 }, errorBound: 0.04 })).toEqual({ range: { from: 3, to: 5 }, errorBound: 0.04 });
-    expect(blameEvidence({ range: { from: 5, to: 3 }, errorBound: 'low' })).toEqual({ range: null, errorBound: null });
+    // The bound in the CLI's words needs what they say it rests on: the probes that decided, each with its risk.
+    expect(blameEvidence({ range: { from: 3, to: 5 }, errorBound: 0.04 })).toEqual({ range: { from: 3, to: 5 }, errorBound: 0.04, risk: null });
+    expect(blameEvidence({ range: { from: 5, to: 3 }, errorBound: 'low' })).toEqual({ range: null, errorBound: null, risk: null });
+    const probes = [
+      { callNo: 3, rescued: true, risk: 0.0125 },
+      { callNo: 5, rescued: false, decision: 'fail', risk: 0.0125 },
+    ];
+    expect(blameEvidence({ outcome: 'blamed', probes, nonMonotone: [], range: { from: 3, to: 5 }, errorBound: 0.04 }).risk).toBe('<= 4% risk that the range is wrong: 2 probes decided, at <= 1.3% risk each');
+    // One with nothing to rest on, or a check of the pinned call that says no risk, prints none.
+    expect(blameEvidence({ outcome: 'blamed', probes: [{ callNo: 3, rescued: true }], errorBound: 0.04 }).risk).toBeNull();
+    expect(blameEvidence({ outcome: 'blamed', probes, pin: { callNo: 5, next: 7, verdict: 'pinned' }, errorBound: 0.04 }).risk).toBeNull();
+    expect(blameEvidence({ outcome: 'blamed', probes, nonMonotone: 'none', errorBound: 0.04 }).risk).toBeNull();
     expect(methodWords('anytime_valid')).toBe('anytime-valid');
     expect(methodWords('beta-binomial')).toBe('beta binomial');
   });
@@ -93,11 +103,13 @@ describe('a fix’s page, with what its verdicts say beyond their tallies', () =
     const { fixId } = fix({
       blame: (b) => {
         Object.assign(b, { range: { from: 3, to: 5 }, errorBound: 0.04 });
+        for (const p of b.probes) p.risk = 0.0125;
         Object.assign(b.probes[1], { unavailable: 2 });
       },
     });
     const page = await open(fixId, 'blame');
-    expect(text(page.one('.sh p'))).toMatch(/· confidence high \(error ≤ 0\.04\) · lost between #3 and #5/);
+    // The bound as the CLI prints it after the confidence.
+    expect(text(page.one('.sh p'))).toMatch(/· confidence high \(<= 4% risk that the range is wrong: 3 probes decided, at <= 1\.3% risk each\) · lost between #3 and #5/);
     const row = page.all('table.probes tbody tr')[1];
     expect(text(row)).toContain('· 2 unavailable');
   });

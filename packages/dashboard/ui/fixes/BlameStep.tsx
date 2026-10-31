@@ -19,9 +19,10 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
   if (!b) return <EmptyState title="Not blamed yet" text="blame finds the model call where a failed run was lost: the last one whose answer, asked again, lets the run pass." command={fix.commands.blame} />;
   const where = blameWhere(b);
   const others = fix.blames.filter((x) => x.blameId !== b.blameId);
-  // What blame's JSON says beyond its probes, when it says it: the calls it lost the run between, and the error bound its confidence comes from.
+  // What blame's JSON says beyond its probes, when it says it: the calls it lost the run between, and
+  // the error bound its confidence comes from, in the words the CLI prints after it (`risk`).
   const range = b.evidence?.range ?? null;
-  const errorBound = b.evidence?.errorBound ?? null;
+  const risk = b.evidence?.risk ?? null;
   const probeGroups = (callNo: number) => (groups?.blame?.blameId === b.blameId ? (groups.blame.probes.find((p) => p.callNo === callNo) ?? null) : null);
   return (
     <>
@@ -33,7 +34,7 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
             <a className="more" href={b.hrefs.run}>
               {shortId(b.runId)}
             </a>
-            {` · confidence ${b.confidence}${errorBound !== null ? ` (error ≤ ${errorBound})` : ''}`}
+            {` · confidence ${b.confidence}${risk !== null ? ` (${risk})` : ''}`}
             {range && range.from !== range.to ? ` · lost ${range.gradual ? 'gradually around' : 'between'} #${range.from} and #${range.to}` : null}
             <span className="pline" title={b.confidenceWhy}>
               {b.boundary}
