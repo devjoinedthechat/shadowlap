@@ -526,9 +526,11 @@ describe('a session that runs a golden live', () => {
   const FORK = 'evals/kept-elsewhere is marked fork, so it runs live from where it forks, writes blocked, and asks its judges live (claude-haiku-4-5)';
   const INJECTION = 'goldens/refund-in-limit has an injection gate, which runs live from each payload it plants, writes stubbed';
   const BILLED = 'Live calls are billed by your provider. Confirm it to run it';
+  /** The goldens as the CLI lists them at each request: `list`, but where a test changes them between a question and its yes. */
+  let listed = list;
   let d: Dashboard;
   beforeAll(async () => {
-    d = await startDashboard({ store, spawnCli, readOnly: false, project: { path: project }, goldens: () => list });
+    d = await startDashboard({ store, spawnCli, readOnly: false, project: { path: project }, goldens: () => listed });
   });
   afterAll(async () => {
     await d?.close();
@@ -598,6 +600,39 @@ describe('a session that runs a golden live', () => {
     expect(spawned).toEqual([]);
     await ran({ kind: 'normalize-and-test', golden: 'goldens/refund-in-limit', yes: q.confirm });
     expect(spawned).toEqual([['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/refund-in-limit']]);
+  });
+
+  it('asks the same before a normalizer started from a test replay that diverged, by its run', async () => {
+    // A later session's replay of refund-in-limit, diverged as R2_LIMIT did: its banner's Add normalizer sends its run.
+    const RUN = '01K5CQ4V5K0000000000000099';
+    const diverged = store.latestTestResults().find((r) => r.runId === 'R2_LIMIT')!;
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/refund-in-limit'], revision: 'd2e8a1f', actor: 'ci', startedAt: T0 + 20 });
+    store.createRun({ runId: RUN, mode: 'replay', command: { argv: ['node', 'agent.mjs'], cwd: '/p' } });
+    store.updateRunMeta(RUN, { test: { golden: 'goldens/refund-in-limit', session: s.sessionId } });
+    store.setDivergence(RUN, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, diff: [{ path: '$.metadata.user_id', op: 'changed', before: UUID_A, after: UUID_B }] });
+    store.addTestResult({ ...diverged, sessionId: s.sessionId, runId: RUN, at: T0 + 21 });
+    store.finishTestSession(s.sessionId, { passed: 0, failed: 1, upstreamRequests: 0, endedAt: T0 + 22 });
+    spawned.length = 0;
+    const q = await asked({ kind: 'normalize-and-test', runId: RUN });
+    expect(q.error).toBe(`${INJECTION}. ${BILLED}`);
+    expect(spawned).toEqual([]);
+    expect(await ran({ kind: 'normalize-and-test', runId: RUN, yes: q.confirm })).toMatchObject({ title: 'Adding a normalizer', runId: RUN });
+    expect(spawned.at(-1)).toEqual(['test', 'goldens/refund-in-limit']);
+  });
+
+  it('asks again when the goldens changed between the question and the yes, and runs nothing on the old yes', async () => {
+    const q = await asked({ kind: 'test', golden: 'evals/kept-elsewhere' });
+    // Its tests entry gives it an injection gate too, after the question was asked.
+    listed = list.map((g) => (g.path === 'evals/kept-elsewhere' ? { ...g, injection: true } : g));
+    try {
+      spawned.length = 0;
+      const again = await asked({ kind: 'test', golden: 'evals/kept-elsewhere', yes: q.confirm });
+      expect(again.error).toBe(`${FORK}; evals/kept-elsewhere has an injection gate, which runs live from each payload it plants, writes stubbed. ${BILLED}`);
+      expect(again.confirm).not.toBe(q.confirm);
+      expect(spawned).toEqual([]);
+    } finally {
+      listed = list;
+    }
   });
 
   it('says what holds the goldens before it asks anything', async () => {
