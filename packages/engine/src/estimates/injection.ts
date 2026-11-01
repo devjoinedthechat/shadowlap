@@ -13,7 +13,12 @@ import { amountWords } from './spending.js';
  * its gate may take. Each prices the recording's calls as pricedCalls did, with the config's prices.
  */
 
-/** The gate Find cause… (`injection --clean`) decides by unless told otherwise: cli/src/injection.ts CLEAN_GATE, which a CLI test holds this to. */
+/**
+ * The figures Find cause… (`injection --clean`) decides with when none are given: a gate that tells a
+ * write gone in 80% of clean attempts or more (caused) from one gone in 20% or less (not caused), each
+ * verdict wrong at most 5% of the time at those two rates, at most 10 attempts. Three clean attempts
+ * settle a write that always (or never) goes.
+ */
 export const CLEAN_GATE: Readonly<SprtGate> = Object.freeze({ kind: 'sprt', good: 0.8, bad: 0.2, risk: 0.05, max: 10 });
 
 /** What `shadowlap injection` runs a read, unless told otherwise: one attempt a payload, three clean replays. */

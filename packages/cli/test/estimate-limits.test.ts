@@ -1,8 +1,7 @@
 import { Command } from 'commander';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { BLAME_SCAN, CLEAN_GATE as ESTIMATED_CLEAN_GATE, MIGRATE_SAMPLES, PREVIEW_SAMPLES, pricedCalls, REPAIR_CANDIDATES, REPAIRER_LIMITS, repairerBound, repairEstimate, SPRT_DEFAULTS, type CallRecord } from '@shadowlap/engine';
+import { BLAME_SCAN, MIGRATE_SAMPLES, PREVIEW_SAMPLES, pricedCalls, REPAIR_CANDIDATES, REPAIRER_LIMITS, repairerBound, repairEstimate, SPRT_DEFAULTS, type CallRecord } from '@shadowlap/engine';
 import { DECISIONS_SAMPLES } from '../src/decisions.js';
-import { CLEAN_GATE } from '../src/injection.js';
 import { mostDecided } from '../src/repair-pick.js';
 import { PROMPT_CHARS_PER_TOKEN, repairerMost } from '../src/repair.js';
 import { CLAUDE_CODE_TURNS, DEFAULT_ANTHROPIC_REPAIRER, REPAIRER_ANSWER_TOKENS } from '../src/repairer.js';
@@ -11,7 +10,7 @@ import { CLAUDE_CODE_TURNS, DEFAULT_ANTHROPIC_REPAIRER, REPAIRER_ANSWER_TOKENS }
  * Each billed job's estimate is worked out in the engine (estimates/), so the dashboard's server, its
  * pages and the terminal UI say the same price, from the limits the CLI bounds the job by. Those the
  * engine holds a copy of until the CLI reads them from it are held equal here: the repairer's bound,
- * Find cause's gate, the samples a preview and a migration ask, blame's scan and repair's candidates.
+ * the samples a preview and a migration ask, blame's scan and repair's candidates.
  */
 
 let program: Command;
@@ -52,8 +51,7 @@ describe('the limits an estimate is worked out from', () => {
     }
   });
 
-  it('take Find cause’s gate, blame’s scan and the samples a preview and a migration ask as the commands do', () => {
-    expect(ESTIMATED_CLEAN_GATE).toEqual(CLEAN_GATE);
+  it('take blame’s scan and the samples a preview and a migration ask as the commands do', () => {
     expect(defaultOf('blame', '--scan')).toBe(BLAME_SCAN);
     expect([PREVIEW_SAMPLES, defaultOf('decisions', '--samples')]).toEqual([DECISIONS_SAMPLES, DECISIONS_SAMPLES]);
     expect(defaultOf('migrate', '--samples')).toBe(MIGRATE_SAMPLES);
