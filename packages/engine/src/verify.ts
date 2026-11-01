@@ -1,3 +1,4 @@
+import { afterForkLines, afterForkWarnings, type AfterFork } from './after-fork.js';
 import { probeVerdict } from './blame.js';
 import { agentCallsOf } from './judge-scope.js';
 import { baselineShort, describeBaselineRule, dropBound, type BaselineDecision, type BaselineRule, type BaselineSource, type DropBound } from './noninferiority.js';
@@ -91,6 +92,8 @@ export interface VerifyAttempt {
   footprint: Footprint;
   /** The tools its model called that its run never recorded, which ran for real in it. Absent from reports made before attempts named them. */
   unrecordedTools?: UnrecordedTool[];
+  /** Where its tool calls from the fork on were answered from (after-fork.ts). Absent when it replayed clean, and from reports made before attempts counted them. */
+  afterFork?: AfterFork;
 }
 
 export interface VerifiedRun {
@@ -257,6 +260,7 @@ export function decideVerify(runs: readonly VerifiedRun[], stopReason: string | 
   const has = (role: VerifyRole) => runs.some((r) => r.role === role);
   if (!has('good')) warnings.push('no good runs: nothing was checked for regressions (--keeps label:good)');
   if (has('target') && !has('holdout')) warnings.push('no held-out runs: the change was only tried on the runs it was written for (--holdout)');
+  warnings.push(...afterForkWarnings(runs));
 
   const failed = runs.some((r) => r.verdict === 'fail');
   const unsettled = runs.some((r) => r.verdict === 'open');
@@ -403,7 +407,7 @@ export function formatVerify(r: VerifyReport, p: Palette = plain, columns?: numb
     for (const w of [...r.warnings, ...r.replayWarnings]) say(`  ${p.yellow('!')} ${safeLine(w)}`);
   }
 
-  lines.push('');
+  lines.push('', ...afterForkLines(r.runs, p, columns));
   const d = footprintDelta(r.runs);
   if (d) {
     const input = `${tokens(d.recorded.inputTokens)} → ${tokens(d.now.inputTokens)} input tokens (${pct(d.recorded.inputTokens, d.now.inputTokens)})`;

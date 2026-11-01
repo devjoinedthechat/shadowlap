@@ -110,7 +110,7 @@ interface Json {
   reasons: string[];
   warnings: string[];
   summary: Record<string, { passed: number; total: number }>;
-  runs: Array<{ runId: string; role: string; outcome: string; passes: number; attempts: number; deterministic: boolean; recorded: { passed: boolean | null }; runs: Array<{ forkedAt: number | null }> }>;
+  runs: Array<{ runId: string; role: string; outcome: string; passes: number; attempts: number; deterministic: boolean; recorded: { passed: boolean | null }; runs: Array<{ forkedAt: number | null; afterFork?: Record<string, number> }> }>;
   cost: { attempts: number; upstreamRequests: number };
 }
 
@@ -133,6 +133,10 @@ describe('shadowlap verify', () => {
     expect(report.runs.find((x) => x.runId === good)!.recorded.passed).toBe(true);
     // Nothing the attempts did reached the world: the outbox holds the three recordings' writes only.
     expect(outbox()).toHaveLength(3);
+    // After the fork each attempt looked the order up live, was served the pure policy as recorded,
+    // and had its write stubbed: escalate for the large order, which the recording never made, and
+    // the small order's refund.
+    for (const run of report.runs) for (const a of run.runs) expect(a.afterFork).toEqual({ recorded: 1, inOrder: 0, live: 1, stubbed: 1, blocked: 0 });
 
     const store = Store.open(db);
     try {
@@ -158,6 +162,9 @@ describe('shadowlap verify', () => {
     expect(r.stdout).not.toMatch(/at least|at most|of the time|% confidence/);
     // The mock's token counts grow with every answer it gave in this file, so the figures can be any size.
     expect(r.stdout).toMatch(/per run, as it would run live: [\d.,]+[kM]? → [\d.,]+[kM]? input tokens/);
+    // The good run's attempts crashed on the third model call's answer (refund_order, a tool the agent
+    // doesn't have), before any write: the 12 + 12 fixing attempts made 3 tool calls each, its 3 made 2.
+    expect(r.stdout).toContain("after the fork, the change's 27 attempts made 78 tool calls: 27 answered as recorded, 27 ran live, 24 stubbed");
   });
 
   it('settles runs that replay clean with one free attempt each', async () => {
@@ -167,10 +174,11 @@ describe('shadowlap verify', () => {
     expect(r.code).toBe(1);
     const report = JSON.parse(r.stdout) as Json;
     expect(report.verdict).toBe('rejected');
-    expect(report.runs.map((x) => [x.outcome, x.attempts, x.deterministic, x.runs[0].forkedAt])).toEqual([
-      ['not-fixed', 1, true, null],
-      ['kept', 1, true, null],
+    expect(report.runs.map((x) => [x.outcome, x.attempts, x.deterministic, x.runs[0].forkedAt, x.runs[0].afterFork])).toEqual([
+      ['not-fixed', 1, true, null, undefined],
+      ['kept', 1, true, null, undefined],
     ]);
+    expect(r.stdout).not.toContain('after the fork');
     expect(report.cost).toMatchObject({ attempts: 2, upstreamRequests: 0 });
     expect(mock.requests.length).toBe(before);
     expect(report.warnings).toContain('no held-out runs: the change was only tried on the runs it was written for (--holdout)');
