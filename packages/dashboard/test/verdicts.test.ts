@@ -8,9 +8,10 @@ import { commitsWanted, sessionTitle, VERDICTS_WINDOW, verdictRevision, verdicts
 /**
  * Changes › Verdicts as a read model: every change checked before it shipped, newest first, each
  * verdict as the command that gave it gives it. A revision a test session ran every golden at, a
- * preview, a migration, and a verify a fix keeps; a preview or a migration that settles nothing; the
- * chips and their counts; a revision's page; names only where checks are shared; and a store of
- * 10,000 test sessions, or of sessions of 100 goldens, read a window at a time.
+ * preview, a migration, and a verify a fix keeps; a preview or a migration that settles nothing; a
+ * verify a preview ran, however old the preview; the chips and their counts; a revision's page; names
+ * only where checks are shared; and a store of 10,000 test sessions, of sessions of 100 goldens, or of
+ * 2,000 previews of one run, read a window at a time.
  */
 
 const HOUR = 3_600_000;
@@ -321,6 +322,42 @@ describe('a preview or a migration that settles nothing', () => {
   });
 });
 
+describe('a verify a preview ran', () => {
+  // A fix keeps every verify of its failing runs, the ones a preview or a migration ran among them:
+  // `decisions --then-verify` or `--verify`, `migrate`. Such a verify is the session's verdict.
+  const RUN = '01K8RUN0000000000000000001';
+  const verifies = (s: Store) => verdictsView(s, [], { kind: 'verifies' });
+
+  it('is the session’s verdict, never a row of its own, however many newer previews there are and however late it ran', () => {
+    const own = Store.open(':memory:');
+    try {
+      // A preview and a migration, each verified as it ran, by a verify a fix keeps; and the fix's own verify of the run the preview flags, which no session names.
+      preview(own, { id: 'dc-01M8000000000000000000000A', at: at(1), flagged: [RUN], verify: { verifyIds: ['vf-01M8PREVIEW00000000000000'] }, counts: counts({ 1: 1 }), runs: [{ runId: RUN, rank: 1 }] });
+      preview(own, { id: 'mg-01M8000000000000000000000B', at: at(2), kind: 'migrate', flagged: ['01K8RUN0000000000000000002'], verify: { verifyIds: ['vf-01M8MIGRATE00000000000000'] }, counts: counts({ 2: 1 }), runs: [{ runId: '01K8RUN0000000000000000002', rank: 2 }], passes: [{ verdict: 'passed', verified: true }] });
+      // An old preview no verify has taken yet.
+      preview(own, { id: 'dc-01M8000000000000000000000C', at: at(3), flagged: ['01K8RUN0000000000000000003'], counts: counts({ 1: 1 }), runs: [{ runId: '01K8RUN0000000000000000003', rank: 1 }] });
+      own.transaction(() => {
+        fixVerify(own, { verifyId: 'vf-01M8PREVIEW00000000000000', at: at(1.5), report: verifyReport([{ runId: RUN, role: 'target', pass: true }]) });
+        fixVerify(own, { verifyId: 'vf-01M8MIGRATE00000000000000', at: at(2.5), report: verifyReport([{ runId: '01K8RUN0000000000000000002', role: 'target', pass: true }]) });
+        fixVerify(own, { verifyId: 'vf-01M8OWN000000000000000000', at: at(4), report: verifyReport([{ runId: RUN, role: 'target', pass: true }]) });
+      });
+      expect(verifies(own)).toMatchObject({ rows: [{ id: 'vf-01M8OWN000000000000000000' }], counts: { verifies: 1 } });
+
+      // More newer previews of the same run than the window holds: the three sessions are past it, and their verifies still theirs.
+      for (let i = 0; i <= VERDICTS_WINDOW; i++) preview(own, { id: `dc-01M9${String(i).padStart(22, '0')}`, at: at(10 + i), flagged: [RUN], counts: counts({ 1: 1 }), runs: [{ runId: RUN, rank: 1 }] });
+      expect(verdictsView(own, [], { kind: 'previews', limit: VERDICTS_WINDOW }).rows.map((r) => r.id)).not.toContain('dc-01M8000000000000000000000A');
+      expect(verifies(own)).toMatchObject({ rows: [{ id: 'vf-01M8OWN000000000000000000' }], counts: { verifies: 1 } });
+
+      // The old preview verified after all of them, as Verify the changed runs verifies it (`decisions --verify`): its verify is the newest verdict, and still the preview's.
+      preview(own, { id: 'dc-01M8000000000000000000000C', at: at(3), flagged: ['01K8RUN0000000000000000003'], verify: { verifyIds: ['vf-01M8LATE00000000000000000'] }, counts: counts({ 1: 1 }), runs: [{ runId: '01K8RUN0000000000000000003', rank: 1 }] });
+      fixVerify(own, { verifyId: 'vf-01M8LATE00000000000000000', at: at(1_000), report: verifyReport([{ runId: '01K8RUN0000000000000000003', role: 'target', pass: true }]) });
+      expect(verifies(own)).toMatchObject({ rows: [{ id: 'vf-01M8OWN000000000000000000' }], counts: { verifies: 1 } });
+    } finally {
+      own.close();
+    }
+  });
+});
+
 describe('a revision’s page', () => {
   it('gives its goldens as that session judged them, worst first with notes, and the previews asked at it', () => {
     const page = verdictRevision(store, GOLDENS, 'd2e8a1f')!;
@@ -424,6 +461,36 @@ describe('verdicts at scale', () => {
     expect(t.list, `the list took ${times(t.list, t.every)} a read of every result`).toBeLessThan(t.every);
     expect(t.list, `the list took ${times(t.list, t.verdicts)} a read of every verdict's runs`).toBeLessThan(t.verdicts);
     expect(t.page, `a page took ${times(t.page, t.every)} a read of every result`).toBeLessThan(t.every);
+  }, 120_000);
+
+  it('tells a preview’s verify by its session, reading each preview of a verified run once, however many verifies take that run', () => {
+    // 2,000 previews that flag one run, the oldest verified by a verify its fix keeps; and the fix's own
+    // verifies of that run, newer than every preview, as many as the window holds, which no session names.
+    const previewed = Store.open(':memory:');
+    try {
+      const RUN = '01K9RUN0000000000000000001';
+      for (let i = 0; i < 2_000; i++) preview(previewed, { id: `dc-01M9${String(i).padStart(22, '0')}`, at: at(i), flagged: [RUN], counts: counts({ 1: 1 }), runs: [{ runId: RUN, rank: 1 }], verify: i === 0 ? { verifyIds: ['vf-01M9PREVIEW00000000000000'] } : null });
+      const ids = Array.from({ length: VERDICTS_WINDOW - 1 }, (_, i) => `vf-01MA${String(i).padStart(22, '0')}`);
+      previewed.transaction(() => {
+        fixVerify(previewed, { verifyId: 'vf-01M9PREVIEW00000000000000', at: at(0.5), report: verifyReport([{ runId: RUN, role: 'target', pass: true }]) });
+        ids.forEach((id, i) => fixVerify(previewed, { verifyId: id, at: at(2_000 + i), report: verifyReport([{ runId: RUN, role: 'target', pass: true }]) }));
+      });
+      const list = () => verdictsView(previewed, [], { kind: 'verifies', limit: VERDICTS_WINDOW });
+      expect(list()).toMatchObject({ counts: { verifies: VERDICTS_WINDOW - 1 }, more: false });
+      expect(list().rows.map((r) => r.id)).toEqual([...ids].reverse());
+
+      // Against reading every preview of the run once for each verify, which the list never does.
+      const t = timesOf({
+        list,
+        each: () => {
+          for (const id of ids) previewed.query(`SELECT json_extract(s.data, '$.verify.verifyIds') AS named FROM decision_runs d JOIN decision_sessions s ON s.session_id = d.session_id WHERE d.run_id = (SELECT json_extract(record, '$.report.runs[0].runId') FROM verdicts WHERE verify_id = ?)`, id);
+        },
+      });
+      console.log(`verifies of a run 2,000 previews flag: the list ${t.list.toFixed(1)} ms CPU; each preview read once a verify ${t.each.toFixed(1)} ms`);
+      expect(t.list, `the list took ${times(t.list, t.each)} reading each preview once a verify`).toBeLessThan(t.each / 5);
+    } finally {
+      previewed.close();
+    }
   }, 120_000);
 
   it('reads which goldens a session ran only for one that didn’t ask for them all, however many goldens there are', () => {

@@ -12,7 +12,8 @@ import type { VerdictTone } from './verdict.js';
  * gives it, by the engine's rules and in its words, never one made up for the list.
  *
  * Plain functions of the store that read a window of it, however much it keeps: the newest test
- * sessions, previews and verifies, then only the rows the page shows. They run on the server's thread.
+ * sessions, previews and verifies, the previews that flag those verifies' runs, then only the rows
+ * the page shows. They run on the server's thread.
  */
 
 /** How many of the newest test sessions, previews and verifies the page reads, at most. */
@@ -314,19 +315,16 @@ export function commitsWanted(view: { lead: SessionVerdict | null; rows: Verdict
 
 // ---- previews and migrations ----
 
-/** A part of a kept session's report: a decisions session's own, a migration's under `decisions`. */
-const part = (path: string) => `json_extract(s.data, CASE s.kind WHEN 'migrate' THEN '$.decisions.${path}' ELSE '$.${path}' END)`;
+/** Where a kept session's report keeps a part of it: a decisions session's own, a migration's under `decisions`. */
+const partPath = (path: string) => `CASE s.kind WHEN 'migrate' THEN '$.decisions.${path}' ELSE '$.${path}' END`;
+/** A part of a kept session's report. */
+const part = (path: string) => `json_extract(s.data, ${partPath(path)})`;
 
-/**
- * The newest previews and migrations, and the verifies they ran: a verify `decisions --verify` ran
- * is the preview's verdict, never a row of its own, even where a fix keeps it too.
- */
-function previewWindow(store: Store): { entries: Array<{ sessionId: string; kind: 'preview' | 'migration'; at: number }>; verifyIds: Set<string>; more: boolean } {
-  const rows = store.query(`SELECT s.session_id AS id, s.kind AS kind, s.at AS at, ${part('verify.verifyIds')} AS verify_ids FROM decision_sessions s ORDER BY s.at DESC, s.session_id DESC LIMIT ?`, VERDICTS_WINDOW + 1);
-  const verifyIds = new Set<string>();
-  for (const r of rows) for (const id of parsed<unknown[]>(r.verify_ids, [])) if (typeof id === 'string') verifyIds.add(id);
+/** The newest previews and migrations. */
+function previewWindow(store: Store): { entries: Array<{ sessionId: string; kind: 'preview' | 'migration'; at: number }>; more: boolean } {
+  const rows = store.query(`SELECT session_id AS id, kind, at FROM decision_sessions ORDER BY at DESC, session_id DESC LIMIT ?`, VERDICTS_WINDOW + 1);
   const entries = rows.slice(0, VERDICTS_WINDOW).map((r) => ({ sessionId: String(r.id), kind: r.kind === 'migrate' ? ('migration' as const) : ('preview' as const), at: Number(r.at) }));
-  return { entries, verifyIds, more: rows.length > VERDICTS_WINDOW };
+  return { entries, more: rows.length > VERDICTS_WINDOW };
 }
 
 /** What a kept session says of itself, read from its report without its runs, and from its runs' rows without their decisions. */
@@ -502,11 +500,34 @@ function previewRows(store: Store, ids: readonly string[], shared: boolean): Pre
 export const VERDICTS_WALKED = VERDICTS_WINDOW * 50;
 
 /**
- * The newest verifies a fix keeps, of the newest verdicts (VERDICTS_WALKED), each found by its index
- * and the fix's link, never read; those a preview ran left out (`skip`): their rows are the preview's.
- * `more` says older ones may exist: past the window, or in verdicts past the walk.
+ * Which of these verifies a preview or a migration ran (`decisions --then-verify` or `--verify`,
+ * `migrate`): those a kept session names as its verify's, however old the session. A session verifies
+ * only runs it flags, so it is found by the verify's first run, through the index of each run's part
+ * of a session; each session found has its verify read once, however many verifies there are.
  */
-function verifyWindow(store: Store, skip: ReadonlySet<string>): { entries: Array<{ verifyId: string; at: number }>; more: boolean } {
+function previewsVerifies(store: Store, ids: readonly string[]): Set<string> {
+  if (!ids.length) return new Set();
+  const asked = JSON.stringify(ids);
+  const rows = store.query(
+    `SELECT DISTINCT x.value AS id FROM decision_sessions s, json_each(s.data, ${partPath('verify.verifyIds')}) x
+     WHERE s.session_id IN (
+         SELECT d.session_id FROM decision_runs d
+         WHERE d.rank <= 2 AND d.run_id IN (SELECT json_extract(v.record, '$.report.runs[0].runId') FROM verdicts v WHERE v.verify_id IN (SELECT value FROM json_each(?))))
+       AND x.value IN (SELECT value FROM json_each(?))`,
+    asked,
+    asked,
+  );
+  return new Set(rows.map((r) => String(r.id)));
+}
+
+/**
+ * The newest verifies a fix keeps, of the newest verdicts (VERDICTS_WALKED), each found by its index
+ * and the fix's link, the walk reading none of them; those a preview ran left out (previewsVerifies,
+ * which reads the window's first runs): a preview's verify is its verdict, never a row of its own,
+ * even where a fix keeps it too. `more` says older ones may exist: past the window, or in verdicts
+ * past the walk.
+ */
+function verifyWindow(store: Store): { entries: Array<{ verifyId: string; at: number }>; more: boolean } {
   // The walk's own order is the one asked for, so it stops at the window's last verify.
   const rows = store.query(
     `SELECT w.id AS id, w.at AS at FROM (SELECT v.verify_id AS id, v.at AS at FROM verdicts v ORDER BY v.at DESC, v.verify_id DESC LIMIT ?) w
@@ -515,11 +536,9 @@ function verifyWindow(store: Store, skip: ReadonlySet<string>): { entries: Array
     VERDICTS_WINDOW + 1,
   );
   const past = rows.length <= VERDICTS_WINDOW && store.query(`SELECT 1 AS past FROM verdicts ORDER BY at DESC LIMIT 1 OFFSET ?`, VERDICTS_WALKED).length > 0;
-  const entries = rows
-    .slice(0, VERDICTS_WINDOW)
-    .map((r) => ({ verifyId: String(r.id), at: Number(r.at) }))
-    .filter((e) => !skip.has(e.verifyId));
-  return { entries, more: rows.length > VERDICTS_WINDOW || past };
+  const walked = rows.slice(0, VERDICTS_WINDOW).map((r) => ({ verifyId: String(r.id), at: Number(r.at) }));
+  const previews = previewsVerifies(store, walked.map((e) => e.verifyId));
+  return { entries: walked.filter((e) => !previews.has(e.verifyId)), more: rows.length > VERDICTS_WINDOW || past };
 }
 
 /** The fix a verify is a row of, and how the verify stands there. */
@@ -629,7 +648,7 @@ export function verdictsView(store: Store, goldens: readonly GoldenSource[], opt
   const shared = !!options.shared;
   const tested = revisionSessions(store, goldens);
   const previews = previewWindow(store);
-  const verifies = verifyWindow(store, previews.verifyIds);
+  const verifies = verifyWindow(store);
   const entries = [
     ...tested.sessions.map((s) => ({ kind: 'session' as const, at: s.endedAt ?? s.startedAt, ref: s.sessionId })),
     ...previews.entries.map((p) => ({ kind: p.kind, at: p.at, ref: p.sessionId })),
