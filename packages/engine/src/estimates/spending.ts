@@ -93,11 +93,14 @@ export function heldAmount(usd: number): number {
 /** What a job is held to: its estimate, or the budget it stops at where that is less. */
 const stopped = (usd: number, stops: number | undefined): number => (stops !== undefined && stops < usd ? stops : usd);
 
-/** An estimate's price in words: `≈$0.027`, `At most ≈$10.88`, `≈$0.012 an attempt`, `Free`; `no estimate` without one. */
+/** The budget a job stops at, to the cent, as the field that sets it holds it: `$2.00`, `$25.00`, `$1,000.00`. */
+const stopUsd = (v: number): string => `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** An estimate's price in words: `≈$0.027`, `At most ≈$10.88`, `≈$0.012 an attempt`, `Stops at $2.00`, `Free`; `no estimate` without one. */
 export function priceWords(e: Pick<Estimate, 'usd' | 'ceiling' | 'per' | 'stops'>): string {
   if (e.usd === null) return 'no estimate';
   if (e.usd === 0) return 'Free';
-  if (e.stops !== undefined && e.stops < e.usd) return `Stops at ${spendingUsd(e.stops)}`;
+  if (e.stops !== undefined && e.stops < e.usd) return `Stops at ${stopUsd(e.stops)}`;
   return `${e.ceiling ? 'At most ' : ''}${amountWords(e.usd)}${e.per ? ` ${e.per}` : ''}`;
 }
 

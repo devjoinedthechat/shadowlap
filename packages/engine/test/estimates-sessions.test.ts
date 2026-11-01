@@ -169,6 +169,14 @@ describe('an injection test', () => {
     expect(injectionEstimate(calls(), reads(), { payloads: 12, budget: 50 })).toEqual(full);
   });
 
+  it('gives a whole-dollar Stop at $ to the cent, as the field that sets it holds it', () => {
+    // 2,000 payloads and 3 clean replays of the read at #3, $0.01495 each: $29.94, over the stop.
+    const dear = injectionEstimate(calls(), reads(), { payloads: 2000, budget: 25 });
+    expect(costLine(dear)).toEqual(['Stops at $25.00', '2,000 attempts and 3 clean replays', 'live from each read, writes stubbed', 'inconclusive if cut short']);
+    expect(priceWords({ ...dear, stops: 2 })).toBe('Stops at $2.00');
+    expect(priceWords({ usd: 5000, ceiling: false, stops: 1000 })).toBe('Stops at $1,000.00');
+  });
+
   it('prices Pack with injection gate at what each test session bills, three attempts a payload by default', () => {
     expect(GATE_REPEAT).toBe(3);
     const e = injectionGateEstimate(calls(), reads(), { payloads: 12 });
