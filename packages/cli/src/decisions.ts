@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
   applyNormalizers,
+  askedInScope,
   byConsequence,
   CONTROL_MIN_SAMPLES,
   CONTROL_RISK,
@@ -12,6 +13,7 @@ import {
   controlOpen,
   decisionOfResponse,
   decisionView,
+  defaultFrom,
   effectsOf,
   emptyCounts,
   estimateCost,
@@ -24,6 +26,7 @@ import {
   loadApiRequest,
   majorityRank,
   modelFamily,
+  modelUse,
   NO_TOKENS,
   outcomeOf,
   placeFields,
@@ -38,7 +41,6 @@ import {
   isGatewayRequest,
   resolveAuthor,
   retiredFields,
-  retirementOf,
   retirementsOf,
   retirementTable,
   rewriteText,
@@ -417,42 +419,12 @@ export function changeText(s: Pick<DecisionsSettings, 'model' | 'fields' | 'from
   return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)!}` : (parts[0] ?? 'no change');
 }
 
-/** Whether a model call is one `--scope` asks: made in that scope, or with `none`, in none. Shadowlap's own scopes (its judge's) never are. */
-export function inScope(callScope: unknown, scope: string | null): boolean {
-  if (isReservedScope(callScope)) return false;
-  if (scope === null) return true;
-  const s = typeof callScope === 'string' && callScope ? callScope : null;
-  return scope === 'none' ? s === null : s === scope;
-}
-
-/** The models the runs' model calls were made with (the agent's: Shadowlap's own scopes left out, and other scopes than `scope`), with how many calls each: most used first. */
-export function modelUse(store: StoreOf<'recording'>, targets: readonly DecisionTarget[], scope: string | null): Array<{ model: string; provider: string | null; calls: number }> {
-  const use = new Map<string, { model: string; provider: string | null; calls: number }>();
-  for (const t of targets) {
-    for (const c of store.getCalls(t.run.runId)) {
-      if (c.kind !== 'api' || !c.requestRef || !inScope(c.meta.scope, scope)) continue;
-      const model = recordedModelOf(c);
-      if (!model) continue;
-      const had = use.get(model) ?? { model, provider: (c.meta.provider ?? c.end?.meta.provider ?? null), calls: 0 };
-      had.calls++;
-      use.set(model, had);
-    }
-  }
-  return [...use.values()].sort((a, b) => b.calls - a.calls || a.model.localeCompare(b.model));
-}
-
 /**
- * The recorded models a switch changes when `--from` names none: for `migrate`, those the retirement
- * table says retire (as of `now`), else the one the runs use most; for `decisions`, the one they use
- * most. Null when the runs name no model.
+ * The targets' calls, a run at a time, for the engine's count of the models they were made with
+ * (modelUse, which a preview's and a migration's estimates count by too): one run's calls held at once.
  */
-export function defaultFrom(use: ReturnType<typeof modelUse>, kind: 'decisions' | 'migrate', to: string | null, now: number): { models: string[]; why: 'retire' | 'most' } | null {
-  if (!use.length) return null;
-  if (kind === 'migrate') {
-    const retiring = use.filter((u) => !(to && sameModel(u.model, to)) && retirementOf(u.provider, u.model, { now }) !== null).map((u) => u.model);
-    if (retiring.length) return { models: retiring, why: 'retire' };
-  }
-  return { models: [use[0]!.model], why: 'most' };
+function* callsOfTargets(store: StoreOf<'recording'>, targets: readonly DecisionTarget[]): Generator<CallRecord[]> {
+  for (const t of targets) yield store.getCalls(t.run.runId);
 }
 
 /** What the report may carry of a run's values: the project's redaction rules applied, as to every export, pack and share link of a run. */
@@ -527,7 +499,7 @@ function planRun(store: StoreOf<'recording'>, target: DecisionTarget, s: Decisio
     // Shadowlap's own calls (its judge's) are none of the agent's decisions, and no step of its run.
     if (isReservedScope(call.meta.scope)) continue;
     step++;
-    if (!inScope(call.meta.scope, s.scope)) continue;
+    if (!askedInScope(call.meta.scope, s.scope)) continue;
     const provider = (call.meta.provider ?? call.end?.meta.provider ?? null);
     const space = call.name.indexOf(' ');
     const method = space > 0 ? call.name.slice(0, space) : 'POST';
@@ -1105,7 +1077,7 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
   for (const s of STOP_SIGNALS) process.on(s, onSignal);
   try {
     // Which recorded models the model and the fields change at: --from, else the default for a switch.
-    const use = modelUse(store, input.targets, s.scope);
+    const use = modelUse(callsOfTargets(store, input.targets), s.scope);
     const chosen = s.from?.length ? null : s.model ? defaultFrom(use, input.kind ?? 'decisions', s.model, at) : null;
     const from = s.from?.length ? s.from : (chosen?.models ?? null);
     // --from-code: what the working tree sends each run, read offline; nothing is sent.

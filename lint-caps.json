@@ -597,7 +597,7 @@
   },
   "max-lines": {
     "packages/cli/src/checks.ts": 1051,
-    "packages/cli/src/decisions.ts": 1151,
+    "packages/cli/src/decisions.ts": 1128,
     "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,
