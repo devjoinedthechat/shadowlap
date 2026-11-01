@@ -2,7 +2,7 @@ import { CONTROL_MIN_SAMPLES } from '../control-arm.js';
 import { modelFamily, sameModel, type DecisionRun } from '../decisions.js';
 import { estimateCost } from '../prices.js';
 import { askedInScope } from '../switch-from.js';
-import { counted, noEstimate, noPriceWords, type Estimate, type PricedCall, type Prices } from './estimate.js';
+import { counted, CUT_SHORT_LINE, noEstimate, noPriceWords, type Estimate, type PricedCall, type Prices } from './estimate.js';
 import { amountWords } from './spending.js';
 import { verifyCeiling, verifyParts, type VerifyRule, type VerifyRunCost } from './verify.js';
 
@@ -151,7 +151,9 @@ class Missing {
  * first switched call to its end, a golden whose recording fails its checks up to the gate's most
  * attempts, one that passes in pairs against itself on the model it was recorded with (`At most
  * ≈$23.01 · ≈$0.31 to ask 41 calls again · then verify, up to 80 attempts a failing run, 200 pairs a
- * good one · live from the switched calls, writes stubbed`). It asks first whatever Spending says.
+ * good one · live from the switched calls, writes stubbed`). Under verify's gate its card says that
+ * attempts the provider cuts short come on top, as they do of every verify's. It asks first whatever
+ * Spending says.
  */
 export function migrateEstimate(goldens: ReadonlyArray<{ calls: readonly PricedCall[]; failed: boolean }>, plan: MigratePlan): Estimate {
   const always = 'it writes a config change and a pull request body';
@@ -187,6 +189,8 @@ export function migrateEstimate(goldens: ReadonlyArray<{ calls: readonly PricedC
   if (!n) return { kind: 'migrate', usd: 0, ceiling: false, always, parts: [`no golden’s call is made with ${plan.from.join(' or ') || 'a model it switches from'}`] };
   const verify = verifyCeiling(runs, plan.rule);
   const failing = runs.filter((r) => r.role === 'target').length;
+  // A fixed count (`--attempts`) counts an attempt the provider cut short toward it; a gate doesn't, and starts up to twice its max.
+  const gated = !plan.rule?.attempts;
   return {
     kind: 'migrate',
     usd: ask + verify.usd!,
@@ -197,6 +201,7 @@ export function migrateEstimate(goldens: ReadonlyArray<{ calls: readonly PricedC
       { what: 'Asking', usd: ask },
       { what: 'Verify', usd: verify.usd! },
     ],
+    ...(gated ? { card: { title: 'If every golden’s gate ran to its limit', lines: ['A gate stops once it decides.', CUT_SHORT_LINE] } } : {}),
     attempts: verify.attempts,
   };
 }

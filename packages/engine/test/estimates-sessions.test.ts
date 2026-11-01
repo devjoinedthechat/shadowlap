@@ -345,6 +345,14 @@ describe('a migration', () => {
     expect(e.items![0].usd).toBeCloseTo(ask, 10);
   });
 
+  it('says on its card that the attempts the provider cuts short come on top of its verify’s gates, as of every verify', () => {
+    const plan = { to: 'claude-sonnet-5-5', from: ['claude-sonnet-4-5-20250929'] };
+    const goldens = [{ calls: pricedCalls(golden()), failed: true }];
+    expect(migrateEstimate(goldens, plan).card).toEqual({ title: 'If every golden’s gate ran to its limit', lines: ['A gate stops once it decides.', 'Attempts the provider cuts short come on top, up to as many again.'] });
+    // A fixed count counts them toward it: nothing comes on top.
+    expect(migrateEstimate(goldens, { ...plan, rule: { attempts: 5 } }).card).toBeUndefined();
+  });
+
   it('is Free where no golden’s call is made with a model it switches from, and has none for a model with no price', () => {
     expect(migrateEstimate([{ calls: calls(), failed: false }], { to: 'claude-sonnet-5-5', from: ['claude-3-opus-20240229'] })).toEqual({ kind: 'migrate', usd: 0, ceiling: false, always: 'it writes a config change and a pull request body', parts: ['no golden’s call is made with claude-3-opus-20240229'] });
     expect(migrateEstimate([{ calls: pricedCalls(golden()), failed: false }], { to: 'my-model', from: ['claude-sonnet-4-5-20250929'] }).none).toBe('no price for my-model: add it under "prices" in shadowlap.config.json');
