@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
+import { shadowlapHomeProblem } from '../src/projects/paths.js';
 import { readSpending, USER_SETTINGS_FILE, userSettingsFile, UserSettingsError, writeSpending } from '../src/user-settings.js';
 
 /**
@@ -78,7 +79,10 @@ describe('Spending, kept in this machine’s settings', () => {
     const o = { env: { SHADOWLAP_HOME: 'sl-relative-home' }, home };
     const kept = join(home, '.shadowlap', 'settings.json');
     expect(userSettingsFile(o)).toBe(kept);
-    expect(writeSpending(2, o)).toMatchObject({ file: kept, problems: [`SHADOWLAP_HOME is sl-relative-home, which isn’t an absolute path, so it is ignored: settings are kept in ${join(home, '.shadowlap')}.`] });
+    // In the words the project list and every other file kept for this machine say it in.
+    const why = shadowlapHomeProblem(o.env, home)!;
+    expect(why).toMatch(/^SHADOWLAP_HOME is sl-relative-home, which isn’t an absolute path, so it is ignored/);
+    expect(writeSpending(2, o)).toMatchObject({ file: kept, problems: [why] });
     expect(readSpending(o)).toMatchObject({ askAbove: 2, file: kept });
     expect(existsSync(join(process.cwd(), 'sl-relative-home'))).toBe(false);
   });

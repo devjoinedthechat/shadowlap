@@ -62,12 +62,10 @@ export function userSettingsFile(o: UserSettingsOptions = {}): string {
   return join(o.dir ?? shadowlapHome(o.env ?? process.env, o.home ?? homedir()), USER_SETTINGS_FILE);
 }
 
-/** A relative SHADOWLAP_HOME that was ignored, and where the settings are kept instead. */
+/** A relative SHADOWLAP_HOME that was ignored, in the words every file kept for this machine says it in (shadowlapHomeProblem). */
 function homeProblems(o: UserSettingsOptions): string[] {
-  const env = o.env ?? process.env;
-  const home = o.home ?? homedir();
-  if (o.dir !== undefined || !shadowlapHomeProblem(env, home)) return [];
-  return [`SHADOWLAP_HOME is ${env.SHADOWLAP_HOME?.trim() ?? ''}, which isn’t an absolute path, so it is ignored: settings are kept in ${shadowlapHome(env, home)}.`];
+  const problem = o.dir === undefined ? shadowlapHomeProblem(o.env ?? process.env, o.home ?? homedir()) : null;
+  return problem ? [problem] : [];
 }
 
 /** The file's settings as an object, or why they can't be read; none at all when there is no file yet. */
