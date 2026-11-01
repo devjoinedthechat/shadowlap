@@ -103,11 +103,11 @@ describe('GET /api/verdicts', () => {
     expect(view.rows.map((r) => [r.kind, r.id, r.title, r.word])).toEqual([
       ['verify', 'vf-01M5000000000000000000000A', 'issue_refund called with amount 240', 'accepted'],
       ['session', 'no-revision', 'Tested with no revision', 'passed'],
-      ['session', `${tightened}+dirty`, 'Tighten refund wording, with uncommitted changes', 'passed'],
+      ['session', `${tightened}+dirty`, 'Tighten refund wording', 'passed'],
       ['preview', 'dc-01M5000000000000000000000A', 'Model switch to claude-haiku-4-5', 'not verified'],
       ['session', tightened, 'Tighten refund wording', 'failed'],
       // A commit this checkout doesn't have, as a CI merge commit is: named by its revision.
-      ['session', 'c0ffee1', 'Commit c0ffee1', 'passed'],
+      ['session', 'c0ffee1', 'c0ffee1', 'passed'],
     ]);
     expect(view.counts).toEqual({ all: 6, sessions: 4, previews: 1, verifies: 1 });
     expect(view.lead).toMatchObject({ id: 'no-revision' });
@@ -184,7 +184,7 @@ describe('GET /api/verdicts/:rev', () => {
   });
 
   it('opens a revision with changes not committed, and one with no revision', async () => {
-    expect((await getJson<VerdictRevision>(dash, `verdicts/${encodeURIComponent(`${tightened}+dirty`)}`)).row.title).toBe('Tighten refund wording, with uncommitted changes');
+    expect((await getJson<VerdictRevision>(dash, `verdicts/${encodeURIComponent(`${tightened}+dirty`)}`)).row).toMatchObject({ title: 'Tighten refund wording', revision: `${tightened}+dirty` });
     expect((await getJson<VerdictRevision>(dash, 'verdicts/no-revision')).row).toMatchObject({ title: 'Tested with no revision', revision: null });
   });
 

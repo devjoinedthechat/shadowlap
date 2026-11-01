@@ -1,5 +1,6 @@
-import { controlOpen, decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, emptyCounts, goldensPassed, judgeOpen, migrateBreaks, migrateUnsettled, outcomeOf, verifyHead, type DecisionCounts, type DecisionStep, type DecisionsVerify, type MigratePasses, type Normalizer, type StepRerun, type StoreOf, type TestResult, type TestSession, type UnsettledRun, type VerdictStanding, type VerifiedRun, type VerifyOutcome, type VerifyReport } from '@shadowlap/engine';
+import { controlOpen, decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, emptyCounts, fixVerifyHead, goldensPassed, judgeOpen, migrateBreaks, migrateUnsettled, outcomeOf, verifyHead, type DecisionCounts, type DecisionStep, type DecisionsVerify, type MigratePasses, type Normalizer, type StepRerun, type StoreOf, type TestResult, type TestSession, type UnsettledRun, type VerdictStanding, type VerifiedRun, type VerifyOutcome, type VerifyReport } from '@shadowlap/engine';
 import { changeName, fieldsOf } from './fix-shared.js';
+import { uncountedHead } from './fix-verify-step.js';
 import { asksForAll, optionLike, resultLine, verdictOfResult, type GoldenSource, type GoldenVerdict } from './tests.js';
 import type { VerdictTone } from './verdict.js';
 
@@ -53,7 +54,7 @@ interface VerdictRowBase {
   word: VerdictWord;
   /** The word's colour: `ok` held, `no` didn't, `y` open; null for none (a preview with nothing to verify). */
   tone: VerdictTone | null;
-  /** Under the word: a session's tally, verify's head, the runs left to verify, why it settled nothing, a preview's headline. */
+  /** Under the word: a session's tally; verify's head on a preview, the Verify step's on a fix; the runs left to verify; why it settled nothing; a preview's headline. */
   line: string;
 }
 
@@ -196,14 +197,12 @@ const KEY = /^(?:no-revision|[A-Za-z0-9][A-Za-z0-9._-]{0,99}(?:\+dirty)?)$/;
 export const committed = (revision: string): string => revision.replace(/\+dirty$/, '');
 
 /**
- * A session's change in words: its commit's subject (`Tighten refund wording`), with changes not
- * committed when it was tested with some; else what its revision is; `Tested with no revision`.
+ * A session's change in words: the subject of the commit under its revision (`Tighten refund
+ * wording`), else its revision as `shadowlap test` names it (`d2e8a1f+dirty`), else `Tested with no
+ * revision`. Changes not committed show in the revision the row carries, never in its title.
  */
 export function sessionTitle(revision: string | null, subject: string | null): string {
-  if (!revision) return 'Tested with no revision';
-  const dirty = revision.endsWith('+dirty');
-  if (subject) return dirty ? `${subject}, with uncommitted changes` : subject;
-  return dirty ? `Uncommitted changes on ${committed(revision)}` : `Commit ${revision}`;
+  return subject ?? revision ?? 'Tested with no revision';
 }
 
 // ---- test sessions ----
@@ -497,32 +496,70 @@ function previewRows(store: Store, ids: readonly string[], shared: boolean): Pre
 
 // ---- verifies ----
 
-/** The newest verifies a fix keeps, those a preview ran left out (`skip`): their rows are the preview's. */
+/**
+ * How many of the newest verdicts the walk for the verifies a fix keeps passes, at most: a preview's
+ * verify is kept with no fix, so a store of many previews holds many a fix keeps none of.
+ */
+export const VERDICTS_WALKED = VERDICTS_WINDOW * 50;
+
+/**
+ * The newest verifies a fix keeps, of the newest verdicts (VERDICTS_WALKED), each found by its index
+ * and the fix's link, never read; those a preview ran left out (`skip`): their rows are the preview's.
+ * `more` says older ones may exist: past the window, or in verdicts past the walk.
+ */
 function verifyWindow(store: Store, skip: ReadonlySet<string>): { entries: Array<{ verifyId: string; at: number }>; more: boolean } {
-  const rows = store.query(`SELECT v.verify_id AS id, v.at AS at FROM verdicts v WHERE EXISTS (SELECT 1 FROM fix_links l WHERE l.ref = v.verify_id AND l.kind = 'verify') ORDER BY v.at DESC, v.verify_id DESC LIMIT ?`, VERDICTS_WINDOW + 1);
+  // The walk's own order is the one asked for, so it stops at the window's last verify.
+  const rows = store.query(
+    `SELECT w.id AS id, w.at AS at FROM (SELECT v.verify_id AS id, v.at AS at FROM verdicts v ORDER BY v.at DESC, v.verify_id DESC LIMIT ?) w
+     WHERE EXISTS (SELECT 1 FROM fix_links l WHERE l.ref = w.id AND l.kind = 'verify') ORDER BY w.at DESC, w.id DESC LIMIT ?`,
+    VERDICTS_WALKED,
+    VERDICTS_WINDOW + 1,
+  );
+  const past = rows.length <= VERDICTS_WINDOW && store.query(`SELECT 1 AS past FROM verdicts ORDER BY at DESC LIMIT 1 OFFSET ?`, VERDICTS_WALKED).length > 0;
   const entries = rows
     .slice(0, VERDICTS_WINDOW)
     .map((r) => ({ verifyId: String(r.id), at: Number(r.at) }))
     .filter((e) => !skip.has(e.verifyId));
-  return { entries, more: rows.length > VERDICTS_WINDOW };
+  return { entries, more: rows.length > VERDICTS_WINDOW || past };
 }
 
-/** The fix each verify is a row of: the first it counts for, else the first that keeps it. */
-function fixesOf(store: Store, ids: readonly string[]): Map<string, { fixId: string; title: string; counts: boolean }> {
+/** The fix a verify is a row of, and how the verify stands there. */
+interface VerifyFix {
+  fixId: string;
+  title: string;
+  standing: VerdictStanding;
+  /** The fix's failing runs, which its Verify step's heading reads. */
+  failing: string[];
+}
+
+/** The fix each verify is a row of: the first it counts for, else the first that keeps it; with that fix's failing runs. */
+function fixesOf(store: Store, ids: readonly string[]): Map<string, VerifyFix> {
   const rows = store.query(`SELECT l.ref AS id, l.fix_id AS fix, l.data AS standing, f.title AS title FROM fix_links l JOIN fixes f ON f.fix_id = l.fix_id WHERE l.kind = 'verify' AND l.ref IN (SELECT value FROM json_each(?)) ORDER BY l.at, l.fix_id`, JSON.stringify(ids));
-  const out = new Map<string, { fixId: string; title: string; counts: boolean }>();
+  const out = new Map<string, VerifyFix>();
   for (const r of rows) {
-    const counts = parsed<VerdictStanding | null>(r.standing, null)?.counts !== false;
+    const kept = parsed<VerdictStanding | null>(r.standing, null);
+    const standing: VerdictStanding = kept?.counts === false ? kept : { counts: true, why: null };
     const was = out.get(String(r.id));
-    if (!was || (!was.counts && counts)) out.set(String(r.id), { fixId: String(r.fix), title: String(r.title), counts });
+    if (!was || (!was.standing.counts && standing.counts)) out.set(String(r.id), { fixId: String(r.fix), title: String(r.title), standing, failing: [] });
   }
+  const fixes = [...new Set([...out.values()].map((f) => f.fixId))];
+  const failing = new Map<string, string[]>();
+  if (fixes.length) {
+    for (const r of store.query(`SELECT fix_id AS fix, ref FROM fix_links WHERE kind = 'failing' AND fix_id IN (SELECT value FROM json_each(?))`, JSON.stringify(fixes))) {
+      const list = failing.get(String(r.fix));
+      if (list) list.push(String(r.ref));
+      else failing.set(String(r.fix), [String(r.ref)]);
+    }
+  }
+  for (const f of out.values()) f.failing = failing.get(f.fixId) ?? [];
   return out;
 }
 
 /**
- * Verifies as rows: each run's outcome in verify's words, and its verdict's head, read out of the
- * kept report without its attempts. Titled by the fix it is a row of; what it verified named by what
- * changed, as the fix's Verify step names it, with the repair candidate, code and fields apart.
+ * Verifies as rows: each run's outcome in verify's words, and the verdict headed as the fix's Verify
+ * step heads it, read out of the kept report without its attempts. Titled by the fix it is a row of;
+ * what it verified named by what changed, as that step names it, with the repair candidate, code and
+ * fields apart.
  */
 function verifyRows(store: Store, ids: readonly string[]): VerifyVerdict[] {
   if (!ids.length) return [];
@@ -530,7 +567,7 @@ function verifyRows(store: Store, ids: readonly string[]): VerifyVerdict[] {
     `SELECT v.verify_id AS id, v.at AS at, v.verdict AS verdict, v.repair_id AS repair_id,
        json_extract(v.record, '$.candidate') AS candidate, json_extract(v.record, '$.command') AS command, json_extract(v.record, '$.rerun') AS rerun,
        json_extract(v.record, '$.report.fields') AS fields, json_extract(v.record, '$.report.codeVersion') AS code_version,
-       (SELECT json_group_array(json_object('role', json_extract(r.value, '$.role'), 'verdict', json_extract(r.value, '$.verdict'), 'decision', json_extract(r.value, '$.decision'), 'undecided', json_extract(r.value, '$.undecided')))
+       (SELECT json_group_array(json_object('runId', json_extract(r.value, '$.runId'), 'role', json_extract(r.value, '$.role'), 'verdict', json_extract(r.value, '$.verdict'), 'decision', json_extract(r.value, '$.decision'), 'undecided', json_extract(r.value, '$.undecided')))
           FROM json_each(v.record, '$.report.runs') r) AS runs
      FROM verdicts v WHERE v.verify_id IN (SELECT value FROM json_each(?))`,
     JSON.stringify(ids),
@@ -541,7 +578,8 @@ function verifyRows(store: Store, ids: readonly string[]): VerifyVerdict[] {
     const r = byId.get(id);
     const fix = fixes.get(id);
     if (!r || !fix) return [];
-    const runs = parsed<Array<Pick<VerifiedRun, 'role' | 'verdict' | 'decision' | 'undecided'>>>(r.runs, []).map((x) => ({ role: x.role, outcome: outcomeOf(x) }));
+    const checked = parsed<Array<Pick<VerifiedRun, 'runId' | 'role' | 'verdict' | 'decision' | 'undecided'>>>(r.runs, []);
+    const runs = checked.map((x) => ({ role: x.role, outcome: outcomeOf(x) }));
     const verdict: VerifyOutcome = r.verdict === 'accepted' || r.verdict === 'rejected' ? r.verdict : 'incomplete';
     // What changeName reads of the report: the request fields it set and the code it ran at.
     const report: Pick<VerifyReport, 'fields' | 'codeVersion'> = { fields: parsed<Record<string, unknown>>(r.fields, {}), codeVersion: str(r.code_version) };
@@ -563,14 +601,14 @@ function verifyRows(store: Store, ids: readonly string[]): VerifyVerdict[] {
         moved: [...outcomes].map(([outcome, n]) => `${n} ${outcome}`),
         word,
         tone: TONES[word],
-        line: verifyHead(verdict, runs),
+        line: uncountedHead(fix.standing) ?? fixVerifyHead(verdict, checked.map((x) => ({ runId: String(x.runId), role: x.role, verdict: String(x.verdict) })), fix.failing),
         code: changeName(shape),
         repairId: str(r.repair_id),
         candidate,
         codeVersion: report.codeVersion,
         fields: fieldsOf(shape),
         verdict,
-        counts: fix.counts,
+        counts: fix.standing.counts,
       },
     ];
   });

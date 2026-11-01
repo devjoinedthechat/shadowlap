@@ -64,12 +64,13 @@ function preview(store: Store, o: { id: string; at: number; kind?: 'decisions' |
 
 let fixes = 0;
 /** A fix with a verify kept for it, as verify and repair keep one: the verdict, and its link with whether it counts. */
-function fixVerify(store: Store, o: { verifyId: string; at: number; report: VerifyReport; title?: string; standing?: VerdictStanding; candidate?: number | null; link?: boolean }): string {
+function fixVerify(store: Store, o: { verifyId: string; at: number; report: VerifyReport; title?: string; standing?: VerdictStanding; candidate?: number | null; link?: boolean; failing?: string[] }): string {
   const fixId = `fx-01M5FIX${String(++fixes).padStart(19, '0')}`;
   const fix: StoredFix = { fixId, title: o.title ?? 'issue_refund called with amount 240', labels: [], check: { expect: null, key: 'check:exit', oracle: ['the agent exits 0'], text: 'the agent exits 0' }, status: 'open', openedAt: o.at - HOUR, verifiedAt: null, appliedAt: null, data: {} };
   store.insertFix(fix);
   store.putVerdict({ verifyId: o.verifyId, at: o.at, verdict: o.report.verdict, repairId: o.candidate ? 'repair-munzln2i' : null, candidate: o.candidate ?? null, report: o.report, expect: null, command: 'shadowlap verify --fixes 01M3RZ0001 --keeps 01M3RZ0002' });
   if (o.link !== false) store.addFixLink(fixId, 'verify', o.verifyId, o.at, o.standing ?? { counts: true, why: null });
+  for (const runId of o.failing ?? []) store.addFixLink(fixId, 'failing', runId, o.at - HOUR);
   return fixId;
 }
 
@@ -108,7 +109,7 @@ beforeAll(() => {
 
   store.transaction(() => {
     // A fix's verifies: accepted, rejected, inconclusive, and a repair's candidate that doesn't count for it.
-    fixAccepted = fixVerify(store, { verifyId: 'vf-01M5000000000000000000000A', at: at(15), report: verifyReport([{ runId: '01M3RZ0001000000000000000A', role: 'target', pass: true }, { runId: '01M3RZ0002000000000000000A', role: 'good', pass: true }]) });
+    fixAccepted = fixVerify(store, { verifyId: 'vf-01M5000000000000000000000A', at: at(15), failing: ['01M3RZ0001000000000000000A'], report: verifyReport([{ runId: '01M3RZ0001000000000000000A', role: 'target', pass: true }, { runId: '01M3RZ0002000000000000000A', role: 'good', pass: true }]) });
     fixVerify(store, { verifyId: 'vf-01M5000000000000000000000B', at: at(16), title: 'send_email before issue_refund', report: verifyReport([{ runId: '01M3RZ0003000000000000000A', role: 'target', pass: false }, { runId: '01M3RZ0004000000000000000A', role: 'holdout', pass: true }]) });
     const open = verifyReport([{ runId: '01M3RZ0005000000000000000A', role: 'target', pass: true }, { runId: '01M3RZ0006000000000000000A', role: 'good', pass: true }]);
     fixVerify(store, { verifyId: 'vf-01M5000000000000000000000C', at: at(17), report: { ...open, verdict: 'incomplete', runs: [open.runs[0], { ...open.runs[1], verdict: 'open', decision: 'inconclusive' }] } });
@@ -149,7 +150,7 @@ describe('every change checked', () => {
 
   it('gives a revision the newest session that ran every golden there, its verdict in the test command’s word and its tally counting what passed', () => {
     const view = verdictsView(store, GOLDENS);
-    expect(row<SessionVerdict>(view.rows, 'd2e8a1f')).toMatchObject({ title: 'Commit d2e8a1f', checked: '3 goldens', moved: ['1 golden failed', '1 inconclusive'], word: 'failed', tone: 'no', line: '1 of 3 goldens passed', revision: 'd2e8a1f', key: 'd2e8a1f', command: 'shadowlap test goldens/*', goldens: 3, passed: 1, failed: 1, inconclusive: 1 });
+    expect(row<SessionVerdict>(view.rows, 'd2e8a1f')).toMatchObject({ title: 'd2e8a1f', checked: '3 goldens', moved: ['1 golden failed', '1 inconclusive'], word: 'failed', tone: 'no', line: '1 of 3 goldens passed', revision: 'd2e8a1f', key: 'd2e8a1f', command: 'shadowlap test goldens/*', goldens: 3, passed: 1, failed: 1, inconclusive: 1 });
     expect(row<SessionVerdict>(view.rows, 'c91d0f4')).toMatchObject({ moved: ['every golden held'], word: 'passed', tone: 'ok', line: '3 of 3 goldens passed' });
     expect(row<SessionVerdict>(view.rows, 'no-revision')).toMatchObject({ title: 'Tested with no revision', revision: null, moved: ['1 inconclusive'], word: 'inconclusive', tone: 'y', line: '2 of 3 goldens passed' });
     // The newest revision's verdict leads the page.
@@ -178,14 +179,14 @@ describe('every change checked', () => {
     expect(row<PreviewVerdict>(verdictsView(store, GOLDENS).rows, 'mg-01M5000000000000000000000H')).toMatchObject({ kind: 'migration', title: 'claude-sonnet-4-5 → claude-sonnet-5-5', checked: '2 goldens', moved: ['1 stop changed'], word: 'accepted', line: 'Every run it verified kept passing' });
   });
 
-  it('gives a fix’s verify in its head’s words, titled by its fix, and leaves out the verify a preview ran', () => {
+  it('gives a fix’s verify headed as its Verify step heads it, titled by its fix, and leaves out the verify a preview ran', () => {
     const rows = verdictsView(store, GOLDENS).rows;
-    expect(row<VerifyVerdict>(rows, 'vf-01M5000000000000000000000A')).toMatchObject({ fixId: fixAccepted, title: 'issue_refund called with amount 240', checked: '2 runs', moved: ['1 fixed', '1 kept'], word: 'accepted', tone: 'ok', line: 'Fixes the run that failed, keeps the one that worked', code: '370712a+dirty', repairId: null, candidate: null, codeVersion: '370712a+dirty', fields: null, verdict: 'accepted', counts: true, by: null });
-    expect(row<VerifyVerdict>(rows, 'vf-01M5000000000000000000000B')).toMatchObject({ title: 'send_email before issue_refund', moved: ['1 not fixed', '1 fixed'], word: 'rejected', tone: 'no', line: 'The change did not fix 1 of the 2 runs that failed' });
+    expect(row<VerifyVerdict>(rows, 'vf-01M5000000000000000000000A')).toMatchObject({ fixId: fixAccepted, title: 'issue_refund called with amount 240', checked: '2 runs', moved: ['1 fixed', '1 kept'], word: 'accepted', tone: 'ok', line: 'Every failing run fixed, every good run kept', code: '370712a+dirty', repairId: null, candidate: null, codeVersion: '370712a+dirty', fields: null, verdict: 'accepted', counts: true, by: null });
+    expect(row<VerifyVerdict>(rows, 'vf-01M5000000000000000000000B')).toMatchObject({ title: 'send_email before issue_refund', moved: ['1 not fixed', '1 fixed'], word: 'rejected', tone: 'no', line: 'The change did not fix the failing runs it checked' });
     // verify's incomplete is inconclusive, as every verdict that settled nothing reads.
     expect(row<VerifyVerdict>(rows, 'vf-01M5000000000000000000000C')).toMatchObject({ moved: ['1 fixed', '1 inconclusive'], word: 'inconclusive', tone: 'y', verdict: 'incomplete', line: 'Not every run settled' });
     // A repair's candidate: what it verified, by the repair and the candidate, apart from the code it ran at.
-    expect(row<VerifyVerdict>(rows, 'vf-01M5000000000000000000000D')).toMatchObject({ code: 'repair candidate 3', repairId: 'repair-munzln2i', candidate: 3, codeVersion: '370712a+dirty', counts: false });
+    expect(row<VerifyVerdict>(rows, 'vf-01M5000000000000000000000D')).toMatchObject({ code: 'repair candidate 3', repairId: 'repair-munzln2i', candidate: 3, codeVersion: '370712a+dirty', counts: false, line: "Doesn't count for this fix: its check leaves out send_email called 0 times" });
     expect(rows.map((r) => r.id)).not.toContain('vf-01M5FROMPREVIEW0000000000');
     expect(rows.map((r) => r.id)).not.toContain('vf-01M5NOFIX000000000000000');
   });
@@ -223,8 +224,8 @@ describe('every change checked', () => {
     expect(commitsWanted(view)).toEqual(['d2e8a1f', 'c91d0f4']);
     const named = withCommits(view, new Map([['d2e8a1f', 'Tighten refund wording']]));
     expect(row<SessionVerdict>(named.rows, 'd2e8a1f')).toMatchObject({ title: 'Tighten refund wording', subject: 'Tighten refund wording' });
-    expect(row<SessionVerdict>(named.rows, 'c91d0f4')).toMatchObject({ title: 'Commit c91d0f4', subject: null });
-    expect([sessionTitle('d2e8a1f+dirty', 'Tighten refund wording'), sessionTitle('d2e8a1f+dirty', null), sessionTitle(null, null)]).toEqual(['Tighten refund wording, with uncommitted changes', 'Uncommitted changes on d2e8a1f', 'Tested with no revision']);
+    expect(row<SessionVerdict>(named.rows, 'c91d0f4')).toMatchObject({ title: 'c91d0f4', subject: null });
+    expect([sessionTitle('d2e8a1f+dirty', 'Tighten refund wording'), sessionTitle('d2e8a1f+dirty', null), sessionTitle(null, null)]).toEqual(['Tighten refund wording', 'd2e8a1f+dirty', 'Tested with no revision']);
   });
 
   it('shows a whole number of rows from 1 to the window, 50 unless asked', () => {
@@ -259,7 +260,7 @@ describe('a preview or a migration that settles nothing', () => {
     for (const r of runs) for (const k of Object.keys(total) as Array<keyof DecisionCounts>) total[k] = (total[k] ?? 0) + (r.counts[k] ?? 0);
     const report = { kind: 'decisions', change: { model: 'claude-haiku-4-5', fields: {}, from: null, fromCode: null, text: 'the model claude-haiku-4-5' }, samples: 3, counts: total, flagged: o.flagged ?? [], verify: o.verify ? { verdict: 'accepted', verifyIds: [], runs: [], commands: [], spent: 0, upstreamRequests: 0, reasons: [], ...o.verify } : null, judge: o.judge ? { steps: o.judge, changed: 0, inconclusive: o.judge, spent: 0, upstreamRequests: 0, unknownModels: [] } : null, stopReason: o.stopReason ?? null, notes: [], warnings: [] };
     const kind = o.kind ?? 'decisions';
-    const data = kind === 'migrate' ? { kind, from: ['claude-sonnet-4-5'], to: 'claude-haiku-4-5', decisions: { ...report, kind: 'decisions', runs: [] }, passes: { verdict: report.verify?.verdict ?? 'not-run', runs: (o.passes ?? []).map((x, i) => ({ runId: runs[i]!.runId, golden: runs[i]!.golden, outcome: x.verified ? 'kept' : 'not-asked', tally: null, ...x })) }, stopReason: report.stopReason } : report;
+    const data = kind === 'migrate' ? { kind, from: ['claude-sonnet-4-5'], to: 'claude-haiku-4-5', decisions: { ...report, kind: 'decisions', runs: [] }, passes: { verdict: report.verify?.verdict ?? 'not-run', runs: (o.passes ?? []).map((x, i) => ({ runId: runs[i].runId, golden: runs[i].golden, outcome: x.verified ? 'kept' : 'not-asked', tally: null, ...x })) }, stopReason: report.stopReason } : report;
     kept.putDecisionSession({ sessionId: id, kind, at: T + minutes * 60_000, change: 'the model claude-haiku-4-5', actor: 'ravi@example.com', revision: null, data, runs: runs.map((r) => ({ runId: r.runId, golden: r.golden, rank: r.majority, changed: r.decisions.filter((x) => x.rank !== null).length, data: r as unknown as Record<string, unknown> })) });
   };
   const flaggedRun = (runId: string) => run(runId, [step({ rank: 1, majority: 1, samples: { asked: 3, answered: 3, changed: 3, ranks: [1, 1, 1] } })], { rank: 1, majority: 1 });
