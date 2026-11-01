@@ -1,6 +1,6 @@
 import { maxProbes, pinRule, probeGate, type BlameReport } from '../blame.js';
 import { BLAME_DEFAULTS, type SprtGate } from '../stats.js';
-import { counted, liveFrom, modelFactor, noEstimate, noPriceWords, probedCalls, timesWords, type Estimate, type PricedCall, type Prices } from './estimate.js';
+import { counted, CUT_SHORT_LINE, liveFrom, modelFactor, noEstimate, noPriceWords, probedCalls, timesWords, type Estimate, type PricedCall, type Prices } from './estimate.js';
 import { amountWords } from './spending.js';
 
 /**
@@ -105,7 +105,7 @@ export function blameEstimate(calls: readonly PricedCall[], o: BlameEstimateOpti
     usd: bound.attempts * price.usd,
     ceiling: true,
     parts,
-    card: { title: bound.pin ? 'If every probe and the check ran to their limit' : 'If every probe ran to its limit', lines: [price.line, 'A probe stops once it settles, and a later one costs less.'] },
+    card: { title: bound.pin ? 'If every probe and the check ran to their limit' : 'If every probe ran to its limit', lines: [price.line, 'A probe stops once it settles, and a later one costs less.', CUT_SHORT_LINE] },
     attempts: bound.attempts,
     each: price.usd,
     ...(o.last?.attempts && !o.last.unknownModels.length ? { last: { usd: spentOf(o.last), attempts: o.last.attempts } } : {}),

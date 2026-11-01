@@ -42,7 +42,7 @@ describe('Run blame', () => {
     const e = blameEstimate(calls());
     expect(e).toMatchObject({ kind: 'blame', ceiling: true, attempts: 279, parts: ['up to 5 probes of 31 attempts and a check of the call found', 'live from each probe, writes stubbed'] });
     expect(e.usd).toBeCloseTo(279 * ALL, 10);
-    expect(e.card).toEqual({ title: 'If every probe and the check ran to their limit', lines: [`An attempt costs at most what the recording did, ${amountWords(ALL)}.`, 'A probe stops once it settles, and a later one costs less.'] });
+    expect(e.card).toEqual({ title: 'If every probe and the check ran to their limit', lines: [`An attempt costs at most what the recording did, ${amountWords(ALL)}.`, 'A probe stops once it settles, and a later one costs less.', 'Attempts the provider cuts short come on top, up to as many again.'] });
     expect(blameEstimate(calls(), { writes: 'block' }).parts[1]).toBe('live from each probe, writes blocked');
   });
 
@@ -156,7 +156,7 @@ describe('a verify', () => {
     const e = verifyEstimate([{ role: 'target', usd: 0.02 }, { role: 'good', usd: 0.01, baseline: 0.012 }], { last });
     expect(e).toMatchObject({ kind: 'verify', ceiling: true, parts: ['up to 80 attempts a failing run, 200 pairs a good one', 'live where a replay forks, writes stubbed'], last: { usd: 0.27, attempts: 12 } });
     expect(e.usd).toBeCloseTo(1.6 + 4.4, 10);
-    expect(e.card).toEqual({ title: 'If every run’s gate ran to its limit', lines: [`An attempt costs about ${amountWords(0.27 / 12)}, as one of the last verify’s 12 attempts did.`, `A gate stops once it decides: the last verify spent ${amountWords(0.27)}.`] });
+    expect(e.card).toEqual({ title: 'If every run’s gate ran to its limit', lines: [`An attempt costs about ${amountWords(0.27 / 12)}, as one of the last verify’s 12 attempts did.`, `A gate stops once it decides: the last verify spent ${amountWords(0.27)}.`, 'Attempts the provider cuts short come on top, up to as many again.'] });
     expect(verifyEstimate([{ role: 'good', usd: 0.01 }], { live: 'first' }).parts).toEqual(['up to 200 pairs a run against its baseline', 'live from the first model call, writes stubbed']);
     expect(verifyEstimate([])).toMatchObject({ usd: null, none: 'there is no run to verify' });
     const unpriced = verifyEstimate([{ role: 'target', usd: null, none: 'no price for my-model' }]);
@@ -166,15 +166,15 @@ describe('a verify', () => {
     for (const bare of [{ ...last, attempts: 0, spent: 0 }, { ...last, unknownModels: ['my-model'] }]) {
       const e = verifyEstimate([{ role: 'target', usd: 0.02 }], { last: bare });
       expect(e.last).toBeUndefined();
-      expect(e.card!.lines).toEqual(['A gate stops once it decides, and a run whose replay doesn’t fork settles in one free attempt.']);
+      expect(e.card!.lines).toEqual(['A gate stops once it decides, and a run whose replay doesn’t fork settles in one free attempt.', 'Attempts the provider cuts short come on top, up to as many again.']);
     }
   });
 
   it('says on Verify this run’s card what the verify it runs is expected to take, where no verify of the runs came before', () => {
     const e = verifyEstimate([{ role: 'target', usd: 0.02 }], { expected: { expected: 9.4, cost: 0.18 } });
-    expect(e.card!.lines).toEqual([`An attempt costs about ${amountWords(0.18 / 9.4)}.`, `A gate stops once it decides: about 9 attempts, ${amountWords(0.18)}.`]);
+    expect(e.card!.lines).toEqual([`An attempt costs about ${amountWords(0.18 / 9.4)}.`, `A gate stops once it decides: about 9 attempts, ${amountWords(0.18)}.`, 'Attempts the provider cuts short come on top, up to as many again.']);
     expect(e.expected).toEqual({ usd: 0.18, attempts: 9 });
-    expect(verifyEstimate([{ role: 'target', usd: 0.02 }], { expected: { expected: 9.4, cost: null } }).card!.lines).toEqual(['A gate stops once it decides: about 9 attempts.']);
+    expect(verifyEstimate([{ role: 'target', usd: 0.02 }], { expected: { expected: 9.4, cost: null } }).card!.lines).toEqual(['A gate stops once it decides: about 9 attempts.', 'Attempts the provider cuts short come on top, up to as many again.']);
     // The last verify of the same runs is what Verify again's card says, over any expectation.
     expect(verifyEstimate([{ role: 'target', usd: 0.02 }], { last, expected: { expected: 9.4, cost: 0.18 } }).card!.lines[1]).toBe(`A gate stops once it decides: the last verify spent ${amountWords(0.27)}.`);
   });
@@ -257,9 +257,9 @@ describe('Run repair', () => {
     expect(e.items![2].usd).toBeCloseTo(verify, 10);
     expect(e.attempts).toBe(2 * 6 * (80 + 80 + 400));
     expect(REPAIR_CANDIDATES).toBe(3);
-    expect(e.card!.lines.at(-1)).toBe('A run that replays clean settles in one free attempt.');
+    expect(e.card!.lines.slice(-2)).toEqual(['A run that replays clean settles in one free attempt.', 'Attempts the provider cuts short come on top, up to as many again.']);
     // With a verify of the fix before it, what that one took.
-    expect(repairEstimate({ failing: failing(), good, last: { attempts: 12, spent: 0.24, judge: { spent: 0.03, upstreamRequests: 12 }, unknownModels: [] } }).card!.lines.at(-1)).toBe(`The last verify of this fix took 12 attempts, ${amountWords(0.27)}.`);
+    expect(repairEstimate({ failing: failing(), good, last: { attempts: 12, spent: 0.24, judge: { spent: 0.03, upstreamRequests: 12 }, unknownModels: [] } }).card!.lines.at(-2)).toBe(`The last verify of this fix took 12 attempts, ${amountWords(0.27)}.`);
   });
 
   it('reuses a kept blame that searched to the end, and blames a stopped one again', () => {

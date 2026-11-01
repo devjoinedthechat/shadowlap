@@ -1,6 +1,6 @@
 import type { CostReport } from '../injection.js';
 import type { TestResultData } from '../store.js';
-import { counted, liveFrom, noEstimate, noPriceWords, type Estimate, type ExpectedFigure, type PricedCall } from './estimate.js';
+import { counted, CUT_SHORT_LINE, liveFrom, noEstimate, noPriceWords, type Estimate, type ExpectedFigure, type PricedCall } from './estimate.js';
 import { amountWords, centsWords } from './spending.js';
 
 /**
@@ -102,7 +102,7 @@ export function moreEstimate(more: MoreFigure, spends: readonly number[]): Estim
     usd: more.most * each,
     ceiling: true,
     parts,
-    ...(more.cost !== null ? { card: { title: 'If every attempt ran, each as dear as its costliest so far', lines: [`About ${centsWords(more.cost)} for the ${expected.toLocaleString('en-US')} it is expected to take, at what its ${spends.length.toLocaleString('en-US')} have cost.`] }, expected: { usd: more.cost, attempts: expected } } : {}),
+    ...(more.cost !== null ? { card: { title: 'If every attempt ran, each as dear as its costliest so far', lines: [`About ${centsWords(more.cost)} for the ${expected.toLocaleString('en-US')} it is expected to take, at what its ${spends.length.toLocaleString('en-US')} have cost.`, CUT_SHORT_LINE] }, expected: { usd: more.cost, attempts: expected } } : {}),
     attempts: more.most,
     each,
   };
@@ -132,7 +132,10 @@ export function updateEstimate(goldens: ReadonlyArray<{ calls: readonly PricedCa
   return { kind: 'update', usd, ceiling: false, always, parts: [judges ? (one ? 'its judge’s one call' : 'each judge’s one call') : one ? 'as its recording cost' : 'as their recordings cost'] };
 }
 
-/** The commits a bisect over `commits` tests at most: the bad one, the good one, then the range halved. */
+/** The price's card line for a bisect's ceiling: a commit it can't decide at is skipped, and the nearest other tested (cli bisect), on top of what it counts. */
+const BISECT_SKIP_LINE = 'A commit left inconclusive is skipped and the nearest other one tested, on top of these.';
+
+/** The commits a bisect over `commits` tests at most: the bad one, the good one, then the range halved, a commit skipped aside. */
 export const bisectCommits = (commits: number): number => 2 + Math.ceil(Math.log2(Math.max(1, commits)));
 
 /**
@@ -155,7 +158,7 @@ export function bisectEstimate(commits: number, golden: { fork: boolean; attempt
     usd: tested * golden.attempts * golden.each,
     ceiling: true,
     parts: [`up to ${counted(tested, 'commit')}, ${counted(golden.attempts, 'attempt')} each`, where],
-    card: { title: 'If every commit’s gate ran to its limit', lines: [`An attempt costs at most ${amountWords(golden.each)}, as its last session’s costliest did.`, golden.commit ? `A gate stops once it decides: about ${centsWords(golden.commit)} a commit.` : 'A gate stops once it decides.'] },
+    card: { title: 'If every commit’s gate ran to its limit', lines: [`An attempt costs at most ${amountWords(golden.each)}, as its last session’s costliest did.`, golden.commit ? `A gate stops once it decides: about ${centsWords(golden.commit)} a commit.` : 'A gate stops once it decides.', BISECT_SKIP_LINE, CUT_SHORT_LINE] },
     attempts: tested * golden.attempts,
     each: golden.each,
   };

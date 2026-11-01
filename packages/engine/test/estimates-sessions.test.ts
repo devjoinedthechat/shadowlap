@@ -74,7 +74,7 @@ describe('Tests’ Run more attempts', () => {
     expect(e.usd).toBeCloseTo(80 * 0.019, 10);
     expect(costLine(e)).toEqual(['At most ≈$1.52', 'up to 80 more attempts', 'live from where the golden forks, writes blocked']);
     expect(e.expected).toEqual({ usd: more.cost, attempts: 27 });
-    expect(e.card).toEqual({ title: 'If every attempt ran, each as dear as its costliest so far', lines: ['About ≈$0.35 for the 27 it is expected to take, at what its 80 have cost.'] });
+    expect(e.card).toEqual({ title: 'If every attempt ran, each as dear as its costliest so far', lines: ['About ≈$0.35 for the 27 it is expected to take, at what its 80 have cost.', 'Attempts the provider cuts short come on top, up to as many again.'] });
   });
 
   it('has none where it adds no attempt, what the attempts cost was not kept, or they spent nothing live', () => {
@@ -115,7 +115,7 @@ describe('Find breaking commit', () => {
 
   it('says on the price’s card what a commit’s gate is expected to cost, to the cent', () => {
     const e = bisectEstimate(5, { fork: true, attempts: 20, each: 0.0325, commit: 0.1867 });
-    expect(e.card!.lines).toEqual([`An attempt costs at most ${amountWords(0.0325)}, as its last session’s costliest did.`, 'A gate stops once it decides: about ≈$0.19 a commit.']);
+    expect(e.card!.lines).toEqual([`An attempt costs at most ${amountWords(0.0325)}, as its last session’s costliest did.`, 'A gate stops once it decides: about ≈$0.19 a commit.', 'A commit left inconclusive is skipped and the nearest other one tested, on top of these.', 'Attempts the provider cuts short come on top, up to as many again.']);
     expect(bisectEstimate(5, { fork: true, attempts: 20, each: 0.0325 }).card!.lines[1]).toBe('A gate stops once it decides.');
   });
 

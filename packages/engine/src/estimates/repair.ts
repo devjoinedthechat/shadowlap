@@ -3,7 +3,7 @@ import { DEFAULT_REPAIRER } from '../fix-jobs.js';
 import { estimateCost } from '../prices.js';
 import { SPRT_DEFAULTS } from '../stats.js';
 import { blameBound } from './blame.js';
-import { counted, liveFrom, noEstimate, noPriceWords, probedCalls, type Estimate, type PricedCall, type Prices } from './estimate.js';
+import { counted, CUT_SHORT_LINE, liveFrom, noEstimate, noPriceWords, probedCalls, type Estimate, type PricedCall, type Prices } from './estimate.js';
 import { amountWords } from './spending.js';
 import { lastVerify, verifyCeiling, verifyParts, type LastVerify, type VerifyRule, type VerifyRunCost } from './verify.js';
 
@@ -174,6 +174,7 @@ export function repairEstimate(o: RepairPlan): Estimate {
         `Repairer: its answer, ${amountWords(repairer.usd)} at most`,
         `A verify: ${amountWords(each.usd)} at most, ${verifyParts(failing, runs.length - failing, each.limits)}`,
         last ? `The last verify of this fix took ${counted(last.attempts, 'attempt')}, ${amountWords(last.usd)}.` : 'A run that replays clean settles in one free attempt.',
+        CUT_SHORT_LINE,
       ],
     },
     attempts: 2 * k * each.attempts,

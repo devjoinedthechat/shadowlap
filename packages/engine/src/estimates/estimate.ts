@@ -84,6 +84,13 @@ export interface ExpectedFigure {
   cost: number | null;
 }
 
+/**
+ * The price's card line for a ceiling a gate decides: an attempt the provider cut short after the
+ * model answered isn't counted toward the gate's max, and up to twice the max may run in all (cli
+ * verify, blame and test), so those come on top of what the ceiling counts.
+ */
+export const CUT_SHORT_LINE = 'Attempts the provider cuts short come on top, up to as many again.';
+
 /** An estimate with no price, its cost line ending on why: the job always asks first. */
 export function noEstimate(kind: EstimateKind, none: string, parts: string[] = []): Estimate {
   return { kind, usd: null, ceiling: false, parts: [...parts, none], none };

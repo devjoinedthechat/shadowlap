@@ -220,7 +220,7 @@ export type { ChaosPreset, ChaosTarget, ChaosTargets, ResultShape } from './chao
 export type { ChaosResult, ChaosResultData, ChaosSession, ChaosVerdict, NewChaosResult, NewChaosSession } from './store.js';
 // Each billed job's estimate before it runs, one helper per kind (A15), and Spending, the rule for when a job asks
 // first, kept in this machine's settings: the dashboard's server works them out, its pages and the terminal UI say them.
-export { liveFrom, liveSums, modelFactor, noEstimate, noPriceWords, pricedCalls, probedCalls, recordEstimate, scopeHolds, spentLive, timesWords, type Estimate, type EstimateKind, type ExpectedFigure, type LiveCost, type PriceOptions, type PricedCall, type Prices } from './estimates/estimate.js';
+export { CUT_SHORT_LINE, liveFrom, liveSums, modelFactor, noEstimate, noPriceWords, pricedCalls, probedCalls, recordEstimate, scopeHolds, spentLive, timesWords, type Estimate, type EstimateKind, type ExpectedFigure, type LiveCost, type PriceOptions, type PricedCall, type Prices } from './estimates/estimate.js';
 export { amountWords, askWords, asksFirst, centsWords, costLine, costWords, drawerCost, heldAmount, parseSpending, priceWords, SPENDING_DEFAULT, SPENDING_PICKS, SPENDING_REFUSED, spendingField, spendingUsd, spendingWords, validSpending, type CostShown, type Spending } from './estimates/spending.js';
 export { forkEstimate, plantEstimate, PLANT_REPEAT, repeatEstimate, REPEAT_TIMES, type ForkEstimateChange } from './estimates/fork.js';
 export { BLAME_SCAN, blameBound, blameEstimate, type BlameBound, type BlameEstimateOptions, type BlameRule } from './estimates/blame.js';

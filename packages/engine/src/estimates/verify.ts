@@ -1,7 +1,7 @@
 import { KEPT_DEFAULTS } from '../noninferiority.js';
 import { SPRT_DEFAULTS, type SprtGate } from '../stats.js';
 import type { VerifyAttempt, VerifyReport, VerifyRole } from '../verify.js';
-import { counted, noEstimate, noPriceWords, type Estimate, type ExpectedFigure } from './estimate.js';
+import { counted, CUT_SHORT_LINE, noEstimate, noPriceWords, type Estimate, type ExpectedFigure } from './estimate.js';
 import { amountWords } from './spending.js';
 
 /**
@@ -159,7 +159,7 @@ export function verifyEstimate(runs: readonly VerifyRunCost[], o: VerifyEstimate
     usd: ceiling.usd,
     ceiling: true,
     parts,
-    card: { title: 'If every run’s gate ran to its limit', lines },
+    card: { title: 'If every run’s gate ran to its limit', lines: [...lines, CUT_SHORT_LINE] },
     attempts: ceiling.attempts,
     ...(last ? { last: { usd: last.usd, attempts: last.attempts } } : {}),
     ...(expected && expected.cost !== null ? { expected: { usd: expected.cost, attempts: Math.round(expected.expected) } } : {}),
