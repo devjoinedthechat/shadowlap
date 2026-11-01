@@ -131,6 +131,17 @@ describe('what each colour may mean', () => {
     expect(value('.fdiff b.w', 'color')).toBe('var(--k-write)');
   });
 
+  it('marks a line the page has just written into a code box as a diff marks an added line: ink on the faint ink ground, across the box', () => {
+    expect(value(':root', '--add-bg')).toBe('color-mix(in srgb, var(--ink) 9%, transparent)');
+    expect(value('pre.codebox .add', 'background')).toBe('var(--add-bg)');
+    expect(value('ol.setup .codebox .add', 'color')).toBe('var(--add)');
+    // out to the box's edges, through the padding the box's own rule gives it
+    const pad = value('.codebox', 'padding')!.split(' ')[1];
+    expect(value('pre.codebox .add', 'margin')).toBe(`0 -${pad}`);
+    expect(value('pre.codebox .add', 'padding')).toBe(`0 ${pad}`);
+    expect(value('pre.codebox .add', 'min-width')).toBe(`calc(100% + ${2 * parseFloat(pad)}px)`);
+  });
+
   it('dims what Compare shows the same in the faint ink, which keeps AA’s contrast, never by fading it', () => {
     expect(value('.pcall.same', 'color')).toBe('var(--faint)');
     expect(value('.pcall.same', 'opacity')).toBeNull();

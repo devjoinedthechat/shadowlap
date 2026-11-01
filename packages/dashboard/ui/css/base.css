@@ -341,6 +341,9 @@ h1, h2, h3 { text-wrap: balance; }
 .fieldnote.warn { color: var(--warn); }
 
 .codebox { margin: 10px 0 12px; padding: 12px 14px; border-radius: 10px; background: var(--bg2); border: 1px solid var(--line); font: 12px/1.6 var(--mono); color: var(--ink); white-space: pre; overflow-x: auto; }
+/* a line the page has just written into a code box (the store setup's "store" line) is marked as a diff marks an added line,
+   on the faint ink ground across the box, out through its padding: its ink alone is the box's own */
+pre.codebox .add { display: inline-block; min-width: calc(100% + 28px); margin: 0 -14px; padding: 0 14px; background: var(--add-bg); vertical-align: top; }
 
 .setfoot { display: flex; gap: 8px; flex-wrap: wrap; }
 
