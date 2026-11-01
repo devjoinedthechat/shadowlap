@@ -9,6 +9,7 @@ import { ComparePage, FixesPage, NewProjectPage, OverviewPage, RunPage, RunsPage
 import { NotFoundPage } from '../pages/NotFound.js';
 import { Page } from '../components/Page.js';
 import { useFixTitle } from '../fixes/data.js';
+import { TestsAskHost } from '../fixes/TestsJobButton.js';
 import { setupShowsOn } from '../projects.js';
 import { href, type Route } from '../route.js';
 import { navigate, useRoute } from '../router.js';
@@ -65,6 +66,8 @@ export function Shell() {
       <Palette route={route} />
       <Shortcuts onRun={route.page === 'run'} />
       <JobDrawer />
+      {/* A Tests job that would run goldens live asks here, whichever page or the palette started it. */}
+      <TestsAskHost />
       <ToastHost />
       <HoverCardLayer />
       <Keyboard />

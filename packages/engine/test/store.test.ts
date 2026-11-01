@@ -60,6 +60,27 @@ describe('Store', () => {
     store.close();
   });
 
+  it('opens a store that is there for writing, and makes none, nor its directory, where there is none', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fp-existing-'));
+    try {
+      const path = join(dir, '.shadowlap', 'shadowlap.db');
+      expect(() => Store.openExisting(path)).toThrow(`There is no store at ${path}.`);
+      expect(readdirSync(dir)).toEqual([]);
+      // One that is there opens as open opens it, for writing.
+      Store.open(path).close();
+      const store = Store.openExisting(path);
+      const run = store.createRun({ mode: 'record', command: cmd });
+      expect(store.getRun(run.runId)?.runId).toBe(run.runId);
+      store.close();
+      // Deleted since, as deleting a project's recordings deletes it: nothing is made in its place.
+      for (const name of ['shadowlap.db', 'shadowlap.db-wal', 'shadowlap.db-shm']) rmSync(join(dir, '.shadowlap', name), { force: true });
+      expect(() => Store.openExisting(path)).toThrow(`There is no store at ${path}.`);
+      expect(readdirSync(join(dir, '.shadowlap'))).toEqual(['.gitignore']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it.skipIf(process.platform === 'win32')('keeps recordings readable only by their owner', () => {
     const root = mkdtempSync(join(tmpdir(), 'fp-store-perm-'));
     const path = join(root, '.shadowlap', 'shadowlap.db');

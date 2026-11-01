@@ -126,7 +126,9 @@ read it as Run blame, Repair from here, Apply the patch and the Tests actions do
 `useServerJobs()` is the job list it reads, every tab's, for a page that waits on other jobs too,
 as Tests waits on a test job with `testsBusy` from `goldens.ts`; `useTestsWait(verb)` reads both, and
 `TestsJobButton` is a button that starts a Tests job from another page, a test replay's banner, and
-waits as the Tests page's own do), and the logic they share, DOM-free
+waits as the Tests page's own do; beside it `TestsAskHost`, which the shell draws once, asks the
+question a Tests job waits on before it runs goldens live, wherever it started, as `startTestsJob`
+in `tests-ask.ts` keeps the server's 409 until it is answered), and the logic they share, DOM-free
 and tested (`model.ts`: chips, steps, the Blame step's row of calls, the change cut to what changed,
 report.md read as blocks, the drawer's outcome words, which jobs hold which tree).
 
