@@ -799,7 +799,7 @@ Where blame's report says more than its probes, so does the step:
 - the method behind a probe's bound, on hover;
 - the calls it lost the run between, when no one call is pinned (*lost between #3 and #5*);
 - the two it was lost gradually around, when the check of the call the probes pinned found no drop there (*lost gradually around #5 and #6*);
-- the error bound its confidence comes from.
+- the error bound its confidence comes from, as `shadowlap blame` prints it (*<= 3% risk that the call is wrong: 3 probes decided, at <= 1% risk each*), and not for a blame whose passing attempts answered the call as the recording did.
 
 Needs a look and the activity feed say *lost gradually around #5 and #6* the same way, and the Fixes list says *lost gradually, #5–#6*, never that #5 lost it.
 
@@ -1401,6 +1401,13 @@ The server refuses another such job with the same words, from any tab, the palet
 
 **Run tests** runs `shadowlap test goldens/*` (plus each pack the config names elsewhere), with no shell: the CLI expands the pattern itself, as it does in CI. The page follows the session as each result lands. Its drawer ends on one primary action, **Tests**, with the replays of the first three goldens that failed linked above it. A run of one golden ends on its replay.
 
+**A session that runs live asks first.** Before a session runs a golden live, **Run tests**, **Run more attempts**, **Re-run** and each **Add normalizer** button ask, on Tests and on a test replay's page, and so does the palette's *Run the tests*. A test replays offline, except for two things that run live:
+
+- **A golden marked `fork`** runs live from where it forks, writes blocked, and asks its judge checks live.
+- **An [injection gate](./injection.md#gate-ci-on-it)** runs live from each payload it plants, writes stubbed.
+
+The dialog names the goldens that go live and why, and shows the commands. It opens on its button, the only way to start the session. A session that only replays starts at once.
+
 **Update golden** (or **Update goldens…** for every one that diverged) asks first, in a dialog that says what happens. It warns when a normalizer is the lasting fix, or, once the rule is in the config, that a re-run passes without an update. Then it runs `shadowlap test <golden> --update`, which re-records it live with writes stubbed.
 
 **Add normalizer and re-run** is two commands in one job: `shadowlap normalize add …` for each value that changes every run, then `shadowlap test <golden>`, the second only when the first succeeded. The drawer links to the replay that passed. When the rule alone can't make the replay match, it asks first, and updates the golden after it.
@@ -1617,7 +1624,7 @@ Closing the terminal stops the dashboard and its jobs. To keep it running after 
 - [The command that starts your agent](#the-command-that-starts-your-agent) is asked about the first time it runs in a folder.
 - [Commands from someone else](#commands-from-someone-else) (a pack's, a teammate's, a program's) run only once you confirm the exact lines.
 - **Repair from here** and **Apply the patch** ask first: see [Actions on a fix](#actions-on-a-fix).
-- **Update golden** asks first: see [Actions on Tests](#actions-on-tests).
+- **Update golden** asks first, and so does a test session that runs goldens live: see [Actions on Tests](#actions-on-tests).
 - **Delete N runs** and **Free 53.5 MB** ask first: see [Actions in Settings](#actions-in-settings).
 - **Also delete its recordings** asks you to type the project's name: see [Removing a project](#removing-a-project).
 
@@ -2018,7 +2025,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `init`, `record { command, confirmed? }` | The setup's inspection, and its first recording |
 | `injection { runId \| golden, repeat?, templates?, payloadsUpload?, baselines?, clean?, writes?, liveReads?, yes? }` | `injection <run\|golden> --json` |
 | `migrate { to, goldens?, runs?, from?, scope?, set? }` | A migration, every golden unless some are named |
-| `normalize-and-test { golden \| runId, path? }` | A normalizer for each value made anew on every run, then `test` on the golden |
+| `normalize-and-test { golden \| runId, path?, yes? }` | A normalizer for each value made anew on every run, then `test` on the golden |
 | `override { runId, callNo, uploadId, yes? }` | Edit and fork: `replay --override` of a tool's result or a person's answer, from an upload checked as untrusted data |
 | `pack-test { golden? }` | Pack, then test; the test alone once packed |
 | `pairs { format?, minConfidence? }` | Export pairs, written to `.shadowlap/exports/pairs.jsonl` |
@@ -2029,7 +2036,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `skill-install { agent, replace? }` | [`skill install`](./cli.md#skill), `--force` with `replace` |
 | `store-set { url, provider }` | `store set --check` |
 | `task-update { golden }` | Update the golden, from Training |
-| `test { golden?, maxAttempts?, continue? }` | A test session |
+| `test { golden?, maxAttempts?, continue?, yes? }` | A test session |
 | `test-update { goldens }` | Re-recorded live with writes stubbed, each replaced when its checks pass; or `{ golden }` |
 | `verify { fixId, verifyId, yes? }` | Run more attempts, or Verify again, for a verdict left incomplete |
 
@@ -2037,6 +2044,7 @@ What some of them do:
 
 - **`blame`**, **`verify`**, **`repair`** and **`apply`** are a fix's jobs. `verify` verifies its runs again from the start, the limit doubled where a gate ran out of attempts, without the budget that stopped it. A `repair` whose repairer `shadowlap.config.json` no longer names is a 409, and nothing runs.
 - **`test`**: `maxAttempts` raises each gate's limit for that session (`test --max-attempts`), and `continue` carries an inconclusive gate's attempts over (`test --continue`).
+- **`test`** and **`normalize-and-test`** that would run a golden live, one marked `fork` or with an injection gate, start only with `yes`, the `confirm` of the 409 that named those goldens and why; one that only replays needs none. That yes covers only the job's command lines and those goldens, so another session asks again, and so does this one once what goes live changes.
 - **`test-update`**: one that replayed clean and lacks a judge's verdict it can use gets the verdict asked and kept instead.
 - **Tests' jobs** (`test`, `test-update`, `bisect`, `normalize-and-test`) run one at a time in a project, and none while a test session or error-path presets on goldens run, wherever they were started: a terminal, another dashboard or a job (409).
 - **`chaos` on a golden** is refused with a 409 while a test session, an update or a pack runs, as they are while it runs, or while presets run on goldens, wherever they were started: a terminal, another dashboard or a job.
