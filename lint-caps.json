@@ -33,7 +33,7 @@
       "match": 56
     },
     "packages/cli/src/commands/changes.ts": {
-      "register > action(\"decisions\")": 47
+      "register > action(\"decisions\")": 44
     },
     "packages/cli/src/commands/coverage.ts": {
       "register > action(\"coverage\")": 46
