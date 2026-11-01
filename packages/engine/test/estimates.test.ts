@@ -187,6 +187,17 @@ describe('Spending', () => {
     expect(recordEstimate()).toMatchObject({ kind: 'record', usd: null, none: 'no estimate until it has run once' });
   });
 
+  it('says a price by the unit after the amount, always asks first, and leaves the drawer to the job’s own bill', () => {
+    // Score model…'s card: what one attempt costs on the model its dialog starts on; its dialog says the job's bill.
+    const each = { usd: 0.012, ceiling: false, per: 'an attempt', parts: [] };
+    expect(priceWords(each)).toBe('≈$0.012 an attempt');
+    expect(costLine(each)).toEqual(['≈$0.012 an attempt']);
+    for (const s of SETTINGS) expect(asksFirst(each, s), String(s)).toBe(true);
+    expect(costWords(each, null)).toBe('≈$0.012 an attempt · asks first');
+    expect(costWords(each, null, { form: true })).toBe('≈$0.012 an attempt');
+    expect(drawerCost(each)).toBeNull();
+  });
+
   it('says what a job’s drawer shows beside running, and nothing for one that bills nothing or has no estimate', () => {
     expect(drawerCost({ usd: 10.88, ceiling: true })).toBe('at most ≈$10.88');
     expect(drawerCost({ usd: 0.027, ceiling: false })).toBe('≈$0.027');

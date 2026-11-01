@@ -34,6 +34,11 @@ export interface Estimate {
   /** Words that follow the price itself: `twice as recorded`. */
   note?: string;
   /**
+   * The price is one unit's, not the job's, said right after it: `an attempt` (`≈$0.012 an
+   * attempt`, Score model…'s card). The job's own bill is its dialog's, so it always asks first.
+   */
+  per?: string;
+  /**
    * The cost line's parts after the price, in the ask's words: `up to 7 probes of 33 attempts and a
    * check of the call found`. A job with no estimate ends it on why (`no estimate until it has run
    * once`), but Record run, whose line says who bills what and no more.
