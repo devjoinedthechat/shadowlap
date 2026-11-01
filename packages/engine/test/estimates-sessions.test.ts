@@ -208,7 +208,7 @@ describe('an injection test', () => {
 
   it('finds a cause with the read made neutral, up to its gate’s attempts, each live from the model call that reads it', () => {
     expect(CLEAN_GATE).toEqual({ kind: 'sprt', good: 0.8, bad: 0.2, risk: 0.05, max: 10 });
-    const e = causeEstimate(calls(), reads()[0]!);
+    const e = causeEstimate(calls(), reads()[0]);
     expect(e).toMatchObject({ kind: 'cause', ceiling: true, attempts: 10, parts: ['up to 10 attempts', 'live from the read, writes stubbed'] });
     expect(e.usd).toBeCloseTo(10 * FROM_3, 10);
     expect(e.card).toEqual({ title: 'If the gate took all its attempts', lines: [`An attempt costs ${amountWords(FROM_3)}, live from the read made neutral to the run’s end.`, 'The gate stops once it decides.'] });
@@ -223,7 +223,7 @@ describe('an injection test', () => {
       api(3, 'claude-sonnet-5', { inputTokens: 5000, outputTokens: 500 }, { scope: 'planner' }),
       api(4, 'claude-sonnet-5', { inputTokens: 1000, outputTokens: 100 }, { scope: 'agent' }),
     ];
-    const read = untrustedReads(scoped, { fetch: { trust: 'untrusted' } }).reads[0]!;
+    const read = untrustedReads(scoped, { fetch: { trust: 'untrusted' } }).reads[0];
     expect(read).toMatchObject({ callNo: 2, readAt: 4 });
     expect(causeEstimate(pricedCalls(scoped), read).each).toBeCloseTo(0.003, 10);
   });

@@ -135,7 +135,7 @@
       "markdownReport": 39
     },
     "packages/cli/src/verify.ts": {
-      "runVerify": 62,
+      "runVerify": 58,
       "runVerify > verifyOne": 46,
       "runVerify > verifyOne > againstPaired": 32
     },
@@ -486,7 +486,7 @@
       "startMcpListener": 242
     },
     "packages/cli/src/verify.ts": {
-      "runVerify": 290,
+      "runVerify": 289,
       "runVerify > verifyOne": 185
     },
     "packages/dashboard/src/fix-bundles.ts": {
