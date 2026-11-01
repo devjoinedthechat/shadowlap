@@ -1,5 +1,5 @@
-import { decisionsHeadline, decisionsMoved, decisionsName, emptyCounts, outcomeOf, testTally, verifySentence, type DecisionCounts, type DecisionsVerify, type Normalizer, type StoreOf, type StepRerun, type TestResult, type TestSession, type VerdictStanding, type VerifiedRun, type VerifyOutcome, type VerifyReport } from '@shadowlap/engine';
-import { changeName } from './fix-shared.js';
+import { controlOpen, decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, emptyCounts, goldensPassed, judgeOpen, migrateBreaks, migrateUnsettled, outcomeOf, verifyHead, type DecisionCounts, type DecisionStep, type DecisionsVerify, type MigratePasses, type Normalizer, type StepRerun, type StoreOf, type TestResult, type TestSession, type UnsettledRun, type VerdictStanding, type VerifiedRun, type VerifyOutcome, type VerifyReport } from '@shadowlap/engine';
+import { changeName, fieldsOf } from './fix-shared.js';
 import { asksForAll, optionLike, resultLine, verdictOfResult, type GoldenSource, type GoldenVerdict } from './tests.js';
 import type { VerdictTone } from './verdict.js';
 
@@ -7,8 +7,8 @@ import type { VerdictTone } from './verdict.js';
  * The read model behind Changes › Verdicts: every change checked before it shipped, and the verdict
  * it got, from what the store keeps already. One row per change, newest first: each revision a test
  * session ran every golden at (Tests' columns), each preview and each migration (`shadowlap
- * decisions`, `migrate`), and each verify a fix keeps. A verdict is in the words of the command that
- * gave it, from the engine's words, never one made up for the list.
+ * decisions`, `migrate`), and each verify a fix keeps. A verdict is said as the command that gave it
+ * gives it, by the engine's rules and in its words, never one made up for the list.
  *
  * Plain functions of the store that read a window of it, however much it keeps: the newest test
  * sessions, previews and verifies, then only the rows the page shows. They run on the server's thread.
@@ -16,13 +16,22 @@ import type { VerdictTone } from './verdict.js';
 
 /** How many of the newest test sessions, previews and verifies the page reads, at most. */
 export const VERDICTS_WINDOW = 200;
+/** The rows a page shows when it asks for no number of them. */
+export const VERDICTS_LIMIT = 50;
 
 /** The chips the list filters by: every change, the test sessions, the previews (migrations among them), the verifies. */
 export type VerdictsKind = 'all' | 'sessions' | 'previews' | 'verifies';
 export const VERDICTS_KINDS: readonly VerdictsKind[] = ['all', 'sessions', 'previews', 'verifies'];
 
-/** A verdict as the command that gave it says it: a test session's, verify's (`incomplete` read as inconclusive, as every verdict that settled nothing is), or a preview's before verify. */
+/**
+ * A verdict as the command that gave it says it: a test session's; verify's (its incomplete read as
+ * inconclusive, as every verdict that settled nothing is, a preview's or a migration's among them); a
+ * preview's before verify took the runs it flags; one that flags none and settled.
+ */
 export type VerdictWord = 'passed' | 'failed' | 'inconclusive' | 'accepted' | 'rejected' | 'not verified' | 'nothing to verify';
+
+/** Each word's colour: `ok` held, `no` didn't, `y` open; null for none. */
+const TONES: Record<VerdictWord, VerdictTone | null> = { passed: 'ok', accepted: 'ok', failed: 'no', rejected: 'no', inconclusive: 'y', 'not verified': 'y', 'nothing to verify': null };
 
 /** What every row says, whatever checked the change. */
 interface VerdictRowBase {
@@ -32,7 +41,10 @@ interface VerdictRowBase {
   at: number;
   /** The change: a commit's subject, else what its revision is; a preview's name; the fix's title. */
   title: string;
-  /** Who checked it, only where checks are shared (a team store); null otherwise, or when no one was recorded. */
+  /**
+   * Who made the change, only where checks are shared (a team store): a commit's author, as the
+   * project's git has it; who ran a preview or a migration. Null otherwise, or when none is known.
+   */
   by: string | null;
   /** What it was checked on: `7 goldens`, `3 runs`. */
   checked: string;
@@ -41,7 +53,7 @@ interface VerdictRowBase {
   word: VerdictWord;
   /** The word's colour: `ok` held, `no` didn't, `y` open; null for none (a preview with nothing to verify). */
   tone: VerdictTone | null;
-  /** Under the word: a session's tally, verify's sentence, the runs left to verify, a preview's headline. */
+  /** Under the word: a session's tally, verify's head, the runs left to verify, why it settled nothing, a preview's headline. */
   line: string;
 }
 
@@ -74,7 +86,7 @@ export interface PreviewVerdict extends VerdictRowBase {
   flagged: number;
   /** What flags them: 1 a write changed (red), 2 a stop, hand-over or judged change (amber); null when none is flagged. */
   flaggedRank: 1 | 2 | null;
-  /** Flagged runs no verify has settled yet: verify's verdict waits for them. */
+  /** Flagged runs no verify has taken yet: verify's verdict waits for them. */
   toVerify: number;
 }
 
@@ -83,8 +95,15 @@ export interface VerifyVerdict extends VerdictRowBase {
   kind: 'verify';
   verifyId: string;
   fixId: string;
-  /** What it verified, by what changed: `repair candidate 3`, the request fields it set, the code version. */
+  /** What it verified, by what changed (the fix's Verify step names it so): `repair candidate 3`, the request fields it set, the code version. */
   code: string;
+  /** The repair whose candidate it verified, and which candidate; null for a change verify checked by itself. */
+  repairId: string | null;
+  candidate: number | null;
+  /** The code it ran at (`370712a+dirty`), as verify kept it; null when it couldn't tell. */
+  codeVersion: string | null;
+  /** The request fields its change set (`temperature=1`); null for a change all in the code. */
+  fields: string | null;
   verdict: VerifyOutcome;
   /** It checked the fix's own check on a run that fails it: a verdict that doesn't count changes nothing for the fix. */
   counts: boolean;
@@ -99,7 +118,7 @@ export interface VerdictsView {
   counts: Record<VerdictsKind, number>;
   /** The rows of the kind asked for, newest first, `limit` at most. */
   rows: VerdictRow[];
-  /** Who checked each change is named: the project has a team store. On one machine, every check is its own. */
+  /** Who made each change is named: the project has a team store. On one machine, every check is its own. */
   shared: boolean;
   /** Older changes of the kind asked for than these exist: past `limit`, or past the window read. */
   more: boolean;
@@ -126,13 +145,15 @@ export interface VerdictRevision {
   goldens: VerdictGolden[];
   /** The previews and migrations asked at this very revision, newest first. */
   decisions: PreviewVerdict[];
+  /** Who made each change is named: the project has a team store. */
+  shared: boolean;
 }
 
 export interface VerdictsOptions {
   kind?: VerdictsKind;
-  /** Rows at most (default 50, at most the window). */
+  /** Rows at most (VERDICTS_LIMIT unless given, at most the window). */
   limit?: number;
-  /** Checks are shared (a team store): who checked each change is named. */
+  /** Checks are shared (a team store): who made each change is named. */
   shared?: boolean;
   /** The project's goldens folder, for names (default `goldens`). */
   folder?: string;
@@ -153,6 +174,17 @@ const parsed = <T>(v: unknown, fallback: T): T => {
 };
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const count = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+/** A reason the CLI says after a colon, as a line of its own: `It stopped before …`. */
+const sentence = (why: string) => `${why.charAt(0).toUpperCase()}${why.slice(1)}`;
+
+/**
+ * The rows a page asks for, `limit` as an address gives it: a whole number from 1 to the window,
+ * VERDICTS_LIMIT when it gives none, or no number.
+ */
+export function verdictsLimit(raw: string | number | null | undefined): number {
+  const n = typeof raw === 'number' ? raw : raw === null || raw === undefined || raw.trim() === '' ? NaN : Number(raw);
+  return Number.isFinite(n) ? Math.max(1, Math.min(VERDICTS_WINDOW, Math.trunc(n))) : VERDICTS_LIMIT;
+}
 
 /** A revision's key, as its page's address takes it: the revision, or `no-revision` for none. */
 export const revisionKey = (revision: string | null): string => revision ?? 'no-revision';
@@ -185,25 +217,23 @@ function firstTested(store: Store, paths: readonly string[]): Map<string, number
 
 /**
  * The newest session that ran every golden at each revision, newest first, among the newest sessions
- * the store keeps, as Tests' columns are made: one that asked for each golden on disk tested before
- * it started (`goldens/*`, or each by name), or ran each of them; a golden packed since can't count
- * against it. Only a session that ended, and went through its goldens, gave a verdict: one running
- * now, one a signal stopped, and one whose process was killed are left out. `more` says older
- * sessions are past the window.
+ * the store keeps with a result, as Tests' columns are made: one that asked for each golden on disk
+ * tested before it started (`goldens/*`, or each by name), or ran each of them; a golden packed since
+ * can't count against it. Which goldens a session ran is read only for one that didn't ask for them
+ * all. Only a session that ended, and went through its goldens, gave a verdict: one running now, one a
+ * signal stopped, and one whose process was killed are left out. `more` says older sessions are past
+ * the window.
  */
 function revisionSessions(store: Store, goldens: readonly GoldenSource[]): { sessions: TestSession[]; more: boolean } {
-  const read = store.listTestSessions({ limit: VERDICTS_WINDOW + 1, finished: true });
+  const read = store.listTestSessions({ limit: VERDICTS_WINDOW + 1, finished: true, withResults: true });
   const more = read.length > VERDICTS_WINDOW;
   const window = read.slice(0, VERDICTS_WINDOW).filter((s) => !s.interrupted);
-  const ran = store.testSessionGoldens(window.map((s) => s.sessionId));
   const readable = goldens.filter((g) => !optionLike(g.path) && !g.error).map((g) => g.path);
   const first = firstTested(store, readable);
-  const full = (s: TestSession): boolean => {
-    const got = ran.get(s.sessionId);
-    if (!got) return false;
-    const need = readable.filter((p) => (first.get(p) ?? Infinity) < s.startedAt);
-    return asksForAll(s.command, need) || need.every((p) => got.has(p));
-  };
+  const needOf = (s: TestSession) => readable.filter((p) => (first.get(p) ?? Infinity) < s.startedAt);
+  const askedAll = new Set(window.filter((s) => asksForAll(s.command, needOf(s))).map((s) => s.sessionId));
+  const ran = store.testSessionGoldens(window.filter((s) => !askedAll.has(s.sessionId)).map((s) => s.sessionId));
+  const full = (s: TestSession): boolean => askedAll.has(s.sessionId) || needOf(s).every((p) => ran.get(s.sessionId)?.has(p));
   const seen = new Set<string>();
   const sessions: TestSession[] = [];
   for (const s of window) {
@@ -230,25 +260,29 @@ function sessionTallies(store: Store, ids: readonly string[]): Map<string, { pas
   return out;
 }
 
-/** Sessions as rows: the tally of each, in the test command's words, and what moved. Titled by the revision until its commit's subject is known (`withSubjects`). */
-function sessionRows(store: Store, sessions: readonly TestSession[], shared: boolean): SessionVerdict[] {
+/**
+ * Sessions as rows: the verdict of each and its tally, counting what passed, and what moved. Titled by
+ * the revision, and named by no one, until its commit's subject and author are known (`withCommits`).
+ */
+function sessionRows(store: Store, sessions: readonly TestSession[]): SessionVerdict[] {
   const tallies = sessionTallies(store, sessions.map((s) => s.sessionId));
   return sessions.map((s) => {
     const t = tallies.get(s.sessionId) ?? { passed: 0, failed: 0, inconclusive: 0 };
     const goldens = t.passed + t.failed + t.inconclusive;
     const moved = [t.failed ? `${plural(t.failed, 'golden')} failed` : '', t.inconclusive ? `${t.inconclusive} inconclusive` : ''].filter(Boolean);
+    const word: VerdictWord = t.failed ? 'failed' : t.inconclusive ? 'inconclusive' : 'passed';
     return {
       kind: 'session',
       id: revisionKey(s.revision),
       key: revisionKey(s.revision),
       at: s.endedAt ?? s.startedAt,
       title: sessionTitle(s.revision, null),
-      by: shared ? s.actor : null,
+      by: null,
       checked: plural(goldens, 'golden'),
       moved: moved.length ? moved : ['every golden held'],
-      word: t.failed ? 'failed' : t.inconclusive ? 'inconclusive' : 'passed',
-      tone: t.failed ? 'no' : t.inconclusive ? 'y' : 'ok',
-      line: testTally(t),
+      word,
+      tone: TONES[word],
+      line: goldensPassed(t.passed, goldens),
       revision: s.revision,
       sessionId: s.sessionId,
       subject: null,
@@ -260,20 +294,22 @@ function sessionRows(store: Store, sessions: readonly TestSession[], shared: boo
 }
 
 /**
- * The rows with their commits' subjects, as git gave them for the commit under each revision
- * (`committed`), and each titled by it.
+ * The rows with what the project's git says of the commit under each revision (`committed`): titled
+ * by its subject, and, where checks are shared, named by its author. A commit git doesn't have keeps
+ * its revision as its title and names no one.
  */
-export function withSubjects<T extends { lead: SessionVerdict | null; rows: VerdictRow[] } | VerdictRevision>(view: T, subjects: ReadonlyMap<string, string>): T {
+export function withCommits<T extends ({ lead: SessionVerdict | null; rows: VerdictRow[] } | VerdictRevision) & { shared: boolean }>(view: T, subjects: ReadonlyMap<string, string>, authors: ReadonlyMap<string, string> = new Map()): T {
   const name = (r: SessionVerdict): SessionVerdict => {
-    const subject = r.revision ? (subjects.get(committed(r.revision)) ?? null) : null;
-    return { ...r, subject, title: sessionTitle(r.revision, subject) };
+    const commit = r.revision ? committed(r.revision) : null;
+    const subject = commit ? (subjects.get(commit) ?? null) : null;
+    return { ...r, subject, title: sessionTitle(r.revision, subject), by: view.shared && commit ? (authors.get(commit) ?? null) : null };
   };
   if ('row' in view) return { ...view, row: name(view.row) };
   return { ...view, lead: view.lead && name(view.lead), rows: view.rows.map((r) => (r.kind === 'session' ? name(r) : r)) };
 }
 
-/** The commits whose subjects a view's rows want, for git to be asked about at once. */
-export function subjectRevisions(view: { lead: SessionVerdict | null; rows: VerdictRow[] } | VerdictRevision): string[] {
+/** The commits a view's rows want git's word on, for git to be asked about at once. */
+export function commitsWanted(view: { lead: SessionVerdict | null; rows: VerdictRow[] } | VerdictRevision): string[] {
   const rows = 'row' in view ? [view.row] : [...(view.lead ? [view.lead] : []), ...view.rows];
   return [...new Set(rows.flatMap((r) => (r.kind === 'session' && r.revision ? [committed(r.revision)] : [])))];
 }
@@ -306,10 +342,10 @@ interface PreviewFacts {
   counts: DecisionCounts;
   flagged: string[];
   verify: DecisionsVerify | null;
-  /** Steps a judge check came out otherwise for (DecisionsJudged's `changed`). */
-  judged: number;
-  /** Steps that wait on a judge: a sample's words could not be judged (DecisionsJudged's `inconclusive`). */
-  judgeOpen: number;
+  /** A migration's What still passes, which its verdict is read from; null for a preview. */
+  passes: MigratePasses | null;
+  /** Steps that wait on a judge, of every run (DecisionsJudged's `inconclusive`). */
+  judgeWaits: number;
   /** Why it stopped before every step was asked, or null. */
   stopReason: string | null;
   fromCode: boolean;
@@ -318,18 +354,27 @@ interface PreviewFacts {
   flaggedRank: 1 | 2 | null;
 }
 
-/** A kept verify, when it is one: its verdict and each run's role and outcome. */
+/** A kept verify, when it is one: its verdict, each run's role and outcome, and why it left runs open. */
 function verifyOf(raw: unknown): DecisionsVerify | null {
   const v = parsed<Partial<DecisionsVerify> | null>(raw, null);
   if (!v || typeof v.verdict !== 'string' || !Array.isArray(v.runs)) return null;
-  return { ...(v as DecisionsVerify), runs: v.runs.filter((x) => x && typeof x.runId === 'string' && typeof x.role === 'string' && typeof x.outcome === 'string') };
+  const runs = v.runs.filter((x) => x && typeof x.runId === 'string' && typeof x.role === 'string' && typeof x.outcome === 'string');
+  return { ...(v as DecisionsVerify), runs, reasons: Array.isArray(v.reasons) ? v.reasons.filter((x): x is string => typeof x === 'string') : [] };
+}
+
+/** A migration's kept What still passes, when it is one. */
+function passesOf(raw: unknown): MigratePasses | null {
+  const p = parsed<{ verdict?: unknown; runs?: unknown } | null>(raw, null);
+  if (!p || typeof p.verdict !== 'string' || !Array.isArray(p.runs)) return null;
+  const runs = (p.runs as Array<{ verdict?: unknown; verified?: unknown } | null>).filter((x) => x && typeof x.verdict === 'string').map((x) => ({ verdict: String(x!.verdict), verified: x!.verified === true }));
+  return { verdict: p.verdict as MigratePasses['verdict'], runs };
 }
 
 function previewFacts(store: Store, ids: readonly string[]): Map<string, PreviewFacts> {
   const rows = store.query(
     `SELECT s.session_id AS id, s.kind AS kind, s.at AS at, s.actor AS actor, s.revision AS revision,
-       ${part('change')} AS change, ${part('counts')} AS counts, ${part('flagged')} AS flagged, ${part('verify')} AS verify, ${part('judge.changed')} AS judged, ${part('judge.inconclusive')} AS judge_open, ${part('stopReason')} AS stop_reason,
-       json_extract(s.data, '$.from') AS from_models, json_extract(s.data, '$.to') AS to_model,
+       ${part('change')} AS change, ${part('counts')} AS counts, ${part('flagged')} AS flagged, ${part('verify')} AS verify, ${part('judge.inconclusive')} AS judge_waits, ${part('stopReason')} AS stop_reason,
+       json_extract(s.data, '$.from') AS from_models, json_extract(s.data, '$.to') AS to_model, CASE s.kind WHEN 'migrate' THEN json_extract(s.data, '$.passes') END AS passes,
        (SELECT COUNT(*) FROM decision_runs r WHERE r.session_id = s.session_id) AS runs,
        (SELECT COUNT(r.golden) FROM decision_runs r WHERE r.session_id = s.session_id) AS goldens,
        (SELECT MIN(r.rank) FROM decision_runs r WHERE r.session_id = s.session_id AND r.rank <= 2) AS flag_rank
@@ -344,56 +389,89 @@ function previewFacts(store: Store, ids: readonly string[]): Map<string, Preview
     const from = parsed<unknown[]>(r.from_models, []).filter((m): m is string => typeof m === 'string');
     const name = decisionsName({ kind: kind === 'migration' ? 'migrate' : 'decisions', change, from, to: str(r.to_model) });
     const flaggedRank = r.flag_rank === 1 || r.flag_rank === 2 ? r.flag_rank : null;
-    out.set(String(r.id), { id: String(r.id), kind, at: Number(r.at), actor: str(r.actor), revision: str(r.revision), name, counts, flagged: parsed<unknown[]>(r.flagged, []).filter((x): x is string => typeof x === 'string'), verify: verifyOf(r.verify), judged: count(r.judged), judgeOpen: count(r.judge_open), stopReason: str(r.stop_reason), fromCode: !!change?.fromCode, runs: count(r.runs), goldens: count(r.goldens), flaggedRank });
+    const flagged = parsed<unknown[]>(r.flagged, []).filter((x): x is string => typeof x === 'string');
+    out.set(String(r.id), { id: String(r.id), kind, at: Number(r.at), actor: str(r.actor), revision: str(r.revision), name, counts, flagged, verify: verifyOf(r.verify), passes: kind === 'migration' ? passesOf(r.passes) : null, judgeWaits: count(r.judge_waits), stopReason: str(r.stop_reason), fromCode: !!change?.fromCode, runs: count(r.runs), goldens: count(r.goldens), flaggedRank });
   }
   return out;
 }
 
-/** Runs a --from-code session could not ask whole: refused, so no step of theirs was asked (only such a session refuses one). */
-function refusedRuns(store: Store, sessionId: string): number {
-  const rows = store.query(`SELECT COUNT(*) AS n FROM decision_runs WHERE session_id = ? AND rank IS NULL AND changed = 0 AND json_extract(data, '$.refused') IS NOT NULL`, sessionId);
-  return count(rows[0]?.n);
+/** What verify took of the runs a session flags: the runs it verified, its verdict on them, and how many of the flagged it has yet to take. */
+function verifiedOf(f: PreviewFacts): { ran: DecisionsVerify['runs']; verdict: DecisionsVerify['verdict'] | null; left: number } {
+  const v = f.verify && f.verify.verdict !== 'not-run' ? f.verify : null;
+  const ran = v?.runs ?? [];
+  const taken = new Set(ran.map((x) => x.runId));
+  return { ran, verdict: v?.verdict ?? null, left: f.flagged.filter((id) => !taken.has(id)).length };
 }
 
 /**
- * What a preview that flags no run settled, in the words the CLI says it with: its headline, unless
- * it settled nothing (as `decisions` exits 1 for): a run it could not ask, no step answered, words a
- * judge could not judge, or a stop before every step was asked.
+ * Whether a preview's verdict waits on what its runs say (decisionsUnsettled): it doesn't stop at a
+ * verdict verify gave, and its report says a run may be open: a --from-code change refuses a run whole,
+ * a step got no answer (a step that waits on its control is counted so), a step waits on a judge.
  */
-function unflaggedVerdict(store: Store, f: PreviewFacts): Pick<PreviewVerdict, 'word' | 'tone' | 'line'> {
-  // Only a --from-code change refuses a run whole: that run asked no step.
-  const refused = f.fromCode ? refusedRuns(store, f.id) : 0;
-  const runs = Array.from({ length: f.runs }, (_, i) => ({ runId: '', refused: i < refused ? 'refused' : null, decisions: [] }));
-  const h = decisionsHeadline({ counts: f.counts, flagged: [], runs });
-  const open = (line: string) => ({ word: 'not verified' as const, tone: 'y' as const, line });
-  if (h.unasked) return open(h.unasked);
-  if (!h.asked && f.counts.notAsked) return open(`${h.lead}${h.rest}`);
-  if (f.judgeOpen) return open(`${f.judgeOpen} ${f.judgeOpen === 1 ? 'step waits' : 'steps wait'} on a judge`);
-  if (f.stopReason) return open(`Stopped before every step was asked: ${f.stopReason}`);
-  return { word: 'nothing to verify', tone: null, line: `${h.lead}${h.rest}` };
+function readsRuns(f: PreviewFacts): boolean {
+  const v = verifiedOf(f);
+  if (f.kind !== 'preview' || f.stopReason || v.left || v.verdict === 'rejected' || v.verdict === 'incomplete') return false;
+  return f.fromCode || f.counts.notAsked > 0 || f.judgeWaits > 0;
 }
 
 /**
- * A preview's verdict: verify's, in its words, once verify settled every run the change flags, or
- * rejected the change on any; before that, not verified, with the runs left to verify. One that
- * flags no run has nothing to verify (`unflaggedVerdict`).
+ * What decisionsUnsettled reads of each run of these sessions: whether it was refused, its steps and
+ * those asked or not, from its row; and, of a run the session doesn't flag, whether a step of it waits
+ * on a judge or its control, from those steps' counts alone, read only where the session's report says
+ * a step waits on a judge or the run's says one got no answer.
  */
-function previewVerdict(store: Store, f: PreviewFacts): Pick<PreviewVerdict, 'word' | 'tone' | 'line' | 'toVerify'> {
-  if (!f.flagged.length) return { ...unflaggedVerdict(store, f), toVerify: 0 };
-  const ran = f.verify && f.verify.verdict !== 'not-run' ? f.verify.runs : [];
-  const verified = new Set(ran.map((x) => x.runId));
-  const left = f.flagged.filter((id) => !verified.has(id)).length;
-  const sentence = `The change ${verifySentence(ran)}`;
-  if (ran.length && f.verify!.verdict === 'rejected') return { word: 'rejected', tone: 'no', line: sentence, toVerify: left };
-  if (ran.length && !left) return f.verify!.verdict === 'accepted' ? { word: 'accepted', tone: 'ok', line: sentence, toVerify: 0 } : { word: 'inconclusive', tone: 'y', line: sentence, toVerify: 0 };
-  return { word: 'not verified', tone: 'y', line: `${left} of ${plural(f.runs, unitOf(f))} to verify`, toVerify: left };
+function unsettledRuns(store: Store, sessions: readonly PreviewFacts[]): Map<string, UnsettledRun[]> {
+  const out = new Map<string, UnsettledRun[]>();
+  if (!sessions.length) return out;
+  const judged = sessions.filter((f) => f.judgeWaits > 0).map((f) => f.id);
+  const rows = store.query(
+    `SELECT r.session_id AS session, r.run_id AS run, json_extract(r.data, '$.refused') AS refused, json_extract(r.data, '$.steps') AS steps, json_extract(r.data, '$.asked') AS asked, json_extract(r.data, '$.counts.notAsked') AS not_asked,
+       CASE WHEN (r.rank IS NULL OR r.rank > 2) AND (r.session_id IN (SELECT value FROM json_each(?)) OR json_extract(r.data, '$.counts.notAsked') > 0)
+         THEN (SELECT json_group_array(json_object('rank', json_extract(r.data, d.fullkey || '.rank'), 'majority', json_extract(r.data, d.fullkey || '.majority'), 'sampled', json_extract(r.data, d.fullkey || '.sampled'), 'samples', json_extract(r.data, d.fullkey || '.samples'), 'control', json_extract(r.data, d.fullkey || '.control')))
+           FROM json_each(r.data, '$.decisions') d)
+       END AS open
+     FROM decision_runs r WHERE r.session_id IN (SELECT value FROM json_each(?)) ORDER BY r.session_id, r.position`,
+    JSON.stringify(judged),
+    JSON.stringify(sessions.map((f) => f.id)),
+  );
+  for (const r of rows) {
+    const steps = parsed<Array<Pick<DecisionStep, 'rank' | 'majority' | 'sampled' | 'samples' | 'control'>>>(r.open, []).filter((s) => s && typeof s.samples === 'object' && s.samples !== null);
+    const run: UnsettledRun = { runId: String(r.run), refused: !!str(r.refused), steps: count(r.steps), asked: count(r.asked), notAsked: count(r.not_asked), judgeOpen: steps.some((s) => judgeOpen(s)), controlOpen: steps.some((s) => controlOpen(s)) };
+    const list = out.get(String(r.session));
+    if (list) list.push(run);
+    else out.set(String(r.session), [run]);
+  }
+  return out;
 }
 
 /** What a session's runs are: goldens when every one is a golden's, else runs. */
 const unitOf = (f: Pick<PreviewFacts, 'runs' | 'goldens'>) => (f.runs && f.goldens === f.runs ? 'golden' : 'run');
 
+/**
+ * A preview's or a migration's verdict. Before verify took every run it flags, not verified, with the
+ * runs left to verify. Then verify's verdict, in its head's words: rejected when it broke or didn't
+ * fix a run (for a migration, when `migrate` says the switch breaks one), inconclusive when it didn't
+ * settle every run. One that settled nothing otherwise, by the rule its command exits 3 by
+ * (decisionsUnsettled, migrateUnsettled), is inconclusive, with why; else accepted. One that flags no
+ * run and settled has nothing to verify, its headline's sentence under it.
+ */
+function previewVerdict(f: PreviewFacts, runs: readonly UnsettledRun[]): Pick<PreviewVerdict, 'word' | 'tone' | 'line' | 'toVerify'> {
+  const { ran, verdict, left } = verifiedOf(f);
+  const say = (word: VerdictWord, line: string) => ({ word, tone: TONES[word], line, toVerify: left });
+  if (left) return say('not verified', `${left} of ${plural(f.runs, unitOf(f))} to verify`);
+  const breaks = f.kind === 'migration' ? !!f.passes && migrateBreaks(f.passes) : verdict === 'rejected';
+  if (verdict && breaks) return say('rejected', verifyHead('rejected', ran));
+  if (verdict === 'incomplete') return say('inconclusive', verifyHead('incomplete', ran));
+  const why = f.kind === 'migration' ? f.passes && migrateUnsettled({ stopReason: f.stopReason, passes: f.passes }) : decisionsUnsettled({ stopReason: f.stopReason, flagged: f.flagged, runs, verify: f.verify });
+  if (why) return say('inconclusive', sentence(why));
+  if (verdict && f.flagged.length) return say('accepted', verifyHead('accepted', ran));
+  const h = decisionsHeadline({ counts: f.counts, flagged: [], runs: [] });
+  return say('nothing to verify', `${h.lead}${h.rest}`);
+}
+
 function previewRows(store: Store, ids: readonly string[], shared: boolean): PreviewVerdict[] {
   const facts = previewFacts(store, ids);
+  const runs = unsettledRuns(store, [...facts.values()].filter(readsRuns));
   return ids.flatMap((id) => {
     const f = facts.get(id);
     if (!f) return [];
@@ -406,8 +484,8 @@ function previewRows(store: Store, ids: readonly string[], shared: boolean): Pre
         title: f.name,
         by: shared ? f.actor : null,
         checked: plural(f.runs, unitOf(f)),
-        moved: decisionsMoved({ counts: f.counts, judge: { changed: f.judged } }),
-        ...previewVerdict(store, f),
+        moved: decisionsMoved(f.counts),
+        ...previewVerdict(f, runs.get(id) ?? []),
         revision: f.revision,
         runs: f.runs,
         flagged: f.flagged.length,
@@ -442,14 +520,14 @@ function fixesOf(store: Store, ids: readonly string[]): Map<string, { fixId: str
 }
 
 /**
- * Verifies as rows: each run's outcome in verify's words, and its sentence, read out of the kept
- * report without its attempts. Titled by the fix it is a row of; what it verified named by what
- * changed, as the fix's Verify step names it.
+ * Verifies as rows: each run's outcome in verify's words, and its verdict's head, read out of the
+ * kept report without its attempts. Titled by the fix it is a row of; what it verified named by what
+ * changed, as the fix's Verify step names it, with the repair candidate, code and fields apart.
  */
 function verifyRows(store: Store, ids: readonly string[]): VerifyVerdict[] {
   if (!ids.length) return [];
   const rows = store.query(
-    `SELECT v.verify_id AS id, v.at AS at, v.verdict AS verdict,
+    `SELECT v.verify_id AS id, v.at AS at, v.verdict AS verdict, v.repair_id AS repair_id,
        json_extract(v.record, '$.candidate') AS candidate, json_extract(v.record, '$.command') AS command, json_extract(v.record, '$.rerun') AS rerun,
        json_extract(v.record, '$.report.fields') AS fields, json_extract(v.record, '$.report.codeVersion') AS code_version,
        (SELECT json_group_array(json_object('role', json_extract(r.value, '$.role'), 'verdict', json_extract(r.value, '$.verdict'), 'decision', json_extract(r.value, '$.decision'), 'undecided', json_extract(r.value, '$.undecided')))
@@ -467,9 +545,11 @@ function verifyRows(store: Store, ids: readonly string[]): VerifyVerdict[] {
     const verdict: VerifyOutcome = r.verdict === 'accepted' || r.verdict === 'rejected' ? r.verdict : 'incomplete';
     // What changeName reads of the report: the request fields it set and the code it ran at.
     const report: Pick<VerifyReport, 'fields' | 'codeVersion'> = { fields: parsed<Record<string, unknown>>(r.fields, {}), codeVersion: str(r.code_version) };
-    const shape = { candidate: typeof r.candidate === 'number' ? r.candidate : null, command: str(r.command) ?? '', rerun: parsed<StepRerun | null>(r.rerun, null), report: report as VerifyReport };
+    const candidate = typeof r.candidate === 'number' ? r.candidate : null;
+    const shape = { candidate, command: str(r.command) ?? '', rerun: parsed<StepRerun | null>(r.rerun, null), report: report as VerifyReport };
     const outcomes = new Map<string, number>();
     for (const x of runs) outcomes.set(x.outcome, (outcomes.get(x.outcome) ?? 0) + 1);
+    const word: VerdictWord = verdict === 'incomplete' ? 'inconclusive' : verdict;
     return [
       {
         kind: 'verify' as const,
@@ -481,10 +561,14 @@ function verifyRows(store: Store, ids: readonly string[]): VerifyVerdict[] {
         by: null,
         checked: plural(runs.length, 'run'),
         moved: [...outcomes].map(([outcome, n]) => `${n} ${outcome}`),
-        word: verdict === 'incomplete' ? 'inconclusive' : verdict,
-        tone: verdict === 'accepted' ? 'ok' : verdict === 'rejected' ? 'no' : 'y',
-        line: runs.length ? `The change ${verifySentence(runs)}` : 'No run verified',
+        word,
+        tone: TONES[word],
+        line: verifyHead(verdict, runs),
         code: changeName(shape),
+        repairId: str(r.repair_id),
+        candidate,
+        codeVersion: report.codeVersion,
+        fields: fieldsOf(shape),
         verdict,
         counts: fix.counts,
       },
@@ -504,7 +588,7 @@ const CHIP: Record<VerdictRow['kind'], Exclude<VerdictsKind, 'all'>> = { session
  */
 export function verdictsView(store: Store, goldens: readonly GoldenSource[], options: VerdictsOptions = {}): VerdictsView {
   const kind = options.kind ?? 'all';
-  const limit = Math.max(1, Math.min(VERDICTS_WINDOW, options.limit ?? 50));
+  const limit = verdictsLimit(options.limit);
   const shared = !!options.shared;
   const tested = revisionSessions(store, goldens);
   const previews = previewWindow(store);
@@ -524,7 +608,7 @@ export function verdictsView(store: Store, goldens: readonly GoldenSource[], opt
   const refs = (...kinds: Array<VerdictRow['kind']>) => shown.filter((e) => kinds.includes(e.kind)).map((e) => e.ref);
   const leadId = tested.sessions[0]?.sessionId ?? null;
   const ofSessions = new Set([...refs('session'), ...(leadId ? [leadId] : [])]);
-  const sessions = new Map(sessionRows(store, tested.sessions.filter((s) => ofSessions.has(s.sessionId)), shared).map((r) => [r.sessionId, r]));
+  const sessions = new Map(sessionRows(store, tested.sessions.filter((s) => ofSessions.has(s.sessionId))).map((r) => [r.sessionId, r]));
   const others = new Map<string, VerdictRow>([...previewRows(store, refs('preview', 'migration'), shared), ...verifyRows(store, refs('verify'))].map((r) => [r.id, r]));
   const rows = shown.map((e) => (e.kind === 'session' ? sessions.get(e.ref) : others.get(e.ref))).filter((r): r is VerdictRow => !!r);
   return { lead: leadId ? (sessions.get(leadId) ?? null) : null, counts, rows, shared, more };
@@ -555,7 +639,7 @@ export function verdictRevision(store: Store, goldens: readonly GoldenSource[], 
   if (!session) return null;
   const shared = !!options.shared;
   const folder = options.folder ?? 'goldens';
-  const [row] = sessionRows(store, [session], shared);
+  const [row] = sessionRows(store, [session]);
   const results = store.listTestResults({ sessionId: session.sessionId, limit: 100_000 });
   const kept = runsKept(store, results.flatMap((r) => (r.runId ? [r.runId] : [])));
   const checks = new Map(goldens.map((g) => [g.path, g.checks]));
@@ -569,5 +653,5 @@ export function verdictRevision(store: Store, goldens: readonly GoldenSource[], 
     }))
     .sort((a, b) => WORST[a.verdict] - WORST[b.verdict] || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   const lead = judged.find((g) => g.verdict === 'failed') ?? judged.find((g) => g.verdict === 'inconclusive') ?? null;
-  return { row: row!, lead, goldens: judged, decisions: session.revision ? previewRows(store, previewsAt(store, session.revision), shared) : [] };
+  return { row: row!, lead, goldens: judged, decisions: session.revision ? previewRows(store, previewsAt(store, session.revision), shared) : [], shared };
 }

@@ -10,8 +10,8 @@ import type { VerdictRevision, VerdictsView } from '../src/verdicts.js';
 
 /**
  * Changes › Verdicts over HTTP: the changes checked, newest first, a chip at a time; a revision's
- * page; each revision titled by its commit's subject from the project's git; who checked a change
- * named only with a team store; and nothing without the session token.
+ * page; each revision titled by its commit's subject from the project's git; who made a change named
+ * only when the project's config names a team store; and nothing without the session token.
  */
 
 const T0 = Date.UTC(2026, 9, 20, 9, 0);
@@ -24,10 +24,12 @@ const goldens: GoldenSource[] = [
 
 let repo = '';
 let team = '';
+let broken = '';
 let tightened = '';
 let store: Store;
 let dash: Dashboard;
 let shared: Dashboard;
+let unshared: Dashboard;
 
 const spawnCli = () => spawn(process.execPath, ['-e', ''], { stdio: ['ignore', 'pipe', 'pipe'] });
 const api = (d: Dashboard, path: string, headers: Record<string, string> = {}) => fetch(`${d.url}/api/${path}`, { headers: { 'x-shadowlap-token': d.token, ...headers } });
@@ -48,9 +50,12 @@ beforeAll(async () => {
   writeFileSync(join(repo, 'policy.txt'), 'refund limit 50\n');
   git('commit', '-qam', 'Tighten refund wording');
   tightened = git('rev-parse', '--short=7', 'HEAD');
-  // Another checkout of the project, with a team store: checks there are shared.
+  // Another checkout of the project, with a team store: checks there are shared. And one whose store isn't a store URL.
   team = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-verdicts-team-')));
+  execFileSync('git', ['clone', '-q', repo, team]);
   writeFileSync(join(team, 'shadowlap.config.json'), JSON.stringify({ store: 's3://northwind-shadowlap/support-agent' }));
+  broken = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-verdicts-broken-')));
+  writeFileSync(join(broken, 'shadowlap.config.json'), JSON.stringify({ store: 'a bucket somewhere' }));
 
   store = Store.open(':memory:');
   const ok: TestResultData = { mode: 'replay', verdict: 'passed', calls: { total: 4, replayed: 4, live: 0, blocked: 0, stubbed: 0 } };
@@ -83,12 +88,13 @@ beforeAll(async () => {
   forgetCommits();
   dash = await startDashboard({ store, spawnCli, project: { path: repo }, goldens: () => goldens });
   shared = await startDashboard({ store, spawnCli, project: { path: team }, goldens: () => goldens });
+  unshared = await startDashboard({ store, spawnCli, project: { path: broken }, goldens: () => goldens });
 });
 
 afterAll(async () => {
-  await Promise.all([dash?.close(), shared?.close()]);
+  await Promise.all([dash?.close(), shared?.close(), unshared?.close()]);
   store?.close();
-  for (const dir of [repo, team]) if (dir) rmSync(dir, { recursive: true, force: true });
+  for (const dir of [repo, team, broken]) if (dir) rmSync(dir, { recursive: true, force: true });
 });
 
 describe('GET /api/verdicts', () => {
@@ -110,12 +116,29 @@ describe('GET /api/verdicts', () => {
     expect(view.rows.every((r) => r.by === null)).toBe(true);
   });
 
-  it('names who checked each change where a team store shares checks', async () => {
+  it('names who made each change where the config names a team store: a commit by its author, a preview by who ran it', async () => {
     const view = await getJson<VerdictsView>(shared, 'verdicts');
     expect(view.shared).toBe(true);
-    expect(view.rows.map((r) => r.by)).toEqual([null, 'maya@example.com', 'maya@example.com', 'ravi@example.com', 'maya@example.com', 'maya@example.com']);
-    // That checkout has no git: each revision by itself.
-    expect(view.rows.find((r) => r.id === tightened)!.title).toBe(`Commit ${tightened}`);
+    // Never the session's runner: a commit this checkout lacks, and no revision at all, name no one.
+    expect(view.rows.map((r) => [r.id, r.by])).toEqual([
+      ['vf-01M5000000000000000000000A', null],
+      ['no-revision', null],
+      [`${tightened}+dirty`, 'dana@northwind.example'],
+      ['dc-01M5000000000000000000000A', 'ravi@example.com'],
+      [tightened, 'dana@northwind.example'],
+      ['c0ffee1', null],
+    ]);
+    expect(view.rows.find((r) => r.id === tightened)!.title).toBe('Tighten refund wording');
+    expect((await getJson<VerdictRevision>(shared, `verdicts/${tightened}`)).row.by).toBe('dana@northwind.example');
+  });
+
+  it('names no one when the config names no team store, or one that is no store URL', async () => {
+    for (const d of [dash, unshared]) {
+      const view = await getJson<VerdictsView>(d, 'verdicts');
+      expect(view.shared).toBe(false);
+      expect(view.rows.every((r) => r.by === null)).toBe(true);
+      expect((await getJson<VerdictRevision>(d, 'verdicts/no-revision')).shared).toBe(false);
+    }
   });
 
   it('filters by chip and limit, and refuses a kind it has no chip for', async () => {
@@ -123,6 +146,14 @@ describe('GET /api/verdicts', () => {
     const two = await getJson<VerdictsView>(dash, 'verdicts?kind=sessions&limit=2');
     expect(two.rows.map((r) => r.id)).toEqual(['no-revision', `${tightened}+dirty`]);
     expect(two.more).toBe(true);
+    // A limit is a whole number from 1 to the window: 0 shows one row, one past the window every row it holds.
+    const one = await getJson<VerdictsView>(dash, 'verdicts?limit=0');
+    expect([one.rows.length, one.more]).toEqual([1, true]);
+    expect((await getJson<VerdictsView>(dash, 'verdicts?limit=-3')).rows).toHaveLength(1);
+    expect((await getJson<VerdictsView>(dash, 'verdicts?limit=2.9')).rows).toHaveLength(2);
+    const all = await getJson<VerdictsView>(dash, 'verdicts?limit=100000');
+    expect([all.rows.length, all.more]).toEqual([6, false]);
+    expect((await getJson<VerdictsView>(dash, 'verdicts?limit=many')).rows).toHaveLength(6);
     const bad = await api(dash, 'verdicts?kind=runs');
     expect(bad.status).toBe(400);
     expect(((await bad.json()) as { error: string }).error).toBe('kind is all, sessions, previews, verifies');
@@ -143,7 +174,7 @@ describe('GET /api/verdicts', () => {
 describe('GET /api/verdicts/:rev', () => {
   it('gives a revision’s goldens as its session judged them, worst first, and the previews asked at it', async () => {
     const page = await getJson<VerdictRevision>(dash, `verdicts/${tightened}`);
-    expect(page.row).toMatchObject({ title: 'Tighten refund wording', subject: 'Tighten refund wording', word: 'failed', line: '1 passed, 1 failed' });
+    expect(page.row).toMatchObject({ title: 'Tighten refund wording', subject: 'Tighten refund wording', word: 'failed', line: '1 of 2 goldens passed', by: null });
     expect(page.goldens.map((g) => [g.name, g.verdict, g.note])).toEqual([
       ['refund-in-limit', 'failed', 'the agent exited with code 1'],
       ['refund-flow', 'passed', '4/4 replayed'],
