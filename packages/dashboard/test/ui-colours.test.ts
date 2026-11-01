@@ -215,12 +215,10 @@ describe('lime', () => {
     '.checks': 'a fork’s checks, passed',
     '.callrow .ok .cn': 'a probe that rescued the run',
     '.callrow .ok .pl': 'a probe that rescued the run',
-    '.ans div.good': 'the rescued fork’s answer',
     '.wib .iv': 'a gate’s bound that passes',
     '.fdiff em.ok': 'how an attempt came out: passed',
     '.banner .why em.ok': 'how an attempt came out: passed',
     '.badge.ok': 'passed',
-    '.verdict.ok': 'a passed verdict',
     '.setupdone': 'a setup that is done: “set up”',
     '.drawer .st2.ok': 'a job that ended well',
     '.drawer pre .ok': 'a job that ended well',
@@ -228,7 +226,10 @@ describe('lime', () => {
     '.recline .ic': 'a setup step’s run that came back',
     '.glyph.fixok': 'a fix that was accepted',
     '.plist.checks li.met::before': 'a requirement met',
-    '.runkey .rk.good[aria-pressed="true"]': 'a run labelled good: passed, by your own judgement',
+  };
+  /** Lime the design rules out that only a later slice's markup can take away, each with the slice that does. */
+  const UNTIL: Record<string, string> = {
+    '.verdict.ok': 'port/primitives: VerdictLine draws a verdict as a plain line, its word in the passed colour, never a tinted box',
   };
   /** Where lime marks no meaning: the keyboard's focus, a focused field, the text you select. */
   const FOCUS = /:focus(-visible|-within)?\b|^::selection$|^\.labelbar input$/;
@@ -238,9 +239,16 @@ describe('lime', () => {
     for (const r of styleRules()) {
       if (r.selectors.includes(':root')) continue;
       const lime = r.decls.filter(([, v]) => LIME.test(v));
-      for (const s of r.selectors) if (lime.length && !/^\.btn\.lime\b/.test(s) && !PASSED[s] && !FOCUS.test(s)) off.push(`${s} { ${lime.map(([p, v]) => `${p}: ${v}`).join('; ')} }`);
+      for (const s of r.selectors) if (lime.length && !/^\.btn\.lime\b/.test(s) && !PASSED[s] && !UNTIL[s] && !FOCUS.test(s)) off.push(`${s} { ${lime.map(([p, v]) => `${p}: ${v}`).join('; ')} }`);
     }
     expect(off).toEqual([]);
+  });
+
+  it('draws a chosen label and a fix’s answers in ink, never as a verdict', () => {
+    expect(value('.runkey .rk[aria-pressed="true"]', 'color')).toBe('var(--ink)');
+    expect(value('.runkey .rk[aria-pressed="true"]', 'background')).toBe('var(--raise)');
+    expect(value('.ans div', 'border-top')).toBe('1px solid var(--line)');
+    expect(value('.ans code', 'color')).toBe('var(--ink)');
   });
 
   it('puts no glow under the lime button', () => {
@@ -266,7 +274,7 @@ describe('forced colours', () => {
     expect(forced.get('.navlist a[aria-current="page"]::before')?.get('background')).toBe('Highlight');
     expect(forced.get('.run[aria-current="true"]::before')?.get('background')).toBe('Highlight');
     expect(forced.get('table.calls tr[aria-selected="true"]')?.get('outline')).toBe('2px solid Highlight');
-    for (const s of ['.seg button[aria-pressed="true"]', '.chips button[aria-pressed="true"]', '.ofilter button[aria-pressed="true"]']) expect(forced.get(s)?.get('text-decoration'), s).toBe('underline 2px');
+    for (const s of ['.seg button[aria-pressed="true"]', '.chips button[aria-pressed="true"]', '.ofilter button[aria-pressed="true"]', '.runkey .rk[aria-pressed="true"]']) expect(forced.get(s)?.get('text-decoration'), s).toBe('underline 2px');
     expect(forced.get(':is(input, select, textarea, .drop):focus-visible')?.get('outline')).toBe('2px solid Highlight !important');
   });
 

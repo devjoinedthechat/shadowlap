@@ -212,8 +212,9 @@ table.t th.num, table.calls th.num, table.calls th.n { font: 500 10px var(--mono
 .runkey .rk { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px; border: 1px solid var(--line2); border-radius: 6px; background: none; color: var(--dim); font: 11px var(--mono); cursor: pointer; }
 .runkey .rk svg { width: 11px; height: 11px; flex: none; }
 .runkey .rk:hover:not(:disabled) { color: var(--ink); background: var(--hover); }
-.runkey .rk.good[aria-pressed="true"] { color: var(--ok); border-color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
-.runkey .rk.bad[aria-pressed="true"] { color: var(--err); border-color: var(--err); background: color-mix(in srgb, var(--err) 10%, transparent); }
+/* the label a run has is a choice, not a verdict: ink on a raised ground with a hairline ring, as every picker's chosen
+   option, its ✓ or ✗ saying which */
+.runkey .rk[aria-pressed="true"] { color: var(--ink); border-color: var(--line2); background: var(--raise); }
 .runkey .rk:disabled { cursor: default; }
 .runkey.sm .rk { width: 22px; padding: 0; justify-content: center; }
 
@@ -551,7 +552,7 @@ code.rnm { white-space: nowrap; }
    by its colour alone keeps its colour, edged in the user's text colour (CanvasText) so it shows on any ground; a chosen
    option whose fill is lost is underlined; where you are is marked in the highlight colour. */
 @media (forced-colors: active) {
-  .seg button[aria-pressed="true"], .seg a[aria-pressed="true"], .seg a[aria-current="page"], .chips button[aria-pressed="true"] { text-decoration: underline 2px; text-underline-offset: 4px; }
+  .seg button[aria-pressed="true"], .seg a[aria-pressed="true"], .seg a[aria-current="page"], .chips button[aria-pressed="true"], .runkey .rk[aria-pressed="true"] { text-decoration: underline 2px; text-underline-offset: 4px; }
   .dotlive, .glyph.live i, .glyph.live.done i, .st i { forced-color-adjust: none; box-shadow: 0 0 0 1px CanvasText; }
   .org i, .pips i, .legend i, .wib { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText; }
   .wib .mk { background: CanvasText; }

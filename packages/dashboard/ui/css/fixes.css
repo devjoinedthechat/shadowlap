@@ -23,10 +23,9 @@
 .callrow .unsure .pl { color: var(--cq-amber); }
 .callrow .ok .pl { color: var(--cq-lime); }
 .ans { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
-.ans div { border-top: 2px solid var(--cq-red); padding-top: 10px; }
-.ans div.good { border-top-color: var(--cq-lime); }
-.ans code { display: block; margin-top: 6px; font-size: 12.5px; line-height: 1.6; color: var(--del); overflow-wrap: anywhere; }
-.ans .good code { color: var(--add); }
+/* the recorded answer and a rescued one, each under its label: ink, under a hairline, no coloured rules */
+.ans div { border-top: 1px solid var(--line); padding-top: 10px; }
+.ans code { display: block; margin-top: 6px; font-size: 12.5px; line-height: 1.6; color: var(--ink); overflow-wrap: anywhere; }
 table.probes td, table.probes th { padding: 10px 12px; }
 table.probes tr.hot td { background: var(--sel); }
 .bmk { margin-left: 8px; font: 600 10.5px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink); }
