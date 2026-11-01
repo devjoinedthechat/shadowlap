@@ -514,6 +514,7 @@ Under such a name:
 - **A key is masked**, as a count header's is: `secret_name: "ghp_…"`.
 - **An object or a list under it**, or an element named so in XML, is masked through, as a credential member's is, when any string in it reads as a key: `{"secret_version": {"value": "ghp_…"}}`.
 - **Vault AppRole's `secret_id`**, a UUID, reads as a key, so it stays masked.
+- **An ARN is kept** only as AWS writes one: a partition, a service, a region or none, and an account's 12 digits or none. A key that only begins `arn:` (`arn:x:y::1:ghp_…`) is masked.
 - **Read by its name alone**, as a model call's query and a redirect's parameters are, such a name is a credential too.
 - **A hint or a URL** doesn't describe the secret: a hint is often the password itself, and a reset link carries its token in its URL. Either is a credential whatever its value.
 
@@ -532,6 +533,7 @@ Under such a name:
 | A bare `key`, `token` or `code` | a captured call | when its value reads as one (`?key=AIzaSy…`, not `?key=checkout_v2`), since a lookup by key is common there |
 | A bare `key`, `token` or `code` | a model call's query | always |
 | `session`, `sid`, `ticket`, `appsecret_proof` | a query string or a form | always |
+| SigV2's `AWSAccessKeyId`, who signed a URL | a query string or a form | always, as SigV4's `X-Amz-Credential` is |
 | `sk`, `ak`, `hash` | a query string or a form | when their value reads as one; in a model call's query, always |
 
 ### Secret stores
@@ -544,9 +546,26 @@ A secret store's answer holds the secret under a member whose name says nothing 
 | Google Cloud Secret Manager | a version's `name` of `projects/…/secrets/…/versions/…` | `payload.data`, and `dataCrc32c`, the checksum that would confirm a guess of it |
 | Azure Key Vault | an `id` under `https://….vault.azure.net/secrets/`, or another Azure cloud's vault | the secret's `value` |
 | Vault's KV engine, version 2 | a `metadata` with a `version` | `data.data`, every field of it |
-| Vault's KV engine, version 1 | a read of a path under `/v1/secret/`, where Vault mounts it by default | the answer's `data`, but for a list of the secrets' names (`{"keys": […]}`) none of which reads as a key |
+| Vault's KV engine, version 1 | a read under `/v1/secret/`, where Vault mounts it by default, or `/v1/cubbyhole/`; elsewhere, an answer that names its mount `kv` | the answer's `data`, but for a list of the secrets' names (`{"keys": […]}`) none of which reads as a key |
+| Vault's response wrapping | a call to `/v1/sys/wrapping/unwrap` | all of the answer's `data` |
 
-What names the secret stays as sent: its name, id, type, metadata, attributes and tags.
+At another mount, Vault's answer names its mount's type (`"mount_type": "kv"`). A path of version 2's own there (`data/`, `metadata/`, `config`, `subkeys/`) holds its metadata, and is kept.
+
+**What a call writes** to a store is masked too, told by the call's method and address, whatever its body's shape:
+
+| Store | A write to | Masked |
+|---|---|---|
+| Vault's KV engine, version 2 | `/v1/<mount>/data/<path>`, at any mount | `data`, every field of it, when only `options` stands beside it |
+| Vault's KV engine, version 1 | `/v1/secret/<path>` or `/v1/cubbyhole/<path>` | every string in the body |
+| Vault's response wrapping | `/v1/sys/wrapping/wrap` | every string in the body |
+| Azure Key Vault | a secret (`PUT …/secrets/<name>`, a backup restored), or a certificate's import | `value` |
+| Google Cloud Secret Manager | `…/secrets/<name>:addVersion` | `payload.data` and `payload.dataCrc32c` |
+| A Kubernetes Secret | a create, a replace or a patch, with a kind or none | `data` and `stringData`, and the `value` a JSON patch puts under them |
+
+What names the secret stays as sent: its name, id, type, metadata, attributes and tags, and a write's address and options.
+
+- **Matching.** A write is matched with its secret masked, so a replay with a rotated secret still replays, and two writes to two secrets stay two calls.
+- **Recorded before.** A recording an earlier version made, which kept a write as sent, is matched the same way, and its replay stores the write masked.
 
 ### Headers
 
@@ -609,12 +628,13 @@ Every copy masks the credentials the agent's command line carries, rules or none
 | A flag that says where the credential is: `--token-file`, `--api-key-env`, `--password-stdin` | nothing |
 | An assignment whose name reads as a credential: `OPENAI_API_KEY=…` after `env`, `--set auth.password=…` | its value, to the end of the argument it is in |
 | Any other assignment: `DATABASE_URL=postgres://app:…@db`, git's `-c http.extraheader=AUTHORIZATION: …` | the URL's password, the JWT or the header line it gives |
+| A libpq connection string, given whole, assigned or after `-d`: `psql 'host=db password=…'` | its `password` and `sslpassword` |
 | A header line: `-H 'Authorization: Bearer …'` | its credential |
 | A JWT given as an argument of its own | all of it |
 | A URL | its password, query credentials and webhook secret |
 | Any argument's text: one with a space or an `=` in it, or JSON | a URL's password, a JWT, and what the body masking reads in text (`key: value` lines, a form, JSON members) |
 
-**Passwords under a name that doesn't say so:**
+**Secrets under a name that doesn't say so:**
 
 | Program | Option | What is masked |
 |---|---|---|
@@ -623,13 +643,30 @@ Every copy masks the credentials the agent's command line carries, rules or none
 | mysql's and mariadb's tools | `-p…`, glued | the password; a word after a bare `-p` is the database |
 | mongo's tools, sshpass | `-p`, glued or not | the password |
 | docker, podman, nerdctl | `login -p` | the password |
+| az | `login -p`, `acr login -p`, glued or not | the password |
+| twine | `-p`, glued or not | the password |
 | redis-cli | `-a` | the password |
 | sqlcmd, bcp | `-P` | the password |
 | An LDAP tool | `-w` | the password |
 | smbclient | `-U user%…` | the password |
+| kubectl, oc | `create secret … --from-literal key=…` | every literal's value |
+| Any other program | `--user user:…` | the password; a container's `--user user:group`, a URL and a drive's path kept |
 | curl | `-d`, `--data`, `--data-raw`, `--data-binary`, `--data-urlencode`, `--json`, `-F` | the body, read as a form or as JSON, its other fields kept |
 
 Anywhere else, `-p` is a port or a path, and kept.
+
+**Secrets a program takes by a word's place:**
+
+| Command | What is masked |
+|---|---|
+| Any program's `config set` or `configure set`: `aws configure set`, `npm config set`, `kubectl config set` | the value given a credential's name: `aws_secret_access_key`, `//registry.example.com/:_authToken` |
+| `mc alias set NAME URL ACCESS SECRET`, `mc config host add` | the secret key |
+| `mc admin user add ALIAS USER PASSWORD` | the password |
+| `vault login`, `vault unwrap`, `vault operator unseal` | the token, or the unseal key's share |
+| `vault kv put`, `vault kv patch` | every value written, but one read from a file (`@…`) or the input (`-`) |
+
+- **A setting's name** is read by its words, or by its last part, as npm's `//registry.example.com/:_auth` is.
+- **An AWS access key id** is kept, as `aws_access_key_id` or mc's access key: it names the key pair, as a user names a user, and the secret beside it is masked.
 
 **Scripts a program runs** are read word by word, as a shell reads them:
 
@@ -644,7 +681,7 @@ Anywhere else, `-p` is a port or a path, and kept.
 | Node | `-e` |
 | Ruby, Perl | `-e` |
 
-In a script, each form above is masked, and an assignment's value to the end of its word. Each word that changes is written in the quotes its language wrote it in (`os.environ['GITHUB_TOKEN']='<CREDENTIAL>'`), and the rest of the script is kept.
+In a script, each form above is masked, and an assignment's value to the end of its word. So is a string in quotes that code gives a credential with spaces around its `=` (`api_key = "…"`) or as a member (`{"api_key": "…"}`); code that reads one from elsewhere (`os.environ[…]`) is kept. Each word that changes is written in the quotes its language wrote it in (`os.environ['GITHUB_TOKEN']='<CREDENTIAL>'`), and the rest of the script is kept.
 
 **What runs.** The store keeps the command line as it ran, since a replay runs it again. A pack's replay elsewhere runs `<CREDENTIAL>` in its place, so give it your own key there. A golden packed here still runs as recorded here: its command is the store's, but for what the pack masks.
 
@@ -653,12 +690,17 @@ In a script, each form above is masked, and an assignment's value to the end of 
 A key the agent puts anywhere else is stored like any other value, so mask it with a [redaction rule](#redaction):
 
 - in a wrapped tool's arguments or result, whatever its name;
-- under a name that reads as none in a captured call's body, such as a secret a call writes to a store in a body that doesn't say what it holds;
+- under a name that reads as none in a captured call's body, such as a secret written to Vault's KV engine, version 1, at a mount other than `secret/` or `cubbyhole/`;
 - in a Kubernetes Secret written as YAML;
 - in a prompt;
 - in another part of a URL's path.
 
-A body that doesn't say what it holds is one sent to Vault, Azure Key Vault or Secret Manager, or a patch of a Kubernetes Secret's `data`; a whole Secret's manifest says so.
+A write to Vault's KV engine, version 1, at another mount sends the secret as its whole body, and neither its address nor its body says so. A read there is masked when Vault's answer names its mount.
+
+**Kept on purpose:**
+
+- **An AWS access key id** (`AKIA…`, `ASIA…`) names a key pair, as a user names a user, and signs nothing alone. The secret beside it is masked, and an IAM call names the key it acts on by it, so two such calls stay two. SigV2's `AWSAccessKeyId` is the exception: it signs a URL.
+- **The headers a model call keeps for its identity**, such as Bedrock's guardrail identifier, make the call the call it is, so matching needs them as sent. An account's id in one signs nothing; a [redaction rule](#redaction) masks it in every copy.
 
 **Encoded secrets.** So is a key left encoded, as masking reads what a credential is written as, and not what it is encoded into:
 

@@ -14,6 +14,7 @@ import { isModelRequest } from './tasks.js';
 import { openAITools } from './translate.js';
 import type { CallRecord, Normalizer, RunRecord } from './types.js';
 import { isObject } from './is-object.js';
+import { plural, shortRunId as short, twoDigits as pad } from './words.js';
 
 /**
  * Preference pairs, read from what blame, verify and `--repeat` already left in the store. A pair is
@@ -116,8 +117,6 @@ type ModelCall = CallRecord & { end: NonNullable<CallRecord['end']> };
 type ChunkedManifest = Extract<RequestManifest, { kind: 'chunked' }>;
 
 const squash = (s: string) => s.trim().replace(/\s+/g, ' ');
-const short = (id: string) => id.slice(0, 10);
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** A run as a source names it: its first label, or its short id. */
 function runName(run: RunRecord): string {
@@ -655,8 +654,6 @@ function verifyInvocation(run: RunRecord): string {
   if (!group) return `${parent}:${run.codeVersion ?? ''}`;
   return group.endsWith(`-${parent}`) ? group.slice(0, -(parent.length + 1)) : group;
 }
-
-const pad = (n: number) => String(n).padStart(2, '0');
 
 /** A time on this machine's clock, to the minute or to the second: `2026-10-15 13:07`. */
 function localTime(ms: number, seconds = false): string {

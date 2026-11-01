@@ -53,7 +53,7 @@ export async function maskCount(o: { store: Store; dbPath?: string | null; run: 
     try {
       return fromPreview(rules, previewHere(o.store, run.runId, rules, limits));
     } catch (err) {
-      return { rules: rules.length, values: null, why: message(err) };
+      return { rules: rules.length, values: null, why: messageOf(err) };
     }
   }
   const turn = queue.then(() => apart(o.dbPath!, run.runId, rules, limits));
@@ -68,7 +68,7 @@ async function apart(dbPath: string, runId: string, rules: Normalizer[], limits:
     try {
       return fromPreview(rules, await previewApart({ dbPath, runId, rules }, { limits }));
     } catch (err) {
-      if (!(err instanceof PreviewError) || err.status !== 503) return { rules: rules.length, values: null, why: message(err) };
+      if (!(err instanceof PreviewError) || err.status !== 503) return { rules: rules.length, values: null, why: messageOf(err) };
       if (!THREADS_BUSY.test(err.message) || Date.now() + MASK_WAIT.everyMs >= until) return { rules: rules.length, values: null, why: MASK_BUSY, busy: true };
       await new Promise((r) => setTimeout(r, MASK_WAIT.everyMs));
     }
@@ -79,5 +79,3 @@ function fromPreview(rules: Normalizer[], preview: RedactionPreview): MaskCount 
   if (preview.partial) return { rules: rules.length, values: null, why: `the run is long: ${preview.partial.read.toLocaleString('en-US')} of its ${preview.partial.of.toLocaleString('en-US')} calls were read before the preview's limit` };
   return { rules: rules.length, values: preview.total, ...(preview.returned ? { returned: preview.returned } : {}), ...(preview.unmasked ? { unmasked: preview.unmasked } : {}) };
 }
-
-const message = (err: unknown) => messageOf(err);

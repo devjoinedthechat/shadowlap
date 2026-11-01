@@ -271,6 +271,110 @@ describe('read models on threads beside the server', () => {
     }
   }, 30_000);
 
+  it('starts another spare thread for what comes while what can wait holds one thread and requests every other, and ends both after', async () => {
+    const { pool: two, said } = timedPool({ analyse: 4000, compare: 3000, unrecorded: 2000 }, 'spare-stand-in');
+    const idle = READ_LIMITS.spareIdleMs;
+    READ_LIMITS.spareIdleMs = 50;
+    const order: string[] = [];
+    const noted = (name: string, p: Promise<{ body: string }>) => p.then((a) => (order.push(name), said(a)));
+    try {
+      for (let i = 0; i < 400 && !two.warmed; i++) await new Promise((r) => setTimeout(r, 10));
+      // A long run's first page: its whole analysis starts beside, both threads being free. A whole
+      // Compare takes the other thread, and a long request about another run a spare one.
+      const first = said(await two.run({ kind: 'run', runId: 'R', read: {} }, { affinity: 'R' }));
+      const compare = noted('compare', two.run({ kind: 'compare', a: 'X', b: 'Y', cwd: null }));
+      const tools = noted('tools', two.run({ kind: 'unrecorded', runId: 'S', declared: {} }, { affinity: 'S', calls: 30 }));
+      // The sidebar behind all three is answered on a fourth thread, before any of them ends: what can
+      // wait holds a thread a request would have had.
+      const recent = await noted('recent', two.run({ kind: 'recent', read: {} }));
+      const [c, t] = await Promise.all([compare, tools]);
+      expect(new Set([first.thread, c.thread, t.thread, recent.thread]).size).toBe(4);
+      expect(order).toEqual(['recent', 'tools', 'compare']);
+      // Once nothing can wait any more (the analysis outlasts both requests) and they have had nothing
+      // to do, both spare threads end.
+      const slots = () => (two as unknown as { slots: unknown[] }).slots.length;
+      expect(slots()).toBe(4);
+      for (let i = 0; i < 400 && slots() > 2; i++) await new Promise((r) => setTimeout(r, 25));
+      expect(slots()).toBe(2);
+      // The two threads left answer as before.
+      const each = (await Promise.all([two.run({ kind: 'recent', read: {} }), two.run({ kind: 'compare', a: 'X', b: 'Y', cwd: null })])).map(said);
+      expect(new Set(each.map((x) => x.thread)).size).toBe(2);
+    } finally {
+      READ_LIMITS.spareIdleMs = idle;
+      await two.close();
+    }
+  }, 30_000);
+
+  it('starts a spare thread ahead while what can wait has held one thread a while and a request every other, for what comes next', async () => {
+    const { pool: two, said } = timedPool({ analyse: 3000, compare: 3000 }, 'stand-in');
+    const idle = READ_LIMITS.spareIdleMs;
+    READ_LIMITS.spareIdleMs = 50;
+    const slots = () => (two as unknown as { slots: unknown[] }).slots.length;
+    try {
+      for (let i = 0; i < 400 && !two.warmed; i++) await new Promise((r) => setTimeout(r, 10));
+      // A long run's whole analysis on one thread, a whole Compare on the other.
+      const first = said(await two.run({ kind: 'run', runId: 'R', read: {} }, { affinity: 'R' }));
+      const compare = two.run({ kind: 'compare', a: 'X', b: 'Y', cwd: null });
+      // Nothing waits, but what can wait has held its thread longer than two slices of the warm-up: a
+      // spare thread starts in its place, and answers what comes next.
+      await new Promise((r) => setTimeout(r, 2 * READ_LIMITS.warmSliceMs + 400));
+      expect(slots()).toBe(3);
+      const recent = said(await two.run({ kind: 'recent', read: {} }));
+      const c = said(await compare);
+      expect(new Set([first.thread, c.thread, recent.thread]).size).toBe(3);
+      // It ends once nothing can wait any more and it has had nothing to do.
+      for (let i = 0; i < 400 && slots() > 2; i++) await new Promise((r) => setTimeout(r, 25));
+      expect(slots()).toBe(2);
+    } finally {
+      READ_LIMITS.spareIdleMs = idle;
+      await two.close();
+    }
+  }, 30_000);
+
+  it('gives what a spare thread started for to a thread free before it is ready', async () => {
+    // Threads that take 2 s to start, 4 s over a run's whole analysis and 300 ms over the Overview.
+    const script = join(dir, 'slow-start.mjs');
+    writeFileSync(
+      script,
+      [
+        "import { parentPort, threadId } from 'node:worker_threads';",
+        "setTimeout(() => parentPort.postMessage({ type: 'ready' }), 2000);",
+        'parentPort.on(\'message\', (m) => {',
+        "  if (m.type === 'close') return parentPort.postMessage({ type: 'closed' });",
+        '  const answer = (extra = {}) => parentPort.postMessage({ type: \'answer\', id: m.id, answer: { status: 200, body: JSON.stringify({ kind: m.job.kind, thread: threadId }), etag: null, ...extra } });',
+        "  if (m.job.kind === 'warm') return answer({ warm: { done: true, walked: 0, total: 0 } });",
+        "  if (m.job.kind === 'run') return answer({ warming: true, then: { kind: 'analyse', runId: m.job.runId } });",
+        "  if (m.job.kind === 'analyse') return setTimeout(() => answer(), 4000);",
+        "  if (m.job.kind === 'summary') return setTimeout(() => answer(), 300);",
+        '  answer();',
+        '});',
+      ].join('\n'),
+    );
+    const two = new ReadPool({ dbPath, keep: { stats: () => undefined, asks: () => undefined }, size: 2, script: pathToFileURL(script) });
+    const said = (a: { body: string }) => JSON.parse(a.body) as { kind: string; thread: number };
+    const idle = READ_LIMITS.spareIdleMs;
+    READ_LIMITS.spareIdleMs = 50;
+    try {
+      for (let i = 0; i < 1000 && !two.warmed; i++) await new Promise((r) => setTimeout(r, 10));
+      // A long run's whole analysis on one thread, the Overview on the other.
+      const first = said(await two.run({ kind: 'run', runId: 'R', read: {} }, { affinity: 'R' }));
+      const overview = two.run({ kind: 'summary', work: { tz: 'UTC', now: NOW, goldens: [], team: null, project: null } });
+      // The sidebar behind them starts a spare thread, but the Overview's thread is free first, and answers it.
+      const recent = said(await two.run({ kind: 'recent', read: {} }));
+      const o = said(await overview);
+      expect(recent.thread).toBe(o.thread);
+      expect(recent.thread).not.toBe(first.thread);
+      // The spare thread, ready with nothing to do, ends once nothing can wait any more.
+      const slots = () => (two as unknown as { slots: unknown[] }).slots.length;
+      expect(slots()).toBe(3);
+      for (let i = 0; i < 400 && slots() > 2; i++) await new Promise((r) => setTimeout(r, 25));
+      expect(slots()).toBe(2);
+    } finally {
+      READ_LIMITS.spareIdleMs = idle;
+      await two.close();
+    }
+  }, 30_000);
+
   it('answers on a spare thread what waits behind two long requests, once it has waited a moment', async () => {
     const { pool: two, said } = timedPool({ compare: 4000 }, 'spare-requests');
     const order: string[] = [];
@@ -413,6 +517,72 @@ describe('read models on threads beside the server', () => {
     }
   }, 30_000);
 
+  it('takes a short run’s page at once from a thread busy reading a long run, and a long run’s, or one behind a short read, after a moment', async () => {
+    const { pool: two, said } = timedPool({ unrecorded: 2000 }, 'busy-long');
+    const was = READ_LIMITS.stealMs;
+    READ_LIMITS.stealMs = 1000;
+    try {
+      for (let i = 0; i < 400 && !two.warmed; i++) await new Promise((r) => setTimeout(r, 10));
+      for (const [busyRun, busyCalls, pageRun, pageCalls, first] of [
+        ['LONG', 100_000, 'S1', 30, 'page'],
+        ['LONG2', 100_000, 'LONG2', 100_000, 'sidebar'],
+        ['S2', 30, 'S3', 30, 'sidebar'],
+      ] as const) {
+        const order: string[] = [];
+        const noted = (name: string, p: Promise<{ body: string }>) => p.then((a) => (order.push(name), said(a)));
+        // A thread reads both runs, the first free both times, then takes a request that reads all of one, which takes a while.
+        const holder = said(await two.run({ kind: 'calls', runId: pageRun, read: {}, from: 1, limit: 500 }, { affinity: pageRun, calls: pageCalls })).thread;
+        expect(said(await two.run({ kind: 'calls', runId: busyRun, read: {}, from: 1, limit: 500 }, { affinity: busyRun, calls: busyCalls })).thread).toBe(holder);
+        const busy = two.run({ kind: 'unrecorded', runId: busyRun, declared: {} }, { affinity: busyRun, calls: busyCalls });
+        // A page of the other run, and the sidebar a moment later: the other thread is free all along.
+        const page = noted('page', two.run({ kind: 'calls', runId: pageRun, read: {}, from: 501, limit: 500 }, { affinity: pageRun, calls: pageCalls }));
+        await new Promise((r) => setTimeout(r, 200));
+        const sidebar = noted('sidebar', two.run({ kind: 'recent', read: {} }));
+        await Promise.all([page, sidebar, busy]);
+        // A short run's page behind a request that reads the whole of a long run (as a whole Compare
+        // does) is taken at once, read again in a moment elsewhere. A long run's, which takes seconds to
+        // read again, waits a moment for its thread first, as one behind a short read does: the sidebar first.
+        expect(order[0], `a page of ${pageCalls} calls behind a request that reads ${busyCalls}`).toBe(first);
+      }
+    } finally {
+      READ_LIMITS.stealMs = was;
+      await two.close();
+    }
+  }, 60_000);
+
+  it('gives a free thread what has waited longest, a request waiting for a busy one among it, and one that reads a long run after the rest', async () => {
+    const { pool: two, said } = timedPool({ unrecorded: 3000, 'injection-run': 1000 }, 'oldest-first');
+    const was = { stealMs: READ_LIMITS.stealMs, spareAfterMs: READ_LIMITS.spareAfterMs };
+    READ_LIMITS.stealMs = 300;
+    READ_LIMITS.spareAfterMs = 60_000;
+    try {
+      for (let i = 0; i < 400 && !two.warmed; i++) await new Promise((r) => setTimeout(r, 10));
+      for (const [runId, calls, other, expected] of [
+        ['S', 30, 'U', ['page', 'sidebar']],
+        ['LONG', 100_000, 'V', ['sidebar', 'page']],
+      ] as const) {
+        const order: string[] = [];
+        const noted = (name: string, p: Promise<{ body: string }>) => p.then((a) => (order.push(name), said(a)));
+        // One thread holds the run and reads its tools for 3 s; the other a request of 1 s about another run.
+        const holder = said(await two.run({ kind: 'calls', runId, read: {}, from: 1, limit: 500 }, { affinity: runId, calls })).thread;
+        const busy = [two.run({ kind: 'unrecorded', runId, declared: {} }, { affinity: runId, calls }), two.run({ kind: 'injection-run', runId: other }, { affinity: other, calls: 30 })];
+        // The run's page waits for its thread, and may be taken after a moment; the sidebar comes half a second later.
+        const page = noted('page', two.run({ kind: 'calls', runId, read: {}, from: 501, limit: 500 }, { affinity: runId, calls }));
+        await new Promise((r) => setTimeout(r, 500));
+        const sidebar = noted('sidebar', two.run({ kind: 'recent', read: {} }));
+        // The thread free first takes the page, which came first, then the sidebar; but a long run's
+        // page, which takes seconds to read again, after the sidebar.
+        const [p, s] = await Promise.all([page, sidebar, ...busy]);
+        expect(order, `a run of ${calls} calls`).toEqual(expected);
+        expect(p.thread).not.toBe(holder);
+        expect(s.thread).toBe(p.thread);
+      }
+    } finally {
+      Object.assign(READ_LIMITS, was);
+      await two.close();
+    }
+  }, 30_000);
+
   it('ends a thread whose job runs past its time, says so, and answers what comes after on a new one', async () => {
     // A thread that never answers a page of calls.
     const script = join(dir, 'stuck-worker.mjs');
@@ -453,6 +623,23 @@ describe('read models on threads beside the server', () => {
       await stuck.close();
     }
   });
+
+  it('gives a request that reads long runs longer, in step with their calls, and one that reads short runs its time', async () => {
+    // Threads that take 2 s over a comparison: far past the time a request is given here, and well
+    // within what a pair of runs of 20,000 calls is given (6 s).
+    const { pool: two, said } = timedPool({ compare: 2000 }, 'long-pair');
+    const was = { jobMs: READ_LIMITS.jobMs, jobCalls: READ_LIMITS.jobCalls };
+    READ_LIMITS.jobMs = 300;
+    READ_LIMITS.jobCalls = 1000;
+    try {
+      for (let i = 0; i < 400 && !two.warmed; i++) await new Promise((r) => setTimeout(r, 10));
+      expect(said(await two.run({ kind: 'compare', a: 'A', b: 'B', cwd: null }, { calls: 20_000 })).kind).toBe('compare');
+      await expect(two.run({ kind: 'compare', a: 'C', b: 'D', cwd: null }, { calls: 500 })).rejects.toMatchObject({ status: 503, message: 'a compare job took more than 0.3 s, so it was stopped' });
+    } finally {
+      Object.assign(READ_LIMITS, was);
+      await two.close();
+    }
+  }, 30_000);
 
   it('fails a job a thread answers nothing for (one built before that kind of job), rather than wait for good', async () => {
     const script = join(dir, 'stale-worker.mjs');

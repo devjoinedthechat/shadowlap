@@ -15,6 +15,7 @@
 
 import { frontmatter } from './frontmatter.js';
 import { isObject } from './is-object.js';
+import { load } from './load.js';
 
 /** A hook matcher as the SDK takes one: the tools it picks, its callbacks, and their timeout in seconds. */
 export interface HookMatcherLike {
@@ -222,8 +223,6 @@ export interface SettingsDocument {
 
 type Fs = typeof import('node:fs');
 type Path = typeof import('node:path');
-
-const load = (name: string): Promise<unknown> => import(/* webpackIgnore: true */ /* @vite-ignore */ name);
 
 async function nodeModules(): Promise<{ fs: Fs; path: Path; os: typeof import('node:os') }> {
   return { fs: (await load('node:fs')) as Fs, path: (await load('node:path')) as Path, os: (await load('node:os')) as typeof import('node:os') };

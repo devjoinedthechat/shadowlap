@@ -379,4 +379,31 @@ describe('where a run’s page answer stands', () => {
       store.close();
     }
   });
+
+  it('takes a fork’s calls and its parent’s from the run index, reading none of them, and moves with either', () => {
+    const store = Store.open(':memory:');
+    try {
+      const parent = addRun(store, { startedAt: Date.now() - HOUR, calls: 'lolo' });
+      const fork = addRun(store, { parent, startedAt: Date.now() - 1000, calls: 'rrl', divergence: 3 });
+      const tag = () => runVersionTag(store, store.getRun(fork)!, '');
+      const before = tag();
+      // Asked again: no statement reads a call of either run, as counting a fork of 100,000 calls and
+      // its parent held the server's thread 0.4 s while a Compare read them.
+      const reads = vi.spyOn(store, 'query');
+      expect(tag()).toBe(before);
+      expect(reads.mock.calls.filter(([sql, ...params]) => /call_events/.test(sql) && params.some((p) => p === fork || p === parent))).toEqual([]);
+      reads.mockRestore();
+      // The parent's call started, then answered, then the fork's: each moves it.
+      addCall(store, parent, 5, false);
+      const started = tag();
+      expect(started).not.toBe(before);
+      answer(store, parent, 5);
+      const answered = tag();
+      expect(answered).not.toBe(started);
+      addCall(store, fork, 4);
+      expect(tag()).not.toBe(answered);
+    } finally {
+      store.close();
+    }
+  });
 });

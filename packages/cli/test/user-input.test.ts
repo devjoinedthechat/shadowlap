@@ -8,6 +8,7 @@ import { Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, type MockServer, type Script } from '@shadowlap-testing/mock-anthropic';
 import { inputIdentity } from '../src/run-agent.js';
 import { pythonCommand } from '../../../testing/python-with.mjs';
+import { limitHangs, watch } from './hang-limit.js';
 
 /**
  * What a person types is recorded as `user_input` calls, so an interactive agent replays, tests and
@@ -54,9 +55,10 @@ const outcome = (code: number | null, out: string): Outcome => ({ code, out: out
 
 /** Runs the CLI with stdin ignored, as a test, a blame or a verify starts an agent. */
 function shadowlap(args: string[]): Promise<Outcome> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [CLI, '--db', db, ...args], { cwd, env: env(), stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
+    watch(child, `shadowlap ${args.join(' ')}`, () => out, reject);
     child.stdout.on('data', (c: Buffer) => (out += c.toString()));
     child.stderr.on('data', (c: Buffer) => (out += c.toString()));
     child.on('exit', (code) => resolve(outcome(code, out)));
@@ -65,10 +67,11 @@ function shadowlap(args: string[]): Promise<Outcome> {
 
 /** Runs the CLI with a person at its input: each answer is typed once the prompt shows, then the input ends. */
 function converse(args: string[], prompt: string, answers: string[]): Promise<Outcome> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [CLI, '--db', db, ...args], { cwd, env: env(), stdio: ['pipe', 'pipe', 'pipe'] });
     const queue = [...answers];
     let out = '';
+    watch(child, `shadowlap ${args.join(' ')}`, () => out, reject);
     let pending = '';
     child.stdout.on('data', (c: Buffer) => {
       out += c.toString();
@@ -87,7 +90,7 @@ let inputFiles = 0;
 
 /** Runs the CLI with all the input given at once, through a pipe or from a file (ALL_AT_ONCE). */
 function piped(args: string[], input: string, via: 'pipe' | 'file' = ALL_AT_ONCE): Promise<Outcome> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let stdin: 'pipe' | number = 'pipe';
     if (via === 'file') {
       const file = join(cwd, `input-${++inputFiles}.txt`);
@@ -98,6 +101,7 @@ function piped(args: string[], input: string, via: 'pipe' | 'file' = ALL_AT_ONCE
     // The CLI has a copy of its own: this one would only keep Windows from deleting the file.
     if (typeof stdin === 'number') closeSync(stdin);
     let out = '';
+    watch(child, `shadowlap ${args.join(' ')}`, () => out, reject);
     child.stdout!.on('data', (c: Buffer) => (out += c.toString()));
     child.stderr!.on('data', (c: Buffer) => (out += c.toString()));
     child.on('exit', (code) => resolve(outcome(code, out)));
@@ -135,6 +139,9 @@ function inputsOf(runId: string) {
     store.close();
   }
 }
+
+// A blame or a verify here runs an agent per attempt, and a recording waits on what is typed: a command that hangs is stopped before its test times out.
+limitHangs();
 
 beforeAll(async () => {
   cwd = realpathSync(mkdtempSync(join(tmpdir(), 'sl-user-input-')));

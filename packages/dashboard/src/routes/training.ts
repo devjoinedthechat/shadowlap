@@ -31,8 +31,6 @@ const TASKS_TTL_MS = 1500;
 const LISTING_TTL_MS = 15_000;
 const NO_LOADER = 'This dashboard doesn’t read the project’s goldens: start it with shadowlap dashboard in the project folder.';
 
-const message = (err: unknown) => messageOf(err);
-
 export function register(router: Router, ctx: RouteContext): void {
   const o = ctx.options.training ?? {};
 
@@ -51,7 +49,7 @@ export function register(router: Router, ctx: RouteContext): void {
     } catch (err) {
       // Not kept: a mistake in the config is read again, so fixing it shows at once.
       cached = null;
-      return { tasks: [], error: message(err) };
+      return { tasks: [], error: messageOf(err) };
     }
   };
 

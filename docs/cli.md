@@ -117,7 +117,7 @@ Each command's section says which statuses it ends with. The statuses are:
 where it happened, and report it.
 
 **`128 + n`, a stop signal**: `130` for Ctrl-C, `129` for a closed terminal (SIGHUP), `143` for
-SIGTERM. That holds however the command wound down, for the dashboard, `serve`, `tasks serve`,
+SIGTERM. That holds however the command wound down, for the dashboard, `ui`, `serve`, `tasks serve`,
 `mcp`, `demo` and `replay --watch` too. It holds for a signal that came during its last work too, such as
 repair removing its worktree after its last verify. A signal in the last moment before the process
 exits, a few milliseconds, may find it already ending with its own status.
@@ -173,6 +173,9 @@ Runs the whole loop on a refund agent, with no key and nothing to clone, as the
    does in a terminal. After blame, a line says how to read a probe's verdict from the probes it made.
 5. It ends with how long that took, how many requests the scripted model answered, and where they
    went: the recordings, blame's attempts and repair's.
+
+In a terminal, its own lines wrap at whole words to the terminal's width, as [blame's](#blame) do,
+and each command it runs is shown as it is typed.
 
 Your own model keys and endpoints are left out of its environment, and [telemetry](./telemetry.md) is
 off for it.
@@ -624,7 +627,8 @@ the client talks stdio to it. See [MCP servers](./mcp.md#served-over-http---list
 - **The server**: it starts a local server from its command, or speaks Streamable HTTP to a remote
   one at `--url`, sending each `--header` with every request.
 - **What it records**: `tools/call` is recorded, replayed, blocked or stubbed like an SDK tool call,
-  so a remote write never runs again on replay. Every other message passes through.
+  so a remote write never runs again on replay unless the replay allows writes (`--writes allow`).
+  Every other message passes through.
 - **Effects**: they come from the server's tool annotations (`readOnlyHint` → `read`, otherwise
   `write`), overridden by `--effect` or `mcp.effects` in the config.
 - **Its run**: the proxy finds its run even when the client starts it with a minimal environment.
@@ -1009,6 +1013,12 @@ Its progress goes to stderr:
 - **With `-v`, or anywhere else** (a CI log, a file, the dashboard), every attempt keeps its line,
   with its run id.
 
+In a terminal, a line of prose wider than the terminal wraps at whole words, before it starts, as it
+goes and in its report. Each line it wraps to is indented as the first, past a mark that leads it
+(`!`, `✗`), or under the text of a row. A command, or a flag with its value, stays in one piece. The
+lines that give commands or paths, and the rows of its tallies, stay whole. Written to a pipe or a
+file, each line stays whole.
+
 Verify and repair print theirs the same way.
 
 `blame` exits with:
@@ -1370,7 +1380,8 @@ step.
 - how many recordings applying copies into the goldens folder, in `goldens`;
 - the request fields a change with no patch set, in `change`;
 - `refused`, saying why `fix apply` won't apply it, when the patch is more than the change its repair
-  verified. `gitApply` is `null` then, and once the patch is in.
+  verified, or a teammate's is no rewrite a repair makes in this working tree. `gitApply` is `null`
+  then, and once the patch is in.
 
 `blames` lists every blame (`blameId`, `runId`, `at`, `outcome`, `lostAt`, `confidence`), and
 `repairs` every repair (`repairId`, `at`, `outcome`, `accepted`, `title`), newest first.
@@ -1446,12 +1457,21 @@ place: no file made, deleted, renamed or copied, and no mode or binary change. I
 
 - a file of a recording: a pack's `run.json`, which holds the command a replay runs, its `calls.jsonl`
   and blobs, or anything in `__recordings__`;
-- `shadowlap.config.json` or the `.shadowlap` folder.
+- `shadowlap.config.json` or the `.shadowlap` folder;
+- a dot-file or a file in a dot-folder, such as a workflow under `.github` or Claude Code's
+  `.claude/settings.json`, another file that runs, such as a `Dockerfile` or a script, or one a repair
+  rewrites no text in, such as Go source.
 
 A repair rewrites the text the agent sends the model where its source holds it, and never reads those.
 A patch that is anything more is refused, and nothing is changed. So is one to a file git ignores,
 whose change neither `git status` nor `git diff` would show, or to a file reached through a link to a
 folder, which `git apply` refuses too.
+
+**A teammate's patch**, from a pull, is held to a repair's own rewrites in your working tree. The text
+it rewrites is read where the patch goes. It has to be inside one string of JavaScript, TypeScript or
+Python source, a string value of YAML, JSON or TOML that doesn't run, or a Markdown, plain text, prompt
+or Jinja file. It holds each placeholder whole, and its rewrite has to be one a repair would try. See [where an anchor goes](./repair.md#where-an-anchor-goes)
+and [the team store](./team.md#a-teammates-patch-is-held-to-a-repairs-rewrites).
 
 **Line endings.** The patch goes in on the file's bytes as they are, so the file is the one the repair
 verified. Git applies it to a copy of them that nothing converts. `git apply` in the working tree would
@@ -1488,6 +1508,7 @@ re-recorded what another fix changed, say), which says the fix holds again.
 - the repair's directory must be `.shadowlap/repairs/<repair id>`, each golden inside its `goldens/`;
 - the patch must be the accepted candidate's one rewrite to that candidate's file, no larger than a
   repair writes;
+- a teammate's must rewrite text where a repair rewrites it, in the file as it is here;
 - that file must be a plain file git doesn't ignore, not a symbolic link or a folder;
 - `fix.patch` must be the patch the repair verified.
 
@@ -3291,7 +3312,7 @@ SDK's `withEffects('orders', [...], { refund_order: 'write' })`. An AI SDK tool 
 
 The suggested effect goes by the tool name's verbs, where a name puts them
 ([how](./how-it-works.md#tools-shadowlap-did-not-record)). A name with no hint gets `write`, which never
-runs again after a fork.
+runs again after a fork unless the replay allows writes (`--writes allow`).
 
 **The fence.** A Claude Agent SDK query runs through the fence when a file that imports Shadowlap's
 adapters calls `withFence` (`with_fence` in Python), or its hooks. The SDK's built-in tools (Bash,
@@ -4832,7 +4853,7 @@ These environment variables change what Shadowlap does:
 | `SHADOWLAP_TELEMETRY_URL` | Send [telemetry](./telemetry.md) to a collector you run | Nothing is sent |
 | `SHADOWLAP_AUTHOR` | Who made the runs and activity entries a command records, as the dashboard shows them | `ci` in CI, else git's `user.email`, else the OS user |
 | `SHADOWLAP_PR` | A pull request's number, set in its CI build (below) | — |
-| `SHADOWLAP_HOME` | The folder for this machine's own files, such as the dashboard's [project list](./dashboard.md#projects), as an absolute path | `~/.shadowlap` |
+| `SHADOWLAP_HOME` | Where this machine's files go, as an absolute path: the dashboard's [project list](./dashboard.md#projects), and the registrations of running agents and `mcp --listen` proxies | `~/.shadowlap` |
 | `SHADOWLAP_PROJECT_ROOTS` | Folders besides your home folder that the dashboard may suggest and add projects from, separated like `PATH` | — |
 | `SHADOWLAP_TASKS_TOKEN` | The token `tasks serve` requires, at least 16 characters | A random one, printed |
 | `SHADOWLAP_ALLOW_UNRECORDED` | For `serve --recordings`, in a recording's environment: what `--allow-unrecorded <names>` says ([`serve`](#serve)) | — |
@@ -4847,7 +4868,9 @@ These environment variables change what Shadowlap does:
 - **`SHADOWLAP_PR`** is for where Shadowlap doesn't recognise pull requests by itself; it does on GitHub
   Actions and GitLab CI. The build then writes only to that pull request's folder in the
   [team store](./team.md#pull-requests).
-- **`SHADOWLAP_HOME`**: a relative path is ignored.
+- **`SHADOWLAP_HOME`**: a relative path is ignored, and `~/.shadowlap` holds all of these files
+  instead, as the dashboard says. Processes that find each other's files there need the same one, so
+  give it to `shadowlap mcp` in your MCP client's configuration too ([details](./mcp.md#finding-the-run)).
 - **The proxy variables**: the agent never reaches the sidecar through one. `run`, `replay`, `test` and
   `serve --recordings` add `127.0.0.1`, `localhost` and `::1` to `NO_PROXY` and `no_proxy`.
 

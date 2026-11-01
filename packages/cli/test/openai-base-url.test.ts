@@ -42,7 +42,8 @@ afterAll(async () => {
 function run(args: string[], env: NodeJS.ProcessEnv): Promise<{ code: number | null; out: string }> {
   return new Promise((resolve) => {
     const clean = { ...process.env };
-    for (const k of Object.keys(clean)) if (k.startsWith('SHADOWLAP_') || k === 'OPENAI_BASE_URL') delete clean[k];
+    // Every SHADOWLAP_ variable but the run's own home for this machine's files (testing/no-stray-stores.mjs).
+    for (const k of Object.keys(clean)) if ((k.startsWith('SHADOWLAP_') && k !== 'SHADOWLAP_HOME') || k === 'OPENAI_BASE_URL') delete clean[k];
     const child = spawn(process.execPath, args, { cwd, env: { ...clean, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     child.stdout.on('data', (d: Buffer) => (out += d.toString()));

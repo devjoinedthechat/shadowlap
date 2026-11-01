@@ -1,5 +1,6 @@
 import { basename } from 'node:path';
 import { CHECK_STATUSES, classifyRun, filedTestAttempt, hasRecordedCommand, isFailedOutcome, isObject, kindLabel, lostRange, runOutcome, type AttemptKind, type CheckStatus, type ClassifiableRun, type RunAsk, type RunKind, type RunMode, type RunOutcome, type RunStatus, type StoreOf } from '@shadowlap/engine';
+import { num, str } from './fields.js';
 
 /**
  * Every run in the store, classified, from one light query: the run columns, the few fields of
@@ -25,6 +26,12 @@ export interface IndexedRun {
   calls: number;
   /** The agent's calls: every call but a judge check's, which classification leaves out. */
   agentCalls: number;
+  /**
+   * Its call events: each call's start and end, and each try again. They are only ever added, and
+   * go only with the run, so the count moves with every call the run starts or ends and with nothing
+   * else: where its page stands (run-version.ts).
+   */
+  callEvents: number;
   meta: IndexedMeta;
   /** A run that exited with an error answered one of its calls with an injected failure (`--fail-at`). */
   injected: boolean;
@@ -126,7 +133,9 @@ function runColumns(bounded: boolean): string {
        r.meta -> '$.test' AS test, r.meta -> '$.checks' AS checks, r.meta -> '$.blame' AS blame, r.meta -> '$.chaos' AS chaos,
        r.meta -> '$.interventions' AS interventions, r.meta -> '$.injection' AS injection, r.meta -> '$.task' AS task,
        r.meta ->> '$.author' AS author, r.meta ->> '$.ci' AS ci,
-       (SELECT COUNT(*) FROM call_events c WHERE c.run_id = r.run_id AND c.phase = 'start'${upTo('c')}) AS calls,
+       -- The calls it started and all its call events, in one pass over its entries in the primary
+       -- key's index: a pass of their own for the events took a whole read of 10,000 runs 25% longer.
+       (SELECT json_array(COUNT(*) FILTER (WHERE c.phase = 'start'), COUNT(*)) FROM call_events c WHERE c.run_id = r.run_id${upTo('c')}) AS counts,
        -- Through the store's index of judge calls alone (call_events_judge, whose condition this
        -- repeats word for word, json_extract and all), so leaving them out reads no call's metadata.
        (SELECT COUNT(*) FROM call_events c WHERE c.run_id = r.run_id AND c.phase = 'start' AND json_extract(c.meta, '$.scope') = 'shadowlap:judge'${upTo('c')}) AS judge_calls,
@@ -193,9 +202,6 @@ const ASKS_SQL = `SELECT rowid AS at, run_id AS id, key, ask FROM run_asks WHERE
 /** What the asks kept for a run were worked out from: a finished run's never change. */
 const ASK_FORMAT = 'a1';
 export const askKeyOf = (r: Pick<IndexedRun, 'status' | 'endedAt' | 'calls'>): string => `${ASK_FORMAT}|${r.status}|${String(r.endedAt)}|${r.calls}`;
-
-const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
-const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 /** A JSON value read with `->`: always JSON text, or null when the key is absent. */
 function json(v: unknown): unknown {
@@ -420,6 +426,7 @@ function patch(store: StoreOf<'readModels'>, entry: KeptIndex, v: Version): bool
   const changed = new Set<string>();
   for (const row of grown) {
     const r = index.byId.get(String(row.id))!;
+    r.callEvents++;
     if (Number(row.start) === 1) {
       r.calls++;
       if (Number(row.judge) !== 1) r.agentCalls++;
@@ -538,8 +545,9 @@ function file(index: RunIndex, filing: Map<string, Filing>): void {
 }
 
 /** A run's call counts as INDEX_SQL reads them. */
-function countsOf(row: Record<string, unknown>): Pick<IndexedRun, 'calls' | 'agentCalls' | 'injected' | 'offline'> {
-  return { calls: Number(row.calls), agentCalls: Number(row.calls) - Number(row.judge_calls), injected: Number(row.injected) === 1, offline: Number(row.offline) === 1 };
+function countsOf(row: Record<string, unknown>): Pick<IndexedRun, 'calls' | 'agentCalls' | 'callEvents' | 'injected' | 'offline'> {
+  const [calls, callEvents] = JSON.parse(String(row.counts)) as [number, number];
+  return { calls, agentCalls: calls - Number(row.judge_calls), callEvents, injected: Number(row.injected) === 1, offline: Number(row.offline) === 1 };
 }
 
 /** A run's row as INDEX_SQL and PATCH_SQL read it: its columns, its counts and its metadata. */

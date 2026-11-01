@@ -320,7 +320,7 @@ shadowlap run -- node agent.mjs
 ```
 
 - **Matched by request, not order.** A call is identified by its request and by how many identical requests came before it, after your [normalizers](docs/normalizers-and-redaction.md) mask values such as&nbsp;ids. Parallel calls match in whatever order&nbsp;they&nbsp;arrive.
-- **Forked at the first change.** After it, model calls and `read` tools run live; `write` tools are blocked unless you&nbsp;stub&nbsp;or&nbsp;allow&nbsp;them.
+- **Forked at the first change.** After it, model calls and `read` tools run live; `write` tools are blocked or stubbed unless you&nbsp;allow&nbsp;them.
 
 [How it works](docs/how-it-works.md) covers fingerprints, matching, effects and&nbsp;the&nbsp;network&nbsp;guard.
 

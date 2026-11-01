@@ -1,4 +1,4 @@
-import { type CallRecord, cleanBound, cleanDecided, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, type InjectionMark, type InjectionReport, injectionTemplates, jobConsent, type PlantReport, proofLine, quoteArgv, type StoredInjectionResult, type StoreOf, type ToolTrust, trustOf, type TrustSource, untrustedReads, withoutCommand } from '@shadowlap/engine';
+import { type CallRecord, cleanBound, cleanDecided, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, type InjectionMark, type InjectionReport, injectionTemplates, jobConsent, type PlantReport, plural, proofLine, quoteArgv, type StoredInjectionResult, type StoreOf, type ToolTrust, trustOf, type TrustSource, untrustedReads, withoutCommand } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import type { JobBuildContext, JobBuildResult, JobRequest } from './jobs.js';
 import { recordingNow } from './run-exports.js';
@@ -37,8 +37,6 @@ export interface InjectionRow {
   line: string;
   href: string;
 }
-
-const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 
 /** A kept result's one line, as Needs a look and a run's banner word it. */
 export function injectionLine(r: StoredInjectionResult): string {

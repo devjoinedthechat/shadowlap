@@ -5,7 +5,8 @@
 //   node mcp-client-agent.mjs <shadowlap bin> <server url> [proxy home folder]
 //
 // The proxy's home folder can come from MCP_AGENT_PROXY_HOME too, for a command that runs the
-// agent with the command line it was recorded with.
+// agent with the command line it was recorded with. MCP_AGENT_PASS names variables (comma-separated)
+// the client passes on as well, as a server's `env` in an MCP client's configuration does.
 import { spawn } from 'node:child_process';
 
 // The variables the SDKs pass on (their getDefaultEnvironment), and nothing else. On Windows they
@@ -14,7 +15,8 @@ const INHERITED =
   process.platform === 'win32'
     ? ['APPDATA', 'HOMEDRIVE', 'HOMEPATH', 'LOCALAPPDATA', 'PATH', 'PROCESSOR_ARCHITECTURE', 'SYSTEMDRIVE', 'SYSTEMROOT', 'TEMP', 'USERNAME', 'USERPROFILE', 'PROGRAMFILES']
     : ['HOME', 'LOGNAME', 'PATH', 'SHELL', 'TERM', 'USER'];
-const env = Object.fromEntries(INHERITED.filter((name) => process.env[name] !== undefined).map((name) => [name, process.env[name]]));
+const PASSED = (process.env.MCP_AGENT_PASS ?? '').split(',').filter(Boolean);
+const env = Object.fromEntries([...INHERITED, ...PASSED].filter((name) => process.env[name] !== undefined).map((name) => [name, process.env[name]]));
 
 const [cli, url, proxyHome = process.env.MCP_AGENT_PROXY_HOME] = process.argv.slice(2);
 // Another home folder for the proxy: HOME, or on Windows USERPROFILE, where Node looks for it there.

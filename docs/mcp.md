@@ -97,9 +97,10 @@ to the server:
   server offers one.
 - It ends the session when the client goes away.
 
-A tool call the recording answers, and a write after a fork, never reach the server:
-**a remote write never runs again on replay**. That is the difference from listing the server's host
-under `http` in the config, which records it as one tool with one effect.
+A tool call the recording answers never reaches the server, nor does a write after a fork unless the
+replay allows writes (`--writes allow`): **a remote write never runs again on replay** unless you
+allow it. That is the difference from listing the server's host under `http` in the config, which
+records it as one tool with one effect.
 
 ### Headers
 
@@ -166,8 +167,8 @@ The agent's client connects to `http://127.0.0.1:8931/mcp`:
 - Each answer comes back as the server gave it, JSON or an event stream, event ids included.
 - The client's GET stream for the server's own messages, and its DELETE when it leaves, pass through
   the same way.
-- `tools/call` is recorded, replayed and fenced as in the other modes: a call the recording answers,
-  and a write after a fork, never reach the server.
+- `tools/call` is recorded, replayed and fenced as in the other modes: a call the recording answers
+  never reaches the server, nor does a write after a fork unless the replay allows writes.
 
 ### This machine only
 
@@ -201,17 +202,33 @@ the model sees, and its read tools pass through unrecorded. The proxy says which
 
 ### Under the network guard
 
-Started on its own, the proxy registers its address while it runs, in
-`~/.shadowlap/mcp/<its process id>.json`, owner-only. Every command that starts agents lets them
-reach each running proxy of yours it finds there, at its address and at `localhost` with its port. The
-[network guard](./how-it-works.md#the-network-guard) neither warns of it nor, under `block`
-(`shadowlap test`'s default), refuses it, as the proxy records the tool calls it carries.
+The proxy registers its address while it runs, in `~/.shadowlap/mcp/<its process id>.json`,
+owner-only (`SHADOWLAP_HOME` moves the folder). Every command that starts agents lets them reach
+each running proxy of yours that records their tool calls, at its address and at `localhost` with
+its port. The [network guard](./how-it-works.md#the-network-guard) neither warns of it nor, under
+`block` (`shadowlap test`'s default), refuses it.
 
+How the proxy was started decides whose calls it records, and so whose agents it lets through:
+
+| Started | Lets through |
+|---|---|
+| On its own | The agents of every Shadowlap command |
+| By a Shadowlap command, or under one (by the agent's own command, say) | That command's agents alone, whose run it records into |
+| Under a Shadowlap command whose run it can't find | None: it doesn't register |
+
+- **The same `SHADOWLAP_HOME`.** A command finds the proxy only when both run with the same one, or
+  neither has it.
+- **When the agent connects.** The guard reads the folder then, so a proxy started after the agent,
+  or by it, counts.
+- **It proves it runs.** A registration holds a key the proxy keeps. Before a connection goes on,
+  the proxy proves it holds the key, so a file left by a proxy that was killed lets nothing through,
+  even once its process id is another process's.
+- **Nothing listening.** A connection to a registered address where nothing listens is left to fail
+  as it would, as when `localhost` names two addresses and the proxy serves on one.
 - **A file that isn't yours alone,** or that names a process that has ended, lets nothing through.
-- **The home folder only.** The files are read from there, where no repository can put one.
-- **Start the proxy first.** An agent is let through to the proxies running when it starts, so start
-  the proxy before the command that runs it.
-- **By hand.** Where the home folder can't be written, the proxy says so on stderr. Then, or for a
+- **The home folder only.** The files are read from there (or `SHADOWLAP_HOME`), where no repository
+  can put one.
+- **By hand.** Where that folder can't be written, the proxy says so on stderr. Then, or for a
   proxy started under another user, let it through with `SHADOWLAP_GUARD_ALLOW=127.0.0.1:8931` in the
   command's environment.
 
@@ -221,6 +238,10 @@ reach each running proxy of yours it finds there, at its address and at `localho
   and the client's response is broken off too (an event stream ends after its last whole event). A
   replay breaks the client's response off again where it was broken off live, rather than answer
   with the error.
+- **HTTP errors.** A tool call answered with no MCP message, such as a 503, or the 502 the proxy
+  gives when the server can't be reached, ends in the recording as an error that keeps the answer.
+  A replay gives the client the same status, body, `Content-Type`, `Cache-Control`,
+  `WWW-Authenticate` and `Retry-After`.
 - **Headers.** `--header`, `--effect` and `--allow-http` work as with `--url` alone. The client's own
   `Authorization` goes on to the server unless a `--header` sets one.
 - **OAuth.** Signing in with OAuth through the proxy isn't supported: pass a token.
@@ -288,6 +309,9 @@ it when the agent exits.
 - **On Windows,** where reading the process tree takes PowerShell, the proxy first looks for the file
   of the process that started it. That is the agent when the agent's own MCP client starts the proxy;
   the proxy reads the tree only when that one has none.
+- **With `SHADOWLAP_HOME`,** the file goes in the `agents` folder in it, where a proxy looks only when
+  it has the same `SHADOWLAP_HOME`. Give it in the server's `env`, as `issues` has its token
+  [above](#put-a-server-behind-the-proxy); without it, the proxy fails closed (below).
 
 ### Which files it trusts
 
@@ -299,12 +323,12 @@ only when it:
 - names that process's parent, the Shadowlap command, correctly (or, found without the tree, names a
   Shadowlap command still running).
 
-A file left behind by a run that was killed is ignored. When the home folder can't be written, the
-file goes in the project's `.shadowlap/agents` instead, and the proxy looks there and in every folder
-above its working directory.
+A file left behind by a run that was killed is ignored. When the folder can't be written, the file
+goes in the project's `.shadowlap/agents` instead, and the proxy looks there and in every folder above
+its working directory.
 
-A file in the home folder that fails the checks makes the proxy fail closed (below). One in a
-project's folder, which a cloned repository could carry, is ignored.
+A file in the home folder (or `SHADOWLAP_HOME`) that fails the checks makes the proxy fail closed
+(below). One in a project's folder, which a cloned repository could carry, is ignored.
 
 ### It fails closed
 

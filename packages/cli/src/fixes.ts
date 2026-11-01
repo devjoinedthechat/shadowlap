@@ -1,7 +1,7 @@
 import { basename } from 'node:path';
-import { BLAME_DEFAULTS, ciProvider, commitTitle, messageOf, recordBlame, recordEvent, recordRepair, recordVerdict, resolveAuthor, SPRT_DEFAULTS, unsettledFirst, type BlameReport, type RecordedBlame, type RecordedRepair, type RecordedVerdict, type RepairReport, type SprtGate, type StepRerun, type Store, type StoreOf, type VerifyReport } from '@shadowlap/engine';
-import { EXIT_LABEL } from './attempts.js';
+import { BLAME_DEFAULTS, ciProvider, commitTitle, fieldValue, messageOf, recordBlame, recordEvent, recordRepair, recordVerdict, resolveAuthor, SPRT_DEFAULTS, unsettledFirst, type BlameReport, type RecordedBlame, type RecordedRepair, type RecordedVerdict, type RepairReport, type SprtGate, type StepRerun, type Store, type StoreOf, type VerifyReport } from '@shadowlap/engine';
 import { callRuleLabel, conditionLabel, evaluateChecks, formatAmount, judgeLabel, LABEL_INPUT, type CheckResult, type CountRange, type ExpectSpec, type TestSpec, type TextCheck, type ToolCheck } from './checks.js';
+import { EXIT_LABEL } from './oracle.js';
 import { openStore, type GlobalOpts } from './shared.js';
 import { quoteArgv, shortId } from './ui.js';
 
@@ -201,8 +201,6 @@ export function failureTitle(spec: TestSpec | null, recording: { checks: readonl
 
 /** `--expect '<json>'`, or nothing for the exit code alone. */
 const expectArgs = (expect: unknown): string[] => (expect === null || expect === undefined ? [] : ['--expect', JSON.stringify(expect)]);
-
-const fieldValue = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v));
 
 const fieldArgs = (fields: Record<string, unknown>): string[] =>
   Object.entries(fields).flatMap(([k, v]) => (k === 'model' && typeof v === 'string' ? ['--model', v] : ['--set', `${k}=${fieldValue(v)}`]));

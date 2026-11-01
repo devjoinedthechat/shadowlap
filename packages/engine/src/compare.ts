@@ -20,6 +20,7 @@ import { safeLine, safeText } from './text.js';
 import type { StoreOf } from './store.js';
 import type { CallKind, CallRecord, DiffEntry, Hint, RunRecord } from './types.js';
 import { isObject } from './is-object.js';
+import { toolFailure } from './words.js';
 
 /**
  * Two runs side by side, call by call: where their requests first differ, and where identical
@@ -312,13 +313,6 @@ function inputText(store: StoreOf<'recording'>, c: CallRecord): string | null {
   } catch {
     return null;
   }
-}
-
-/** A failure `--fail-at` gives a tool, in words: `a timeout`, `an error`, `HTTP 503`. */
-function toolFailure(what: string): string {
-  if (/^timeout$/i.test(what)) return 'a timeout';
-  if (/^\d{3}$/.test(what)) return `HTTP ${what}`;
-  return 'an error';
 }
 
 const quoted = (s: string | null) => (s === null ? 'nothing' : JSON.stringify(s));

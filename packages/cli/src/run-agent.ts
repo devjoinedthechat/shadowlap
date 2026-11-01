@@ -16,7 +16,7 @@ import { askJudges, judgedOptions, judgesOf, materialOf, unjudged, type Judged }
 import { emitJobEvent } from './job-events.js';
 import { killTree } from './kill-tree.js';
 import { type JunitCase } from './junit.js';
-import { liveProxies } from './mcp-proxies.js';
+import { proxyFolder } from './mcp-proxies.js';
 import { guardOutcome, openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
 import { noteUnrecordedTools } from './not-recorded.js';
 import { keyEnvPatch } from './placeholder-keys.js';
@@ -116,11 +116,11 @@ export function noProxyEnv(base: NodeJS.ProcessEnv): { NO_PROXY: string; no_prox
 }
 
 /**
- * The agent's environment for a run: base URLs to the sidecar, and the preloads, with the
- * `shadowlap mcp --listen` proxies of this user's running now, which its guard lets it reach.
+ * The agent's environment for a run: base URLs to the sidecar, and the preloads, with the folder the
+ * `shadowlap mcp --listen` proxies of this user's register in, which its guard lets it reach.
  */
 export function agentEnv(sidecar: Sidecar, runId: string, guard: GuardMode, upstreams: Record<string, string>): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, ...noProxyEnv(process.env), ...sidecar.envFor(runId), ...guardEnv(guard, process.env, upstreams, sidecar.httpRules), SHADOWLAP_MCP_PROXIES: liveProxies().join(',') };
+  const env: NodeJS.ProcessEnv = { ...process.env, ...noProxyEnv(process.env), ...sidecar.envFor(runId), ...guardEnv(guard, process.env, upstreams, sidecar.httpRules), SHADOWLAP_MCP_REGISTRY: proxyFolder() ?? '' };
   // The dashboard job's event pipe is this command's; an agent that runs shadowlap itself reports nothing into it.
   delete env.SHADOWLAP_EVENTS_FD;
   // The Node capture preload shows this value to the OpenAI SDK's AzureOpenAI constructor, which takes

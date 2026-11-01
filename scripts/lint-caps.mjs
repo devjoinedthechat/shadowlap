@@ -7,7 +7,8 @@
 // `npm run lint` runs it: a function that shrank lowers its ceiling, one back within the cap leaves
 // the list, and one past its ceiling, or new past the cap, fails. --write makes the changes that
 // lower. It never adds a function or raises a ceiling, as code that grew past one is made smaller;
-// --add does, for a cap made stricter, or a function renamed or moved, whose ceiling goes with it.
+// --add does, for a cap made stricter, or a function renamed or moved, whose ceiling goes with it,
+// and a pull request's CI fails on either (scripts/lint-caps-raised.mjs), for review to see.
 //
 // Usage: node scripts/lint-caps.mjs [--write [--add]]
 import { execFileSync } from 'node:child_process';

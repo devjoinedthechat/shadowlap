@@ -7,7 +7,7 @@ import { FENCED_BUILT_INS, Store, type RunRecord } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { BUILT_IN_EFFECTS, fenceHooks, withEffects, withFence, type HookMatcherLike } from '../src/claude-agent-sdk.js';
 import { matcherPicks } from '../src/claude-hooks.js';
-import { FakeClaudeCode, matches, type Hooks, type ToolResult } from './fake-claude-code.js';
+import { afterTheOthers, FakeClaudeCode, matches, type Hooks, type ToolResult } from './fake-claude-code.js';
 
 /**
  * The Claude Agent SDK's built-in tools, recorded and fenced through its hooks, against a stand-in
@@ -52,12 +52,15 @@ const fenced = (query: { hooks?: Record<string, HookMatcherLike[]>; cwd?: string
   withFence({ settingSources: [], ...query, env: { ...HOME_ENV, ...query.env } }, { scratch: mkdtempSync(join(tmpdir(), 'shadowlap-fence-test-')), log, settings: { managedFile } }).hooks as unknown as Hooks;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-/** A PreToolUse hook of the agent's own that marks every Bash command it is given, answering `delay` ms late. */
-const marking = (delay: number): HookMatcherLike => ({
+/**
+ * A PreToolUse hook of the agent's own that marks every Bash command it is given, answering at once
+ * or last: once every other hook of the call has answered, as a slow one would (afterTheOthers).
+ */
+const marking = (when: 'at once' | 'last'): HookMatcherLike => ({
   matcher: 'Bash',
   hooks: [
     async (input: { tool_input: Record<string, unknown> }) => {
-      await sleep(delay);
+      if (when === 'last') await afterTheOthers();
       return { hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { ...input.tool_input, command: `${String(input.tool_input.command)} # checked` } } };
     },
   ],
@@ -360,8 +363,8 @@ describe('the fence beside other hooks', () => {
 
   // Claude Code takes the rewrite of whichever hook answers last: a hook of the agent's own that
   // answered after the fence put the recorded command back, and the replay ran it for real.
-  it.each([0, 150])('runs a PreToolUse hook of the query first, answering %ims late, so a replay never runs the write', async (delay) => {
-    const { run, cc } = await recorded(fenced({ hooks: { PreToolUse: [marking(delay)] } }));
+  it.each(['at once', 'last'] as const)('runs a PreToolUse hook of the query first, answering %s, so a replay never runs the write', async (when) => {
+    const { run, cc } = await recorded(fenced({ hooks: { PreToolUse: [marking(when)] } }));
     // While recording the call runs as the hook rewrote it, and is recorded so.
     expect(cc.ran).toEqual(['echo hi > out.txt # checked']);
     const [call] = store.getCalls(run.runId).filter((c) => c.kind === 'tool');
@@ -369,7 +372,7 @@ describe('the fence beside other hooks', () => {
 
     const replay = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command });
     within(replay);
-    const again = session(fenced({ hooks: { PreToolUse: [marking(delay)] } }));
+    const again = session(fenced({ hooks: { PreToolUse: [marking(when)] } }));
     const { results } = await agent(again, SCRIPT_BASH);
     const { summary } = sidecar.endRun(replay.runId, 'completed');
     expect(again.ran).toEqual(['true']);
@@ -396,12 +399,12 @@ describe('the fence beside other hooks', () => {
   });
 
   it('runs a PostToolUse hook of the query on the recorded output, as it ran on the live one', async () => {
-    // It marks what the model reads; answering late, beside the fence it replaced the recorded output with its mark of the stand-in's.
+    // It marks what the model reads; answering last, beside the fence it replaced the recorded output with its mark of the stand-in's.
     const noting: HookMatcherLike = {
       matcher: 'Bash',
       hooks: [
         async (input: { tool_response: { stdout: string } }) => {
-          await sleep(150);
+          await afterTheOthers();
           return { hookSpecificOutput: { hookEventName: 'PostToolUse', updatedToolOutput: { ...input.tool_response, stdout: `${input.tool_response.stdout} (noted)` } } };
         },
       ],
@@ -428,7 +431,7 @@ describe('the fence beside other hooks', () => {
       within(replay);
       const said: string[] = [];
       // Claude Code runs the file's hook beside the fence, and its rewrite answers last.
-      const cc = session(fenced({ cwd: project, settingSources: ['project'] }, (l) => said.push(l)), { PreToolUse: [marking(150)] as unknown as Hooks['PreToolUse'] });
+      const cc = session(fenced({ cwd: project, settingSources: ['project'] }, (l) => said.push(l)), { PreToolUse: [marking('last')] as unknown as Hooks['PreToolUse'] });
       const { results } = await agent(cc, SCRIPT_BASH);
       sidecar.endRun(replay.runId, 'completed');
       expect(cc.ran).toEqual([]);
@@ -462,7 +465,7 @@ describe('the fence beside other hooks', () => {
       try {
         const replay = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command });
         within(replay);
-        const cc = session(hooks, { PreToolUse: [marking(150)] as unknown as Hooks['PreToolUse'] });
+        const cc = session(hooks, { PreToolUse: [marking('last')] as unknown as Hooks['PreToolUse'] });
         const { results } = await agent(cc, SCRIPT_BASH);
         sidecar.endRun(replay.runId, 'completed');
         expect(cc.ran, where).toEqual([]);
@@ -480,7 +483,7 @@ describe('the fence beside other hooks', () => {
       const { run } = await recorded(fenced());
       const replay = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command });
       within(replay);
-      const cc = session(fenced({ cwd: join(dir, 'sub'), settingSources: ['local'] }), { PreToolUse: [marking(150)] as unknown as Hooks['PreToolUse'] });
+      const cc = session(fenced({ cwd: join(dir, 'sub'), settingSources: ['local'] }), { PreToolUse: [marking('last')] as unknown as Hooks['PreToolUse'] });
       const { results } = await agent(cc, SCRIPT_BASH);
       sidecar.endRun(replay.runId, 'completed');
       expect(cc.ran).toEqual([]);
@@ -522,7 +525,7 @@ describe('the fence beside other hooks', () => {
     within(replay);
     const said: string[] = [];
     // A plugin's or a managed hook: in no file the fence reads, and answering last.
-    const cc = session(fenced({}, (l) => said.push(l)), { PreToolUse: [marking(150)] as unknown as Hooks['PreToolUse'] });
+    const cc = session(fenced({}, (l) => said.push(l)), { PreToolUse: [marking('last')] as unknown as Hooks['PreToolUse'] });
     const { results } = await agent(cc, [...SCRIPT_BASH, ['Bash', { command: 'echo bye > out.txt' }]]);
     sidecar.endRun(replay.runId, 'completed');
     // The write ran, which the fence could not stop; the model reads what it did, not the recording, and nothing runs after it.

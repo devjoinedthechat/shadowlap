@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CREDENTIAL_PLACEHOLDER as C, credentialFreeBody, credentialFreeResult, maskJsonCredentials, maskJsonTextCredentials, maskTextCredentials, responseBodyWithoutCredentials, resultBlob } from '../src/http.js';
+import { CREDENTIAL_PLACEHOLDER as C, credentialFreeBody, credentialFreeResult, maskJsonCredentials, maskJsonTextCredentials, maskTextCredentials, responseBodyWithoutCredentials, resultBlob, withoutStoredCredentials } from '../src/http.js';
 import { times, timesOf } from './timing.js';
 
 /**
@@ -142,6 +142,97 @@ describe('a Vault KV answer', () => {
       expect(bodyOf(credentialFreeResult(blob, READ))).toEqual({ ...v1, data: { db: C, user: C } });
       expect(credentialFreeResult(blob)).toBeNull();
     }
+  });
+});
+
+/** What a call sends as a recording stores it and a replay matches it: its arguments' body, masked as a stored call's are, by the call its method and address name. */
+function sent(method: string, url: string, body: unknown): unknown {
+  return (withoutStoredCredentials({ method, url, body, encoding: 'json' }) as { body: unknown }).body;
+}
+
+describe('a secret a call writes to a store', () => {
+  const fields = { db: 'EXAMPLE-db-0123', user: 'app', port: 5432 };
+  const masked = { db: C, user: C, port: 5432 };
+
+  it("masks every field a Vault KV write puts: version 2's data at any mount, beside its options, and version 1's at secret/ and cubbyhole/", () => {
+    for (const url of ['https://vault.example.com:8200/v1/secret/data/prod/db', 'https://vault.example.com:8200/v1/kv/data/prod/db', 'https://vault.example.com:8200/v1/team/kv/data/prod/db']) {
+      expect(sent('PUT', url, { data: fields, options: { cas: 0 } }), url).toEqual({ data: masked, options: { cas: 0 } });
+      expect(sent('PATCH', url, { data: fields }), url).toEqual({ data: masked });
+    }
+    for (const url of ['https://vault.example.com:8200/v1/secret/prod/db', 'https://vault.example.com:8200/v1/cubbyhole/notes']) expect(sent('POST', url, fields), url).toEqual(masked);
+    // What sys/wrapping/wrap wraps, to be handed out once.
+    expect(sent('POST', 'https://vault.example.com:8200/v1/sys/wrapping/wrap', { note: 'EXAMPLE-wrap', n: 1 })).toEqual({ note: C, n: 1 });
+  });
+
+  it("keeps what a write sends that holds no secret: KV version 2's metadata and settings, Vault's other paths, and data at an address that isn't Vault's KV", () => {
+    const keep: Array<[string, string, unknown]> = [
+      ['POST', 'https://vault.example.com:8200/v1/secret/metadata/prod/db', { max_versions: 5, custom_metadata: { owner: 'data' } }],
+      ['POST', 'https://vault.example.com:8200/v1/secret/config', { max_versions: 5, delete_version_after: '3h' }],
+      ['POST', 'https://vault.example.com:8200/v1/secret/delete/prod/db', { versions: [1, 2] }],
+      ['PUT', 'https://vault.example.com:8200/v1/sys/policies/acl/app', { policy: 'path "secret/*" { capabilities = ["read"] }' }],
+      // Data beside anything but its options is no KV write, whatever its address; nor data at another API's.
+      ['POST', 'https://api.example.com/v1/projects/data/rows', { data: { name: 'refund' }, meta: { page: 1 } }],
+      ['POST', 'https://api.example.com/v2/data/rows', { data: { name: 'refund' } }],
+    ];
+    for (const [method, url, body] of keep) expect(sent(method, url, body), url).toEqual(body);
+  });
+
+  it("masks an Azure Key Vault secret's value a write sends, and a certificate's an import does, in each of Azure's clouds", () => {
+    const secret = { value: 'EXAMPLE-azure-0123', contentType: 'text/plain', attributes: { enabled: true }, tags: { team: 'data' } };
+    for (const url of ['https://acme.vault.azure.net/secrets/db?api-version=7.4', 'https://acme.vault.azure.cn/secrets/db', 'https://acme.vault.usgovcloudapi.net/secrets/restore?api-version=7.4']) expect(sent('PUT', url, secret), url).toEqual({ ...secret, value: C });
+    expect(sent('POST', 'https://acme.vault.azure.net/certificates/web/import?api-version=7.4', { value: b64('EXAMPLE-pfx'), policy: { contentType: 'application/x-pkcs12' } })).toEqual({ value: C, policy: { contentType: 'application/x-pkcs12' } });
+    // Another host's value.
+    expect(sent('PUT', 'https://api.example.com/secrets/db', secret)).toEqual(secret);
+  });
+
+  it("masks the payload Secret Manager's addVersion sends, in a location or not, and keeps a secret's settings", () => {
+    const version = { payload: { data: b64('EXAMPLE-gcp-0123'), dataCrc32c: '3013472386' } };
+    for (const url of ['https://secretmanager.googleapis.com/v1/projects/acme/secrets/db:addVersion', 'https://secretmanager.europe-west1.rep.googleapis.com/v1/projects/acme/locations/europe-west1/secrets/db:addVersion']) expect(sent('POST', url, version), url).toEqual({ payload: { data: C, dataCrc32c: C } });
+    const created = { replication: { automatic: {} }, labels: { team: 'data' } };
+    expect(sent('POST', 'https://secretmanager.googleapis.com/v1/projects/acme/secrets?secretId=db', created)).toEqual(created);
+  });
+
+  it("masks a Kubernetes Secret's data and stringData a create, a replace or a patch sends, with no kind to say so, and a JSON patch's value under them", () => {
+    const at = 'https://k8s.example.com/api/v1/namespaces/prod/secrets';
+    expect(sent('POST', at, { metadata: { name: 'db' }, stringData: { url: 'EXAMPLE-url' } })).toEqual({ metadata: { name: 'db' }, stringData: { url: C } });
+    expect(sent('PATCH', `${at}/db`, { data: { password: b64('EXAMPLE-pw') }, metadata: { labels: { app: 'api' } } })).toEqual({ data: { password: C }, metadata: { labels: { app: 'api' } } });
+    const patch = [
+      { op: 'replace', path: '/data/password', value: b64('EXAMPLE-pw') },
+      { op: 'add', path: '/stringData', value: { note: 'EXAMPLE-note' } },
+      { op: 'add', path: '/metadata/labels/app', value: 'api' },
+    ];
+    expect(sent('PATCH', `${at}/db`, patch)).toEqual([{ ...patch[0], value: C }, { ...patch[1], value: { note: C } }, patch[2]]);
+    // A ConfigMap's data is no secret.
+    expect(sent('PATCH', 'https://k8s.example.com/api/v1/namespaces/prod/configmaps/cfg', { data: { region: 'eu' } })).toEqual({ data: { region: 'eu' } });
+  });
+
+  it('masks it however the body is stored, as text or as bytes, by the call that sends it', () => {
+    const body = JSON.stringify({ data: { db: 'EXAMPLE-db-0123' } });
+    const name = 'PUT vault.example.com:8200/v1/secret/data/prod/db';
+    expect(credentialFreeBody({ body, encoding: 'text' }, name)).toEqual({ body: JSON.stringify({ data: { db: C } }), encoding: 'text' });
+    expect(credentialFreeBody({ body: b64(body), encoding: 'base64' }, name)).toEqual({ body: b64(JSON.stringify({ data: { db: C } })), encoding: 'base64' });
+    expect(credentialFreeBody({ body, encoding: 'text' })).toEqual({ body, encoding: 'text' });
+  });
+});
+
+describe('a Vault answer that holds a secret by its address', () => {
+  const envelope = { request_id: 'b0e1c2d3-0000-4000-8000-000000000001', lease_id: '', renewable: false, lease_duration: 2764800, wrap_info: null, warnings: null, auth: null };
+  const v1 = { ...envelope, data: { db: 'EXAMPLE-db-0123', user: 'app' }, mount_type: 'kv' };
+
+  it("masks KV version 1's data at another mount when the answer names its mount kv, and keeps a list of names and version 2's own answers", () => {
+    expect(stored(v1, 'GET vault.example.com:8200/v1/kv/prod/db')).toEqual({ ...v1, data: { db: C, user: C } });
+    const list = { ...envelope, data: { keys: ['db', 'app/'] }, mount_type: 'kv' };
+    expect(stored(list, 'LIST vault.example.com:8200/v1/kv/prod/')).toEqual(list);
+    const metadata = { ...envelope, data: { current_version: 3, created_time: '2026-10-30T12:00:00Z', versions: { '3': { created_time: '2026-10-30T12:00:00Z', destroyed: false } } }, mount_type: 'kv' };
+    expect(stored(metadata, 'GET vault.example.com:8200/v1/kv/metadata/prod/db')).toEqual(metadata);
+    // Another engine's answer, and one that names no mount, as an older Vault's does.
+    const noMount = { ...envelope, data: v1.data };
+    for (const doc of [{ ...v1, mount_type: 'transit' }, noMount]) expect(stored(doc, 'GET vault.example.com:8200/v1/kv/prod/db')).toEqual(doc);
+  });
+
+  it("masks a cubbyhole's data, as secret/'s is, and all the data sys/wrapping/unwrap hands back", () => {
+    expect(stored({ ...envelope, data: { note: 'EXAMPLE-note' } }, 'GET vault.example.com:8200/v1/cubbyhole/notes')).toEqual({ ...envelope, data: { note: C } });
+    expect(stored({ ...envelope, data: { keys: ['db'], note: 'EXAMPLE-wrapped' } }, 'POST vault.example.com:8200/v1/sys/wrapping/unwrap')).toEqual({ ...envelope, data: { keys: [C], note: C } });
   });
 });
 

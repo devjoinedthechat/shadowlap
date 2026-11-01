@@ -194,9 +194,10 @@ export function packRun(source: Store, runId: string, dir: string, opts: PackOpt
 }
 
 /** What a pack is made of; run.json last, since a folder is taken for a pack by it. */
-const PACK_ENTRIES = ['blobs', 'calls.jsonl', 'run.json'] as const;
+export const PACK_ENTRIES = ['blobs', 'calls.jsonl', 'run.json'] as const;
 
-const present = (path: string) => {
+/** Whether something is at a path, a link that leads nowhere included. */
+export const lexists = (path: string) => {
   try {
     lstatSync(path);
     return true;
@@ -206,7 +207,7 @@ const present = (path: string) => {
 };
 
 /** A rename, or across filesystems (a folder that is a link to another disk) a copy and a removal. */
-function move(from: string, to: string): void {
+export function movePath(from: string, to: string): void {
   try {
     renameSync(from, to);
   } catch (err) {
@@ -233,7 +234,7 @@ function writePack(dir: string, write: (into: string) => void): void {
     mkdirSync(fresh);
     write(fresh);
     if (!existsSync(target)) {
-      move(fresh, target);
+      movePath(fresh, target);
       return;
     }
     const aside = join(stage, 'old');
@@ -241,18 +242,18 @@ function writePack(dir: string, write: (into: string) => void): void {
     const moved: Array<{ name: string; had: boolean }> = [];
     try {
       for (const name of PACK_ENTRIES) {
-        const had = present(join(target, name));
-        if (had) move(join(target, name), join(aside, name));
+        const had = lexists(join(target, name));
+        if (had) movePath(join(target, name), join(aside, name));
         moved.push({ name, had });
-        move(join(fresh, name), join(target, name));
+        movePath(join(fresh, name), join(target, name));
       }
     } catch (err) {
       // The old entries go back, so the folder holds the old pack or the new one, never a mix.
       for (const { name, had } of moved.reverse()) {
         try {
-          if (had && !present(join(aside, name))) continue;
+          if (had && !lexists(join(aside, name))) continue;
           rmSync(join(target, name), { recursive: true, force: true });
-          if (had) move(join(aside, name), join(target, name));
+          if (had) movePath(join(aside, name), join(target, name));
         } catch {
           keep = true;
         }

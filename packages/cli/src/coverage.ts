@@ -9,6 +9,7 @@ import {
   messageOf,
   NO_COMMAND,
   OUTCOME_WORDS,
+  plural,
   runBehaviour,
   runKind,
   Store,
@@ -246,8 +247,6 @@ export function coverageJson(result: CoverageScanResult, pack: PackJson[] | null
     pack,
   };
 }
-
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** A path for one terminal line: up to eight steps, the middle elided past that. */
 export function shortPath(path: readonly string[], arrow = ' → '): string {
