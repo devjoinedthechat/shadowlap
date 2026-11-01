@@ -1,5 +1,5 @@
 import { relative } from 'node:path';
-import { agentCallsOf, applyEdit, BLAME_DEFAULTS, CHARS_PER_TOKEN, checkEdit, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, formatUsd, isJudgeCall, isObject, loadApiRequest, lostWhere, messageOf, NO_REPAIRER, normalizeConversation, notTheAnswer, redactRun, releaseLock, repairNeverRewrites, rewriteGrowth, rewriteText, safeLine, Store, toolDefinitions, unavailableStop, unifiedDiff, unrescuedWords, unsettledFirst, type Anchor, type Conversation, type Normalizer, type RepairCandidate, type RepairRange, type RepairReport, type RepairTarget, type SourceFile, type StoreOf, type Surface, type VerifyRole } from '@shadowlap/engine';
+import { agentCallsOf, applyEdit, BLAME_DEFAULTS, CHARS_PER_TOKEN, checkEdit, describeBlocks, editSize, footprintDelta, forbiddenDetails, formatUsd, isJudgeCall, isObject, loadApiRequest, lostWhere, messageOf, modelSwitch, NO_REPAIRER, normalizeConversation, notTheAnswer, redactRun, releaseLock, repairNeverRewritesAt, rewritableAnchors, rewriteGrowth, rewriteText, safeLine, Store, toolDefinitions, unavailableStop, unifiedDiff, unrescuedWords, unsettledFirst, type Anchor, type Conversation, type Normalizer, type RepairCandidate, type RepairRange, type RepairReport, type RepairTarget, type SourceFile, type StoreOf, type Surface, type VerifyRole } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { judgeRecording, type AttemptTarget } from './attempts.js';
 import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
@@ -395,11 +395,10 @@ class RepairRun {
     const instructions = surfacesOf(learned[0]!.shownRequest ?? learned[0]!.request);
     // A span a recording holds (a golden's run.json, its calls) or Shadowlap's config is no fix's to
     // rewrite: they are read, so a copy of a span there keeps it from passing for its source's only
-    // one, but no anchor is placed in them (repairNeverRewrites, which a patch from the team store is
-    // held to as well).
-    const anchors = findAnchors(surfaces, files)
-      .filter((a) => !repairNeverRewrites(a.file))
-      .map((a, i) => ({ ...a, id: i + 1 }));
+    // one, but no anchor is placed in them. Nor in code outside a string, or in a file or a value that
+    // runs, such as a workflow or package.json's scripts (rewritableAnchors). A patch from the team
+    // store is held to the same.
+    const anchors = rewritableAnchors(surfaces, files);
     this.report.anchors = anchors.length;
     const failingTexts = learned.map((b) => b.caseText ?? '');
     const allowedTexts = [...surfaces.map((x) => x.text), ...this.input.good.map((g) => lastExchange(this.env.store, g.parent.runId))];
@@ -412,12 +411,13 @@ class RepairRun {
     const byStronger = learned.find((b) => b.target.rescuedBy && b.model);
     if (!byStronger || !s.stronger) return;
     const from = byStronger.model!;
-    const quoted = files.flatMap((f) => [`'${from}'`, `"${from}"`, `\`${from}\``].flatMap((q) => [...f.content.matchAll(new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))].map((m) => ({ file: f.path, offset: m.index + 1 }))));
-    if (quoted.length !== 1) {
-      this.warnings.push(`${s.stronger} rescued the runs, but the model name ${from} appears ${quoted.length ? `${quoted.length} times` : 'nowhere'} in the source as a string, so no model switch was proposed`);
+    // Its name, quoted once in the source, where and as a repair rewrites text (modelSwitch), as the
+    // repairer's candidates are held to it, and a pull holds a switch from the team store.
+    const at = modelSwitch(files, from, s.stronger);
+    if ('why' in at) {
+      this.warnings.push(`${s.stronger} rescued the runs, but ${at.why}, so no model switch was proposed`);
       return;
     }
-    const at = quoted[0]!;
     this.candidates.push({
       c: { id: this.nextId++, source: 'model', strategy: `Use ${s.stronger} instead of ${from}`, why: `Asking ${from} again did not rescue the failing runs; ${s.stronger} did.`, surface: 'model', file: at.file, offset: at.offset, before: from, after: s.stronger, size: editSize(from, s.stronger), state: 'untried', reason: null, verify: null },
       edit: { file: at.file, offset: at.offset, text: from, sent: from },
@@ -499,11 +499,14 @@ class RepairRun {
     return null;
   }
 
-  /** A candidate the repairer proposed, set aside with why when its edit breaks a rule (checkEdit). */
+  /** A candidate the repairer proposed, set aside with why when its edit breaks a rule (checkEdit), or its place's (repairNeverRewritesAt). */
   private proposed(e: Awaited<ReturnType<typeof askRepairer>>['edits'][number], w: Rewritable): Tried {
     const anchor = w.anchors.find((a) => a.id === e.anchor);
-    const check = checkEdit(e, w.anchors, w.forbidden);
     const after = e.replace.trim();
+    // Held to the place too, as a pull holds it: a YAML plain value's rewrite may not read as YAML's own syntax.
+    const placed = anchor ? repairNeverRewritesAt(w.files.find((f) => f.path === anchor.file)!, anchor.offset, anchor.text.length, after) : null;
+    const edit = checkEdit(e, w.anchors, w.forbidden);
+    const check = edit.ok && placed ? { ok: false as const, reason: `the text it rewrites in ${anchor!.file} ${placed}` } : edit;
     const c: RepairCandidate = { id: this.nextId++, source: 'repairer', strategy: e.strategy, why: e.why, surface: anchor?.surface ?? `anchor ${e.anchor}`, file: anchor?.file ?? '', offset: anchor?.offset ?? 0, before: anchor?.text ?? '', after, size: anchor ? editSize(anchor.text, after) : 0, state: check.ok ? 'untried' : 'invalid', reason: check.ok ? null : check.reason, verify: null };
     if (!check.ok) this.log(`  ${p.yellow('✗')} candidate ${c.id} set aside: ${check.reason}`);
     return { c, edit: { file: c.file, offset: anchor?.offset ?? 0, text: c.before, sent: sentText(anchor) } };

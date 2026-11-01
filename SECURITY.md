@@ -476,6 +476,7 @@ A pull request's CI job doesn't write to the team's runs.
 - **Checked again.** `shadowlap fix apply` checks it again before `git apply`, so an edit in the bucket can't make it write any other file.
 - **Never a recording.** That file is never one of a recording: a pack's `run.json` holds the command a replay of it runs, which `shadowlap test` runs without asking once the repository tracks the pack.
 - **Never Shadowlap's or git's files.** Nor is it `shadowlap.config.json`, or anything in `.shadowlap` or in git's own folder, whatever its case, trailing dots, stream or short name.
+- **No more than a repair here.** `fix apply` puts it in only as a rewrite a repair would make in your working tree, read where the patch goes. It refuses one to a value that runs, such as `package.json`'s scripts or dependencies, and a pull leaves out one to a dot-folder's config (`.github`, `.claude/settings.json`), a Dockerfile or a script.
 - **Read before it runs.** Its confirm dialog shows the patch. Nothing on this machine runs the code it put in (no build, test or replay of your goldens) until you have read it.
 
 So a recorded command never changes through a repair, which only ever rewrites the text the agent sends the model, where its source holds it.
@@ -506,6 +507,8 @@ An edit in the bucket can't change a replay here.
 `shadowlap repair` shows a model what the failing runs held, tool output included, through your redaction rules. Verify then builds the agent's prompt from the rewrite it gets back. So repair limits what a rewrite may hold, what it reads, and what it writes.
 
 ### What a rewrite may hold
+
+A rewrite goes only inside one string of JavaScript, TypeScript or Python source, one string value of YAML, JSON or TOML, or a Markdown, plain text, prompt or Jinja file. It never goes in code or a comment, nor in a file or a value that runs, such as a dot-folder's config, a script, or `package.json`'s scripts and dependencies ([the list](./docs/repair.md#where-an-anchor-goes)).
 
 A rewrite has to keep exactly the placeholders of the text it replaces, and add none. It may hold no quote or backslash beyond what the span it replaces already held. One that brings in `${process.env.GH_TOKEN}` or `{os.environ}`, or a backtick that would end the string literal a span sits in, is set aside before anything runs.
 

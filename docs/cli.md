@@ -1380,7 +1380,8 @@ step.
 - how many recordings applying copies into the goldens folder, in `goldens`;
 - the request fields a change with no patch set, in `change`;
 - `refused`, saying why `fix apply` won't apply it, when the patch is more than the change its repair
-  verified. `gitApply` is `null` then, and once the patch is in.
+  verified, or a teammate's is no rewrite a repair makes in this working tree. `gitApply` is `null`
+  then, and once the patch is in.
 
 `blames` lists every blame (`blameId`, `runId`, `at`, `outcome`, `lostAt`, `confidence`), and
 `repairs` every repair (`repairId`, `at`, `outcome`, `accepted`, `title`), newest first.
@@ -1456,12 +1457,21 @@ place: no file made, deleted, renamed or copied, and no mode or binary change. I
 
 - a file of a recording: a pack's `run.json`, which holds the command a replay runs, its `calls.jsonl`
   and blobs, or anything in `__recordings__`;
-- `shadowlap.config.json` or the `.shadowlap` folder.
+- `shadowlap.config.json` or the `.shadowlap` folder;
+- a dot-file or a file in a dot-folder, such as a workflow under `.github` or Claude Code's
+  `.claude/settings.json`, another file that runs, such as a `Dockerfile` or a script, or one a repair
+  rewrites no text in, such as Go source.
 
 A repair rewrites the text the agent sends the model where its source holds it, and never reads those.
 A patch that is anything more is refused, and nothing is changed. So is one to a file git ignores,
 whose change neither `git status` nor `git diff` would show, or to a file reached through a link to a
 folder, which `git apply` refuses too.
+
+**A teammate's patch**, from a pull, is held to a repair's own rewrites in your working tree. The text
+it rewrites is read where the patch goes. It has to be inside one string of JavaScript, TypeScript or
+Python source, a string value of YAML, JSON or TOML that doesn't run, or a Markdown, plain text, prompt
+or Jinja file. It holds each placeholder whole, and its rewrite has to be one a repair would try. See [where an anchor goes](./repair.md#where-an-anchor-goes)
+and [the team store](./team.md#a-teammates-patch-is-held-to-a-repairs-rewrites).
 
 **Line endings.** The patch goes in on the file's bytes as they are, so the file is the one the repair
 verified. Git applies it to a copy of them that nothing converts. `git apply` in the working tree would
@@ -1498,6 +1508,7 @@ re-recorded what another fix changed, say), which says the fix holds again.
 - the repair's directory must be `.shadowlap/repairs/<repair id>`, each golden inside its `goldens/`;
 - the patch must be the accepted candidate's one rewrite to that candidate's file, no larger than a
   repair writes;
+- a teammate's must rewrite text where a repair rewrites it, in the file as it is here;
 - that file must be a plain file git doesn't ignore, not a symbolic link or a folder;
 - `fix.patch` must be the patch the repair verified.
 

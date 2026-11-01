@@ -242,6 +242,13 @@ export function gateArg(gate: SprtGate, defaults: Omit<SprtGate, 'kind'>): strin
 export type PatchCheck = (patch: string) => boolean | null;
 
 /**
+ * Why `fix apply` refuses a repair's patch in the project's working tree, by the repair: one a pull
+ * brought goes in only as a rewrite repair itself makes there, as the caller reads the file
+ * (`rewritesHere`, patch-in-tree.ts); null when it doesn't refuse it, or can't say.
+ */
+export type RewriteCheck = (repairId: string) => string | null;
+
+/**
  * A verified fix whose repair's patch is in the working tree already, as `check` asks git: merged by
  * a pull request, or applied by hand. Nothing is left to apply; `fix apply` only marks it applied.
  * A patch `fix apply` refuses is never asked about.

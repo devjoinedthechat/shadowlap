@@ -148,8 +148,10 @@ export { UNAVAILABLE_RETRY, attemptsInARow, providerUnavailable, retryAfter, ret
 export { attemptsOf, gateHistory, judgedUnder, notBaseline, recentAttempts, sessionAttempts, testResultVerdict, type HistoryFilter, type HistorySession, type PooledHistory } from './gate-history.js';
 // One risk for a test session, split across its gated goldens (rv-gates).
 export { COUNTS_AT, DECLINE_AT, INCONCLUSIVE_AT_GOOD, RECORD_WINDOWS, SUITE_RISK, planSuite, predictive, type PlannedGolden, type SuiteGolden, type SuitePlan } from './suite.js';
-export { applyEdit, caseDetails, checkEdit, commitTitle, editSize, findAnchors, forbiddenDetails, formatRepair, gitApplyCommand, NO_REPAIRER, noRepairerOf, patchFiles, REPAIR_FILE_LIMIT, repairNeverRewrites, repairMarkdown, repairPatchProblem, targetWhere, unifiedDiff } from './repair.js';
+export { applyEdit, caseDetails, checkEdit, commitTitle, editSize, findAnchors, forbiddenDetails, formatRepair, gitApplyCommand, NO_REPAIRER, noRepairerOf, REPAIR_FILE_LIMIT, repairMarkdown, targetWhere, unifiedDiff } from './repair.js';
 export type { Anchor, CandidateState, EditCheck, ProposedEdit, RepairCandidate, RepairOutcome, RepairRange, RepairReport, RepairTarget, SourceFile, Surface } from './repair.js';
+// What a repair's patch may change, and where a repair rewrites text: a pulled one is held to it in the working tree.
+export { fileThatRuns, modelSwitch, patchFiles, repairNeverRewrites, repairNeverRewritesAt, repairPatchProblem, rewritableAnchors, rewriteHere, rewriteKind, type RewriteKind } from './repair-patch.js';
 // Placeholders a rewrite keeps, and its growth before anything runs (repair).
 export { CHARS_PER_TOKEN, placeholders, rewriteGrowth, templateSyntax } from './repair.js';
 export type { Placeholder, TemplateSyntax } from './repair.js';
