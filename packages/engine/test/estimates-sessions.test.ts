@@ -208,10 +208,13 @@ describe('the error-path presets', () => {
     // The tool presets hit #2, the first read; the provider presets the model call that reads it, #3.
     expect(targets()).toEqual({ tool: { callNo: 2, name: 'lookup_order' }, model: { callNo: 3, name: 'POST /v1/messages' } });
     const once = presetsEstimate(calls(), targets());
-    expect(once).toMatchObject({ kind: 'presets', ceiling: true, attempts: 6, parts: ['6 attempts', 'live from each preset’s call, writes stubbed'] });
+    // Without a gate each preset runs its count, so the price is what it bills, never "At most".
+    expect(once).toMatchObject({ kind: 'presets', ceiling: false, attempts: 6, parts: ['6 attempts', 'live from each preset’s call, writes stubbed'] });
     expect(once.usd).toBeCloseTo(6 * FROM_3, 10);
+    expect(costLine(once)[0]).toBe(amountWords(6 * FROM_3));
     const gated = presetsEstimate(calls(), targets(), { gate: { max: 20 }, presets: ['timeout', '429'] });
-    expect(gated.parts[0]).toBe('up to 40 attempts');
+    expect(gated).toMatchObject({ ceiling: true, parts: ['up to 40 attempts', 'live from each preset’s call, writes stubbed'] });
+    expect(costLine(gated)[0]).toBe(`At most ${amountWords(40 * FROM_3)}`);
     expect(gated.usd).toBeCloseTo(40 * FROM_3, 10);
   });
 

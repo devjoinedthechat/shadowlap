@@ -111,5 +111,6 @@ export function presetsEstimate(calls: readonly PricedCall[], targets: ChaosTarg
     n += each;
   }
   if (!n) return { kind: 'presets', usd: 0, ceiling: false, parts: ['no preset applies to this run'] };
-  return { kind: 'presets', usd, ceiling: true, parts: [`${o.gate ? 'up to ' : ''}${counted(n, 'attempt')}`, 'live from each preset’s call, writes stubbed'], attempts: n };
+  // A gate may stop a preset early, so its price is a ceiling; without one each runs its count.
+  return { kind: 'presets', usd, ceiling: !!o.gate, parts: [`${o.gate ? 'up to ' : ''}${counted(n, 'attempt')}`, 'live from each preset’s call, writes stubbed'], attempts: n };
 }
