@@ -39,6 +39,10 @@ file('.mcp.json', '{\n  "mcpServers": {\n    "docs": { "command": "npx", "args":
 file('.pre-commit-config.yaml', 'repos:\n  - repo: local\n    hooks:\n      - id: lint\n        entry: npm run lint\n        language: system\n', 'npm run lint', DOT);
 file('.devcontainer/devcontainer.json', '{\n  "postCreateCommand": "npm ci"\n}\n', 'npm ci', DOT);
 file('.vscode/tasks.json', '{\n  "tasks": [{ "label": "test", "command": "npm test" }]\n}\n', 'npm test', DOT);
+// In .claude/, a subagent's, skill's or command's Markdown is a prompt; its other files stay a dot-folder's.
+file('.claude/skills/refund-policy/scripts/check.py', 'print("Refund policy checked")\n', 'Refund policy checked', DOT, 'Refund policy checked again');
+file('.claude/settings.local.json', '{\n  "permissions": { "allow": ["Bash(npm test)"] }\n}\n', 'Bash(npm test)', DOT, 'Bash(*)');
+file('.claude/agents/drafts/.refunds.md', 'You are a refunds specialist.\n', 'You are a refunds specialist.', DOT, 'You are a refunds specialist for orders.');
 // Other files that run.
 file('tools/release/action.yaml', 'runs:\n  using: node20\n  main: dist/index.js\n', 'dist/index.js', 'a GitHub Action, which runs what it says where a workflow uses it', 'dist/other.js');
 file('azure-pipelines.yml', 'steps:\n  - script: npm test\n', 'npm test', 'an Azure Pipelines pipeline, whose scripts run commands');
@@ -105,6 +109,21 @@ value('k8s/args.yaml', DEPLOYMENT, 'agent.py', KUBE_WHAT, 'evil.py');
 value('k8s/exec.yaml', DEPLOYMENT, '/tmp/healthy', KUBE_WHAT, '/tmp/evil');
 value('k8s/lifecycle.yaml', DEPLOYMENT, '/warm-up', KUBE_WHAT, '/evil');
 
+/** A Claude Code subagent: its frontmatter says which tools it may use and its model, and its body is its prompt. */
+export const SUBAGENT = ['---', 'name: refunds', 'description: Handles refund requests for orders', 'tools: Read, Grep', 'model: sonnet', '---', 'You are a refunds specialist. Follow the refund policy.', '', 'Escalate every refund above the limit to a manager.', ''].join('\n');
+
+/** A Claude Code skill, whose body runs a shell command as Claude Code reads it. */
+export const SKILL = ['---', 'name: refund-policy', 'description: Explains the refund policy', 'allowed-tools: Bash(git log:*)', '---', 'Refunds above the limit need a manager.', '', 'Recent changes to the policy: !`git log --oneline -5 policy.md`', ''].join('\n');
+
+/** A Claude Code slash command, with the arguments it is given in its prompt. */
+export const COMMAND = ['---', 'description: Review a refund request', 'allowed-tools: Read', '---', 'Review the refund request in $ARGUMENTS against the refund policy.', ''].join('\n');
+
+const FRONTMATTER_WHAT = "a Claude Code subagent's, skill's or command's frontmatter, whose tools, model and hooks say what it runs";
+value('.claude/agents/refunds.md', SUBAGENT, 'Read, Grep', FRONTMATTER_WHAT, 'Read, Grep, Bash');
+value('.claude/skills/refund-policy/SKILL.md', SKILL, 'Bash(git log:*)', FRONTMATTER_WHAT, 'Bash');
+value('.claude/commands/refund.md', COMMAND, 'Read', FRONTMATTER_WHAT, 'Read, Bash');
+value('run/.claude/skills/refund-policy/SKILL.md', SKILL, 'git log --oneline -5 policy.md', 'a shell command Claude Code runs as it reads the file (!`…`)');
+
 /** CrewAI's agents.yaml, with a role as a plain value, a goal quoted and a backstory as a folded block. */
 export const AGENTS_YAML = [
   'researcher:',
@@ -121,7 +140,8 @@ export const TASKS_YAML = ['research_task:', '  description: |', '    Conduct a 
 
 /**
  * Rewrites a repair makes in config, which a pulled patch may make too: CrewAI's prompts, a model's
- * name in a JSON and a TOML config, and values beside the ones that run (the key path decides).
+ * name in a JSON and a TOML config, values beside the ones that run (the key path decides), and the
+ * body of a Claude Code subagent, skill or command.
  */
 export const CONFIG_REWRITES: RewriteCase[] = [
   { file: 'config/agents.yaml', content: AGENTS_YAML, before: 'Senior Data Researcher on {topic}', after: 'Senior Data Researcher on {topic}, who checks every source' },
@@ -133,5 +153,8 @@ export const CONFIG_REWRITES: RewriteCase[] = [
   { file: 'package.json', content: PACKAGE_JSON('dependencies', '{ "left-pad": "^1.3.0" }'), before: 'A support agent for refunds', after: 'A support agent for refunds and returns' },
   { file: 'pyproject.toml', content: RUNNERS.find((r) => r.file === 'pyproject.toml')!.content, before: 'A support agent for refunds', after: 'A support agent for refunds and returns' },
   { file: 'docker-compose.yml', content: 'services:\n  agent:\n    environment:\n      SYSTEM_PROMPT: You are a support agent.\n', before: 'You are a support agent.', after: 'You are a support agent for refunds.' },
+  { file: '.claude/agents/refunds.md', content: SUBAGENT, before: 'Follow the refund policy.', after: 'Follow the refund policy, and check the order first.' },
+  { file: '.claude/skills/refund-policy/SKILL.md', content: SKILL, before: 'Refunds above the limit need a manager.', after: 'Refunds above the limit need a manager, who signs them off.' },
+  { file: '.claude/commands/refund.md', content: COMMAND, before: 'against the refund policy.', after: 'against the refund policy, and say which rule applies.' },
   { file: 'k8s/prompts.yaml', content: 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: prompts\ndata:\n  system: You are a support agent.\n', before: 'You are a support agent.', after: 'You are a support agent for refunds.' },
 ];

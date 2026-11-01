@@ -475,7 +475,7 @@ A pull request's CI job doesn't write to the team's runs.
 - **Checked again.** `shadowlap fix apply` checks it again before `git apply`, so an edit in the bucket can't make it write any other file.
 - **Never a recording.** That file is never one of a recording: a pack's `run.json` holds the command a replay of it runs, which `shadowlap test` runs without asking once the repository tracks the pack.
 - **Never Shadowlap's or git's files.** Nor is it `shadowlap.config.json`, or anything in `.shadowlap` or in git's own folder, whatever its case, trailing dots, stream or short name.
-- **No more than a repair here.** `fix apply` puts it in only as a rewrite a repair would make in your working tree, read where the patch goes. It refuses one to a value that runs, such as `package.json`'s scripts or dependencies, and a pull leaves out one to a dot-folder's config (`.github`, `.claude`), a Dockerfile or a script.
+- **No more than a repair here.** `fix apply` puts it in only as a rewrite a repair would make in your working tree, read where the patch goes. It refuses one to a value that runs, such as `package.json`'s scripts or dependencies, and a pull leaves out one to a dot-folder's config (`.github`, `.claude/settings.json`), a Dockerfile or a script.
 - **Read before it runs.** Its confirm dialog shows the patch. Nothing on this machine runs the code it put in (no build, test or replay of your goldens) until you have read it.
 
 So a recorded command never changes through a repair, which only ever rewrites the text the agent sends the model, where its source holds it.

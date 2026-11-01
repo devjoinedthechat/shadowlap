@@ -294,7 +294,7 @@ The patch is someone else's code, so a pull takes a fix only when each repair's 
 - one that makes, renames or deletes one;
 - one that adds lines the candidate doesn't;
 - one larger than a repair writes;
-- one to a dot-file or a file in a dot-folder, such as `.github` or `.claude`, or another file that runs, such as a `Dockerfile`, a script or `requirements.txt`.
+- one to a dot-file or a file in a dot-folder, such as `.github` or `.claude/settings.json`, or another file that runs, such as a `Dockerfile`, a script or `requirements.txt`.
 
 A repair rewrites text only in a string of JavaScript, TypeScript or Python source, a string value of YAML, JSON or TOML, or a Markdown, plain text, prompt or Jinja file, and never in what runs. See [where an anchor goes](./repair.md#where-an-anchor-goes).
 

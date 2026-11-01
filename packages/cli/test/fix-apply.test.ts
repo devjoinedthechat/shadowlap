@@ -429,7 +429,7 @@ describe("fix apply of a teammate's patch that rewrites more than text a repair 
     }
   });
 
-  it("puts in one that rewrites CrewAI's prompts, a config's model, or a value beside one that runs", async () => {
+  it("puts in one that rewrites CrewAI's prompts, a config's model, a value beside one that runs, or a Claude Code subagent's, skill's or command's body", async () => {
     const store = Store.open(join(project, 'shadowlap.db'));
     try {
       // Each in a folder of its own, so a later one finds the file as it was committed.

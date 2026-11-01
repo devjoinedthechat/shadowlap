@@ -267,7 +267,8 @@ const namesOf = (file: string) => file.split('/').map((p) => p.replace(/[. ]+$/,
  * much of it runs. CI pipelines (`.github/`, `.gitlab-ci.yml`, `.circleci/`, `.buildkite/`,
  * `.travis.yml`) run their steps, Claude Code runs the hooks in `.claude/settings.json`, an MCP
  * client the command `.mcp.json` names, git the hooks `.pre-commit-config.yaml` installs, and editors
- * the tasks in `.vscode/` and `.devcontainer/`. One rule holds for all of them, and for those to come.
+ * the tasks in `.vscode/` and `.devcontainer/`. One rule holds for all of them, and for those to come,
+ * but for the prompts of a Claude Code subagent, skill or command (`claudePrompt`).
  */
 const DOT = 'a dot-file or a file in a dot-folder, where tools keep config that runs: CI pipelines, Claude Code hooks, MCP servers, pre-commit hooks';
 
@@ -289,11 +290,73 @@ const RUNNER_FILES: ReadonlyArray<{ is: (name: string, names: readonly string[])
   { is: (f, n) => /^(?:requirements|constraints).*\.txt$/.test(f) || (f.endsWith('.txt') && n.at(-2) === 'requirements'), what: "pip's requirements, whose packages run code as they install" },
 ];
 
-/** What `file` is when it runs what it holds: in a dot-file or a dot-folder (DOT), or one of RUNNER_FILES; else null. */
+/** What `file` is when it runs what it holds: in a dot-file or a dot-folder (DOT) but a Claude Code prompt, or one of RUNNER_FILES; else null. */
 export function fileThatRuns(file: string): string | null {
   const names = namesOf(file);
-  if (file.split('/').some((p) => p.startsWith('.'))) return DOT;
+  if (file.split('/').some((p) => p.startsWith('.')) && !claudePrompt(file)) return DOT;
   return RUNNER_FILES.find((r) => r.is(names.at(-1) ?? '', names))?.what ?? null;
+}
+
+/** The folders of `.claude/` whose Markdown the Claude Agent SDK reads as prompts: subagents, skills and slash commands. */
+const CLAUDE_PROMPTS = new Set(['agents', 'skills', 'commands']);
+
+/**
+ * Whether `file` is a Claude Code subagent, skill or slash command: Markdown (`.md`) somewhere in
+ * `.claude/agents/`, `.claude/skills/` or `.claude/commands/`, and in no other dot-folder. The Claude
+ * Agent SDK reads them from the project and sends their bodies to the model, so a repair rewrites
+ * there, in the body alone (`inProse`). Every other file in `.claude/` stays a dot-file's: a skill's
+ * scripts, `.claude/settings.json`.
+ */
+function claudePrompt(file: string): boolean {
+  const parts = file.split('/');
+  const dot = parts.findIndex((p) => p.startsWith('.'));
+  const names = namesOf(file);
+  return dot >= 0 && names[dot] === '.claude' && CLAUDE_PROMPTS.has(names[dot + 1] ?? '') && dot + 2 < parts.length && !parts.slice(dot + 1).some((p) => p.startsWith('.')) && /\.md$/i.test(file);
+}
+
+const CLAUDE_FILE = 'a Claude Code subagent, skill or command';
+const CLAUDE_FRONTMATTER = "a Claude Code subagent's, skill's or command's frontmatter, whose tools, model and hooks say what it runs";
+const CLAUDE_RUN = 'a shell command Claude Code runs as it reads the file (!`…`)';
+
+/**
+ * Where the body of a Claude Code subagent, skill or command starts in `text`, past its YAML
+ * frontmatter; 0 for one with none. The frontmatter opens with `---` at the start (white space
+ * before it aside) and closes with the next line that is `---` alone, its line break included. It is
+ * read as widely as any reader of it: one that never closes holds the whole file.
+ */
+function claudeBody(text: string): number {
+  const open = /^\s*---/.exec(text);
+  if (!open) return 0;
+  const line = text.indexOf('\n', open[0].length);
+  const close = line < 0 ? null : /^---\r?$/m.exec(text.slice(line + 1));
+  if (!close) return text.length;
+  const end = line + 1 + close.index + close[0].length;
+  return text[end] === '\n' ? end + 1 : end;
+}
+
+/**
+ * The shell commands Claude Code runs as it reads a skill or command, sending what they print in
+ * their place: each `` !`…` ``, and each fenced block opened with `!` (```` ```! ````). Each is read
+ * as widely as any reader of it, to the furthest place it could end, and from the character before
+ * it to the one after, so that no rewrite beside one changes it either.
+ */
+function claudeRuns(text: string): Holes {
+  const runs: Array<{ start: number; end: number }> = [];
+  const upTo = (from: number, mark: string) => {
+    const at = text.indexOf(mark, from);
+    return at < 0 ? text.length : at + mark.length;
+  };
+  for (const m of text.matchAll(/!(`+)/g)) {
+    const from = m.index + m[0].length;
+    runs.push({ start: m.index - 1, end: Math.max(upTo(from, '`'), upTo(from, m[1]!)) + 1 });
+  }
+  for (const m of text.matchAll(/^[ \t]*(`{3,}|~{3,})[ \t]*!/gm)) {
+    const close = new RegExp(`^[ \\t]*${m[1]!.charAt(0)}{${m[1]!.length},}[ \\t]*\\r?$`, 'gm');
+    close.lastIndex = upTo(m.index, '\n');
+    const end = close.exec(text);
+    runs.push({ start: m.index - 1, end: end ? end.index + end[0].length + 1 : text.length });
+  }
+  return runs.map((r) => ({ start: Math.max(0, r.start), end: Math.min(text.length, r.end) }));
 }
 
 /** A compose file: `compose.yaml`, `docker-compose.yml`, and their overrides (`docker-compose.prod.yml`). */
@@ -331,6 +394,7 @@ const RUNNING_VALUES: ReadonlyArray<{ file: (name: string) => boolean; runs: (pa
 const stringsOf = new WeakMap<SourceFile, SourceString[]>();
 const valuesOf = new WeakMap<SourceFile, DataString[]>();
 const placeholdersOf = new WeakMap<SourceFile, Placeholder[]>();
+const claudeOf = new WeakMap<SourceFile, { body: number; runs: Holes }>();
 
 type Holes = ReadonlyArray<{ start: number; end: number }>;
 
@@ -339,6 +403,29 @@ function proseHoles(file: SourceFile): Holes {
   let found = placeholdersOf.get(file);
   if (!found) placeholdersOf.set(file, (found = placeholders(file.content, templateSyntax(file.path))));
   return found;
+}
+
+/**
+ * The placeholders in a prose file, or why a repair never rewrites the text from `offset` to `end`
+ * of a Claude Code subagent, skill or command (`claudePrompt`): in its frontmatter, or in or beside
+ * a shell command it runs. With `replace`, the rewrite may change neither: the file's frontmatter
+ * stays as it is, and so do its commands, none added.
+ */
+function inProse(file: SourceFile, at: { offset: number; end: number; replace: string | undefined }): Holes | string {
+  if (!claudePrompt(file.path)) return proseHoles(file);
+  let read = claudeOf.get(file);
+  if (!read) claudeOf.set(file, (read = { body: claudeBody(file.content), runs: claudeRuns(file.content) }));
+  const { offset, end, replace } = at;
+  if (offset < read.body) return `is in ${CLAUDE_FRONTMATTER}: a repair never rewrites what runs`;
+  if (read.runs.some((r) => r.start < end && offset < r.end)) return `is in ${CLAUDE_RUN}: a repair never rewrites what runs`;
+  if (replace !== undefined) {
+    const was = file.content;
+    const text = was.slice(0, offset) + replace + was.slice(end);
+    if (text.slice(0, claudeBody(text)) !== was.slice(0, read.body)) return `is in the body of ${CLAUDE_FILE}, and its rewrite would change the frontmatter, whose tools, model and hooks say what it runs`;
+    const commands = (t: string) => claudeRuns(t).map((r) => t.slice(r.start, r.end)).join('\0');
+    if (commands(text) !== commands(was)) return `is in the body of ${CLAUDE_FILE}, and its rewrite would add ${CLAUDE_RUN}`;
+  }
+  return proseHoles(file);
 }
 
 /** The places of code in the string of `file` that the text from `offset` to `end` is inside, or why it isn't inside one. */
@@ -380,7 +467,8 @@ function inValue(file: SourceFile, kind: 'yaml' | 'json' | 'toml', at: { offset:
  * Why a repair never rewrites the `length` characters at `offset` of `file`, or null when it may.
  * The file may not run what it holds (`fileThatRuns`), and has to be of a kind a repair rewrites text
  * in (`rewriteKind`). In code the text has to be inside one string; in YAML, JSON or TOML inside one
- * string value that doesn't run (`RUNNING_VALUES`), and in YAML on one line of it. In any file it
+ * string value that doesn't run (`RUNNING_VALUES`), and in YAML on one line of it; in a Claude Code
+ * subagent, skill or command, in its body, beside no shell command it runs (`inProse`). In any file it
  * holds a placeholder only whole: a rewrite never starts or ends inside a template literal's `${…}`,
  * an f-string's `{…}` or a Jinja expression, whose code `checkEdit` would otherwise let it change.
  * With `replace`, a YAML plain value's rewrite is held to text too (`yamlPlainProblem`). Read as what
@@ -391,8 +479,9 @@ export function repairNeverRewritesAt(file: SourceFile, offset: number, length: 
   if (runs) return `is in ${runs}: a repair never rewrites what runs`;
   const kind = rewriteKind(file.path);
   if (!kind) return `is in ${kindWords(file.path)}: a repair rewrites text only in ${REWRITTEN_TEXT}`;
-  const end = offset + length;
-  const code = kind === 'prose' ? proseHoles(file) : kind === 'js' || kind === 'python' ? inString(file, kind, offset, end) : inValue(file, kind, { offset, end, replace });
+  const at = { offset, end: offset + length, replace };
+  const end = at.end;
+  const code = kind === 'prose' ? inProse(file, at) : kind === 'js' || kind === 'python' ? inString(file, kind, offset, end) : inValue(file, kind, at);
   if (typeof code === 'string') return code;
   const cut = code.find((p) => p.start < end && offset < p.end && (p.start < offset || p.end > end));
   return cut ? `starts or ends inside ${safeLine(file.content.slice(cut.start, cut.end)).slice(0, 80)}: a rewrite keeps each placeholder whole` : null;
