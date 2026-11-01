@@ -16,26 +16,31 @@ import type { Keeper } from './run-stats.js';
  *
  * Requests come first, in the order they came. A job about a run goes to the thread that read that
  * run last, which keeps its calls and its analysis; while that thread is busy with another request,
- * a free thread takes it once it has waited a moment (`READ_LIMITS.stealMs`), rather than wait for a
- * long one (a whole Compare of two long runs takes most of a minute). What can wait is done only
- * while another thread stays free for requests: the whole analysis of a long run whose first page
- * was answered from its first calls, and the warm-up, which works each finished run's totals out
- * ahead, newest first, a slice at a time (run-stats.ts `warmRunStats`). A page of a run's calls, a
- * call's details or a run's first page asked while the run's thread analyses that run, or works on
- * another request about it, is answered on a free thread from a part of the run (`borrowed`), and
- * only one that asks for the whole analysis (`whole`) waits for it. A request a free thread takes
- * leaves the run with the thread that holds it, but one that reads the whole of a long run
- * (`stealCallsMax`) waits for that thread a while (`stealLongMs`, a moment behind what can wait), and
- * is then taken with its run (`handed`), the run's next requests following it. While every thread is busy, a spare thread
- * answers what comes behind them (`Slot.spare`): at once behind what can wait, behind requests once
- * one has waited a moment (`spareAfterMs`). What a thread works out that is worth keeping comes back
- * here, and goes to the keeper's thread (keeper.ts) to be written.
+ * a free thread takes it once it has waited a moment (`READ_LIMITS.stealMs`), one about a short run
+ * at once while that other request reads a long one, rather than wait for a long one (a whole
+ * Compare of two long runs takes most of a minute); and a free thread takes what has waited longest
+ * first, one that reads a long run after the rest. What can wait is done only while another thread
+ * stays free for requests: the whole analysis of a long run whose first page was answered from its
+ * first calls, and the warm-up, which works each finished run's totals out ahead, newest first, a
+ * slice at a time (run-stats.ts `warmRunStats`). A page of a run's calls, a call's details or a
+ * run's first page asked while the run's thread analyses that run, or works on another request
+ * about it, is answered on a free thread from a part of the run (`borrowed`), and only one that
+ * asks for the whole analysis (`whole`) waits for it. A request a free thread takes leaves the run
+ * with the thread that holds it, but one that reads the whole of a long run (`stealCallsMax`) waits
+ * for that thread a while (`stealLongMs`, a moment behind what can wait), and is then taken with
+ * its run (`handed`), the run's next requests following it. While every thread is busy, a spare
+ * thread answers what comes behind them (`Slot.spare`): once a request has waited a moment
+ * (`spareAfterMs`), or at once while what can wait holds a thread, when a second may start in that
+ * thread's place (`spareAfter`), and ahead of what comes once what can wait has held its thread a
+ * while (`standInDue`). What a thread works out that is worth keeping comes back here, and goes to
+ * the keeper's thread (keeper.ts) to be written.
  */
 
 export interface ReadModels {
   /**
    * Works out a job. `affinity` names the run it reads: the thread that read that run last does, as
-   * it keeps it; `calls`, how long that run is (whether another thread may take the job meanwhile).
+   * it keeps it; `calls`, how many calls the runs it reads have: whether another thread may take the
+   * job meanwhile, and how long it may take (`READ_LIMITS.jobCalls`).
    */
   run(job: ReadJob, o?: { affinity?: string; calls?: number }): Promise<ReadAnswer>;
   /** The warm-up has been through every run, until an answer says it is warming again (`warm`). */
@@ -57,7 +62,10 @@ export const READ_LIMITS = {
   warmSliceMs: 250,
   /**
    * How long a request waits for the thread that read its run last while that thread works on
-   * another request, before a free thread takes it, in milliseconds.
+   * another request, before a free thread takes it, in milliseconds; not at all for a request about
+   * a short run while that other request reads a run longer than `stealCallsMax` (a whole Compare of
+   * two): each small run's page waited 110 ms behind one. A long run's waits, as reading it again
+   * elsewhere takes seconds, and what comes behind it in the meantime goes first.
    */
   stealMs: 100,
   /**
@@ -88,9 +96,16 @@ export const READ_LIMITS = {
   /**
    * The longest a thread may work on one job, in milliseconds: past it the thread is ended, the
    * request is answered that it took too long, and a new thread takes the rest. A request, two
-   * minutes; what can wait (a long run's whole analysis), ten.
+   * minutes for each `jobCalls` calls of the runs it reads, two at least; what can wait (a long run's
+   * whole analysis), ten.
    */
   jobMs: 120_000,
+  /**
+   * The calls of the runs a request reads that two minutes (`jobMs`) are given for: a whole Compare of
+   * two runs of 100,000 calls took 25 s on a quiet machine and 94 s at load 28, and once passed two
+   * minutes, which it was given then.
+   */
+  jobCalls: 50_000,
   backgroundMs: 600_000,
 };
 
@@ -126,7 +141,7 @@ interface Pending {
    * it waiting for its old thread follow it there.
    */
   handed?: boolean;
-  /** How many calls its run has, when it is about one (`affinity`): whether a free thread may take it from the thread that holds the run. */
+  /** How many calls the runs it reads have: whether a free thread may take it from the thread that holds its run (`affinity`), and how long it may take. */
   calls?: number;
   resolve(a: ReadAnswer): void;
   reject(err: Error): void;
@@ -145,14 +160,18 @@ interface Slot {
   limit: ReturnType<typeof setTimeout> | null;
   /** When it last started a request (Date.now()): a slice of the warm-up goes to the thread that did so least lately. */
   used: number;
+  /** When it last finished a job (Date.now()): a spare thread ends once it has had nothing to do for a while. */
+  freed: number;
+  /** When it started the job it is on (Date.now()): what can wait that has held it a while has a spare thread stand in for it (`standInDue`). */
+  since: number;
   /**
-   * A third thread, started while every thread is busy: at once while what can wait (a long run's
-   * whole analysis, a slice of the warm-up) holds one, else once a request has waited behind them
-   * (`READ_LIMITS.spareAfterMs`). It takes requests only, holds a run only one was handed with
-   * (`Pending.handed`), and ends once nothing can wait any more and it has had nothing to do for a
-   * while (`READ_LIMITS.spareIdleMs`). Without it, a request that came behind both waited: with a
-   * run of 100,000 calls being analysed and a whole Compare on the other thread, the Overview, Runs
-   * and the run's own first call waited 23.9 s; behind two whole Compares, a small run's page 65 s.
+   * A thread more, started while every thread is busy (`ReadPool.spareAfter`): at once while what can
+   * wait (a long run's whole analysis, a slice of the warm-up) holds one, else once a request has
+   * waited behind them (`READ_LIMITS.spareAfterMs`). It takes requests only, holds a run only one was
+   * handed with (`Pending.handed`), and ends once nothing can wait any more and it has had nothing to
+   * do for a while (`READ_LIMITS.spareIdleMs`). Without it, a request that came behind both waited:
+   * with a run of 100,000 calls being analysed and a whole Compare on the other thread, the Overview,
+   * Runs and the run's own first call waited 23.9 s; behind two whole Compares, a small run's page 65 s.
    */
   spare?: true;
 }
@@ -160,19 +179,30 @@ interface Slot {
 /** A run's thread is remembered for this many runs. */
 const OWNERS = 64;
 
+/** A request waiting for a busy thread that a free one takes (`takes`), where it waits, and how it is taken. */
+interface Taken {
+  p: Pending;
+  from: Slot;
+  how: 'borrowed' | 'taken' | 'handed';
+}
+
+/** A request that reads a run longer than `stealCallsMax` calls, or a pair of them: it takes seconds, where the rest take milliseconds. */
+const readsLong = (p: Pending): boolean => (p.calls ?? 0) > READ_LIMITS.stealCallsMax;
+
 /** A job a part of its run answers, while the whole of it is analysed elsewhere: a page of its calls, a call, its first page. */
 const answersFromPart = (job: ReadJob): boolean => (job.kind === 'calls' || job.kind === 'call' ? !job.whole : job.kind === 'run' && job.after === undefined);
 
 /**
  * How a free thread takes `p` from the thread that holds its run, busy with `busy` (reading the run
- * `reading`), if it does: behind what can wait at once, behind a request once it has waited `stealMs`.
- * One about the run that thread is reading only when a part of the run answers it (`borrowed`). One
- * that reads the whole of a run longer than `stealCallsMax` calls only once it has waited `handAfter`,
- * as reading it again elsewhere takes seconds, and then with its run (`handed`).
+ * `reading`), if it does: behind what can wait at once, behind another request once it has waited
+ * `stealMs`, or at once when that request reads a long run and `p` is about a short one. One about
+ * the run that thread is reading only when a part of the run answers it (`borrowed`). One that reads
+ * the whole of a run longer than `stealCallsMax` calls only once it has waited `handAfter`, as
+ * reading it again elsewhere takes seconds, and then with its run (`handed`).
  */
-function takes(busy: Pending, reading: string | null, p: Pending, now: number): 'borrowed' | 'taken' | 'handed' | null {
+function takes(busy: Pending, reading: string | null, p: Pending, now: number): Taken['how'] | null {
   const waited = now - p.at;
-  if (!busy.background && waited < READ_LIMITS.stealMs) return null;
+  if (!busy.background && (!readsLong(busy) || readsLong(p)) && waited < READ_LIMITS.stealMs) return null;
   if (p.affinity === reading) return answersFromPart(p.job) ? 'borrowed' : null;
   if (answersFromPart(p.job) || (p.calls ?? 0) <= READ_LIMITS.stealCallsMax) return 'taken';
   return waited >= handAfter(busy) ? 'handed' : null;
@@ -180,6 +210,13 @@ function takes(busy: Pending, reading: string | null, p: Pending, now: number): 
 
 /** How long the whole of a long run waits for its thread, busy with `busy`, before it is handed over (`READ_LIMITS.stealLongMs`). */
 const handAfter = (busy: Pending): number => (busy.background ? 2 * READ_LIMITS.warmSliceMs : READ_LIMITS.stealLongMs);
+
+/**
+ * A thread still starting, which takes nothing until it is ready: what waits goes to the thread free
+ * first. A request given to a spare thread as it started waited for it to start, 1.5 s at load 100,
+ * while the thread beside it was free again in 8 ms.
+ */
+const starting = (s: Slot): boolean => s.worker !== null && !s.ready;
 
 export class ReadPool implements ReadModels {
   private readonly slots: Slot[];
@@ -189,10 +226,13 @@ export class ReadPool implements ReadModels {
   private nextId = 1;
   private warming: 'running' | 'done' = 'running';
   private closing: Promise<void> | null = null;
-  /** A look again, once a request waiting for a busy thread has waited long enough for another to take it (`lookAgain`). */
+  /** A look again, once a request waiting for a busy thread has waited long enough for another to take it (`lookAgain`), and when. */
   private stealing: ReturnType<typeof setTimeout> | null = null;
-  /** The spare thread's end, once it has had nothing to do for `spareIdleMs` (`spareIdle`). */
+  private stealingAt = 0;
+  /** The end of the spare threads that have had nothing to do for `spareIdleMs` (`spareIdle`). */
   private spareTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The number the next thread is known by (`Slot.index`): a spare thread's, once others have ended, is no place in `slots`. */
+  private nextIndex: number;
 
   constructor(
     private readonly o: {
@@ -206,7 +246,8 @@ export class ReadPool implements ReadModels {
     },
   ) {
     const size = Math.max(1, o.size ?? READ_LIMITS.size);
-    this.slots = Array.from({ length: size }, (_, index) => ({ index, worker: null, ready: false, busy: null, pinned: [], later: [], limit: null, used: 0 }));
+    this.slots = Array.from({ length: size }, (_, index) => ({ index, worker: null, ready: false, busy: null, pinned: [], later: [], limit: null, used: 0, freed: 0, since: 0 }));
+    this.nextIndex = size;
     // The threads start with the dashboard, so the page's first request finds one ready; and the
     // warm-up with them, so the first look at the Overview finds totals kept.
     for (const slot of this.slots) this.spawn(slot);
@@ -228,38 +269,37 @@ export class ReadPool implements ReadModels {
     return new Promise<ReadAnswer>((resolve, reject) => {
       const p: Pending = { id: this.nextId++, job, affinity: o.affinity ?? null, at: Date.now(), background: false, ...(o.calls !== undefined ? { calls: o.calls } : {}), resolve, reject };
       const owner = p.affinity === null ? undefined : this.owners.get(p.affinity);
-      if (owner !== undefined) this.slots[owner]!.pinned.push(p);
+      const slot = owner === undefined ? undefined : this.slots.find((s) => s.index === owner);
+      if (slot) slot.pinned.push(p);
       else this.shared.push(p);
       this.dispatch();
     });
   }
 
   /**
-   * Gives each thread with nothing to do the next thing to do: what was asked of it, then of any,
-   * then what waits for a busy one (`unpin`). What can wait runs on one thread at a time, and only
-   * while another stays free for the next request: a long run's whole analysis first (on the thread
-   * that read the run), then a slice of the warm-up. With one thread, it runs when that one is free.
+   * Gives each thread with nothing to do the next thing to do: what was asked of it, then the next of
+   * what any may answer and what waits for a busy one (`next`). What can wait runs on one thread at a
+   * time, and only while another stays free for the next request: a long run's whole analysis first
+   * (on the thread that read the run), then a slice of the warm-up. With one thread, it runs when that
+   * one is free.
    */
   private dispatch(): void {
     if (this.closing) return;
     const now = Date.now();
     for (const slot of this.slots) {
-      if (slot.busy) continue;
-      const next = slot.pinned.shift() ?? this.shared.shift() ?? this.unpin(now);
+      if (slot.busy || starting(slot)) continue;
+      const next = slot.pinned.shift() ?? this.next(now);
       if (next) this.start(slot, next);
     }
     const background = this.slots.some((s) => s.busy?.background);
-    // Every thread is busy: a spare thread takes what came behind them, at once behind what can wait,
-    // behind requests once one has waited `spareAfterMs` (two whole Compares took both for minutes).
-    if (!this.slots.some((s) => !s.busy) && !this.slots.some((s) => s.spare)) {
-      const after = background ? 0 : READ_LIMITS.spareAfterMs;
-      const next = this.shared[0] && now - this.shared[0].at >= after ? this.shared.shift() : this.unpin(now, after);
-      if (next) this.start(this.addSpare(), next);
-    }
+    // Every thread is busy: a spare thread starts for what came behind them (`spareAfter`), or ahead of
+    // it in place of what can wait that has held a thread a while (`standInDue`).
+    const after = this.slots.some((s) => !s.busy) ? null : this.spareAfter();
+    if (after !== null && ((this.shared[0] && now - this.shared[0].at >= after) || this.unpinnable(now, after) || this.standInDue() <= now)) this.addSpare();
     this.lookAgain(now);
     this.spareIdle(background);
     if (background) return;
-    const idle = this.slots.filter((s) => !s.busy && !s.spare);
+    const idle = this.slots.filter((s) => !s.busy && !s.spare && !starting(s));
     if (idle.length < Math.min(2, this.slots.filter((s) => !s.spare).length)) return;
     const analysing = idle.find((s) => s.later.length);
     if (analysing) return this.start(analysing, analysing.later.shift()!);
@@ -269,39 +309,68 @@ export class ReadPool implements ReadModels {
     if (warm) this.start(idle.reduce((a, b) => (b.used < a.used ? b : a)), warm);
   }
 
-  /** A spare thread (`Slot.spare`), started for the request about to be given it. */
-  private addSpare(): Slot {
-    const slot: Slot = { index: this.slots.length, worker: null, ready: false, busy: null, pinned: [], later: [], limit: null, used: 0, spare: true };
-    this.slots.push(slot);
-    this.spawn(slot);
-    return slot;
+  /**
+   * How long a request waits behind threads that are all busy before a spare thread starts for it:
+   * at once while what can wait holds one of them, `spareAfterMs` while requests hold them all; null
+   * while no other may start. One spare thread takes what waits behind requests (two whole Compares
+   * took both threads for minutes), and one more stands in for each thread what can wait holds: with
+   * a slice of the warm-up that worked out a run of 100,000 calls on one thread for 15 s, and a whole
+   * Compare on the spare, the Overview, Runs and a small run's page waited 2.1 s behind a call of that
+   * run on the other.
+   */
+  private spareAfter(): number | null {
+    const held = this.slots.filter((s) => s.busy?.background).length;
+    if (this.slots.filter((s) => s.spare).length > held) return null;
+    return held ? 0 : READ_LIMITS.spareAfterMs;
   }
 
-  /** Ends the spare thread once nothing can wait any more and it has had nothing to do for `spareIdleMs`. */
+  /**
+   * When a spare thread is to start ahead of what comes, while every thread is busy, in place of what
+   * can wait (Infinity for never): once it has held a thread two slices of the warm-up, as many as
+   * `spareAfter` lets start. A slice can't stop, and one that works out a run of 100,000 calls held its
+   * thread 9 to 15 s: a spare started only as the Overview and a small run's page came behind it and a
+   * whole Compare left them waiting 0.15 to 0.24 s for it to start; one started ahead answered them in
+   * 28 and 49 ms.
+   */
+  private standInDue(): number {
+    const held = this.slots.filter((s) => s.busy?.background);
+    return held.length ? Math.min(...held.map((s) => s.since)) + 2 * READ_LIMITS.warmSliceMs : Infinity;
+  }
+
+  /** A spare thread (`Slot.spare`), started for what waits: once ready, it takes what is left of it, as any free thread does. */
+  private addSpare(): void {
+    const slot: Slot = { index: this.nextIndex++, worker: null, ready: false, busy: null, pinned: [], later: [], limit: null, used: 0, freed: Date.now(), since: 0, spare: true };
+    this.slots.push(slot);
+    this.spawn(slot);
+  }
+
+  /** Ends each spare thread once nothing can wait any more and it has had nothing to do for `spareIdleMs`. */
   private spareIdle(background: boolean): void {
-    const spare = this.slots.find((s) => s.spare);
-    if (!spare || spare.busy || background) {
-      if (this.spareTimer) clearTimeout(this.spareTimer);
-      this.spareTimer = null;
-      return;
-    }
-    if (this.spareTimer) return;
+    if (this.spareTimer) clearTimeout(this.spareTimer);
+    this.spareTimer = null;
+    const idle = background ? [] : this.slots.filter((s) => s.spare && !s.busy);
+    if (!idle.length) return;
+    const due = Math.min(...idle.map((s) => s.freed)) + READ_LIMITS.spareIdleMs;
     this.spareTimer = setTimeout(() => {
       this.spareTimer = null;
-      const s = this.slots.find((x) => x.spare);
-      if (!s || s.busy || this.slots.some((x) => x.busy?.background)) return;
-      this.slots.splice(this.slots.indexOf(s), 1);
-      for (const [runId, index] of this.owners) if (index === s.index) this.owners.delete(runId);
-      this.shared.unshift(...s.pinned.splice(0));
-      const worker = s.worker;
-      s.worker = null;
-      if (worker) {
-        worker.postMessage({ type: 'close' } satisfies ToReadWorker);
-        setTimeout(() => void worker.terminate().catch(() => undefined), READ_LIMITS.closeMs).unref();
-      }
+      const now = Date.now();
+      for (const s of this.slots.filter((x) => x.spare && !x.busy && now - x.freed >= READ_LIMITS.spareIdleMs)) this.endSpare(s);
       this.dispatch();
-    }, READ_LIMITS.spareIdleMs);
+    }, Math.max(0, due - Date.now()));
     this.spareTimer.unref();
+  }
+
+  /** Ends a spare thread: what waits for it goes to any thread. */
+  private endSpare(s: Slot): void {
+    this.slots.splice(this.slots.indexOf(s), 1);
+    for (const [runId, index] of this.owners) if (index === s.index) this.owners.delete(runId);
+    this.shared.unshift(...s.pinned.splice(0));
+    const worker = s.worker;
+    s.worker = null;
+    if (worker) {
+      worker.postMessage({ type: 'close' } satisfies ToReadWorker);
+      setTimeout(() => void worker.terminate().catch(() => undefined), READ_LIMITS.closeMs).unref();
+    }
   }
 
   /**
@@ -313,26 +382,51 @@ export class ReadPool implements ReadModels {
    * run that thread is analysing, or reading for another request, is borrowed when a part of the run
    * answers it (a page of its calls, a call, its first page), leaving the run that thread's; one that
    * needs the whole of it waits for that thread. One that reads the whole of another long run waits
-   * a while (`stealLongMs`), then is handed over with its run (`takes`). A spare thread takes only what
-   * has waited `after` too.
+   * a while (`stealLongMs`), then is handed over with its run (`takes`).
    */
-  private unpin(now: number, after = 0): Pending | undefined {
+  private unpin(found: Taken): Pending {
+    const { p, from, how } = found;
+    from.pinned.splice(from.pinned.indexOf(p), 1);
+    if (how === 'handed') p.handed = true;
+    else {
+      if (how === 'borrowed') p.borrowed = true;
+      p.taken = true;
+    }
+    return p;
+  }
+
+  /**
+   * The request that has waited longest of those waiting for a busy thread that a free one takes
+   * (`unpin`), of those `which` names; for a spare thread to start for, one that has waited `after` too.
+   */
+  private unpinnable(now: number, after = 0, which: (p: Pending) => boolean = () => true): Taken | undefined {
+    let found: Taken | undefined;
     for (const s of this.slots) {
       const busy = s.busy;
       if (!busy) continue;
       const reading = busy.background ? (busy.job.kind === 'analyse' ? busy.job.runId : null) : busy.affinity;
-      for (let i = 0; i < s.pinned.length; i++) {
-        const p = s.pinned[i]!;
+      for (const p of s.pinned) {
+        if ((found && found.p.id < p.id) || !which(p)) continue;
         const how = now - p.at >= after ? takes(busy, reading, p, now) : null;
-        if (!how) continue;
-        s.pinned.splice(i, 1);
-        if (how === 'handed') p.handed = true;
-        else {
-          if (how === 'borrowed') p.borrowed = true;
-          p.taken = true;
-        }
-        return p;
+        if (how) found = { p, from: s, how };
       }
+    }
+    return found;
+  }
+
+  /**
+   * What a free thread takes when nothing waits for it: of the requests any thread may answer and
+   * those waiting for a busy thread that it takes (`unpin`), the one that has waited longest, by the
+   * order their ids keep (several come in the same millisecond), one that reads a long run after the
+   * rest. A small run's page waited 0.35 s behind a Compare's head of two runs of 100,000 calls asked
+   * after it, and the Overview and Runs a second behind a page deep in a run that long asked before them.
+   */
+  private next(now: number): Pending | undefined {
+    for (const long of [false, true]) {
+      const shared = this.shared.find((p) => readsLong(p) === long);
+      const found = this.unpinnable(now, 0, (p) => readsLong(p) === long);
+      if (found && (!shared || found.p.id < shared.id)) return this.unpin(found);
+      if (shared) return this.shared.splice(this.shared.indexOf(shared), 1)[0];
     }
     return undefined;
   }
@@ -340,19 +434,19 @@ export class ReadPool implements ReadModels {
   /**
    * While a request waits for a busy thread, looks again once it has waited long enough for another
    * thread to take it: a free one after `stealMs` (longer for the whole of a long run, `handAfter`), a
-   * spare one, while every thread is busy, after `spareAfterMs`.
+   * spare one, while every thread is busy, once a spare thread may start for it (`spareAfter`), or one
+   * is due to start ahead (`standInDue`). A look due sooner takes the place of one due later.
    */
   private lookAgain(now: number): void {
-    if (this.stealing) return;
     const free = this.slots.some((s) => !s.busy);
-    const spare = !free && !this.slots.some((s) => s.spare);
-    if (!free && !spare) return;
-    const base = free ? 0 : READ_LIMITS.spareAfterMs;
+    const base = free ? 0 : this.spareAfter();
+    if (base === null) return;
     let when = Infinity;
     const at = (t: number) => {
       if (t > now) when = Math.min(when, t);
     };
-    if (spare && this.shared[0]) at(this.shared[0].at + base);
+    if (!free && this.shared[0]) at(this.shared[0].at + base);
+    if (!free) at(this.standInDue());
     for (const s of this.slots) {
       if (!s.busy) continue;
       for (const p of s.pinned) {
@@ -360,7 +454,10 @@ export class ReadPool implements ReadModels {
         at(p.at + Math.max(base, handAfter(s.busy)));
       }
     }
-    if (when === Infinity) return;
+    // A look already due sooner stands; one due later gives way to this one.
+    if (when === Infinity || (this.stealing && this.stealingAt <= when)) return;
+    if (this.stealing) clearTimeout(this.stealing);
+    this.stealingAt = when;
     this.stealing = setTimeout(() => {
       this.stealing = null;
       this.dispatch();
@@ -389,7 +486,8 @@ export class ReadPool implements ReadModels {
 
   private start(slot: Slot, p: Pending): void {
     slot.busy = p;
-    if (!p.background) slot.used = Date.now();
+    slot.since = Date.now();
+    if (!p.background) slot.used = slot.since;
     if (p.affinity !== null && p.handed) this.handOver(p.affinity, slot);
     else if (p.affinity !== null && !p.borrowed && !p.taken && !slot.spare) this.own(p.affinity, slot.index);
     if (!slot.worker) this.spawn(slot);
@@ -400,7 +498,7 @@ export class ReadPool implements ReadModels {
   /** Ends the thread when `p` runs past its time: a job that never ends would hold the thread, and every request for its runs, for good. */
   private time(slot: Slot, p: Pending): void {
     if (slot.limit) clearTimeout(slot.limit);
-    const ms = p.background ? READ_LIMITS.backgroundMs : READ_LIMITS.jobMs;
+    const ms = p.background ? READ_LIMITS.backgroundMs : READ_LIMITS.jobMs * Math.max(1, Math.ceil((p.calls ?? 0) / READ_LIMITS.jobCalls));
     slot.limit = setTimeout(() => {
       slot.limit = null;
       const worker = slot.worker;
@@ -471,6 +569,7 @@ export class ReadPool implements ReadModels {
         const p = slot.busy;
         if (!p || p.id !== m.id) return;
         slot.busy = null;
+        slot.freed = Date.now();
         if (slot.limit) clearTimeout(slot.limit);
         slot.limit = null;
         // A thread built before a kind of job it is given answers nothing for it: that fails, rather than waits for good.
@@ -509,6 +608,7 @@ export class ReadPool implements ReadModels {
     void worker.terminate().catch(() => undefined);
     const busy = slot.busy;
     slot.busy = null;
+    slot.freed = Date.now();
     this.shared.unshift(...slot.pinned.splice(0));
     slot.later.length = 0;
     for (const [runId, index] of this.owners) if (index === slot.index) this.owners.delete(runId);

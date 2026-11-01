@@ -2,10 +2,11 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { compareRuns, parseJsonExact, Store, storeApiRequest, storeView, type RunMeta, type RunRecord } from '@shadowlap/engine';
 import { codeChangeCache, compareHead, HEAD_READS, parseRevision, readCodeChange, type CompareView } from '../src/compare.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
+import { LocalReads } from '../src/read-pool.js';
 import { compareTarget } from '../ui/runs.js';
 
 /**
@@ -194,6 +195,21 @@ describe('GET /api/compare', () => {
   it('names what differs in the first request that differs, as the design does, with its path kept', async () => {
     const c = await get(ids.recorded, ids.forked);
     expect(c.firstRequestDifference?.diff).toEqual([{ path: '$.messages[2].content[0].content', op: 'changed', before: '{"approval":"tier2"}', after: '{"refund_limit":100,"approval":"tier2"}', what: 'tool_result lookup_policy' }]);
+  });
+
+  it('tells the read models how many calls the two runs have, which a long pair is given the time for', async () => {
+    const asked = vi.spyOn(LocalReads.prototype, 'run');
+    try {
+      await get(ids.recorded, ids.forked.slice(0, 20));
+      const head = await fetch(`${dash.url}/api/compare?a=${ids.recorded}&b=${ids.forked}&part=head`, { headers: { 'x-shadowlap-token': dash.token } });
+      expect(head.status).toBe(200);
+      expect(asked.mock.calls.map((c) => [c[0].kind, (c as unknown[])[1]])).toEqual([
+        ['compare', { calls: 2 }],
+        ['compare-head', { calls: 2 }],
+      ]);
+    } finally {
+      asked.mockRestore();
+    }
   });
 });
 
