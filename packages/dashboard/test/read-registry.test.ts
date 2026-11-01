@@ -13,7 +13,8 @@ import { addRun, DAY, HOUR } from './read-model-store.js';
  * read-jobs.ts's own table, then each feature's from its own module. Every kind registered answers
  * on a read-model thread beside the server (read-pool.ts `ReadPool`, a store with a file) as on the
  * server's own thread for a store in memory (`LocalReads`), given the same runs. `JOBS` holds one job
- * of each kind: one registered without a job there fails the tests' type check.
+ * of each kind: one registered without a job there fails the tests' type check. A job of a kind no
+ * table registers fails, on a thread as on the server's own, and the thread goes on answering.
  */
 
 const NOW = Date.UTC(2026, 9, 20, 12);
@@ -52,6 +53,7 @@ const JOBS: { [K in ReadJob['kind']]: Extract<ReadJob, { kind: K }> } = {
 };
 
 let dir: string;
+let dbPath: string;
 /** A store with a file, whose read models are worked out on threads beside the server. */
 let file: Store;
 /** A store in memory, whose read models are worked out on the server's own thread. */
@@ -61,7 +63,7 @@ let local: LocalReads;
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), 'sl-read-registry-'));
-  const dbPath = join(dir, 'shadowlap.db');
+  dbPath = join(dir, 'shadowlap.db');
   file = Store.open(dbPath);
   memory = Store.open(':memory:');
   for (const store of [file, memory]) {
@@ -111,7 +113,27 @@ describe('the pooled reads by kind', () => {
     expect(() => readRegistry([{ estimate: one }, { outcome: one, estimate: one }])).toThrow('read job kind "estimate" is registered twice');
   });
 
-  it('fail a job of a kind no table registers, saying the build may be behind', async () => {
-    await expect(runJob(memory, { kind: 'nope' } as unknown as ReadJob)).rejects.toThrow('no read model answers a job of kind "nope": is the dashboard built?');
+  it('fail a job of a kind no table registers, saying the build may be behind, on a thread that goes on answering', async () => {
+    const nope = { kind: 'nope' } as unknown as ReadJob;
+    const words = 'no read model answers a job of kind "nope": is the dashboard built?';
+    await expect(runJob(memory, nope)).rejects.toThrow(words);
+    // On a thread, where it happens: one built before a kind was registered, given a job of it by a
+    // newer server. The job fails through the thread's 'error', in the same words, and the thread
+    // lives on: the only one, it answers the next job, and nothing says it stopped.
+    const lines: string[] = [];
+    const one = new ReadPool({ dbPath, keep: { stats: (rows) => void file.saveRunStats(rows), asks: (rows) => void file.saveRunAsks(rows) }, size: 1, log: (l) => lines.push(l) });
+    try {
+      // Warmed first: no slice of the warm-up holds the thread, so no spare starts beside it.
+      for (let i = 0; i < 400 && !one.warmed; i++) await new Promise((r) => setTimeout(r, 25));
+      expect(one.warmed).toBe(true);
+      await expect(one.run(nope)).rejects.toThrow(words);
+      expect((await one.run({ kind: 'tool-reads' })).status).toBe(200);
+      // Through the thread's 'error', which logs the failure, and never as a thread that stopped.
+      const said = lines.join('\n');
+      expect(said).toMatch(/^a read model failed: .*no read model answers a job of kind "nope": is the dashboard built\?/m);
+      expect(said).not.toContain('a read-model thread stopped');
+    } finally {
+      await one.close();
+    }
   });
 });
