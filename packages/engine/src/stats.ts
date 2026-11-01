@@ -1,4 +1,5 @@
 import { isObject } from './is-object.js';
+import { plural } from './words.js';
 /**
  * Verdicts on runs that vary. A clean replay comes out the same every time; a fork does not, since
  * everything after it runs live. So a forked golden, a verify attempt or a blame probe is a sample,
@@ -1003,7 +1004,6 @@ const rate = (x: number) => x.toFixed(2);
 /** A bound's end to two places, rounded away from the rate it bounds: a low end down, a high end up. */
 const lowEnd = (x: number) => (Math.floor(x * 100) / 100).toFixed(2);
 const highEnd = (x: number) => (Math.ceil(x * 100) / 100).toFixed(2);
-const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 
 /** A gate's rate as its rule names it: 0.9 is `90%+`, 90% or more; 0.7, below, is `70%-`, 70% or less. */
 export const atLeast = (x: number): string => `${percent(x)}+`;

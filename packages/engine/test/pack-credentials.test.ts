@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -234,6 +234,28 @@ describe("a copy of a run whose command line and a captured call's address carry
   });
 });
 
+describe('a copy of a run whose command line carries a secret by a word’s place', () => {
+  const PLACED = ['wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY', 'hvs.EXAMPLEtokenEXAMPLEtoken0123', 'pw_FAKE_PLACE_0123'];
+  const script = (key: string, token: string, pw: string, api: string) => `aws configure set aws_secret_access_key ${key} && vault login ${token} && psql "host=db password=${pw}" -c 'select 1' && node agent.js --api-key ${api}`;
+
+  it('carries none of them, and a pack an earlier version wrote with them in it is still the recording made here', () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: { argv: ['sh', '-c', script(PLACED[0], PLACED[1], PLACED[2], 'sk-test-EXAMPLE0000')], cwd: '/tmp' } });
+    store.endRun(run.runId, 'completed');
+    expect(carriesCredentials(store, run.runId)).toBe(true);
+    const dir = packOf(store, run.runId);
+    const bytes = everything(dir);
+    for (const secret of PLACED) expect(bytes, secret).not.toContain(secret);
+    expect(unpackRun(store, dir).mismatched).toEqual([]);
+    // As an earlier version wrote the pack: these as the command ran, the flag's key masked.
+    const manifest = JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')) as { runs: Array<{ command: { argv: string[] } }> };
+    manifest.runs[0].command.argv = ['sh', '-c', script(PLACED[0], PLACED[1], PLACED[2], `"${CREDENTIAL_PLACEHOLDER}"`)];
+    writeFileSync(join(dir, 'run.json'), JSON.stringify(manifest));
+    expect(unpackRun(store, dir).mismatched).toEqual([]);
+    store.close();
+  });
+});
+
 /**
  * A run an earlier version recorded of a secret store's answers, stored as they came: a read of
  * Vault's KV engine, version 1, a Kubernetes Secret, and a Secret's manifest sent to create one;
@@ -274,6 +296,53 @@ describe('a copy of a recording an earlier version made of a secret store’s an
     for (const [copy, bytes] of [['pack', packed], ['push', pushed]]) {
       for (const secret of STORE_SECRETS) expect(bytes, `${secret} in a ${copy}`).not.toContain(secret);
       for (const kept of ['b0e1c2d3-0000-4000-8000-000000000001', '"namespace":"prod"', '"name":"api"']) expect(bytes, `${kept} in a ${copy}`).toContain(kept);
+    }
+    store.close();
+  });
+});
+
+/**
+ * A run an earlier version recorded of calls that write to secret stores, and of Vault's answers that
+ * hold a secret by their address, stored as they went and came: a KV write, a Key Vault secret's,
+ * Secret Manager's addVersion, a Secret's patch; a read at another mount and an unwrapping.
+ */
+function withSecretWrites(store: Store) {
+  const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '/tmp' } });
+  const vault = '{"request_id":"b0e1c2d3-0000-4000-8000-000000000001","lease_duration":2764800,"data":{"db":"SLSEC_WRITE_KVREAD"}';
+  const calls: Array<[string, string, string, unknown, string]> = [
+    ['PUT', 'vault.example.com:8200', '/v1/secret/data/prod/db', { data: { db: 'SLSEC_WRITE_KV2' }, options: { cas: 0 } }, '{"data":{"version":2}}'],
+    ['PUT', 'acme.vault.azure.net', '/secrets/db', { value: 'SLSEC_WRITE_AZURE', contentType: 'text/plain' }, '{"id":"https://acme.vault.azure.net/secrets/db/0123"}'],
+    ['POST', 'secretmanager.googleapis.com', '/v1/projects/acme/secrets/db:addVersion', { payload: { data: Buffer.from('SLSEC_WRITE_GCP').toString('base64') } }, '{"name":"projects/acme/secrets/db/versions/4"}'],
+    ['PATCH', 'k8s.example.com', '/api/v1/namespaces/prod/secrets/db', { stringData: { url: 'SLSEC_WRITE_K8S' } }, '{"metadata":{"name":"db"}}'],
+    ['GET', 'vault.example.com:8200', '/v1/kv/prod/db', undefined, `${vault},"mount_type":"kv"}`],
+    ['POST', 'vault.example.com:8200', '/v1/sys/wrapping/unwrap', undefined, '{"data":{"note":"SLSEC_WRITE_UNWRAPPED"}}'],
+  ];
+  calls.forEach(([method, host, path, body, answer], i) => {
+    const call = { kind: 'tool' as const, name: `${method} ${host}${path}`, fingerprint: String(i).repeat(64), occurrence: 1 };
+    const args = { method, url: `https://${host}${path}`, ...(body === undefined ? {} : { body, encoding: 'json' }) };
+    store.appendCallStart({ runId: run.runId, callNo: i + 1, ...call, origin: 'live', effect: 'write', requestRef: store.putJson({ args }), meta: { http: host }, at: 2 * i + 1 });
+    store.appendCallEnd(call, { runId: run.runId, callNo: i + 1, attempt: 0, responseRef: store.putBlob(resultBlob({ status: 200, headers: { 'content-type': 'application/json' }, encoding: 'json' }, answer)), outcome: 'ok', meta: {}, at: 2 * i + 2 });
+  });
+  store.endRun(run.runId, 'completed');
+  return run;
+}
+
+describe('a copy of a recording an earlier version made of what calls wrote to secret stores', () => {
+  const WRITTEN = ['SLSEC_WRITE_KV2', 'SLSEC_WRITE_AZURE', Buffer.from('SLSEC_WRITE_GCP').toString('base64'), 'SLSEC_WRITE_K8S', 'SLSEC_WRITE_KVREAD', 'SLSEC_WRITE_UNWRAPPED'];
+
+  it('carries none of the secrets, a pack with no rules and a push too, and keeps what names them', () => {
+    const store = Store.open(':memory:');
+    const run = withSecretWrites(store);
+    expect(carriesCredentials(store, run.runId)).toBe(true);
+    const packed = everything(packOf(store, run.runId));
+    const pushed = credentialFreeCalls(store, store.getCalls(run.runId))
+      .flatMap((c) => [c.requestRef, c.end?.responseRef])
+      .filter((ref): ref is string => !!ref)
+      .map((ref) => store.getBlob(ref)!.toString('latin1'))
+      .join('\n');
+    for (const [copy, bytes] of [['pack', packed], ['push', pushed]]) {
+      for (const secret of WRITTEN) expect(bytes, `${secret} in a ${copy}`).not.toContain(secret);
+      for (const kept of ['"cas":0', '"contentType":"text/plain"', 'b0e1c2d3-0000-4000-8000-000000000001', '"mount_type":"kv"']) expect(bytes, `${kept} in a ${copy}`).toContain(kept);
     }
     store.close();
   });

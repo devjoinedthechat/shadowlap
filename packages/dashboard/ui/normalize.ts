@@ -1,6 +1,7 @@
 import type { ActionItem, BlameView, CacheMissView, CallDetail, CheckView, FixView, Intervention, Meta, NotRecordedView, PromptChoice, RunDetail, RunListItem, RunOutcomeView, RunStateView } from './types.js';
 import { isObject } from '../../engine/src/is-object.js';
 import { lostRange } from '../../engine/src/run-verdicts.js';
+import { int, num, str } from '../src/fields.js';
 
 /**
  * The API's answers in the one shape the views read. Parts of the API name some fields their own
@@ -10,10 +11,6 @@ import { lostRange } from '../../engine/src/run-verdicts.js';
  * know is left alone. A run can come from someone else's pack, so nothing is trusted to have its
  * shape. No DOM here: the tests import it.
  */
-
-const int = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) ? v : null);
-const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 
 /** A sentence for a disabled control's hover: capitalised, with its full stop. */
 export function sentence(text: string): string {

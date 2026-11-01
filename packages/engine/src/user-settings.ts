@@ -1,5 +1,4 @@
 import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { SPENDING_DEFAULT, SPENDING_REFUSED, validSpending, type Spending } from './estimates/spending.js';
 import { isObject } from './is-object.js';
@@ -59,12 +58,12 @@ export interface SpendingSetting {
  */
 export function userSettingsFile(o: UserSettingsOptions = {}): string {
   if (o.dir !== undefined && !isAbsolute(o.dir)) throw new UserSettingsError(`${o.dir} isn’t an absolute path, so it names a different folder wherever Shadowlap runs: give the folder for this machine’s settings as an absolute path`);
-  return join(o.dir ?? shadowlapHome(o.env ?? process.env, o.home ?? homedir()), USER_SETTINGS_FILE);
+  return join(o.dir ?? shadowlapHome(o.env, o.home), USER_SETTINGS_FILE);
 }
 
 /** A relative SHADOWLAP_HOME that was ignored, in the words every file kept for this machine says it in (shadowlapHomeProblem). */
 function homeProblems(o: UserSettingsOptions): string[] {
-  const problem = o.dir === undefined ? shadowlapHomeProblem(o.env ?? process.env, o.home ?? homedir()) : null;
+  const problem = o.dir === undefined ? shadowlapHomeProblem(o.env, o.home) : null;
   return problem ? [problem] : [];
 }
 

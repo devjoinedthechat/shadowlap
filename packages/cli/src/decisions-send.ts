@@ -3,7 +3,7 @@ import { request as httpsRequest } from 'node:https';
 import { createHash } from 'node:crypto';
 import { createBrotliDecompress, createGunzip, createInflate } from 'node:zlib';
 import { PassThrough, type Readable } from 'node:stream';
-import { messageOf, type Usage } from '@shadowlap/engine';
+import { encodeRfc3986 as rfc3986, messageOf, type Usage } from '@shadowlap/engine';
 import { configuredRegion, resolveAwsCredentials, resolveGoogleToken, signRequest } from '@shadowlap/remote';
 import { providers, sdkBasesFromEnvironment, type Provider } from '@shadowlap/sidecar';
 
@@ -141,7 +141,6 @@ export function missingCredentials(provider: Provider, official: boolean, env: N
 }
 
 const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');
-const rfc3986 = (s: string) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 
 /** The headers that carry this machine's credentials for one request, signed where the provider signs. */
 async function credentialHeaders(provider: Provider, url: URL, method: string, body: Buffer, env: NodeJS.ProcessEnv, official: boolean): Promise<Record<string, string>> {

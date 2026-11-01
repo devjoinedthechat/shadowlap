@@ -11,15 +11,16 @@ no wrapper reaches them, so they are recorded and fenced through the SDK's hooks
 
 - While recording, PostToolUse records each built-in tool's input and output through the sidecar,
   and PostToolUseFailure its failure.
-- On replay, a recorded write never runs again: PreToolUse turns its input into a stand-in Claude
-  Code accepts and that changes nothing outside a temporary folder (Bash runs ``true``, or ``cd`` to
-  the folder the command left; Write and Edit write a new file there), and PostToolUse hands the
-  model the recorded output in its place (``updatedToolOutput``). A recorded Bash failure is
-  reproduced by a command that prints its output and exits with its code. A read runs as it is,
-  since reading changes nothing and keeps Claude Code's own file tracking as it was recorded, and
-  the model gets the recorded output too.
-- After a fork, a write is refused per ``--writes``: ``block`` denies it with the refusal the model
-  reads, ``stub`` runs the stand-in and answers with ``on_fork``'s output.
+- On replay, up to a fork, a recorded write never runs again: PreToolUse turns its input into a
+  stand-in Claude Code accepts and that changes nothing outside a temporary folder (Bash runs
+  ``true``, or ``cd`` to the folder the command left; Write and Edit write a new file there), and
+  PostToolUse hands the model the recorded output in its place (``updatedToolOutput``). A recorded
+  Bash failure is reproduced by a command that prints its output and exits with its code. A read
+  runs as it is, since reading changes nothing and keeps Claude Code's own file tracking as it was
+  recorded, and the model gets the recorded output too.
+- After a fork, a write goes as ``--writes`` says: ``block`` denies it with the refusal the model
+  reads, ``stub`` runs the stand-in and answers with ``on_fork``'s output, and ``allow`` runs it,
+  recorded.
 
 Without Shadowlap (no SHADOWLAP_URL) every hook answers ``{}``. Claude Code checks a call's input
 against the files on disk before any hook runs, so a replay forks, safely, at a call that depends on

@@ -203,9 +203,9 @@ Answers model call *n* with an HTTP failure instead of the recording. Error hand
 things a replay exercises for free, and the one thing no recording of a healthy run contains. So
 without this there is no way to ask what the agent does when a call fails.
 
-Nothing leaves the machine: Shadowlap writes the response itself, so the run makes no upstream request
-and spends nothing. The answer is in the provider's error shape, so its client raises what a real
-failure raises. On Bedrock, the AWS SDK raises:
+Shadowlap writes the response itself, so that call makes no upstream request and spends nothing. The
+calls after it may go live, as after any fork. The answer is in the provider's error shape, so its
+client raises what a real failure raises. On Bedrock, the AWS SDK raises:
 
 | Status | Bedrock's exception           |
 |-------:|-------------------------------|

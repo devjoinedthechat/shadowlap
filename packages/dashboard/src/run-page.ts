@@ -37,6 +37,7 @@ import {
   type ToolTrust,
 } from '@shadowlap/engine';
 import { lostRange, modelResolver, runLabel } from '@shadowlap/engine';
+import { str } from './fields.js';
 import { runCalls } from './run-calls.js';
 import { runWebSockets, type WebSocketView } from './run-unrecorded.js';
 
@@ -518,7 +519,6 @@ export interface RunPageFacts {
 const inScope = (callScope: unknown, scope: string | null | undefined) => !scope || (typeof callScope === 'string' && (callScope === scope || callScope.startsWith(`${scope}/`)));
 
 // A run can come from someone else's pack: what its metadata says is checked before it is shown.
-const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const int = (v: unknown): number | null => (Number.isInteger(v) ? (v as number) : null);
 const oneOf = <T extends string>(v: unknown, allowed: readonly T[], fallback: T): T => (allowed.includes(v as T) ? (v as T) : fallback);
 

@@ -53,6 +53,29 @@ jobs:
       - run: npm run build
       - run: npm run lint
 
+  # A pull request may lower a ceiling in lint-caps.json or take one off, but never add one or raise
+  # one: `node scripts/lint-caps.mjs --write --add` can do both, and review alone would stop it. The
+  # list is held to where the request left its base branch. The script needs Node and git alone, so
+  # nothing is installed.
+  lint-ceilings:
+    name: lint ceilings
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          # Every branch with its history, for the base branch and where the request left it.
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: No lint ceiling added or raised
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: node scripts/lint-caps-raised.mjs "$BASE"
+
   # The suite with V8's coverage, as a report in the vitest-coverage artifact (coverage/index.html,
   # and the summary in the log): a place to look, never a gate. The job may fail without failing the
   # run, and has no thresholds; a failing test is the test job's to report. What the end-to-end tests

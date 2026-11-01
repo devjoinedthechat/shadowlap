@@ -1,5 +1,5 @@
 import { createElement, useState } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type CallRow, type CallsPage, type Client, type RunDetail } from '../ui/api.js';
 import { RunPage } from '../ui/pages/Run.js';
 import { useRoute } from '../ui/router.js';
@@ -131,11 +131,21 @@ const app = (client: Client) =>
   }) as unknown as AppState;
 
 let r: Rendered | null = null;
+// The pages wait moments of their own (PAGES_AFTER_MS, ASKING_PAUSE_MS, the next try after a
+// failure). On fake timers those pass only as a test moves its clock (r.wait), never while a busy
+// machine holds the thread, so no test here races them.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date', 'performance'] });
+});
 afterEach(async () => {
   await r?.unmount();
   r = null;
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
+
+/** Holds this thread for `ms` of real time, as a machine busy with other work holds it: no timer runs meanwhile. */
+const stall = (ms: number) => void Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 /** The address bar the run page reads and rewrites as the selection moves. */
 function addressBar(hash: string) {
@@ -199,6 +209,10 @@ describe('a long run’s page', () => {
     const { client, asked } = server(1200, 200);
     r = await render(createElement(AppContext.Provider, { value: app(client) }, createElement(RunPage, { id: RUN, call: null, view: null })));
     await r.until('the calls', () => rows().length > 0);
+    // Drawn on a machine busy enough to hold the thread past the moment the other pages wait for:
+    // that moment comes by the test's clock, which hasn't moved.
+    stall(PAGES_AFTER_MS + 50);
+    await r.wait(0);
     // Every call is listed from the start; those drawn are read.
     expect(r.one('table.calls').getAttribute('aria-rowcount')).toBe('1201');
     expect(r.one('[role="tablist"] [aria-selected="true"] .count').textContent).toBe('1,200');

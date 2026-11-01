@@ -83,6 +83,10 @@ Under CI, anything else that appears, and a tracked file that changed, fail the 
 - runs the CLI in a temporary folder of its own (`cwd`), with its own store (`--db`);
 - makes a project an agent runs in with `testing/temp-project.mjs`, in the temporary folder below links to the packages it imports.
 
+Your own `~/.shadowlap` is left alone too. The run sets `SHADOWLAP_HOME` to a temporary folder of its own, for the suites and every process they start, and removes it after. So the project list, and the agents and proxies registered while they run, never reach yours. A test that runs the CLI keeps `process.env` in the environment it gives it, or sets a folder of its own.
+
+What changes in the real `~/.shadowlap` while the tests run fails the run under CI. Elsewhere it is only reported, as your own Shadowlap may write there meanwhile.
+
 ### The golden recording
 
 `npm run golden` re-records `testing/golden/reference-agent`. Only do that when the reference scenario changes on purpose: the golden is what proves replay fidelity in CI.
@@ -136,6 +140,12 @@ An entry may shrink, never grow. Every other function in that file is held to th
 
 - **`node scripts/lint-caps.mjs --write`** lowers the list once a function has shrunk.
 - **`--write --add`** keeps the ceiling of a function renamed or moved, which the list no longer knows by its old name.
+
+A pull request may lower an entry or take one off, but never add one or raise one. CI checks the list against where the request left its base branch, and fails on an entry added or raised. A function renamed or moved shows there as an entry added: say so in the pull request. The same check runs locally against a branch you name:
+
+```sh
+node scripts/lint-caps-raised.mjs origin/main
+```
 
 ## The docs
 

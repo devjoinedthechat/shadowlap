@@ -2,6 +2,7 @@ import { lstatSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { quoteArgv } from '../text.js';
+import { shortRunId } from '../words.js';
 import { readPack } from './folders.js';
 import { displayPath, isWithin, realpathOrNull } from './paths.js';
 
@@ -369,11 +370,6 @@ export function freeGoldenPath(folder: string, projectId: string, runId?: string
     if (!check.taken) break;
   }
   return base;
-}
-
-/** A run id as the setup shows it in commands; the CLI takes any unique prefix. */
-export function shortRunId(runId: string): string {
-  return runId.slice(0, 10);
 }
 
 /**

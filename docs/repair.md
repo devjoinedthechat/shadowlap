@@ -69,7 +69,7 @@ What it is shown of a run goes through the project's [redaction rules](./normali
 
 ### Fixes that need no model come first
 
-If asking the recorded model again rescues nothing, but `--stronger <model>` does, the first candidate is to switch to that model: its name, found once as a string in the source, replaced. The repairer is only asked when that isn't enough, or doesn't apply.
+If asking the recorded model again rescues nothing, but `--stronger <model>` does, the first candidate is to switch to that model: its name, found once as a string in the source, replaced where an anchor could go ([below](#where-an-anchor-goes)). The repairer is only asked when that isn't enough, or doesn't apply.
 
 ### The fix kept passed the gate twice
 
@@ -93,6 +93,47 @@ A fixed count (`--attempts`, `--passes`) states no risk, so it has no such limit
 A rewrite replaces one **anchor**: a span of the system prompt or of a tool description, as the recording shows it, that appears exactly once in the project's files (tracked, or untracked and not ignored). That makes every candidate applicable where the text lives, and every patch one readable change.
 
 A prompt assembled from pieces still anchors: each sentence or line that appears once is its own span. When nothing anchors, the report says so, and the fix is for a person or a coding agent to make.
+
+### Where an anchor goes
+
+An anchor is text a rewrite can change without changing what runs. It is in one of three places:
+
+- **JavaScript, TypeScript or Python source**: text inside one string, from its start to its end. A template literal's `${…}` and an f-string's `{…}` are code, so the span holds each whole or not at all.
+- **YAML, JSON or TOML** (`.yaml`, `.yml`, `.json`, `.toml`): text inside one string value, such as a CrewAI agent's `role`, `goal` or `backstory`, or a model's name in a config. In YAML that is a quoted, plain or block scalar, a line of it at a time, and in TOML a basic or literal string. A key is never one, nor a number, a boolean or a null.
+- **A Markdown, plain text, prompt or Jinja file** (`.md`, `.markdown`, `.txt`, `.rst`, `.prompt`, `.j2`, `.jinja`, `.jinja2`): any text. In a Claude Code subagent, skill or slash command, that is its body alone.
+
+In each, a placeholder (`{…}`, `{{ … }}`, `${…}`) is held whole or not at all. A rewrite of a plain YAML value stays text: it may not start the value with YAML's own syntax, such as `*`, `&` or `!`, nor put a `: ` or a ` #` in it.
+
+Text anywhere else is never anchored: code, a comment or a regular expression, MDX, and another language's source, where Shadowlap can't tell a string from code.
+
+**Never in what runs.** No anchor is placed in a file that runs what it holds, whatever its format, nor in a value that runs. The first rule covers most of them: no path with a part that starts with a dot. This table lists each, with why:
+
+| What runs | Why |
+|---|---|
+| A dot-file or a file in a dot-folder: `.github/`, `.gitlab-ci.yml`, `.circleci/`, `.buildkite/`, `.travis.yml`, `.claude/`, `.mcp.json`, `.pre-commit-config.yaml`, `.devcontainer/`, `.vscode/` | Tools keep their config there, and much of it runs: CI steps, Claude Code's hooks, an MCP server's command, pre-commit hooks |
+| In `.claude/`, all but a subagent's, skill's or command's body: its frontmatter, a skill's scripts, `.claude/settings.json` | The frontmatter's `tools`, `allowed-tools`, `model` and `hooks` say what the agent may run |
+| A shell command in a skill's or command's body: `` !`…` ``, or a block fenced with ```` ```! ```` | Claude Code runs it as it reads the file |
+| `action.yml`, `azure-pipelines*.yml`, `bitbucket-pipelines.yml` | A CI pipeline runs its steps' commands |
+| `Jenkinsfile` | A Jenkins pipeline is Groovy code |
+| `Taskfile.yml` | Its tasks run commands |
+| `Dockerfile` | Its instructions run as the image is built |
+| `Makefile` | Its recipes run commands |
+| `*.sh`, `*.ps1` | A script runs itself |
+| `requirements*.txt`, `constraints*.txt` | pip installs what they name, and a package runs code as it installs |
+| `package.json`'s `scripts` | npm runs them |
+| `package.json`'s dependencies, `overrides` and `resolutions` | A package runs code as it installs |
+| `pyproject.toml`'s `[project.scripts]`, `[project.gui-scripts]` and `[tool.poetry.scripts]` | Installing the package makes each a command |
+| `pyproject.toml`'s `[project.entry-points]` | They name code other programs load |
+| `pyproject.toml`'s dependencies, optional dependencies and Poetry's dependencies and groups | A package runs code as it installs |
+| `pyproject.toml`'s `[build-system]` | It says what runs to build the package |
+| A compose file's `command`, `entrypoint` and `healthcheck.test` | They run in the container, and so can an anchored value, through an alias |
+| A Kubernetes manifest's `command`, `args`, `exec` and `lifecycle` | They run in its containers |
+
+In a file whose other values a rewrite may change, the key path decides. `package.json`'s `description` is text, and its `scripts` and dependencies are not. A ConfigMap's `data`, where prompts live in production, is text, and a container's `command` is not.
+
+The Claude Agent SDK reads a project's subagents, skills and slash commands from `.claude/agents/`, `.claude/skills/` and `.claude/commands/`. It sends each one's body to the model, so a rewrite may change that Markdown body. Nothing else in `.claude/` is ever rewritten, and a rewrite may not add a shell command or change the frontmatter.
+
+The switch to a stronger model is held to the same rule, and so is a patch a pull brings from the [team store](./team.md#a-teammates-patch-is-held-to-a-repairs-rewrites), read where it goes in your working tree.
 
 ### Where no anchor is placed
 
@@ -132,7 +173,7 @@ So a rewrite keeps exactly the placeholders of the text it replaces, each as it 
 | JavaScript and TypeScript | A template literal's `${…}`; `{name}`, `{{ … }}`, `{% … %}` and `<% … %>`, which template libraries read; `%s` and Node's other format conversions |
 | Python | An f-string's or `.format`'s `{…}`, and the `{{` and `}}` that escape a brace; `%s` and `%(name)s`; Jinja's `{{ … }}` and `{% … %}`; `string.Template`'s `$name` |
 | Markdown and text | The same as Python, as a template engine or `.format` may render the file |
-| Other code | All of the above, and Ruby's `#{…}` and the shell's `$(…)` |
+| YAML, JSON, TOML and Jinja templates | All of the above, and Ruby's `#{…}` and the shell's `$(…)` |
 
 A rewrite is set aside, and the repairer is told so, when it:
 
@@ -140,7 +181,7 @@ A rewrite is set aside, and the repairer is told so, when it:
 - has a brace of its own;
 - would make a placeholder with the characters on either side of its span: a `$` before it and a `{` it starts with.
 
-A rewrite of a one-line span stays on one line. A span in code sits in a string, so its rewrite may not bring in quotes or backslashes. A span in a Markdown or text file, such as a policy the agent is given, is prose, and may.
+A rewrite of a one-line span stays on one line. A span in code sits in a string, so its rewrite may not bring in quotes or backslashes, and neither may one in YAML, JSON, TOML or a Jinja template. A span in a Markdown or text file, such as a policy the agent is given, is prose, and may.
 
 ## Guarding against fixes that fit the examples
 

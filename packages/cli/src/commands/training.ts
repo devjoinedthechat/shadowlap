@@ -18,6 +18,7 @@ import {
   PAIR_FORMATS,
   PAIR_SHAPES,
   pairRows,
+  plural,
   projectPath,
   goldensNeedingConsent,
   recordEvent,
@@ -47,7 +48,6 @@ import { palette as p, quoteArgv, shortId } from '../ui.js';
  * Nothing is collected for any of it, and nothing leaves the machine until it is exported.
  */
 
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const STATUS: Record<TaskStatus, string> = { ready: 'ready', blocked: 'blocked', 'not-a-task': 'not a task', 'no-golden': 'no golden' };
 
 function parsePort(value: string): number {

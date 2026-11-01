@@ -7,6 +7,7 @@ import { addPaletteSource } from '../palette-sources.js';
 import { ONLY_PROJECT, provideProjectRemoval } from '../project-actions.js';
 import { expectProject, onProjectSwitched, takeDialogDropped, takeLanding, type ProjectsView } from '../projects-api.js';
 import { exportedLine, keepsPageOnSwitch, switchedText } from '../projects.js';
+import { projectInitial as initial } from '../../src/project-initial.js';
 import { href, parseRoute } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp, type AppState } from '../state.js';
@@ -85,9 +86,6 @@ export function ProjectBlock({ meta }: { meta: Meta | null }) {
     </div>
   );
 }
-
-/** The letter on a project's badge. */
-const initial = (name: string) => (/[\p{L}\p{N}]/u.exec(name.normalize('NFC'))?.[0] ?? '?').toUpperCase();
 
 function ProjectSwitcher({ meta }: { meta: Meta }) {
   const app = useApp();

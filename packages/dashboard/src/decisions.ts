@@ -1,4 +1,4 @@
-import { commandIsImported, type DecisionRun, type DecisionStep, goldensNeedingConsent, importedCommandSource, isReservedScope, type JobConsent, jobConsent, judgedOutcome, quoteArgv, type RetirementNotice, retirementOf, retirementTable, type StoreOf } from '@shadowlap/engine';
+import { commandIsImported, type DecisionRun, type DecisionStep, fieldValue, goldensNeedingConsent, importedCommandSource, isReservedScope, type JobConsent, jobConsent, judgedOutcome, quoteArgv, type RetirementNotice, retirementOf, retirementTable, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import type { JobBuildResult, JobRequest } from './jobs.js';
 import { links } from './links.js';
@@ -169,7 +169,6 @@ export function retirementsView(store: StoreOf<'recording'>, goldens: readonly G
 
 const MODEL = /^[\w.:@/-]{1,200}$/;
 const FIELD = /^[A-Za-z_][\w.]{0,99}$/;
-const fieldValue = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v));
 
 /** `--set` flags from the request's fields, checked: a field name, and a value JSON can carry. */
 function setArgs(raw: unknown): string[] | { error: string } {

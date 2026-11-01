@@ -5,6 +5,7 @@ import { formatUsd } from './prices.js';
 import { wholeInput } from './tokens.js';
 import { safeLine } from './text.js';
 import type { CallRecord, RunStatus, RunSummary } from './types.js';
+import { shortRunId as short } from './words.js';
 
 /**
  * The same fork run several times. Everything before the fork is served from the recording, so it
@@ -158,8 +159,6 @@ export function summarizeRepeats(parentRunId: string, given: RepeatAttemptInput[
     tokensNotRespent: inputs.reduce((sum, i) => sum + wholeInput(i.summary.tokensNotRespent), 0),
   };
 }
-
-const short = (id: string) => id.slice(0, 10);
 
 export function formatRepeats(r: RepeatReport, p: Palette = plain): string {
   const n = r.attempts.length;

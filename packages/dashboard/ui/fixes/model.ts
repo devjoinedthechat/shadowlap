@@ -3,6 +3,7 @@ import { commandText } from '../goldens.js';
 import type { BlameStep, CandidateVerdict, FixBundle, FixDetail, FixRow, RepairStep, StepKey, VerifyMore, VerifyRow, VerifyStep } from '../types.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { lostWords } from '../../../engine/src/run-verdicts.js';
+import { pluralS as s, shortFixId, twoDigits as pad } from '../../../engine/src/words.js';
 
 /**
  * How the Fixes pages read a fix: which rows a filter keeps, which step and verdict a URL opens, the
@@ -36,7 +37,6 @@ export function statusBadge(f: Pick<FixRow, 'status' | 'broken'>): { tone: 'y' |
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const pad = (n: number) => String(n).padStart(2, '0');
 const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
 /** When a fix was opened: Sep 30, 16:20 (local time). */
@@ -50,15 +50,13 @@ export function laterStamp(ms: number, since: number): string {
   return sameDay(new Date(ms), new Date(since)) ? `${pad(new Date(ms).getHours())}:${pad(new Date(ms).getMinutes())}` : fixStamp(ms);
 }
 
-/** A fix's id as the CLI prints it: `fx-` and ten characters. */
-export const shortFixId = (fixId: string): string => fixId.slice(0, 13);
+// A fix's id as the CLI prints it, for the fix page and Settings.
+export { shortFixId };
 
 /** What the breadcrumb and the eyebrow call a fix: its label, or its short id. */
 export function fixName(f: Pick<FixRow, 'label' | 'fixId'>): string {
   return f.label ?? shortFixId(f.fixId);
 }
-
-const s = (n: number) => (n === 1 ? '' : 's');
 
 /** "3 failing runs": what they did and the check they must meet follow it, each labelled (`failedMust`). */
 export function failingLine(f: Pick<FixRow, 'failing'>): string {

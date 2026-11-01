@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CallRecord } from '../src/types.js';
+import { plain } from '../src/report.js';
 import { gateResult, type SprtGate } from '../src/stats.js';
 import { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateVerdict, outcomeOf, runVerdict, unsettledReason, verifyRule, type VerifiedRun, type VerifyReport, type VerifyRole } from '../src/verify.js';
 
@@ -157,6 +158,18 @@ describe('formatVerify', () => {
     expect(text).toContain('verifying: 9 attempts · 40 upstream requests · ≈$0.420 spent · code 3a4f5e1+dirty');
   });
 
+  it('wraps its verdict, its reasons and its warnings at whole words to a terminal’s width, each past the mark that leads it', () => {
+    const r = report([run('target', [false, false]), run('holdout', [true, false, false], { id: '01K5HELD' })], { replayWarnings: ['search_web changed since it was recorded: run it live with --live-tool search_web, or record the run again'] });
+    const whole = formatVerify(r);
+    const fit = formatVerify(r, plain, 60);
+    const words = (text: string) => text.split(/\s+/).filter(Boolean);
+    expect(words(fit)).toEqual(words(whole));
+    expect(fit.split('\n').slice(0, 2)).toEqual(['✗ Rejected: the change fixes 0 of 1 target run and 0 of 1', '  held-out run']);
+    expect(fit).toMatch(/\n {2}· target run 01K5TARGET not fixed: [^\n]+\n {4}\S/);
+    expect(fit).toMatch(/\n {2}! search_web changed since it was recorded: run it live[^\n]*\n {4}\S/);
+    for (const l of fit.split('\n').filter((x) => !whole.split('\n').includes(x))) expect(l.length <= 60, l).toBe(true);
+  });
+
   it('names a change made through request fields', () => {
     const text = formatVerify(report([run('good', [true], { deterministic: true })], { fields: { model: 'big-model' } }));
     expect(text).toContain('✓ Accepted: the change keeps 1 of 1 good run');
@@ -209,5 +222,21 @@ describe('runs decided by a gate', () => {
     expect(eachRun({ gate: GATE, needed: 12, attemptsPerRun: 40, kept })).toBe('each failing run by its gate, which tells 90%+ from 70%- at <= 5% risk, and each good one against its baseline, which tells no drop from one of 10+ points at <= 5% risk');
     expect(eachRun({ gate: GATE, needed: 12, attemptsPerRun: 40, kept: { ...kept, source: 'history', margin: 0.05 } })).toBe("each failing run by its gate, which tells 90%+ from 70%- at <= 5% risk, and each good one against its golden's history, which tells no drop from one of 5+ points at <= 5% risk");
     expect(verifyRule({ gate: null, needed: 4, attemptsPerRun: 5, fields: {}, oracle: ['the agent exits 0'] })).toBe('A run passes when 4 of 5 attempts meet the oracle: the agent exits 0.');
+  });
+
+  it('wraps its dim lines at whole words to a terminal’s width, each line indented as the first, and leaves each whole for a pipe', () => {
+    const runs = [gated('target', Array(12).fill(true)), gated('good', [true], { deterministic: true })];
+    const kept = { margin: 0.1, risk: 0.05, max: 200, source: 'paired' as const, revision: '3a4f5e1', label: 'HEAD' };
+    const r: VerifyReport = { ...decideVerify(runs, null), runs, attemptsPerRun: 40, needed: 12, gate: GATE, kept, oracle: ['the agent exits 0', 'issue_refund called 0 times'], fields: {}, codeVersion: '3a4f5e1+dirty', attempts: 13, spent: 0.03, upstreamRequests: 48, judge: { spent: 0.01, upstreamRequests: 4 }, unknownModels: ['scripted-model'], stopReason: null, replayWarnings: [] };
+    const whole = formatVerify(r);
+    expect(whole.split('\n')).toContain(`  ${verifyRule(r)}`);
+    const fit = formatVerify(r, plain, 116);
+    // The pipe's words, in order: none broken across lines ("Its gat|e", "5% r|isk").
+    const words = (text: string) => text.split(/\s+/).filter(Boolean);
+    expect(words(fit)).toEqual(words(whole));
+    const wrapped = fit.split('\n').filter((l) => !whole.split('\n').includes(l));
+    // The rule and what verifying took, each over two lines or more.
+    expect(wrapped.length).toBeGreaterThanOrEqual(5);
+    for (const l of wrapped) expect(l.length <= 116 && /^ {2}\S/.test(l), l).toBe(true);
   });
 });

@@ -1,4 +1,5 @@
 import { num } from '../format.js';
+import { jsString as literal } from '../../../engine/src/text.js';
 
 /**
  * What a run's page says, under its banner, of what the run did that Shadowlap did not record or
@@ -58,9 +59,6 @@ function names(list: readonly string[]): NotePart[] {
   });
   return out;
 }
-
-/** A tool's name as a JavaScript string, in the single quotes the SDK's examples use. */
-const literal = (name: string) => `'${name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 
 /**
  * The lines of `shadowlap.config.json` that declare what each tool does, to copy: a write as a write
