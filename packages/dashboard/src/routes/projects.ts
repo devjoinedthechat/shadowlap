@@ -166,9 +166,9 @@ export function register(router: Router, ctx: RouteContext): void {
       const body = await r.body();
       const project = entryOf(h, r.params.id!);
       const deleteRecordings = body.deleteRecordings === true;
-      let out: ReturnType<ProjectHost<ProjectConfig>['remove']>;
+      let out: Awaited<ReturnType<ProjectHost<ProjectConfig>['remove']>>;
       try {
-        out = h.remove(project.id, { deleteRecordings, typedName: typeof body.name === 'string' ? body.name : '' });
+        out = await h.remove(project.id, { deleteRecordings, typedName: typeof body.name === 'string' ? body.name : '' });
       } catch (err) {
         // Why it won't (a store in a folder it can't write to, a .shadowlap that is a link), with ~ for the home folder.
         if (err instanceof ProjectError) throw new HttpError(err.status, homeAsTilde(h, err.message));

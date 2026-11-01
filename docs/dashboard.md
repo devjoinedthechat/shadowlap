@@ -1257,7 +1257,7 @@ The first time a command runs in a folder, the dashboard asks before running it.
 
 **Remove from dashboard** takes the project off the list. Nothing on disk changes: the folder and its code, its store, `shadowlap.config.json` and the goldens stay. The list remembers how far its setup got and the commands you confirmed, so adding the folder again undoes it.
 
-**Also delete its recordings** deletes the store as well (`.shadowlap/shadowlap.db` and the files SQLite keeps beside it), once you type the project's name. The list forgets the project: added again, its setup starts afresh.
+**Also delete its recordings** deletes the store as well (`.shadowlap/shadowlap.db` and the files SQLite keeps beside it), once you type the project's name. The dashboard closes every connection it has to the store before deleting it, and opens none again. The list forgets the project: added again, its setup starts afresh.
 
 - **It won't while a run is recording there**: a run whose process is still there, however long ago it started. One a killed process left marked running doesn't hold it up.
 - **It won't when the folder can't be written to.**

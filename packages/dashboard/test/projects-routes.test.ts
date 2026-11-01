@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { ProjectHost, ProjectRegistry, Store, projectDbPath, type SetupFindings } from '@shadowlap/engine';
 import { cliSpawner, startDashboard, type Dashboard, type DashboardOptions, type ProjectConfig, type RouteModule } from '../src/index.js';
+import { SEARCH_LIMITS } from '../src/search-index.js';
 
 /**
  * One dashboard over several projects: the switcher, adding a folder within the limits, removing
@@ -565,6 +566,31 @@ describe('removing a project', () => {
     expect(gone.body.deleted).toContain('.shadowlap/shadowlap.db');
     expect(existsSync(projectDbPath(w.support))).toBe(false);
     expect(existsSync(join(w.support, 'pyproject.toml'))).toBe(true);
+  });
+
+  it('has every thread on the store let go of it before deleting it, so none makes an empty one in its place', async () => {
+    const w = await world();
+    w.registry.add(w.triage);
+    const store = Store.open(projectDbPath(w.triage));
+    recordInto(store, w.triage);
+    store.close();
+    // Current from here on, and served first by the request that removes it: its threads start
+    // then, and each opens the store only once it has started, which can be after the request is
+    // answered.
+    await w.api('projects/triage-bot/select', { method: 'POST' });
+    const closeMs = SEARCH_LIMITS.closeMs;
+    // The close below waits for every thread to have started, however long that takes here.
+    SEARCH_LIMITS.closeMs = 60_000;
+    try {
+      const gone = await w.api<{ removed: string; current: string; deleted: string[] }>('projects/triage-bot/remove', { method: 'POST', body: { deleteRecordings: true, name: 'triage-bot' } });
+      expect(gone.body).toMatchObject({ removed: 'triage-bot', current: 'support-agent', deleted: expect.arrayContaining(['.shadowlap/shadowlap.db']) });
+      expect((await w.api<{ project: { id: string } }>('meta')).body.project.id).toBe('support-agent');
+      // Once the dashboard has stopped, every thread with it, the store is still gone.
+      await w.dash.close();
+    } finally {
+      SEARCH_LIMITS.closeMs = closeMs;
+    }
+    expect(existsSync(projectDbPath(w.triage))).toBe(false);
   });
 
   it('says which of the runs the team store has too, and stay there, when the project has one', async () => {
