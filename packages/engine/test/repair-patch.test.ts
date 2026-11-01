@@ -182,7 +182,7 @@ describe('repairPatchProblem', () => {
     }
     const tail = 'a repair rewrites text only in a string of JavaScript, TypeScript or Python source, a string value of YAML, JSON or TOML, or a Markdown, plain text, prompt or Jinja file';
     const content = `prompt = "${BEFORE}"\n`;
-    for (const [file, kind] of [['main.go', 'a .go file'], ['lib/agent.rb', 'a .rb file'], ['docs/page.mdx', 'a .mdx file'], ['notebook.ipynb', 'a .ipynb file'], ['.gitignore', 'a file with no extension']]) {
+    for (const [file, kind] of [['main.go', 'a .go file'], ['lib/agent.rb', 'a .rb file'], ['docs/page.mdx', 'a .mdx file'], ['notebook.ipynb', 'a .ipynb file'], ['NOTICE', 'a file with no extension']]) {
       const c = candidate({ file, offset: content.indexOf(BEFORE), before: BEFORE, after: AFTER });
       expect(repairPatchProblem(report(c, content)), file).toBe(`its accepted candidate rewrites ${file}, ${kind}: ${tail}`);
     }
@@ -254,7 +254,7 @@ describe('repairNeverRewritesAt', () => {
   });
 
   it("refuses every other kind of file, whose text Shadowlap can't tell from code", () => {
-    for (const [path, kind] of [['main.go', 'a .go file'], ['lib/agent.rb', 'a .rb file'], ['docs/page.mdx', 'a .mdx file'], ['notebook.ipynb', 'a .ipynb file'], ['.gitignore', 'a file with no extension']]) {
+    for (const [path, kind] of [['main.go', 'a .go file'], ['lib/agent.rb', 'a .rb file'], ['docs/page.mdx', 'a .mdx file'], ['notebook.ipynb', 'a .ipynb file'], ['NOTICE', 'a file with no extension']]) {
       expect(at(path, 'run: npm test\n', 'npm test'), path).toBe(`is in ${kind}: a repair rewrites text only in a string of JavaScript, TypeScript or Python source, a string value of YAML, JSON or TOML, or a Markdown, plain text, prompt or Jinja file`);
     }
   });

@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { applyEdit, checkEdit, findAnchors, plain, recordBlame, recordRepair, repairNeverRewritesAt, Store, unifiedDiff, unpackRun, type RepairReport, type RunMeta } from '@shadowlap/engine';
 import { fixDetail, pulledPatchesToCheck, rewritesHere } from '@shadowlap/dashboard';
 import { AFTER, BEFORE, blameReport, EXPECT, repairReport } from '../../engine/test/fix-fixtures.js';
+import { DOT } from '../../engine/test/runner-fixtures.js';
 import { startFakeS3, type FakeS3 } from '../../remote/test/fakes/s3.js';
 import { ApplyError, applyFix } from '../src/fix-apply.js';
 import { formatFixDetail } from '../src/fix-format.js';
@@ -119,7 +120,7 @@ describe("a teammate's fix through the team store", () => {
     expect(await teamPull(maya, [])).toBe(0);
     const out = maya.out.join('');
     expect(out).toContain(`${fixId}  `);
-    expect(out).toContain('its accepted candidate rewrites .github/workflows/ci.yml, a GitHub Actions workflow, whose steps run commands: a repair never rewrites a file that runs');
+    expect(out).toContain(`its accepted candidate rewrites .github/workflows/ci.yml, ${DOT}: a repair never rewrites a file that runs`);
     expect(existsSync(join(maya.cwd, '.shadowlap', 'repairs', 'repair-mwf1'))).toBe(false);
     const store = Store.open(maya.dbPath);
     try {

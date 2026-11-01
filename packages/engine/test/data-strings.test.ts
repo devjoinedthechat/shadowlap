@@ -6,9 +6,9 @@ import { dataStrings, yamlPlainProblem, type DataLanguage } from '../src/data-st
  * where a repair may rewrite text in such a file (repair-patch.ts), and what the path says of it.
  */
 
-/** Each value as `path: text`, marked `(plain)` for a YAML plain scalar and `(anchored)` under an anchor. */
+/** Each value as `path: text`, marked `(plain)` for a YAML plain scalar, `(anchored)` under an anchor and `(kube)` in a Kubernetes manifest. */
 function values(source: string, language: DataLanguage): string[] {
-  return dataStrings(source, language).map((d) => `${d.path.join('.')}: ${source.slice(d.start, d.end)}${d.plain ? ' (plain)' : ''}${d.anchored ? ' (anchored)' : ''}`);
+  return dataStrings(source, language).map((d) => `${d.path.join('.')}: ${source.slice(d.start, d.end)}${d.plain ? ' (plain)' : ''}${d.anchored ? ' (anchored)' : ''}${d.kube ? ' (kube)' : ''}`);
 }
 
 describe('dataStrings in YAML', () => {
@@ -90,6 +90,11 @@ describe('dataStrings in YAML', () => {
   it('leaves out what it does not read: a quoted scalar over lines, a flow collection, an alias, a complex key, a null, a boolean, a number, a date', () => {
     const yaml = ['a: "starts here', '  and ends here"', 'b: [one,', '  two]', 'c: *ref', 'd: plain # a comment', '? complex', ': value', 'e: ~', 'f: 42', 'g: 2026-10-31', 'h: off', '---', 'i: next document', ''].join('\n');
     expect(values(yaml, 'yaml')).toEqual(['d: plain (plain)', 'i: next document (plain)']);
+  });
+
+  it('marks the values of a Kubernetes manifest, a document whose top level names apiVersion and kind, and of no other document', () => {
+    const yaml = ['name: not a manifest', '---', 'apiVersion: v1', 'kind: ConfigMap', 'data:', '  system: You are a support agent.', '---', 'kind: Note', 'text: no apiVersion here', ''].join('\n');
+    expect(values(yaml, 'yaml')).toEqual(['name: not a manifest (plain)', 'apiVersion: v1 (plain) (kube)', 'kind: ConfigMap (plain) (kube)', 'data.system: You are a support agent. (plain) (kube)', 'kind: Note (plain)', 'text: no apiVersion here (plain)']);
   });
 
   it('says why a plain scalar rewritten so would read as YAML syntax or as no text', () => {

@@ -1448,8 +1448,9 @@ place: no file made, deleted, renamed or copied, and no mode or binary change. I
 - a file of a recording: a pack's `run.json`, which holds the command a replay runs, its `calls.jsonl`
   and blobs, or anything in `__recordings__`;
 - `shadowlap.config.json` or the `.shadowlap` folder;
-- a file that runs, such as a CI workflow, a `Dockerfile`, a `Makefile` or a script, or one a repair rewrites
-  no text in, such as Go source.
+- a dot-file or a file in a dot-folder, such as a workflow under `.github` or Claude Code's
+  `.claude/settings.json`, another file that runs, such as a `Dockerfile` or a script, or one a repair
+  rewrites no text in, such as Go source.
 
 A repair rewrites the text the agent sends the model where its source holds it, and never reads those.
 A patch that is anything more is refused, and nothing is changed. So is one to a file git ignores,

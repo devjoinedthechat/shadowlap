@@ -294,7 +294,7 @@ The patch is someone else's code, so a pull takes a fix only when each repair's 
 - one that makes, renames or deletes one;
 - one that adds lines the candidate doesn't;
 - one larger than a repair writes;
-- one to a file that runs, such as a CI workflow, a `Dockerfile`, a `Makefile` or a shell script.
+- one to a dot-file or a file in a dot-folder, such as `.github` or `.claude`, or another file that runs, such as a `Dockerfile`, a script or `requirements.txt`.
 
 A repair rewrites text only in a string of JavaScript, TypeScript or Python source, a string value of YAML, JSON or TOML, or a Markdown, plain text, prompt or Jinja file, and never in what runs. See [where an anchor goes](./repair.md#where-an-anchor-goes).
 
@@ -304,7 +304,7 @@ A teammate's machine or the bucket could have written the fix, so a pulled patch
 
 - outside any string in code, such as other code or a comment, or outside any string value in YAML, JSON or TOML, such as a key;
 - past the end of the string it starts in, or the inside of a placeholder (`${…}`, `{…}`, `{{ … }}`);
-- a value that runs, such as `package.json`'s `scripts`, a script or entry point in `pyproject.toml`, or a compose file's `command`;
+- a value that runs, such as `package.json`'s `scripts` or dependencies, a script or dependency in `pyproject.toml`, or a container's `command` in a compose file or a Kubernetes manifest;
 - a rewrite a repair sets aside: one that adds a quote, a backslash, a brace or a placeholder, a line break to one-line text, or YAML syntax to a plain value.
 
 Nothing is changed, and the message says why. The Fixes page and `shadowlap fix show` say the same, and offer no `git apply` to copy.

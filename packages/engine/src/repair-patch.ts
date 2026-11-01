@@ -252,7 +252,7 @@ export function rewriteKind(file: string): RewriteKind | null {
   return /\.(?:md|markdown|txt|rst|prompt|j2|jinja2?)$/i.test(file) ? 'prose' : null;
 }
 
-/** A file's kind as a reason names it: `a .go file`, or `a file with no extension` (`.gitignore` is a name). */
+/** A file's kind as a reason names it: `a .go file`, or `a file with no extension`. */
 function kindWords(file: string): string {
   const name = file.slice(file.lastIndexOf('/') + 1);
   const ext = /\.([^.]+)$/.exec(name.slice(1))?.[1];
@@ -261,54 +261,70 @@ function kindWords(file: string): string {
 
 /** A path's names as Windows reads them too: in lower case, without the dots and spaces it drops from a name's end. */
 const namesOf = (file: string) => file.split('/').map((p) => p.replace(/[. ]+$/, '').toLowerCase());
-const inFolder = (names: readonly string[], folder: string, sub: string) => names.some((n, i) => n === folder && names[i + 1] === sub);
 
 /**
- * The files that run what they hold, whatever their format, each with why. A rewrite of any of their
- * text could change what runs, so a repair rewrites none of it, and a pull leaves out a fix whose
- * patch does: a CI pipeline runs its steps' commands, a Dockerfile its instructions as its image is
- * built, a Makefile its recipes, and a script itself.
+ * Why a repair rewrites nothing in a dot-file or a dot-folder: tools keep their own config there, and
+ * much of it runs. CI pipelines (`.github/`, `.gitlab-ci.yml`, `.circleci/`, `.buildkite/`,
+ * `.travis.yml`) run their steps, Claude Code runs the hooks in `.claude/settings.json`, an MCP
+ * client the command `.mcp.json` names, git the hooks `.pre-commit-config.yaml` installs, and editors
+ * the tasks in `.vscode/` and `.devcontainer/`. One rule holds for all of them, and for those to come.
  */
-const RUNNER_FILES: ReadonlyArray<{ is: (names: readonly string[], name: string) => boolean; what: string }> = [
-  { is: (n) => inFolder(n, '.github', 'workflows'), what: 'a GitHub Actions workflow, whose steps run commands' },
-  { is: (n) => inFolder(n, '.github', 'actions'), what: "one of the repository's GitHub Actions, whose steps run commands" },
-  { is: (_, f) => f === 'action.yml' || f === 'action.yaml', what: 'a GitHub Action, which runs what it says where a workflow uses it' },
-  { is: (_, f) => f === '.gitlab-ci.yml' || f === '.gitlab-ci.yaml', what: "GitLab CI's pipeline, whose scripts run commands" },
-  { is: (n) => n.includes('.circleci'), what: "CircleCI's config, whose steps run commands" },
-  { is: (_, f) => /^azure-pipelines.*\.ya?ml$/.test(f), what: 'an Azure Pipelines pipeline, whose scripts run commands' },
-  { is: (_, f) => f === 'bitbucket-pipelines.yml', what: "Bitbucket Pipelines' pipeline, whose scripts run commands" },
-  { is: (n) => n.includes('.buildkite'), what: 'a Buildkite pipeline, whose steps run commands' },
-  { is: (_, f) => f === 'jenkinsfile' || f.endsWith('.jenkinsfile'), what: 'a Jenkins pipeline, which is Groovy code' },
-  { is: (_, f) => f === '.travis.yml', what: "Travis CI's config, whose scripts run commands" },
-  { is: (_, f) => f === 'dockerfile' || f === 'containerfile' || f.startsWith('dockerfile.') || f.endsWith('.dockerfile'), what: 'a Dockerfile, whose instructions run as its image is built' },
-  { is: (_, f) => f === 'makefile' || f === 'gnumakefile' || f.endsWith('.mk'), what: 'a Makefile, whose recipes run commands' },
-  { is: (_, f) => f.endsWith('.sh'), what: 'a shell script' },
-  { is: (_, f) => f.endsWith('.ps1'), what: 'a PowerShell script' },
+const DOT = 'a dot-file or a file in a dot-folder, where tools keep config that runs: CI pipelines, Claude Code hooks, MCP servers, pre-commit hooks';
+
+/**
+ * The other files that run what they hold, whatever their format, each with why. A rewrite of any of
+ * their text could change what runs, so a repair rewrites none of it, and a pull leaves out a fix
+ * whose patch does.
+ */
+const RUNNER_FILES: ReadonlyArray<{ is: (name: string, names: readonly string[]) => boolean; what: string }> = [
+  { is: (f) => f === 'action.yml' || f === 'action.yaml', what: 'a GitHub Action, which runs what it says where a workflow uses it' },
+  { is: (f) => /^azure-pipelines.*\.ya?ml$/.test(f), what: 'an Azure Pipelines pipeline, whose scripts run commands' },
+  { is: (f) => f === 'bitbucket-pipelines.yml', what: "Bitbucket Pipelines' pipeline, whose scripts run commands" },
+  { is: (f) => f === 'jenkinsfile' || f.endsWith('.jenkinsfile'), what: 'a Jenkins pipeline, which is Groovy code' },
+  { is: (f) => f === 'taskfile.yml' || f === 'taskfile.yaml', what: 'a Taskfile, whose tasks run commands' },
+  { is: (f) => f === 'dockerfile' || f === 'containerfile' || f.startsWith('dockerfile.') || f.endsWith('.dockerfile'), what: 'a Dockerfile, whose instructions run as its image is built' },
+  { is: (f) => f === 'makefile' || f === 'gnumakefile' || f.endsWith('.mk'), what: 'a Makefile, whose recipes run commands' },
+  { is: (f) => f.endsWith('.sh'), what: 'a shell script' },
+  { is: (f) => f.endsWith('.ps1'), what: 'a PowerShell script' },
+  { is: (f, n) => /^(?:requirements|constraints).*\.txt$/.test(f) || (f.endsWith('.txt') && n.at(-2) === 'requirements'), what: "pip's requirements, whose packages run code as they install" },
 ];
 
-/** What `file` is when it runs what it holds (RUNNER_FILES), or null. */
+/** What `file` is when it runs what it holds: in a dot-file or a dot-folder (DOT), or one of RUNNER_FILES; else null. */
 export function fileThatRuns(file: string): string | null {
   const names = namesOf(file);
-  return RUNNER_FILES.find((r) => r.is(names, names.at(-1) ?? ''))?.what ?? null;
+  if (file.split('/').some((p) => p.startsWith('.'))) return DOT;
+  return RUNNER_FILES.find((r) => r.is(names.at(-1) ?? '', names))?.what ?? null;
 }
 
 /** A compose file: `compose.yaml`, `docker-compose.yml`, and their overrides (`docker-compose.prod.yml`). */
 const COMPOSE = /^(?:docker-)?compose(?:\.[^/]+)?\.ya?ml$/;
+/** package.json's keys that name packages to install, whose install scripts run. */
+const NPM_PACKAGES = new Set(['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies', 'bundledDependencies', 'bundleDependencies', 'overrides', 'resolutions']);
+/** The keys under which a Kubernetes container runs a command. */
+const KUBE_RUNS = new Set(['command', 'args', 'exec', 'lifecycle']);
+const under = (p: readonly string[], ...keys: string[]) => keys.every((k, i) => p[i] === k);
 
 /**
  * The values that run, in files whose other string values a repair may rewrite, by the file and the
- * key path, each with why. npm runs package.json's scripts. Installing a Python package makes a
- * command of each script pyproject.toml names, its entry points name code other programs load, and
- * its build system says what runs to build it. A compose file's command and entrypoint run in its
- * container, and so can an anchored value, through an alias.
+ * key path, each with why. npm runs package.json's scripts, and the packages its dependencies name
+ * run their own as they install, as a Python package's dependencies run code as they build. A Python
+ * package's scripts become commands, its entry points name code other programs load, and its build
+ * system says what runs to build it. A compose file's command, entrypoint and health check run in
+ * its container, and so can an anchored value, through an alias; a Kubernetes manifest's command,
+ * args, exec and lifecycle in its containers, while its other values (a ConfigMap's data, where
+ * prompts live in production) are text.
  */
 const RUNNING_VALUES: ReadonlyArray<{ file: (name: string) => boolean; runs: (path: readonly string[], value: DataString) => boolean; what: string }> = [
   { file: (f) => f === 'package.json', runs: (p) => p[0] === 'scripts', what: "package.json's scripts, which npm runs" },
-  { file: (f) => f === 'pyproject.toml', runs: (p) => p[0] === 'project' && (p[1] === 'scripts' || p[1] === 'gui-scripts'), what: "pyproject.toml's scripts, each a command installing the package makes" },
-  { file: (f) => f === 'pyproject.toml', runs: (p) => p[0] === 'project' && p[1] === 'entry-points', what: "pyproject.toml's entry points, which name code other programs load" },
-  { file: (f) => f === 'pyproject.toml', runs: (p) => p[0] === 'tool' && p[1] === 'poetry' && p[2] === 'scripts', what: "Poetry's scripts in pyproject.toml, each a command installing the package makes" },
+  { file: (f) => f === 'package.json', runs: (p) => NPM_PACKAGES.has(p[0] ?? ''), what: "package.json's dependencies, whose packages run code as they install" },
+  { file: (f) => f === 'pyproject.toml', runs: (p) => under(p, 'project', 'scripts') || under(p, 'project', 'gui-scripts'), what: "pyproject.toml's scripts, each a command installing the package makes" },
+  { file: (f) => f === 'pyproject.toml', runs: (p) => under(p, 'project', 'entry-points'), what: "pyproject.toml's entry points, which name code other programs load" },
+  { file: (f) => f === 'pyproject.toml', runs: (p) => under(p, 'tool', 'poetry', 'scripts'), what: "Poetry's scripts in pyproject.toml, each a command installing the package makes" },
+  { file: (f) => f === 'pyproject.toml', runs: (p) => under(p, 'project', 'dependencies') || under(p, 'project', 'optional-dependencies') || under(p, 'dependency-groups'), what: "pyproject.toml's dependencies, whose packages run code as they install" },
+  { file: (f) => f === 'pyproject.toml', runs: (p) => under(p, 'tool', 'poetry', 'dependencies') || under(p, 'tool', 'poetry', 'dev-dependencies') || (under(p, 'tool', 'poetry', 'group') && p[4] === 'dependencies'), what: "Poetry's dependencies in pyproject.toml, whose packages run code as they install" },
   { file: (f) => f === 'pyproject.toml', runs: (p) => p[0] === 'build-system', what: "pyproject.toml's build-system, which says what runs to build the package" },
-  { file: (f) => COMPOSE.test(f), runs: (p, v) => p.includes('command') || p.includes('entrypoint') || v.anchored === true, what: "a compose file's command or entrypoint, which runs in its container, or an anchored value an alias can make one" },
+  { file: (f) => COMPOSE.test(f), runs: (p, v) => p.includes('command') || p.includes('entrypoint') || p.some((k, i) => k === 'healthcheck' && p[i + 1] === 'test') || v.anchored === true, what: "a compose file's command, entrypoint or health check, which run in its container, or an anchored value an alias can make one" },
+  { file: (f) => /\.ya?ml$/.test(f), runs: (p, v) => v.kube === true && p.some((k) => KUBE_RUNS.has(k)), what: "a Kubernetes manifest's command, args, exec or lifecycle, which run in its containers" },
 ];
 
 /** Each file read once however many spans of it are checked: its strings in code, its string values in YAML, JSON or TOML, its placeholders in prose. */

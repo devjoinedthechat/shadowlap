@@ -106,22 +106,28 @@ In each, a placeholder (`{…}`, `{{ … }}`, `${…}`) is held whole or not at 
 
 Text anywhere else is never anchored: code, a comment or a regular expression, MDX, and another language's source, where Shadowlap can't tell a string from code.
 
-**Never in what runs.** No anchor is placed in a file that runs what it holds, whatever its format, nor in a value that runs. This table lists each, with why:
+**Never in what runs.** No anchor is placed in a file that runs what it holds, whatever its format, nor in a value that runs. The first rule covers most of them: no path with a part that starts with a dot. This table lists each, with why:
 
 | What runs | Why |
 |---|---|
-| `.github/workflows/`, `.github/actions/`, `action.yml`, `.gitlab-ci.yml`, `.circleci/`, `azure-pipelines*.yml`, `bitbucket-pipelines.yml`, `.buildkite/`, `.travis.yml` | A CI pipeline runs its steps' commands |
+| A dot-file or a file in a dot-folder: `.github/`, `.gitlab-ci.yml`, `.circleci/`, `.buildkite/`, `.travis.yml`, `.claude/`, `.mcp.json`, `.pre-commit-config.yaml`, `.devcontainer/`, `.vscode/` | Tools keep their config there, and much of it runs: CI steps, Claude Code's hooks, an MCP server's command, pre-commit hooks |
+| `action.yml`, `azure-pipelines*.yml`, `bitbucket-pipelines.yml` | A CI pipeline runs its steps' commands |
 | `Jenkinsfile` | A Jenkins pipeline is Groovy code |
+| `Taskfile.yml` | Its tasks run commands |
 | `Dockerfile` | Its instructions run as the image is built |
 | `Makefile` | Its recipes run commands |
 | `*.sh`, `*.ps1` | A script runs itself |
+| `requirements*.txt`, `constraints*.txt` | pip installs what they name, and a package runs code as it installs |
 | `package.json`'s `scripts` | npm runs them |
+| `package.json`'s dependencies, `overrides` and `resolutions` | A package runs code as it installs |
 | `pyproject.toml`'s `[project.scripts]`, `[project.gui-scripts]` and `[tool.poetry.scripts]` | Installing the package makes each a command |
 | `pyproject.toml`'s `[project.entry-points]` | They name code other programs load |
+| `pyproject.toml`'s dependencies, optional dependencies and Poetry's dependencies and groups | A package runs code as it installs |
 | `pyproject.toml`'s `[build-system]` | It says what runs to build the package |
-| A compose file's `command` and `entrypoint` | They run in the container, and so can an anchored value, through an alias |
+| A compose file's `command`, `entrypoint` and `healthcheck.test` | They run in the container, and so can an anchored value, through an alias |
+| A Kubernetes manifest's `command`, `args`, `exec` and `lifecycle` | They run in its containers |
 
-In a file whose other values a rewrite may change, the key path decides: `package.json`'s `description` is text, and its `scripts` are not.
+In a file whose other values a rewrite may change, the key path decides. `package.json`'s `description` is text, and its `scripts` and dependencies are not. A ConfigMap's `data`, where prompts live in production, is text, and a container's `command` is not.
 
 The switch to a stronger model is held to the same rule, and so is a patch a pull brings from the [team store](./team.md#a-teammates-patch-is-held-to-a-repairs-rewrites), read where it goes in your working tree.
 

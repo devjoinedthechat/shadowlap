@@ -22,6 +22,8 @@ export interface DataString {
   plain?: true;
   /** It carries a YAML anchor, or sits under a node that does: an alias anywhere can stand for it. */
   anchored?: true;
+  /** It is in a Kubernetes manifest: a YAML document whose top level names `apiVersion` and `kind`. */
+  kube?: true;
 }
 
 /** The string values of `source`, in the order they start. */
@@ -236,14 +238,20 @@ function yamlLines(s: string): Line[] {
   return lines;
 }
 
-/** An open node of a YAML block: a mapping's key or a sequence's item, at its column, and how many items the sequence under it has had. */
+/**
+ * An open node of a YAML block: a mapping's key or a sequence's item, at its column, and how many
+ * items the sequence under it has had. The root, never closed, keeps its document's top-level keys.
+ */
 interface Open {
   col: number;
   at: string;
   anchored: boolean;
   items: number;
   item: boolean;
+  keys?: Set<string>;
 }
+
+const yamlRoot = (): Open => ({ col: -1, at: '', anchored: false, items: 0, item: false, keys: new Set() });
 
 /** Characters a plain scalar can't start with, which YAML reads as its own syntax there. */
 const INDICATOR = /^[-?:,[\]{}#&*!|>'"%@`]/;
@@ -266,23 +274,30 @@ export function yamlPlainProblem(text: string): string | null {
   return null;
 }
 
-/** YAML's string values in block style, each under its keys and sequence indexes. */
+/** YAML's string values in block style, each under its keys and sequence indexes, those of a Kubernetes manifest marked. */
 function yamlStrings(s: string): DataString[] {
   const out: DataString[] = [];
   const lines = yamlLines(s);
-  // The open nodes, under a root that is never closed.
-  const open: Open[] = [{ col: -1, at: '', anchored: false, items: 0, item: false }];
+  // The open nodes, under a root that is never closed, and where the document's values start in `out`.
+  let open: Open[] = [yamlRoot()];
+  let first = 0;
+  const ended = () => {
+    const keys = open[0]!.keys!;
+    if (keys.has('apiVersion') && keys.has('kind')) for (let k = first; k < out.length; k++) out[k]!.kube = true;
+    first = out.length;
+  };
   let li = 0;
   while (li < lines.length) {
     const line = lines[li]!;
     if (!line.text || line.text.startsWith('#') || line.text.startsWith('\t')) li++;
     else if (line.indent === 0 && /^(?:---|\.\.\.)(?:\s|$)|^%/.test(line.text)) {
       // A document starts or ends, or a directive: what was open is closed.
-      open.length = 1;
-      open[0]!.items = 0;
+      ended();
+      open = [yamlRoot()];
       li++;
     } else li = yamlNode(s, lines, li, line.start + line.indent, open, out);
   }
+  ended();
   return out;
 }
 
@@ -336,6 +351,7 @@ function yamlNode(s: string, lines: Line[], li: number, pos: number, open: Open[
   if (entry === 'complex') return li + 1;
   if (entry) {
     while (open.length > 1 && open.at(-1)!.col >= col) open.pop();
+    if (open.length === 1) open[0]!.keys!.add(entry.key);
     open.push({ col, at: entry.key, anchored: false, items: 0, item: false });
     return yamlValue(s, lines, li, pos + entry.value, col, open, out);
   }
