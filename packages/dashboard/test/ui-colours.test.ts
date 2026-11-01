@@ -229,8 +229,6 @@ describe('lime', () => {
     '.wib .iv': 'a gate’s bound that passes',
     '.fdiff em.ok': 'how an attempt came out: passed',
     '.banner .why em.ok': 'how an attempt came out: passed',
-    '.badge.ok': 'passed',
-    '.setupdone': 'a setup that is done: “set up”',
     '.drawer .st2.ok': 'a job that ended well',
     '.drawer pre .ok': 'a job that ended well',
     '.prl i.ok': 'the pull request comment’s line that passed',
@@ -240,7 +238,9 @@ describe('lime', () => {
   };
   /** Lime the design rules out that only a later slice's markup can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
-    '.verdict.ok': 'port/primitives: VerdictLine draws a verdict as a plain line, its word in the passed colour, never a tinted box',
+    '.verdict.ok': 'port/primitives, then each page’s slice: VerdictLine draws a verdict as a plain line, its word in the passed colour, never a tinted box',
+    '.badge.ok': 'port/primitives, then each page’s slice: Status draws a status as a dot and a word, never a tinted badge',
+    '.setupdone': 'port/setup-states: a setup that is done says so as a verdict line, “set up” in the passed colour, never a tinted box',
   };
   /** Where lime marks no meaning: the keyboard's focus, a focused field, the text you select. */
   const FOCUS = /:focus(-visible|-within)?\b|^::selection$|^\.labelbar input$/;
@@ -271,7 +271,7 @@ describe('lime', () => {
 describe('amber', () => {
   /** Amber, by its tokens and by its value: the warning colour and the consequence amber. */
   const AMBER = /var\(--(warn|cq-amber)\)|#f2c94c|#c98500|242,\s*201,\s*76|201,\s*133,\s*0/i;
-  /** Needs a look or inconclusive, wherever it is drawn: a word, dot, cell, mark, line or box. */
+  /** Needs a look or inconclusive, wherever it is drawn: a word, dot, cell, mark, line or banner. */
   const LOOK: Record<string, string> = {
     '.glyph.warn': 'a glyph that needs a look',
     '.pips i.unsure': 'an attempt that couldn’t decide',
@@ -279,11 +279,9 @@ describe('amber', () => {
     '.legend i.lg.unsure': 'the probes’ key: an attempt that couldn’t decide',
     '.attempts span i.unsure': 'an attempt that couldn’t decide',
     '.attempts a i.unsure': 'an attempt that couldn’t decide',
-    '.badge.y': 'a badge that needs a look',
     '.st.warn': 'a status that needs a look',
     '.st.warn i': 'a status that needs a look',
     '.tag.inc': 'an inconclusive status chip',
-    '.verdict.warn': 'an inconclusive verdict',
     '.wib.y .iv': 'a gate’s bound that can’t yet say pass or fail',
     '.run .r2 em.inc': 'a run that came out inconclusive',
     'table.runst .rline em.inc': 'a run that came out inconclusive',
@@ -315,7 +313,6 @@ describe('amber', () => {
     '.cbar .miss': 'a prompt cache miss that cost: a look',
     '.cnote b': 'a prompt cache miss that cost: a look',
     'table.ctab tr.miss td': 'a prompt cache miss that cost: a look',
-    '.changes div.diff': 'Compare: two runs that ended differently, a look',
     '.prov .warn': 'a recording’s provenance that needs a look',
     '.rnote.warn': 'a run note that needs a look',
     '.rnote.warn .bk': 'a run note that needs a look',
@@ -323,7 +320,6 @@ describe('amber', () => {
     '.fieldnote.warn': 'a field’s value that needs a look',
     'ol.setup .sb > p.fieldnote.warn': 'a setup field’s value that needs a look',
     'ol.setup.storesetup dd .warnt': 'a store setting that needs a look',
-    '.warnbox': 'a setup step that needs a look',
     '.agentfiles .warn': 'a coding agent’s file that needs a look',
     '.skrow > div:first-child > span.warn': 'a skill that needs a look',
     '.cip .offnote': 'a CI feature that is off: a look',
@@ -331,7 +327,6 @@ describe('amber', () => {
     '.egrp.mcp td small.mnote.warn': 'an MCP server that needs a look',
     '.trow.warn > span:last-child': 'a row that needs a look',
     '.dialog.editfork .warnline': 'what an edit and fork asks you to look at',
-    '.dialog .dz.advise': 'what a dialog advises you to look at first',
     '.dialog p.trbusy': 'why a model can’t be scored yet: a look',
     '.connbar .cdot': 'the dashboard can’t be reached: a look',
     '.status .off': 'the dashboard can’t be reached: a look',
@@ -339,6 +334,11 @@ describe('amber', () => {
   /** Amber the design rules out that only a later slice can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
     '.connbar': 'port/dock: the offline bar on the page’s ground, only its dot amber',
+    '.verdict.warn': 'port/primitives, then each page’s slice: VerdictLine draws a verdict as a plain line, its word in amber, never a tinted box',
+    '.badge.y': 'port/primitives, then each page’s slice: Status draws a status as a dot and a word, never a tinted badge',
+    '.warnbox': 'port/setup-states: a warning in a step is a plain line, its first words in amber, never a tinted box',
+    '.dialog .dz.advise': 'port/dialogs: a dialog says what needs a look in its one amber line, never a tinted box',
+    '.changes div.diff': 'port/compare: what changed is one quiet line, in place of Compare’s tiles',
   };
 
   it('means needs a look or inconclusive, and nothing else: never a fork, stubbed or blame', () => {
@@ -377,7 +377,6 @@ describe('grounds, tints and lines', () => {
     '.cal .cd.l3': 'the Runs calendar’s ramp over its empty day',
     '.tag.live': 'a live run’s chip, ringed in the live colour',
     '.banner.live': 'a live run’s banner, faintly in the live colour',
-    '.changes div.diff': 'Compare: two runs that ended differently, faintly amber on the panel',
     '.connblock': 'the page behind the offline bar, veiled in its own ground',
     '.scrim': 'the page dimmed behind a dialog',
     '.prbody.clamp::after': 'report.md fading into its panel where it is cut',
@@ -390,7 +389,6 @@ describe('grounds, tints and lines', () => {
     '.grp:hover::before': 'a chart group under the pointer, over its bars',
     '.cbar:hover::before': 'a Context bar under the pointer, over its bars',
     '.cbar.sel::before': 'the chosen Context bar, over its bars',
-    '.fstep .fb': 'a fix step’s share of the work, filled over its row',
     '.banner.n': 'a banner that says nothing is wrong, a shade off the page',
   };
   /** Tints the design drops with the part they draw, each with the slice that does. */
@@ -398,6 +396,8 @@ describe('grounds, tints and lines', () => {
     '.connbar': 'port/dock: the offline bar on the page’s ground',
     '.dp': 'port/overview: the delta pills go with the KPI tiles',
     '.dp.good': 'port/overview: the delta pills go with the KPI tiles',
+    '.fstep .fb': 'port/overview: a fix step’s share goes with the Overview’s Fixes card',
+    '.changes div.diff': 'port/compare: what changed is one quiet line, in place of Compare’s tiles',
   };
 
   it('draws every ground, tint and line from the tokens, the tints that remain each with its reason', () => {
