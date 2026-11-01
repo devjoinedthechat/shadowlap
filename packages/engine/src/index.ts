@@ -33,7 +33,7 @@ export type { BlameToRecord, FixCost, FixRecords, RecordedBlame, RecordedRepair,
 export { lookupRun } from './run-lookup.js';
 // The commands a repair from a fix and a verify of it run, and the yes they need first, as the
 // dashboard builds them, so the terminal UI runs the same lines and asks about the same runs.
-export { DEFAULT_REPAIRER, agentOfArgv, agentOfRun, askConsent, consentKey, expectArgs, findProgram, fixRunArgs, jobConsent, keepArgs, labelSelectsFix, leftWords, needsConsent, noFixToTry, repairArgv, repairJobArgv, repairerProblem, saidYes, scopeArg, selectedRuns, shownBlame, verifyArgv, type JobConsent } from './fix-jobs.js';
+export { DEFAULT_REPAIRER, agentOfArgv, agentOfRun, askConsent, consentKey, expectArgs, findProgram, fixRunArgs, jobConsent, keepArgs, labelSelectsFix, leftWords, needsConsent, noAnswerLost, noFixToTry, repairArgv, repairJobArgv, repairerProblem, saidYes, scopeArg, selectedRuns, shownBlame, verifyArgv, type JobConsent } from './fix-jobs.js';
 // The check a blame starts from when nobody names one, as the dashboard and the terminal UI pick it.
 export { blameCheckFor, checkSuggestion, configExpect, failedCheckLabels, labelledFixes, type BlameCheck } from './fix-jobs.js';
 // The tests entry a run is judged by when it was given no --expect (the CLI's replays, the dashboard's Run blame).
@@ -54,6 +54,8 @@ export { CONFIG_FILE, ConfigBusyError, ConfigConflictError, ConfigFileError, DEF
 export type { ConfigEvent, ConfigFile, EditOptions, RuleAdded, RuleList } from './config-file.js';
 // The lock file those edits take, for any small file several Shadowlap processes change.
 export { LOCK_STALE_MS, releaseLock, takeLock, withLockFile, type HeldLock, type LockOptions } from './lock-file.js';
+// Shadowlap's folder for this machine's files (SHADOWLAP_HOME, else ~/.shadowlap): the project list, and the agents and proxies registered while they run.
+export { shadowlapHome } from './projects/index.js';
 // Projects: the list of folders opened in the dashboard, folder suggestions, setup and recording from it.
 export { ProjectError, ProjectHost, ProjectRegistry, emptySetup, nameConfirms, projectDbPath, setupRunOf, tildePath } from './projects/index.js';
 export { checkFolder, describeFolder, suggestFolders } from './projects/index.js';
@@ -73,7 +75,7 @@ export type { RequestManifest } from './manifest.js';
 export { deepEqual, firstDifference, headerDiff, hintsFor, isHeaderEntry, isQueryEntry, queryDiff, structuralDiff } from './diff.js';
 export { DEFAULT_REPLAY_OPTIONS, isPlainRead, Session } from './session.js';
 export type { Decision, ReplayOptions, ResolveInput, SessionOptions } from './session.js';
-export { divergenceLine, endedEarlyCount, extraReadsLine, formatDivergence, formatSummary, formatTokens, plain, replayedBeforeWords, storedModelResolver, summarizeRun } from './report.js';
+export { dimLines, divergenceLine, endedEarlyCount, extraReadsLine, formatDivergence, formatSummary, formatTokens, plain, replayedBeforeWords, storedModelResolver, summarizeRun } from './report.js';
 export type { ModelResolver, SummaryOptions } from './report.js';
 // Judge checks: the reserved scope replay strictness leaves out, what a judge reads, the request it is sent, its verdict and its cost.
 export { JUDGE_INSTRUCTIONS, JUDGE_KEYS, JUDGE_REQUEST_VERSION, JUDGE_SCOPE, MATERIAL_LIMIT, RESERVED_SCOPE_PREFIX, VERDICT_SCHEMA, agentCallsOf, claudeTakes, escapeMaterial, isJudgeCall, judgeAskId, judgeCallsOf, judgedAnswers, judgeMaterial, judgePrompt, judgeRequest, judgeRules, judgeTarget, matchedClockOf, materialDifference, materialOfRequest, openaiTakesReasoningEffort, openaiTakesTemperature, reachesJudgeRequest, readVerdict } from './judge.js';
@@ -81,10 +83,10 @@ export type { ClaudeTakes, GivenAnswer, JudgeAsk, JudgeMaterial, JudgeProvider, 
 export { aboutUsd, judgeLine, judgeParts, summarizeJudge } from './report.js';
 export { DEFAULT_PRICES, canonicalModel, estimateCost, formatDuration, formatUsd, priceFor, shortModel } from './prices.js';
 export type { Price } from './prices.js';
-export { EXTERNAL_COMMAND, NO_COMMAND, PACK_FORMAT, PACK_GITATTRIBUTES, PACK_VERSION, TEST_COMMAND, asImportedRun, asTheyStand, commandIsImported, hasRecordedCommand, heldFrom, importedCommandSource, packRun, unpackRun, withoutCommand, writePackAttributes } from './pack.js';
+export { EXTERNAL_COMMAND, NO_COMMAND, PACK_ENTRIES, PACK_FORMAT, PACK_GITATTRIBUTES, PACK_VERSION, TEST_COMMAND, asImportedRun, asTheyStand, commandIsImported, hasRecordedCommand, heldFrom, importedCommandSource, lexists, movePath, packRun, unpackRun, withoutCommand, writePackAttributes } from './pack.js';
 export { CONTROL, PACK_LIMITS, PackError } from './pack-schema.js';
 export { callRefs, validateCall, validateRun } from './pack-schema.js';
-export { decodedSegment, quoteArgv, safeLine, safeText } from './text.js';
+export { decodedSegment, encodeRfc3986, fitLine, jsString, quoteArgv, safeLine, safeText, whole } from './text.js';
 // Text safe in the Markdown GitHub renders, for pull request bodies, comments and job summaries.
 export { markdownCode, markdownFence, markdownText, titleText } from './markdown.js';
 export { shortCallName } from './labels.js';
@@ -106,12 +108,15 @@ export { BodyTooLarge, MODEL_BODY_LIMIT, readBody, type BodyLimits } from './bod
 // value says: a lint rule refuses another of either.
 export { isObject } from './is-object.js';
 export { messageOf } from './message-of.js';
+// A count with its noun, a run's and a fix's short id, a part of a date, a tool failure in words: said
+// the same way by the CLI, the terminal UI, the dashboard and its pages.
+export { plural, pluralS, shortFixId, shortRunId, toolFailure, twoDigits } from './words.js';
 export { rollBack } from './sqlite.js';
 export { actionContext, actionMissing, bisectAction, buildActions, CAPTURE_NOTE, forkArgs, forkCommand, forkMenuTitle, isUserInput, notRun, PLANTED_INSTRUCTIONS, recordingNow, splitCommand, terminalActions, type Action, type ActionContext } from './run-actions.js';
 export type { AttemptKind, ClassifiableMeta, ClassifiableRun, ClassifyContext, DisplayOrigin, KindFacts, OriginCode, OriginCounts, OutcomeContext, RunClass, RunKind, RunOutcome } from './classify.js';
 export { IMPORT_FILE_FORMATS, guessImportFormat, type ImportFileFormat, type ImportFormatGuess } from './import-format.js';
 export { withoutPrompt } from './prompt.js';
-export { GATEWAY_UNCHANGED, SHAPE_NAMES, applyInjection, isGatewayRequest, formatToolFailure, literalValue, modelInRequest, noLateSystemMessage, parseToolFailure, placeFields, placeInjection, plantInResult, plantInToolResult, refused, requestShape, setRequestFields, switchModel, toolFailureError } from './interventions.js';
+export { GATEWAY_UNCHANGED, SHAPE_NAMES, applyInjection, isGatewayRequest, fieldValue, formatToolFailure, literalValue, modelInRequest, noLateSystemMessage, parseToolFailure, placeFields, placeInjection, plantInResult, plantInToolResult, refused, requestShape, setRequestFields, switchModel, toolFailureError } from './interventions.js';
 export type { InjectAs, InjectionPlace, Refusal, RequestShape, ToolFailure } from './interventions.js';
 export { DATASET_FORMATS, datasetRows, type DatasetExample, type DatasetFormat } from './dataset.js';
 export { indexSearch, MATCH_END, MATCH_START, searchCalls, searchExpression, searchIndexBehind, updateSearchIndex, type SearchHit, type SearchIndexRun } from './search.js';
@@ -143,8 +148,10 @@ export { UNAVAILABLE_RETRY, attemptsInARow, providerUnavailable, retryAfter, ret
 export { attemptsOf, gateHistory, judgedUnder, notBaseline, recentAttempts, sessionAttempts, testResultVerdict, type HistoryFilter, type HistorySession, type PooledHistory } from './gate-history.js';
 // One risk for a test session, split across its gated goldens (rv-gates).
 export { COUNTS_AT, DECLINE_AT, INCONCLUSIVE_AT_GOOD, RECORD_WINDOWS, SUITE_RISK, planSuite, predictive, type PlannedGolden, type SuiteGolden, type SuitePlan } from './suite.js';
-export { applyEdit, caseDetails, checkEdit, commitTitle, editSize, findAnchors, forbiddenDetails, formatRepair, gitApplyCommand, NO_REPAIRER, noRepairerOf, patchFiles, REPAIR_FILE_LIMIT, repairNeverRewrites, repairMarkdown, repairPatchProblem, targetWhere, unifiedDiff } from './repair.js';
+export { applyEdit, caseDetails, checkEdit, commitTitle, editSize, findAnchors, forbiddenDetails, formatRepair, gitApplyCommand, NO_REPAIRER, noRepairerOf, REPAIR_FILE_LIMIT, repairMarkdown, targetWhere, unifiedDiff } from './repair.js';
 export type { Anchor, CandidateState, EditCheck, ProposedEdit, RepairCandidate, RepairOutcome, RepairRange, RepairReport, RepairTarget, SourceFile, Surface } from './repair.js';
+// What a repair's patch may change, and where a repair rewrites text: a pulled one is held to it in the working tree.
+export { fileThatRuns, modelSwitch, patchFiles, repairNeverRewrites, repairNeverRewritesAt, repairPatchProblem, rewritableAnchors, rewriteHere, rewriteKind, type RewriteKind } from './repair-patch.js';
 // Placeholders a rewrite keeps, and its growth before anything runs (repair).
 export { CHARS_PER_TOKEN, placeholders, rewriteGrowth, templateSyntax } from './repair.js';
 export type { Placeholder, TemplateSyntax } from './repair.js';

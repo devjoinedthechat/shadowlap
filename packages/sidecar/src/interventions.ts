@@ -1,4 +1,4 @@
-import { applyInjection, formatToolFailure, literalValue, modelInRequest, placeInjection, refused, requestShape, sameModel, setRequestFields, switchModel, type CallRecord, type InjectAs, type InjectionPlace, type OverrideSources, type ReplayOptions, type RequestShape, type RunIntervention } from '@shadowlap/engine';
+import { applyInjection, fieldValue, formatToolFailure, literalValue, modelInRequest, placeInjection, refused, requestShape, sameModel, setRequestFields, switchModel, type CallRecord, type InjectAs, type InjectionPlace, type OverrideSources, type ReplayOptions, type RequestShape, type RunIntervention } from '@shadowlap/engine';
 
 /**
  * Request-level interventions for a replay. Both are append-only with respect to the conversation
@@ -36,17 +36,6 @@ export type Rewrite =
   | { refused: string };
 
 const short = (s: string, n = 40) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
-
-/** A `--set` value as the flag takes it: JSON, or a bare string when it can't be read as anything else. */
-function fieldValue(v: unknown): string {
-  if (typeof v !== 'string') return JSON.stringify(v);
-  try {
-    JSON.parse(v);
-    return JSON.stringify(v); // "123" and "true" would come back as a number and a boolean
-  } catch {
-    return v;
-  }
-}
 
 /**
  * A model call's place in a run: the n-th model call (counting from 0) of its scope. A recording made

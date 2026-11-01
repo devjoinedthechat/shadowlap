@@ -1,10 +1,11 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { recordBlame, recordRepair, recordVerdict, Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
+import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { removeTempProject, tempProject } from '../../../testing/temp-project.mjs';
 
 /**
@@ -109,6 +110,12 @@ interface Result {
 /** Not under CI, wherever the suite runs: a fix opened under CI says it came from there. */
 const NOT_CI = Object.fromEntries(['CI', 'GITHUB_ACTIONS', 'GITLAB_CI', 'BUILDKITE', 'CIRCLECI', 'JENKINS_URL', 'TF_BUILD', 'BITBUCKET_BUILD_NUMBER'].map((k) => [k, '']));
 
+/**
+ * A command's clock fixed at `at` (ms since the epoch), for its process alone: how long ago it says
+ * something happened is then known to the second, however long a busy machine took to get there.
+ */
+const clockAt = (at: number): NodeJS.ProcessEnv => ({ NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import=data:text/javascript,Date.now=()=>${at}`].filter(Boolean).join(' ') });
+
 function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<Result> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, ...args], {
@@ -209,9 +216,10 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     expect(listed.fixes[0]).toMatchObject({ fixId, status: 'open', title: 'Refunds above the limit issued without approval', label: 'refund-over-limit', failing: 2, good: 0, check: 'issue_refund never called with {"amount":240}', source: null });
     expect(listed.fixes[0].steps.map((x: { short: string }) => x.short)).toEqual([`lost at #${decision}`, 'no fix yet', 'not verified']);
     expect(listed.fixes[0].attempts).toBeGreaterThan(0);
-    const table = (await shadowlap(['fix', 'ls'])).stdout;
+    // Listed 42 s after it opened, by the command's clock: the blames before it can take more than a minute.
+    const table = (await shadowlap(['fix', 'ls'], clockAt(listed.fixes[0].openedAt + 42_000))).stdout;
     // What its runs did, now that the title no longer says it, and what they must do.
-    expect(table).toMatch(new RegExp(`open +${fixId.slice(0, 13)} +Refunds above the limit issued without approval +refund-over-limit · 2 failing +lost at #${decision} · no fix yet · not verified\n +failed: issue_refund called with amount 240 · must: issue_refund never called with \\{"amount":240\\} · opened \\d+s ago\n`));
+    expect(table).toMatch(new RegExp(`open +${fixId.slice(0, 13)} +Refunds above the limit issued without approval +refund-over-limit · 2 failing +lost at #${decision} · no fix yet · not verified\n +failed: issue_refund called with amount 240 · must: issue_refund never called with \\{"amount":240\\} · opened 42s ago\n`));
 
     // The code as it is fixes nothing: the verdict is kept, rejected, and the fix stays open.
     const rejected = await shadowlap(['verify', '--fixes', 'label:refund-over-limit', '--keeps', 'label:good', '--expect', ORACLE, '--json']);
@@ -594,6 +602,20 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     } finally {
       s.close();
     }
+  });
+
+  it('says to verify an open fix holding out the run its repair held out, without the scope its blame searched, which verify doesn’t take', async () => {
+    mkdirSync(join(project, '.shadowlap'));
+    const s = store();
+    const [shown, held] = [makeRun(s, { labels: ['refund-bug'] }), makeRun(s, { labels: ['refund-bug'] })];
+    const fixId = recordBlame(s, { runId: shown, report: blameReport(shown), expect: EXPECT, scope: 'agent', command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}' }).fix.fixId;
+    recordRepair(s, { repairId: 'repair-mv9gxsdm', dir: '.shadowlap/repairs/repair-mv9gxsdm', report: repairReport({ targets: [shown], holdout: [held], accepted: false }), expect: EXPECT, command: 'shadowlap repair --fixes label:refund-bug --scope agent' });
+    // A change accepted under the exit code alone, which doesn't count for the fix.
+    recordVerdict(s, { report: verifyReport([{ runId: shown, role: 'target', pass: true }], { oracle: ['the agent exits 0'] }), expect: null, command: 'shadowlap verify --fixes label:refund-bug' });
+    s.close();
+    const refused = await shadowlap(['fix', 'apply', fixId]);
+    expect(refused.code).toBe(2);
+    expect(refused.out).toContain(`Verify it under this fix's check:\n  shadowlap verify --fixes ${shown} --holdout ${held} --expect '${ORACLE}'\n`);
   });
 
   it('keeps a repair whose pull request could not be opened, applied by --apply, and lets fix apply finish it', async () => {

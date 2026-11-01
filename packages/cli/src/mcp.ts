@@ -26,9 +26,10 @@ export { startMcpProxy, stdioServerName, type McpProxyOptions } from './mcp-stdi
  * tool annotations (`readOnlyHint` → read, otherwise write), overridden by `--effect name=read` or
  * the `mcp.effects` config; a read tool with `openWorldHint: true` is recorded untrusted, where
  * `shadowlap injection` plants. A call the recording answers never reaches the server, and a write
- * after a fork is refused or stubbed here, so a remote write never runs again on replay. When the
- * proxy was started under Shadowlap but can't record (its sidecar can't be found or asked), it
- * refuses writes rather than send them unrecorded: this could be a replay.
+ * after a fork is refused or stubbed here, so a remote write never runs again on replay unless the
+ * replay allows writes (`--writes allow`). When the proxy was started under Shadowlap but can't
+ * record (its sidecar can't be found or asked), it refuses writes rather than send them unrecorded:
+ * this could be a replay.
  *
  * Each transport has a module: mcp-stdio.ts for a local server, mcp-http.ts for a remote one,
  * mcp-listen.ts for a remote one served over HTTP (--listen); mcp-calls.ts holds what they share, and

@@ -1,5 +1,6 @@
 import { approx } from './format.js';
 import { rateBound } from '../../engine/src/stats.js';
+import { twoDigits as pad } from '../../engine/src/words.js';
 import { href } from './route.js';
 import { noteText, UNGUARDED_FIX } from './run/notes.js';
 import type { BisectMiss, BisectRevision, CiWorkflowOptions, DivergenceView, FailureView, FoundCommit, GoldenCheck, GoldenRow, HistoryCell, InconclusiveView, TestsView } from './types.js';
@@ -11,7 +12,6 @@ import type { BisectMiss, BisectRevision, CiWorkflowOptions, DivergenceView, Fai
  */
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const pad = (n: number) => String(n).padStart(2, '0');
 
 /** Oct 1, 10:02, local time. */
 export function dayClock(ms: number): string {

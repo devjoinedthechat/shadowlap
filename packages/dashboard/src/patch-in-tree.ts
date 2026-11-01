@@ -1,9 +1,10 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { statSync } from 'node:fs';
+import { lstat, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { patchFiles } from '@shadowlap/engine';
-import type { PatchCheck } from './fixes.js';
+import { patchFiles, rewriteHere, type StoredRepair } from '@shadowlap/engine';
+import type { PatchCheck, RewriteCheck } from './fixes.js';
 
 /**
  * Whether a fix's patch is in the working tree already, as `shadowlap fix apply` recognises it:
@@ -17,6 +18,9 @@ import type { PatchCheck } from './fixes.js';
  * they were (their size and modification time): each project's answers are kept per patch and asked
  * again once a file changed, or after a minute. The same question asked twice at once runs git once.
  * Null when git can't say (no git, not a repository, a patch it can't read).
+ *
+ * Beside it, why `fix apply` refuses a pulled repair's patch in the working tree (`rewritesHere`):
+ * it goes in only as a rewrite repair itself makes there, which the file as it is tells.
  */
 
 /** How long an answer stands while the files look the same: a file rewritten within its timestamp's grain looks the same. */
@@ -125,4 +129,39 @@ export async function patchesInTree(dir: string, patches: readonly string[], now
   const found = await Promise.all(unique.map((p) => patchInTree(dir, p, now)));
   const byPatch = new Map(unique.map((p, i) => [p, found[i]!]));
   return (patch) => byPatch.get(patch) ?? null;
+}
+
+/**
+ * The text of `file` in the working tree at `root`, as `fix apply` would write it: a plain file
+ * reached through no link. Null for anything else, which apply refuses by itself, saying why.
+ */
+async function plainFileText(root: string, file: string): Promise<string | null> {
+  const parts = file.split('/');
+  try {
+    for (let i = 1; i <= parts.length; i++) {
+      const st = await lstat(join(root, ...parts.slice(0, i)));
+      if (st.isSymbolicLink() || (i === parts.length && !st.isFile())) return null;
+    }
+    return await readFile(join(root, file), 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Why `fix apply` refuses each of `repairs`' patches in the working tree of the repository `dir` is
+ * in (`rewriteHere`): a pull brought them, and such a patch goes in only as a rewrite repair itself
+ * makes there, which only the file as it is can tell. Read beside the server, as git is asked, and
+ * handed to a read model as the check it takes (`RewriteCheck`), which looks each answer up.
+ */
+export async function rewritesHere(dir: string, repairs: readonly StoredRepair[], now: number = Date.now()): Promise<RewriteCheck> {
+  const root = repairs.length ? await rootOf(dir, now) : null;
+  const refused = new Map<string, string>();
+  for (const r of root ? repairs : []) {
+    const file = r.report.candidates.find((c) => c.id === r.report.accepted)?.file;
+    const text = file ? await plainFileText(root!, file) : null;
+    const problem = text === null ? null : rewriteHere(r.report, text)?.problem;
+    if (problem) refused.set(r.repairId, problem);
+  }
+  return (repairId) => refused.get(repairId) ?? null;
 }

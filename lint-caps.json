@@ -11,9 +11,6 @@
     "action/run.mjs": {
       "main": 58
     },
-    "packages/adapters/src/claude-reach.ts": {
-      "claudeReach": 118
-    },
     "packages/cli/guard/node-capture.mjs": {
       "fetchViaSidecar": 34
     },
@@ -45,7 +42,6 @@
       "formatGc": 36
     },
     "packages/cli/src/commands/fix-repair.ts": {
-      "repairTargets": 31,
       "reportRepair": 36
     },
     "packages/cli/src/commands/import.ts": {
@@ -80,7 +76,7 @@
       "runDoctor": 76
     },
     "packages/cli/src/fix-apply.ts": {
-      "applyFix": 82
+      "applyFix": 72
     },
     "packages/cli/src/fix-format.ts": {
       "formatFixDetail": 64
@@ -179,7 +175,7 @@
       "verifyMore": 41
     },
     "packages/dashboard/src/fixes.ts": {
-      "fixDetail": 49
+      "fixDetail": 48
     },
     "packages/dashboard/src/injection.ts": {
       "injectionJob": 49
@@ -192,7 +188,7 @@
       "recordStep": 52
     },
     "packages/dashboard/src/read-jobs.ts": {
-      "runJob": 72
+      "runJob": 69
     },
     "packages/dashboard/src/routes/imports.ts": {
       "register > build": 35
@@ -350,8 +346,7 @@
     "packages/engine/src/repair.ts": {
       "formatRepair": 36,
       "placeholders": 45,
-      "repairMarkdown": 41,
-      "repairPatchProblem": 39
+      "repairMarkdown": 41
     },
     "packages/engine/src/report.ts": {
       "formatSummary": 43,
@@ -443,12 +438,6 @@
     }
   },
   "max-lines-per-function": {
-    "packages/adapters/src/claude-agent-sdk.ts": {
-      "fenceHooks": 230
-    },
-    "packages/adapters/src/claude-reach.ts": {
-      "claudeReach": 182
-    },
     "packages/cli/src/bisect.ts": {
       "runBisect": 193
     },
@@ -483,7 +472,7 @@
       "startMcpHttpProxy": 246
     },
     "packages/cli/src/mcp-listen.ts": {
-      "startMcpListener": 242
+      "startMcpListener": 228
     },
     "packages/cli/src/verify.ts": {
       "runVerify": 290,
@@ -578,9 +567,6 @@
     "action/fix.mjs": {
       "runFixes": 6
     },
-    "packages/adapters/src/claude-reach.ts": {
-      "claudeReach": 6
-    },
     "packages/cli/src/repair.ts": {
       "handOver": 6
     },
@@ -612,14 +598,14 @@
   "max-lines": {
     "packages/cli/src/checks.ts": 1051,
     "packages/cli/src/decisions.ts": 1151,
-    "packages/cli/test/ci-fix.test.ts": 941,
+    "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,
-    "packages/dashboard/src/tests.ts": 1104,
+    "packages/dashboard/src/tests.ts": 1103,
     "packages/dashboard/test/fixes.test.ts": 884,
     "packages/dashboard/test/tests.test.ts": 1111,
     "packages/dashboard/test/ui-logic.test.ts": 833,
-    "packages/engine/src/pairs.ts": 821,
+    "packages/engine/src/pairs.ts": 819,
     "packages/engine/src/redact.ts": 983,
     "packages/remote/test/sync.test.ts": 1059,
     "packages/sidecar/test/failure-modes.test.ts": 805

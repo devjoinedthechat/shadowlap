@@ -1,13 +1,12 @@
-import { formatUsd, safeLine, type Palette } from '@shadowlap/engine';
+import { formatUsd, pluralS as s, safeLine, shortFixId, type Palette } from '@shadowlap/engine';
 import type { FixDetail, FixList, FixRow, FixStep } from '@shadowlap/dashboard';
 import { ago, quoteArgv, table } from './ui.js';
 
 /** `shadowlap fix ls` and `fix show` in a terminal, from the read model `--json` prints. Times read as `ls` prints them: 3h ago. */
 
-/** A fix id as the list shows it: `fx-` and the first ten characters, which `fix show` takes as a prefix. */
-export const shortFixId = (fixId: string): string => fixId.slice(0, 13);
+// The fix id as the list shows it, for the commands that print one.
+export { shortFixId };
 
-const s = (n: number) => (n === 1 ? '' : 's');
 const one = (text: string, n = 100) => {
   const line = safeLine(text).replace(/\s+/g, ' ').trim();
   return line.length > n ? `${line.slice(0, n - 1)}…` : line;

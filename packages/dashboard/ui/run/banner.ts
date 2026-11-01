@@ -1,6 +1,7 @@
 import { num } from '../format.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { attemptVerdict, checkFailed, FAILURE_WORDS, failureReason, lostWords } from '../../../engine/src/run-verdicts.js';
+import { toolFailure } from '../../../engine/src/words.js';
 import type { RunType } from '../runs.js';
 import { presetWhy, type PresetAttempt } from './preset.js';
 
@@ -174,13 +175,6 @@ export function flagText(iv: { flag: string; value?: string | null } | null): st
 
 /** What follows the call number in a flag's value: `529` in `19=529`, `claude-opus-5` in `15:claude-opus-5`. */
 const afterCall = (value: string | null | undefined) => (value ?? '').replace(/^\d+[=:]/, '');
-
-/** A tool failure as `--fail-at` gives it: a timeout, an error, or an HTTP status. */
-function toolFailure(what: string): string {
-  if (/^timeout$/i.test(what)) return 'a timeout';
-  if (/^\d{3}$/.test(what)) return `HTTP ${what}`;
-  return 'an error';
-}
 
 /** What a writes policy did after the fork, from the replay's own flags: stubbed, blocked or allowed; null when unknown. */
 export function writesWord(flags: readonly FlagView[] | undefined): string | null {

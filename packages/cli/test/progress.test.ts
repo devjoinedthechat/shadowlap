@@ -7,11 +7,11 @@ import { progressLog } from '../src/progress.js';
  * line stays. A demo's 180 attempt lines once buried its story.
  */
 
-/** A stream as a terminal or a pipe is, keeping what is written to it. */
+/** A stream as a terminal or a pipe is, keeping what is written to it: a terminal wide enough for every line but those a test makes longer. */
 function stream(isTTY: boolean): NodeJS.WriteStream & { text: string } {
   const s = {
     isTTY,
-    columns: 60,
+    columns: 200,
     text: '',
     write(chunk: unknown) {
       s.text += String(chunk);
@@ -131,5 +131,29 @@ describe('the progress of blame, verify and repair', () => {
       if (term === undefined) delete process.env.TERM;
       else process.env.TERM = term;
     }
+  });
+
+  it('wraps a line longer than the terminal at whole words, keeping its indent, past the mark that leads it; a pipe gets it whole', () => {
+    const lines = ['  asking openai:scripted-repairer for 3 candidates (6 spans it may rewrite; held-out runs are not shown to it)', '  \x1b[33m✗\x1b[39m candidate 1 set aside: it mentions A-1042, which only the failing runs contain'];
+    const out = Object.assign(stream(true), { columns: 40 });
+    const progress = progressLog(out);
+    for (const line of lines) progress.log(line);
+    progress.done();
+    expect(screen(out.text)).toEqual([
+      '  asking openai:scripted-repairer for 3',
+      '  candidates (6 spans it may rewrite;',
+      '  held-out runs are not shown to it)',
+      '  \x1b[33m✗\x1b[39m candidate 1 set aside: it mentions',
+      '    A-1042, which only the failing runs',
+      '    contain',
+    ]);
+    // Kept as they come with -v too, in the terminal's width.
+    const verbose = Object.assign(stream(true), { columns: 40 });
+    progressLog(verbose, false).log(lines[0]);
+    expect(screen(verbose.text)).toEqual(screen(out.text).slice(0, 3));
+    const pipe = stream(false);
+    const piped = progressLog(pipe);
+    for (const line of lines) piped.log(line);
+    expect(pipe.text).toBe(lines.map((l) => `${l}\n`).join(''));
   });
 });

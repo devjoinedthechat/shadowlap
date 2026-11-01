@@ -1,5 +1,5 @@
 import { InvalidArgumentError } from 'commander';
-import { BLAME_DEFAULTS, commandIsImported, describeRescue, formatBlame, hasRecordedCommand, maxProbes, probeGate, riskPercent, rescueRule, unsettledFirst, type ReadPolicy, type RunRecord } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, commandIsImported, describeRescue, dimLines, fitLine, formatBlame, hasRecordedCommand, maxProbes, probeGate, riskPercent, rescueRule, unsettledFirst, type ReadPolicy, type RunRecord, whole } from '@shadowlap/engine';
 import { fixHref } from '@shadowlap/dashboard';
 import { formatAttemptsUnrecorded } from '../attempt-unrecorded.js';
 import { formatBudget, undecidableRefusal } from '../attempts.js';
@@ -10,7 +10,7 @@ import { emitJobEvent } from '../job-events.js';
 import { progressLog } from '../progress.js';
 import type { GuardMode } from '../run-agent.js';
 import { confirmImportedCommand, readStore, requireRun, withoutCommand, type GlobalOpts } from '../shared.js';
-import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
+import { columnsOf, palette as p, quoteArgv, safe, shortId } from '../ui.js';
 import { allowedUnrecorded, refuseUnrecorded } from '../unrecorded.js';
 import { attemptRule, parseFields, readExpectJson } from './fix-flags.js';
 import { blameErrorStatus, blameJson, fixLine, stoppedStatus } from './fix-report.js';
@@ -43,7 +43,7 @@ export interface BlameFlags {
 }
 
 /** A blame as it was asked for, read against the run it probes. */
-interface BlameRequest {
+export interface BlameRequest {
   rule: ReturnType<typeof attemptRule>;
   expect: ReturnType<typeof readExpectJson> | null;
   fields: Record<string, unknown>;
@@ -65,7 +65,7 @@ export async function blameRun(opts: GlobalOpts, runArg: string, command: string
   // In a terminal each probe's attempts fold into one line that counts them; -v keeps every line.
   const progress = progressLog(process.stderr, !opts.verbose);
   const log = progress.log;
-  for (const line of blamePlan(request, flags)) log(line);
+  for (const line of blamePlan(request, flags, columnsOf(process.stderr))) log(line);
   try {
     const settings = { attempts: rule.attempts, needed: rule.needed, gate: rule.gate, concurrency: flags.concurrency, scan: flags.scan, scope: flags.scope ?? null, writes: flags.writes, reads: flags.reads, liveTools: [], fields, spec: expect?.spec ?? null, expect: expect?.json ?? null, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard, allowUnrecorded: [...allowedUnrecorded(flags.allowUnrecorded)] };
     const report = await runBlame({
@@ -114,24 +114,27 @@ async function parseBlame(opts: GlobalOpts, runArg: string, command: string[], f
   return { rule, expect, fields, parent, steps, argv, commandFromImport };
 }
 
-/** What the search will do, said before it starts: the run, each probe's rule, and the most probes and attempts it makes. */
-function blamePlan({ rule, fields, parent, steps, argv }: BlameRequest, flags: BlameFlags): string[] {
+/**
+ * What the search will do, said before it starts: the run, each probe's rule, and the most probes and
+ * attempts it makes, each dim line fit to a terminal `columns` wide (null: a pipe or a file).
+ */
+export function blamePlan({ rule, fields, parent, steps, argv }: Pick<BlameRequest, 'rule' | 'fields' | 'parent' | 'steps' | 'argv'>, flags: Pick<BlameFlags, 'scan' | 'scope' | 'writes' | 'budget'>, columns: number | null): string[] {
   const most = maxProbes(steps, flags.scan);
   const each = rule.gate ? rescueRule({ gate: rule.gate, needed: 0, attemptsPerProbe: rule.gate.max, probeBudget: most }) : `${rule.attempts} attempts, a rescue at ${rule.needed} passing`;
   // Under a gate its risk is the whole search's, spent across the most probes it makes.
   const spent = rule.gate ? `, the ${riskPercent(rule.gate.risk)} risk spent across them` : '';
   return [
-    `${p.yellow('⑂')} Blaming ${shortId(parent.runId)} ${p.dim(`(${safe(quoteArgv(argv))})`)}: ${steps} model call${steps === 1 ? '' : 's'}${flags.scope ? ` in scope ${safe(flags.scope)}` : ''}`,
-    p.dim(
-      `  each probe: ${describeRescue(fields)}, ${each} · writes ${flags.writes === 'stub' ? 'stubbed' : 'blocked'}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}\n  at most ${most} probe${most === 1 ? '' : 's'}${spent} and ${most * (rule.gate ? probeGate(rule.gate, most).max : rule.attempts)} attempts${steps > 1 ? `, and ${2 * 2 * probeGate(rule.gate ?? { kind: 'sprt', ...BLAME_DEFAULTS }, most).max} more to check a call they pin` : ''}; every call before a probe replays from the recording for free`,
-    ),
+    // The agent's command stays in one piece, as it is copied.
+    ...fitLine(`${p.yellow('⑂')} Blaming ${shortId(parent.runId)} ${p.dim(`(${whole(safe(quoteArgv(argv)))})`)}: ${steps} model call${steps === 1 ? '' : 's'}${flags.scope ? ` in scope ${safe(flags.scope)}` : ''}`, columns),
+    ...dimLines(p, '  ', `each probe: ${describeRescue(fields)}, ${each} · writes ${flags.writes === 'stub' ? 'stubbed' : 'blocked'}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}`, columns),
+    ...dimLines(p, '  ', `at most ${most} probe${most === 1 ? '' : 's'}${spent} and ${most * (rule.gate ? probeGate(rule.gate, most).max : rule.attempts)} attempts${steps > 1 ? `, and ${2 * 2 * probeGate(rule.gate ?? { kind: 'sprt', ...BLAME_DEFAULTS }, most).max} more to check a call they pin` : ''}; every call before a probe replays from the recording for free`, columns),
   ];
 }
 
 /** The report, as text or JSON, what its attempts ran unrecorded, its job's links, and its status. */
 function reportBlame(report: BlameRun, flags: BlameFlags): void {
   if (flags.json) process.stdout.write(JSON.stringify(blameJson(report), null, 2) + '\n');
-  else process.stdout.write('\n' + formatBlame(report, p) + '\n' + (report.fix ? fixLine(report.fix, report.fix.opened ? 'opened' : 'joined') : ''));
+  else process.stdout.write('\n' + formatBlame(report, p, columnsOf(process.stdout)) + '\n' + (report.fix ? fixLine(report.fix, report.fix.opened ? 'opened' : 'joined', columnsOf(process.stdout)) : ''));
   // What the probes' attempts ran that nothing recorded, a write unstubbed: said once, after the report.
   const ranBlame = formatAttemptsUnrecorded(report.probes.flatMap((x) => x.attempts.map((a) => a.unrecordedTools)));
   if (ranBlame) process.stderr.write('\n' + ranBlame);

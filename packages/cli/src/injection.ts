@@ -1,4 +1,4 @@
-import { atPath, carriesMark, cleanBound, cleanDecided, cleanRule, decideUnavailable, describeIdentifiers, fillPayload, findCanary, formatUsd, goneWrites, loadApiRequest, INJECTION_CHECK, injectionTemplates, literalValue, messageOf, neutralResult, newCanary, normalizedArgs, noVerdicts, parsePayloads, plantMarks, proofLine, recordEvent, refused, selectTemplates, strongestVerdict, trustOf, ulid, unexplainedWrites, untrustedReads, writeBaseline, canaryIn } from '@shadowlap/engine';
+import { atPath, carriesMark, cleanBound, cleanDecided, cleanRule, decideUnavailable, describeIdentifiers, fillPayload, findCanary, formatUsd, goneWrites, loadApiRequest, INJECTION_CHECK, injectionTemplates, literalValue, messageOf, neutralResult, newCanary, normalizedArgs, noVerdicts, parsePayloads, plantMarks, plural, proofLine, recordEvent, refused, selectTemplates, strongestVerdict, trustOf, ulid, unexplainedWrites, untrustedReads, writeBaseline, canaryIn } from '@shadowlap/engine';
 import type { AttemptReport, BaselineReport, CallRecord, Canary, CauseVerdict, CleanReport, Evidence, Gate, GateReport, InjectionEntry, InjectionGateData, InjectionMark, InjectionReport, InjectionVerdict, Limits, Normalizer, Payload, PlantReport, ReadReport, RunMeta, RunRecord, Store, StoreOf, VerdictCounts, WriteBaseline, WriteSeen } from '@shadowlap/engine';
 import { existsSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -56,7 +56,6 @@ const UNUSABLE_IN_A_ROW = 3;
 
 const argsOf = (store: StoreOf<'recording'>, c: CallRecord): unknown => (c.requestRef ? store.getJson<{ args?: unknown }>(c.requestRef)?.args : undefined) ?? null;
 const isWrite = (c: CallRecord) => c.kind === 'tool' && (c.effect === 'write' || c.effect === null);
-const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 const clip = (s: string, n = 160) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 /** The rules a run's tool arguments are compared under: the project's normalizers, and those its recording was redacted with. */

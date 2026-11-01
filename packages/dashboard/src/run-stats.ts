@@ -1,5 +1,6 @@
 import { countOrigins, displayOrigin, estimateCost, importedRecording, ORIGIN_CODE, runAsk, runCacheUse, type CallRecord, type ModelResolver, type Origin, type OriginCounts, type Outcome, type Price, type RunAsk, type RunCacheUse, type RunConversations, type SqlValue, type Store, type StoreOf, type Usage } from '@shadowlap/engine';
 import { modelResolver } from '@shadowlap/engine';
+import { int } from './fields.js';
 import { askKeyOf, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
 
 /**
@@ -122,7 +123,6 @@ function* batches<T>(items: readonly T[], size = BATCH): Generator<T[]> {
 
 const ids = (list: readonly string[]): SqlValue => JSON.stringify(list);
 const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
-const int = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) ? v : null);
 
 interface Kept {
   memory: Map<string, { key: string; totals: CallTotals }>;

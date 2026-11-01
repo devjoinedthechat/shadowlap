@@ -2,12 +2,15 @@ import { EventEmitter } from 'node:events';
 import { render as inkRender } from 'ink';
 import type { ReactElement } from 'react';
 
-/** A TTY's stdin that keys are written to, as ink-testing-library's. */
-class Keyboard extends EventEmitter {
+/** A TTY's stdin that keys are written to, as ink-testing-library's, and whether it was left in raw mode. */
+export class Keyboard extends EventEmitter {
   isTTY = true;
+  isRaw = false;
   private data: string | null = null;
   setEncoding() {}
-  setRawMode() {}
+  setRawMode(raw: boolean) {
+    this.isRaw = raw;
+  }
   resume() {}
   pause() {}
   ref() {}

@@ -20,7 +20,7 @@ import shadowlap
 from shadowlap.adapters._claude_hooks import matcher_picks
 from shadowlap.adapters.claude_agent_sdk import BUILT_IN_EFFECTS, _Matcher, fence_hooks, with_effects, with_fence
 
-from fake_claude_code import FakeClaudeCode, matches
+from fake_claude_code import FakeClaudeCode, after_the_others, matches
 
 try:
     import trio
@@ -102,11 +102,13 @@ def fenced(**options: Any) -> dict[str, list[Any]]:
     return fence_hooks(scratch=tempfile.mkdtemp(prefix="shadowlap-fence-test-"), **options)
 
 
-def marking(delay: float) -> Any:
-    """A PreToolUse hook of the agent's own that marks every Bash command it is given, answering ``delay`` seconds late."""
+def marking(when: str) -> Any:
+    """A PreToolUse hook of the agent's own that marks every Bash command it is given, answering "at once"
+    or "last": once every other hook of the call has answered, as a slow one would (after_the_others)."""
 
     async def hook(input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
-        await asyncio.sleep(delay)
+        if when == "last":
+            await after_the_others()
         given = input_data["tool_input"]
         return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": {**given, "command": given["command"] + " # checked"}}}
 
@@ -349,15 +351,15 @@ class BesideOtherHooks(unittest.TestCase):
         return sidecar, cc
 
     def test_runs_a_pre_tool_use_hook_of_the_query_first_so_a_replay_never_runs_the_write(self) -> None:
-        for delay in (0, 0.15):
-            with self.subTest(delay=delay):
-                recorded, cc = self.recorded(fenced(hooks={"PreToolUse": [marking(delay)]}))
+        for when in ("at once", "last"):
+            with self.subTest(when=when):
+                recorded, cc = self.recorded(fenced(hooks={"PreToolUse": [marking(when)]}))
                 # While recording the call runs as the hook rewrote it, and is recorded so.
                 self.assertEqual(cc.ran, ["echo hi > out.txt # checked"])
                 self.assertEqual(recorded.calls[0]["args"], {"command": "echo hi > out.txt # checked"})
                 sidecar = Sidecar(recording=recorded.calls)
                 shadowlap._post = sidecar
-                again = session(fenced(hooks={"PreToolUse": [marking(delay)]}))
+                again = session(fenced(hooks={"PreToolUse": [marking(when)]}))
                 out = asyncio.run(agent(again, self.BASH))
                 self.assertEqual(again.ran, ["true"])
                 self.assertFalse(sidecar.diverged)
@@ -383,8 +385,9 @@ class BesideOtherHooks(unittest.TestCase):
         self.assertEqual(out["results"][0]["content"], "PreToolUse:Bash hook error: a PreToolUse hook did not answer within its timeout of 0.05 seconds")
 
     def test_runs_a_post_tool_use_hook_of_the_query_on_the_recorded_output(self) -> None:
+        # It marks what the model reads; answering last, beside the fence it replaced the recorded output with its mark of the stand-in's.
         async def noting(input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
-            await asyncio.sleep(0.15)
+            await after_the_others()
             response = input_data["tool_response"]
             return {"hookSpecificOutput": {"hookEventName": "PostToolUse", "updatedToolOutput": {**response, "stdout": response["stdout"] + " (noted)"}}}
 
@@ -406,7 +409,7 @@ class BesideOtherHooks(unittest.TestCase):
         shadowlap._post = Sidecar(recording=recorded.calls)
         said: list[str] = []
         # Claude Code runs the file's hook beside the fence, and its rewrite answers last.
-        cc = session(fenced(settings={"sources": ["project"], "cwd": project, "managed_file": None}, log=said.append), beside={"PreToolUse": [marking(0.15)]})
+        cc = session(fenced(settings={"sources": ["project"], "cwd": project, "managed_file": None}, log=said.append), beside={"PreToolUse": [marking("last")]})
         out = asyncio.run(agent(cc, self.BASH))
         self.assertEqual(cc.ran, [])
         self.assertTrue(out["results"][0]["is_error"])
@@ -428,7 +431,7 @@ class BesideOtherHooks(unittest.TestCase):
         recorded, _ = self.recorded(fenced())
         folder = self.project({".claude/skills/guard/SKILL.md": f"---\nname: guard\ndescription: d\n{self.BASH_HOOK}---\n"})
         shadowlap._post = Sidecar(recording=recorded.calls)
-        cc = session(fenced(settings={"sources": ["project"], "cwd": folder, "managed_file": None, "env": {"HOME": folder}}), beside={"PreToolUse": [marking(0.15)]})
+        cc = session(fenced(settings={"sources": ["project"], "cwd": folder, "managed_file": None, "env": {"HOME": folder}}), beside={"PreToolUse": [marking("last")]})
         out = asyncio.run(agent(cc, self.BASH))
         self.assertEqual(cc.ran, [])
         self.assertIn(f'a PreToolUse hook in {os.path.join(folder, ".claude", "skills", "guard", "SKILL.md")} (matcher "Bash") runs beside Shadowlap\'s', out["results"][0]["content"])
@@ -439,7 +442,7 @@ class BesideOtherHooks(unittest.TestCase):
         hook = json.dumps({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "./mark.sh"}]}]}})
         folder = self.project({".git/HEAD": "ref: refs/heads/main\n", "sub/.keep": "", ".claude/settings.local.json": hook})
         shadowlap._post = Sidecar(recording=recorded.calls)
-        cc = session(fenced(settings={"sources": ["local"], "cwd": os.path.join(folder, "sub"), "managed_file": None, "env": {"HOME": folder}}), beside={"PreToolUse": [marking(0.15)]})
+        cc = session(fenced(settings={"sources": ["local"], "cwd": os.path.join(folder, "sub"), "managed_file": None, "env": {"HOME": folder}}), beside={"PreToolUse": [marking("last")]})
         out = asyncio.run(agent(cc, self.BASH))
         self.assertEqual(cc.ran, [])
         self.assertIn(f'a PreToolUse hook in {os.path.join(folder, ".claude", "settings.local.json")} (matcher "Bash") runs beside Shadowlap\'s', out["results"][0]["content"])
@@ -466,7 +469,7 @@ class BesideOtherHooks(unittest.TestCase):
         shadowlap._post = Sidecar(recording=recorded.calls)
         said: list[str] = []
         # A plugin's or a managed hook: in no file the fence reads, and answering last.
-        cc = session(fenced(log=said.append), beside={"PreToolUse": [marking(0.15)]})
+        cc = session(fenced(log=said.append), beside={"PreToolUse": [marking("last")]})
         out = asyncio.run(agent(cc, [*self.BASH, ("Bash", {"command": "echo bye > out.txt"})]))
         # The write ran, which the fence could not stop; the model reads what it did, not the recording, and nothing runs after it.
         self.assertEqual(cc.ran, ["echo hi > out.txt # checked"])

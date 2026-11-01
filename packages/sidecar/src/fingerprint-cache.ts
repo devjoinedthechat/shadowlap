@@ -36,9 +36,13 @@ import { canonicalize, FINGERPRINT_VERSION, maskClock, nearClock, sha256, type C
  * name, masked through when a string in it reads as a key. 17: and a key under such a name made of
  * digits and a time's letters (`48201938475610293847561`), which only a time or a duration isn't;
  * where a secret store's answer holds its secret by its shape (a Kubernetes Secret's `data` and
- * `stringData`, as a manifest sends them); and a TLS key (`tls.key`).
+ * `stringData`, as a manifest sends them); and a TLS key (`tls.key`). 18: and the secret a write to a
+ * secret store sends, by the call's method and address (Vault's KV engine and wrapping, Key Vault,
+ * Secret Manager's addVersion, a Kubernetes Secret's create, replace and patch). 19: and SigV2's
+ * `AWSAccessKeyId`, and a key under a secret's name that only begins as an ARN (`arn:x:y::1:…`),
+ * which is read as an ARN only in the shape AWS writes one.
  */
-const CACHE_VERSION = 17;
+const CACHE_VERSION = 19;
 
 /** How a stored call is fingerprinted, besides its request: everything its cache key names. */
 export type FingerprintRules =

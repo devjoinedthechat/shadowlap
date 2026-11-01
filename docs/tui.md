@@ -148,6 +148,8 @@ Play mode replays the selected response at its recorded pacing (×1, ×2, ×4, i
 - **The footer line** is the keys of the pane in focus, `? help` first, or a message, or what a filter or a delete asks.
 - **A run that is still recording** is tailed live.
 - **Resizing**: the layout follows terminal resizes. The minimum is 60×12, and every screen fits it.
+- **The alternate screen**: it draws there, as full-screen programs do. Quitting puts back the screen it opened on, with the prompt on a line of its own, whether by `q`, Ctrl-C, a stop signal or an error, whose message follows.
+- **Stop signals**: SIGINT, SIGTERM and the SIGHUP of a closed window end it from the moment it starts, a Ctrl-C typed as it starts included. It ends with the [status](./cli.md#exit-status) for the signal, 128 + its number, and stops the dashboard it opened first.
 
 ## Keyboard shortcuts
 
@@ -231,7 +233,7 @@ The menu's actions:
 | `p` | Pack this run (asks for a directory) | — | `shadowlap pack <run> <dir>` |
 | `B` | Find the call it was lost at | a failed run | `shadowlap blame <run> [--expect <json>]` |
 | `R` | Repair the fix it fails in | a run in an open fix | `shadowlap repair --fixes … [--keeps …] [--scope …] [--expect <json>] [--repairer claude-code]` |
-| `V` | Verify a change for the fix | a run in a fix | `shadowlap verify --fixes … [--keeps …] [--expect <json>]` |
+| `V` | Verify a change for the fix | a run in a fix | `shadowlap verify --fixes … [--holdout …] [--keeps …] [--expect <json>]` |
 
 - **`e` on a replay** runs again from its parent, with the flags that made it, its own command and its `--expect`.
 - **`s` on a replay** runs again from its parent too.
@@ -264,9 +266,10 @@ A run that failed a check none of those name asks for one (`--expect`), since bl
 
 `R` ([repair](./repair.md)) and `V` ([verify](./verify.md)) work on the fix the run fails in, with the command the dashboard's Fixes page runs for it:
 
-- **its failing runs**, by the fix's label when that selects exactly them;
+- **its failing runs**, by the fix's label when that selects exactly the runs to fix;
+- **for `V`, the runs held out** (`--holdout`): those a repair or a verify of the fix held out, unless a later repair showed them to its repairer, so the change is tried on failing runs it was not written for. `R` holds every other run out itself;
 - **the good runs it keeps**: those an earlier repair or verify of it kept, else the runs labelled good that run the same agent (`label:good` when that is all of them), never a failing run;
-- **the scope its blame searched**, and its check.
+- **its check**, and for `R` the scope its blame searched.
 
 Each is worked out when you press it, shows the exact command, and runs on `Enter`. When the job's pane closes, the run is read again.
 

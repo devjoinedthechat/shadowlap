@@ -1,4 +1,5 @@
-import { palette as p } from './ui.js';
+import { fitLine } from '@shadowlap/engine';
+import { columnsOf, palette as p } from './ui.js';
 
 /**
  * The progress blame, verify and repair print on stderr, a line at a time. In a terminal, attempt
@@ -47,8 +48,11 @@ function add(c: Counts, mark: string | undefined): void {
 }
 
 export function progressLog(stream: NodeJS.WriteStream = process.stderr, fold = true): ProgressLog {
+  // A line as the stream shows it: in a terminal wrapped at whole words to its width, its indent kept
+  // (fitLine); anywhere else whole. The folded count is cut to fit instead, so \r can take it back.
+  const fitted = (line: string) => line.split('\n').flatMap((l) => fitLine(l, columnsOf(stream))).join('\n');
   const folding = fold && stream.isTTY === true && process.env.TERM !== 'dumb';
-  if (!folding) return { log: (line) => void stream.write(`${line}\n`), done: () => {} };
+  if (!folding) return { log: (line) => void stream.write(`${fitted(line)}\n`), done: () => {} };
 
   // Where the folded line shows, anything else written meanwhile, to stderr or to stdout on the same
   // terminal (a warning), goes above it, and the line comes back under it.
@@ -123,7 +127,7 @@ export function progressLog(stream: NodeJS.WriteStream = process.stderr, fold = 
         return;
       }
       clear();
-      raw(`${line}\n`);
+      raw(`${fitted(line)}\n`);
       // A line nearer the margin starts what comes next (a probe, a candidate): its attempts count afresh.
       const indent = /^\s*/.exec(plain)![0];
       if (tally && indent.length < tally.indent.length) tally = null;

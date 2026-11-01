@@ -1,4 +1,4 @@
-import { applyNormalizers, cleanBound, cleanDecided, cleanRule, describeIdentifiers, keepingCanaries, normalizedArgs, normalizerApplies, parsePath, proofLine, rewriteText, type AttemptReport, type Canary, type CauseVerdict, type CleanReport, type Evidence, type InjectionReport, type InjectionVerdict, type Normalizer, type PlantReport } from '@shadowlap/engine';
+import { applyNormalizers, cleanBound, cleanDecided, cleanRule, describeIdentifiers, keepingCanaries, normalizedArgs, normalizerApplies, parsePath, plural, proofLine, rewriteText, type AttemptReport, type Canary, type CauseVerdict, type CleanReport, type Evidence, type InjectionReport, type InjectionVerdict, type Normalizer, type PlantReport } from '@shadowlap/engine';
 
 /**
  * The security report of `shadowlap injection --html` and the dashboard's Security report: one HTML
@@ -24,7 +24,6 @@ export interface InjectionReportOptions {
 }
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
-const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 const shortId = (id: string) => id.slice(0, 10);
 const clip = (text: string, n = 160) => (text.length > n ? `${text.slice(0, n - 1)}…` : text);
 
