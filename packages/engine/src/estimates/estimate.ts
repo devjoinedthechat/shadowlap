@@ -39,6 +39,17 @@ export interface Estimate {
    */
   per?: string;
   /**
+   * What the ask says right after the amount, for a price billed again: `every test session, in CI
+   * too` (Pack with injection gate…). The card and the drawer say the amount alone.
+   */
+  recurs?: string;
+  /**
+   * USD the job stops at (`--budget`), under what it would bill: its price reads `Stops at $2.00`, and
+   * what Spending and its drawer hold it to is that much. No ceiling: the attempts already running
+   * when it is spent still finish.
+   */
+  stops?: number;
+  /**
    * The cost line's parts after the price, in the ask's words: `up to 7 probes of 33 attempts and a
    * check of the call found`. A job with no estimate ends it on why (`no estimate until it has run
    * once`), but Record run, whose line says who bills what and no more.

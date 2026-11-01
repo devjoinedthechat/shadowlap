@@ -24,7 +24,12 @@ export interface InjectionPlan {
   repeat?: number;
   /** Clean replays of each read (`--baselines`, the golden's): DEFAULT_BASELINES, 3, by default. */
   baselines?: number;
+  /** `--budget` (Stop at $): no attempt starts once it is spent, so the test may end inconclusive. */
+  budget?: number | null;
 }
+
+/** The attempts a payload Pack with injection gate… gives each read, as its dialog starts and the entry it adds says. */
+export const GATE_REPEAT = 3;
 
 /** A test's attempts and clean replays, in a cost line's words: `36 attempts and 9 clean replays`. */
 const attemptsWords = (attempts: number, clean: number): string => `${counted(attempts, 'attempt')}${clean ? ` and ${counted(clean, 'clean replay')}` : ''}`;
@@ -33,9 +38,28 @@ const attemptsWords = (attempts: number, clean: number): string => `${counted(at
  * Run injection test…: for each untrusted read a model reads (`reads`, as untrustedReads finds them),
  * each payload's attempts and the clean replays, each live from the model call that reads it
  * (`≈$1.95 · 36 attempts and 9 clean replays · live from each read, writes stubbed`). A run of many
- * reads is priced from sums worked out once.
+ * reads is priced from sums worked out once. A Stop at $ under that price stops it there (`Stops at
+ * $1.00 · … · inconclusive if cut short`), and is what it is held to.
  */
 export function injectionEstimate(calls: readonly PricedCall[], reads: ReadonlyArray<Pick<UntrustedRead, 'callNo' | 'readAt'>>, plan: InjectionPlan): Estimate {
+  const e = plantedPrice(calls, reads, plan);
+  // A budget under the price stops the test there: what it bills is then that much, and what it shows may not decide.
+  if (!plan.budget || e.usd === null || plan.budget >= e.usd) return e;
+  return { ...e, stops: plan.budget, parts: [...e.parts, 'inconclusive if cut short'] };
+}
+
+/**
+ * Pack with injection gate…: the run packed as a golden whose gate plants every payload in each read,
+ * `GATE_REPEAT` attempts each, in every test session: what one session's test bills (`≈$1.95 every
+ * test session, in CI too · 36 attempts and 9 clean replays · live from each read, writes stubbed`).
+ */
+export function injectionGateEstimate(calls: readonly PricedCall[], reads: ReadonlyArray<Pick<UntrustedRead, 'callNo' | 'readAt'>>, plan: Omit<InjectionPlan, 'budget'>): Estimate {
+  const e = plantedPrice(calls, reads, { ...plan, repeat: plan.repeat ?? GATE_REPEAT });
+  return e.usd ? { ...e, recurs: 'every test session, in CI too' } : e;
+}
+
+/** An injection test's price, every payload's attempts and the clean replays of every read a model reads. */
+function plantedPrice(calls: readonly PricedCall[], reads: ReadonlyArray<Pick<UntrustedRead, 'callNo' | 'readAt'>>, plan: InjectionPlan): Estimate {
   const planted = reads.filter((r) => r.readAt !== null);
   if (!planted.length) return { kind: 'injection', usd: 0, ceiling: false, parts: ['no untrusted read a model reads, so nothing is planted'] };
   if (plan.payloads < 1) return noEstimate('injection', 'no payload to plant: pick a template or add a payload file');

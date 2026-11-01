@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { chaosTargets } from '../src/chaos.js';
 import { decisionRunCost, migrateEstimate, previewEstimate } from '../src/estimates/changes.js';
 import { pricedCalls } from '../src/estimates/estimate.js';
-import { causeEstimate, CLEAN_GATE, injectionAgainEstimate, injectionEstimate, presetsEstimate } from '../src/estimates/injection.js';
-import { amountWords, asksFirst, costLine, costWords, type Spending } from '../src/estimates/spending.js';
+import { causeEstimate, CLEAN_GATE, GATE_REPEAT, injectionAgainEstimate, injectionEstimate, injectionGateEstimate, presetsEstimate } from '../src/estimates/injection.js';
+import { amountWords, asksFirst, costLine, costWords, drawerCost, priceWords, type Spending } from '../src/estimates/spending.js';
 import { bisectCommits, bisectEstimate, goldenTestEstimate, moreEstimate, runBisectEstimate, testsEstimate, updateEstimate } from '../src/estimates/tests.js';
 import { verifyEstimate } from '../src/estimates/verify.js';
 import { untrustedReads } from '../src/injection.js';
@@ -155,6 +155,28 @@ describe('an injection test', () => {
   it('plants nothing in a read no model call reads, and has no estimate with nothing to plant', () => {
     expect(injectionEstimate(calls(), [{ callNo: 7, readAt: null }], { payloads: 12 })).toEqual({ kind: 'injection', usd: 0, ceiling: false, parts: ['no untrusted read a model reads, so nothing is planted'] });
     expect(injectionEstimate(calls(), reads(), { payloads: 0 }).none).toBe('no payload to plant: pick a template or add a payload file');
+  });
+
+  it('stops at a Stop at $ under its price, holds the job to that, and says it may end inconclusive', () => {
+    const full = injectionEstimate(calls(), reads(), { payloads: 12 });
+    const cut = injectionEstimate(calls(), reads(), { payloads: 12, budget: 0.1 });
+    expect(cut).toMatchObject({ usd: full.usd, stops: 0.1, ceiling: false, parts: [...full.parts, 'inconclusive if cut short'] });
+    expect(costLine(cut)).toEqual(['Stops at $0.10', '12 attempts and 3 clean replays', 'live from each read, writes stubbed', 'inconclusive if cut short']);
+    expect(drawerCost(cut)).toBe(amountWords(0.1));
+    // Held to the stop: above a threshold under it, it asks; under one over it, it doesn't.
+    expect([asksFirst(cut, 0.05), asksFirst(cut, 0.2)]).toEqual([true, false]);
+    // A Stop at $ over the price changes nothing.
+    expect(injectionEstimate(calls(), reads(), { payloads: 12, budget: 50 })).toEqual(full);
+  });
+
+  it('prices Pack with injection gate at what each test session bills, three attempts a payload by default', () => {
+    expect(GATE_REPEAT).toBe(3);
+    const e = injectionGateEstimate(calls(), reads(), { payloads: 12 });
+    expect(e).toMatchObject({ kind: 'injection', ceiling: false, recurs: 'every test session, in CI too', parts: ['36 attempts and 3 clean replays', 'live from each read, writes stubbed'] });
+    expect(e.usd).toBeCloseTo(39 * FROM_3, 10);
+    expect(costLine(e)).toEqual([`${amountWords(39 * FROM_3)} every test session, in CI too`, '36 attempts and 3 clean replays', 'live from each read, writes stubbed']);
+    // Its card, a form's, and its drawer say the amount alone.
+    expect([priceWords(e), costWords(e, 0.5, { form: true }), drawerCost(e)]).toEqual([amountWords(39 * FROM_3), amountWords(39 * FROM_3), amountWords(39 * FROM_3)]);
   });
 
   it('prices a run of many reads from sums worked out once, its counts as the line says a number', () => {

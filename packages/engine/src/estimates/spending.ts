@@ -90,10 +90,14 @@ export function heldAmount(usd: number): number {
   return usd > 0 ? Number(formatUsd(usd).replace(/[^\d.]/g, '')) : 0;
 }
 
+/** What a job is held to: its estimate, or the budget it stops at where that is less. */
+const stopped = (usd: number, stops: number | undefined): number => (stops !== undefined && stops < usd ? stops : usd);
+
 /** An estimate's price in words: `≈$0.027`, `At most ≈$10.88`, `≈$0.012 an attempt`, `Free`; `no estimate` without one. */
-export function priceWords(e: Pick<Estimate, 'usd' | 'ceiling' | 'per'>): string {
+export function priceWords(e: Pick<Estimate, 'usd' | 'ceiling' | 'per' | 'stops'>): string {
   if (e.usd === null) return 'no estimate';
   if (e.usd === 0) return 'Free';
+  if (e.stops !== undefined && e.stops < e.usd) return `Stops at ${spendingUsd(e.stops)}`;
   return `${e.ceiling ? 'At most ' : ''}${amountWords(e.usd)}${e.per ? ` ${e.per}` : ''}`;
 }
 
@@ -102,9 +106,9 @@ export function priceWords(e: Pick<Estimate, 'usd' | 'ceiling' | 'per'>): string
  * writes fenced`; for a job with no estimate, who bills it, then its parts, which end on why: `Billed
  * by your provider · live from there, writes blocked · no estimate until it has run once`.
  */
-export function costLine(e: Pick<Estimate, 'usd' | 'ceiling' | 'note' | 'parts' | 'per'>): string[] {
+export function costLine(e: Pick<Estimate, 'usd' | 'ceiling' | 'note' | 'parts' | 'per' | 'recurs' | 'stops'>): string[] {
   if (e.usd === null) return ['Billed by your provider', ...e.parts];
-  return [`${priceWords(e)}${e.note ? `, ${e.note}` : ''}`, ...e.parts];
+  return [`${priceWords(e)}${e.recurs ? ` ${e.recurs}` : ''}${e.note ? `, ${e.note}` : ''}`, ...e.parts];
 }
 
 /** How a button that starts a job is drawn: `form`, it opens a dialog that asks what to run; `wait`, it waits on another job or the server. */
@@ -119,10 +123,10 @@ export interface CostShown {
  * never does; else one whose amount as shown is above the threshold. Never ask asks only of a job
  * with no estimate.
  */
-export function asksFirst(e: Pick<Estimate, 'usd' | 'always' | 'per'> | null | undefined, threshold: Spending, o: CostShown = {}): boolean {
+export function asksFirst(e: Pick<Estimate, 'usd' | 'always' | 'per' | 'stops'> | null | undefined, threshold: Spending, o: CostShown = {}): boolean {
   if (!e || e.usd === null || e.always || e.per || o.form) return true;
   if (e.usd === 0 || threshold === null) return false;
-  return heldAmount(e.usd) > threshold;
+  return heldAmount(stopped(e.usd, e.stops)) > threshold;
 }
 
 /**
@@ -130,7 +134,7 @@ export function asksFirst(e: Pick<Estimate, 'usd' | 'always' | 'per'> | null | u
  * asks first`, `Free · asks first`, `no estimate · asks first`; a form's, or a button's that waits,
  * the amount alone. Null for a job that bills nothing and asks nothing first: it has no line.
  */
-export function costWords(e: Pick<Estimate, 'usd' | 'ceiling' | 'always' | 'per'> | null | undefined, threshold: Spending, o: CostShown = {}): string | null {
+export function costWords(e: Pick<Estimate, 'usd' | 'ceiling' | 'always' | 'per' | 'stops'> | null | undefined, threshold: Spending, o: CostShown = {}): string | null {
   if (e && e.usd === 0 && !e.always && !e.per) return null;
   const price = e ? priceWords(e) : 'no estimate';
   if (o.form || o.wait) return price;
@@ -138,7 +142,8 @@ export function costWords(e: Pick<Estimate, 'usd' | 'ceiling' | 'always' | 'per'
 }
 
 /** What a billed job's drawer says beside running: `at most ≈$10.88`, `≈$0.027`; null for one that bills nothing, has no estimate, or is priced by the unit. */
-export function drawerCost(e: Pick<Estimate, 'usd' | 'ceiling' | 'per'> | null | undefined): string | null {
+export function drawerCost(e: Pick<Estimate, 'usd' | 'ceiling' | 'per' | 'stops'> | null | undefined): string | null {
   if (!e?.usd || e.per) return null;
+  if (e.stops !== undefined && e.stops < e.usd) return amountWords(e.stops);
   return `${e.ceiling ? 'at most ' : ''}${amountWords(e.usd)}`;
 }
