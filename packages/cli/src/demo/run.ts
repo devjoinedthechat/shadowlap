@@ -2,11 +2,11 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
-import { Store } from '@shadowlap/engine';
+import { fitLine, Store, whole } from '@shadowlap/engine';
 import { STOP_SIGNALS } from '../agent-signals.js';
 import { CliError, EXIT, signalExit, usageError } from '../exit-codes.js';
 import { shortFixId } from '../fix-format.js';
-import { palette as p, quoteArgv, shortId } from '../ui.js';
+import { columnsOf, palette as p, quoteArgv, shortId } from '../ui.js';
 import { startScriptedModel } from './model.js';
 import { BUG_ORDERS, demoFiles, GOOD_ORDER } from './project.js';
 
@@ -77,8 +77,18 @@ export function requestsLine(asked: { recorded: number; replayed: number; blame:
   return `${parts.join(', ')}${none.length ? `; ${none.join(' and ')} sent none` : ''}. A real model is paid for these, and not for what the forks replayed.`;
 }
 
+/**
+ * The demo's own lines as the terminal shows them: each wrapped at whole words to its width, its
+ * indent kept and a command in one piece (`whole`); as written in a pipe or a file (no `columns`).
+ */
+export function narration(text: string, columns: number | null): string {
+  return text.split('\n').flatMap((line) => fitLine(line, columns)).join('\n');
+}
+
 export async function runDemo(o: DemoOptions): Promise<number> {
   const write = o.write ?? ((text: string) => void process.stdout.write(text));
+  // What the demo says, wrapped to the terminal; the commands it runs are shown as they are typed.
+  const say = (text: string) => write(narration(text, columnsOf(process.stdout)));
   const started = Date.now();
   if (spawnSync('git', ['--version'], { stdio: 'ignore' }).status !== 0) throw usageError('shadowlap demo needs git: repair rewrites the agent in a git repository. Install git, then run it again');
   const dir = o.keep ? keepFolder(o.keep) : realpathSync(mkdtempSync(join(tmpdir(), 'shadowlap-demo-')));
@@ -127,11 +137,11 @@ export async function runDemo(o: DemoOptions): Promise<number> {
       }
     };
 
-    write(`${p.bold('Shadowlap demo')}: a support agent refunds $240 orders its policy sends to a manager. Shadowlap records it, replays it for free, finds the model call that lost the run, and has a fix proposed and proven.\n`);
-    write(p.dim(`The model is scripted, not a real one: a small server on ${new URL(model.url).host} answers in Anthropic's Messages API (and the repairer in OpenAI's), so no key is needed and nothing leaves this machine.\n`));
-    write(p.dim(`Working in ${dir}, a git repository ${o.keep ? 'it keeps' : 'removed at the end (--keep <dir> keeps it)'}.\n`));
+    say(`${p.bold('Shadowlap demo')}: a support agent refunds $240 orders its policy sends to a manager. Shadowlap records it, replays it for free, finds the model call that lost the run, and has a fix proposed and proven.\n`);
+    say(p.dim(`The model is scripted, not a real one: a small server on ${new URL(model.url).host} answers in Anthropic's Messages API (and the repairer in OpenAI's), so no key is needed and nothing leaves this machine.\n`));
+    say(p.dim(`Working in ${whole(dir)}, a git repository ${o.keep ? 'it keeps' : `removed at the end (${whole('--keep <dir>')} keeps it)`}.\n`));
 
-    write(`\n${p.bold('1. Record')} the agent on ${NUMBERS[BUG_ORDERS.length] ?? BUG_ORDERS.length} $240 orders and one $60 order, and label them.\n`);
+    say(`\n${p.bold('1. Record')} the agent on ${NUMBERS[BUG_ORDERS.length] ?? BUG_ORDERS.length} $240 orders and one $60 order, and label them.\n`);
     const bugs: string[] = [];
     for (const order of BUG_ORDERS) {
       await step(['run', '--', 'node', 'agent.mjs', order]);
@@ -153,17 +163,17 @@ export async function runDemo(o: DemoOptions): Promise<number> {
       };
     })();
 
-    write(`\n${p.bold('2. Replay')} the first: every call is answered from the recording, the refund included, and nothing is sent.\n`);
+    say(`\n${p.bold('2. Replay')} the first: every call is answered from the recording, the refund included, and nothing is sent.\n`);
     await step(['replay', shortId(bugs[0]!)]);
     asked.replayed = since();
 
-    write(`\n${p.bold('3. Blame')} it: ask model calls again, each from a fork that replays everything before it, to find the one that lost the run.\n`);
+    say(`\n${p.bold('3. Blame')} it: ask model calls again, each from a fork that replays everything before it, to find the one that lost the run.\n`);
     await step(['blame', shortId(bugs[0]!), '--expect', '@refund-check.json', '--concurrency', '4']);
     asked.blame = since();
     const reading = probeReading(join(dir, '.shadowlap', 'shadowlap.db'), bugs[0]!);
-    if (reading) write(p.dim(`  ${reading}\n`));
+    if (reading) say(p.dim(`  ${reading}\n`));
 
-    write(`\n${p.bold('4. Repair')} it: the scripted model proposes rewrites of the prompt and the tools, and repair keeps the one verify proves.\n`);
+    say(`\n${p.bold('4. Repair')} it: the scripted model proposes rewrites of the prompt and the tools, and repair keeps the one verify proves.\n`);
     await step(['repair', '--fixes', 'label:refund-bug', '--keeps', 'label:good', '--expect', '@refund-check.json', '--concurrency', '4']);
     asked.repair = since();
 
@@ -171,15 +181,15 @@ export async function runDemo(o: DemoOptions): Promise<number> {
     const fix = store.listFixes().find((f) => f.status === 'verified');
     store.close();
     if (!fix) throw new StepFailed(EXIT.failed, 'the demo stopped: repair left no verified fix to apply');
-    write(`\n${p.bold('5. Apply')} the verified fix: the patch goes into agent.mjs, the runs it fixed become goldens, and their test runs offline.\n`);
+    say(`\n${p.bold('5. Apply')} the verified fix: the patch goes into agent.mjs, the runs it fixed become goldens, and their test runs offline.\n`);
     await step(['fix', 'apply', shortFixId(fix.fixId)]);
     asked.applied = since();
 
     const seconds = Math.round((Date.now() - started) / 1000);
-    write(`\n${p.green('✓')} Done in ${seconds} s, ${model.requests} requests to the scripted model, none to a real one.\n`);
-    write(p.dim(`  ${requestsLine(asked, BUG_ORDERS.length + 1)}\n`));
-    write(o.keep ? `  Kept in ${dir}: run shadowlap dashboard there to look around.\n` : p.dim('  The folder is removed. Run shadowlap demo --keep <dir> to keep it, and open it with shadowlap dashboard.\n'));
-    write(p.dim('  Your own agent: npm install -g shadowlap, then shadowlap init in its folder.\n'));
+    say(`\n${p.green('✓')} Done in ${seconds} s, ${model.requests} requests to the scripted model, none to a real one.\n`);
+    say(p.dim(`  ${requestsLine(asked, BUG_ORDERS.length + 1)}\n`));
+    say(o.keep ? `  Kept in ${whole(dir)}: run ${whole('shadowlap dashboard')} there to look around.\n` : p.dim(`  The folder is removed. Run ${whole('shadowlap demo --keep <dir>')} to keep it, and open it with ${whole('shadowlap dashboard')}.\n`));
+    say(p.dim(`  Your own agent: ${whole('npm install -g shadowlap')}, then ${whole('shadowlap init')} in its folder.\n`));
     return EXIT.ok;
   } finally {
     for (const s of STOP_SIGNALS) process.off(s, onSignal);

@@ -260,6 +260,20 @@ describe('formatBlame', () => {
     expect(notTheAnswer({})).toBeNull();
   });
 
+  it('wraps each answer at whole words to a terminal’s width, the lines after its first under where it starts', () => {
+    const b = probe(11, 3, 2, 2, true);
+    const contrast = { callNo: 11, recorded: [{ type: 'tool_call' as const, name: 'issue_refund', input: { order_id: 'A-1042', amount: 240, note: 'approved without asking a manager' } }], rescued: [{ type: 'text' as const, text: 'Above the limit, so a manager approves it first.' }, { type: 'tool_call' as const, name: 'escalate', input: { reason: 'refund of $240 is above $100' } }], rescuedRunId: '01K5CR1100000000000000000' };
+    const r = base({ blamed: b, probes: [b], contrast });
+    const words = (text: string) => text.split(/\s+/).filter(Boolean);
+    expect(words(formatBlame(r, plain, 90))).toEqual(words(formatBlame(r)));
+    const fit = formatBlame(r, plain, 90).split('\n');
+    const at = fit.findIndex((l) => l.startsWith('  At #11  the recording   '));
+    const rows = fit.slice(at, fit.indexOf('', at));
+    expect(rows.filter((l) => l.startsWith('          a rescued fork  '))).toHaveLength(1);
+    expect(rows.length).toBeGreaterThanOrEqual(4);
+    for (const l of rows) expect(l.length <= 90 && (l === rows[0] || l.startsWith('          a rescued fork  ') || /^ {26}\S/.test(l)), l).toBe(true);
+  });
+
   it('describes a rescue that changes the request', () => {
     const fields = { model: 'claude-opus-5-5', temperature: 1 };
     expect(describeRescue(fields)).toBe('resample from the probed call on with model=claude-opus-5-5, temperature=1');
@@ -434,6 +448,27 @@ describe('probes decided by a gate', () => {
     const p = gated(5, 3, [true, true]);
     const late = { ...p, passes: 2, attempts: [...p.attempts, { ...p.attempts[0], runId: '01K5CR5900000000000000000Z', passed: false }] };
     expect(probeFinding(late, GATE)).toBe('rescued · 2 of 2 (and 1 more that ended after it decided) · rate >= 0.15 (95%)');
+  });
+
+  it('wraps where the run was lost and how sure blame is at whole words to a terminal’s width, a flag kept with its value', () => {
+    const [b, lost, unsure] = [gated(5, 3, [true, true, true, false]), gated(7, 4, [false, false, false, false]), gated(1, 1, UNSURE)];
+    const blamed = report({ blamed: b, lost, probes: [b, lost], errorBound: 0.004, warnings: ['search_web changed since it was recorded: run it live with --live-tool search_web'] });
+    const unsettled = report({ outcome: 'unrescuable', probes: [unsure], lost: unsure, errorBound: 0.05, confidence: 'low' });
+    const words = (text: string) => text.split(/\s+/).filter(Boolean);
+    for (const r of [blamed, unsettled]) {
+      const whole = formatBlame(r);
+      const fit = formatBlame(r, plain, 60);
+      expect(words(fit)).toEqual(words(whole));
+      const wrapped = fit.split('\n').filter((l) => !whole.split('\n').includes(l));
+      expect(wrapped.length, fit).toBeGreaterThanOrEqual(3);
+      // Indented as the line, and past its mark for a warning's.
+      for (const l of wrapped) expect(l.length <= 60 && /^ {2}(?: {2})?\S/.test(l), l).toBe(true);
+    }
+    expect(formatBlame(blamed, plain, 60)).toContain('\n  The re-asked call #5: rescued · 3 of 4 · rate >= 0.14\n  (95%); #7, the next model call: lost · 0 of 4 · rate <=\n  0.61 (95%).\n');
+    // A warning wraps past its mark.
+    expect(formatBlame(blamed, plain, 60)).toMatch(/\n {2}! search_web changed since it was recorded: run it[^\n]*\n {4}\S/);
+    // What settles it is a flag and its value: on one line.
+    expect(formatBlame(unsettled, plain, 60)).toMatch(/\n {2}(?:\S+ )*--gate '\{"good":[\d.]+,"max":\d+\}'\./);
   });
 
   it('widens the range past an inconclusive probe, which claims nothing, to the first call found lost', async () => {

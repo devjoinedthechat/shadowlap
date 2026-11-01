@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
+import { whole } from '@shadowlap/engine';
+import { narration, requestsLine } from '../src/demo/run.js';
 
 /**
  * `shadowlap demo`, as `npx shadowlap demo` runs it: no key, no clone, a folder of its own, a
@@ -98,5 +100,19 @@ describe('shadowlap demo', () => {
     const r = await demo(['--keep', full]);
     expect(r.code).toBe(2);
     expect(r.err).toBe(`shadowlap: --keep: ${full} is not empty; name a new folder, or an empty one\n`);
+  });
+});
+
+describe('what the demo says in a terminal', () => {
+  it('wraps each of its lines at whole words to the width, keeping its indent and each command in one piece; a pipe gets them as written', () => {
+    const where = `  ${requestsLine({ recorded: 20, replayed: 0, blame: 236, repair: 1535, applied: 0 }, 4)}\n`;
+    const bye = `  The folder is removed. Run ${whole('shadowlap demo --keep <dir>')} to keep it, and open it with ${whole('shadowlap dashboard')}.\n`;
+    expect(narration(bye, null)).toBe('  The folder is removed. Run shadowlap demo --keep <dir> to keep it, and open it with shadowlap dashboard.\n');
+    const lines = narration(where + bye, 60).split('\n');
+    const words = (text: string) => text.split(/\s+/).filter(Boolean);
+    expect(words(lines.join(' '))).toEqual(words(narration(where + bye, null)));
+    expect(lines.length).toBeGreaterThan(4);
+    for (const l of lines) expect(l === '' || (l.length <= 60 && /^ {2}\S/.test(l)), l).toBe(true);
+    expect(lines.filter((l) => l.includes('shadowlap demo --keep <dir>') || l.includes('shadowlap dashboard.'))).toHaveLength(2);
   });
 });

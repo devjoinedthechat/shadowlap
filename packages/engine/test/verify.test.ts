@@ -158,6 +158,18 @@ describe('formatVerify', () => {
     expect(text).toContain('verifying: 9 attempts · 40 upstream requests · ≈$0.420 spent · code 3a4f5e1+dirty');
   });
 
+  it('wraps its verdict, its reasons and its warnings at whole words to a terminal’s width, each past the mark that leads it', () => {
+    const r = report([run('target', [false, false]), run('holdout', [true, false, false], { id: '01K5HELD' })], { replayWarnings: ['search_web changed since it was recorded: run it live with --live-tool search_web, or record the run again'] });
+    const whole = formatVerify(r);
+    const fit = formatVerify(r, plain, 60);
+    const words = (text: string) => text.split(/\s+/).filter(Boolean);
+    expect(words(fit)).toEqual(words(whole));
+    expect(fit.split('\n').slice(0, 2)).toEqual(['✗ Rejected: the change fixes 0 of 1 target run and 0 of 1', '  held-out run']);
+    expect(fit).toMatch(/\n {2}· target run 01K5TARGET not fixed: [^\n]+\n {4}\S/);
+    expect(fit).toMatch(/\n {2}! search_web changed since it was recorded: run it live[^\n]*\n {4}\S/);
+    for (const l of fit.split('\n').filter((x) => !whole.split('\n').includes(x))) expect(l.length <= 60, l).toBe(true);
+  });
+
   it('names a change made through request fields', () => {
     const text = formatVerify(report([run('good', [true], { deterministic: true })], { fields: { model: 'big-model' } }));
     expect(text).toContain('✓ Accepted: the change keeps 1 of 1 good run');

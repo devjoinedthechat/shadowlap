@@ -1,5 +1,5 @@
 import { InvalidArgumentError } from 'commander';
-import { BLAME_DEFAULTS, commandIsImported, describeRescue, dimLines, formatBlame, hasRecordedCommand, maxProbes, probeGate, riskPercent, rescueRule, unsettledFirst, type ReadPolicy, type RunRecord } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, commandIsImported, describeRescue, dimLines, fitLine, formatBlame, hasRecordedCommand, maxProbes, probeGate, riskPercent, rescueRule, unsettledFirst, type ReadPolicy, type RunRecord, whole } from '@shadowlap/engine';
 import { fixHref } from '@shadowlap/dashboard';
 import { formatAttemptsUnrecorded } from '../attempt-unrecorded.js';
 import { formatBudget, undecidableRefusal } from '../attempts.js';
@@ -124,7 +124,8 @@ export function blamePlan({ rule, fields, parent, steps, argv }: Pick<BlameReque
   // Under a gate its risk is the whole search's, spent across the most probes it makes.
   const spent = rule.gate ? `, the ${riskPercent(rule.gate.risk)} risk spent across them` : '';
   return [
-    `${p.yellow('⑂')} Blaming ${shortId(parent.runId)} ${p.dim(`(${safe(quoteArgv(argv))})`)}: ${steps} model call${steps === 1 ? '' : 's'}${flags.scope ? ` in scope ${safe(flags.scope)}` : ''}`,
+    // The agent's command stays in one piece, as it is copied.
+    ...fitLine(`${p.yellow('⑂')} Blaming ${shortId(parent.runId)} ${p.dim(`(${whole(safe(quoteArgv(argv)))})`)}: ${steps} model call${steps === 1 ? '' : 's'}${flags.scope ? ` in scope ${safe(flags.scope)}` : ''}`, columns),
     ...dimLines(p, '  ', `each probe: ${describeRescue(fields)}, ${each} · writes ${flags.writes === 'stub' ? 'stubbed' : 'blocked'}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}`, columns),
     ...dimLines(p, '  ', `at most ${most} probe${most === 1 ? '' : 's'}${spent} and ${most * (rule.gate ? probeGate(rule.gate, most).max : rule.attempts)} attempts${steps > 1 ? `, and ${2 * 2 * probeGate(rule.gate ?? { kind: 'sprt', ...BLAME_DEFAULTS }, most).max} more to check a call they pin` : ''}; every call before a probe replays from the recording for free`, columns),
   ];
@@ -133,7 +134,7 @@ export function blamePlan({ rule, fields, parent, steps, argv }: Pick<BlameReque
 /** The report, as text or JSON, what its attempts ran unrecorded, its job's links, and its status. */
 function reportBlame(report: BlameRun, flags: BlameFlags): void {
   if (flags.json) process.stdout.write(JSON.stringify(blameJson(report), null, 2) + '\n');
-  else process.stdout.write('\n' + formatBlame(report, p, columnsOf(process.stdout)) + '\n' + (report.fix ? fixLine(report.fix, report.fix.opened ? 'opened' : 'joined') : ''));
+  else process.stdout.write('\n' + formatBlame(report, p, columnsOf(process.stdout)) + '\n' + (report.fix ? fixLine(report.fix, report.fix.opened ? 'opened' : 'joined', columnsOf(process.stdout)) : ''));
   // What the probes' attempts ran that nothing recorded, a write unstubbed: said once, after the report.
   const ranBlame = formatAttemptsUnrecorded(report.probes.flatMap((x) => x.attempts.map((a) => a.unrecordedTools)));
   if (ranBlame) process.stderr.write('\n' + ranBlame);

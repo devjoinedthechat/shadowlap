@@ -14,22 +14,31 @@ const ENTER = '\x1b[?1049h';
 /** Leaves it (`?1049l`), the screen before it back, then shows the cursor (`?25h`): the last thing written. */
 const LEFT = /\x1b\[\?1049l(?:\x1b\[\?25h)+$/;
 
-/** A terminal of a real size that keeps everything written to it. */
-function terminal(columns = 100, rows = 30) {
+/** A terminal of a real size that keeps everything written to it; with `answers`, one that answers the colours query as a dark terminal does. */
+function terminal(columns = 100, rows = 30, o: { answers?: boolean } = {}) {
   let written = '';
+  const stdin = new Keyboard();
   const stdout = Object.assign(new EventEmitter(), {
     columns,
     rows,
     isTTY: true,
     write(data: string | Uint8Array) {
       written += String(data);
+      if (o.answers && String(data).includes('\x1b]11;?')) setImmediate(() => stdin.write('\x1b]11;rgb:0000/0000/0000\x1b\\\x1b[?62;c'));
       return true;
     },
   });
   const stderr = Object.assign(new EventEmitter(), { write: () => true });
-  const stdin = new Keyboard();
   const io = { stdin, stdout, stderr } as unknown as TuiTerminal;
   return { io, stdin, written: () => written };
+}
+
+/**
+ * Calls what the UI listens to `name` with, as the signal would: the listeners it added since `before`,
+ * before it draws (once it has, Ink's exit hook is among them, which would signal this process).
+ */
+function signal(name: NodeJS.Signals, before: readonly NodeJS.SignalsListener[]): void {
+  for (const listener of process.listeners(name)) if (!before.includes(listener)) listener(name);
 }
 
 async function until(ok: () => boolean, timeoutMs = 5000): Promise<void> {
@@ -98,5 +107,49 @@ describe('the screen shadowlap ui leaves', () => {
     await expect(launchTui(broken, { theme: 'dark' }, t.io)).rejects.toThrow('the store could not be read');
     expect(leftClean(t.written()), tail(t.written())).toBe(true);
     expect(t.stdin.isRaw).toBe(false);
+  });
+});
+
+describe('a stop signal as it starts', () => {
+  // The colours are asked of the terminal only when nothing names the palette.
+  const themeWas = process.env.SHADOWLAP_UI_THEME;
+  beforeEach(() => {
+    delete process.env.SHADOWLAP_UI_THEME;
+  });
+  afterEach(() => {
+    if (themeWas === undefined) delete process.env.SHADOWLAP_UI_THEME;
+    else process.env.SHADOWLAP_UI_THEME = themeWas;
+  });
+
+  it('ends on the SIGINT a Ctrl-C makes once the terminal answered, before the UI takes the keyboard, drawing nothing', async () => {
+    const t = terminal(100, 30, { answers: true });
+    const before = process.listeners('SIGINT');
+    // The answer hands the keyboard back out of raw mode, where the terminal makes a Ctrl-C a SIGINT.
+    const setRaw = t.stdin.setRawMode.bind(t.stdin);
+    let typed = false;
+    t.stdin.setRawMode = (raw: boolean) => {
+      setRaw(raw);
+      if (raw || typed) return;
+      typed = true;
+      signal('SIGINT', before);
+    };
+    await launchTui(store, {}, t.io);
+    expect(t.written()).toContain('\x1b]11;?');
+    expect(t.written()).not.toContain(ENTER);
+    expect(t.stdin.isRaw).toBe(false);
+    expect(process.listeners('SIGINT')).toEqual(before);
+  });
+
+  it('ends on SIGTERM while a terminal that never answers is asked, the keyboard out of the raw mode the question leaves it in', { timeout: 10_000 }, async () => {
+    const t = terminal();
+    const before = process.listeners('SIGTERM');
+    const quit = launchTui(store, {}, t.io);
+    await until(() => t.written().includes('\x1b]11;?'));
+    signal('SIGTERM', before);
+    // Once the question's wait for an answer is over.
+    await quit;
+    expect(t.written()).not.toContain(ENTER);
+    expect(t.stdin.isRaw).toBe(false);
+    expect(process.listeners('SIGTERM')).toEqual(before);
   });
 });

@@ -117,7 +117,7 @@ Each command's section says which statuses it ends with. The statuses are:
 where it happened, and report it.
 
 **`128 + n`, a stop signal**: `130` for Ctrl-C, `129` for a closed terminal (SIGHUP), `143` for
-SIGTERM. That holds however the command wound down, for the dashboard, `serve`, `tasks serve`,
+SIGTERM. That holds however the command wound down, for the dashboard, `ui`, `serve`, `tasks serve`,
 `mcp`, `demo` and `replay --watch` too. It holds for a signal that came during its last work too, such as
 repair removing its worktree after its last verify. A signal in the last moment before the process
 exits, a few milliseconds, may find it already ending with its own status.
@@ -173,6 +173,9 @@ Runs the whole loop on a refund agent, with no key and nothing to clone, as the
    does in a terminal. After blame, a line says how to read a probe's verdict from the probes it made.
 5. It ends with how long that took, how many requests the scripted model answered, and where they
    went: the recordings, blame's attempts and repair's.
+
+In a terminal, its own lines wrap at whole words to the terminal's width, as [blame's](#blame) do,
+and each command it runs is shown as it is typed.
 
 Your own model keys and endpoints are left out of its environment, and [telemetry](./telemetry.md) is
 off for it.
@@ -1010,9 +1013,11 @@ Its progress goes to stderr:
 - **With `-v`, or anywhere else** (a CI log, a file, the dashboard), every attempt keeps its line,
   with its run id.
 
-In a terminal, the dim lines that say how it decides and what it took, before it starts and in its
-report, wrap at whole words to the terminal's width, each line indented as the first. Written to a
-pipe or a file, each stays one line.
+In a terminal, a line of prose wider than the terminal wraps at whole words, before it starts, as it
+goes and in its report. Each line it wraps to is indented as the first, past a mark that leads it
+(`!`, `✗`), or under the text of a row. A command, or a flag with its value, stays in one piece. The
+lines that give commands or paths, and the rows of its tallies, stay whole. Written to a pipe or a
+file, each line stays whole.
 
 Verify and repair print theirs the same way.
 

@@ -5,7 +5,7 @@ import { formatUsd } from './prices.js';
 import { atLeast, atMost, decideCountUnavailable, decideUnavailable, describeGate, rateBound, riskPercent, type GateDecision, type GateResult, type SprtGate } from './stats.js';
 import type { Palette } from './report.js';
 import { dimLines, plain } from './report.js';
-import { safeLine } from './text.js';
+import { fitLine, safeLine } from './text.js';
 import type { CallRecord } from './types.js';
 import { unavailableStop } from './unavailable.js';
 import type { UnrecordedTool } from './unrecorded-tools.js';
@@ -360,6 +360,8 @@ export function eachRun(v: Pick<VerifyReport, 'needed' | 'attemptsPerRun' | 'gat
 /** The report as the CLI prints it, its dim lines fit to a terminal `columns` wide; whole with none, for a pipe or a file. */
 export function formatVerify(r: VerifyReport, p: Palette = plain, columns?: number | null): string {
   const lines: string[] = [];
+  // A sentence of the report: in a terminal it wraps at whole words, as the dim lines do.
+  const say = (line: string) => lines.push(...fitLine(line, columns));
   const count = (role: VerifyRole) => {
     const of = r.runs.filter((x) => x.role === role);
     return { of: of.length, ok: of.filter((x) => x.verdict === 'pass').length, unsure: of.filter((x) => outcomeOf(x) === 'inconclusive').length };
@@ -376,9 +378,9 @@ export function formatVerify(r: VerifyReport, p: Palette = plain, columns?: numb
   ].filter(Boolean);
   const sentence = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)!}` : (parts[0] ?? 'no runs');
   const head = r.verdict === 'accepted' ? `${p.green('✓')} ${p.bold('Accepted')}` : r.verdict === 'rejected' ? `${p.red('✗')} ${p.bold('Rejected')}` : `${p.yellow('!')} ${p.bold('Incomplete')}`;
-  lines.push(`${head}: the change ${sentence}`);
+  say(`${head}: the change ${sentence}`);
   // What the change failed in red; a run it could not settle, inconclusive or not settled, in amber.
-  for (const reason of r.reasons) lines.push(`  ${unsettledReason(reason) ? p.yellow('·') : p.red('·')} ${safeLine(reason)}`);
+  for (const reason of r.reasons) say(`  ${unsettledReason(reason) ? p.yellow('·') : p.red('·')} ${safeLine(reason)}`);
 
   lines.push('', ...dimLines(p, '  ', verifyRule(r), columns));
 
@@ -398,7 +400,7 @@ export function formatVerify(r: VerifyReport, p: Palette = plain, columns?: numb
 
   if (r.warnings.length || r.replayWarnings.length) {
     lines.push('');
-    for (const w of [...r.warnings, ...r.replayWarnings]) lines.push(`  ${p.yellow('!')} ${safeLine(w)}`);
+    for (const w of [...r.warnings, ...r.replayWarnings]) say(`  ${p.yellow('!')} ${safeLine(w)}`);
   }
 
   lines.push('');
