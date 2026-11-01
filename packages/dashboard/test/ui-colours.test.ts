@@ -102,6 +102,8 @@ describe('where a call’s answer came from', () => {
 
   it('draws a failed call as its tint ringed in the one red, never a solid red that reads as replayed under deuteranopia', () => {
     for (const m of MARKS.filter((x) => x !== '.org')) expect(value(mark(m, 'fail'), 'background'), m).toBe('var(--o-fail-fill)');
+    // a key's swatch rings it always; a cell, segment or bar from 6px wide, where the ring can show
+    for (const m of ['.oleg i', '.legend i.lg']) expect(value(mark(m, 'fail'), 'box-shadow'), m).toBe('inset 0 0 0 1.5px var(--o-fail)');
     expect(css).toMatch(/@container \(min-width: 6px\) \{ :is\([^)]*\)\.fail::before \{[^}]*box-shadow: inset 0 0 0 1\.5px var\(--o-fail\)/);
   });
 

@@ -96,6 +96,8 @@ a.kcell:hover { background: var(--hover); }
 .gs i.over, .segbar i.over, .oleg i.over { background: var(--o-over); }
 .gs i.inject, .segbar i.inject, .oleg i.inject { background: var(--o-inject); }
 .gs i.fail, .segbar i.fail, .oleg i.fail { background: var(--o-fail-fill); }
+/* the origin key's 8px swatch takes the run page's legend ring: a tint alone reads as replayed under deuteranopia */
+.oleg i.fail { box-shadow: inset 0 0 0 1.5px var(--o-fail); }
 /* the prompt cache's reads are its quiet part, as the Context view draws them: never the replayed colour */
 .ovc .segbar i.rep { background: var(--c-read); }
 .gs i.pend { background: var(--line); }
