@@ -57,6 +57,9 @@ describe('Spending, kept in this machine’s settings', () => {
   it('refuses a value that is no threshold, and a file it would lose something of', () => {
     const { own, o } = place();
     for (const bad of [0.505, -1, Infinity, Number.NaN]) expect(() => writeSpending(bad, o), String(bad)).toThrow(UserSettingsError);
+    // Named as it reads, which JSON would call null.
+    expect(() => writeSpending(Infinity, o)).toThrow('Infinity is no threshold: an amount in dollars, such as 0.50, or null to never ask');
+    expect(() => writeSpending(Number.NaN, o)).toThrow(/^NaN is no threshold/);
     writeFileSync(join(own, 'settings.json'), '{ not json');
     expect(() => writeSpending(2, o)).toThrow(`${join(own, 'settings.json')} isn’t valid JSON: fix or remove it, and change Spending again`);
     expect(readFileSync(join(own, 'settings.json'), 'utf8')).toBe('{ not json');
@@ -72,6 +75,9 @@ describe('Spending, kept in this machine’s settings', () => {
     expect(readSpending(o)).toMatchObject({ askAbove: 0.5, set: false, problems: [`${join(own, 'settings.json')} holds no settings: it is JSON, but no object`] });
     writeFileSync(join(own, 'settings.json'), JSON.stringify({ spending: { askAbove: 'lots' } }));
     expect(readSpending(o)).toMatchObject({ askAbove: 0.5, set: false, problems: [`${join(own, 'settings.json')}: spending.askAbove is "lots", which is no threshold (an amount in dollars, such as 0.50, or null to never ask), so it asks above the default $0.50`] });
+    // 1e999 is JSON, which reads back as Infinity.
+    writeFileSync(join(own, 'settings.json'), '{"spending":{"askAbove":1e999}}');
+    expect(readSpending(o)).toMatchObject({ askAbove: 0.5, set: false, problems: [`${join(own, 'settings.json')}: spending.askAbove is Infinity, which is no threshold (an amount in dollars, such as 0.50, or null to never ask), so it asks above the default $0.50`] });
   });
 
   it('ignores a relative SHADOWLAP_HOME, as the project list does, and keeps the settings in the home folder’s', () => {

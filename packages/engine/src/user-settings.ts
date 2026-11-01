@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import { SPENDING_DEFAULT, SPENDING_REFUSED, validSpending, type Spending } from './estimates/spending.js';
+import { SPENDING_DEFAULT, SPENDING_REFUSED, spendingUsd, validSpending, type Spending } from './estimates/spending.js';
 import { isObject } from './is-object.js';
 import { messageOf } from './message-of.js';
 import { withFileLock, writeFileAtomic } from './projects/files.js';
@@ -83,12 +83,18 @@ function readRaw(file: string): { raw: Record<string, unknown>; problem: string 
   }
 }
 
+/**
+ * A value as a message names it: a number as it reads (`Infinity`, `NaN`, `0.505`), which JSON would
+ * call null, as a stored 1e999 parses to Infinity; anything else as JSON (`"lots"`).
+ */
+const named = (v: unknown): string => (typeof v === 'number' ? String(v) : JSON.stringify(v));
+
 /** Spending as a file's settings hold it, or the default and why. */
 function spendingOf(raw: Record<string, unknown>, file: string): { askAbove: Spending; set: boolean; problem: string | null } {
   const kept = isObject(raw.spending) ? raw.spending : null;
   if (!kept || !('askAbove' in kept)) return { askAbove: SPENDING_DEFAULT, set: false, problem: null };
   if (validSpending(kept.askAbove)) return { askAbove: kept.askAbove, set: true, problem: null };
-  return { askAbove: SPENDING_DEFAULT, set: false, problem: `${file}: spending.askAbove is ${JSON.stringify(kept.askAbove)}, which is no threshold (${SPENDING_REFUSED.toLowerCase()}, or null to never ask), so it asks above the default $0.50` };
+  return { askAbove: SPENDING_DEFAULT, set: false, problem: `${file}: spending.askAbove is ${named(kept.askAbove)}, which is no threshold (${SPENDING_REFUSED.toLowerCase()}, or null to never ask), so it asks above the default ${spendingUsd(SPENDING_DEFAULT)}` };
 }
 
 /** Spending as this person keeps it on this machine: the default, $0.50, until they change it. */
@@ -104,7 +110,7 @@ export function readSpending(o: UserSettingsOptions = {}): SpendingSetting {
  * hold, and for a file it would lose something of: one that is no settings, or a newer Shadowlap's.
  */
 export function writeSpending(askAbove: Spending, o: UserSettingsOptions = {}): SpendingSetting & { was: Spending } {
-  if (!validSpending(askAbove)) throw new UserSettingsError(`${JSON.stringify(askAbove)} is no threshold: ${SPENDING_REFUSED.toLowerCase()}, or null to never ask`);
+  if (!validSpending(askAbove)) throw new UserSettingsError(`${named(askAbove)} is no threshold: ${SPENDING_REFUSED.toLowerCase()}, or null to never ask`);
   const file = userSettingsFile(o);
   return withFileLock(file, o.lockTimeoutMs ?? 5000, () => {
     const { raw, problem } = readRaw(file);
