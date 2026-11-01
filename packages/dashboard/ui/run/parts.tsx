@@ -12,6 +12,7 @@ import { href } from '../route.js';
 import { runType } from '../runs.js';
 import { scopeCount, scopeDepth, scopeHint, scopeLeaf } from '../scopes.js';
 import { useApp } from '../state.js';
+import { bannerNormalizerAsk, startTestsJob } from '../tests-ask.js';
 import type { PendingAction } from './actions.js';
 import type { PresetAttempt } from './preset.js';
 import { bannerFor, DIVERGED } from './banner.js';
@@ -278,11 +279,12 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
       // it; each is the tests' job. When the rule alone can't make the replay match, the job updates
       // the golden after it, live, so it asks first in the Tests screen's dialog. A server without the
       // jobs falls back to the run's own normalizer action. Once the rule is in the config, the banner
-      // says so and links the replay that passed.
+      // says so and links the replay that passed. A golden whose test runs live (an injection gate)
+      // asks first, as Tests does (tests-ask.ts).
       const normalizer = run.actions.find((a) => a.key === 'n');
       const acts = divergedActions({ test, hasNormalizeJob: app.hasKind(JOB_KINDS.normalizeAndTest), hasUpdateJob: app.hasKind(JOB_KINDS.testUpdate), action: !!normalizer, actionsOff: off });
       const add = acts.normalizer;
-      const addNormalizer = () => job(JOB_KINDS.normalizeAndTest, { runId: r.runId });
+      const addNormalizer = () => startTestsJob(app, JOB_KINDS.normalizeAndTest, { runId: r.runId }, bannerNormalizerAsk(test));
       return (
         <section className="banner blame">
           <span className="bk">diverged at</span>

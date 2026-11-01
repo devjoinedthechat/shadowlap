@@ -1,6 +1,6 @@
 import { createElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { decideVerify, markFixApplied, recordBlame, recordEvent, recordRepair, recordVerdict, setFixTitle, Store, type BlameReport } from '@shadowlap/engine';
+import { decideVerify, formatBlame, markFixApplied, recordBlame, recordEvent, recordRepair, recordVerdict, setFixTitle, Store, type BlameReport } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { fixAttemptGroups } from '../src/attempt-groups.js';
 import { fixDetail, fixList } from '../src/fixes.js';
@@ -131,6 +131,38 @@ describe('the Blame step', () => {
     const stopped = newRun({ labels: ['triage'], calls: ['api', 'tool', 'api'] });
     await open(blame(stopped, { report: blameReport(stopped, 'stopped') }).fix.fixId, 'blame');
     expect(panels()[0]).toBe('The run’s calls');
+  });
+
+  it('says the error bound its confidence comes from as the CLI prints it, never as a raw number', async () => {
+    const run = newRun({ labels: ['refund-bug'], calls: ['api', 'tool', 'api', 'tool', 'api'] });
+    const report = blameReport(run);
+    // Each probe's own risk, and their sum the blame's answer is bounded by, as blame works them out.
+    report.errorBound = 0.029768686911663525;
+    for (const p of report.probes) p.risk = report.errorBound / 3;
+    await open(blame(run, { report }).fix.fixId, 'blame');
+    const cli = /^ {2}Confidence: high \((.+)\)$/m.exec(formatBlame(report))?.[1];
+    expect(cli).toBe('<= 3% risk that the call is wrong: 3 probes decided, at <= 1% risk each');
+    const head = text(r!.one('.sh p'));
+    expect(head).toContain(` · confidence high (${cli!})`);
+    expect(head).not.toContain('0.0297');
+    await r!.unmount();
+    // A report from before blame bounded its error says its confidence alone, as it did.
+    const older = newRun({ labels: ['triage'], calls: ['api', 'tool', 'api', 'tool', 'api'] });
+    await open(blame(older).fix.fixId, 'blame');
+    expect(text(r!.one('.sh p'))).toMatch(/ · confidence high(?! \()/);
+  });
+
+  it('prints no bound where the CLI prints no confidence line: every attempt that passed answered the call as the recording did', async () => {
+    const run = newRun({ labels: ['refund-bug'], calls: ['api', 'tool', 'api', 'tool', 'api'] });
+    // As blame leaves such a report: no call blamed, the search's bound kept, with its probes' risks.
+    const why = 'Every attempt that passed at #5 answered it as the recording did, so what made them pass came after that answer.';
+    const report: BlameReport = { ...blameReport(run), outcome: 'unrescuable', blamed: null, lost: null, range: null, contrast: null, errorBound: 0.03, sameAnswer: { callNo: 5, runId: run, why } };
+    for (const p of report.probes) p.risk = 0.01;
+    expect(formatBlame(report)).not.toContain('Confidence:');
+    await open(blame(run, { report }).fix.fixId, 'blame');
+    const head = text(r!.one('.sh p'));
+    expect(head).toContain(why);
+    expect(head).not.toMatch(/risk/);
   });
 });
 
