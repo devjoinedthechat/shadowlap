@@ -9,7 +9,8 @@ import type { ReadJob } from './read-jobs.js';
  *
  * Each feature registers its reads from its own module, as a table: each kind of job it answers,
  * with the handler that answers it. read-jobs.ts lists the tables, its own first. Adding a read is
- * its job and its handler in the feature's table, and a feature's table is one line in that list:
+ * its job and its handler in the feature's table, and the route that asks it; a feature's table is
+ * one line in that list:
  *
  *   // estimates.ts
  *   import { lookupRun } from './api.js';
@@ -28,14 +29,29 @@ import type { ReadJob } from './read-jobs.js';
  *   // read-jobs.ts
  *   const READ_TABLES = [CORE_READS, ESTIMATE_READS] as const;
  *
+ *   // routes/estimates.ts
+ *   const run = lookupRun(ctx.store, r.params.id!);
+ *   if (!run) throw new HttpError(404, `no run ${r.params.id!}`);
+ *   sendAnswer(r, await ctx.reads.run({ kind: 'estimate', runId: run.runId, what }, runAffinity(ctx.store, run.runId)));
+ *
  * test/read-registry.test.ts asks a job of every kind on a thread and on a store in memory, and wants
  * the same answer from both: a kind registered without a job there fails the tests' type check.
  *
  * A job is plain data, as a thread gets it in a message: what the server reads to ask it (who asks,
  * the project's config, what git says) is read on its own thread first and put in the job. Its route,
- * in routes/<feature>.ts, asks with `ctx.reads.run(job)` and answers with read-pool.ts `sendAnswer`,
- * and the job is checked there as its handler takes it. A kind two tables register stops the
- * dashboard as it loads.
+ * in routes/<feature>.ts, asks with `ctx.reads.run(job, o)` and answers with read-pool.ts
+ * `sendAnswer`, and the job is checked there as its handler takes it. `o` says what the job reads
+ * (read-pool.ts `ReadModels.run`), and so which thread answers it and how long it may take:
+ *
+ * - about one run, `runAffinity(ctx.store, run.runId)` (run-index.ts), by the whole id lookupRun
+ *   found, as routes/runs.ts passes it: the thread that holds the run answers, and the job has two
+ *   minutes per 50,000 of the run's calls (`READ_LIMITS.jobCalls`), two at least;
+ * - over several runs, `{ calls }`, their calls added up, as routes/compare.ts passes it;
+ * - over every run, nothing.
+ *
+ * Asked without `o`, a job about a run of 100,000 calls goes to whichever thread is free, and is
+ * stopped after two minutes rather than four. A kind two tables register stops the dashboard as it
+ * loads.
  *
  * This module loads nothing of the dashboard's, so the module of any feature can register reads. A
  * table's module loads neither read-jobs.ts nor read-pool.ts, which load it.
