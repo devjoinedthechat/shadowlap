@@ -233,3 +233,6 @@ body:has(.bulkbar) .drawer { bottom: 100px; }
 .pop.rpicks { overflow-y: auto; }
 .pop.rpicks button { display: flex; align-items: baseline; gap: 10px; padding: 8px 10px; font-size: 13px; }
 .pop.rpicks button[aria-selected="true"] { background: var(--sel); }
+
+/* Forced colours drop an overlay's shadow, its only edge: each surface main draws keeps an outline in the user's text colour */
+@media (forced-colors: active) { .pop, .dialog, .palette, .help, .tip, .toast { outline: 1px solid CanvasText; } }

@@ -269,4 +269,8 @@ describe('forced colours', () => {
     for (const s of ['.seg button[aria-pressed="true"]', '.chips button[aria-pressed="true"]', '.ofilter button[aria-pressed="true"]']) expect(forced.get(s)?.get('text-decoration'), s).toBe('underline 2px');
     expect(forced.get(':is(input, select, textarea, .drop):focus-visible')?.get('outline')).toBe('2px solid Highlight !important');
   });
+
+  it('outlines every overlay in the user’s text colour, since its edge is a shadow the theme drops', () => {
+    for (const s of ['.pop', '.dialog', '.palette', '.help', '.tip', '.toast']) expect(forced.get(s)?.get('outline'), s).toBe('1px solid CanvasText');
+  });
 });
