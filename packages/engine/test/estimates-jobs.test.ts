@@ -170,6 +170,15 @@ describe('a verify', () => {
     }
   });
 
+  it('says on Verify this run’s card what the verify it runs is expected to take, where no verify of the runs came before', () => {
+    const e = verifyEstimate([{ role: 'target', usd: 0.02 }], { expected: { expected: 9.4, cost: 0.18 } });
+    expect(e.card!.lines).toEqual([`An attempt costs about ${amountWords(0.18 / 9.4)}.`, `A gate stops once it decides: about 9 attempts, ${amountWords(0.18)}.`]);
+    expect(e.expected).toEqual({ usd: 0.18, attempts: 9 });
+    expect(verifyEstimate([{ role: 'target', usd: 0.02 }], { expected: { expected: 9.4, cost: null } }).card!.lines).toEqual(['A gate stops once it decides: about 9 attempts.']);
+    // The last verify of the same runs is what Verify again's card says, over any expectation.
+    expect(verifyEstimate([{ role: 'target', usd: 0.02 }], { last, expected: { expected: 9.4, cost: 0.18 } }).card!.lines[1]).toBe(`A gate stops once it decides: the last verify spent ${amountWords(0.27)}.`);
+  });
+
   it('runs more attempts at the higher limit, a good run in pairs against its baseline, and says what the fix’s own figure expects', () => {
     const gate = { kind: 'sprt' as const, ...SPRT_DEFAULTS, max: 160 };
     const runs: VerifyRunCost[] = [

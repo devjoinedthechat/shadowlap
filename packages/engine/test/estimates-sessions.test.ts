@@ -113,6 +113,12 @@ describe('Find breaking commit', () => {
     expect(bisectEstimate(5, { fork: true, attempts: 20, each: null })).toMatchObject({ usd: null, none: 'no estimate until it has run once' });
   });
 
+  it('says on the price’s card what a commit’s gate is expected to cost, to the cent', () => {
+    const e = bisectEstimate(5, { fork: true, attempts: 20, each: 0.0325, commit: 0.1867 });
+    expect(e.card!.lines).toEqual([`An attempt costs at most ${amountWords(0.0325)}, as its last session’s costliest did.`, 'A gate stops once it decides: about ≈$0.19 a commit.']);
+    expect(bisectEstimate(5, { fork: true, attempts: 20, each: 0.0325 }).card!.lines[1]).toBe('A gate stops once it decides.');
+  });
+
   it('has none for a golden marked fork whose last session’s attempts spent nothing live', () => {
     const e = bisectEstimate(5, { fork: true, attempts: 20, each: 0 });
     expect(e).toMatchObject({ usd: null, none: 'its last session’s attempts spent nothing live, so what one costs is unknown' });

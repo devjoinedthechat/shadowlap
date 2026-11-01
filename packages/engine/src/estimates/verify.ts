@@ -114,6 +114,18 @@ export interface VerifyEstimateOptions {
   writes?: 'stub' | 'block';
   /** The last verify of the same runs: what an attempt of it cost, and what it spent, for the price's card. */
   last?: LastVerify | null;
+  /**
+   * What the verify it runs is expected to take, and cost, as the page works it out (Verify this run,
+   * with no verify of those runs before it): for the price's card, when there is no `last`.
+   */
+  expected?: ExpectedFigure | null;
+}
+
+/** The price's card lines from what a verify is expected to take: what an attempt costs, then the attempts and their cost. */
+function expectedLines(x: ExpectedFigure): string[] {
+  const attempts = counted(Math.round(x.expected), 'attempt');
+  if (x.cost === null || x.expected <= 0) return [`A gate stops once it decides: about ${attempts}.`];
+  return [`An attempt costs about ${amountWords(x.cost / x.expected)}.`, `A gate stops once it decides: about ${attempts}, ${amountWords(x.cost)}.`];
 }
 
 /** USD the last verify spent in all, and an attempt of it on average; null when it made no attempt, or met a model with no price, so what it spent says nothing whole. */
@@ -126,7 +138,8 @@ export function lastVerify(last: LastVerify | null | undefined): { usd: number; 
 /**
  * A verify's estimate: every run it checks at its gate's limit (`At most ≈$20.11 · up to 80 attempts
  * a failing run, 200 pairs a good one · live where a replay forks, writes stubbed`). The last verify
- * of the same runs, and what it spent, are the price's card.
+ * of the same runs, and what it spent, are the price's card (Verify again); with none, what the
+ * verify it runs is expected to take (Verify this run).
  */
 export function verifyEstimate(runs: readonly VerifyRunCost[], o: VerifyEstimateOptions = {}): Estimate {
   if (!runs.length) return noEstimate('verify', 'there is no run to verify');
@@ -135,9 +148,12 @@ export function verifyEstimate(runs: readonly VerifyRunCost[], o: VerifyEstimate
   const parts = [verifyParts(failing, runs.length - failing, ceiling.limits), `${VERIFY_LIVE[o.live ?? 'fork']}, writes ${o.writes === 'block' ? 'blocked' : 'stubbed'}`];
   if (ceiling.usd === null) return noEstimate('verify', runs.find((r) => r.usd === null || r.baseline === null)?.none ?? 'a run it checks has no price', parts);
   const last = lastVerify(o.last);
+  const expected = last ? null : (o.expected ?? null);
   const lines = last
     ? [`An attempt costs about ${amountWords(last.each)}, as one of the last verify’s ${counted(last.attempts, 'attempt')} did.`, `A gate stops once it decides: the last verify spent ${amountWords(last.usd)}.`]
-    : ['A gate stops once it decides, and a run whose replay doesn’t fork settles in one free attempt.'];
+    : expected
+      ? expectedLines(expected)
+      : ['A gate stops once it decides, and a run whose replay doesn’t fork settles in one free attempt.'];
   return {
     kind: 'verify',
     usd: ceiling.usd,
@@ -146,6 +162,7 @@ export function verifyEstimate(runs: readonly VerifyRunCost[], o: VerifyEstimate
     card: { title: 'If every run’s gate ran to its limit', lines },
     attempts: ceiling.attempts,
     ...(last ? { last: { usd: last.usd, attempts: last.attempts } } : {}),
+    ...(expected && expected.cost !== null ? { expected: { usd: expected.cost, attempts: Math.round(expected.expected) } } : {}),
   };
 }
 
