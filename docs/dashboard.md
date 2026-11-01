@@ -535,7 +535,7 @@ A replayed call's time is its recorded duration, in grey, because the replay did
 
 Filter by origin or text: *Fenced* holds the writes blocked or stubbed after a fork. A filter lists what it matches flat. Each row has a fork button.
 
-A call's origin shows as the strip draws it, and a tool call's effect beside its name: a write in teal.
+A call's origin shows in the strip's colors, with an injected or a failed call's swatch drawn as a ring. A tool call's effect shows beside its name: a write in teal.
 
 Each call sits under the call it belongs to, the list still in the run's order:
 
@@ -1569,6 +1569,9 @@ The dashboard's keys:
 - **A link in the page that opens another** (a fix from the list, another fix's verdict) hands the focus to the page it opened. A run picked in Compare leaves it on the picker.
 - **A focus ring** is drawn whole in every pane that scrolls. A pane that scrolls with no control in it (the Timeline, Turns and Context, a run's calls on Provenance, a code block, a command to copy, a job's output) takes the focus itself, so the keyboard can scroll it.
 - **Every target** is 24 px at least, as WCAG 2.5.8 asks, and text reaches WCAG AA's contrast on every surface it is drawn on.
+- **A field's edge** reaches 3:1 on whatever it sits on, as WCAG 1.4.11 asks of a control.
+- **On a phone**, no label is under 11 px: the small labels over titles, column heads, tags and shortcut keys rise to it.
+- **In a high-contrast theme** that forces its own colors, a mark that says something by its color keeps it, edged in the theme's text color. The current page and run and the selected call take the highlight color, a chosen option is underlined, and menus, dialogs, hover cards and toasts are outlined.
 
 ## Limits
 
@@ -2084,7 +2087,7 @@ Outside a dashboard job the variable is unset, and nothing is written.
 - on a toast with Undo, or the bar that says the dashboard can't be reached;
 - on every page, Settings tab and fix step again, with a few runs and Import a capture, at a phone's width (390 px).
 
-It also checks the contrast, the focus order, the skip link, the focus rings and every overlay's focus; 24 px targets; a phone's width; and that every link the server writes opens a page.
+It also checks the contrast of text and of a field's edge, the focus order, the skip link, the focus rings and every overlay's focus. It checks 24 px targets, a phone's width with no label under 11 px, and that every link the server writes opens a page.
 
 **A large store.** `node scripts/dashboard-scale.mjs --calls 20000 --runs 10000` builds a large store and times what a browser asks for on it; see [Large stores and long runs](#large-stores-and-long-runs).
 
