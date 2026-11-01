@@ -1,39 +1,42 @@
 /**
- * What a test session and a verify came to, in the words of the command that gave each verdict:
- * what `shadowlap test` and `shadowlap verify` print, and what the dashboard's Verdicts says of each
- * change it lists. No imports: a page may bundle it as it is.
+ * What a test session and a verify came to, as a page says it beside the verdict's word: the
+ * dashboard's Verdicts says each change it lists in these words, and its other pages say the same
+ * verdicts in them. No imports: a page may bundle it as it is.
  */
 
 /**
- * A test session's goldens by how they came out, as `shadowlap test` ends: `5 passed, 2 failed, 1
- * inconclusive`. An inconclusive golden is counted apart, neither passed nor failed, and only when
- * there is one.
+ * A test session's tally, counting what passed, as every tally on a page counts it: `2 of 7 goldens
+ * passed`. (The session's own line keeps the CLI's `2 passed, 3 failed, 2 inconclusive`.)
  */
-export function testTally(c: { passed: number; failed: number; inconclusive?: number }): string {
-  return `${c.passed} passed, ${c.failed} failed${c.inconclusive ? `, ${c.inconclusive} inconclusive` : ''}`;
+export function goldensPassed(passed: number, goldens: number): string {
+  return `${passed} of ${goldens} golden${goldens === 1 ? '' : 's'} passed`;
 }
 
 /**
- * What a verify found, run by run in their roles, as `shadowlap verify` says it after its verdict:
- * `fixes 1 of 1 target run, 2 of 2 held-out runs and keeps 2 of 2 good runs`. A run's `outcome` is
- * verify's word for it (`outcomeOf`, or a kept session's `fixed`, `not-fixed`, `kept`, `broken`):
- * fixed or kept held, and an inconclusive one is counted apart, `(1 inconclusive)`, neither held nor
- * one the change failed. `no runs` when it verified none.
+ * What a verify's verdict says of the runs it took, read from each run's role and how it came out
+ * (`outcome`: verify's word for it, `outcomeOf`, or a kept session's hyphenated `not-fixed`):
+ *
+ * - accepted: `Fixes the run that failed, keeps the 2 that worked`, or `Every run it verified kept
+ *   passing` when it took no run that failed;
+ * - rejected: `The change broke a run that worked`, else `The change did not fix the run that
+ *   failed` (`1 of the 3 runs that failed` when it fixed the others);
+ * - incomplete: `Not every run settled`.
+ *
+ * A run that failed as recorded is a target or a held-out run; one that passed is a good run.
  */
-export function verifySentence(runs: ReadonlyArray<{ role: string; outcome: string }>): string {
-  const count = (role: string) => {
-    const of = runs.filter((x) => x.role === role);
-    return { of: of.length, ok: of.filter((x) => x.outcome === 'fixed' || x.outcome === 'kept').length, unsure: of.filter((x) => x.outcome === 'inconclusive').length };
-  };
-  const t = count('target');
-  const h = count('holdout');
-  const g = count('good');
-  const unsure = (c: { unsure: number }) => (c.unsure ? ` (${c.unsure} inconclusive)` : '');
-  const runsOf = (n: number, what: string) => `${what} run${n === 1 ? '' : 's'}`;
-  const parts = [
-    t.of ? `fixes ${t.ok} of ${t.of} ${runsOf(t.of, 'target')}${unsure(t)}` : '',
-    h.of ? `${t.of ? '' : 'fixes '}${h.ok} of ${h.of} ${runsOf(h.of, 'held-out')}${unsure(h)}` : '',
-    g.of ? `keeps ${g.ok} of ${g.of} ${runsOf(g.of, 'good')}${unsure(g)}` : '',
-  ].filter(Boolean);
-  return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)!}` : (parts[0] ?? 'no runs');
+export function verifyHead(verdict: 'accepted' | 'rejected' | 'incomplete', runs: ReadonlyArray<{ role: string; outcome: string }>): string {
+  const failed = runs.filter((x) => x.role === 'target' || x.role === 'holdout').length;
+  const worked = runs.filter((x) => x.role === 'good').length;
+  const theFailed = failed === 1 ? 'the run that failed' : `the ${failed} runs that failed`;
+  if (verdict === 'rejected') {
+    const broken = runs.filter((x) => x.role === 'good' && x.outcome === 'broken').length;
+    if (broken) return `The change broke ${broken === 1 ? 'a run' : `${broken} runs`} that worked`;
+    const notFixed = runs.filter((x) => x.role !== 'good' && (x.outcome === 'not fixed' || x.outcome === 'not-fixed')).length;
+    if (notFixed) return `The change did not fix ${notFixed === failed ? theFailed : `${notFixed} of the ${failed} runs that failed`}`;
+    return 'Verify rejected the change';
+  }
+  if (verdict === 'incomplete') return 'Not every run settled';
+  if (!runs.length) return 'No run verified';
+  if (!failed) return 'Every run it verified kept passing';
+  return `Fixes ${theFailed}${worked ? `, keeps the ${worked === 1 ? 'one' : worked} that worked` : ''}`;
 }
