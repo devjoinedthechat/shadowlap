@@ -191,6 +191,21 @@ describe('every change checked', () => {
     expect(rows.map((r) => r.id)).not.toContain('vf-01M5NOFIX000000000000000');
   });
 
+  it('names the request fields a change set as --set takes them, a string that reads as JSON quoted, on a preview’s row and a verify’s alike', () => {
+    const own = Store.open(':memory:');
+    try {
+      const fields = { stop: '1', temperature: 1, user: 'ops' };
+      preview(own, { id: 'dc-01M8FIELDS00000000000000A', at: at(1), change: { model: null, fields, from: null, fromCode: null, text: 'stop=1, temperature=1, user=ops' }, counts: counts({ same: 3 }), runs: [{ runId: '01K8RUN0000000000000000001' }] });
+      fixVerify(own, { verifyId: 'vf-01M8FIELDS00000000000000A', at: at(2), report: { ...verifyReport([{ runId: '01M3RZ0001000000000000000A', role: 'target', pass: true }]), fields } });
+      const rows = verdictsView(own, []).rows;
+      expect(row<PreviewVerdict>(rows, 'dc-01M8FIELDS00000000000000A').title).toBe('Field change to stop="1", temperature=1, user=ops');
+      // As the fix's Verify step names the change, and as its Run again command sets it.
+      expect(row<VerifyVerdict>(rows, 'vf-01M8FIELDS00000000000000A')).toMatchObject({ fields: 'stop="1", temperature=1, user=ops', code: `stop="1", temperature=1, user=ops from each run's first model call · at 370712a+dirty` });
+    } finally {
+      own.close();
+    }
+  });
+
   it('filters by chip, newest first, to the limit, and says when there are more', () => {
     expect(verdictsView(store, GOLDENS, { kind: 'sessions' }).rows.map((r) => r.id)).toEqual(['no-revision', 'd2e8a1f', 'c91d0f4']);
     const previews = verdictsView(store, GOLDENS, { kind: 'previews', limit: 3 });
