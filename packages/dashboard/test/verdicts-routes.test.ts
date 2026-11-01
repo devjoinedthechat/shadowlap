@@ -2,7 +2,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { emptyCounts, Store, type TestResultData } from '@shadowlap/engine';
 import { verifyReport } from '../../engine/test/fix-fixtures.js';
 import { forgetCommits, startDashboard, type Dashboard, type GoldenSource } from '../src/index.js';
@@ -130,6 +130,27 @@ describe('GET /api/verdicts', () => {
     ]);
     expect(view.rows.find((r) => r.id === tightened)!.title).toBe('Tighten refund wording');
     expect((await getJson<VerdictRevision>(shared, `verdicts/${tightened}`)).row.by).toBe('dana@northwind.example');
+  });
+
+  it('tells a team store from the config alone: no run is counted for it, however many the store keeps', async () => {
+    const sql: string[] = [];
+    const query = vi.spyOn(store, 'query').mockImplementation(function (this: Store, text, ...params) {
+      sql.push(text);
+      return Store.prototype.query.call(this, text, ...params);
+    });
+    const recording = vi.spyOn(store, 'recordingRuns');
+    const counted: number[] = [];
+    try {
+      expect((await getJson<VerdictsView>(shared, 'verdicts')).shared).toBe(true);
+      expect((await getJson<VerdictRevision>(shared, `verdicts/${tightened}`)).shared).toBe(true);
+      counted.push(recording.mock.calls.length);
+    } finally {
+      query.mockRestore();
+      recording.mockRestore();
+    }
+    // The team store's status counts every run and asks what its runs left open: neither happens here.
+    expect(counted).toEqual([0]);
+    expect(sql.filter((text) => /\bFROM runs\b/.test(text) && !/\brun_id IN\b/.test(text))).toEqual([]);
   });
 
   it('names no one when the config names no team store, or one that is no store URL', async () => {
