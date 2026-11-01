@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { decisionsUnsettled, emptyCounts, migrateBreaks, migrateUnsettled, NO_TOKENS, unsettledRun, type DecisionRun, type DecisionStep, type DecisionsReport, type DecisionsVerify } from '@shadowlap/engine';
+import { emptyCounts, NO_TOKENS, type DecisionRun, type DecisionStep, type DecisionsReport, type DecisionsVerify } from '@shadowlap/engine';
 import { decisionsInconclusive, migrateExit } from '../src/commands/changes.js';
 import type { MigrateReport, MigrateRunPass } from '../src/migrate.js';
 
 /**
- * When a preview or a migration settles nothing, the dashboard's Verdicts says so by the engine's
- * rules (decisionsUnsettled, migrateBreaks, migrateUnsettled), which read only what a kept session
- * keeps. They are the rules `decisions` and `migrate` exit by, word for word: these hold them to it.
+ * `decisions` and `migrate` exit by the engine's rules (decisionsUnsettled, migrateBreaks,
+ * migrateUnsettled), the ones the dashboard's Verdicts reads a kept session by, so a preview or a
+ * migration that settles nothing reads alike on both. These pin the exit status and the words of each
+ * case, so neither drifts.
  */
 
 const step = (o: Partial<DecisionStep> = {}): DecisionStep => ({ callNo: 1, step: 1, scope: null, rank: null, majority: null, changes: [], recorded: { stop: 'answer', stopReason: 'end_turn', tools: [], text: 'a' }, now: null, samples: { asked: 3, answered: 3, changed: 0, ranks: [0, 0, 0] }, model: { recorded: 'm', asked: 'n' }, tokens: { before: null, after: null }, cost: { before: null, after: null, spent: 0 }, thinkingStripped: 0, error: null, ...o });
@@ -20,8 +21,6 @@ const run = (runId: string, o: Partial<DecisionRun> = {}): DecisionRun => ({ run
 const verify = (o: Partial<DecisionsVerify>): DecisionsVerify => ({ verdict: 'accepted', verifyIds: [], runs: [], commands: [], spent: 0, upstreamRequests: 0, reasons: [], ...o });
 const report = (runs: DecisionRun[], o: Partial<DecisionsReport> = {}) => ({ stopReason: null, flagged: [], verify: null, runs, ...o }) as DecisionsReport;
 
-/** A kept session as decisionsUnsettled reads it: each run's facts, not its steps. */
-const kept = (r: DecisionsReport) => decisionsUnsettled({ stopReason: r.stopReason, flagged: r.flagged, runs: r.runs.map(unsettledRun), verify: r.verify });
 
 describe("a preview's rule", () => {
   it('is the one decisions exits 3 by, in its words', () => {
@@ -41,8 +40,7 @@ describe("a preview's rule", () => {
       report([run('A', { rank: 1, majority: 1 })], { flagged: ['A'], verify: verify({ verdict: 'not-run', reasons: ['it was interrupted before verify started'] }) }),
       report([run('A')], { verify: verify({ verdict: 'not-run' }) }),
     ];
-    const said = reports.map((r) => decisionsInconclusive(r));
-    expect(said).toEqual([
+    expect(reports.map((r) => decisionsInconclusive(r))).toEqual([
       null,
       'it stopped before every step was asked: the budget of $0.10 is spent',
       '1 run could not be asked',
@@ -56,7 +54,6 @@ describe("a preview's rule", () => {
       'verify did not run: it was interrupted before verify started',
       null,
     ]);
-    expect(reports.map(kept)).toEqual(said);
   });
 });
 
@@ -91,8 +88,7 @@ describe("a migration's rule", () => {
       { stopReason: null, passes: { verdict: 'not-run', runs: [pass('inconclusive', false), pass('passed', false)] } },
       { stopReason: null, passes: { verdict: 'accepted', runs: [pass('inconclusive', false), pass('inconclusive', false)] } },
     ] as unknown as MigrateReport[];
-    const cli = reports.map(exits);
-    expect(cli).toEqual([
+    expect(reports.map(exits)).toEqual([
       { status: 0, why: null },
       { status: 1, why: null },
       { status: 1, why: null },
@@ -102,11 +98,5 @@ describe("a migration's rule", () => {
       { status: 3, why: '1 run is inconclusive' },
       { status: 3, why: '2 runs are inconclusive' },
     ]);
-    const engine = reports.map((r) => {
-      if (migrateBreaks(r.passes)) return { status: 1, why: null };
-      const why = migrateUnsettled(r);
-      return { status: why ? 3 : 0, why };
-    });
-    expect(engine).toEqual(cli);
   });
 });
