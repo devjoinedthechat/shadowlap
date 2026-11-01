@@ -19,7 +19,8 @@ const post = (m: ExportAnswer) => parentPort?.postMessage(m);
 let store: Store | null = null;
 let answer: ExportAnswer;
 try {
-  store = Store.open(work.dbPath);
+  // Only a store that is there: one deleted meanwhile is not made again.
+  store = Store.openExisting(work.dbPath);
   // Its time starts now: opening waited for any command holding the store.
   post({ type: 'open' });
   const result = exportHtml({ store, runIds: work.runIds, redact: work.redact, version: work.version, ...(work.prices ? { prices: work.prices } : {}), ...(work.uiDir ? { uiDir: work.uiDir } : {}) });

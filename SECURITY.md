@@ -92,7 +92,7 @@ For the first two, the sidecar answers anything else with 403, so it can't be us
 
 Node and Python agents get a preloaded capture module. It sends to the sidecar the calls to these hosts, naming the original host in `x-shadowlap-upstream`:
 
-- known model hosts: Azure OpenAI, Vertex AI, Bedrock, Claude on Microsoft Foundry, and the three base-URL providers;
+- known model hosts: Azure OpenAI, Gemini Enterprise Agent Platform (Vertex AI), Bedrock, Claude on Microsoft Foundry, and the three base-URL providers;
 - the hosts that `providers` in `shadowlap.config.json` declares.
 
 `SHADOWLAP_CAPTURE=off` turns the module off. What it forwards:

@@ -51,7 +51,7 @@ const SKILLS_SOURCE = `${CLAUDE_CODE_PLUGIN.source}/skills`;
  */
 export const TARGETS = {
   'claude-code': { kind: 'plugin', path: CLAUDE_CODE_PLUGIN.path, readers: 'Claude Code' },
-  agents: { kind: 'skills', path: '.agents/skills', readers: 'Codex, Cursor, GitHub Copilot, Gemini CLI, Antigravity, Windsurf, OpenCode, Cline, Amp, goose, Zed and Junie' },
+  agents: { kind: 'skills', path: '.agents/skills', readers: 'Codex, Cursor, GitHub Copilot, Gemini CLI, Antigravity, Devin Desktop (formerly Windsurf), OpenCode, Cline, Amp, goose, Zed and Junie' },
   kiro: { kind: 'skills', path: '.kiro/skills', readers: 'Kiro' },
 } as const;
 

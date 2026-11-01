@@ -209,6 +209,8 @@ export class ProjectHost<C = unknown> {
   private currentId: string;
   /** The store `--db` named, by project id, with the folder it was named for. */
   private readonly customDb = new Map<string, { path: string; dbPath: string }>();
+  /** What else holds the projects' stores, each to let go of one as its project is removed ({@link holdStores}). */
+  private readonly holders = new Set<(dbPath: string) => Promise<void>>();
 
   constructor(private readonly options: ProjectHostOptions<C>) {
     const entry = this.entry(options.current);
@@ -435,21 +437,39 @@ export class ProjectHost<C = unknown> {
   }
 
   /**
-   * Removes a project (see `ProjectRegistry.remove`). Its store is closed first, so deleting the
-   * recordings never pulls a file from under an open connection, and when it was current, the
-   * first remaining project becomes current.
+   * Has `letGo` let go of a project's store as the project is removed ({@link remove}), done once
+   * nothing it holds is open on the store: a dashboard reads and writes its stores on threads of its
+   * own, each through a connection of its own. Returns what stops it.
    */
-  remove(id: string, options: { deleteRecordings?: boolean; typedName?: string } = {}): RemovedProject & { current: string } {
+  holdStores(letGo: (dbPath: string) => Promise<void>): () => void {
+    this.holders.add(letGo);
+    return () => {
+      this.holders.delete(letGo);
+    };
+  }
+
+  /**
+   * Removes a project (see `ProjectRegistry.remove`). Its store is closed first, and is never opened
+   * from here again once the project is off the list; what else holds it ({@link holdStores}) lets
+   * go of it then, and only after that are the recordings deleted. So deleting them never pulls a
+   * file from under an open connection, and no connection opened late makes an empty store in its
+   * place, as a dashboard's thread did. When it was current, the first remaining project becomes
+   * current.
+   */
+  async remove(id: string, options: { deleteRecordings?: boolean; typedName?: string } = {}): Promise<RemovedProject & { current: string }> {
     const entry = this.entry(id);
     this.writable(id);
     const custom = this.customDb.get(id);
     if (options.deleteRecordings && entry && custom && custom.path === entry.path) throw new ProjectError('store', `This project’s store is ${custom.dbPath}, outside its folder. Delete it yourself if you mean to.`);
+    const dbPath = entry ? this.context(id).dbPath : null;
     this.contexts.get(id)?.close();
-    const removed = this.options.registry.remove(id, options);
+    const project = this.options.registry.removeFromList(id, options);
     this.contexts.get(id)?.retire();
     this.contexts.delete(id);
     this.customDb.delete(id);
-    return { ...removed, current: this.currentProject() };
+    // One that fails to let go still has the recordings deleted, and a file that can't be says so.
+    if (dbPath) await Promise.allSettled([...this.holders].map((letGo) => letGo(dbPath)));
+    return { project, deleted: options.deleteRecordings ? this.options.registry.deleteRecordingsOf(project) : [], current: this.currentProject() };
   }
 
   /** Closes every store, for good. */
