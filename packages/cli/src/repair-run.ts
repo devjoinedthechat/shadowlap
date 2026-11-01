@@ -208,6 +208,15 @@ interface Rewritable {
  * first (4), keeping the one the gate accepts twice (5). What the steps share is kept here: the
  * report as far as it got, what each stage spent, and why the repair stopped.
  */
+/**
+ * A candidate's rewrite on its progress line: the repairer model wrote it, so its escape sequences and
+ * line breaks are shown as escapes rather than reaching the terminal, and it is cut at 100 characters.
+ */
+export function shownRewrite(after: string): string {
+  const shown = safeLine(after);
+  return shown.length > 100 ? `${shown.slice(0, 99)}…` : shown;
+}
+
 class RepairRun {
   private readonly s: RepairSettings;
   private readonly log: (line: string) => void;
@@ -426,7 +435,7 @@ class RepairRun {
       stopped: () => this.interrupted || this.outOfBudget() || !!this.providerDown,
       verify: async ({ c, edit }, again) => {
         if (again) this.log(`  ${p.dim(`verifying candidate ${c.id} again, with fresh attempts: it is kept only if it passes twice`)}`);
-        else this.log(`\n  ${p.bold(`candidate ${c.id}`)} ${p.dim(`(${c.surface}, ${c.size} characters changed)`)}: ${c.after.length > 100 ? `${c.after.slice(0, 99)}…` : c.after}`);
+        else this.log(`\n  ${p.bold(`candidate ${c.id}`)} ${p.dim(`(${c.surface}, ${c.size} characters changed)`)}: ${shownRewrite(c.after)}`);
         const before = c.verify;
         const result = await this.tryCandidate(c, edit);
         if (result && again) this.accepted = { c, ...result };
