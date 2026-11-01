@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { blameBound, blameEstimate } from '../src/estimates/blame.js';
 import { pricedCalls } from '../src/estimates/estimate.js';
-import { REPAIR_CANDIDATES, repairerBound, repairEstimate, type RepairRun } from '../src/estimates/repair.js';
+import { REPAIR_CANDIDATES, repairerBound, repairEstimate, splitHoldout, type RepairRun } from '../src/estimates/repair.js';
 import { amountWords } from '../src/estimates/spending.js';
 import { asksFirst, costLine } from '../src/estimates/spending.js';
 import { keptMaxOf, verifyCeiling, verifyEstimate, verifyLimits, verifyMoreEstimate, verifyParts, verifyRunCosts, type VerifyRunCost } from '../src/estimates/verify.js';
@@ -260,6 +260,21 @@ describe('Run repair', () => {
     expect(e.card!.lines.slice(-2)).toEqual(['A run that replays clean settles in one free attempt.', 'Attempts the provider cuts short come on top, up to as many again.']);
     // With a verify of the fix before it, what that one took.
     expect(repairEstimate({ failing: failing(), good, last: { attempts: 12, spent: 0.24, judge: { spent: 0.03, upstreamRequests: 12 }, unknownModels: [] } }).card!.lines.at(-2)).toBe(`The last verify of this fix took 12 attempts, ${amountWords(0.27)}.`);
+  });
+
+  it('shows the repairer every other failing run, oldest first, as repair holds the rest out from it', () => {
+    const runs = [
+      { runId: 'c', startedAt: 3 },
+      { runId: 'b', startedAt: 1 },
+      { runId: 'a', startedAt: 1 },
+      { runId: 'd', startedAt: 4 },
+    ];
+    expect(splitHoldout(runs, (r) => r)).toEqual({ targets: [runs[2], runs[0]], holdout: [runs[1], runs[3]] });
+    // `shadowlap repair` splits the runs it was given, each by its recording.
+    expect(splitHoldout([{ parent: runs[1] }, { parent: runs[2] }], (t) => t.parent).targets).toEqual([{ parent: runs[2] }]);
+    // A run of each it shows is blamed, and none it holds out: three failing runs, two blames.
+    const three = [...failing(), { runId: 'c', startedAt: 3, calls: calls() }];
+    expect(repairEstimate({ failing: three, good }).items![0].usd).toBeCloseTo(2 * 279 * ALL, 10);
   });
 
   it('reuses a kept blame that searched to the end, and blames a stopped one again', () => {

@@ -2,6 +2,7 @@ import type { BlameReport } from '../blame.js';
 import { DEFAULT_REPAIRER } from '../fix-jobs.js';
 import { estimateCost } from '../prices.js';
 import { SPRT_DEFAULTS } from '../stats.js';
+import type { RunRecord } from '../types.js';
 import { blameBound, probedCalls } from './blame.js';
 import { counted, CUT_SHORT_LINE, liveFrom, noEstimate, noPriceWords, type Estimate, type PricedCall, type Prices } from './estimate.js';
 import { amountWords } from './spending.js';
@@ -90,12 +91,13 @@ export interface RepairPlan {
 }
 
 /**
- * The failing runs repair shows the repairer and blames: with two or more and none held out by hand,
- * every other one, oldest first; the rest are held out from it, and only verified.
+ * The failing runs `shadowlap repair` shows the repairer and blames, and those it holds out from it
+ * and only verifies, when none is held out by hand: every other run, oldest first, so the first is
+ * shown. Run repair's estimate prices the runs it shows so.
  */
-function shown(failing: readonly RepairRun[]): RepairRun[] {
-  if (failing.length < 2) return [...failing];
-  return [...failing].sort((a, b) => a.startedAt - b.startedAt || a.runId.localeCompare(b.runId)).filter((_, i) => i % 2 === 0);
+export function splitHoldout<T>(runs: readonly T[], runOf: (r: T) => Pick<RunRecord, 'runId' | 'startedAt'>): { targets: T[]; holdout: T[] } {
+  const sorted = [...runs].sort((a, b) => runOf(a).startedAt - runOf(b).startedAt || runOf(a).runId.localeCompare(runOf(b).runId));
+  return { targets: sorted.filter((_, i) => i % 2 === 0), holdout: sorted.filter((_, i) => i % 2 === 1) };
 }
 
 /** USD the runs blamed afresh may cost, every search at its bound; null with why when a run has no price. */
@@ -144,7 +146,7 @@ export function repairEstimate(o: RepairPlan): Estimate {
   const free = (why: NoFixToTry): Estimate => ({ kind: 'repair', usd: 0, ceiling: false, always, parts: [`nothing runs: the blame it reuses ${why === 'unsettled' ? 'didn’t settle' : 'rescued no call'}`] });
   if (o.noFix) return free(o.noFix);
   if (!o.failing.length) return { ...noEstimate('repair', 'there is no failing run to repair'), always };
-  const targets = shown(o.failing);
+  const targets = splitHoldout(o.failing, (r) => r).targets;
   // The repairer is shown each run it learns from: every one blamed afresh, or whose kept blame rescued it.
   const learned = targets.filter((r) => r.blame?.outcome !== 'unrescuable');
   if (!learned.length) return free('unrescued');
