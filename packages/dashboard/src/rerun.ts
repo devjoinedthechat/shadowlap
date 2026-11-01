@@ -1,4 +1,4 @@
-import type { StepRerun } from '@shadowlap/engine';
+import { fieldValue, type StepRerun } from '@shadowlap/engine';
 
 /**
  * The arguments Blame again, Run more attempts and Verify again run `shadowlap` with, built from a
@@ -131,16 +131,6 @@ export function rerunFlags(kind: RerunKind, rerun: StepRerun | null | undefined,
   return { flags, command, left, dropped };
 }
 
-/** A string `--set` would read back as something else (`1`, `true`, `[1]`), so it goes as JSON. */
-function readsAsJson(v: string): boolean {
-  try {
-    JSON.parse(v);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Request fields as `--model` and `--set` take them, read back as they were: a string that would
  * parse as JSON goes quoted. Null when a field's path or the model isn't of its shape, or a value
@@ -155,7 +145,7 @@ export function fieldArgs(fields: Record<string, unknown> | null | undefined): s
       continue;
     }
     if (!FIELD.test(k) || v === undefined) return null;
-    const arg = `${k}=${typeof v === 'string' && !readsAsJson(v) ? v : JSON.stringify(v)}`;
+    const arg = `${k}=${fieldValue(v)}`;
     if (HIDDEN.test(arg)) return null;
     out.push('--set', arg);
   }

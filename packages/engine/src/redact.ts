@@ -291,7 +291,9 @@ export function redactApiPath(path: string, rules: readonly Normalizer[], call: 
  * The header parameters a model call keeps for its identity (`meta.fingerprintHeaders`: a Bedrock
  * guardrail's identifier, an ARN that names the account) with the rules without a path that apply to
  * the call applied to each value, as every copy writes them and a replay of the copy reads a live
- * call's. The same object when no rule changes any.
+ * call's. The same object when no rule changes any. Nothing masks one by itself, as a credential is
+ * masked: they make the call the call it is, which matching needs as sent, and an account's id in
+ * one signs nothing. A rule that masks it masks it in every copy.
  */
 export function redactHeaderValues(headers: Record<string, string>, rules: readonly Normalizer[], call: Pick<CallRecord, 'kind' | 'name'>, observer?: RewriteObserver): Record<string, string> {
   const applying = textRules(rules, call);

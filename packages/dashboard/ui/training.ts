@@ -2,6 +2,7 @@ import { commandText } from './goldens.js';
 import { href } from './route.js';
 import type { ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, TrainingView } from './types.js';
 import { isObject } from '../../engine/src/is-object.js';
+import { twoDigits as pad } from '../../engine/src/words.js';
 
 /**
  * Training's logic (`pages/Training.tsx`), without the DOM so the tests import it: which pair groups a
@@ -18,7 +19,6 @@ export function filterGroups(groups: readonly PairGroupView[], chip: PairChip): 
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const pad = (n: number) => String(n).padStart(2, '0');
 
 /** When something was done, as the strip and the score cards say it: `just now`, `10:20` today, `Oct 1, 10:20` before. */
 export function whenDone(ms: number, now = Date.now()): string {

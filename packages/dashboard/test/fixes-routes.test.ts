@@ -180,6 +180,17 @@ describe('GET /api/fixes/:id', () => {
     const { fixId } = story();
     expect((await json(await api(`fixes/${fixId}`))).repairer.problem).toBeNull();
   });
+
+  it('shows the verify of a fix holding out the runs its repair held out from the repairer', async () => {
+    const [a, b] = [makeRun(store, { labels: ['refund-bug'] }), makeRun(store, { labels: ['refund-bug'] })];
+    const { fix } = blame(a);
+    recordRepair(store, { repairId: 'repair-munzln2i', dir: '.shadowlap/repairs/repair-munzln2i', report: repairReport({ targets: [a], holdout: [b], accepted: false }), expect: EXPECT, command: 'shadowlap repair --fixes label:refund-bug' });
+    await start();
+    const d = await json(await api(`fixes/${fix.fixId}`));
+    // Its Verify step is empty: the command it shows is the one to run.
+    expect(d.verify).toEqual([]);
+    expect(d.commands.verify).toBe(`shadowlap verify --fixes ${a.slice(0, 10)} --holdout ${b.slice(0, 10)} --expect '${JSON.stringify(EXPECT)}'`);
+  });
 });
 
 describe('PUT /api/fixes/:id/title', () => {

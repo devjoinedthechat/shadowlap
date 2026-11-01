@@ -19,6 +19,7 @@ import {
   type StoredEvent,
   type WrapSnippet,
 } from '@shadowlap/engine';
+import { projectInitial as initial } from './project-initial.js';
 import { SETUP_INTRO } from './setup-words.js';
 import { links } from './links.js';
 
@@ -57,8 +58,6 @@ const approx = (usd: number) => (!usd ? '$0' : usd < 0.0005 ? '≈<$0.001' : `�
 const duration = (ms: number) => (ms < 1000 ? `${Math.round(ms)} ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`);
 /** `a`, `a and b`, `a, b and c`. */
 const listed = (items: readonly string[]) => (items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)!}`);
-/** The letter on a project's badge: `Ü` for a folder macOS named `U` and a combining diaeresis. */
-const initial = (name: string) => (/[\p{L}\p{N}]/u.exec(name.normalize('NFC'))?.[0] ?? '?').toUpperCase();
 /** A run id as the setup shows it: the first ten characters, which every command takes. */
 const short = (runId: string) => runId.slice(0, 10);
 

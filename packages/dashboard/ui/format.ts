@@ -5,6 +5,7 @@
 export { formatDuration, formatUsd, shortModel } from '../../engine/src/prices.js';
 export { shortCallName as callName } from '../../engine/src/labels.js';
 import { formatTokens } from '../../engine/src/tokens.js';
+import { twoDigits as pad } from '../../engine/src/words.js';
 
 /** Dollars as the mock writes them: up to four decimals below a cent, trailing zeros dropped. */
 export function money(v: number): string {
@@ -72,7 +73,6 @@ export function sameRun(asked: string, runId: string): boolean {
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const pad = (n: number) => String(n).padStart(2, '0');
 
 /** 09:41, local time. */
 export function clock(ms: number): string {

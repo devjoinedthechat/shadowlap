@@ -1,4 +1,4 @@
-import { BLAME_DEFAULTS, outcomeOf, repairPatchProblem, repairToApply, SPRT_DEFAULTS, verdictCounts, type AttemptVerdict, type FixRecords, type PulledFrom, type RepairCandidate, type RunRecord, type StoreOf, type StoredBlame, type StoredRepair, type SprtGate, type StoredVerdict, type VerifiedRun } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, outcomeOf, repairPatchProblem, repairToApply, SPRT_DEFAULTS, verdictCounts, type AttemptVerdict, type FixRecords, type PulledFrom, type RepairCandidate, type RunRecord, type StoreOf, type StoredRepair, type SprtGate, type StoredVerdict, type VerifiedRun } from '@shadowlap/engine';
 import { type VerifyEvidence } from './evidence.js';
 import { links } from './links.js';
 import { isCount } from './rerun.js';
@@ -97,9 +97,8 @@ export const fixHref = (fixId: string, step?: StepKey, sub?: string): string => 
 
 export const runHref = (runId: string, call?: number | null): string => links.run(runId, call ?? null);
 
-export const short = (id: string) => id.slice(0, 10);
-
-export const s = (n: number) => (n === 1 ? '' : 's');
+// The fix modules' run ids, plurals and blames that lost no answer, as the engine says them.
+export { noAnswerLost, pluralS as s, shortRunId as short } from '@shadowlap/engine';
 
 export const ROLE: Record<VerifiedRun['role'], VerifyRow['role']> = { target: 'target', holdout: 'held-out', good: 'good' };
 
@@ -107,15 +106,6 @@ export const ROLE: Record<VerifiedRun['role'], VerifyRow['role']> = { target: 't
 const quote = (a: string) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, "'\\''")}'`);
 
 export const commandLine = (argv: string[]) => ['shadowlap', ...argv].map(quote).join(' ');
-
-/**
- * Whether a blame placed the failure on no call and knows that no answer of the model's lost the
- * run: its passing attempts answered as the recording did, or every attempt met a write's recorded
- * error again. A prompt repair is no fix for such a run; the tools, the harness or the command are.
- */
-export function noAnswerLost(b: StoredBlame | null): boolean {
-  return !!b && b.outcome === 'unrescuable' && !!(b.report.sameAnswer || b.report.failedWrite);
-}
 
 /** Whether a repair's accepted candidate was verified in a way that counts for the fix. */
 export const repairCounts = (rec: FixRecords, r: StoredRepair) => rec.verdicts.some((v) => v.repairId === r.repairId && verdictCounts(rec, v));
@@ -250,6 +240,13 @@ export function gateArg(gate: SprtGate, defaults: Omit<SprtGate, 'kind'>): strin
  * (`patchInTree`, patch-in-tree.ts); null when it can't say.
  */
 export type PatchCheck = (patch: string) => boolean | null;
+
+/**
+ * Why `fix apply` refuses a repair's patch in the project's working tree, by the repair: one a pull
+ * brought goes in only as a rewrite repair itself makes there, as the caller reads the file
+ * (`rewritesHere`, patch-in-tree.ts); null when it doesn't refuse it, or can't say.
+ */
+export type RewriteCheck = (repairId: string) => string | null;
 
 /**
  * A verified fix whose repair's patch is in the working tree already, as `check` asks git: merged by

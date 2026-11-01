@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import { act, createContext, type ReactElement } from 'react';
+import { vi } from 'vitest';
 
 /**
  * Renders the dashboard's components in Node, with effects, state and events, and no DOM library:
@@ -519,9 +520,9 @@ export interface Rendered {
   press(key: string, mods?: { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean }, el?: FakeElement): Promise<FakeEvent>;
   /** Types `text` into a field, as one change. */
   type(el: FakeElement, text: string): Promise<void>;
-  /** Lets timers and answers run for `ms`, the page redrawing as they land. */
+  /** Lets timers and answers run for `ms`, the page redrawing as they land: on fake timers (vi.useFakeTimers), `ms` of the test's clock. */
   wait(ms: number): Promise<void>;
-  /** Lets timers and answers run until `done` holds, 5 s at most (then it throws, saying `what`). */
+  /** Lets timers and answers run until `done` holds, 5 s at most (then it throws, saying `what`): of the test's clock, on fake timers. */
   until(what: string, done: () => boolean): Promise<void>;
   unmount(): Promise<void>;
 }
@@ -596,7 +597,9 @@ export async function render(element: ReactElement): Promise<Rendered> {
     },
     async wait(ms) {
       await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, ms));
+        // On fake timers the test's clock moves by `ms`, and the page's timers due by then run.
+        if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(ms);
+        else await new Promise((resolve) => setTimeout(resolve, ms));
       });
       check();
     },

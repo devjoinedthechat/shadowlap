@@ -8,6 +8,11 @@ export const palette: Palette = enabled
   ? { green: wrap(32, 39), red: wrap(31, 39), yellow: wrap(33, 39), dim: wrap(2, 22), bold: wrap(1, 22), cyan: wrap(36, 39) }
   : plain;
 
+/** The columns of the terminal `stream` writes to, which a dim line of prose is fit to (`dimLines`); null for a pipe or a file, which wrap nothing. */
+export function columnsOf(stream: NodeJS.WriteStream): number | null {
+  return stream.isTTY === true && stream.columns > 0 ? stream.columns : null;
+}
+
 export function shortId(id: string, n = 10): string {
   return id.length > n ? id.slice(0, n) : id;
 }

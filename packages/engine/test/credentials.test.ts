@@ -213,6 +213,28 @@ describe('a name with a password or secret word in it', () => {
     expect(maskJsonCredentials({ secret_id: '841771dc-11c9-bbc7-bcac-6a3945a69cd9', SecretId: 'prod/db' })).toEqual({ secret_id: C, SecretId: 'prod/db' });
   });
 
+  it('reads a value as an ARN only in the shape AWS writes one, so a key that merely starts as one is masked under a secret’s name', () => {
+    // Each partition; a region or none; an account's 12 digits or none. Each reads as a key but for its shape.
+    const arns = [
+      'arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db-AbCdEf',
+      'arn:aws-us-gov:secretsmanager:us-gov-west-1:123456789012:secret:prod/db-AbCdEf',
+      'arn:aws-cn:secretsmanager:cn-northwest-1:123456789012:secret:prod/db-AbCdEf',
+      'arn:aws-iso-b:secretsmanager:us-isob-east-1:123456789012:secret:prod/db-AbCdEf',
+      'arn:aws:s3:::bucket-EXAMPLE0123/key-AbCdEf0123',
+    ];
+    for (const arn of arns) expect(credentialParam('SecretArn', arn), arn).toBe(false);
+    // A partition, a service, a region or an account AWS writes no ARN with.
+    const keys = [
+      'arn:x:y::1:ghp_EXAMPLE16C7e42F292c6912E7710c838347A',
+      'arn:aws:SecretsManager:us-east-1:123456789012:secret:prod/db-AbCdEf',
+      'arn:aws:secretsmanager:moon-base:123456789012:secret:prod/db-AbCdEf',
+      'arn:aws:secretsmanager:us-east-1:12345:secret:prod/db-AbCdEf',
+      'arn:sk_live:EXAMPLE::0:sk_live_EXAMPLE0123456789abcdef',
+    ];
+    for (const key of keys) expect(credentialParam('SecretArn', key), key).toBe(true);
+    expect(maskJsonCredentials({ SecretId: keys[0], SecretArn: arns[0] })).toEqual({ SecretId: C, SecretArn: arns[0] });
+  });
+
   it('reads a run marked true, made before a path, a ref, a scope, a namespace or an id was kept, by its own rule', () => {
     const too = ['secret_path', 'secret_paths', 'secret_ref', 'secretRef', 'secret_reference', 'secretKeyRef', 'secret_key_ref', 'secret_scope', 'secret_namespace', 'SecretId', 'secret_id', 'SecretIds'];
     const read = withSecretNames(1, () => maskJsonCredentials(NAMES)) as Record<string, string>;
@@ -496,5 +518,36 @@ describe('credentials in a captured body', () => {
     // A result with nothing to mask, headers or body, is no copy to make.
     expect(credentialFreeResult(resultBlob({ status: 200, headers: { 'content-type': 'application/json' }, encoding: 'json' }, '{"ok": true}'))).toBeNull();
     expect(credentialFreeResult(json)).toBeNull();
+  });
+});
+
+describe('a form masked once', () => {
+  it('is masked to the same again, its credential first or last, as a body and as a string in one, as a replay reads a stored call', () => {
+    for (const form of ['password=pw_FAKE_0123&username=app', 'client_secret=EXAMPLE-0123&grant_type=client_credentials', 'grant_type=password&password=pw_FAKE_0123&scope=read']) {
+      const once = credentialFreeBody({ body: form, encoding: 'text' });
+      expect(once.body, form).toBe(form.replace(/(password|client_secret)=[^&]*/, `$1=${CREDENTIAL_PLACEHOLDER}`));
+      expect(credentialFreeBody(once), form).toBe(once);
+      const inJson = credentialFreeBody({ body: { form }, encoding: 'json' });
+      expect(credentialFreeBody(inJson), form).toBe(inJson);
+    }
+  });
+});
+
+describe('an AWS access key id', () => {
+  const C = CREDENTIAL_PLACEHOLDER;
+  const ID = 'AKIAIOSFODNN7EXAMPLE';
+  const SECRET = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
+
+  it('is masked where SigV2 names who signed a URL by it, as SigV4’s credential is, so a URL signed again with a rotated key matches', () => {
+    const v2 = withoutCredentials(`?AWSAccessKeyId=${ID}&Expires=1761825600&Signature=EXAMPLE%2Bsignature%3D`);
+    expect(v2).toBe(`?AWSAccessKeyId=${C}&Expires=1761825600&Signature=${C}`);
+    expect(withoutCredentials('?AWSAccessKeyId=AKIAI44QH8DHBEXAMPLE&Expires=1761825600&Signature=EXAMPLE%2Bother%3D')).toBe(v2);
+    expect(withoutCredentials(`?X-Amz-Credential=${ID}%2F20261030%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=beef`)).toBe(`?X-Amz-Credential=${C}&X-Amz-Signature=${C}`);
+  });
+
+  it('is kept anywhere else, as a user is beside a masked password: the key an IAM call acts on, and the one STS hands back beside its secret', () => {
+    expect(withoutCredentials(`Action=DeleteAccessKey&AccessKeyId=${ID}&UserName=alice`)).toBe(`Action=DeleteAccessKey&AccessKeyId=${ID}&UserName=alice`);
+    expect(maskJsonCredentials({ AccessKeyId: ID, SecretAccessKey: SECRET, SessionToken: 'EXAMPLE-session-token' })).toEqual({ AccessKeyId: ID, SecretAccessKey: C, SessionToken: C });
+    expect(maskTextCredentials(`aws_access_key_id = ${ID}\naws_secret_access_key = ${SECRET}\n`)).toBe(`aws_access_key_id = ${ID}\naws_secret_access_key = ${C}\n`);
   });
 });

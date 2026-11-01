@@ -1,4 +1,4 @@
-import { describeBaselineRule, dropBound, outcomeOf, probeFinding, probeGate, rescueRule, unavailableStop, type BlameReport, type FixStatus, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { describeBaselineRule, dimLines, dropBound, outcomeOf, probeFinding, probeGate, rescueRule, unavailableStop, type BlameReport, type FixStatus, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole, whole } from '@shadowlap/engine';
 import { AGENT_NODE_TOO_OLD } from '../agent-node.js';
 import type { BlameError, BlameRun } from '../blame.js';
 import { EXIT, interruptedStatus, stoppedBy } from '../exit-codes.js';
@@ -116,9 +116,12 @@ export function verifyJson(r: VerifyReport, kept?: { verifyId: string; fixes: Ar
   };
 }
 
-/** The fix a command reported to, in one dim line after its report: `fix fx-01K… · title · opened`. */
-export function fixLine(fix: { fixId: string; title: string }, what: string): string {
-  return p.dim(`  fix ${shortFixId(fix.fixId)} · ${safe(fix.title)} · ${what} · shadowlap fix show ${shortFixId(fix.fixId)}`) + '\n';
+/**
+ * The fix a command reported to, in a dim line after its report: `fix fx-01K… · title · opened`,
+ * fit to a terminal `columns` wide with the command to show it in one piece; whole with none.
+ */
+export function fixLine(fix: { fixId: string; title: string }, what: string, columns?: number | null): string {
+  return `${dimLines(p, '  ', `fix ${shortFixId(fix.fixId)} · ${safe(fix.title)} · ${what} · ${whole(`shadowlap fix show ${shortFixId(fix.fixId)}`)}`, columns).join('\n')}\n`;
 }
 
 /** What a verdict did to a fix, in a few words: `verified`, `rejected verdict kept`, or why it doesn't count. */

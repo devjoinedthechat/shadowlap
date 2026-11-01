@@ -1,10 +1,10 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import setup, { addedMessage, changedMessage, check, checkoutMessage, checkoutStatus, isOutput, leftInCheckout, setupOptions, snapshot, strays, WATCHED } from '../../no-stray-stores.mjs';
+import setup, { addedMessage, changedMessage, check, checkoutMessage, checkoutStatus, homeChangedMessage, homeMessage, isOutput, leftInCheckout, REAL_HOME, setupOptions, snapshot, strays, WATCHED } from '../../no-stray-stores.mjs';
 
 /**
  * A test that leaves a .shadowlap folder where the suites run (the repository's root, testing/frameworks),
@@ -159,13 +159,74 @@ describe('what tests leave in the checkout', () => {
     expect(['packages/cli/test/.tmp-fixes-1-0/', 'packages/cli/guard/__pycache__/', '.shadowlap/', 'packages/cli/test/distant.ts', 'sdks/python/.pytest_cache/'].filter(isOutput)).toEqual([]);
   });
 
-  it('leaves the checkout to a run in watch mode, where files change as you edit, and runs Python without bytecode', () => {
+  it('leaves the checkout and the real home to a run in watch mode, where files change as you edit, and runs Python without bytecode', () => {
     expect(setupOptions({ config: { watch: true } })).toEqual({ root: null });
-    expect(setupOptions({ config: { watch: false } })).toEqual({});
-    expect(setupOptions()).toEqual({});
+    expect(setupOptions({ config: { watch: false } })).toEqual({ home: REAL_HOME });
+    expect(setupOptions()).toEqual({ home: REAL_HOME });
     // The suite's own processes, and what the framework tests' wrapper runs.
     expect(process.env.PYTHONDONTWRITEBYTECODE).toBe('1');
     const env = spawnSync(process.execPath, [SCRIPT, '--watch', join(dir, 'env', '.shadowlap'), 'node', '-e', 'process.exit(process.env.PYTHONDONTWRITEBYTECODE === "1" ? 0 : 5)'], { encoding: 'utf8', env: { ...process.env, PYTHONDONTWRITEBYTECODE: '' } });
     expect(env.status, env.stderr).toBe(0);
+  });
+});
+
+/**
+ * Shadowlap keeps this machine's files (the project list, the agents and proxies registered while
+ * they run) in SHADOWLAP_HOME, else ~/.shadowlap. A run of the suites has a home of its own there,
+ * so no test writes in the real one, and one that does is caught.
+ */
+describe("Shadowlap's home folder, around a run", () => {
+  it("is the run's own: a temporary folder in SHADOWLAP_HOME, for the suite and every process it starts", () => {
+    const own = process.env.SHADOWLAP_HOME ?? '';
+    expect(isAbsolute(own), `SHADOWLAP_HOME is ${own || 'unset'}`).toBe(true);
+    expect(statSync(own).isDirectory()).toBe(true);
+    expect(own.startsWith(realpathSync.native(tmpdir()))).toBe(true);
+    expect(own).not.toBe(REAL_HOME);
+  });
+
+  it('is set by the setup until its teardown, which removes it and puts back what was there', () => {
+    const was = process.env.SHADOWLAP_HOME;
+    const teardown = setup();
+    const own = process.env.SHADOWLAP_HOME ?? '';
+    try {
+      expect(own).not.toBe(was);
+      expect(statSync(own).isDirectory()).toBe(true);
+    } finally {
+      teardown();
+    }
+    expect(process.env.SHADOWLAP_HOME).toBe(was);
+    expect(existsSync(own)).toBe(false);
+  });
+
+  it('is given to the command the script runs, and removed after it', () => {
+    const write = "const fs = require('node:fs'), path = require('node:path'); fs.writeFileSync(path.join(process.env.SHADOWLAP_HOME, 'projects.json'), '{}'); console.log(process.env.SHADOWLAP_HOME)";
+    const r = spawnSync(process.execPath, [SCRIPT, '--watch', join(dir, 'home-script', '.shadowlap'), 'node', '-e', write], { encoding: 'utf8' });
+    expect(r.status, r.stderr).toBe(0);
+    const used = r.stdout.trim();
+    expect(isAbsolute(used), used).toBe(true);
+    expect(used).not.toBe(process.env.SHADOWLAP_HOME);
+    expect(existsSync(used)).toBe(false);
+  });
+
+  it("fails the run on what tests wrote in the real home's .shadowlap under CI, and says it elsewhere, where the owner's Shadowlap writes there too", () => {
+    expect(REAL_HOME).toBe(join(homedir(), '.shadowlap'));
+    // A stand-in for the real one, as the owner's Shadowlap left it.
+    const real = join(dir, 'real-home', '.shadowlap');
+    mkdirSync(join(real, 'agents'), { recursive: true });
+    utimesSync(join(real, 'agents'), new Date(2026, 0, 1), new Date(2026, 0, 1));
+    const warned: string[] = [];
+    const lax = check([], (line) => warned.push(line), { root: null, home: real, strict: false });
+    const strict = check([], () => {}, { root: null, home: real, strict: true });
+    expect(warned).toEqual([]);
+    expect(lax).not.toThrow();
+    expect(strict).not.toThrow();
+    // A test registers an agent there, and removes it again: the folder it was in still says so.
+    writeFileSync(join(real, 'agents', '4242.json'), '{}');
+    rmSync(join(real, 'agents', '4242.json'));
+    expect(strict).toThrow(homeMessage([`${real}/agents`]));
+    expect(lax).not.toThrow();
+    expect(warned).toEqual([homeChangedMessage([`${real}/agents`])]);
+    expect(homeMessage(['/home/dana/.shadowlap/agents'])).toBe("tests wrote in the real home folder's Shadowlap files: /home/dana/.shadowlap/agents. A test runs the CLI with the run's own SHADOWLAP_HOME, which process.env carries, or a folder of its own, never with the real home.");
+    expect(homeChangedMessage(['/home/dana/.shadowlap/agents'])).toBe("Shadowlap files changed in the real home folder while the tests ran: /home/dana/.shadowlap/agents. Unless a Shadowlap of yours wrote them (a dashboard, an agent, a proxy), a test did: it runs the CLI with the run's own SHADOWLAP_HOME, which process.env carries, or a folder of its own.");
   });
 });

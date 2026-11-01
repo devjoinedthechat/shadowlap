@@ -24,10 +24,11 @@ export const BODY_THREADS = {
 };
 
 /**
- * A body to store on a thread: a request's, read by its content type, or an answer's; with a secret's
- * names read under the run's rule (`secretNames`, RunMeta.secretNames).
+ * A body to store on a thread: a request's, read by its content type and the name of the call that
+ * sends it, or an answer's; with a secret's names read under the run's rule (`secretNames`,
+ * RunMeta.secretNames).
  */
-type BodyWork = ({ kind: 'request'; bytes: Uint8Array; contentType: string | undefined } | { kind: 'response'; bytes: Uint8Array; head: ResponseHead }) & { secretNames: SecretNamesRule };
+type BodyWork = ({ kind: 'request'; bytes: Uint8Array; contentType: string | undefined; callName?: string } | { kind: 'response'; bytes: Uint8Array; head: ResponseHead }) & { secretNames: SecretNamesRule };
 
 /** A body as a thread is given it, with the id its answer comes back with. */
 export type BodyJob = BodyWork & { id: number };
@@ -55,10 +56,10 @@ export class BodyThreads {
   private nextId = 1;
   private closed = false;
 
-  /** A request body as stored (storedRequestBody), a secret's names read under the run's rule (`secretNames`). */
-  async request(bytes: Buffer, contentType: string | undefined, secretNames: SecretNamesRule = 2): Promise<StoredBody> {
-    if (bytes.length < BODY_THREADS.apartBytes) return withSecretNames(secretNames, () => storedRequestBody(bytes, contentType));
-    const answer = await this.apart({ kind: 'request', bytes, contentType, secretNames });
+  /** A request body as stored (storedRequestBody), the call that sends it named (`callName`), a secret's names read under the run's rule (`secretNames`). */
+  async request(bytes: Buffer, contentType: string | undefined, secretNames: SecretNamesRule = 2, callName?: string): Promise<StoredBody> {
+    if (bytes.length < BODY_THREADS.apartBytes) return withSecretNames(secretNames, () => storedRequestBody(bytes, contentType, callName));
+    const answer = await this.apart({ kind: 'request', bytes, contentType, secretNames, ...(callName === undefined ? {} : { callName }) });
     return answer?.kind === 'request' ? answer.stored : unreadBody();
   }
 

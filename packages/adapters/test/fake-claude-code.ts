@@ -24,8 +24,10 @@ hooks rewrite the input or the output, the one that answered last wins; it valid
  *
  * The files are kept in memory, so a test sees every write; the commands Bash runs are interpreted
  * for the few forms the tests and the fence use (`true`, `cd`, `printf '%s' …; exit N`, `cat -- …`,
- * `echo … > file`, `fail …`).
+ * `echo … > file`, `fail …`). A hook that must answer after the others waits for afterTheOthers(),
+ * so no timer decides which answered last.
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { readFileSync } from 'node:fs';
 
 export interface HookCallbackLike {
@@ -77,6 +79,51 @@ const REQUIRED: Record<string, string[]> = {
 };
 
 const RANK: Record<string, number> = { deny: 4, defer: 3, ask: 2, allow: 1 };
+
+/**
+ * The callbacks of one hook event of one call, as they answer. One waiting to answer last
+ * (afterTheOthers) goes once every other one has answered or waits to answer last too.
+ */
+class Turn {
+  private readonly answered = new Set<number>();
+  private readonly last: Array<{ at: number; go: () => void }> = [];
+  constructor(private readonly count: number) {}
+
+  answer(at: number): void {
+    this.answered.add(at);
+    this.release();
+  }
+
+  afterTheOthers(at: number): Promise<void> {
+    return new Promise((go) => {
+      this.last.push({ at, go });
+      this.release();
+    });
+  }
+
+  private release(): void {
+    const waiting = new Set(this.last.map((w) => w.at));
+    const ready = this.last.filter((w) => Array.from({ length: this.count }, (_, j) => j).every((j) => j === w.at || this.answered.has(j) || waiting.has(j)));
+    for (const w of ready) {
+      this.last.splice(this.last.indexOf(w), 1);
+      w.go();
+    }
+  }
+}
+
+/** The event a callback runs for, and which of its callbacks it is: a hook that runs inside one (the fence runs the query's own) is in that one's. */
+const turnOf = new AsyncLocalStorage<{ turn: Turn; at: number }>();
+
+/**
+ * Resolves once every other callback Claude Code runs for the same event of the same call has
+ * answered, so a hook that waits for it answers last, as a slow one would, with no timer to race. A
+ * hook run inside another callback (the fence runs the query's own inside its hook) waits only for
+ * the callbacks beside that one, since that one can't answer before it. Outside a hook, at once.
+ */
+export function afterTheOthers(): Promise<void> {
+  const here = turnOf.getStore();
+  return here ? here.turn.afterTheOthers(here.at) : Promise.resolve();
+}
 
 /** Whether a hook's matcher picks a tool, by the documented rules. */
 export function matches(matcher: string | undefined, tool: string): boolean {
@@ -195,7 +242,18 @@ export class FakeClaudeCode {
     // In the order they answered: a rewrite of the input or the output is the last one's. A callback
     // that throws counts as {}: the call goes on as if it had said nothing.
     const answered: Array<Record<string, unknown>> = [];
-    await Promise.all(callbacks.map((cb) => cb(input, id, { signal }).catch(() => ({})).then((out) => void answered.push(out))));
+    const turn = new Turn(callbacks.length);
+    await Promise.all(
+      callbacks.map((cb, at) =>
+        turnOf
+          .run({ turn, at }, () => cb(input, id, { signal }))
+          .catch(() => ({}))
+          .then((out) => {
+            answered.push(out);
+            turn.answer(at);
+          }),
+      ),
+    );
     return answered;
   }
 

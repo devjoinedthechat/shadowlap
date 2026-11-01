@@ -1,9 +1,9 @@
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { PACK_FORMAT, PACK_LIMITS, isObject, messageOf, type Gate, type Normalizer } from '@shadowlap/engine';
-import { oracleLabels } from './attempts.js';
 import { judgeChecksOf, specFor, type TestEntry, type TestSpec } from './checks.js';
 import { configPath, loadTests } from './config.js';
+import { oracleLabels } from './oracle.js';
 
 /**
  * Goldens: packed recordings in the repository that `shadowlap test` replays. This finds them (the

@@ -40,10 +40,11 @@ import {
   type TestResult,
 } from '@shadowlap/engine';
 import { providers } from '@shadowlap/sidecar';
-import { AttemptRunner, BYPASSED, EXIT_LABEL, formatBudget } from './attempts.js';
+import { AttemptRunner, BYPASSED, formatBudget } from './attempts.js';
 import { evaluateChecks, LABEL_INPUT, parseTests, type CheckResult, type TestSpec } from './checks.js';
 import { configPath, upstreamOverrides } from './config.js';
 import { importGolden } from './golden-test.js';
+import { EXIT_LABEL } from './oracle.js';
 import { type GuardMode } from './run-agent.js';
 import { type GlobalOpts } from './shared.js';
 import { ANSWERED_BY, startTakeover, takeoverMode, targetVia, type ModelTarget, type Takeover } from './takeover.js';

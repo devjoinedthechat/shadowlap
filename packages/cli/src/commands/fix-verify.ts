@@ -1,5 +1,5 @@
 import { InvalidArgumentError } from 'commander';
-import { describeBaselineRule, describeGate, formatVerify, KEPT_DEFAULTS, SPRT_DEFAULTS, type ReadPolicy, type RunRecord, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { describeBaselineRule, describeGate, dimLines, formatVerify, KEPT_DEFAULTS, SPRT_DEFAULTS, type ReadPolicy, type RunRecord, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { fixHref } from '@shadowlap/dashboard';
 import { formatAttemptsUnrecorded } from '../attempt-unrecorded.js';
 import { formatBudget, undecidableRefusal } from '../attempts.js';
@@ -10,7 +10,7 @@ import { emitJobEvent } from '../job-events.js';
 import { progressLog } from '../progress.js';
 import type { GuardMode } from '../run-agent.js';
 import { readStore, type GlobalOpts } from '../shared.js';
-import { palette as p, shortId } from '../ui.js';
+import { columnsOf, palette as p, shortId } from '../ui.js';
 import { allowedUnrecorded, refuseUnrecorded } from '../unrecorded.js';
 import { runVerify, type VerifyBaseline } from '../verify.js';
 import { resolveBase } from '../verify-base.js';
@@ -54,7 +54,7 @@ export interface VerifyCommandFlags {
 }
 
 /** What a verify was asked, read: how a run decides, the checks, the change's fields, and what good runs are kept against. */
-interface VerifyRequest {
+export interface VerifyRequest {
   rule: ReturnType<typeof attemptRule>;
   expect: ReturnType<typeof readExpectJson> | null;
   fields: Record<string, unknown>;
@@ -76,7 +76,7 @@ export async function verifyRuns(opts: GlobalOpts, command: string[], flags: Ver
   const { rule, expect, fields, baseline } = request;
   const progress = progressLog(process.stderr, !opts.verbose);
   const log = progress.log;
-  for (const line of verifyPlan(request, runs, flags)) log(line);
+  for (const line of verifyPlan(request, runs, flags, columnsOf(process.stderr))) log(line);
   const report = await runVerify({
     opts,
     runs,
@@ -130,18 +130,21 @@ function chooseRuns(opts: GlobalOpts, flags: VerifyCommandFlags): Map<string, { 
   return chosen;
 }
 
-/** What the verification will do, said before it starts: the runs by role, how each decides, and how a good run that forks is kept. */
-function verifyPlan({ rule, baseline }: VerifyRequest, runs: VerifyRuns, flags: VerifyCommandFlags): string[] {
+/**
+ * What the verification will do, said before it starts: the runs by role, how each decides, and how a
+ * good run that forks is kept, each dim line fit to a terminal `columns` wide (null: a pipe or a file).
+ */
+export function verifyPlan({ rule, baseline }: Pick<VerifyRequest, 'rule' | 'baseline'>, runs: ReadonlyArray<{ role: VerifyRole }>, flags: Pick<VerifyCommandFlags, 'writes' | 'budget' | 'margin'>, columns: number | null): string[] {
   const n = (role: VerifyRole) => runs.filter((r) => r.role === role).length;
   const counts = [n('target') ? `${n('target')} to fix` : '', n('holdout') ? `${n('holdout')} held out` : '', n('good') ? `${n('good')} to keep` : ''].filter(Boolean).join(', ');
   const decides = rule.gate ? `each run's gate: ${describeGate(rule.gate)}` : `a run passes at ${rule.needed} of ${rule.attempts} attempts`;
-  const lines = [`${p.yellow('⑂')} Verifying the code as it is now against ${runs.length} run${runs.length === 1 ? '' : 's'} (${counts})`, p.dim(`  ${decides}; one that replays clean is settled by its first · writes ${flags.writes === 'stub' ? 'stubbed' : 'blocked'}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}`)];
+  const lines = [`${p.yellow('⑂')} Verifying the code as it is now against ${runs.length} run${runs.length === 1 ? '' : 's'} (${counts})`, ...dimLines(p, '  ', `${decides}; one that replays clean is settled by its first · writes ${flags.writes === 'stub' ? 'stubbed' : 'blocked'}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}`, columns)];
   // How a good run that forks is kept: against its baseline, or, when there is none, by its gate alone.
   if (rule.gate && n('good')) {
     const margin = flags.margin ?? loadConfig(process.cwd()).verify?.margin ?? KEPT_DEFAULTS.margin;
     const max = loadConfig(process.cwd()).verify?.max ?? KEPT_DEFAULTS.max;
-    if (baseline.source === 'none') lines.push(p.dim(`  a good run that forks: by its gate on its own, as ${baseline.why}`));
-    else lines.push(p.dim(`  a good run that forks: ${describeBaselineRule({ margin, risk: rule.gate.risk, max, source: baseline.source, revision: baseline.source === 'paired' ? (baseline.base.revision ? baseline.base.label : 'the working tree, without the change') : null })}`));
+    if (baseline.source === 'none') lines.push(...dimLines(p, '  ', `a good run that forks: by its gate on its own, as ${baseline.why}`, columns));
+    else lines.push(...dimLines(p, '  ', `a good run that forks: ${describeBaselineRule({ margin, risk: rule.gate.risk, max, source: baseline.source, revision: baseline.source === 'paired' ? (baseline.base.revision ? baseline.base.label : 'the working tree, without the change') : null })}`, columns));
   }
   return lines;
 }
@@ -158,7 +161,7 @@ function reportVerify(opts: GlobalOpts, report: VerifyReport, { rule, expect, fi
   const kept = recordVerifyFix(opts, report, { expect: expect?.json ?? null, command: line, rerun: verifyRerun(step) });
   const json = verifyJson(report, kept ? { verifyId: kept.verdict.verifyId, fixes: kept.fixes } : null);
   if (flags.json) process.stdout.write(JSON.stringify(json, null, 2) + '\n');
-  else process.stdout.write('\n' + formatVerify(report, p) + '\n' + (kept?.fixes ?? []).map(({ fix: f, standing }) => fixLine(f, standingWords(report.verdict, standing, f.status))).join(''));
+  else process.stdout.write('\n' + formatVerify(report, p, columnsOf(process.stdout)) + '\n' + (kept?.fixes ?? []).map(({ fix: f, standing }) => fixLine(f, standingWords(report.verdict, standing, f.status), columnsOf(process.stdout))).join(''));
   const ranVerify = formatAttemptsUnrecorded(verifyAttempts(report).map((a) => a.unrecordedTools));
   if (ranVerify) process.stderr.write('\n' + ranVerify);
   for (const { fix: f } of kept?.fixes ?? []) emitJobEvent({ type: 'link', label: 'Open the fix', href: fixHref(f.fixId, 'verify', kept!.verdict.verifyId) });

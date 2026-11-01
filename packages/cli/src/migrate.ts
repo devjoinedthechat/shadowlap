@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
-import { argsDelta, byRule, controlOpen, credentialFreeCommandLine, formatUsd, judgeOpen, RANK_LABELS, safeLine, decisionLine, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type RetirementNotice, type SprtGate, type Store, type StoreOf } from '@shadowlap/engine';
+import { argsDelta, byRule, controlOpen, credentialFreeCommandLine, fieldValue, formatUsd, judgeOpen, RANK_LABELS, safeLine, decisionLine, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type RetirementNotice, type SprtGate, type Store, type StoreOf } from '@shadowlap/engine';
 import { judgeRecording } from './attempts.js';
 import { type TestSpec } from './checks.js';
 import { loadConfig } from './config.js';
@@ -105,8 +105,6 @@ export interface MigrateReport {
   warnings: string[];
   stopReason: string | null;
 }
-
-const fieldValue = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v));
 
 /**
  * A verified run's tally after its outcome: ` · 12 of 12 · rate >= 0.76 (95%)`, and an attempt that

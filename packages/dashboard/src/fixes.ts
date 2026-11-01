@@ -17,7 +17,7 @@
 
 import { applyLeft, commitTitle, DEFAULT_REPAIRER, expectArgs, fixCost, type FixData, FixIdError, fixRecords, type FixRecords, gitApplyCommand, lostRange, noFixToTry, patchFiles, repairArgv, repairJobArgv, type RepairOutcome, repairPatchProblem, repairToApply, resolveFix, type RunRecord, shownBlame, type StoredBlame, type StoredFix, type StoredRepair, type StoreOf, unsettledFirst, verifyArgv } from '@shadowlap/engine';
 import { type FixRow, rowOf } from './fix-list.js';
-import { acceptedCandidate, commandLine, counting, fieldsSet, type FixActions, type PatchCheck, patchMerged, patchToCheck, runHref, short, shownRepair, type StepKey, unrepairedVerdict } from './fix-shared.js';
+import { acceptedCandidate, commandLine, counting, fieldsSet, type FixActions, type PatchCheck, patchMerged, patchToCheck, type RewriteCheck, runHref, short, shownRepair, type StepKey, unrepairedVerdict } from './fix-shared.js';
 import { blameNext, blameStep, type BlameStep } from './fix-blame-step.js';
 import { repairStep, type RepairStep } from './fix-repair-step.js';
 import { verifyStep, type VerifyStep } from './fix-verify-step.js';
@@ -28,7 +28,7 @@ export { type VerifyStep, type VerifyMore } from './fix-verify-step.js';
 export { type FixesSummary, type WeekWindows, fixesSummary, type NeedsLookItem, needsLookFixes } from './fix-summary.js';
 export { type FixRef, type RunBlame, type FixForRun, fixForRun } from './fix-for-run.js';
 export { type FixBundleAttempt, type FixBundle, fixBundles } from './fix-bundles.js';
-export { type StepKey, type VerifyRow, type FixActions, fixHref, shortFailure, type PatchCheck } from './fix-shared.js';
+export { type StepKey, type VerifyRow, type FixActions, fixHref, shortFailure, type PatchCheck, type RewriteCheck } from './fix-shared.js';
 
 export interface FixRunRef {
   runId: string;
@@ -115,13 +115,40 @@ export function patchesToCheck(store: StoreOf<'fixes'>, fixes: readonly StoredFi
 }
 
 /**
+ * The repairs a read model asks its `RewriteCheck` about, for these fixes (every fix unless given):
+ * each verified fix's repair to apply, when a pull brought it and its patch is its candidate's one
+ * rewrite. Whether that rewrite is one repair makes is read in the working tree, so a route reads it
+ * first (`rewritesHere`, patch-in-tree.ts) and hands the read model the answers.
+ */
+export function pulledPatchesToCheck(store: StoreOf<'fixes' | 'team'>, fixes: readonly StoredFix[] = store.listFixes()): StoredRepair[] {
+  const out: StoredRepair[] = [];
+  for (const fix of fixes) {
+    if (fix.status !== 'verified') continue;
+    const r = repairToApply(fixRecords(store, fix));
+    if (r?.report.patch && store.repairPulled(r.repairId) !== null && !repairPatchProblem(r.report)) out.push(r);
+  }
+  return out;
+}
+
+/**
+ * Why `fix apply` refuses the patch of `r`, the repair it would apply: more than its accepted
+ * candidate's one rewrite (`repairPatchProblem`), or, for one a pull brought, a rewrite repair itself
+ * doesn't make in this working tree, as `here` read it (`rewriteHere`).
+ */
+function refusedOf(store: StoreOf<'team'>, r: StoredRepair | null, here: RewriteCheck | undefined): string | null {
+  if (!r) return null;
+  return repairPatchProblem(r.report) ?? (here && store.repairPulled(r.repairId) !== null ? here(r.repairId) : null);
+}
+
+/**
  * One fix, every step as its page shows it. Null for an id that matches no fix, or several.
  * `repairer` is the one shadowlap.config.json names, if any: the repair commands use it.
  * `checkRepairer` says why the repairer a repair would ask can't be asked from here, for an open fix
- * (`repairerProblem`, which looks for claude on the PATH), and `patchInTree` whether a verified
- * fix's patch is in the working tree already: this stays a read of the store without them.
+ * (`repairerProblem`, which looks for claude on the PATH), `patchInTree` whether a verified
+ * fix's patch is in the working tree already, and `rewriteHere` why `fix apply` refuses a pulled
+ * repair's patch there: this stays a read of the store without them.
  */
-export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, idOrPrefix: string, options: { repairer?: string | null; checkRepairer?: (repairer: string, configured: boolean) => string | null; patchInTree?: PatchCheck } = {}): FixDetail | null {
+export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, idOrPrefix: string, options: { repairer?: string | null; checkRepairer?: (repairer: string, configured: boolean) => string | null; patchInTree?: PatchCheck; rewriteHere?: RewriteCheck } = {}): FixDetail | null {
   let found: StoredFix | null;
   try {
     found = resolveFix(store, idOrPrefix);
@@ -142,7 +169,7 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
   const expect = fix.check.expect;
   const blameRun = b?.runId ?? rec.failing[0] ?? null;
   const toApply = repairToApply(rec);
-  const refused = toApply ? repairPatchProblem(toApply.report) : null;
+  const refused = refusedOf(store, toApply, options.rewriteHere);
   // Merged by a pull request, or applied by hand: there is nothing to apply, only to mark applied.
   const inTree = patchMerged(rec, options.patchInTree);
   // A repair a teammate ran, which came with a pull: its recordings are on their machine.

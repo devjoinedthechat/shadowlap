@@ -436,8 +436,9 @@ describe('shadowlap mcp started with a minimal environment', () => {
 
   function shadowlap(args: string[], o: { home?: string; env?: NodeJS.ProcessEnv } = {}): Promise<{ code: number | null; out: string }> {
     return new Promise((resolve) => {
-      // The home folder is HOME, and on Windows USERPROFILE, which is where Node looks for it there.
-      const homeEnv = { HOME: o.home ?? home, USERPROFILE: o.home ?? home };
+      // The home folder is HOME, and on Windows USERPROFILE, which is where Node looks for it there. With
+      // no SHADOWLAP_HOME, which the proxy's minimal environment never has, agents are registered in its .shadowlap.
+      const homeEnv = { HOME: o.home ?? home, USERPROFILE: o.home ?? home, SHADOWLAP_HOME: undefined };
       const child = spawn(process.execPath, [CLI, '--db', join(cwd, 'store.db'), ...args], { cwd, env: { ...process.env, ...homeEnv, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_GUARD: 'off', ...o.env }, stdio: ['ignore', 'pipe', 'pipe'] });
       let out = '';
       child.stdout.on('data', (d: Buffer) => (out += d.toString()));

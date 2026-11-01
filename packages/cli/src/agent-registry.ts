@@ -1,9 +1,9 @@
 import { spawn, spawnSync, type ChildProcess, type SpawnOptions, type SpawnSyncReturns } from 'node:child_process';
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync, type Stats } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { Command } from 'commander';
-import { messageOf, processAlive, withLockFile } from '@shadowlap/engine';
+import { messageOf, processAlive, shadowlapHome, withLockFile } from '@shadowlap/engine';
 import { startCommand } from './start-command.js';
 
 /**
@@ -18,10 +18,13 @@ import { startCommand } from './start-command.js';
  * run, and removes it when the agent exits. The proxy walks up its own ancestors and takes the
  * nearest one's. Attempts running at once never collide: each agent has its own process id.
  *
- * The files live in `~/.shadowlap/agents` (the home folder is what clients pass on), or, when that
- * can't be written, in the project's `.shadowlap/agents`. They carry the sidecar's session token,
- * so the folder is owner-only, and a file is trusted only when it is the user's own, owner-only,
- * not a link, names the process it is filed under, and names that process's parent correctly.
+ * The files live in Shadowlap's home folder (safeHome): `~/.shadowlap/agents`, as the home folder
+ * is what clients pass on, or `agents` in SHADOWLAP_HOME, which a proxy shares only when its client
+ * passes SHADOWLAP_HOME on too. Where that can't be written, they go in the project's
+ * `.shadowlap/agents`. A `home` option, wherever one is taken, is that folder (null: none). The
+ * files carry the sidecar's session token, so the folder is owner-only, and a file is trusted only
+ * when it is the user's own, owner-only, not a link, names the process it is filed under, and names
+ * that process's parent correctly.
  *
  * A file is written, removed, and removed as left over (its agent's process is gone) only under the
  * folder's `.lock`, the engine's lock file. A process id is given again once its process ends, so a
@@ -49,7 +52,9 @@ interface Registration {
   runId: string;
 }
 
-const FOLDER = join('.shadowlap', 'agents');
+/** Where registrations go: `agents` in Shadowlap's home folder (safeHome), `.shadowlap/agents` in a project's. */
+const AGENTS = 'agents';
+const FOLDER = join('.shadowlap', AGENTS);
 
 /** The sidecar only ever listens on loopback; anything else is not a Shadowlap sidecar. */
 export function isLoopbackUrl(url: string): boolean {
@@ -61,17 +66,25 @@ export function isLoopbackUrl(url: string): boolean {
   }
 }
 
-export function safeHome(): string | null {
+/**
+ * Shadowlap's folder for this machine's files (shadowlapHome: SHADOWLAP_HOME, else ~/.shadowlap),
+ * where agents and `mcp --listen` proxies (mcp-proxies.ts) are registered while they run; null when
+ * there is no home folder and SHADOWLAP_HOME names none.
+ */
+export function safeHome(env: NodeJS.ProcessEnv = process.env): string | null {
+  let home = '';
   try {
-    return homedir() || null;
+    home = homedir();
   } catch {
-    return null;
+    // no home folder: only SHADOWLAP_HOME can name one
   }
+  const own = shadowlapHome(env, home);
+  return isAbsolute(own) ? own : null;
 }
 
-/** The folders a registration may be in, in the order they are tried: the home folder's, then the project's. */
+/** The folders a registration may be in, in the order they are tried: Shadowlap's home folder's, then the project's. */
 export function registryDirs(cwd: string = process.cwd(), home: string | null = safeHome()): string[] {
-  return [...(home ? [join(home, FOLDER)] : []), join(resolve(cwd), FOLDER)];
+  return [...(home ? [join(home, AGENTS)] : []), join(resolve(cwd), FOLDER)];
 }
 
 const ownUid = typeof process.getuid === 'function' ? process.getuid() : null;
@@ -488,8 +501,8 @@ function projectDirs(cwd: string): string[] {
 }
 
 /**
- * A folder registrations are read from. `strict` for the home folder's, which no repository can
- * put a file in: a file there that can't be trusted means something is wrong, and the proxy fails
+ * A folder registrations are read from. `strict` for Shadowlap's home folder's, which no repository
+ * can put a file in: a file there that can't be trusted means something is wrong, and the proxy fails
  * closed. A project's folder is one a cloned repository could carry, so a file there that can't be
  * trusted is only skipped.
  */
@@ -562,10 +575,10 @@ export function findRegistration(chain: readonly ProcessInfo[], dirs: readonly R
   return null;
 }
 
-/** The folders a proxy reads registrations from: the home folder's (strict), then the project's and every folder above it. */
+/** The folders a proxy reads registrations from: Shadowlap's home folder's (strict), then the project's and every folder above it. */
 export function lookupDirs(cwd: string | undefined, home: string | null | undefined): RegistryDir[] {
   const h = home === undefined ? safeHome() : home;
-  const own = h ? join(h, FOLDER) : null;
+  const own = h ? join(h, AGENTS) : null;
   return [...(own ? [{ dir: own, strict: true }] : []), ...projectDirs(cwd ?? process.cwd()).filter((d) => d !== own).map((dir) => ({ dir, strict: false }))];
 }
 
@@ -611,7 +624,9 @@ export async function lookupRegistration(o: { agentCommands: ReadonlySet<string>
     const later = findRegistration(chain, dirs, o.skip);
     if (later) return later;
   }
-  return { kind: 'unusable', reason: `this process was started under Shadowlap (process ${shadowlap.pid}), but no run is registered for it in ${dirs[0]!.dir}` };
+  // Without SHADOWLAP_HOME this process looks in ~/.shadowlap, where a command run with it registers nothing.
+  const hint = process.env.SHADOWLAP_HOME ? '' : '; if Shadowlap runs with SHADOWLAP_HOME set, pass it on to this server too';
+  return { kind: 'unusable', reason: `this process was started under Shadowlap (process ${shadowlap.pid}), but no run is registered for it in ${dirs[0]!.dir}${hint}` };
 }
 
 /**

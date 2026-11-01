@@ -16,6 +16,7 @@ import {
   emptyCounts,
   estimateCost,
   estimatedTokens,
+  fieldValue as fieldText,
   hasRecordedCommand,
   isReservedScope,
   JUDGED_IN_RECORDED_STATE,
@@ -294,7 +295,6 @@ const tokensOf = (u: Usage | null | undefined): TokenCount | null => (u ? { inpu
 const usageOf = (t: TokenCount): Usage => ({ inputTokens: t.input, outputTokens: t.output, cacheReadInputTokens: t.cacheRead, cacheCreationInputTokens: t.cacheWrite });
 const addTokens = (a: TokenCount, b: TokenCount | null): TokenCount => (b ? { input: a.input + b.input, output: a.output + b.output, cacheRead: a.cacheRead + b.cacheRead, cacheWrite: a.cacheWrite + b.cacheWrite } : a);
 const recordedModelOf = (call: CallRecord): string | null => (call.end?.meta.model ?? call.meta.model ?? null);
-const fieldText = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v));
 
 /** The fields `migrate` changed, each once, with the steps that needed it. */
 class Remedies {

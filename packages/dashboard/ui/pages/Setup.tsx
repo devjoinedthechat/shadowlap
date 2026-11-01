@@ -62,8 +62,6 @@ export function setupSteps(): Step[] {
   ];
 }
 
-const message = (err: unknown) => messageOf(err);
-
 /** Words with the names in them shown as code, as the mock writes tools, paths and goldens. */
 function Coded({ text, names }: { text: string; names: readonly string[] }) {
   return (
@@ -124,7 +122,7 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
         setView(v);
         setFailed(null);
       },
-      (err: unknown) => setFailed(message(err)),
+      (err: unknown) => setFailed(messageOf(err)),
     );
   }, [client]);
 
@@ -214,7 +212,7 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
           if (plan.confirm) setAsking({ confirm: plan.confirm, command: value, project: id });
           else start(client.startJob(JOB_KINDS.record, { project: id, command: value }));
         },
-        (err: unknown) => setRecordError(message(err)),
+        (err: unknown) => setRecordError(messageOf(err)),
       );
     });
   const calibrate = (runId: string, write: boolean) => guard(() => start(client.startJob(JOB_KINDS.calibrate, { runId, write })));
@@ -229,7 +227,7 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
           setGolden(path);
           start(client.startJob(JOB_KINDS.keepGolden, { project: id, golden: path }));
         },
-        (err: unknown) => setGoldenError(message(err)),
+        (err: unknown) => setGoldenError(messageOf(err)),
       );
     });
   // Packed already: its test runs (again).

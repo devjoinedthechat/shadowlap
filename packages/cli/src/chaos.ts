@@ -7,6 +7,7 @@ import {
   describeGate,
   effectsFor,
   formatUsd,
+  plural,
   PRESET_LABELS,
   presetHits,
   presetReplay,
@@ -174,8 +175,6 @@ export function recordingRule(outcomes: readonly PresetOutcome[]): string | null
   }
   return null;
 }
-
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** The call a preset hits, as a sentence names it: `lookup_order (#4)`, `model call #5`. */
 export function callWords(preset: ChaosPreset, target: { callNo: number; name: string }): string {

@@ -1,10 +1,10 @@
 import { blameCheckFor, DEFAULT_REPAIRER, failedCheckLabels, FIX_STATUSES, FixIdError, type FixStatus, hasRecordedCommand, type JobConsent, needsConsent, readConfigFile, repairerProblem, repairJobArgv, resolveFix, type RunRecord, selectedRuns, setFixTitle, type StoredFix, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
-import { fixBundles, fixDetail, fixList, patchesToCheck } from '../fixes.js';
+import { fixBundles, fixDetail, fixList, patchesToCheck, pulledPatchesToCheck } from '../fixes.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult, JobRequest } from '../jobs.js';
-import { patchesInTree } from '../patch-in-tree.js';
+import { patchesInTree, rewritesHere } from '../patch-in-tree.js';
 import { storePrStates } from '../pr-state.js';
 import { sendAnswer } from '../read-pool.js';
 import type { ReadAnswer } from '../read-jobs.js';
@@ -62,13 +62,22 @@ function configuredRepairer(ctx: RouteContext): string | null {
 /**
  * A fix's page, worked out beside the server (read-jobs.ts `fix`): it reads the blamed run's calls,
  * every one of them. Whether each patch it could apply is in the project's working tree already, as
- * git says it there, is asked here first and handed over as data; none without a project folder.
+ * git says it there, and why `fix apply` refuses a pulled repair's patch there, as its file reads, are
+ * asked here first and handed over as data; none without a project folder.
  */
-async function fixAnswer(ctx: RouteContext, store: StoreOf<'fixes'>, fix: StoredFix): Promise<ReadAnswer> {
+async function fixAnswer(ctx: RouteContext, store: StoreOf<'fixes' | 'team'>, fix: StoredFix): Promise<ReadAnswer> {
   const project = ctx.project?.path;
   const patches = project ? patchesToCheck(store, [fix]) : [];
   const check = project && patches.length ? await patchesInTree(project, patches) : null;
-  return ctx.reads.run({ kind: 'fix', fixId: fix.fixId, repairer: configuredRepairer(ctx), ...(check ? { inTree: patches.map((p): [string, boolean | null] => [p, check(p)]) } : {}) });
+  const pulled = project ? pulledPatchesToCheck(store, [fix]) : [];
+  const here = project && pulled.length ? await rewritesHere(project, pulled) : null;
+  return ctx.reads.run({
+    kind: 'fix',
+    fixId: fix.fixId,
+    repairer: configuredRepairer(ctx),
+    ...(check ? { inTree: patches.map((p): [string, boolean | null] => [p, check(p)]) } : {}),
+    ...(here ? { refusedHere: pulled.map((r): [string, string | null] => [r.repairId, here(r.repairId)]) } : {}),
+  });
 }
 
 /** The config's `tests` in `folder`, as written: where a run judged by the config gets its checks. A config that can't be read gives none. */

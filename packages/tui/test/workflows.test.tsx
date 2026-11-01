@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { blameCheckFor, fixRecords, needsConsent, recordBlame, repairArgv, repairJobArgv, selectedRuns, Store, unpackRun, verifyArgv, type StoredFix } from '@shadowlap/engine';
-import { blameReport } from '../../engine/test/fix-fixtures.js';
+import { blameCheckFor, fixRecords, needsConsent, recordBlame, recordRepair, repairArgv, repairJobArgv, selectedRuns, Store, unpackRun, verifyArgv, type StoredFix } from '@shadowlap/engine';
+import { blameReport, repairReport } from '../../engine/test/fix-fixtures.js';
 import { fitAbout } from '../src/about.js';
 import { App } from '../src/app.js';
 import { markTerms } from '../src/components/SearchResults.js';
@@ -219,6 +219,23 @@ describe('repair and verify from the terminal, as the dashboard runs them', () =
     const v = fixJob(s, s.getRun(id)!, 'V', ctx);
     expect(v.args).toEqual(verifyArgv(s, rec));
     expect(v.ask!.confirm).not.toBe(r.ask!.confirm);
+    s.close();
+  });
+
+  it('verifies the runs a repair held out from its repairer as held out, and leaves a repair to hold out its own', () => {
+    const s = Store.open(':memory:');
+    const { id, fix } = failing(s, ['double-email']);
+    const [b, c, d] = [1, 2, 3].map(() => run(s, { labels: ['double-email'], status: 'failed' }));
+    // Every other failing run held out, as a repair given them all does: the label names the held-out runs too.
+    recordRepair(s, { repairId: 'repair-1', dir: '.shadowlap/repairs/repair-1', report: repairReport({ targets: [id, c], holdout: [b, d], accepted: false }), expect: EXPECT, command: 'shadowlap repair --fixes label:double-email' });
+    expect(fixRecords(s, fix).failing.sort()).toEqual([id, b, c, d].sort());
+    const v = fixJob(s, s.getRun(id)!, 'V', ctx).args;
+    expect(v).toContain('--holdout');
+    expect(v.slice(0, 2)).toEqual(['verify', '--fixes']);
+    expect(v.slice(2, v.indexOf('--holdout')).sort()).toEqual([id, c].sort());
+    expect(v.slice(v.indexOf('--holdout') + 1, v.indexOf('--expect')).sort()).toEqual([b, d].sort());
+    expect(v.slice(v.indexOf('--expect'))).toEqual(['--expect', JSON.stringify(EXPECT)]);
+    expect(fixJob(s, s.getRun(id)!, 'R', ctx).args).toEqual(['repair', '--fixes', 'label:double-email', '--expect', JSON.stringify(EXPECT), '--repairer', 'claude-code']);
     s.close();
   });
 
