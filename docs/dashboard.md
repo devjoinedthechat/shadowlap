@@ -478,7 +478,21 @@ Under the banner, a line each, the most pressing first:
 
 ### The origin strip
 
-The origin strip has one cell per call, colored by what happened to it: replayed, live, overridden, injected, failed, blocked or stubbed. The legend lists those present. *Injected* is a failure Shadowlap answered with instead of the provider, from [`--fail-at`](./interventions.md#inject-a-failure). The fork and the call blame named are flagged.
+The origin strip has one cell per call, colored by what happened to it. The legend lists those present. The fork is flagged in ink, and the call blame named in red.
+
+Each origin has a color of its own:
+
+| Origin | Drawn as |
+| --- | --- |
+| Replayed | The logo's second green, quieter than the lime of the page's next step |
+| Live | Off-white |
+| Overridden | Violet |
+| Injected | Violet at half strength: a failure Shadowlap answered with instead of the provider, from [`--fail-at`](./interventions.md#inject-a-failure) |
+| Failed | A red ring on its red tint, the tint alone where a cell is narrower than 6 px |
+| Blocked | A grey hatch edged in grey, as Shadowlap fenced the write; a solid grey where a cell is narrower than 6 px |
+| Stubbed | Steel blue |
+
+Each color means one thing across the dashboard. Lime is the primary action and what passed, amber what needs a look or is inconclusive, and red what failed. Where you are, a link and a fork are drawn in ink.
 
 - **Click a cell** to open that call.
 - **From the keyboard**, the strip is one stop for Tab: ← and → (Home and End) move between its cells, and Enter opens the call.
@@ -520,6 +534,8 @@ Calls lists every call with its kind, name, origin, tokens and time. Each kind o
 A replayed call's time is its recorded duration, in grey, because the replay did not wait for it. A clock or random read records none, so its time is blank.
 
 Filter by origin or text: *Fenced* holds the writes blocked or stubbed after a fork. A filter lists what it matches flat. Each row has a fork button.
+
+A call's origin shows as the strip draws it, and a tool call's effect beside its name: a write in teal.
 
 Each call sits under the call it belongs to, the list still in the run's order:
 
