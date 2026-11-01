@@ -257,6 +257,95 @@ describe('lime', () => {
   });
 });
 
+describe('amber', () => {
+  /** Amber, by its tokens and by its value: the warning colour and the consequence amber. */
+  const AMBER = /var\(--(warn|cq-amber)\)|#f2c94c|#c98500|242,\s*201,\s*76|201,\s*133,\s*0/i;
+  /** Needs a look or inconclusive, wherever it is drawn: a word, dot, cell, mark, line or box. */
+  const LOOK: Record<string, string> = {
+    '.glyph.warn': 'a glyph that needs a look',
+    '.pips i.unsure': 'an attempt that couldn’t decide',
+    '.pips i.part': 'an attempt that partly passed: inconclusive',
+    '.legend i.lg.unsure': 'the probes’ key: an attempt that couldn’t decide',
+    '.attempts span i.unsure': 'an attempt that couldn’t decide',
+    '.attempts a i.unsure': 'an attempt that couldn’t decide',
+    '.badge.y': 'a badge that needs a look',
+    '.st.warn': 'a status that needs a look',
+    '.st.warn i': 'a status that needs a look',
+    '.tag.inc': 'an inconclusive status chip',
+    '.verdict.warn': 'an inconclusive verdict',
+    '.wib.y .iv': 'a gate’s bound that can’t yet say pass or fail',
+    '.run .r2 em.inc': 'a run that came out inconclusive',
+    'table.runst .rline em.inc': 'a run that came out inconclusive',
+    '.banner.inc': 'a run that came out inconclusive',
+    '.banner.inc .bk': 'a run that came out inconclusive',
+    '.banner.inc .bn': 'a run that came out inconclusive',
+    '.banner .why em.inc': 'an attempt that came out inconclusive',
+    '.fnode .f2 em.inc': 'a fork that came out inconclusive',
+    '.fdiff em.warn': 'how an attempt came out: needs a look',
+    '.fdiff li.r2 .rk': 'a change of rank 2, a stop that changed: a look, as the design ranks them',
+    '.banner.fork': 'the design keeps a fork banner’s faint tint: the calls after a fork may differ from the recording',
+    '.callrow .unsure .cn': 'a probe that couldn’t decide',
+    '.callrow .unsure .pl': 'a probe that couldn’t decide',
+    '.psteps .warn': 'a step that ran and needs a look',
+    '.psteps .warn i': 'a step that ran and needs a look',
+    '.stepper .warn .k i': 'a step that ran and needs a look',
+    '.fxwarn': 'what a fix asks you to look at',
+    '.fxwarn.bad li.unsure': 'what a fix couldn’t decide',
+    'td.hist i.inc::before': 'a golden inconclusive at a revision',
+    '.gtw .gstrip i.inc': 'a golden inconclusive at a revision',
+    'table.gt .chk .ck.inconclusive .cm': 'a check that couldn’t decide',
+    'table.gt td.glast .gpre.warn': 'a golden whose last test needs a look',
+    'pre.report .y': 'a report’s inconclusive line',
+    '.drawer .st2.warn': 'a job that ended needing a look',
+    '.drawer pre .y': 'a job’s inconclusive line',
+    '.cilist li i.warn': 'an inconclusive CI run',
+    '.kpi b.warn': 'a count of goldens that need a look',
+    '.cstats b.warn': 'a prompt cache miss that cost: a look',
+    '.cbar .miss': 'a prompt cache miss that cost: a look',
+    '.cnote b': 'a prompt cache miss that cost: a look',
+    'table.ctab tr.miss td': 'a prompt cache miss that cost: a look',
+    '.changes div.diff': 'Compare: two runs that ended differently, a look',
+    '.prov .warn': 'a recording’s provenance that needs a look',
+    '.rnote.warn': 'a run note that needs a look',
+    '.rnote.warn .bk': 'a run note that needs a look',
+    '.rntools .eff.unknown': 'a tool whose effect no rule says: a look',
+    '.fieldnote.warn': 'a field’s value that needs a look',
+    'ol.setup .sb > p.fieldnote.warn': 'a setup field’s value that needs a look',
+    'ol.setup.storesetup dd .warnt': 'a store setting that needs a look',
+    '.warnbox': 'a setup step that needs a look',
+    '.agentfiles .warn': 'a coding agent’s file that needs a look',
+    '.skrow > div:first-child > span.warn': 'a skill that needs a look',
+    '.cip .offnote': 'a CI feature that is off: a look',
+    '.set > .kvs dd small.warn': 'a setting that needs a look',
+    '.egrp.mcp td small.mnote.warn': 'an MCP server that needs a look',
+    '.trow.warn > span:last-child': 'a row that needs a look',
+    '.dialog.editfork .warnline': 'what an edit and fork asks you to look at',
+    '.dialog .dz.advise': 'what a dialog advises you to look at first',
+    '.dialog p.trbusy': 'why a model can’t be scored yet: a look',
+    '.connbar .cdot': 'the dashboard can’t be reached: a look',
+    '.status .off': 'the dashboard can’t be reached: a look',
+  };
+  /** Amber the design rules out that only a later slice can take away, each with the slice that does. */
+  const UNTIL: Record<string, string> = {
+    '.connbar': 'port/dock: the offline bar on the page’s ground, only its dot amber',
+  };
+
+  it('means needs a look or inconclusive, and nothing else: never a fork, stubbed or blame', () => {
+    const off: string[] = [];
+    for (const r of styleRules()) {
+      if (r.selectors.includes(':root')) continue;
+      const amber = r.decls.filter(([, v]) => AMBER.test(v));
+      for (const s of r.selectors) if (amber.length && !LOOK[s] && !UNTIL[s]) off.push(`${s} { ${amber.map(([p, v]) => `${p}: ${v}`).join('; ')} }`);
+    }
+    expect(off).toEqual([]);
+  });
+
+  it('draws a message a fork changed without amber', () => {
+    expect(value('.msg.changed', 'background')).toBeNull();
+    expect(value('.msg.changed', 'box-shadow')).toBeNull();
+  });
+});
+
 describe('forced colours', () => {
   /** The rules a high-contrast theme applies: selector → property → value. */
   const forced = new Map<string, Map<string, string>>();
