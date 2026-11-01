@@ -204,8 +204,9 @@ export type { DecisionCall, DecisionChange, DecisionChangeKind, DecisionComparis
 // A session's headline, its name and what it moved, and why a preview or a migration settles nothing,
 // in the words and by the rules the CLI and the dashboard's Verdicts share.
 export { decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, migrateBreaks, migrateUnsettled, unsettledRun, type DecisionsHeadline, type MigratePasses, type UnsettledRun } from './decisions.js';
-// What a test session and a verify came to, as the dashboard's pages say it beside the verdict.
-export { goldensPassed, verifyHead } from './verdict-words.js';
+// What a test session and a verify came to, as the dashboard's pages say it beside the verdict: a
+// preview's verify by verify's head, a fix's as its Verify step heads it.
+export { fixVerifyHead, goldensPassed, verifyHead } from './verdict-words.js';
 export { longDate, replacementModels, retiredFields, retirementOf, retirementPlatform, retirementsOf, retirementTable, retirementTableProblems, tableModel } from './model-retirements.js';
 export type { FieldRetirement, ModelRetirement, RetirementNotice, RetirementPlatform, RetirementSource, RetirementTable } from './model-retirements.js';
 export type { DecisionRunRow, DecisionSessionRow, NewDecisionSession } from './store.js';

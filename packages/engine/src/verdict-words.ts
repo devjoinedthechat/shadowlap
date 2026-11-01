@@ -40,3 +40,27 @@ export function verifyHead(verdict: 'accepted' | 'rejected' | 'incomplete', runs
   if (!failed) return 'Every run it verified kept passing';
   return `Fixes ${theFailed}${worked ? `, keeps the ${worked === 1 ? 'one' : worked} that worked` : ''}`;
 }
+
+/**
+ * A fix's verify as its Verify step heads it, by the runs it checked (each run's `verdict`, verify's
+ * `pass` or `fail`): an accepted one reads `Every failing run fixed, every good run kept` only when it
+ * checked every failing run of the fix (`failing`), else what it did role by role, as repair's
+ * Verified line does, `Fixes 1 of 1 target run, 1 of 1 held-out, keeps 1 of 1 good`; a rejected one
+ * says it broke a run that worked, else that it did not fix the failing runs it checked; one that
+ * didn't settle every run, `Not every run settled`. The same verify reads so wherever a fix's verify
+ * is listed.
+ */
+export function fixVerifyHead(verdict: 'accepted' | 'rejected' | 'incomplete', runs: ReadonlyArray<{ runId: string; role: string; verdict: string }>, failing: readonly string[]): string {
+  if (verdict === 'rejected') return runs.some((x) => x.role === 'good' && x.verdict === 'fail') ? 'The change broke a run that worked' : 'The change did not fix the failing runs it checked';
+  if (verdict !== 'accepted') return 'Not every run settled';
+  const checked = new Set(runs.filter((x) => x.role !== 'good').map((x) => x.runId));
+  const good = runs.some((x) => x.role === 'good');
+  if (failing.length && failing.every((id) => checked.has(id))) return good ? 'Every failing run fixed, every good run kept' : 'Every failing run fixed';
+  const tally = (role: string) => {
+    const of = runs.filter((x) => x.role === role);
+    return { n: of.length, text: `${of.filter((x) => x.verdict === 'pass').length} of ${of.length}` };
+  };
+  const [t, h, g] = [tally('target'), tally('holdout'), tally('good')];
+  const said = [t.n ? `fixes ${t.text} target run${t.n === 1 ? '' : 's'}` : '', h.n ? `${t.n ? '' : 'fixes '}${h.text} held-out` : '', g.n ? `keeps ${g.text} good` : ''].filter(Boolean).join(', ');
+  return said ? `${said.charAt(0).toUpperCase()}${said.slice(1)}` : 'No runs checked';
+}
