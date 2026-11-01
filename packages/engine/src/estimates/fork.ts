@@ -16,8 +16,11 @@ export const REPEAT_TIMES = 5;
 /** The attempts the fork menu's Plant instruction… runs (run-actions.ts, `--inject-result … --repeat 3`). */
 export const PLANT_REPEAT = 3;
 
-/** A change the fork menu makes at one call. */
-export interface ForkChange {
+/** Why forcing a write tool live asks first on every setting, as an ask says it. */
+const ACTS = 'it acts on your systems';
+
+/** A change the fork menu makes at one call, as a fork's estimate reads it. */
+export interface ForkEstimateChange {
   /** The call it changes, by number. */
   at: number;
   /**
@@ -28,23 +31,21 @@ export interface ForkChange {
   answered?: boolean;
   /** `--model`: the agent's calls from there on asked of this model. */
   model?: string | null;
-  /** It forces a write live (`--live-tool` on a write): the writes after it are still fenced. */
+  /**
+   * It forces a write live (`--live-tool` on a write): the writes after it are still fenced, and it
+   * asks first whatever Spending says, since that write acts on your systems.
+   */
   write?: boolean;
   prices?: Prices;
 }
 
 /** The first call that runs live after a change at `at`: the call itself when it is a model call asked again, else the next. */
-function liveAt(calls: readonly PricedCall[], change: Pick<ForkChange, 'at' | 'answered'>): number {
+function liveAt(calls: readonly PricedCall[], change: Pick<ForkEstimateChange, 'at' | 'answered'>): number {
   return !change.answered && calls.some((c) => c.callNo === change.at) ? change.at : change.at + 1;
 }
 
-/**
- * A fork's estimate, from the recording's priced model calls: what they cost from the first one that
- * sees the change (`≈$0.027 · live from #17, writes fenced`), under another model at its price with
- * how many times the recording's that is; Free when no model call comes after the change, or when
- * Shadowlap answers the only one there is.
- */
-export function forkEstimate(calls: readonly PricedCall[], change: ForkChange): Estimate {
+/** A fork's estimate before forcing a write live is said of it: the price, and where the fork runs live. */
+function forkPrice(calls: readonly PricedCall[], change: ForkEstimateChange): Estimate {
   const from = liveAt(calls, change);
   const cost = liveFrom(calls, from, { model: change.model ?? null, prices: change.prices });
   if (cost.usd === null) return noEstimate('fork', noPriceWords(cost));
@@ -64,6 +65,18 @@ export function forkEstimate(calls: readonly PricedCall[], change: ForkChange): 
 }
 
 /**
+ * A fork's estimate, from the recording's priced model calls: what they cost from the first one that
+ * sees the change (`≈$0.027 · live from #17, writes fenced`), under another model at its price with
+ * how many times the recording's that is; Free when no model call comes after the change, or when
+ * Shadowlap answers the only one there is. Forcing a write live asks first on every setting, Never
+ * ask among them, whatever it bills.
+ */
+export function forkEstimate(calls: readonly PricedCall[], change: ForkEstimateChange): Estimate {
+  const e = forkPrice(calls, change);
+  return change.write ? { ...e, always: ACTS } : e;
+}
+
+/**
  * Repeat: the same replay several times. A replay Shadowlap made is made again from its parent with
  * the flags that made it (forkArgs), so each attempt forks where it did and runs live from there,
  * costing what the fork's own live calls did (`≈$0.135 · 5 attempts, live from #17, writes fenced`).
@@ -79,11 +92,11 @@ export function repeatEstimate(run: RunRecord, calls: readonly CallRecord[], tim
 
 /**
  * Plant instruction…: the planted text added to what read tool call `at` returned, then the run
- * replayed from there several times (`--repeat 3`), each attempt live from the model call that reads
- * it (`≈$0.081 · 3 attempts, live from #10, writes fenced`); Free when no model call reads it.
+ * replayed from there several times (`--repeat 3`), each attempt live from the model call after it
+ * (`≈$0.081 · 3 attempts, live from #10, writes fenced`); Free when no model call comes after it.
  */
-export function plantEstimate(calls: readonly PricedCall[], at: number, repeat: number = PLANT_REPEAT, prices?: Prices): Estimate {
-  const cost = liveFrom(calls, at + 1, { prices });
+export function plantEstimate(calls: readonly PricedCall[], at: number, repeat: number = PLANT_REPEAT): Estimate {
+  const cost = liveFrom(calls, at + 1);
   if (cost.usd === null) return noEstimate('plant', noPriceWords(cost));
   if (cost.first === null) return { kind: 'plant', usd: 0, ceiling: false, parts: [`no model call comes after #${at}`] };
   return { kind: 'plant', usd: repeat * cost.usd, ceiling: false, attempts: repeat, each: cost.usd, parts: [`${counted(repeat, 'attempt')}, live from #${cost.first}, writes fenced`] };

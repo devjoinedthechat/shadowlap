@@ -9,7 +9,9 @@ import type { CallRecord, Usage } from '../types.js';
  * costs nothing; from there each model call costs what it did when it was recorded, at its model's
  * price (shadowlap.config.json's `prices` over the engine's table), or at another model's for a job
  * that asks another one. A job that makes attempts until a gate decides is priced at its ceiling, as
- * the CLI bounds its attempts; one with no bound has no estimate, and always asks first.
+ * the CLI bounds its attempts; one with no bound has no estimate, and always asks first. So does one
+ * whose price would rest on what nobody saw billed: a call recorded with no answer, a model with no
+ * price, or a history that spent nothing live.
  */
 
 /** The billed jobs an estimate is worked out for, by what the job does. */
@@ -31,7 +33,11 @@ export interface Estimate {
   ceiling: boolean;
   /** Words that follow the price itself: `twice as recorded`. */
   note?: string;
-  /** The cost line's parts after the price, in the ask's words: `up to 7 probes of 33 attempts and a check of the call found`. */
+  /**
+   * The cost line's parts after the price, in the ask's words: `up to 7 probes of 33 attempts and a
+   * check of the call found`. A job with no estimate ends it on why (`no estimate until it has run
+   * once`), but Record run, whose line says who bills what and no more.
+   */
   parts: string[];
   /** Why there is no estimate, when `usd` is null. */
   none?: string;
@@ -51,18 +57,32 @@ export interface Estimate {
   last?: { usd: number; attempts: number | null };
 }
 
-/** An estimate with no price, and why, in words that end its cost line: the job always asks first. */
+/**
+ * What a page's own figure says more attempts are expected to take (a fix's Verify step, a golden's
+ * gate on Tests): the attempts they add on average, and what that costs at the attempts' average so
+ * far, null when nothing was spent or kept. An estimate takes it as it comes, so the page and the ask
+ * say the same.
+ */
+export interface ExpectedFigure {
+  expected: number;
+  cost: number | null;
+}
+
+/** An estimate with no price, its cost line ending on why: the job always asks first. */
 export function noEstimate(kind: EstimateKind, none: string, parts: string[] = []): Estimate {
-  return { kind, usd: null, ceiling: false, parts, none };
+  return { kind, usd: null, ceiling: false, parts: [...parts, none], none };
 }
 
-/** Record run: the agent runs live, its own model calls billed, with nothing recorded yet to price them from. */
+/**
+ * Record run: the agent runs live, its own model calls billed, with nothing recorded yet to price them
+ * from. Its line says who bills what and no more: `Billed by your provider · the agent’s own model calls`.
+ */
 export function recordEstimate(): Estimate {
-  return noEstimate('record', 'no estimate until it has run once', ['the agent’s own model calls']);
+  return { kind: 'record', usd: null, ceiling: false, parts: ['the agent’s own model calls'], none: 'no estimate until it has run once' };
 }
 
-/** A count with its noun, as the cost lines say it: `1 attempt`, `3 attempts`. */
-export const counted = (n: number, noun: string): string => (n === 1 ? `1 ${noun}` : `${n} ${noun}s`);
+/** A count with its noun, as the cost lines say it: `1 attempt`, `3 attempts`, `1,224 requests`. */
+export const counted = (n: number, noun: string): string => `${n.toLocaleString('en-US')} ${noun}${n === 1 ? '' : 's'}`;
 
 /** The config's `prices`, over the engine's table; none for the table alone. */
 export type Prices = Record<string, Price> | undefined;
@@ -84,21 +104,22 @@ export interface PricedCall {
   judge: boolean;
   /** It ended, so blame can probe it. */
   ended: boolean;
+  /** Its request was kept, so a preview can send it again. */
+  request: boolean;
+  /** Its provider answered it, and the answer was kept, which a preview compares with. */
+  answered: boolean;
+  /** Shadowlap answered it itself (`--fail-at`, offline, a refusal), so nothing went upstream. */
+  own: boolean;
   usage: Usage | null;
   /**
-   * USD at its own model's price; 0 for a call no answer was kept of (it failed, or Shadowlap answered
-   * it); null when its model has no price, or it ended with an answer but kept no token counts.
+   * USD asked live, at its own model's price. Null when that is unknown: its model has no price, it
+   * kept no token counts, or it got no answer when recorded (it failed, never ended, or Shadowlap
+   * answered it), so what asking it costs was never seen.
    */
   usd: number | null;
 }
 
 const scopeOf = (c: Pick<CallRecord, 'meta'>): string | null => (typeof c.meta.scope === 'string' && c.meta.scope ? c.meta.scope : null);
-
-/** An answer whose tokens were counted: the provider's, not one Shadowlap gave itself (`--fail-at`, offline, a refusal). */
-function answered(c: CallRecord): boolean {
-  const end = c.end;
-  return !!end && end.outcome === 'ok' && !end.meta.injected && !end.meta.offline && !end.meta.refused;
-}
 
 /**
  * A recording's model calls in call order, each priced as asked live, whatever its origin: a call a
@@ -109,16 +130,17 @@ export function pricedCalls(calls: readonly CallRecord[], o: PriceOptions = {}):
     .filter((c) => c.kind === 'api')
     .sort((a, b) => a.callNo - b.callNo)
     .map((c) => {
-      const usage = c.end?.meta.usage ?? null;
-      const model = c.end?.meta.model ?? c.meta.model ?? o.modelOf?.(c) ?? null;
-      const usd = usage ? estimateCost(model, usage, o.prices) : answered(c) ? null : 0;
-      return { callNo: c.callNo, model, provider: c.meta.provider ?? c.end?.meta.provider ?? null, scope: scopeOf(c), judge: isJudgeCall(c), ended: !!c.end, usage, usd };
+      const end = c.end;
+      const usage = end?.meta.usage ?? null;
+      const model = end?.meta.model ?? c.meta.model ?? o.modelOf?.(c) ?? null;
+      const own = !!(end?.meta.injected || end?.meta.offline || end?.meta.refused);
+      return { callNo: c.callNo, model, provider: c.meta.provider ?? end?.meta.provider ?? null, scope: scopeOf(c), judge: isJudgeCall(c), ended: !!end, request: !!c.requestRef, answered: end?.outcome === 'ok' && !own, own, usage, usd: usage ? estimateCost(model, usage, o.prices) : null };
     });
 }
 
 /** What a run's model calls from one on cost asked live. */
 export interface LiveCost {
-  /** USD; null when a call among them has no price (`unpriced`) or kept no token counts (`uncounted`). */
+  /** USD; null when a call among them has no price (`unpriced`), kept no token counts (`uncounted`) or got no answer (`unanswered`). */
   usd: number | null;
   /** The first model call counted, by call number; null when none comes at or after where it starts. */
   first: number | null;
@@ -128,6 +150,8 @@ export interface LiveCost {
   unpriced: string[];
   /** Calls among them, by number, that ended with an answer but kept no token counts. */
   uncounted: number[];
+  /** Calls among them, by number, that got no answer when recorded: they failed, never ended, or Shadowlap answered them. */
+  unanswered: number[];
 }
 
 /**
@@ -135,7 +159,7 @@ export interface LiveCost {
  * of that model instead, their own tokens at its price (a judge's calls keep theirs).
  */
 export function liveFrom(calls: readonly PricedCall[], from: number, o: { model?: string | null | undefined; prices?: Prices } = {}): LiveCost {
-  const out: LiveCost = { usd: 0, first: null, calls: 0, unpriced: [], uncounted: [] };
+  const out: LiveCost = { usd: 0, first: null, calls: 0, unpriced: [], uncounted: [], unanswered: [] };
   let usd = 0;
   for (const c of calls) {
     if (c.callNo < from) continue;
@@ -148,21 +172,56 @@ export function liveFrom(calls: readonly PricedCall[], from: number, o: { model?
       continue;
     }
     if (!c.usage) {
-      out.uncounted.push(c.callNo);
+      (c.answered ? out.uncounted : out.unanswered).push(c.callNo);
       continue;
     }
     const model = switched ?? c.model ?? `the model of #${c.callNo}`;
     if (!out.unpriced.includes(model)) out.unpriced.push(model);
   }
-  out.usd = out.unpriced.length || out.uncounted.length ? null : usd;
+  out.usd = out.unpriced.length || out.uncounted.length || out.unanswered.length ? null : usd;
   return out;
 }
 
-/** What a run's live model calls cost, the judge's among them: what an attempt that made them spent. */
+/**
+ * What liveFrom says from any call on, worked out once for a job priced from many places in one
+ * recording (an injection test's reads, the presets' calls): each answer is then a search, not a
+ * pass over every call. Each call at its own model's price.
+ */
+export function liveSums(calls: readonly PricedCall[]): (from: number) => LiveCost {
+  const sorted = [...calls].sort((a, b) => a.callNo - b.callNo);
+  const n = sorted.length;
+  // From index i on: what the calls cost, and the first among them with no price (n for none).
+  const sum: number[] = new Array<number>(n + 1).fill(0);
+  const unknownAt: number[] = new Array<number>(n + 1).fill(n);
+  for (let i = n - 1; i >= 0; i--) {
+    const usd = sorted[i]!.usd;
+    sum[i] = sum[i + 1]! + (usd ?? 0);
+    unknownAt[i] = usd === null ? i : unknownAt[i + 1]!;
+  }
+  return (from) => {
+    let lo = 0;
+    let hi = n;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (sorted[mid]!.callNo < from) lo = mid + 1;
+      else hi = mid;
+    }
+    // A call with no price among them: liveFrom names why, once, as the job then has no estimate.
+    if (unknownAt[lo]! < n) return liveFrom(sorted.slice(lo), from);
+    return { usd: sum[lo]!, first: lo < n ? sorted[lo]!.callNo : null, calls: n - lo, unpriced: [], uncounted: [], unanswered: [] };
+  };
+}
+
+/**
+ * What a run's live model calls cost, the judge's among them: what an attempt that made them spent.
+ * One Shadowlap answered itself cost nothing, and costs nothing when the same flags make it again.
+ */
 export function spentLive(calls: readonly CallRecord[], o: PriceOptions = {}): LiveCost {
   const live = new Set(calls.filter((c) => c.kind === 'api' && c.origin === 'live').map((c) => c.callNo));
   return liveFrom(
-    pricedCalls(calls, o).filter((c) => live.has(c.callNo)),
+    pricedCalls(calls, o)
+      .filter((c) => live.has(c.callNo))
+      .map((c) => (c.own ? { ...c, usd: 0 } : c)),
     0,
     { prices: o.prices },
   );
@@ -180,22 +239,34 @@ export function modelFactor(calls: readonly PricedCall[], from: number, model: s
   return was && now !== null ? now / was : null;
 }
 
-/** Why a job priced on calls with no price, or no token counts, has no estimate: it then always asks first. */
-export function noPriceWords(cost: Pick<LiveCost, 'unpriced' | 'uncounted'>): string {
+/** Things a reason names, the first three and how many more: `#1, #2, #3 and 1,997 more`. */
+function few(items: readonly string[]): string {
+  if (items.length > 3) return `${items.slice(0, 3).join(', ')} and ${(items.length - 3).toLocaleString('en-US')} more`;
+  return items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)!}` : (items[0] ?? '');
+}
+
+/** Why calls on which a job is priced leave it with no estimate, so it always asks first: models with no price, calls with no token counts, calls with no answer. */
+export function noPriceWords(cost: { unpriced?: readonly string[]; uncounted?: readonly number[]; unanswered?: readonly number[] }): string {
   const words: string[] = [];
-  if (cost.unpriced.length) words.push(`no price for ${cost.unpriced.join(', ')}: add ${cost.unpriced.length === 1 ? 'it' : 'them'} under "prices" in shadowlap.config.json`);
-  if (cost.uncounted.length) {
-    const n = cost.uncounted.map((c) => `#${c}`);
-    words.push(`${n.length > 1 ? `${n.slice(0, -1).join(', ')} and ${n.at(-1)!}` : n[0]!} kept no token counts`);
-  }
+  const { unpriced = [], uncounted = [], unanswered = [] } = cost;
+  if (unpriced.length) words.push(`no price for ${few(unpriced)}: add ${unpriced.length === 1 ? 'it' : 'them'} under "prices" in shadowlap.config.json`);
+  if (uncounted.length) words.push(`${few(uncounted.map((c) => `#${c}`))} kept no token counts`);
+  if (unanswered.length) words.push(`${few(unanswered.map((c) => `#${c}`))} got no answer when recorded, so what ${unanswered.length === 1 ? 'it costs' : 'they cost'} is unknown`);
   return words.join('; ');
 }
 
-/** A factor in words, as an ask says what calls cost asked of another model: `twice`, `half`, `1.7 times`; null for about the same. */
+/**
+ * A factor in words, as an ask says what calls cost asked of another model: `twice`, `half`, `1.7
+ * times`, under a tenth to two figures (`0.048 times`); null for about the same, or none to give.
+ */
 export function timesWords(k: number): string | null {
-  const r = Math.round(k * 10) / 10;
-  if (r === 1 || !Number.isFinite(r)) return null;
-  return r === 2 ? 'twice' : r === 0.5 ? 'half' : `${r} times`;
+  if (!Number.isFinite(k) || k <= 0) return null;
+  const small = k < 0.1;
+  const r = small ? Number(k.toPrecision(2)) : Math.round(k * 10) / 10;
+  if (r === 1) return null;
+  if (r === 2) return 'twice';
+  if (r === 0.5) return 'half';
+  return `${r.toLocaleString('en-US', small ? { maximumSignificantDigits: 2 } : { maximumFractionDigits: 1 })} times`;
 }
 
 /**

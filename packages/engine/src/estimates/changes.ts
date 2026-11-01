@@ -1,8 +1,7 @@
 import { CONTROL_MIN_SAMPLES } from '../control-arm.js';
 import { modelFamily, sameModel, type DecisionRun } from '../decisions.js';
-import { isReservedScope } from '../judge-scope.js';
-import { retirementOf } from '../model-retirements.js';
 import { estimateCost } from '../prices.js';
+import { askedInScope } from '../switch-from.js';
 import { counted, noEstimate, noPriceWords, type Estimate, type PricedCall, type Prices } from './estimate.js';
 import { amountWords } from './spending.js';
 import { verifyCeiling, verifyParts, type VerifyRule, type VerifyRunCost } from './verify.js';
@@ -12,18 +11,28 @@ import { verifyCeiling, verifyParts, type VerifyRule, type VerifyRunCost } from 
  * touches again, every sample, and from 3 samples on as many again as recorded (the control arm), no
  * tool running: about what those calls cost at the asked model's price. Its verify, and a
  * migration's, can't know before it asks which runs change, so a migration is priced at its ceiling:
- * the switched calls asked again, then every run they touch verified to its gate's limit.
+ * the switched calls asked again, then every run they touch verified to its gate's limit. Which
+ * recorded models a switch changes, when `--from` names none, is the commands' own pick
+ * (switch-from.ts defaultFrom), which the caller gives as `from`.
  */
 
 /** Samples a preview asks a call unless told otherwise (`decisions --samples 3`); a migration asks once (`migrate --samples 1`). */
 export const PREVIEW_SAMPLES = 3;
 export const MIGRATE_SAMPLES = 1;
 
-/** A preview's change: `--model`, `--from` (the recorded models it switches from), `--from-code`. */
+/** A preview's change: `--model`, the recorded models it switches from, `--from-code`. */
 export interface PreviewChange {
+  /** `--model`: the model the calls it switches are asked of. */
   model?: string | null;
-  /** The recorded models the change switches from; left out, previewFrom's default for a `--model`, else every call. */
-  from?: readonly string[] | null;
+  /**
+   * The recorded models it switches from: `--from`, else defaultFrom's for a switch of model, as
+   * `decisions` picks them; null for a change of every call (a change of fields alone).
+   */
+  from: readonly string[] | null;
+  /**
+   * `--from-code`: the prompt and tools in the working tree. Which calls they change is known only
+   * once the preview has replayed the working tree offline, so it has no estimate before it runs.
+   */
   fromCode?: boolean;
 }
 
@@ -36,35 +45,9 @@ export interface PreviewOptions {
   prices?: Prices;
 }
 
-/** A call a preview may ask, as decisions plans it: the agent's, in `scope` (exactly it; `none`, none), with an answer recorded. */
+/** A call a preview may ask, as decisions plans it: the agent's, in `scope` (exactly it; `none`, none), its request kept and its answer recorded. */
 function askable(c: PricedCall, scope: string | null | undefined): boolean {
-  if (c.judge || isReservedScope(c.scope) || (c.usd === 0 && !c.usage)) return false;
-  if (!scope) return true;
-  return scope === 'none' ? c.scope === null : c.scope === scope;
-}
-
-/**
- * The recorded models a switch to `to` changes when `--from` names none, as decisions and migrate pick
- * them: for a migration, those the runs use that retire (as of `now`), else the one they use most;
- * for a preview, the one they use most. Empty when the runs name no model.
- */
-export function previewFrom(runs: ReadonlyArray<readonly PricedCall[]>, kind: 'decisions' | 'migrate', to: string | null, o: { scope?: string | null; now?: number } = {}): string[] {
-  const use = new Map<string, { provider: string | null; calls: number }>();
-  for (const calls of runs) {
-    for (const c of calls) {
-      if (!c.model || !askable(c, o.scope)) continue;
-      const had = use.get(c.model) ?? { provider: c.provider, calls: 0 };
-      had.calls++;
-      use.set(c.model, had);
-    }
-  }
-  const ranked = [...use].sort((a, b) => b[1].calls - a[1].calls || a[0].localeCompare(b[0]));
-  if (!ranked.length) return [];
-  if (kind === 'migrate') {
-    const retiring = ranked.filter(([m, u]) => !(to && sameModel(m, to)) && retirementOf(u.provider, m, o.now === undefined ? {} : { now: o.now }) !== null).map(([m]) => m);
-    if (retiring.length) return retiring;
-  }
-  return [ranked[0]![0]];
+  return !c.judge && c.request && c.answered && askedInScope(c.scope, scope ?? null);
 }
 
 /** Whether a switch to `model` carries a call made with another: a request of another family's shape can't be, so decisions skips it. */
@@ -81,13 +64,15 @@ function switchedTo(c: PricedCall, from: readonly string[] | null, model: string
 
 /**
  * A preview's estimate: each call the change touches asked `samples` times at the asked model's price,
- * and the control arm as often at the recorded one's (`≈$0.18 · about 96 requests, half as recorded`).
- * Free when no call of the runs is made with a model it switches from.
+ * and the control arm as often at the recorded one's (`≈$0.18 · about 1,224 requests, half as
+ * recorded`). Free when no call of the runs is made with a model it switches from; none for a change
+ * of the working tree's prompt, until its offline replay has named the calls it changes.
  */
 export function previewEstimate(runs: ReadonlyArray<readonly PricedCall[]>, change: PreviewChange, o: PreviewOptions = {}): Estimate {
+  if (change.fromCode) return noEstimate('preview', 'which calls the working tree changes is known once the preview has replayed it offline');
   const samples = o.samples ?? PREVIEW_SAMPLES;
   const control = o.control ?? samples >= CONTROL_MIN_SAMPLES;
-  const from = change.from?.length ? change.from : change.model ? previewFrom(runs, 'decisions', change.model, { scope: o.scope ?? null }) : null;
+  const from = change.from?.length ? change.from : null;
   let usd = 0;
   let asked = 0;
   let otherFamily = 0;
@@ -115,7 +100,7 @@ export function previewEstimate(runs: ReadonlyArray<readonly PricedCall[]>, chan
   }
   if (missing.unpriced.length || missing.uncounted.length) return noEstimate('preview', noPriceWords(missing));
   if (!asked) {
-    const why = otherFamily ? `${change.model!} is of another family than the calls it switches, so none can be asked again: verify that switch instead` : from?.length ? `no call of the runs is made with ${from.join(' or ')}` : 'no model call of the runs to ask';
+    const why = otherFamily ? `${change.model!} is of another family than the calls it switches, so none can be asked again: verify that switch instead` : from ? `no call of the runs is made with ${from.join(' or ')}` : 'no model call of the runs to ask';
     return { kind: 'preview', usd: 0, ceiling: false, parts: [why] };
   }
   const requests = asked * samples * (control ? 2 : 1);
@@ -132,28 +117,32 @@ export function decisionRunCost(run: { cost: Pick<DecisionRun['cost'], 'before' 
   return failed ? { role: 'target', usd: run.cost.after, ...none } : { role: 'good', usd: run.cost.after, baseline: run.cost.before, ...none };
 }
 
-/** What a golden's calls from `first` on cost with the switched ones asked of `to`, and as recorded; null with a call that has no price. */
-function fromSwitch(calls: readonly PricedCall[], first: number, switched: (c: PricedCall) => boolean, to: string, prices: Prices): { now: number; was: number } | null {
-  let now = 0;
-  let was = 0;
-  for (const c of calls) {
-    if (c.callNo < first) continue;
-    const asked = switched(c) && c.usage ? estimateCost(to, c.usage, prices) : c.usd;
-    if (asked === null || c.usd === null) return null;
-    now += asked;
-    was += c.usd;
-  }
-  return { now, was };
-}
-
 export interface MigratePlan {
   to: string;
-  /** The recorded models it switches from: `--from`, else previewFrom's for a migration. */
+  /** The recorded models it switches from: `--from`, else defaultFrom's for a migration. */
   from: readonly string[];
   samples?: number;
   rule?: VerifyRule;
   scope?: string | null;
   prices?: Prices;
+}
+
+/** Why a migration has no estimate, by call and by model, each once. */
+class Missing {
+  unpriced = new Set<string>();
+  uncounted = new Set<number>();
+  unanswered = new Set<number>();
+  /** A call it could not price: asked of `model`, or as recorded. */
+  add(c: PricedCall, model: string | null): void {
+    if (!c.usage) (c.answered ? this.uncounted : this.unanswered).add(c.callNo);
+    else this.unpriced.add(model ?? `the model of #${c.callNo}`);
+  }
+  get any(): boolean {
+    return this.unpriced.size + this.uncounted.size + this.unanswered.size > 0;
+  }
+  words(): string {
+    return noPriceWords({ unpriced: [...this.unpriced], uncounted: [...this.uncounted], unanswered: [...this.unanswered] });
+  }
 }
 
 /**
@@ -168,22 +157,33 @@ export function migrateEstimate(goldens: ReadonlyArray<{ calls: readonly PricedC
   const always = 'it writes a config change and a pull request body';
   const samples = plan.samples ?? MIGRATE_SAMPLES;
   const switched = (c: PricedCall) => askable(c, plan.scope) && switchedTo(c, plan.from, plan.to);
+  const missing = new Missing();
   let ask = 0;
   let n = 0;
   const runs: VerifyRunCost[] = [];
   for (const g of goldens) {
-    const mine = g.calls.filter(switched);
-    if (!mine.length) continue;
-    for (const c of mine) {
-      const usd = c.usage ? estimateCost(plan.to, c.usage, plan.prices) : null;
-      if (usd === null) return { ...noEstimate('migrate', `no price for ${plan.to}: add it under "prices" in shadowlap.config.json`), always };
-      ask += samples * usd;
-      n++;
+    const first = g.calls.find(switched)?.callNo;
+    if (first === undefined) continue;
+    // From its first switched call on: what an attempt costs under the change, and as recorded, its baseline's.
+    let now = 0;
+    let was = 0;
+    for (const c of g.calls) {
+      if (c.callNo < first) continue;
+      const mine = switched(c);
+      const cost = mine ? (c.usage ? estimateCost(plan.to, c.usage, plan.prices) : null) : c.usd;
+      if (cost === null) missing.add(c, mine ? plan.to : c.model);
+      else now += cost;
+      if (mine) {
+        n++;
+        ask += samples * (cost ?? 0);
+      }
+      if (g.failed) continue;
+      if (c.usd === null) missing.add(c, c.model);
+      else was += c.usd;
     }
-    const cost = fromSwitch(g.calls, mine[0]!.callNo, switched, plan.to, plan.prices);
-    if (!cost) return { ...noEstimate('migrate', 'a model of the goldens has no price: add it under "prices" in shadowlap.config.json'), always };
-    runs.push(g.failed ? { role: 'target', usd: cost.now } : { role: 'good', usd: cost.now, baseline: cost.was });
+    runs.push(g.failed ? { role: 'target', usd: now } : { role: 'good', usd: now, baseline: was });
   }
+  if (missing.any) return { ...noEstimate('migrate', missing.words()), always };
   if (!n) return { kind: 'migrate', usd: 0, ceiling: false, always, parts: [`no golden’s call is made with ${plan.from.join(' or ') || 'a model it switches from'}`] };
   const verify = verifyCeiling(runs, plan.rule);
   const failing = runs.filter((r) => r.role === 'target').length;

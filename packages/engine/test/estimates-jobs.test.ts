@@ -3,8 +3,9 @@ import { blameBound, blameEstimate } from '../src/estimates/blame.js';
 import { pricedCalls } from '../src/estimates/estimate.js';
 import { REPAIR_CANDIDATES, repairerBound, repairEstimate, type RepairRun } from '../src/estimates/repair.js';
 import { amountWords } from '../src/estimates/spending.js';
-import { verifyCeiling, verifyEstimate, verifyLimits, verifyMoreEstimate, verifyParts, verifyRunCosts, type VerifyRunCost } from '../src/estimates/verify.js';
-import { SPRT_DEFAULTS, gateOdds } from '../src/stats.js';
+import { asksFirst, costLine } from '../src/estimates/spending.js';
+import { keptMaxOf, verifyCeiling, verifyEstimate, verifyLimits, verifyMoreEstimate, verifyParts, verifyRunCosts, type VerifyRunCost } from '../src/estimates/verify.js';
+import { SPRT_DEFAULTS } from '../src/stats.js';
 import type { VerifiedRun, VerifyAttempt, VerifyReport } from '../src/verify.js';
 import { ALL, api, recording } from './estimate-fixtures.js';
 
@@ -56,7 +57,7 @@ describe('Run blame', () => {
   });
 
   it('prices Run blame again about as one of the last blame’s attempts, and says what it cost', () => {
-    const last = { attempts: 33, spent: 1, judge: { spent: 0.089, upstreamRequests: 33 } };
+    const last = { attempts: 33, spent: 1, judge: { spent: 0.089, upstreamRequests: 33 }, unknownModels: [] };
     const e = blameEstimate(calls(), { last });
     expect(e.usd).toBeCloseTo(279 * (1.089 / 33), 10);
     expect(e.card!.lines[0]).toBe(`An attempt costs about what the last blame’s 33 attempts did, ${amountWords(1.089 / 33)} each.`);
@@ -66,7 +67,7 @@ describe('Run blame', () => {
   });
 
   it('prices a stronger model at its price on the run’s own tokens: about twice claude-sonnet-5’s for claude-opus-5-5', () => {
-    const last = { attempts: 33, spent: 1, judge: { spent: 0.089, upstreamRequests: 33 } };
+    const last = { attempts: 33, spent: 1, judge: { spent: 0.089, upstreamRequests: 33 }, unknownModels: [] };
     const k = 0.0362 / 0.0182;
     const e = blameEstimate(calls(), { model: 'claude-opus-5-5', last });
     expect(e.usd).toBeCloseTo(279 * (1.089 / 33) * k, 10);
@@ -77,13 +78,38 @@ describe('Run blame', () => {
     expect(fresh.card!.lines[0]).toBe(`An attempt costs at most what the recording did at claude-opus-5-5’s prices, ${amountWords(0.03695)}.`);
   });
 
-  it('has none for a run with no model call, or one with no price', () => {
-    expect(blameEstimate([])).toEqual({ kind: 'blame', usd: null, ceiling: false, parts: [], none: 'the run made no model calls, so blame has nothing to probe' });
-    expect(blameEstimate(pricedCalls([api(1, 'my-model', { inputTokens: 10, outputTokens: 10 })])).none).toBe('no price for my-model: add it under "prices" in shadowlap.config.json');
+  it('has none for a run with no model call, or one with no price, and says where it would run live', () => {
+    const none = 'the run made no model calls, so blame has nothing to probe';
+    expect(blameEstimate([])).toEqual({ kind: 'blame', usd: null, ceiling: false, parts: [none], none });
+    const unpriced = blameEstimate(pricedCalls([api(1, 'my-model', { inputTokens: 10, outputTokens: 10 })]));
+    expect(unpriced.none).toBe('no price for my-model: add it under "prices" in shadowlap.config.json');
+    expect(costLine(unpriced)).toEqual(['Billed by your provider', 'up to 1 probe of 20 attempts', 'live from each probe, writes stubbed', 'no price for my-model: add it under "prices" in shadowlap.config.json']);
+  });
+
+  it('has none for Run blame again after a blame that met a model with no price, which counted its calls as nothing', () => {
+    const unpriced = pricedCalls([1, 2, 3].map((n) => api(n, 'my-local-model', { inputTokens: 5000, outputTokens: 500 })));
+    const again = blameEstimate(unpriced, { last: { attempts: 33, spent: 0, unknownModels: ['my-local-model'] } });
+    expect(again).toMatchObject({ usd: null, none: 'no price for my-local-model: add it under "prices" in shadowlap.config.json' });
+    expect(again.last).toBeUndefined();
+    expect(asksFirst(again, null)).toBe(true);
+    // Its calls priced by the config since: still none from that blame, as what it spent left them out.
+    expect(blameEstimate(calls(), { last: { attempts: 33, spent: 0.5, unknownModels: ['my-judge'] } }).none).toBe('no price for my-judge: add it under "prices" in shadowlap.config.json');
+  });
+
+  it('prices from the recording where the last blame spent nothing, which says nothing of what an attempt costs', () => {
+    const e = blameEstimate(calls(), { last: { attempts: 33, spent: 0, unknownModels: [] } });
+    expect(e.usd).toBeCloseTo(279 * ALL, 10);
+    expect(e.card!.lines[0]).toBe(`An attempt costs at most what the recording did, ${amountWords(ALL)}.`);
+    expect(e.last).toEqual({ usd: 0, attempts: 33 });
   });
 });
 
 describe('verify’s ceiling', () => {
+  it('takes a good run’s most pairs as verify does: --kept-max or verify.max, else a gate’s max off its default, else 200', () => {
+    const gate = (max: number) => ({ max });
+    expect([keptMaxOf(50, gate(160)), keptMaxOf(null, gate(160)), keptMaxOf(undefined, gate(SPRT_DEFAULTS.max)), keptMaxOf(null, null)]).toEqual([50, 160, 200, 200]);
+  });
+
   it('reads the limits as verify does: 80 attempts a failing run, 200 pairs a good one, a gate’s other max capping both', () => {
     expect(verifyLimits()).toEqual({ failing: 80, good: 200, unit: 'pairs' });
     expect(verifyLimits({ gate: { kind: 'sprt', ...SPRT_DEFAULTS, max: 160 } })).toEqual({ failing: 160, good: 160, unit: 'pairs' });
@@ -124,7 +150,7 @@ const attempt = (spent: number): VerifyAttempt => ({ runId: `a${spent}`, passed:
 const run = (role: VerifiedRun['role'], spends: number[], o: Partial<VerifiedRun> = {}): VerifiedRun => ({ runId: `${role}-${spends.length}`, role, attempts: spends.map(attempt), passes: spends.length, deterministic: false, verdict: 'open', recorded: { passed: null, failures: [], footprint: { inputTokens: 0, outputTokens: 0, cost: 0 } }, ...o });
 
 describe('a verify', () => {
-  const last = { attempts: 12, spent: 0.24, judge: { spent: 0.03, upstreamRequests: 12 } };
+  const last = { attempts: 12, spent: 0.24, judge: { spent: 0.03, upstreamRequests: 12 }, unknownModels: [] };
 
   it('is priced at its ceiling, with the last verify of the runs and what it spent on the price’s card', () => {
     const e = verifyEstimate([{ role: 'target', usd: 0.02 }, { role: 'good', usd: 0.01, baseline: 0.012 }], { last });
@@ -133,39 +159,72 @@ describe('a verify', () => {
     expect(e.card).toEqual({ title: 'If every run’s gate ran to its limit', lines: [`An attempt costs about ${amountWords(0.27 / 12)}, as one of the last verify’s 12 attempts did.`, `A gate stops once it decides: the last verify spent ${amountWords(0.27)}.`] });
     expect(verifyEstimate([{ role: 'good', usd: 0.01 }], { live: 'first' }).parts).toEqual(['up to 200 pairs a run against its baseline', 'live from the first model call, writes stubbed']);
     expect(verifyEstimate([])).toMatchObject({ usd: null, none: 'there is no run to verify' });
-    expect(verifyEstimate([{ role: 'target', usd: null, none: 'no price for my-model' }])).toMatchObject({ usd: null, none: 'no price for my-model' });
+    const unpriced = verifyEstimate([{ role: 'target', usd: null, none: 'no price for my-model' }]);
+    expect(unpriced).toMatchObject({ usd: null, none: 'no price for my-model' });
+    expect(costLine(unpriced)).toEqual(['Billed by your provider', 'up to 80 attempts a run', 'live where a replay forks, writes stubbed', 'no price for my-model']);
+    // A last verify that made no attempt, or met a model with no price, puts nothing on the card.
+    for (const bare of [{ ...last, attempts: 0, spent: 0 }, { ...last, unknownModels: ['my-model'] }]) {
+      const e = verifyEstimate([{ role: 'target', usd: 0.02 }], { last: bare });
+      expect(e.last).toBeUndefined();
+      expect(e.card!.lines).toEqual(['A gate stops once it decides, and a run whose replay doesn’t fork settles in one free attempt.']);
+    }
   });
 
-  it('runs more attempts at the higher limit, and what they are expected to take at the rate each run passed at so far', () => {
+  it('runs more attempts at the higher limit, a good run in pairs against its baseline, and says what the fix’s own figure expects', () => {
     const gate = { kind: 'sprt' as const, ...SPRT_DEFAULTS, max: 160 };
     const runs: VerifyRunCost[] = [
-      { role: 'target', usd: 0.02, tally: { passes: 9, attempts: 12 } },
-      { role: 'good', usd: 0, tally: { passes: 1, attempts: 1, deterministic: true } },
+      { role: 'target', usd: 0.02 },
+      { role: 'good', usd: 0.01, baseline: 0.012 },
+      { role: 'good', usd: 0 },
     ];
-    const e = verifyMoreEstimate(runs, { rule: { gate } });
-    const n = gateOdds(gate, 0.75).attempts;
-    expect(e.usd).toBeCloseTo(160 * 0.02, 10);
-    expect(e.expected).toEqual({ usd: n * 0.02, attempts: Math.round(n + 1) });
-    expect(e.parts).toEqual(['up to 160 attempts a failing run, 160 pairs a good one', `about ${Math.round(n + 1)} attempts expected`, 'live where a replay forks, writes stubbed']);
-    // A fixed count states no rate it tells apart: nothing says what it takes.
-    expect(verifyMoreEstimate(runs, { rule: { attempts: 10 } }).expected).toBeUndefined();
+    // The Verify step's figure, as the fix shows it: about 34 attempts, at what its attempts cost on average.
+    const e = verifyMoreEstimate(runs, { expected: 33.6, cost: 0.71 }, { rule: { gate } });
+    // 160 attempts the failing run, 160 pairs each good one: the change's attempt and the baseline's; a clean replay free.
+    expect(e.usd).toBeCloseTo(160 * 0.02 + 160 * (0.01 + 0.012), 10);
+    expect(e.attempts).toBe(160 + 320 + 320);
+    expect(e.expected).toEqual({ usd: 0.71, attempts: 34 });
+    expect(e.parts).toEqual(['up to 160 attempts a failing run, 160 pairs a good one', 'about 34 attempts expected', 'live where a replay forks, writes stubbed']);
+    // Without the step's figure it says what a verify says; with no cost to it, no expected price.
+    expect(verifyMoreEstimate(runs, null, { rule: { gate } }).parts).toEqual(['up to 160 attempts a failing run, 160 pairs a good one', 'live where a replay forks, writes stubbed']);
+    expect(verifyMoreEstimate(runs, { expected: 33.6, cost: null }, { rule: { gate } }).expected).toBeUndefined();
   });
 
   it('prices a kept verify’s runs at what an attempt of each cost, its judge’s share with it; a clean replay stays free', () => {
-    const report: Pick<VerifyReport, 'runs' | 'attempts' | 'spent' | 'judge'> = {
+    const report: Pick<VerifyReport, 'runs' | 'attempts' | 'spent' | 'judge' | 'unknownModels'> = {
       runs: [run('target', [0.02, 0.04]), run('good', [0.01], { baselineRuns: [attempt(0.012), attempt(0.014)] }), run('good', [0], { deterministic: true }), run('holdout', [])],
       attempts: 6,
       spent: 0.096,
       judge: { spent: 0.012, upstreamRequests: 6 },
+      unknownModels: [],
     };
     const costs = verifyRunCosts(report);
     expect(costs.map((c) => c.role)).toEqual(['target', 'good', 'good', 'holdout']);
     expect(costs[0].usd).toBeCloseTo(0.032, 10);
     expect(costs[1].usd).toBeCloseTo(0.012, 10);
     expect(costs[1].baseline).toBeCloseTo(0.015, 10);
-    expect(costs[2]).toEqual({ role: 'good', usd: 0, tally: { passes: 1, attempts: 1, deterministic: true } });
+    expect(costs[2]).toEqual({ role: 'good', usd: 0 });
     // One that never started: the verify's own average, $0.016, and the judge's share.
     expect(costs[3].usd).toBeCloseTo(0.018, 10);
+  });
+
+  it('prices nothing from a verify that met a model with no price, made no attempt, or whose attempts spent nothing live', () => {
+    // Verify again after a verify on a model with no price: its attempts were counted as nothing.
+    const unpriced = verifyRunCosts({ runs: [run('target', [0, 0]), run('good', [0], { deterministic: true })], attempts: 3, spent: 0, unknownModels: ['my-local-model'] });
+    const words = 'no price for my-local-model: add it under "prices" in shadowlap.config.json';
+    expect(unpriced).toEqual([
+      { role: 'target', usd: null, none: words },
+      { role: 'good', usd: 0 },
+    ]);
+    const again = verifyEstimate(unpriced);
+    expect(again).toMatchObject({ usd: null, none: words });
+    for (const s of [0, 0.5, 2, null]) expect(asksFirst(again, s)).toBe(true);
+    // One that stopped before its first attempt.
+    expect(verifyEstimate(verifyRunCosts({ runs: [run('target', [])], attempts: 0, spent: 0, unknownModels: [] }))).toMatchObject({ usd: null, none: 'the last verify made no attempt, so what one costs is unknown' });
+    // Attempts that spent nothing live, and a baseline's that did.
+    expect(verifyRunCosts({ runs: [run('target', [0, 0])], attempts: 2, spent: 0, unknownModels: [] })[0]).toEqual({ role: 'target', usd: null, none: 'the last verify’s attempts spent nothing live, so what one costs is unknown' });
+    const base = verifyRunCosts({ runs: [run('good', [0.01], { baselineRuns: [attempt(0)] })], attempts: 2, spent: 0.01, unknownModels: [] });
+    expect(base[0]).toMatchObject({ usd: 0.01, baseline: null, none: 'the last verify’s baseline attempts spent nothing live, so what one costs is unknown' });
+    expect(verifyEstimate(base).usd).toBeNull();
   });
 });
 
@@ -191,7 +250,7 @@ describe('Run repair', () => {
     expect(REPAIR_CANDIDATES).toBe(3);
     expect(e.card!.lines.at(-1)).toBe('A run that replays clean settles in one free attempt.');
     // With a verify of the fix before it, what that one took.
-    expect(repairEstimate({ failing: failing(), good, last: { attempts: 12, spent: 0.24, judge: { spent: 0.03, upstreamRequests: 12 } } }).card!.lines.at(-1)).toBe(`The last verify of this fix took 12 attempts, ${amountWords(0.27)}.`);
+    expect(repairEstimate({ failing: failing(), good, last: { attempts: 12, spent: 0.24, judge: { spent: 0.03, upstreamRequests: 12 }, unknownModels: [] } }).card!.lines.at(-1)).toBe(`The last verify of this fix took 12 attempts, ${amountWords(0.27)}.`);
   });
 
   it('reuses a kept blame that searched to the end, and blames a stopped one again', () => {
@@ -212,6 +271,13 @@ describe('Run repair', () => {
     expect(repairEstimate({ failing: failing(), noFix: 'unrescued' }).parts).toEqual(['nothing runs: the blame it reuses rescued no call']);
     // Every run it would show the repairer keeps a blame that rescued no call: there is nothing to learn from.
     expect(repairEstimate({ failing: failing({ blame: { outcome: 'unrescuable' } }), good })).toMatchObject({ usd: 0, parts: ['nothing runs: the blame it reuses rescued no call'] });
+  });
+
+  it('answers for a failing run of 200,000 model calls, whose longest request is found in a pass', () => {
+    const long = pricedCalls(Array.from({ length: 200_000 }, (_, i) => api(i + 1, 'claude-sonnet-5', { inputTokens: i === 7 ? 3000 : 1000, outputTokens: 100 })));
+    const e = repairEstimate({ failing: [{ runId: 'long', startedAt: 1, calls: long }] });
+    expect(e.usd).not.toBeNull();
+    expect(e.items![1]).toEqual({ what: 'Repairer', usd: repairer });
   });
 
   it('prices the repairer as repair bounds it before it asks: Claude Code twice over, another once, none with no model or price', () => {

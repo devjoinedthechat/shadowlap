@@ -55,19 +55,25 @@ export interface BlameEstimateOptions extends BlameRule {
   writes?: 'stub' | 'block';
   prices?: Prices;
   /**
-   * The last blame of the run. With attempts to its name, an attempt is priced about as one of its
-   * did (Run blame again), unless `fresh` says the search starts over (under another check); it is
-   * what the last such job cost either way.
+   * The last blame of the run. With attempts to its name that spent something, all of it priced, an
+   * attempt is priced about as one of its did (Run blame again), unless `fresh` says the search
+   * starts over (under another check); it is what the last such job cost either way. One that spent
+   * nothing says nothing of what an attempt costs: the recording prices it then. One that met a model
+   * with no price leaves no estimate, as what it spent leaves those calls out.
    */
-  last?: Pick<BlameReport, 'attempts' | 'spent' | 'judge'> | null;
+  last?: Pick<BlameReport, 'attempts' | 'spent' | 'judge' | 'unknownModels'> | null;
   fresh?: boolean;
 }
 
+/** What the last blame spent, its judge's calls with it. */
+const spentOf = (last: Pick<BlameReport, 'spent' | 'judge'>): number => last.spent + (last.judge?.spent ?? 0);
+
 /** What one attempt is priced at, and the price card's line that says so; or why there is no price. */
 function attemptPrice(calls: readonly PricedCall[], first: number, o: BlameEstimateOptions): { usd: number; line: string } | { none: string } {
-  const last = !o.fresh && o.last && o.last.attempts > 0 ? o.last : null;
+  if (!o.fresh && o.last?.unknownModels.length) return { none: noPriceWords({ unpriced: o.last.unknownModels }) };
+  const last = !o.fresh && o.last && o.last.attempts > 0 && spentOf(o.last) > 0 ? o.last : null;
   if (last) {
-    const per = (last.spent + (last.judge?.spent ?? 0)) / last.attempts;
+    const per = spentOf(last) / last.attempts;
     const theirs = `the last blame’s ${counted(last.attempts, 'attempt')}`;
     if (!o.model) return { usd: per, line: `An attempt costs about what ${theirs} did, ${amountWords(per)} each.` };
     const k = modelFactor(calls, first, o.model, o.prices);
@@ -91,16 +97,17 @@ export function blameEstimate(calls: readonly PricedCall[], o: BlameEstimateOpti
   const probed = probedCalls(calls, o.scope);
   if (!probed.length) return noEstimate('blame', `the run made no model calls${o.scope ? ` in scope ${o.scope}` : ''}, so blame has nothing to probe`);
   const bound = blameBound(probed.length, o);
+  const parts = [`up to ${counted(bound.probes, 'probe')} of ${counted(bound.each, 'attempt')}${bound.pin ? ' and a check of the call found' : ''}`, `live from each probe, writes ${o.writes === 'block' ? 'blocked' : 'stubbed'}`];
   const price = attemptPrice(calls, probed[0]!.callNo, o);
-  if ('none' in price) return noEstimate('blame', price.none);
+  if ('none' in price) return noEstimate('blame', price.none, parts);
   return {
     kind: 'blame',
     usd: bound.attempts * price.usd,
     ceiling: true,
-    parts: [`up to ${counted(bound.probes, 'probe')} of ${counted(bound.each, 'attempt')}${bound.pin ? ' and a check of the call found' : ''}`, `live from each probe, writes ${o.writes === 'block' ? 'blocked' : 'stubbed'}`],
+    parts,
     card: { title: bound.pin ? 'If every probe and the check ran to their limit' : 'If every probe ran to its limit', lines: [price.line, 'A probe stops once it settles, and a later one costs less.'] },
     attempts: bound.attempts,
     each: price.usd,
-    ...(o.last ? { last: { usd: o.last.spent + (o.last.judge?.spent ?? 0), attempts: o.last.attempts } } : {}),
+    ...(o.last?.attempts && !o.last.unknownModels.length ? { last: { usd: spentOf(o.last), attempts: o.last.attempts } } : {}),
   };
 }

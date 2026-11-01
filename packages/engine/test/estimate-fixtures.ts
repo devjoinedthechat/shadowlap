@@ -25,6 +25,8 @@ export interface ApiOptions {
   /** How it ended: answered, failed, answered by Shadowlap (`injected`), or not at all (`open`). */
   ended?: 'ok' | 'error' | 'injected' | 'open';
   provider?: string;
+  /** Its request was kept, as a recording keeps it (an import may not). */
+  request?: boolean;
 }
 
 /** A model call as the store reads it back, its usage and model on its end. */
@@ -39,7 +41,7 @@ export function api(callNo: number, model: string | null, usage: Usage | null, o
     occurrence: 0,
     origin: o.origin ?? 'live',
     effect: null,
-    requestRef: null,
+    requestRef: o.request === false ? null : `request-${callNo}`,
     meta: { ...(o.scope ? { scope: o.scope } : {}), ...(model ? { model } : {}), ...(o.provider ? { provider: o.provider } : {}) },
     at: callNo,
     end:
@@ -50,9 +52,9 @@ export function api(callNo: number, model: string | null, usage: Usage | null, o
   };
 }
 
-/** A tool call that answered. */
-export function tool(callNo: number, name: string, effect: Effect, origin: Origin = 'live'): CallRecord {
-  return { runId: 'run', callNo, kind: 'tool', name, fingerprint: `tool-${callNo}`, occurrence: 0, origin, effect, requestRef: null, meta: {}, at: callNo, end: { runId: 'run', callNo, attempt: 0, responseRef: null, outcome: 'ok', meta: {}, at: callNo }, attempts: [] };
+/** A tool call that answered, in `scope` when one is given. */
+export function tool(callNo: number, name: string, effect: Effect, origin: Origin = 'live', scope?: string): CallRecord {
+  return { runId: 'run', callNo, kind: 'tool', name, fingerprint: `tool-${callNo}`, occurrence: 0, origin, effect, requestRef: null, meta: scope ? { scope } : {}, at: callNo, end: { runId: 'run', callNo, attempt: 0, responseRef: null, outcome: 'ok', meta: {}, at: callNo }, attempts: [] };
 }
 
 /** The hand-worked recording above, every call live as recorded. */

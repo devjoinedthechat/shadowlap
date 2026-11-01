@@ -5,8 +5,7 @@ import { SPRT_DEFAULTS } from '../stats.js';
 import { blameBound } from './blame.js';
 import { counted, liveFrom, noEstimate, noPriceWords, probedCalls, type Estimate, type PricedCall, type Prices } from './estimate.js';
 import { amountWords } from './spending.js';
-import type { VerifyReport } from '../verify.js';
-import { verifyCeiling, verifyParts, type VerifyRule, type VerifyRunCost } from './verify.js';
+import { lastVerify, verifyCeiling, verifyParts, type LastVerify, type VerifyRule, type VerifyRunCost } from './verify.js';
 
 /**
  * What Run repair can bill at most, as `shadowlap repair` bounds each step (repair.md): a blame of
@@ -85,7 +84,8 @@ export interface RepairPlan {
   /** Set when the repair would end "No fix to try" before it runs anything (fix-jobs.ts noFixToTry). */
   noFix?: NoFixToTry | null;
   /** The fix's last verify, for the price's card: what it took. */
-  last?: Pick<VerifyReport, 'attempts' | 'spent' | 'judge'> | null;
+  last?: LastVerify | null;
+  /** The config's `prices`, for the repairer's answer: the runs' calls come priced (pricedCalls). */
   prices?: Prices;
 }
 
@@ -106,7 +106,7 @@ function blames(runs: readonly RepairRun[], o: RepairPlan): { usd: number; runs:
     if (r.blame && r.blame.outcome !== 'stopped') continue;
     const probed = probedCalls(r.calls, o.scope);
     if (!probed.length) continue;
-    const cost = liveFrom(r.calls, probed[0]!.callNo, { prices: o.prices });
+    const cost = liveFrom(r.calls, probed[0]!.callNo);
     if (cost.usd === null) return { none: noPriceWords(cost) };
     usd += blameBound(probed.length).attempts * cost.usd;
     n++;
@@ -114,12 +114,16 @@ function blames(runs: readonly RepairRun[], o: RepairPlan): { usd: number; runs:
   return { usd, runs: n };
 }
 
-/** The most input tokens one of a run's model requests carried, its cache reads and writes with it. */
-const longestRequest = (calls: readonly PricedCall[]): number => Math.max(0, ...calls.map((c) => (c.usage ? c.usage.inputTokens + (c.usage.cacheReadInputTokens ?? 0) + (c.usage.cacheCreationInputTokens ?? 0) : 0)));
+/** The most input tokens one of a run's model requests carried, its cache reads and writes with it: a pass, as a long run has more calls than a call takes arguments. */
+function longestRequest(calls: readonly PricedCall[]): number {
+  let most = 0;
+  for (const c of calls) if (c.usage) most = Math.max(most, c.usage.inputTokens + (c.usage.cacheReadInputTokens ?? 0) + (c.usage.cacheCreationInputTokens ?? 0));
+  return most;
+}
 
 /** A run as a verify of a candidate prices it: every attempt live from its first model call, so at most what the whole recording cost. */
-function wholeRun(role: VerifyRunCost['role'], calls: readonly PricedCall[], prices: Prices): VerifyRunCost {
-  const cost = liveFrom(calls, 0, { prices });
+function wholeRun(role: VerifyRunCost['role'], calls: readonly PricedCall[]): VerifyRunCost {
+  const cost = liveFrom(calls, 0);
   return { role, usd: cost.usd, ...(cost.usd === null ? { none: noPriceWords(cost) } : {}) };
 }
 
@@ -148,13 +152,14 @@ export function repairEstimate(o: RepairPlan): Estimate {
   if ('none' in blame) return { ...noEstimate('repair', blame.none), always };
   const repairer = repairerBound(o.repairer ?? DEFAULT_REPAIRER, learned.reduce((n, r) => n + longestRequest(r.calls), 0) * CHARS_PER_RECORDED_TOKEN, o.prices);
   if (repairer.usd === null) return { ...noEstimate('repair', repairer.model ? `no price for ${repairer.model}, the repairer's model: add it under "prices" in shadowlap.config.json` : 'the repairer names no model to price its answer at'), always };
-  const runs = [...o.failing.map((r) => wholeRun(targets.includes(r) ? 'target' : 'holdout', r.calls, o.prices)), ...(o.good ?? []).map((g) => wholeRun('good', g.calls, o.prices))];
+  const runs = [...o.failing.map((r) => wholeRun(targets.includes(r) ? 'target' : 'holdout', r.calls)), ...(o.good ?? []).map((g) => wholeRun('good', g.calls))];
   const each = verifyCeiling(runs, o.rule);
   if (each.usd === null) return { ...noEstimate('repair', runs.find((r) => r.none)?.none ?? 'a run it verifies has no price'), always };
   const k = decided(o);
   const verifies = 2 * k * each.usd;
   const parts = [`${blame.runs ? 'a new blame, then up' : 'up'} to ${counted(k, 'candidate')}`, 'each verified up to twice', 'live from each run’s first model call, writes stubbed'];
   const failing = runs.filter((r) => r.role !== 'good').length;
+  const last = lastVerify(o.last);
   return {
     kind: 'repair',
     usd: blame.usd + repairer.usd + verifies,
@@ -168,7 +173,7 @@ export function repairEstimate(o: RepairPlan): Estimate {
         ...(blame.runs ? [`Blame: ${amountWords(blame.usd)}, from the first model call`] : []),
         `Repairer: its answer, ${amountWords(repairer.usd)} at most`,
         `A verify: ${amountWords(each.usd)} at most, ${verifyParts(failing, runs.length - failing, each.limits)}`,
-        o.last ? `The last verify of this fix took ${counted(o.last.attempts, 'attempt')}, ${amountWords(o.last.spent + (o.last.judge?.spent ?? 0))}.` : 'A run that replays clean settles in one free attempt.',
+        last ? `The last verify of this fix took ${counted(last.attempts, 'attempt')}, ${amountWords(last.usd)}.` : 'A run that replays clean settles in one free attempt.',
       ],
     },
     attempts: 2 * k * each.attempts,

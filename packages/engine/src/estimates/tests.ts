@@ -1,7 +1,7 @@
-import { gateOdds, gateOf, type GateResult } from '../stats.js';
+import type { CostReport } from '../injection.js';
 import type { TestResultData } from '../store.js';
-import { counted, liveFrom, noEstimate, noPriceWords, type Estimate, type PricedCall, type Prices } from './estimate.js';
-import { amountWords } from './spending.js';
+import { counted, liveFrom, noEstimate, noPriceWords, type Estimate, type ExpectedFigure, type PricedCall } from './estimate.js';
+import { amountWords, centsWords } from './spending.js';
 
 /**
  * What Tests' jobs bill. Run tests: what the last session spent live, its fork goldens' attempts,
@@ -9,63 +9,102 @@ import { amountWords } from './spending.js';
  * attempts on a gate still inconclusive: every attempt up to its higher limit, each as dear as its
  * costliest so far, with what the gate is expected to take. Update golden(s): each golden recorded
  * again, about what its recording cost. Find breaking commit on a golden marked fork: every commit it
- * may test, its gate run live at each; on a run, one live replay a commit.
+ * may test, its gate run live at each; on a run, one live replay a commit. A job that runs something
+ * live and is priced at what one before it spent has no estimate when that spent nothing live, or met
+ * a model with no price: neither says what the next one bills.
  */
 
 /** A session's result for one golden, as the store keeps it: what its attempts and its judges spent live. */
 export type SessionResult = { data: Pick<TestResultData, 'spent' | 'judge'> | null };
 
-/**
- * Run tests: `live`, how many goldens would run something live (marked fork, an injection gate, a
- * judge asked live); `last`, the last session's results and what its injection gates spent, or null
- * when none ran. One that runs nothing live is Free and starts at once; one that does is priced at
- * what the last session spent live (`≈$2.31 · what the last session spent live`), and has no estimate
- * until a session has run.
- */
-export function testsEstimate(live: number, last: { results: readonly SessionResult[]; injection?: number } | null): Estimate {
-  if (!live) return { kind: 'tests', usd: 0, ceiling: false, parts: ['every golden replays offline'] };
-  if (!last) return noEstimate('tests', 'no estimate until a session has run');
-  const usd = last.results.reduce((s, r) => s + (r.data?.spent ?? 0) + (r.data?.judge?.spent ?? 0), last.injection ?? 0);
-  return { kind: 'tests', usd, ceiling: false, parts: ['what the last session spent live'], last: { usd, attempts: null } };
+/** What an injection gate's test spent, as its report keeps it. */
+export type GateSpend = Pick<CostReport, 'spent' | 'unknownModels'>;
+
+/** What results spent live, their judges' calls with theirs, and the models among them with no price. */
+function spendOf(results: readonly SessionResult[], gates: readonly GateSpend[] = []): { usd: number; unpriced: string[] } {
+  let usd = 0;
+  const unpriced = new Set<string>();
+  for (const r of results) {
+    usd += (r.data?.spent ?? 0) + (r.data?.judge?.spent ?? 0);
+    for (const m of r.data?.judge?.unknownModels ?? []) unpriced.add(m);
+  }
+  for (const g of gates) {
+    usd += g.spent;
+    for (const m of g.unknownModels) unpriced.add(m);
+  }
+  return { usd, unpriced: [...unpriced] };
+}
+
+/** Why a spend says nothing of what the next job bills: a model with no price among it, or nothing spent live (`nothing`); null when it says what it should. */
+function spendNone(spend: { usd: number; unpriced: readonly string[] }, nothing: string): string | null {
+  if (spend.unpriced.length) return noPriceWords({ unpriced: spend.unpriced });
+  return spend.usd > 0 ? null : nothing;
 }
 
 /**
- * Run test on one golden (one a coverage group was just packed into, a gate's Re-run test): one that
- * replays is replayed offline, Free; one marked fork runs live from where the agent parts from its
- * recording, priced at what its last result spent live, with no estimate until it has run once.
+ * Run tests: `live`, how many goldens would run something live (marked fork, an injection gate, a
+ * judge asked live); `last`, the last session's results and what its injection gates' tests spent,
+ * or null when none ran. One that runs nothing live is Free and starts at once; one that does is
+ * priced at what the last session spent live (`≈$2.31 · what the last session spent live`), and has
+ * no estimate until a session has run, or when the last spent nothing live (its fork goldens replayed
+ * clean, say), which says nothing of what this one bills.
+ */
+export function testsEstimate(live: number, last: { results: readonly SessionResult[]; injection?: readonly GateSpend[] } | null): Estimate {
+  if (!live) return { kind: 'tests', usd: 0, ceiling: false, parts: ['every golden replays offline'] };
+  if (!last) return noEstimate('tests', 'no estimate until a session has run');
+  const spend = spendOf(last.results, last.injection);
+  const none = spendNone(spend, 'the last session spent nothing live, so what this one bills is unknown');
+  if (none) return noEstimate('tests', none);
+  return { kind: 'tests', usd: spend.usd, ceiling: false, parts: ['what the last session spent live'], last: { usd: spend.usd, attempts: null } };
+}
+
+/**
+ * Run test on one golden, as Not covered runs the golden a pack just made: one that replays is
+ * replayed offline, Free; one marked fork runs live from where the agent parts from its recording
+ * (the ask's lead says where: `live from there, writes blocked`), priced at what its last test spent
+ * live, with no estimate until it has run once, nor when that spent nothing live.
  */
 export function goldenTestEstimate(fork: boolean, last: SessionResult | null): Estimate {
   if (!fork) return { kind: 'tests', usd: 0, ceiling: false, parts: ['replays offline'] };
-  const parts = ['live from where it forks, writes blocked'];
+  const parts = ['live from there, writes blocked'];
   if (!last?.data) return noEstimate('tests', 'no estimate until it has run once', parts);
-  const usd = (last.data.spent ?? 0) + (last.data.judge?.spent ?? 0);
-  return { kind: 'tests', usd, ceiling: false, note: 'as its last test spent', parts, last: { usd, attempts: null } };
+  const spend = spendOf([last]);
+  const none = spendNone(spend, 'its last test spent nothing live, so what this one bills is unknown');
+  if (none) return noEstimate('tests', none, parts);
+  return { kind: 'tests', usd: spend.usd, ceiling: false, note: 'as its last test spent', parts, last: { usd: spend.usd, attempts: null } };
+}
+
+/**
+ * Run more attempts on a golden's gate, as the gate's own view works it out (Tests' `more`, which its
+ * sentence on Tests reads too): the limit it continues to, the most attempts that adds, and what it
+ * is expected to take and cost.
+ */
+export interface MoreFigure extends ExpectedFigure {
+  attempts: number;
+  most: number;
 }
 
 /**
  * Tests' Run more attempts on a golden whose gate came out inconclusive (`test <golden>
- * --max-attempts <max> --continue`): every attempt up to `max`, each as dear as the costliest of
- * `spends` (each attempt so far, its judge's calls with it), as its ceiling; what the gate is
- * expected to take, at what its attempts have cost on average, on the price's card.
+ * --max-attempts <max> --continue`): every attempt it may add, each as dear as the costliest of
+ * `spends` (each attempt so far, its judge's calls with it), as its ceiling; what the gate is expected
+ * to take, and to cost, is the gate's own figure (`more`), on the price's card to the cent.
  */
-export function moreEstimate(gate: GateResult, max: number, spends: readonly number[]): Estimate {
-  const most = max - gate.attempts;
-  if (most <= 0) return noEstimate('more', `its gate has run ${counted(gate.attempts, 'attempt')} already, which is ${max} or more`);
-  if (!spends.length) return noEstimate('more', 'what its attempts cost was not kept', [`up to ${most} more attempts`]);
-  const each = Math.max(...spends);
-  const average = spends.reduce((s, x) => s + x, 0) / spends.length;
-  const history = gate.evidence?.kind === 'baseline' ? gate.evidence.history : null;
-  const odds = gateOdds({ ...gateOf(gate), max }, gate.attempts ? gate.passes / gate.attempts : 0.5, history, { passes: gate.passes, attempts: gate.attempts });
-  const expected = Math.max(0, Math.round(odds.attempts - gate.attempts));
+export function moreEstimate(more: MoreFigure, spends: readonly number[]): Estimate {
+  const parts = [`up to ${counted(more.most, 'more attempt')}`, 'live from where the golden forks, writes blocked'];
+  if (more.most <= 0) return noEstimate('more', `its gate has taken its ${counted(more.attempts, 'attempt')} already`);
+  if (!spends.length) return noEstimate('more', 'what its attempts cost was not kept', parts);
+  const each = spends.reduce((m, x) => Math.max(m, x), 0);
+  if (each <= 0) return noEstimate('more', 'its attempts so far spent nothing live, so what more cost is unknown', parts);
+  const expected = Math.round(more.expected);
   return {
     kind: 'more',
-    usd: most * each,
+    usd: more.most * each,
     ceiling: true,
-    parts: [`up to ${most} more attempts`, 'live from where the golden forks, writes blocked'],
-    card: { title: 'If every attempt ran, each as dear as its costliest so far', lines: [`About ${amountWords(expected * average)} for the ${expected} it is expected to take, at what its ${counted(spends.length, 'attempt')} have cost.`] },
-    attempts: most,
+    parts,
+    ...(more.cost !== null ? { card: { title: 'If every attempt ran, each as dear as its costliest so far', lines: [`About ${centsWords(more.cost)} for the ${expected.toLocaleString('en-US')} it is expected to take, at what its ${spends.length.toLocaleString('en-US')} have cost.`] }, expected: { usd: more.cost, attempts: expected } } : {}),
+    attempts: more.most,
     each,
-    expected: { usd: expected * average, attempts: expected },
   };
 }
 
@@ -75,7 +114,7 @@ export function moreEstimate(gate: GateResult, max: number, spends: readonly num
  * lacks a judge's verdict asks that judge once (`judge`, what one of its calls costs). It asks first
  * whatever Spending says, since it replaces goldens.
  */
-export function updateEstimate(goldens: ReadonlyArray<{ calls: readonly PricedCall[]; judge?: number | null }>, prices?: Prices): Estimate {
+export function updateEstimate(goldens: ReadonlyArray<{ calls: readonly PricedCall[]; judge?: number | null }>): Estimate {
   const always = 'it replaces goldens';
   let usd = 0;
   for (const g of goldens) {
@@ -84,7 +123,7 @@ export function updateEstimate(goldens: ReadonlyArray<{ calls: readonly PricedCa
       usd += g.judge;
       continue;
     }
-    const cost = liveFrom(g.calls, 0, { prices });
+    const cost = liveFrom(g.calls, 0);
     if (cost.usd === null) return { ...noEstimate('update', noPriceWords(cost)), always };
     usd += cost.usd;
   }
@@ -100,17 +139,20 @@ export const bisectCommits = (commits: number): number => 2 + Math.ceil(Math.log
  * Find breaking commit for a golden (`bisect <golden> --good <rev>`), `commits` apart from the good
  * one to the bad: a golden that replays is replayed offline at each, Free; one marked fork runs its
  * gate live at every commit it tests, up to `attempts` each (its gate's max, or its repeat), each
- * attempt at most `each` (its last session's costliest, its judge's calls with it).
+ * attempt at most `each` (its last session's costliest, its judge's calls with it); none until it has
+ * run once, nor when its attempts spent nothing live.
  */
 export function bisectEstimate(commits: number, golden: { fork: boolean; attempts: number; each: number | null }): Estimate {
   if (!golden.fork) return { kind: 'bisect', usd: 0, ceiling: false, parts: ['bisect replays offline'] };
-  if (golden.each === null) return noEstimate('bisect', 'no estimate until it has run once', ['live at each commit, as a golden marked fork runs']);
+  const where = 'live at each commit, as a golden marked fork runs';
+  if (golden.each === null) return noEstimate('bisect', 'no estimate until it has run once', [where]);
+  if (golden.each <= 0) return noEstimate('bisect', 'its last session’s attempts spent nothing live, so what one costs is unknown', [where]);
   const tested = bisectCommits(commits);
   return {
     kind: 'bisect',
     usd: tested * golden.attempts * golden.each,
     ceiling: true,
-    parts: [`up to ${counted(tested, 'commit')}, ${counted(golden.attempts, 'attempt')} each`, 'live at each commit, as a golden marked fork runs'],
+    parts: [`up to ${counted(tested, 'commit')}, ${counted(golden.attempts, 'attempt')} each`, where],
     card: { title: 'If every commit’s gate ran to its limit', lines: [`An attempt costs at most ${amountWords(golden.each)}, as its last session’s costliest did.`, 'A gate stops once it decides.'] },
     attempts: tested * golden.attempts,
     each: golden.each,
@@ -122,8 +164,8 @@ export function bisectEstimate(commits: number, golden: { fork: boolean; attempt
  * apart: one live replay at each commit it tests but its own, where its replay is clean, each at
  * most what the run cost from its first model call to its end.
  */
-export function runBisectEstimate(calls: readonly PricedCall[], commits: number, prices?: Prices): Estimate {
-  const cost = liveFrom(calls, 0, { prices });
+export function runBisectEstimate(calls: readonly PricedCall[], commits: number): Estimate {
+  const cost = liveFrom(calls, 0);
   if (cost.usd === null) return noEstimate('bisect', noPriceWords(cost));
   const tested = bisectCommits(commits);
   return {

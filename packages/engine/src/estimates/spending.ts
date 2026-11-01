@@ -17,9 +17,6 @@ export type Spending = number | null;
 /** What Spending is until someone changes it: ask above $0.50. */
 export const SPENDING_DEFAULT = 0.5;
 
-/** The most an amount may be: anything above it is no threshold anyone means. */
-export const SPENDING_MAX = 1_000_000;
-
 /** The picks beside the amount: Always ask ($0), $0.50, $2, Never ask (no limit). */
 export const SPENDING_PICKS: ReadonlyArray<{ label: string; value: Spending }> = [
   { label: 'Always ask', value: 0 },
@@ -31,22 +28,25 @@ export const SPENDING_PICKS: ReadonlyArray<{ label: string; value: Spending }> =
 /** What the field says when an amount typed is none: "An amount in dollars, such as 0.50". */
 export const SPENDING_REFUSED = 'An amount in dollars, such as 0.50';
 
-/** Whether a value is a threshold Spending can hold: a whole number of cents from $0 to the most, or null. */
+/** Whether a value is a threshold Spending can hold: a whole number of cents, $0 or more, or null. */
 export function validSpending(v: unknown): v is Spending {
   if (v === null) return true;
-  return typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= SPENDING_MAX && Math.abs(Math.round(v * 100) - v * 100) < 1e-6;
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 && Math.abs(Math.round(v * 100) - v * 100) < 1e-6;
 }
 
 /**
- * An amount as typed in the field: a `$`, spaces and commas ignored, whole cents; an empty field is
- * no limit (Never ask). Anything else is refused with what to type.
+ * An amount as typed in the field: a `$`, spaces and commas ignored, digits with a point before the
+ * last of them or none (`12`, `0.50`, `.5`), rounded to whole cents, a half cent up (`0.505` is
+ * $0.51); an empty field is no limit (Never ask). Anything else is refused with what to type.
  */
 export function parseSpending(text: string): { ok: true; value: Spending } | { ok: false; why: string } {
   const bare = text.replace(/[\s$,]/g, '');
   if (!bare) return { ok: true, value: null };
-  if (!/^(\d+(\.\d{0,2})?|\.\d{1,2})$/.test(bare)) return { ok: false, why: SPENDING_REFUSED };
-  const value = Math.round(Number(bare) * 100) / 100;
-  return value <= SPENDING_MAX ? { ok: true, value } : { ok: false, why: SPENDING_REFUSED };
+  if (!/^\d*\.?\d+$/.test(bare)) return { ok: false, why: SPENDING_REFUSED };
+  // Rounded from the digits as typed: 1.005 is $1.01, which 1.005 × 100 in floating point is not.
+  const [whole = '', frac = ''] = bare.split('.');
+  const cents = Number(whole) * 100 + Number(frac.slice(0, 2).padEnd(2, '0')) + (frac.charAt(2) >= '5' ? 1 : 0);
+  return Number.isFinite(cents) ? { ok: true, value: cents / 100 } : { ok: false, why: SPENDING_REFUSED };
 }
 
 /** A threshold in dollars, as the setting says it: `$0.50`, `$2`, `$1,000`. */
@@ -80,6 +80,11 @@ export function amountWords(usd: number): string {
   return s.startsWith('<') ? s : `≈${s}`;
 }
 
+/** An amount to the cent, as a page's own figure gives it and the ask that shows it says it: `≈$0.35`. */
+export function centsWords(usd: number): string {
+  return `≈$${usd.toFixed(2)}`;
+}
+
 /** The amount as shown, which is what Spending holds a job to: "≈$0.50" never asks above $0.50. */
 export function heldAmount(usd: number): number {
   return usd > 0 ? Number(formatUsd(usd).replace(/[^\d.]/g, '')) : 0;
@@ -94,11 +99,11 @@ export function priceWords(e: Pick<Estimate, 'usd' | 'ceiling'>): string {
 
 /**
  * An ask's cost line, price first and its parts after it: `≈$0.054, twice as recorded · live from #3,
- * writes fenced`; `Billed by your provider · the agent’s own model calls · no estimate until it has
- * run once` for a job with no estimate.
+ * writes fenced`; for a job with no estimate, who bills it, then its parts, which end on why: `Billed
+ * by your provider · live from there, writes blocked · no estimate until it has run once`.
  */
-export function costLine(e: Pick<Estimate, 'usd' | 'ceiling' | 'note' | 'parts' | 'none'>): string[] {
-  if (e.usd === null) return ['Billed by your provider', ...e.parts, ...(e.none ? [e.none] : [])];
+export function costLine(e: Pick<Estimate, 'usd' | 'ceiling' | 'note' | 'parts'>): string[] {
+  if (e.usd === null) return ['Billed by your provider', ...e.parts];
   return [`${priceWords(e)}${e.note ? `, ${e.note}` : ''}`, ...e.parts];
 }
 

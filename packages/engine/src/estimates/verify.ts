@@ -1,7 +1,7 @@
 import { KEPT_DEFAULTS } from '../noninferiority.js';
-import { gateOdds, SPRT_DEFAULTS, type SprtGate } from '../stats.js';
+import { SPRT_DEFAULTS, type SprtGate } from '../stats.js';
 import type { VerifyAttempt, VerifyReport, VerifyRole } from '../verify.js';
-import { counted, noEstimate, type Estimate } from './estimate.js';
+import { counted, noEstimate, noPriceWords, type Estimate, type ExpectedFigure } from './estimate.js';
 import { amountWords } from './spending.js';
 
 /**
@@ -25,6 +25,16 @@ export interface VerifyRule {
   baseline?: 'paired' | 'history' | 'none';
 }
 
+/**
+ * The most pairs (or attempts, against history) a good run takes, as `shadowlap verify` reads it:
+ * `--kept-max`, else the config's `verify.max` (`kept`, the first of them given), else a gate's max
+ * other than its default (`--gate '{"max":20}'` means no run takes more than 20 attempts an arm),
+ * else 200. The CLI's verify keeps its runs to this.
+ */
+export function keptMaxOf(kept: number | null | undefined, gate: Pick<SprtGate, 'max'> | null | undefined): number {
+  return kept ?? (gate && gate.max !== SPRT_DEFAULTS.max ? gate.max : null) ?? KEPT_DEFAULTS.max;
+}
+
 /** The most a verify runs on each kind of run. */
 export interface VerifyLimits {
   /** Attempts a run that must now pass takes at most. */
@@ -38,7 +48,7 @@ export interface VerifyLimits {
 export function verifyLimits(rule: VerifyRule = {}): VerifyLimits {
   if (rule.attempts) return { failing: rule.attempts, good: rule.attempts, unit: 'attempts' };
   const gate = rule.gate ?? { kind: 'sprt', ...SPRT_DEFAULTS };
-  const kept = rule.keptMax ?? (gate.max !== SPRT_DEFAULTS.max ? gate.max : null) ?? KEPT_DEFAULTS.max;
+  const kept = keptMaxOf(rule.keptMax, gate);
   const baseline = rule.baseline ?? 'paired';
   if (baseline === 'paired') return { failing: gate.max, good: kept, unit: 'pairs' };
   return { failing: gate.max, good: baseline === 'history' ? Math.max(gate.max, kept) : gate.max, unit: 'attempts' };
@@ -49,11 +59,9 @@ export interface VerifyRunCost {
   role: VerifyRole;
   /** USD an attempt costs under the change, its judge's calls with it; null when it has no price (`none` says why). */
   usd: number | null;
-  /** A good run's baseline attempt (the run as it was before the change): as `usd` when left out. */
+  /** A good run's baseline attempt (the run as it was before the change): as `usd` when left out; null when it has no price. */
   baseline?: number | null;
   none?: string;
-  /** How its last verify went, for the attempts Run more attempts is expected to take: a clean replay settles in one free attempt. */
-  tally?: { passes: number; attempts: number; deterministic?: boolean };
 }
 
 /** The most a good run against a paired baseline can bill: its pairs, or, when no baseline could run, its gate alone. */
@@ -97,18 +105,22 @@ export const VERIFY_LIVE = {
   each: 'live from each run’s first model call',
 } as const;
 
+/** What a kept verify spent, as a price's card reads it. */
+export type LastVerify = Pick<VerifyReport, 'attempts' | 'spent' | 'judge' | 'unknownModels'>;
+
 export interface VerifyEstimateOptions {
   rule?: VerifyRule;
   live?: keyof typeof VERIFY_LIVE;
   writes?: 'stub' | 'block';
   /** The last verify of the same runs: what an attempt of it cost, and what it spent, for the price's card. */
-  last?: Pick<VerifyReport, 'attempts' | 'spent' | 'judge'> | null;
+  last?: LastVerify | null;
 }
 
-/** USD the last verify spent in all, and an attempt of it on average. */
-function lastOf(last: Pick<VerifyReport, 'attempts' | 'spent' | 'judge'>): { usd: number; each: number } {
+/** USD the last verify spent in all, and an attempt of it on average; null when it made no attempt, or met a model with no price, so what it spent says nothing whole. */
+export function lastVerify(last: LastVerify | null | undefined): { usd: number; each: number; attempts: number } | null {
+  if (!last?.attempts || last.unknownModels.length) return null;
   const usd = last.spent + (last.judge?.spent ?? 0);
-  return { usd, each: last.attempts ? usd / last.attempts : 0 };
+  return { usd, each: usd / last.attempts, attempts: last.attempts };
 }
 
 /**
@@ -119,67 +131,66 @@ function lastOf(last: Pick<VerifyReport, 'attempts' | 'spent' | 'judge'>): { usd
 export function verifyEstimate(runs: readonly VerifyRunCost[], o: VerifyEstimateOptions = {}): Estimate {
   if (!runs.length) return noEstimate('verify', 'there is no run to verify');
   const ceiling = verifyCeiling(runs, o.rule);
-  if (ceiling.usd === null) return noEstimate('verify', runs.find((r) => r.usd === null || r.baseline === null)?.none ?? 'a run it checks has no price');
   const failing = runs.filter((r) => r.role !== 'good').length;
-  const last = o.last ? lastOf(o.last) : null;
+  const parts = [verifyParts(failing, runs.length - failing, ceiling.limits), `${VERIFY_LIVE[o.live ?? 'fork']}, writes ${o.writes === 'block' ? 'blocked' : 'stubbed'}`];
+  if (ceiling.usd === null) return noEstimate('verify', runs.find((r) => r.usd === null || r.baseline === null)?.none ?? 'a run it checks has no price', parts);
+  const last = lastVerify(o.last);
   const lines = last
-    ? [`An attempt costs about ${amountWords(last.each)}, as one of the last verify’s ${counted(o.last!.attempts, 'attempt')} did.`, `A gate stops once it decides: the last verify spent ${amountWords(last.usd)}.`]
+    ? [`An attempt costs about ${amountWords(last.each)}, as one of the last verify’s ${counted(last.attempts, 'attempt')} did.`, `A gate stops once it decides: the last verify spent ${amountWords(last.usd)}.`]
     : ['A gate stops once it decides, and a run whose replay doesn’t fork settles in one free attempt.'];
   return {
     kind: 'verify',
     usd: ceiling.usd,
     ceiling: true,
-    parts: [verifyParts(failing, runs.length - failing, ceiling.limits), `${VERIFY_LIVE[o.live ?? 'fork']}, writes ${o.writes === 'block' ? 'blocked' : 'stubbed'}`],
+    parts,
     card: { title: 'If every run’s gate ran to its limit', lines },
     attempts: ceiling.attempts,
-    ...(last ? { last: { usd: last.usd, attempts: o.last!.attempts } } : {}),
+    ...(last ? { last: { usd: last.usd, attempts: last.attempts } } : {}),
   };
 }
 
 /**
  * Run more attempts on a verify's runs: verify has no `--continue`, so each run is verified again
  * from its first attempt, up to the higher limit (`rule`'s gate max), priced as verifyEstimate prices
- * it. With each run's tally, what it is expected to take as well, as the fix's Verify step works it
- * out: each at the rate it passed at so far, a clean replay one free attempt (`about 34 attempts
- * expected`).
+ * it. What it is expected to take, and to cost, is the fix's own figure for it (`more`, the Verify
+ * step's), so the step and the ask say the same: `about 34 attempts expected`.
  */
-export function verifyMoreEstimate(runs: readonly VerifyRunCost[], o: VerifyEstimateOptions = {}): Estimate {
+export function verifyMoreEstimate(runs: readonly VerifyRunCost[], more: ExpectedFigure | null, o: VerifyEstimateOptions = {}): Estimate {
   const e = verifyEstimate(runs, o);
-  // A fixed count states no rate it tells apart, so nothing says what it is expected to take.
-  if (e.usd === null || o.rule?.attempts || !runs.every((r) => r.tally)) return e;
-  const gate: SprtGate = { kind: 'sprt', ...SPRT_DEFAULTS, ...(o.rule?.gate ?? {}) };
-  let attempts = 0;
-  let usd = 0;
-  for (const r of runs) {
-    const t = r.tally!;
-    if (t.deterministic) {
-      attempts += 1;
-      continue;
-    }
-    const n = gateOdds(gate, t.attempts ? t.passes / t.attempts : 0.5).attempts;
-    attempts += n;
-    usd += n * (r.usd! + (r.role === 'good' && verifyLimits(o.rule).unit === 'pairs' ? (r.baseline ?? r.usd!) : 0));
-  }
-  const expected = Math.round(attempts);
-  return { ...e, expected: { usd, attempts: expected }, parts: [e.parts[0]!, `about ${counted(expected, 'attempt')} expected`, ...e.parts.slice(1)] };
+  if (e.usd === null || !more) return e;
+  const attempts = Math.round(more.expected);
+  return { ...e, ...(more.cost !== null ? { expected: { usd: more.cost, attempts } } : {}), parts: [e.parts[0]!, `about ${counted(attempts, 'attempt')} expected`, ...e.parts.slice(1)] };
 }
 
 /** An attempt's spend on average, or null for none. */
 const mean = (xs: readonly VerifyAttempt[]): number | null => (xs.length ? xs.reduce((s, a) => s + a.spent, 0) / xs.length : null);
 
+/** Why a run of a kept verify has no price an attempt of it can be held to. */
+const NONE = {
+  started: 'the last verify made no attempt, so what one costs is unknown',
+  spent: 'the last verify’s attempts spent nothing live, so what one costs is unknown',
+  baseline: 'the last verify’s baseline attempts spent nothing live, so what one costs is unknown',
+} as const;
+
 /**
  * The runs of a verify kept in the store, each priced at what an attempt of it cost then, its share
  * of the judge's calls with it: what Verify again and Run more attempts verify again under the same
  * change. A run whose replay was clean stays free; one that never started is priced at the verify's
- * own average.
+ * own average. Spends that leave something out price nothing: a model with no price (its calls
+ * counted as nothing), and attempts that spent nothing live, which say nothing of what the next costs.
  */
-export function verifyRunCosts(report: Pick<VerifyReport, 'runs' | 'attempts' | 'spent' | 'judge'>): VerifyRunCost[] {
+export function verifyRunCosts(report: Pick<VerifyReport, 'runs' | 'attempts' | 'spent' | 'judge' | 'unknownModels'>): VerifyRunCost[] {
+  const unpriced = report.unknownModels.length ? noPriceWords({ unpriced: report.unknownModels }) : null;
   const judge = report.judge && report.attempts ? report.judge.spent / report.attempts : 0;
-  const average = report.attempts ? report.spent / report.attempts : 0;
-  return report.runs.map((r) => {
-    const tally = { passes: r.passes, attempts: r.attempts.length, deterministic: r.deterministic };
-    if (r.deterministic) return { role: r.role, usd: 0, tally };
-    const base = r.baselineRuns?.length ? mean(r.baselineRuns)! + judge : undefined;
-    return { role: r.role, usd: (mean(r.attempts) ?? average) + judge, ...(base !== undefined ? { baseline: base } : {}), tally };
+  const average = report.attempts && report.spent > 0 ? report.spent / report.attempts : null;
+  return report.runs.map((r): VerifyRunCost => {
+    if (r.deterministic) return { role: r.role, usd: 0 };
+    if (unpriced) return { role: r.role, usd: null, none: unpriced };
+    const own = mean(r.attempts);
+    const each = own === null ? average : own > 0 ? own : null;
+    if (each === null) return { role: r.role, usd: null, none: report.attempts ? NONE.spent : NONE.started };
+    const base = r.baselineRuns?.length ? mean(r.baselineRuns)! : null;
+    if (base === null) return { role: r.role, usd: each + judge };
+    return base > 0 ? { role: r.role, usd: each + judge, baseline: base + judge } : { role: r.role, usd: each + judge, baseline: null, none: NONE.baseline };
   });
 }

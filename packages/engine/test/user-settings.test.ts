@@ -55,7 +55,7 @@ describe('Spending, kept in this machine’s settings', () => {
 
   it('refuses a value that is no threshold, and a file it would lose something of', () => {
     const { own, o } = place();
-    for (const bad of [0.505, -1, Infinity, 2_000_000]) expect(() => writeSpending(bad, o), String(bad)).toThrow(UserSettingsError);
+    for (const bad of [0.505, -1, Infinity, Number.NaN]) expect(() => writeSpending(bad, o), String(bad)).toThrow(UserSettingsError);
     writeFileSync(join(own, 'settings.json'), '{ not json');
     expect(() => writeSpending(2, o)).toThrow(`${join(own, 'settings.json')} isn’t valid JSON: fix or remove it, and change Spending again`);
     expect(readFileSync(join(own, 'settings.json'), 'utf8')).toBe('{ not json');

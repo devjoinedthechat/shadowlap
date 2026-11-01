@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { liveFrom, modelFactor, noPriceWords, pricedCalls, probedCalls, recordEstimate, scopeHolds, spentLive, timesWords } from '../src/estimates/estimate.js';
+import { liveFrom, liveSums, modelFactor, noPriceWords, pricedCalls, probedCalls, recordEstimate, scopeHolds, spentLive, timesWords } from '../src/estimates/estimate.js';
 import { forkEstimate, plantEstimate, PLANT_REPEAT, repeatEstimate, REPEAT_TIMES } from '../src/estimates/fork.js';
-import { amountWords, askWords, asksFirst, costLine, costWords, drawerCost, heldAmount, parseSpending, priceWords, SPENDING_DEFAULT, SPENDING_PICKS, spendingField, spendingUsd, spendingWords, validSpending } from '../src/estimates/spending.js';
+import { amountWords, askWords, asksFirst, centsWords, costLine, costWords, drawerCost, heldAmount, parseSpending, priceWords, SPENDING_DEFAULT, SPENDING_PICKS, spendingField, spendingUsd, spendingWords, validSpending, type Spending } from '../src/estimates/spending.js';
 import { buildActions } from '../src/run-actions.js';
 import type { CallRecord } from '../src/types.js';
 import { AGENT, ALL, api, COST, recording, runRecord, tool } from './estimate-fixtures.js';
@@ -13,6 +13,8 @@ import { AGENT, ALL, api, COST, recording, runRecord, tool } from './estimate-fi
  */
 
 const calls = () => pricedCalls(recording());
+/** Spending's every setting: Always ask, the default, $2 and Never ask. */
+const SETTINGS: Spending[] = [0, 0.5, 2, null];
 
 describe('a recording priced as asked live', () => {
   it('prices each model call at its own model, the judge’s apart, in call order', () => {
@@ -20,21 +22,42 @@ describe('a recording priced as asked live', () => {
     expect(priced.map((c) => c.callNo)).toEqual([1, 3, 5, 6]);
     priced.forEach((c) => expect(c.usd).toBeCloseTo(COST[c.callNo as keyof typeof COST], 10));
     expect(priced.map((c) => c.judge)).toEqual([false, false, false, true]);
-    expect(priced[0]).toMatchObject({ model: 'claude-sonnet-5', provider: 'anthropic', ended: true });
+    expect(priced[0]).toMatchObject({ model: 'claude-sonnet-5', provider: 'anthropic', ended: true, request: true, answered: true, own: false });
   });
 
-  it('counts a call no answer was kept of as nothing, and one answered with no token counts as unknown', () => {
+  it('has no price for a call that got no answer when recorded, nor one answered with no token counts, and says which', () => {
     const priced = pricedCalls([api(1, 'claude-sonnet-5', null, { ended: 'error' }), api(2, 'claude-sonnet-5', null, { ended: 'injected' }), api(3, 'claude-sonnet-5', null), api(4, 'claude-sonnet-5', null, { ended: 'open' })]);
-    expect(priced.map((c) => c.usd)).toEqual([0, 0, null, 0]);
-    expect(priced[3].ended).toBe(false);
+    expect(priced.map((c) => c.usd)).toEqual([null, null, null, null]);
+    expect(priced.map((c) => [c.answered, c.own, c.ended])).toEqual([
+      [false, false, true],
+      [false, true, true],
+      [true, false, true],
+      [false, false, false],
+    ]);
+    const cost = liveFrom(priced, 0);
+    expect(cost).toMatchObject({ usd: null, uncounted: [3], unanswered: [1, 2, 4] });
+    expect(noPriceWords(cost)).toBe('#3 kept no token counts; #1, #2 and #4 got no answer when recorded, so what they cost is unknown');
+    expect(noPriceWords(liveFrom(priced, 4))).toBe('#4 got no answer when recorded, so what it costs is unknown');
   });
 
   it('sums what the calls from one on cost, the judge’s among them, and names the first', () => {
-    expect(liveFrom(calls(), 0)).toMatchObject({ first: 1, calls: 4, unpriced: [], uncounted: [] });
+    expect(liveFrom(calls(), 0)).toMatchObject({ first: 1, calls: 4, unpriced: [], uncounted: [], unanswered: [] });
     expect(liveFrom(calls(), 0).usd).toBeCloseTo(ALL, 10);
     expect(liveFrom(calls(), 4).usd).toBeCloseTo(COST[5] + COST[6], 10);
     expect(liveFrom(calls(), 4).first).toBe(5);
-    expect(liveFrom(calls(), 7)).toEqual({ usd: 0, first: null, calls: 0, unpriced: [], uncounted: [] });
+    expect(liveFrom(calls(), 7)).toEqual({ usd: 0, first: null, calls: 0, unpriced: [], uncounted: [], unanswered: [] });
+  });
+
+  it('works out the sums once for many starting points, and says what liveFrom says from each', () => {
+    const many = pricedCalls([...recording(), api(8, 'claude-sonnet-5', null, { ended: 'error' }), api(9, 'claude-sonnet-5', { inputTokens: 100, outputTokens: 10 })]);
+    const from = liveSums(many);
+    for (let n = 0; n <= 10; n++) {
+      const sums = from(n);
+      const plain = liveFrom(many, n);
+      expect({ ...sums, usd: null }, String(n)).toEqual({ ...plain, usd: null });
+      if (plain.usd === null) expect(sums.usd, String(n)).toBeNull();
+      else expect(sums.usd, String(n)).toBeCloseTo(plain.usd, 12);
+    }
   });
 
   it('prices the agent’s calls at another model, never the judge’s, and says how many times the recording’s that is', () => {
@@ -42,8 +65,13 @@ describe('a recording priced as asked live', () => {
     expect(liveFrom(calls(), 3, { model: 'claude-opus-5-5' }).usd).toBeCloseTo(0.0102 + 0.018 + COST[6], 10);
     expect(modelFactor(calls(), 3, 'claude-opus-5-5')).toBeCloseTo(0.0282 / 0.0142, 10);
     expect(timesWords(0.0282 / 0.0142)).toBe('twice');
-    expect([timesWords(1.7), timesWords(0.5), timesWords(1.04), timesWords(3.25)]).toEqual(['1.7 times', 'half', null, '3.3 times']);
+    expect([timesWords(1.7), timesWords(0.5), timesWords(1.04), timesWords(3.25), timesWords(1234.5)]).toEqual(['1.7 times', 'half', null, '3.3 times', '1,234.5 times']);
     expect(modelFactor(calls(), 3, 'no-such-model')).toBeNull();
+  });
+
+  it('says a factor under a tenth to two figures, never as nothing', () => {
+    expect([timesWords(0.04), timesWords(0.0483), timesWords(0.099), timesWords(0.1), timesWords(0.0000012)]).toEqual(['0.04 times', '0.048 times', '0.099 times', '0.1 times', '0.0000012 times']);
+    expect([timesWords(0), timesWords(Number.NaN), timesWords(Infinity)]).toEqual([null, null, null]);
   });
 
   it('has no price for a model the table and the config lack, or a call with no token counts, and says how to give one', () => {
@@ -54,6 +82,13 @@ describe('a recording priced as asked live', () => {
     // The config's prices price the calls; liveFrom's are for a model a job switches to.
     const mine = recording().slice(0, 1).map((c) => ({ ...c, end: { ...c.end!, meta: { ...c.end!.meta, model: 'my-model' } } }));
     expect(liveFrom(pricedCalls(mine, { prices: { 'my-model': { input: 1, output: 1 } } }), 0).usd).toBeCloseTo(0.0012, 10);
+  });
+
+  it('names the first three calls or models it can’t price, and counts the rest', () => {
+    const imported = pricedCalls(Array.from({ length: 2000 }, (_, i) => api(i + 1, 'claude-sonnet-5', null)));
+    expect(noPriceWords(liveFrom(imported, 0))).toBe('#1, #2, #3 and 1,997 more kept no token counts');
+    expect(noPriceWords({ unpriced: ['a', 'b', 'c', 'd', 'e'] })).toBe('no price for a, b, c and 2 more: add them under "prices" in shadowlap.config.json');
+    expect(noPriceWords({ unpriced: ['a', 'b'] })).toBe('no price for a and b: add them under "prices" in shadowlap.config.json');
   });
 
   it('takes blame’s probed calls as blame does: ended, the agent’s, in the scope named or one nested in it', () => {
@@ -68,6 +103,13 @@ describe('a recording priced as asked live', () => {
     const replay: CallRecord[] = recording().map((c) => ({ ...c, origin: c.callNo < 3 ? 'replayed' : c.origin }));
     expect(spentLive(replay).usd).toBeCloseTo(ALL - COST[1], 10);
   });
+
+  it('counts a call Shadowlap answered as nothing spent, and one that failed upstream as unknown', () => {
+    const failedAt: CallRecord[] = [...recording().filter((c) => c.callNo < 5), api(5, 'claude-sonnet-5', null, { ended: 'injected' })];
+    expect(spentLive(failedAt).usd).toBeCloseTo(COST[1] + COST[3], 10);
+    const failed: CallRecord[] = [...recording().filter((c) => c.callNo < 5), api(5, 'claude-sonnet-5', null, { ended: 'error' })];
+    expect(spentLive(failed)).toMatchObject({ usd: null, unanswered: [5] });
+  });
 });
 
 describe('Spending', () => {
@@ -81,12 +123,16 @@ describe('Spending', () => {
     ]);
   });
 
-  it('reads an amount typed in whole cents, a $, spaces and commas ignored, empty as no limit, and refuses anything else', () => {
-    expect([' $0.50 ', '2', '1,000', '.5', '12.'].map((t) => parseSpending(t))).toEqual([0.5, 2, 1000, 0.5, 12].map((value) => ({ ok: true, value })));
+  it('reads an amount typed as the field does: a $, spaces and commas ignored, rounded to whole cents, empty as no limit', () => {
+    const typed = [' $0.50 ', '2', '1,000', '.5', '0.505', '1.005', '2.675', '0.4949', '99,999,999.99'];
+    expect(typed.map((t) => parseSpending(t))).toEqual([0.5, 2, 1000, 0.5, 0.51, 1.01, 2.68, 0.49, 99_999_999.99].map((value) => ({ ok: true, value })));
     expect([parseSpending(''), parseSpending(' $ ')]).toEqual([{ ok: true, value: null }, { ok: true, value: null }]);
-    for (const bad of ['0.505', 'abc', '-1', '2000000', '1e3', '0..5']) expect(parseSpending(bad), bad).toEqual({ ok: false, why: 'An amount in dollars, such as 0.50' });
-    expect([0.5, 0.29, 0, 1_000_000, null].every(validSpending)).toBe(true);
-    expect([0.505, -1, Infinity, Number.NaN, '0.5', 1_000_001, undefined].some(validSpending)).toBe(false);
+  });
+
+  it('refuses anything else with what to type, a point with no digit after it among them', () => {
+    for (const bad of ['12.', '.', 'abc', '-1', '1e3', '0..5', '1.2.3', '9'.repeat(400)]) expect(parseSpending(bad), bad.slice(0, 10)).toEqual({ ok: false, why: 'An amount in dollars, such as 0.50' });
+    expect([0.5, 0.29, 0, 1_000_000, 2_000_000, 99_999_999.99, null].every(validSpending)).toBe(true);
+    expect([0.505, -1, Infinity, Number.NaN, '0.5', undefined].some(validSpending)).toBe(false);
   });
 
   it('says the threshold as the setting, the field, an ask’s footer and its toast do', () => {
@@ -98,8 +144,9 @@ describe('Spending', () => {
     expect([0.5, 0, null].map(askWords)).toEqual(['Asks above $0.50', 'Always asks', 'Never asks']);
   });
 
-  it('says an amount as the CLI prints an estimate, and holds a job to the amount as shown', () => {
+  it('says an amount as the CLI prints an estimate, or to the cent as a page’s own figure, and holds a job to the amount as shown', () => {
     expect([0.027, 0.0004, 10.88, 0.0071, 0.27].map(amountWords)).toEqual(['≈$0.027', '<$0.001', '≈$10.88', '≈$0.0071', '≈$0.270']);
+    expect([0.3483, 1.5, 0.004].map(centsWords)).toEqual(['≈$0.35', '≈$1.50', '≈$0.00']);
     // "≈$0.500" never asks above $0.50; "≈$0.501" does.
     expect([heldAmount(0.5004), heldAmount(0.5006), heldAmount(0.0004), heldAmount(1234.4), heldAmount(0)]).toEqual([0.5, 0.501, 0.001, 1234, 0]);
     expect(asksFirst({ usd: 0.5004 }, 0.5)).toBe(false);
@@ -135,8 +182,9 @@ describe('Spending', () => {
   it('says an ask’s cost line, price first, and who bills a job with no estimate', () => {
     expect(costLine({ usd: 0.054, ceiling: false, note: 'twice as recorded', parts: ['live from #3, writes fenced'] })).toEqual(['≈$0.054, twice as recorded', 'live from #3, writes fenced']);
     expect(costLine({ usd: 10.88, ceiling: true, parts: ['up to 7 probes of 33 attempts'] })).toEqual(['At most ≈$10.88', 'up to 7 probes of 33 attempts']);
-    expect(costLine(recordEstimate())).toEqual(['Billed by your provider', 'the agent’s own model calls', 'no estimate until it has run once']);
-    expect(recordEstimate()).toMatchObject({ kind: 'record', usd: null });
+    // Record run says who bills what, and no more; why it has no estimate stays its reason.
+    expect(costLine(recordEstimate())).toEqual(['Billed by your provider', 'the agent’s own model calls']);
+    expect(recordEstimate()).toMatchObject({ kind: 'record', usd: null, none: 'no estimate until it has run once' });
   });
 
   it('says what a job’s drawer shows beside running, and nothing for one that bills nothing or has no estimate', () => {
@@ -152,10 +200,24 @@ describe('a fork', () => {
       const e = forkEstimate(calls(), { at });
       expect(e).toMatchObject({ kind: 'fork', ceiling: false, parts: ['live from #3, writes fenced'] });
       expect(e.usd).toBeCloseTo(COST[3] + COST[5] + COST[6], 10);
+      expect(e.always).toBeUndefined();
     }
+  });
+
+  it('asks first on every setting, Never ask among them, when it forces a write live, however little it bills', () => {
     const write = forkEstimate(calls(), { at: 4, write: true });
-    expect(write.parts).toEqual(['live from #5, other writes fenced']);
+    expect(write).toMatchObject({ parts: ['live from #5, other writes fenced'], always: 'it acts on your systems' });
     expect(write.usd).toBeCloseTo(COST[5] + COST[6], 10);
+    for (const s of SETTINGS) {
+      expect(asksFirst(write, s), String(s)).toBe(true);
+      expect(costWords(write, s), String(s)).toMatch(/ · asks first$/);
+    }
+    // Forced live where nothing follows it bills nothing, and still asks.
+    const last = forkEstimate(calls(), { at: 7, write: true });
+    expect(last).toMatchObject({ usd: 0, always: 'it acts on your systems' });
+    expect(costWords(last, null)).toBe('Free · asks first');
+    // Forcing a read live is held to Spending as any fork is.
+    expect(asksFirst(forkEstimate(calls(), { at: 2 }), 0.5)).toBe(false);
   });
 
   it('says how many times the recording’s a switch to another model costs', () => {
@@ -164,6 +226,9 @@ describe('a fork', () => {
     expect(e.note).toBe('twice as recorded');
     // A switch to a model priced as the recorded one says nothing more.
     expect(forkEstimate(calls(), { at: 3, model: 'claude-sonnet-5' }).note).toBeUndefined();
+    // gpt-5 to gpt-5-nano, a twenty-fifth of its price on these tokens: never "0 times".
+    const gpt = pricedCalls([1, 2, 3].map((n) => api(n, 'gpt-5', { inputTokens: 4000, outputTokens: 400 })));
+    expect(costLine(forkEstimate(gpt, { at: 2, model: 'gpt-5-nano' }))).toEqual(['<$0.001, 0.04 times as recorded', 'live from #2, writes fenced']);
   });
 
   it('is Free where Shadowlap answers the last model call, or none comes after the change', () => {
@@ -173,9 +238,20 @@ describe('a fork', () => {
     expect(forkEstimate(calls(), { at: 5, answered: true }).usd).toBeCloseTo(COST[6], 10);
   });
 
+  it('has no estimate where the recording’s calls after the change got no answer, as a fork asks them live', () => {
+    // A 429 the agent gave up on at #3 and #5: the fork asks them again, at a price nobody saw.
+    const gaveUp = pricedCalls([api(1, 'claude-sonnet-5', { inputTokens: 2000, outputTokens: 200 }), api(3, 'claude-sonnet-5', null, { ended: 'error' }), api(5, 'claude-sonnet-5', null, { ended: 'error' })]);
+    const e = forkEstimate(gaveUp, { at: 3 });
+    expect(e).toMatchObject({ usd: null, none: '#3 and #5 got no answer when recorded, so what they cost is unknown' });
+    expect(asksFirst(e, 0)).toBe(true);
+    expect(costWords(e, 0)).toBe('no estimate · asks first');
+  });
+
   it('has no estimate on a call with no price, and has one once the config prices its model', () => {
     const unpriced = recording().map((c) => (c.callNo === 5 ? api(5, 'my-model', { inputTokens: 3000, outputTokens: 300 }) : c));
-    expect(forkEstimate(pricedCalls(unpriced), { at: 3 })).toEqual({ kind: 'fork', usd: null, ceiling: false, parts: [], none: 'no price for my-model: add it under "prices" in shadowlap.config.json' });
+    const none = 'no price for my-model: add it under "prices" in shadowlap.config.json';
+    expect(forkEstimate(pricedCalls(unpriced), { at: 3 })).toEqual({ kind: 'fork', usd: null, ceiling: false, parts: [none], none });
+    expect(costLine(forkEstimate(pricedCalls(unpriced), { at: 3 }))).toEqual(['Billed by your provider', none]);
     const prices = { 'my-model': { input: 2, output: 10 } };
     expect(forkEstimate(pricedCalls(unpriced, { prices }), { at: 3, prices }).usd).toBeCloseTo(COST[3] + COST[5] + COST[6], 10);
   });
@@ -197,6 +273,11 @@ describe('the fork menu’s whole-run jobs', () => {
     expect(e).toMatchObject({ kind: 'repeat', ceiling: false, attempts: 5, parts: ['5 attempts, live from #3, writes fenced'] });
     expect(e.usd).toBeCloseTo(5 * (COST[3] + COST[5] + COST[6]), 10);
     expect(repeatEstimate(fork(), forked(), 2).usd).toBeCloseTo(2 * (COST[3] + COST[5] + COST[6]), 10);
+  });
+
+  it('repeats a fork whose change Shadowlap answered at no cost there, as its flags answer it again', () => {
+    const failedAt: CallRecord[] = forked().map((c) => (c.callNo === 3 ? api(3, 'claude-sonnet-5', null, { ended: 'injected' }) : c));
+    expect(repeatEstimate(fork(), failedAt).usd).toBeCloseTo(5 * (COST[5] + COST[6]), 10);
   });
 
   it('repeats a recording, or a replay that kept no flags, from its recording: Free', () => {
