@@ -1,6 +1,9 @@
 import { maxProbes, pinRule, probeGate, type BlameReport } from '../blame.js';
+import { isReservedScope } from '../judge-scope.js';
+import type { BaselineRule } from '../noninferiority.js';
 import { BLAME_DEFAULTS, type SprtGate } from '../stats.js';
-import { counted, CUT_SHORT_LINE, liveFrom, modelFactor, noEstimate, noPriceWords, probedCalls, timesWords, type Estimate, type PricedCall, type Prices } from './estimate.js';
+import type { CallRecord } from '../types.js';
+import { counted, CUT_SHORT_LINE, liveFrom, modelFactor, noEstimate, noPriceWords, timesWords, type Estimate, type PricedCall, type Prices } from './estimate.js';
 import { amountWords } from './spending.js';
 
 /**
@@ -10,11 +13,46 @@ import { amountWords } from './spending.js';
  * a call they pin checked in pairs, up to twice a probe's attempts (pinRule). Every attempt replays
  * the calls before its probe for free and runs live from there, so one costs at most what the
  * recording did from its first probed call, or about what one of the last blame's did. Run blame,
- * Run blame again, a lower bar (`--gate`) and a stronger model (`--model`) are each priced so.
+ * Run blame again, a lower bar (`--gate`) and a stronger model (`--model`) are each priced so. The
+ * calls blame probes and the rules that bound its search are here, so the CLI's blame, the bound it
+ * says before it starts, a repair's blame and the estimate all count the same.
  */
 
 /** Model calls past the boundary blame probes as well, unless told otherwise (`--scan 2`). */
 export const BLAME_SCAN = 2;
+
+/**
+ * Whether blame probes a model call made in `callScope`, as `blame --scope` and `repair --scope` read
+ * it: never one of Shadowlap's own (its judge's), whose answers are none of the agent's; with a scope,
+ * one made in it or in a scope nested in it (`agent/planner` is in `agent`); without one, any other.
+ */
+export function probedInScope(callScope: unknown, scope: string | null | undefined): boolean {
+  if (isReservedScope(callScope)) return false;
+  if (!scope) return true;
+  return typeof callScope === 'string' && (callScope === scope || callScope.startsWith(`${scope}/`));
+}
+
+/** The model calls a blame of a run probes, in call order: each that ended, in its scope (probedInScope). */
+export function blameSteps<T extends Pick<CallRecord, 'kind' | 'end' | 'meta'>>(calls: readonly T[], scope: string | null | undefined): T[] {
+  return calls.filter((c) => c.kind === 'api' && !!c.end && probedInScope(c.meta.scope, scope));
+}
+
+/** A priced recording's model calls blame probes, as blameSteps finds them in the recording. */
+export function probedCalls(calls: readonly PricedCall[], scope: string | null | undefined): PricedCall[] {
+  return calls.filter((c) => c.ended && probedInScope(c.scope, scope));
+}
+
+/** How a search of a run's model calls is bounded, as `shadowlap blame` runs it. */
+export interface BlameRules {
+  /** The most probes (maxProbes). */
+  probes: number;
+  /** Each probe's gate, at its share of the search's risk (probeGate); null for a fixed count. */
+  gate: SprtGate | null;
+  /** The most attempts a probe counts: its gate's max, or the fixed count. */
+  limit: number;
+  /** The check of a pinned call: its margin, its risk and its most pairs (pinRule). */
+  pin: BaselineRule;
+}
 
 /** The most a search makes, by kind. */
 export interface BlameBound {
@@ -37,13 +75,19 @@ export interface BlameRule {
   scan?: number;
 }
 
+/** The rules a search of `steps` model calls runs by: its probes, each probe's gate and attempts, and the check of a pinned call. */
+export function blameRules(steps: number, rule: BlameRule = {}): BlameRules {
+  const probes = maxProbes(steps, rule.scan ?? BLAME_SCAN);
+  const gate = rule.attempts ? null : probeGate(rule.gate ?? { kind: 'sprt', ...BLAME_DEFAULTS }, probes);
+  return { probes, gate, limit: gate ? gate.max : rule.attempts!, pin: pinRule(gate, probes) };
+}
+
 /** The most probes and attempts a search of `steps` model calls makes, as the CLI states it before it starts. */
 export function blameBound(steps: number, rule: BlameRule = {}): BlameBound {
-  const probes = maxProbes(steps, rule.scan ?? BLAME_SCAN);
-  const share = rule.attempts ? null : probeGate(rule.gate ?? { kind: 'sprt', ...BLAME_DEFAULTS }, probes);
-  const each = share ? share.max : rule.attempts!;
-  const pin = steps > 1 ? 2 * pinRule(share, probes).max : 0;
-  return { steps, probes, each, pin, attempts: probes * each + pin };
+  const r = blameRules(steps, rule);
+  // A pinned call is checked against the next, so a run of one model call has no check.
+  const pin = steps > 1 ? 2 * r.pin.max : 0;
+  return { steps, probes: r.probes, each: r.limit, pin, attempts: r.probes * r.limit + pin };
 }
 
 export interface BlameEstimateOptions extends BlameRule {

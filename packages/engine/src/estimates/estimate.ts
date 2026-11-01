@@ -1,4 +1,4 @@
-import { isJudgeCall, isReservedScope } from '../judge-scope.js';
+import { isJudgeCall } from '../judge-scope.js';
 import { estimateCost, type Price } from '../prices.js';
 import type { ModelResolver } from '../report.js';
 import type { CallRecord, Usage } from '../types.js';
@@ -294,17 +294,4 @@ export function timesWords(k: number): string | null {
   if (r === 2) return 'twice';
   if (r === 0.5) return 'half';
   return `${r.toLocaleString('en-US', small ? { maximumSignificantDigits: 2 } : { maximumFractionDigits: 1 })} times`;
-}
-
-/**
- * Whether a call was made in `scope` or one nested in it (`agent/planner` is in `agent`), as
- * `blame --scope` and `repair --scope` read it; every call when no scope is given.
- */
-export function scopeHolds(scope: string | null | undefined, callScope: string | null): boolean {
-  return !scope || callScope === scope || !!callScope?.startsWith(`${scope}/`);
-}
-
-/** The agent's model calls `blame` probes: ended, none of Shadowlap's own, in `scope` when it names one. */
-export function probedCalls(calls: readonly PricedCall[], scope: string | null | undefined): PricedCall[] {
-  return calls.filter((c) => c.ended && !c.judge && !isReservedScope(c.scope) && scopeHolds(scope, c.scope));
 }

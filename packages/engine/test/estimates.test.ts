@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { liveFrom, liveSums, modelFactor, noPriceWords, pricedCalls, probedCalls, recordEstimate, scopeHolds, spentLive, timesWords } from '../src/estimates/estimate.js';
+import { blameSteps, probedCalls, probedInScope } from '../src/estimates/blame.js';
+import { liveFrom, liveSums, modelFactor, noPriceWords, pricedCalls, recordEstimate, spentLive, timesWords } from '../src/estimates/estimate.js';
 import { forkEstimate, plantEstimate, PLANT_REPEAT, repeatEstimate, REPEAT_TIMES } from '../src/estimates/fork.js';
 import { amountWords, askWords, asksFirst, centsWords, costLine, costWords, drawerCost, heldAmount, parseSpending, priceWords, SPENDING_DEFAULT, SPENDING_PICKS, spendingField, spendingUsd, spendingWords, validSpending, type Spending } from '../src/estimates/spending.js';
+import { JUDGE_SCOPE } from '../src/judge-scope.js';
 import { buildActions } from '../src/run-actions.js';
 import type { CallRecord } from '../src/types.js';
 import { AGENT, ALL, api, COST, recording, runRecord, tool } from './estimate-fixtures.js';
@@ -91,12 +93,17 @@ describe('a recording priced as asked live', () => {
     expect(noPriceWords({ unpriced: ['a', 'b'] })).toBe('no price for a and b: add them under "prices" in shadowlap.config.json');
   });
 
-  it('takes blame’s probed calls as blame does: ended, the agent’s, in the scope named or one nested in it', () => {
-    const scoped = pricedCalls([api(1, 'claude-sonnet-5', null, { scope: 'user' }), api(2, 'claude-sonnet-5', null, { scope: 'agent' }), api(3, 'claude-sonnet-5', null, { scope: 'agent/planner' }), api(4, 'claude-sonnet-5', null, { scope: 'agent', ended: 'open' })]);
-    expect(probedCalls(scoped, 'agent').map((c) => c.callNo)).toEqual([2, 3]);
-    expect(probedCalls(scoped, null).map((c) => c.callNo)).toEqual([1, 2, 3]);
+  it('takes blame’s probed calls as blame finds them in the recording: ended, the agent’s, in the scope named or one nested in it', () => {
+    const recorded = [api(1, 'claude-sonnet-5', null, { scope: 'user' }), api(2, 'claude-sonnet-5', null, { scope: 'agent' }), api(3, 'claude-sonnet-5', null, { scope: 'agent/planner' }), api(4, 'claude-sonnet-5', null, { scope: 'agent', ended: 'open' }), tool(5, 'fetch', 'read', 'live', 'agent')];
+    for (const [scope, probed] of [['agent', [2, 3]], [null, [1, 2, 3]]] as const) {
+      expect(probedCalls(pricedCalls(recorded), scope).map((c) => c.callNo), String(scope)).toEqual(probed);
+      // The calls the CLI's blame searches, says it will before it starts, and a repair blames.
+      expect(blameSteps(recorded, scope).map((c) => c.callNo), String(scope)).toEqual(probed);
+    }
+    // The judge's call, #6, is none of the agent's.
     expect(probedCalls(calls(), undefined).map((c) => c.callNo)).toEqual([1, 3, 5]);
-    expect([scopeHolds('agent', 'agentx'), scopeHolds('agent', null), scopeHolds(null, 'x')]).toEqual([false, false, true]);
+    expect(blameSteps(recording(), undefined).map((c) => c.callNo)).toEqual([1, 3, 5]);
+    expect([probedInScope('agentx', 'agent'), probedInScope(null, 'agent'), probedInScope('x', null), probedInScope(JUDGE_SCOPE, null), probedInScope(JUDGE_SCOPE, JUDGE_SCOPE)]).toEqual([false, false, true, false, false]);
   });
 
   it('sums what a replay’s live calls spent, and nothing it replayed', () => {

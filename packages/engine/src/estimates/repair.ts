@@ -2,8 +2,8 @@ import type { BlameReport } from '../blame.js';
 import { DEFAULT_REPAIRER } from '../fix-jobs.js';
 import { estimateCost } from '../prices.js';
 import { SPRT_DEFAULTS } from '../stats.js';
-import { blameBound } from './blame.js';
-import { counted, CUT_SHORT_LINE, liveFrom, noEstimate, noPriceWords, probedCalls, type Estimate, type PricedCall, type Prices } from './estimate.js';
+import { blameBound, probedCalls } from './blame.js';
+import { counted, CUT_SHORT_LINE, liveFrom, noEstimate, noPriceWords, type Estimate, type PricedCall, type Prices } from './estimate.js';
 import { amountWords } from './spending.js';
 import { lastVerify, verifyCeiling, verifyParts, type LastVerify, type VerifyRule, type VerifyRunCost } from './verify.js';
 

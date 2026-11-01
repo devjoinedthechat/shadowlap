@@ -24,7 +24,7 @@
       "runBisect": 59
     },
     "packages/cli/src/blame.ts": {
-      "runBlame": 56
+      "runBlame": 54
     },
     "packages/cli/src/chaos.ts": {
       "runPresets": 92
@@ -442,7 +442,7 @@
       "runBisect": 193
     },
     "packages/cli/src/blame.ts": {
-      "runBlame": 251
+      "runBlame": 250
     },
     "packages/cli/src/chaos.ts": {
       "runPresets": 156
