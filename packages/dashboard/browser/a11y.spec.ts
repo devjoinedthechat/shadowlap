@@ -325,7 +325,7 @@ test('the Request tab’s fold marks are 24 px tall at least, as WCAG 2.5.8 asks
   for (const h of heights) expect(h).toBeGreaterThanOrEqual(24);
 });
 
-test('on a phone no label is under 11px, an avatar’s initials aside', async ({ page }) => {
+test('on a phone no label is under 11px, an avatar’s initials aside, and the floor that raises them lowers nothing', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const small: string[] = [];
   const pages: Array<[string, string]> = [
@@ -345,6 +345,21 @@ test('on a phone no label is under 11px, an avatar’s initials aside', async ({
         const text = [...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && n.textContent?.trim());
         if (text && parseFloat(s.fontSize) < 11) out.push(`${where}: ${el.tagName.toLowerCase()}.${String(el.className).trim().split(/\s+/).join('.')} “${el.textContent?.trim().slice(0, 30)}” at ${s.fontSize}`);
       }
+      // The floor only raises: with its sizes taken out, no element is drawn larger than with them.
+      const floor: CSSStyleRule[] = [];
+      for (const sheet of document.styleSheets)
+        for (const r of sheet.cssRules)
+          if (r instanceof CSSMediaRule && r.conditionText.includes('max-width: 640px'))
+            for (const x of r.cssRules) if (x instanceof CSSStyleRule && x.selectorText.startsWith(':is(#root, body)') && x.style.fontSize) floor.push(x);
+      if (!floor.length) out.push(`${where}: no label floor in the stylesheet`);
+      const raised = [...document.querySelectorAll<HTMLElement>('body *')].map((el) => ({ el, px: parseFloat(getComputedStyle(el).fontSize) }));
+      const kept = floor.map((r) => ({ r, size: r.style.fontSize }));
+      for (const r of floor) r.style.removeProperty('font-size');
+      for (const { el, px } of raised) {
+        const was = parseFloat(getComputedStyle(el).fontSize);
+        if (px + 0.01 < was) out.push(`${where}: ${el.tagName.toLowerCase()}.${String(el.className).trim().split(/\s+/).join('.')} lowered from ${was}px to ${px}px`);
+      }
+      for (const { r, size } of kept) r.style.setProperty('font-size', size);
       return out;
     }, path);
     small.push(...found);

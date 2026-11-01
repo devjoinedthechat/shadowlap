@@ -83,6 +83,15 @@ describe('the type, radius and spacing tokens', () => {
       for (const s of r.selectors) if (!/\.av\b|\.ondisk(\.steps)? li i$/.test(s) && !raised.some((x) => covers(x, s))) small.push(s);
     }
     // what a pseudo-element can't be raised by inside :is() is raised by a rule of its own
+    const own = styleRules().filter((r) => r.conditions.includes('@media (max-width: 640px)') && r.selectors.includes(':is(#root, body) .fxtable td::before'));
+    expect(own.flatMap((r) => r.decls).filter(([p]) => p === 'font-size')).toEqual([['font-size', 'var(--fs-label)']]);
     expect(small.filter((s) => s !== '.fxtable td::before')).toEqual([]);
+  });
+
+  it('never lowers a column head on a phone: a numeric column’s head is at the label scale already', () => {
+    for (const s of ['table.t th.num', 'table.calls th.num', 'table.calls th.n']) {
+      const font = styleRules().filter((r) => !r.conditions.length && r.selectors.includes(s)).flatMap((r) => r.decls).filter(([p]) => p === 'font');
+      expect(font.at(-1)?.[1], s).toBe('500 10px var(--mono)');
+    }
   });
 });
