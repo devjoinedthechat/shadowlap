@@ -3,7 +3,7 @@ import { cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, write
 import { tmpdir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { applyLeft, fixRecords, markFixApplied, messageOf, patchFiles, quoteArgv, recordEvent, repairPatchProblem, repairToApply, resolveAuthor, safeLine, type Store, type StoreOf, type StoredFix, type StoredRepair } from '@shadowlap/engine';
+import { applyLeft, fixRecords, markFixApplied, messageOf, patchFiles, quoteArgv, recordEvent, repairPatchProblem, repairToApply, resolveAuthor, rewriteHere, safeLine, type Store, type StoreOf, type StoredFix, type StoredRepair } from '@shadowlap/engine';
 import { fieldChange } from '@shadowlap/dashboard';
 import { EXIT } from './exit-codes.js';
 import { outdatedGoldens, type OutdatedGolden } from './fix-outdated.js';
@@ -23,9 +23,10 @@ import { physicalPath } from './real-path.js';
  * what the patch changed, with the command that re-records them (`fix-outdated.ts`).
  *
  * A repair that came with a pull from the team store ran on a teammate's machine: its patch goes in
- * here, and its recordings, which stayed there, are neither copied nor tested here (they are
- * committed from that machine). Nothing here runs the code it put in, no build, test or replay,
- * until someone has read it: the bucket is someone else's data, and the patch is code.
+ * here only as a rewrite repair itself would make here (`rewriteHere`), and its recordings, which
+ * stayed there, are neither copied nor tested here (they are committed from that machine). Nothing
+ * here runs the code it put in, no build, test or replay, until someone has read it: the bucket is
+ * someone else's data, and the patch is code.
  *
  * What it reads from the store decides what it touches, so it trusts no path there: the repair's
  * directory must be `.shadowlap/repairs/<its id>`, its goldens inside that directory's `goldens/`,
@@ -185,6 +186,56 @@ function repairPaths(repair: StoredRepair): { dir: string; goldens: Array<{ path
   return { dir, goldens };
 }
 
+/** A patch from the store that is not the change its repair verified, or not one a repair makes here: nothing goes in, and it says why. */
+const refused = (repair: StoredRepair, problem: string, dir: string) =>
+  new ApplyError(`the patch ${repair.repairId} holds is not the change it verified: ${problem}. Nothing was changed: a repair only ever rewrites one span of one file, so read ${dir}/fix.patch before you apply any of it by hand`);
+
+/**
+ * Refuses a teammate's patch unless it is a rewrite repair itself would make in this working tree
+ * (`rewriteHere`): a teammate's machine or the bucket could have written it, so it goes in only as
+ * one rewrite of text inside a string of the agent's code, or of a prose file, read in `path` as it
+ * is here. Git has found where the patch goes; the check finds that place too, or nothing goes in.
+ */
+function heldToRepair(repair: StoredRepair, path: string, dir: string): void {
+  const file = repair.report.candidates.find((c) => c.id === repair.report.accepted)!.file;
+  const here = rewriteHere(repair.report, readFileSync(path, 'utf8'));
+  const problem = here ? here.problem : `here, git apply finds a place for it in ${file} where the lines it changes are not, as the check reads the file`;
+  if (problem) throw refused(repair, problem, dir);
+}
+
+/**
+ * Puts the patch in: the file's bytes as git applied it to them (`applyToBytes`), else as `git apply`
+ * puts it in the working tree, converting line endings. `before` runs once git has found where the
+ * patch goes, before anything is written. A tree whose changes conflict with the patch is left alone,
+ * with what to do about it.
+ */
+function putIn(at: { root: string; file: string; patch: string; text: string; bytes: Buffer | null; cwd: string; fixId: string }, before: (() => void) | null): void {
+  const { root, file, patch } = at;
+  if (at.bytes) {
+    before?.();
+    try {
+      writeFileSync(join(root, file), at.bytes);
+    } catch (err) {
+      throw new ApplyError(`writing ${file} failed: ${messageOf(err)}`);
+    }
+    return;
+  }
+  const check = git(root, [...APPLY, '--check', patch]);
+  if (check.status !== 0) {
+    const files = patchFiles(at.text);
+    const dirty = files.length ? git(root, ['status', '--porcelain', '--', ...files]).stdout.trim() : '';
+    const why = (check.stderr || check.stdout).trim().split('\n')[0] ?? '';
+    throw new ApplyError(
+      dirty
+        ? `${files.join(', ')} ${files.length === 1 ? 'has' : 'have'} uncommitted changes the patch conflicts with (${why}). Nothing was changed: commit or stash them, then run shadowlap fix apply ${at.fixId} again`
+        : `the patch no longer applies: ${files.join(', ') || 'the file it changes'} changed since the repair (${why}). Nothing was changed: apply it by hand with git apply --3way ${shown(at.cwd, patch)}, or repair again`,
+    );
+  }
+  before?.();
+  const applied = git(root, [...APPLY, patch]);
+  if (applied.status !== 0) throw new ApplyError(`git apply failed: ${(applied.stderr || applied.stdout).trim()}`);
+}
+
 export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): Promise<ApplyResult> {
   const repair = acceptedRepair(store, fix);
   const pulled = cameWithPull(store, repair);
@@ -204,7 +255,7 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
     // The patch is the store's too: git apply would write whatever it names, so it goes in only as
     // the change the repair verified, one span of one file rewritten.
     const problem = repairPatchProblem(repair.report);
-    if (problem) throw new ApplyError(`the patch ${repair.repairId} holds is not the change it verified: ${problem}. Nothing was changed: a repair only ever rewrites one span of one file, so read ${paths.dir}/fix.patch before you apply any of it by hand`);
+    if (problem) throw refused(repair, problem, paths.dir);
     const file = repair.report.candidates.find((c) => c.id === repair.report.accepted)!.file;
     const target = lstatOrNull(join(root, file));
     if (target && !target.isFile()) throw new ApplyError(`${file} is not a plain file in this working tree (a symbolic link or a folder), so the patch was not applied: apply it by hand if you mean to`);
@@ -228,27 +279,8 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
       result.patch = 'already';
       o.log(`  the patch is already in the working tree (${shown(o.cwd, patch)})`);
     } else {
-      if (asIs.bytes) {
-        try {
-          writeFileSync(join(root, file), asIs.bytes);
-        } catch (err) {
-          throw new ApplyError(`writing ${file} failed: ${messageOf(err)}`);
-        }
-      } else {
-        const check = git(root, [...APPLY, '--check', patch]);
-        if (check.status !== 0) {
-          const files = patchFiles(repair.report.patch ?? '');
-          const dirty = files.length ? git(root, ['status', '--porcelain', '--', ...files]).stdout.trim() : '';
-          const why = (check.stderr || check.stdout).trim().split('\n')[0] ?? '';
-          throw new ApplyError(
-            dirty
-              ? `${files.join(', ')} ${files.length === 1 ? 'has' : 'have'} uncommitted changes the patch conflicts with (${why}). Nothing was changed: commit or stash them, then run shadowlap fix apply ${fix.fixId} again`
-              : `the patch no longer applies: ${files.join(', ') || 'the file it changes'} changed since the repair (${why}). Nothing was changed: apply it by hand with git apply --3way ${shown(o.cwd, patch)}, or repair again`,
-          );
-        }
-        const applied = git(root, [...APPLY, patch]);
-        if (applied.status !== 0) throw new ApplyError(`git apply failed: ${(applied.stderr || applied.stdout).trim()}`);
-      }
+      // A teammate's patch goes in only as a rewrite repair itself would make here.
+      putIn({ root, file, patch, text: repair.report.patch ?? '', bytes: asIs.bytes, cwd: o.cwd, fixId: fix.fixId }, pulled ? () => heldToRepair(repair, join(root, file), paths.dir) : null);
       result.patch = 'applied';
       o.log(`  applied ${shown(o.cwd, patch)}`);
     }

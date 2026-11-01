@@ -461,6 +461,9 @@ A captured call's `args` count as stored, its credentials masked as `<CREDENTIAL
 
 - **A Kubernetes Secret's `data` and `stringData`** are among the credentials masked, in a recording
   an earlier version made that kept one as sent too.
+- **The secret a write to a secret store sends** is masked by the call's method and address: a Vault
+  KV write's, an Azure Key Vault secret's `value`, Secret Manager's `payload`, a Kubernetes Secret
+  patch's `data`. A recording an earlier version made, which kept one as sent, is read so too.
 - **A name that names or describes a secret** (`secret_name`, `SecretId`, `password_policy`) is kept
   as sent when its value, or every string in its object or list, reads as no key.
 

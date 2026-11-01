@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
-import { messageOf, resolveAuthor, type StoreOf } from '@shadowlap/engine';
+import { messageOf, plural, resolveAuthor, type StoreOf } from '@shadowlap/engine';
 import { append, importCaptured, type Captured, type ImportResult, type Skip } from '../import-capture.js';
 import { EXIT } from '../exit-codes.js';
 import { readHar } from '../import-har.js';
@@ -61,8 +61,6 @@ function readJson(file: string): unknown {
 function author(): string | null {
   return resolveAuthor({ env: process.env, cwd: process.cwd() });
 }
-
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** Writes each trace as a run and settles the import. */
 function importTraces(store: StoreOf<'recording' | 'activity'>, format: 'otel' | 'langfuse' | 'langsmith' | 'phoenix' | 'logfire', traces: Trace[], o: { source: string; spans: number; author: string | null }): { json: ImportJson; results: Array<{ trace: Trace; imported: TraceImport }> } {

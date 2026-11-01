@@ -7,9 +7,11 @@ for a call that raised, a hook's ``continue: false`` stopping the session), and 
 2.1.309 was seen to do where the documentation is silent (the rewrite of the hook that answered last
 wins, input checked against the files before any hook and again after a rewrite, a deny read as
 "PreToolUse:<tool> hook error: <reason>", a hook that raises counting as ``{}``, a Bash failure as
-"Exit code N" then its output, a note when Bash moves the shell)."""
+"Exit code N" then its output, a note when Bash moves the shell). A hook that must answer after the
+others awaits ``after_the_others()``, so no timer decides which answered last."""
 
 import asyncio
+import contextvars
 import re
 from typing import Any, Callable, Optional
 
@@ -31,6 +33,48 @@ INPUTS = {
     "NotebookEdit": ["notebook_path", "new_source", "cell_id", "edit_mode"],
 }
 REQUIRED = {"Bash": ["command"], "Write": ["file_path", "content"], "Edit": ["file_path", "old_string", "new_string"], "Read": ["file_path"], "WebFetch": ["url", "prompt"], "NotebookEdit": ["notebook_path", "new_source"]}
+
+
+class _Turn:
+    """The callbacks of one hook event of one call, as they answer. One waiting to answer last
+    (``after_the_others``) goes once every other one has answered or waits to answer last too."""
+
+    def __init__(self, count: int) -> None:
+        self.count = count
+        self.answered: set[int] = set()
+        self.last: list[tuple[int, asyncio.Future[None]]] = []
+
+    def answer(self, at: int) -> None:
+        self.answered.add(at)
+        self.release()
+
+    async def after_the_others(self, at: int) -> None:
+        go: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        self.last.append((at, go))
+        self.release()
+        await go
+
+    def release(self) -> None:
+        waiting = {at for at, _ in self.last}
+        ready = [w for w in self.last if all(j == w[0] or j in self.answered or j in waiting for j in range(self.count))]
+        for w in ready:
+            self.last.remove(w)
+            w[1].set_result(None)
+
+
+#: The event a callback runs for, and which of its callbacks it is: a hook that runs inside one (the
+#: fence runs the query's own) is in that one's, as the tasks it starts copy its context.
+_turn: "contextvars.ContextVar[Optional[tuple[_Turn, int]]]" = contextvars.ContextVar("fake_claude_code_turn", default=None)
+
+
+async def after_the_others() -> None:
+    """Returns once every other callback Claude Code runs for the same event of the same call has
+    answered, so a hook that awaits it answers last, as a slow one would, with no timer to race. A
+    hook run inside another callback (the fence runs the query's own inside its hook) waits only for
+    the callbacks beside that one, since that one can't answer before it. Outside a hook, at once."""
+    here = _turn.get()
+    if here is not None:
+        await here[0].after_the_others(here[1])
 
 
 def matches(matcher: Optional[str], tool: str) -> bool:
@@ -131,14 +175,18 @@ class FakeClaudeCode:
         callbacks = [cb for m in [*self.hooks.get(event, []), *self.beside.get(event, [])] if event == "Stop" or matches(m.matcher, tool) for cb in m.hooks]
         # In the order they answered: a rewrite of the input or the output is the last one's.
         answered: list[dict[str, Any]] = []
+        turn = _Turn(len(callbacks))
 
-        async def one(cb: Any) -> None:
+        async def one(at: int, cb: Any) -> None:
+            # Each runs as a task of its own: this is its context alone, and that of the tasks it starts.
+            _turn.set((turn, at))
             try:
                 answered.append(await cb(data, tool_use_id, {"signal": None}))
             except Exception:
                 answered.append({})  # a callback that raises counts as {}: the call goes on
+            turn.answer(at)
 
-        await asyncio.gather(*(one(cb) for cb in callbacks))
+        await asyncio.gather(*(one(at, cb) for at, cb in enumerate(callbacks)))
         return answered
 
     def _parse(self, tool: str, given: dict[str, Any]) -> Any:

@@ -14,7 +14,7 @@ parentPort?.on('message', (job: BodyJob) => {
   const moved: ArrayBuffer[] = [];
   try {
     const bytes = Buffer.from(job.bytes.buffer, job.bytes.byteOffset, job.bytes.byteLength);
-    if (job.kind === 'request') answer = { id: job.id, kind: 'request', stored: withSecretNames(job.secretNames, () => storedRequestBody(bytes, job.contentType)) };
+    if (job.kind === 'request') answer = { id: job.id, kind: 'request', stored: withSecretNames(job.secretNames, () => storedRequestBody(bytes, job.contentType, job.callName)) };
     else {
       // A buffer of its own, moved to the sidecar's thread rather than copied there.
       const stored = withSecretNames(job.secretNames, () => storedResponse(job.head, bytes));

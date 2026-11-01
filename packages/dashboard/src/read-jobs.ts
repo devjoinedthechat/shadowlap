@@ -102,10 +102,10 @@ export type ReadJob =
   | { kind: 'training'; tasks: Task[]; tasksError: string | null; normalizers: Normalizer[]; filter: PairFilter }
   /**
    * A fix with its three steps (fixes.ts `fixDetail`), its blamed run's calls among them: the repairer
-   * the config names, and whether each patch the fix could apply is in the working tree, as git said
-   * on the server's thread.
+   * the config names, whether each patch the fix could apply is in the working tree, as git said on
+   * the server's thread, and why `fix apply` refuses a pulled repair's patch there, by the repair.
    */
-  | { kind: 'fix'; fixId: string; repairer: string | null; inTree?: Array<[string, boolean | null]> };
+  | { kind: 'fix'; fixId: string; repairer: string | null; inTree?: Array<[string, boolean | null]>; refusedHere?: Array<[string, string | null]> };
 
 export interface ReadAnswer {
   status: number;
@@ -180,6 +180,14 @@ function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns'>, tea
     });
   }
   return answer({ ...page, runs }, { tagged: true });
+}
+
+/** A fix's page, with what the server's thread found in the working tree: patches in it already, and pulled ones `fix apply` refuses there. */
+function fixPage(store: Store, job: Extract<ReadJob, { kind: 'fix' }>): ReadAnswer {
+  const inTree = job.inTree ? new Map(job.inTree) : null;
+  const here = job.refusedHere ? new Map(job.refusedHere) : null;
+  const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}), ...(here ? { rewriteHere: (repairId: string) => here.get(repairId) ?? null } : {}) });
+  return d ? answer(d, { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
 }
 
 /**
@@ -306,11 +314,8 @@ export async function runJob(store: Store, job: ReadJob, o: { whole?: boolean } 
       }
       case 'training':
         return answer(trainingView(readTraining(store, { tasks: job.tasks, tasksError: job.tasksError, fixOf: sourceFixes(store), normalizers: job.normalizers }), { filter: job.filter }), { tagged: true });
-      case 'fix': {
-        const inTree = job.inTree ? new Map(job.inTree) : null;
-        const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}) });
-        return d ? answer(d, { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
-      }
+      case 'fix':
+        return fixPage(store, job);
       case 'search': {
         const index = loadRunIndex(store);
         const behind = searchBehind(store, index);

@@ -633,7 +633,7 @@ describe('ProjectRegistry: the file', () => {
     const home = tempDir('sl-reg-relhome-');
     const registry = new ProjectRegistry({ home, env: { SHADOWLAP_HOME: 'state' } });
     expect(registry.dir).toBe(join(home, '.shadowlap'));
-    expect(registry.warnings).toEqual([`SHADOWLAP_HOME is state, which isn’t an absolute path, so it is ignored: the project list is in ${join(home, '.shadowlap')}.`]);
+    expect(registry.warnings).toEqual([`SHADOWLAP_HOME is state, which isn’t an absolute path, so it is ignored: the folder for all the files Shadowlap keeps for this machine is ${join(home, '.shadowlap')} instead.`]);
     expect(new ProjectRegistry({ home, env: { SHADOWLAP_HOME: '~/sl' } })).toMatchObject({ dir: join(home, 'sl'), warnings: [] });
     expect(new ProjectRegistry({ home, env: { SHADOWLAP_HOME: join(home, 'abs') } })).toMatchObject({ dir: join(home, 'abs'), warnings: [] });
   });

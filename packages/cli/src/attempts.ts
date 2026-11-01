@@ -5,10 +5,11 @@ import { newRunMeta } from './activity.js';
 import { AGENT_NODE_TOO_OLD, refusedPreload } from './agent-node.js';
 import { spawnAgent } from './agent-registry.js';
 import { AgentStop, exitStatus, GROUPS, trackAgent } from './agent-signals.js';
-import { evaluateChecks, judgeChecksOf, judgeLabel, LABEL_INPUT, readsOutput, storedCheckInput, withoutOutput, type CheckResult, type EvaluateOptions, type JudgeCheck, type TestSpec } from './checks.js';
+import { evaluateChecks, judgeChecksOf, judgeLabel, readsOutput, storedCheckInput, withoutOutput, type CheckResult, type EvaluateOptions, type JudgeCheck, type TestSpec } from './checks.js';
 import { killTree } from './kill-tree.js';
 import { guardAccept, loadConfig, readCodeVersion, upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { judgedOptions, judgesOf, liveJudge, recordedVerdicts, type Judged } from './judge.js';
+import { oracleLabels } from './oracle.js';
 import { keyEnvPatch } from './placeholder-keys.js';
 import { agentEnv, judgeAttempt, outputDrained, type GuardMode } from './run-agent.js';
 import { openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
@@ -24,8 +25,6 @@ import { ranUnrecorded } from './attempt-unrecorded.js';
  * decides whether it passed. The runner keeps the tally a report owes its reader: attempts, upstream
  * requests, what they cost, and models with no price.
  */
-
-export const EXIT_LABEL = 'the agent exits 0';
 
 /** A budget as the round number someone chose (`$0.50`), not a measurement with sub-cent digits. */
 export const formatBudget = (usd: number): string => (usd < 0.01 ? formatUsd(usd) : `$${usd.toFixed(2)}`);
@@ -524,11 +523,6 @@ export function undecidableRefusal(spec: TestSpec | null, command: string): stri
   if (!undecided.length) return null;
   const one = undecided.length === 1;
   return `--expect has ${one ? 'a check' : `${undecided.length} checks`} no attempt can decide: ${undecided.map((u) => `${u.label} (${u.why})`).join('; ')}. Every attempt would read inconclusive, and none could pass, so ${command} would spend attempts to say nothing. Leave ${one ? 'it' : 'them'} out of --expect; shadowlap check judges recordings by ${one ? 'it' : 'them'}, from what they recorded.`;
-}
-
-/** The oracle, as the labels of what a passing run must do. */
-export function oracleLabels(spec: TestSpec | null): string[] {
-  return [EXIT_LABEL, ...(spec ? evaluateChecks(spec, LABEL_INPUT).map((c) => c.label) : [])];
 }
 
 /**

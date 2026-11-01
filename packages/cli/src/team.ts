@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { links, liveKeys } from '@shadowlap/dashboard';
-import { ciProvider, ConfigConflictError, ConfigFileError, editConfigFile, messageOf, recordEvent, repairMarkdown, resolveAuthor, safeText, Store, type StoreOf, teamRunCounts, ulid, type RunRecord } from '@shadowlap/engine';
+import { ciProvider, ConfigConflictError, ConfigFileError, editConfigFile, messageOf, plural, recordEvent, repairMarkdown, resolveAuthor, safeText, Store, type StoreOf, teamRunCounts, ulid, type RunRecord } from '@shadowlap/engine';
 import {
   accessPolicy,
   checkStore,
@@ -99,8 +99,6 @@ export class TeamError extends Error {
     this.name = 'TeamError';
   }
 }
-
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 function line(t: TeamEnv, text = ''): void {
   t.io.out(`${text}\n`);

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { lostWhere } from '../src/blame.js';
+import { plain } from '../src/report.js';
 import { applyEdit, caseDetails, checkEdit, editSize, findAnchors, forbiddenDetails, formatRepair, noRepairerOf, repairMarkdown, unifiedDiff, type Anchor } from '../src/repair.js';
 import { repairReport } from './fix-fixtures.js';
 
@@ -222,6 +223,26 @@ describe('repairMarkdown', () => {
     for (const l of block) expect(l.length).toBeLessThanOrEqual(80);
     // A verify before baselines reads as it did.
     expect(formatRepair(report)).toContain('  Verified: fixes 1 of 1 target run, keeps 1 of 1 good,\n            each at 4 of 5 attempts\n');
+  });
+
+  it('wraps its lines at whole words to a terminal’s width, each indented as it is and past the mark that leads it, and leaves them whole for a pipe', () => {
+    const report = repairReport({ targets: ['01M540RX39NC308SMAJ73MN8RB'], good: ['01M540RG00D000000000000000'] });
+    const whole = formatRepair(report);
+    const fit = formatRepair(report, plain, 80);
+    const words = (text: string) => text.split(/\s+/).filter(Boolean);
+    expect(words(fit)).toEqual(words(whole));
+    for (const l of fit.split('\n').filter((x) => !whole.split('\n').includes(x))) expect(l.length <= 80, l).toBe(true);
+    // The rewrite past its +, the diagnosis under its heading, and the first candidate's reason under the candidate.
+    expect(fit).toContain('\n  + You are a support agent. Follow the refund policy: escalate every refund\n    above the limit it sets.\n');
+    expect(fit).toContain('\n    The system prompt says to follow the policy but not what the policy asks of\n    large refunds.\n');
+    expect(fit).toContain('\n        it mentions A-1042, which only the failing runs contain: a fix has to\n        hold for cases it has not seen\n');
+    // A candidate's row: what it rewrites, the lines it wraps to under where that starts.
+    expect(fit).toMatch(/\n {5}1 {2}invalid {3}system prompt: [^\n]+\n {18}\S/);
+    // Why it found no fix, and a warning, each past its mark.
+    const why = 'the repairer could not be asked: claude was not found: install Claude Code, or set SHADOWLAP_CLAUDE to its path';
+    const notFixed = formatRepair({ ...repairReport({ targets: ['01M540RX39NC308SMAJ73MN8RB'], accepted: false }), why, warnings: ['01M540RG00 passes the check as recorded, so it is not held out as a failing run'] }, plain, 80);
+    expect(notFixed.split('\n').slice(0, 2)).toEqual(['✗ Not fixed: the repairer could not be asked: claude was not found: install', '  Claude Code, or set SHADOWLAP_CLAUDE to its path']);
+    expect(notFixed).toContain('\n  ! 01M540RG00 passes the check as recorded, so it is not held out as a\n    failing run\n');
   });
 
   it('names the write policy the replays ran under, and none when the report did not keep one', () => {

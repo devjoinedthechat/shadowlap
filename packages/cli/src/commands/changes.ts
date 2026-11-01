@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { links } from '@shadowlap/dashboard';
-import { byRule, commandIsImported, controlOpen, formatDecisions, hasRecordedCommand, judgeOpen, SPRT_DEFAULTS, unsettledReason, type DecisionsReport, type DecisionsVerify } from '@shadowlap/engine';
+import { byRule, commandIsImported, controlOpen, fieldValue, formatDecisions, hasRecordedCommand, judgeOpen, SPRT_DEFAULTS, unsettledReason, type DecisionsReport, type DecisionsVerify } from '@shadowlap/engine';
 import { DECISIONS_SAMPLES, DecisionsError, commandProblem, decisionsCommand, resolveTargets, runDecisions, type DecisionsSettings, type DecisionTarget } from '../decisions.js';
 import { verifySession } from '../decisions-verify.js';
 import { goldenConsented } from '../golden-consent.js';
@@ -271,7 +271,7 @@ export function register(program: Command): void {
           ...specs,
           ...from.flatMap((m) => ['--from', m]),
           ...(flags.scope ? ['--scope', flags.scope] : []),
-          ...Object.entries(fields).flatMap(([k, v]) => ['--set', `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`]),
+          ...Object.entries(fields).flatMap(([k, v]) => ['--set', `${k}=${fieldValue(v)}`]),
           ...(flags.samples !== 1 ? ['--samples', String(flags.samples)] : []),
           ...(flags.concurrency !== 4 ? ['--concurrency', String(flags.concurrency)] : []),
           ...(expect ? ['--expect', JSON.stringify(expect.json)] : []),

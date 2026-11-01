@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { JUDGE_SCOPE, checkOutcome, checkStatus, statusTally, type CallRecord } from '@shadowlap/engine';
 import { aliasOf, checkLine, evaluateChecks, hasChecks, judgeChecksOf, judgeProvider, notJudgedWhy, parseExpect, parseJudge, parseTests, pathsNamed, readsOutput, toolsNamed, unreadPaths, withoutOutput, type CheckInput, type CheckResult, type JudgeVerdict } from '../src/checks.js';
-import { oracleLabels } from '../src/attempts.js';
+import { oracleLabels } from '../src/oracle.js';
 import { checkText, failureTitle } from '../src/fixes.js';
 import { scoredChecks } from '../src/tasks.js';
 

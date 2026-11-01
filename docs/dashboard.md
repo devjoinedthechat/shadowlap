@@ -754,7 +754,7 @@ Two long runs take seconds to compare whole, since every model call's request of
 
 - **The identical prefix and the first request that differs** come at once and show, unless the runs were fingerprinted under other normalizers, with no replay between them.
 - **The page says what is still being compared.**
-- **When the rest takes longer** than the two minutes a request is given, what came first stays, with the `shadowlap diff` command that compares the two in a terminal, with no time limit.
+- **When the rest takes longer** than a request is given (two minutes per 50,000 calls of the pair, at least two), what came first stays, with the `shadowlap diff` command that compares the two in a terminal, with no time limit.
 
 A run still recording is compared again as its calls arrive.
 
@@ -1164,7 +1164,7 @@ Switching is for every tab at once: the dashboard serves one project at a time. 
 
 ### The project list
 
-The dashboard keeps the list in `~/.shadowlap/projects.json`. `SHADOWLAP_HOME` moves the folder; give it as an absolute path.
+The dashboard keeps the list in `~/.shadowlap/projects.json`. `SHADOWLAP_HOME` moves the folder, with every other file Shadowlap keeps for this machine ([environment](./cli.md#environment)); give it as an absolute path.
 
 The list holds no recordings. For each project it holds its name, folder and when it was added, how far its setup got, and the commands you confirmed for recording there. It holds the same for projects you removed, so adding one again brings it back. It is written atomically and readable only by you, and keys it doesn't know are kept.
 
@@ -1385,6 +1385,7 @@ Each is built from the blame's report and the flags kept beside it, as Run more 
 - **A patch already in your working tree** (a pull request merged it, or you applied it by hand), which `git apply --reverse --check` recognises as `fix apply` does, needs no applying. The button reads **Mark applied**, which copies the goldens it is missing, runs them and marks the fix applied; Copy git apply is gone, and the Overview no longer counts the fix as ready to apply.
 - **A teammate's repair**, from the team store: the patch goes in alone, and nothing runs it. Its recordings are on their machine, and your goldens aren't replayed against it until you have read it and run `shadowlap test`.
 - **A patch that is more than the change its repair verified** (another file, a file made, renamed or given a mode, lines its candidate doesn't rewrite) can't be applied from here. The button stays off and says why, Copy git apply is gone, and `fix apply` refuses it.
+- **A teammate's patch that is no rewrite a repair makes in your working tree** (code or a comment rewritten, text past the end of its string, a file or a value that runs) is refused the same way. See [the team store](./team.md#a-teammates-patch-is-held-to-a-repairs-rewrites).
 
 For a patch repaired here, or a teammate's already in your tree, the project's other goldens are replayed offline too. A prompt or a tool description goes into every request, so a golden recorded before the change can diverge on it from the first call.
 
@@ -1591,7 +1592,8 @@ The dashboard's limits, in one place:
 | A fork's changes                              | The first four, then **Show all**                                 |
 | An edited tool result                         | JSON of at most 2 MB                                              |
 | An edited person's answer                     | At most 65,536 characters                                         |
-| Compare, in a request                         | Two minutes; `shadowlap diff` has no time limit                   |
+| Compare, in a request                         | Two minutes per 50,000 calls of the pair, at least two            |
+| Compare in a terminal (`shadowlap diff`)      | No time limit                                                     |
 | Comparisons in an exported copy               | Every pair up to six runs, beyond that each run with the first    |
 | A share link                                  | 7 days at most                                                    |
 | Uploads                                       | 64 MB and 32 files at once; a file no job used goes after an hour |
@@ -1654,15 +1656,20 @@ The work done on those threads:
 - what the project switcher and a project's setup count of its store;
 - Training's pairs, and Copy JSON.
 
-**A third thread.** While every thread is busy, a third thread answers what comes behind them. It starts at once while what can wait (a long run's whole analysis, the warm-up) holds one, and after half a second while requests hold both (two whole Compares of long runs). It ends once it has had nothing to do for a while.
+**Spare threads.** While every thread is busy, a spare thread answers what comes behind them. Each ends once it has had nothing to do for a while.
+
+- **Behind requests** that hold every thread (two whole Compares of long runs), it starts after half a second.
+- **Behind what can wait** (a long run's whole analysis, the warm-up), it starts at once, and a second may start in place of the thread that work holds. Once that work has held its thread half a second, and requests hold the others, the spare starts ahead, ready for what comes.
+- **What waits** goes to whichever thread is free first, a spare one once it has started: what has waited longest first, a request that reads a run over 20,000 calls after the rest.
 
 **A run keeps its thread.** A run stays with the thread that read it, which keeps it, and a request about it goes there.
 
+- While that thread is busy with another request, a free thread takes one about the run after a tenth of a second. One about a run of 20,000 calls or fewer is taken at once while that other request reads a longer run (a whole Compare of long runs).
 - A request that reads the whole of a run over 20,000 calls waits for that thread up to 5 s (half a second while it does what can wait), rather than read the run again on another.
 - Past that, another thread takes it and keeps the run, and the run's requests waiting for the first thread follow it there.
 - The warm-up works on the thread that answered a request least lately, so the run you are reading keeps the thread that holds it.
 
-**Work that takes too long.** A job that runs past two minutes (ten for what can wait, such as a long run's whole analysis) is stopped with its thread. Its page says it took too long rather than wait for good, and another thread takes what comes after.
+**Work that takes too long.** A job that runs past its time is stopped with its thread. A request has two minutes per 50,000 calls of the runs it reads, at least two, and what can wait (a long run's whole analysis) ten. Its page says it took too long rather than wait for good, and another thread takes what comes after.
 
 **Writes have threads of their own:**
 
@@ -2113,7 +2120,7 @@ A button that is off says why on hover. The usual reasons:
 
 ### A page took too long
 
-Work on one of the dashboard's threads that runs past two minutes (ten for what can wait) is stopped, and its page says it took too long; see [Large stores and long runs](#large-stores-and-long-runs).
+Work on one of the dashboard's threads that runs past its time is stopped, and its page says it took too long. A request has two minutes per 50,000 calls of the runs it reads, at least two, and what can wait ten; see [Large stores and long runs](#large-stores-and-long-runs).
 
 - **Compare**: what came first stays, with the `shadowlap diff` command, which has no time limit.
 - **Share → HTML file** on a read-only dashboard: it is stopped, naming the redaction rule most likely at fault. `shadowlap export html` makes it from a terminal.
