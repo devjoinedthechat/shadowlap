@@ -240,18 +240,28 @@ describe('an injection test', () => {
 describe('the error-path presets', () => {
   const targets = () => chaosTargets(recording());
 
-  it('run each preset from the call it hits, as many attempts as its gate may take', () => {
+  it('run each preset from the call it hits, at most as many attempts as its gate or its count may take', () => {
     // The tool presets hit #2, the first read; the provider presets the model call that reads it, #3.
     expect(targets()).toEqual({ tool: { callNo: 2, name: 'lookup_order' }, model: { callNo: 3, name: 'POST /v1/messages' } });
     const once = presetsEstimate(calls(), targets());
-    // Without a gate each preset runs its count, so the price is what it bills, never "At most".
-    expect(once).toMatchObject({ kind: 'presets', ceiling: false, attempts: 6, parts: ['6 attempts', 'live from each preset’s call, writes stubbed'] });
+    // A count stops a preset at its first failure (or once enough passed), so the price is a ceiling; only a gate's attempts are "up to" its max.
+    expect(once).toMatchObject({ kind: 'presets', ceiling: true, attempts: 6, parts: ['6 attempts', 'live from each preset’s call, writes stubbed'] });
     expect(once.usd).toBeCloseTo(6 * FROM_3, 10);
-    expect(costLine(once)[0]).toBe(amountWords(6 * FROM_3));
+    expect(costLine(once)).toEqual([`At most ${amountWords(6 * FROM_3)}`, '6 attempts', 'live from each preset’s call, writes stubbed']);
+    expect(once.card).toBeUndefined();
+    // A golden that repeats 3 times: up to 3 attempts a preset.
+    expect(costLine(presetsEstimate(calls(), targets(), { repeat: 3 }))).toEqual([`At most ${amountWords(18 * FROM_3)}`, '18 attempts', 'live from each preset’s call, writes stubbed']);
     const gated = presetsEstimate(calls(), targets(), { gate: { max: 20 }, presets: ['timeout', '429'] });
     expect(gated).toMatchObject({ ceiling: true, parts: ['up to 40 attempts', 'live from each preset’s call, writes stubbed'] });
     expect(costLine(gated)[0]).toBe(`At most ${amountWords(40 * FROM_3)}`);
     expect(gated.usd).toBeCloseTo(40 * FROM_3, 10);
+  });
+
+  it('say on a gate’s card that attempts the provider cuts short come on top, as chaos.gate counts none of them toward its max', () => {
+    expect(presetsEstimate(calls(), targets(), { gate: { max: 20 } }).card).toEqual({
+      title: 'If every preset’s gate ran to its limit',
+      lines: ['An attempt costs what the recording did from the call its preset hits.', 'A gate stops once it decides.', 'Attempts the provider cuts short come on top: the gate’s max doesn’t count them.'],
+    });
   });
 
   it('are Free where no preset hits a call', () => {

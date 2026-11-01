@@ -122,9 +122,11 @@ export function injectionAgainEstimate(last: Pick<PlantReport, 'totals' | 'basel
 /**
  * Run error-path presets… (`test <golden> --chaos`, `replay <run> --chaos`): each preset picked
  * replays the recording up to the call it hits (chaosTargets), a tool preset's at the tool call and a
- * provider preset's at the model call that reads it, and runs live from there, up to its gate's
- * attempts each: `chaos.gate`'s max, else the golden's `repeat` (1 for a run). A preset that hits no
- * call runs nothing (`At most ≈$0.86 · up to 6 attempts · live from each preset’s call, writes stubbed`).
+ * provider preset's at the model call that reads it, and runs live from there, at most its gate's
+ * attempts each: `chaos.gate`'s max, else the golden's `repeat` (1 for a run), a count that stops at
+ * its first failure or once enough have passed. A preset that hits no call runs nothing (`At most
+ * ≈$0.054 · 6 attempts · live from each preset’s call, writes stubbed`; under a gate, `up to 40
+ * attempts`).
  */
 export function presetsEstimate(calls: readonly PricedCall[], targets: ChaosTargets, o: { presets?: readonly ChaosPreset[]; gate?: Pick<SprtGate, 'max'> | null; repeat?: number } = {}): Estimate {
   const each = o.gate ? o.gate.max : (o.repeat ?? 1);
@@ -140,6 +142,11 @@ export function presetsEstimate(calls: readonly PricedCall[], targets: ChaosTarg
     n += each;
   }
   if (!n) return { kind: 'presets', usd: 0, ceiling: false, parts: ['no preset applies to this run'] };
-  // A gate may stop a preset early, so its price is a ceiling; without one each runs its count.
-  return { kind: 'presets', usd, ceiling: !!o.gate, parts: [`${o.gate ? 'up to ' : ''}${counted(n, 'attempt')}`, 'live from each preset’s call, writes stubbed'], attempts: n };
+  // A gate, or a count that stops at a preset's first failure (decideCount), may end it early: a ceiling either way.
+  const e: Estimate = { kind: 'presets', usd, ceiling: true, parts: [`${o.gate ? 'up to ' : ''}${counted(n, 'attempt')}`, 'live from each preset’s call, writes stubbed'], attempts: n };
+  if (!o.gate) return e;
+  // `chaos.gate` counts an attempt the provider cut short after the model answered against either
+  // verdict, but not toward its max, however many it cuts (decideUnavailable, as `shadowlap test` reads it).
+  const lines = ['An attempt costs what the recording did from the call its preset hits.', 'A gate stops once it decides.', 'Attempts the provider cuts short come on top: the gate’s max doesn’t count them.'];
+  return { ...e, card: { title: 'If every preset’s gate ran to its limit', lines } };
 }
