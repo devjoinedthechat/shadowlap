@@ -346,6 +346,64 @@ describe('amber', () => {
   });
 });
 
+describe('grounds, tints and lines', () => {
+  /** A ground's, a tint's or a line's colour: a background's or a border's (rings and outlines aside). */
+  const PROPS = /^(background(-color)?|border(-(top|right|bottom|left|block|inline)(-(start|end))?)?(-color)?)$/;
+  /** A colour mixed from a neutral: an ink, a ground, the live colour's off-white, white or black. */
+  const NEUTRAL = /var\(--(ink|dim|faint|o-live|bg|bg2|code|panel|hover|raise|sel|line|line2|pop|pop-edge|field)\)|#fff\b|#ffffff\b|#000\b|#000000\b|\bwhite\b|\bblack\b/i;
+  const MIX = /color-mix\((?:[^()]|\([^()]*\))*\)/g;
+  /** The tints that remain outside the tokens, each with its reason: later slices shrink this list. */
+  const TINTS: Record<string, string> = {
+    '.btn.solid:hover:not([disabled])': 'the ink button under the pointer, a step off ink',
+    '.btn.danger:hover:not([disabled])': 'the red button under the pointer, a step darker',
+    '.btn.lime:hover:not([disabled])': 'the lime button under the pointer, a step lighter',
+    '.av.t1': 'an avatar’s colour on the raised ground',
+    '.av.t2': 'an avatar’s colour on the raised ground',
+    '.av.t3': 'an avatar’s colour on the raised ground',
+    '.av.t4': 'an avatar’s colour on the raised ground',
+    '.cal .cd.l1': 'the Runs calendar’s ramp over its empty day',
+    '.cal .cd.l2': 'the Runs calendar’s ramp over its empty day',
+    '.cal .cd.l3': 'the Runs calendar’s ramp over its empty day',
+    '.tag.live': 'a live run’s chip, ringed in the live colour',
+    '.banner.live': 'a live run’s banner, faintly in the live colour',
+    '.changes div.diff': 'Compare: two runs that ended differently, faintly amber on the panel',
+    '.connblock': 'the page behind the offline bar, veiled in its own ground',
+    '.scrim': 'the page dimmed behind a dialog',
+    '.prbody.clamp::after': 'report.md fading into its panel where it is cut',
+    '.toast .tx:hover': 'on the toast’s ink ground, the page’s ground as its tint',
+    '.toast .tx:focus-visible': 'on the toast’s ink ground, the page’s ground as its tint',
+    '.toast .tact:hover': 'on the toast’s ink ground, the page’s ground as its tint',
+    '.toast .tkey': 'on the toast’s ink ground, the page’s ground as its line',
+    '.hit mark': 'a search hit, marked in ink over any ground it sits on',
+    '.pdiff mark': 'a prompt’s changed words, marked in ink over the code ground',
+    '.grp:hover::before': 'a chart group under the pointer, over its bars',
+    '.cbar:hover::before': 'a Context bar under the pointer, over its bars',
+    '.cbar.sel::before': 'the chosen Context bar, over its bars',
+    '.fstep .fb': 'a fix step’s share of the work, filled over its row',
+    '.banner.n': 'a banner that says nothing is wrong, a shade off the page',
+  };
+  /** Tints the design drops with the part they draw, each with the slice that does. */
+  const UNTIL: Record<string, string> = {
+    '.connbar': 'port/dock: the offline bar on the page’s ground',
+    '.dp': 'port/overview: the delta pills go with the KPI tiles',
+    '.dp.good': 'port/overview: the delta pills go with the KPI tiles',
+  };
+
+  it('draws every ground, tint and line from the tokens, the tints that remain each with its reason', () => {
+    const off: string[] = [];
+    for (const r of styleRules()) {
+      if (r.selectors.includes(':root')) continue;
+      for (const [p, v] of r.decls) {
+        if (!PROPS.test(p)) continue;
+        const mixed = [...v.matchAll(MIX)].some((m) => NEUTRAL.test(m[0]));
+        const raw = /#[0-9a-f]{3,8}\b|rgba?\(/i.test(v.replace(MIX, ''));
+        if (mixed || raw) for (const s of r.selectors) if (!TINTS[s] && !UNTIL[s]) off.push(`${s} { ${p}: ${v} }`);
+      }
+    }
+    expect(off).toEqual([]);
+  });
+});
+
 describe('forced colours', () => {
   /** The rules a high-contrast theme applies: selector → property → value. */
   const forced = new Map<string, Map<string, string>>();
