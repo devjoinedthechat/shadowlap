@@ -89,7 +89,7 @@ shadowlap skill install agents
 
 It writes them to `.agents/skills/shadowlap-setup-agent/` and `.agents/skills/shadowlap-debug-agent/`
 from the copy that comes with the CLI. Codex, Cursor, GitHub Copilot (in VS Code, its CLI and its
-coding agent), Gemini CLI, Antigravity, Windsurf, OpenCode, Cline, Amp, goose, Zed and Junie read
+coding agent), Gemini CLI, Antigravity, Devin Desktop (formerly Windsurf), OpenCode, Cline, Amp, goose, Zed and Junie read
 skills from that folder. So one install covers whichever of them the people on the project use:
 commit it.
 

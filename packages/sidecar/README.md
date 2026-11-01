@@ -27,6 +27,6 @@ await sidecar.close();
 store.close();
 ```
 
-It listens on 127.0.0.1, with the session token in every path. Anthropic, OpenAI and compatible servers, and Gemini reach it through the base URLs `envFor()` sets; Azure OpenAI, Vertex AI and Amazon Bedrock calls arrive through the CLI's in-process capture, and so do calls to HTTP services the config declares, which it records as tool calls. Keys are forwarded to the provider and never stored. Most people never start one by hand: the [`shadowlap` CLI](https://www.npmjs.com/package/shadowlap) does it for every run.
+It listens on 127.0.0.1, with the session token in every path. Anthropic, OpenAI and compatible servers, and Gemini reach it through the base URLs `envFor()` sets; Azure OpenAI, Gemini Enterprise Agent Platform (Vertex AI) and Amazon Bedrock calls arrive through the CLI's in-process capture, and so do calls to HTTP services the config declares, which it records as tool calls. Keys are forwarded to the provider and never stored. Most people never start one by hand: the [`shadowlap` CLI](https://www.npmjs.com/package/shadowlap) does it for every run.
 
 [How it works](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/how-it-works.md) · [Providers](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/providers.md) · [The wire protocol](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/protocol.md)
