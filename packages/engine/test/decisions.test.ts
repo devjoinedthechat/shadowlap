@@ -346,6 +346,8 @@ describe('formatDecisions', () => {
     expect(decisionsName({ kind: 'decisions', change: { model: 'claude-haiku-4-5', fields: {}, fromCode: null } })).toBe('Model switch to claude-haiku-4-5');
     expect(decisionsName({ kind: 'decisions', change: { model: null, fields: {}, fromCode: { calls: 3 } } })).toBe('Changed prompt and tools');
     expect(decisionsName({ kind: 'decisions', change: { model: null, fields: { temperature: 0 }, fromCode: null } })).toBe('Field change to temperature=0');
+    // A field as --set takes it: a string that reads as JSON is quoted, so it reads back as the string it was.
+    expect(decisionsName({ kind: 'decisions', change: { model: null, fields: { stop: '1', user: 'ops' }, fromCode: null } })).toBe('Field change to stop="1", user=ops');
     // What else the change set comes after its name, never dropped.
     expect(decisionsName({ kind: 'decisions', change: { model: 'claude-sonnet-5-5', fields: { temperature: 1, stop: 'END' }, fromCode: null } })).toBe('Model switch to claude-sonnet-5-5 with temperature=1, stop=END');
     expect(decisionsName({ kind: 'decisions', change: { model: 'claude-haiku-4-5', fields: { top_p: 0.9 }, fromCode: { calls: 1 } } })).toBe('Changed prompt and tools with the model claude-haiku-4-5 and top_p=0.9');

@@ -12,6 +12,7 @@ import { safeLine, safeText } from './text.js';
 import type { CallRecord, Effect, Normalizer } from './types.js';
 import type { RetirementNotice } from './model-retirements.js';
 import { isObject } from './is-object.js';
+import { fieldValue } from './interventions.js';
 
 /**
  * The decision diff (`shadowlap decisions`): each recorded model call asked again with only what a
@@ -929,11 +930,11 @@ export function migrateUnsettled(r: { stopReason: string | null; passes: Migrate
   return open ? `${open} run${open === 1 ? ' is' : 's are'} inconclusive` : null;
 }
 
-/** A request field as a change sets it: `temperature=0`, a value that isn't a string as JSON. */
+/** A request field as a change sets it, as `--set` takes it: `temperature=0`, `stop="1"` for a string that reads as JSON. */
 const fieldWords = (fields: Record<string, unknown> | null | undefined): string =>
   Object.entries(fields ?? {})
     .filter(([k]) => k !== 'model')
-    .map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`)
+    .map(([k, v]) => `${k}=${fieldValue(v)}`)
     .join(', ');
 
 /**
