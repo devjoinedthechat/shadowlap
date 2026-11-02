@@ -46,6 +46,12 @@ describe('Run blame', () => {
     expect(blameEstimate(calls(), { writes: 'block' }).parts[1]).toBe('live from each probe, writes blocked');
   });
 
+  it('says attempts the provider cuts short come on top only of a gate’s probes: a fixed count counts them toward it', () => {
+    const e = blameEstimate(calls(), { attempts: 5 });
+    expect(e).toMatchObject({ attempts: 149, parts: ['up to 5 probes of 5 attempts and a check of the call found', 'live from each probe, writes stubbed'] });
+    expect(e.card!.lines).toEqual([`An attempt costs at most what the recording did, ${amountWords(ALL)}.`, 'A probe stops once it settles, and a later one costs less.']);
+  });
+
   it('probes only the calls in its scope, from the first of them', () => {
     const scoped = pricedCalls([api(1, 'claude-sonnet-5', { inputTokens: 1000, outputTokens: 200 }, { scope: 'user' }), api(2, 'claude-sonnet-5', { inputTokens: 1000, outputTokens: 200 }, { scope: 'agent' })]);
     const e = blameEstimate(scoped, { scope: 'agent' });
@@ -179,6 +185,13 @@ describe('a verify', () => {
     expect(verifyEstimate([{ role: 'target', usd: 0.02 }], { last, expected: { expected: 9.4, cost: 0.18 } }).card!.lines[1]).toBe(`A gate stops once it decides: the last verify spent ${amountWords(0.27)}.`);
   });
 
+  it('says attempts the provider cuts short come on top only of a gate’s: a fixed count (--attempts) counts them toward it', () => {
+    const e = verifyEstimate([{ role: 'target', usd: 0.02 }], { rule: { attempts: 5 } });
+    expect(e).toMatchObject({ attempts: 5, parts: ['up to 5 attempts a run', 'live where a replay forks, writes stubbed'] });
+    expect(e.usd).toBeCloseTo(5 * 0.02, 10);
+    expect(e.card!.lines).toEqual(['A gate stops once it decides, and a run whose replay doesn’t fork settles in one free attempt.']);
+  });
+
   it('runs more attempts at the higher limit, a good run in pairs against its baseline, and says what the fix’s own figure expects', () => {
     const gate = { kind: 'sprt' as const, ...SPRT_DEFAULTS, max: 160 };
     const runs: VerifyRunCost[] = [
@@ -260,6 +273,15 @@ describe('Run repair', () => {
     expect(e.card!.lines.slice(-2)).toEqual(['A run that replays clean settles in one free attempt.', 'Attempts the provider cuts short come on top, up to as many again.']);
     // With a verify of the fix before it, what that one took.
     expect(repairEstimate({ failing: failing(), good, last: { attempts: 12, spent: 0.24, judge: { spent: 0.03, upstreamRequests: 12 }, unknownModels: [] } }).card!.lines.at(-2)).toBe(`The last verify of this fix took 12 attempts, ${amountWords(0.27)}.`);
+  });
+
+  it('says attempts the provider cuts short come on top of a new blame’s gate, and of its verifies’ but under a fixed count', () => {
+    const cutShort = 'Attempts the provider cuts short come on top, up to as many again.';
+    // A new blame runs at blame's own gate, whatever its verifies count to.
+    expect(repairEstimate({ failing: failing(), good, rule: { attempts: 5 } }).card!.lines.at(-1)).toBe(cutShort);
+    expect(repairEstimate({ failing: failing({ blame: { outcome: 'blamed' } }), good }).card!.lines.at(-1)).toBe(cutShort);
+    // A kept blame reused, and its candidates verified to a fixed count, which counts them toward it.
+    expect(repairEstimate({ failing: failing({ blame: { outcome: 'blamed' } }), good, rule: { attempts: 5 } }).card!.lines.at(-1)).toBe('A run that replays clean settles in one free attempt.');
   });
 
   it('shows the repairer every other failing run, oldest first, as repair holds the rest out from it', () => {

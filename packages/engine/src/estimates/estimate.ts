@@ -88,7 +88,8 @@ export interface ExpectedFigure {
 /**
  * The price's card line for a ceiling a gate decides: an attempt the provider cut short after the
  * model answered isn't counted toward the gate's max, and up to twice the max may run in all (cli
- * verify, blame and test), so those come on top of what the ceiling counts.
+ * verify, blame and test), so those come on top of what the ceiling counts. A fixed count
+ * (`--attempts`, a golden's repeat) counts them toward it, so its ceiling's card has no such line.
  */
 export const CUT_SHORT_LINE = 'Attempts the provider cuts short come on top, up to as many again.';
 

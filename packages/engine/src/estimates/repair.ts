@@ -176,7 +176,8 @@ export function repairEstimate(o: RepairPlan): Estimate {
         `Repairer: its answer, ${amountWords(repairer.usd)} at most`,
         `A verify: ${amountWords(each.usd)} at most, ${verifyParts(failing, runs.length - failing, each.limits)}`,
         last ? `The last verify of this fix took ${counted(last.attempts, 'attempt')}, ${amountWords(last.usd)}.` : 'A run that replays clean settles in one free attempt.',
-        CUT_SHORT_LINE,
+        // Its blame runs under blame's gate, its verify under verify's but with a fixed count (`--attempts`), which counts them toward it.
+        ...(blame.runs || !o.rule?.attempts ? [CUT_SHORT_LINE] : []),
       ],
     },
     attempts: 2 * k * each.attempts,

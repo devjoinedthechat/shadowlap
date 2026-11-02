@@ -141,13 +141,13 @@ export const bisectCommits = (commits: number): number => 2 + Math.ceil(Math.log
 /**
  * Find breaking commit for a golden (`bisect <golden> --good <rev>`), `commits` apart from the good
  * one to the bad: a golden that replays is replayed offline at each, Free; one marked fork runs its
- * gate live at every commit it tests, up to `attempts` each (its gate's max, or its repeat), each
- * attempt at most `each` (its last session's costliest, its judge's calls with it); none until it has
- * run once, nor when its attempts spent nothing live. `commit`, what a commit's gate is expected to
- * cost (what its gate spent in its last session, its judge's calls with it), is on the price's card
- * to the cent.
+ * gate live at every commit it tests, up to `attempts` each (its gate's max, or with `count` its
+ * repeat), each attempt at most `each` (its last session's costliest, its judge's calls with it); none
+ * until it has run once, nor when its attempts spent nothing live. `commit`, what a commit's gate is
+ * expected to cost (what its gate spent in its last session, its judge's calls with it), is on the
+ * price's card to the cent.
  */
-export function bisectEstimate(commits: number, golden: { fork: boolean; attempts: number; each: number | null; commit?: number | null }): Estimate {
+export function bisectEstimate(commits: number, golden: { fork: boolean; attempts: number; each: number | null; commit?: number | null; count?: boolean }): Estimate {
   if (!golden.fork) return { kind: 'bisect', usd: 0, ceiling: false, parts: ['bisect replays offline'] };
   const where = 'live at each commit, as a golden marked fork runs';
   if (golden.each === null) return noEstimate('bisect', 'no estimate until it has run once', [where]);
@@ -158,7 +158,8 @@ export function bisectEstimate(commits: number, golden: { fork: boolean; attempt
     usd: tested * golden.attempts * golden.each,
     ceiling: true,
     parts: [`up to ${counted(tested, 'commit')}, ${counted(golden.attempts, 'attempt')} each`, where],
-    card: { title: 'If every commit’s gate ran to its limit', lines: [`An attempt costs at most ${amountWords(golden.each)}, as its last session’s costliest did.`, golden.commit ? `A gate stops once it decides: about ${centsWords(golden.commit)} a commit.` : 'A gate stops once it decides.', BISECT_SKIP_LINE, CUT_SHORT_LINE] },
+    // A gate starts up to twice its max; a repeat counts an attempt the provider cut short toward it, so none comes on top.
+    card: { title: 'If every commit’s gate ran to its limit', lines: [`An attempt costs at most ${amountWords(golden.each)}, as its last session’s costliest did.`, golden.commit ? `A gate stops once it decides: about ${centsWords(golden.commit)} a commit.` : 'A gate stops once it decides.', BISECT_SKIP_LINE, ...(golden.count ? [] : [CUT_SHORT_LINE])] },
     attempts: tested * golden.attempts,
     each: golden.each,
   };

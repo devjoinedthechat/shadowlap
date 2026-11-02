@@ -117,6 +117,8 @@ describe('Find breaking commit', () => {
     const e = bisectEstimate(5, { fork: true, attempts: 20, each: 0.0325, commit: 0.1867 });
     expect(e.card!.lines).toEqual([`An attempt costs at most ${amountWords(0.0325)}, as its last session’s costliest did.`, 'A gate stops once it decides: about ≈$0.19 a commit.', 'A commit left inconclusive is skipped and the nearest other one tested, on top of these.', 'Attempts the provider cuts short come on top, up to as many again.']);
     expect(bisectEstimate(5, { fork: true, attempts: 20, each: 0.0325 }).card!.lines[1]).toBe('A gate stops once it decides.');
+    // A golden's repeat counts an attempt the provider cut short toward it: nothing comes on top.
+    expect(bisectEstimate(5, { fork: true, attempts: 3, each: 0.0325, count: true }).card!.lines.at(-1)).toBe('A commit left inconclusive is skipped and the nearest other one tested, on top of these.');
   });
 
   it('has none for a golden marked fork whose last session’s attempts spent nothing live', () => {

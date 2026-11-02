@@ -159,7 +159,8 @@ export function verifyEstimate(runs: readonly VerifyRunCost[], o: VerifyEstimate
     usd: ceiling.usd,
     ceiling: true,
     parts,
-    card: { title: 'If every run’s gate ran to its limit', lines: [...lines, CUT_SHORT_LINE] },
+    // A fixed count (`--attempts`) counts an attempt the provider cut short toward it, so none comes on top.
+    card: { title: 'If every run’s gate ran to its limit', lines: o.rule?.attempts ? lines : [...lines, CUT_SHORT_LINE] },
     attempts: ceiling.attempts,
     ...(last ? { last: { usd: last.usd, attempts: last.attempts } } : {}),
     ...(expected && expected.cost !== null ? { expected: { usd: expected.cost, attempts: Math.round(expected.expected) } } : {}),

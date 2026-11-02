@@ -149,7 +149,8 @@ export function blameEstimate(calls: readonly PricedCall[], o: BlameEstimateOpti
     usd: bound.attempts * price.usd,
     ceiling: true,
     parts,
-    card: { title: bound.pin ? 'If every probe and the check ran to their limit' : 'If every probe ran to its limit', lines: [price.line, 'A probe stops once it settles, and a later one costs less.', CUT_SHORT_LINE] },
+    // A probe's gate starts up to twice its max; a fixed count (`--attempts`) and the check count an attempt the provider cut short toward theirs.
+    card: { title: bound.pin ? 'If every probe and the check ran to their limit' : 'If every probe ran to its limit', lines: [price.line, 'A probe stops once it settles, and a later one costs less.', ...(o.attempts ? [] : [CUT_SHORT_LINE])] },
     attempts: bound.attempts,
     each: price.usd,
     ...(o.last?.attempts && !o.last.unknownModels.length ? { last: { usd: spentOf(o.last), attempts: o.last.attempts } } : {}),
