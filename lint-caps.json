@@ -24,7 +24,7 @@
       "runBisect": 59
     },
     "packages/cli/src/blame.ts": {
-      "runBlame": 56
+      "runBlame": 54
     },
     "packages/cli/src/chaos.ts": {
       "runPresets": 92
@@ -131,7 +131,7 @@
       "markdownReport": 39
     },
     "packages/cli/src/verify.ts": {
-      "runVerify": 62,
+      "runVerify": 58,
       "runVerify > verifyOne": 46,
       "runVerify > verifyOne > againstPaired": 32
     },
@@ -186,9 +186,6 @@
     "packages/dashboard/src/projects.ts": {
       "calibrateStep": 32,
       "recordStep": 52
-    },
-    "packages/dashboard/src/read-jobs.ts": {
-      "runJob": 69
     },
     "packages/dashboard/src/routes/imports.ts": {
       "register > build": 35
@@ -442,7 +439,7 @@
       "runBisect": 193
     },
     "packages/cli/src/blame.ts": {
-      "runBlame": 251
+      "runBlame": 250
     },
     "packages/cli/src/chaos.ts": {
       "runPresets": 156
@@ -475,7 +472,7 @@
       "startMcpListener": 228
     },
     "packages/cli/src/verify.ts": {
-      "runVerify": 290,
+      "runVerify": 289,
       "runVerify > verifyOne": 185
     },
     "packages/dashboard/src/fix-bundles.ts": {
@@ -597,7 +594,7 @@
   },
   "max-lines": {
     "packages/cli/src/checks.ts": 1051,
-    "packages/cli/src/decisions.ts": 1151,
+    "packages/cli/src/decisions.ts": 1128,
     "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,

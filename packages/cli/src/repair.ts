@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { applyEdit, messageOf, commitTitle, eachRun, estimateCost, packRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, takeLock, titleText, type HeldLock, type Price, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type VerifyRole, lostWhere } from '@shadowlap/engine';
+import { applyEdit, messageOf, commitTitle, eachRun, estimateCost, packRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, takeLock, titleText, type HeldLock, type Price, type RepairCandidate, type RepairReport, type RepairTarget, type SourceFile, type SprtGate, type VerifyRole, lostWhere } from '@shadowlap/engine';
 import { type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { loadConfig } from './config.js';
 import { recoverWorkingTree } from './repair-journal.js';
@@ -407,12 +407,6 @@ function openPullRequest(root: string, branch: string, title: string, body: stri
   const r = spawnSync('gh', ['pr', 'create', '--head', branch, '--base', base, '--title', titleText(title) || titleText(branch), '--body-file', body], { cwd: root, encoding: 'utf8' });
   if (r.error || r.status !== 0) throw new RepairError(`gh pr create failed: ${(r.stderr || r.error?.message || '').trim()}; the branch ${branch} is pushed, so it can be opened by hand`);
   return r.stdout.trim().split('\n').at(-1) ?? '';
-}
-
-/** Splits failing runs into the ones the repairer sees and the ones held out from it: every other run, oldest first. */
-export function splitHoldout<T extends { parent: RunRecord }>(runs: T[]): { targets: T[]; holdout: T[] } {
-  const sorted = [...runs].sort((a, b) => a.parent.startedAt - b.parent.startedAt || a.parent.runId.localeCompare(b.parent.runId));
-  return { targets: sorted.filter((_, i) => i % 2 === 0), holdout: sorted.filter((_, i) => i % 2 === 1) };
 }
 
 /**

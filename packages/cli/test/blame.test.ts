@@ -12,14 +12,26 @@ import { limitHangs, watch } from './hang-limit.js';
 /**
  * `shadowlap blame` through the CLI, on a support agent whose run turns on one decision: at its third
  * model call it either refunds $240 (against policy) or escalates. The mock plays the model. The
- * small model decides by turns, refunding on odd decisions and escalating on even ones, so asking it
- * again can rescue the run; "big-model" always escalates; with MOCK_STUBBORN the small one always
+ * small model decides by turns, refunding on the first decision of every three and escalating on the
+ * other two, so asking it again rescues the run 2 times in 3: a rate blame's gate is built to call a
+ * rescue (60% or more). Half the time would sit between the gate's two rates, where a blame takes a
+ * third more attempts to tell. "big-model" always escalates; with `stubborn` set the small one always
  * refunds. The recording, the first decision, refunds. With `hold` set, the mock keeps the next
  * request it gets waiting before it answers: one attempt slower than the rest.
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('./support-agent.mjs', import.meta.url));
 const ORACLE = JSON.stringify({ tools: { issue_refund: 0 } });
+/**
+ * A gate for the tests whose point isn't how many attempts a probe takes (the calls a scope leaves
+ * out, how --concurrency interleaves attempts, a rescue by another model): the default rates, at 40%
+ * risk across the search. A probe settles in 2 to 4 attempts and the check of the call the probes pin
+ * in 6 to 9 pairs, where the default gate takes 3 to 6 and 10 to 15: a blame here makes 20 to 31
+ * attempts where it would make 32 to 47. On this mock its verdicts are the default gate's: it calls a
+ * probe lost after 4 failures in a row, which a call that rescues 2 times in 3 never gives, even with
+ * 3 attempts at once.
+ */
+const QUICK_GATE = JSON.stringify({ risk: 0.4 });
 
 let mock: MockServer;
 let work: string;
@@ -46,7 +58,7 @@ function answer(ctx: ScriptContext): ScriptResult {
       return { message: message([toolUse('read_policy', {}, `toolu_policy_${ctx.requestNo}`)]) };
     case 2: {
       decisions++;
-      const escalates = ctx.request.model === 'big-model' || (!stubborn && decisions % 2 === 0);
+      const escalates = ctx.request.model === 'big-model' || (!stubborn && decisions % 3 !== 1);
       return {
         message: escalates
           ? message([text('Above the limit.'), toolUse('escalate', { reason: 'refund of $240 is above $100' }, `toolu_decide_${ctx.requestNo}`)])
@@ -196,11 +208,14 @@ describe('shadowlap blame', () => {
     expect(report.probes[0].runs).toHaveLength(6);
     expect(report.probes[0]).toMatchObject({ rescued: false, decision: 'fail', rate: { decision: 'fail', sentence: 'lost · 0 of 6 · rate <= 0.59 (99%) · gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 31 attempts' } });
 
-    const strong = await shadowlap(['blame', runId, '--expect', ORACLE, '--model', 'big-model', '--json']);
+    const strong = await shadowlap(['blame', runId, '--expect', ORACLE, '--model', 'big-model', '--gate', QUICK_GATE, '--json']);
     expect(strong.code, strong.out).toBe(0);
-    const found = JSON.parse(strong.stdout) as { outcome: string; blamed: { step: number; passes: number; attempts: number }; rescue: unknown; contrast: { rescued: Array<{ name?: string }> } };
+    const found = JSON.parse(strong.stdout) as { outcome: string; passesNeeded: number; blamed: { step: number; passes: number; attempts: number }; rescue: unknown; contrast: { rescued: Array<{ name?: string }> } };
     expect(found.outcome).toBe('blamed');
-    expect(found.blamed).toMatchObject({ step: 3, passes: 3, attempts: 3 });
+    // The stronger model escalates every time: the blamed call passed each attempt, as few as the gate
+    // needs for a rescue (2 at the quick gate's risk, 3 at the default's).
+    expect(found.passesNeeded).toBe(2);
+    expect(found.blamed).toMatchObject({ step: 3, passes: 2, attempts: 2 });
     expect(found.rescue).toEqual({ fields: { model: 'big-model' } });
     expect(found.contrast.rescued.map((b) => b.name).filter(Boolean)).toEqual(['escalate']);
     // Only the probed calls went to the stronger model.
@@ -316,7 +331,7 @@ describe('shadowlap blame', () => {
     expect(calls.map((c) => c.meta.scope)).toEqual(['user', 'agent', 'agent', 'agent', 'agent']);
     const agentCalls = calls.filter((c) => c.meta.scope === 'agent').map((c) => c.callNo);
 
-    const scoped = await shadowlap(['blame', runId, '--expect', ORACLE, '--scope', 'agent', '--json']);
+    const scoped = await shadowlap(['blame', runId, '--expect', ORACLE, '--scope', 'agent', '--gate', QUICK_GATE, '--json']);
     expect(scoped.code, scoped.out).toBe(0);
     const report = JSON.parse(scoped.stdout) as { modelCalls: number; blamed: { callNo: number; step: number }; probes: Array<{ callNo: number }> };
     expect(report.modelCalls).toBe(4);
@@ -329,7 +344,7 @@ describe('shadowlap blame', () => {
 
   it('runs a probe\'s attempts at once with --concurrency, to the same verdict', async () => {
     const runId = await record();
-    const r = await shadowlap(['blame', runId, '--expect', ORACLE, '--concurrency', '3', '--json']);
+    const r = await shadowlap(['blame', runId, '--expect', ORACLE, '--concurrency', '3', '--gate', QUICK_GATE, '--json']);
     expect(r.code, r.out).toBe(0);
     const report = JSON.parse(r.stdout) as { outcome: string; blamed: { step: number } };
     expect(report.outcome).toBe('blamed');
@@ -337,10 +352,10 @@ describe('shadowlap blame', () => {
   });
 
   it('decides a probe once with --concurrency 2 and mixed outcomes, on the attempts in the order they started', async () => {
-    // The small model alternates, so two attempts at once often end one passing, one failing.
+    // The small model refunds one time in three, so two attempts at once often end one passing, one failing.
     const runId = await record();
     const concurrency = 2;
-    const r = await shadowlap(['blame', runId, '--expect', ORACLE, '--concurrency', String(concurrency), '--json']);
+    const r = await shadowlap(['blame', runId, '--expect', ORACLE, '--concurrency', String(concurrency), '--gate', QUICK_GATE, '--json']);
     expect(r.code, r.out).toBe(0);
     const report = JSON.parse(r.stdout) as { gate: SprtGateJson; probeGate: SprtGateJson; probes: Array<{ decision: string; passes: number; rescued: boolean; runs: Array<{ passed: boolean }>; rate: { decision: string; sentence: string } }> };
     expect(report.probes.length).toBeGreaterThan(0);

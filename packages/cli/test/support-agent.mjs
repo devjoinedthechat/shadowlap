@@ -17,7 +17,6 @@
 //   AGENT_BASE_URL=…  a base URL fixed in the client, as a local model server often is: its calls
 //                     reach Shadowlap only if Shadowlap is told that host is a model server
 import { appendFileSync } from 'node:fs';
-import Anthropic from '@anthropic-ai/sdk';
 import { scope, tool } from '@shadowlap/sdk';
 
 const outbox = (entry) => process.env.AGENT_OUTBOX && appendFileSync(process.env.AGENT_OUTBOX, JSON.stringify(entry) + '\n');
@@ -42,7 +41,23 @@ const tools = [
   { name: 'escalate', description: 'Hand the case to a manager.', input_schema: object({ reason: { type: 'string' } }) },
 ];
 
-const client = new Anthropic({ apiKey: 'k', maxRetries: 0, ...(process.env.AGENT_BASE_URL ? { baseURL: process.env.AGENT_BASE_URL } : {}) });
+// The Messages API with fetch, as the Anthropic SDK sends it with its retries off: the retry count
+// tells Shadowlap that no request is the retry of one that failed. Loading the SDK took 40% of the agent's
+// CPU, and blame, verify and repair start the agent once for every attempt.
+const baseURL = (process.env.AGENT_BASE_URL || process.env.ANTHROPIC_BASE_URL || 'http://127.0.0.1:9').replace(/\/$/, '');
+const client = {
+  messages: {
+    async create(request) {
+      const res = await fetch(`${baseURL}/v1/messages`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': 'k', 'anthropic-version': '2023-06-01', 'x-stainless-retry-count': '0' },
+        body: JSON.stringify(request),
+      });
+      if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+      return res.json();
+    },
+  },
+};
 const simulated = process.argv.includes('--simulated-user');
 const order = process.argv.slice(2).find((a) => !a.startsWith('--')) ?? 'A-1042';
 let opening = `The customer asks for a refund on order ${order}.`;
