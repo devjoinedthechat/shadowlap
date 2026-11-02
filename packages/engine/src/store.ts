@@ -107,6 +107,16 @@ export class Store {
     return new Store(openDatabase(path));
   }
 
+  /**
+   * Opens the store at `path` as `open` does, for writing, but only when it is there: where there
+   * is none, it throws and makes nothing. For a dashboard's threads, which open the store a while
+   * after they are started: one opened with `open` after the store was deleted (its project
+   * removed with its recordings) made an empty one in its place.
+   */
+  static openExisting(path: string): Store {
+    return new Store(openDatabase(path, { create: false }));
+  }
+
   // ---- read-only connections (the dashboard's read-model threads) ----
 
   /**

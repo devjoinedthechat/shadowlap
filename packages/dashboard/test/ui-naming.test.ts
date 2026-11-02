@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
@@ -13,6 +12,7 @@ import { fitRunsTable, RunsTable } from '../ui/runspage/RunsTable.js';
 import { RecentRuns } from '../ui/shell/Sidebar.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { CompareView, RunDetail, RunListItem } from '../ui/types.js';
+import { sheet } from './css-sheet.js';
 
 /**
  * A run is named by its id everywhere, with one quiet line that says what it was about (decision
@@ -321,7 +321,7 @@ interface Row {
   cells: Array<CssNode & { text: string }>;
 }
 
-const appCss = readFileSync(new URL('../ui/app.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+const appCss = sheet().replace(/\/\*[\s\S]*?\*\//g, '');
 
 /** Each row of a table's markup, its head first. */
 function rowsOf(html: string): Row[] {

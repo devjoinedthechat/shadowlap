@@ -302,12 +302,16 @@ describe.skipIf(!PYTHON)('recorded user input: Python', () => {
     expect(replacement).not.toBe(refund);
     const verify = await shadowlap(['verify', '--fixes', refund, '--keeps', replacement, '--expect', '{"tools":{"issue_refund":0}}', '--model', 'careful-model', '--attempts', '1', '--json']);
     expect(verify.code, verify.out).toBe(0);
-    const report = JSON.parse(verify.out.slice(verify.out.indexOf('{'))) as { verdict: string; runs: Array<{ runId: string; outcome: string; runs: Array<{ runId: string }> }> };
+    const report = JSON.parse(verify.out.slice(verify.out.indexOf('{'))) as { verdict: string; warnings: string[]; runs: Array<{ runId: string; outcome: string; runs: Array<{ runId: string; afterFork?: { inOrder: number } }> }> };
     expect(report.verdict).toBe('accepted');
     expect(report.runs.map((r) => [r.runId, r.outcome])).toEqual([
       [refund, 'fixed'],
       [replacement, 'kept'],
     ]);
+    // The model changes from the first model call, after the opening question: the three answers after
+    // it came in the order given, whatever the careful model then asked, and the report says so.
+    expect(report.runs.flatMap((r) => r.runs).map((a) => a.afterFork?.inOrder)).toEqual([3, 3]);
+    expect(report.warnings).toContain("2 attempts of the change got a person's recorded answers after the fork, in the order they were given, whatever the agent then asked: where the change alters the conversation, they may not fit it");
     // Each attempt had the whole conversation: the answers after the fork came from its recording, in order.
     const store = Store.open(db);
     try {

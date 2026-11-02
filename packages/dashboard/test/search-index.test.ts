@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
@@ -7,6 +7,7 @@ import { Store } from '@shadowlap/engine';
 import { answeringRequest } from '../src/idle.js';
 import { startDashboard } from '../src/index.js';
 import { catchUpSearch, searchBehind } from '../src/search-hits.js';
+import { SEARCH_LIMITS, SearchIndexer } from '../src/search-index.js';
 import { addRun, DAY, type CallSpec } from './read-model-store.js';
 
 /**
@@ -74,6 +75,21 @@ describe('the search index of a store with a file', () => {
       await d.close();
     }
   }, 180_000);
+
+  it('makes no store where there is none, as where one was deleted before its thread opened it', async () => {
+    // Its thread opens the store once it has started, hundreds of milliseconds later on a busy
+    // machine: by then the store can be gone, its project removed with its recordings.
+    const gone = join(dir, 'gone', '.shadowlap', 'shadowlap.db');
+    const closeMs = SEARCH_LIMITS.closeMs;
+    // The close waits for the thread to have started, however long that takes here.
+    SEARCH_LIMITS.closeMs = 60_000;
+    try {
+      await new SearchIndexer({ dbPath: gone }).close();
+    } finally {
+      SEARCH_LIMITS.closeMs = closeMs;
+    }
+    expect(existsSync(join(dir, 'gone'))).toBe(false);
+  });
 });
 
 describe('the search index of a store in memory', () => {

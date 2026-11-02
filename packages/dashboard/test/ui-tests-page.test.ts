@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { parseGate, Store, type StoredCheck } from '@shadowlap/engine';
@@ -6,6 +5,7 @@ import { testsView, type GoldenSource } from '../src/tests.js';
 import type { Client, TestsView } from '../ui/api.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { AppContext, type AppState } from '../ui/state.js';
+import { sheet } from './css-sheet.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 
 /**
@@ -180,7 +180,7 @@ describe('the Tests page', () => {
 });
 
 describe('the Tests page\'s styles', () => {
-  const css = readFileSync(new URL('../ui/app.css', import.meta.url), 'utf8');
+  const css = sheet();
 
   it('put no tick before a check whatever its result, Training\'s criteria included', () => {
     expect(css).not.toMatch(/\.chk span::before/);

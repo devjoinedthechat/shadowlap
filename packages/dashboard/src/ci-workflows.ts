@@ -5,6 +5,7 @@ import { ciStep, parseStoreUrl, shortStoreName, type CiStepKeys, type StoreLocat
 import { ACTION, alertFailures, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, REPAIRERS, VERSION, WORKFLOW_FILE, workflowNeeds, workflowYaml, type BucketCredentials, type LiveGoldens } from './ci-yaml.js';
 import { fixDetail, fixList, type FixDetail } from './fixes.js';
 import type { TeamStoreInput } from './team-store.js';
+import { liveReasons } from './tests-live.js';
 
 /**
  * The read model behind Settings → CI (`GET /api/ci/workflows`): your workflow, one job in which the
@@ -465,17 +466,18 @@ function packProviders(dir: string): string[] | null {
  */
 export function goldenProviders(project: string, goldens: ReadonlyArray<{ path: string; mode: 'replay' | 'fork'; injection?: boolean; judges?: readonly string[] }>): GoldenProviders[] {
   return goldens.map((g) => {
-    const live: GoldenProviders['live'] = [...(g.mode === 'fork' ? (['fork'] as const) : []), ...(g.injection ? (['injection gate'] as const) : [])];
+    // Why it runs live, by the rule Tests asks by before a session (liveReasons).
+    const why = liveReasons(g);
+    const live = why.flatMap((w): GoldenProviders['live'] => (w.kind === 'fork' ? ['fork'] : w.kind === 'injection' ? ['injection gate'] : []));
     const called = packProviders(resolve(project, g.path));
     const providers = new Set(called ?? []);
     let known = called !== null;
-    // A judge with no verdict for a new answer is asked live: only where the golden forks.
-    if (g.mode === 'fork')
-      for (const j of g.judges ?? []) {
-        const p = judgeTarget(j)?.provider;
-        if (p) providers.add(p);
-        else known = false;
-      }
+    // A judge with no verdict for a new answer is asked live, by that rule only where the golden forks.
+    for (const j of why.flatMap((w) => (w.kind === 'judges' ? w.models : []))) {
+      const p = judgeTarget(j)?.provider;
+      if (p) providers.add(p);
+      else known = false;
+    }
     if ([...providers].some((p) => !PROVIDER_KEYS[p])) known = false;
     return { path: g.path, live, keys: [...providers].flatMap((p) => PROVIDER_KEYS[p] ?? []), known };
   });

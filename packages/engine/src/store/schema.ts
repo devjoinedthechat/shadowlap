@@ -7,6 +7,7 @@
  */
 import { chmodSync, closeSync, constants as fsConstants, lstatSync, mkdirSync, openSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { messageOf } from '../message-of.js';
 import { DatabaseSync, rollBack, type SqliteDatabase } from './core.js';
 
@@ -666,28 +667,38 @@ function restrictToOwner(path: string): void {
   }
 }
 
-/** The connection Store.open makes: the file ready for it, WAL, and the schema brought up to this version. */
-export function openDatabase(path: string): SqliteDatabase {
+/**
+ * The connection Store.open makes: the file ready for it, WAL, and the schema brought up to this
+ * version. With `create: false` (Store.openExisting) no store is made where there is none: that
+ * throws, and nothing is written, its directory included.
+ */
+export function openDatabase(path: string, o: { create?: boolean } = {}): SqliteDatabase {
+  const create = o.create !== false;
   if (path !== ':memory:') {
-    const dir = dirname(path);
-    // Recordings hold prompts and tool I/O: a new directory is the owner's alone. One already there
-    // (or a link where it goes) holds a store only when it is a directory of this user's that not
-    // every user can write to (storeDirProblem); nothing is written into it before that.
-    if (!lexists(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const unfit = storeDirProblem(dir);
-    if (unfit) throw new Error(unfit);
-    // Keep the directory out of git without touching the project's .gitignore. `wx` never follows
-    // a symbolic link a checkout could have planted there.
-    createOnce(join(dir, '.gitignore'), '*\n');
-    // An empty file is a valid new SQLite database; SQLite gives its WAL and shared-memory files
-    // the database file's permissions. Made exclusively and never through a link; one already there
-    // (and its WAL and shared-memory files) is opened only when it is a regular file of this user's.
-    createStoreFile(path);
+    if (create) {
+      const dir = dirname(path);
+      // Recordings hold prompts and tool I/O: a new directory is the owner's alone. One already there
+      // (or a link where it goes) holds a store only when it is a directory of this user's that not
+      // every user can write to (storeDirProblem); nothing is written into it before that.
+      if (!lexists(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
+      const unfit = storeDirProblem(dir);
+      if (unfit) throw new Error(unfit);
+      // Keep the directory out of git without touching the project's .gitignore. `wx` never follows
+      // a symbolic link a checkout could have planted there.
+      createOnce(join(dir, '.gitignore'), '*\n');
+      // An empty file is a valid new SQLite database; SQLite gives its WAL and shared-memory files
+      // the database file's permissions. Made exclusively and never through a link.
+      createStoreFile(path);
+    } else if (!lexists(path)) throw new Error(`There is no store at ${path}.`);
+    // One already there (and its WAL and shared-memory files) is opened only when it is a regular
+    // file of this user's.
     const problem = storeFileProblem(path);
     if (problem) throw new Error(problem);
     restrictToOwner(path);
   }
-  const db = new DatabaseSync(path);
+  // Without `create`, SQLite is asked to open the file only (mode=rw), never to make it: a store
+  // deleted after it was looked for here stays deleted.
+  const db = new DatabaseSync(create || path === ':memory:' ? path : `${pathToFileURL(path).href}?mode=rw`);
   // The CLI, the TUI, the dashboard and test workers may open one store at once; wait for a lock
   // rather than fail. First, because switching a new database to WAL already needs one.
   db.exec('PRAGMA busy_timeout = 10000');
