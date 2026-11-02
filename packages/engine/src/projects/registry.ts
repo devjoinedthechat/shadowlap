@@ -533,6 +533,15 @@ export class ProjectRegistry {
    * repository are never touched. The only project can't be removed.
    */
   remove(id: string, options: { deleteRecordings?: boolean; typedName?: string } = {}): RemovedProject {
+    const project = this.removeFromList(id, options);
+    return { project, deleted: options.deleteRecordings ? this.deleteRecordingsOf(project) : [] };
+  }
+
+  /**
+   * {@link remove} up to deleting the store, which {@link deleteRecordingsOf} does: for a caller that
+   * has whatever else holds the store let go of it in between (`ProjectHost.remove`).
+   */
+  removeFromList(id: string, options: { deleteRecordings?: boolean; typedName?: string } = {}): ProjectEntry {
     const list = this.list();
     const project = this.need(list, id);
     if (list.length <= 1) throw new ProjectError('only-project', 'This is the only project. Add another one first.');
@@ -555,12 +564,14 @@ export class ProjectRegistry {
       const others = forgetRemoved(state.raw, gone!.path);
       state.raw.removed = options.deleteRecordings ? others : [...others, { ...gone, removedAt: at }].slice(-MAX_REMOVED);
     });
-    if (!options.deleteRecordings) {
-      this.activity(project, { kind: 'project.removed', ref: project.id, data: { path: this.display(project.path), name: project.name } }, false);
-      return { project, deleted: [] };
-    }
+    if (!options.deleteRecordings) this.activity(project, { kind: 'project.removed', ref: project.id, data: { path: this.display(project.path), name: project.name } }, false);
+    return project;
+  }
+
+  /** Deletes the store of a project {@link removeFromList} took off the list to delete its recordings: the files deleted, relative to its folder. */
+  deleteRecordingsOf(project: ProjectEntry): string[] {
     try {
-      return { project, deleted: deleteRecordings(project.path, this.now()) };
+      return deleteRecordings(project.path, this.now());
     } catch (err) {
       if (err instanceof RecordingsError) throw new ProjectError(err.code, `${project.name} was removed, but its recordings were not deleted: ${err.message}`);
       throw err;

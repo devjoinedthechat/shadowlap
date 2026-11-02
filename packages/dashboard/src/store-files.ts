@@ -39,7 +39,7 @@ export class StoreFiles {
   constructor(private readonly o: { log: (line: string) => void; realHome: string; several: boolean }) {
     // The threads of a store deleted or replaced stop reading it, requests or none.
     this.watch = setInterval(() => {
-      for (const path of new Set([...this.pools.keys(), ...this.indexers.keys()])) if (this.moved(path)) this.letGo(path);
+      for (const path of new Set([...this.pools.keys(), ...this.indexers.keys()])) if (this.moved(path)) void this.letGo(path);
     }, 5000);
     this.watch.unref();
   }
@@ -76,20 +76,26 @@ export class StoreFiles {
     return this.generations.get(path) ?? 0;
   }
 
-  /** Lets go of the threads reading the store at `path`, which would go on reading the old file. */
-  letGo(path: string): void {
+  /**
+   * Lets go of the threads reading the store at `path`, which would go on reading the old file, or
+   * whose project was removed: done once each has closed its connection to the store, or was ended.
+   */
+  letGo(path: string): Promise<void> {
+    const closing: Array<Promise<void>> = [];
     const pool = this.pools.get(path);
     if (pool) {
       this.pools.delete(path);
-      void pool.close();
+      closing.push(pool.close());
     }
-    void this.keepers.get(path)?.close();
+    const keeper = this.keepers.get(path);
+    if (keeper) closing.push(keeper.close());
     this.keepers.delete(path);
     const indexer = this.indexers.get(path);
     if (indexer) {
       this.indexers.delete(path);
-      void indexer.close();
+      closing.push(indexer.close());
     }
+    return Promise.all(closing).then(() => undefined);
   }
 
   /** What the pages say of a store moved from under the dashboard. */

@@ -17,7 +17,8 @@ const post = (m: PreviewAnswer) => parentPort?.postMessage(m);
 let store: Store | null = null;
 let answer: PreviewAnswer;
 try {
-  store = Store.open(work.dbPath);
+  // Only a store that is there: one deleted meanwhile is not made again.
+  store = Store.openExisting(work.dbPath);
   // Its time starts now: opening waited for any command holding the store.
   post({ type: 'open' });
   const deadline = Date.now() + work.limits.softMs;

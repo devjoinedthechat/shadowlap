@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { readStoreFacts, repairerProblem, storeFacts, type Normalizer, type Price, type Store, type StoreOf, type StoreFacts, type Task, type ToolTrust } from '@shadowlap/engine';
 import { activity } from './activity.js';
 import { callDetail, lineage, listRuns, lookupRun, noSuchRun, provenance, runCallsPage, runDetail, showRunJson, type ReadOptions } from './api.js';
@@ -10,6 +9,7 @@ import { runInjection, toolTrust } from './injection.js';
 import { runUnrecorded } from './run-unrecorded.js';
 import { overviewKnown, overviewSummary } from './overview.js';
 import { patchesInTree } from './patch-in-tree.js';
+import { answer, failed, readRegistry, type JobOf, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { localRunIds } from './routes/store.js';
 import type { MaskCount } from './run-mask.js';
 import { runCalls } from './run-calls.js';
@@ -25,6 +25,8 @@ import type { GoldenSource } from './tests.js';
 import { toolReads } from './tool-reads.js';
 import { readTraining, sourceFixes, trainingView, type PairFilter } from './training.js';
 
+export type { ReadAnswer } from './read-registry.js';
+
 /**
  * The read models that read every call of a run, or of every run: the Overview, a run's page and
  * its calls, a call's details, a run's family, Compare, what a fork did differently, a fix's
@@ -35,6 +37,9 @@ import { readTraining, sourceFixes, trainingView, type PairFilter } from './trai
  * the answer out as JSON text, so it runs as well on a worker thread of its own (read-worker.ts, for
  * a store with a file) as here (a store in memory). What the server needs to answer it (who asks,
  * the project's config) is read before, on its own thread.
+ *
+ * Each kind of job is answered by its handler in a table (read-registry.ts): the ones above from this
+ * module's, and a feature's own from the table its module registers, listed in `READ_TABLES`.
  */
 
 /** The Overview: as `GET /api/summary` asks for it, with what the server read of the project. */
@@ -55,7 +60,8 @@ export interface SummaryWork {
  */
 export const SUMMARY_CALLS_BUDGET = 5000;
 
-export type ReadJob =
+/** The jobs this module's table answers. */
+type CoreJob =
   | { kind: 'summary'; work: SummaryWork }
   | { kind: 'run'; runId: string; read: ReadOptions; after?: number }
   /** A page of a run's calls; `whole` waits for the whole run's analysis rather than answer from a part of the run. */
@@ -107,35 +113,24 @@ export type ReadJob =
    */
   | { kind: 'fix'; fixId: string; repairer: string | null; inTree?: Array<[string, boolean | null]>; refusedHere?: Array<[string, string | null]> };
 
-export interface ReadAnswer {
-  status: number;
-  /** The answer as JSON text. */
-  body: string;
-  /** For an answer a browser may keep and ask about again: its ETag; null for one it must not keep (a warming answer, the Overview). */
-  etag: string | null;
-  /** Set when the answer is not whole yet and says so (`warming`): asked again, it has more. */
-  warming?: boolean;
-  /** Work for beside the server once this is answered: the whole analysis of a long run answered from its first calls. */
-  then?: ReadJob;
-  /** A warm-up slice: whether it has been through every run, and how far it has gone. */
-  warm?: { done: boolean; walked: number; total: number };
-}
-
-const tagOf = (text: string) => `"${createHash('sha1').update(text).digest('base64url')}"`;
-
-function answer(body: unknown, o: { tagged?: boolean; status?: number } = {}): ReadAnswer {
-  const text = JSON.stringify(body);
-  const warming = typeof body === 'object' && body !== null && 'warming' in body;
-  return { status: o.status ?? 200, body: text, etag: o.tagged && !warming ? tagOf(text) : null, ...(warming ? { warming } : {}) };
-}
-
-const failed = (status: number, error: string): ReadAnswer => ({ status, body: JSON.stringify({ error }), etag: null });
-
 /** A run id that names no single run: several runs (409), or none (404). */
 function noRun(store: StoreOf<'readModels'>, id: string): ReadAnswer {
   const no = noSuchRun(store, id);
   return failed(no.status, no.message);
 }
+
+/** Of the two runs a comparison reads, the answer for the first that isn't one run; null when both are. */
+function eitherMissing(store: Store, a: string, b: string): ReadAnswer | null {
+  for (const id of [a, b]) {
+    if (lookupRun(store, id)) continue;
+    const no = noSuchRun(store, id);
+    return failed(no.status, no.status === 404 ? 'one of the runs does not exist' : no.message);
+  }
+  return null;
+}
+
+/** For a long run answered from a part of its calls: its whole analysis, beside the server once this is answered, for the page to ask again. */
+const analyseAfter = (runId: string): Pick<ReadAnswer, 'then'> => ({ then: { kind: 'analyse', runId } });
 
 /** What git said about the code between two revisions, kept for a minute per pair: one per thread. */
 const code = codeChangeCache();
@@ -183,146 +178,153 @@ function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns'>, tea
 }
 
 /** A fix's page, with what the server's thread found in the working tree: patches in it already, and pulled ones `fix apply` refuses there. */
-function fixPage(store: Store, job: Extract<ReadJob, { kind: 'fix' }>): ReadAnswer {
+function fixPage(store: Store, job: Extract<CoreJob, { kind: 'fix' }>): ReadAnswer {
   const inTree = job.inTree ? new Map(job.inTree) : null;
   const here = job.refusedHere ? new Map(job.refusedHere) : null;
   const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}), ...(here ? { rewriteHere: (repairId: string) => here.get(repairId) ?? null } : {}) });
   return d ? answer(d, { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
 }
 
+/** A long run's whole analysis, and what its user asked first, from the conversations the analysis placed its calls in: kept for its about line. */
+function analyse(store: Store, runId: string): ReadAnswer {
+  const run = lookupRun(store, runId);
+  if (run) {
+    const calls = runCalls(store, run.runId);
+    const analysis = analyseRun(store, run, calls);
+    const index = loadRunIndex(store);
+    const r = index.byId.get(run.runId);
+    if (r && asksFor(r)) asksOf(store, index, [r], { analysed: { runId: run.runId, calls, conversations: analysis.conversations } });
+  }
+  return answer(null);
+}
+
+/** What each project's store says (`store-facts`), by project id: one that can't be read is left out. */
+function storeFactsOf(store: Store, stores: Extract<CoreJob, { kind: 'store-facts' }>['stores']): ReadAnswer {
+  const facts: Record<string, StoreFacts> = {};
+  for (const s of stores) {
+    try {
+      facts[s.id] = s.dbPath === null ? storeFacts(store, Date.now(), { keep: s.keep }) : readStoreFacts(s.dbPath, Date.now(), { keep: s.keep });
+    } catch {
+      // left out: the server's thread reads it again, and says why it can't
+    }
+  }
+  return answer(facts);
+}
+
+/** This module's reads, by kind. */
+const CORE_READS: ReadTable<CoreJob> = {
+  summary: (store, job, { whole }) => summary(store, job.work, whole),
+  run: (store, job) => {
+    const d = runDetail(store, job.runId, job.read, job.after === undefined ? {} : { after: job.after });
+    if (!d) return noRun(store, job.runId);
+    // The route tags it by where the run stands (run-version.ts); a long run answered from its
+    // first calls is analysed whole beside the server, for the page to ask again.
+    return { ...answer(d), ...(d.warming ? analyseAfter(d.run.runId) : {}) };
+  },
+  calls: (store, job) => {
+    const page = runCallsPage(store, job.runId, { from: job.from, limit: job.limit }, job.read, job.whole ? { whole: true } : {});
+    if (!page) return noRun(store, job.runId);
+    return { ...answer(page, { tagged: true }), ...(page.warming ? analyseAfter(page.runId) : {}) };
+  },
+  call: (store, job) => {
+    const d = callDetail(store, job.runId, job.callNo, job.read, job.whole ? { whole: true } : {});
+    if (!d) return failed(404, `no call #${job.callNo} in run ${job.runId}`);
+    // Answered from the calls around it: the whole run is analysed beside the server, for the page to ask again.
+    return { ...answer(d, { tagged: true }), ...(d.around ? analyseAfter(job.runId) : {}) };
+  },
+  lineage: (store, job) => {
+    const nodes = lineage(store, job.runId, job.read);
+    return nodes ? answer({ nodes }, { tagged: true }) : failed(404, `no run ${job.runId}`);
+  },
+  compare: async (store, job) => {
+    const missing = eitherMissing(store, job.a, job.b);
+    if (missing) return missing;
+    const c = await compareView(store, job.a, job.b, { cwd: job.cwd, code });
+    return c ? answer(c, { tagged: true }) : failed(404, 'one of the runs does not exist');
+  },
+  // Null when the head can't be told without reading too many requests: the whole comparison says.
+  'compare-head': (store, job) => eitherMissing(store, job.a, job.b) ?? answer(compareHead(store, job.a, job.b), { tagged: true }),
+  'runs-page': (store, job, { whole }) => runsPage(store, job.options, job.team, whole),
+  'runs-days': (store, job, { whole }) => {
+    const key = job.options.types?.includes('local') ? teamKey(store, job.team) : null;
+    return answer(runsByDay(store, { ...job.options, known: !whole, localRuns: key ? localRunSet(store, key) : null }), { tagged: true });
+  },
+  recent: (store, job, { whole }) => {
+    // The rows' totals as far as they are known: the sidebar asks again while some are warming.
+    const runs = listRuns(store, { ...job.read, known: !whole });
+    const warming = rowsWarming(runs);
+    return answer({ runs, ...(warming ? { warming } : {}) }, { tagged: true });
+  },
+  differences: (store, job) => {
+    const run = lookupRun(store, job.runId);
+    return run ? answer({ differences: forkDifferences(store, run.runId, { normalizers: job.normalizers }) }, { tagged: true }) : noRun(store, job.runId);
+  },
+  unrecorded: (store, job) => {
+    const run = lookupRun(store, job.runId);
+    return run ? answer({ unrecorded: runUnrecorded(store, run, job.declared) }, { tagged: true }) : noRun(store, job.runId);
+  },
+  groups: (store, job) => {
+    const groups = fixAttemptGroups(store, job.fixId);
+    return groups ? answer(groups, { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
+  },
+  activity: (store, job) => answer(activity(store, { ...(job.limit !== undefined ? { limit: job.limit } : {}), before: job.before }), { tagged: true }),
+  show: (store, job) => {
+    const out = showRunJson(store, job.runId, { ...job.read, ...(job.tools ? { tools: job.tools } : {}) });
+    return out ? answer(out, { tagged: true }) : failed(404, `no run ${job.runId}`);
+  },
+  analyse: (store, job) => analyse(store, job.runId),
+  warm: (store, job) => {
+    const done = warmRunStats(store, { budgetMs: job.budgetMs });
+    const at = warmProgress(store);
+    return { ...answer(null), warm: { done, walked: at?.walked ?? 0, total: at?.total ?? 0 } };
+  },
+  provenance: (store, job) => {
+    const p = provenance(store, job.runId, { ...job.read, maskCount: () => job.mask });
+    return p ? answer(p, { tagged: true }) : failed(404, `no run ${job.runId}`);
+  },
+  'injection-run': (store, job) => (store.getRun(job.runId) ? answer(runInjection(store, job.runId, job.tools), { tagged: true }) : failed(404, `no run ${job.runId}`)),
+  'tool-trust': (store, job) => answer(toolTrust(store, job.tools), { tagged: true }),
+  'tool-reads': (store) => answer(toolReads(store)),
+  'store-facts': (store, job) => storeFactsOf(store, job.stores),
+  training: (store, job) => answer(trainingView(readTraining(store, { tasks: job.tasks, tasksError: job.tasksError, fixOf: sourceFixes(store), normalizers: job.normalizers }), { filter: job.filter }), { tagged: true }),
+  fix: (store, job) => fixPage(store, job),
+  search: (store, job) => {
+    const index = loadRunIndex(store);
+    const behind = searchBehind(store, index);
+    const found: SearchAnswer = { hits: searchRecorded(store, job.q, job.limit, index), ...(behind ? { indexing: { runs: behind, of: index.runs.length } } : {}) };
+    return answer(found);
+  },
+};
+
 /**
- * Works out one job against `store`. Never throws for what the job asks: a bad request or a missing
- * run is its answer. `whole` works out what isn't known yet rather than answer with how far the
- * warm-up has got: for a store in memory, whose read models run on the server's own thread anyway.
+ * Every pooled read's table: this module's, then each feature's, from its own module (read-registry.ts
+ * says how one is written). A feature's table is one line here, and a kind two of them register stops
+ * the dashboard as it loads.
+ */
+const READ_TABLES = [CORE_READS] as const;
+
+/** A job a read-model thread answers: of a kind a table registers, as that table's handler takes it. */
+export type ReadJob = JobOf<(typeof READ_TABLES)[number]>;
+
+const READS = readRegistry(READ_TABLES);
+
+/** The kinds of job the tables answer, sorted. */
+export function readKinds(): string[] {
+  return [...READS.keys()].sort();
+}
+
+/**
+ * Works out one job against `store`, by the handler its kind is registered with. Never throws for
+ * what the job asks: a bad request or a missing run is its answer. `whole` works out what isn't
+ * known yet rather than answer with how far the warm-up has got: for a store in memory, whose read
+ * models run on the server's own thread anyway.
  */
 export async function runJob(store: Store, job: ReadJob, o: { whole?: boolean } = {}): Promise<ReadAnswer> {
-  const whole = o.whole === true;
+  const handler = READS.get(job.kind);
+  // A kind no table here registers: a thread built before it was, given a job by a newer server.
+  if (!handler) throw new Error(`no read model answers a job of kind "${job.kind}": is the dashboard built?`);
   try {
-    switch (job.kind) {
-      case 'summary':
-        return await summary(store, job.work, whole);
-      case 'run': {
-        const d = runDetail(store, job.runId, job.read, job.after === undefined ? {} : { after: job.after });
-        if (!d) return noRun(store, job.runId);
-        // The route tags it by where the run stands (run-version.ts); a long run answered from its
-        // first calls is analysed whole beside the server, for the page to ask again.
-        return { ...answer(d), ...(d.warming ? { then: { kind: 'analyse', runId: d.run.runId } } : {}) };
-      }
-      case 'calls': {
-        const page = runCallsPage(store, job.runId, { from: job.from, limit: job.limit }, job.read, job.whole ? { whole: true } : {});
-        if (!page) return noRun(store, job.runId);
-        return { ...answer(page, { tagged: true }), ...(page.warming ? { then: { kind: 'analyse', runId: page.runId } } : {}) };
-      }
-      case 'call': {
-        const d = callDetail(store, job.runId, job.callNo, job.read, job.whole ? { whole: true } : {});
-        if (!d) return failed(404, `no call #${job.callNo} in run ${job.runId}`);
-        // Answered from the calls around it: the whole run is analysed beside the server, for the page to ask again.
-        return { ...answer(d, { tagged: true }), ...(d.around ? { then: { kind: 'analyse', runId: job.runId } as const } : {}) };
-      }
-      case 'lineage': {
-        const nodes = lineage(store, job.runId, job.read);
-        return nodes ? answer({ nodes }, { tagged: true }) : failed(404, `no run ${job.runId}`);
-      }
-      case 'compare': {
-        for (const id of [job.a, job.b]) {
-          if (lookupRun(store, id)) continue;
-          const no = noSuchRun(store, id);
-          return failed(no.status, no.status === 404 ? 'one of the runs does not exist' : no.message);
-        }
-        const c = await compareView(store, job.a, job.b, { cwd: job.cwd, code });
-        return c ? answer(c, { tagged: true }) : failed(404, 'one of the runs does not exist');
-      }
-      case 'compare-head': {
-        for (const id of [job.a, job.b]) {
-          if (lookupRun(store, id)) continue;
-          const no = noSuchRun(store, id);
-          return failed(no.status, no.status === 404 ? 'one of the runs does not exist' : no.message);
-        }
-        // Null when the head can't be told without reading too many requests: the whole comparison says.
-        return answer(compareHead(store, job.a, job.b), { tagged: true });
-      }
-      case 'runs-page':
-        return runsPage(store, job.options, job.team, whole);
-      case 'runs-days': {
-        const key = job.options.types?.includes('local') ? teamKey(store, job.team) : null;
-        return answer(runsByDay(store, { ...job.options, known: !whole, localRuns: key ? localRunSet(store, key) : null }), { tagged: true });
-      }
-      case 'recent': {
-        // The rows' totals as far as they are known: the sidebar asks again while some are warming.
-        const runs = listRuns(store, { ...job.read, known: !whole });
-        const warming = rowsWarming(runs);
-        return answer({ runs, ...(warming ? { warming } : {}) }, { tagged: true });
-      }
-      case 'differences': {
-        const run = lookupRun(store, job.runId);
-        if (!run) return noRun(store, job.runId);
-        return answer({ differences: forkDifferences(store, run.runId, { normalizers: job.normalizers }) }, { tagged: true });
-      }
-      case 'unrecorded': {
-        const run = lookupRun(store, job.runId);
-        if (!run) return noRun(store, job.runId);
-        return answer({ unrecorded: runUnrecorded(store, run, job.declared) }, { tagged: true });
-      }
-      case 'groups': {
-        const groups = fixAttemptGroups(store, job.fixId);
-        return groups ? answer(groups, { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
-      }
-      case 'activity':
-        return answer(activity(store, { ...(job.limit !== undefined ? { limit: job.limit } : {}), before: job.before }), { tagged: true });
-      case 'show': {
-        const out = showRunJson(store, job.runId, { ...job.read, ...(job.tools ? { tools: job.tools } : {}) });
-        return out ? answer(out, { tagged: true }) : failed(404, `no run ${job.runId}`);
-      }
-      case 'analyse': {
-        const run = lookupRun(store, job.runId);
-        if (run) {
-          const calls = runCalls(store, run.runId);
-          const analysis = analyseRun(store, run, calls);
-          // And what its user asked first, from the conversations the analysis placed its calls in:
-          // kept for its about line.
-          const index = loadRunIndex(store);
-          const r = index.byId.get(run.runId);
-          if (r && asksFor(r)) asksOf(store, index, [r], { analysed: { runId: run.runId, calls, conversations: analysis.conversations } });
-        }
-        return answer(null);
-      }
-      case 'warm': {
-        const done = warmRunStats(store, { budgetMs: job.budgetMs });
-        const at = warmProgress(store);
-        return { ...answer(null), warm: { done, walked: at?.walked ?? 0, total: at?.total ?? 0 } };
-      }
-      case 'provenance': {
-        const p = provenance(store, job.runId, { ...job.read, maskCount: () => job.mask });
-        return p ? answer(p, { tagged: true }) : failed(404, `no run ${job.runId}`);
-      }
-      case 'injection-run':
-        return store.getRun(job.runId) ? answer(runInjection(store, job.runId, job.tools), { tagged: true }) : failed(404, `no run ${job.runId}`);
-      case 'tool-trust':
-        return answer(toolTrust(store, job.tools), { tagged: true });
-      case 'tool-reads':
-        return answer(toolReads(store));
-      case 'store-facts': {
-        const facts: Record<string, StoreFacts> = {};
-        for (const s of job.stores) {
-          try {
-            facts[s.id] = s.dbPath === null ? storeFacts(store, Date.now(), { keep: s.keep }) : readStoreFacts(s.dbPath, Date.now(), { keep: s.keep });
-          } catch {
-            // left out: the server's thread reads it again, and says why it can't
-          }
-        }
-        return answer(facts);
-      }
-      case 'training':
-        return answer(trainingView(readTraining(store, { tasks: job.tasks, tasksError: job.tasksError, fixOf: sourceFixes(store), normalizers: job.normalizers }), { filter: job.filter }), { tagged: true });
-      case 'fix':
-        return fixPage(store, job);
-      case 'search': {
-        const index = loadRunIndex(store);
-        const behind = searchBehind(store, index);
-        const found: SearchAnswer = { hits: searchRecorded(store, job.q, job.limit, index), ...(behind ? { indexing: { runs: behind, of: index.runs.length } } : {}) };
-        return answer(found);
-      }
-    }
+    return await handler(store, job, { whole: o.whole === true });
   } catch (err) {
     // A cursor or a time zone the read model doesn't know: the request's mistake.
     if (err instanceof RangeError) return failed(400, err.message);

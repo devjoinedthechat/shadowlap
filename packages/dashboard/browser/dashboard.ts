@@ -70,7 +70,10 @@ export async function seriousViolations(page: Page): Promise<string[]> {
   return found.filter((v) => v.impact === 'serious' || v.impact === 'critical').flatMap((v) => v.nodes.map((n) => `${v.id} (${v.impact}): ${n.target.join(' ')}${n.failureSummary ? ` · ${n.failureSummary.replace(/\s+/g, ' ').slice(0, 220)}` : ''}`));
 }
 
-/** WCAG's contrast ratio between two colours the browser computed (`rgb(…)`, `rgba(…)`, `#rrggbb`). */
+/**
+ * WCAG's contrast ratio between two colours the browser computed: `rgb(…)`, `rgba(…)`, `#rrggbb`, or
+ * `color(srgb r g b)`, as Chrome gives a `color-mix()` in sRGB (the grounds and lines are mixes).
+ */
 export function contrast(a: string, b: string): number {
   const rgb = (c: string): [number, number, number] => {
     const hex = /^#([0-9a-f]{6})$/i.exec(c.trim());
@@ -78,6 +81,8 @@ export function contrast(a: string, b: string): number {
       const n = parseInt(hex[1]!, 16);
       return [n >> 16, (n >> 8) & 255, n & 255];
     }
+    const srgb = /^color\(srgb\s+([\d.e-]+)\s+([\d.e-]+)\s+([\d.e-]+)/.exec(c.trim());
+    if (srgb) return [Number(srgb[1]) * 255, Number(srgb[2]) * 255, Number(srgb[3]) * 255];
     const m = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/.exec(c);
     if (!m) throw new Error(`not a colour: ${c}`);
     return [Number(m[1]), Number(m[2]), Number(m[3])];

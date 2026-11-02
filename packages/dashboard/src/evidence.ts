@@ -1,4 +1,4 @@
-import { dropBound, isObject } from '@shadowlap/engine';
+import { confidenceWhy, dropBound, isObject, probeClaim, type BlameProbe, type BlameReport, type PinCheck } from '@shadowlap/engine';
 
 /**
  * What a verdict's JSON may say beyond its tally, read for the Fixes pages when it says it: a gate's
@@ -39,6 +39,13 @@ export interface BlameEvidence {
   /** `gradual` when the check of the call the probes pinned found no drop there: lost gradually around the two. */
   range: { from: number; to: number; gradual?: true } | null;
   errorBound: number | null;
+  /**
+   * The error bound as the CLI prints it after the blame's confidence, with what it rests on (the
+   * engine's confidenceWhy): `<= 3% risk that the call is wrong: 3 probes decided, at <= 1.3% risk
+   * each`. Null with no bound, where the CLI prints no confidence line, or for a report whose probes
+   * don't say what bounds it.
+   */
+  risk: string | null;
 }
 
 /** A bound's method in words. */
@@ -90,5 +97,35 @@ export function blameEvidence(x: unknown): BlameEvidence {
   const to = count(g?.to);
   const range = from !== null && to !== null && from >= 1 && to >= from ? { from, to, ...(g?.gradual === true ? { gradual: true as const } : {}) } : null;
   const errorBound = finite(r?.errorBound) && r.errorBound >= 0 && r.errorBound <= 1 ? r.errorBound : null;
-  return { range, errorBound };
+  return { range, errorBound, risk: r && errorBound !== null ? riskWords(r, errorBound, range) : null };
+}
+
+/** A share, as a risk is one: from 0 to 1. */
+const share = (v: unknown): boolean => finite(v) && v >= 0 && v <= 1;
+
+/** A blame's probes as confidenceWhy reads them: each that decided something carries its risk. */
+const decidedProbes = (v: unknown): v is BlameProbe[] => Array.isArray(v) && v.every((p) => isObject(p) && (probeClaim(p as Parameters<typeof probeClaim>[0]) === null || share(p.risk)));
+
+/** Where rescue rose again past the boundary, each by its two calls. */
+const rises = (v: unknown): v is BlameReport['nonMonotone'] => Array.isArray(v) && v.every((m) => isObject(m) && count(m.lost) !== null && count(m.rescued) !== null);
+
+/** The check of the pinned call: none, one that couldn't decide, or one that did, with its call and its risk. */
+const pinCheck = (v: unknown): v is PinCheck | null => v === null || (isObject(v) && (v.verdict === 'inconclusive' || (count(v.callNo) !== null && share(v.risk))));
+
+/**
+ * A blame's error bound in the CLI's words (confidenceWhy), from what of the report they read, each
+ * of its shape: every probe that decided something carries its risk, each rise past the boundary
+ * names its two calls, and a check of the pinned call that decided carries its call and risk. Null
+ * when any doesn't, so a report from elsewhere never prints a bound it doesn't hold. Null too where
+ * `shadowlap blame` prints no confidence line (formatBlame): a blame whose passing attempts answered
+ * the call as the recording did (`sameAnswer`) keeps the search's bound, which is not one on the
+ * claim it makes, that no call rescues the run.
+ */
+function riskWords(r: Record<string, unknown>, errorBound: number, range: BlameEvidence['range']): string | null {
+  const { outcome, probes } = r;
+  const nonMonotone = r.nonMonotone ?? [];
+  const pin = r.pin ?? null;
+  if (r.sameAnswer) return null;
+  if ((outcome !== 'blamed' && outcome !== 'unrescuable') || !decidedProbes(probes) || !rises(nonMonotone) || !pinCheck(pin)) return null;
+  return confidenceWhy({ outcome, probes, nonMonotone, errorBound, range, pin });
 }

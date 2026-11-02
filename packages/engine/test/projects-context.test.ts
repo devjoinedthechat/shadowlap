@@ -100,25 +100,25 @@ describe('ProjectHost', () => {
     host.close();
   });
 
-  it('keeps the store --db named for the project it started in, and won’t delete that one', () => {
+  it('keeps the store --db named for the project it started in, and won’t delete that one', async () => {
     const { registry, loadConfig, support } = world();
     const custom = join(tempDir('sl-custom-'), 'runs.db');
     const host = ProjectHost.open(support, { registry, loadConfig, dbPath: custom });
     expect(host.current().dbPath).toBe(custom);
     expect(host.current().cliArgs(['ls'])).toEqual(['--db', custom, 'ls']);
     registry.add('~/triage-bot');
-    expect(() => host.remove('support-agent', { deleteRecordings: true, typedName: 'support-agent' })).toThrow(expect.objectContaining({ code: 'store' }));
+    await expect(host.remove('support-agent', { deleteRecordings: true, typedName: 'support-agent' })).rejects.toThrow(expect.objectContaining({ code: 'store' }));
     host.close();
   });
 
-  it('closes a removed project’s store first, and moves to another project when the current one goes', () => {
+  it('closes a removed project’s store first, and moves to another project when the current one goes', async () => {
     const { registry, loadConfig, support } = world();
     const host = ProjectHost.open(support, { registry, loadConfig });
     registry.add('~/triage-bot');
     const store = host.current().store();
     store.createRun({ mode: 'record', command: { argv: ['python', 'agent.py'], cwd: support } });
     store.endRun(store.listRuns(1)[0].runId, 'completed');
-    const removed = host.remove('support-agent', { deleteRecordings: true, typedName: 'support-agent' });
+    const removed = await host.remove('support-agent', { deleteRecordings: true, typedName: 'support-agent' });
     expect(removed).toMatchObject({ current: 'triage-bot', deleted: expect.arrayContaining(['.shadowlap/shadowlap.db']) });
     expect(existsSync(projectDbPath(support))).toBe(false);
     expect(host.currentProject()).toBe('triage-bot');
@@ -126,20 +126,52 @@ describe('ProjectHost', () => {
     host.close();
   });
 
-  it('never opens a removed project’s store again, so its deleted recordings stay deleted', () => {
+  it('never opens a removed project’s store again, so its deleted recordings stay deleted', async () => {
     const { registry, loadConfig, support } = world();
     const host = ProjectHost.open(support, { registry, loadConfig });
     registry.add('~/triage-bot');
     const ctx = host.current();
     ctx.store();
     // A removal refused (the wrong name typed) leaves the project as it was.
-    expect(() => host.remove('support-agent', { deleteRecordings: true, typedName: 'support' })).toThrow(ProjectError);
+    await expect(host.remove('support-agent', { deleteRecordings: true, typedName: 'support' })).rejects.toThrow(ProjectError);
     expect(ctx.store()).toBeTruthy();
-    host.remove('support-agent', { deleteRecordings: true, typedName: 'support-agent' });
+    await host.remove('support-agent', { deleteRecordings: true, typedName: 'support-agent' });
     expect(existsSync(projectDbPath(support))).toBe(false);
     // Whatever still holds its context, a timer or a request under way, can't bring the store back.
     expect(() => ctx.store()).toThrow(expect.objectContaining({ code: 'not-found' }));
     expect(existsSync(projectDbPath(support))).toBe(false);
+    host.close();
+  });
+
+  it('has what else holds a removed project’s store let go of it once the project is off the list, before its recordings are deleted', async () => {
+    const { registry, loadConfig, support, home } = world();
+    files(join(home, 'research-agent'), { 'pyproject.toml': '' });
+    const host = ProjectHost.open(support, { registry, loadConfig });
+    registry.add('~/triage-bot');
+    registry.add('~/research-agent');
+    recordInto(host.current().store(), support);
+    // A dashboard's threads, each with a connection of its own: letting go takes a while.
+    const seen: Array<{ dbPath: string; listed: boolean; store: boolean }> = [];
+    const stop = host.holdStores(async (dbPath) => {
+      await new Promise((r) => setTimeout(r, 20));
+      seen.push({ dbPath, listed: registry.list().some((p) => projectDbPath(p.path) === dbPath), store: existsSync(dbPath) });
+    });
+    // A removal refused lets go of nothing.
+    await expect(host.remove('support-agent', { deleteRecordings: true, typedName: 'support' })).rejects.toThrow(ProjectError);
+    expect(seen).toEqual([]);
+    // Off the list first, so nothing opens the store again; deleted only once every holder let go.
+    const removed = await host.remove('support-agent', { deleteRecordings: true, typedName: 'support-agent' });
+    expect(seen).toEqual([{ dbPath: projectDbPath(support), listed: false, store: true }]);
+    expect(removed.deleted).toContain('.shadowlap/shadowlap.db');
+    expect(existsSync(projectDbPath(support))).toBe(false);
+    // Removed with its recordings kept: let go of all the same, as the project leaves the dashboard.
+    await host.remove('research-agent');
+    expect(seen.map((s) => s.dbPath)).toEqual([projectDbPath(support), projectDbPath(join(home, 'research-agent'))]);
+    // Stopped: told nothing more.
+    stop();
+    registry.add('~/research-agent');
+    await host.remove('research-agent');
+    expect(seen).toHaveLength(2);
     host.close();
   });
 
@@ -415,7 +447,7 @@ describe('ProjectHost: what it reads and keeps', () => {
 });
 
 describe('ProjectHost: a project list it can’t use', () => {
-  it('opens on the start folder with a notice when the list isn’t valid JSON, and changes nothing', () => {
+  it('opens on the start folder with a notice when the list isn’t valid JSON, and changes nothing', async () => {
     const { registry, loadConfig, support } = world();
     mkdirSync(dirname(registry.file), { recursive: true });
     writeFileSync(registry.file, '{ not json');
@@ -426,7 +458,7 @@ describe('ProjectHost: a project list it can’t use', () => {
     host.current().store().createRun({ mode: 'record', command: { argv: ['python', 'agent.py'], cwd: support } });
     expect(host.stats()['support-agent'].runs).toBe(1);
     expect(() => host.add('~/triage-bot')).toThrow(expect.objectContaining({ code: 'registry' }));
-    expect(() => host.remove('support-agent')).toThrow(expect.objectContaining({ code: 'registry', message: host.notice }));
+    await expect(host.remove('support-agent')).rejects.toThrow(expect.objectContaining({ code: 'registry', message: host.notice }));
     expect(() => host.confirmCommand('support-agent', { argv: ['python', 'agent.py'], upstream: null })).toThrow(expect.objectContaining({ code: 'registry' }));
     expect(readFileSync(registry.file, 'utf8')).toBe('{ not json');
 

@@ -460,6 +460,9 @@ describe('a judge\'s calls are never the agent\'s', () => {
     const blame = JSON.parse(b.stdout) as { modelCalls: number; probes: Array<{ callNo: number }> };
     expect(blame.modelCalls).toBe(1);
     expect(blame.probes.map((p) => p.callNo)).toEqual([1]);
+    // And it says so before it starts: one model call, so one probe and no check of a call it pins.
+    expect(b.out).toMatch(/: 1 model call\n/);
+    expect(b.out).toContain('at most 1 probe and 1 attempt; every call before a probe replays');
     const scoped = await shadowlap(['blame', rec, '--expect', JSON.stringify({ judge: [judge({ question: 'Was the refund declined?' })] }), '--scope', 'nope', '--json']);
     expect(scoped.code).not.toBe(0);
     expect(scoped.out).toContain('made no model calls in scope nope (it used no scopes)');

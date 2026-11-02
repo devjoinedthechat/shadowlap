@@ -25,7 +25,7 @@ shadowlap run -- python agent.py    # record a run, with your usual key
 shadowlap replay <run>              # a clean replay: 0 upstream requests, no real key
 ```
 
-Model calls need no code changes: `shadowlap run` routes the Anthropic, OpenAI and Gemini SDKs through its sidecar, and captures Azure OpenAI, Vertex AI and Bedrock clients inside the process. Outside Shadowlap every wrapper is a passthrough, so decorated tools ship unchanged.
+Model calls need no code changes: `shadowlap run` routes the Anthropic, OpenAI and Gemini SDKs through its sidecar, and captures Azure OpenAI, Gemini Enterprise Agent Platform (Vertex AI) and Bedrock clients inside the process. Outside Shadowlap every wrapper is a passthrough, so decorated tools ship unchanged.
 
 - `effect` is required: `pure` (depends only on its arguments), `read` (reads outside state) or `write` (changes it). After a fork, `read` tools run live and a `write` raises `ShadowlapWriteBlocked`, unless the replay stubs writes, returning what `on_fork` gives, or allows them. Coroutine functions, async generators (a streaming tool keeps streaming) and objects with an async `__call__` work too, under asyncio, trio and anyio.
 - `now()`, `random()` and `uuid()` record the clock and randomness, so a replay sees the values the run saw.

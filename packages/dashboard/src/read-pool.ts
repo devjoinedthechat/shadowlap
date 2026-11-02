@@ -572,7 +572,9 @@ export class ReadPool implements ReadModels {
         slot.freed = Date.now();
         if (slot.limit) clearTimeout(slot.limit);
         slot.limit = null;
-        // A thread built before a kind of job it is given answers nothing for it: that fails, rather than waits for good.
+        // A thread built before the read registry (read-registry.ts) answers nothing for a kind of job
+        // it doesn't know. That fails the request here: read as an answer below, it would throw and
+        // stop the dashboard. A thread built since fails such a job itself, as an 'error' in runJob's words.
         if (m.type === 'answer' && !m.answer) {
           this.o.log?.(`a read-model thread answered nothing for a ${p.job.kind} job: is the dashboard built?`);
           p.reject(new Error(`no answer for a ${p.job.kind} job`));

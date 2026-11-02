@@ -1,9 +1,9 @@
 import { InvalidArgumentError } from 'commander';
-import { BLAME_DEFAULTS, commandIsImported, describeRescue, dimLines, fitLine, formatBlame, hasRecordedCommand, maxProbes, probeGate, riskPercent, rescueRule, unsettledFirst, type ReadPolicy, type RunRecord, whole } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, blameBound, blameSteps, commandIsImported, describeRescue, dimLines, fitLine, formatBlame, hasRecordedCommand, riskPercent, rescueRule, unsettledFirst, type ReadPolicy, type RunRecord, whole } from '@shadowlap/engine';
 import { fixHref } from '@shadowlap/dashboard';
 import { formatAttemptsUnrecorded } from '../attempt-unrecorded.js';
 import { formatBudget, undecidableRefusal } from '../attempts.js';
-import { BlameError, inScope, runBlame, type BlameRun } from '../blame.js';
+import { BlameError, blameRuleOf, runBlame, type BlameRun } from '../blame.js';
 import { EXIT } from '../exit-codes.js';
 import { blameCommand } from '../fixes.js';
 import { emitJobEvent } from '../job-events.js';
@@ -99,7 +99,8 @@ async function parseBlame(opts: GlobalOpts, runArg: string, command: string[], f
   let steps: number;
   try {
     parent = requireRun(store, runArg);
-    steps = store.getCalls(parent.runId).filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, flags.scope)).length;
+    // The model calls the search probes, as runBlame finds them: a judge check's are none of them.
+    steps = blameSteps(store.getCalls(parent.runId), flags.scope).length;
     // Every probe replays the run: a tool its model called that it never recorded, which writes, would run again for real.
     refuseUnrecorded(store, parent, allowedUnrecorded(flags.allowUnrecorded));
   } finally {
@@ -116,10 +117,13 @@ async function parseBlame(opts: GlobalOpts, runArg: string, command: string[], f
 
 /**
  * What the search will do, said before it starts: the run, each probe's rule, and the most probes and
- * attempts it makes, each dim line fit to a terminal `columns` wide (null: a pipe or a file).
+ * attempts it makes, as the engine bounds the search runBlame runs (blameBound), each dim line fit to
+ * a terminal `columns` wide (null: a pipe or a file).
  */
 export function blamePlan({ rule, fields, parent, steps, argv }: Pick<BlameRequest, 'rule' | 'fields' | 'parent' | 'steps' | 'argv'>, flags: Pick<BlameFlags, 'scan' | 'scope' | 'writes' | 'budget'>, columns: number | null): string[] {
-  const most = maxProbes(steps, flags.scan);
+  const bound = blameBound(steps, blameRuleOf({ gate: rule.gate, attempts: rule.attempts, scan: flags.scan }));
+  const most = bound.probes;
+  const attempts = most * bound.each;
   const each = rule.gate ? rescueRule({ gate: rule.gate, needed: 0, attemptsPerProbe: rule.gate.max, probeBudget: most }) : `${rule.attempts} attempts, a rescue at ${rule.needed} passing`;
   // Under a gate its risk is the whole search's, spent across the most probes it makes.
   const spent = rule.gate ? `, the ${riskPercent(rule.gate.risk)} risk spent across them` : '';
@@ -127,7 +131,7 @@ export function blamePlan({ rule, fields, parent, steps, argv }: Pick<BlameReque
     // The agent's command stays in one piece, as it is copied.
     ...fitLine(`${p.yellow('⑂')} Blaming ${shortId(parent.runId)} ${p.dim(`(${whole(safe(quoteArgv(argv)))})`)}: ${steps} model call${steps === 1 ? '' : 's'}${flags.scope ? ` in scope ${safe(flags.scope)}` : ''}`, columns),
     ...dimLines(p, '  ', `each probe: ${describeRescue(fields)}, ${each} · writes ${flags.writes === 'stub' ? 'stubbed' : 'blocked'}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}`, columns),
-    ...dimLines(p, '  ', `at most ${most} probe${most === 1 ? '' : 's'}${spent} and ${most * (rule.gate ? probeGate(rule.gate, most).max : rule.attempts)} attempts${steps > 1 ? `, and ${2 * 2 * probeGate(rule.gate ?? { kind: 'sprt', ...BLAME_DEFAULTS }, most).max} more to check a call they pin` : ''}; every call before a probe replays from the recording for free`, columns),
+    ...dimLines(p, '  ', `at most ${most} probe${most === 1 ? '' : 's'}${spent} and ${attempts} attempt${attempts === 1 ? '' : 's'}${bound.pin ? `, and ${bound.pin} more to check a call they pin` : ''}; every call before a probe replays from the recording for free`, columns),
   ];
 }
 

@@ -275,7 +275,10 @@ describe.skipIf(!PYTHON)('recorded user input: Python', () => {
     const rec = await piped(['run', '--', PYTHON!, CHAT], 'My blender arrived broken. Order A-1042.\nA refund, please.\nNo, thanks!\n');
     expect(rec.out).toContain('Refunded $240.');
     const runId = latestRecording();
-    const blame = await shadowlap(['blame', runId, '--expect', '{"tools":{"issue_refund":0}}', '--model', 'careful-model', '--attempts', '1', '--json']);
+    // A quick gate (the default rates, at 40% risk) and no probe past the call found lost: what this
+    // shows is what each probe is served, not how many attempts it takes. Most of them check the call
+    // the probes pin: 6 pairs at this gate, where --attempts 1 leaves the check 11 at the default's.
+    const blame = await shadowlap(['blame', runId, '--expect', '{"tools":{"issue_refund":0}}', '--model', 'careful-model', '--gate', '{"risk":0.4}', '--scan', '0', '--json']);
     expect(blame.code, blame.out).toBe(0);
     const report = JSON.parse(blame.out.slice(blame.out.indexOf('{'))) as { outcome: string };
     // Model call #6 answered "A refund, please." with the refund: asked again, it escalates and the run passes.
@@ -302,12 +305,16 @@ describe.skipIf(!PYTHON)('recorded user input: Python', () => {
     expect(replacement).not.toBe(refund);
     const verify = await shadowlap(['verify', '--fixes', refund, '--keeps', replacement, '--expect', '{"tools":{"issue_refund":0}}', '--model', 'careful-model', '--attempts', '1', '--json']);
     expect(verify.code, verify.out).toBe(0);
-    const report = JSON.parse(verify.out.slice(verify.out.indexOf('{'))) as { verdict: string; runs: Array<{ runId: string; outcome: string; runs: Array<{ runId: string }> }> };
+    const report = JSON.parse(verify.out.slice(verify.out.indexOf('{'))) as { verdict: string; warnings: string[]; runs: Array<{ runId: string; outcome: string; runs: Array<{ runId: string; afterFork?: { inOrder: number } }> }> };
     expect(report.verdict).toBe('accepted');
     expect(report.runs.map((r) => [r.runId, r.outcome])).toEqual([
       [refund, 'fixed'],
       [replacement, 'kept'],
     ]);
+    // The model changes from the first model call, after the opening question: the three answers after
+    // it came in the order given, whatever the careful model then asked, and the report says so.
+    expect(report.runs.flatMap((r) => r.runs).map((a) => a.afterFork?.inOrder)).toEqual([3, 3]);
+    expect(report.warnings).toContain("2 attempts of the change got a person's recorded answers after the fork, in the order they were given, whatever the agent then asked: where the change alters the conversation, they may not fit it");
     // Each attempt had the whole conversation: the answers after the fork came from its recording, in order.
     const store = Store.open(db);
     try {

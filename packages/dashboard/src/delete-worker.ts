@@ -15,7 +15,8 @@ const post = (m: DeleteAnswer) => parentPort?.postMessage(m);
 let store: Store | null = null;
 let answer: DeleteAnswer;
 try {
-  store = Store.open(work.dbPath);
+  // Only a store that is there: one deleted meanwhile is not made again.
+  store = Store.openExisting(work.dbPath);
   answer = { ok: true, result: deleteRuns(store, work.ids) };
 } catch (err) {
   const error = messageOf(err);

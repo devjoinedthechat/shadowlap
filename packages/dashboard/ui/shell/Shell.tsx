@@ -5,6 +5,7 @@ import { HoverCardLayer } from '../components/HoverCard.js';
 import { Sprite } from '../components/Icon.js';
 import { ToastHost } from '../components/Toast.js';
 import { useFixTitle } from '../fixes/data.js';
+import { TestsAskHost } from '../fixes/TestsJobButton.js';
 import { setupShowsOn } from '../projects.js';
 import type { Route } from '../route.js';
 import { useRoute } from '../router.js';
@@ -58,6 +59,8 @@ export function Shell({ pages: PageSlot }: { pages: Pages }) {
       <Palette route={route} />
       <Shortcuts onRun={route.page === 'run'} />
       <JobDrawer />
+      {/* A Tests job that would run goldens live asks here, whichever page or the palette started it. */}
+      <TestsAskHost />
       <ToastHost />
       <HoverCardLayer />
       <Keyboard />
