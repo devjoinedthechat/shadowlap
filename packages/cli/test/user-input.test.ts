@@ -275,7 +275,10 @@ describe.skipIf(!PYTHON)('recorded user input: Python', () => {
     const rec = await piped(['run', '--', PYTHON!, CHAT], 'My blender arrived broken. Order A-1042.\nA refund, please.\nNo, thanks!\n');
     expect(rec.out).toContain('Refunded $240.');
     const runId = latestRecording();
-    const blame = await shadowlap(['blame', runId, '--expect', '{"tools":{"issue_refund":0}}', '--model', 'careful-model', '--attempts', '1', '--json']);
+    // A quick gate (the default rates, at 40% risk) and no probe past the call found lost: what this
+    // shows is what each probe is served, not how many attempts it takes. Most of them check the call
+    // the probes pin: 6 pairs at this gate, where --attempts 1 leaves the check 11 at the default's.
+    const blame = await shadowlap(['blame', runId, '--expect', '{"tools":{"issue_refund":0}}', '--model', 'careful-model', '--gate', '{"risk":0.4}', '--scan', '0', '--json']);
     expect(blame.code, blame.out).toBe(0);
     const report = JSON.parse(blame.out.slice(blame.out.indexOf('{'))) as { outcome: string };
     // Model call #6 answered "A refund, please." with the refund: asked again, it escalates and the run passes.
