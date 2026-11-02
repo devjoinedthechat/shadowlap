@@ -1,23 +1,17 @@
-import { lazy, Suspense, type ComponentType, type JSX } from 'react';
+import type { ComponentType } from 'react';
+import { onShow, type OnShow } from '../components/OnShow.js';
 import { Page } from '../components/Page.js';
 
 /**
  * The pages the shell routes to, each in a script of its own that loads the first time the page
- * opens: esbuild splits the bundle at each `import()` (build-ui.mjs), so the app's first script holds
- * the shell and what the pages share, and a page's own code comes when it is asked for. While it
- * loads the page waits empty, as it does before the project is known. An exported copy is built as
- * one script with every page in it, so it asks nothing of a network.
+ * opens (`onShow`): esbuild splits the bundle at each `import()` (build-ui.mjs), so the app's first
+ * script holds the shell and what the pages share, and a page's own code comes when it is asked for.
+ * While it loads the page waits empty, as it does before the project is known. An exported copy is
+ * built as one script with every page in it, so it asks nothing of a network.
  */
 
-function onOpen<P extends object>(load: () => Promise<ComponentType<P>>): (props: P) => JSX.Element {
-  const Loaded = lazy(async () => ({ default: await load() }));
-  return function PageOnOpen(props: P) {
-    return (
-      <Suspense fallback={<Page>{null}</Page>}>
-        <Loaded {...(props as P & JSX.IntrinsicAttributes)} />
-      </Suspense>
-    );
-  };
+function onOpen<P extends object>(load: () => Promise<ComponentType<P>>): OnShow<P> {
+  return onShow(load, <Page>{null}</Page>);
 }
 
 export const OverviewPage = onOpen(() => import('./Overview.js').then((m) => m.OverviewPage));
