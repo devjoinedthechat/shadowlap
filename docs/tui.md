@@ -157,7 +157,7 @@ The terminal UI's keys:
 
 | Key | What it does |
 | --- | --- |
-| `↑`/`↓`, `j`/`k`, `PgUp`/`PgDn`, `g`/`G` | Move in the focused pane: the selected row is filled in lime |
+| `↑`/`↓`, `j`/`k`, `PgUp`/`PgDn`, `g`/`G` | Move in the focused pane: the selected row is bold, on a grey ground |
 | `←`/`→`, `h`/`l` | Focus the call list or the inspector; the inspector then scrolls with the same keys |
 | `Tab`, `Shift-Tab`, `1`–`6` | Inspector tabs: the call's four, `5` a fork's diff, `6` the verdict, the same numbers on every run |
 | `v` | The verdict tab: how the run stands |
@@ -286,17 +286,34 @@ A replay of a run from someone else's pack, a teammate's pulled from the team st
 
 ## Colours
 
-The terminal UI uses these colours:
+The terminal UI uses the dashboard's colours, and each means one thing, as it does there:
 
 | Colour | For |
 | --- | --- |
-| Lime | What Shadowlap adds: a replayed call, the fork point, the focused pane, the selected row |
-| The terminal's own text colour | What was said, and what ran live |
-| Red, amber and violet | Failures, fenced and stubbed calls, and overrides |
+| Lime | What passed, and the `Enter` that runs a repair or a verify |
+| Amber | What needs a look or is inconclusive |
+| Red | What failed: a check, a call, a lost run, and what a changed request removed |
+| Grey | Secondary text, and what doesn't apply or was interrupted |
+| The terminal's own text colour | Where you are, a fork, and what was said |
 
-Lime that reads well on a dark background disappears on a light one. So before it draws anything, the UI asks the terminal for its background colour, as Neovim does, and picks a palette to suit. On a light background, lime text is darkened, and lime stays behind the selected row.
+The wordmark keeps the brand's lime behind it.
 
-- **A terminal that doesn't say** gets its own sixteen colours, which its theme already suits to its background, as does one with fewer than 256 colours.
+Each origin has a colour of its own, as on the dashboard's [origin strip](./dashboard.md#the-origin-strip):
+
+| Origin | Drawn as |
+| --- | --- |
+| Replayed | The logo's second green, quieter than lime, for a clean replay too |
+| Live | Off-white on a dark background, else the terminal's own text colour |
+| Overridden | Violet |
+| Injected | A quieter violet |
+| Blocked | Grey: the word says Shadowlap fenced the write, where the dashboard draws a hatch |
+| Stubbed | Steel blue |
+
+**Where you are** is drawn as the dashboard draws it. The selected row and the open tab are bold, on a grey ground a step off the terminal's own background, or bold alone in its sixteen colours. The pane in focus is framed in the terminal's text colour.
+
+Lime that reads well on a dark background disappears on a light one. So before it draws anything, the UI asks the terminal for its background colour, as Neovim does, and picks a palette to suit. On a light background, each colour is darkened to keep its meaning and to read at 4.5:1.
+
+- **A terminal that doesn't say** gets its own sixteen colours, which its theme already suits to its background, as does one with fewer than 256 colours. Each meaning takes the nearest of them, and no two share one: passed is bright green, replayed green.
 - **`COLORFGBG`**, which rxvt, Konsole and iTerm2 set, is read when the terminal doesn't answer.
 - **`SHADOWLAP_UI_THEME=dark`, `light` or `ansi`** chooses for it.
 - **In a terminal without colour**, the `>` before the selected row marks it.
