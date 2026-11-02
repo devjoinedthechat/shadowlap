@@ -1,9 +1,10 @@
+import { spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import chalk from 'chalk';
 import { createElement } from 'react';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { normalizeConversation, Store, unpackRun } from '@shadowlap/engine';
+import { normalizeConversation, Store, unpackRun, type CallRecord, type Effect, type Origin, type StoredCheck } from '@shadowlap/engine';
 import { App } from '../src/app.js';
 import { FixJobView } from '../src/components/FixJobView.js';
 import { conversationAt, freshSince, modelAction } from '../src/data.js';
@@ -296,6 +297,88 @@ function colourStore() {
   return { store: s, recording, fork: fork.runId };
 }
 
+/** A copy of the recording's calls into a run of its own, each served as `origin` says, and how each ended as `end` says. */
+function copyCalls(s: Store, parent: readonly CallRecord[], runId: string, origin: (c: CallRecord) => Origin = () => 'replayed', end: (c: CallRecord) => Partial<NonNullable<CallRecord['end']>> = () => ({})) {
+  for (const c of parent) {
+    const { end: ended, attempts, ...start } = c;
+    void attempts;
+    s.appendCallStart({ ...start, runId, origin: origin(c) });
+    if (ended) s.appendCallEnd(c, { ...ended, ...end(c), runId });
+  }
+}
+
+/**
+ * Replays of the recording, as the runs list says how each stands: one stopped short (`crashed`),
+ * one its recorder left running (interrupted), one recording now, one whose second check did not
+ * apply and one none of whose checks did.
+ */
+function statusStore() {
+  const s = Store.open(':memory:');
+  const recording = unpackRun(s, GOLDEN).imported[0];
+  const parent = s.getCalls(recording);
+  const replay = (checks?: StoredCheck[]) => {
+    const run = s.createRun({ mode: 'replay', parentRunId: recording, command: { argv: ['node', 'agent.js'], cwd: '.' }, ...(checks ? { meta: { checks } } : {}) });
+    copyCalls(s, parent, run.runId);
+    return run.runId;
+  };
+  const crashed = replay();
+  s.endRun(crashed, 'crashed');
+  const notApplicable = { status: 'not-applicable', ok: true, label: 'refunds under the limit', detail: null } as const;
+  const partly = replay([{ status: 'passed', ok: true, label: 'answers', detail: null }, notApplicable]);
+  s.endRun(partly, 'completed');
+  s.endRun(replay([notApplicable]), 'completed');
+  // A process that has ended holds it: its recorder went away.
+  const left = replay();
+  const db = (s as unknown as { db: { prepare(sql: string): { run(...args: unknown[]): unknown } } }).db;
+  db.prepare('UPDATE run_owners SET pid = ? WHERE run_id = ?').run(spawnSync(process.execPath, ['-e', '0']).pid, left);
+  replay();
+  return { store: s, crashed, partly };
+}
+
+const BLOCKED = { name: 'ShadowlapWriteBlocked', message: 'write tool send_email blocked after divergence (use --writes stub|allow to change this)' };
+
+/** A tool call that `runId` makes at `callNo`, served as `origin` says, and how it ended. */
+function toolCall(s: Store, runId: string, callNo: number, name: string, effect: Effect, origin: Origin, outcome: 'ok' | 'error') {
+  const start = { runId, callNo, kind: 'tool' as const, name, fingerprint: `${name}:${callNo}`, occurrence: 0, origin, effect, requestRef: s.putJson({ args: { order: callNo } }), meta: {}, at: Date.now() };
+  s.appendCallStart(start);
+  s.appendCallEnd(start, { runId, callNo, attempt: 0, responseRef: null, outcome, meta: outcome === 'error' ? { error: { name: 'Error', message: `${name} failed` } } : {}, at: Date.now() });
+}
+
+/**
+ * Forks of the recording made at #28, the model call before its one write (send_email at #29), which
+ * replay blocks after a fork, recording the fence as an error: one that did nothing else, and one
+ * that went on to write more, each write with a fate of its own (stubbed, failed, run live,
+ * overridden), and to hand over to a person.
+ */
+function fenceStore() {
+  const s = Store.open(':memory:');
+  const recording = unpackRun(s, GOLDEN).imported[0];
+  const parent = s.getCalls(recording);
+  const fork = () => {
+    const run = s.createRun({ mode: 'replay', parentRunId: recording, command: { argv: ['node', 'agent.js'], cwd: '.' } });
+    const fenced = (c: CallRecord) => c.name === 'send_email';
+    copyCalls(
+      s,
+      parent,
+      run.runId,
+      (c) => (fenced(c) ? 'blocked' : c.callNo >= 28 ? 'live' : 'replayed'),
+      (c) => (fenced(c) ? { outcome: 'error', responseRef: null, meta: { error: BLOCKED } } : {}),
+    );
+    s.setDivergence(run.runId, { type: 'forced', callNo: 28, kind: 'api', name: 'POST /v1/messages', replayedBefore: 27, reason: 'forced live by --diverge-at 28' });
+    return run.runId;
+  };
+  const fenced = fork();
+  s.endRun(fenced, 'completed');
+  const writes = fork();
+  toolCall(s, writes, 31, 'issue_refund', 'write', 'stubbed', 'ok');
+  toolCall(s, writes, 32, 'update_ticket', 'write', 'live', 'error');
+  toolCall(s, writes, 33, 'post_note', 'write', 'live', 'ok');
+  toolCall(s, writes, 34, 'transfer_to_human', 'read', 'live', 'ok');
+  toolCall(s, writes, 35, 'set_flag', 'write', 'overridden', 'ok');
+  s.endRun(writes, 'completed');
+  return { store: s, fenced, writes };
+}
+
 const plainText = (frame: string | undefined) => (frame ?? '').replace(/\x1b\[[0-9;]*m/g, '');
 
 /** The frame, colours and all, once its text shows `text`. */
@@ -371,6 +454,64 @@ describe('on the screen', () => {
     expect(painted(frame, THEMES.ansi.ok)).toEqual(['shadowlap', '✓ 1/1']);
     expect(painted(frame, THEMES.ansi.origin.replayed, 'text')).toEqual(['clean replay']);
     ansi.unmount();
+    store.close();
+  });
+
+  it('says a run stopped short or left running in grey and one recording in the live colour, as the dashboard lists them, and a check that did not apply in grey', async () => {
+    const { store, crashed, partly } = statusStore();
+    const d = THEMES.dark;
+    const runs = renderAt(createElement(App, { store, columns: 140, rows: 24 }), 140, 24);
+    let list = await drawn(runs.lastFrame, '6 runs');
+    // Nothing failed, so nothing is red: `crashed` is a run cut short, the dashboard's interrupted.
+    expect(painted(list, d.err)).toEqual([]);
+    const quiet = painted(list, d.faint, 'text');
+    for (const word of ['crashed', 'interrupted', '– 0/0']) expect(quiet).toContain(word);
+    expect(painted(list, d.origin.live!, 'text')).toEqual(['recording']);
+    expect(painted(list, d.ok)).toEqual(['shadowlap', '✓ 1/1']);
+    // A mark's message says what it did in ink: lime stays the wordmark's and what passed.
+    runs.stdin.write('+');
+    list = await drawn(runs.lastFrame, 'is good');
+    expect(painted(list, d.ok)).toEqual(['shadowlap', '✓ 1/1']);
+    runs.unmount();
+
+    // The run's page says it was interrupted, in grey as every list says it.
+    const page = renderAt(createElement(App, { store, runId: crashed, columns: 120, rows: 30 }), 120, 30);
+    const frame = await drawn(page.lastFrame, 'the run was interrupted');
+    expect(painted(frame, d.faint, 'text')).toContain('· the run was interrupted');
+    expect(painted(frame, d.err)).toEqual([]);
+    page.unmount();
+
+    // A check that did not apply, in grey beside the one that passed.
+    const checks = renderAt(createElement(App, { store, runId: partly, columns: 120, rows: 30 }), 120, 30);
+    await drawn(checks.lastFrame, 'calls');
+    checks.stdin.write('v');
+    const verdict = await drawn(checks.lastFrame, 'How this run stands');
+    expect(painted(verdict, d.ok)).toContain('✓ answers');
+    expect(painted(verdict, d.faint, 'text')).toContain('– refunds under the limit · not applicable');
+    checks.unmount();
+    store.close();
+  });
+
+  it('draws a write Shadowlap blocked as its fence, never as a failure, and the write that failed as the one red', async () => {
+    const { store, fenced, writes } = fenceStore();
+    const d = THEMES.dark;
+    // The call list's row for a call, by its number.
+    const row = (frame: string, no: number) => frame.split('\n').find((l) => new RegExp(`^│[> ] #${no} `).test(plainText(l))) ?? '';
+
+    // The blocked write's ERR is the fence's, in the blocked colour, as its origin is: nothing on the screen is red.
+    const fence = renderAt(createElement(App, { store, runId: fenced, callNo: 29, columns: 120, rows: 30 }), 120, 30);
+    let frame = await drawn(fence.lastFrame, 'send_email');
+    expect(plainText(row(frame, 29))).toMatch(/#29 .*send_email +blocked +ERR/);
+    expect(painted(row(frame, 29), d.origin.blocked, 'text')).toContain('ERR');
+    expect(painted(frame, d.err)).toEqual([]);
+    fence.unmount();
+
+    // A fork that wrote more: the write that failed is the one red among its calls.
+    const forked = renderAt(createElement(App, { store, runId: writes, callNo: 29, columns: 120, rows: 44 }), 120, 44);
+    frame = await drawn(forked.lastFrame, 'update_ticket');
+    expect(painted(row(frame, 32), d.err)).toEqual(['ERR']);
+    expect(painted(row(frame, 29), d.err)).toEqual([]);
+    forked.unmount();
     store.close();
   });
 });

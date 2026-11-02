@@ -109,12 +109,17 @@ export function KeyHints({ hints, width, lead }: { hints: readonly Hint[]; width
   );
 }
 
-export type Tone = 'info' | 'ok' | 'warn' | 'err';
+/**
+ * A message's tone: what it says it did (opened, deleted, copied, saved) in ink; a warning amber; a
+ * failure red. None is lime, which is what passed and the primary action: the dashboard's toasts
+ * take none either.
+ */
+export type Tone = 'info' | 'warn' | 'err';
 
 /** One line of text in a tone, cut to `width`: a message in the footer, a question, the detail line. */
 export function Line({ children, width, tone, color }: { children: ReactNode; width: number; tone?: Tone; color?: string }) {
   const t = useTheme();
-  const c = color ?? (tone === 'ok' ? t.ok : tone === 'warn' ? t.warn : tone === 'err' ? t.err : tone === 'info' ? undefined : t.dim);
+  const c = color ?? (tone === 'warn' ? t.warn : tone === 'err' ? t.err : tone === 'info' ? undefined : t.dim);
   return (
     <Box height={1} width={width} flexShrink={0}>
       <Text wrap="truncate" {...(c ? { color: c } : {})}>

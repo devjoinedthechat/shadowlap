@@ -90,17 +90,18 @@ function checksLine(run: RunNode['run']): string {
   return `checks ${n.passed}/${n.total} passed${n.inconclusive ? `, ${n.inconclusive} inconclusive` : ''}${n.notApplicable ? `, ${n.notApplicable} not applicable` : ''}`;
 }
 
-/** A run's status in the colour the dashboard says it in: recording in the live colour, interrupted in grey, a failure in red. */
-function statusColour(status: string, theme: Theme): string | undefined {
-  return status === 'recording' ? theme.origin.live : status === 'interrupted' ? theme.faint : theme.err;
-}
-
-/** A run's status where it says something: a finished run needs no word, a failed one where blame found it lost (at a call, or around or between two). */
-function statusOf(n: RunNode): string {
-  if (n.run.status === 'running') return n.interrupted ? 'interrupted' : 'recording';
+/**
+ * A run's status where it says something, in the colour the dashboard says it in. A finished run
+ * needs no word, and one recording says so in the live colour. One cut short is grey, as every list
+ * says an interrupted run: interrupted, its recorder gone, or `crashed`, stopped by Ctrl-C, a signal
+ * or a timeout; a check it failed is red in its checks. One that failed is red, and so is where
+ * blame found a run lost (at a call, or around or between two).
+ */
+function statusOf(n: RunNode, theme: Theme): { text: string; color: string | undefined } {
+  if (n.run.status === 'running') return n.interrupted ? { text: 'interrupted', color: theme.faint } : { text: 'recording', color: theme.origin.live };
   const lost = lostAt(n.run);
-  if (lost !== null) return lostWords(lost, n.run.meta?.blame?.range);
-  return n.run.status === 'completed' ? '' : n.run.status;
+  if (lost !== null) return { text: lostWords(lost, n.run.meta?.blame?.range), color: theme.err };
+  return { text: n.run.status === 'completed' ? '' : n.run.status, color: n.run.status === 'crashed' ? theme.faint : theme.err };
 }
 
 /** Everything about the selected run that the row has no room for, cut by whole items. */
@@ -231,7 +232,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
   const labelsText = (n: RunNode) => (n.run.meta?.labels ?? []).join(' ');
   const checkW = longest((n) => checksOf(n.run, theme)?.text ?? '');
   const labelsW = longest(labelsText);
-  const statusW = longest(statusOf);
+  const statusW = longest((n) => statusOf(n, theme).text);
   const attemptsW = longest((n) => (n.attempts ? attemptsText(n.attempts) : ''));
   const w = fitColumns(
     [
@@ -384,7 +385,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
         shown.map((n, i) => {
           const sel = start + i === selected;
           const checks = checksOf(n.run, theme);
-          const status = statusOf(n);
+          const status = statusOf(n, theme);
           const id = n.run.runId.slice(0, ID);
           const labelColor = n.label === 'clean replay' ? theme.origin.replayed : undefined;
           return (
@@ -406,7 +407,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
                 cell(n.label, w.label, labelColor ? { color: labelColor } : {}, 2),
                 aboutOf ? cell(fitAbout(aboutOf(n), Math.max(1, w.about - 2)), w.about, {}, 2) : cell(n.run.command.argv.join(' '), w.about, { color: theme.faint }, 2),
                 cell(checks?.text ?? '', w.checks, checks ? { color: checks.color } : {}, 2),
-                cell(status, w.status, { color: statusColour(status, theme) }, 2),
+                cell(status.text, w.status, { color: status.color }, 2),
                 cell(labelsText(n), w.labels, { color: theme.dim }, 2),
                 cell(n.attempts ? attemptsText(n.attempts) : '', w.attempts, { color: n.attempts && !allPassed(n.attempts) ? theme.warn : theme.dim }, 2),
                 cell(`${n.calls} calls`, w.calls, {}, 2),

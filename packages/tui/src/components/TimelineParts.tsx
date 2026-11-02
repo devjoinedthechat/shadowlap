@@ -1,13 +1,13 @@
 import { Box, Text } from 'ink';
 import { useMemo, type ReactNode } from 'react';
-import { formatDuration, formatTokens, formatUsd, importedCommandSource, lostRange, lostWords, quoteArgv, safeLine, shortCallName, wholeInput, type CallRecord, type RunAbout, type RunRecord, type RunSummary, type Store } from '@shadowlap/engine';
+import { displayOrigin as engineDisplayOrigin, formatDuration, formatTokens, formatUsd, importedCommandSource, lostRange, lostWords, quoteArgv, safeLine, shortCallName, wholeInput, type CallRecord, type RunAbout, type RunRecord, type RunSummary, type Store } from '@shadowlap/engine';
 import { fitAbout } from '../about.js';
 import type { Action } from '../actions.js';
 import { ago, type ModelAction } from '../data.js';
 import { divergenceSummary } from '../diff.js';
 import type { BlameAction } from '../fix-actions.js';
 import { cells, fitColumns, fitItems } from '../render.js';
-import { displayOrigin, kindLabel, toneColour, useTheme } from '../theme.js';
+import { displayOrigin, kindLabel, toneColour, useTheme, type Theme } from '../theme.js';
 import { toneOf, type Fact } from '../verdict.js';
 import { actionContext, ActionsView, forkMenuTitle, notRun, terminalActions } from './ActionsView.js';
 import { FixJobView } from './FixJobView.js';
@@ -114,6 +114,19 @@ function lostRuleWords(run: RunRecord): string {
   return `${where} · blame, ${String(b?.confidence ?? '')} confidence`;
 }
 
+/**
+ * A call's outcome in the colour of what it says, by the engine's display origin, as every view that
+ * colours a call decides it: the one red only for a call that failed. A write Shadowlap blocked is
+ * kept as an error, but the fence is Shadowlap working, so its `ERR` takes the blocked colour, as its
+ * origin does. An injected failure's origin says Shadowlap answered it, a model call's HTTP status
+ * staying red in its name. The rest are quiet.
+ */
+function outcomeColour(c: CallRecord, theme: Theme): string {
+  const shown = engineDisplayOrigin(c.origin, c.end ? { outcome: c.end.outcome, injected: c.end.meta.injected } : null);
+  if (shown === 'failed') return theme.err;
+  return shown === 'blocked' && c.end?.outcome === 'error' ? theme.origin.blocked : theme.faint;
+}
+
 export interface CallListProps {
   run: RunRecord;
   calls: readonly CallRecord[];
@@ -177,7 +190,7 @@ export function CallList({ run, calls, visibleCalls, selected, lost, notedCalls,
       cell(scopeOf(c), w.scope, { color: theme.dim }, 2),
       cell(name, w.name, nameColor ? { color: nameColor } : {}, 2),
       cell(origin, w.origin, { color: theme.origin[origin] }),
-      cell(outcome, w.outcome, { color: c.end?.outcome === 'error' ? theme.err : theme.faint }),
+      cell(outcome, w.outcome, { color: outcomeColour(c, theme) }),
       cell(w.detail >= 4 ? detailOf(c) : '', w.detail, { color: quiet ?? theme.dim }, 0),
     ];
     return <Row key={c.callNo} width={innerWidth} cells={row} selected={sel ? (focused ? 'focus' : 'blur') : null} />;
