@@ -1,11 +1,17 @@
 import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it, vi } from 'vitest';
+import chalk from 'chalk';
+import { createElement } from 'react';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { normalizeConversation, Store, unpackRun } from '@shadowlap/engine';
+import { App } from '../src/app.js';
+import { FixJobView } from '../src/components/FixJobView.js';
 import { conversationAt, freshSince, modelAction } from '../src/data.js';
 import { conversationLines, fitColumns, RESULT_LINES, sharedPrefix } from '../src/render.js';
 import { detectTheme, queryTerminal, queryTimeout, themeFromColorFgBg, themeFromEnv, themeFromOsc11 } from '../src/terminal-theme.js';
-import { THEMES } from '../src/theme.js';
+import { mixColours, themeFor, THEMES, type Theme } from '../src/theme.js';
+import { contrast, painted, token } from './colours.js';
+import { renderAt } from './terminal.js';
 
 const GOLDEN = fileURLToPath(new URL('../../../testing/golden/reference-agent/', import.meta.url));
 
@@ -91,10 +97,71 @@ describe('which palette suits the terminal', () => {
 
   it('never draws text in white or black, which vanish on one background or the other', () => {
     for (const theme of Object.values(THEMES)) {
-      const text = [theme.accent, theme.dim, theme.faint, theme.ok, theme.warn, theme.err, ...Object.values(theme.origin)];
-      for (const c of text) expect(c ?? '', theme.name).not.toMatch(/^(white|black|#fff(fff)?|#000(000)?)$/i);
-      expect(theme.origin.live, theme.name).toBeUndefined(); // the terminal's own foreground
+      for (const c of textColours(theme)) expect(c, theme.name).not.toMatch(/^(white|black|#fff(fff)?|#000(000)?)$/i);
     }
+    // A live call in the dashboard's live colour on a dark background; else the terminal's own foreground.
+    expect(THEMES.light.origin.live).toBeUndefined();
+    expect(THEMES.ansi.origin.live).toBeUndefined();
+  });
+});
+
+/** Every colour a palette sets text in: secondary and quiet text, the consequence colours and the origins. */
+function textColours(t: Theme): string[] {
+  return [t.dim, t.faint, t.ok, t.warn, t.err, ...Object.values(t.origin)].filter((c): c is string => c !== undefined);
+}
+
+describe('each colour means what the dashboard means by it', () => {
+  it('draws the dark palette in the dashboard’s own colours, read from its tokens', () => {
+    const d = THEMES.dark;
+    // The wordmark on the brand's lime; where you are on the dashboard's selection ground; quieter text.
+    expect([d.brand, d.onBrand, d.selection, d.dim, d.faint]).toEqual(['--lime', '--tar', '--sel', '--dim', '--faint'].map(token));
+    // The consequence colours, for verdicts: passed lime, a look or inconclusive amber, failed red, the same or not applicable muted.
+    expect([d.ok, d.warn, d.err, d.faint]).toEqual(['--cq-lime', '--cq-amber', '--cq-red', '--cq-muted'].map(token));
+    // Where a call's answer came from, a failed call in the one red. Injected is overridden, quieter: mixed
+    // into the page as the dashboard's swatch is, at 80%, since the swatch's 55% is too faint for a word.
+    expect(d.origin).toEqual({ live: token('--o-live'), replayed: token('--o-rep'), blocked: token('--o-block'), stubbed: token('--o-stub'), overridden: token('--o-over'), injected: mixColours(token('--o-over'), token('--bg'), 0.8) });
+    expect(d.err).toBe(token('--o-fail'));
+    expect(contrast(d.origin.injected, token('--bg'))).toBeLessThan(contrast(d.origin.overridden, token('--bg')));
+  });
+
+  it('reads every colour at 4.5:1: the dark palette on the dashboard’s page and selection ground, the light one on white and its own', () => {
+    const on: Array<[Theme, string[]]> = [
+      [THEMES.dark, [token('--bg'), THEMES.dark.selection!]],
+      [THEMES.light, ['#ffffff', THEMES.light.selection!]],
+    ];
+    for (const [theme, grounds] of on) for (const c of textColours(theme)) for (const g of grounds) expect(contrast(c, g), `${theme.name}: ${c} on ${g}`).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('never gives two meanings one colour, replayed and passed above all, and the sixteen colours by their names', () => {
+    for (const t of Object.values(THEMES)) {
+      const signals = { passed: t.ok, amber: t.warn, red: t.err, replayed: t.origin.replayed, stubbed: t.origin.stubbed, overridden: t.origin.overridden, injected: t.origin.injected };
+      expect(new Set(Object.values(signals)).size, `${t.name}: ${JSON.stringify(signals)}`).toBe(Object.keys(signals).length);
+      // Nor is any the grey of quieter text, which a blocked write is drawn in, as the dashboard's --o-block is its --dim.
+      for (const [meaning, c] of Object.entries(signals)) expect([t.dim, t.faint], `${t.name}: ${meaning}`).not.toContain(c);
+      expect(t.origin.blocked, t.name).toBe(t.dim);
+    }
+    expect(THEMES.ansi).toMatchObject({ ok: 'greenBright', origin: { replayed: 'green' } });
+  });
+
+  it('keeps lime, in every palette, for what passed and the wordmark: where you are, a fork and an origin take none', () => {
+    for (const t of Object.values(THEMES)) {
+      const lime = new Set([t.ok, t.brand]);
+      const rest = { selection: t.selection, dim: t.dim, faint: t.faint, warn: t.warn, err: t.err, ...t.origin };
+      expect(Object.entries(rest).filter(([, c]) => c !== undefined && lime.has(c)), t.name).toEqual([]);
+    }
+  });
+
+  it('mixes the selection ground from the background the terminal reports, as the dashboard’s --sel is its page with ink in it', () => {
+    // On the dashboard's own page, the dashboard's own ground.
+    expect(themeFor('dark', token('--bg')).selection).toBe(token('--sel'));
+    // On a background the fixed ground would vanish into, a step lighter than it.
+    const vscode = themeFor('dark', '#1e1e1e').selection!;
+    expect(contrast(vscode, '#1e1e1e')).toBeGreaterThan(1.15);
+    expect(contrast(themeFor('light', '#fdf6e3').selection!, '#fdf6e3')).toBeGreaterThan(1.15);
+    expect(themeFor('light', '#ffffff').selection).toBe(THEMES.light.selection);
+    // Unknown, or the sixteen colours: the palette as it is.
+    expect(themeFor('dark', null)).toBe(THEMES.dark);
+    expect(themeFor('ansi', '#000000')).toBe(THEMES.ansi);
   });
 });
 
@@ -190,5 +257,108 @@ describe('what the review of the rework found, without a terminal', () => {
     } finally {
       kill.mockRestore();
     }
+  });
+});
+
+/** A recording whose check passed, a clean replay of it, and a fork made at #3 on purpose. */
+function colourStore() {
+  const s = Store.open(':memory:');
+  const recording = unpackRun(s, GOLDEN).imported[0];
+  s.updateRunMeta(recording, { checks: [{ status: 'passed', ok: true, label: 'answers', detail: null }] });
+  const parent = s.getCalls(recording);
+  const copy = (runId: string, liveFrom?: number) => {
+    for (const c of parent) {
+      const { end, attempts, ...start } = c;
+      void attempts;
+      s.appendCallStart({ ...start, runId, origin: liveFrom && c.callNo >= liveFrom ? 'live' : 'replayed' });
+      if (end) s.appendCallEnd(c, { ...end, runId });
+    }
+  };
+  const clean = s.createRun({ mode: 'replay', parentRunId: recording, command: { argv: ['node', 'agent.js'], cwd: '.' } });
+  copy(clean.runId);
+  s.endRun(clean.runId, 'completed');
+  const fork = s.createRun({ mode: 'replay', parentRunId: recording, command: { argv: ['node', 'agent.js'], cwd: '.' } });
+  copy(fork.runId, 3);
+  s.setDivergence(fork.runId, { type: 'forced', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, reason: 'forced live by --diverge-at 3' });
+  s.endRun(fork.runId, 'completed');
+  return { store: s, recording, fork: fork.runId };
+}
+
+const plainText = (frame: string | undefined) => (frame ?? '').replace(/\x1b\[[0-9;]*m/g, '');
+
+/** The frame, colours and all, once its text shows `text`. */
+async function drawn(lastFrame: () => string | undefined, text: string): Promise<string> {
+  const deadline = Date.now() + 5000;
+  while (!plainText(lastFrame()).includes(text) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10));
+  expect(plainText(lastFrame())).toContain(text);
+  return lastFrame()!;
+}
+
+describe('on the screen', () => {
+  // Ink colours through chalk, which draws nothing where the tests' output is no terminal.
+  const level = chalk.level;
+  beforeAll(() => {
+    chalk.level = 3;
+  });
+  afterAll(() => {
+    chalk.level = level;
+  });
+
+  it('draws lime only for what passed, the primary action and the wordmark, and where you are in ink on the selection ground', async () => {
+    const { store, recording, fork } = colourStore();
+    const d = THEMES.dark;
+    const lime = (frame: string) => painted(frame, d.ok);
+
+    // The runs: the wordmark, and the check that passed. A clean replay in the replayed colour; the selected row on the ground.
+    const runs = renderAt(createElement(App, { store, columns: 120, rows: 24 }), 120, 24);
+    const list = await drawn(runs.lastFrame, '3 runs');
+    expect(lime(list)).toEqual(['shadowlap', '✓ 1/1']);
+    expect(painted(list, d.brand, 'ground')).toEqual(['shadowlap']);
+    expect(painted(list, d.origin.replayed, 'text')).toEqual(['clean replay']);
+    const selected = painted(list, d.selection!, 'ground');
+    expect(selected).toHaveLength(1);
+    expect(selected[0]).toMatch(/^> .*fork @3/);
+    runs.unmount();
+
+    // A run that passed: its about line and verdict tab say so in lime; the selected call and the open tab are on the ground.
+    const passed = renderAt(createElement(App, { store, runId: recording, columns: 120, rows: 30 }), 120, 30);
+    let frame = await drawn(passed.lastFrame, 'calls');
+    expect(lime(frame)).toEqual(['✓ 1 check passed']);
+    expect(painted(frame, d.selection!, 'ground')).toEqual([expect.stringMatching(/^> #1 /), 'conversation']);
+    passed.stdin.write('v');
+    frame = await drawn(passed.lastFrame, 'How this run stands');
+    expect(lime(frame)).toEqual(['✓ 1 check passed', '1 check passed', '✓ answers']);
+    passed.unmount();
+
+    // A fork: its line, its report and its menu in ink, with nothing in lime but how its parent passed.
+    const forked = renderAt(createElement(App, { store, runId: fork, columns: 120, rows: 30 }), 120, 30);
+    frame = await drawn(forked.lastFrame, 'Diverged at call 3');
+    expect(plainText(frame)).toContain('── forked at #3');
+    expect(lime(frame)).toEqual(['parent  1 check passed']);
+    expect(painted(frame, d.warn)).toEqual([]);
+    forked.stdin.write(':');
+    frame = await drawn(forked.lastFrame, 'Fork menu');
+    expect(lime(frame)).toEqual([]);
+    expect(painted(frame, d.selection!, 'ground')).toEqual([expect.stringMatching(/^> i {2}/)]);
+    forked.stdin.write('\u001b');
+    await new Promise((r) => setTimeout(r, 50));
+    forked.stdin.write('?');
+    frame = await drawn(forked.lastFrame, 'Keys');
+    expect(lime(frame)).toEqual([]);
+    forked.unmount();
+
+    // A pane that runs a command: its one primary action, the key that runs it.
+    const job = { kind: 'verify', key: 'V', label: 'Verify a change for the fix', flag: 'verify', hint: 'Checks the change in your working tree.', fix: { id: 'fx-refund', title: 'Ask before refunding' }, args: ['verify', 'fx-refund'], who: null, aside: null, blocked: null, ask: null } as const;
+    const pane = renderAt(createElement(FixJobView, { job: { ...job, args: [...job.args] }, width: 100, height: 10, onYes: () => {}, onDecline: () => {}, onCancel: () => {} }), 100, 10);
+    expect(lime(await drawn(pane.lastFrame, 'runs it'))).toEqual(['Enter']);
+    pane.unmount();
+
+    // The sixteen colours: lime still the wordmark's and passed's alone, replayed a green of its own.
+    const ansi = renderAt(createElement(App, { store, theme: 'ansi', columns: 120, rows: 24 }), 120, 24);
+    frame = await drawn(ansi.lastFrame, '3 runs');
+    expect(painted(frame, THEMES.ansi.ok)).toEqual(['shadowlap', '✓ 1/1']);
+    expect(painted(frame, THEMES.ansi.origin.replayed, 'text')).toEqual(['clean replay']);
+    ansi.unmount();
+    store.close();
   });
 });

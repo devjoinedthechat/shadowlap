@@ -54,7 +54,7 @@ export function TextInput({ label, initial = '', placeholder = '', active, stack
         <Text bold>{label}</Text>
         {/* One Text, so a long value wraps as a paragraph, the cursor at its end. */}
         <Text>
-          <Text color={theme.accent}>› </Text>
+          <Text>› </Text>
           {value ? shown : <Text color={theme.dim}>{placeholder}</Text>}
           <Text inverse> </Text>
         </Text>
@@ -71,9 +71,7 @@ export function TextInput({ label, initial = '', placeholder = '', active, stack
     <Box height={1} width={width} flexShrink={0}>
       <Text wrap="truncate">
         {' '}
-        <Text color={theme.accent} bold>
-          {label}
-        </Text>{' '}
+        <Text bold>{label}</Text>{' '}
         {value ? <Text>{shown}</Text> : null}
         <Text inverse> </Text>
         {!value && placeholder ? <Text color={theme.faint}>{placeholder.slice(0, Math.max(0, room - 1))}</Text> : null}

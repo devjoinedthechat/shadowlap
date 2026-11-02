@@ -7,7 +7,7 @@ import { ago, type ModelAction } from '../data.js';
 import { divergenceSummary } from '../diff.js';
 import type { BlameAction } from '../fix-actions.js';
 import { cells, fitColumns, fitItems } from '../render.js';
-import { displayOrigin, kindLabel, useTheme } from '../theme.js';
+import { displayOrigin, kindLabel, toneColour, useTheme } from '../theme.js';
 import { toneOf, type Fact } from '../verdict.js';
 import { actionContext, ActionsView, forkMenuTitle, notRun, terminalActions } from './ActionsView.js';
 import { FixJobView } from './FixJobView.js';
@@ -27,8 +27,8 @@ import { scopeOf, type Mode } from './timeline-state.js';
 export function AboutLine({ about, facts, width }: { about: Pick<RunAbout, 'text' | 'from'>; facts: readonly Fact[]; width: number }) {
   const theme = useTheme();
   const tone = toneOf(facts);
-  const color = tone === 'ok' ? theme.ok : tone === 'warn' ? theme.warn : tone === 'err' ? theme.err : undefined;
-  const mark = { err: '✗', warn: '!', ok: '✓', info: '·' }[tone];
+  const color = toneColour(theme, tone);
+  const mark = { err: '✗', warn: '!', ok: '✓', muted: '·', info: '·' }[tone];
   const first = facts[0] ? cells(safeLine(facts[0].text)) + 5 : 0;
   const aboutWidth = facts.length ? Math.max(12, Math.min(Math.floor(width * 0.4), width - 2 - first)) : width - 2;
   const lead = ` ${safeLine(fitAbout(about, aboutWidth))}`;
@@ -71,7 +71,7 @@ export function TimelineHeader({ run, label, calls, summary, recording, width }:
   // What goes before the stats: the run's id, what it is, and its parent's id.
   const lead = ` ${run.runId.slice(0, 10)} ${label}${run.parentRunId ? ` of ${run.parentRunId.slice(0, 10)}` : ''}`;
   const header = fitItems(headerStats(run, calls, summary, recording), width - lead.length - ' · '.length);
-  const labelColor = run.divergence ? theme.accent : label === 'clean replay' ? theme.ok : undefined;
+  const labelColor = label === 'clean replay' ? theme.origin.replayed : undefined;
   return (
     // One truncating Text with nested spans: sibling Texts get flex-shrunk on overflow and lose characters.
     <Box height={1}>
@@ -172,7 +172,7 @@ export function CallList({ run, calls, visibleCalls, selected, lost, notedCalls,
     const outcome = c.end ? (c.end.outcome === 'ok' ? 'ok' : 'ERR') : '…';
     const row: Cell[] = [
       cell(sel ? '>' : '', w.mark),
-      { spans: [{ text: `#${c.callNo}`, ...(quiet ? { color: quiet } : {}) }, { text: notedCalls.has(c.callNo) ? '*' : '', color: theme.warn }], width: w.no, gap: 1 },
+      { spans: [{ text: `#${c.callNo}`, ...(quiet ? { color: quiet } : {}) }, { text: notedCalls.has(c.callNo) ? '*' : '' }], width: w.no, gap: 1 },
       cell(kindLabel[c.kind] ?? c.kind, w.kind, { color: theme.dim }),
       cell(scopeOf(c), w.scope, { color: theme.dim }, 2),
       cell(name, w.name, nameColor ? { color: nameColor } : {}, 2),
@@ -182,33 +182,33 @@ export function CallList({ run, calls, visibleCalls, selected, lost, notedCalls,
     ];
     return <Row key={c.callNo} width={innerWidth} cells={row} selected={sel ? (focused ? 'focus' : 'blur') : null} />;
   };
-  const rule = (key: string, words: string, color: string) => {
-    // Its words come from the recording (a forced reason, the request's paths): made safe to show.
+  // The fork's line in ink, blame's in red. Its words come from the recording (a forced reason, the request's paths): made safe to show.
+  const rule = (key: string, words: string, color?: string) => {
     const text = `── ${safeLine(words)} `;
     return (
       <Box key={key} height={1} width={innerWidth} flexShrink={0}>
-        <Text wrap="truncate" color={color} bold>
+        <Text wrap="truncate" {...(color ? { color } : {})} bold>
           {text + '─'.repeat(Math.max(0, innerWidth - cells(text)))}
         </Text>
       </Box>
     );
   };
   const draw = (it: Item) =>
-    it.kind === 'fork' ? rule('fork', divergenceSummary(divergence!), theme.accent) : it.kind === 'lost' ? rule('lost', lostRuleWords(run), theme.err) : callRow(visibleCalls[it.at]!, it.at);
+    it.kind === 'fork' ? rule('fork', divergenceSummary(divergence!)) : it.kind === 'lost' ? rule('lost', lostRuleWords(run), theme.err) : callRow(visibleCalls[it.at]!, it.at);
 
   return (
-    <Box flexDirection="column" width={width} height={height} borderStyle="round" borderColor={focused ? theme.accent : theme.faint}>
+    <Box flexDirection="column" width={width} height={height} borderStyle="round" {...(focused ? {} : { borderColor: theme.faint })}>
       {visibleCalls.length === 0 ? <Line width={innerWidth}>{calls.length ? ' no calls match · Esc clears' : ' no calls recorded yet'}</Line> : null}
       {rows.slice(start, start + listRows).map(draw)}
     </Box>
   );
 }
 
-/** A pane that asks before a command runs, framed in the accent (or a warning's) colour. */
+/** A pane that asks before a command runs, framed in ink as the pane in focus is, or in a warning's amber. */
 function Ask({ width, height, warn = false, children }: { width: number; height: number; warn?: boolean; children: ReactNode }) {
   const theme = useTheme();
   return (
-    <Box flexDirection="column" width={width} height={height} borderStyle="round" borderColor={warn ? theme.warn : theme.accent} paddingX={1}>
+    <Box flexDirection="column" width={width} height={height} borderStyle="round" {...(warn ? { borderColor: theme.warn } : {})} paddingX={1}>
       {children}
     </Box>
   );
@@ -222,8 +222,10 @@ export function BlamePane({ fix, width, height, onSubmit, onCancel }: { fix: Bla
       <Text bold>{fix.label}</Text>
       <Text color={theme.dim}>{fix.hint}</Text>
       <Text color={fix.needsExpect ? theme.warn : theme.dim}>{fix.needsExpect ? `It needs a check: ${fix.from}.` : `It is ${fix.from}; change it below, or empty it to judge by the agent's exit alone.`}</Text>
-      <Text color={theme.dim}>
-        It runs <Text color={theme.accent}>{quoteArgv(['shadowlap', ...fix.build(fix.expect)])}</Text>, and asks models live, which costs.
+      <Text>
+        <Text color={theme.dim}>It runs </Text>
+        {quoteArgv(['shadowlap', ...fix.build(fix.expect)])}
+        <Text color={theme.dim}>, and asks models live, which costs.</Text>
       </Text>
       <TextInput
         stacked
@@ -335,7 +337,7 @@ export function ModeBody({ mode, store, run, current, recording, width, height, 
           height={height}
           onSubmit={(value) => {
             toTimeline();
-            if (value.trim() && onNote) say(onNote(run.runId, mode.callNo, value.trim()), 4000, 'ok');
+            if (value.trim() && onNote) say(onNote(run.runId, mode.callNo, value.trim()), 4000, 'info');
           }}
           onCancel={toTimeline}
         />

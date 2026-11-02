@@ -57,14 +57,14 @@ type Mode =
 
 /**
  * `shadowlap test` checks as `✓ 3/3`, `✗ 2/3` or `? 1/2`: passed of those that applied, lime when
- * all passed, red when one failed, amber when one could not be decided; `–` when none applied.
+ * all passed, red when one failed, amber when one could not be decided; `–` in grey when none applied.
  * Empty for a run that has none.
  */
 function checksOf(run: RunNode['run'], theme: Theme): { text: string; color: string } | null {
   const n = engineChecksOf(run);
   if (!n) return null;
   const applied = n.total - (n.notApplicable ?? 0);
-  if (!applied) return { text: '– 0/0', color: theme.dim };
+  if (!applied) return { text: '– 0/0', color: theme.faint };
   const failed = failedChecks(n) > 0;
   return { text: `${failed ? '✗' : n.inconclusive ? '?' : '✓'} ${n.passed}/${applied}`, color: failed ? theme.err : n.inconclusive ? theme.warn : theme.ok };
 }
@@ -88,6 +88,11 @@ function checksLine(run: RunNode['run']): string {
   const n = engineChecksOf(run);
   if (!n) return '';
   return `checks ${n.passed}/${n.total} passed${n.inconclusive ? `, ${n.inconclusive} inconclusive` : ''}${n.notApplicable ? `, ${n.notApplicable} not applicable` : ''}`;
+}
+
+/** A run's status in the colour the dashboard says it in: recording in the live colour, interrupted in grey, a failure in red. */
+function statusColour(status: string, theme: Theme): string | undefined {
+  return status === 'recording' ? theme.origin.live : status === 'interrupted' ? theme.faint : theme.err;
 }
 
 /** A run's status where it says something: a finished run needs no word, a failed one where blame found it lost (at a call, or around or between two). */
@@ -170,7 +175,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
     setToast({ text: 'starting the dashboard…', ms: 10_000, tone: 'info' });
     openDashboard(runId).then(
       ({ url, opened }) => {
-        if (opened) return setToast({ text: `opened ${runId.slice(0, 10)} in the dashboard`, ms: 2500, tone: 'ok' });
+        if (opened) return setToast({ text: `opened ${runId.slice(0, 10)} in the dashboard`, ms: 2500, tone: 'info' });
         void copyToClipboard(url).then((copied) => setToast({ text: `dashboard${copied ? ' (link copied)' : ''}: ${url}`, ms: 30_000, tone: 'info' }));
       },
       (err: unknown) => setToast({ text: `could not start the dashboard: ${messageOf(err)}`, ms: 8000, tone: 'err' }),
@@ -182,7 +187,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
       if (mode.kind === 'confirm-delete') {
         if (input === 'y' || input === 'Y') {
           const refused = onDelete(mode.runId);
-          setToast(refused ? { text: refused, ms: 4000, tone: 'warn' } : { text: `deleted ${mode.runId.slice(0, 10)}`, ms: 2500, tone: 'ok' });
+          setToast(refused ? { text: refused, ms: 4000, tone: 'warn' } : { text: `deleted ${mode.runId.slice(0, 10)}`, ms: 2500, tone: 'info' });
           setMode({ kind: 'list' });
         } else if (key.escape || input === 'n' || input === 'N' || input === 'q') setMode({ kind: 'list' });
         return;
@@ -213,7 +218,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
       else if (input === 'a' && onToggleAttempts) {
         onToggleAttempts();
         setToast({ text: attemptsShown ? 'attempts folded under their runs' : 'attempts listed one by one; a folds them again', ms: 2500, tone: 'info' });
-      } else if (markKey(input) && current && onMark) setToast({ text: onMark(current.run.runId, markKey(input)!), ms: 4000, tone: 'ok' });
+      } else if (markKey(input) && current && onMark) setToast({ text: onMark(current.run.runId, markKey(input)!), ms: 4000, tone: 'info' });
     },
     { isActive: (mode.kind === 'list' || mode.kind === 'confirm-delete') && !paused },
   );
@@ -349,7 +354,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
       {/* One truncating Text with nested spans: sibling Texts get flex-shrunk on overflow and lose characters. */}
       <Box height={1}>
         <Text wrap="truncate">
-          <Text backgroundColor={theme.band} color={theme.onBand} bold>
+          <Text backgroundColor={theme.brand} color={theme.onBrand} bold>
             {' shadowlap '}
           </Text>
           <Text color={theme.dim}> {count}</Text>
@@ -361,11 +366,11 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
           <Text wrap="truncate">Record a run of your agent, then replay it and fork it at any call.</Text>
           <Text> </Text>
           <Text wrap="truncate">
-            <Text color={theme.accent}>{'shadowlap run -- node agent.js'.padEnd(32)}</Text>
+            <Text>{'shadowlap run -- node agent.js'.padEnd(32)}</Text>
             <Text color={theme.dim}>record your agent, whatever starts it</Text>
           </Text>
           <Text wrap="truncate">
-            <Text color={theme.accent}>{'shadowlap demo'.padEnd(32)}</Text>
+            <Text>{'shadowlap demo'.padEnd(32)}</Text>
             <Text color={theme.dim}>or watch the whole loop on a sample agent</Text>
           </Text>
           <Text> </Text>
@@ -381,7 +386,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
           const checks = checksOf(n.run, theme);
           const status = statusOf(n);
           const id = n.run.runId.slice(0, ID);
-          const labelColor = n.run.divergence ? theme.accent : n.label === 'clean replay' ? theme.ok : undefined;
+          const labelColor = n.label === 'clean replay' ? theme.origin.replayed : undefined;
           return (
             <Row
               key={n.run.runId}
@@ -401,7 +406,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
                 cell(n.label, w.label, labelColor ? { color: labelColor } : {}, 2),
                 aboutOf ? cell(fitAbout(aboutOf(n), Math.max(1, w.about - 2)), w.about, {}, 2) : cell(n.run.command.argv.join(' '), w.about, { color: theme.faint }, 2),
                 cell(checks?.text ?? '', w.checks, checks ? { color: checks.color } : {}, 2),
-                cell(status, w.status, { color: status === 'recording' ? theme.warn : theme.err }, 2),
+                cell(status, w.status, { color: statusColour(status, theme) }, 2),
                 cell(labelsText(n), w.labels, { color: theme.dim }, 2),
                 cell(n.attempts ? attemptsText(n.attempts) : '', w.attempts, { color: n.attempts && !allPassed(n.attempts) ? theme.warn : theme.dim }, 2),
                 cell(`${n.calls} calls`, w.calls, {}, 2),
