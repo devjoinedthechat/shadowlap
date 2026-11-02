@@ -121,7 +121,7 @@ function changes(out: Out, fx: ForkEffects, width: number, theme: Theme) {
   if (fx.most) say(out, `most: ${fx.most}`, width, theme.dim);
   if (!fx.changes.length) say(out, 'the same tool calls as its parent, and it ended the same way', width, theme.dim);
   for (const c of fx.changes) {
-    say(out, c.detail, width, toneColour(theme, c.tone));
+    say(out, c.detail, width, c.tone === 'write' ? theme.write : toneColour(theme, c.tone));
     if (c.before !== null) say(out, `  before  ${c.before}`, width, theme.dim);
     if (c.after !== null) say(out, `  after   ${c.after}`, width, theme.dim);
   }

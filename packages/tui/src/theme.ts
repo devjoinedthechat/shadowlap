@@ -5,10 +5,11 @@ import type { Tone } from './verdict.js';
 /**
  * Colours, each with the one meaning the dashboard gives it (packages/dashboard/ui/css/tokens.css):
  * lime for what passed and the primary action, nothing else; amber for what needs a look or is
- * inconclusive; the one red for what failed; grey for what is the same or doesn't apply. Where a
- * call's answer came from has colours of its own. Where you are (the selected row, the open tab, the
- * pane in focus) is drawn in ink, the selected row and the tab on the selection ground, and so is a
- * fork. Only the wordmark keeps the brand's lime behind it.
+ * inconclusive; the one red for what failed; grey for what is the same or doesn't apply; a deeper
+ * teal for a write, as the dashboard says what a call was. Where a call's answer came from has
+ * colours of its own. Where you are (the selected row, the open tab, the pane in focus) is drawn in
+ * ink, the selected row and the tab on the selection ground, and so is a fork. Only the wordmark
+ * keeps the brand's lime behind it.
  *
  * A terminal's background is the user's, so there are three palettes. `dark` is the dashboard's;
  * `light` keeps each meaning, darkened to read at 4.5:1 on white and on its selection ground; `ansi`
@@ -43,6 +44,8 @@ export interface Theme {
   warn: string;
   /** The one red: what failed or changed for real, a failed call, a diff's removed text. */
   err: string;
+  /** Teal: a write, in the colour the dashboard says what a call was in (--k-write): a fork's change to one. Never the failure red. */
+  write: string;
   origin: OriginColours;
 }
 
@@ -57,6 +60,7 @@ export const THEMES: Record<ThemeName, Theme> = {
     ok: '#c4f233',
     warn: '#f2c94c',
     err: '#ff6b5e',
+    write: '#13ad9c',
     // Injected is overridden mixed 80% into the dashboard's page: the 55% its swatch takes is 3.3:1 there, too faint for a word.
     origin: { live: '#e4e3da', replayed: '#86ad12', blocked: '#a8a699', stubbed: '#6fa3c7', overridden: '#b99cff', injected: '#967fce' },
   },
@@ -70,6 +74,7 @@ export const THEMES: Record<ThemeName, Theme> = {
     ok: '#235200',
     warn: '#8a5000',
     err: '#c2321f',
+    write: '#0a7468',
     origin: { live: undefined, replayed: '#5f7000', blocked: '#5c5b4f', stubbed: '#2c6591', overridden: '#5a3db5', injected: '#7458c0' },
   },
   ansi: {
@@ -82,6 +87,7 @@ export const THEMES: Record<ThemeName, Theme> = {
     ok: 'greenBright',
     warn: 'yellow',
     err: 'red',
+    write: 'cyan',
     origin: { live: undefined, replayed: 'green', blocked: 'gray', stubbed: 'blueBright', overridden: 'magentaBright', injected: 'magenta' },
   },
 };

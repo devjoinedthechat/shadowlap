@@ -118,9 +118,9 @@ describe('which palette suits the terminal', () => {
   });
 });
 
-/** Every colour a palette sets text in: secondary and quiet text, the consequence colours and the origins. */
+/** Every colour a palette sets text in: secondary and quiet text, the consequence colours, a write's and the origins. */
 function textColours(t: Theme): string[] {
-  return [t.dim, t.faint, t.ok, t.warn, t.err, ...Object.values(t.origin)].filter((c): c is string => c !== undefined);
+  return [t.dim, t.faint, t.ok, t.warn, t.err, t.write, ...Object.values(t.origin)].filter((c): c is string => c !== undefined);
 }
 
 describe('each colour means what the dashboard means by it', () => {
@@ -135,6 +135,8 @@ describe('each colour means what the dashboard means by it', () => {
     expect(d.origin).toEqual({ live: token('--o-live'), replayed: token('--o-rep'), blocked: token('--o-block'), stubbed: token('--o-stub'), overridden: token('--o-over'), injected: mixColours(token('--o-over'), token('--bg'), 0.8) });
     expect(d.err).toBe(token('--o-fail'));
     expect(contrast(d.origin.injected, token('--bg'))).toBeLessThan(contrast(d.origin.overridden, token('--bg')));
+    // A write in the colour the dashboard says what a call was in, never the failure red.
+    expect(d.write).toBe(token('--k-write'));
   });
 
   it('reads every colour at 4.5:1: the dark palette on the dashboard’s page and selection ground, the light one on white and its own', () => {
@@ -147,7 +149,7 @@ describe('each colour means what the dashboard means by it', () => {
 
   it('never gives two meanings one colour, replayed and passed above all, and the sixteen colours by their names', () => {
     for (const t of Object.values(THEMES)) {
-      const signals = { passed: t.ok, amber: t.warn, red: t.err, replayed: t.origin.replayed, stubbed: t.origin.stubbed, overridden: t.origin.overridden, injected: t.origin.injected };
+      const signals = { passed: t.ok, amber: t.warn, red: t.err, write: t.write, replayed: t.origin.replayed, stubbed: t.origin.stubbed, overridden: t.origin.overridden, injected: t.origin.injected };
       expect(new Set(Object.values(signals)).size, `${t.name}: ${JSON.stringify(signals)}`).toBe(Object.keys(signals).length);
       // Nor is any the grey of quieter text, which a blocked write is drawn in, as the dashboard's --o-block is its --dim.
       for (const [meaning, c] of Object.entries(signals)) expect([t.dim, t.faint], `${t.name}: ${meaning}`).not.toContain(c);
@@ -159,7 +161,7 @@ describe('each colour means what the dashboard means by it', () => {
   it('keeps lime, in every palette, for what passed and the wordmark: where you are, a fork and an origin take none', () => {
     for (const t of Object.values(THEMES)) {
       const lime = new Set([t.ok, t.brand]);
-      const rest = { selection: t.selection, dim: t.dim, faint: t.faint, warn: t.warn, err: t.err, ...t.origin };
+      const rest = { selection: t.selection, dim: t.dim, faint: t.faint, warn: t.warn, err: t.err, write: t.write, ...t.origin };
       expect(Object.entries(rest).filter(([, c]) => c !== undefined && lime.has(c)), t.name).toEqual([]);
     }
   });
@@ -492,7 +494,7 @@ describe('on the screen', () => {
     store.close();
   });
 
-  it('draws a write Shadowlap blocked as its fence, never as a failure, and the write that failed as the one red', async () => {
+  it('draws a write Shadowlap blocked as its fence, never as a failure, and what a fork wrote and changed by what each was', async () => {
     const { store, fenced, writes } = fenceStore();
     const d = THEMES.dark;
     // The call list's row for a call, by its number.
@@ -511,6 +513,23 @@ describe('on the screen', () => {
     frame = await drawn(forked.lastFrame, 'update_ticket');
     expect(painted(row(frame, 32), d.err)).toEqual(['ERR']);
     expect(painted(row(frame, 29), d.err)).toEqual([]);
+
+    // Its diff tab: each write it added in the write colour, never amber; the hand-over amber, a look; each write by its fate.
+    forked.stdin.write('5');
+    await drawn(forked.lastFrame, 'What the fork did differently');
+    forked.stdin.write('z');
+    frame = await drawn(forked.lastFrame, 'z unzoom');
+    expect(painted(frame, d.write, 'text')).toEqual(['issue_refund is called', 'update_ticket is called', 'post_note is called', 'set_flag is called']);
+    expect(painted(frame, d.warn, 'text')).toEqual(['it hands over with transfer_to_human']);
+    expect(painted(frame, d.origin.stubbed, 'text')).toEqual(['#31 issue_refund {"order":31} · stubbed']);
+    expect(painted(frame, d.origin.overridden, 'text')).toEqual(['#35 set_flag {"order":35} · overridden']);
+    expect(painted(frame, d.err, 'text')).toEqual(['#32 update_ticket {"order":32} · failed']);
+    expect(painted(frame, d.origin.blocked, 'text')).toContainEqual(expect.stringMatching(/^#29 send_email .* · blocked$/));
+    // What ran live is in ink, as the dashboard's words for a write's fate; nothing passed, so nothing is lime.
+    const live = '#33 post_note {"order":33} · live';
+    expect(plainText(frame)).toContain(live);
+    for (const c of [d.ok, d.warn, d.err, d.write, d.dim, d.faint, ...Object.values(d.origin)]) expect(painted(frame, c!, 'text')).not.toContain(live);
+    expect(painted(frame, d.ok)).toEqual([]);
     forked.unmount();
     store.close();
   });
