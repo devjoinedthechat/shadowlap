@@ -1,7 +1,8 @@
-// Builds the dashboard's browser app into dist/ui: type-checks ui/, bundles ui/main.tsx with esbuild
-// (React included, so the page needs nothing from the network) twice, as ui-bundles.mjs says: split
-// into a first script and a chunk per page for the dashboard to serve, and whole in one script for
-// an exported copy to inline. It copies the HTML shell, favicon and the vendored fonts.
+// Builds the dashboard's browser app into dist/ui: type-checks ui/ and bundles it with esbuild (React
+// included, so the page needs nothing from the network) twice, as ui-bundles.mjs says: ui/main.tsx
+// split into a first script and a chunk per page for the dashboard to serve, and ui/main-copy.tsx,
+// what an exported copy shows, whole in one script for the copy to inline. It copies the HTML shell,
+// favicon and the vendored fonts.
 // Usage: node packages/dashboard/build-ui.mjs [--watch]
 import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, rmSync } from 'node:fs';
@@ -27,16 +28,15 @@ cpSync(join(ui, 'index.html'), join(out, 'index.html'));
 cpSync(join(ui, 'favicon.svg'), join(out, 'assets', 'favicon.svg'));
 cpSync(join(ui, 'fonts'), join(out, 'assets', 'fonts'), { recursive: true });
 
-const { served, standalone } = uiBundles({ ui, out, watch });
+const { served, copy } = uiBundles({ ui, out, watch });
 if (watch) {
   const ctx = await esbuild.context(served);
   await ctx.watch();
   console.log('watching ui/');
 } else {
   const first = await esbuild.build({ ...served, metafile: true });
-  // The exported copy's script: its styles and fonts are the served build's (app.css), so its own go.
-  const whole = await esbuild.build({ ...standalone, metafile: true });
-  rmSync(join(out, 'assets', 'standalone.css'), { force: true });
+  // The exported copy's script, copy.js: its styles and fonts are the served build's (app.css).
+  const whole = await esbuild.build({ ...copy, metafile: true });
   const kb = (bytes) => `${(bytes / 1024).toFixed(0)} KB`;
   const outs = first.metafile.outputs;
   const scripts = Object.keys(outs).filter((file) => file.endsWith('.js'));
@@ -49,6 +49,6 @@ if (watch) {
   };
   load(scripts.find((file) => file.endsWith('/app.js')));
   const bytes = (files) => files.reduce((n, file) => n + outs[file].bytes, 0);
-  const one = Object.entries(whole.metafile.outputs).find(([file]) => file.endsWith('standalone.js'))?.[1].bytes ?? 0;
+  const one = Object.entries(whole.metafile.outputs).find(([file]) => file.endsWith('/copy.js'))?.[1].bytes ?? 0;
   console.log(`dashboard ui built into ${out}: the first look ${kb(bytes([...upFront]))} in ${upFront.size} scripts, the pages' own ${kb(bytes(scripts.filter((f) => !upFront.has(f))))} in ${scripts.length - upFront.size} more; an exported copy's script ${kb(one)}`);
 }
