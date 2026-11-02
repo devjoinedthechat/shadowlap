@@ -3598,7 +3598,8 @@ Where it writes them:
 | `agents` | The skills alone, in `.agents/skills/shadowlap-setup-agent/` and `.agents/skills/shadowlap-debug-agent/` (below) |
 | `kiro` | The skills alone, in `.kiro/skills/` |
 
-`.agents/skills/` is where Codex, Cursor, GitHub Copilot, Gemini CLI, Antigravity, Windsurf, OpenCode,
+`.agents/skills/` is where Codex, Cursor, GitHub Copilot, Gemini CLI, Antigravity, Devin Desktop (formerly Windsurf),
+OpenCode,
 Cline, Amp, goose, Zed and Junie read skills. Each of those agents' names (`codex`, `cursor`,
 `copilot`, `gemini`, `antigravity`, `windsurf`, `devin`, `opencode`, `cline`, `amp`, `goose`, `zed`,
 `junie`) does the same as `agents`.

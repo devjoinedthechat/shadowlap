@@ -20,13 +20,14 @@ const HEX = /^[0-9a-f]{4,64}$/i;
 const MISSING_FOR_MS = 60_000;
 
 /**
- * What git said in one project folder: the commits it has, each with its subject, and when it last
- * lacked one; and of the commits asked about, those with a parent here (kept: a commit's parents
- * never change) and those with none, the first or the oldest of a shallow clone, with when that was
- * said (a fetch may deepen a shallow clone).
+ * What git said in one project folder: the commits it has, each with its subject and its author's
+ * email, and when it last lacked one; and of the commits asked about, those with a parent here (kept:
+ * a commit's parents never change) and those with none, the first or the oldest of a shallow clone,
+ * with when that was said (a fetch may deepen a shallow clone).
  */
 interface Answers {
   has: Map<string, string | null>;
+  authors: Map<string, string>;
   lacks: Map<string, number>;
   parented: Set<string>;
   parentless: Map<string, { shallow: boolean; at: number }>;
@@ -38,7 +39,7 @@ function answersIn(cwd: string): Answers {
   if (!a) {
     // A dashboard serves a handful of projects: the answers of the latest few are kept.
     if (answers.size >= 16) answers.delete(answers.keys().next().value!);
-    answers.set(cwd, (a = { has: new Map(), lacks: new Map(), parented: new Set(), parentless: new Map() }));
+    answers.set(cwd, (a = { has: new Map(), authors: new Map(), lacks: new Map(), parented: new Set(), parentless: new Map() }));
   }
   return a;
 }
@@ -48,7 +49,7 @@ export function forgetCommits(): void {
   answers.clear();
 }
 
-/** Asks git about the revisions it hasn't answered for lately: whether each is a commit here, and its subject. False when git can't say. */
+/** Asks git about the revisions it hasn't answered for lately: whether each is a commit here, its subject and its author. False when git can't say. */
 async function ask(cwd: string, revs: readonly string[], now: number): Promise<boolean> {
   const a = answersIn(cwd);
   const wanted = revs.filter((r) => !a.has.has(r) && !(now - (a.lacks.get(r) ?? -Infinity) < MISSING_FOR_MS));
@@ -63,22 +64,24 @@ async function ask(cwd: string, revs: readonly string[], now: number): Promise<b
     if (sha) found.push({ rev, sha });
     else a.lacks.set(rev, now);
   });
-  const subjects = found.length ? await subjectsOf(cwd, found.map((f) => f.sha)) : new Map<string, string>();
+  const said = found.length ? await commitsOf(cwd, found.map((f) => f.sha)) : new Map<string, { subject: string; author: string }>();
   for (const f of found) {
-    a.has.set(f.rev, subjects.get(f.sha) ?? null);
+    const c = said.get(f.sha);
+    a.has.set(f.rev, c?.subject ?? null);
+    if (c?.author) a.authors.set(f.rev, c.author);
     a.lacks.delete(f.rev);
   }
   return true;
 }
 
-/** Each commit's subject, by its full name; none when git won't say. */
-async function subjectsOf(cwd: string, shas: readonly string[]): Promise<Map<string, string>> {
-  const out = await gitAsync(cwd, ['log', '--no-walk=unsorted', '--format=%H%x09%s', ...new Set(shas)]);
-  const map = new Map<string, string>();
+/** Each commit's subject and its author's email, by its full name; none when git won't say. */
+async function commitsOf(cwd: string, shas: readonly string[]): Promise<Map<string, { subject: string; author: string }>> {
+  const out = await gitAsync(cwd, ['log', '--no-walk=unsorted', '--format=%H%x09%ae%x09%s', ...new Set(shas)]);
+  const map = new Map<string, { subject: string; author: string }>();
   if (out.code !== 0) return map;
   for (const line of out.stdout.split('\n')) {
-    const tab = line.indexOf('\t');
-    if (tab > 0) map.set(line.slice(0, tab), line.slice(tab + 1).slice(0, 200));
+    const [sha, author, ...subject] = line.split('\t');
+    if (sha && subject.length) map.set(sha, { subject: subject.join('\t').slice(0, 200), author: (author ?? '').slice(0, 200) });
   }
   return map;
 }
@@ -103,6 +106,21 @@ export async function commitSubjects(cwd: string, revs: ReadonlyArray<string | n
   for (const r of (await commitsHere(cwd, revs, now)) ?? []) {
     const subject = has.get(r);
     if (subject) out.set(r, subject);
+  }
+  return out;
+}
+
+/**
+ * The authors of those of these revisions that are commits here, by revision: the email git has for
+ * each commit's author, as Shadowlap names whoever records or tests (asked of git along with
+ * `commitsHere`, so asked once with the subjects).
+ */
+export async function commitAuthors(cwd: string, revs: ReadonlyArray<string | null>, now = Date.now()): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const authors = answersIn(cwd).authors;
+  for (const r of (await commitsHere(cwd, revs, now)) ?? []) {
+    const author = authors.get(r);
+    if (author) out.set(r, author);
   }
   return out;
 }

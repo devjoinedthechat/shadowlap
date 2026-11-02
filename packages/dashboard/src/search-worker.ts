@@ -24,7 +24,9 @@ const post = (m: FromSearchWorker) => port.postMessage(m);
 
 let store: Store | null = null;
 try {
-  store = Store.open((workerData as SearchWorkerData).dbPath);
+  // Only a store that is there: this thread starts a while after it is asked for, by when the store
+  // may have been deleted (its project removed with its recordings), and must not be made again.
+  store = Store.openExisting((workerData as SearchWorkerData).dbPath);
   post({ type: 'ready' });
 } catch (err) {
   post({ type: 'failed', error: messageOf(err) });

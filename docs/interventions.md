@@ -32,7 +32,7 @@ Then replay with the flag for the change:
 
 Every intervention works on every provider Shadowlap records:
 
-- Anthropic, OpenAI (Chat Completions and the Responses API), Gemini, Azure OpenAI, Vertex AI and
+- Anthropic, OpenAI (Chat Completions and the Responses API), Gemini, Azure OpenAI, Gemini Enterprise Agent Platform (Vertex AI) and
   Amazon Bedrock (InvokeModel and Converse);
 - the hosts recorded in one of their formats: Claude on Microsoft Foundry, OpenAI's SDK on Bedrock,
   and any host the config [declares](./providers.md#hosts-of-another-providers-format).

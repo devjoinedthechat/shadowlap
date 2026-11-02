@@ -120,7 +120,7 @@ export class ProjectStores {
     // A folder gone with its store says so as it always did, and its store is the same file once it is back.
     const how = existsSync(pc.path) ? this.stores.moved(pc.dbPath) : null;
     if (how) {
-      this.stores.letGo(pc.dbPath);
+      void this.stores.letGo(pc.dbPath);
       pc.close();
       if (how === 'deleted') return this.stores.movedWords('deleted', pc.dbPath, pc.name);
       this.stores.reopened(pc.dbPath);
