@@ -227,7 +227,10 @@ function Ask({ width, height, warn = false, children }: { width: number; height:
   );
 }
 
-/** Blame (B): what a passing run does, as the check it starts from, which can be changed or emptied. */
+/**
+ * Blame (B): what a passing run does, as the check it starts from, which can be changed or emptied.
+ * Its Enter runs blame live, the pane's primary action, in lime as Repair's and Verify's is.
+ */
 export function BlamePane({ fix, width, height, onSubmit, onCancel }: { fix: BlameAction; width: number; height: number; onSubmit: (value: string) => void; onCancel: () => void }) {
   const theme = useTheme();
   return (
@@ -242,6 +245,7 @@ export function BlamePane({ fix, width, height, onSubmit, onCancel }: { fix: Bla
       </Text>
       <TextInput
         stacked
+        primary
         label={fix.needsExpect ? 'What a passing run does (--expect JSON):' : 'What a passing run does (--expect JSON), or nothing for its exit code alone:'}
         initial={fix.expect}
         placeholder='{"tools":{"send_email":0}}'

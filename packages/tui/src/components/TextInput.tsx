@@ -17,6 +17,8 @@ interface Props {
   width?: number;
   /** Words for Enter in the inline hint: `apply` for a filter, which applies as you type. */
   enterDoes?: string;
+  /** Enter runs what the pane shows, its primary action (blame's, which asks models live): the key in lime, as the dashboard's primary button is. */
+  primary?: boolean;
   onChange?: (value: string) => void;
   onSubmit: (value: string) => void;
   onCancel: () => void;
@@ -26,8 +28,15 @@ interface Props {
 const SHOWN = 240;
 
 /** A single-line editor: printable keys append, backspace deletes, Enter submits, Esc cancels. */
-export function TextInput({ label, initial = '', placeholder = '', active, stacked = false, width = 80, enterDoes = 'confirm', onChange, onSubmit, onCancel }: Props) {
+export function TextInput({ label, initial = '', placeholder = '', active, stacked = false, width = 80, enterDoes = 'confirm', primary = false, onChange, onSubmit, onCancel }: Props) {
   const theme = useTheme();
+  const enter = primary ? (
+    <Text color={theme.ok} bold>
+      Enter
+    </Text>
+  ) : (
+    'Enter'
+  );
   const [value, setValue] = useState(initial);
   // Keystrokes can arrive faster than React re-renders; the ref is always current, the state drives display.
   const current = useRef(initial);
@@ -58,12 +67,13 @@ export function TextInput({ label, initial = '', placeholder = '', active, stack
           {value ? shown : <Text color={theme.dim}>{placeholder}</Text>}
           <Text inverse> </Text>
         </Text>
-        <Text color={theme.dim}>Enter to confirm · Esc to cancel</Text>
+        <Text color={theme.dim}>{enter} to confirm · Esc to cancel</Text>
       </Box>
     );
   }
   // One line: ` label value█   Enter apply · Esc cancel`, the value's end shown where it is too long.
-  const keys = `   Enter ${enterDoes} · Esc cancel`;
+  const does = ` ${enterDoes} · Esc cancel`;
+  const keys = `   Enter${does}`;
   const room = Math.max(4, width - label.length - 3);
   const fits = (value || placeholder).length + keys.length <= room;
   const shown = value.length > room ? `…${value.slice(-(room - 1))}` : value;
@@ -75,7 +85,13 @@ export function TextInput({ label, initial = '', placeholder = '', active, stack
         {value ? <Text>{shown}</Text> : null}
         <Text inverse> </Text>
         {!value && placeholder ? <Text color={theme.faint}>{placeholder.slice(0, Math.max(0, room - 1))}</Text> : null}
-        {fits ? <Text color={theme.dim}>{keys}</Text> : null}
+        {fits ? (
+          <Text color={theme.dim}>
+            {'   '}
+            {enter}
+            {does}
+          </Text>
+        ) : null}
       </Text>
     </Box>
   );

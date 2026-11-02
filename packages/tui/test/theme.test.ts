@@ -7,6 +7,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { normalizeConversation, Store, unpackRun, type CallRecord, type Effect, type Origin, type StoredCheck } from '@shadowlap/engine';
 import { App } from '../src/app.js';
 import { FixJobView } from '../src/components/FixJobView.js';
+import { BlamePane } from '../src/components/TimelineParts.js';
+import type { BlameAction } from '../src/fix-actions.js';
 import { conversationAt, freshSince, modelAction } from '../src/data.js';
 import { conversationLines, fitColumns, RESULT_LINES, sharedPrefix } from '../src/render.js';
 import { backgroundFromOsc11, detectTerminal, detectTheme, queryTerminal, queryTimeout, themeFromColorFgBg, themeFromEnv, themeFromOsc11 } from '../src/terminal-theme.js';
@@ -449,6 +451,11 @@ describe('on the screen', () => {
     const pane = renderAt(createElement(FixJobView, { job: { ...job, args: [...job.args] }, width: 100, height: 10, onYes: () => {}, onDecline: () => {}, onCancel: () => {} }), 100, 10);
     expect(lime(await drawn(pane.lastFrame, 'runs it'))).toEqual(['Enter']);
     pane.unmount();
+    // Blame's, the third of the Fixes steps, whose Enter runs blame live as theirs run repair and verify.
+    const blame: BlameAction = { kind: 'blame', key: 'B', label: 'Blame the run', flag: 'blame', hint: 'Finds the model call the run was lost at.', expect: '{"tools":{"send_email":1}}', from: 'the check it failed', needsExpect: false, build: (e) => ['blame', 'run-1', ...(e ? ['--expect', e] : [])] };
+    const blaming = renderAt(createElement(BlamePane, { fix: blame, width: 100, height: 12, onSubmit: () => {}, onCancel: () => {} }), 100, 12);
+    expect(lime(await drawn(blaming.lastFrame, 'Enter to confirm'))).toEqual(['Enter']);
+    blaming.unmount();
 
     // The sixteen colours: lime still the wordmark's and passed's alone, replayed a green of its own.
     const ansi = renderAt(createElement(App, { store, theme: 'ansi', columns: 120, rows: 24 }), 120, 24);
