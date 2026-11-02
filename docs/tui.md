@@ -286,7 +286,7 @@ A replay of a run from someone else's pack, a teammate's pulled from the team st
 
 ## Colours
 
-The terminal UI uses the dashboard's colours:
+The terminal UI uses these colours:
 
 | Colour | For |
 | --- | --- |
