@@ -44,7 +44,7 @@ const tools = [
 // The Messages API with fetch, as the Anthropic SDK sends it with its retries off: the retry count
 // tells Shadowlap that no request is the retry of one that failed. Loading the SDK took 40% of the agent's
 // CPU, and blame, verify and repair start the agent once for every attempt.
-const baseURL = (process.env.AGENT_BASE_URL || process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/$/, '');
+const baseURL = (process.env.AGENT_BASE_URL || process.env.ANTHROPIC_BASE_URL || 'http://127.0.0.1:9').replace(/\/$/, '');
 const client = {
   messages: {
     async create(request) {
