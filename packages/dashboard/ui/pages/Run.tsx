@@ -17,8 +17,7 @@ import { inScope, scopeChips, scopesOf } from '../scopes.js';
 import { useApp, type PaletteCommand } from '../state.js';
 import { useActionRunner } from '../run/actions.js';
 import { CallsTable, CallsToolbar, matchesFilter, pendingMatches, type OriginFilter } from '../run/CallsView.js';
-import { ContextView } from '../run/ContextView.js';
-import { ForksView } from '../run/ForksView.js';
+import { onShow } from '../components/OnShow.js';
 import { ForkDifferences } from '../run/ForkDifferences.js';
 import { Inspector, TABS, type InspectorTab } from '../run/Inspector.js';
 import { flagText } from '../run/banner.js';
@@ -33,18 +32,29 @@ import { markKey, MARKS, type RunMark } from '../runkey.js';
 import { Banner, DiffPanel, Metrics, RunLoading, ScopeBar } from '../run/parts.js';
 import { usePagedRun } from '../run/paged-run.js';
 import { followPages, isPending, listedCalls, type ListedCall } from '../run/paging.js';
-import { ProvenanceView } from '../run/ProvenanceView.js';
 import { runNotes } from '../run/notes.js';
 import { RunNotes } from '../run/RunNotes.js';
 import { RunHeader } from '../run/RunHeader.js';
-import { TimelineView } from '../run/TimelineView.js';
-import { TurnsView } from '../run/TurnsView.js';
 
 /**
  * A run: its header and numbers, a banner for how it forked, where it was lost or that it is
  * recording, the strip of every call, scopes, the five views and Provenance, and the inspector. The
  * URL holds the call and the view; a run still recording grows as calls arrive.
  */
+
+/**
+ * The views but Calls, each in a script of its own that loads the first time it shows (`onShow`).
+ * The page loads them as it opens, beside the run, so a switch to one draws it at once.
+ */
+const TurnsView = onShow(() => import('../run/TurnsView.js').then((m) => m.TurnsView));
+const ContextView = onShow(() => import('../run/ContextView.js').then((m) => m.ContextView));
+const TimelineView = onShow(() => import('../run/TimelineView.js').then((m) => m.TimelineView));
+const ForksView = onShow(() => import('../run/ForksView.js').then((m) => m.ForksView));
+const ProvenanceView = onShow(() => import('../run/ProvenanceView.js').then((m) => m.ProvenanceView));
+
+function loadViews(): void {
+  for (const view of [TurnsView, ContextView, TimelineView, ForksView, ProvenanceView]) view.preload();
+}
 
 let lastTab: InspectorTab = 'conversation';
 
@@ -56,6 +66,7 @@ const PANE_NAMES: Partial<Record<View, string>> = { timeline: 'Timeline of the c
 
 export function RunPage({ id, call, view }: { id: string; call: number | null; view: View | null }) {
   const { client, runsTick, live } = useApp();
+  useEffect(loadViews, []);
   // Opened by a short id, the page settles on the full one (the workspace rewrites the URL). That is
   // the run already loaded: the load keeps the id the page opened with, and asks by the full id from
   // then on, so the run and everything on its page aren't loaded a second time.
