@@ -1,8 +1,8 @@
 import { relative } from 'node:path';
-import { agentCallsOf, applyEdit, BLAME_DEFAULTS, CHARS_PER_TOKEN, checkEdit, describeBlocks, editSize, footprintDelta, forbiddenDetails, formatUsd, isJudgeCall, isObject, loadApiRequest, lostWhere, messageOf, modelSwitch, NO_REPAIRER, normalizeConversation, notTheAnswer, redactRun, releaseLock, repairNeverRewritesAt, rewritableAnchors, rewriteGrowth, rewriteText, safeLine, Store, toolDefinitions, unavailableStop, unifiedDiff, unrescuedWords, unsettledFirst, type Anchor, type Conversation, type Normalizer, type RepairCandidate, type RepairRange, type RepairReport, type RepairTarget, type SourceFile, type StoreOf, type Surface, type VerifyRole } from '@shadowlap/engine';
+import { agentCallsOf, applyEdit, BLAME_DEFAULTS, blameSteps, CHARS_PER_TOKEN, checkEdit, describeBlocks, editSize, footprintDelta, forbiddenDetails, formatUsd, isJudgeCall, isObject, loadApiRequest, lostWhere, messageOf, modelSwitch, NO_REPAIRER, normalizeConversation, notTheAnswer, redactRun, releaseLock, repairNeverRewritesAt, rewritableAnchors, rewriteGrowth, rewriteText, safeLine, Store, toolDefinitions, unavailableStop, unifiedDiff, unrescuedWords, unsettledFirst, type Anchor, type Conversation, type Normalizer, type RepairCandidate, type RepairRange, type RepairReport, type RepairTarget, type SourceFile, type StoreOf, type Surface, type VerifyRole } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { judgeRecording, type AttemptTarget } from './attempts.js';
-import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
+import { BlameError, responseBlocks, runBlame } from './blame.js';
 import { loadConfig } from './config.js';
 import { oracleLabels } from './oracle.js';
 import { physicalPath } from './real-path.js';
@@ -528,8 +528,8 @@ class RepairRun {
     const { store, config } = this.env;
     const runId = t.parent.runId;
     const parentCalls = store.getCalls(runId);
-    // The agent's model calls: a judge check's are none of blame's steps.
-    const steps = parentCalls.filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, this.s.scope) && !isJudgeCall(c)).map((c) => c.callNo);
+    // The agent's model calls, as blame probes them: a judge check's are none of blame's steps.
+    const steps = blameSteps(parentCalls, this.s.scope).map((c) => c.callNo);
     const base: RepairTarget = { runId, outcome: 'error', callNo: null, step: null, steps: steps.length, range: null, rescuedRunId: null, rescuedBy: null, reused: false, recorded: null, rescued: null, note: null };
     const found = this.storedBlame(runId, fields, base, steps) ?? (await this.freshBlame(t, fields, base, steps));
     if ('target' in found) return found;

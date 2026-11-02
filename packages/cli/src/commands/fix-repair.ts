@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
 import { InvalidArgumentError } from 'commander';
-import { describeGate, dimLines, formatRepair, messageOf, SPRT_DEFAULTS, type ReadPolicy, type RepairReport, type RunRecord, type StoredFix, type VerdictStanding } from '@shadowlap/engine';
+import { describeGate, dimLines, formatRepair, messageOf, splitHoldout, SPRT_DEFAULTS, type ReadPolicy, type RepairReport, type RunRecord, type StoredFix, type VerdictStanding } from '@shadowlap/engine';
 import { fixHref } from '@shadowlap/dashboard';
 import { formatAttemptsUnrecorded } from '../attempt-unrecorded.js';
 import { formatBudget, undecidableRefusal } from '../attempts.js';
@@ -10,7 +10,7 @@ import { EXIT, interruptedStatus, stoppedBy } from '../exit-codes.js';
 import { recordRepairFix, repairCommand } from '../fixes.js';
 import { emitJobEvent } from '../job-events.js';
 import { progressLog } from '../progress.js';
-import { HandOverError, RepairError, splitHoldout } from '../repair.js';
+import { HandOverError, RepairError } from '../repair.js';
 import { runRepair } from '../repair-run.js';
 import { parseRepairer, type Repairer } from '../repairer.js';
 import type { GuardMode } from '../run-agent.js';
@@ -84,7 +84,8 @@ export async function repairRuns(opts: GlobalOpts, command: string[], flags: Rep
   let targets = pick(dedupe(fixes));
   let held = pick(dedupe(holdout));
   const heldOutAutomatically = !flags.holdout?.length && targets.length >= 2;
-  if (heldOutAutomatically) ({ targets, holdout: held } = splitHoldout(targets));
+  // Every other run, oldest first, is held out from the repairer: the engine's split, which Run repair's estimate prices the runs it shows by.
+  if (heldOutAutomatically) ({ targets, holdout: held } = splitHoldout(targets, (t) => t.parent));
   const good = pick(dedupe(keeps));
   await repairTargets(opts, request, { targets, held, good, heldOutAutomatically }, command, flags);
 }
