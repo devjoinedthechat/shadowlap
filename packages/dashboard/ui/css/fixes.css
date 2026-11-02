@@ -1,0 +1,224 @@
+/* Fixes (#/fixes) and a fix (#/fixes/<id>/<step>): the list of failures, the steps (blame, repair, verify), their
+   verdicts, report.md. */
+.proposed { display: flex; align-items: center; gap: 10px; padding: 10px 14px; margin-bottom: 18px; border-radius: 12px; border: 1px dashed var(--line2); color: var(--faint); font-size: 12.5px; }
+.proposed b { color: var(--ink); font-weight: 500; }
+.proposed code { font-size: 11.5px; color: var(--dim); }
+
+.callrow { list-style: none; margin: 30px 0 0; padding: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); position: relative; }
+.callrow::before { content: ""; position: absolute; left: 6%; right: 6%; top: 45px; height: 2px; background: var(--line2); }
+.callrow li { display: flex; flex-direction: column; align-items: center; gap: 6px; position: relative; }
+.callrow .pp { height: 10px; }
+.callrow .pl { height: 14px; font: 10.5px/14px var(--mono); color: var(--faint); white-space: nowrap; }
+.callrow .nr { height: 18px; display: flex; align-items: center; }
+.callrow .cn { width: 9px; height: 9px; border-radius: 50%; background: var(--line2); }
+.callrow .m .cn { width: 15px; height: 15px; border: 2px solid var(--dim); background: var(--panel); }
+.callrow .ok .cn { border-color: var(--cq-lime); }
+.callrow .lost .cn { border-color: var(--cq-red); }
+/* the blamed call in ink with a halo: amber means only that a probe couldn't decide */
+.callrow .hot .cn { border-color: var(--ink); background: var(--ink); box-shadow: 0 0 0 5px color-mix(in srgb, var(--ink) 16%, transparent); }
+.callrow .cl { font: 11px var(--mono); color: var(--faint); }
+.callrow .hot .cl, .callrow .hot .pl { color: var(--ink); font-weight: 600; }
+.callrow .lost .pl { color: var(--err); }
+.callrow .unsure .cn { border-color: var(--cq-amber); }
+.callrow .unsure .pl { color: var(--cq-amber); }
+.callrow .ok .pl { color: var(--cq-lime); }
+.ans { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+/* the recorded answer and a rescued one, each under its label: ink, under a hairline, no coloured rules */
+.ans div { border-top: 1px solid var(--line); padding-top: 10px; }
+.ans code { display: block; margin-top: 6px; font-size: 12.5px; line-height: 1.6; color: var(--ink); overflow-wrap: anywhere; }
+table.probes td, table.probes th { padding: 10px 12px; }
+table.probes tr.hot td { background: var(--sel); }
+.bmk { margin-left: 8px; font: 600 10.5px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink); }
+
+.deltas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.deltas div { padding: 14px 16px; }
+.deltas b { display: block; margin-top: 6px; font: 700 26px/1 var(--disp); letter-spacing: -.035em; color: var(--ink); }
+.deltas span.n { display: block; margin-top: 8px; font: 12px var(--mono); color: var(--faint); }
+.pdiff .was { margin: 0; font-size: 15px; line-height: 1.6; color: var(--faint); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--err) 60%, transparent); }
+.pdiff .now { margin: 8px 0 0; font-size: 17px; line-height: 1.6; }
+.pdiff mark { color: inherit; background: color-mix(in srgb, var(--ink) 16%, transparent); padding: 0 3px; border-radius: 4px; }
+.cands { display: grid; gap: 0; }
+.cand { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 12px 18px; border-top: 1px solid var(--line); }
+.cand:first-child { border-top: 0; }
+.cand .cnum { font: 600 12px var(--mono); color: var(--faint); padding-top: 2px; }
+.cand q { quotes: none; font-size: 13.5px; }
+.cand .why { display: block; margin-top: 3px; color: var(--faint); font-size: 12.5px; }
+.files a, .files div { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px; padding: 9px 18px; border-top: 1px solid var(--line); text-decoration: none; font: 12.5px var(--mono); }
+.files div:first-child { border-top: 0; }
+/* A longer note (a teammate's repair) wraps beside the name rather than over it. */
+.files span { color: var(--faint); font-family: var(--body); font-size: 12.5px; text-align: right; }
+.prbody { padding: 16px 18px; font-size: 13.5px; color: var(--dim); }
+.prbody h3 { margin: 0 0 8px; font: 600 15px var(--body); color: var(--ink); }
+.prbody ul { margin: 8px 0 0; padding-left: 18px; }
+
+@media (max-width: 1000px) {
+  .stepper, .ans { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 640px) {
+  .proposed { flex-direction: column; align-items: flex-start; gap: 4px; }
+}
+
+/* fixes: one row per failure, and each fix's blame, repair and verify steps */
+.pslist a { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto auto; gap: 16px; align-items: center; padding: 15px 18px; border-top: 1px solid var(--line); text-decoration: none; }
+.pslist a:first-child { border-top: 0; }
+.pslist a:hover { background: var(--hover); }
+.pslist .badge { justify-self: start; }
+.pslist .rt { font-weight: 500; }
+.pslist .rs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; color: var(--faint); font-size: 12.5px; }
+.pslist .rd { font: 11.5px var(--mono); color: var(--faint); white-space: nowrap; }
+.psteps { display: flex; align-items: center; gap: 6px; font: 11.5px var(--mono); color: var(--faint); white-space: nowrap; }
+.psteps span { display: inline-flex; align-items: center; gap: 6px; }
+.psteps span + span::before { content: ""; width: 14px; height: 1px; background: var(--line2); margin-right: 2px; }
+.psteps i { width: 8px; height: 8px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line2); }
+.psteps .done { color: var(--dim); }
+/* a finished step is done, not a verdict: a filled grey dot */
+.psteps .done i { background: var(--dim); box-shadow: none; }
+.psteps .no { color: var(--err); }
+.psteps .no i { background: var(--err); box-shadow: none; }
+.psteps .warn { color: var(--cq-amber); }
+.psteps .warn i { background: var(--cq-amber); box-shadow: none; }
+
+/* What failed and what it must do, labelled: each label stays with its value, and the dot between
+   them shows only while both share a line (the one wrapped to the next line starts past the clip). */
+.fm { display: flex; flex-wrap: wrap; column-gap: 18px; row-gap: 2px; overflow: hidden; color: var(--faint); font-size: 12.5px; }
+.fm .fmu { position: relative; max-width: 100%; }
+.fm .fmu ~ .fmu::before { content: "·"; position: absolute; left: -11px; color: var(--faint); }
+.fm .fmsep { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.fm code, .ph p .fm code { white-space: normal; overflow-wrap: anywhere; color: var(--dim); }
+.pslist .fm { margin-top: 4px; }
+.pslist .fm code { font-size: 12px; }
+
+.stepper { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 22px; border-bottom: 1px solid var(--line); }
+.stepper a { position: relative; display: block; padding: 4px 18px 16px 0; text-decoration: none; }
+.stepper a + a { padding-left: 18px; border-left: 1px solid var(--line); }
+.stepper .k { display: flex; align-items: center; gap: 8px; font: 500 10.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+.stepper .k i { width: 9px; height: 9px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line2); }
+.stepper .done .k i { background: var(--dim); box-shadow: none; }
+.stepper .no .k i { background: var(--err); box-shadow: none; }
+.stepper .warn .k i { background: var(--cq-amber); box-shadow: none; }
+.stepper b { display: block; margin-top: 8px; font: 600 15px/1.3 var(--disp); letter-spacing: -.02em; color: var(--ink); }
+.stepper .todo b { color: var(--faint); }
+.stepper .m { display: block; margin-top: 4px; color: var(--faint); font-size: 12.5px; }
+.stepper a:hover b { color: var(--ink); }
+.stepper a[aria-current="step"]::after { content: ""; position: absolute; left: 0; right: 18px; bottom: -1px; height: 2px; background: var(--ink); }
+.stepper a + a[aria-current="step"]::after { left: 18px; }
+
+.trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.trio b { display: block; margin-top: 6px; font: 700 22px var(--disp); letter-spacing: -.03em; }
+.vchips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 16px; }
+.vchips .vn { font: 12px var(--mono); color: var(--faint); }
+.vpick { margin-bottom: 14px; flex-wrap: wrap; max-width: 100%; }
+
+@media (max-width: 1280px) {
+  .pslist a { grid-template-columns: 84px minmax(0, 1fr) auto; row-gap: 10px; }
+  .pslist .psteps { grid-column: 2 / -1; grid-row: 2; }
+}
+
+@media (max-width: 1000px) {
+  .pslist a { grid-template-columns: 76px minmax(0, 1fr); }
+  .pslist .psteps { grid-column: 2; flex-wrap: wrap; }
+  .pslist .rd { display: none; }
+  .stepper { grid-template-columns: minmax(0, 1fr); }
+  .stepper a, .stepper a + a { padding: 12px 0 12px 14px; border-left: 0; border-top: 1px solid var(--line); }
+  .stepper a:first-child { border-top: 0; }
+  .stepper a[aria-current="step"]::after, .stepper a + a[aria-current="step"]::after { left: 0; right: auto; top: 12px; bottom: 12px; width: 2px; height: auto; }
+}
+
+.fxgap { margin-top: 16px; }
+.callrow.fxrow { margin-top: 6px; }
+.callrow li.dim { opacity: .4; }
+.callrow li.gap .nr { font: 11px var(--mono); color: var(--faint); }
+.callrow a.cn:hover { box-shadow: 0 0 0 4px var(--hover); }
+.fxlegend { margin-top: 16px; }
+/* the probes' key says passed and failed as their attempts' pips do, in the consequence colours: the markup names the
+   replayed and blocked origins' swatches, which say where a call's answer came from */
+.fxlegend i.lg.rep { background: var(--cq-lime); }
+.fxlegend i.lg.block { background: var(--cq-red); box-shadow: none; }
+.ans.one { grid-template-columns: minmax(0, 1fr); }
+.fxbundle + .fxbundle { margin-top: 12px; }
+/* A gate's attempts grouped by what each did: how many, the path they took, how they came out, why, and one to open. */
+.agroups { margin: 6px 0 4px; }
+.agroups .k { display: block; margin-bottom: 4px; font: 500 10px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+.agroups ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.agroups li { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--dim); }
+.agroups .ac { flex: none; min-width: 2.5em; font: 600 12px var(--mono); color: var(--ink); }
+.agroups .ap { font: 12px var(--mono); color: var(--ink); overflow-wrap: anywhere; }
+.agroups .badge { padding: 1px 6px; font-size: 9.5px; }
+.agroups .aw { color: var(--faint); overflow-wrap: anywhere; }
+.agroups .ax { margin-left: auto; color: var(--faint); text-decoration: none; white-space: nowrap; }
+.agroups .ax:hover { color: var(--ink); }
+/* The baseline line wraps inside its cell, which the table's cells otherwise keep on one line, so a kept run's row never scrolls the table sideways. */
+.fxwhere .fxbase { display: block; margin-top: 2px; font-size: 12px; color: var(--faint); white-space: normal; }
+
+.fxnote { margin: 14px 0 0; color: var(--faint); font-size: 12.5px; }
+.fxcmd { margin-top: 14px; }
+.fxlost { margin: 6px 0 14px; }
+.fxlost .at { color: var(--faint); }
+.fxdiag { margin: 6px 0 0; }
+.pbody.fxfoot { border-top: 1px solid var(--line); }
+.fxfoot span { color: var(--faint); font-size: 12.5px; }
+table.t .fxrole { font-weight: 500; }
+.fxof { font: 12px var(--mono); color: var(--faint); }
+table.t td.fxwhere { color: var(--faint); }
+a.fxcall { color: inherit; text-decoration: none; }
+a.fxcall:hover code { text-decoration: underline; text-underline-offset: 3px; }
+.fxreceipt { margin: 16px 0 8px; color: var(--faint); font-size: 12.5px; }
+.fxreceipt + .fxreceipt { margin-top: -4px; }
+.fxreceipt.vmore { margin: -4px 0 16px; }
+.fxreceipt code.rnm { font-size: 12px; }
+.fxbad { color: var(--err); }
+.fxdim { color: var(--faint); }
+.ph p.fxbad { margin-top: 6px; font-size: 12.5px; }
+.verdict p.fxbad, .verdict p.fxdim { margin-top: 4px; }
+
+.fxwarn { margin: 14px 0 0; padding-left: 18px; color: var(--warn); font-size: 12.5px; }
+.fxwarn.bad { margin: -4px 0 16px; color: var(--err); }
+.fxwarn.bad li.unsure { color: var(--warn); }
+.fxlist { margin: 6px 0 14px; padding-left: 18px; color: var(--dim); font-size: 13px; }
+.fxlist.bad { color: var(--del); }
+.ph .fxrename { margin-left: 4px; vertical-align: 1px; }
+
+.fxsource { color: var(--ink); }
+
+.prbody.clamp { max-height: 380px; overflow: hidden; position: relative; }
+.prbody.clamp::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 72px; background: linear-gradient(color-mix(in srgb, var(--panel) 0%, transparent), var(--panel)); }
+.prbody p { margin: 0 0 10px; }
+.prbody h4 { margin: 16px 0 6px; font: 600 13px var(--body); color: var(--ink); }
+.prbody code { font-size: 12px; }
+.prbody pre.fxcode { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: var(--code); border: 1px solid var(--line); font: 12px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.fxcode .add { color: var(--add); }
+.fxcode .del { color: var(--del); }
+.fxtable { overflow-x: auto; margin: 0 0 12px; }
+.fxtable table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.fxtable th { text-align: left; vertical-align: bottom; font: 500 10px/1.5 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.fxtable td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+/* a long cell (an answer, a candidate) wraps anywhere, so the table fits its panel; a run id or a role stays whole */
+.fxtable td.nw { white-space: nowrap; overflow-wrap: normal; }
+/* report.md in a narrow panel (beside Handed over on a laptop, or on a phone): each row as its headers
+   and values, one under the other, so no column is ever out of view */
+.prbody { container: report / inline-size; }
+
+@container report (max-width: 420px) {
+  .fxtable table, .fxtable tbody, .fxtable tr, .fxtable td { display: block; }
+  .fxtable thead { display: none; }
+  .fxtable tr { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .fxtable td { padding: 2px 0; border: 0; }
+  .fxtable td::before { content: attr(data-h); display: block; font: 500 10px/1.5 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
+}
+.fxmore { padding: 0 18px 14px; }
+
+/* Forced colours (a high-contrast theme) set every colour to the user's own, and drop shadows and fills: what says something
+   by its colour alone keeps its colour, edged in the user's text colour (CanvasText) so it shows on any ground; a chosen
+   option whose fill is lost is underlined; where you are is marked in the highlight colour. */
+@media (forced-colors: active) {
+  /* blame's dots keep their colours, so a model call's ring still says rescued, lost or unsure; the blamed call is ringed */
+  .callrow .cn { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText; }
+  .callrow .m .cn { box-shadow: none; }
+  .callrow .hot .cn { box-shadow: 0 0 0 2px Canvas, 0 0 0 3.5px CanvasText; }
+  .callrow .cn:focus-visible { outline-color: Highlight; }
+  /* a step's dot keeps its colour, edged in the text colour; one not started is the edge alone */
+  .psteps i, .psteps .done i, .psteps .no i, .psteps .warn i, .stepper .k i, .stepper .done .k i, .stepper .no .k i, .stepper .warn .k i { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText; }
+  .stepper a[aria-current="step"]::after { background: CanvasText; }
+}

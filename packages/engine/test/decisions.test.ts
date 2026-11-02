@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareDecisions, decisionOf, decisionOfResponse, decisionView, effectsOf, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, judgeOpen, majorityRank, modelFamily, NO_TOKENS, promoteByJudge, RANK_LABELS, sameModel, shownSample, unjudgedSample, type DecisionJudge, type DecisionsReport, type EffectOf, type ModelDecision } from '../src/decisions.js';
+import { compareDecisions, controlOpen, decisionOf, decisionOfResponse, decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, decisionView, effectsOf, emptyCounts, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, judgeOpen, majorityRank, migrateBreaks, migrateUnsettled, modelFamily, NO_TOKENS, promoteByJudge, RANK_LABELS, sameModel, shownSample, unjudgedSample, unsettledRun, type DecisionJudge, type DecisionRun, type DecisionStep, type DecisionsReport, type EffectOf, type ModelDecision, type UnsettledRun } from '../src/decisions.js';
 import type { Effect } from '../src/types.js';
 
 /**
@@ -316,6 +316,108 @@ describe('formatDecisions', () => {
     // Runs that hold no model call still say so.
     const empty = formatDecisions({ ...report, runs: [{ ...sameRun, steps: 0, asked: 0, counts: { ...none }, decisions: [] }], counts: { ...none }, flagged: [] });
     expect(empty.split('\n')[0]).toBe('✓ Nothing to ask: the runs hold no model call, under the prompt and tools in the working tree');
+  });
+
+  it('gives its headline in parts, for the dashboard to say a preview in the same words', () => {
+    const none = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, same: 0, untouched: 0, notAsked: 0 };
+    const run = (runId: string, refused: string | null = null) => ({ runId, refused, decisions: [] });
+    expect(decisionsHeadline({ counts: { ...none, same: 4 }, flagged: [], runs: [run('A')] })).toEqual({ mark: '✓', lead: 'The same decisions', rest: ' at every step asked', detail: '', unasked: null, asked: true });
+    // One decision differs, two differ: the verb agrees. The count follows the sentence, apart from it.
+    expect(decisionsHeadline({ counts: { ...none, 3: 1, same: 3 }, flagged: [], runs: [run('A')] })).toMatchObject({ mark: '!', lead: 'No write and no stop changes', rest: '', detail: ': 1 decision differs in reads or text' });
+    expect(decisionsHeadline({ counts: { ...none, 3: 1, 5: 1 }, flagged: [], runs: [run('A')] })).toMatchObject({ detail: ': 2 decisions differ in reads or text' });
+    // A run that could not be asked: the headline when no step was, said beside it otherwise.
+    expect(decisionsHeadline({ counts: { ...none }, flagged: [], runs: [run('A', 'its first request differs in more than its prompt')] })).toEqual({ mark: '!', lead: '1 of 1 run could not be asked', rest: '', detail: '', unasked: '1 of 1 run could not be asked', asked: false });
+    expect(decisionsHeadline({ counts: { ...none, same: 2 }, flagged: [], runs: [run('A'), run('B', 'refused')] })).toMatchObject({ mark: '!', lead: 'The same decisions', unasked: '1 of 2 runs could not be asked', asked: true });
+    expect(decisionsHeadline({ counts: { ...none, notAsked: 3 }, flagged: [], runs: [run('A')] })).toMatchObject({ mark: '!', lead: 'No step was answered', rest: '', detail: ' (the warnings say why)' });
+    expect(decisionsHeadline({ counts: { ...none, untouched: 2 }, flagged: [], runs: [run('A')] })).toMatchObject({ mark: '✓', lead: 'Nothing to ask', rest: '', detail: ': the change leaves every request as recorded' });
+    // A run flagged by a write.
+    const write = { runId: 'A', refused: null, decisions: [{ majority: 1, changes: [{ rank: 1, kind: 'write-removed', tool: 'send_email', effect: 'write', before: {}, after: null, detail: 'send_email is no longer called' }] }] } as unknown as Parameters<typeof decisionsHeadline>[0]['runs'][number];
+    expect(decisionsHeadline({ counts: { ...none, 1: 1, same: 5 }, flagged: ['A'], runs: [write, run('B')] })).toMatchObject({ mark: '✗', lead: '1 of 2 runs', rest: ' decides a write or when to stop differently', detail: '' });
+  });
+
+  it('prints the headline it gives, its verb agreeing with one decision', () => {
+    const counts = { 1: 0, 2: 0, 3: 1, 4: 0, 5: 0, same: 3, untouched: 0, notAsked: 0 };
+    const run: DecisionRun = { runId: '01K1AAAAAAAAAAAAAAAAAAAAAA', golden: null, steps: 4, asked: 4, rank: 3, majority: 3, counts, cost: { before: null, after: null, spent: 0 }, tokens: { before: NO_TOKENS, after: NO_TOKENS }, thinkingStripped: 0, refused: null, decisions: [], warnings: [] };
+    const report: DecisionsReport = { decisionsId: null, kind: 'decisions', at: 0, change: { model: 'claude-haiku-4-5', fields: {}, from: null, fromCode: null, text: 'the model claude-haiku-4-5' }, command: 'shadowlap decisions 01K1 --model claude-haiku-4-5', samples: 1, runs: [run], counts, flagged: [], cost: { before: null, after: null, spent: 0, upstreamRequests: 4, unknownModels: [] }, tokens: { before: NO_TOKENS, after: NO_TOKENS }, retirements: [], notes: [], warnings: [], verify: null, judge: null, remedies: [], stopReason: null };
+    expect(formatDecisions(report).split('\n')[0]).toBe('! No write and no stop changes: 1 decision differs in reads or text, under the model claude-haiku-4-5');
+  });
+
+  it('names a session as the dialog that makes it, and a migration by its switch', () => {
+    expect(decisionsName({ kind: 'decisions', change: { model: 'claude-haiku-4-5', fields: {}, fromCode: null } })).toBe('Model switch to claude-haiku-4-5');
+    expect(decisionsName({ kind: 'decisions', change: { model: null, fields: {}, fromCode: { calls: 3 } } })).toBe('Changed prompt and tools');
+    expect(decisionsName({ kind: 'decisions', change: { model: null, fields: { temperature: 0 }, fromCode: null } })).toBe('Field change to temperature=0');
+    // A field as --set takes it: a string that reads as JSON is quoted, so it reads back as the string it was.
+    expect(decisionsName({ kind: 'decisions', change: { model: null, fields: { stop: '1', user: 'ops' }, fromCode: null } })).toBe('Field change to stop="1", user=ops');
+    // What else the change set comes after its name, never dropped.
+    expect(decisionsName({ kind: 'decisions', change: { model: 'claude-sonnet-5-5', fields: { temperature: 1, stop: 'END' }, fromCode: null } })).toBe('Model switch to claude-sonnet-5-5 with temperature=1, stop=END');
+    expect(decisionsName({ kind: 'decisions', change: { model: 'claude-haiku-4-5', fields: { top_p: 0.9 }, fromCode: { calls: 1 } } })).toBe('Changed prompt and tools with the model claude-haiku-4-5 and top_p=0.9');
+    expect(decisionsName({ kind: 'migrate', change: { model: 'claude-sonnet-5-5' }, from: ['claude-sonnet-4-5', 'claude-sonnet-4-5-20250929'], to: 'claude-sonnet-5-5' })).toBe('claude-sonnet-4-5, claude-sonnet-4-5-20250929 → claude-sonnet-5-5');
+    // A kept report missing a part: named by what it has.
+    expect(decisionsName({ kind: 'migrate', change: null, from: [], to: 'claude-haiku-4-5' })).toBe('Migration to claude-haiku-4-5');
+    expect(decisionsName({ kind: 'decisions', change: null })).toBe('No change');
+  });
+
+  it('counts what a preview moved by rank: its writes, stops and reads', () => {
+    const none = { 1: 0, 2: 0, 3: 0, 4: 0 };
+    expect(decisionsMoved({ ...none, 1: 2, 2: 3, 3: 1, 4: 2 })).toEqual(['2 writes changed', '3 stops changed', '3 reads changed']);
+    expect(decisionsMoved({ ...none, 1: 1, 2: 1 })).toEqual(['1 write changed', '1 stop changed']);
+    expect(decisionsMoved({ ...none, 4: 1 })).toEqual(['1 read changed']);
+    // Text alone, or nothing: nothing moved.
+    expect(decisionsMoved(none)).toEqual([]);
+  });
+});
+
+describe('why a preview or a migration settles nothing', () => {
+  /** A run as decisionsUnsettled reads it: asked whole and settled, unless told otherwise. */
+  const facts = (runId: string, o: Partial<UnsettledRun> = {}): UnsettledRun => ({ runId, refused: false, steps: 4, asked: 4, notAsked: 0, judgeOpen: false, controlOpen: false, ...o });
+  const preview = (runs: UnsettledRun[], o: Partial<Parameters<typeof decisionsUnsettled>[0]> = {}) => decisionsUnsettled({ stopReason: null, flagged: [], runs, verify: null, ...o });
+
+  it('settles a preview whose every run was asked and none waits', () => {
+    expect(preview([facts('A'), facts('B')])).toBeNull();
+    // A run that holds no model call has nothing to ask: it isn't one that could not be asked.
+    expect(preview([facts('A', { steps: 0, asked: 0 })])).toBeNull();
+    // Some of a run's steps got no answer, others did: it was asked.
+    expect(preview([facts('A', { asked: 3, notAsked: 1 })])).toBeNull();
+  });
+
+  it('names what settles nothing first: a stop, a run not asked, a judge, the control, then verify', () => {
+    expect(preview([facts('A', { refused: true })], { stopReason: 'the budget of $0.10 is spent' })).toBe('it stopped before every step was asked: the budget of $0.10 is spent');
+    expect(preview([facts('A', { refused: true }), facts('B')])).toBe('1 run could not be asked');
+    // Every model call of a run got no answer, of two runs.
+    expect(preview([facts('A', { asked: 0, notAsked: 4 }), facts('B', { asked: 0, notAsked: 4 }), facts('C', { judgeOpen: true })])).toBe('2 runs could not be asked');
+    expect(preview([facts('A', { judgeOpen: true }), facts('B', { controlOpen: true })])).toBe('1 run has a text-only change a judge check reads that could not be judged');
+    expect(preview([facts('A', { controlOpen: true }), facts('B', { controlOpen: true })])).toBe("2 runs have a changed step the request as recorded got no answer for, so it could not be told from the model's own variation");
+    expect(preview([facts('A')], { verify: { verdict: 'incomplete', reasons: [] } })).toBe('verify did not settle every run it took');
+    expect(preview([facts('A')], { verify: { verdict: 'not-run', reasons: ['it was interrupted before verify started'] } })).toBe('verify did not run: it was interrupted before verify started');
+    expect(preview([facts('A')], { verify: { verdict: 'not-run', reasons: [] } })).toBeNull();
+  });
+
+  it('leaves a run it flags to verify: its waiting steps settle nothing more', () => {
+    expect(preview([facts('A', { judgeOpen: true, controlOpen: true })], { flagged: ['A'] })).toBeNull();
+    expect(preview([facts('A', { judgeOpen: true }), facts('B', { judgeOpen: true })], { flagged: ['A'] })).toBe('1 run has a text-only change a judge check reads that could not be judged');
+  });
+
+  it("reads a run's steps for a judge and the control to wait on", () => {
+    const step = (o: Partial<DecisionStep>): DecisionStep => ({ callNo: 1, step: 1, scope: null, rank: null, majority: null, changes: [], recorded: { stop: 'answer', stopReason: 'end_turn', tools: [], text: 'a' }, now: null, samples: { asked: 3, answered: 3, changed: 0, ranks: [0, 0, 0] }, model: { recorded: 'm', asked: 'n' }, tokens: { before: null, after: null }, cost: { before: null, after: null, spent: 0 }, thinkingStripped: 0, error: null, ...o });
+    const waits = step({ rank: 5, majority: 5, samples: { asked: 3, answered: 3, changed: 3, ranks: [5, 5, 5], unjudged: 1 } });
+    const uncontrolled = step({ sampled: 2, samples: { asked: 3, answered: 3, changed: 2, ranks: [2, 2, 0] }, control: { asked: 3, answered: 1, changed: 0, ranks: [0], error: 'HTTP 529' } });
+    expect([judgeOpen(waits), controlOpen(uncontrolled)]).toEqual([true, true]);
+    const run: DecisionRun = { runId: 'A', golden: null, steps: 3, asked: 2, rank: 5, majority: 5, counts: { ...emptyCounts(), 5: 1, same: 1, notAsked: 1 }, cost: { before: null, after: null, spent: 0 }, tokens: { before: NO_TOKENS, after: NO_TOKENS }, thinkingStripped: 0, refused: null, decisions: [waits, uncontrolled, step({})], warnings: [] };
+    expect(unsettledRun(run)).toEqual({ runId: 'A', refused: false, steps: 3, asked: 2, notAsked: 1, judgeOpen: true, controlOpen: true });
+    expect(unsettledRun({ ...run, refused: 'its first request differs in more than its prompt', asked: 0, decisions: [step({ samples: { asked: 0, answered: 0, changed: 0, ranks: [] } })] })).toMatchObject({ refused: true, judgeOpen: false, controlOpen: false });
+  });
+
+  it("says a migration breaks a run when verify rejected it or a run it verified fails, and settles nothing while a run is inconclusive", () => {
+    const passes = (verdict: 'accepted' | 'rejected' | 'incomplete' | 'not-run', runs: Array<{ verdict: string; verified: boolean }>) => ({ verdict, runs });
+    expect(migrateBreaks(passes('rejected', []))).toBe(true);
+    expect(migrateBreaks(passes('accepted', [{ verdict: 'failed', verified: true }]))).toBe(true);
+    // A run that failed as recorded, not re-run: no run the switch broke.
+    expect(migrateBreaks(passes('accepted', [{ verdict: 'failed', verified: false }, { verdict: 'passed', verified: true }]))).toBe(false);
+    expect(migrateUnsettled({ stopReason: 'the budget of $1.00 is spent', passes: passes('accepted', []) })).toBe('it stopped before every step was asked: the budget of $1.00 is spent');
+    expect(migrateUnsettled({ stopReason: null, passes: passes('incomplete', [{ verdict: 'inconclusive', verified: true }]) })).toBe('verify did not settle every run it took');
+    expect(migrateUnsettled({ stopReason: null, passes: passes('accepted', [{ verdict: 'passed', verified: true }, { verdict: 'inconclusive', verified: false }]) })).toBe('1 run is inconclusive');
+    expect(migrateUnsettled({ stopReason: null, passes: passes('not-run', [{ verdict: 'inconclusive', verified: false }, { verdict: 'inconclusive', verified: false }]) })).toBe('2 runs are inconclusive');
+    expect(migrateUnsettled({ stopReason: null, passes: passes('accepted', [{ verdict: 'passed', verified: true }, { verdict: 'passed', verified: false }]) })).toBeNull();
   });
 });
 

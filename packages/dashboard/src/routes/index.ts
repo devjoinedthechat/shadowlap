@@ -34,6 +34,8 @@ import * as coverage from './coverage.js';
 import * as forks from './forks.js';
 // A fix's attempts grouped by what each did, for its Blame and Verify steps.
 import * as attemptGroups from './attempt-groups.js';
+// Changes › Verdicts: every change checked, and the verdict it got.
+import * as verdicts from './verdicts.js';
 
 /** A feature's routes (and job kinds): `routes/<feature>.ts` exports `register(router, ctx)`. */
 export interface RouteModule {
@@ -79,6 +81,7 @@ export const ROUTE_MODULES: RouteModule[] = [
   coverage,
   forks,
   attemptGroups,
+  verdicts,
 ];
 
 export function registerRoutes(router: Router, ctx: RouteContext): void {

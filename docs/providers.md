@@ -18,7 +18,7 @@ The notes say how each provider's calls reach the sidecar: through a base-URL va
 | OpenAI and OpenAI-compatible | OpenAI | `OPENAI_BASE_URL` (with `/v1`) |
 | Google Gemini | Gemini | `GOOGLE_GEMINI_BASE_URL` |
 | Azure OpenAI | OpenAI | In-process capture |
-| Vertex AI (Claude and Gemini models) | Anthropic for Claude, Gemini for Gemini | In-process capture |
+| Gemini Enterprise Agent Platform (Vertex AI), Claude and Gemini models | Anthropic for Claude, Gemini for Gemini | In-process capture |
 | Amazon Bedrock (InvokeModel and Converse, streamed or not) | Bedrock's InvokeModel and Converse | In-process capture |
 | Claude on Microsoft Foundry (`AnthropicFoundry`) | Anthropic | In-process capture, recorded as Anthropic's |
 | OpenAI's SDK on Amazon Bedrock (`bedrock-mantle`) | OpenAI | In-process capture, recorded as OpenAI's |
@@ -225,7 +225,11 @@ ID fetches a token first, which a replay can't serve.
 `AI_GATEWAY_API_KEY` is given unless the environment holds it or `VERCEL_OIDC_TOKEN`, the token a
 Vercel deployment and `vercel env pull` give.
 
-### Vertex AI
+### Gemini Enterprise Agent Platform (Vertex AI)
+
+Google renamed Vertex AI to Gemini Enterprise Agent Platform on 2026-04-22 ([its announcement](https://cloud.google.com/blog/products/ai-machine-learning/introducing-gemini-enterprise-agent-platform)).
+Its API, hosts and SDKs keep the Vertex name (`aiplatform.googleapis.com`, `AnthropicVertex`,
+`CLAUDE_CODE_USE_VERTEX`), and these docs and the CLI call it Vertex AI for short.
 
 Google clients fetch an OAuth token before calling Vertex, and that request isn't a model call. In CI,
 give the client a token from the environment (`accessToken` in Node, `access_token` in Python), or use

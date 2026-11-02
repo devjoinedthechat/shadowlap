@@ -478,7 +478,21 @@ Under the banner, a line each, the most pressing first:
 
 ### The origin strip
 
-The origin strip has one cell per call, colored by what happened to it: replayed, live, overridden, injected, failed, blocked or stubbed. The legend lists those present. *Injected* is a failure Shadowlap answered with instead of the provider, from [`--fail-at`](./interventions.md#inject-a-failure). The fork and the call blame named are flagged.
+The origin strip has one cell per call, colored by what happened to it. The legend lists those present. The fork is flagged in ink, and the call blame named in red.
+
+Each origin has a color of its own:
+
+| Origin | Drawn as |
+| --- | --- |
+| Replayed | The logo's second green, quieter than the lime of the page's next step |
+| Live | Off-white |
+| Overridden | Violet |
+| Injected | Violet at half strength: a failure Shadowlap answered with instead of the provider, from [`--fail-at`](./interventions.md#inject-a-failure) |
+| Failed | A red ring on its red tint, the tint alone where a cell is narrower than 6 px |
+| Blocked | A grey hatch edged in grey, as Shadowlap fenced the write; a solid grey where a cell is narrower than 6 px |
+| Stubbed | Steel blue |
+
+Each color means one thing across the dashboard. Lime is the primary action and what passed, amber what needs a look or is inconclusive, and red what failed. Where you are, a link and a fork are drawn in ink.
 
 - **Click a cell** to open that call.
 - **From the keyboard**, the strip is one stop for Tab: ← and → (Home and End) move between its cells, and Enter opens the call.
@@ -520,6 +534,8 @@ Calls lists every call with its kind, name, origin, tokens and time. Each kind o
 A replayed call's time is its recorded duration, in grey, because the replay did not wait for it. A clock or random read records none, so its time is blank.
 
 Filter by origin or text: *Fenced* holds the writes blocked or stubbed after a fork. A filter lists what it matches flat. Each row has a fork button.
+
+A call's origin shows in the strip's colors, with an injected or a failed call's swatch drawn as a ring. A tool call's effect shows beside its name: a write in teal.
 
 Each call sits under the call it belongs to, the list still in the run's order:
 
@@ -1257,7 +1273,7 @@ The first time a command runs in a folder, the dashboard asks before running it.
 
 **Remove from dashboard** takes the project off the list. Nothing on disk changes: the folder and its code, its store, `shadowlap.config.json` and the goldens stay. The list remembers how far its setup got and the commands you confirmed, so adding the folder again undoes it.
 
-**Also delete its recordings** deletes the store as well (`.shadowlap/shadowlap.db` and the files SQLite keeps beside it), once you type the project's name. The list forgets the project: added again, its setup starts afresh.
+**Also delete its recordings** deletes the store as well (`.shadowlap/shadowlap.db` and the files SQLite keeps beside it), once you type the project's name. The dashboard closes every connection it has to the store before deleting it, and opens none again. The list forgets the project: added again, its setup starts afresh.
 
 - **It won't while a run is recording there**: a run whose process is still there, however long ago it started. One a killed process left marked running doesn't hold it up.
 - **It won't when the folder can't be written to.**
@@ -1560,6 +1576,9 @@ The dashboard's keys:
 - **A link in the page that opens another** (a fix from the list, another fix's verdict) hands the focus to the page it opened. A run picked in Compare leaves it on the picker.
 - **A focus ring** is drawn whole in every pane that scrolls. A pane that scrolls with no control in it (the Timeline, Turns and Context, a run's calls on Provenance, a code block, a command to copy, a job's output) takes the focus itself, so the keyboard can scroll it.
 - **Every target** is 24 px at least, as WCAG 2.5.8 asks, and text reaches WCAG AA's contrast on every surface it is drawn on.
+- **A field's edge** reaches 3:1 on whatever it sits on, as WCAG 1.4.11 asks of a control.
+- **On a phone**, no label is under 11 px: the small labels over titles, column heads, tags and shortcut keys rise to it.
+- **In a high-contrast theme** that forces its own colors, a mark that says something by its color keeps it, edged in the theme's text color. The current page and run and the selected call take the highlight color, a chosen option is underlined, and menus, dialogs, hover cards and toasts are outlined.
 
 ## Limits
 
@@ -1944,13 +1963,14 @@ A gate against history is figured at seven pass rates against the baseline `hist
 - **The setup page** gives where it stands and the step that is next, each provider with the credentials this machine would use, the CI steps and the commit. A typed URL is checked against the provider picked, with the access to ask for.
 - **Imports**: a user name or password in a host is left out.
 
-### Training, decisions, injection, presets and coverage
+### Training, decisions, verdicts, injection, presets and coverage
 
 | Endpoint | What it does |
 | --- | --- |
 | `GET /api/training?filter=all\|high\|medium` | Training: the strip, the pairs grouped per call with their sources and fixes, the goldens as tasks, and each model's scores |
 | `GET /api/models` | The models to score, each with its price per attempt and last score, and the picker made from them |
 | `GET /api/decisions?kind=decisions\|migrate`, `/api/decisions/:id`, `GET /api/runs/:id/decisions`, `GET /api/retirements` | The [decision diff](./decisions.md): its sessions, one session, a run's decisions, and the retirement notices |
+| `GET /api/verdicts?kind=all\|sessions\|previews\|verifies&limit=`, `/api/verdicts/:rev` | Every change checked and its verdict, newest first; a revision's page |
 | `GET /api/injection?run=&golden=&limit=`, `/api/injection/:id`, `/api/injection/:id/report`, `/api/injection/needs-look`, `/api/injection/runs/:id`, `/api/injection/templates`, `/api/injection/tools` | [Injection tests](./injection.md): results, one result, its report, Needs a look, a run's untrusted reads, the templates and the tools |
 | `GET /api/chaos`, `/api/chaos/runs/:id` | [Error-path presets](./error-paths.md): the presets and their matrices; one run's matrix |
 | `GET /api/coverage` | [Production coverage](./coverage.md): the last `shadowlap coverage` scan and what it found |
@@ -1974,6 +1994,13 @@ The `matrix` has a row per run and a cell per model call. Each cell holds:
   - else `changed` when one came out otherwise for the changed words (the cell ranks 2);
   - `unchanged` when every one came out as recorded;
   - `null` when none read it.
+
+**Verdicts:**
+
+- `/api/verdicts`: every change checked, newest first, `limit` rows (50 unless given, at most 200) of the chip `kind` names. A change is a revision a test session ran every golden at, a preview or a migration, or a verify a fix keeps.
+- Each row gives its verdict as the command that gave it says it (`word`, coloured by `tone`), the `line` under it, what it was `checked` on and what `moved`. It names who made the change (`by`: a commit's author, who ran a preview) only when the project's config names a team store.
+- `counts` gives each chip's count, and `lead` the newest revision's verdict. The list reads the newest 200 test sessions, previews and verifies, and `more` says older changes exist.
+- `/api/verdicts/:rev` gives a revision's page (`no-revision` for a session that knew none): its goldens as that session judged them, worst first with their notes, and the previews and migrations asked at that revision.
 
 **Injection tests:**
 
@@ -2076,7 +2103,7 @@ Outside a dashboard job the variable is unset, and nothing is written.
 - on a toast with Undo, or the bar that says the dashboard can't be reached;
 - on every page, Settings tab and fix step again, with a few runs and Import a capture, at a phone's width (390 px).
 
-It also checks the contrast, the focus order, the skip link, the focus rings and every overlay's focus; 24 px targets; a phone's width; and that every link the server writes opens a page.
+It also checks the contrast of text and of a field's edge, the focus order, the skip link, the focus rings and every overlay's focus. It checks 24 px targets, a phone's width with no label under 11 px, and that every link the server writes opens a page.
 
 **A large store.** `node scripts/dashboard-scale.mjs --calls 20000 --runs 10000` builds a large store and times what a browser asks for on it; see [Large stores and long runs](#large-stores-and-long-runs).
 

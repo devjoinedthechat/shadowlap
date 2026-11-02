@@ -95,7 +95,7 @@ interface Json {
   verdict: string;
   warnings: string[];
   kept: { source: string; margin: number; risk: number; max: number; revision: string | null; label: string | null } | null;
-  runs: Array<{ runId: string; role: string; outcome: string; passes: number; attempts: number; decision: string | null; rate: { decision: string; sentence: string } | null; baseline?: { passes: number; attempts: number; source: string; revision: string | null }; margin?: number; drop?: { lo: number | null; hi: number | null; confidence: number; method: string }; baselineRuns?: Array<{ runId: string; passed: boolean; forkedAt: number | null }>; noBaseline?: string }>;
+  runs: Array<{ runId: string; role: string; outcome: string; passes: number; attempts: number; decision: string | null; rate: { decision: string; sentence: string } | null; baseline?: { passes: number; attempts: number; source: string; revision: string | null }; margin?: number; drop?: { lo: number | null; hi: number | null; confidence: number; method: string }; baselineRuns?: Array<{ runId: string; passed: boolean; forkedAt: number | null; afterFork?: Record<string, number> }>; runs: Array<{ afterFork?: Record<string, number> }>; noBaseline?: string }>;
   cost: { attempts: number };
 }
 
@@ -123,6 +123,10 @@ describe('shadowlap verify against a baseline', () => {
     // Each baseline attempt forked where the change's did, the first model call, and ran under HEAD's prompt.
     expect(keptRun.baselineRuns).toHaveLength(6);
     expect(keptRun.baselineRuns!.every((b) => b.passed && b.forkedAt === 1)).toBe(true);
+    // Both arms got the same answers after the fork (the lookup live, the policy as recorded, the
+    // refund stubbed), so nothing warns that they ran against different ones.
+    const same = { recorded: 1, inOrder: 0, live: 1, stubbed: 1, blocked: 0 };
+    for (const a of [...keptRun.runs, ...keptRun.baselineRuns!]) expect(a.afterFork).toEqual(same);
     expect(report.cost.attempts).toBe(12 + 6 + 6);
     const store = Store.open(db);
     try {
