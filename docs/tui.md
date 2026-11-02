@@ -290,9 +290,10 @@ The terminal UI uses the dashboard's colours, and each means one thing, as it do
 
 | Colour | For |
 | --- | --- |
-| Lime | What passed, and the `Enter` that runs a repair or a verify |
+| Lime | What passed, and the `Enter` that runs a blame, a repair or a verify |
 | Amber | What needs a look or is inconclusive |
 | Red | What failed: a check, a call, a lost run, and what a changed request removed |
+| Teal | A write a fork changed, on its diff tab |
 | Grey | Secondary text, and what doesn't apply or was interrupted |
 | The terminal's own text colour | Where you are, a fork, and what was said |
 
@@ -309,14 +310,20 @@ Each origin has a colour of its own, as on the dashboard's [origin strip](./dash
 | Blocked | Grey: the word says Shadowlap fenced the write, where the dashboard draws a hatch |
 | Stubbed | Steel blue |
 
-**Where you are** is drawn as the dashboard draws it. The selected row and the open tab are bold, on a grey ground a step off the terminal's own background, or bold alone in its sixteen colours. The pane in focus is framed in the terminal's text colour.
+**Where you are** is drawn as the dashboard draws it:
+
+- **The ground** of the selected row and the open tab is grey: the background the terminal reports, a step lighter, or darker on a light one. When the terminal reports none, it is the dashboard's own, or a light grey on a light background.
+- **Bold** marks the open tab, and the selected row in the focused pane. The other pane's selected row keeps the ground alone.
+- **The pane in focus** is framed in the terminal's text colour.
 
 Lime that reads well on a dark background disappears on a light one. So before it draws anything, the UI asks the terminal for its background colour, as Neovim does, and picks a palette to suit. On a light background, each colour is darkened to keep its meaning and to read at 4.5:1.
 
-- **A terminal that doesn't say** gets its own sixteen colours, which its theme already suits to its background, as does one with fewer than 256 colours. Each meaning takes the nearest of them, and no two share one: passed is bright green, replayed green.
+- **A terminal that doesn't say** gets its own sixteen colours, which its theme already suits to its background, as does one with fewer than 256 colours.
 - **`COLORFGBG`**, which rxvt, Konsole and iTerm2 set, is read when the terminal doesn't answer.
 - **`SHADOWLAP_UI_THEME=dark`, `light` or `ansi`** chooses for it.
 - **In a terminal without colour**, the `>` before the selected row marks it.
+
+**In the sixteen colours**, each meaning takes the nearest of them. Passed, replayed, amber, red, teal, stubbed, overridden and injected never share one: passed is bright green, replayed green. Grey covers secondary text, what doesn't apply, and a blocked write. Where you are has no ground: bold and the `>` mark it.
 
 ## Cost, model and stop reason
 
