@@ -8,7 +8,7 @@ import { App } from '../src/app.js';
 import { FixJobView } from '../src/components/FixJobView.js';
 import { conversationAt, freshSince, modelAction } from '../src/data.js';
 import { conversationLines, fitColumns, RESULT_LINES, sharedPrefix } from '../src/render.js';
-import { detectTheme, queryTerminal, queryTimeout, themeFromColorFgBg, themeFromEnv, themeFromOsc11 } from '../src/terminal-theme.js';
+import { backgroundFromOsc11, detectTerminal, detectTheme, queryTerminal, queryTimeout, themeFromColorFgBg, themeFromEnv, themeFromOsc11 } from '../src/terminal-theme.js';
 import { mixColours, themeFor, THEMES, type Theme } from '../src/theme.js';
 import { contrast, painted, token } from './colours.js';
 import { renderAt } from './terminal.js';
@@ -102,6 +102,18 @@ describe('which palette suits the terminal', () => {
     // A live call in the dashboard's live colour on a dark background; else the terminal's own foreground.
     expect(THEMES.light.origin.live).toBeUndefined();
     expect(THEMES.ansi.origin.live).toBeUndefined();
+  });
+
+  it('keeps the background the terminal reports, which the selection ground is mixed from', async () => {
+    expect(backgroundFromOsc11('\x1b]11;rgb:1e1e/1e1e/1e1e\x07')).toBe('#1e1e1e');
+    expect(backgroundFromOsc11('\x1b]11;rgb:fd/f6/e3\x07')).toBe('#fdf6e3');
+    expect(backgroundFromOsc11('\x1b]11;#282c34\x07')).toBe('#282c34');
+    expect(backgroundFromOsc11('nothing')).toBeNull();
+    const t = terminal('\x1b]11;rgb:2828/2c2c/3434\x1b\\\x1b[?62;22c');
+    expect(await detectTerminal({ env: {}, stdin: t.stdin, stdout: t.stdout })).toEqual({ theme: 'dark', background: '#282c34' });
+    // Told which palette, or read from COLORFGBG: no background to mix from.
+    const quiet = terminal('\x1b[?62;22c');
+    expect(await detectTerminal({ env: { COLORFGBG: '0;15' }, stdin: quiet.stdin, stdout: quiet.stdout })).toEqual({ theme: 'light', background: null });
   });
 });
 

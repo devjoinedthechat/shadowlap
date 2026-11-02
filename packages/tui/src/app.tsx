@@ -10,7 +10,7 @@ import { RunsView } from './components/RunsView.js';
 import { TimelineView, type OpenDashboard, type SpawnCli } from './components/TimelineView.js';
 import type { Tab } from './components/Inspector.js';
 import { loadRunTree, summaryOptions } from './data.js';
-import { THEMES, ThemeContext, type ThemeName } from './theme.js';
+import { themeFor, ThemeContext, type ThemeName } from './theme.js';
 
 export interface AppProps {
   store: Store;
@@ -29,6 +29,8 @@ export interface AppProps {
   prices?: Record<string, Price>;
   /** The palette for the terminal's background (`launchTui` asks the terminal); dark, the dashboard's, by default. */
   theme?: ThemeName;
+  /** The background the terminal reported (`#rrggbb`), which the ground of where you are is mixed from; else the palette's own. */
+  background?: string;
   /** `tools.unrecorded` from shadowlap.config.json, which the unrecorded-tools warning reads (`launchTui` reads it). */
   unrecorded?: Declared;
   /** The project's normalizers (`normalize` in shadowlap.config.json): what they mask is no difference between a fork and its parent. */
@@ -42,15 +44,16 @@ export interface AppProps {
 
 type View = { kind: 'runs' } | { kind: 'timeline'; run: RunRecord; calls: CallRecord[]; initialCall?: number; askedCall: boolean; initialTab?: Tab };
 
-export function App({ theme = 'dark', ...rest }: AppProps) {
+export function App({ theme = 'dark', background, ...rest }: AppProps) {
+  const palette = useMemo(() => themeFor(theme, background), [theme, background]);
   return (
-    <ThemeContext.Provider value={THEMES[theme]}>
+    <ThemeContext.Provider value={palette}>
       <Screens {...rest} />
     </ThemeContext.Provider>
   );
 }
 
-function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows, prices, unrecorded, normalizers, tests, configDir = null, repairer }: Omit<AppProps, 'theme'>) {
+function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows, prices, unrecorded, normalizers, tests, configDir = null, repairer }: Omit<AppProps, 'theme' | 'background'>) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const [size, setSize] = useState({ columns: columns ?? stdout.columns ?? 100, rows: rows ?? stdout.rows ?? 30 });

@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import chalk from 'chalk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Store, storeView } from '@shadowlap/engine';
 import { launchTui, type TuiTerminal } from '../src/index.js';
@@ -151,5 +152,34 @@ describe('a stop signal as it starts', () => {
     expect(t.written()).not.toContain(ENTER);
     expect(t.stdin.isRaw).toBe(false);
     expect(process.listeners('SIGTERM')).toEqual(before);
+  });
+});
+
+describe('where you are, on the terminal it opens in', () => {
+  const themeWas = process.env.SHADOWLAP_UI_THEME;
+  // Ink colours through chalk, which draws nothing where the tests' output is no terminal.
+  const level = chalk.level;
+  beforeEach(() => {
+    delete process.env.SHADOWLAP_UI_THEME;
+    chalk.level = 3;
+  });
+  afterEach(() => {
+    chalk.level = level;
+    if (themeWas === undefined) delete process.env.SHADOWLAP_UI_THEME;
+    else process.env.SHADOWLAP_UI_THEME = themeWas;
+  });
+
+  it('draws the selected row on the background the terminal answered with, ink mixed in as the dashboard mixes its own', async () => {
+    const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' } });
+    store.endRun(run.runId, 'completed');
+    const t = terminal(100, 30, { answers: true });
+    const quit = launchTui(store, {}, t.io);
+    const plain = () => t.written().replace(/\x1b\[[0-9;]*m/g, '');
+    await until(() => plain().includes('q quit'));
+    t.stdin.write('q');
+    await quit;
+    // Black, the background it answered with, with the dashboard's 8% of ink: not the ground of the dashboard's own page.
+    expect(t.written()).toContain('\x1b[48;2;19;19;18m');
+    expect(t.written()).not.toContain('48;2;29;30;27');
   });
 });

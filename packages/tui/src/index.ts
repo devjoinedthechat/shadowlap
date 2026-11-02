@@ -2,7 +2,7 @@ import { render, type Instance } from 'ink';
 import { createElement } from 'react';
 import type { Store } from '@shadowlap/engine';
 import { App, type AppProps } from './app.js';
-import { detectTheme } from './terminal-theme.js';
+import { detectTerminal } from './terminal-theme.js';
 
 export { App } from './app.js';
 export type { AppProps } from './app.js';
@@ -14,7 +14,7 @@ export { conversationLines, blockLines, wrap } from './render.js';
 export type { ConversationAt } from './data.js';
 export { diffLines, divergenceSummary } from './diff.js';
 export { THEMES, type Theme, type ThemeName } from './theme.js';
-export { detectTheme, themeFromColorFgBg, themeFromEnv, themeFromOsc11 } from './terminal-theme.js';
+export { backgroundFromOsc11, detectTerminal, detectTheme, themeFromColorFgBg, themeFromEnv, themeFromOsc11 } from './terminal-theme.js';
 
 /** The terminal the TUI runs in: the process's own, but in tests. */
 export interface TuiTerminal {
@@ -60,11 +60,11 @@ export async function launchTui(store: Store, options: Omit<AppProps, 'store'> =
   for (const signal of STOP_SIGNALS) process.on(signal, stop);
   process.on('uncaughtExceptionMonitor', leave);
   try {
-    // The palette for the terminal's background, asked before Ink reads the keyboard.
-    const theme = options.theme ?? (await detectTheme({ stdin, stdout }));
+    // The palette for the terminal's background, and the background itself, asked before Ink reads the keyboard.
+    const colours = options.theme ? { theme: options.theme, background: options.background ?? null } : await detectTerminal({ stdin, stdout });
     // Stopped while it was asked: nothing is drawn, and the keyboard leaves the raw mode a question with no answer leaves it in.
     if (stopped) return keyboardBack(stdin);
-    instance = render(createElement(App, { store, ...options, theme }), {
+    instance = render(createElement(App, { store, ...options, theme: colours.theme, ...(colours.background ? { background: colours.background } : {}) }), {
       stdin,
       stdout,
       stderr,
