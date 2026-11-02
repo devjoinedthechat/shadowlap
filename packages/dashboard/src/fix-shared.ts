@@ -1,4 +1,4 @@
-import { BLAME_DEFAULTS, outcomeOf, repairPatchProblem, repairToApply, SPRT_DEFAULTS, verdictCounts, type AttemptVerdict, type FixRecords, type PulledFrom, type RepairCandidate, type RunRecord, type StoreOf, type StoredRepair, type SprtGate, type StoredVerdict, type VerifiedRun } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, fieldValue, outcomeOf, repairPatchProblem, repairToApply, SPRT_DEFAULTS, verdictCounts, type AttemptVerdict, type FixRecords, type PulledFrom, type RepairCandidate, type RunRecord, type StoreOf, type StoredRepair, type SprtGate, type StoredVerdict, type VerifiedRun } from '@shadowlap/engine';
 import { type VerifyEvidence } from './evidence.js';
 import { links } from './links.js';
 import { isCount } from './rerun.js';
@@ -188,10 +188,10 @@ export function changeName(v: Pick<StoredVerdict, 'candidate' | 'command' | 'rer
   return `${fields}${v.report.codeVersion ? ` · at ${v.report.codeVersion}` : ''}`;
 }
 
-/** The request fields a verdict's change set, as `temperature=1`; null for a change all in the code. */
+/** The request fields a verdict's change set, as `--set` takes them (fieldValue): `temperature=1`, `stop="1"`; null for a change all in the code. */
 export function fieldsOf(v: Pick<StoredVerdict, 'report'>): string | null {
   const fields = Object.entries(v.report.fields ?? {});
-  return fields.length ? fields.map(([k, x]) => `${k}=${typeof x === 'string' ? x : JSON.stringify(x)}`).join(', ') : null;
+  return fields.length ? fields.map(([k, x]) => `${k}=${fieldValue(x)}`).join(', ') : null;
 }
 
 /** The request fields a verdict's change set, and from where: `temperature=1 from each run's first model call`; null for a change all in the code. */
