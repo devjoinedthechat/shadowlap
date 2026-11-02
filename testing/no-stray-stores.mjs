@@ -62,6 +62,26 @@ export function ownHome() {
   };
 }
 
+/**
+ * Nothing a test forgets to point at a mock reaches a real model API: the base-URL providers'
+ * upstreams default to a closed local port for the run, so such a call fails here instead of being
+ * sent, with whatever key it carries, to the provider. A test that sets its own upstream keeps it.
+ * `remove` puts back what each was.
+ */
+export function closedUpstreams() {
+  const names = ['SHADOWLAP_UPSTREAM_ANTHROPIC', 'SHADOWLAP_UPSTREAM_OPENAI', 'SHADOWLAP_UPSTREAM_GEMINI'];
+  const was = Object.fromEntries(names.map((n) => [n, process.env[n]]));
+  for (const n of names) if (!process.env[n]) process.env[n] = 'http://127.0.0.1:9';
+  return {
+    remove() {
+      for (const n of names) {
+        if (was[n] === undefined) delete process.env[n];
+        else process.env[n] = was[n];
+      }
+    },
+  };
+}
+
 /** A folder's entries, itself included, as `path -> mtime:size`, to a depth of 3 and at most 1,000; null when it isn't there. */
 function listing(dir) {
   let top;
@@ -244,11 +264,13 @@ export function setupOptions(project) {
 /** Vitest's global setup (its argument is the project Vitest runs): a Shadowlap home of the run's own, and the check around the whole run. */
 export default function setup(project) {
   const home = ownHome();
+  const upstreams = closedUpstreams();
   const teardown = check(WATCHED, undefined, setupOptions(project));
   return () => {
     try {
       teardown();
     } finally {
+      upstreams.remove();
       home.remove();
     }
   };
@@ -266,6 +288,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   }
   // The command and what it starts keep Shadowlap's files in a home of the run's own.
   const home = ownHome();
+  closedUpstreams();
   // Folders given with --watch are checked alone; around the suites, the checkout and the real home are checked too.
   const teardown = check(dirs.length ? dirs : WATCHED, (line) => process.stderr.write(`! ${line}\n`), dirs.length ? { root: null } : { home: REAL_HOME });
   // Python writes no __pycache__ into the checkout for what the tests import (the SDK, the guard).

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -64,7 +64,7 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   await mock.close();
-  rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  for (const dir of [work, recorded?.dir]) if (dir) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 beforeEach(() => {
   if (work) rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
@@ -94,13 +94,28 @@ async function record(order?: string): Promise<string> {
   return /recording run (\w{26})/.exec(r.out)![1];
 }
 
-/** Two runs that refunded $240 against policy, and one that refunded $40 within it, labelled good. */
+/** The folder the first test to ask for `runs()` recorded them in, its store and outbox, and the runs' ids. */
+let recorded: { dir: string; ids: { failed: string; heldOut: string; good: string } } | null = null;
+
+/**
+ * Two runs that refunded $240 against policy, and one that refunded $40 within it, labelled good.
+ * Recorded once, by the first test that asks: the mock answers them the same every time, so each
+ * test after it gets a copy of the folder they were recorded in, store and outbox, where it would
+ * spend three recordings and a label.
+ */
 async function runs(): Promise<{ failed: string; heldOut: string; good: string }> {
+  if (recorded) {
+    cpSync(recorded.dir, work, { recursive: true });
+    return recorded.ids;
+  }
   const failed = await record();
   const heldOut = await record();
   const good = await record('B-7');
   expect((await shadowlap(['label', good, 'good'])).code).toBe(0);
-  return { failed, heldOut, good };
+  const dir = mkdtempSync(join(tmpdir(), 'fp-verify-runs-'));
+  cpSync(work, dir, { recursive: true });
+  recorded = { dir, ids: { failed, heldOut, good } };
+  return recorded.ids;
 }
 
 const outbox = () => (existsSync(join(work, 'outbox.jsonl')) ? readFileSync(join(work, 'outbox.jsonl'), 'utf8').trim().split('\n') : []);
