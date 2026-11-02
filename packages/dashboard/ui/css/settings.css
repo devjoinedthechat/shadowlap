@@ -1,0 +1,225 @@
+/* Settings (#/settings/<tab>): each tab's rows and tables, the redaction preview, the tools' effects, alerts and CI's
+   previews (a Slack message, a pull request), coding agents. */
+.set table.t { border-top: 1px solid var(--line); }
+.setrow { display: flex; align-items: center; gap: 20px; padding: 14px 18px; border-top: 1px solid var(--line); }
+.setrow > div:first-child { flex: 1; min-width: 0; }
+.setrow b { display: block; font-weight: 500; }
+.setrow span { display: block; margin-top: 2px; color: var(--faint); font-size: 12.5px; max-width: 72ch; }
+.setrow span.fieldnote { margin-top: 6px; }
+.preview { border-top: 1px solid var(--line); }
+.pvhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+
+.pvrule { display: grid; grid-template-columns: auto 34px minmax(0, 1fr); gap: 4px 12px; align-items: baseline; padding: 9px 0; border-top: 1px solid var(--line); }
+.pvrule .chip { justify-self: start; }
+.pvn { font: 600 13px var(--mono); text-align: right; }
+.pvs { grid-column: 3; display: flex; flex-direction: column; gap: 2px; font: 12px var(--mono); }
+.pvs + .pvs { grid-row: auto; }
+.pvs .del { color: var(--err); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--err) 50%, transparent); }
+.pvs .add { color: var(--add); }
+.effects { border-top: 1px solid var(--line); }
+.effects div { display: grid; grid-template-columns: minmax(0, 1fr) 64px 140px; align-items: center; gap: 10px; padding: 8px 18px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.effects div:last-child { border-bottom: 0; }
+.effects .eff { margin: 0; }
+
+@media (max-width: 1000px) {
+  .setrow { flex-wrap: wrap; }
+  .effects div { grid-template-columns: minmax(0, 1fr) 56px; }
+  .effects div .muted { display: none; }
+}
+
+.egrp { padding: 12px 18px 14px; border-top: 1px solid var(--line); }
+.egrp .k { display: block; margin-bottom: 8px; }
+.tchips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tchip { display: inline-flex; align-items: center; gap: 7px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--raise); font: 12px var(--mono); }
+.tchip em { font-style: normal; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+.tchip.w em { color: var(--k-write); }
+.tchip.s em { color: var(--o-stub); }
+.set .tscroll table.t { min-width: 520px; }
+
+@media (max-width: 640px) {
+  .set header .sub { display: none; }
+  .setrow { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .pvhead .pick, .pvhead select { width: 100%; }
+  .pvrule { grid-template-columns: auto 28px minmax(0, 1fr); }
+}
+
+/* settings: coding agents */
+.agentfiles { margin: 4px 0 12px; }
+.agentfiles div { display: flex; gap: 12px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.agentfiles code { min-width: 110px; }
+.agentfiles .warn { color: var(--warn); }
+/* Settings → Coding agents, as the design has it: the skills' install on the .agents/skills row, small and to the right, or
+   why they can't go in; the plugin's skills once published, with its install command and the commands for every project */
+.agentfiles div .btn, .agentfiles div .agwhy { margin-left: auto; }
+.agentfiles div .agwhy { text-align: right; }
+@media (max-width: 640px) { .agentfiles div:has(.btn, .agwhy) { flex-wrap: wrap; } .agentfiles div:has(.btn, .agwhy) :is(.btn, .agwhy) { margin: 4px 0 0 auto; } }
+.agentsgone { margin: 4px 0 12px; }
+.skrow { align-items: flex-start; }
+.skrow > div:first-child > span + span { margin-top: 6px; }
+.skrow > div:first-child > span { max-width: 96ch; text-wrap: pretty; }
+.skrow > div:first-child > span.warn { color: var(--warn); }
+.skrow > .btn, .skrow > .st { margin-top: 2px; }
+.skrow .skcmd { margin-top: 10px; max-width: 520px; }
+.skrow .cmdline span { margin: 0; max-width: none; color: inherit; font-size: inherit; }
+.skrow .cmdline:not(.words) span { display: inline; }
+.skrow .cmdline b { display: inline; font-weight: 400; }
+.skrow .skall { margin-top: 10px; margin-left: -7px; }
+.skrow .skall svg { transition: transform .15s; transform: rotate(-90deg); }
+.skrow .skall[aria-expanded="true"] svg { transform: none; }
+.skrow .skall + .cmdline + .linkbtn { margin-top: 6px; margin-left: -7px; }
+
+/* alerts */
+.alertgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.alertgrid .teamside { border-left: 1px solid var(--line); }
+.ah3 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font: 600 14px var(--body); }
+.ah3 .badge { padding: 2px 6px; font-size: 9.5px; }
+.setrow.tight { padding: 10px 0; border-top: 0; border-bottom: 1px solid var(--line); }
+.rules { border-top: 1px solid var(--line); margin-top: 6px; }
+.rule { display: flex; align-items: center; gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.rule > div { flex: 1; min-width: 0; }
+.rule b { display: block; font-weight: 500; font-size: 13px; }
+.rule span { display: block; color: var(--faint); font-size: 12px; margin-top: 2px; }
+.rule .to { margin-top: 6px; }
+.rule .to .chip { display: inline-flex; }
+.alertcard { border: 1px solid var(--line2); border-radius: 12px; background: var(--bg2); padding: 12px 14px; font-size: 13px; }
+.alertcard .ah { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.alertcard .ah .tile { width: 18px; height: 18px; border-radius: 5px; }
+.alertcard .ah b { font-weight: 600; }
+.alertcard .ah span { color: var(--faint); font-size: 12px; }
+.alertcard .ab { display: flex; gap: 10px; }
+.alertcard .adot { width: 8px; height: 8px; border-radius: 50%; background: var(--err); margin-top: 6px; flex: none; }
+.alertcard .ab b { font-weight: 500; }
+.alertcard .ab p { margin: 2px 0 4px; color: var(--dim); font: 12px var(--mono); }
+.alertcard .msgtext { margin: 0; color: var(--ink); font: 13px/1.5 var(--body); word-break: break-word; }
+ul.fails { margin: 0; padding-left: 18px; color: var(--dim); font-size: 13px; line-height: 1.7; }
+.alertcard .ab small { color: var(--faint); font-size: 11.5px; }
+.alertcard .aa { display: flex; gap: 8px; margin: 12px 0 0 18px; }
+.alertcard .abtn { padding: 4px 10px; border-radius: 7px; border: 1px solid var(--line2); font-size: 12px; color: var(--dim); }
+@media (max-width: 1100px) { .alertgrid { grid-template-columns: minmax(0, 1fr); } .alertgrid .teamside { border-left: 0; border-top: 1px solid var(--line); } }
+/* switches keep their shape inside rows that style their text spans */
+.rule .switch, .setrow .switch { display: inline-flex; flex: none; margin: 0; color: inherit; }
+
+.settab > .panel:first-child { margin-top: 0 !important; }
+.settab > .panel + .panel { margin-top: 16px !important; }
+
+.setrow > div > span { text-wrap: pretty; }
+
+code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+
+@media (max-width: 640px) { code.mcpt { max-width: 150px; } }
+
+/* Settings → CI: settings left, what lands where right; the workflow file reads as a file, with its own copy button. */
+.cip + .cip { margin-top: 16px; }
+.cip .cimain > p.muted { margin: 0 0 6px; }
+.cip .offnote { display: block; margin-top: 6px; font-weight: 500; color: var(--warn); }
+/* What a feature turned off would do: the faint ink, never faded, which fell under AA's contrast (2.0 to 4.0:1). */
+.cip.off :is(.cimain .setrow, .codewrap, .prcard, .slackmsg, .teamside ul), .cip.off :is(.cimain .setrow, .codewrap, .prcard, .slackmsg, .teamside ul) * { color: var(--faint); }
+.cip .teamside .k { display: block; margin: 0 0 8px; }
+.cip .teamside .alertcard + .k { margin-top: 20px; }
+.setrow select.sel, .setrow input.inp { height: 32px; min-width: 170px; border-radius: 9px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 12.5px var(--mono); padding: 0 10px; outline: none; flex: none; }
+.setrow select.sel { -webkit-appearance: none; appearance: none; padding-right: 30px; background: var(--panel) var(--chev) no-repeat right 10px center / 10px 10px; cursor: pointer; }
+.setrow select.sel:hover { border-color: var(--faint); }
+.setrow select.sel:focus, .setrow input.inp:focus { border-color: var(--accent-line); }
+
+.prcard .ah .prico { width: 16px; height: 16px; flex: none; fill: none; stroke: var(--dim); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.prcard .ah b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prcard .msgtext { color: var(--dim); font-size: 12.5px; }
+.prcard .msgtext code { font-size: 11.5px; color: var(--ink); }
+.prl { list-style: none; margin: 10px 0 0; padding: 10px 0 0; border-top: 1px solid var(--line); display: grid; gap: 6px; font: 12px var(--mono); color: var(--dim); }
+.prl li { display: flex; align-items: center; gap: 8px; }
+.prl i { width: 7px; height: 7px; border-radius: 50%; background: var(--line2); flex: none; }
+.prl i.ok { background: var(--cq-lime); }
+.prl code { font-size: 12px; color: var(--ink); }
+@media (max-width: 640px) { .setrow.tight:has(.sel, .inp) { flex-wrap: wrap; } .setrow select.sel, .setrow input.inp { min-width: 0; width: 100%; } }
+.cip .cimain > p.muted, .cip .setrow > div > span, .cip .fails li { text-wrap: balance; }
+.cip .cimain > p.muted .ln { display: block; text-wrap: balance; }
+/* CI tab, second pass: settings and the preview side by side, the workflow file across the panel. */
+.cip .cicode { border-top: 1px solid var(--line); padding-top: 16px; }
+.cip .cicode .codewrap { margin-top: 0; }
+.cip .alertgrid .cimain { padding-bottom: 8px; }
+.cip .alertgrid .cimain .setrow:last-child { border-bottom: 0; }
+.cilist { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+/* The label keeps room for a few words beside a long value, which breaks after a comma, each part whole. */
+.cilist li { display: grid; grid-template-columns: 8px minmax(min(150px, 40%), 1fr) auto; align-items: center; gap: 12px; padding: 9px 12px; font-size: 13px; color: var(--dim); }
+.cilist li + li { border-top: 1px solid var(--line); }
+.cilist li i { width: 8px; height: 8px; border-radius: 50%; background: var(--line2); }
+.cilist li i.err { background: var(--cq-red); }
+.cilist li i.warn { background: var(--cq-amber); }
+.cilist li > span { text-wrap: balance; }
+.cilist li code { font: 11.5px var(--mono); color: var(--faint); }
+.slackmsg { display: flex; gap: 10px; padding: 12px 14px; border: 1px solid var(--line2); border-radius: 12px; background: var(--bg2); }
+.slackmsg .tile { width: 32px; height: 32px; border-radius: 8px; flex: none; }
+.slackmsg .sm { min-width: 0; }
+.slackmsg .sh { display: flex; align-items: baseline; gap: 6px; }
+.slackmsg .sh b { font-weight: 700; font-size: 13.5px; }
+.slackmsg .sh .sapp { font: 600 9.5px var(--body); letter-spacing: .04em; padding: 1px 4px; border-radius: 3px; background: var(--line); color: var(--dim); }
+.slackmsg .sh .t { font-size: 11.5px; color: var(--faint); }
+.slackmsg p { margin: 3px 0 2px; font-size: 13.5px; line-height: 1.45; color: var(--ink); }
+.slackmsg .sl { display: block; font-size: 13px; color: var(--x-link); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slackmsg .sl:hover { text-decoration: underline; }
+@media (max-width: 640px) { .cilist li { grid-template-columns: 8px minmax(0, 1fr); } .cilist li code { grid-column: 2; } }
+.cip .cineeds { display: block; margin: 14px 0 8px; }
+.cip .teamside .slackmsg + .k { margin-top: 20px; }
+/* Fix on failure's team store: what it follows, with the way to Settings → Store; what lands there, under the pull request. */
+.cip .teamside .cilist + .k { margin-top: 20px; }
+.cip .cistore .linkbtn { flex: none; }
+@media (max-width: 640px) { .cip .cistore .linkbtn { margin-left: -7px; } }
+
+/* ---- Settings: the spacing the mock wrote inline, and what the real tabs add ---- */
+.set > .kvs { padding: 4px 18px 0; }
+.set > .pbody + .kvs { padding: 0 18px 6px; }
+.set > .pbody.lead p.muted { margin: 0; }
+.set > .kvs dd.prose { word-break: normal; }
+.set > .kvs dd small.warn { color: var(--warn); }
+.set table.t tbody tr.still, .set table.ruletable tbody tr { cursor: default; }
+.set table.ruletable td.none { color: var(--faint); font-size: 12.5px; white-space: normal; }
+/* On a phone the empty table still scrolls sideways: the note stays in view, as wide as the panel. */
+.set table.ruletable td.none > span { position: sticky; left: 12px; display: block; max-width: calc(100vw - 80px); }
+.set table.ruletable .rerr { color: var(--err); font-size: 12.5px; }
+.set table.ruletable td.num .linkbtn[disabled] { opacity: .45; cursor: not-allowed; }
+.set table.ruletable td.num .linkbtn[disabled]:hover { background: none; color: var(--dim); }
+.settab > .verdict + .panel { margin-top: 0 !important; }
+
+.preview .pvnone, .preview .pvfoot { margin: 10px 0 0; }
+.preview .fieldnote { margin-top: 10px; }
+.pvrule .pvd { grid-column: 3; font-size: 12px; }
+/* A path in a quiet line stays whole unless it is wider than the line; Copy holds the command. */
+.pvrule .pvd code { display: inline-block; max-width: 100%; overflow-wrap: anywhere; }
+.pvrule .pvd .linkbtn { margin: -3px -4px; vertical-align: baseline; }
+.pvrule .pvd .tipped { cursor: help; }
+.pvrule .pvs span { overflow-wrap: anywhere; }
+.set .pvrule { grid-template-columns: auto minmax(34px, max-content) minmax(0, 1fr); }
+@media (max-width: 640px) { .set .pvrule { grid-template-columns: auto minmax(28px, max-content) minmax(0, 1fr); } }
+.agentfiles .ok { color: var(--dim); }
+.egrp p.none { margin: 0; }
+.egrp.mcp p.none { margin: 0 0 12px; }
+.egrp.mcp .tscroll { margin: 4px 0 12px; }
+.egrp.mcp .tchips.mcpeffects { margin: 0 0 12px; }
+.egrp.mcp .codebox.mcpjson { margin-top: 14px; }
+.egrp.mcp td small.mnote { display: block; margin-top: 2px; color: var(--faint); font-size: 11.5px; white-space: normal; min-width: 180px; }
+.egrp.mcp td small.mnote.warn { color: var(--warn); }
+.egrp.mcp td small.mnote .linkbtn { padding: 0; margin: 0; font: inherit; color: var(--ink); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
+.egrp.mcp td small.mnote .linkbtn:hover { background: none; text-decoration-color: currentColor; }
+.egrp.mcp .fieldnote { margin: 0 0 12px; }
+.egrp.mcp .fieldnote.putback { margin: 10px 0 0; }
+.egrp.mcp .fieldnote.putback ul { margin: 6px 0 0; padding-left: 18px; }
+.egrp.mcp .fieldnote.putback li { overflow-wrap: anywhere; }
+.egrp.mcp .fieldnote.putback li code { color: var(--ink); margin-right: 4px; }
+/* what a copy leaves out for good, and why: a quiet line under what it asks to put back */
+.egrp.mcp .fieldnote.mcpnote { margin: 8px 0 0; color: var(--faint); overflow-wrap: anywhere; }
+.egrp.mcp .fieldnote.mcpnote code { color: var(--ink); }
+.egrp.mcp .mcpform2 { margin-top: 12px; display: grid; gap: 6px; }
+.egrp.mcp .mcpform2 .muted { font-size: 12.5px; }
+
+.cmdline.words > span { display: inline-block; max-width: 100%; vertical-align: top; overflow-wrap: anywhere; white-space: pre-wrap; }
+
+.fieldnote.storeerr { margin: 0 0 12px; }
+
+/* a note under an MCP server's name wraps rather than widening the Server column past the mock's */
+.egrp.mcp td small.mnote { max-width: 240px; }
+.egrp.mcp .mcptable th:first-child { width: 22%; }
+
+/* Forced colours (a high-contrast theme) set every colour to the user's own, and drop shadows and fills: what says something
+   by its colour alone keeps its colour, edged in the user's text colour (CanvasText) so it shows on any ground; a chosen
+   option whose fill is lost is underlined; where you are is marked in the highlight colour. */
+@media (forced-colors: active) { .prl i, .cilist li i { forced-color-adjust: none; box-shadow: 0 0 0 1px CanvasText; } }

@@ -478,7 +478,21 @@ Under the banner, a line each, the most pressing first:
 
 ### The origin strip
 
-The origin strip has one cell per call, colored by what happened to it: replayed, live, overridden, injected, failed, blocked or stubbed. The legend lists those present. *Injected* is a failure Shadowlap answered with instead of the provider, from [`--fail-at`](./interventions.md#inject-a-failure). The fork and the call blame named are flagged.
+The origin strip has one cell per call, colored by what happened to it. The legend lists those present. The fork is flagged in ink, and the call blame named in red.
+
+Each origin has a color of its own:
+
+| Origin | Drawn as |
+| --- | --- |
+| Replayed | The logo's second green, quieter than the lime of the page's next step |
+| Live | Off-white |
+| Overridden | Violet |
+| Injected | Violet at half strength: a failure Shadowlap answered with instead of the provider, from [`--fail-at`](./interventions.md#inject-a-failure) |
+| Failed | A red ring on its red tint, the tint alone where a cell is narrower than 6 px |
+| Blocked | A grey hatch edged in grey, as Shadowlap fenced the write; a solid grey where a cell is narrower than 6 px |
+| Stubbed | Steel blue |
+
+Each color means one thing across the dashboard. Lime is the primary action and what passed, amber what needs a look or is inconclusive, and red what failed. Where you are, a link and a fork are drawn in ink.
 
 - **Click a cell** to open that call.
 - **From the keyboard**, the strip is one stop for Tab: ← and → (Home and End) move between its cells, and Enter opens the call.
@@ -520,6 +534,8 @@ Calls lists every call with its kind, name, origin, tokens and time. Each kind o
 A replayed call's time is its recorded duration, in grey, because the replay did not wait for it. A clock or random read records none, so its time is blank.
 
 Filter by origin or text: *Fenced* holds the writes blocked or stubbed after a fork. A filter lists what it matches flat. Each row has a fork button.
+
+A call's origin shows in the strip's colors, with an injected or a failed call's swatch drawn as a ring. A tool call's effect shows beside its name: a write in teal.
 
 Each call sits under the call it belongs to, the list still in the run's order:
 
@@ -1560,6 +1576,9 @@ The dashboard's keys:
 - **A link in the page that opens another** (a fix from the list, another fix's verdict) hands the focus to the page it opened. A run picked in Compare leaves it on the picker.
 - **A focus ring** is drawn whole in every pane that scrolls. A pane that scrolls with no control in it (the Timeline, Turns and Context, a run's calls on Provenance, a code block, a command to copy, a job's output) takes the focus itself, so the keyboard can scroll it.
 - **Every target** is 24 px at least, as WCAG 2.5.8 asks, and text reaches WCAG AA's contrast on every surface it is drawn on.
+- **A field's edge** reaches 3:1 on whatever it sits on, as WCAG 1.4.11 asks of a control.
+- **On a phone**, no label is under 11 px: the small labels over titles, column heads, tags and shortcut keys rise to it.
+- **In a high-contrast theme** that forces its own colors, a mark that says something by its color keeps it, edged in the theme's text color. The current page and run and the selected call take the highlight color, a chosen option is underlined, and menus, dialogs, hover cards and toasts are outlined.
 
 ## Limits
 
@@ -2076,7 +2095,7 @@ Outside a dashboard job the variable is unset, and nothing is written.
 - on a toast with Undo, or the bar that says the dashboard can't be reached;
 - on every page, Settings tab and fix step again, with a few runs and Import a capture, at a phone's width (390 px).
 
-It also checks the contrast, the focus order, the skip link, the focus rings and every overlay's focus; 24 px targets; a phone's width; and that every link the server writes opens a page.
+It also checks the contrast of text and of a field's edge, the focus order, the skip link, the focus rings and every overlay's focus. It checks 24 px targets, a phone's width with no label under 11 px, and that every link the server writes opens a page.
 
 **A large store.** `node scripts/dashboard-scale.mjs --calls 20000 --runs 10000` builds a large store and times what a browser asks for on it; see [Large stores and long runs](#large-stores-and-long-runs).
 
