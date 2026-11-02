@@ -12,6 +12,7 @@ import { safeLine, safeText } from './text.js';
 import type { CallRecord, Effect, Normalizer } from './types.js';
 import type { RetirementNotice } from './model-retirements.js';
 import { isObject } from './is-object.js';
+import { fieldValue } from './interventions.js';
 
 /**
  * The decision diff (`shadowlap decisions`): each recorded model call asked again with only what a
@@ -820,26 +821,168 @@ export function stepDelta(s: Pick<DecisionStep, 'tokens' | 'cost'>): string {
   return parts.join(' · ');
 }
 
+/**
+ * A decisions report's headline, before the change it was asked under: what the terminal prints as
+ * `✗ 2 of 7 runs decide a write or when to stop differently, under the model …`, and what the
+ * dashboard says of a preview in the same words. `lead` is what the terminal sets in bold.
+ */
+export interface DecisionsHeadline {
+  /** ✗ a run flagged; ! a change in reads or text only, no step answered, or a run not asked; ✓ the same decisions, or nothing to ask. */
+  mark: '✗' | '!' | '✓';
+  /** `2 of 7 runs`, `No write and no stop changes`, `The same decisions`. */
+  lead: string;
+  /** What carries its sentence on: ` decide a write or when to stop differently`, ` at every step asked`; empty where `lead` is the sentence. */
+  rest: string;
+  /** What it says after its sentence: `: 1 decision differs in reads or text`, ` (the warnings say why)`; empty for nothing. */
+  detail: string;
+  /** `1 of 3 runs could not be asked`, when a run could not be: the headline itself when no step was asked, said after the change otherwise. Null when every run could be. */
+  unasked: string | null;
+  /** Whether any step was asked. */
+  asked: boolean;
+}
+
+/**
+ * The headline of a report, from its counts, the runs it flags and its runs: their refusals, and the
+ * steps of those it flags, which say whether a write, a stop or a judge flagged them. A run refused
+ * whole (a --from-code change that is more than its prompt and tools) counts no step, so it is named
+ * apart: no headline reads as if it had nothing to ask. Its sentence alone (`lead` and `rest`) is what
+ * a list of previews says of one.
+ */
+export function decisionsHeadline(r: Pick<DecisionsReport, 'counts' | 'flagged'> & { runs: ReadonlyArray<Pick<DecisionRun, 'runId' | 'refused' | 'decisions'>> }): DecisionsHeadline {
+  const changed = r.counts[1] + r.counts[2] + r.counts[3] + r.counts[4] + r.counts[5];
+  const asked = changed + r.counts.same > 0;
+  const refused = r.runs.filter((x) => x.refused).length;
+  const unasked = refused ? `${refused} of ${r.runs.length} run${r.runs.length === 1 ? '' : 's'} could not be asked` : null;
+  const head = (mark: DecisionsHeadline['mark'], lead: string, rest = '', detail = ''): DecisionsHeadline => ({ mark, lead, rest, detail, unasked, asked });
+  if (!asked) {
+    if (unasked) return head('!', unasked);
+    if (r.counts.notAsked) return head('!', 'No step was answered', '', ' (the warnings say why)');
+    return head('✓', 'Nothing to ask', '', r.counts.untouched ? ': the change leaves every request as recorded' : ': the runs hold no model call');
+  }
+  if (r.flagged.length) return head('✗', `${r.flagged.length} of ${r.runs.length} run${r.runs.length === 1 ? '' : 's'}`, ` ${flaggedFor(r)}`);
+  if (changed) return head('!', 'No write and no stop changes', '', `: ${changed} decision${changed === 1 ? ' differs' : 's differ'} in reads or text`);
+  return head(unasked ? '!' : '✓', 'The same decisions', ' at every step asked');
+}
+
+/**
+ * What `decisionsUnsettled` reads of a run: whether it was refused whole, its model calls and how many
+ * of them were asked, its steps with no answer (`counts.notAsked`), and whether a step of it waits on
+ * a judge (`judgeOpen`) or on its control (`controlOpen`).
+ */
+export interface UnsettledRun {
+  runId: string;
+  refused: boolean;
+  steps: number;
+  asked: number;
+  notAsked: number;
+  judgeOpen: boolean;
+  controlOpen: boolean;
+}
+
+/** A run's part of a report as `decisionsUnsettled` reads it. */
+export function unsettledRun(run: Pick<DecisionRun, 'runId' | 'refused' | 'steps' | 'asked' | 'counts' | 'decisions'>): UnsettledRun {
+  return { runId: run.runId, refused: !!run.refused, steps: run.steps, asked: run.asked, notAsked: run.counts.notAsked, judgeOpen: run.decisions.some((s) => judgeOpen(s)), controlOpen: run.decisions.some((s) => controlOpen(s)) };
+}
+
+/**
+ * Why a decisions report settles nothing, as `shadowlap decisions` exits 3 for it, or null: it stopped
+ * before every step was asked; a run could not be asked (refused whole by a --from-code change that is
+ * more than its prompt and tools, or every model call of it got no answer); a run it doesn't flag has
+ * a step that waits on a judge (judgeOpen: a text-only change a judge check reads could not be judged,
+ * in any sample, and might be judged otherwise, which would flag it) or on its control (controlOpen: a
+ * changed step the request as recorded got no answer for, for now); verify didn't settle the runs it
+ * took, or did not run.
+ */
+export function decisionsUnsettled(r: { stopReason: string | null; flagged: readonly string[]; runs: readonly UnsettledRun[]; verify: Pick<DecisionsVerify, 'verdict' | 'reasons'> | null }): string | null {
+  if (r.stopReason) return `it stopped before every step was asked: ${r.stopReason}`;
+  const unasked = r.runs.filter((x) => x.refused || (x.steps > 0 && x.asked === 0 && x.notAsked > 0)).length;
+  if (unasked) return `${unasked} run${unasked === 1 ? '' : 's'} could not be asked`;
+  const open = r.runs.filter((x) => !r.flagged.includes(x.runId));
+  const unjudged = open.filter((x) => x.judgeOpen).length;
+  if (unjudged) return `${unjudged} run${unjudged === 1 ? ' has' : 's have'} a text-only change a judge check reads that could not be judged`;
+  const uncontrolled = open.filter((x) => x.controlOpen).length;
+  if (uncontrolled) return `${uncontrolled} run${uncontrolled === 1 ? ' has' : 's have'} a changed step the request as recorded got no answer for, so it could not be told from the model's own variation`;
+  if (r.verify?.verdict === 'incomplete') return 'verify did not settle every run it took';
+  if (r.verify?.verdict === 'not-run' && r.verify.reasons.length) return `verify did not run: ${r.verify.reasons[0]!}`;
+  return null;
+}
+
+/** A migration's What still passes, as `migrate` keeps it: verify's verdict, and how each run fares, verified or not. */
+export interface MigratePasses {
+  verdict: DecisionsVerify['verdict'];
+  runs: ReadonlyArray<{ verdict: string; verified: boolean }>;
+}
+
+/** Whether a migration breaks a run, as `shadowlap migrate` exits 1 for: verify rejected the switch, or a run it verified fails under it. */
+export function migrateBreaks(passes: MigratePasses): boolean {
+  return passes.verdict === 'rejected' || passes.runs.some((x) => x.verified && x.verdict === 'failed');
+}
+
+/**
+ * Why a migration settles nothing, as `shadowlap migrate` exits 3 for it, or null: it stopped before
+ * every step was asked, verify did not settle every run it took, or a run is inconclusive in What still
+ * passes (a step not answered, a flagged run not verified, a step that waits on a judge).
+ */
+export function migrateUnsettled(r: { stopReason: string | null; passes: MigratePasses }): string | null {
+  if (r.stopReason) return `it stopped before every step was asked: ${r.stopReason}`;
+  if (r.passes.verdict === 'incomplete') return 'verify did not settle every run it took';
+  const open = r.passes.runs.filter((x) => x.verdict === 'inconclusive').length;
+  return open ? `${open} run${open === 1 ? ' is' : 's are'} inconclusive` : null;
+}
+
+/** A request field as a change sets it, as `--set` takes it: `temperature=0`, `stop="1"` for a string that reads as JSON. */
+const fieldWords = (fields: Record<string, unknown> | null | undefined): string =>
+  Object.entries(fields ?? {})
+    .filter(([k]) => k !== 'model')
+    .map(([k, v]) => `${k}=${fieldValue(v)}`)
+    .join(', ');
+
+/**
+ * A session by its name, a noun after the dialog that makes it, the same wherever one is named (a
+ * list of previews, a run's Decisions view, Verdicts): `Model switch to claude-haiku-4-5`, `Changed
+ * prompt and tools`, `Field change to temperature=0`, what else the change set after `with`; a
+ * migration by its switch, `claude-sonnet-4-5 → claude-sonnet-5-5`. A sentence that says what a step
+ * was asked under keeps the change's own words (`under the model claude-haiku-4-5`, its `text`). Read
+ * from a kept session's report, so a part it lacks is left out.
+ */
+export function decisionsName(s: { kind: 'decisions' | 'migrate'; change?: { model?: string | null; fields?: Record<string, unknown> | null; fromCode?: unknown } | null; from?: readonly string[] | null; to?: string | null }): string {
+  const model = s.change?.model ?? null;
+  if (s.kind === 'migrate') {
+    const to = s.to ?? model ?? 'another model';
+    return s.from?.length ? `${s.from.join(', ')} → ${to}` : `Migration to ${to}`;
+  }
+  const fields = fieldWords(s.change?.fields);
+  const fromCode = !!s.change?.fromCode;
+  const base = fromCode ? 'Changed prompt and tools' : model ? `Model switch to ${model}` : fields ? `Field change to ${fields}` : 'No change';
+  const also = [fromCode && model ? `the model ${model}` : '', (fromCode || model) && fields ? fields : ''].filter(Boolean);
+  return also.length ? `${base} with ${also.join(' and ')}` : base;
+}
+
+/**
+ * What a preview changed that matters, by rank, its ranked steps counted: `2 writes changed` (rank 1),
+ * `1 stop changed` (rank 2: when it stops or hands over, or what a judge check makes of its words),
+ * `3 reads changed` (ranks 3 and 4: added, removed or asked differently). Text alone counts in none,
+ * and nor does a step within the model's own variation, which no rank counts. Empty when nothing
+ * above text changed.
+ */
+export function decisionsMoved(counts: Pick<DecisionCounts, '1' | '2' | '3' | '4'>): string[] {
+  const reads = counts[3] + counts[4];
+  return [
+    counts[1] ? `${counts[1]} write${counts[1] === 1 ? '' : 's'} changed` : '',
+    counts[2] ? `${counts[2]} stop${counts[2] === 1 ? '' : 's'} changed` : '',
+    reads ? `${reads} read${reads === 1 ? '' : 's'} changed` : '',
+  ].filter(Boolean);
+}
+
 /** The report as the terminal shows it. */
 export function formatDecisions(r: DecisionsReport, p: Palette = plain): string {
   const lines: string[] = [];
+  const h = decisionsHeadline(r);
+  const mark = h.mark === '✗' ? p.red(h.mark) : h.mark === '!' ? p.yellow(h.mark) : p.green(h.mark);
+  const why = !h.unasked ? '' : h.asked ? `; ${h.unasked} (why below)` : ' (why below)';
+  lines.push(`${mark} ${p.bold(h.lead)}${h.rest}${h.detail}, under ${safeLine(r.change.text)}${why}`);
   const changed = r.counts[1] + r.counts[2] + r.counts[3] + r.counts[4] + r.counts[5];
   const asked = changed + r.counts.same;
-  // A run refused whole (a --from-code change that is more than its prompt and tools) counts no
-  // step, so it is named apart: no headline may read as if it had nothing to ask.
-  const refused = r.runs.filter((x) => x.refused).length;
-  const unasked = `${refused} of ${r.runs.length} run${r.runs.length === 1 ? '' : 's'} could not be asked`;
-  const head = !asked
-    ? refused
-      ? `${p.yellow('!')} ${p.bold(unasked)}`
-      : r.counts.notAsked
-        ? `${p.yellow('!')} ${p.bold('No step was answered')} (the warnings say why)`
-        : r.counts.untouched
-          ? `${p.green('✓')} ${p.bold('Nothing to ask')}: the change leaves every request as recorded`
-          : `${p.green('✓')} ${p.bold('Nothing to ask')}: the runs hold no model call`
-    : r.flagged.length ? `${p.red('✗')} ${p.bold(`${r.flagged.length} of ${r.runs.length} run${r.runs.length === 1 ? '' : 's'}`)} ${flaggedFor(r)}` : changed ? `${p.yellow('!')} ${p.bold('No write and no stop changes')}: ${changed} decision${changed === 1 ? '' : 's'} differ in reads or text` : `${refused ? p.yellow('!') : p.green('✓')} ${p.bold('The same decisions')} at every step asked`;
-  const why = !refused ? '' : asked ? `; ${unasked} (why below)` : ' (why below)';
-  lines.push(`${head}, under ${safeLine(r.change.text)}${why}`);
   const ranks = ([1, 2, 3, 4, 5] as const).filter((k) => r.counts[k]).map((k) => `${r.counts[k]} rank ${k}`);
   // With the control arm, each step was also asked as recorded, as often: what it decided otherwise is the model's own variation.
   const controlled = r.runs.some((x) => x.decisions.some((d) => d.control));
@@ -918,7 +1061,7 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
  * What the flagged runs do, for the headline: decide a write or when to stop differently, are judged
  * otherwise (a judge check comes out otherwise for what a text-only step says), or both.
  */
-function flaggedFor(r: Pick<DecisionsReport, 'runs' | 'flagged'>): string {
+function flaggedFor(r: Pick<DecisionsReport, 'flagged'> & { runs: ReadonlyArray<Pick<DecisionRun, 'runId' | 'decisions'>> }): string {
   const flagging = r.runs.filter((x) => r.flagged.includes(x.runId)).flatMap((x) => x.decisions.filter((s) => s.majority !== null && s.majority <= 2));
   const judged = flagging.some((s) => s.changes.some((c) => c.kind === 'judge'));
   const acted = flagging.some((s) => s.changes.some((c) => c.rank <= 2 && c.kind !== 'judge')) || !judged;
