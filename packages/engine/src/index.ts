@@ -38,6 +38,9 @@ export { DEFAULT_REPAIRER, agentOfArgv, agentOfRun, askConsent, consentKey, expe
 export { blameCheckFor, checkSuggestion, configExpect, failedCheckLabels, labelledFixes, type BlameCheck } from './fix-jobs.js';
 // The tests entry a run is judged by when it was given no --expect (the CLI's replays, the dashboard's Run blame).
 export { recordingsOfRun, testsEntryFor } from './run-checks.js';
+// A run judged by checks it was not given (A13, E26): by its family's goldens' checks, from its recording; a capture by the rules on calls.
+export { RULES_ON_CALLS, captureVerdict, captureVerdictLine, captureVerdictWords, checkCallAt, checksVerdict, familyGoldens, familyRoot, familySpecs, judgeByFamily, judgeCapture, keptCaptureVerdict, rulesOnCalls, storeParents } from './family-checks.js';
+export type { CaptureVerdict, ChecksVerdict, FamilyCheck, FamilyGolden, FamilyJudged, ParentOf, RulesOnCalls } from './family-checks.js';
 // How a check came out (passed, failed, inconclusive, not applicable), read the same way from any run or test result.
 export { CHECK_STATUSES, STATUS_WORDS, checkOutcome, checkStatus, countStatuses, statusTally, type StoredCheckLike } from './check-status.js';
 // Outcome checks (checks/): the grammar, its parser, and each check's label and a result's line, none
