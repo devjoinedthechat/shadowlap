@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { checkKey, recordBlame, SCHEMA_VERSION, Store, type MigrationApplied, type StoredFix } from '../src/index.js';
+import { checkKey, recordBlame, SCHEMA_VERSION, Store, type MigrationApplied, type StoredFix, type TestSessionPullRequest } from '../src/index.js';
 import { blameReport, EXPECT, makeRun, ORACLE } from './fix-fixtures.js';
 
 /**
@@ -185,12 +185,99 @@ describe('a test session: the pull request it ran for, and what its comment carr
     // A page that is no web page's address is none: it never reaches a link.
     keep(JSON.stringify({ number: 142, url: 'javascript:alert(1)', source: 'SHADOWLAP_PR' }), null);
     expect(store.getTestSession(s.sessionId)?.pullRequest).toEqual({ number: 142, url: null, source: 'SHADOWLAP_PR' });
+    // A state that is none of open, merged and closed is none, and so is when it was said; a time that is no number is none.
+    keep(JSON.stringify({ number: 142, url: null, source: 'SHADOWLAP_PR', state: 'reopened', at: 5_000 }), null);
+    expect(store.getTestSession(s.sessionId)?.pullRequest).toEqual({ number: 142, url: null, source: 'SHADOWLAP_PR' });
+    keep(JSON.stringify({ number: 142, url: null, source: 'SHADOWLAP_PR', state: 'merged', at: 'yesterday' }), null);
+    expect(store.getTestSession(s.sessionId)?.pullRequest).toEqual({ number: 142, url: null, source: 'SHADOWLAP_PR', state: 'merged' });
     keep('not json', 'not json');
     expect(store.getTestSession(s.sessionId)).toMatchObject({ pullRequest: null, comment: null });
     // A comment that doesn't read never stops a part being kept: it is none, and the part takes its place.
     store.setTestSessionComment(s.sessionId, { decisions: 'dc-01M50000000000000000000001' });
     expect(store.getTestSession(s.sessionId)?.comment).toEqual({ decisions: 'dc-01M50000000000000000000001', costPerRun: null });
     store.close();
+  });
+
+  it('tells every session that ran for a pull request where it stands, by its page or, where one names none, by its number', () => {
+    const store = Store.open(':memory:');
+    const raw = (store as unknown as { db: { prepare(sql: string): { run(...a: unknown[]): unknown } } }).db;
+    const page = 'https://github.com/northwind/support-agent/pull/142';
+    const start = (pullRequest: TestSessionPullRequest | null) => store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], pullRequest, owner: null }).sessionId;
+    const pr = (sessionId: string) => store.getTestSession(sessionId)?.pullRequest ?? null;
+    const counter = () => store.changeCounts().tests;
+    // Two sessions ran for #142 named by its page, and one by its number alone, as SHADOWLAP_PR names it.
+    const pushed = start({ number: 142, url: page, source: 'GitHub Actions (pull_request)' });
+    const again = start({ number: 142, url: page, source: 'GitHub Actions (pull_request)' });
+    const numbered = start({ number: 142, url: null, source: 'SHADOWLAP_PR' });
+    // Another repository's #142, another pull request, one named by neither, and one that ran for none.
+    const elsewhere = start({ number: 142, url: 'https://github.com/northwind/billing/pull/142', source: 'GitHub Actions (pull_request)' });
+    const other = start({ number: 141, url: 'https://github.com/northwind/support-agent/pull/141', source: 'GitHub Actions (pull_request)' });
+    const unnamed = start({ number: null, url: null, source: 'SHADOWLAP_PR' });
+    const none = start(null);
+    // Kept in shapes that read as no pull request: never told, and never in the way of the others.
+    const broken = start(null);
+    raw.prepare(`UPDATE test_sessions SET pull_request = 'not json' WHERE session_id = ?`).run(broken);
+    const sourceless = start(null);
+    raw.prepare(`UPDATE test_sessions SET pull_request = ? WHERE session_id = ?`).run(JSON.stringify({ number: 142, url: page }), sourceless);
+    // One kept with a page that is no web page's address reads as named by its number alone, and is told as one.
+    const scripted = start(null);
+    raw.prepare(`UPDATE test_sessions SET pull_request = ? WHERE session_id = ?`).run(JSON.stringify({ number: 142, url: 'javascript:alert(1)', source: 'SHADOWLAP_PR' }), scripted);
+
+    let before = counter();
+    expect(store.setTestPullRequestState({ number: 142, url: page }, 'open', 5_000)).toBe(4);
+    expect(counter()).toBe(before + 4);
+    expect(pr(pushed)).toEqual({ number: 142, url: page, source: 'GitHub Actions (pull_request)', state: 'open', at: 5_000 });
+    expect([again, numbered].map(pr)).toMatchObject([{ state: 'open', at: 5_000 }, { url: null, state: 'open', at: 5_000 }]);
+    expect(pr(scripted)).toEqual({ number: 142, url: null, source: 'SHADOWLAP_PR', state: 'open', at: 5_000 });
+    for (const id of [elsewhere, other, unnamed]) expect(pr(id)).not.toHaveProperty('state');
+    expect([none, broken, sourceless].map(pr)).toEqual([null, null, null]);
+    // Told the same again: nothing is written, and when it was first said stays.
+    before = counter();
+    expect(store.setTestPullRequestState({ number: 142, url: page }, 'open', 6_000)).toBe(0);
+    expect(counter()).toBe(before);
+    expect(pr(pushed)?.at).toBe(5_000);
+
+    // By its page alone, a session that names only its number isn't told; by its number alone, each session with it is.
+    expect(store.setTestPullRequestState({ url: page }, 'merged', 7_000)).toBe(2);
+    expect([pushed, again, numbered, scripted].map((id) => pr(id)?.state)).toEqual(['merged', 'merged', 'open', 'open']);
+    expect(store.setTestPullRequestState({ number: 142 }, 'merged', 8_000)).toBe(3);
+    expect([pushed, numbered, scripted, elsewhere].map((id) => [pr(id)?.state, pr(id)?.at])).toEqual([
+      ['merged', 7_000],
+      ['merged', 8_000],
+      ['merged', 8_000],
+      ['merged', 8_000],
+    ]);
+    expect(pr(other)).not.toHaveProperty('state');
+    // Neither a number nor a page names no pull request; a state that is none of the three is refused.
+    expect(store.setTestPullRequestState({}, 'closed')).toBe(0);
+    expect(store.setTestPullRequestState({ number: 0, url: 'javascript:alert(1)' }, 'closed')).toBe(0);
+    expect(() => store.setTestPullRequestState({ number: 142 }, 'reopened' as unknown as 'open')).toThrow("reopened is no pull request's state");
+    store.close();
+  });
+
+  it('keeps where a pull request stands as it reads back, in a store opened again, beside what a later build kept with it', () => {
+    const path = storePath();
+    const store = Store.open(path);
+    const page = 'https://github.com/northwind/support-agent/pull/142';
+    // Named with where it stands from the session's start, as a job that knows it may.
+    const named = { number: 142, url: page, source: 'GitHub Actions (pull_request)', state: 'open' as const, at: 4_000 };
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], pullRequest: named, owner: null });
+    expect(s.pullRequest).toEqual(named);
+    expect(store.getTestSession(s.sessionId)?.pullRequest).toEqual(named);
+    const raw = (store as unknown as { db: { prepare(sql: string): { run(...a: unknown[]): unknown; get(...a: unknown[]): Record<string, unknown> | undefined } } }).db;
+    raw.prepare(`UPDATE test_sessions SET pull_request = json_set(pull_request, '$.title', 'Hold refunds over the limit') WHERE session_id = ?`).run(s.sessionId);
+    expect(store.setTestPullRequestState({ number: 142, url: page }, 'merged', 9_000)).toBe(1);
+    // What a later build kept beside it stays.
+    expect(JSON.parse(String(raw.prepare(`SELECT pull_request FROM test_sessions WHERE session_id = ?`).get(s.sessionId)?.pull_request))).toEqual({ ...named, state: 'merged', at: 9_000, title: 'Hold refunds over the limit' });
+    store.close();
+
+    const reopened = Store.open(path);
+    expect(reopened.getTestSession(s.sessionId)?.pullRequest).toEqual({ ...named, state: 'merged', at: 9_000 });
+    expect(reopened.listTestSessions().map((x) => x.pullRequest?.state)).toEqual(['merged']);
+    // Named again later, it is as it reads back: where it stands with it.
+    reopened.setTestSessionPullRequest(s.sessionId, { ...named, state: 'closed', at: 'soon' as unknown as number });
+    expect(reopened.getTestSession(s.sessionId)?.pullRequest).toEqual({ number: 142, url: page, source: 'GitHub Actions (pull_request)', state: 'closed' });
+    reopened.close();
   });
 
   it('moves the tests counter on every write to a session or a result, and nothing else does', () => {

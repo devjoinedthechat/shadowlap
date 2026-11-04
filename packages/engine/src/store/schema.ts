@@ -220,8 +220,9 @@ CREATE TRIGGER IF NOT EXISTS change_counts_repairs_insert AFTER INSERT ON repair
 -- pack folder relative to the project (goldens/refund-flow); the runs a session made carry
 -- meta.test = { golden, session }. A session stopped by a signal ends with interrupted = 1 and the
 -- results of the goldens that finished before it. v6: the pull or merge request a CI session ran
--- for (pull_request) and what the comment the Action keeps on it carried beside each golden's
--- verdict line (comment), as JSON in the shapes store/tests.ts gives.
+-- for and where it stands (pull_request; every session that ran for it is told) and what the
+-- comment the Action keeps on it carried beside each golden's verdict line (comment), as JSON in
+-- the shapes store/tests.ts gives.
 CREATE TABLE IF NOT EXISTS test_sessions (
   session_id         TEXT    PRIMARY KEY,
   started_at         INTEGER NOT NULL,
@@ -254,7 +255,7 @@ CREATE TABLE IF NOT EXISTS test_results (
 CREATE INDEX IF NOT EXISTS test_results_golden ON test_results (golden, at);
 -- v6: every write to a session or a golden's result moves the 'tests' counter, whoever makes it (a
 -- test in a terminal, CI's, the dashboard's), so Tests and Changes follow a session another process
--- keeps, and the parts of its pull request comment as each is kept.
+-- keeps, the parts of its pull request comment as each is kept, and where that pull request stands.
 INSERT OR IGNORE INTO change_counts (name, n) VALUES ('tests', 0);
 CREATE TRIGGER IF NOT EXISTS change_counts_test_sessions_insert AFTER INSERT ON test_sessions BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'tests'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_test_sessions_update AFTER UPDATE ON test_sessions BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'tests'; END;

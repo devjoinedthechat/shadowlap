@@ -35,9 +35,12 @@ export interface StoredFix {
   data: FixData;
 }
 
+/** Where a pull request stands, as the forge says it: a fix's (FixData), and a test session's (TestSessionPullRequest). */
+export type PullRequestState = 'open' | 'merged' | 'closed';
+
 export interface FixData {
   /** Where it came from: a CI provider it was opened under, the pull request a repair opened for it. */
-  source?: { ci?: string; pr?: { url: string; number: number | null; state?: 'open' | 'merged' | 'closed'; at?: number } };
+  source?: { ci?: string; pr?: { url: string; number: number | null; state?: PullRequestState; at?: number } };
   /** Who opened it (resolveAuthor). */
   openedBy?: string | null;
   /** Someone gave it a title of their own (`shadowlap fix title`). */
