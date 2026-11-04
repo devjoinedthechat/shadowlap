@@ -292,7 +292,7 @@ const Row = memo(function Row({ at, run: r, on, selectable, byColumn, you, onPic
             </span>
           </span>
         ) : (
-          <span className={`st ${out.tone}`} aria-label={out.tone === 'n' ? 'nothing to report' : undefined}>
+          <span className={`st ${out.tone}`} aria-label={out.text === '—' ? 'nothing to report' : undefined}>
             {out.tone === 'n' ? null : <i />}
             {afterDots(out.text)}
           </span>

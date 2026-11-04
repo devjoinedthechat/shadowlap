@@ -206,7 +206,7 @@ describe('the Repair step', () => {
     const { fix } = blame(run);
     // No repair yet: the step says so in the stepper's word, as a repair's result is a change.
     await open(fix.fixId, 'repair');
-    expect(text(r!.one('.stepempty h3'))).toBe('No change yet');
+    expect(text(r!.one('.stepempty h2'))).toBe('No change yet');
     expect(r!.all('.stepper a b').map(text)[1]).toBe('No change yet');
     await r!.unmount();
     recordRepair(store, { repairId: 'repair-nothing', dir: '.shadowlap/repairs/repair-nothing', report: repairReport({ targets: [run], accepted: false }), expect: EXPECT, command: 'shadowlap repair --fixes label:refund-bug', at: NOW + 1 });

@@ -59,7 +59,9 @@
     "packages/dashboard/test/ui-run-notes.test.ts",
     "packages/dashboard/test/ui-calls-grouping.test.ts",
     "packages/dashboard/test/ui-run-views.test.ts",
-    "packages/dashboard/test/ui-page-failed.test.ts"
+    "packages/dashboard/test/ui-page-failed.test.ts",
+    "packages/dashboard/test/ui-primitives.test.ts",
+    "packages/dashboard/test/primitives-page.tsx"
   ],
   "exclude": []
 }

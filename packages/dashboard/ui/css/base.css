@@ -18,7 +18,7 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .vbody[tabindex="0"]:focus-visible, .tscroll[tabindex="0"]:focus-visible, .drawer pre:focus-visible, .codebox:focus-visible, pre.report:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
 /* A pane that scrolls cuts off what is drawn past its edge, a control's ring among them: inside one, the ring is drawn
    inside the control, so it shows whole wherever the control sits. The page itself keeps its padding clear of rings. */
-:is(.runs, .vbody, .ibody, .pallist, .pallist > [role="listbox"], .pop, .help, .dialog .db, .dialog pre.fxpatch, .drawer pre, .drawer .jfiles, .tscroll, .fxtable, .stabs, .views .tabs, .bulkbar, .rawsse, .codebox, pre.report, .diffpanel pre) :focus-visible { outline-offset: -2px; }
+:is(.runs, .vbody, .ibody, .pallist, .pallist > [role="listbox"], .pop, .help, .dialog .db, .dialog pre.fxpatch, .drawer pre, .drawer .jfiles, .tscroll, .fxtable, .stabs, .views .tabs, .bulkbar, .rawsse, .codebox, .cmdline, pre.report, .diffpanel pre) :focus-visible { outline-offset: -2px; }
 /* Skip to the page: the first stop for Tab, out of sight until it has the focus; it shows as an overlay does, the page's
    own ground set apart by an edge and a shadow, never lime, which means the primary action and passed. */
 .skip { position: fixed; z-index: 70; left: 12px; top: 10px; padding: 7px 12px; border-radius: 9px; background: var(--pop); box-shadow: var(--shadow-pop); color: var(--ink); font-weight: 600; text-decoration: none; transform: translateY(-200%); }
@@ -30,11 +30,6 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 ::-webkit-scrollbar-track { background: transparent; }
 
 .sp { flex: 1; }
-.seg { display: inline-flex; padding: 3px; border: 1px solid var(--line2); border-radius: 10px; background: var(--panel); flex: none; }
-/* At least 24 px tall, as WCAG 2.5.8 asks of a target. */
-.seg button { border: 0; background: none; color: var(--faint); font: 500 12px var(--body); padding: 4px 10px; min-height: 24px; border-radius: 7px; cursor: pointer; }
-.seg button:hover { color: var(--ink); }
-.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
 .ibtn { width: 32px; height: 32px; display: inline-grid; place-items: center; border-radius: 9px; border: 1px solid var(--line2); background: none; color: var(--dim); cursor: pointer; flex: none; }
 .ibtn:hover { color: var(--ink); border-color: var(--dim); }
 .ibtn svg { width: 15px; height: 15px; }
@@ -72,15 +67,6 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .view { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .page { flex: 1; overflow: auto; min-height: 0; }
 .page-in { padding: 26px max(0px, calc(24px - var(--sbw, 0px))) 56px 24px; }
-.ph { display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; margin-bottom: 22px; }
-.ph h1 { margin: 6px 0 0; font: 700 26px/1.12 var(--disp); letter-spacing: -.035em; }
-.ph p { margin: 8px 0 0; color: var(--dim); max-width: 64ch; }
-.ph .actions { margin-left: auto; }
-.eyebrow { display: flex; align-items: center; gap: 10px; font: 500 11px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }
-/* the eyebrow is a muted line for what the page is, a fork's included, with no square and never lime */
-.eyebrow > i:first-child { display: none; }
-.eyebrow.err { color: var(--err); }
-.eyebrow a { color: inherit; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
 .btn { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border-radius: 9px; border: 1px solid var(--line2); background: none; color: var(--ink); font: 500 13px var(--body); cursor: pointer; white-space: nowrap; text-decoration: none; }
 .btn:hover { border-color: var(--dim); }
 .btn svg { width: 14px; height: 14px; }
@@ -145,7 +131,7 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .badge.no { background: color-mix(in srgb, var(--err) 14%, transparent); color: var(--err); }
 .badge.y { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
 .badge.n { background: var(--raise); color: var(--dim); box-shadow: inset 0 0 0 1px var(--line2); }
-.cmdline { display: block; padding: 10px 12px; border-radius: 10px; background: var(--code); border: 1px solid var(--line); font: 12px/1.65 var(--mono); color: var(--dim); overflow-wrap: anywhere; }
+.cmdline { display: block; padding: 10px 12px; border-radius: 10px; background: var(--code); border: 1px solid var(--line); font: 12px/1.65 var(--mono); color: var(--dim); overflow-wrap: break-word; }
 .cmdline b { color: var(--faint); font-weight: 400; margin-right: 6px; }
 
 .legend { display: flex; flex-wrap: wrap; gap: 14px; font: 11.5px var(--mono); color: var(--faint); }
@@ -184,28 +170,8 @@ table.t th.num, table.calls th.num, table.calls th.n { font: 500 10px var(--mono
 .ms i.live { background: var(--o-live); }
 .ms i.block { background: var(--o-block-fill); }
 .ms i.stub { background: var(--o-stub); }
-.st { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; white-space: nowrap; }
-.st i { width: 7px; height: 7px; border-radius: 50%; }
-/* only a failure colours its words; a healthy outcome keeps a lime dot beside plain text */
-.st.ok { color: var(--dim); }
-.st.ok i { background: var(--cq-lime); }
-.st.err { color: var(--err); }
-.st.err i { background: var(--err); }
-.st.warn { color: var(--cq-amber); }
-.st.warn i { background: var(--cq-amber); }
-.st.n { color: var(--faint); padding-left: 13px; }
-.st.n i { background: var(--line2); }
-.st.warn { color: var(--cq-amber); }
-.st.warn i { background: var(--cq-amber); }
-/* a fork's own outcome, what came of its writes, in plain text by a neutral dot: what a fork fenced is no verdict, and
-   amber says inconclusive in this column. At every width it wraps after its dot onto the row's second line, as the row is
-   two lines tall anyway, rather than take the Run column's room */
-.st.fk { color: var(--dim); }
-.st.fk i { background: var(--line2); }
 
 .nil { color: var(--faint); }
-.st.live { color: var(--ink); }
-.st.live i { background: var(--o-live); animation: pulse 1.6s infinite; }
 
 /* the good/bad key: two quiet toggles; pressed, good in lime and bad in red, each with its own border */
 .runkey { display: inline-flex; gap: 3px; }
@@ -218,11 +184,6 @@ table.t th.num, table.calls th.num, table.calls th.n { font: 500 10px var(--mono
 .runkey .rk:disabled { cursor: default; }
 .runkey.sm .rk { width: 22px; padding: 0; justify-content: center; }
 
-.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
-.switch i { width: 28px; height: 16px; border-radius: 999px; background: var(--line2); position: relative; transition: background .15s; }
-.switch i::after { content: ""; position: absolute; left: 2px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--bg); transition: transform .15s; }
-.switch[aria-checked="true"] i { background: var(--ink); }
-.switch[aria-checked="true"] i::after { transform: translateX(12px); background: var(--tar); }
 
 @keyframes blink { 50% { opacity: 0; } }
 
@@ -233,13 +194,7 @@ table.t th.num, table.calls th.num, table.calls th.n { font: 500 10px var(--mono
 .kvs dd small { color: var(--faint); font-size: 11.5px; }
 .sec-k { margin: 18px 0 8px; font: 500 10.5px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }
 
-.eyebrow code { font: inherit; text-transform: none; letter-spacing: .04em; }
 
-.verdict { display: flex; align-items: center; gap: 14px; padding: 16px 18px; border-radius: 14px; margin-bottom: 16px; }
-.verdict.no { background: color-mix(in srgb, var(--err) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--err) 35%, transparent); }
-.verdict.ok { background: color-mix(in srgb, var(--lime) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-line) 45%, transparent); }
-.verdict h2 { margin: 0; font: 600 18px var(--disp); letter-spacing: -.02em; }
-.verdict p { margin: 2px 0 0; color: var(--faint); font-size: 12.5px; }
 
 .spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line2); border-top-color: var(--ink); animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -271,27 +226,6 @@ table.t th.num, table.calls th.num, table.calls th.n { font: 500 10px var(--mono
 .sh h2 { margin: 0; font: 600 19px/1.25 var(--disp); letter-spacing: -.025em; }
 .sh p { margin: 6px 0 0; color: var(--faint); font-size: 12.5px; max-width: 80ch; }
 .sh .actions { margin-left: auto; }
-.stepempty { padding: 22px 22px 24px; }
-.stepempty h3 { margin: 0; font: 600 17px var(--disp); letter-spacing: -.02em; }
-.stepempty p { margin: 6px 0 14px; color: var(--dim); max-width: 70ch; }
-/* a run id named in the sentence (a run not in the store) breaks anywhere rather than widen a phone's page */
-.stepempty p code { overflow-wrap: anywhere; }
-/* what couldn't be loaded (a page's code, a view's): one line in the error tone, its Retry at its end; a page keeps its
-   title over it, a run's page its id in the code face */
-.loaderr { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin: 6px 0 0; padding: 14px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-.loaderr p { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0; flex: 1 1 280px; color: var(--dim); }
-.ph.rerr h1 { font: 500 var(--fs-title)/1.15 var(--mono); letter-spacing: 0; }
-
-.seg a { display: inline-block; text-decoration: none; color: var(--faint); font: 500 12px var(--body); padding: 4px 10px; min-height: 24px; border-radius: 7px; }
-.seg a:hover { color: var(--ink); }
-.seg a[aria-pressed="true"], .seg a[aria-current="page"] { background: var(--ink); color: var(--bg); }
-.verdict .actions { margin-left: auto; }
-.verdict > .actions { flex: none; flex-wrap: nowrap; }
-
-@media (max-width: 1000px) {
-  .verdict { flex-wrap: wrap; }
-  .verdict > div { flex: 1 1 260px; }
-}
 
 .ms i.over { background: var(--o-over); }
 .ms i.inject { background: var(--o-inject); }
@@ -397,15 +331,10 @@ code, pre, kbd, .mono, .kbd, .codebox, .cmdline { font-variant-ligatures: none; 
 /* Training: preference pairs and goldens as scored tasks */
 .stabs a b { margin-left: 7px; font: 500 11px var(--mono); color: var(--faint); }
 
-.verdict.warn { background: color-mix(in srgb, var(--warn) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 35%, transparent); }
 
 .pips i.part { background: var(--cq-amber); }
 
-@media (max-width: 640px) {
-  .verdict.warn { flex-wrap: wrap; }
-}
 
-.verdict p code { white-space: nowrap; }
 /* Authors: avatars and names, the tag on a run kept local, a person's button in the top bar, and lists with a check per item */
 .av { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; flex: none; color: var(--ink); font: 600 10.5px/1 var(--body); }
 .av.t1 { background: color-mix(in srgb, var(--av1) 34%, var(--raise)); }
@@ -472,15 +401,9 @@ table.t tbody tr.wspace:hover td { background: none; }
 
 /* a page header's too, such as a project's path on its setup page: its column may shrink to the
    window, so a long path wraps instead of pushing the header and its line past a phone's edge */
-.ph > div { min-width: 0; }
-.ph .eyebrow { flex-wrap: wrap; row-gap: 4px; }
-.ph .eyebrow code { overflow-wrap: anywhere; }
 /* a run that was interrupted (stopped before it ended, failing nothing else): its page, Runs, the
    sidebar, the Overview and a --repeat's attempts in Forks say so in grey, never as a failure */
-.eyebrow.n { color: var(--dim); }
-.eyebrow .n { color: var(--dim); }
 
-.verdict.n { background: var(--raise); box-shadow: inset 0 0 0 1px var(--line2); }
 
 /* a link button that can't run here (no job for it, read-only, a working tree held) looks off, and says why on hover */
 .linkbtn[disabled], .linkbtn[disabled]:hover { opacity: .45; cursor: not-allowed; color: var(--dim); background: none; }
@@ -522,14 +445,7 @@ code.rnm { white-space: nowrap; }
 /* Decision 9 on every page: a gate's verdict is its word, its tally and its Wilson bound, broken only after a dot (each short
    part whole), its rule stated once; figures read as the CLI prints them, so ">=" never becomes the mono font's ligature */
 .vline .nw, .attn .d .nw, .feed .w .nw, table.gt td.glast .nw, .fnode .f2 .nw { white-space: nowrap; }
-.wib { position: relative; display: inline-block; width: 64px; height: 6px; margin: 0 6px 0 10px; border-radius: 3px; background: var(--line); vertical-align: middle; flex: none; }
-.wib .iv { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: var(--cq-lime); }
-.wib.y .iv { background: var(--cq-amber); }
-.wib.no .iv { background: var(--cq-red); }
-.wib .mk { position: absolute; top: -3px; bottom: -3px; width: 1px; margin-left: -.5px; background: var(--dim); }
 
-/* after any font shorthand, which resets them: ">=" reads as the CLI prints it, never as the mono font's ligature */
-.wib { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
 
 .rab:empty + .abs .dot { display: none; }
 
@@ -560,17 +476,11 @@ code.rnm { white-space: nowrap; }
    by its colour alone keeps its colour, edged in the user's text colour (CanvasText) so it shows on any ground; a chosen
    option whose fill is lost is underlined; where you are is marked in the highlight colour. */
 @media (forced-colors: active) {
-  .seg button[aria-pressed="true"], .seg a[aria-pressed="true"], .seg a[aria-current="page"], .chips button[aria-pressed="true"], .runkey .rk[aria-pressed="true"] { text-decoration: underline 2px; text-underline-offset: 4px; }
-  .dotlive, .glyph.live i, .glyph.live.done i, .st i { forced-color-adjust: none; box-shadow: 0 0 0 1px CanvasText; }
-  .org i, .pips i, .legend i, .wib { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText; }
-  .wib .mk { background: CanvasText; }
+  .chips button[aria-pressed="true"], .runkey .rk[aria-pressed="true"] { text-decoration: underline 2px; text-underline-offset: 4px; }
+  .dotlive, .glyph.live i, .glyph.live.done i { forced-color-adjust: none; box-shadow: 0 0 0 1px CanvasText; }
+  .org i, .pips i, .legend i { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText; }
   /* the mini strip's cells are too narrow for an edge: they keep their colours on their own dark ground */
   .ms { forced-color-adjust: none; background: var(--bg); box-shadow: 0 0 0 2px var(--bg); }
-  /* a switch's track is outlined and its knob drawn in the button text colour; on, the track takes the highlight colour */
-  .switch i { outline: 1px solid ButtonText; outline-offset: -1px; }
-  .switch i::after { background: ButtonText; }
-  .switch[aria-checked="true"] i { background: Highlight; outline-color: Highlight; }
-  .switch[aria-checked="true"] i::after { background: HighlightText; }
   .stabs a[aria-current="page"]::after { background: CanvasText; }
 }
 /* a focused field's border and glow are dropped too: every field and the drop zone with the keyboard's focus shows an

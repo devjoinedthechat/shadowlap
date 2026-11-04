@@ -113,6 +113,10 @@
     "packages/dashboard/test/ui-calls-grouping.test.ts",
     // These render a run's views as their scripts load, and a page or a view whose script didn't come.
     "packages/dashboard/test/ui-run-views.test.ts",
-    "packages/dashboard/test/ui-page-failed.test.ts"
+    "packages/dashboard/test/ui-page-failed.test.ts",
+    // This renders the design system's shared parts, which measure the page as they set their copy,
+    // and this is the page of them browser/primitives.spec.ts measures in a real browser.
+    "packages/dashboard/test/ui-primitives.test.ts",
+    "packages/dashboard/test/primitives-page.tsx"
   ]
 }
