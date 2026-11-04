@@ -75,6 +75,8 @@
     "packages/dashboard/test/ui-palette-modes.test.ts",
     "packages/dashboard/test/ui-token-card.test.ts",
     "packages/dashboard/test/ui-exported-provenance.test.ts",
+    // This renders an exported copy's pages, its runs, a run's page and Compare.
+    "packages/dashboard/test/ui-exported-copy.test.ts",
     // These render Settings.
     "packages/dashboard/test/ui-settings-states.test.ts",
     "packages/dashboard/test/ui-ci-tab.test.ts",

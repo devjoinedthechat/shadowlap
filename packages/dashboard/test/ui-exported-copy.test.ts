@@ -73,7 +73,7 @@ async function open(runIds: string[], hash: string) {
   const bar = { hash, search: '', pathname: '/', host: '' };
   vi.stubGlobal('location', bar);
   vi.stubGlobal('history', { state: null, replaceState: (_s: unknown, _t: string, url: string) => void (bar.hash = url.slice(url.indexOf('#'))) });
-  r = await render(createElement(AppProvider, { client: createExportedClient(exported(runIds)) }, createElement(Routed)));
+  r = await render(createElement(AppProvider, { client: createExportedClient(exported(runIds)), children: createElement(Routed) }));
   return bar;
 }
 
