@@ -124,9 +124,10 @@ function copied(root: string, files: readonly string[]): string[] {
  * The copies kept, each for its reason. The adapters install the SDK and nothing else, so they keep
  * their own isObject rather than the engine's (as eslint.config.mjs says). The SDK's one entry point
  * is the API its users import, where the adapters' loader and type test don't belong. And
- * `@shadowlap/test` installs nothing, while the CLI doesn't install it.
+ * `@shadowlap/test` keeps a copy of the argsMatch the engine's checks use, since the CommonJS copy
+ * of its recording.ts loads only its own files.
  */
-const KEPT = ['argsMatch: packages/cli, packages/test', 'isAsyncGeneratorFunction: packages/adapters, packages/sdk', 'isObject: packages/adapters, packages/engine', 'load: packages/adapters, packages/sdk'];
+const KEPT = ['argsMatch: packages/engine, packages/test', 'isAsyncGeneratorFunction: packages/adapters, packages/sdk', 'isObject: packages/adapters, packages/engine', 'load: packages/adapters, packages/sdk'];
 
 const folders: string[] = [];
 afterAll(() => {
