@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 
 /**
  * A section, in place of a card (every page): a hairline above, its heading in the UI face (14px,
@@ -6,7 +6,8 @@ import { useId, type ReactNode } from 'react';
  * ground of its own (`.panel.sec`, so a panel's own rules still apply inside). A row's hover tints
  * it 12px past its text on both sides and never moves it; a table in it scrolls in a container
  * 12px wider than its text (`.tscroll`). Sections are 32px apart; two side by side (`.grid2.secs`)
- * 40px. Only what is not the page keeps a box: dialogs, drawers, menus and code.
+ * 40px. Only what is not the page keeps a box: dialogs, drawers, menus and code. Its heading gives
+ * the page its outline; a section is no landmark of its own, so a page of ten reads as one region.
  */
 export function Section({
   title,
@@ -25,11 +26,10 @@ export function Section({
   className?: string | undefined;
   id?: string | undefined;
 }) {
-  const heading = `${useId()}-h`;
   return (
-    <section className={`panel sec${className ? ` ${className}` : ''}`} id={id} aria-labelledby={heading}>
+    <section className={`panel sec${className ? ` ${className}` : ''}`} id={id}>
       <header>
-        <h2 id={heading}>{title}</h2>
+        <h2>{title}</h2>
         {sub ? <span className="sub">{sub}</span> : null}
         {actions ? (
           <>

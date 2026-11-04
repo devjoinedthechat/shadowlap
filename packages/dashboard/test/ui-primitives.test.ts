@@ -112,13 +112,13 @@ describe('a page’s header and its facts', () => {
 });
 
 describe('a section', () => {
-  it('is a hairline section named by its heading, its sub and its actions in its header, no card', async () => {
+  it('is a hairline section headed by its title, its sub and its actions in its header, no card and no landmark', async () => {
     await draw(createElement(Section, { title: 'Probes', sub: 'gate: rescue at 60%+', actions: createElement('a', { className: 'more', href: '#/runs' }, 'All runs') }, createElement('table', { className: 't' })));
     const s = r!.one('section');
     expect(s.className).toBe('panel sec');
-    const h2 = r!.one('section header h2');
-    expect(s.getAttribute('aria-labelledby')).toBe(h2.getAttribute('id'));
-    expect(h2.textContent).toBe('Probes');
+    // its heading gives the page its outline; named, every section would be a region of its own
+    expect([s.getAttribute('aria-labelledby'), s.getAttribute('aria-label')]).toEqual([null, null]);
+    expect(r!.one('section header h2').textContent).toBe('Probes');
     expect(r!.one('header .sub').textContent).toBe('gate: rescue at 60%+');
     expect(r!.one('header .actions a').textContent).toBe('All runs');
     expect(s.children.map((c) => c.tagName)).toEqual(['HEADER', 'TABLE']);
@@ -292,6 +292,17 @@ describe('a glossary term', () => {
     expect(def.hasAttribute('hidden')).toBe(true);
     expect(def.textContent).toBe(GLOSSARY.stubbed);
     expect([later.className, later.getAttribute('tabindex'), later.getAttribute('aria-describedby'), later.getAttribute('data-tip')]).toEqual(['term', null, null, null]);
+  });
+
+  it('defines the word on a tap without opening the row it sits in', async () => {
+    const opened: string[] = [];
+    await draw(createElement('div', { className: 'page' }, createElement('p', { onClick: () => void opened.push('row') }, createElement(Term, { k: 'kept' }), ' and ', createElement(Term, { k: 'kept' }))));
+    await r!.wait(0);
+    const [defined, plain] = r!.all('.term');
+    await r!.click(defined);
+    expect(opened).toEqual([]);
+    await r!.click(plain);
+    expect(opened).toEqual(['row']);
   });
 
   it('never defines one in a control or a place with a hover card of its own, and counts a dialog’s apart from the page’s', async () => {

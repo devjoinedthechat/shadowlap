@@ -4,12 +4,13 @@ import { GLOSSARY, glossPieces, termCard, type GlossaryTerm } from '../glossary.
 /**
  * A word the glossary defines (ui/glossary.ts), defined where it first shows on a page: a dotted
  * underline, its definition in the hover card, on hover and on a tap, and named to a screen reader
- * by `aria-describedby`; it takes the focus, so the keyboard reaches it. Later uses on the page
- * read as plain words. Every `Term` registers with one list; once a page has drawn, and after it
- * draws a part again, the first of each word in the page's order is the one defined. A dialog, a
- * drawer and a page (`.page`) each define their own first uses, and so does any part marked
- * `data-glossary`. A term inside a link, a button, a tab, a menu item, a switch or a place with a
- * hover card of its own is never the one defined: it would hide that card or that action.
+ * by `aria-describedby`; it takes the focus, so the keyboard reaches it, and a tap on it defines it
+ * without opening the row it sits in. Later uses on the page read as plain words. Every `Term`
+ * registers with one list; once a page has drawn, and after it draws a part again, the first of
+ * each word in the page's order is the one defined. A dialog, a drawer and a page (`.page`) each
+ * define their own first uses, and so does any part marked `data-glossary`. A term inside a link, a
+ * button, a tab, a menu item, a switch or a place with a hover card of its own is never the one
+ * defined: it would hide that card or that action.
  */
 
 /** Where a page's first uses are counted: a dialog's and a drawer's apart from the page under them. */
@@ -121,7 +122,16 @@ export function Term({ k, children }: { k: GlossaryTerm; children?: string }) {
   // One shape, defined or not, so the word's element stays the one registered.
   return (
     <>
-      <span ref={ref} className={on ? 'term on' : 'term'} data-term={k} tabIndex={on ? 0 : undefined} aria-describedby={on ? desc : undefined} data-tip={on ? JSON.stringify(termCard(k, text)) : undefined}>
+      <span
+        ref={ref}
+        className={on ? 'term on' : 'term'}
+        data-term={k}
+        tabIndex={on ? 0 : undefined}
+        aria-describedby={on ? desc : undefined}
+        data-tip={on ? JSON.stringify(termCard(k, text)) : undefined}
+        // a tap on the word defines it and does nothing else: the row around it doesn't open
+        onClick={on ? (e) => e.stopPropagation() : undefined}
+      >
         {text}
       </span>
       {on ? (
