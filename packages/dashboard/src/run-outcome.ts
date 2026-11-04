@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
 import {
+  callNeedsCalls,
   captureVerdict,
   checkCallAt,
   checkStatus,
   checksVerdict,
+  countStatuses,
   familyGoldens,
   familySpecs,
   judgeByFamily,
@@ -38,7 +40,7 @@ import { loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
  * - for a finished run that kept no verdict of its own, its family's checks: those of the goldens
  *   packed from its recording or from a replay or a fork of it, as shadowlap.config.json gives them
  *   now, judged from its recording as `shadowlap check` judges one, a judge without a recorded verdict
- *   inconclusive. A run recorded before them says so (`today`).
+ *   and a check on what the agent printed inconclusive. A run recorded before them says so (`today`).
  *
  * Each result carries its status, detail and the call it names. Judging reads a run's calls, so it is
  * a pooled read, beside the server: what is judged is kept per thread and per config version (and
@@ -54,10 +56,12 @@ export interface OutcomeWork {
   tests: unknown;
   /** The project's folder: the tests entries' and the goldens' folders are relative to it. */
   dir: string;
-  /** When the config file was last written (ms), or null without one. */
-  changedAt: number | null;
-  /** The project's goldens: each pack's folder, the run it holds, and when it was packed. */
-  goldens: Array<{ path: string; runId: string | null; packedAt: number | null }>;
+  /**
+   * The project's goldens: each pack's folder, the run it holds, when it was packed, and when its
+   * checks under `tests` last changed as far as the server could tell (outcome-work.ts): what a run
+   * recorded before reads as judged by today's checks.
+   */
+  goldens: Array<{ path: string; runId: string | null; packedAt: number | null; checksAt?: number | null }>;
   prices?: Record<string, Price>;
 }
 
@@ -82,16 +86,22 @@ export interface RunJudged {
   first: { label: string; detail: string | null } | null;
   /** Judged now against checks it was not made under: its family's, added after it was recorded, or rules on calls changed since its import. */
   today: boolean;
+  /** For a family's: whether its checks came with the newest of its goldens (`packed`) or changed since it was packed (`changed`); null when that can't be told. */
+  since?: 'packed' | 'changed' | null;
   /** The goldens whose checks judged it (`family`), nearest first. */
   goldens: string[];
-  /** Why no check applied, where a verdict says (a capture none of whose rules had a call to read). */
+  /**
+   * Why no check applied, where a verdict says (a capture none of whose rules had a call to read);
+   * or why its recording can't settle its family's checks besides a check that says so, as
+   * `shadowlap check` says it (a judge of what the agent printed).
+   */
   why: string | null;
-  /** Each check: on the run's page; the lists leave them out. */
+  /** Each check: on the run's page and Runs' rows, for the outcome's hover; the sidebar's rows leave them out. */
   checks?: JudgedCheck[];
 }
 
-/** What a job judges by, read once per thread and config version: the tests entries (or why they can't be read), the rules on calls, and a key for them all. */
-interface ParsedWork {
+/** What a job judges by, read once per job (and kept per thread and config version): the tests entries (or why they can't be read), the rules on calls, and a key for them all. */
+export interface ParsedWork {
   work: OutcomeWork;
   key: string;
   entries: TestEntry[];
@@ -100,15 +110,24 @@ interface ParsedWork {
   error: string | null;
 }
 
-/** A key for what the work judges by: the config's version and folder, when it changed, the goldens and the prices. */
+/** Each work's key, worked out once for the object: the server keeps one work while nothing it was read from changes. */
+const keys = new WeakMap<OutcomeWork, string>();
+
+/** A key for what the work judges by: the config's version and folder, the goldens (and when their checks changed) and the prices. */
 export function outcomeKey(work: OutcomeWork | null): string {
   if (!work) return 'none';
-  return createHash('sha1').update(JSON.stringify([work.version, work.dir, work.changedAt, work.goldens, work.prices ?? null])).digest('base64url');
+  const known = keys.get(work);
+  if (known) return known;
+  const key = createHash('sha1').update(JSON.stringify([work.version, work.dir, work.goldens, work.prices ?? null])).digest('base64url');
+  keys.set(work, key);
+  return key;
 }
 
 const parsed = new Map<string, ParsedWork>();
 
-function parse(work: OutcomeWork): ParsedWork {
+/** The work as a job judges by it: parsed once per thread and key, the newest few kept. */
+export function parseWork(work: OutcomeWork | null): ParsedWork | null {
+  if (!work) return null;
   const key = outcomeKey(work);
   const known = parsed.get(key);
   if (known) return known;
@@ -126,12 +145,13 @@ function parse(work: OutcomeWork): ParsedWork {
   return out;
 }
 
-/** What a run judged by its family or again by its rules is kept as, per thread: by the work it was judged by and where its calls stand. */
+/** What a run judged with its calls read is kept as, per thread: by what judged it and where its calls stand. */
 const judged = new Map<string, RunJudged | null>();
 /** The most kept, the oldest going first: most are a run no golden of its family judges, kept as null. */
 const KEEP = 5_000;
 
-const keyOf = (w: ParsedWork, r: IndexedRun, kept: string | null) => `${w.key}|${r.runId}|${r.callEvents}|${r.status}|${String(r.endedAt)}|${kept ?? ''}`;
+/** What judged a run (its own checks, or the work and a capture's kept rules) and where the run stands. */
+const keyOf = (by: string, r: IndexedRun) => `${by}|${r.runId}|${r.callEvents}|${r.status}|${String(r.endedAt)}`;
 
 function keep(key: string, value: RunJudged | null): RunJudged | null {
   if (judged.size >= KEEP) judged.delete(judged.keys().next().value!);
@@ -139,10 +159,9 @@ function keep(key: string, value: RunJudged | null): RunJudged | null {
   return value;
 }
 
-const count = (checks: readonly Pick<StoredCheck, 'ok' | 'status'>[]) => {
-  const statuses = checks.map((c) => checkStatus(c));
-  const n = (s: CheckStatus) => statuses.filter((x) => x === s).length;
-  return { passed: n('passed'), failed: n('failed'), inconclusive: n('inconclusive'), notApplicable: n('not-applicable') };
+const count = (checks: ReadonlyArray<Pick<StoredCheck, 'ok' | 'status'>>): RunJudged['counts'] => {
+  const n = countStatuses(checks);
+  return { passed: n.passed, failed: n.failed, inconclusive: n.inconclusive, notApplicable: n['not-applicable'] };
 };
 
 /** The check the status names: the first that failed, else the first that could not be decided. */
@@ -169,24 +188,11 @@ function callAtWith(store: Store, calls: Calls | null): (c: Pick<StoredCheck, 'l
   return (c) => checkCallAt(c, calls(), args);
 }
 
-/** A run judged by its own checks, as it was made. */
-function ownJudged(store: Store, r: IndexedRun, calls: Calls | null, each: boolean): RunJudged | null {
-  const own = r.meta.checks;
-  if (!own?.length) return null;
+/** A run judged by its own checks, as it was made: each failed check's call from its detail, or with `calls`, from them too. */
+function ownJudged(store: Store, own: NonNullable<IndexedRun['meta']['checks']>, calls: Calls | null): RunJudged {
   const callAt = callAtWith(store, calls);
-  const first = firstOf(own);
   const failedFirst = own.find((c) => checkStatus(c) === 'failed');
-  return {
-    by: 'own',
-    verdict: checksVerdict(own),
-    counts: count(own),
-    callNo: failedFirst ? callAt(failedFirst) : null,
-    first,
-    today: false,
-    goldens: [],
-    why: null,
-    ...(each ? { checks: judgedChecks(own, callAt) } : {}),
-  };
+  return { by: 'own', verdict: checksVerdict(own), counts: count(own), callNo: failedFirst ? callAt(failedFirst) : null, first: firstOf(own), today: false, goldens: [], why: null, checks: judgedChecks(own, callAt) };
 }
 
 /** A capture's verdict by the rules on calls: as kept when it was imported, or judged again since they changed. */
@@ -219,10 +225,18 @@ function judgedByFamily(r: IndexedRun): boolean {
   return r.outcome.kind === 'none' || r.outcome.kind === 'clean';
 }
 
-/** When the checks that judged a run came to be: the newest of its goldens' packing and the config's last write; null when neither is known. */
-function checksSince(w: ParsedWork, goldens: readonly string[]): number | null {
-  const times = [w.work.changedAt, ...w.work.goldens.filter((g) => goldens.includes(g.path)).map((g) => g.packedAt)].filter((t): t is number => typeof t === 'number');
-  return times.length ? Math.max(...times) : null;
+/**
+ * When the checks that judged a run came to be: the newest of its goldens' packing (a golden's checks
+ * come with it) and of a change to their checks since, as the server saw it; null when none is known.
+ */
+function checksSince(w: ParsedWork, goldens: readonly string[]): { at: number; changed: boolean } | null {
+  let out: { at: number; changed: boolean } | null = null;
+  for (const g of w.work.goldens) {
+    if (!goldens.includes(g.path)) continue;
+    if (typeof g.packedAt === 'number' && (!out || g.packedAt > out.at)) out = { at: g.packedAt, changed: false };
+    if (typeof g.checksAt === 'number' && (!out || g.checksAt > out.at)) out = { at: g.checksAt, changed: true };
+  }
+  return out;
 }
 
 /** The checks of a run's family's goldens, found without a call read: none for a run with no golden of its family under `tests`. */
@@ -245,9 +259,10 @@ function familyJudged(store: Store, record: RunRecord, r: IndexedRun, w: ParsedW
     callNo: fam.callNo,
     first: firstOf(fam.checks),
     // Recorded before the checks that judge it came, or when that can't be told: judged by today's checks.
-    today: since === null || r.startedAt < since,
+    today: since === null || r.startedAt < since.at,
+    since: since ? (since.changed ? 'changed' : 'packed') : null,
     goldens: fam.goldens,
-    why: null,
+    why: fam.unsettled[0] ?? null,
     checks: judgedChecks(fam.checks, () => null),
   };
 }
@@ -255,64 +270,87 @@ function familyJudged(store: Store, record: RunRecord, r: IndexedRun, w: ParsedW
 export interface JudgeOptions {
   /** How to read the run's calls (the run's page has them read); default the store's. */
   calls?: Calls;
-  /** Each check too: what the run's page shows on the outcome's hover. */
+  /** Each check too: what the run's page and Runs show on the outcome's hover. */
   checks?: boolean;
   /** Only what needs no call read, or what this thread judged before: a list's row, a long run's first answer. */
   quick?: boolean;
 }
 
-/** An outcome with its checks, or without them for a list. */
+/** An outcome with its checks, or without them for a list that shows no hover. */
 function withChecks(v: RunJudged | null, checks: boolean): RunJudged | null {
   if (!v || checks || !v.checks) return v;
   const { checks: _each, ...rest } = v;
   return rest;
 }
 
-/**
- * A run's outcome by checks, or null when no check judges it (a run still recording, one no check
- * applies to); undefined when `quick` and judging it would read its calls. What reads calls is kept
- * whole, each check with it, for the run's page and the lists alike.
- */
-export function runJudged(store: Store, index: RunIndex, runId: string, work: OutcomeWork | null, o: JudgeOptions = {}): RunJudged | null | undefined {
-  const r = index.byId.get(runId);
-  if (!r || r.status === 'running') return null;
-  const w = work ? parse(work) : null;
-  let read: CallRecord[] | null = null;
-  const calls: Calls = () => (read ??= o.calls ? o.calls() : store.getCalls(runId));
-  if (r.meta.checks?.length) return ownJudged(store, r, o.quick ? null : calls, o.checks === true);
+/** A run with its own checks: what needs no call read, else what the run's calls tell, kept (a count's call is the first past what it allows). */
+function ownOutcome(store: Store, r: IndexedRun, own: NonNullable<IndexedRun['meta']['checks']>, calls: Calls, o: JudgeOptions): RunJudged | null | undefined {
+  const key = keyOf('own', r);
+  if (judged.has(key)) return judged.get(key)!;
+  if (!o.quick) return keep(key, ownJudged(store, own, calls));
+  // Each failed check names its call, or there is none to name: no call read, and nothing kept, as the page's is.
+  if (!own.some((c) => checkStatus(c) === 'failed' && callNeedsCalls(c))) return ownJudged(store, own, null);
+  return undefined;
+}
+
+/** A run judged by what it was not given: a capture's rules on calls, else its family's checks. */
+function judgedBy(store: Store, index: RunIndex, r: IndexedRun, w: ParsedWork | null, calls: Calls, o: JudgeOptions): RunJudged | null | undefined {
+  const capture = r.kind === 'capture';
   // With no golden, or no tests entry, no family's checks judge a run: nothing read for it.
-  if (r.kind !== 'capture' && (!w || w.error || !w.entries.length || !w.work.goldens.length || !judgedByFamily(r))) return null;
-  const record = store.getRun(runId);
+  if (!capture && (!w || w.error || !w.entries.length || !w.work.goldens.length || !judgedByFamily(r))) return null;
+  const record = store.getRun(r.runId);
   if (!record) return null;
-  const kept = r.kind === 'capture' ? keptCaptureVerdict(record) : null;
-  // A capture judged under today's rules, or kept with no project to judge it by: no call read.
-  if (r.kind === 'capture' && (!w || w.error || kept?.rules === w.rules.key)) return withChecks(importJudged(store, record, w, calls), o.checks === true);
-  const key = keyOf(w!, r, kept?.rules ?? null);
-  if (judged.has(key)) return withChecks(judged.get(key)!, o.checks === true);
-  const specs = r.kind === 'capture' ? null : familyOf(store, index, record, w!);
+  const kept = capture ? keptCaptureVerdict(record) : null;
+  // A capture judged under today's rules, kept with no project to judge it by, or with no rule left to judge it: no call read.
+  if (capture && (!w || w.error || !w.rules.rules.length || kept?.rules === w.rules.key)) return importJudged(store, record, w, calls);
+  const key = keyOf(`${w!.key}|${kept?.rules ?? ''}`, r);
+  if (judged.has(key)) return judged.get(key)!;
+  const specs = capture ? null : familyOf(store, index, record, w!);
   if (specs && !specs.length) return keep(key, null);
   if (o.quick) return undefined;
-  const out = specs ? familyJudged(store, record, r, w!, specs, calls) : importJudged(store, record, w, calls);
-  return withChecks(keep(key, out), o.checks === true);
+  return keep(key, specs ? familyJudged(store, record, r, w!, specs, calls) : importJudged(store, record, w, calls));
+}
+
+/**
+ * A run's outcome by checks (`w`, the work parsed once for the job: parseWork), or null when no check
+ * judges it (a run still recording, one no check applies to); undefined when `quick` and judging it
+ * would read its calls. What reads calls is kept whole, each check with it, for the run's page and
+ * the lists alike.
+ */
+export function judgeRun(store: Store, index: RunIndex, runId: string, w: ParsedWork | null, o: JudgeOptions = {}): RunJudged | null | undefined {
+  const r = index.byId.get(runId);
+  if (!r || r.status === 'running') return null;
+  let read: CallRecord[] | null = null;
+  const calls: Calls = () => (read ??= o.calls ? o.calls() : store.getCalls(runId));
+  const own = r.meta.checks;
+  const out = own?.length ? ownOutcome(store, r, own, calls, o) : judgedBy(store, index, r, w, calls, o);
+  return out === undefined ? undefined : withChecks(out, o.checks === true);
+}
+
+/** A run's outcome by checks, for a job that judges one run: `judgeRun` with the work parsed. */
+export function runJudged(store: Store, index: RunIndex, runId: string, work: OutcomeWork | null, o: JudgeOptions = {}): RunJudged | null | undefined {
+  return judgeRun(store, index, runId, parseWork(work), o);
 }
 
 /**
  * Each row's outcome by checks, for a list (Runs, the sidebar): what needs no call read, what this
  * thread judged before, and the rest while their calls fit `budget` in all, newest first. A row past
  * it keeps the outcome the run index gives it and no `judged`, as a row whose totals are on their way
- * does, and is judged once its run's page has judged it on that thread, or a later list's budget reaches it.
+ * does, and is judged once its run's page has judged it on that thread, or a later list's budget
+ * reaches it. `checks`: each row with each check, for a list that shows them on hover (Runs).
  */
-export function judgedRows<R extends { runId: string; judged?: RunJudged | null }>(store: Store, rows: readonly R[], work: OutcomeWork | null, budget: number): R[] {
+export function judgedRows<R extends { runId: string; judged?: RunJudged | null }>(store: Store, rows: readonly R[], work: OutcomeWork | null, budget: number, o: { checks?: boolean } = {}): R[] {
   const index = loadRunIndex(store);
-  const w = work ? parse(work) : null;
+  const w = parseWork(work);
+  const each = o.checks === true;
   let left = budget;
   return rows.map((row) => {
-    let j = runJudged(store, index, row.runId, work, { quick: true });
+    let j = judgeRun(store, index, row.runId, w, { quick: true, checks: each });
     if (j === undefined) {
       const r = index.byId.get(row.runId)!;
-      if (r.calls > left || !w) return row;
+      if (r.calls > left) return row;
       left -= r.calls;
-      j = runJudged(store, index, row.runId, work);
+      j = judgeRun(store, index, row.runId, w, { checks: each });
     }
     return j === undefined ? row : { ...row, judged: j };
   });

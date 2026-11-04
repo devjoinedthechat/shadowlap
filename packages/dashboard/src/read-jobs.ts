@@ -176,8 +176,8 @@ function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns'>, tea
       return { ...x, local: local.has(x.runId) || n > 0, ...(n ? { localAttempts: { run: local.has(x.runId), attempts: n } } : {}) };
     });
   }
-  // Each row's outcome by checks, those that read calls within the rows' budget (run-outcome.ts).
-  return answer({ ...page, runs: judgedRows(store, runs, outcome, whole ? Infinity : ROW_CALLS_BUDGET) }, { tagged: true });
+  // Each row's outcome by checks, those that read calls within the rows' budget, each check with it for Status's hover (run-outcome.ts).
+  return answer({ ...page, runs: judgedRows(store, runs, outcome, whole ? Infinity : ROW_CALLS_BUDGET, { checks: true }) }, { tagged: true });
 }
 
 /** A fix's page, with what the server's thread found in the working tree: patches in it already, and pulled ones `fix apply` refuses there. */
