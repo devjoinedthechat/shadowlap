@@ -168,6 +168,41 @@ updateSearchIndex(store): number                       // indexes what is new; s
 searchCalls(store, query, opts?): SearchHit[]
 ```
 
+## Checks
+
+Parse the [outcome checks](./checks.md) a `tests` entry or `--expect` holds, and judge a recorded run
+by them, as `shadowlap check` does:
+
+```ts
+import { checkLine, evaluateChecks, parseExpect, Store, storedCheckInput, withoutOutput } from '@shadowlap/engine';
+
+const store = Store.open('./.shadowlap/shadowlap.db');
+const run = store.findRun('01K5CQ');
+const spec = parseExpect({ tools: { send_email: 0 }, calls: [{ tool: 'issue_refund', after: 'lookup_order' }] }, '--expect');
+const results = evaluateChecks(withoutOutput(spec), storedCheckInput(store, store.getCalls(run.runId), ''));
+console.log(results.map((r) => checkLine(r)));  // [ '✓ send_email called 0 times', '✓ every issue_refund call: after lookup_order' ]
+store.close();
+```
+
+These read the checks and judge a run by them:
+
+```ts
+parseExpect(json, where): TestSpec               // throws in the words the CLI prints, naming `where`
+parseTests(config.tests): TestEntry[]            // each entry's checks, with its fork, repeat, passes, gate and injection gate
+specFor(entries, recordingDir, configDir)        // a recording's entry: an exact path wins over a `*` pattern
+// what checks read of a run: its tool calls' arguments and results, its last answer, each model call's cost
+storedCheckInput(store, calls, output, prices?): CheckInput
+evaluateChecks(spec, input, { judgeVerdicts? }): CheckResult[]   // passed, failed, inconclusive or not applicable
+withoutOutput(spec)                              // the spec without its checks on what the agent printed
+// what a check is called and how its result reads, as every report writes them
+checkLine(result) / callRuleLabel(rule) / conditionLabel(c) / judgeLabel(j) / formatCount(range) / formatAmount(range)
+```
+
+`evaluateChecks` asks no judge. A [judge check](./judges.md) takes its verdict from `judgeVerdicts`, by
+the judge's name, and without one is inconclusive, never passed.
+
+A recording keeps no output, so its run is judged by `withoutOutput(spec)`, with `''` as `output`.
+
 ## Gates
 
 These pure functions decide verdicts on attempts that vary, as `test`'s gate, `verify` and `blame`
