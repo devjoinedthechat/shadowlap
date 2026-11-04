@@ -58,13 +58,17 @@ export const ACTIONS = {
   runTests: { label: 'Run tests', doing: 'Running tests' },
   updateGolden: { label: 'Update golden', doing: 'Updating golden' },
   updateGoldens: { label: 'Update goldens…', doing: 'Updating goldens' },
+  // A normalizer a divergence or Calibrate proposes is added at once; with the golden's test after
+  // it, re-run or updated when the rule alone can't make the replay match (a dialog that only
+  // confirms earns no ellipsis). One of your own asks for its rule (Settings → Matching).
   addNormalizer: { label: 'Add normalizer', doing: 'Adding normalizer' },
+  addNormalizerAndRerun: { label: 'Add normalizer and re-run', doing: 'Adding normalizer and re-running' },
   addNormalizerAndUpdate: { label: 'Add normalizer and update', doing: 'Adding normalizer and updating golden' },
+  addNormalizerRule: { label: 'Add normalizer…' },
   findBreakingCommit: { label: 'Find breaking commit…', doing: 'Finding breaking commit' },
   // Runs and Training.
   // A trace from a store too: Activity says what it was.
   importCapture: { label: 'Import capture…', doing: 'Importing capture' },
-  addNormalizerRule: { label: 'Add normalizer…' },
   exportPairs: { label: 'Export pairs…', doing: 'Exporting pairs' },
   scoreModel: { label: 'Score model…', doing: 'Scoring model' },
   // Share, each item the copy it makes; a dialog says the verb, a dataset's with the runs it copies (`of 01M50J6C69`).

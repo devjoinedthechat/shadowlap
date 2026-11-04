@@ -395,7 +395,7 @@ export function divergenceButtons(d: DivergenceView, has: (kind: string) => bool
   const lead = d.normalizerFixes && !d.maybeReal;
   let normalize: DivergenceButtons['normalize'] = null;
   if (steps && d.rulesAdded) normalize = updates || !has('test') ? null : { label: 'Re-run', lead, run: 'rerun' };
-  else if (steps && has('normalize-and-test')) normalize = updates ? { label: 'Add normalizer and update…', lead, run: 'normalize-update' } : { label: 'Add normalizer and re-run', lead, run: 'normalize' };
+  else if (steps && has('normalize-and-test')) normalize = updates ? { label: ACTIONS.addNormalizerAndUpdate.label, lead, run: 'normalize-update' } : { label: ACTIONS.addNormalizerAndRerun.label, lead, run: 'normalize' };
   return {
     normalize,
     update: has('test-update') ? { lead: false } : null,
@@ -456,11 +456,14 @@ export interface UpdatePlan {
 
 /** The amber box's button, by what it runs in place of the update. */
 const INSTEAD: Record<'normalize' | 'normalize-update' | 'rerun', string> = {
-  normalize: 'Add the normalizer instead',
+  normalize: ACTIONS.addNormalizerAndRerun.label,
   // The rule alone can't make the replay match: it is added, and the golden updated after it.
-  'normalize-update': 'Add the normalizer and update',
+  'normalize-update': ACTIONS.addNormalizerAndUpdate.label,
   rerun: 'Re-run instead',
 };
+
+/** An update's confirm, by how many goldens it re-records: `Update golden`, `Update 2 goldens`. */
+const updateOk = (goldens: number): string => (goldens === 1 ? confirmWords(ACTIONS.updateGolden.label) : `Update ${goldens} goldens`);
 
 /** Whether the rules alone can't make the replay match, so the golden is updated after them. */
 const updatesAfterRules = (d: DivergenceView) => !!d.normalizeAndTest && (d.normalizeAndTest.at(-1) ?? []).includes('--update');
@@ -522,7 +525,7 @@ export function updatePlan(view: TestsView, paths: readonly string[], has: (kind
     instead,
     note,
     command: commandText(['test', ...paths, '--update']),
-    ok: advise ? 'Update anyway' : 'Update',
+    ok: advise ? 'Update anyway' : updateOk(goldens.length),
   };
 }
 
@@ -561,7 +564,7 @@ function judgePlan(view: TestsView, path: string): UpdatePlan | null {
     instead: null,
     note: null,
     command: commandText(j.update),
-    ok: material ? 'Update anyway' : 'Update',
+    ok: material ? 'Update anyway' : updateOk(1),
   };
 }
 

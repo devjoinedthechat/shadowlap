@@ -689,8 +689,8 @@ what scores it, which tools run live or are stubbed after the takeover, and its 
 checks only cap tokens and cost has no call to take over). It opens the golden's run at the takeover,
 or Tests for a blocked one.
 
-**Update the golden…** A task blocked because its test forks before the takeover opens that test's run
-at the call where it forked, and offers **Update the golden…**. A dialog shows what it runs, and the
+**Update golden.** A task blocked because its test forks before the takeover opens that test's run
+at the call where it forked, and offers **Update golden**. A dialog shows what it runs, and the
 job runs it:
 
 - a `normalize add` for each value the fork shows that changes every run and the config doesn't mask,

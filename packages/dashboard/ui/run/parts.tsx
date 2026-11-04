@@ -8,6 +8,7 @@ import { TestsJobButton } from '../fixes/TestsJobButton.js';
 import { callName, clip, glued, GLUED_SEPARATOR, jsonText, num, shortId } from '../format.js';
 import { countOrigins, parseOrigins } from '../origins.js';
 import { NormalizeUpdateDialog } from '../pages/TestsDialogs.js';
+import { ACTIONS } from '../labels.js';
 import { href } from '../route.js';
 import { runType } from '../runs.js';
 import { scopeCount, scopeDepth, scopeHint, scopeLeaf } from '../scopes.js';
@@ -275,7 +276,7 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
         </section>
       );
     case 'diverged': {
-      // A test replay: Add normalizer adds the rule and runs its golden again, Update golden re-records
+      // A test replay: Add normalizer and re-run adds the rule and runs its golden again, Update golden re-records
       // it; each is the tests' job. When the rule alone can't make the replay match, the job updates
       // the golden after it, live, so it asks first in the Tests screen's dialog. A server without the
       // jobs falls back to the run's own normalizer action. Once the rule is in the config, the banner
@@ -311,12 +312,12 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
               </TestsJobButton>
             ) : add?.kind === 'action' && normalizer ? (
               <button className="btn sm lime" type="button" disabled={!!normalizer.disabled} onClick={() => onAction({ action: normalizer, callNo: null })}>
-                Add normalizer
+                {ACTIONS.addNormalizer.label}
               </button>
             ) : null}
             {acts.update ? (
               <TestsJobButton className="btn sm" verb="update it" off={off} onClick={() => app.guard(() => setDialog('update'))}>
-                Update golden
+                {ACTIONS.updateGolden.label}
               </TestsJobButton>
             ) : null}
             {b.diff ? diffToggle : null}
@@ -390,7 +391,7 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
           <span className="end">
             {b.normalizer && normalizer && !off ? (
               <button className="btn sm lime" type="button" disabled={!!normalizer.disabled} onClick={() => onAction({ action: normalizer, callNo: null })}>
-                Add normalizer
+                {ACTIONS.addNormalizer.label}
               </button>
             ) : null}
             {b.diff ? diffToggle : null}

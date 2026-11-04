@@ -233,7 +233,7 @@ export function register(router: Router, ctx: RouteContext): void {
   });
   // The golden's test after the rule asks first as Run tests does, when it runs live.
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.normalize, {
-    title: () => ACTIONS.addNormalizer.doing,
+    title: () => ACTIONS.addNormalizerAndRerun.doing,
     build: (req, { store, projectId }) => {
       const list = goldens();
       const job = normalizeAndTestJob(store, list, req);

@@ -417,6 +417,8 @@ describe('the Training read model', () => {
     const changed = { ...divergence, diff: [{ path: '$.metadata.user_id', op: 'changed', before: '1c2b3a4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d', after: '9b2f6c1e-4d7a-4c3b-9e8f-2a1b3c4d5e6f' }] };
     s.setDivergence(forked.runId, changed as never);
     expect(taskUpdate(s, over, [])).toMatchObject({ rerecords: false, steps: [['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/refund-over-limit']] });
+    // Its job is titled as every normalizer's is, for the task it is for.
+    expect(taskUpdateJob({ golden: 'goldens/refund-over-limit' }, s, [inLimit, over], [])).toMatchObject({ title: 'Adding normalizer for refund-over-limit' });
     // A change of its own (another prompt): no rule, the update alone.
     const prompt = { ...divergence, diff: [{ path: '$.system', op: 'changed', before: 'Be brief.', after: 'Escalate refunds above the limit.' }] };
     s.setDivergence(forked.runId, prompt as never);
@@ -431,7 +433,7 @@ describe('the Training read model', () => {
     expect(row).toMatchObject({ status: { label: 'blocked', short: 'its test forks at #3, before the takeover: update the golden' }, href: `#/run/${forked.runId}/3`, opens: 'Open the test run where it forked, at #3', update: { forkedAt: 3, normalizers: ['$.metadata.user_id'] } });
     expect(view.tasks.rows.find((r) => r.name === 'refund-in-limit')).toMatchObject({ href: `#/run/${golden.runId}/17`, opens: 'Open the golden’s run at the takeover', update: null });
     // The task that rewards the opposite is ready once its golden is updated: the warning offers that, not Tests.
-    expect(view.tasks.warning).toMatchObject({ name: 'refund-over-limit', once: 'its golden is updated', text: expect.stringContaining('refund-over-limit rewards the opposite once its golden is updated.'), fix: { label: 'Update the golden…', href: null, update: { golden: 'goldens/refund-over-limit' } } });
+    expect(view.tasks.warning).toMatchObject({ name: 'refund-over-limit', once: 'its golden is updated', text: expect.stringContaining('refund-over-limit rewards the opposite once its golden is updated.'), fix: { label: 'Update golden', href: null, update: { golden: 'goldens/refund-over-limit' } } });
     // With the test run gone, the row opens the golden's run at the takeover, and the update is still offered.
     const gone = trainingView(readTraining(s, { tasks: [{ ...over, fork: { callNo: 3, runId: 'GONE' } }] }));
     expect(gone.tasks.rows[0]).toMatchObject({ href: `#/run/${golden.runId}/17`, opens: 'Open the golden’s run at the takeover', update: { steps: [['test', 'goldens/refund-over-limit', '--update']] } });

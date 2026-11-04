@@ -361,13 +361,14 @@ The meta line says why the run failed, and the agent's exit with its last line. 
 
 The header's one lime button is the run's next step:
 
-| Button                            | Leads for                                                                    |
-| --------------------------------- | ---------------------------------------------------------------------------- |
-| **Open the fix**                  | A failure a fix holds                                                        |
-| **Run blame**                     | A failure never blamed                                                       |
-| **Compare with parent**           | A fork or an attempt                                                         |
-| **Add normalizer**, on the banner | A test or a replay that left its recording on a value made anew on every run |
-| **Replay**                        | A run where nothing needs doing                                              |
+| Button                                          | Leads for                                                                    |
+| ----------------------------------------------- | ---------------------------------------------------------------------------- |
+| **Open the fix**                                | A failure a fix holds                                                        |
+| **Run blame**                                   | A failure never blamed                                                       |
+| **Compare with parent**                         | A fork or an attempt                                                         |
+| **Add normalizer and re-run**, on the banner    | A test that left its recording on a value made anew on every run             |
+| **Add normalizer**, on the banner               | A replay that left its recording on a value made anew on every run           |
+| **Replay**                                      | A run where nothing needs doing                                              |
 
 Every other action stays beside it, plain, and the banner doesn't offer the step again.
 
@@ -417,10 +418,10 @@ A golden's banner has **Tests →**. The attempt's status chip goes by that verd
 
 **A test that diverged.** A test that diverged on a value made anew on every run says what the value looks like, and offers:
 
-- **Add normalizer**, which adds the rule and runs the golden again. Once the rule is in the config, the banner says *normalizer added* and links the replay that passed.
+- **Add normalizer and re-run**, which adds the rule and runs the golden again. Once the rule is in the config, the banner says *normalizer added* and links the replay that passed.
 - **Update golden**, which asks first, as on Tests.
 
-Sometimes the rule alone can't make the replay match: the request carries a field the recording never had, as a per-run id added since. The button then reads **Add normalizer and update…**, and asks first too, in the Tests screen's dialog with both commands, since the golden is then re-recorded live after the rule. Once the rule is in, **Update golden** stays beside *normalizer added* until a replay of the golden passes.
+Sometimes the rule alone can't make the replay match: the request carries a field the recording never had, as a per-run id added since. The button then reads **Add normalizer and update**, and asks first too, in the Tests screen's dialog with both commands, since the golden is then re-recorded live after the rule. Once the rule is in, **Update golden** stays beside *normalizer added* until a replay of the golden passes.
 
 **Show diff** shows the request that changed, and the normalizer to add when the change is a date or an id. For a test that diverged, it shows the value its banner found made anew on every run, what it looks like and its normalizer. So the diff never says that no normalizer is suggested where the banner offers one.
 
@@ -990,7 +991,7 @@ Training shows:
 - **Score model…** offers only the models that can answer a ready task, and names the ones it leaves out, with why. A recording on Bedrock, Vertex AI, Azure OpenAI or the Gemini API is translated for another provider's model.
 - **Score model… is off** while a repair or an applied patch changes the working tree.
 
-A task whose test forks before its takeover opens that test's run where it forked. It offers **Update the golden…**, which adds the normalizer a value that changes every run needs, and runs `test --update` on the golden.
+A task whose test forks before its takeover opens that test's run where it forked. It offers **Update golden**, which adds the normalizer a value that changes every run needs, and runs `test --update` on the golden.
 
 ## Settings
 
@@ -1417,11 +1418,11 @@ These jobs run one at a time in a project. While any of the following runs, **Ru
 - a setup packing and testing its golden;
 - a test session or the [error-path presets](./error-paths.md) on goldens (`test --chaos`), started in a terminal or another dashboard, named by their command.
 
-The server refuses another such job with the same words, from any tab, the palette's *Run tests* included. A test replay's page disables its **Add normalizer** (or **Add normalizer and update…**) and **Update golden** the same way. Find breaking commit on a run that is no test replay touches no golden, and doesn't wait.
+The server refuses another such job with the same words, from any tab, the palette's *Run tests* included. A test replay's page disables its **Add normalizer and re-run** (or **Add normalizer and update**) and **Update golden** the same way. Find breaking commit on a run that is no test replay touches no golden, and doesn't wait.
 
 **Run tests** runs `shadowlap test goldens/*` (plus each pack the config names elsewhere), with no shell: the CLI expands the pattern itself, as it does in CI. The page follows the session as each result lands. Its drawer ends on one primary action, **Tests**, with the replays of the first three goldens that failed linked above it. A run of one golden ends on its replay.
 
-**A session that runs live asks first.** Before a session runs a golden live, **Run tests**, **Run more attempts**, **Re-run** and each **Add normalizer** button ask, on Tests and on a test replay's page, and so does the palette's *Run tests*. A test replays offline, except for two things that run live:
+**A session that runs live asks first.** Before a session runs a golden live, **Run tests**, **Run more attempts**, **Re-run** and **Add normalizer and re-run** ask, on Tests and on a test replay's page, and so does the palette's *Run tests*. A test replays offline, except for two things that run live:
 
 - **A golden marked `fork`** runs live from where it forks, writes blocked, and asks its judge checks live.
 - **An [injection gate](./injection.md#gate-ci-on-it)** runs live from each payload it plants, writes stubbed.
@@ -1550,7 +1551,7 @@ The file has the same views as the dashboard, with the run's data built in and n
 From the dashboard:
 
 - **Share → HTML report**, in a run's header, writes the same file for that run and the runs it came from into `.shadowlap/exports/`, and downloads it. Its output says whether redaction rules applied. On a read-only dashboard it downloads the file without writing it.
-- **Share → HAR** does the same for the model calls, and names how many rules it applied.
+- **Share → HAR file** does the same for the model calls, and names how many rules it applied.
 
 ## Keyboard shortcuts
 
@@ -1980,7 +1981,7 @@ A gate against history is figured at seven pass rates against the baseline `hist
 | `GET /api/chaos`, `/api/chaos/runs/:id` | [Error-path presets](./error-paths.md): the presets and their matrices; one run's matrix |
 | `GET /api/coverage` | [Production coverage](./coverage.md): the last `shadowlap coverage` scan and what it found |
 
-**Training.** A task blocked by an early fork comes with what Update the golden runs. For `/api/models`, a provider that couldn't be listed is a note, and a read-only dashboard asks none.
+**Training.** A task blocked by an early fork comes with what Update golden runs. For `/api/models`, a provider that couldn't be listed is a note, and a read-only dashboard asks none.
 
 **The decision diff:**
 
@@ -2067,7 +2068,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `share { runId }` | A share link |
 | `skill-install { agent, replace? }` | [`skill install`](./cli.md#skill), `--force` with `replace` |
 | `store-set { url, provider }` | `store set --check` |
-| `task-update { golden }` | Update the golden, from Training |
+| `task-update { golden }` | Update golden, from Training |
 | `test { golden?, maxAttempts?, continue?, yes? }` | A test session |
 | `test-update { goldens }` | Re-recorded live with writes stubbed, each replaced when its checks pass; or `{ golden }` |
 | `verify { fixId, verifyId, yes? }` | Run more attempts, or Verify again, for a verdict left incomplete |

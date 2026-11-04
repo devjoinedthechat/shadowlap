@@ -129,7 +129,7 @@ export function moreAttemptsAsk(name: string, args: readonly string[]): TestsAsk
 }
 
 /** What a normalizer's job is called by its steps: it updates the golden after the rules when its last step re-records it. */
-const normalizerLabel = (steps: readonly (readonly string[])[] | null | undefined) => ((steps?.at(-1) ?? []).includes('--update') ? 'Add normalizer and update' : 'Add normalizer and re-run');
+const normalizerLabel = (steps: readonly (readonly string[])[] | null | undefined) => ((steps?.at(-1) ?? []).includes('--update') ? ACTIONS.addNormalizerAndUpdate.label : ACTIONS.addNormalizerAndRerun.label);
 
 /** Re-run, or Add normalizer and re-run (or update), on a golden that diverged, as Tests offers it: by what the button runs. */
 export function divergedAsk(view: Pick<TestsView, 'divergences' | 'rows'>, golden: string, run: 'rerun' | 'normalize' | 'normalize-update'): TestsAsk {

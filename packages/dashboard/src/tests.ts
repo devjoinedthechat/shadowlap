@@ -1813,7 +1813,7 @@ export function normalizeAndTestJob(store: StoreOf<'recording' | 'tests'>, golde
   }
   const steps = normalizeSteps(volatile, golden);
   if (!steps) return { error: `${golden} diverged on more than values that change every run: if the change was intended, update the golden` };
-  return { title: volatile.coversAll ? ACTIONS.addNormalizer.doing : ACTIONS.addNormalizerAndUpdate.doing, steps, ...(runId ? { runId } : {}) };
+  return { title: volatile.coversAll ? ACTIONS.addNormalizerAndRerun.doing : ACTIONS.addNormalizerAndUpdate.doing, steps, ...(runId ? { runId } : {}) };
 }
 
 /**

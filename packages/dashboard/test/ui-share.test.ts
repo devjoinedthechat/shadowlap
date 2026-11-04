@@ -263,24 +263,24 @@ describe('the diverged test’s actions', () => {
   it('adds the normalizer and re-runs the golden in one click when the rule alone makes the replay match, leading when a value made anew is all that changed', () => {
     expect(updatesAfterRules(test())).toBe(false);
     expect(divergedActions({ ...all, test: test() })).toEqual({
-      normalizer: { kind: 'job', label: 'Add normalizer', lead: true, off: null, title: "shadowlap normalize add --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", asks: null },
+      normalizer: { kind: 'job', label: 'Add normalizer and re-run', lead: true, off: null, title: "shadowlap normalize add --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", asks: null },
       update: true,
     });
-    expect(divergedActions({ ...all, test: test({ maybeReal: true }) }).normalizer).toMatchObject({ kind: 'job', label: 'Add normalizer', lead: false, asks: null });
+    expect(divergedActions({ ...all, test: test({ maybeReal: true }) }).normalizer).toMatchObject({ kind: 'job', label: 'Add normalizer and re-run', lead: false, asks: null });
   });
 
   it('asks first when the rule alone can’t make the replay match, with the commands the Tests screen’s dialog lists, since the golden is re-recorded live after it', () => {
     expect(updatesAfterRules(added())).toBe(true);
     expect(divergedActions({ ...all, test: added() })).toEqual({
-      normalizer: { kind: 'job', label: 'Add normalizer and update…', lead: false, off: null, title: "shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", asks: [ADD, ['test', 'goldens/refund-in-limit', '--update']] },
+      normalizer: { kind: 'job', label: 'Add normalizer and update', lead: false, off: null, title: "shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", asks: [ADD, ['test', 'goldens/refund-in-limit', '--update']] },
       update: true,
     });
     // The Tests screen's button for the same steps reads the same, and asks too.
     const d = { normalizeAndTest: added().normalizeAndTest, normalizerFixes: false, maybeReal: false, rulesAdded: false, found: null, missed: null, bisect: null, unreadable: null, volatile: null } as unknown as DivergenceView;
-    expect(divergenceButtons(d, () => true).normalize).toEqual({ label: 'Add normalizer and update…', lead: false, run: 'normalize-update' });
+    expect(divergenceButtons(d, () => true).normalize).toEqual({ label: 'Add normalizer and update', lead: false, run: 'normalize-update' });
     // Read-only: the button says why it is off, and never opens the dialog.
     const readOnly = 'This dashboard is read-only: it was started with --read-only.';
-    expect(divergedActions({ ...all, actionsOff: readOnly, test: added() }).normalizer).toMatchObject({ kind: 'job', label: 'Add normalizer and update…', off: readOnly, title: readOnly });
+    expect(divergedActions({ ...all, actionsOff: readOnly, test: added() }).normalizer).toMatchObject({ kind: 'job', label: 'Add normalizer and update', off: readOnly, title: readOnly });
   });
 
   it('says the normalizer was added once it is in the config, with the replay that passed since, and offers the update while the rule alone can’t make it match', () => {
@@ -298,7 +298,7 @@ describe('the diverged test’s actions', () => {
     // The run's own action adds the rule alone, records nothing: it needs no asking either way.
     expect(divergedActions({ ...all, hasNormalizeJob: false, hasUpdateJob: false, test: added() })).toEqual({ normalizer: { kind: 'action' }, update: false });
     const readOnly = 'This dashboard is read-only: it was started with --read-only.';
-    expect(divergedActions({ ...all, actionsOff: readOnly, test: test() }).normalizer).toEqual({ kind: 'job', label: 'Add normalizer', lead: true, off: readOnly, title: readOnly, asks: null });
+    expect(divergedActions({ ...all, actionsOff: readOnly, test: test() }).normalizer).toEqual({ kind: 'job', label: 'Add normalizer and re-run', lead: true, off: readOnly, title: readOnly, asks: null });
     expect(divergedActions({ ...all, hasNormalizeJob: false, actionsOff: readOnly, test: test() }).normalizer).toBeNull();
     // A server that says nothing of the test.
     expect(divergedActions({ ...all, test: null })).toEqual({ normalizer: { kind: 'action' }, update: false });
@@ -329,11 +329,11 @@ describe('the diverged test’s actions', () => {
       name: 'refund-in-limit',
       at: 'diverged at call 3',
       checks: '2 checks',
-      advise: { path: '$.metadata.user_id', text: 'is new in every request and looks like a UUID, which changes every run. Updating re-records it, and the next run diverges again.', instead: 'Add the normalizer and update' },
+      advise: { path: '$.metadata.user_id', text: 'is new in every request and looks like a UUID, which changes every run. Updating re-records it, and the next run diverges again.', instead: 'Add normalizer and update' },
       note: null,
       ok: 'Update anyway',
     });
-    expect(updateGoldenCopy(test(), 3, true).advise?.instead).toBe('Add the normalizer instead');
+    expect(updateGoldenCopy(test(), 3, true).advise?.instead).toBe('Add normalizer and re-run');
     // Where the server can't add it, the box says so without a button.
     expect(updateGoldenCopy(added(), 3, false).advise?.instead).toBeNull();
     // A golden with no checks is judged on its exit status; a server that doesn't send them, by what the replay ran.

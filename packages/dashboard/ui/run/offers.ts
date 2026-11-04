@@ -83,14 +83,14 @@ export const goldenName = (golden: string): string => golden.replace(/^goldens\/
  * normalizer is the tests' `normalize-and-test` job (shown disabled with why where jobs can't run),
  * or, on a server without it, the run's own normalizer action (the rule alone). When the rule alone
  * makes the replay match, the job adds it and runs the golden again, in one click. When it can't,
- * the job re-records the golden live after it: the button reads "Add normalizer and update…", and
+ * the job re-records the golden live after it: the button reads "Add normalizer and update", and
  * `asks` holds the commands the Tests screen's dialog lists before the job starts. Update golden is
  * the tests' `test-update` job, offered until the rule is in, and after that while the rule alone
  * can't make the replay match and no replay has passed since.
  */
 export type NormalizerChoice =
   | { kind: 'added'; passingRun: string | null }
-  | { kind: 'job'; label: 'Add normalizer' | 'Add normalizer and update…'; lead: boolean; off: string | null; title: string | null; asks: string[][] | null }
+  | { kind: 'job'; label: string; lead: boolean; off: string | null; title: string | null; asks: string[][] | null }
   | { kind: 'action' }
   | null;
 
@@ -109,7 +109,7 @@ export function divergedActions(o: {
   const lead = t ? t.normalizerFixes && !t.maybeReal : true;
   const normalizer: NormalizerChoice =
     t?.normalizeAndTest && o.hasNormalizeJob
-      ? { kind: 'job', label: updates ? 'Add normalizer and update…' : 'Add normalizer', lead, off: o.actionsOff, title: o.actionsOff ?? t.volatile?.command ?? null, asks: updates ? t.normalizeAndTest : null }
+      ? { kind: 'job', label: updates ? ACTIONS.addNormalizerAndUpdate.label : ACTIONS.addNormalizerAndRerun.label, lead, off: o.actionsOff, title: o.actionsOff ?? t.volatile?.command ?? null, asks: updates ? t.normalizeAndTest : null }
       : o.action && !o.actionsOff
         ? { kind: 'action' }
         : null;
@@ -133,7 +133,7 @@ export interface UpdateGoldenCopy {
   advise: { path: string; text: string; instead: string | null } | null;
   /** The plain line above the command, its path set in code. */
   note: { path: string | null } | null;
-  ok: 'Update' | 'Update anyway';
+  ok: string;
 }
 
 const checkCount = (n: number) => `${num(n)} ${n === 1 ? 'check' : 'checks'}`;
@@ -151,7 +151,7 @@ export function updateGoldenCopy(t: TestBannerOffer, callNo: number, canNormaliz
       ? {
           path: v.path,
           text: `${v.op === 'added' ? 'is new in every request and ' : ''}looks like ${v.looks}, which changes every run. Updating re-records it, and the next run diverges again.`,
-          instead: canNormalize ? (updatesAfterRules(t) ? 'Add the normalizer and update' : 'Add the normalizer instead') : null,
+          instead: canNormalize ? (updatesAfterRules(t) ? ACTIONS.addNormalizerAndUpdate.label : ACTIONS.addNormalizerAndRerun.label) : null,
         }
       : null;
   return {
@@ -160,7 +160,7 @@ export function updateGoldenCopy(t: TestBannerOffer, callNo: number, canNormaliz
     checks,
     advise,
     note: t.normalized && updatesAfterRules(t) ? { path: v?.path ?? null } : null,
-    ok: advise ? 'Update anyway' : 'Update',
+    ok: advise ? 'Update anyway' : confirmWords(ACTIONS.updateGolden.label),
   };
 }
 

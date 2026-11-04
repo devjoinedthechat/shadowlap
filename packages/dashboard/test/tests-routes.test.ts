@@ -502,7 +502,7 @@ describe('the Tests jobs', () => {
     const view = await job({ kind: 'normalize-and-test', golden: 'goldens/refund-in-limit' });
     const normalize = ['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'];
     expect(spawned).toEqual([normalize, ['test', 'goldens/refund-in-limit']]);
-    expect(view).toMatchObject({ title: 'Adding normalizer', args: normalize, code: 0, newRunId: '01K5CQ4V5K0000000000000002', runId: 'R2_LIMIT' });
+    expect(view).toMatchObject({ title: 'Adding normalizer and re-running', args: normalize, code: 0, newRunId: '01K5CQ4V5K0000000000000002', runId: 'R2_LIMIT' });
     expect(view.lines).toContain('$ shadowlap test goldens/refund-in-limit');
     expect(view.lines.indexOf('added normalizer #1 to shadowlap.config.json')).toBeLessThan(view.lines.indexOf('$ shadowlap test goldens/refund-in-limit'));
     expect(view.links.map((l) => l.label)).toEqual(['Open the passing run', 'Tests']);
@@ -616,7 +616,7 @@ describe('a session that runs a golden live', () => {
     const q = await asked({ kind: 'normalize-and-test', runId: RUN });
     expect(q.error).toBe(`${INJECTION}. ${BILLED}`);
     expect(spawned).toEqual([]);
-    expect(await ran({ kind: 'normalize-and-test', runId: RUN, yes: q.confirm })).toMatchObject({ title: 'Adding normalizer', runId: RUN });
+    expect(await ran({ kind: 'normalize-and-test', runId: RUN, yes: q.confirm })).toMatchObject({ title: 'Adding normalizer and re-running', runId: RUN });
     expect(spawned.at(-1)).toEqual(['test', 'goldens/refund-in-limit']);
   });
 

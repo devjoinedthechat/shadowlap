@@ -248,8 +248,8 @@ describe('the same question from Tests’ other buttons, on a golden that diverg
     const sent: Sent[] = [];
     const watched: Array<Promise<JobView>> = [];
     const page = await tests(app(sent, watched, { live: true, tests: diverged({ normalizerFixes: false, normalizeAndTest: UPDATE_STEPS }) }));
-    await page.click(page.byText('button', 'Add normalizer and update…'));
-    await page.until('its own dialog', titled(page, 'Add the normalizer and update refund-in-limit?'));
+    await page.click(page.byText('button', 'Add normalizer and update'));
+    await page.until('its own dialog', titled(page, 'Add normalizer and update refund-in-limit?'));
     expect(sent).toEqual([]);
     await page.click(page.one('.dialog .dlg-ok'));
     await page.until('the question', titled(page, 'Add normalizer and update'));
@@ -268,7 +268,7 @@ describe('the same question from Tests’ other buttons, on a golden that diverg
     const page = await tests(app(sent, watched, { live: true, tests: diverged() }));
     await page.click(page.byText('button', 'Update golden'));
     await page.until('its own dialog', titled(page, 'Update refund-in-limit?'));
-    await page.click(page.byText('.dialog button', 'Add the normalizer instead'));
+    await page.click(page.byText('.dialog button', 'Add normalizer and re-run'));
     await page.until('the question', titled(page, 'Add normalizer and re-run'));
     expect(said(dialog(page)!)).toEqual({ title: 'Add normalizer and re-run', text: `${WORDS}.`, commands: [NORMALIZE, '$shadowlap test goldens/refund-in-limit'], ok: 'Add normalizer and re-run' });
     expect(sent).toEqual([{ kind: 'normalize-and-test', fields: { golden: 'goldens/refund-in-limit' } }]);
@@ -297,11 +297,12 @@ describe('the same question from elsewhere', () => {
     return createElement(Banner, { run, blame: null, rescued: null, checks: [], offers, showDiff: false, onToggleDiff: () => undefined, onSelect: () => undefined, onAction: () => undefined });
   }
 
-  it('asks on a test replay’s banner before Add normalizer re-runs a golden live, with both its commands', async () => {
+  it('asks on a test replay’s banner before Add normalizer and re-run runs a golden live, with both its commands', async () => {
     const sent: Sent[] = [];
     const watched: Array<Promise<JobView>> = [];
     const page = await shown(app(sent, watched), banner(STEPS));
-    await page.click(page.byText('.banner button', 'Add normalizer'));
+    // The banner's button is named as its dialog is titled and confirmed: one name for the action.
+    await page.click(page.byText('.banner button', 'Add normalizer and re-run'));
     await page.until('the question', () => dialog(page) !== null);
     expect(said(dialog(page)!)).toEqual({ title: 'Add normalizer and re-run', text: `${WORDS}.`, commands: ["$shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", '$shadowlap test goldens/refund-in-limit'], ok: 'Add normalizer and re-run' });
     await page.click(page.one('.dialog .dlg-ok'));
@@ -316,8 +317,8 @@ describe('the same question from elsewhere', () => {
     const sent: Sent[] = [];
     const watched: Array<Promise<JobView>> = [];
     const page = await shown(app(sent, watched), banner(UPDATE_STEPS));
-    await page.click(page.byText('.banner button', 'Add normalizer and update…'));
-    await page.until('its own dialog', titled(page, 'Add the normalizer and update refund-in-limit?'));
+    await page.click(page.byText('.banner button', 'Add normalizer and update'));
+    await page.until('its own dialog', titled(page, 'Add normalizer and update refund-in-limit?'));
     await page.click(page.one('.dialog .dlg-ok'));
     await page.until('the question', titled(page, 'Add normalizer and update'));
     expect(said(dialog(page)!)).toEqual({ title: 'Add normalizer and update', text: `${WORDS}.`, commands: [NORMALIZE, '$shadowlap test goldens/refund-in-limit --update'], ok: 'Add normalizer and update' });

@@ -259,7 +259,7 @@ describe('the Tests screen', () => {
     expect(d.normalizeAndTest).toEqual([['normalize', 'add', '--kind', 'tool', '--name', 'issue_refund', '--path', '$.args.order_id', '--replace', '<ID>'], ['test', 'goldens/x']]);
     expect(view.rows[0].last.line).toBe('diverged at call 2 · $.args.order_id changed, an id that may be a real change');
     expect(view.commands.updateAll).toEqual(['test', 'goldens/x', '--update']);
-    expect(normalizeAndTestJob(store, goldensX, { golden: 'goldens/x' })).toMatchObject({ title: 'Adding normalizer', steps: d.normalizeAndTest });
+    expect(normalizeAndTestJob(store, goldensX, { golden: 'goldens/x' })).toMatchObject({ title: 'Adding normalizer and re-running', steps: d.normalizeAndTest });
     store.close();
   });
 
@@ -938,7 +938,7 @@ describe('jobs for the Tests actions', () => {
   it('adds the normalizer the stored divergence names, then re-runs the golden', () => {
     const store = sampleStore();
     const job = normalizeAndTestJob(store, goldens, { golden: 'goldens/refund-in-limit' });
-    expect(job).toEqual({ title: 'Adding normalizer', steps: [['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/refund-in-limit']], runId: 'R_C_LIMIT' });
+    expect(job).toEqual({ title: 'Adding normalizer and re-running', steps: [['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/refund-in-limit']], runId: 'R_C_LIMIT' });
     expect(normalizeAndTestJob(store, goldens, { golden: 'goldens/refund-in-limit', path: '$.metadata.other' })).toEqual({ error: 'no value that changes every run diverged at that path' });
     expect(normalizeAndTestJob(store, goldens, { golden: 'goldens/refund-flow' })).toEqual({ error: 'goldens/refund-flow did not diverge the last time it ran' });
     expect(normalizeAndTestJob(store, goldens, { golden: 'goldens/nope' })).toHaveProperty('error');
@@ -954,11 +954,11 @@ describe('jobs for the Tests actions', () => {
     store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/refund-in-limit', ok: false, failure: 'diverged', runId: replay.runId });
     expect(normalizeAndTestJob(store, goldens, { runId: replay.runId })).toEqual({ error: 'goldens/refund-in-limit diverged on more than values that change every run: if the change was intended, update the golden' });
     store.setDivergence(replay.runId, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, diff: [{ path: '$.metadata.user_id', op: 'changed', before: UUID_A, after: UUID_B }] });
-    expect(normalizeAndTestJob(store, goldens, { runId: replay.runId })).toMatchObject({ title: 'Adding normalizer', steps: [['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/refund-in-limit']], runId: replay.runId });
+    expect(normalizeAndTestJob(store, goldens, { runId: replay.runId })).toMatchObject({ title: 'Adding normalizer and re-running', steps: [['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/refund-in-limit']], runId: replay.runId });
     expect(normalizeAndTestJob(store, [], { runId: replay.runId })).toEqual({ error: 'goldens/refund-in-limit is no longer a golden on disk' });
     // Two values that change every run: one rule alone leaves the other diverging, so the golden is updated after it.
     store.setDivergence(replay.runId, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, diff: [{ path: '$.metadata.user_id', op: 'changed', before: UUID_A, after: UUID_B }, { path: '$.metadata.trace_id', op: 'changed', before: UUID_B, after: UUID_A }] });
-    expect(normalizeAndTestJob(store, goldens, { runId: replay.runId })).toMatchObject({ title: 'Adding normalizer', steps: [expect.arrayContaining(['$.metadata.user_id']), expect.arrayContaining(['$.metadata.trace_id']), ['test', 'goldens/refund-in-limit']] });
+    expect(normalizeAndTestJob(store, goldens, { runId: replay.runId })).toMatchObject({ title: 'Adding normalizer and re-running', steps: [expect.arrayContaining(['$.metadata.user_id']), expect.arrayContaining(['$.metadata.trace_id']), ['test', 'goldens/refund-in-limit']] });
     expect(normalizeAndTestJob(store, goldens, { runId: replay.runId, path: '$.metadata.trace_id' })).toMatchObject({ title: 'Adding normalizer and updating golden', steps: [expect.arrayContaining(['$.metadata.trace_id']), ['test', 'goldens/refund-in-limit', '--update']] });
     store.close();
   });

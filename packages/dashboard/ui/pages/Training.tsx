@@ -266,12 +266,12 @@ function TasksTab({ view }: { view: TrainingView }) {
   if (t.error) return <EmptyState title="The tasks can’t be read" text={t.error} command="shadowlap tasks" />;
   if (t.empty) return <EmptyState title={t.empty.title} text={t.empty.text} command={t.empty.command} />;
   const w = t.warning;
-  // A task its test's early fork blocks: Update the golden, off with the reason when nothing can run.
+  // A task its test's early fork blocks: Update golden, off with the reason when nothing can run.
   const canUpdate = hasKind(JOB_KINDS.taskUpdate);
   const updateOff = actionsOff ?? busy;
   const updateButton = (u: TaskUpdate, name: string, cls: string) => (
     <button className={cls} type="button" disabled={!!updateOff} title={updateOff ?? `Re-record ${name} as your agent runs now, so its test replays up to the takeover`} onClick={() => guard(() => setUpdating({ update: u, name }))}>
-      Update the golden…
+      {ACTIONS.updateGolden.label}
     </button>
   );
   return (
@@ -592,9 +592,9 @@ function UpdateGoldenDialog({ name, update, busy, onClose }: { name: string; upd
     : `${fork} Only ${rules === 1 ? 'a value that changes' : 'values that change'} every run differ there: the ${rules === 1 ? 'normalizer is' : 'normalizers are'} the whole fix, and the golden is tested again.`;
   return (
     <Dialog
-      title={update.rerecords ? `Update ${name}?` : `Add the ${rules === 1 ? 'normalizer' : 'normalizers'} for ${name}?`}
+      title={update.rerecords ? `Update ${name}?` : `Add ${rules === 1 ? 'normalizer' : 'normalizers'} for ${name}?`}
       text={text}
-      ok={update.rerecords ? (rules ? 'Add and update' : 'Update') : 'Add and test'}
+      ok={update.rerecords ? (rules ? ACTIONS.addNormalizerAndUpdate.label : confirmWords(ACTIONS.updateGolden.label)) : ACTIONS.addNormalizerAndRerun.label}
       okDisabled={!!busy}
       onOk={() => {
         if (busy) return;
