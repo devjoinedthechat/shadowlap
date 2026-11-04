@@ -68,6 +68,8 @@ describe("a run's first fact", () => {
     expect(outcomeFact({ ...BASE, judged: null }, { tools: 3 })).toMatchObject({ tone: 'n', words: 'no checks', tip: { title: 'No check judges this run', sub: 'Pack it as a golden with checks, or give a golden of its family checks under "tests" in shadowlap.config.json.' } });
     expect(outcomeFact({ ...BASE, kind: 'clean', mode: 'replay', outcome: { kind: 'clean' }, judged: null }, { tools: 0 }).tip.sub).toBe('It made no tool call, and a check on calls reads them.');
     expect(outcomeFact({ ...BASE, status: 'crashed', judged: null }, { tools: 3 }).words).toBe('interrupted');
+    // A check that could not be decided reads inconclusive on the page, its one word for it.
+    expect(outcomeFact({ ...BASE, judged: { ...judged({ verdict: 'inconclusive', callNo: null, today: false }), checks: [] } }, { tools: 3 })).toMatchObject({ tone: 'warn', words: 'inconclusive' });
   });
 
   it('leads the run page’s facts as the run payload says it', async () => {

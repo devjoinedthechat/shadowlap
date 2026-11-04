@@ -446,7 +446,7 @@ How a run came out by its checks is its page's first fact and Runs' Status, in t
 | *check failed at #6* | A check failed: the call it names, or the first call past what a count allows, which the page links |
 | *2 checks passed* | Every check passed or did not apply |
 | *check inconclusive* | A check could not be decided, such as a judge with no recorded verdict (*inconclusive* on the page) |
-| *not applicable* | A capture none of whose rules on calls had a call to read |
+| *not applicable* | No check applied: a capture none of whose rules on calls had a call to read, or a `when` that never held |
 | *no checks* | No check judges the run; Runs shows a dash |
 
 The checks are the first of these the run has:

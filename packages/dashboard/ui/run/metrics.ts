@@ -120,11 +120,13 @@ export function outcomeFact(r: OutcomeInput, o: { tools: number }): OutcomeFact 
   const out = runOutcome(r);
   if (out.tone === 'live') return { tone: 'live', words: out.text, callNo: null, today: false, tip: { title: 'Still recording', sub: 'It is judged once it finishes.', rows: [] } };
   const j = r.judged;
-  if (j && judgedOutcome(r)) return { tone: out.tone, words: out.at?.words ?? out.text, callNo: out.at?.callNo ?? null, today: !!out.today, tip: { ...judgedTip(j), rows: rowsOf(j.checks ?? []) } };
+  // A check that could not be decided is the page's one word for it, as its banner says: inconclusive.
+  const words = out.at?.words ?? (out.tone === 'warn' ? 'inconclusive' : out.text);
+  if (j && judgedOutcome(r)) return { tone: out.tone, words, callNo: out.at?.callNo ?? null, today: !!out.today, tip: { ...judgedTip(j), rows: rowsOf(j.checks ?? []) } };
   if (out.text === 'interrupted') return { tone: 'n', words: out.text, callNo: null, today: false, tip: { title: 'Stopped before it ended', sub: 'Ctrl-C, a kill or a crash: it stopped, and did not fail.', rows: [] } };
   if (out.tone === 'n' || out.tone === 'fk' || out.text === 'clean') {
     const how = o.tools ? 'Pack it as a golden with checks, or give a golden of its family checks under "tests" in shadowlap.config.json.' : 'It made no tool call, and a check on calls reads them.';
     return { tone: 'n', words: 'no checks', callNo: null, today: false, tip: { title: 'No check judges this run', sub: how, rows: [] } };
   }
-  return { tone: out.tone, words: out.text, callNo: null, today: false, tip: { title: out.text.charAt(0).toUpperCase() + out.text.slice(1), sub: null, rows: [] } };
+  return { tone: out.tone, words, callNo: null, today: false, tip: { title: words.charAt(0).toUpperCase() + words.slice(1), sub: null, rows: [] } };
 }
