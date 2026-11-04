@@ -20,7 +20,8 @@ describe('dismissals', () => {
     store.putDismissal({ key: 'local', facts: [], at: 1_000 });
 
     expect(store.getDismissal('coverage')).toEqual(coverage);
-    expect(store.getDismissal('licence')).toBeNull();
+    // Another model's retirement was never put away.
+    expect(store.getDismissal('retire gpt-4o')).toBeNull();
     expect(store.listDismissals().map((d) => [d.key, d.facts])).toEqual([
       ['retire claude-sonnet-4-5', ['2026-11-30', 'goldens/refund-in-limit']],
       ['coverage', ['3f9a2c1d5e8b7a60', '1db3eff9c2a04b17']],
