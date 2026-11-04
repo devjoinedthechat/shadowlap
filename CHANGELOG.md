@@ -172,7 +172,7 @@ The first release: record, replay and fork AI agent runs, find the call that los
 
 #### Built on
 
-- **[Open protocols](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/protocol.md)**: the SDK wire protocol is specified, with a conformance suite of fourteen scenarios that needs no API keys. The [engine](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/engine.md) is documented as a library.
+- **[Open protocols](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/protocol.md)**: the SDK wire protocol is specified, with a conformance suite of fourteen scenarios that needs no API keys. The [engine](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/engine.md) is documented as a library, and reads outcome checks and judges a recorded run by them.
 - **[The recording format, specified](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/recording-format.md)**: version 1, with packs on disk and the recordings protocol over HTTP, and Shadowlap as the reference implementation.
 - **[Few runtime dependencies](https://github.com/devjoinedthechat/shadowlap/blob/main/CONTRIBUTING.md#rules-of-the-road), held by a test**. The engine, sidecar, SDKs and adapters install nothing else. Nor does the dashboard; the CLI adds commander, and the terminal UI, which the CLI uses, adds Ink and React.
 - **Light to install**. Every package together is 4.1 MB to download and 16 MB installed. The `shadowlap` package exports its module and `package.json` only; its command is the `bin` the manifest names.
