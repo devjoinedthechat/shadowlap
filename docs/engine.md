@@ -189,7 +189,7 @@ These read the checks and judge a run by them:
 ```ts
 parseExpect(json, where): TestSpec               // throws in the words the CLI prints, naming `where`
 parseTests(config.tests): TestEntry[]            // each entry's checks, with its fork, repeat, passes, gate and injection gate
-specFor(entries, recordingDir, configDir)        // a recording's entry: an exact path wins over a `*` pattern
+specFor(entries, recordingDir, configDir)        // a recording's checks: an exact path wins over a `*` pattern
 // what checks read of a run: its tool calls' arguments and results, its last answer, each model call's cost
 storedCheckInput(store, calls, output, prices?): CheckInput
 evaluateChecks(spec, input, { judgeVerdicts? }): CheckResult[]   // passed, failed, inconclusive or not applicable
