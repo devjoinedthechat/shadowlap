@@ -9,8 +9,8 @@
  * - store/cleanup.ts: gc, vacuum, the store's size and what holds a deletion up
  * - store/read-models.ts: what the dashboard reads in SQL, and what it keeps of finished runs
  * - store/activity.ts: activity events and the change feed
- * - store/fixes.ts, tests.ts, chaos.ts, injection.ts, coverage.ts, decisions.ts, training.ts and
- *   team.ts: each feature's tables
+ * - store/fixes.ts, tests.ts, chaos.ts, injection.ts, coverage.ts, decisions.ts, training.ts,
+ *   team.ts and dismissals.ts: each feature's tables
  *
  * store/schema.ts holds every table, each feature's in a block of its own, and opens a file at that
  * schema; store/core.ts holds what the parts share. A feature's methods go in its part, and a part in
@@ -22,6 +22,7 @@ import { Cleanup } from './store/cleanup.js';
 import { inTransaction, prepareStatements, StorePart, type QueuedWrites, type SqliteDatabase, type SqliteStatement, type Statements } from './store/core.js';
 import { Coverage } from './store/coverage.js';
 import { Decisions } from './store/decisions.js';
+import { Dismissals } from './store/dismissals.js';
 import { Fixes } from './store/fixes.js';
 import { Injection } from './store/injection.js';
 import { ReadModels } from './store/read-models.js';
@@ -36,22 +37,24 @@ export type { NewStoredEvent, StoredEvent } from './store/activity.js';
 export type { ChaosResult, ChaosResultData, ChaosSession, ChaosVerdict, NewChaosResult, NewChaosSession } from './store/chaos.js';
 export type { QueuedWrites, SqlValue } from './store/core.js';
 export type { CoverageBehaviour, CoverageNotPacked, CoveragePackMode, CoverageScan, CoverageScanData, StoredCoverageGroup, StoredCoveragePack } from './store/coverage.js';
-export type { DecisionRunRow, DecisionSessionRow, NewDecisionSession } from './store/decisions.js';
-export type { FixData, FixLink, FixLinkKind, FixStatus, PulledFrom, StepRerun, StoredBlame, StoredFix, StoredRepair, StoredVerdict, VerdictStanding } from './store/fixes.js';
+export type { DecisionRunRow, DecisionSessionRow, MigrationApplied, NewDecisionSession } from './store/decisions.js';
+export { stillDismissed } from './store/dismissals.js';
+export type { NewDismissal, StoredDismissal } from './store/dismissals.js';
+export type { FixData, FixLink, FixLinkKind, FixStatus, PulledFrom, PullRequestState, StepRerun, StoredBlame, StoredFix, StoredFixCheck, StoredRepair, StoredVerdict, VerdictStanding } from './store/fixes.js';
 export type { StoredInjectionResult } from './store/injection.js';
 export { RECORDING_RUNS_SQL, rowToRun, splitRecordingRuns } from './store/recording.js';
 export type { CreateRunInput } from './store/recording.js';
 export { noFullTextSearch, SCHEMA_VERSION } from './store/schema.js';
 export type { SearchState } from './store/search.js';
 export type { TeamFixRow, TeamRunRow, TeamRunState, TeamSyncRow } from './store/team.js';
-export type { InjectionGateData, NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession } from './store/tests.js';
+export type { InjectionGateData, NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession, TestSessionComment, TestSessionPullRequest } from './store/tests.js';
 export type { NewPairsExport, PairsExport, TaskScoreRow } from './store/training.js';
 
 /**
  * The store's parts by name, in the order mixIn (below) puts their methods on Store: the one list the
  * Store interface, StoreOf and mixIn are made from, so a part named here is on all three.
  */
-const PARTS = { recording: Recording, search: Search, cleanup: Cleanup, readModels: ReadModels, activity: Activity, fixes: Fixes, tests: Tests, chaos: Chaos, injection: Injection, coverage: Coverage, decisions: Decisions, training: Training, team: Team } as const;
+const PARTS = { recording: Recording, search: Search, cleanup: Cleanup, readModels: ReadModels, activity: Activity, fixes: Fixes, tests: Tests, chaos: Chaos, injection: Injection, coverage: Coverage, decisions: Decisions, training: Training, team: Team, dismissals: Dismissals } as const;
 
 /** The name of one of the store's parts (PARTS): what StoreOf narrows the store by. */
 export type StorePartName = keyof typeof PARTS;

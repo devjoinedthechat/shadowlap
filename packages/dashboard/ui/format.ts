@@ -105,6 +105,15 @@ export function isoDay(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
+/** The viewer's own time zone: weeks and days are theirs. */
+export function viewerTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
+
 /** A home folder shortened to ~, as a terminal shows it. */
 export function tildePath(path: string): string {
   return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, '~').replace(/^[A-Za-z]:\\Users\\[^\\]+(?=\\|$)/, '~');

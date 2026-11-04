@@ -13,7 +13,9 @@ import { storeKey } from './url.js';
  * still recording is queued and goes when it ends. Labels and notes merge both ways; see merge.ts
  * for what else syncs. Whatever comes from the bucket is checked as strictly as a pack: it is
  * shared, so it is someone else's data. A push checks each run with the same rules before it
- * uploads it, so nothing goes up that a teammate can't bring down.
+ * uploads it, so nothing goes up that a teammate can't bring down. What a store keeps for its owner
+ * alone, the advice they put away in the dashboard (its dismissals), is never read here: it neither
+ * goes up nor comes down, so nobody's Dismiss changes what a teammate sees.
  *
  * A run is only in the store for the team once an index segment lists it: a pull lists the store
  * from the index, not by reading every run. So a push indexes every run it uploaded, even when a

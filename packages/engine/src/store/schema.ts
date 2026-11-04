@@ -11,7 +11,7 @@ import { pathToFileURL } from 'node:url';
 import { messageOf } from '../message-of.js';
 import { DatabaseSync, rollBack, type SqliteDatabase } from './core.js';
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS runs (
@@ -184,8 +184,24 @@ CREATE TABLE IF NOT EXISTS repairs (
   accepted   INTEGER NOT NULL,
   record     TEXT    NOT NULL
 );
--- Any write to a fix, its links or the reports behind it moves the 'fixes' counter, whoever makes
--- it (the CLI's blame, repair, fix title or apply, the dashboard, a pull): the Fixes pages follow it.
+-- v6: each check a fix has had, in the order it had them, the last the one it has (its own check_*
+-- columns): the check its first blame was made under, then each one it was given since, with when
+-- and by whom. A blame, repair or verdict made under an earlier check keeps that check here, by its
+-- key, after the fix takes another. A fix kept before has the check it has as its first.
+CREATE TABLE IF NOT EXISTS fix_checks (
+  fix_id        TEXT    NOT NULL REFERENCES fixes(fix_id) ON DELETE CASCADE,
+  position      INTEGER NOT NULL,
+  at            INTEGER NOT NULL,
+  check_key     TEXT    NOT NULL,
+  check_expect  TEXT,
+  check_oracle  TEXT    NOT NULL,
+  check_text    TEXT    NOT NULL,
+  actor         TEXT,
+  PRIMARY KEY (fix_id, position)
+);
+-- Any write to a fix, its links, its checks or the reports behind it moves the 'fixes' counter,
+-- whoever makes it (the CLI's blame, repair, fix title or apply, the dashboard, a pull): the Fixes
+-- pages follow it.
 INSERT OR IGNORE INTO change_counts (name, n) VALUES ('fixes', 0);
 CREATE TRIGGER IF NOT EXISTS change_counts_fixes_insert AFTER INSERT ON fixes BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'fixes'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_fixes_update AFTER UPDATE ON fixes BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'fixes'; END;
@@ -193,6 +209,9 @@ CREATE TRIGGER IF NOT EXISTS change_counts_fixes_delete AFTER DELETE ON fixes BE
 CREATE TRIGGER IF NOT EXISTS change_counts_fix_links_insert AFTER INSERT ON fix_links BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'fixes'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_fix_links_update AFTER UPDATE ON fix_links BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'fixes'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_fix_links_delete AFTER DELETE ON fix_links BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'fixes'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_fix_checks_insert AFTER INSERT ON fix_checks BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'fixes'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_fix_checks_update AFTER UPDATE ON fix_checks BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'fixes'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_fix_checks_delete AFTER DELETE ON fix_checks BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'fixes'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_blames_insert AFTER INSERT ON blames BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'fixes'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_verdicts_insert AFTER INSERT ON verdicts BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'fixes'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_repairs_insert AFTER INSERT ON repairs BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'fixes'; END;
@@ -201,7 +220,10 @@ CREATE TRIGGER IF NOT EXISTS change_counts_repairs_insert AFTER INSERT ON repair
 -- across revisions outlives the runs that gc deletes: no foreign key on run ids. A golden is its
 -- pack folder relative to the project (goldens/refund-flow); the runs a session made carry
 -- meta.test = { golden, session }. A session stopped by a signal ends with interrupted = 1 and the
--- results of the goldens that finished before it.
+-- results of the goldens that finished before it. v6: the pull or merge request a CI session ran
+-- for and where it stands (pull_request; every session that ran for it is told) and what the
+-- comment the Action keeps on it carried beside each golden's verdict line (comment), as JSON in
+-- the shapes store/tests.ts gives.
 CREATE TABLE IF NOT EXISTS test_sessions (
   session_id         TEXT    PRIMARY KEY,
   started_at         INTEGER NOT NULL,
@@ -212,7 +234,9 @@ CREATE TABLE IF NOT EXISTS test_sessions (
   failed             INTEGER NOT NULL DEFAULT 0,
   upstream_requests  INTEGER NOT NULL DEFAULT 0,
   actor              TEXT,
-  interrupted        INTEGER NOT NULL DEFAULT 0 CHECK (interrupted IN (0, 1))
+  interrupted        INTEGER NOT NULL DEFAULT 0 CHECK (interrupted IN (0, 1)),
+  pull_request       TEXT,
+  comment            TEXT
 );
 CREATE INDEX IF NOT EXISTS test_sessions_started ON test_sessions (started_at);
 
@@ -230,6 +254,16 @@ CREATE TABLE IF NOT EXISTS test_results (
   PRIMARY KEY (session_id, golden)
 );
 CREATE INDEX IF NOT EXISTS test_results_golden ON test_results (golden, at);
+-- v6: every write to a session or a golden's result moves the 'tests' counter, whoever makes it (a
+-- test in a terminal, CI's, the dashboard's), so Tests and Changes follow a session another process
+-- keeps, the parts of its pull request comment as each is kept, and where that pull request stands.
+INSERT OR IGNORE INTO change_counts (name, n) VALUES ('tests', 0);
+CREATE TRIGGER IF NOT EXISTS change_counts_test_sessions_insert AFTER INSERT ON test_sessions BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'tests'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_test_sessions_update AFTER UPDATE ON test_sessions BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'tests'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_test_sessions_delete AFTER DELETE ON test_sessions BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'tests'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_test_results_insert AFTER INSERT ON test_results BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'tests'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_test_results_update AFTER UPDATE ON test_results BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'tests'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_test_results_delete AFTER DELETE ON test_results BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'tests'; END;
 
 -- v4: tests. The process running each test session not ended yet, as run_owners does for runs, so
 -- a session still running (in a terminal, from another dashboard) is told from one whose process
@@ -350,6 +384,8 @@ CREATE TRIGGER IF NOT EXISTS change_counts_team_sync_update AFTER UPDATE ON team
 -- each run's part is a row of its own, so a run's page reads its decisions without the rest of the
 -- session. Sessions name runs by id with no foreign key: a session outlives a run gc deletes. Every
 -- write moves the 'decisions' counter, so the Changes page follows a session another process keeps.
+-- v6: a migration's config change once applied (applied: when, by whom, and the goldens it left
+-- behind, as JSON in the shape store/decisions.ts gives); null until then, and for a decisions session.
 CREATE TABLE IF NOT EXISTS decision_sessions (
   session_id  TEXT    PRIMARY KEY,
   kind        TEXT    NOT NULL CHECK (kind IN ('decisions', 'migrate')),
@@ -359,7 +395,8 @@ CREATE TABLE IF NOT EXISTS decision_sessions (
   flagged     INTEGER NOT NULL,
   actor       TEXT,
   revision    TEXT,
-  data        TEXT    NOT NULL
+  data        TEXT    NOT NULL,
+  applied     TEXT
 );
 CREATE INDEX IF NOT EXISTS decision_sessions_at ON decision_sessions (at);
 CREATE TABLE IF NOT EXISTS decision_runs (
@@ -515,6 +552,23 @@ CREATE TABLE IF NOT EXISTS chaos_session_owners (
   host        TEXT    NOT NULL
 );
 
+-- v6: dismissals. The advice Needs a look shows (behaviours no golden covers, runs only on this
+-- machine, a model that retires) that whoever keeps this store put away: by the advice's key, with
+-- the facts it stated then, when, and who. It stays put away while every fact it states is one of
+-- those, so only a new fact brings it back. Kept in this store alone, so it is per project and its
+-- owner's: a push and a pull leave it out, and nobody's Dismiss changes what a teammate sees. Every
+-- write moves the 'dismissals' counter, so a page follows one made in another tab.
+CREATE TABLE IF NOT EXISTS dismissals (
+  key    TEXT    PRIMARY KEY,
+  facts  TEXT    NOT NULL,
+  at     INTEGER NOT NULL,
+  actor  TEXT
+);
+INSERT OR IGNORE INTO change_counts (name, n) VALUES ('dismissals', 0);
+CREATE TRIGGER IF NOT EXISTS change_counts_dismissals_insert AFTER INSERT ON dismissals BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'dismissals'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_dismissals_update AFTER UPDATE ON dismissals BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'dismissals'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_dismissals_delete AFTER DELETE ON dismissals BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'dismissals'; END;
+
 -- Replay start: the fingerprint a stored request came to under one set of matching rules, so a
 -- replay of a long run doesn't read and hash every request again (the sidecar's
 -- fingerprint-cache.ts). The key names the request by its content and every rule that went into its
@@ -654,6 +708,36 @@ export function storeFileProblem(path: string): string | null {
   return storeDirProblem(dirname(path));
 }
 
+/** A table's columns, by name. */
+function columnsOf(db: SqliteDatabase, table: string): string[] {
+  return db
+    .prepare(`PRAGMA table_info(${table})`)
+    .all()
+    .map((r) => String(r.name));
+}
+
+/**
+ * v6, what the dashboard's pages keep, in one step. The SCHEMA above creates its tables and triggers
+ * (dismissals, fix_checks, the 'tests' counter); a store from before gains its columns here: the pull
+ * request a CI test session ran for and what its comment carried, and a migration's applied state.
+ * A fix kept before (`found` is the version the store was at) has its check as the first of its checks.
+ */
+function addVersion6(db: SqliteDatabase, found: number | null): void {
+  const sessionColumns = columnsOf(db, 'test_sessions');
+  if (!sessionColumns.includes('pull_request')) db.exec(`ALTER TABLE test_sessions ADD COLUMN pull_request TEXT`);
+  if (!sessionColumns.includes('comment')) db.exec(`ALTER TABLE test_sessions ADD COLUMN comment TEXT`);
+  if (!columnsOf(db, 'decision_sessions').includes('applied')) db.exec(`ALTER TABLE decision_sessions ADD COLUMN applied TEXT`);
+  if (found === null || found >= 6) return;
+  // Its first check's author is the fix's (data.openedBy), when its data says one: data that doesn't
+  // read as JSON is never handed to json_type, which would refuse it and the store with it.
+  db.exec(
+    `INSERT INTO fix_checks (fix_id, position, at, check_key, check_expect, check_oracle, check_text, actor)
+     SELECT fix_id, 0, opened_at, check_key, check_expect, check_oracle, check_text,
+       CASE WHEN json_valid(data) THEN CASE WHEN json_type(data, '$.openedBy') = 'text' THEN json_extract(data, '$.openedBy') END END
+     FROM fixes WHERE NOT EXISTS (SELECT 1 FROM fix_checks c WHERE c.fix_id = fixes.fix_id)`,
+  );
+}
+
 /** Takes group and other permissions off a store created by an earlier version. */
 function restrictToOwner(path: string): void {
   if (process.platform === 'win32' || typeof process.getuid !== 'function') return;
@@ -760,6 +844,7 @@ export function openDatabase(path: string, o: { create?: boolean } = {}): Sqlite
     // build kept has none, its spend having counted them.
     const scoreColumns = db.prepare(`PRAGMA table_info(task_scores)`).all().map((r) => String(r.name));
     if (!scoreColumns.includes('judge_spent')) db.exec(`ALTER TABLE task_scores ADD COLUMN judge_spent REAL`);
+    addVersion6(db, found);
     db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)`).run(String(SCHEMA_VERSION));
     db.exec('COMMIT');
   } catch (err) {

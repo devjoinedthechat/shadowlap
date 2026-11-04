@@ -1,12 +1,15 @@
 /**
  * Tests: each `shadowlap test` session and how each golden did in it (test_sessions, test_results),
- * so a golden's history across revisions outlives the runs gc deletes, the process running a session
- * not ended yet (test_session_owners), and the runs and revisions a test or a bisect reads.
+ * so a golden's history across revisions outlives the runs gc deletes, with the pull request a CI
+ * session ran for, where it stands, and what the comment on it carried; the process running a
+ * session not ended yet (test_session_owners); and the runs and revisions a test or a bisect reads.
  */
+import { isObject } from '../is-object.js';
 import { currentOwner, type RunOwner } from '../liveness.js';
 import type { GateResult } from '../stats.js';
 import type { JudgeSummary, Normalizer, RunRecord, StoredCheck } from '../types.js';
 import { parseJsonColumn, StorePart, ulidNow } from './core.js';
+import type { PullRequestState } from './fixes.js';
 import { rowToRun } from './recording.js';
 
 // ---- tests (v4): the shapes of the test tables ----
@@ -33,13 +36,49 @@ export interface TestSession {
   actor: string | null;
   /** A signal stopped it (Ctrl-C, a job stopped): the golden it was replaying has no result, and the ones after it didn't run. */
   interrupted: boolean;
+  /** v6: the pull or merge request it ran for (a CI session's); null for one that ran for none, or didn't say. */
+  pullRequest: TestSessionPullRequest | null;
+  /** v6: what the comment the Action keeps on that pull request carried beside the verdicts, as far as it was kept; null when none was. */
+  comment: TestSessionComment | null;
 }
 
-export type NewTestSession = Partial<Pick<TestSession, 'sessionId' | 'startedAt' | 'revision' | 'actor'>> &
+export type NewTestSession = Partial<Pick<TestSession, 'sessionId' | 'startedAt' | 'revision' | 'actor' | 'pullRequest'>> &
   Pick<TestSession, 'command'> & {
     /** The process running it, until it ends: this one unless given; null names none (a session recorded elsewhere). */
     owner?: RunOwner | null;
   };
+
+/**
+ * The pull or merge request a CI test session ran for, as CI named it (the remote package's
+ * pullRequestJob), and where it stands, as a fix's pull request keeps it (FixData's `source.pr`).
+ * Many sessions run for one pull request: setTestPullRequestState tells each of them where it stands.
+ */
+export interface TestSessionPullRequest {
+  /** Its number; null when CI ran the job for one but gave no number. */
+  number: number | null;
+  /** Its page (an http or https address), where CI says where it is; null otherwise. */
+  url: string | null;
+  /** How the job was known to run for one, in words: `GitHub Actions (pull_request)`, `SHADOWLAP_PR`. */
+  source: string;
+  /** Where it stands, as the forge said it last (`gh pr view`, as Fixes reads a fix's); absent until someone says. */
+  state?: PullRequestState;
+  /** When it was said to stand so (ms); absent without a state. */
+  at?: number;
+}
+
+/**
+ * What the pull request comment carried beside each golden's verdict line and injection gate, kept
+ * with its session, so an older revision's page shows it as the comment did. The verdicts and the
+ * gates are the session's results (each golden's `data.injection`), so they are never kept twice.
+ * The job that ran the session keeps some parts and a job after it others (setTestSessionComment);
+ * a part not kept reads as none.
+ */
+export interface TestSessionComment {
+  /** The decisions session (`dc-…`) the branch's write and stop changes came from (`decisions --from-code`); null when the job asked none. */
+  decisions: string | null;
+  /** What a run costs, in USD: on the base branch, and in this session; null where it can't be told. */
+  costPerRun: { before: number | null; after: number | null } | null;
+}
 
 /**
  * Why a golden failed: its replay sent a request the recording doesn't have, a check failed, the
@@ -187,10 +226,13 @@ export abstract class Tests extends StorePart {
       upstreamRequests: 0,
       actor: input.actor ?? null,
       interrupted: false,
+      // As it reads back: a number or a page that is none is kept as none.
+      pullRequest: pullRequestOf(input.pullRequest ?? null),
+      comment: null,
     };
     this.db
-      .prepare(`INSERT INTO test_sessions (session_id, started_at, ended_at, command, revision, passed, failed, upstream_requests, actor, interrupted) VALUES (?, ?, NULL, ?, ?, 0, 0, 0, ?, 0)`)
-      .run(session.sessionId, session.startedAt, JSON.stringify(session.command), session.revision, session.actor);
+      .prepare(`INSERT INTO test_sessions (session_id, started_at, ended_at, command, revision, passed, failed, upstream_requests, actor, interrupted, pull_request) VALUES (?, ?, NULL, ?, ?, 0, 0, 0, ?, 0, ?)`)
+      .run(session.sessionId, session.startedAt, JSON.stringify(session.command), session.revision, session.actor, session.pullRequest === null ? null : JSON.stringify(session.pullRequest));
     // Who runs it, until it ends (testSessionOwner).
     const owner = input.owner === undefined ? currentOwner() : input.owner;
     if (owner) this.db.prepare(`INSERT OR REPLACE INTO test_session_owners (session_id, pid, host) VALUES (?, ?, ?)`).run(session.sessionId, owner.pid, owner.host);
@@ -217,6 +259,51 @@ export abstract class Tests extends StorePart {
   getTestSession(sessionId: string): TestSession | null {
     const row = this.db.prepare(`SELECT * FROM test_sessions WHERE session_id = ?`).get(sessionId);
     return row ? rowToTestSession(row) : null;
+  }
+
+  /** Names the pull request a session ran for, as it reads back, in place of the one it named, or none (null). An unknown session throws. */
+  setTestSessionPullRequest(sessionId: string, pullRequest: TestSessionPullRequest | null): void {
+    const kept = pullRequestOf(pullRequest);
+    const done = this.db.prepare(`UPDATE test_sessions SET pull_request = ? WHERE session_id = ?`).run(kept === null ? null : JSON.stringify(kept), sessionId);
+    if (Number(done.changes) === 0) throw new Error(`unknown test session ${sessionId}`);
+  }
+
+  /**
+   * Tells every session that ran for a pull request where it stands, as the forge said it, in place
+   * of what each kept: a session ran for it when its page is the one given or, where either names no
+   * page, when its number is. A session that stands so already keeps its `at`, so being told nothing
+   * new writes nothing. Returns how many sessions it changed; each change moves the 'tests' counter,
+   * so the pages that show it follow. With neither a number nor a page, it names no pull request and
+   * changes none.
+   */
+  setTestPullRequestState(pullRequest: Partial<Pick<TestSessionPullRequest, 'number' | 'url'>>, state: PullRequestState, at: number = Date.now()): number {
+    if (!isPullRequestState(state)) throw new Error(`${String(state)} is no pull request's state: give open, merged or closed`);
+    const number = pullRequestNumber(pullRequest.number);
+    const url = pullRequestPage(pullRequest.url);
+    if (number === null && url === null) return 0;
+    // A session's page and number as pullRequestOf reads them. What doesn't read as JSON is never
+    // handed to a json_ function, which would refuse it and the whole write with it.
+    const page = `CASE WHEN json_extract(pull_request, '$.url') LIKE 'http://%' OR json_extract(pull_request, '$.url') LIKE 'https://%' THEN json_extract(pull_request, '$.url') END`;
+    const done = this.db
+      .prepare(
+        `UPDATE test_sessions SET pull_request = json_patch(pull_request, ?)
+         WHERE CASE WHEN json_valid(pull_request) THEN json_type(pull_request, '$.source') = 'text' AND json_extract(pull_request, '$.state') IS NOT ?
+           AND CASE WHEN ? IS NOT NULL AND ${page} IS NOT NULL THEN ${page} = ? ELSE json_extract(pull_request, '$.number') = ? END END`,
+      )
+      .run(JSON.stringify({ state, at }), state, url, url, number);
+    return Number(done.changes);
+  }
+
+  /**
+   * Keeps parts of what a session's pull request comment carried, beside the parts kept already: each
+   * part given takes its own place, null clearing it, in one statement, so a job that keeps one part
+   * never writes back another a job beside it kept meanwhile. An unknown session throws.
+   */
+  setTestSessionComment(sessionId: string, parts: Partial<TestSessionComment>): void {
+    // A JSON merge patch keeps the parts not given; null takes one out, which reads as none. What
+    // was kept and doesn't read as JSON is none, so it never stops a part being kept.
+    const done = this.db.prepare(`UPDATE test_sessions SET comment = json_patch(CASE WHEN json_valid(comment) THEN comment ELSE '{}' END, ?) WHERE session_id = ?`).run(JSON.stringify(parts), sessionId);
+    if (Number(done.changes) === 0) throw new Error(`unknown test session ${sessionId}`);
   }
 
   /**
@@ -370,7 +457,42 @@ function rowToTestSession(row: Record<string, unknown>): TestSession {
     upstreamRequests: Number(row.upstream_requests),
     actor: row.actor === null || row.actor === undefined ? null : String(row.actor),
     interrupted: Number(row.interrupted ?? 0) === 1,
+    pullRequest: pullRequestOf(parseJsonColumn<unknown>(row.pull_request, null)),
+    comment: commentOf(parseJsonColumn<unknown>(row.comment, null)),
   };
+}
+
+const numberOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+const PULL_REQUEST_STATES: readonly PullRequestState[] = ['open', 'merged', 'closed'];
+const isPullRequestState = (v: unknown): v is PullRequestState => (PULL_REQUEST_STATES as readonly unknown[]).includes(v);
+/** A pull request's number: a whole number from 1; anything else is none. */
+const pullRequestNumber = (v: unknown): number | null => (typeof v === 'number' && Number.isSafeInteger(v) && v > 0 ? v : null);
+/** A pull request's page: a web page's address (http or https); anything else is none, so it never reaches a link. */
+const pullRequestPage = (v: unknown): string | null => (typeof v === 'string' && /^https?:\/\//i.test(v) ? v : null);
+
+/**
+ * A session's pull request as kept, when it reads as one; anything else names none, a number that is
+ * no pull request's no number, a page that is no web page's address no page, and a state that is
+ * none of open, merged and closed no state, nor a time it was said.
+ */
+function pullRequestOf(v: unknown): TestSessionPullRequest | null {
+  if (!isObject(v) || typeof v.source !== 'string') return null;
+  const pr: TestSessionPullRequest = { number: pullRequestNumber(v.number), url: pullRequestPage(v.url), source: v.source };
+  if (isPullRequestState(v.state)) {
+    pr.state = v.state;
+    const at = numberOrNull(v.at);
+    if (at !== null) pr.at = at;
+  }
+  return pr;
+}
+
+/** What a session's comment carried, as kept: a part that is missing, or doesn't read as one, is none, and a comment with none, none. */
+function commentOf(v: unknown): TestSessionComment | null {
+  if (!isObject(v)) return null;
+  const cost = isObject(v.costPerRun) ? v.costPerRun : null;
+  const comment = { decisions: typeof v.decisions === 'string' ? v.decisions : null, costPerRun: cost ? { before: numberOrNull(cost.before), after: numberOrNull(cost.after) } : null };
+  return comment.decisions === null && comment.costPerRun === null ? null : comment;
 }
 
 function rowToTestResult(row: Record<string, unknown>): TestResult {

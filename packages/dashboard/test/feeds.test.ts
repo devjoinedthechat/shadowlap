@@ -75,8 +75,8 @@ describe('meta', () => {
 describe('the change feed', () => {
   it('says what changed since a cursor, and nothing when nothing did', async () => {
     const first = await get<ChangesView>(dash, 'changes');
-    // A fresh cursor: everything moved, the tables features count (the error-path presets', coverage's, decision sessions, fixes, injection results, the team store's) as well.
-    expect(first).toMatchObject({ changed: true, runs: true, calls: true, events: true, jobs: true, other: ['chaos', 'coverage', 'decisions', 'fixes', 'injection', 'team'], live: [{ runId: liveId, calls: 1 }] });
+    // A fresh cursor: everything moved, the tables features count (the error-path presets', coverage's, decision sessions, dismissals, fixes, injection results, the team store's, test sessions) as well.
+    expect(first).toMatchObject({ changed: true, runs: true, calls: true, events: true, jobs: true, other: ['chaos', 'coverage', 'decisions', 'dismissals', 'fixes', 'injection', 'team', 'tests'], live: [{ runId: liveId, calls: 1 }] });
     const quiet = await get<ChangesView>(dash, `changes?since=${first.cursor}`);
     expect(quiet).toMatchObject({ changed: false, runs: false, calls: false, events: false, jobs: false, other: [] });
     expect(quiet.cursor).toBe(first.cursor);

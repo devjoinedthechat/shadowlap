@@ -10,7 +10,8 @@ describe('test history in the store', () => {
     store.finishTestSession(s1.sessionId, { passed: 1, failed: 1, upstreamRequests: 0, endedAt: 1300 });
     const s2 = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/refund-flow'], revision: 'd2e8a1f+dirty', startedAt: 2000 });
 
-    expect(store.getTestSession(s1.sessionId)).toEqual({ sessionId: s1.sessionId, startedAt: 1000, endedAt: 1300, command: ['shadowlap', 'test', 'goldens/*'], revision: 'c91d0f4', passed: 1, failed: 1, upstreamRequests: 0, actor: 'ci', interrupted: false });
+    // It ran for no pull request, and kept nothing a pull request's comment carried.
+    expect(store.getTestSession(s1.sessionId)).toEqual({ sessionId: s1.sessionId, startedAt: 1000, endedAt: 1300, command: ['shadowlap', 'test', 'goldens/*'], revision: 'c91d0f4', passed: 1, failed: 1, upstreamRequests: 0, actor: 'ci', interrupted: false, pullRequest: null, comment: null });
     expect(store.listTestSessions().map((s) => s.sessionId)).toEqual([s2.sessionId, s1.sessionId]);
     expect(store.listTestSessions({ finished: true }).map((s) => s.sessionId)).toEqual([s1.sessionId]);
     expect(store.listTestSessions({ before: 2000 }).map((s) => s.sessionId)).toEqual([s1.sessionId]);

@@ -1,13 +1,12 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { createExportedClient, exportedData, takeToken } from './api.js';
+import { takeToken } from './api.js';
 import { App } from './App.js';
 import './app.css';
 
-// An exported HTML file carries its own data; otherwise the page talks to the dashboard server.
-const exported = exportedData();
+// The dashboard the server serves; an exported copy is built from main-copy.tsx.
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {exported ? <App token="exported" client={createExportedClient(exported)} /> : <App token={takeToken()} />}
+    <App token={takeToken()} />
   </StrictMode>,
 );

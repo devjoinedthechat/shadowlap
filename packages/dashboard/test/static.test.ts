@@ -125,6 +125,23 @@ describe('export html', () => {
     expect(result.html).toContain('const end = "<\\/script>"');
   });
 
+  it('carries the copy’s own script, with the pages a copy shows, never the one the dashboard serves', () => {
+    // A built UI has both (build-ui.mjs): the dashboard's app.js loads each page's code from the server.
+    const built = mkdtempSync(join(tmpdir(), 'fp-export-built-'));
+    try {
+      mkdirSync(join(built, 'assets'), { recursive: true });
+      writeFileSync(join(built, 'assets', 'app.css'), '.app { color: red }\n');
+      writeFileSync(join(built, 'assets', 'favicon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
+      writeFileSync(join(built, 'assets', 'app.js'), 'import("./chunks/Overview.js");\n');
+      writeFileSync(join(built, 'assets', 'copy.js'), 'console.log("the copy");\n');
+      const { html } = exportHtml({ store, runIds: [forkId, runId], uiDir: built });
+      expect(html).toContain('<script type="module">console.log("the copy");\n</script>');
+      expect(html).not.toContain('chunks/Overview.js');
+    } finally {
+      rmSync(built, { recursive: true, force: true });
+    }
+  });
+
   it('names its tab by the run it opens on, as the page’s own title does once it has drawn', () => {
     const { html } = exportHtml({ store, runIds: [forkId, runId], uiDir });
     expect(/<title>([^<]*)<\/title>/.exec(html)?.[1]).toBe(docTitle(parseRoute(`#/run/${forkId}`)));
