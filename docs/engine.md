@@ -171,7 +171,7 @@ searchCalls(store, query, opts?): SearchHit[]
 ## Checks
 
 Parse the [outcome checks](./checks.md) a `tests` entry or `--expect` holds, and judge a recorded run
-by them, as `shadowlap check` does:
+by them:
 
 ```ts
 import { checkLine, evaluateChecks, parseExpect, Store, storedCheckInput, withoutOutput } from '@shadowlap/engine';
@@ -194,14 +194,28 @@ specFor(entries, recordingDir, configDir)        // a recording's checks: an exa
 storedCheckInput(store, calls, output, prices?): CheckInput
 evaluateChecks(spec, input, { judgeVerdicts? }): CheckResult[]   // passed, failed, inconclusive or not applicable
 withoutOutput(spec)                              // the spec without its checks on what the agent printed
-// what a check is called and how its result reads, as every report writes them
-checkLine(result) / callRuleLabel(rule) / conditionLabel(c) / judgeLabel(j) / formatCount(range) / formatAmount(range)
+// every check's label, in the order evaluateChecks reports them, with no run to judge
+checkLabels(spec): string[]                      // [ 'send_email called 0 times', 'every issue_refund call: after lookup_order' ]
+// one check's label, its parts, and a result's line, as every report writes them
+toolCheckLabel(t) / countLabel(key, range) / costLabel(range) / textLabels(key, check) / callRuleLabel(rule) / whenLabel(c, label) / judgeLabel(j)
+conditionLabel(c) / formatCount(range) / formatAmount(range) / checkLine(result)
 ```
 
-`evaluateChecks` asks no judge. A [judge check](./judges.md) takes its verdict from `judgeVerdicts`, by
-the judge's name, and without one is inconclusive, never passed.
+`parseExpect` and the labels import nothing of Node, so they run in a browser too.
 
 A recording keeps no output, so its run is judged by `withoutOutput(spec)`, with `''` as `output`.
+
+`evaluateChecks` judges a run by its checks alone, and asks no judge. A [judge check](./judges.md)
+takes its verdict from `judgeVerdicts`, by the judge's name, and without one is inconclusive, never
+passed.
+
+[`shadowlap check`](./checks.md#try-a-check-on-your-recordings) does three more things with a
+recording, which a caller of the engine does itself:
+
+- **Recorded verdicts**: it gives each judge check the verdict the recording's own judge call holds.
+  The engine has no reader for these.
+- **The agent's exit**: it fails a run whose agent exited non-zero or was interrupted.
+- **Prices**: it prices cost checks with the config's `prices`, which `storedCheckInput` takes last.
 
 ## Gates
 
