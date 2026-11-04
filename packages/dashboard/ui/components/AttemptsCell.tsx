@@ -30,8 +30,8 @@ const FEW = 6;
 
 /**
  * Each attempt, in the order it ran. A few get a line each (a dot, the run, where it went); more get
- * a cell each, and lines for the first three that failed or couldn't be judged. `rescued`, the
- * attempt that is the rescued fork, says so.
+ * a cell each, and lines for the first three that failed or couldn't be judged, in the order they
+ * ran, with how many more of each. `rescued`, the attempt that is the rescued fork, says so.
  */
 export function AttemptList({ attempts, rescued, id }: { attempts: readonly Attempt[]; rescued?: string | null; id?: string }) {
   const line = (a: Attempt) => (
@@ -51,10 +51,10 @@ export function AttemptList({ attempts, rescued, id }: { attempts: readonly Atte
         {attempts.map(line)}
       </div>
     );
-  const odd = [...attempts.filter((a) => a.outcome === 'inconclusive'), ...attempts.filter((a) => a.outcome === 'failed')];
-  const shown = odd.slice(0, 3);
-  const rest = odd.length - shown.length;
-  const passed = attempts.filter((a) => a.outcome === 'passed').length;
+  // the first three that failed or couldn't be judged, in the order they ran, and how many more of each
+  const shown = attempts.filter((a) => a.outcome !== 'passed').slice(0, 3);
+  const more = (o: Attempt['outcome']) => attempts.filter((a) => a.outcome === o).length - shown.filter((a) => a.outcome === o).length;
+  const said = [more('failed') ? `${more('failed')} more failed` : '', more('inconclusive') ? `${more('inconclusive')} more inconclusive` : '', `${attempts.filter((a) => a.outcome === 'passed').length} passed`];
   return (
     <div className="attemptsx" id={id}>
       <div className="astrip" role="group" aria-label={`${plural(attempts.length, 'attempt')}, each opens its run`}>
@@ -70,7 +70,7 @@ export function AttemptList({ attempts, rescued, id }: { attempts: readonly Atte
       </div>
       <div className="alist">
         {shown.map(line)}
-        <span className="more2">{[rest ? `${rest} more failed` : '', `${passed} passed`, 'each attempt is a cell above'].filter(Boolean).join(' · ')}</span>
+        <span className="more2">{[...said, 'each attempt is a cell above'].filter(Boolean).join(' · ')}</span>
       </div>
     </div>
   );
@@ -81,8 +81,9 @@ const BAR_TONE: Partial<Record<Tone, 'ok' | 'no' | 'y'>> = { ok: 'ok', err: 'no'
 /**
  * The cell: `tally` ("17 of 18", as the server words it) and `bound` ("rate >= 0.74 (95%)", the
  * first on a page a defined term), the interval against `marks` when a gate decided it, and a
- * toggle that shows the attempts under the tally. A row that draws the attempts elsewhere (a table's
- * row under it) holds the toggle itself: `open` and `onToggle`, with `listId` the list's id.
+ * toggle that shows the attempts under the tally (`open`, where it starts). A row that draws the
+ * attempts elsewhere (a table's row under it) holds the toggle itself: `onToggle`, its `open` then
+ * the state, and `listId`, the id of the list it draws.
  */
 export function AttemptsCell({
   tally,
@@ -109,8 +110,9 @@ export function AttemptsCell({
   listId?: string;
 }) {
   const own = `${useId()}-attempts`;
-  const [mine, setMine] = useState(false);
-  const open = held ?? mine;
+  // held by the row when it takes the toggle (`onToggle`), its `open` then the state; else its own, `open` where it starts
+  const [mine, setMine] = useState(held ?? false);
+  const open = onToggle ? (held ?? false) : mine;
   const toggle = onToggle ?? setMine;
   const n = attempts?.length ?? 0;
   const barTone = BAR_TONE[tone];
@@ -134,7 +136,7 @@ export function AttemptsCell({
             <span className="ibx">
               {bar}
               {n ? (
-                <button type="button" className="xbtn" aria-expanded={open} aria-controls={open ? (listId ?? own) : undefined} aria-label={`${open ? 'Hide' : 'Show'} ${plural(n, 'attempt')}`} onClick={() => toggle(!open)}>
+                <button type="button" className="xbtn" aria-expanded={open} aria-controls={!open ? undefined : onToggle ? listId : own} aria-label={`${open ? 'Hide' : 'Show'} ${plural(n, 'attempt')}`} onClick={() => toggle(!open)}>
                   <Icon name="caret" />
                 </button>
               ) : null}

@@ -1,4 +1,4 @@
-import { createElement, type ReactElement } from 'react';
+import { createElement, useState, type ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { commandParts, type CmdPiece } from '../ui/cmdline.js';
 import { AttemptsCell, type Attempt } from '../ui/components/AttemptsCell.js';
@@ -137,7 +137,9 @@ describe('a status and a verdict line', () => {
     expect(['passed', 'rescued', 'fixed', 'kept', 'accepted'].map(verdictTone)).toEqual(['ok', 'ok', 'ok', 'ok', 'ok']);
     expect(['inconclusive', 'unsettled', 'stopped'].map(verdictTone)).toEqual(['warn', 'warn', 'warn']);
     expect(['failed', 'lost', 'not fixed', 'broken', 'rejected'].map(verdictTone)).toEqual(['err', 'err', 'err', 'err', 'err']);
-    expect(verdictTone('not applicable')).toBe('mu');
+    expect(['stubbed', 'blocked', 'not applicable'].map(verdictTone)).toEqual(['stub', 'block', 'mu']);
+    // a word that is no verdict reads muted, never red for what did not fail
+    expect(['open', 'set up', 'needs a look', 'not run'].map(verdictTone)).toEqual(['mu', 'mu', 'mu', 'mu']);
   });
 
   it('leads a verdict with its word in its colour, then the sentence in a heading that names the word too, its facts under it and its step at the right', async () => {
@@ -294,6 +296,25 @@ describe('a glossary term', () => {
     expect([later.className, later.getAttribute('tabindex'), later.getAttribute('aria-describedby'), later.getAttribute('data-tip')]).toEqual(['term', null, null, null]);
   });
 
+  it('moves the definition to the first use when a list reorders its rows without drawing them anew', async () => {
+    function Sorted() {
+      const [rows, setRows] = useState(['alpha', 'beta']);
+      return createElement(
+        'div',
+        { className: 'page' },
+        createElement('button', { onClick: () => setRows(['beta', 'alpha']) }, 'Sort'),
+        rows.map((row) => createElement('p', { key: row, 'data-row': row }, createElement(Term, { k: 'kept' }))),
+      );
+    }
+    await draw(createElement(Sorted));
+    await r!.wait(0);
+    const defined = () => r!.all('.term.on').map((t) => t.parentNode!.getAttribute('data-row'));
+    expect(defined()).toEqual(['alpha']);
+    await r!.click(r!.byText('button', 'Sort'));
+    await r!.wait(0);
+    expect(defined()).toEqual(['beta']);
+  });
+
   it('defines the word on a tap without opening the row it sits in', async () => {
     const opened: string[] = [];
     await draw(createElement('div', { className: 'page' }, createElement('p', { onClick: () => void opened.push('row') }, createElement(Term, { k: 'kept' }), ' and ', createElement(Term, { k: 'kept' }))));
@@ -369,16 +390,30 @@ describe('an attempts cell', () => {
     expect(cells.map((c) => c.className)).toEqual(['ac', 'ac no', 'ac', 'ac', 'ac no', 'ac', 'ac', 'ac no', 'ac', 'ac', 'ac inc', 'ac']);
     expect(cells[1].getAttribute('aria-label')).toBe('Attempt 2, 01M5GRZK01, failed, issue_refund called');
     expect(r!.one('.astrip').getAttribute('aria-label')).toBe('12 attempts, each opens its run');
-    expect(r!.all('.alist .al').map((l) => l.querySelector('code')!.textContent)).toEqual(['01M5GRZK10', '01M5GRZK01', '01M5GRZK04']);
-    expect(r!.one('.alist .more2').textContent).toBe('1 more failed · 8 passed · each attempt is a cell above');
+    // the first three that failed or couldn't be judged, in the order they ran, and how many more of each
+    expect(r!.all('.alist .al').map((l) => l.querySelector('code')!.textContent)).toEqual(['01M5GRZK01', '01M5GRZK04', '01M5GRZK07']);
+    expect(r!.one('.alist .more2').textContent).toBe('1 more inconclusive · 8 passed · each attempt is a cell above');
   });
 
   it('leaves the list to a row that holds the toggle, and draws no bar where no gate decided', async () => {
     const seen: boolean[] = [];
-    await draw(createElement(AttemptsCell, { tally: '2 of 2 passed, attempt 3 not judged', tone: 'warn', attempts: runs(3), open: false, onToggle: (o: boolean) => void seen.push(o), listId: 'v-1' }));
+    function Row() {
+      const [open, setOpen] = useState(false);
+      return createElement(AttemptsCell, { tally: '2 of 2 passed, attempt 3 not judged', tone: 'warn', attempts: runs(3), open, onToggle: (o: boolean) => (seen.push(o), setOpen(o)), listId: 'v-1' });
+    }
+    await draw(createElement(Row));
     expect(r!.all('.wib')).toEqual([]);
     await r!.click(r!.one('.xbtn'));
     expect(seen).toEqual([true]);
+    // the row draws the list, so the cell draws none, and names the row's
+    expect(r!.all('.alist')).toEqual([]);
+    expect([r!.one('.xbtn').getAttribute('aria-expanded'), r!.one('.xbtn').getAttribute('aria-controls')]).toEqual(['true', 'v-1']);
+  });
+
+  it('starts open where it is asked to, and keeps its own toggle', async () => {
+    await draw(createElement(AttemptsCell, { tally: '3 of 3', tone: 'ok', attempts: runs(3), open: true }));
+    expect(r!.all('.alist .al')).toHaveLength(3);
+    await r!.click(r!.one('.xbtn'));
     expect(r!.all('.alist')).toEqual([]);
   });
 });

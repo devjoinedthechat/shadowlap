@@ -37,6 +37,8 @@ function path(n: Node): Node[] {
 
 /** The page's order of two elements: negative when `a` comes first (it holds `b`, or is before it). */
 function order(a: Node, b: Node): number {
+  // the browser's own, where there is one (the tests' renderer has none)
+  if (typeof a.compareDocumentPosition === 'function') return a.compareDocumentPosition(b) & 4 ? -1 : a === b ? 0 : 1;
   const pa = path(a);
   const pb = path(b);
   let i = 0;
@@ -86,10 +88,21 @@ function settle(): void {
   for (const fn of listeners) fn();
 }
 
+/**
+ * Works the defined terms out again once the page is done drawing: after a term mounts, goes or
+ * draws again (a sorted list moves its terms without mounting them anew), and after a fold opens or
+ * closes (a <details> shows or hides its terms without a draw).
+ */
 function schedule(): void {
   if (queued) return;
   queued = true;
   queueMicrotask(settle);
+}
+let folds = false;
+function watchFolds(): void {
+  if (folds || typeof document === 'undefined') return;
+  folds = true;
+  document.addEventListener('toggle', schedule, true);
 }
 
 function subscribe(fn: () => void): () => void {
@@ -100,6 +113,7 @@ function subscribe(fn: () => void): () => void {
 /** Registers a term's element; the returned function lets it go. */
 function register(id: string, el: HTMLElement, term: GlossaryTerm): () => void {
   entries.set(id, { el, term });
+  watchFolds();
   schedule();
   return () => {
     entries.delete(id);
@@ -117,6 +131,8 @@ export function Term({ k, children }: { k: GlossaryTerm; children?: string }) {
     () => false,
   );
   useLayoutEffect(() => (ref.current ? register(id, ref.current, k) : undefined), [id, k]);
+  // drawn again (moved in a list, or the part around it redrawn): which use is the first may have changed
+  useLayoutEffect(schedule);
   const text = children ?? k;
   const desc = `${id}-def`;
   // One shape, defined or not, so the word's element stays the one registered.

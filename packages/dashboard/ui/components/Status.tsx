@@ -16,20 +16,39 @@ import type { ReactNode } from 'react';
  */
 export type Tone = 'ok' | 'err' | 'warn' | 'mu' | 'done' | 'live' | 'stub' | 'block';
 
+/** Each verdict word's tone, decision 9's vocabulary and the two words a fork's writes keep. */
+const VERDICT_TONE: Readonly<Record<string, Tone>> = {
+  passed: 'ok',
+  rescued: 'ok',
+  fixed: 'ok',
+  kept: 'ok',
+  accepted: 'ok',
+  inconclusive: 'warn',
+  unsettled: 'warn',
+  stopped: 'warn',
+  failed: 'err',
+  lost: 'err',
+  'not fixed': 'err',
+  broken: 'err',
+  rejected: 'err',
+  'not applicable': 'mu',
+  stubbed: 'stub',
+  blocked: 'block',
+};
+
 /**
- * The tone a verdict word takes (decision 9's vocabulary): what held (passed, rescued, fixed,
- * kept, accepted) is passed's, what couldn't decide (inconclusive, unsettled, stopped) amber, not
- * applicable muted, and what didn't hold (failed, lost, not fixed, broken, rejected) failed's. A
- * word that is no verdict (a fix's open, a finished step) takes its tone from the page, never from here.
+ * The tone a verdict word takes: what held (passed, rescued, fixed, kept, accepted) is passed's,
+ * what couldn't decide (inconclusive, unsettled, stopped) amber, what didn't hold (failed, lost, not
+ * fixed, broken, rejected) failed's, not applicable muted, and a fork's stubbed and blocked writes
+ * their own. Any other word is no verdict, and reads muted: never red for what did not fail. A word
+ * that is no verdict but has a colour (a fix's verified, a setup that is done) takes it from its page.
  */
 export function verdictTone(word: string): Tone {
   const w = word.trim().toLowerCase();
-  if (/^(passed|pass|rescued|fixed|kept|accepted)$/.test(w)) return 'ok';
-  if (/^(inconclusive|unsettled|stopped)$/.test(w)) return 'warn';
-  return w === 'not applicable' ? 'mu' : 'err';
+  return Object.hasOwn(VERDICT_TONE, w) ? VERDICT_TONE[w]! : 'mu';
 }
 
-/** A dot and a word in its tone: `Status tone="ok">passed</Status>`. `tip`, a hover card (`tipText`/`tipCard`) saying more. */
+/** A dot and a word in its tone: `<Status tone="ok">passed</Status>`. `tip`, a hover card (`tipText`/`tipCard`) saying more. */
 export function Status({ tone, children, tip, title, className }: { tone: Tone; children: ReactNode; tip?: string | undefined; title?: string | undefined; className?: string | undefined }) {
   return (
     <span className={`st ${tone}${className ? ` ${className}` : ''}`} data-tip={tip} title={title}>
