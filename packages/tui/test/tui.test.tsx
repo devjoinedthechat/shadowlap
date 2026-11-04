@@ -450,9 +450,12 @@ describe('actions palette', () => {
     stdin.write(':');
     let frame = await frameWith(lastFrame, 'At #3 · model call');
     expect(frame).toContain('Fork menu');
-    expect(frame).toContain('Inject an instruction');
+    expect(frame).toContain('Inject instruction…');
     expect(frame).toContain('--inject 3=… --inject-as user'); // each line carries its flag
-    expect(frame).toContain('Switch the model from here');
+    expect(frame).toContain('Switch model from here…');
+    expect(frame).toContain('Use changed prompt from here');
+    expect(frame).toContain('Fail with HTTP status…');
+    expect(frame).toContain('Run live from here');
     expect(frame).toContain('The whole run');
     expect(frame).not.toContain('--live-tool'); // not a tool call
 
@@ -530,7 +533,7 @@ describe('actions palette', () => {
     stdin.write('j'); // #3, the first model call
     await frameMatching(lastFrame, /> #3\s/);
     stdin.write(':');
-    await frameWith(lastFrame, 'Inject an instruction');
+    await frameWith(lastFrame, 'Inject instruction…');
     stdin.write('i');
     await frameWith(lastFrame, 'Instruction to add at #3:');
     stdin.write('Be brief.');

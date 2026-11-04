@@ -211,7 +211,7 @@
       "scriptEnd": 56
     },
     "packages/dashboard/ui/actions.ts": {
-      "dialogCopy": 43
+      "dialogCopy": 41
     },
     "packages/dashboard/ui/compare/model.ts": {
       "changeCards": 33

@@ -126,7 +126,8 @@ export function PromptDialog({
   initial?: string;
   placeholder?: string;
   multiline?: boolean;
-  ok: string;
+  /** Its confirm: as it is, or worked out from the answer so far (`Repeat 3 times`). */
+  ok: string | ((answer: string) => string);
   /** The command it will run, shown under the field: as it is, or worked out from the answer so far. */
   command?: string | ((answer: string) => string);
   /** Under the command, worked out from the answer so far: Copy for a command too long to show whole. */
@@ -198,7 +199,7 @@ export function PromptDialog({
     </select>
   ) : null;
   return (
-    <Dialog title={title} text={text} ok={ok} okDisabled={!ready} onOk={submit} onClose={onClose}>
+    <Dialog title={title} text={text} ok={typeof ok === 'function' ? ok(answer) : ok} okDisabled={!ready} onOk={submit} onClose={onClose}>
       {label || select ? (
         <div className="form one">
           <label>

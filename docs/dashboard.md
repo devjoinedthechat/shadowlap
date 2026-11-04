@@ -1291,31 +1291,31 @@ Labels, notes and actions run only from a dashboard started with `shadowlap dash
 
 **Replay** re-runs the recorded command.
 
-**Fork at #n** (or a row's fork button, or `f`) offers what the terminal UI's fork menu offers for that call, one line each with its flag:
+**Fork at #n** (or a row's fork button, or `f`) offers what the terminal UI's fork menu offers for that call, one line each with its flag, each named in the CLI's verbs:
 
 | Selected | The menu offers |
 | --- | --- |
-| A model call | Inject an instruction (always as the user), switch the model, fork with your changed prompt, an HTTP failure (`--fail-at`), or diverge |
-| A tool call | Override its result, answer with a tool error, plant a prompt injection (reads only), force it live, or diverge |
-| A recorded user input | Answer differently as the user, or diverge |
-| The whole run | Repeat the replay and compare the attempts (`--repeat`), stub the writes, or find the commit that broke it |
+| A model call | **Inject instruction…** (always as the user), **Switch model from here…**, **Use changed prompt from here**, **Fail with HTTP status…**, **Run live from here** |
+| A tool call | **Override result…**, **Fail with tool error…**, **Plant instruction…** (reads only), **Force *tool* live**, **Run live from here** |
+| A recorded user input | **Override user reply…**, **Run live from here** |
+| The whole run | **Repeat 5 times…** (`--repeat`), **Replay with writes stubbed**, **Find breaking commit…** |
 
-The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line.
+The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An item that asks for something first ends in an ellipsis, and its dialog is titled and confirmed with its name: **Inject instruction…** opens *Inject instruction at #17*, confirmed with **Inject instruction**, and **Repeat 5 times…** confirms with the count you type (*Repeat 3 times*).
 
 - **A fork is made again** from its parent, with the flags, command and checks that made it.
 - **An action that needs something from you** (the instruction to inject, the status to fail with, the model to switch to) asks for it in a dialog first. The inject dialog shows the command it runs.
 - **What you type** is passed as text, never read as a file. See [Interventions](./interventions.md).
-- **Plant a prompt injection** starts from a few sample instructions, or takes your own or a red-teaming tool's payload as text.
+- **Plant instruction…** starts from a few sample instructions, or takes your own or a red-teaming tool's payload as text.
 
-**Find the commit that broke it** runs [`bisect`](./cli.md#bisect):
+**Find breaking commit…** runs [`bisect`](./cli.md#bisect):
 
 - It asks for a commit where the run still worked, and offers the ones its command was recorded at that this checkout has. It searches up to HEAD when the run failed at a commit it lacks, such as a teammate's.
-- On a run that passed, it finds the first commit after its own that changed what it does, once there is a commit after it.
+- On a run that passed, it reads **Find commit that changed it…**, and finds the first commit after its own that changed what it does, once there is a commit after it.
 - A run that failed at the repository's first commit, or the oldest a shallow clone has, has nothing before it to search, and the item says so instead.
 - A run that failed on its own is replayed with `--fork`. The dialog says that one live replay decides each commit, which a failure that doesn't happen every time can pass.
 - A run that failed only the check of its fix (blame found it failing, though it exited 0), or a check given with its own `--expect`, is searched with that check (`--expect … --fork`), from a commit you pick.
 
-**A run imported from a capture** has no command, so its menu shows a note and one action, **Replay** with your command. That replay records every kind of call, and every fork works on it.
+**A run imported from a capture** has no command, so its menu shows a note and one action, **Replay with your command…**. That replay records every kind of call, and every fork works on it.
 
 **Share** copies the run, each copy a job:
 

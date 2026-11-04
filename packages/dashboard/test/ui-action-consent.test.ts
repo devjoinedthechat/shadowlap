@@ -47,7 +47,7 @@ function app(asked: Asked[], watched: Array<Promise<JobView>>, refuse: (a: Asked
 }
 
 const replay: ActionItem = { key: 'r', label: 'Replay', opensRun: true, prompt: null, disabled: null, group: null };
-const repeat: ActionItem = { key: 'e', label: 'Repeat the replay', opensRun: false, prompt: { label: 'This run came from an imported pack; replaying it runs: node agent.mjs. Attempts:', initial: '5' }, disabled: null, flag: '--repeat …', group: 'run' };
+const repeat: ActionItem = { key: 'e', label: 'Repeat 5 times…', opensRun: false, prompt: { label: 'This run came from an imported pack; replaying it runs: node agent.mjs. Attempts:', initial: '5' }, disabled: null, flag: '--repeat …', group: 'run' };
 
 function Runner({ action }: { action: ActionItem }) {
   const runner = useActionRunner(RUN);
@@ -122,7 +122,8 @@ describe('an action on someone else’s run', () => {
     await page.click(page.one('.go'));
     const field = page.one('[role="dialog"] input');
     await page.type(field, '3');
-    await page.click(page.byText('.dlg-ok', 'Run'));
+    // Its confirm follows the count typed, the menu item's name for the attempts asked for.
+    await page.click(page.byText('.dlg-ok', 'Repeat 3 times'));
     await page.until('the question', () => page.all('[role="dialog"]').some((d) => d.textContent.includes('Run a command from an imported pack?')));
     await page.click(page.byText('.dlg-ok', 'Run'));
     await page.until('the job', () => watched.length === 1);

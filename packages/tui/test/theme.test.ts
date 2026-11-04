@@ -447,7 +447,7 @@ describe('on the screen', () => {
     forked.unmount();
 
     // A pane that runs a command: its one primary action, the key that runs it.
-    const job = { kind: 'verify', key: 'V', label: 'Verify a change for the fix', flag: 'verify', hint: 'Checks the change in your working tree.', fix: { id: 'fx-refund', title: 'Ask before refunding' }, args: ['verify', 'fx-refund'], who: null, aside: null, blocked: null, ask: null } as const;
+    const job = { kind: 'verify', key: 'V', label: 'Run verify', flag: 'verify', hint: 'Checks the change in your working tree.', fix: { id: 'fx-refund', title: 'Ask before refunding' }, args: ['verify', 'fx-refund'], who: null, aside: null, blocked: null, ask: null } as const;
     const pane = renderAt(createElement(FixJobView, { job: { ...job, args: [...job.args] }, width: 100, height: 10, onYes: () => {}, onDecline: () => {}, onCancel: () => {} }), 100, 10);
     expect(lime(await drawn(pane.lastFrame, 'runs it'))).toEqual(['Enter']);
     pane.unmount();

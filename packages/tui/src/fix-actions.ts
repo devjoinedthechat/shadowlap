@@ -80,7 +80,7 @@ export function fixActions(store: StoreOf<'recording' | 'fixes'>, run: RunRecord
     {
       kind: 'blame',
       key: 'B',
-      label: 'Find the call it was lost at',
+      label: 'Run blame',
       flag: 'blame',
       hint: 'Replays the run to see it fail, then asks model calls again, live, to find the last one whose answer, asked again, lets it pass.',
       expect,
@@ -136,13 +136,13 @@ const shortFix = (fix: StoredFix) => fix.fixId.slice(0, 13);
 const JOB = {
   R: {
     kind: 'repair',
-    label: 'Repair the fix it fails in',
+    label: 'Run repair',
     flag: 'repair',
     hint: 'Blames each failing run (or reuses its blame), asks the repairer to rewrite the prompt or tool descriptions, and keeps the smallest change verify accepts: the failing runs pass, the good runs still do. Writes a patch.',
   },
   V: {
     kind: 'verify',
-    label: 'Verify a change for the fix',
+    label: 'Run verify',
     flag: 'verify',
     hint: 'Replays the fix’s failing runs, which your change must now fix, and the good runs it keeps, which it must not leave worse, under the code in your working tree as it is now.',
   },

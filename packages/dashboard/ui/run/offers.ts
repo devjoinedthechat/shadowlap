@@ -181,6 +181,8 @@ export function blameSource(offer: BlameOffer): string {
 
 export interface BisectCopy {
   title: string;
+  /** Its confirm: the menu item's name without the ellipsis. */
+  ok: string;
   text: string;
   label: string;
   /** The revisions to pick from, newest first, each with how its runs went; any other is accepted too. */
@@ -213,7 +215,8 @@ export function bisectCopy(runId: string, offer: BisectOffer): BisectCopy {
   const expect = b.expect && Object.keys(b.expect).length ? ` --expect ${quote(JSON.stringify(b.expect))}` : '';
   if (b.good && !choices.some((c) => c.value === b.good)) choices.unshift({ value: b.good, label: b.failed ? `${b.good} · where it last passed` : `${b.good} · this run` });
   return {
-    title: `${bisectLabel(b).label.replace(/ it$/, '')} ${shortId(runId)}`,
+    title: b.failed ? `Find breaking commit for ${shortId(runId)}` : `Find commit that changed ${shortId(runId)}`,
+    ok: bisectLabel(b).label.replace(/…$/, ''),
     text: b.failed
       ? `Replays ${b.target.kind === 'golden' ? target : 'the run'} at commits between a good one and ${upTo}, halving each time, and names the first where it fails. ${cost}`
       : `Replays ${b.target.kind === 'golden' ? target : 'the run'} at commits from ${b.good ?? 'its own'} to HEAD, halving each time, and names the first where it does something else. ${cost}`,
@@ -225,14 +228,15 @@ export function bisectCopy(runId: string, offer: BisectOffer): BisectCopy {
 }
 
 /**
- * Find the commit's name in the fork menu and the palette, and its hover when it can run: the commit
- * that broke a run that failed (or one nothing is known of); for a run that passed, the first commit
- * after its own that changed what it does.
+ * Find breaking commit…'s name in the fork menu and the palette, as the terminal UI's names it, and
+ * its hover when it can run: the commit that broke a run that failed (or one nothing is known of);
+ * for a run that passed, the first commit after its own that changed what it does. It asks for a
+ * commit first, so it ends in an ellipsis.
  */
 export function bisectLabel(b: Pick<BisectOffer, 'failed'> | null | undefined): { label: string; hint: string } {
   return b && !b.failed
-    ? { label: 'Find the commit that changed it', hint: 'Replays it at the commits after its own, halving each time, and names the first where it does something else' }
-    : { label: 'Find the commit that broke it', hint: 'Replays it at commits between a good one and its own, halving each time' };
+    ? { label: 'Find commit that changed it…', hint: 'Replays it at the commits after its own, halving each time, and names the first where it does something else' }
+    : { label: 'Find breaking commit…', hint: 'Replays it at commits between a good one and its own, halving each time' };
 }
 
 /**

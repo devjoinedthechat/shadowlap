@@ -112,7 +112,7 @@ describe('Run blame and Find the commit', () => {
 
   it('asks for a commit where it still worked, from the revisions its runs were made at', () => {
     const c = bisectCopy(RUN, offer());
-    expect(c.title).toBe('Find the commit that broke 01M50J6C69');
+    expect([c.title, c.ok]).toEqual(['Find breaking commit for 01M50J6C69', 'Find breaking commit']);
     expect(c.text).toBe('Replays the run at commits between a good one and d2e8a1f, halving each time, and names the first where it fails. Replays are free, so this costs no tokens.');
     expect(c.choices).toEqual([
       { value: 'c91d0f4', label: 'c91d0f4 · 3 runs' },
@@ -148,15 +148,15 @@ describe('Run blame and Find the commit', () => {
 
   it('looks for what changed a run that passed, not what broke it', () => {
     const passed = offer({ failed: false, good: 'a7b3c2e', bad: null, revisions: [{ rev: 'c91d0f4', at: 0, runs: 3, failed: 0 }] });
-    expect(bisectLabel(passed)).toEqual({ label: 'Find the commit that changed it', hint: 'Replays it at the commits after its own, halving each time, and names the first where it does something else' });
+    expect(bisectLabel(passed)).toEqual({ label: 'Find commit that changed it…', hint: 'Replays it at the commits after its own, halving each time, and names the first where it does something else' });
     const c = bisectCopy(RUN, passed);
-    expect(c.title).toBe('Find the commit that changed 01M50J6C69');
+    expect([c.title, c.ok]).toEqual(['Find commit that changed 01M50J6C69', 'Find commit that changed it']);
     expect(c.text).toBe('Replays the run at commits from a7b3c2e to HEAD, halving each time, and names the first where it does something else. Replays are free, so this costs no tokens.');
     expect(c.label).toBe('Start from');
     expect(c.initial).toBe('a7b3c2e');
     // A run that failed, or one nothing is known of, looks for what broke it.
-    expect(bisectLabel(offer()).label).toBe('Find the commit that broke it');
-    expect(bisectLabel(null).label).toBe('Find the commit that broke it');
+    expect(bisectLabel(offer()).label).toBe('Find breaking commit…');
+    expect(bisectLabel(null).label).toBe('Find breaking commit…');
     // At HEAD there is nothing after it to search: the server says so, and the item says why.
     expect(bisectBlocked(RUN, { ...passed, unavailable: 'this run passed at a7b3c2e, which is HEAD: there is no later commit to search yet' }, true)).toBe('this run passed at a7b3c2e, which is HEAD: there is no later commit to search yet');
   });

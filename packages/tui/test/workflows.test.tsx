@@ -114,7 +114,7 @@ describe('the Fixes flow from the terminal', () => {
     await frameWhere(lastFrame, (f) => f.includes('How this run stands'));
     stdin.write(':');
     let frame = await frameWhere(lastFrame, (f) => f.includes('Fixes'));
-    expect(frame).toMatch(/B\s+Find the call it was lost at\s+blame/);
+    expect(frame).toMatch(/B\s+Run blame\s+blame/);
     stdin.write('B');
     frame = await frameWhere(lastFrame, (f) => f.includes('It runs shadowlap blame'));
     expect(frame).toContain(`It runs shadowlap blame ${own}, and asks models live, which costs.`);
@@ -284,8 +284,8 @@ describe('repair and verify from the terminal, as the dashboard runs them', () =
     await frameWhere(lastFrame, (f) => f.includes('How this run stands'));
     stdin.write(':');
     let frame = await frameWhere(lastFrame, (f) => f.includes('Fixes'));
-    expect(frame).toMatch(/R\s+Repair the fix it fails in\s+repair/);
-    expect(frame).toMatch(/V\s+Verify a change for the fix\s+verify/);
+    expect(frame).toMatch(/R\s+Run repair\s+repair/);
+    expect(frame).toMatch(/V\s+Run verify\s+verify/);
     stdin.write('R');
     frame = await frameWhere(lastFrame, (f) => f.includes('Type yes to run it:'));
     expect(frame).toContain('It asks your own Claude Code (claude-code) for candidates, so that account pays for them.');

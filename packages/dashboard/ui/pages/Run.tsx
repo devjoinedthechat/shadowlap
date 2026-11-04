@@ -408,7 +408,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
       items.push({
         group: 'This run',
         label: `Fork at #${selected}…`,
-        hint: 'inject, override, fail, switch the model',
+        hint: 'inject, override, fail, switch model',
         job: true,
         run: () => {
           const btn = document.getElementById('forkBtn');
@@ -426,7 +426,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
           if (btn) setTimeout(() => btn.click());
         },
       });
-    if (!exported && !actionsOff && !live && !run.source && app.hasKind(JOB_KINDS.bisect)) items.push({ group: 'This run', label: `${bisectLabel(offers?.bisect).label}…`, hint: 'shadowlap bisect', job: true, run: () => findCommit.current() });
+    if (!exported && !actionsOff && !live && !run.source && app.hasKind(JOB_KINDS.bisect)) items.push({ group: 'This run', label: bisectLabel(offers?.bisect).label, hint: 'shadowlap bisect', job: true, run: () => findCommit.current() });
     // The good/bad key: what repair keeps working, and what it fixes.
     if (canMark)
       for (const m of MARKS) {

@@ -610,23 +610,23 @@ describe('fork menu', () => {
   it('puts the call’s actions first in the mock’s order, then the whole run, leaving out what has its own place', () => {
     const menu = forkMenu(today);
     expect(menu.call.map((x) => [x.label, x.flag])).toEqual([
-      ['Inject an instruction', '--inject'],
-      ['Switch the model from here', '--model'],
-      ['Fork with your changed prompt', '--prompt-from'],
-      ['Answer with an HTTP failure', '--fail-at'],
-      ['Diverge here', '--diverge-at'],
+      ['Inject instruction…', '--inject'],
+      ['Switch model from here…', '--model'],
+      ['Use changed prompt from here', '--prompt-from'],
+      ['Fail with HTTP status…', '--fail-at'],
+      ['Run live from here', '--diverge-at'],
     ]);
-    expect(menu.run.map((x) => x.label)).toEqual(['Repeat the replay and compare', 'Stub the writes']);
+    expect(menu.run.map((x) => x.label)).toEqual(['Repeat 5 times…', 'Replay with writes stubbed']);
   });
 
   it('uses the server’s flag and group when it sends them', () => {
-    const next = [a('t', 'Answer with a tool error', { flag: '--fail-at 16=timeout', group: 'call' }), a('b', 'Find the commit that broke it', { flag: 'bisect', group: 'run' }), a('l', 'Fork: force get_policy live (--live-tool)')];
+    const next = [a('t', 'Fail with tool error…', { flag: '--fail-at 16=timeout', group: 'call' }), a('b', 'Find breaking commit…', { flag: 'bisect', group: 'run' }), a('l', 'Fork: force get_policy live (--live-tool)')];
     const menu = forkMenu(next, 'get_policy');
     expect(menu.call.map((x) => [x.label, x.flag])).toEqual([
-      ['Answer with a tool error', '--fail-at'],
+      ['Fail with tool error…', '--fail-at'],
       ['Force get_policy live', '--live-tool'],
     ]);
-    expect(menu.run.map((x) => [x.label, x.flag])).toEqual([['Find the commit that broke it', 'bisect']]);
+    expect(menu.run.map((x) => [x.label, x.flag])).toEqual([['Find breaking commit…', 'bisect']]);
     expect(menuLabel(a('z', 'Fork: plant a prompt injection (--inject-result)'))).toBe('Plant a prompt injection');
     expect(menuFlag(a('z', 'Fork: plant a prompt injection (--inject-result)'))).toBe('--inject-result');
   });

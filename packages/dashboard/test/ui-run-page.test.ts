@@ -12,31 +12,31 @@ import type { CallRow } from '../ui/types.js';
 describe('the fork menu from the newer action list', () => {
   const a = (key: string, label: string, extra: Partial<ActionLike> = {}): ActionLike => ({ key, label, opensRun: true, prompt: null, disabled: null, ...extra });
   const grouped = [
-    a('r', 'Replay this run (clean if nothing changed)', { flag: 'replay', group: null }),
-    a('o', 'Override this tool’s result', { flag: '--override 16=…', group: 'call' }),
-    a('t', 'Answer with a tool error', { flag: '--fail-at 16=timeout', group: 'call' }),
-    a('x', 'Plant a prompt injection here', { flag: '--inject-result 16=… --repeat 3', group: 'call', opensRun: false }),
+    a('r', 'Replay', { flag: 'replay', group: null }),
+    a('o', 'Override result…', { flag: '--override 16=…', group: 'call' }),
+    a('t', 'Fail with tool error…', { flag: '--fail-at 16=timeout', group: 'call' }),
+    a('x', 'Plant instruction…', { flag: '--inject-result 16=… --repeat 3', group: 'call', opensRun: false }),
     a('l', 'Force lookup_order live', { flag: '--live-tool lookup_order', group: 'call' }),
-    a('a', 'Diverge here', { flag: '--diverge-at 16', group: 'call' }),
-    a('e', 'Repeat the replay and compare', { flag: '--repeat 5', group: 'run', opensRun: false }),
-    a('s', 'Stub the writes', { flag: '--writes stub', group: 'run' }),
-    a('n', 'Add the suggested normalizer', { flag: 'normalize add', group: null, opensRun: false }),
-    a('p', 'Pack this run to a directory', { flag: 'pack', group: null, opensRun: false }),
+    a('a', 'Run live from here', { flag: '--diverge-at 16', group: 'call' }),
+    a('e', 'Repeat 5 times…', { flag: '--repeat 5', group: 'run', opensRun: false }),
+    a('s', 'Replay with writes stubbed', { flag: '--writes stub', group: 'run' }),
+    a('n', 'Add suggested normalizer', { flag: 'normalize add', group: null, opensRun: false }),
+    a('p', 'Pack run…', { flag: 'pack', group: null, opensRun: false }),
   ];
 
   it('keeps the server’s order, and leaves out what has a place of its own', () => {
     const menu = forkMenu(grouped, 'lookup_order');
     // At a call, the option alone, as a menu shows a shortcut; the whole flag is on the line's hover and in its dialog.
     expect(menu.call.map((m) => [m.label, m.flag])).toEqual([
-      ['Override this tool’s result', '--override'],
-      ['Answer with a tool error', '--fail-at'],
-      ['Plant a prompt injection here', '--inject-result'],
+      ['Override result…', '--override'],
+      ['Fail with tool error…', '--fail-at'],
+      ['Plant instruction…', '--inject-result'],
       ['Force lookup_order live', '--live-tool'],
-      ['Diverge here', '--diverge-at'],
+      ['Run live from here', '--diverge-at'],
     ]);
     expect(menu.run.map((m) => [m.label, m.flag])).toEqual([
-      ['Repeat the replay and compare', '--repeat 5'],
-      ['Stub the writes', '--writes stub'],
+      ['Repeat 5 times…', '--repeat 5'],
+      ['Replay with writes stubbed', '--writes stub'],
     ]);
   });
 
@@ -44,16 +44,16 @@ describe('the fork menu from the newer action list', () => {
     expect(shortFlag('--inject 17=… --inject-as user')).toBe('--inject 17=…');
     expect(shortFlag('--writes stub')).toBe('--writes stub');
     expect(shortFlag('replay')).toBe('replay');
-    expect(menuFlag(a('i', 'Inject an instruction', { flag: '--inject 17=… --inject-as user' }))).toBe('--inject 17=…');
+    expect(menuFlag(a('i', 'Inject instruction…', { flag: '--inject 17=… --inject-as user' }))).toBe('--inject 17=…');
   });
 
   it('tells inject, override and a user’s answer apart', () => {
     expect(isInject(a('i', 'Fork: inject an instruction at #17 (--inject)'))).toBe(true);
-    expect(isInject(a('x', 'Plant a prompt injection here', { flag: '--inject-result 16=… --repeat 3' }))).toBe(false);
+    expect(isInject(a('x', 'Plant instruction…', { flag: '--inject-result 16=… --repeat 3' }))).toBe(false);
     expect(isOverride(a('o', 'Fork: override the result of #16 lookup_order (--override)'))).toBe(true);
-    expect(isOverride(a('u', 'Answer differently as the user…', { flag: '--override 9=…' }))).toBe(false);
-    expect(isUserAnswer(a('u', 'Answer differently as the user…'))).toBe(true);
-    expect(injectsAsUser(a('i', 'Inject an instruction', { flag: '--inject 17=… --inject-as user' }))).toBe(true);
+    expect(isOverride(a('u', 'Override user reply…', { flag: '--override 9=…' }))).toBe(false);
+    expect(isUserAnswer(a('u', 'Override user reply…'))).toBe(true);
+    expect(injectsAsUser(a('i', 'Inject instruction…', { flag: '--inject 17=… --inject-as user' }))).toBe(true);
     expect(injectsAsUser(a('i', 'Fork: inject an instruction at #17 (--inject)'))).toBe(false);
   });
 });
@@ -67,23 +67,24 @@ describe('an action’s dialog', () => {
     expect(today.text).not.toMatch(/user message/);
     expect(today.text).toBe('The instruction is added at #17 and stays in place for every later request of the fork. Calls before it replay.');
     expect(today.command).toBe('shadowlap replay 01K5CQ4N7G --inject 17="…"');
-    expect(today).toMatchObject({ title: 'Inject an instruction at #17', multiline: true, ok: 'Fork', placeholder: 'Prefer sources from 2026.' });
+    // Titled and confirmed with its menu name, as one action is named everywhere.
+    expect(today).toMatchObject({ title: 'Inject instruction at #17', multiline: true, ok: 'Inject instruction', placeholder: 'Prefer sources from 2026.' });
 
-    const asUser = dialogCopy(a('i', 'Inject an instruction', { flag: '--inject 17=… --inject-as user' }), ctx);
+    const asUser = dialogCopy(a('i', 'Inject instruction…', { flag: '--inject 17=… --inject-as user' }), ctx);
     expect(asUser.text).toMatch(/part of the last user message \(--inject-as user\)/);
     expect(asUser.command).toBe('shadowlap replay 01K5CQ4N7G --inject 17="…" --inject-as user');
 
     // The server's own words win when it sends them.
-    expect(dialogCopy(a('i', 'Inject an instruction', { flag: '--inject 17=… --inject-as user', hint: 'Goes in as part of the user turn.' }), ctx).text).toBe('Goes in as part of the user turn.');
+    expect(dialogCopy(a('i', 'Inject instruction…', { flag: '--inject 17=… --inject-as user', hint: 'Goes in as part of the user turn.' }), ctx).text).toBe('Goes in as part of the user turn.');
   });
 
   it('opens an override on the server’s starting value, else the recorded result', () => {
-    expect(dialogCopy(a('o', 'Fork: override (--override)'), { ...ctx, callNo: 16, callName: 'lookup_order', recorded: { status: 'held' } })).toMatchObject({ title: 'Override #16 lookup_order', initial: '{\n  "status": "held"\n}', multiline: true });
+    expect(dialogCopy(a('o', 'Fork: override (--override)'), { ...ctx, callNo: 16, callName: 'lookup_order', recorded: { status: 'held' } })).toMatchObject({ title: 'Override #16 lookup_order', ok: 'Override result', initial: '{\n  "status": "held"\n}', multiline: true });
     // The server's starting value, laid out to edit as the design shows it; a string stays the JSON the CLI reads.
-    expect(dialogCopy(a('o', 'Override this tool’s result', { flag: '--override 16=…', prompt: { label: 'Result:', initial: '{"status":"held"}' } }), { ...ctx, recorded: { other: 1 } }).initial).toBe('{\n  "status": "held"\n}');
-    expect(dialogCopy(a('o', 'Override this tool’s result', { flag: '--override 16=…', prompt: { label: 'Result:', initial: '"sent"' } }), { ...ctx, recorded: 'sent' }).initial).toBe('"sent"');
+    expect(dialogCopy(a('o', 'Override result…', { flag: '--override 16=…', prompt: { label: 'Result:', initial: '{"status":"held"}' } }), { ...ctx, recorded: { other: 1 } }).initial).toBe('{\n  "status": "held"\n}');
+    expect(dialogCopy(a('o', 'Override result…', { flag: '--override 16=…', prompt: { label: 'Result:', initial: '"sent"' } }), { ...ctx, recorded: 'sent' }).initial).toBe('"sent"');
     expect(dialogCopy(a('o', 'Fork: override (--override)'), { ...ctx, callNo: 16, recorded: 'sent' }).initial).toBe('"sent"');
-    expect(dialogCopy(a('u', 'Answer differently as the user…', { flag: '--override 9=…', prompt: { label: 'Reply:', initial: 'Yes please' } }), { ...ctx, callNo: 9, recorded: { text: 'Yes please' } })).toMatchObject({ title: 'Answer #9 differently', initial: 'Yes please' });
+    expect(dialogCopy(a('u', 'Override user reply…', { flag: '--override 9=…', prompt: { label: 'Reply:', initial: 'Yes please' } }), { ...ctx, callNo: 9, recorded: { text: 'Yes please' } })).toMatchObject({ title: 'Override user reply at #9', ok: 'Override user reply', initial: 'Yes please' });
   });
 
   it('offers a tool error’s kinds and an HTTP failure’s statuses to pick from', () => {
@@ -91,8 +92,8 @@ describe('an action’s dialog', () => {
       { value: 'timeout', label: 'timeout' },
       { value: '500', label: 'HTTP 500' },
     ];
-    expect(dialogCopy(a('t', 'Answer with a tool error', { prompt: { label: 'How it fails:', initial: 'timeout', choices } }), { ...ctx, callNo: 16, callName: 'lookup_order' })).toMatchObject({ title: 'Answer #16 lookup_order with an error', label: 'Error', initial: 'timeout', choices });
-    expect(dialogCopy(a('f', 'Fork: answer #17 with an HTTP failure (--fail-at)', { prompt: { label: 'Status:', initial: '429' } }), ctx)).toMatchObject({ title: 'Answer #17 with a failure', label: 'Status (429 rate limit, 500 or 529 overloaded, 400 bad request)', initial: '429' });
+    expect(dialogCopy(a('t', 'Fail with tool error…', { prompt: { label: 'How it fails:', initial: 'timeout', choices } }), { ...ctx, callNo: 16, callName: 'lookup_order' })).toMatchObject({ title: 'Fail #16 lookup_order with tool error', ok: 'Fail with tool error', label: 'Error', initial: 'timeout', choices });
+    expect(dialogCopy(a('f', 'Fork: answer #17 with an HTTP failure (--fail-at)', { prompt: { label: 'Status:', initial: '429' } }), ctx)).toMatchObject({ title: 'Fail #17 with HTTP status', ok: 'Fail with HTTP status', label: 'Status (429 rate limit, 500 or 529 overloaded, 400 bad request)', initial: '429' });
   });
 
   it('asks for the message of "error, with a message", and sends it after the choice’s value', () => {
@@ -100,7 +101,7 @@ describe('an action’s dialog', () => {
     const [action] = normalizeActions([
       {
         key: 't',
-        label: 'Answer with a tool error',
+        label: 'Fail with tool error…',
         opensRun: true,
         disabled: null,
         flag: '--fail-at 16=timeout',
@@ -134,9 +135,18 @@ describe('an action’s dialog', () => {
     const warned = dialogCopy(a('i', 'Fork: inject (--inject)', { prompt: { label: 'This run came from an imported pack; replaying it runs: node agent.js. Instruction to append at #17:' } }), ctx);
     expect(warned.label).toBe('This run came from an imported pack; replaying it runs: node agent.js. Instruction to append at #17:');
     const yes = dialogCopy(a('g', 'Fork: my changed prompt from #17 on (--prompt-from)', { prompt: { label: 'This run came from an imported pack; replaying it runs: node agent.js. Type yes to run it:', placeholder: 'yes' } }), ctx);
-    expect(yes).toMatchObject({ title: 'Fork with your changed prompt', text: '', placeholder: 'yes' });
+    expect(yes).toMatchObject({ title: 'Use changed prompt from #17', ok: 'Use changed prompt from #17', text: '', placeholder: 'yes' });
     expect(yes.label).toMatch(/Type yes to run it/);
-    expect(dialogCopy(a('r', 'Replay with your agent’s command', { prompt: { label: '01K5CQ9C4H came from a capture and has no command. What starts your agent?', placeholder: 'python agent.py' } }), { ...ctx, callNo: null, capture: true })).toMatchObject({ title: 'Replay a capture', ok: 'Replay', text: '01K5CQ9C4H came from a capture and has no command. What starts your agent?' });
+    expect(dialogCopy(a('r', 'Replay with your command…', { flag: 'replay', prompt: { label: '01K5CQ9C4H came from a capture and has no command. What starts your agent?', placeholder: 'python agent.py' } }), { ...ctx, callNo: null, capture: true })).toMatchObject({ title: 'Replay with your command', ok: 'Replay with your command', text: '01K5CQ9C4H came from a capture and has no command. What starts your agent?' });
+  });
+
+  it('names a fork from the call by number, and confirms Repeat by the count typed', () => {
+    const yes = { label: 'This run came from an imported pack; replaying it runs: node agent.js. Type yes to run it:', placeholder: 'yes' };
+    expect(dialogCopy(a('a', 'Run live from here', { flag: '--diverge-at 17', prompt: yes }), ctx)).toMatchObject({ title: 'Run live from #17', ok: 'Run live from #17' });
+    const repeat = dialogCopy(a('e', 'Repeat 5 times…', { flag: '--repeat 5', opensRun: false, prompt: { label: 'How many attempts?', initial: '5' } }), { ...ctx, callNo: null });
+    expect(repeat).toMatchObject({ title: 'Repeat 01K5CQ4N7G', label: 'Attempts', initial: '5' });
+    const ok = repeat.ok as (answer: string) => string;
+    expect([ok('5'), ok(' 3 '), ok('1'), ok('')]).toEqual(['Repeat 5 times', 'Repeat 3 times', 'Repeat 1 time', 'Repeat 5 times']);
   });
 
   it('asks a teammate’s pulled run’s question with its warning too, naming the team store', () => {

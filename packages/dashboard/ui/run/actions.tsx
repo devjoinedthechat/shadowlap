@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { JOB_KINDS, type ActionItem, type BisectOffer, type CallDetail, type RunDetail, type RunOffers } from '../api.js';
-import { consentAsked, dialogCopy, forkMenu, forkMenuTitle } from '../actions.js';
+import { consentAsked, dialogCopy, forkMenu, forkMenuTitle, menuLabel } from '../actions.js';
 import { ConsentDialog, PromptDialog } from '../components/Dialog.js';
 import { Popover } from '../components/Popover.js';
 import { callName, shortId } from '../format.js';
@@ -159,7 +159,7 @@ export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onCl
         <>
           <div className="pnote">A capture has no command. Replay it with yours first; every fork works on that replay.</div>
           <button type="button" role="menuitem" onClick={() => pick(replay, null)}>
-            <b>Replay it with your command</b>
+            <b>{menuLabel(replay)}</b>
             <small>replay</small>
           </button>
         </>

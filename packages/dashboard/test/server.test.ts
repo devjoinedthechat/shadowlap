@@ -434,7 +434,7 @@ describe('dashboard server: actions', () => {
 
       const d = (await (await api(`runs/${capture.runId}/calls/1`)).json()) as { actions: Array<{ key: string; label: string; prompt: { label: string } | null; disabled: string | null; group: string | null; hint: string | null }> };
       // A note and one item: the forks wait for a replay with the agent's command.
-      expect(d.actions.filter((a) => a.group === 'call')).toEqual([expect.objectContaining({ key: 'r', label: 'Replay it with your command', disabled: null, hint: expect.stringContaining('A capture has no command') })]);
+      expect(d.actions.filter((a) => a.group === 'call')).toEqual([expect.objectContaining({ key: 'r', label: 'Replay with your command…', disabled: null, hint: expect.stringContaining('A capture has no command') })]);
 
       const post = (body: unknown) => api(`runs/${capture.runId}/actions`, { method: 'POST', body: JSON.stringify(body) });
       expect((await post({ key: 'r', value: 'python agent.py "a b"' })).status).toBe(202);
