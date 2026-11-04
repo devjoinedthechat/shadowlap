@@ -1,13 +1,43 @@
 # Dashboard components
 
 The parts every screen is built from. The stylesheet is `ui/app.css`, which joins a file per area
-from `ui/css/` (the design system: tokens on `:root` in `tokens.css`, dark only, what several pages
-draw in `base.css`, class names shared by every screen); a component renders those classes, so a
-new screen ports its markup by class and reaches for these instead of drawing its own.
+from `ui/css/` (the design system: tokens on `:root` in `tokens.css`, dark only, each with its one
+job; the parts below in `components.css`; what several pages draw besides in `base.css`; class names
+shared by every screen); a component renders those classes, so a new screen ports its markup by
+class and reaches for these instead of drawing its own.
 
 The page's Content-Security-Policy allows no inline `style` attribute in markup and no inline
 script. React's `style` prop is fine (it sets styles through the DOM, not markup); a colour or a size
 that comes from data goes there, everything else is a class.
+
+## The page's language
+
+Every page speaks the run page's language: it opens quietly, with a muted kind, its title and its
+facts, and lays its parts out as full-width sections between hairlines. These are its parts, built
+once; a page draws them and never its own. Pages move onto them one by one: `Badge`, `Tag`, `Kpi`,
+`DeltaPill`, `CmdLine`, `CommandLine`, `CodeBlock` and `CopyButton` below stay until the last page
+that draws one has.
+
+| Component | File | Use it for |
+|---|---|---|
+| `PageHeader`, `Eyebrow` | `bits.tsx` | One header on every page (`.ph`): the eyebrow, a muted line for what the page is (the project and a noun for what it shows, or a thing's kind and its name; never lime), the title at 24/600 in the display face, at most one short line of context, the actions at the top right (under the title on a phone, the lime one first), then `facts`. |
+| `Facts`, `Fact` | `Facts.tsx` | A page's facts under its header (`.metrics.pfacts`): each figure in the display face, its words muted, money last and quieter (`money`), a figure that leads somewhere a link in ink (`href`). What it is made of and what it was before (`tip`, `was`) are on its hover, never beside it. Three across on a phone, two when there are two or four. |
+| `Row` | `Row.tsx` | A row of a list in a section (`.srow`): its hover 12px past its text on both sides, and where you are (`sel`) on the selected ground, which wins over the pointer's; a link with `href`. A table's row takes the same with `className="sel"`. |
+| `Section` | `Section.tsx` | A part of a page in place of a card (`.panel.sec`): a hairline above, its heading (14px, 600) and a muted sub, its rows full width between hairlines, a row's hover 12px past its text on both sides (`--bleed`). Sections are 32px apart, two side by side (`.grid2.secs`) 40px. Only what is not the page keeps a box: a dialog, a drawer, a menu, code. |
+| `Status`, `statusTone` | `Status.tsx` | Every status: a 7px dot and a word in the word's colour, passed included (`.st`): `ok` passed, `err` failed, `warn` inconclusive or a look needed, `mu` not applicable, `done` a finished step (ink, no verdict), `live`, and a fork's `stub` and `block`. `statusTone(word)` gives a verdict word's tone (not `fixes/model.ts`'s `verdictTone`, a fix step's). Nothing else draws a status. |
+| `VerdictLine` | `VerdictLine.tsx` | A verdict as a plain line, never a tinted box (`.verdict`): its word in its colour, what it says in ink at 17/600 (its heading names the word too, for a screen reader), its facts muted under it, its next step at the right, 24px under it; a report's own a step smaller (`report`). |
+| `SegmentedControl` (`Seg`) | `Segmented.tsx` | A choice of a few (Chart or Table, a transport, a provider): plain options, the chosen one ink on a raised ground with a hairline ring, no panel and no ink pill (`.seg`). |
+| `Switch` | `Switch.tsx` | On and off, never two options: a button with the switch role (`.switch`), its track 28 by 16, its taps 44 by 24; the page toasts what changed. |
+| `CodeBox` | `CodeBox.tsx` | Every command box (`command`, one or several), block of code (`code`) and file of code (`file`), each with one Copy and no other, named by what it copies (Copy command, Copy commands, Copy whole command, or `what`), copying the whole thing and never the `$` (`full` where the box shows it shortened); a box that shows a change has none (`change`). |
+| `Link` | `Link.tsx` | A link in ink at 500, underlined on hover, at its line's size (`.more`; `quiet`, a reference in a quiet line, `.dlink`); `to` ends one that names where it goes in →. |
+| `Id` | `Id.tsx` | A run's id in mono, never broken (`code.rnm`), its about line on hover, a link with `href`. In a list of runs (`list`) its first six characters quieter, drawn by its own ground, so the text stays the id as it is: one text that copies, searches and reads whole. |
+| `Term`, `glossed` | `Term.tsx` | A word the glossary defines (`ui/glossary.ts`, one table), defined where it first shows on a page: a dotted underline, its definition on hover and to a screen reader (`aria-describedby`), and the focus; later uses read as plain words. The first of each word in the page's order is the one defined, a dialog's and a drawer's apart from the page's, and never one in a control or a place with a hover card of its own. `glossed(text)` marks the terms in a status word, a legend or a bound. |
+| `AttemptsCell`, `AttemptList` | `AttemptsCell.tsx` | A gate's attempts in a cell: the tally and its bound as the server words them, each kept whole, the interval's 64px bar (`IntervalBar`) against the gate's two marks, and its attempts on request, each a run that opens: a line each, or past six a cell each, a picture whose cells say their attempt on hover, under it lines for the first three not judged or failed. A row that draws the list elsewhere holds the toggle (`open`, `onToggle`). |
+| `EmptyState`, `EmptyLine` | `States.tsx` | Nothing here yet: a section under a hairline (`.panel.stepempty`), its heading, one sentence (set as `Copy` sets UI copy with `copy`, never a message the server wrote), the one `step` that gets there (the page's lime) with the command for a terminal quiet under it, its `$` never copied, or with no step the command in its box. A list that matches nothing says so in a line from the left (`EmptyLine`). |
+| `Skeleton` | `States.tsx` | Still loading: `lines` quiet bars under the part's heading, or the part's own markup (`children`) with every text a bar along its line and every mark its shape, nothing to press. A screen reader hears what is loading. |
+| `ErrorState` | `States.tsx` | What couldn't be read: one line in the error tone, its word first ("couldn’t load"), a sentence, and `retry` at its end, which waits while the server can't be reached (`.loaderr`). |
+| `Copy`, `glue`, `Words`, `LongWord` | `Copy.tsx`, `typeset.ts`, `typeset-lines.ts` | A piece of UI copy set by the line-break rules `typeset.ts` states, at render time and at the width of the block it sits in (`typeset-lines.ts` decides as the mock's pass did): its sentences found in its own text, the elements among its words (a link, code, a key, a term) each kept whole; each glued (`glue`: a number with its unit, a tally, a separator with the word before it, a small word with the word after it); each that fits a line kept whole on it, one of two lines balanced on a line of its own unless it should flow on, a short tail with no stop kept with the sentence before it; a block of two lines balanced, its one sentence broken after a clause, a longer one pretty, its last line a third full. `phrases`, for a dialog's lead, a row's value, a card or a setup step, also breaks before a phrase. A long name is whole where its line holds it (`LongWord`). `Words` glues a line no `Copy` sets. Never data: an answer, a prompt, code or an id. |
+| `Code`, `Command`, `CodeText` | `Copy.tsx`, `typeset.ts`, `cmdline.ts` | Inline code whole up to 32 characters, a longer path, host or name whole where its line holds it and else broken only after a slash, a dot or a hyphen (`Code`); a command breaking only between its arguments, its head whole, a long argument whole where its line holds it with its flag, its lines balanced and its `$` never copied (`Command`, `commandParts`); code shown as text breaking at its spaces and after its commas and opening braces, a field keeping its number and an operator the word before it (`CodeText`, `codePieces`). |
 
 ## Layout
 
@@ -15,9 +45,6 @@ that comes from data goes there, everything else is a class.
 |---|---|---|
 | `Page` | `Page.tsx` | Every scrolling page. Gives back the scrollbar's width (`--sbw`) so the content's right edge stays under the top bar's. |
 | `useActiveTabInView` | `hooks.ts` | A ref for a strip of tabs that scrolls sideways on a phone (Settings' tabs, a run's views): it shows the active tab on mount and when the tab shown changes, scrolling the strip alone (`stripScroll` in `place.ts`). |
-| `PageHeader` | `bits.tsx` | The eyebrow, the title, one line under it, and the page's actions on the right (`.ph`). |
-| `Eyebrow` | `bits.tsx` | The small capitals above a title; `tone="fork"` or `"err"`. |
-| `EmptyState` | `bits.tsx` | Nothing here yet: what it is, and the command that makes it (`.panel.stepempty`). |
 | `StepList` | `bits.tsx` | Numbered setup steps, each with the CLI command that does it (`ol.setup`); a step is `done`, `cur` or `todo`. |
 
 ## Code that waits until it shows
@@ -25,7 +52,7 @@ that comes from data goes there, everything else is a class.
 | Component | File | Use it for |
 |---|---|---|
 | `onShow` | `OnShow.tsx` | A part of a page heavy enough to wait for a script of its own until it first shows, as a run's views but Calls do. `test/ui-bundle-size.test.ts` holds the structural diff (`JsonDiff.tsx`), the results matrix (`ResultsMatrix.tsx`), the check builder (`ui/checks/`) and each Changes tab (`ui/changes/`, but its `Head.tsx`) to it, failing when one of them is in the first look or loads with a page. Declare a part beside the page that shows it, never in `pages/lazy.tsx`, and `preload()` it on a sign it is about to show (the pointer or the focus on the tabs that switch to it), never as its page opens: what opening a page loads is held to the page's budget. |
-| `LoadFailed` | `bits.tsx` | What a part shows where its script didn't come (`onShow`'s `failed`; a page's in `pages/lazy.tsx`, under its title): one line in the error tone, and Retry, which loads the page again, since a browser never asks twice for a script that failed. Retry waits while the server can't be reached (`guard`). |
+| `LoadFailed` | `bits.tsx` | What a part shows where its script didn't come (`onShow`'s `failed`; a page's in `pages/lazy.tsx`, under its title): an `ErrorState` whose Retry loads the page again, since a browser never asks twice for a script that failed. Retry waits while the server can't be reached (`guard`). |
 
 ## Overlays
 
@@ -59,10 +86,10 @@ project in the job, so a server switched since refuses it.
 | `RunIcon`, `EventIcon`, `Glyph` | `RunIcon.tsx` | One set of icons, each with its words on hover: recording now (pulsing), recording, failed, replay, fork, capture, test, and for events Fixes, project, settings and training. |
 | `Icon`, `Sprite`, `Brand`, `Tile` | `Icon.tsx` | The icon sprite (drawn once by the app) and the logo. |
 | `Org`, `Legend` | `bits.tsx` | An origin's colour and word; a legend of the origins present. |
-| `Tag`, `Badge`, `Pips`, `Kbd` | `bits.tsx` | A run's kind beside its id; a status badge; one square per attempt; a key. |
-| `Chips`, `Tabs`, `Seg` | `bits.tsx` | Filter chips with counts (empty ones can hide); underlined tabs with counts; a segmented switch. |
-| `Kpi`, `DeltaPill` | `bits.tsx` | A number with its label and a line, with its change against last week. |
-| `CmdLine`, `CommandLine`, `CodeBlock`, `CopyButton` | `bits.tsx` | A shell command; one long enough to wrap, which breaks only between its words (`shellWords` in `format.ts`); a file with Copy in its header; copy and say so. |
+| `Tag`, `Badge`, `Pips`, `Kbd` | `bits.tsx` | A run's kind beside its id; a tinted status badge, until its pages draw `Status`; one square per attempt; a key. |
+| `Chips`, `Tabs` | `bits.tsx` | Filter chips with counts (empty ones can hide); underlined tabs with counts. |
+| `Kpi`, `DeltaPill` | `bits.tsx` | A number with its label and a line, with its change against last week, until the Overview's facts are its header's. |
+| `CmdLine`, `CommandLine`, `CodeBlock`, `CopyButton` | `bits.tsx` | A shell command; one long enough to wrap, which breaks only between its words (`shellWords` in `format.ts`); a file with Copy in its header; copy and say so (`CodeBox.tsx`'s, the one copy button, its icon alone where `name` names it). Each page moves its boxes to `CodeBox` as it ports. |
 | `SortTh`, `ShowMore`, `rowOpen` | `Table.tsx` | A sorting header for `table.t`, "Show 50 more", and a row that opens a page unless a control inside it was clicked. |
 | `JsonTree` | `Json.tsx` | A JSON value as a folding tree that draws a branch only when it is opened. |
 | `RunKey`, `useMarkRun`, `useRunLabels` | `RunKey.tsx` | The good/bad key (`runkey.ts`): two toggles that label a run `good` or `bad` in one press, never both, with the change said in a toast with Undo; and a run's labels as a page shows them while the server catches up. |

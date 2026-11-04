@@ -309,7 +309,6 @@ export function ProblemHeader({ id, name, problem }: { id: string; name: string;
     <>
       <PageHeader
         eyebrow={name}
-        eyebrowTone="err"
         title={`Can’t open ${name}`}
         text={problem}
         actions={

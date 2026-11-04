@@ -1,0 +1,303 @@
+/* The design system's shared parts, the run page's language on every page, one rule each, drawn by ui/components/ and
+   listed in components/README.md: a page's header and facts, a section, a status, a verdict line, the choice controls,
+   the code box, a run's id, a glossary term, an attempts cell, the three states and the line-break parts. Pages draw
+   these, never their own; a page's own file sets only where a part sits on it. */
+
+/* ---- a page's header (PageHeader): the eyebrow, the title, one line of context, the actions at the top right ---- */
+/* One header on every page, as the run page's: a muted line for what the page is, a modest title (24/600 in the display
+   face), at most one short line of context, balanced, the actions at the top right; under the title on a phone, from the
+   left, the lime one first. */
+.ph { display: flex; align-items: flex-start; gap: 14px 20px; flex-wrap: wrap; margin-bottom: 20px; }
+.ph > .phl, .ph > div:not(.actions) { flex: 1 1 360px; min-width: 0; }
+.ph h1 { margin: 6px 0 0; font: 600 var(--fs-title)/1.15 var(--disp); letter-spacing: -.03em; text-wrap: balance; }
+.ph p { margin: 6px 0 0; color: var(--dim); max-width: 64ch; text-wrap: balance; }
+.ph .actions { margin-left: auto; justify-content: flex-end; }
+@media (max-width: 640px) { .ph .actions { margin-left: 0; justify-content: flex-start; } .ph .actions .btn.lime { order: -1; } }
+/* the eyebrow: one rule for every page, the run page's included: mono at 10px, 600, tracked, muted, no square; the project
+   and a noun for what the page shows, or a thing's kind and its name; never lime, a tagline or a list of keywords */
+.eyebrow { display: flex; align-items: baseline; gap: .6em; min-width: 0; font: 600 var(--fs-caps)/1.5 var(--mono); letter-spacing: var(--caps); text-transform: uppercase; color: var(--faint); }
+.eyebrow > i:first-child { display: none; }
+.eyebrow a { color: inherit; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
+.eyebrow code { font: inherit; text-transform: none; letter-spacing: .04em; }
+.ph .eyebrow { flex-wrap: wrap; row-gap: 4px; }
+.ph .eyebrow code { overflow-wrap: anywhere; }
+/* a page whose code or whose run couldn't be loaded keeps its title, a run's its id in the code face */
+.ph.rerr h1 { font: 500 var(--fs-title)/1.15 var(--mono); letter-spacing: 0; }
+
+/* ---- a page's facts (Facts): under the header, in the run page's stat style (.metrics, run.css) ---- */
+/* each figure first in the display face, its words muted after it, money last and quieter (b.q); a figure in a verdict's
+   colour only for what passed or failed */
+.metrics.pfacts { padding: 10px 0 12px; margin: -6px 0 20px; }
+.metric b.ok { color: var(--cq-lime); }
+a.metric { position: relative; color: inherit; text-decoration: none; }
+a.metric:hover span { color: var(--ink); }
+a.metric::after { content: ""; position: absolute; inset: -4px 0; }
+/* on a phone the facts sit in a grid, so no fact is left alone on a row: three across, two when there are two or four */
+@media (max-width: 640px) {
+  .metrics.pfacts { display: grid; grid-template-columns: repeat(3, minmax(0, max-content)); column-gap: 22px; row-gap: 8px; }
+  .metrics.pfacts:has(> .metric:nth-child(2):last-child), .metrics.pfacts:has(> .metric:nth-child(4):last-child) { grid-template-columns: repeat(2, minmax(0, max-content)); column-gap: 28px; }
+  .metrics.pfacts .metric { white-space: normal; }
+  .metrics.pfacts .metric b { white-space: nowrap; }
+}
+/* under 400px every page's facts are two across, so no label wraps a word a line; an odd last fact (the cost) spans both */
+@media (max-width: 400px) {
+  .metrics.pfacts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metrics.pfacts > .metric:last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
+
+/* ---- a section (Section), in place of a card ---- */
+/* a hairline above, its heading in the UI face, its rows full width between hairlines: no border, radius or ground of its
+   own (.panel.sec, so a panel's own rules still apply inside); sections 32px apart, two side by side 40px */
+.panel.sec { border: 0; border-top: 1px solid var(--line); border-radius: 0; background: none; margin-top: var(--gap-section); }
+.panel.sec > header { padding: 14px 0 12px; border-bottom: 0; }
+.panel.sec > header .sub { text-wrap: balance; }
+/* a link among a section's header actions is set with the header's sub, as a quiet line's is */
+.panel.sec > header > .actions > a:not(.btn) { font-size: var(--fs-quiet); }
+.panel.sec > .pbody { padding: 0 0 4px; }
+.grid2 > .panel.sec, .grid2.secs > .panel.sec + .panel.sec { margin-top: 0; }
+.grid2.secs { margin-top: var(--gap-section); column-gap: 40px; }
+/* under tabs, the tabs' own hairline heads the first section: one line, never two */
+.stabs + .panel.sec, .stabs + .stepempty, .stabs + .panel.stepempty { border-top: 0; margin-top: 0; }
+.stabs + .panel.sec > header { padding-top: 2px; }
+.stabs + .stepempty, .stabs + .panel.stepempty { padding-top: 6px; }
+.panel.sec table.t th { background: var(--bg); }
+.panel.sec table.t th:first-child, .panel.sec table.t td:first-child { padding-left: 0; }
+.panel.sec table.t th:last-child, .panel.sec table.t td:last-child { padding-right: 0; }
+.panel.sec table.t tbody tr:last-child td { border-bottom: 1px solid var(--line); }
+/* A row's tint reaches 12px past its text on both sides, and never moves it: the first and last cells carry it as a shadow,
+   so the hairlines keep the text's width, and a section's scroller has the 12px on each side to show it. */
+:where(.panel.sec table.t tbody) tr:hover > td:first-child { box-shadow: calc(-1 * var(--bleed)) 0 0 var(--hover); }
+:where(.panel.sec table.t tbody) tr:hover > td:last-child { box-shadow: var(--bleed) 0 0 var(--hover); }
+:where(.panel.sec table.t tbody) tr:hover > td:only-child { box-shadow: calc(-1 * var(--bleed)) 0 0 var(--hover), var(--bleed) 0 0 var(--hover); }
+.panel.sec .tscroll, .panel.sec.tscroll { margin-left: calc(-1 * var(--bleed)); margin-right: calc(-1 * var(--bleed)); padding-left: var(--bleed); padding-right: var(--bleed); }
+/* a list's row in a section (Row): the same tint and bleed as a table's, and where you are (a picked or a selected row, one
+   in focus from j and k) on the selected ground, which wins over the pointer's; a table's picked row the same */
+.panel.sec .srow:hover { background: var(--hover); box-shadow: calc(-1 * var(--bleed)) 0 0 var(--hover), var(--bleed) 0 0 var(--hover); }
+.panel.sec .srow.sel, .panel.sec .srow.sel:hover { background: var(--sel); box-shadow: calc(-1 * var(--bleed)) 0 0 var(--sel), var(--bleed) 0 0 var(--sel); }
+table.t tbody tr.sel td, table.t tbody tr.sel:hover td { background: var(--sel); }
+:where(.panel.sec table.t tbody) tr.sel > td:first-child, :where(.panel.sec table.t tbody) tr.sel:hover > td:first-child { box-shadow: calc(-1 * var(--bleed)) 0 0 var(--sel); }
+:where(.panel.sec table.t tbody) tr.sel > td:last-child, :where(.panel.sec table.t tbody) tr.sel:hover > td:last-child { box-shadow: var(--bleed) 0 0 var(--sel); }
+:where(.panel.sec table.t tbody) tr.sel > td:only-child, :where(.panel.sec table.t tbody) tr.sel:hover > td:only-child { box-shadow: calc(-1 * var(--bleed)) 0 0 var(--sel), var(--bleed) 0 0 var(--sel); }
+
+/* ---- a status (Status): a 7px dot and a word, both in the word's colour, passed included ---- */
+/* Its colours are the consequence colours, apart from the origin colours a strip uses: lime passed, red failed, amber
+   inconclusive or a look needed, muted not applicable or nothing yet; a finished step is ink by a grey dot, no verdict; and
+   a fork's writes keep their origin's word, stubbed steel blue and blocked the neutral hatch. One word, one colour. */
+.st { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-quiet); white-space: nowrap; }
+.st i { width: 7px; height: 7px; flex: none; border-radius: var(--r-dot); }
+.st.ok { color: var(--cq-lime); }
+.st.ok i { background: var(--cq-lime); }
+.st.err { color: var(--cq-red); }
+.st.err i { background: var(--cq-red); }
+.st.warn { color: var(--cq-amber); }
+.st.warn i { background: var(--cq-amber); }
+.st.mu { color: var(--faint); }
+.st.mu i { background: var(--line2); }
+/* nothing to report, with no dot: the word set in where a dot would start it */
+.st.n { color: var(--faint); padding-left: 13px; }
+.st.n i { background: var(--line2); }
+.st.done { color: var(--ink); }
+.st.done i { background: var(--dim); }
+.st.stub { color: var(--o-stub); }
+.st.stub i { background: var(--o-stub); }
+.st.block { color: var(--o-block); }
+.st.block i { background: var(--o-block-fill); box-shadow: inset 0 0 0 1px var(--o-block); }
+/* a fork's own outcome, what came of its writes, in plain text by a neutral dot: what a fork fenced is no verdict, and
+   amber says inconclusive in this column. At every width it wraps after its dot onto the row's second line, as the row is
+   two lines tall anyway, rather than take the Run column's room */
+.st.fk { color: var(--dim); }
+.st.fk i { background: var(--line2); }
+.st.live { color: var(--ink); }
+.st.live i { background: var(--o-live); animation: pulse 1.6s infinite; }
+
+/* ---- a verdict (VerdictLine): a plain line, never a tinted box ---- */
+/* its word first in its consequence colour, in the line's own size, then what it says in ink (17px, 600), its facts muted
+   under it, its next step at the right; 24px under it, whatever follows. A report's own verdict, inside its section, is a
+   step smaller (.gv). The word of a verdict drawn before VerdictLine (.badge) reads the same, as a plain word. */
+.verdict { display: flex; align-items: baseline; gap: 4px 14px; padding: 0; margin-bottom: var(--gap-verdict); }
+.verdict + .panel.sec, .verdict + .grid2.secs { margin-top: var(--gap-verdict); }
+.verdict > .vw, .verdict > .badge { flex: none; padding: 0; border-radius: 0; background: none; box-shadow: none; font: 600 var(--fs-heading)/1.35 var(--body); letter-spacing: -.01em; text-transform: none; }
+.verdict > .badge.n { color: var(--faint); }
+.verdict > div { min-width: 0; }
+.verdict h2, .verdict h3 { margin: 0; font: 600 var(--fs-heading)/1.35 var(--body); letter-spacing: -.01em; text-wrap: balance; }
+.verdict p { margin: 3px 0 0; color: var(--faint); font-size: var(--fs-quiet); }
+.verdict p code { white-space: nowrap; }
+.verdict .actions { margin-left: auto; align-self: center; }
+.verdict > .actions { flex: none; flex-wrap: nowrap; }
+.vw.ok { color: var(--cq-lime); }
+.vw.err { color: var(--cq-red); }
+.vw.warn { color: var(--cq-amber); }
+.vw.mu { color: var(--cq-muted); }
+.vw.done { color: var(--ink); }
+.vw.stub { color: var(--o-stub); }
+.vw.block { color: var(--o-block); }
+/* a report's own verdict: 15px, its word in a column of its own, its parts 20px under it */
+.verdict.gv { display: grid; grid-template-columns: 112px minmax(0, 1fr) auto; column-gap: 20px; row-gap: 2px; margin: 0; }
+.verdict.gv > .vw, .verdict.gv > .badge, .verdict.gv h3 { font: 600 var(--fs-step)/1.45 var(--body); letter-spacing: -.005em; }
+.verdict.gv h3 code { font-size: var(--fs-body); font-weight: 500; }
+.verdict.gv p { margin: 2px 0 0; }
+.verdict.gv + .actions { margin-top: 20px; }
+@media (max-width: 1000px) {
+  .verdict { flex-wrap: wrap; }
+  .verdict > div { flex: 1 1 260px; }
+}
+@media (max-width: 640px) {
+  .verdict .actions { margin-left: 0; margin-top: 8px; }
+  .verdict.gv { grid-template-columns: minmax(0, 1fr); }
+  /* a verdict's word is no label: the phone's floor for labels (base.css), which raises a badge to 11px, leaves the word
+     drawn as a badge at the line's own size */
+  :is(#root, body) div.verdict > span.badge:is(.ok, .no, .y, .n) { font-size: var(--fs-heading); }
+  :is(#root, body) div.verdict.gv > span.badge:is(.ok, .no, .y, .n) { font-size: var(--fs-step); }
+}
+
+/* ---- the choice controls (SegmentedControl, Switch) ---- */
+/* A picker is a row of options, the chosen one ink on a raised ground with a hairline ring, as a filter's chosen chip is:
+   no panel around them and no solid ink pill. At least 24 px tall, as WCAG 2.5.8 asks of a target. */
+.seg { display: inline-flex; gap: 4px; flex: none; }
+.seg button, .seg a { display: inline-block; border: 0; background: none; color: var(--faint); font: 500 var(--fs-small) var(--body); padding: 4px 9px; min-height: 24px; border-radius: var(--r-chip); cursor: pointer; text-decoration: none; white-space: nowrap; }
+.seg button:hover, .seg a:hover { color: var(--ink); }
+.seg button[aria-pressed="true"], .seg a[aria-pressed="true"], .seg a[aria-current="page"] { color: var(--ink); background: var(--raise); box-shadow: 0 0 0 1px var(--line2); }
+/* On and off is one switch, drawn in ink: its track stays 28 by 16, and it takes taps over 44 by 24 around it */
+.switch { position: relative; display: inline-flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; -webkit-user-select: none; user-select: none; }
+.switch::before { content: ""; position: absolute; inset: -4px -8px; }
+.switch i { width: 28px; height: 16px; flex: none; border-radius: var(--r-pill); background: var(--line2); position: relative; transition: background .15s; }
+.switch i::after { content: ""; position: absolute; left: 2px; top: 2px; width: 12px; height: 12px; border-radius: var(--r-dot); background: var(--bg); transition: transform .15s; }
+.switch[aria-checked="true"] i { background: var(--ink); }
+.switch[aria-checked="true"] i::after { transform: translateX(12px); background: var(--tar); }
+.switch:disabled { cursor: not-allowed; }
+.switch:disabled i { opacity: .5; }
+
+/* ---- the code box (CodeBox): one Copy, at its top right, the one way a box is copied ---- */
+/* A file's box names the file in its header and its Copy ends the header (.codewrap, base.css); any other box carries it in
+   its corner: a command's first line wraps around it, a block keeps 40px at its right, so the text never runs under it. */
+.boxcopy { width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--r-control); background: none; color: var(--faint); cursor: pointer; }
+.boxcopy:hover { color: var(--ink); background: var(--hover); }
+.boxcopy svg { width: 13px; height: 13px; }
+.cmdline > .boxcopy { float: right; margin: -6px -8px -4px 8px; }
+.boxwrap { position: relative; }
+.boxwrap > .boxcopy { position: absolute; top: 5px; right: 5px; }
+.boxwrap > pre.codebox { padding-right: 40px; }
+/* several commands, a line each; the prompt is never copied with a command */
+.cmdline .cstep { display: block; }
+.cmdline .cstep + .cstep { margin-top: 2px; }
+/* A command breaks only between its arguments (Command), into balanced lines, so its last line is never a lone argument
+   where the box allows otherwise; what can't break scrolls inside the box, never past it. Its pieces are nowrap, so the box
+   wraps break-word (base.css), never anywhere: balancing nowrap words that may also break anywhere is what crashed
+   Chromium's renderer. The prompt is never copied with it, in Safari too, which takes only the prefixed rule. */
+.cmdline, code.ts-cmd { text-wrap: balance; }
+.cmdline { overflow-x: auto; }
+.cmdline > b, .cmdline .cmdp > b { -webkit-user-select: none; user-select: none; }
+/* a long argument (JSON, a path, a quoted title) is whole where its line holds it with its flag (.whole), so the command
+   breaks between its arguments; only one wider than its line breaks inside (a <wbr> breaks even in nowrap, so where the
+   argument is whole its <wbr>s are not laid out) */
+.carg.whole { white-space: nowrap; }
+.carg.whole wbr { display: none; }
+/* a setup step's and an empty state's quiet command: its prompt in the command's own weight, never copied with it */
+.cli code > b { font-weight: inherit; -webkit-user-select: none; user-select: none; }
+
+/* ---- a run's id (Id): mono, never broken; in a list, its first six characters quieter ---- */
+/* drawn by the id's own ground, so its text is the id as it is, one text that copies, searches and reads whole */
+code.rnm.rl { background: linear-gradient(90deg, var(--faint) 6ch, var(--id-ink, var(--ink)) 6ch); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+
+/* ---- a word the glossary defines (Term), where it first shows on a page ---- */
+.term.on { text-decoration: underline dotted var(--faint); text-decoration-thickness: 1px; text-underline-offset: 3px; cursor: help; }
+.term.on:focus-visible { outline-offset: 1px; border-radius: var(--r-mark); }
+
+/* ---- a gate's attempts in a cell (AttemptsCell, IntervalBar) ---- */
+/* the tally and its bound, each kept whole, breaking only after the dot; the interval and the toggle stay together */
+.acell { color: var(--dim); font-size: var(--fs-quiet); font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+.ibx { white-space: nowrap; }
+/* The Wilson interval on a 0 to 1 scale against the gate's two marks, 64px: lime when it held, red when it didn't, amber
+   when it couldn't tell. */
+.wib { position: relative; display: inline-block; width: 64px; height: 6px; margin: 0 6px 0 10px; border-radius: var(--r-mark); background: var(--line); vertical-align: middle; flex: none; font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+.wib .iv { position: absolute; top: 0; bottom: 0; border-radius: var(--r-mark); background: var(--cq-lime); }
+.wib.y .iv { background: var(--cq-amber); }
+.wib.no .iv { background: var(--cq-red); }
+.wib .mk { position: absolute; top: -3px; bottom: -3px; width: 1px; margin-left: -.5px; background: var(--dim); }
+/* the attempts' toggle: a caret that turns, 24px as WCAG 2.5.8 asks of a target, its taps 34px on a touch screen */
+.xbtn { position: relative; width: 24px; height: 24px; display: inline-grid; place-items: center; vertical-align: middle; padding: 0; border: 0; border-radius: var(--r-chip); background: none; color: var(--faint); cursor: pointer; }
+.xbtn:hover { color: var(--ink); background: var(--hover); }
+.xbtn svg { width: 10px; height: 10px; transition: transform .15s; }
+.xbtn[aria-expanded="true"] svg { transform: rotate(180deg); }
+@media (pointer: coarse) { .xbtn::before { content: ""; position: absolute; inset: -5px; } }
+/* each attempt in the order it ran: a line each, or past six a cell each and lines for the first that failed */
+.alist { margin-top: 8px; display: grid; gap: 3px; }
+.alist > .al { display: flex; align-items: baseline; gap: 8px; min-height: 24px; color: var(--dim); font-size: var(--fs-quiet); }
+.alist > .al > i { flex: none; width: 7px; height: 7px; border-radius: var(--r-mark); background: var(--cq-lime); transform: translateY(-1px); }
+.alist > .al > i.no { background: var(--cq-red); }
+.alist > .al > i.inc { background: var(--cq-amber); }
+.alist .more2 { color: var(--faint); font-size: var(--fs-small); }
+.astrip { display: flex; flex-wrap: wrap; gap: 2px; max-width: 520px; margin: 4px 0 8px; }
+.astrip .ac { display: block; width: 6px; height: 12px; border-radius: var(--r-mark); background: var(--cq-lime); }
+.astrip .ac.no { background: var(--cq-red); }
+.astrip .ac.inc { background: var(--cq-amber); }
+/* a cell is a mark, no target of its own: its attempt shows on hover, the lines under the strip link the runs */
+.astrip .ac:hover { outline: 1px solid var(--ink); outline-offset: 1px; }
+
+/* ---- the three states (EmptyState, EmptyLine, Skeleton, ErrorState) ---- */
+/* nothing here yet: a section under a hairline, its heading, one sentence, its step, the command quiet under it */
+.stepempty, .panel.stepempty { padding: 18px 0 4px; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: none; }
+.stepempty h2, .stepempty h3 { margin: 0; font: 600 var(--fs-heading)/1.35 var(--body); letter-spacing: -.01em; }
+.stepempty p { margin: 6px 0 14px; color: var(--dim); max-width: 70ch; }
+/* a run id named in the sentence (a run not in the store) breaks anywhere rather than widen a phone's page */
+.stepempty p code { overflow-wrap: anywhere; }
+.stepempty .cmdline + .actions { margin-top: 14px; }
+/* a list with nothing to show says so in a line from the left */
+.emptyline { margin: 0; padding: 16px 0; color: var(--faint); font-size: var(--fs-body); }
+/* still loading: every piece of text a quiet bar along the line it will take, every mark its shape in the same tone, nothing
+   to press */
+.skel { --skel: var(--line); }
+.skel .skbars { display: grid; gap: 10px; padding: 6px 0 12px; }
+.skel .skbars i { display: block; height: 10px; border-radius: var(--r-mark); background: var(--skel); }
+.skel .skbars i:nth-child(3n + 1) { width: 92%; }
+.skel .skbars i:nth-child(3n + 2) { width: 74%; }
+.skel .skbars i:nth-child(3n) { width: 48%; }
+.skel .skin { pointer-events: none; }
+.skel .skin * { color: transparent !important; text-decoration: underline var(--skel) !important; text-decoration-thickness: .78em !important; text-underline-offset: -.6em !important; text-decoration-skip-ink: none !important; caret-color: transparent; }
+.skel .skin svg, .skel .skin img, .skel .skin *::before, .skel .skin *::after { visibility: hidden; }
+.skel .skin .st i, .skel .skin .org i, .skel .skin .legend i, .skel .skin .ms i, .skel .skin .pips i, .skel .skin .wib, .skel .skin .astrip .ac, .skel .skin .glyph { background: var(--skel) !important; box-shadow: none !important; border-color: transparent !important; }
+.skel .skin .btn, .skel .skin input, .skel .skin select, .skel .skin textarea { background: none !important; border-color: var(--line) !important; }
+/* what couldn't be read: one line in the error tone, its way on at its end; a page keeps its title over it */
+.loaderr { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin: 6px 0 0; padding: 14px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.loaderr p { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0; flex: 1 1 280px; color: var(--dim); }
+
+/* ---- line breaks at render time (Copy, Code, Command, CodeText) ---- */
+/* A sentence of short copy that fits a line is kept whole on it (.snt), as is each piece of one broken at a clause, and one
+   of two lines starts a line of its own, balanced (.ts-bal); one that flows on as prose does is inline (.ts-flow). A block
+   of two lines balances, a longer one wraps pretty. Both win over a page's own text-wrap. */
+.snt { display: inline-block; max-width: 100%; }
+.snt.ts-flow { display: inline; }
+.ts-bal { text-wrap: balance !important; }
+.ts-pretty { text-wrap: pretty !important; }
+/* a word a browser would break at its hyphen, dash, slash or dot, an element of copy, and inline code of up to 32
+   characters, never break; an element wider than its line wraps inside itself */
+ts-w, code.ts-code { white-space: nowrap; }
+ts-w.ts-a.ts-free { white-space: normal; }
+/* a long host, dotted field or golden's name is whole where its line holds it, and elsewhere breaks only after a dot or a
+   hyphen (a <wbr> breaks even in nowrap, so where it is whole its <wbr>s are not laid out) */
+ts-w.ts-long { white-space: normal; }
+ts-w.ts-long > ts-p, code.ts-cb ts-p { white-space: nowrap; }
+ts-w.ts-long.whole { white-space: nowrap; }
+ts-w.ts-long.whole > wbr { display: none; }
+/* longer code breaks only where its pieces allow, and is whole where its line holds it */
+code.ts-cb { white-space: normal; overflow-wrap: normal; word-break: normal; }
+code.ts-cb.whole { white-space: nowrap; }
+code.ts-cb.whole wbr { display: none; }
+/* a command set as code in a line, and code shown as text, break only between their pieces */
+code.ts-cmd, code.ts-ct { white-space: normal; }
+
+/* Forced colours set every colour to the user's own, and drop shadows and fills: what says something by its colour alone
+   keeps it, edged in the user's text colour; a chosen option whose fill is lost is underlined. */
+@media (forced-colors: active) {
+  .seg button[aria-pressed="true"], .seg a[aria-pressed="true"], .seg a[aria-current="page"] { text-decoration: underline 2px; text-underline-offset: 4px; }
+  .st i, .alist > .al > i, .astrip .ac { forced-color-adjust: none; box-shadow: 0 0 0 1px CanvasText; }
+  .wib { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText; }
+  .wib .mk { background: CanvasText; }
+  /* a switch's track is outlined and its knob drawn in the button text colour; on, the track takes the highlight colour */
+  .switch i { outline: 1px solid ButtonText; outline-offset: -1px; }
+  .switch i::after { background: ButtonText; }
+  .switch[aria-checked="true"] i { background: Highlight; outline-color: Highlight; }
+  .switch[aria-checked="true"] i::after { background: HighlightText; }
+  /* the theme's own text colour draws a list's id whole, its quiet part with it */
+  code.rnm.rl { background: none; -webkit-text-fill-color: currentColor; }
+}

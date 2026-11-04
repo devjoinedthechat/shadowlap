@@ -422,7 +422,7 @@ describe('runs', () => {
     expect([base, fork, clean, capture, test, live].map(runType)).toEqual(['recording', 'fork', 'clean', 'capture', 'test', 'recording']);
     expect(runOutcome(live)).toEqual({ tone: 'live', text: 'in progress' });
     expect(runOutcome(test)).toEqual({ tone: 'err', text: 'diverged at #1', at: { words: 'diverged at', callNo: 1 } });
-    // How faithful a clean replay was is no verdict: no check judges it, a dash.
+    // How faithful a clean replay was is no verdict, never passed's lime: no check judges it, a dash.
     expect(runOutcome(clean)).toEqual({ tone: 'n', text: '—' });
     expect(runOutcome({ ...fork, checks: { passed: 2, total: 2 } })).toEqual({ tone: 'ok', text: '2 checks passed' });
     expect(runOutcome({ ...base, status: 'failed', blame: { callNo: 9 } })).toEqual({ tone: 'err', text: 'check failed' });

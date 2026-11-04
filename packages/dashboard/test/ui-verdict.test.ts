@@ -3,12 +3,13 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { gateResult, Store, type TestResultData } from '@shadowlap/engine';
 import { testsView, type GoldenSource } from '../src/tests.js';
 import type { Client, TestsView } from '../ui/api.js';
-import { dotParts } from '../ui/components/Verdict.js';
+import { dotParts, IntervalBar } from '../ui/components/Verdict.js';
 import { ActivityCard, NeedsLook } from '../ui/overview/panels.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { ForksView } from '../ui/run/ForksView.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { ActivityItem, FixBundle, LineageNode, NeedsLookRow } from '../ui/types.js';
+import { styleRules } from './css-sheet.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 
 /**
@@ -46,6 +47,23 @@ describe('a gate’s verdict line', () => {
       { text: '16 of 20 ·', keep: 'whole' },
       { text: 'rate 0.58 to 0.92 (95%)', keep: 'soft' },
     ]);
+  });
+});
+
+describe('the interval’s bar', () => {
+  it('draws the interval on a 0 to 1 scale against the gate’s marks, in the verdict’s colour, a sliver at the least', async () => {
+    r = await render(createElement('div', null, createElement(IntervalBar, { lo: 0.73, hi: 1, marks: [0.7, 0.9], tone: 'ok' }), createElement(IntervalBar, { lo: 0.4, hi: 0.405, marks: [], tone: 'y' })));
+    const [held, thin] = r.all('.wib');
+    expect([held.className, held.getAttribute('aria-hidden')]).toEqual(['wib ok', 'true']);
+    expect(held.querySelector('.iv')!.props.style).toEqual({ left: '73.0%', width: '27.0%' });
+    expect(held.querySelectorAll('.mk').map((m) => m.props.style)).toEqual([{ left: '70.0%' }, { left: '90.0%' }]);
+    expect(thin.className).toBe('wib y');
+    expect(thin.querySelector('.iv')!.props.style).toEqual({ left: '40.0%', width: '1.5%' });
+  });
+
+  it('is 64 by 6, its corners and its interval’s the mark radius, as every mark is', () => {
+    const decl = (sel: string, prop: string) => styleRules().filter((x) => !x.conditions.length && x.selectors.includes(sel)).flatMap((x) => x.decls).filter(([p]) => p === prop).at(-1)?.[1];
+    expect([decl('.wib', 'width'), decl('.wib', 'height'), decl('.wib', 'border-radius'), decl('.wib .iv', 'border-radius')]).toEqual(['64px', '6px', 'var(--r-mark)', 'var(--r-mark)']);
   });
 });
 

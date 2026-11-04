@@ -108,8 +108,8 @@ describe('where a call’s answer came from', () => {
   });
 
   it('keeps the replayed colour for a replayed call: a verdict is drawn in the consequence colours, a score and a finished step neutral', () => {
-    for (const s of ['.pips i', '.st.ok i', '.attempts span i', '.attempts a i', 'td.hist i.pass::before', '.prl i.ok', '.recline .ic']) expect(value(s, 'background'), s).toBe('var(--cq-lime)');
-    for (const s of ['.pips i.no', '.attempts span i.no', '.attempts a i.no', '.fxlegend i.lg.block']) expect(value(s, 'background'), s).toBe('var(--cq-red)');
+    for (const s of ['.pips i', '.st.ok i', '.attempts span i', '.attempts a i', '.alist > .al > i', '.astrip .ac', 'td.hist i.pass::before', '.prl i.ok', '.recline .ic']) expect(value(s, 'background'), s).toBe('var(--cq-lime)');
+    for (const s of ['.pips i.no', '.attempts span i.no', '.attempts a i.no', '.alist > .al > i.no', '.astrip .ac.no', '.fxlegend i.lg.block']) expect(value(s, 'background'), s).toBe('var(--cq-red)');
     expect(value('.fxlegend i.lg.rep', 'background')).toBe('var(--cq-lime)');
     for (const s of ['.sbar i', '.stepper .done .k i', '.psteps .done i']) expect(value(s, 'background'), s).toBe('var(--dim)');
     const misused = rules().filter((r) => /var\(--o-rep\)/.test(r.body) && !r.selectors.every((s) => /\.rep\b|\.clean\b|\.metric b\.lime|^:root$/.test(s)));
@@ -220,6 +220,11 @@ describe('lime', () => {
     '.attempts span i': 'an attempt that passed',
     '.attempts a i': 'an attempt that passed',
     '.st.ok i': 'a run that came out well',
+    '.st.ok': 'a status that passed: its word, in passed’s colour as its dot is',
+    '.vw.ok': 'a verdict line’s word: passed',
+    '.metric b.ok': 'a page’s fact that counts what passed (a fix verified)',
+    '.alist > .al > i': 'an attempt that passed',
+    '.astrip .ac': 'an attempt that passed',
     'td.hist i.pass::before': 'a golden that passed at a revision',
     '.gtw .gstrip i.pass': 'a golden that passed at a revision',
     'table.gt .chk .ck.passed .cm': 'a check that passed',
@@ -238,7 +243,6 @@ describe('lime', () => {
   };
   /** Lime the design rules out that only a later slice's markup can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
-    '.verdict.ok': 'port/primitives, then each page’s slice: VerdictLine draws a verdict as a plain line, its word in the passed colour, never a tinted box',
     '.badge.ok': 'port/primitives, then each page’s slice: Status draws a status as a dot and a word, never a tinted badge',
     '.setupdone': 'port/setup-states: a setup that is done says so as a verdict line, “set up” in the passed colour, never a tinted box',
   };
@@ -281,6 +285,9 @@ describe('amber', () => {
     '.attempts a i.unsure': 'an attempt that couldn’t decide',
     '.st.warn': 'a status that needs a look',
     '.st.warn i': 'a status that needs a look',
+    '.vw.warn': 'a verdict line’s word: inconclusive',
+    '.alist > .al > i.inc': 'an attempt that couldn’t be judged',
+    '.astrip .ac.inc': 'an attempt that couldn’t be judged',
     '.tag.inc': 'an inconclusive status chip',
     '.wib.y .iv': 'a gate’s bound that can’t yet say pass or fail',
     '.run .r2 em.inc': 'a run that came out inconclusive',
@@ -334,7 +341,6 @@ describe('amber', () => {
   /** Amber the design rules out that only a later slice can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
     '.connbar': 'port/dock: the offline bar on the page’s ground, only its dot amber',
-    '.verdict.warn': 'port/primitives, then each page’s slice: VerdictLine draws a verdict as a plain line, its word in amber, never a tinted box',
     '.badge.y': 'port/primitives, then each page’s slice: Status draws a status as a dot and a word, never a tinted badge',
     '.warnbox': 'port/setup-states: a warning in a step is a plain line, its first words in amber, never a tinted box',
     '.dialog .dz.advise': 'port/dialogs: a dialog says what needs a look in its one amber line, never a tinted box',
@@ -424,7 +430,7 @@ describe('forced colours', () => {
   }
 
   it('keeps the colour of every mark that says something by its colour alone, edged so it shows on any ground', () => {
-    const marks = ['.cells button', '.ms', '.gs', '.segbar', '.org i', '.legend i', '.pips i', '.st i', '.dotlive', '.oleg i', '.grp i', 'td.hist i', '.cal .cd:not(.fut)', '.callrow .cn', '.wib', '.attempts span i', '.tl-row .bar', '.prl i', '.cilist li i'];
+    const marks = ['.cells button', '.ms', '.gs', '.segbar', '.org i', '.legend i', '.pips i', '.st i', '.dotlive', '.oleg i', '.grp i', 'td.hist i', '.cal .cd:not(.fut)', '.callrow .cn', '.wib', '.attempts span i', '.alist > .al > i', '.astrip .ac', '.tl-row .bar', '.prl i', '.cilist li i'];
     for (const s of marks) expect(forced.get(s)?.get('forced-color-adjust'), s).toBe('none');
   });
 

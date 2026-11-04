@@ -410,6 +410,7 @@ export function outcomeOf(r: RunLike): RunOutcomeWords & { of: OutcomeOf } {
     // No check failed, and one could not be decided: amber, neither a pass nor a failure.
     if (o.kind === 'inconclusive') return { of: 'inconclusive', tone: 'warn', text: 'inconclusive' };
     if (o.kind === 'passed' && typeof o.checks === 'number') return { of: 'passed', tone: 'ok', text: checksPassedText(o.checks, o.notApplicable) };
+    // A clean replay is no verdict, never passed's lime: no check judges it, a dash.
     if (o.kind === 'clean') return { of: 'none', tone: 'n', text: '—' };
     // A run cut short (its recorder stopped before it ended) has no outcome, but says why.
     if (o.kind === 'none') return r.status === 'crashed' ? { of: 'interrupted', tone: 'n', text: 'interrupted' } : nothingToReport(r);
