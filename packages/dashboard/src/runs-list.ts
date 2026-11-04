@@ -4,6 +4,7 @@ import { filterTerms } from './links.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay } from './local-days.js';
 import { aboutsOf, aboutsWithin, knownAbouts } from './run-about.js';
 import { classifiable, depthOf, fixedOutcome, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
+import type { RunJudged } from './run-outcome.js';
 import { callTotals, callTotalsWithin, knownSpent, priced, spentOf, totalsKnown, type StatsOptions } from './run-stats.js';
 
 /**
@@ -93,6 +94,12 @@ export interface RunRow extends RunListItem {
   author: string | null;
   /** For a run made in CI: the provider (`meta.ci`), such as `github`. */
   ci: string | null;
+  /**
+   * Its outcome by checks (run-outcome.ts): its own, a capture's by the rules on calls, or its
+   * family's goldens' judged from its recording; null when no check judges it. Absent while it isn't
+   * judged yet: a long run past what a list reads, judged once its page or a later list reaches it.
+   */
+  judged?: RunJudged | null;
 }
 
 export interface ChipCounts {

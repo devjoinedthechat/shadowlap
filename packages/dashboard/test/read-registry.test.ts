@@ -48,6 +48,7 @@ const JOBS: { [K in ReadJob['kind']]: Extract<ReadJob, { kind: K }> } = {
   'store-facts': { kind: 'store-facts', stores: [{ id: 'here', dbPath: null, keep: null }] },
   training: { kind: 'training', tasks: [], tasksError: null, normalizers: [], filter: 'all' },
   fix: { kind: 'fix', fixId: FIX, repairer: null },
+  outcome: { kind: 'outcome', runId: FORK, work: null },
   warm: { kind: 'warm', budgetMs: 50 },
   analyse: { kind: 'analyse', runId: REC },
 };

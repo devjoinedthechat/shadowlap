@@ -4,6 +4,7 @@ import { kindFacts, lookupRun, modelResolver, runLabel } from '@shadowlap/engine
 import { presetMarks, type PresetMark } from './chaos.js';
 import { fixForRun, type FixForRun } from './fixes.js';
 import { aboutOfRun, aboutsOf } from './run-about.js';
+import type { RunJudged } from './run-outcome.js';
 import { captureSource, loadRunIndex } from './run-index.js';
 import { recentRuns, type RunRow } from './runs-list.js';
 import { analysisFor, blameAt, conversationSource, modelName, NO_FACTS, ownFacts, partAnalysis, QUICK_FROM, READ_BEFORE, READ_PAST, runPageFacts, runProvenance, runShowJson, windowAnalysis, type CallFacts, type ProvenanceOptions, type RunAnalysis, type RunPageFacts, type RunProvenance } from './run-page.js';
@@ -180,6 +181,12 @@ export interface RunDetail extends RunPageFacts {
    * numbered after `n`, and the page keeps the ones it has up to there. Everything else is the whole run's.
    */
   after?: number;
+  /**
+   * Its outcome by checks, each check with it (run-outcome.ts): its own, a capture's by the rules on
+   * calls, or its family's goldens' judged from its recording; null when no check judges it. Absent on
+   * a long run's first answer, until its analysis has judged it.
+   */
+  judged?: RunJudged | null;
 }
 
 export interface CallDetail {
