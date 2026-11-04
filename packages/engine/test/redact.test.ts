@@ -310,6 +310,23 @@ describe('redactRun: the run record', () => {
     src.close();
   });
 
+  it("masks a capture's verdict by the rules on calls in every copy, as it masks a check's", () => {
+    const src = Store.open(':memory:');
+    const run = seed(src);
+    // A rule's detail names the arguments a call had.
+    const kept = { rules: 'k1', at: 1, verdict: 'failed' as const, why: null, checks: [{ status: 'failed' as const, ok: false, label: 'every send_email call: to endsWith "@example.org"', detail: 'send_email #2: to "maya@example.com" doesn\'t end with "@example.org"' }] };
+    src.updateRunMeta(run.runId, { judged: kept });
+    const masked = { ...kept, checks: [{ ...kept.checks[0], detail: 'send_email #2: to "<EMAIL>" doesn\'t end with "@example.org"' }] };
+    const dst = Store.open(':memory:');
+    expect(redactRun(src, run.runId, [EMAIL], dst).meta?.judged).toEqual(masked);
+    const dir = join(mkdtempSync(join(tmpdir(), 'fp-redact-judged-')), 'pack');
+    packRun(src, run.runId, dir, { redact: [EMAIL] });
+    expect(readFileSync(join(dir, 'run.json'), 'utf8')).not.toContain('maya@example.com');
+    expect(redactRunDetails(src.getRun(run.runId)!, [EMAIL]).meta?.judged).toEqual(masked);
+    dst.close();
+    src.close();
+  });
+
   it("packs a blamed run with the checks blame judged it by masked as its checks are", () => {
     const src = Store.open(':memory:');
     const run = seed(src);
