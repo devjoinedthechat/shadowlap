@@ -441,13 +441,17 @@ An interrupted run's page says so in a banner: a fork's banner says how it forke
 
 How a run came out by its checks is its page's first fact and Runs' Status, in the same words:
 
-| It says | When |
-| --- | --- |
-| *check failed at #6* | A check failed: the call it names, or the first call past what a count allows, which the page links |
-| *2 checks passed* | Every check passed or did not apply |
-| *check inconclusive* | A check could not be decided, such as a judge with no recorded verdict (*inconclusive* on the page) |
-| *not applicable* | No check applied: a capture none of whose rules on calls had a call to read, or a `when` that never held |
-| *no checks* | No check judges the run; Runs shows a dash |
+| On its page | In Runs' Status | When |
+| --- | --- | --- |
+| *check failed at #6* | *check failed at #6* | A check failed: at the call it names, or the first call past what a count allows, which the page links |
+| *2 checks passed* | *2 checks passed* | Every check passed or did not apply |
+| *inconclusive* | *inconclusive* | A check could not be decided, such as a judge with no recorded verdict, or a check on what the agent printed |
+| *not applicable* | *not applicable* | No check applied: a capture none of whose rules on calls had a call to read |
+| *diverged at #1* | *diverged at #1* | A test replay left its golden at that call, which the page links |
+| *exited 1* | *exited 1* | The agent exited with an error and no check failed: the code where its test result kept it, else *exited with an error* |
+| *no checks* | A dash, or a fork's writes (*forked · 2 writes blocked*) | No check judges the run, a clean replay among them |
+
+A run blame found lost says the check it failed in both places. The sidebar says where it was lost (*lost at #9*), as blame's finding does, and *check failed* without the call.
 
 The checks are the first of these the run has:
 
@@ -455,9 +459,13 @@ The checks are the first of these the run has:
 - **A capture's**, by the rules on calls, judged as it was [imported](./cli.md#import). Once the rules change, it is judged again from its calls.
 - **Its family's**: a finished run that kept no verdict is judged by the checks of the goldens packed from its recording, or from a replay or a fork of it, as `shadowlap.config.json` gives them.
 
-A family's checks judge the run from its recording, as [`shadowlap check`](./checks.md#try-a-check-on-your-recordings) judges one. Nothing is replayed, and a judge check takes the verdict the recording holds, else it is inconclusive. A run recorded before the checks that judge it says *by today's checks*: after the word on its page, and on hover and to a screen reader in Runs.
+A family's checks judge the run from its recording, as [`shadowlap check`](./checks.md#try-a-check-on-your-recordings) judges one, so the two say the same. Nothing is replayed. A judge check takes the verdict the recording holds, else it is inconclusive, and so is a check on what the agent printed, which a recording doesn't keep.
 
-The page's first fact lists each check on hover, with how it came out and what it found. Judging reads a run's calls beside the server, and what is judged is kept per version of the config. A list judges its rows within the calls it reads for their totals: a longer run's row keeps its own outcome until its page has judged it.
+A run recorded before the checks that judge it says *by today's checks*: after the word on its page, and to a screen reader in Runs. A golden's checks count from when it was packed, or from a later change to them, which the dashboard keeps for this machine once it has seen them.
+
+Both show the same card on hover: what judged the run, and each check with how it came out and what it found. Judging reads a run's calls beside the server, and what is judged is kept per version of the config. A list judges its rows within the calls it reads for their totals: a longer run's row keeps its own outcome until its page has judged it. A long run's page says nothing of its checks until then.
+
+An [exported copy](./cli.md#export-html) holds each run's own verdict and a capture's from its import. It has no project, so no family's checks judge its runs.
 
 ### What a fork did differently
 
@@ -1843,7 +1851,8 @@ Every request needs the session token in `x-shadowlap-token`.
 - **Its about line**: each run, in the list, on its own and in its family, carries its `about` line. That is its `text`, where it comes from (`from`: `user`, `agent`, `input`, `golden`, `change`, `nothing`, `source` or `command`), and for a replay or a fork its `change` (the flag, the call it changed and where it forked).
 - **A preset's attempt** in the family carries its `preset`: the preset's words, and the verdict of the session that decided it.
 - **Its state**: a run's `state` (kind, outcome, failed, interrupted) is the one the run list works out for it, and its status is the list's. A run its recorder left running reads `crashed`, ended at its last call.
-- **Its outcome by checks**: `judged` says what judged it (`by`: `own`, `import` or `family`), its `verdict`, the checks' `counts`, the `callNo` it turned on, the `first` check that failed, `today`, the `goldens` and `why`. It is `null` when no check judges the run. The page's answer adds each of `checks`; each row of the lists carries the rest.
+- **Its outcome by checks**: `judged` says what judged it (`by`: `own`, `import` or `family`), its `verdict`, the checks' `counts`, the `callNo` it turned on, the `first` check that failed, `today`, `since`, the `goldens` and `why`. It is `null` when no check judges the run. The page's answer and Runs' rows add each of `checks`; the sidebar's rows leave them out.
+- **Its agent's exit**: a test replay its agent's exit failed carries `exitCode` where its test result kept the code.
 - **Its family**: each run of the family carries the same `status`, `kind`, `outcome` and `failed`, an attempt the list leaves out included. The HTML file holds such a run the same way.
 - **Its calls**: a call row carries `via` for a model call made to a host of another provider's format (the host; `provider` is then its format), and `extraRead` for a replay's extra read.
 - **Its WebSockets**: a run carries its `websockets` (`target`, `count`, `action`: `tunnelled` or `refused`) when it keeps them.
