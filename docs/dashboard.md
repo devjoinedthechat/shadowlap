@@ -1538,7 +1538,7 @@ shadowlap export html <run> --lineage run.html
 
 The file has the same views as the dashboard, with the run's data built in and nothing to install or run. Attach it to a pull request, keep it as a CI artifact, or send it to whoever asks what the agent did.
 
-- **What it holds**: it opens on the run that was shared, and holds Runs (the runs in the file) and, when it holds two or more, Compare between them.
+- **What it holds**: it opens on the run that was shared, and holds Runs (the runs in the file) and, when it holds two or more, Compare between them. Any other page opens Runs.
 - **What it leaves out**: there is nothing to run from it and no search across runs, so `/` filters a run's calls.
 - **Redaction**: it holds recorded prompts and tool data, so the project's redaction rules apply by default; see [`export html`](./cli.md#export-html).
 
@@ -1729,7 +1729,13 @@ An exported copy holds every call.
 
 ### Each page's code loads when it opens
 
-The dashboard's first script holds the shell and what the pages share; a page's own code loads the first time you open it. An exported copy is one script with every page in it.
+The dashboard's first script holds the shell and what the pages share. The rest loads the first time it is needed:
+
+- **A page's own code** loads when you first open the page, which waits empty until it comes.
+- **A run's views but Calls** each have a script of their own, loaded as the run's page opens, so switching to one draws it at once.
+- **A script that can't be loaded** (the dashboard stopped, or was updated since the page opened) leaves its part empty rather than the page blank. It is asked for again the next time the part shows.
+
+An exported copy is one script, built apart with only what a copy shows: its runs, a run's page with every view, and Compare between them.
 
 
 ## How the page stays current
@@ -2113,6 +2119,7 @@ It also checks the contrast of text and of a field's edge, the focus order, the 
 - **Links**: the server builds its links with `packages/dashboard/src/links.ts`, the builder the page uses too.
 - **Attempts**: which runs are attempts is one rule, `packages/engine/src/run-roles.ts`.
 - **Endpoints**: the server's endpoints are registered by feature in `packages/dashboard/src/routes/`, and the shapes they answer with are in `packages/dashboard/src/views.ts` and `api.ts`.
+- **Scripts**: `packages/dashboard/ui-bundles.mjs` splits the browser app: a chunk per page (`ui/pages/lazy.tsx`), one per part of a page through `onShow` (`ui/components/OnShow.tsx`), and an exported copy's one script from `ui/main-copy.tsx`. `test/ui-bundle-size.test.ts` holds each to its budget.
 
 ## Troubleshooting
 
