@@ -548,6 +548,6 @@ export function bannerFor(i: BannerInput): Banner | null {
   const unplaced = b ? (b.outcome === 'stopped' ? 'blame stopped before it found the call' : b.unsettled ? `blame ${INCONCLUSIVE_FIRST}` : 'blame found no call whose answer, asked again, saves the run') : null;
   // Blame needs a run that fails again as recorded: one with no model call, or one stopped, never does.
   const unblamable = i.modelCalls === 0 ? 'no model call to blame' : i.status === 'crashed' && !failedCheck ? 'blame needs a run that ended on its own' : null;
-  const state = i.fix ? (i.fix.status === 'open' ? `no fix yet for “${i.fix.title}”` : `fixed: “${i.fix.title}”, ${i.fix.status}`) : (unplaced ?? unblamable ?? 'not blamed yet');
+  const state = i.fix ? (i.fix.status === 'open' ? `no change yet for “${i.fix.title}”` : `fixed: “${i.fix.title}”, ${i.fix.status}`) : (unplaced ?? unblamable ?? 'not blamed yet');
   return { kind: 'failed', why: `${failure} · ${state}`, fix: i.fix, blamed: !!b };
 }

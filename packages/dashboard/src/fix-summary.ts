@@ -128,12 +128,12 @@ export function needsLookFixes(store: StoreOf<'recording' | 'readModels' | 'fixe
     if (fix.status === 'open') {
       const b = shownBlame(rec);
       // At the call blame names, or around or between two when no one call is pinned.
-      const where = b?.outcome === 'blamed' && b.report.blamed ? lostWords(b.report.blamed.callNo, b.report.range, 'calls') : b?.outcome === 'unrescuable' ? unrescuedWords(unsettledFirst(b.report)) : 'blame stopped early';
+      const where = b?.outcome === 'blamed' && b.report.blamed ? lostWords(b.report.blamed.callNo, b.report.range, 'calls') : b?.outcome === 'unrescuable' ? unrescuedWords(unsettledFirst(b.report)) : 'blame stopped part way';
       // No answer of the model's lost it: a repair of the prompt is no fix, so the row opens the fix and says where to look.
       const elsewhere = noAnswerLost(b);
       // A repair whose repairer was never asked looked for no fix: it says why, not that none was found.
       const last = rec.repairs.at(-1);
-      const repaired = last ? (unaskedWords(last) ?? 'no fix found yet') : 'no fix yet';
+      const repaired = last ? (unaskedWords(last) ?? 'no fix found yet') : 'no change yet';
       open.push({ kind: 'open', href: fixHref(fix.fixId), icon: 'blame', title: fix.title, detail: `${where} · ${elsewhere ? 'look at the tools, the harness or the command' : repaired}`, action: elsewhere ? 'Open' : 'Fix it', fixId: fix.fixId, runId: null, at: fix.openedAt });
     } else if (fix.status === 'verified') {
       // Its patch is in the working tree already: nothing is ready to apply, and the fix's page offers Mark applied.

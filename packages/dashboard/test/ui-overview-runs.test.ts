@@ -42,7 +42,7 @@ describe('the Overview’s words', () => {
     expect(blameWords({ outcome: 'unrescuable', lostAt: null })).toBe('not rescued from any model call');
     // One whose first probe couldn't tell is inconclusive at the first model call, never a finding that no call rescues the run.
     expect(blameWords({ outcome: 'unrescuable', unsettled: true, lostAt: null })).toBe('inconclusive at the first model call');
-    expect(blameWords({ outcome: 'stopped', lostAt: null })).toBe('blame stopped early');
+    expect(blameWords({ outcome: 'stopped', lostAt: null })).toBe('blame stopped part way');
     expect(blameWords({ outcome: null, lostAt: null })).toBe('not placed yet');
     expect(testsKpi(null, 0)).toEqual({ value: '—', note: 'no goldens yet', tone: '' });
     const now = new Date(2026, 9, 1, 12, 0).getTime();

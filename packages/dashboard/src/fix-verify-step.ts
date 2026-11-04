@@ -1,4 +1,4 @@
-import { describeGate, expectArgs, type FixRecords, fixVerifyHead, footprintDelta, GATE_MAX_ATTEMPTS, gateOdds, keptAttemptVerdict, outcomeOf, type PulledFrom, rateBound, SPRT_DEFAULTS, type SprtGate, type StoredVerdict, unsettledReason, type VerdictStanding, type VerifiedRun, type VerifyOutcome } from '@shadowlap/engine';
+import { describeGate, expectArgs, type FixRecords, fixVerifyHead, footprintDelta, GATE_MAX_ATTEMPTS, gateOdds, keptAttemptVerdict, outcomeOf, type PulledFrom, rateBound, SPRT_DEFAULTS, type SprtGate, type StoredVerdict, unsettledReason, type VerdictStanding, verdictWord, type VerifiedRun, type VerifyOutcome } from '@shadowlap/engine';
 import { verifyEvidence } from './evidence.js';
 import { fieldArgs, rerunFlags, runIds, type RerunFlags } from './rerun.js';
 import { changeName, commandLine, countArgs, finite, fixHref, gateArg, PULLED_CAP, pulledGate, ROLE, runHref, shortFailure, sprtGate, type VerifyRow } from './fix-shared.js';
@@ -167,7 +167,7 @@ export function verifyStep(rec: FixRecords, v: StoredVerdict, fallback: string):
     // One that doesn't count says why in its heading.
     note: regressed ? 'Rejected after the fix was applied: it no longer holds.' : null,
     code,
-    label: `${code} · ${v.verdict}${standing.counts ? '' : " · doesn't count"}`,
+    label: `${code} · ${verdictWord(v.verdict)}${standing.counts ? '' : " · doesn't count"}`,
     headline: headline(rec, v, standing),
     oracle: sprtGate(r.gate) ? `a run's attempts must meet the check: ${r.oracle.join('; ')}; its gate decides after each one: ${describeGate(sprtGate(r.gate)!)}` : `a run passes when ${r.needed} of ${r.attemptsPerRun} attempts meet the check: ${r.oracle.join('; ')}`,
     needed: r.needed,

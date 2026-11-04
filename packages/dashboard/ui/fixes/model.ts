@@ -148,7 +148,8 @@ export function blameNextStep(f: Pick<FixDetail, 'status' | 'actions'>): { kind:
  */
 export function moreLine(m: Pick<VerifyMore, 'kind' | 'run' | 'max' | 'expected' | 'cost' | 'budget'>): string {
   if (m.kind === 'again') return ` stopped at attempt ${m.run.attempt ?? '?'}, which could not be judged${m.run.why ? `: ${m.run.why}` : ''}. Verify again once it can be.`;
-  const why = m.run.state === 'inconclusive' ? ' is inconclusive.' : ` is not settled${m.run.why ? `: ${m.run.why}` : ''}.`;
+  // Inconclusive, the page's one word for a run its attempts left open, with why when they stopped first.
+  const why = ` is inconclusive${m.run.state !== 'inconclusive' && m.run.why ? `: ${m.run.why}` : ''}.`;
   const takes = `about\u00a0${m.expected} attempt${m.expected === 1 ? '' : 's'}${m.cost !== null ? `, ${approx(m.cost)}` : ''}`;
   return `${why} Run more attempts verifies again from the start (verify has no --continue), up to ${m.max} a run${m.budget ? `, without its --budget ${m.budget}` : ''}: ${takes}.`;
 }
@@ -495,7 +496,7 @@ function commonPrefix(a: string, b: string): number {
 
 /**
  * A run's outcome as a badge, in the verdicts' colours: fixed and kept in lime, broken and not fixed
- * in red, and inconclusive or not settled in amber, the colour of a run nothing has decided.
+ * in red, and inconclusive in amber, the colour of a run nothing has decided.
  */
 export function outcomeTone(o: VerifyRow['outcome']): 'ok' | 'no' | 'y' {
   return o === 'fixed' || o === 'kept' ? 'ok' : o === 'unsettled' || o === 'inconclusive' ? 'y' : 'no';
@@ -564,7 +565,7 @@ export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict' | 'counts'> & 
   if (b.tone === 'y') return { kind: 'warn', label: 'Verify attempts: inconclusive' };
   if (b.verdict === 'accepted') return { kind: 'fixok', label: 'Verify accepted the change' };
   if (b.verdict === 'rejected') return { kind: 'fixbad', label: 'Verify rejected the change' };
-  return { kind: 'warn', label: 'Verify attempts, not settled' };
+  return { kind: 'warn', label: 'Verify attempts: inconclusive' };
 }
 
 /**
@@ -773,7 +774,7 @@ export function fixJobStatus(job: { kind?: string; code: number | null; result?:
       const unsettled = first?.decision === 'inconclusive' && !r.sameAnswer && !r.failedWrite;
       return { text: `${blameStateWord('unrescuable', unsettled)} · ${exit}`, tone: job.code === 0 ? 'warn' : 'err' };
     }
-    if (r.outcome === 'stopped') return { text: `stopped early · ${exit}`, tone: 'err' };
+    if (r.outcome === 'stopped') return { text: `${blameStateWord('stopped', false)} · ${exit}`, tone: 'err' };
     return null;
   }
   if (job.kind === 'repair') {

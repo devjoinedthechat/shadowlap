@@ -6,8 +6,8 @@ import { acceptedCandidate, acceptedVerdict, brokenOf, counting, fixHref, repair
 /**
  * Done, to do, (Verify only) rejected, or `warn`: a step that ran and needs a look, in amber, never
  * the grey of one not run yet: a blame no model call rescued ("not rescued"), one whose first probe
- * couldn't tell ("inconclusive") or stopped part way ("blame stopped"), a verify left inconclusive or
- * stopped before every run settled ("not settled").
+ * couldn't tell ("inconclusive") or stopped part way ("stopped"), a verify left inconclusive or
+ * stopped before every run settled ("inconclusive"), one word for each state on every page.
  */
 export type StepState = 'done' | 'todo' | 'no' | 'warn';
 
@@ -62,11 +62,11 @@ export interface FixList {
 
 const approx = (usd: number) => `≈${formatUsd(usd)}`;
 
-/** What kind of change a candidate is, in two words. */
+/** What kind of change a candidate is, in two words: repair's result is a change, a fix the failure worked through. */
 function changeKind(c: RepairCandidate): string {
   if (c.source === 'model' || c.surface === 'model') return 'model switch';
-  if (c.surface.startsWith('tool ')) return 'tool description fix';
-  return 'prompt fix';
+  if (c.surface.startsWith('tool ')) return 'tool change';
+  return 'prompt change';
 }
 
 /** "from CI", "from CI · PR #138", "PR #138". A pull request's state shows once it is known to be merged or closed. */
@@ -119,7 +119,7 @@ function stepsOf(rec: FixRecords): FixStep[] {
     // Its first probe couldn't tell: inconclusive at the first model call, never a finding that no call rescues the run.
     // Not rescued from any model call only where blame's bound bears it out; else from the first, as blame's report heads it.
     else if (b.outcome === 'unrescuable') blame = { key: 'blame', n: '01', state: 'warn', short: blameStateWord('unrescuable', unsettledFirst(r)), title: unrescuedHead(r).replace(/^\S+ /, ''), meta: cost };
-    else blame = { key: 'blame', n: '01', state: 'warn', short: 'blame stopped', title: 'Stopped before the search finished', meta: r.stopReason ?? cost };
+    else blame = { key: 'blame', n: '01', state: 'warn', short: blameStateWord('stopped', false), title: 'Stopped before the search finished', meta: r.stopReason ?? cost };
   }
 
   let repair: FixStep;
@@ -132,8 +132,8 @@ function stepsOf(rec: FixRecords): FixStep[] {
     const tried = p.report.candidates.filter((x) => x.state !== 'invalid' && x.state !== 'untried').length;
     // A repairer that proposed nothing is why, more than "there was no candidate to try".
     const none = noRepairerOf(p.report)?.text;
-    repair = { key: 'repair', n: '02', state: 'todo', short: 'no fix yet', title: 'No fix yet', meta: p.report.candidates.length ? `${tried} candidate${s(tried)} tried, none accepted${none ? ` · ${none}` : ''}` : (none ?? p.report.why ?? 'the repair found nothing to try') };
-  } else repair = { key: 'repair', n: '02', state: 'todo', short: 'no fix yet', title: 'No fix yet', meta: 'repair proposes a prompt fix' };
+    repair = { key: 'repair', n: '02', state: 'todo', short: 'no change yet', title: 'No change yet', meta: p.report.candidates.length ? `${tried} candidate${s(tried)} tried, none accepted${none ? ` · ${none}` : ''}` : (none ?? p.report.why ?? 'the repair found nothing to try') };
+  } else repair = { key: 'repair', n: '02', state: 'todo', short: 'no change yet', title: 'No change yet', meta: 'repair proposes a prompt change' };
 
   let verify: FixStep;
   if (v) {
@@ -147,7 +147,7 @@ function stepsOf(rec: FixRecords): FixStep[] {
   else if (counting(rec).length) {
     // A run it took is inconclusive (its gate ran out of attempts, or an attempt could not be judged), or the verify stopped first.
     const unsure = counting(rec).some((x) => x.report.runs.some((run) => outcomeOf(run) === 'inconclusive'));
-    verify = { key: 'verify', n: '03', state: 'warn', short: 'not settled', title: 'Not settled', meta: unsure ? 'a run it verified is inconclusive' : 'a verify stopped before every run settled' };
+    verify = { key: 'verify', n: '03', state: 'warn', short: 'inconclusive', title: 'Inconclusive', meta: unsure ? 'a run it verified is inconclusive' : 'a verify stopped before every run settled' };
   }
   else if (rec.verdicts.length) {
     const why = rec.standing.get(rec.verdicts.at(-1)!.verifyId)?.why;

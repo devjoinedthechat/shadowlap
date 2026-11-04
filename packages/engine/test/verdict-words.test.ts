@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fixVerifyHead, goldensPassed, verifyHead } from '../src/verdict-words.js';
+import { fixVerifyHead, goldensPassed, runOutcomeWord, verdictWord, verifyHead } from '../src/verdict-words.js';
 import { outcomeOf, type VerifiedRun, type VerifyReport } from '../src/verify.js';
 import { runId, verifyReport } from './fix-fixtures.js';
 
@@ -12,6 +12,18 @@ import { runId, verifyReport } from './fix-fixtures.js';
 const unsettled = (run: VerifiedRun): VerifiedRun => ({ ...run, verdict: 'open', decision: 'inconclusive' });
 /** A verify's runs as its head reads them: each one's role and verify's word for how it came out. */
 const said = (r: VerifyReport) => verifyHead(r.verdict, r.runs.map((x) => ({ role: x.role, outcome: outcomeOf(x) })));
+
+describe('a verify, in the one word a page has for each state', () => {
+  it('says a verdict that did not settle every run inconclusive, verify’s own incomplete left to its report', () => {
+    expect((['accepted', 'rejected', 'incomplete'] as const).map(verdictWord)).toEqual(['accepted', 'rejected', 'inconclusive']);
+  });
+
+  it('says a run its attempts left open inconclusive, whether its gate could not decide or it stopped first', () => {
+    expect((['fixed', 'not fixed', 'kept', 'broken', 'unsettled', 'inconclusive'] as const).map(runOutcomeWord)).toEqual(['fixed', 'not fixed', 'kept', 'broken', 'inconclusive', 'inconclusive']);
+    // A budget that stopped a run's attempts before its gate decided: verify's report says unsettled, a page inconclusive.
+    expect(runOutcomeWord(outcomeOf({ role: 'target', verdict: 'open', decision: 'continue' }))).toBe('inconclusive');
+  });
+});
 
 describe('goldensPassed', () => {
   it('counts what passed, of every golden the session judged', () => {

@@ -7,6 +7,7 @@ import { navigate } from '../router.js';
 import { useApp } from '../state.js';
 import type { FixDetail, VerifyStep } from '../types.js';
 import type { VerifiedRunGroups } from '../../src/attempt-groups.js';
+import { runOutcomeWord, verdictWord } from '../../../engine/src/verdict-words.js';
 import { AttemptGroups, useAttemptGroups } from './AttemptGroups.js';
 import { FixJobButton } from './FixJobButton.js';
 import { keepAt, moreLine, outcomeTone, tokens, verdictTone, verifyFor } from './model.js';
@@ -99,7 +100,7 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
                   </span>
                 </td>
                 <td>
-                  <Badge tone={outcomeTone(x.outcome)}>{x.outcome}</Badge>
+                  <Badge tone={outcomeTone(x.outcome)}>{runOutcomeWord(x.outcome)}</Badge>
                 </td>
                 <td className="fxwhere">
                   {x.note}
@@ -148,7 +149,7 @@ function Verdict({ v, fixId }: { v: VerifyStep; fixId: string }) {
   const more = lead(v) ? v.more! : null;
   return (
     <div className={`verdict ${tone}`}>
-      <Badge tone={tone === 'warn' ? 'y' : tone}>{v.verdict}</Badge>
+      <Badge tone={tone === 'warn' ? 'y' : tone}>{verdictWord(v.verdict)}</Badge>
       <div>
         <h2>{v.headline}</h2>
         <p>

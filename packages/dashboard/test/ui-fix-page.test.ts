@@ -309,12 +309,13 @@ describe('the Verify step', () => {
   it('opens on the newest verdict that counts, and says an incomplete one spent, never that it found out', async () => {
     const { fixId } = verdicts();
     await open(fixId, 'verify');
-    // Incomplete, in amber: the colour of what nothing decided, as inconclusive is everywhere.
+    // Verify's incomplete, said inconclusive in amber: the one word and colour of what nothing decided.
     expect(r!.one('.verdict').className).toBe('verdict warn');
     expect(r!.one('.verdict .badge').className).toBe('badge y');
+    expect(text(r!.one('.verdict .badge'))).toBe('inconclusive');
     expect(text(r!.one('.verdict h2'))).toBe('Not every run settled');
     // Links to each verdict's page: the one shown is the current one (a link pressed is no button: axe calls that critical).
-    expect(r!.all('.vpick a').filter((a) => a.getAttribute('aria-current') === 'page').map(text)).toEqual(['370712a+dirty · incomplete']);
+    expect(r!.all('.vpick a').filter((a) => a.getAttribute('aria-current') === 'page').map(text)).toEqual(['370712a+dirty · inconclusive']);
     expect(r!.all('.vpick a[aria-pressed]')).toEqual([]);
     // Tokens and cost per run are a quiet line, never figures bigger than the verdict; then what finding out spent.
     expect(r!.all('.deltas')).toEqual([]);
@@ -328,7 +329,7 @@ describe('the Verify step', () => {
     expect(r!.one('.verdict').className).toBe('verdict n');
     expect(r!.one('.verdict .badge').className).not.toContain('ok');
     expect(text(r!.one('.verdict h2'))).toBe("Doesn't count for this fix: its check leaves out issue_refund with {\"amount\":240} called 0 times");
-    expect(r!.all('.vpick a').map(text)).toEqual(["temperature=1 from each run's first model call · at f353f41 · accepted · doesn't count", '370712a+dirty · incomplete']);
+    expect(r!.all('.vpick a').map(text)).toEqual(["temperature=1 from each run's first model call · at f353f41 · accepted · doesn't count", '370712a+dirty · inconclusive']);
     // The revision stays with its "at", and no line starts on a dot.
     expect(r!.all('.vpick a')[0].textContent).toBe("temperature=1 from each run's first model call\u00a0· at\u00a0f353f41\u00a0· accepted\u00a0· doesn't count");
     expect(r!.one('.verdict p').textContent).toMatch(/^temperature=1 from each run's first model call\u00a0· at\u00a0f353f41\u00a0· a run passes/);
@@ -365,7 +366,7 @@ describe('what settles a fix left unsettled', () => {
     expect(JSON.parse(String(more.props['data-tip']))).toMatchObject({ t: 'Verifies the change again from the start, up to 80 attempts a run', s: `$ shadowlap verify --fixes ${run} --expect '${JSON.stringify(EXPECT)}' --set temperature=1` });
     // The header's Repair from here reads plain while the step leads.
     expect(r!.byText('.ph .actions button', 'Repair from here').className).toBe('btn');
-    expect(text(r!.one('.fxreceipt.vmore'))).toBe(`${run.slice(0, 10)} is not settled: the budget of $0.01 is spent. Run more attempts verifies again from the start (verify has no --continue), up to 80 a run, without its --budget 0.012: about 12 attempts, ≈$0.144.`);
+    expect(text(r!.one('.fxreceipt.vmore'))).toBe(`${run.slice(0, 10)} is inconclusive: the budget of $0.01 is spent. Run more attempts verifies again from the start (verify has no --continue), up to 80 a run, without its --budget 0.012: about 12 attempts, ≈$0.144.`);
     // The reasons say nothing the line doesn't.
     expect(r!.all('ul.fxwarn.bad')).toEqual([]);
     await r!.click(more);

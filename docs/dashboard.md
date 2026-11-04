@@ -786,7 +786,7 @@ One row per fix shows:
 - **Its title and label.**
 - **Where a fix from CI came from**, and how its pull request stands (*from CI · PR #138 merged*).
 - **How many runs failed**, what they did, and the check they must meet (*Failed: send_email called twice, not once · Must: send_email called once*).
-- **How far blame, repair and verify got.** A step that ran and needs a look is amber: a blame no call rescued, one that couldn't settle or stopped part way, or a verify left inconclusive.
+- **How far blame, repair and verify got.** A step that ran and needs a look is amber: a blame no call rescued (*not rescued*), one whose first probe couldn't tell (*inconclusive*) or that stopped part way (*stopped*), or a verify left *inconclusive*. Repair's result is a change (*prompt change*, *tool change*), or *no change yet*.
 
 All, Open and Verified filter them.
 
@@ -854,7 +854,7 @@ It opens on the newest verdict that counts for the fix. A verdict is headed by t
 
 One that doesn't count for the fix is drawn plain and headed with why (*Doesn't count for this fix: its check leaves out send_email called 1 time*). It is marked so in the switch.
 
-**An incomplete verdict** is amber, as inconclusive is everywhere, and leads with what settles it, the fix's header plain meanwhile:
+**A verdict that didn't settle every run** reads *inconclusive*, in amber, as it does on every page; verify's own word for it, *incomplete*, stays in its report. It leads with what settles it, the fix's header plain meanwhile:
 
 - **Run more attempts**, for a run its gate couldn't settle in its attempts, or that the verify stopped before it settled.
 - **Verify again**, for one stopped by an attempt that couldn't be judged.
@@ -875,7 +875,7 @@ Then come:
 - **Each run's attempts the provider left unavailable**, and the method behind its bound on hover.
 - **Each run's attempts grouped by what each did**, as on the Blame step.
 - **What the change does to input tokens and cost per run**, in one quiet line as verify prints it.
-- **What finding out cost**; for an incomplete verdict, only what it spent.
+- **What finding out cost**; for an inconclusive verdict, only what it spent.
 
 The stepper counts the runs the verdicts that hold fixed and kept (*3 fixed · 1 kept*). A fix verified with a change of request fields has no patch: **Mark applied** says which fields, for you to set in your agent, and so does `fix apply`'s drawer.
 

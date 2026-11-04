@@ -342,7 +342,7 @@ describe('the Verify step', () => {
 
   it('says what Run more attempts takes, and why the run it names is open', () => {
     const run = { runId: '01M5JERYHZ', state: 'stopped' as const, why: 'the budget of $0.01 is spent', attempt: null };
-    expect(moreLine({ kind: 'more', run, max: 80, expected: 12, cost: 0.045, budget: '0.012' })).toBe(' is not settled: the budget of $0.01 is spent. Run more attempts verifies again from the start (verify has no --continue), up to 80 a run, without its --budget 0.012: about\u00a012 attempts, ≈$0.045.');
+    expect(moreLine({ kind: 'more', run, max: 80, expected: 12, cost: 0.045, budget: '0.012' })).toBe(' is inconclusive: the budget of $0.01 is spent. Run more attempts verifies again from the start (verify has no --continue), up to 80 a run, without its --budget 0.012: about\u00a012 attempts, ≈$0.045.');
     expect(moreLine({ kind: 'more', run: { ...run, state: 'inconclusive', why: null }, max: 160, expected: 35, cost: null, budget: null })).toBe(' is inconclusive. Run more attempts verifies again from the start (verify has no --continue), up to 160 a run: about\u00a035 attempts.');
     expect(moreLine({ kind: 'again', run: { ...run, state: 'unjudged', why: 'no key for anthropic', attempt: 3 }, max: 80, expected: 3, cost: null, budget: null })).toBe(' stopped at attempt 3, which could not be judged: no key for anthropic. Verify again once it can be.');
   });
@@ -556,7 +556,7 @@ describe('the job drawer', () => {
     expect(jobStatus(job('blame', 0, unsettled), [])).toEqual({ text: 'inconclusive · exit 0', tone: 'warn' });
     expect(jobStatus(job('blame', 0, { ...unsettled, failedWrite: { name: 'post_digest', message: 'channel_not_found', callNo: 1 } }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'warn' });
     expect(jobStatus(job('blame', 0, { ...unsettled, probes: [{ callNo: 1, decision: 'fail' }] }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'warn' });
-    expect(jobStatus(job('blame', 1, { outcome: 'stopped' }), [])).toEqual({ text: 'stopped early · exit 1', tone: 'err' });
+    expect(jobStatus(job('blame', 1, { outcome: 'stopped' }), [])).toEqual({ text: 'stopped · exit 1', tone: 'err' });
     expect(jobStatus(job('repair', 0, { outcome: 'fixed' }), [])).toEqual({ text: 'fixed · exit 0', tone: 'ok' });
     expect(jobStatus(job('repair', 1, { outcome: 'not-fixed' }), [])).toEqual({ text: 'no fix found · exit 1', tone: 'err' });
     // Claude Code was never asked, and nothing else was tried: no fix was looked for, which is no failure of the agent's.

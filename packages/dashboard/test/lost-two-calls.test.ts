@@ -75,7 +75,7 @@ describe('a run blame found lost between two calls, the probes between them unde
     expect(fixList(store).fixes[0].steps[0]).toMatchObject({ short: 'lost between #3 and #5', title: 'Lost between model calls #3 and #5' });
     expect(fixDetail(store, fix.fixId)!.blame).toMatchObject({ title: 'Lost between model calls #3 and #5' });
     expect(fixDetail(store, fix.fixId)!.blames).toEqual([expect.objectContaining({ lostAt: 3, range: two })]);
-    expect(needsLookFixes(store).find((x) => x.fixId === fix.fixId)?.detail).toBe('lost between model calls #3 and #5 · no fix yet');
+    expect(needsLookFixes(store).find((x) => x.fixId === fix.fixId)?.detail).toBe('lost between model calls #3 and #5 · no change yet');
     expect(fixForRun(store, failing)!.blame).toMatchObject({ lostAt: 3, range: two });
     // Blame's event, and the blame kept on the run, as the activity feed tells them.
     recordEvent(store, { kind: 'blame.done', runId: failing, ref: fix.fixId, data: { outcome: 'blamed', callNo: 3, confidence: 'low', title: 'refund over the limit', opened: true, range: between }, at: 3_000 });

@@ -5,6 +5,20 @@
  */
 
 /**
+ * A verify's verdict as a page says it: accepted, rejected, or inconclusive for one that didn't
+ * settle every run, the one word a page has for what didn't settle. Verify's own word for it,
+ * incomplete, stays in its report and its log.
+ */
+export const verdictWord = (v: 'accepted' | 'rejected' | 'incomplete'): 'accepted' | 'rejected' | 'inconclusive' => (v === 'incomplete' ? 'inconclusive' : v);
+
+/**
+ * How a run verify took came out, as a page says it: fixed, not fixed, kept, broken, or inconclusive
+ * for one its attempts left open, whether its gate couldn't decide or it stopped first (verify's
+ * report says the second unsettled).
+ */
+export const runOutcomeWord = <O extends string>(o: O): Exclude<O, 'unsettled'> | 'inconclusive' => (o === 'unsettled' ? 'inconclusive' : (o as Exclude<O, 'unsettled'>));
+
+/**
  * A test session's tally, counting what passed, as every tally on a page counts it: `2 of 7 goldens
  * passed`. (The session's own line keeps the CLI's `2 passed, 3 failed, 2 inconclusive`.)
  */

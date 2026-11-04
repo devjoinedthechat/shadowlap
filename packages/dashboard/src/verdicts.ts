@@ -1,4 +1,4 @@
-import { controlOpen, decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, emptyCounts, fixVerifyHead, goldensPassed, judgeOpen, migrateBreaks, migrateUnsettled, outcomeOf, plural, verifyHead, type DecisionCounts, type DecisionStep, type DecisionsVerify, type MigratePasses, type Normalizer, type StepRerun, type StoreOf, type TestResult, type TestSession, type UnsettledRun, type VerdictStanding, type VerifiedRun, type VerifyOutcome, type VerifyReport } from '@shadowlap/engine';
+import { controlOpen, decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, emptyCounts, fixVerifyHead, goldensPassed, judgeOpen, migrateBreaks, migrateUnsettled, outcomeOf, plural, verdictWord, verifyHead, type DecisionCounts, type DecisionStep, type DecisionsVerify, type MigratePasses, type Normalizer, type StepRerun, type StoreOf, type TestResult, type TestSession, type UnsettledRun, type VerdictStanding, type VerifiedRun, type VerifyOutcome, type VerifyReport } from '@shadowlap/engine';
 import { changeName, fieldsOf } from './fix-shared.js';
 import { uncountedHead } from './fix-verify-step.js';
 import { asksForAll, optionLike, resultLine, verdictOfResult, type GoldenSource, type GoldenVerdict } from './tests.js';
@@ -605,7 +605,7 @@ function verifyRows(store: Store, ids: readonly string[]): VerifyVerdict[] {
     const shape = { candidate, command: str(r.command) ?? '', rerun: parsed<StepRerun | null>(r.rerun, null), report: report as VerifyReport };
     const outcomes = new Map<string, number>();
     for (const x of runs) outcomes.set(x.outcome, (outcomes.get(x.outcome) ?? 0) + 1);
-    const word: VerdictWord = verdict === 'incomplete' ? 'inconclusive' : verdict;
+    const word: VerdictWord = verdictWord(verdict);
     return [
       {
         kind: 'verify' as const,

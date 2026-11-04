@@ -51,7 +51,7 @@ export function reproducedNote(o: OverviewSummary['outcomes']['reproduced']): st
 export function blameWords(b: Pick<OverviewSummary['today']['blame']['runs'][number], 'outcome' | 'lostAt'> & { unsettled?: boolean; range?: unknown }): string {
   if (b.outcome === 'blamed' && b.lostAt) return lostWords(b.lostAt, b.range);
   if (b.outcome === 'unrescuable') return unrescuedWords(b.unsettled === true);
-  if (b.outcome === 'stopped') return 'blame stopped early';
+  if (b.outcome === 'stopped') return 'blame stopped part way';
   return 'not placed yet';
 }
 
