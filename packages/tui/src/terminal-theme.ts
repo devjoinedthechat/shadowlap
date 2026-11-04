@@ -6,7 +6,8 @@ import type { ThemeName } from './theme.js';
  *
  * 1. `SHADOWLAP_UI_THEME=dark|light|ansi`, for a terminal that answers wrongly or not at all.
  * 2. A terminal with fewer than 256 colours gets `ansi`: hex colours would be rounded to whatever is near.
- * 3. The background colour the terminal reports when asked (OSC 11), as Neovim and delta ask.
+ * 3. The background colour the terminal reports when asked (OSC 11), as Neovim and delta ask. It is
+ *    kept too: the ground of where you are is mixed from it, so it shows on any background.
  * 4. `COLORFGBG`, which rxvt, Konsole and iTerm2 set when they start.
  * 5. Otherwise `ansi`, the terminal's own colours, which suit whatever background it has.
  */
@@ -37,18 +38,31 @@ export function themeFromColorFgBg(value: string | undefined): 'dark' | 'light' 
 
 /**
  * A terminal's answer to OSC 11, `ESC ] 11 ; rgb:RRRR/GGGG/BBBB` ended by BEL or ESC \, with one to
- * four hex digits a channel. Light when black text would stand out more on it than white: relative
- * luminance above 0.179, where the two contrasts are equal.
+ * four hex digits a channel: its background's channels, from 0 to 1.
  */
-export function themeFromOsc11(reply: string): 'dark' | 'light' | null {
+function osc11Channels(reply: string): [number, number, number] | null {
   const m = /\]11;rgba?:([0-9a-f]{1,4})\/([0-9a-f]{1,4})\/([0-9a-f]{1,4})/i.exec(reply) ?? /\]11;#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(reply);
   if (!m) return null;
-  const channel = (hex: string) => {
-    const c = parseInt(hex, 16) / (16 ** hex.length - 1);
-    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  };
-  const luminance = 0.2126 * channel(m[1]!) + 0.7152 * channel(m[2]!) + 0.0722 * channel(m[3]!);
+  const channel = (hex: string) => parseInt(hex, 16) / (16 ** hex.length - 1);
+  return [channel(m[1]!), channel(m[2]!), channel(m[3]!)];
+}
+
+/**
+ * Light when black text would stand out more on the background the terminal reports than white:
+ * relative luminance above 0.179, where the two contrasts are equal.
+ */
+export function themeFromOsc11(reply: string): 'dark' | 'light' | null {
+  const rgb = osc11Channels(reply);
+  if (!rgb) return null;
+  const linear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const luminance = 0.2126 * linear(rgb[0]) + 0.7152 * linear(rgb[1]) + 0.0722 * linear(rgb[2]);
   return luminance > 0.179 ? 'light' : 'dark';
+}
+
+/** The background the terminal reports, as `#rrggbb`: what the selection ground is mixed from (`themeFor`). */
+export function backgroundFromOsc11(reply: string): string | null {
+  const rgb = osc11Channels(reply);
+  return rgb ? `#${rgb.map((c) => Math.round(c * 255).toString(16).padStart(2, '0')).join('')}` : null;
 }
 
 /** A Primary Device Attributes answer, `ESC [ ? … c`, which every VT100-style terminal sends. */
@@ -102,11 +116,23 @@ export function queryTerminal(stdin: NodeJS.ReadStream, stdout: NodeJS.WriteStre
   });
 }
 
-export async function detectTheme({ env = process.env, stdin = process.stdin, stdout = process.stdout, timeoutMs }: DetectOptions = {}): Promise<ThemeName> {
+/** The palette for the terminal, and the background it reported when it was asked and answered. */
+export interface TerminalColours {
+  theme: ThemeName;
+  background: string | null;
+}
+
+export async function detectTerminal({ env = process.env, stdin = process.stdin, stdout = process.stdout, timeoutMs }: DetectOptions = {}): Promise<TerminalColours> {
   const asked = themeFromEnv(env);
-  if (asked) return asked;
+  if (asked) return { theme: asked, background: null };
   const depth = typeof stdout.getColorDepth === 'function' ? stdout.getColorDepth(env) : 8;
-  if (depth < 8) return 'ansi';
+  if (depth < 8) return { theme: 'ansi', background: null };
   const reply = await queryTerminal(stdin, stdout, timeoutMs ?? queryTimeout(env));
-  return (reply ? themeFromOsc11(reply) : null) ?? themeFromColorFgBg(env.COLORFGBG) ?? 'ansi';
+  const theme = reply ? themeFromOsc11(reply) : null;
+  if (theme) return { theme, background: backgroundFromOsc11(reply!) };
+  return { theme: themeFromColorFgBg(env.COLORFGBG) ?? 'ansi', background: null };
+}
+
+export async function detectTheme(options: DetectOptions = {}): Promise<ThemeName> {
+  return (await detectTerminal(options)).theme;
 }

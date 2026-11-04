@@ -25,9 +25,11 @@ import {
 /**
  * How a run stands, in the words the dashboard's banner and `shadowlap show` use: why it failed,
  * where blame found it lost, how its fix stands, and the tools it ran unrecorded. Worked out from
- * the engine's own verdicts; nothing here decides anything the engine hasn't.
+ * the engine's own verdicts; nothing here decides anything the engine hasn't. Each in the
+ * dashboard's consequence colours: passed `ok`, a look or inconclusive `warn`, failed `err`, and
+ * `muted` for what doesn't apply or is neither, an interrupted run's as every list says it.
  */
-export type Tone = 'ok' | 'warn' | 'err' | 'info';
+export type Tone = 'ok' | 'warn' | 'err' | 'muted' | 'info';
 export interface Fact {
   text: string;
   tone: Tone;
@@ -56,7 +58,7 @@ export function standing(run: RunRecord, outcome: RunOutcome): Fact | null {
   const reason = failureReason({ status: run.status, checks: run.meta?.checks ?? [], outcome, blame: run.meta?.blame });
   if (reason?.kind === 'check') return { text: failedCheckText(reason.check), tone: 'err' };
   if (reason?.kind === 'fix-check') return { text: `check failed: “${reason.check}”`, tone: 'err' };
-  if (reason) return { text: FAILURE_WORDS[reason.kind], tone: reason.kind === 'interrupted' ? 'warn' : 'err' };
+  if (reason) return { text: FAILURE_WORDS[reason.kind], tone: reason.kind === 'interrupted' ? 'muted' : 'err' };
   switch (outcome.kind) {
     case 'inconclusive':
       return { text: `check inconclusive${outcome.check ? `: ${outcome.check}` : ''}`, tone: 'warn' };
@@ -145,7 +147,7 @@ export function verdictOf(store: StoreOf<'recording' | 'fixes'>, run: RunRecord,
 
 /** The worst tone among facts: the verdict line takes it. */
 export function toneOf(facts: readonly Fact[]): Tone {
-  for (const t of ['err', 'warn', 'ok'] as const) if (facts.some((f) => f.tone === t)) return t;
+  for (const t of ['err', 'warn', 'ok', 'muted'] as const) if (facts.some((f) => f.tone === t)) return t;
   return 'info';
 }
 
@@ -153,7 +155,7 @@ export function toneOf(facts: readonly Fact[]): Tone {
 export function checkLine(c: StoredCheck): Fact {
   const s = checkStatus(c);
   const mark = s === 'passed' ? '✓' : s === 'failed' ? '✗' : s === 'inconclusive' ? '?' : '–';
-  const tone: Tone = s === 'passed' ? 'ok' : s === 'failed' ? 'err' : s === 'inconclusive' ? 'warn' : 'info';
+  const tone: Tone = s === 'passed' ? 'ok' : s === 'failed' ? 'err' : s === 'inconclusive' ? 'warn' : 'muted';
   const why = c.detail ?? c.reason ?? null;
   return { text: `${mark} ${c.label}${s === 'not-applicable' ? ' · not applicable' : ''}${why ? ` · ${why}` : ''}`, tone };
 }
