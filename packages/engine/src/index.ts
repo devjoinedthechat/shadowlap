@@ -26,7 +26,7 @@ export type { SqlValue } from './store.js';
 // The sidecar's writes queued while another process holds the store, and the ids of runs it starts before they are written.
 export type { QueuedWrites } from './store.js';
 export { ulidNow } from './store/core.js';
-export type { FixData, FixLink, FixLinkKind, FixStatus, PulledFrom, StepRerun, StoredBlame, StoredFix, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
+export type { FixData, FixLink, FixLinkKind, FixStatus, PulledFrom, PullRequestState, StepRerun, StoredBlame, StoredFix, StoredFixCheck, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
 export { FIX_STATUSES, FixIdError, GOOD_LABEL, applyLeft, checkKey, cleanTitle, coversCheck, fixCost, fixLabelInfo, fixLabels, fixOfRun, fixRecords, joinableFix, markFixApplied, newFixId, prNumber, recordBlame, recordRepair, recordVerdict, repairToApply, resolveFix, setFixTitle, settleAppliedFixes, verdictCounts } from './fixes.js';
 export type { BlameToRecord, FixCost, FixRecords, RecordedBlame, RecordedRepair, RecordedVerdict, RepairToRecord, VerdictToRecord } from './fixes.js';
 // A run by its full id or the unique prefix the CLI prints, for the dashboard's routes and the fix jobs.
@@ -40,9 +40,22 @@ export { blameCheckFor, checkSuggestion, configExpect, failedCheckLabels, labell
 export { recordingsOfRun, testsEntryFor } from './run-checks.js';
 // How a check came out (passed, failed, inconclusive, not applicable), read the same way from any run or test result.
 export { CHECK_STATUSES, STATUS_WORDS, checkOutcome, checkStatus, countStatuses, statusTally, type StoredCheckLike } from './check-status.js';
-export type { NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession } from './store.js';
+// Outcome checks (checks/): the grammar, its parser, and each check's label and a result's line, none
+// of which needs Node, so the dashboard's pages can bundle them; a run judged by them, a judge check
+// with no verdict inconclusive; and the tests entries in the config. The CLI's checks.ts re-exports them.
+export { EXPECT_KEYS, JUDGE_MODEL, OPERATORS, OPERATOR_ALIASES, aliasOf, hasChecks, judgeChecksOf, pathsNamed, readsOutput, toolsNamed, withoutOutput } from './checks/grammar.js';
+export type { CallCondition, CallRule, CheckResult, CountRange, ExpectSpec, JudgeCheck, Matcher, NamedPath, NamedTool, Operand, Operator, Reference, TestEntry, TestSpec, TextCheck, ToolCheck, WhenRule } from './checks/grammar.js';
+export { parseAmount, parseCallRule, parseCount, parseExpect, parseJudge, parsePredicate, parseWhen } from './checks/parse.js';
+export { CHECK_MARKS, callRuleLabel, checkLabels, checkLine, checkWords, conditionLabel, costLabel, countLabel, formatAmount, formatCount, judgeLabel, judgeSource, showValue, textLabels, toolCheckLabel, whenLabel, type CountKey, type TextKey } from './checks/labels.js';
+export { LABEL_INPUT, argsMatch, closestName, evaluateChecks, judgeProvider, judgeResults, notJudgedWhy, storedCalls, storedCheckInput, unreadPaths } from './checks/evaluate.js';
+export type { CheckInput, EvaluateOptions, JudgeCheckVerdict, RecordedCalls, UnreadPath } from './checks/evaluate.js';
+export { CHAOS_TIMEOUT, DEFAULT_CHAOS, TEST_SETTINGS, chaosFor, parseChaosFields, parseTestSettings, parseTests, specFor } from './checks/tests-entry.js';
+export type { ChaosSpec, ExpectParser, TestSettings } from './checks/tests-entry.js';
+export type { NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession, TestSessionComment, TestSessionPullRequest } from './store.js';
 export { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, unmaskedHints, valueHints, volatileValue, volatileValues, type VolatileValue, type VolatileValues } from './volatile.js';
 export type { TeamFixRow, TeamRunRow, TeamRunState, TeamSyncRow } from './store.js';
+// The advice Needs a look shows that its owner put away, kept in the project's store alone, and the rule that brings it back.
+export { stillDismissed, type NewDismissal, type StoredDismissal } from './store.js';
 // The team store's counts, by run (attempts filed under their run): Settings → Store, Needs a look, store show.
 export { abandonedRuns, teamRunCounts, type TeamRunCounts } from './team-runs.js';
 export { recordEvent, type EventKind, type RecordEventInput } from './events.js';
@@ -80,8 +93,8 @@ export type { ModelResolver, SummaryOptions } from './report.js';
 // Judge checks: the reserved scope replay strictness leaves out, what a judge reads, the request it is sent, its verdict and its cost.
 export { JUDGE_INSTRUCTIONS, JUDGE_KEYS, JUDGE_REQUEST_VERSION, JUDGE_SCOPE, MATERIAL_LIMIT, RESERVED_SCOPE_PREFIX, VERDICT_SCHEMA, agentCallsOf, claudeTakes, escapeMaterial, isJudgeCall, judgeAskId, judgeCallsOf, judgedAnswers, judgeMaterial, judgePrompt, judgeRequest, judgeRules, judgeTarget, matchedClockOf, materialDifference, materialOfRequest, openaiTakesReasoningEffort, openaiTakesTemperature, reachesJudgeRequest, readVerdict } from './judge.js';
 export type { ClaudeTakes, GivenAnswer, JudgeAsk, JudgeMaterial, JudgeProvider, JudgeReads, JudgeRequest, JudgeVerdict, MatchMasks, MaterialResult } from './judge.js';
-export { aboutUsd, judgeLine, judgeParts, summarizeJudge } from './report.js';
-export { DEFAULT_PRICES, canonicalModel, estimateCost, formatDuration, formatUsd, priceFor, shortModel } from './prices.js';
+export { judgeLine, judgeParts, summarizeJudge } from './report.js';
+export { DEFAULT_PRICES, aboutUsd, canonicalModel, estimateCost, formatDuration, formatUsd, priceFor, shortModel } from './prices.js';
 export type { Price } from './prices.js';
 export { EXTERNAL_COMMAND, NO_COMMAND, PACK_ENTRIES, PACK_FORMAT, PACK_GITATTRIBUTES, PACK_VERSION, TEST_COMMAND, asImportedRun, asTheyStand, commandIsImported, hasRecordedCommand, heldFrom, importedCommandSource, lexists, movePath, packRun, unpackRun, withoutCommand, writePackAttributes } from './pack.js';
 export { CONTROL, PACK_LIMITS, PackError } from './pack-schema.js';
@@ -219,7 +232,7 @@ export { fixVerifyHead, goldensPassed, runOutcomeWord, verdictWord, verifyHead }
 export { ACTIONS, confirmWords, forceLiveLabel, type ActionWords } from './action-words.js';
 export { longDate, replacementModels, retiredFields, retirementOf, retirementPlatform, retirementsOf, retirementTable, retirementTableProblems, tableModel } from './model-retirements.js';
 export type { FieldRetirement, ModelRetirement, RetirementNotice, RetirementPlatform, RetirementSource, RetirementTable } from './model-retirements.js';
-export type { DecisionRunRow, DecisionSessionRow, NewDecisionSession } from './store.js';
+export type { DecisionRunRow, DecisionSessionRow, MigrationApplied, NewDecisionSession } from './store.js';
 // Injection tests: trust, payloads and their canaries, what an attempt wrote, and --clean's neutral
 // result (shadowlap injection, and the dashboard's read model of its results).
 export { DEFAULT_BASELINES, INJECTION_CHECK, INJECTION_VERDICTS, PAYLOAD_LIMITS, atPath, canaryIn, carriesMark, cleanBound, cleanDecided, cleanRule, configuredTrust, describeIdentifiers, displayPath, fillPayload, findCanary, goneWrites, hasCanary, identifiersOf, injectionTemplates, keepingCanaries, neutralResult, newCanary, normalizedArgs, noVerdicts, parseInjectionEntry, parsePayloads, parseToolTrust, plantMarks, proofLine, selectTemplates, strongestVerdict, templatePayload, trustOf, unexplainedWrites, untrustedReads, writeBaseline, writeRecurs } from './injection.js';

@@ -4,7 +4,7 @@ import { firstDifference } from './diff.js';
 import { isJudgeCall } from './judge-scope.js';
 import { normalizeAddCommand } from './volatile.js';
 import { loadApiRequest } from './manifest.js';
-import { estimateCost, formatUsd, type Price } from './prices.js';
+import { aboutUsd, estimateCost, formatUsd, type Price } from './prices.js';
 import { fitLines, safeLine, safeText } from './text.js';
 import type { StoreOf } from './store.js';
 import type { CallKind, CallRecord, DivergenceReport, JudgeSummary, NotReached, Origin, RunRecord, RunSummary, Usage } from './types.js';
@@ -134,12 +134,6 @@ export function summarizeRun(run: RunRecord, allCalls: CallRecord[], notReached:
     divergence: run.divergence,
     ...(judged.length ? { judge: summarizeJudge(run, judged, options) } : {}),
   };
-}
-
-/** An estimate in dollars: `≈$0.0004`, and `<$0.001` as it is. */
-export function aboutUsd(n: number): string {
-  const s = formatUsd(n);
-  return s.startsWith('<') ? s : `≈${s}`;
 }
 
 /** What a run's judge calls did and cost, part by part: `1 call`, `1 from the recording, free`, `0 upstream requests`. */

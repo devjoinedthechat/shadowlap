@@ -1,9 +1,9 @@
 /**
  * How a check came out, in the words every report uses: passed, failed, inconclusive (it could not
  * be decided, as a judge check with no verdict) and not applicable (a `when` rule whose condition
- * never held). The CLI evaluates checks (`checks.ts` in the CLI); the CLI and the dashboard both read
- * them back from a run or a test result, where a result stored before checks had a status carries
- * only `ok`, so they read the status through `checkStatus`.
+ * never held). The engine evaluates checks (checks/evaluate.ts), for the CLI and the dashboard alike;
+ * both read them back from a run or a test result, where a result stored before checks had a status
+ * carries only `ok`, so they read the status through `checkStatus`.
  */
 
 import type { CheckStatus } from './types.js';

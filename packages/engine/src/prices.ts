@@ -95,6 +95,12 @@ export function formatUsd(n: number): string {
   return `$${Math.round(n).toLocaleString('en-US')}`;
 }
 
+/** An estimate in dollars: `≈$0.0004`, and `<$0.001` as it is. */
+export function aboutUsd(n: number): string {
+  const s = formatUsd(n);
+  return s.startsWith('<') ? s : `≈${s}`;
+}
+
 /** `claude-opus-5-20260401` → `opus-5`; `gpt-5-mini` stays. */
 export function shortModel(model: string | null | undefined): string {
   if (!model) return '';

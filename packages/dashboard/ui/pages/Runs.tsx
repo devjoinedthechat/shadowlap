@@ -4,7 +4,7 @@ import { Chips, PageHeader } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
 import { ShowMore } from '../components/Table.js';
-import { compactPath } from '../format.js';
+import { compactPath, viewerTimeZone } from '../format.js';
 import { useLatest, useLoad } from '../hooks.js';
 import { sentence } from '../normalize.js';
 import { addPaletteSource } from '../palette-sources.js';
@@ -27,7 +27,6 @@ import { useApp } from '../state.js';
 import { useTeamStore } from '../teamstore.js';
 import { errorText } from '../toast.js';
 import type { BisectChoices, ChipCounts, RunsPage as RunsPageView, RunsPageRow, RunsQuery } from '../types.js';
-import { viewerTimeZone } from './Overview.js';
 import { ACTIONS } from '../labels.js';
 
 /**

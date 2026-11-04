@@ -20,6 +20,13 @@ that comes from data goes there, everything else is a class.
 | `EmptyState` | `bits.tsx` | Nothing here yet: what it is, and the command that makes it (`.panel.stepempty`). |
 | `StepList` | `bits.tsx` | Numbered setup steps, each with the CLI command that does it (`ol.setup`); a step is `done`, `cur` or `todo`. |
 
+## Code that waits until it shows
+
+| Component | File | Use it for |
+|---|---|---|
+| `onShow` | `OnShow.tsx` | A part of a page heavy enough to wait for a script of its own until it first shows, as a run's views but Calls do. `test/ui-bundle-size.test.ts` holds the structural diff (`JsonDiff.tsx`), the results matrix (`ResultsMatrix.tsx`), the check builder (`ui/checks/`) and each Changes tab (`ui/changes/`, but its `Head.tsx`) to it, failing when one of them is in the first look or loads with a page. Declare a part beside the page that shows it, never in `pages/lazy.tsx`, and `preload()` it on a sign it is about to show (the pointer or the focus on the tabs that switch to it), never as its page opens: what opening a page loads is held to the page's budget. |
+| `LoadFailed` | `bits.tsx` | What a part shows where its script didn't come (`onShow`'s `failed`; a page's in `pages/lazy.tsx`, under its title): one line in the error tone, and Retry, which loads the page again, since a browser never asks twice for a script that failed. Retry waits while the server can't be reached (`guard`). |
+
 ## Overlays
 
 | Component | File | Notes |

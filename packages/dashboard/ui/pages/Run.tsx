@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { JOB_KINDS, type CallDetail, type RunDetail } from '../api.js';
-import { Legend } from '../components/bits.js';
+import { Legend, LoadFailed } from '../components/bits.js';
 import { useMenu } from '../components/Popover.js';
 import { Page } from '../components/Page.js';
 import { Strip, stripDetail, type StripCall } from '../components/Strip.js';
@@ -17,8 +17,7 @@ import { inScope, scopeChips, scopesOf } from '../scopes.js';
 import { useApp, type PaletteCommand } from '../state.js';
 import { useActionRunner } from '../run/actions.js';
 import { CallsTable, CallsToolbar, matchesFilter, pendingMatches, type OriginFilter } from '../run/CallsView.js';
-import { ContextView } from '../run/ContextView.js';
-import { ForksView } from '../run/ForksView.js';
+import { onShow } from '../components/OnShow.js';
 import { ForkDifferences } from '../run/ForkDifferences.js';
 import { Inspector, TABS, type InspectorTab } from '../run/Inspector.js';
 import { flagText } from '../run/banner.js';
@@ -33,12 +32,9 @@ import { markKey, MARKS, type RunMark } from '../runkey.js';
 import { Banner, DiffPanel, Metrics, RunLoading, ScopeBar } from '../run/parts.js';
 import { usePagedRun } from '../run/paged-run.js';
 import { followPages, isPending, listedCalls, type ListedCall } from '../run/paging.js';
-import { ProvenanceView } from '../run/ProvenanceView.js';
 import { runNotes } from '../run/notes.js';
 import { RunNotes } from '../run/RunNotes.js';
 import { RunHeader } from '../run/RunHeader.js';
-import { TimelineView } from '../run/TimelineView.js';
-import { TurnsView } from '../run/TurnsView.js';
 import { ACTIONS } from '../labels.js';
 
 /**
@@ -46,6 +42,27 @@ import { ACTIONS } from '../labels.js';
  * recording, the strip of every call, scopes, the five views and Provenance, and the inspector. The
  * URL holds the call and the view; a run still recording grows as calls arrive.
  */
+
+/**
+ * The views but Calls, by the view each draws, each in a script of its own that loads the first time
+ * it shows (`onShow`). None loads as the page opens, so opening a run loads the page's own code
+ * alone (test/ui-bundle-size.test.ts). Every one of them loads once the pointer or the focus reaches
+ * the Views tabs, or the view first changes (`warmViews`), so a switch to one draws it at once. One
+ * whose code didn't come says so in the view, with Retry.
+ */
+const VIEW_OPTIONS = { failed: <LoadFailed what="view" /> };
+export const VIEW_PARTS = {
+  turns: onShow(() => import('../run/TurnsView.js').then((m) => m.TurnsView), VIEW_OPTIONS),
+  context: onShow(() => import('../run/ContextView.js').then((m) => m.ContextView), VIEW_OPTIONS),
+  timeline: onShow(() => import('../run/TimelineView.js').then((m) => m.TimelineView), VIEW_OPTIONS),
+  forks: onShow(() => import('../run/ForksView.js').then((m) => m.ForksView), VIEW_OPTIONS),
+  provenance: onShow(() => import('../run/ProvenanceView.js').then((m) => m.ProvenanceView), VIEW_OPTIONS),
+} satisfies Record<Exclude<View, 'calls'>, unknown>;
+const { turns: TurnsView, context: ContextView, timeline: TimelineView, forks: ForksView, provenance: ProvenanceView } = VIEW_PARTS;
+
+function warmViews(): void {
+  for (const part of Object.values(VIEW_PARTS)) part.preload();
+}
 
 let lastTab: InspectorTab = 'conversation';
 
@@ -325,7 +342,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const rescued: { callNo: number | null } | null = run.rescuedBy ? { callNo: run.rescuedBy.callNo ?? forkAt } : parent?.run.meta?.blame?.rescuedRunId === runId && run.run.divergence ? { callNo: run.run.divergence.callNo } : null;
 
   const select = useCallback((n: number) => navigate(href.run(runId, n, v), true), [runId, v]);
-  const setView = (next: View) => navigate(href.run(runId, selected, next), true);
+  const setView = (next: View) => (warmViews(), navigate(href.run(runId, selected, next), true));
   const listFor = useCallback(() => (v === 'calls' ? visible : scopedCalls), [v, visible, scopedCalls]);
   const step = useCallback(
     (delta: number) => {
@@ -485,7 +502,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
       {scoped ? <ScopeBar run={run} scopes={scopeTree} scope={scope} onScope={setScope} /> : null}
       <div className="work">
         <section className="views" aria-label="Views of the run">
-          <div className="tabs" role="tablist" aria-label="Views" ref={useActiveTabInView<HTMLDivElement>(v)}>
+          <div className="tabs" role="tablist" aria-label="Views" ref={useActiveTabInView<HTMLDivElement>(v)} onPointerEnter={warmViews} onFocus={warmViews}>
             {tabs.map(([key, label, count]) => (
               <button key={key} type="button" role="tab" aria-selected={v === key} onClick={() => setView(key)} title={CYCLE_VIEWS.includes(key) ? 'v cycles the views' : undefined}>
                 {label}

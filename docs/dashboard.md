@@ -1544,7 +1544,7 @@ shadowlap export html <run> --lineage run.html
 
 The file has the same views as the dashboard, with the run's data built in and nothing to install or run. Attach it to a pull request, keep it as a CI artifact, or send it to whoever asks what the agent did.
 
-- **What it holds**: it opens on the run that was shared, and holds Runs (the runs in the file) and, when it holds two or more, Compare between them.
+- **What it holds**: it opens on the run that was shared, and holds Runs (the runs in the file) and, when it holds two or more, Compare between them. Any other page opens Runs.
 - **What it leaves out**: there is nothing to run from it and no search across runs, so `/` filters a run's calls.
 - **Redaction**: it holds recorded prompts and tool data, so the project's redaction rules apply by default; see [`export html`](./cli.md#export-html).
 
@@ -1735,7 +1735,13 @@ An exported copy holds every call.
 
 ### Each page's code loads when it opens
 
-The dashboard's first script holds the shell and what the pages share; a page's own code loads the first time you open it. An exported copy is one script with every page in it.
+The dashboard's first script holds the shell and what the pages share. The rest loads the first time it is needed:
+
+- **A page's own code** loads when you first open the page, which waits empty until it comes. Opening a page loads nothing more.
+- **A run's views but Calls** each have a script of their own. They load once the pointer or the focus reaches the Views tabs, or the view first changes, so switching to one draws it at once.
+- **A script that can't be loaded** (the dashboard stopped, or was updated since the page opened) leaves a line that says so under the page's title, or in the view. Its **Retry** loads the page again, since a browser never asks twice for a script that failed, and waits while the server can't be reached.
+
+An exported copy is one script, built apart with only what a copy shows: its runs, a run's page with every view, and Compare between them.
 
 
 ## How the page stays current
@@ -2107,9 +2113,11 @@ Outside a dashboard job the variable is unset, and nothing is written.
 - on any page, Settings tab, run, view, inspector tab, menu or dialog;
 - on Fixes and each fix's steps, the palette, and the shortcuts on Overview, Runs, Fixes and Settings;
 - on a toast with Undo, or the bar that says the dashboard can't be reached;
+- on a page, and a run's view, whose code couldn't be loaded;
+- on an exported copy's run, opened from a file;
 - on every page, Settings tab and fix step again, with a few runs and Import capture…, at a phone's width (390 px).
 
-It also checks the contrast of text and of a field's edge, the focus order, the skip link, the focus rings and every overlay's focus. It checks 24 px targets, a phone's width with no label under 11 px, and that every link the server writes opens a page.
+It also checks the contrast of text and of a field's edge, the focus order, the skip link, the focus rings and every overlay's focus. It checks 24 px targets, a phone's width with no label under 11 px, and that every link the server writes opens a page. A page whose code couldn't be loaded must draw once **Retry** loads it again. An exported copy, opened from a file, must draw its run's every view, its runs and Compare without loading a thing or logging an error.
 
 **A large store.** `node scripts/dashboard-scale.mjs --calls 20000 --runs 10000` builds a large store and times what a browser asks for on it; see [Large stores and long runs](#large-stores-and-long-runs).
 
@@ -2118,12 +2126,13 @@ It also checks the contrast of text and of a field's edge, the focus order, the 
 - **Links**: the server builds its links with `packages/dashboard/src/links.ts`, the builder the page uses too.
 - **Attempts**: which runs are attempts is one rule, `packages/engine/src/run-roles.ts`.
 - **Endpoints**: the server's endpoints are registered by feature in `packages/dashboard/src/routes/`, and the shapes they answer with are in `packages/dashboard/src/views.ts` and `api.ts`.
+- **Scripts**: `packages/dashboard/ui-bundles.mjs` splits the browser app: a chunk per page (`ui/pages/lazy.tsx`), one per part of a page through `onShow` (`ui/components/OnShow.tsx`), and an exported copy's one script from `ui/main-copy.tsx`. `test/ui-bundle-size.test.ts` holds each to its budget, and fails when a part it lists as heavy loads with a page instead of through `onShow`.
 
 ## Troubleshooting
 
 ### The server can't be reached
 
-When the server stops answering (the dashboard was stopped), a bar says what the page last loaded, and actions pause. The page tries again after 5, 10, 20 and then every 30 seconds.
+When the server stops answering (the dashboard was stopped), a bar says what the page last loaded, and actions pause. The page tries again after 5, 10, 20 and then every 30 seconds. A page or a view whose code couldn't be loaded meanwhile says so, and its **Retry** loads the page again once the server is back; see [Each page's code loads when it opens](#each-pages-code-loads-when-it-opens).
 
 ### The dashboard refuses the link
 
