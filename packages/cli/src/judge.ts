@@ -105,7 +105,8 @@ export interface Judged {
 
 /**
  * What `evaluateChecks` takes of judged checks: each verdict, and for each check with none, why
- * (`not judged: …`); a check the judging never reached says so as checks.ts words it.
+ * (`not judged: …`); a check the judging never reached says so as engine/src/checks/evaluate.ts
+ * words it (`notJudgedWhy`).
  */
 export function judgedOptions(judged: Judged | null): EvaluateOptions {
   if (!judged) return {};

@@ -472,7 +472,7 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
   }
 }
 
-/** What a cost check says when a model it counts has no price (checks.ts). */
+/** What a cost check says when a model it counts has no price (engine/src/checks/evaluate.ts). */
 const NO_PRICE = /^no price for (.+?); add it under "prices"/;
 
 /**
