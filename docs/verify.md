@@ -10,7 +10,7 @@ Name the runs the change should fix, the failing runs it was not written against
 
 ```sh
 shadowlap verify --fixes 01M3RXQ4VB --holdout 01M3RXQ51B --keeps label:good \
-  --expect '{"tools":{"issue_refund":{"count":0,"args":{"amount":240}}}}'
+  --expect '{"calls":[{"tool":"issue_refund","after":"lookup_order","args":{"amount":{"<=":100}}}]}'
 ```
 
 It prints:
@@ -19,7 +19,7 @@ It prints:
 ✗ Rejected: the change fixes 1 of 1 target run, 1 of 1 held-out run and keeps 0 of 1 good run
   · good run 01M3RXQ56V broken: 0 of 7 passed, baseline 7 of 7 · drop >= 0.03 (95%) (the agent exited with code 1)
 
-  A run's attempts must meet the oracle: the agent exits 0; issue_refund with {"amount":240} called 0 times. Its gate decides after each attempt (gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts); a clean replay settles it in one. A good run that forks is kept unless it drops 10+ points below its baseline at 370712a, attempt for attempt, <= 5% risk, up to 200 pairs.
+  A run's attempts must meet the oracle: the agent exits 0; every issue_refund call: after lookup_order, amount <= 100. Its gate decides after each attempt (gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts); a clean replay settles it in one. A good run that forks is kept unless it drops 10+ points below its baseline at 370712a, attempt for attempt, <= 5% risk, up to 200 pairs.
 
     target    01M3RXQ4VB  fixed   12 of 12 passed · rate >= 0.73 (95%)                              forked at #1
     held-out  01M3RXQ51B  fixed   12 of 12 passed · rate >= 0.73 (95%)                              forked at #1
@@ -60,7 +60,7 @@ Each run is replayed with its recorded command, under the code in the working di
 
 ### The oracle
 
-The oracle is the same as [blame's](./blame.md#how-it-works): the agent exits 0, and meets `--expect`, the `expect` object of an [outcome check](./ci.md#outcome-checks). One oracle applies to every run, so a policy such as "never refund $240" is also checked on the good runs.
+The oracle is the same as [blame's](./blame.md#how-it-works): the agent exits 0, and meets `--expect`, the `expect` object of an [outcome check](./ci.md#outcome-checks). One oracle applies to every run, so a policy such as "refund at most $100" is also checked on the good runs.
 
 Each attempt is a fork, so a [judge check](./judges.md) in `--expect` is asked live. One whose judge can't be asked (no key for its provider, and no upstream set for it) is refused before anything runs, since every attempt would read inconclusive and none could pass.
 
@@ -283,7 +283,7 @@ Every verdict is kept in the store with its whole report, whether or not `--json
 
 A verdict counts for a fix only when it checked what the fix checks, on a run that failed it:
 
-- **Its oracle has every condition of the fix's check**: the same `--expect`, or one that asks for more. A verify without `--expect` checks the exit code alone, so it says nothing about a fix blamed with `--expect '{"tools":{"issue_refund":0}}'`, however many runs it accepts.
+- **Its oracle has every condition of the fix's check**: the same `--expect`, or one that asks for more. A verify without `--expect` checks the exit code alone, so it says nothing about a fix blamed with `--expect '{"calls":[{"tool":"issue_refund","after":"lookup_order","args":{"amount":{"<=":100}}}]}'`, however many runs it accepts.
 - **At least one of the fix's failing runs** among its targets and held-out runs failed that oracle as recorded, or can't be judged from its recording (a check on the agent's output, which is not recorded). Fixing runs that already passed proves nothing.
 
 A verdict that counts brings its runs to the fix: the target and held-out runs that didn't pass as recorded become its failing runs, and the good runs its good runs. Then:

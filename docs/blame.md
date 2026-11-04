@@ -7,8 +7,10 @@ A run usually goes wrong well before it visibly fails: the agent refunds an orde
 Give blame the failing run, and what a passing run must do:
 
 ```sh
-shadowlap blame <run> --expect '{"tools":{"issue_refund":0}}'
+shadowlap blame <run> --expect '{"calls":[{"tool":"issue_refund","after":"lookup_order","args":{"amount":{"<=":100}}}]}'
 ```
+
+The check is one [rule on calls](./checks.md#rules-on-calls): every refund comes after the order's lookup and is at most $100, the policy's limit. So the same check fits every run of the agent: a good run's $40 refund passes it, and the failing run's $240 refund fails it.
 
 It prints:
 
@@ -28,7 +30,7 @@ It prints:
     #7  4 of 4  0 of 6 passed · rate <= 0.59 (99%)   lost
 
   63 attempts · 114 upstream requests · ≈$0 spent (no price for small-model) · every call before a probe replayed from the recording
-  oracle: the agent exits 0; issue_refund called 0 times
+  oracle: the agent exits 0; every issue_refund call: after lookup_order, amount <= 100
   rescued fork: shadowlap diff 01M3R1YKHF 01M3R1YMHF    shadowlap ui 01M3R1YMHF --call 5
 …
 ```
@@ -276,7 +278,7 @@ Confidence is then low, and the report says how to settle it: more attempts (`ma
 Every blame is kept in the store whole, with the fix it opens or joins. A **fix** is one failure, from the blame that reproduced it to a change that held: [`shadowlap fix`](./cli.md#fix) lists them and shows each one's blame, repair and verify. The report ends with it:
 
 ```text
-  fix fx-01M3RZ4XKN · issue_refund called with amount 240 · opened · shadowlap fix show fx-01M3RZ4XKN
+  fix fx-01M3RZ4XKN · issue_refund: amount 240 > 100 · opened · shadowlap fix show fx-01M3RZ4XKN
 ```
 
 Each blame also logs a `blame.done` event in the store's activity. Run by a dashboard job, it reports a link to the fix's Blame step.

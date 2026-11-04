@@ -406,7 +406,7 @@ It prints the checks, the calls and what the re-recording cost, then what the ag
 ✓ refund-flow: 31/31 replayed, 12.4k input tokens not re-spent (updated)
 ```
 
-Updating calls the providers, so it needs their credentials, like `shadowlap run`. The session records an updated golden as passed and updated.
+Updating calls the providers, so it needs their credentials, like `shadowlap run`. The session then replays each updated golden offline, as the next test will, and records how that replay came out, marked updated. A golden that diverged on a value made anew on every run diverges again there, and fails ([below](#a-value-made-anew-on-every-run)).
 
 ### Which goldens are updated
 
@@ -455,6 +455,8 @@ shadowlap bisect goldens/refund-in-limit --good c91d0f4      # --bad defaults to
 ✓ first bad commit 4e7b2d1 · Send the user id with every request · Ravi · 2026-09-30
   diverged at call 1 (api POST /v1/messages) · $.metadata.user_id · 4 replays · 0 tokens · 0 upstream requests · 4.0s
 ```
+
+Here the golden was recorded before 4e7b2d1, so from that commit on, the agent's first request carries a user id the recording never had. An id made anew on every run takes a normalizer and an update ([a value made anew on every run](#a-value-made-anew-on-every-run)); a change you didn't mean takes a fix to the code.
 
 It works like `git bisect`, on the recording:
 

@@ -8,7 +8,7 @@ Name the failing runs, the good runs, the check a passing run meets, and the mod
 
 ```sh
 shadowlap repair --fixes label:refund-bug --keeps label:good \
-  --expect '{"tools":{"issue_refund":{"count":0,"args":{"amount":240}}}}' --repairer anthropic
+  --expect '{"calls":[{"tool":"issue_refund","after":"lookup_order","args":{"amount":{"<=":100}}}]}' --repairer anthropic
 ```
 
 It prints:
@@ -35,14 +35,14 @@ It prints:
      1  invalid   system prompt: You are a support agent. Follow the refund policy. For order A-1…
         it mentions A-1042, which only the failing runs contain: a fix has to hold for cases it has not seen
      2  rejected  tool issue_refund: Refund an order in full. Check the policy first.
-        target run 01M5FA9VJ6 not fixed: 0 of 3 passed · rate <= 0.71 (95%) (issue_refund with {"amount":240} called 0 times, but called 1 time (1 blocked or…
+        target run 01M5FA9VJ6 not fixed: 0 of 3 passed · rate <= 0.71 (95%) (every issue_refund call: after lookup_order, amount <= 100, but issue_refund #6:…
      3  accepted  system prompt: You are a support agent. Follow the refund policy: escalate ever…
 
   cost: blame ≈$0.107 · repairer ≈$0.0085 · verify ≈$0.238
   patch: .shadowlap/repairs/repair-mvi5coxh/fix.patch   apply it: git -c core.autocrlf=false apply .shadowlap/repairs/repair-mvi5coxh/fix.patch
   report: .shadowlap/repairs/repair-mvi5coxh/report.md
   recordings of the fixed runs, for shadowlap test: .shadowlap/repairs/repair-mvi5coxh/goldens/01M5FA9VJ6 .shadowlap/repairs/repair-mvi5coxh/goldens/01M5FA9W23 .shadowlap/repairs/repair-mvi5coxh/goldens/01M5FA9VTD
-  fix fx-01M5FA9ZQR · issue_refund called with amount 240 · verified · shadowlap fix show fx-01M5FA9ZQR
+  fix fx-01M5FA9ZQR · issue_refund: amount 240 > 100 · verified · shadowlap fix show fx-01M5FA9ZQR
 ```
 
 Of the three rewrites the repairer proposed, the first named the order that failed and was set aside before anything ran. The second changed nothing the model acted on, and the gate rejected it. The third was accepted.
