@@ -49,7 +49,7 @@ export const SHAPES = {
   diff: { section: 'diff', fields: ['a', 'b', 'identicalPrefix', 'prefix', 'firstRequestDifference', 'responseDifferences', 'after', 'onlyInA', 'onlyInB', 'changes', 'intervention'] },
   diffChanges: { section: 'diff', fields: ['systemPrompt', 'systems', 'tools', 'models', 'code'] },
   importJson: { section: 'import', fields: ['format', 'entries', 'runs', 'skipped'] },
-  importRun: { section: 'import', fields: ['runId', 'source', 'key', 'calls', 'labels', 'imported'] },
+  importRun: { section: 'import', fields: ['runId', 'source', 'key', 'calls', 'labels', 'imported', 'judged'] },
   // A trace store's import of the traces in a window: the window it read, and each trace it found.
   importBulk: { section: 'import', fields: ['format', 'entries', 'runs', 'skipped', 'kept', 'window', 'traces'] },
   importWindow: { section: 'import', list: 'adds the window it read', fields: ['since', 'until', 'limit', 'traceName'] },

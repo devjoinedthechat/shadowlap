@@ -257,7 +257,7 @@ export interface CaptureVerdict {
  * whose tool it never called does not apply; with none that did, the verdict is not applicable and
  * says why: a capture of the model calls alone holds no tool calls, which every rule reads.
  */
-export function judgeCapture(store: Store, calls: CallRecord[], rules: RulesOnCalls, at = Date.now()): CaptureVerdict | null {
+export function judgeCapture(store: StoreOf<'recording'>, calls: CallRecord[], rules: RulesOnCalls, at = Date.now()): CaptureVerdict | null {
   if (!rules.rules.length) return null;
   const called = new Set(calls.filter((c) => c.kind === 'tool' && c.meta?.scope !== JUDGE_SCOPE).map((c) => c.name));
   const applies = rules.rules.filter((r) => called.has(r.tool));
@@ -292,7 +292,7 @@ export function keptCaptureVerdict(run: Pick<RunRecord, 'meta'>): CaptureVerdict
  * while the rules are those it was judged by; else judged again from its calls (`again`). Null with
  * no rule to judge it by. `calls` are read only to judge it again.
  */
-export function captureVerdict(store: Store, run: RunRecord, rules: RulesOnCalls, calls: () => CallRecord[]): (CaptureVerdict & { again: boolean }) | null {
+export function captureVerdict(store: StoreOf<'recording'>, run: Pick<RunRecord, 'meta'>, rules: RulesOnCalls, calls: () => CallRecord[]): (CaptureVerdict & { again: boolean }) | null {
   const kept = keptCaptureVerdict(run);
   if (kept && kept.rules === rules.key) return { ...kept, again: false };
   const now = judgeCapture(store, calls(), rules);

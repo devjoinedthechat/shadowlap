@@ -15,7 +15,7 @@ import { fetchLangsmithRuns, LANGSMITH_HOST, readLangsmith } from '../import-lan
 import { fetchLogfireRecords, LOGFIRE_REGIONS, logfireHost, readLogfire, TRACE_ID } from '../import-logfire.js';
 import { fetchPhoenixSpans, PHOENIX_HOST, PHOENIX_PROJECT, phoenixHostFromEnv, phoenixProjectFromEnv, readPhoenix } from '../import-phoenix.js';
 import { parseOtlpFile, readOtel } from '../import-otel.js';
-import { fileSource, reportImportJob, settleImport, settleRun, type ImportJson, type ImportJsonRun, type ImportJsonTrace, type TraceKept } from '../import-report.js';
+import { fileSource, importedBefore, importRules, judgedLines, reportImportJob, settleImport, settleRun, type ImportJson, type ImportJsonRun, type ImportJsonTrace, type TraceKept } from '../import-report.js';
 import { importTrace, type Trace, type TraceImport } from '../import-trace.js';
 import { openStore, type GlobalOpts } from '../shared.js';
 import { palette as p, shortId } from '../ui.js';
@@ -29,7 +29,10 @@ function printJson(json: ImportJson): void {
   if (!json.runs.length) process.exitCode = EXIT.failed;
 }
 
-function report(result: ImportResult, note: string): void {
+/** Lines said one after another (judgedLines'). */
+const say = (lines: readonly string[]) => lines.forEach((line) => console.log(line));
+
+function report(result: ImportResult, note: string, judged: readonly string[] = []): void {
   if (!result.imported.length) {
     console.error('No model API calls found.');
     const reasons = new Map<string, number>();
@@ -44,9 +47,37 @@ function report(result: ImportResult, note: string): void {
   for (const c of result.imported) if (c.provider) byProvider.set(c.provider, (byProvider.get(c.provider) ?? 0) + 1);
   const providers = [...byProvider].map(([id, n]) => `${n} ${id}`).join(', ');
   console.log(`Imported ${p.bold(shortId(result.run.runId))}: ${result.imported.length} model ${result.imported.length === 1 ? 'call' : 'calls'} (${providers}).`);
+  say(judged);
   if (result.skipped.length) console.log(p.dim(`${result.skipped.length} ${result.skipped.length === 1 ? 'entry' : 'entries'} skipped (--json lists them).`));
   console.log(p.dim(note));
   console.log(`\nA capture says what was sent, not what sent it. Give your own command:\n  ${p.bold(`shadowlap replay ${shortId(result.run.runId)} -- <your agent command>`)}`);
+}
+
+/** What a LiteLLM import prints without --json: each run made, by its correlation id, and how to replay. */
+function reportLitellm(runs: ReadonlyArray<{ key: string | null; result: ImportResult }>, json: ImportJson): void {
+  const kept = runs.filter((r) => r.result.imported.length);
+  if (!kept.length) {
+    console.error('No model API calls found.');
+    const reasons = new Map<string, number>();
+    for (const r of runs) for (const s of r.result.skipped) reasons.set(s.reason, (reasons.get(s.reason) ?? 0) + 1);
+    for (const [reason, n] of [...reasons].sort((a, b) => b[1] - a[1])) console.error(`  ${n} ${n === 1 ? 'entry' : 'entries'}: ${reason}`);
+    console.error(`\n${HOSTS} A capture is written only while SHADOWLAP_CAPTURE_DIR is set on the proxy.`);
+    process.exitCode = EXIT.failed;
+    return;
+  }
+  const calls = kept.reduce((n, r) => n + r.result.imported.length, 0);
+  console.log(`Imported ${kept.length} ${kept.length === 1 ? 'run' : 'runs'}, ${calls} model ${calls === 1 ? 'call' : 'calls'}:`);
+  for (const { key, result } of kept) {
+    const n = result.imported.length;
+    console.log(`  ${p.bold(shortId(result.run.runId))}  ${n} ${n === 1 ? 'call' : 'calls'}  ${key ? p.dim(key) : p.yellow('no correlation id')}`);
+  }
+  say(judgedLines(json.runs));
+  // Without an id there is nothing to tell one agent run from another, so they arrive as one.
+  if (kept.some((r) => r.key === null)) {
+    console.log(p.dim('\nCalls with no correlation id were imported together. Have the agent send x-shadowlap-run so its runs stay apart.'));
+  }
+  console.log(p.dim('Streamed responses replay as one event: LiteLLM hands a callback an assembled response.'));
+  console.log(`\nA capture says what was sent, not what sent it. Give your own command:\n  ${p.bold(`shadowlap replay ${shortId(kept[0]!.result.run.runId)} -- <your agent command>`)}`);
 }
 
 function readJson(file: string): unknown {
@@ -100,6 +131,7 @@ function reportTraces(json: ImportJson, results: Array<{ trace: Trace; imported:
     console.log(`Imported ${plural(done.length, 'run')} from ${o.source}, one per trace:`);
     for (const r of done) console.log(`  ${p.bold(shortId(r.imported.result.run.runId))}  ${callsOf(r)}  ${p.dim(`trace ${r.trace.id.slice(0, 16)}`)}`);
   }
+  say(judgedLines(json.runs));
   const tools = kept.toolCalls ? `, and the output of ${kept.toolCallsKept} of ${plural(kept.toolCalls, 'tool call')}${kept.toolCallsKept < kept.toolCalls ? ' (the others run live on replay, with writes fenced)' : ''}` : '';
   console.log(p.dim(`Read ${plural(kept.spans, o.unit)}. It kept the messages of ${kept.modelCallsImported} of ${plural(kept.modelCalls, 'model call')}, settings for ${kept.withSettings}, tool definitions for ${kept.withToolDefinitions}${tools}.`));
   if (json.skipped.length) console.log(p.dim(`${plural(json.skipped.length, 'call')} skipped (--json lists why).`));
@@ -280,7 +312,7 @@ async function importMany(program: Command, m: Many, w: BulkWindow, asJson: bool
       const earlier = before.get(t.id);
       if (earlier) {
         Object.assign(entry, { outcome: 'already', runId: earlier });
-        line(p.dim(`imported before, as ${shortId(earlier)}`));
+        line(p.dim(importedBefore(store, earlier, importRules().rules)));
         continue;
       }
       let trace: Trace;
@@ -339,6 +371,7 @@ async function importMany(program: Command, m: Many, w: BulkWindow, asJson: bool
         console.log(p.dim("A model call is a span with the OpenTelemetry GenAI conventions (gen_ai.*) or OpenInference's (an LLM span), a Langfuse generation or a LangSmith llm run, and it needs its messages logged."));
       }
       if (m.sent.host) console.log(p.dim(m.sent.secret ? `${m.sent.secret} was read from the environment and sent to ${m.sent.host} only; nothing of it is stored.` : `The keys were read from the environment and sent to ${m.sent.host} only; nothing of them is stored.`));
+      say(judgedLines(runs));
       if (runs.length) console.log(`\nA trace says what was sent, not what sent it. Give your own command:\n  ${p.bold(`shadowlap replay ${shortId(runs[0]!.runId)} -- <your agent command>`)}`);
     }
     // Found traces and imported none of them, nor any before: nothing to replay came of it.
@@ -427,30 +460,7 @@ export function register(program: Command): void {
 
         const json = settleImport(store, { format: 'litellm', entries, runs, author: who });
         if (flags.json === true) return printJson(json);
-        const kept = runs.filter((r) => r.result.imported.length);
-
-        if (!kept.length) {
-          console.error('No model API calls found.');
-          const reasons = new Map<string, number>();
-          for (const r of runs) for (const s of r.result.skipped) reasons.set(s.reason, (reasons.get(s.reason) ?? 0) + 1);
-          for (const [reason, n] of [...reasons].sort((a, b) => b[1] - a[1])) console.error(`  ${n} ${n === 1 ? 'entry' : 'entries'}: ${reason}`);
-          console.error(`\n${HOSTS} A capture is written only while SHADOWLAP_CAPTURE_DIR is set on the proxy.`);
-          process.exitCode = EXIT.failed;
-          return;
-        }
-
-        const calls = kept.reduce((n, r) => n + r.result.imported.length, 0);
-        console.log(`Imported ${kept.length} ${kept.length === 1 ? 'run' : 'runs'}, ${calls} model ${calls === 1 ? 'call' : 'calls'}:`);
-        for (const { key, result } of kept) {
-          const n = result.imported.length;
-          console.log(`  ${p.bold(shortId(result.run.runId))}  ${n} ${n === 1 ? 'call' : 'calls'}  ${key ? p.dim(key) : p.yellow('no correlation id')}`);
-        }
-        // Without an id there is nothing to tell one agent run from another, so they arrive as one.
-        if (kept.some((r) => r.key === null)) {
-          console.log(p.dim('\nCalls with no correlation id were imported together. Have the agent send x-shadowlap-run so its runs stay apart.'));
-        }
-        console.log(p.dim('Streamed responses replay as one event: LiteLLM hands a callback an assembled response.'));
-        console.log(`\nA capture says what was sent, not what sent it. Give your own command:\n  ${p.bold(`shadowlap replay ${shortId(kept[0]!.result.run.runId)} -- <your agent command>`)}`);
+        reportLitellm(runs, json);
       } finally {
         store.close();
       }
@@ -478,7 +488,7 @@ export function register(program: Command): void {
           const result = importCaptured(store, captured, { source: name ?? fileSource([resolve(file)]), author: who });
           const json = settleImport(store, { format: f.name, entries: captured.calls.length + captured.skipped.length, runs: [{ key: null, result }], author: who });
           if (flags.json === true) printJson(json);
-          else report(result, f.note);
+          else report(result, f.note, judgedLines(json.runs));
         } finally {
           store.close();
         }

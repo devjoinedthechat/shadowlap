@@ -448,7 +448,7 @@
       "register": 207
     },
     "packages/cli/src/commands/import.ts": {
-      "register": 305
+      "register": 285
     },
     "packages/cli/src/commands/inspect.ts": {
       "register": 360

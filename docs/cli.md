@@ -3741,6 +3741,28 @@ otherwise git's `user.email`. Its source is the file's name; `--name <name>` rec
 dashboard's Import capture… passes the name of the file you picked, which it keeps under a name of its
 own while it imports.
 
+**Judged by the rules on calls.** An import judges each run it makes by the project's rules on calls:
+every [`calls` check](./checks.md#rules-on-calls) in any golden's `expect` under `tests` in
+`shadowlap.config.json`. A rule on calls reads only the calls a run made, so it holds for any run of the
+agent. Counts, `when` rules, judges and budgets belong to their golden's own scenario and are not applied.
+
+```
+Imported 01M3S1C7QD from langfuse:7f3a9c2e: 3 model calls and 1 tool result (3 anthropic).
+✓ judged by the rules on calls in shadowlap.config.json · 1 check passed
+```
+
+The verdict is one of these:
+
+- **passed**: every rule that had a call to read holds.
+- **failed**: a rule broke. The line names the first rule broken, the call and the values.
+- **not applicable**: no rule had a call to read. A rule whose tool the run never called doesn't apply,
+  and a capture of the model calls alone (`har`, `nock`, `vcr`, `litellm`) holds no tool calls.
+
+The verdict is kept on the run, with the rules it was judged by. Once the rules change, the
+[dashboard](./dashboard.md#runs) judges the run again from its calls, and an import of
+[the traces in a window](#the-traces-in-a-window) judges again each trace it imported before. With no
+rule on calls, nothing is judged, and the import says so.
+
 `import` exits 1 when nothing could be imported: `runs` is empty. An import of
 [the traces in a window](#the-traces-in-a-window) exits as that section says.
 
@@ -3996,7 +4018,8 @@ make several runs, one per correlation id; they are all listed.
       "key": "incident-42",
       "calls": { "model": 2, "tool": 0 },
       "labels": ["imported"],
-      "imported": [{ "callNo": 1, "kind": "api", "name": "POST /v1/messages", "provider": "anthropic", "model": "claude-haiku-4-5" }]
+      "imported": [{ "callNo": 1, "kind": "api", "name": "POST /v1/messages", "provider": "anthropic", "model": "claude-haiku-4-5" }],
+      "judged": null
     }
   ],
   "skipped": [{ "url": "line 4", "reason": "not JSON (a partly written line?)" }]
@@ -4022,6 +4045,7 @@ Each of `runs` has these fields:
 | `calls`    | Its calls: `model` and `tool`                                                                  |
 | `labels`   | Its labels                                                                                     |
 | `imported` | The calls it imported                                                                          |
+| `judged`   | Its verdict by the rules on calls ([above](#import)), as kept on the run; `null` with no rule  |
 
 `source` is the file's name (never its folder, which belongs to this machine and would travel with the
 store), the names of the files a LiteLLM run was put together from, or `langfuse:…`, `langsmith:…`,
