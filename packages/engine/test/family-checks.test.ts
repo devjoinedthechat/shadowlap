@@ -34,8 +34,8 @@ describe("a run's family", () => {
     const forkOfFork = refund(store, { amount: 300, parent: fork });
     const other = refund(store);
     // A golden's pack holds a run of the family; another, a run the store doesn't have; a test replays a third by its folder.
-    const unpacked = refund(store, { meta: { imported: { at: 1, from: 'goldens/unpacked' } } });
-    const test = refund(store, { parent: unpacked, meta: { test: { golden: 'goldens/unpacked', session: 's1' } } });
+    const unpacked = refund(store, { amount: 200, meta: { imported: { at: 1, from: 'goldens/unpacked' } } });
+    const test = refund(store, { amount: 200, parent: unpacked, meta: { test: { golden: 'goldens/unpacked', session: 's1' } } });
     const goldens = [
       { path: 'goldens/from-fork', runId: fork },
       { path: 'goldens/refund', runId: rec },
@@ -181,7 +181,7 @@ describe('a capture judged by the rules on calls', () => {
     // With no rule left to judge it by, it has no verdict.
     expect(captureVerdict(store, run(store, id), rulesOnCalls([]), calls)).toBeNull();
     // What a pack can carry is read field by field.
-    expect(keptCaptureVerdict({ meta: { judged: { rules: 1, verdict: 'passed', checks: [] } } as unknown as RunRecord['meta'] })).toBeNull();
+    expect(keptCaptureVerdict({ meta: { judged: { rules: 1, verdict: 'passed', checks: [] } } } as unknown as RunRecord)).toBeNull();
     store.close();
   });
 });
