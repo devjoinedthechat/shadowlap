@@ -337,12 +337,6 @@ export function captureVerdict(store: StoreOf<'recording'>, run: Pick<RunRecord,
   return now ? { ...now, again: true } : null;
 }
 
-/** A capture's verdict as a copy keeps it: what each rule's label and detail, and why, say masked by `mask`, as a check's are (redactRunFacts). */
-export function maskedCaptureVerdict(v: CaptureVerdict, mask: (s: string) => string): CaptureVerdict {
-  const checks = Array.isArray(v.checks) ? v.checks.filter(isObject).map((c) => ({ ...c, label: typeof c.label === 'string' ? mask(c.label) : '', detail: typeof c.detail === 'string' ? mask(c.detail) : null })) : [];
-  return { ...v, checks, why: typeof v.why === 'string' ? mask(v.why) : null };
-}
-
 /** A capture's verdict in a few words: `1 check passed`, `check failed: <rule>, but <what it found>`, `not applicable: <why>`. */
 export function captureVerdictWords(v: Pick<CaptureVerdict, 'verdict' | 'why' | 'checks'>): string {
   if (v.verdict === 'not-applicable') return `not applicable: ${v.why ?? 'no rule had a call to read'}`;

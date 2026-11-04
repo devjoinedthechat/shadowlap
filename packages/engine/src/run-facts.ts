@@ -1,4 +1,4 @@
-import { maskedCaptureVerdict } from './family-checks.js';
+import type { CaptureVerdict } from './family-checks.js';
 import { isObject } from './is-object.js';
 import { rewriteText, type RewriteObserver } from './normalize.js';
 import type { StoreOf } from './store.js';
@@ -108,6 +108,16 @@ export function runInterventions(store: StoreOf<'recording'>, run: RunRecord, ca
     out.push({ flag: name, value, callNo });
   }
   return out;
+}
+
+/**
+ * A capture's verdict as a copy keeps it: what each rule's label and detail, and why, say masked by
+ * `mask`, as a check's are. Kept here, not in family-checks.ts, whose checks load judge.ts and so
+ * redact.ts, which loads this module.
+ */
+function maskedCaptureVerdict(v: CaptureVerdict, mask: (s: string) => string): CaptureVerdict {
+  const checks = Array.isArray(v.checks) ? v.checks.filter(isObject).map((c) => ({ ...c, label: typeof c.label === 'string' ? mask(c.label) : '', detail: typeof c.detail === 'string' ? mask(c.detail) : null })) : [];
+  return { ...v, checks, why: typeof v.why === 'string' ? mask(v.why) : null };
 }
 
 /**
