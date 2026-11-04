@@ -162,11 +162,11 @@ function FixHeader({ fix, reload, leads }: { fix: FixDetail; reload: () => void;
  * Run repair is the lead action unless it would end "No fix to try", the blame of every
  * failing run having rescued it from no call: then it stays, as a plain button that says why on
  * hover (`repairAside`), and the blame's own next step leads when there is one (`blameNextStep`):
- * Run blame again, for a blame that couldn't settle or stopped part way, or Blame with a stronger
- * model. A patch in the working tree already, merged or applied by hand, is only to be marked
- * applied, and an applied fix offers its patch to read: git apply would fail on either. While the
- * open step leads with its own next step (`leads`: a verdict left incomplete, with Run more
- * attempts), every button here reads plain.
+ * Run blame again, for a blame that couldn't settle or stopped part way, or Run blame with stronger
+ * model, which asks for the model. A patch in the working tree already, merged or applied by hand,
+ * is only to be marked applied, and an applied fix offers its patch to read: git apply would fail
+ * on either. While the open step leads with its own next step (`leads`: a verdict left incomplete,
+ * with Run more attempts), every button here reads plain.
  */
 export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boolean }) {
   const app = useApp();

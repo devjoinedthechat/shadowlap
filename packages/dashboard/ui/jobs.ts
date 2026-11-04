@@ -50,7 +50,7 @@ function forks(args: readonly string[]): boolean {
 
 /**
  * A Replay: `replay <run>` with nothing that forks it and no `--repeat`. A policy for the writes or
- * the reads keeps it one (Stub the writes), and so does the command a capture is replayed with.
+ * the reads keeps it one (Replay with writes stubbed), and so does the command a capture is replayed with.
  */
 export function isPlainReplay(job: Pick<JobLike, 'args'>): boolean {
   const own = ownArgs(job.args);

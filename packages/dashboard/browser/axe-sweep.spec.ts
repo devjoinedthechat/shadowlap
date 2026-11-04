@@ -135,7 +135,7 @@ test('Fixes and each fix’s steps, Tests’ dialogs, the palette, the shortcuts
     await update.first().click();
     await settled(page, { shows: DIALOG });
   }], ['Tests · Update goldens… closed', press(page, 'Escape')]);
-  states.push(['Runs', at(page, '/runs', 'main#view table.runst tbody tr')], ['Runs · Import a capture', click(page, 'main#view button', 'Import a capture', { shows: DIALOG })], ['Runs · import closed', escape(page)]);
+  states.push(['Runs', at(page, '/runs', 'main#view table.runst tbody tr')], ['Runs · Import capture…', click(page, 'main#view button', 'Import capture…', { shows: DIALOG })], ['Runs · import closed', escape(page)]);
   states.push(['Runs · a run ticked', click(page, 'main#view table.runst tbody tr input[type="checkbox"]')]);
   // The palette's hits in what was recorded come from the server: swept once they have come.
   states.push(['the palette', press(page, 'Meta+k', { shows: '.palette' })], ['the palette with results', async () => {
@@ -175,6 +175,6 @@ test('on a phone, every page, Settings tab, fix step and dialog has no serious o
     const id = dash().runs[name] as string;
     for (const v of ['', 'turns', 'timeline']) states.push([`run ${name}${v ? ` · ${v}` : ''} on a phone`, run(page, id, v)]);
   }
-  states.push(['Runs on a phone', at(page, '/runs', 'main#view table.runst tbody tr')], ['Runs · Import a capture on a phone', click(page, 'main#view button', 'Import a capture', { shows: DIALOG })], ['Runs · import closed on a phone', escape(page)]);
+  states.push(['Runs on a phone', at(page, '/runs', 'main#view table.runst tbody tr')], ['Runs · Import capture… on a phone', click(page, 'main#view button', 'Import capture…', { shows: DIALOG })], ['Runs · import closed on a phone', escape(page)]);
   expect(await sweep(page, states)).toEqual([]);
 });
