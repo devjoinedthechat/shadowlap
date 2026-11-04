@@ -288,17 +288,17 @@ describe('cache misses', () => {
 
   it('says where the cache missed, only there, and for calls that never used it that each turn sent the history again', () => {
     const cached = [m(1, 0, 200, 3000), m(3, 3000, 100, 400), m(17, 1200, 2700, 500)];
-    expect(cacheNote(cached, cacheMisses(cached))).toEqual({ lead: 'Only #17 missed the cache.', parts: ['#17 sent 2,300 tokens again and wrote the prompt to the cache anew.'] });
-    // A fork's change at #17: #17 wrote the prompt to the cache again, and the calls after it read it
+    expect(cacheNote(cached, cacheMisses(cached))).toEqual({ lead: 'Only #17 missed the cache.', parts: ['#17 sent 2,300 tokens again, and the prompt was cached again.'] });
+    // A fork's change at #17: #17 cached the prompt again, and the calls after it read it
     // from there. It never says the change does this to every call after it: they hit.
     const fork = [...cached, m(19, 3700, 60, 200), m(21, 3960, 50, 100)];
     expect(cacheNote(fork, cacheMisses(fork), { callNo: 17, path: '$.model' })).toEqual({
       lead: 'Only #17 missed the cache.',
-      parts: ['The prompt changed at ', { code: '$.model' }, ', so #17 sent 2,300 tokens again and wrote the prompt to the cache anew; the calls after it read it from there.'],
+      parts: ['The prompt changed at ', { code: '$.model' }, ', so #17 sent 2,300 tokens again, and the prompt was cached again; the calls after it read it from there.'],
     });
     expect(cacheNote(fork, cacheMisses(fork)).parts.map((p) => (typeof p === 'string' ? p : p.code)).join('')).not.toMatch(/every call after it/);
     expect(cacheNote(cached, cacheMisses(cached), { callNo: 5, path: '$.messages[3]' }).parts).toHaveLength(1);
-    // A miss that wrote nothing to the cache says only what it sent again.
+    // A miss that cached nothing again says only what it sent again.
     const unwritten = [m(1, 0, 200, 3000), m(3, 3000, 100, 400), m(17, 1200, 2700)];
     expect(cacheNote(unwritten, cacheMisses(unwritten)).parts).toEqual(['#17 sent 2,300 tokens again.']);
     const never = [m(1, 0, 2000), m(2, 0, 2400), m(3, 0, 2800)];
@@ -307,13 +307,13 @@ describe('cache misses', () => {
     const churn = [m(1, 0, 200, 3000), m(2, 50, 200, 3100), m(3, 50, 200, 3250)];
     expect(cacheNote(churn, cacheMisses(churn))).toEqual({ lead: 'Every model call after the first missed the cache.', parts: ['Something early in the prompt changes on every call (a time, an id), so each sent the whole prompt again: 6,450 tokens.'] });
     const two = [m(1, 0, 200, 3000), m(3, 3000, 100, 400), m(17, 1200, 2700, 500), m(19, 3700, 60, 200), m(21, 1000, 2900, 300), m(23, 4000, 50, 100)];
-    expect(cacheNote(two, cacheMisses(two))).toEqual({ lead: 'The cache missed at #17 and #21.', parts: ['They sent 5,260 tokens again and wrote the prompt to the cache anew; the calls after each read it from there.'] });
+    expect(cacheNote(two, cacheMisses(two))).toEqual({ lead: 'The cache missed at #17 and #21.', parts: ['They sent 5,260 tokens again, and the prompt was cached again; the calls after each read it from there.'] });
     const many = Array.from({ length: 10 }, (_, i) => ({ callNo: i + 1, tokens: 1100 }));
     expect(cacheNote(cached, many).lead).toBe('The cache missed at #1, #2, #3, #4, #5, #6, #7, #8 and 2 more.');
     // No misses: the calls read the previous prompt from the cache, or nothing used it.
     expect(cacheNote([m(1, 0, 200, 3000), m(3, 3000, 100, 400)], [])).toEqual({ lead: null, parts: ['Every model call read the previous prompt from the cache.'] });
     expect(cacheNote([m(1, 0, 200, 3000, undefined, 1), m(3, 3000, 100, 400, undefined, 1)], []).parts[0]).toMatch(/^Each conversation starts its own context/);
-    expect(cacheNote([m(1, 0, 300), m(2, 0, 500)], []).parts).toEqual(['No model call here wrote to the prompt cache or read from it, and none sent 1,024 tokens of its conversation again.']);
+    expect(cacheNote([m(1, 0, 300), m(2, 0, 500)], []).parts).toEqual(['No model call here cached its prompt or read from the cache, and none sent 1,024 tokens of its conversation again.']);
   });
 
   it('heads the misses with where they are, or for calls that never cached with the tokens sent again', () => {

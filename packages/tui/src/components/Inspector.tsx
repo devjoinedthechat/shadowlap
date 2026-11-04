@@ -2,7 +2,7 @@ import { Box, Text } from 'ink';
 import { useEffect, useMemo, useState } from 'react';
 import type { CallRecord, DivergenceReport, RunRecord, Store } from '@shadowlap/engine';
 import { forkLines, runLines, type RunFacts } from '../run-lines.js';
-import { estimateCost, formatDuration, formatTokens, formatUsd, normalizeResponse, type SummaryOptions } from '@shadowlap/engine';
+import { estimateCost, formatDuration, formatTokens, formatUsd, INPUT_PARTS, normalizeResponse, wholeInput, type SummaryOptions, type Usage } from '@shadowlap/engine';
 import { ago, conversationAt, loadRequest, loadResponseBytes } from '../data.js';
 import { diffLines } from '../diff.js';
 import { conversationLines, formatBytes, jsonLines, truncate, wrap, type RenderedLine } from '../render.js';
@@ -61,6 +61,21 @@ interface Props {
   summaryOptions?: SummaryOptions;
 }
 
+/**
+ * A model call's usage on the meta tab: its whole input, as `show` and the dashboard count it, split
+ * as the dashboard's Context view splits it, then its output: `4.6k in (4.0k cache read, 400 cache
+ * creation, 200 uncached), 56 out`. A call that used no prompt cache reads `1.2k in, 56 out`.
+ */
+export function usageWords(u: Usage): string {
+  const cached = [
+    [u.cacheReadInputTokens ?? 0, INPUT_PARTS.cacheRead],
+    [u.cacheCreationInputTokens ?? 0, INPUT_PARTS.cacheCreation],
+  ] as const;
+  const parts = cached.filter(([n]) => n > 0).map(([n, part]) => `${formatTokens(n)} ${part}`);
+  const split = parts.length ? ` (${[...parts, `${formatTokens(u.inputTokens)} ${INPUT_PARTS.uncached}`].join(', ')})` : '';
+  return `${formatTokens(wholeInput(u))} in${split}, ${formatTokens(u.outputTokens)} out`;
+}
+
 function metaLines(call: CallRecord, width: number, theme: Theme, options?: SummaryOptions): RenderedLine[] {
   const end = call.end;
   const model = end?.meta.model ?? call.meta.model ?? options?.modelOf?.(call) ?? null;
@@ -76,12 +91,7 @@ function metaLines(call: CallRecord, width: number, theme: Theme, options?: Summ
   if (end?.meta.latencyMs !== undefined) rows.push(['latency', `${end.meta.latencyMs} ms`]);
   if (end?.meta.usage) {
     const u = end.meta.usage;
-    rows.push([
-      'usage',
-      `${formatTokens(u.inputTokens)} in, ${formatTokens(u.outputTokens)} out` +
-        (u.cacheReadInputTokens ? `, ${formatTokens(u.cacheReadInputTokens)} cache read` : '') +
-        (u.cacheCreationInputTokens ? `, ${formatTokens(u.cacheCreationInputTokens)} cache write` : ''),
-    ]);
+    rows.push(['usage', usageWords(u)]);
     const usd = estimateCost(model, u, options?.prices);
     rows.push([
       'cost',

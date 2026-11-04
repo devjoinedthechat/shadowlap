@@ -327,7 +327,7 @@ Lime that reads well on a dark background disappears on a light one. So before i
 
 ## Cost, model and stop reason
 
-Every model call stores the model it was made with, the provider's stop reason and the response size. The meta tab shows them with the usage split into uncached input, output, cache reads and cache writes, and an approximate cost at list price.
+Every model call stores the model it was made with, the provider's stop reason and the response size. The meta tab shows them with the usage, the whole input split into cache read, cache creation and uncached, then the output, and an approximate cost at list price.
 
 - **Replayed calls** show what they *would* have cost: that money was not re-spent.
 - **The runs list** has a cost column, and its detail line shows wall time, what a run spent and what its replay saved.

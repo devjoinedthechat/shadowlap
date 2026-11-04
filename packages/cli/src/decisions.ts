@@ -1247,7 +1247,7 @@ function stepNotes(said: Said, o: { allSteps: readonly DecisionStep[]; planned: 
   const stripped = allSteps.filter((x) => x.thinkingStripped > 0);
   if (stripped.length) notes.push(`Reasoning from earlier turns was left out of ${stripped.length} request${stripped.length === 1 ? '' : 's'}: providers tie it to the prompt it was made under, so it would be refused, or read under a prompt that never produced it.`);
   if (planned.some((x) => !x.skip && !x.untouched && x.cacheControl)) {
-    notes.push("Cache breakpoints stay where the agent placed them, and a run whose requests carry them is asked one step at a time, in order, so each step can read the prefix the one before it cached. A step's cost after the change is its new answer's tokens split between cache reads, cache writes and plain input as the recorded call's were, as a run makes them; what asking spent is apart.");
+    notes.push("Cache breakpoints stay where the agent placed them, and a run whose requests carry them is asked one step at a time, in order, so each step can read the prefix the one before it cached. A step's cost after the change is its new answer's tokens split between cache read, cache creation and uncached input as the recorded call's were, as a run makes them; what asking spent is apart.");
   }
   // A switch leaves the calls made with other models as they were: say whose.
   const left = planned.filter((x) => x.untouched && !x.switched && x.recordedModel);

@@ -558,9 +558,9 @@ Turns shows each model call with its tokens and stop reason, what it said, and t
 
 ### Context view
 
-Context shows tokens per model call, as a chart or a table. Input is split into what was read from the cache, written to it and uncached, with output below. Past 360 model calls, a bar stands for a range of them, drawn at its largest context, and holds a miss when any call in it is one.
+Context shows tokens per model call, as a chart or a table. Input is split into cache read, cache creation (what the call put in the prompt cache) and uncached, with output below. Past 360 model calls, a bar stands for a range of them, drawn at its largest context, and holds a miss when any call in it is one.
 
-A call is flagged where the cache missed: it read less from the cache than the previous model call in the same scope and conversation sent in all, by 1,024 tokens or more. A miss sends the prompt again and writes it to the cache anew, so the calls after it read it from there.
+A call is flagged where the cache missed: it read less from the cache than the previous model call in the same scope and conversation sent in all, by 1,024 tokens or more. A miss sends the prompt again, and the prompt is cached again, so the calls after it read it from there.
 
 What the misses tell you:
 
@@ -683,7 +683,7 @@ Besides each call as recorded, the run's endpoint (`/api/runs/<id>`, which the p
 
 A call's *Conversation* is its own conversation as it stood at that call, never another ticket's or another agent's.
 
-**Where the prompt cache stopped hitting.** A model call misses when its cache read is smaller than the previous model call's whole input (uncached, written and read) in the same scope and conversation, by at least 1,024 tokens. The tokens sent again are the difference.
+**Where the prompt cache stopped hitting.** A model call misses when its cache read is smaller than the previous model call's whole input (uncached, cache creation and cache read) in the same scope and conversation, by at least 1,024 tokens. The tokens sent again are the difference.
 
 - A conversation's first call is never a miss, so a batch doesn't flag the start of every ticket.
 - Every call whose cache read is known is judged: Anthropic and OpenAI report it, zero included, and Gemini leaves it out when it read nothing. So an agent that never asks to cache shows each turn's history as sent again.

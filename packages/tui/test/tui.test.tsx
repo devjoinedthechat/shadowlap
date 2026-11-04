@@ -4,6 +4,7 @@ import { normalizeConversation, normalizeResponse, Store, unpackRun } from '@sha
 import { App } from '../src/app.js';
 import { diffLines } from '../src/diff.js';
 import { Help } from '../src/components/Help.js';
+import { usageWords } from '../src/components/Inspector.js';
 import { conversationLines, fitItems } from '../src/render.js';
 import { renderAt } from './terminal.js';
 import { parseSse, streamView } from '../src/sse.js';
@@ -635,5 +636,15 @@ describe('render helpers', () => {
     const lines = diffLines({ type: 'forced', callNo: 4, kind: 'tool', name: 'search_web', replayedBefore: 3 }, 80).map((l) => l.text);
     expect(lines[0]).toContain('Diverged at call 4 (tool search_web)');
     expect(lines[1]).toContain('forced live');
+  });
+});
+
+describe('the meta tab', () => {
+  it('counts a model call’s whole input and splits it as the dashboard does: cache read, cache creation and uncached', () => {
+    expect(usageWords({ inputTokens: 200, outputTokens: 56, cacheReadInputTokens: 4000, cacheCreationInputTokens: 400 })).toBe('4.6k in (4.0k cache read, 400 cache creation, 200 uncached), 56 out');
+    expect(usageWords({ inputTokens: 1200, outputTokens: 56, cacheReadInputTokens: 0, cacheCreationInputTokens: 300 })).toBe('1.5k in (300 cache creation, 1.2k uncached), 56 out');
+    // No prompt cache used: the input alone.
+    expect(usageWords({ inputTokens: 1200, outputTokens: 56 })).toBe('1.2k in, 56 out');
+    expect(usageWords({ inputTokens: 200, outputTokens: 56, cacheCreationInputTokens: 400 })).not.toMatch(/write/);
   });
 });

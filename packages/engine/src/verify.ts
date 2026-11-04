@@ -48,7 +48,7 @@ export type RunVerdict = 'pass' | 'fail' | 'open';
  * count them. The agent's: a judge check's calls are none of what a change to the agent costs.
  */
 export interface Footprint {
-  /** Uncached input, cache reads and cache writes. */
+  /** Uncached input, cache read and cache creation. */
   inputTokens: number;
   outputTokens: number;
   /** USD, or null when a model has no price. */

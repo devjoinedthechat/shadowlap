@@ -20,7 +20,7 @@ export interface UsageCall {
   usage: { input: number; output: number; cacheRead: number; cacheWrite: number } | null;
 }
 
-/** Everything the model read as input: uncached, written to the cache, and read from it. */
+/** Everything the model read as input: uncached, cache creation and cache read. */
 export function wholeInput(u: NonNullable<UsageCall['usage']>): number {
   return u.input + u.cacheRead + u.cacheWrite;
 }
@@ -59,7 +59,7 @@ export function cacheReadShare(calls: readonly UsageCall[]): number {
   return all ? read / all : 0;
 }
 
-/** Whether any model call wrote to the prompt cache or read from it. */
+/** Whether any model call cached its prompt or read from the cache. */
 export function usedCache(calls: readonly UsageCall[]): boolean {
   return calls.some((c) => c.kind === 'api' && !!c.usage && c.usage.cacheRead + c.usage.cacheWrite > 0);
 }
@@ -91,8 +91,8 @@ function everyCallMissed(calls: readonly UsageCall[], misses: readonly CacheMiss
 
 /**
  * What the Context view says under the chart: a bold lead, then the rest, where a request path is
- * set in code. Where the cache missed, only there: each miss sent the prompt again and, when it wrote
- * it to the cache, the calls after it read it from there, so a change made once (a fork's, at the
+ * set in code. Where the cache missed, only there: each miss sent the prompt again and, when it cached
+ * it again, the calls after it read it from there, so a change made once (a fork's, at the
  * call it forked at) costs that call alone; on a fork whose change made a miss, the path that
  * changed. When every call after the first missed, that something early in the prompt changes on
  * every call. For calls that never used the cache, that each turn sent the conversation so far again,
@@ -107,17 +107,17 @@ export function cacheNote(calls: readonly UsageCall[], misses: readonly CacheMis
     if (everyCallMissed(calls, misses)) return { lead: 'Every model call after the first missed the cache.', parts: [`Something early in the prompt changes on every call (a time, an id), so each sent the whole prompt again: ${tokens} tokens.`] };
     const one = misses.length === 1;
     const byNo = new Map(calls.map((c) => [c.callNo, c]));
-    // Written to the cache again where it missed: the next call reads it from there.
+    // Cached again where it missed (cache creation): the next call reads it from there.
     const rewrote = misses.every((m) => (byNo.get(m.callNo)?.usage?.cacheWrite ?? 0) > 0);
     const last = misses[misses.length - 1]!.callNo;
     const after = calls.some((c) => c.kind === 'api' && !!c.usage && c.callNo > last);
     const lead = one ? `Only #${misses[0]!.callNo} missed the cache.` : `The cache missed at ${missList(misses)}.`;
-    const sent = (who: string) => `${who} sent ${tokens} tokens again${rewrote ? ` and wrote the prompt to the cache anew${after ? `; the calls after ${one ? 'it' : 'each'} read it from there` : ''}` : ''}.`;
+    const sent = (who: string) => `${who} sent ${tokens} tokens again${rewrote ? `, and the prompt was cached again${after ? `; the calls after ${one ? 'it' : 'each'} read it from there` : ''}` : ''}.`;
     const who = one ? `#${misses[0]!.callNo}` : 'they';
     if (changed?.path && misses.some((m) => m.callNo === changed.callNo)) return { lead, parts: ['The prompt changed at ', { code: changed.path }, `${one ? '' : ` in #${changed.callNo}`}, so ${sent(who)}`] };
     return { lead, parts: [sent(one ? who : 'They')] };
   }
-  if (!used) return { lead: null, parts: ['No model call here wrote to the prompt cache or read from it, and none sent 1,024 tokens of its conversation again.'] };
+  if (!used) return { lead: null, parts: ['No model call here cached its prompt or read from the cache, and none sent 1,024 tokens of its conversation again.'] };
   return { lead: null, parts: [calls.some((c) => c.conversation) ? 'Each conversation starts its own context; within each, every model call read the previous prompt from the cache.' : 'Every model call read the previous prompt from the cache.'] };
 }
 

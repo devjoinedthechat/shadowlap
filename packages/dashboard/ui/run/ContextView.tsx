@@ -4,10 +4,11 @@ import { Seg } from '../components/bits.js';
 import { tipCard } from '../components/HoverCard.js';
 import { cacheMisses, cacheNote, cacheReadShare, missStat, usedCache, wholeInput } from '../cache.js';
 import { ktok, num } from '../format.js';
+import { INPUT_PARTS } from '../../../engine/src/tokens.js';
 import { useWindow } from './window-hook.js';
 
 /**
- * Context: what each model call sent, split by what the cache did with it (read, written, uncached),
+ * Context: what each model call sent, split by what the cache did with it (cache read, cache creation, uncached),
  * the output under it, and where the cache stopped hitting, judged within each scope and
  * conversation (a model call reading less from the cache than the previous call's whole input, by
  * 1,024 tokens or more). Past 360 model calls a bar stands for a range of them and shows its largest
@@ -54,6 +55,9 @@ export function contextBars(ms: readonly CallRow[], misses: ReadonlyMap<number, 
 }
 
 const TABLE_ROWS = { keyOf: (c: CallRow) => c.callNo, shapeOf: () => 'row', estimate: () => 28 };
+
+/** The table's heads for the parts of a call's input: Cache read, Cache creation, Uncached. */
+const HEADS = Object.fromEntries(Object.entries(INPUT_PARTS).map(([k, part]) => [k, `${part.charAt(0).toUpperCase()}${part.slice(1)}`])) as Record<keyof typeof INPUT_PARTS, string>;
 
 export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail; calls: CallRow[]; selected: number | null; onSelect: (n: number) => void }) {
   const [table, setTableState] = useState(asTable);
@@ -109,15 +113,15 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
           <div className="legend">
             <span>
               <i className="lc-read" />
-              cache read
+              {INPUT_PARTS.cacheRead}
             </span>
             <span>
               <i className="lc-write" />
-              cache write
+              {INPUT_PARTS.cacheCreation}
             </span>
             <span>
               <i className="lc-unc" />
-              uncached input
+              {INPUT_PARTS.uncached}
             </span>
             <span>
               <i className="lc-out" />
@@ -139,9 +143,9 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
             <thead>
               <tr>
                 <th>Call</th>
-                <th>Cache read</th>
-                <th>Cache write</th>
-                <th>Uncached</th>
+                <th>{HEADS.cacheRead}</th>
+                <th>{HEADS.cacheCreation}</th>
+                <th>{HEADS.uncached}</th>
                 <th>Output</th>
                 <th>Input total</th>
               </tr>
@@ -177,9 +181,9 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
                 const u = c.usage!;
                 const range = b.size > 1;
                 const tip = tipCard(range ? `#${num(b.first)}–#${num(b.last)} · largest #${num(c.callNo)}, ${num(wholeInput(u))} input tokens` : `#${c.callNo} · ${num(wholeInput(u))} input tokens`, [
-                  { label: 'cache read', value: num(u.cacheRead), color: 'var(--c-read)' },
-                  { label: 'cache write', value: num(u.cacheWrite), color: 'var(--c-write)' },
-                  { label: 'uncached', value: num(u.input), color: 'var(--c-unc)' },
+                  { label: INPUT_PARTS.cacheRead, value: num(u.cacheRead), color: 'var(--c-read)' },
+                  { label: INPUT_PARTS.cacheCreation, value: num(u.cacheWrite), color: 'var(--c-write)' },
+                  { label: INPUT_PARTS.uncached, value: num(u.input), color: 'var(--c-unc)' },
                   { label: 'output', value: num(u.output), color: 'var(--c-out)' },
                   ...(b.miss ? [{ label: range ? 'sent again in the range' : 'sent again', value: num(b.miss.tokens), color: 'var(--warn)' }] : []),
                 ]);

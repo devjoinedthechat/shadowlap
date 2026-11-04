@@ -1670,7 +1670,7 @@ the report holds, as in every export, pack and share link.
 | `counts` | Steps by the rank they were given (below) |
 | `flagged` | The runs a rank 1 or 2 change flags: beyond the control's variation, or with no control by what most samples show |
 | `cost` | Per run, the mean `before` and `after` in USD; what asking `spent`; `upstreamRequests`; and `unknownModels` with no price |
-| `tokens` | `before` and `after`, each `input`, `output`, `cacheRead` and `cacheWrite` |
+| `tokens` | `before` and `after`, each `input` (uncached), `output`, `cacheRead` and `cacheWrite` (cache creation) |
 | `retirements` | Each model the runs use, or switch to, that its provider retires (below) |
 | `notes` | What to keep in mind reading it (below) |
 | `warnings` | The report's warnings |
@@ -1755,8 +1755,8 @@ More on a step's fields:
 - **`control`**: `asked`, `answered`, `changed`, `ranks`, and `error`, why fewer than 3 were answered.
   With it, `rank` and `majority` are the rank the change earns beyond the control, or `null`. It is
   absent below 3 samples.
-- **`tokens.after`**: in a run like the recorded one, its input split between cache reads, cache writes
-  and plain input, as the recorded call's was.
+- **`tokens.after`**: in a run like the recorded one, its input split between cache read, cache creation
+  and uncached input, as the recorded call's was.
 
 A step's `judge` is `now`'s, the sample shown: the most consequential, or, among text-only ones, one
 whose words could not be judged. It lists each check:

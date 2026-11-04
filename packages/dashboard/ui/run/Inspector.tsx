@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { applyDeltas } from '../../../engine/src/deltas.js';
+import { INPUT_PARTS } from '../../../engine/src/tokens.js';
 import type { Block, CallDetail, CallRow, Delta, RunNote, Turn, TurnBlock } from '../api.js';
 import { Org, Seg } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
@@ -511,7 +512,7 @@ function DetailsTab({ runId, detail, models }: { runId: string; detail: CallDeta
       <>
         {num(c.usage.input + c.usage.cacheRead + c.usage.cacheWrite)}{' '}
         <small>
-          {num(c.usage.cacheRead)} cache read · {num(c.usage.cacheWrite)} cache write · {num(c.usage.input)} uncached
+          {num(c.usage.cacheRead)} {INPUT_PARTS.cacheRead} · {num(c.usage.cacheWrite)} {INPUT_PARTS.cacheCreation} · {num(c.usage.input)} {INPUT_PARTS.uncached}
         </small>
       </>,
     ]);

@@ -401,7 +401,7 @@ export function majorityRank(ranks: readonly number[]): DecisionRank | null {
 
 /**
  * What a step's new answer would use in a run like the recorded one: its whole input (`input`,
- * cache reads and writes included) split between plain input, cache reads and cache writes as the
+ * cache read and cache creation included) split between uncached input, cache read and cache creation as the
  * recorded call split its own, since a run's steps follow one another and each reads what the step
  * before it cached, and its output. Asking the steps again caches differently (several at once write
  * the cache, a second sample reads all of it), so what asking spent is no measure of a run.
@@ -457,7 +457,7 @@ export interface DecisionStep {
   model: { recorded: string | null; asked: string | null };
   /**
    * As recorded, and the new answer's in a run like the recorded one (estimatedTokens): its input
-   * split between cache reads, cache writes and plain input as the recorded call's was, and its
+   * split between cache read, cache creation and uncached input as the recorded call's was, and its
    * output, the mean of the samples answered.
    */
   tokens: { before: TokenCount | null; after: TokenCount | null };
