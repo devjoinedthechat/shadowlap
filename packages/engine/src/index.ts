@@ -80,8 +80,8 @@ export type { ModelResolver, SummaryOptions } from './report.js';
 // Judge checks: the reserved scope replay strictness leaves out, what a judge reads, the request it is sent, its verdict and its cost.
 export { JUDGE_INSTRUCTIONS, JUDGE_KEYS, JUDGE_REQUEST_VERSION, JUDGE_SCOPE, MATERIAL_LIMIT, RESERVED_SCOPE_PREFIX, VERDICT_SCHEMA, agentCallsOf, claudeTakes, escapeMaterial, isJudgeCall, judgeAskId, judgeCallsOf, judgedAnswers, judgeMaterial, judgePrompt, judgeRequest, judgeRules, judgeTarget, matchedClockOf, materialDifference, materialOfRequest, openaiTakesReasoningEffort, openaiTakesTemperature, reachesJudgeRequest, readVerdict } from './judge.js';
 export type { ClaudeTakes, GivenAnswer, JudgeAsk, JudgeMaterial, JudgeProvider, JudgeReads, JudgeRequest, JudgeVerdict, MatchMasks, MaterialResult } from './judge.js';
-export { aboutUsd, judgeLine, judgeParts, summarizeJudge } from './report.js';
-export { DEFAULT_PRICES, canonicalModel, estimateCost, formatDuration, formatUsd, priceFor, shortModel } from './prices.js';
+export { judgeLine, judgeParts, summarizeJudge } from './report.js';
+export { DEFAULT_PRICES, aboutUsd, canonicalModel, estimateCost, formatDuration, formatUsd, priceFor, shortModel } from './prices.js';
 export type { Price } from './prices.js';
 export { EXTERNAL_COMMAND, NO_COMMAND, PACK_ENTRIES, PACK_FORMAT, PACK_GITATTRIBUTES, PACK_VERSION, TEST_COMMAND, asImportedRun, asTheyStand, commandIsImported, hasRecordedCommand, heldFrom, importedCommandSource, lexists, movePath, packRun, unpackRun, withoutCommand, writePackAttributes } from './pack.js';
 export { CONTROL, PACK_LIMITS, PackError } from './pack-schema.js';
