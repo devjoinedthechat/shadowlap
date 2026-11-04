@@ -1,9 +1,8 @@
 import { Fragment, type ReactNode } from 'react';
 import { cmdParts } from '../cmdline.js';
-import { copyText } from '../dom.js';
 import { shellWords } from '../format.js';
 import { ORIGIN_NAME, type Origin7 } from '../origins.js';
-import { useApp } from '../state.js';
+import { CopyButton } from './CodeBox.js';
 import { Facts, type Fact } from './Facts.js';
 import { Icon } from './Icon.js';
 import { ErrorState } from './States.js';
@@ -13,6 +12,7 @@ import { ErrorState } from './States.js';
  * components/README.md for which to reach for.
  */
 
+export { CopyButton } from './CodeBox.js';
 export { SegmentedControl as Seg } from './Segmented.js';
 export { EmptyState } from './States.js';
 
@@ -243,23 +243,6 @@ export function CodeBlock({ file, code, copyLabel = 'the code' }: { file: string
   );
 }
 
-/** Copies, and says so in a toast. */
-export function CopyButton({ text, label, children = 'Copy', className = 'linkbtn' }: { text: string; label?: string; children?: ReactNode; className?: string }) {
-  const { toast } = useApp();
-  return (
-    <button
-      type="button"
-      className={className}
-      onClick={() => {
-        void copyText(text).then((ok) => toast(ok ? `Copied ${label ?? text}` : 'Copying was refused by the browser'));
-      }}
-    >
-      <Icon name="copy" />
-      {children}
-    </button>
-  );
-}
-
 /**
  * In place of a page, or a part of one, whose code didn't load (`onShow`'s `failed`): one line in the
  * error tone, and Retry, which loads the page again, since a browser never asks a second time for a
@@ -293,7 +276,11 @@ export function StepList({ steps }: { steps: Step[] }) {
             {s.command ? (
               <div className="cli">
                 <span>in a terminal</span>
-                <code>$ {s.command}</code>
+                {/* the prompt is never copied with the command */}
+                <code>
+                  <b>$ </b>
+                  {s.command}
+                </code>
               </div>
             ) : null}
           </div>

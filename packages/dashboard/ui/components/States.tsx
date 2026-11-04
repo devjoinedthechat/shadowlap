@@ -13,19 +13,24 @@ import { Copy } from './Copy.js';
  * Nothing here yet: a section under a hairline, its heading, one sentence saying what the page will
  * hold, and the one step that gets there (`step`, the page's lime button), with the command for a
  * terminal quiet under it ("or in a terminal"); with no step, the command is the way, in its box.
- * A command that needs a run is never offered where there is none. Its sentence, given as text, is
- * set as `Copy` sets copy.
+ * A command that needs a run is never offered where there is none. Its sentence is drawn as it is
+ * given, and set as `Copy` sets UI copy where the page asks (`copy`): never a message the server
+ * wrote, which can hold a command or a path a no-break space or a kept word would spoil.
  */
-export function EmptyState({ title, text, step, command, children }: { title: string; text?: ReactNode; step?: ReactNode; command?: string | undefined; children?: ReactNode }) {
+export function EmptyState({ title, text, copy = false, step, command, children }: { title: string; text?: ReactNode; copy?: boolean; step?: ReactNode; command?: string | undefined; children?: ReactNode }) {
   return (
     <section className="panel stepempty">
       <h2>{title}</h2>
-      {typeof text === 'string' ? <Copy>{text}</Copy> : text ? <p>{text}</p> : null}
+      {copy && typeof text === 'string' ? <Copy>{text}</Copy> : text ? <p>{text}</p> : null}
       {step ? <div className="actions">{step}</div> : null}
       {step && command ? (
         <div className="cli">
           <span>or in a terminal</span>
-          <code>$ {command}</code>
+          {/* the prompt is never copied with the command */}
+          <code>
+            <b>$ </b>
+            {command}
+          </code>
         </div>
       ) : command ? (
         <CodeBox command={command} />

@@ -173,6 +173,8 @@ a.metric:hover span { color: var(--ink); text-decoration: underline; text-underl
 .cmdline .cstep { display: block; }
 .cmdline .cstep + .cstep { margin-top: 2px; }
 .cmdline > b, .cmdline .cmdp > b { user-select: none; }
+/* a setup step's and an empty state's quiet command: its prompt in the command's own weight, never copied with it */
+.cli code > b { font-weight: inherit; user-select: none; }
 
 /* ---- a run's id (Id): mono, never broken; in a list, its first six characters quieter ---- */
 /* drawn by the id's own ground, so its text is the id as it is, one text that copies, searches and reads whole */

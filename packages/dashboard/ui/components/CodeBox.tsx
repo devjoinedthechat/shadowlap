@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { copyText } from '../dom.js';
 import { useApp } from '../state.js';
 import { Command } from './Copy.js';
@@ -36,23 +37,40 @@ export function boxWhat({ command, full, what }: Pick<CodeBoxProps, 'command' | 
   return typeof command !== 'string' && command.length > 1 ? 'the commands' : 'the command';
 }
 
-/** The box's Copy: an icon, named by what it copies (its article dropped), on hover too. */
-function BoxCopy({ text, what, className = 'boxcopy', words = false }: { text: string; what: string; className?: string; words?: boolean }) {
+/**
+ * Copies, and says so in a toast (`Copied` and what, `label`, or the text itself): the one copy
+ * button, its words beside the icon (`children`), or the icon alone, named by `name` for a screen
+ * reader and on hover. Every Copy on a page is this one.
+ */
+export function CopyButton({ text, label, children = 'Copy', className = 'linkbtn', name }: { text: string; label?: string; children?: ReactNode; className?: string; name?: string }) {
   const { toast } = useApp();
-  const label = `Copy ${what.replace(/^(the|a|an) /, '')}`;
   return (
     <button
       type="button"
       className={className}
-      aria-label={words ? undefined : label}
-      data-tip={words ? undefined : tipText(label)}
+      aria-label={name}
+      data-tip={name ? tipText(name) : undefined}
       onClick={() => {
-        void copyText(text).then((ok) => toast(ok ? `Copied ${what}` : 'Copying was refused by the browser'));
+        void copyText(text).then((ok) => toast(ok ? `Copied ${label ?? text}` : 'Copying was refused by the browser'));
       }}
     >
       <Icon name="copy" />
-      {words ? label : null}
+      {children}
     </button>
+  );
+}
+
+/** The box's Copy, named by what it copies, its article dropped: an icon in the box's corner, or its words at the end of a file's header (`words`). */
+function BoxCopy({ text, what, words = false }: { text: string; what: string; words?: boolean }) {
+  const label = `Copy ${what.replace(/^(the|a|an) /, '')}`;
+  return words ? (
+    <CopyButton text={text} label={what}>
+      {label}
+    </CopyButton>
+  ) : (
+    <CopyButton text={text} label={what} className="boxcopy" name={label}>
+      {null}
+    </CopyButton>
   );
 }
 
@@ -82,7 +100,7 @@ export function CodeBox(props: CodeBoxProps) {
       <div className={`codewrap${className ? ` ${className}` : ''}`}>
         <div className="codehead">
           <span>{file}</span>
-          {change ? null : <BoxCopy text={code} what={what} className="linkbtn" words />}
+          {change ? null : <BoxCopy text={code} what={what} words />}
         </div>
         {/* It scrolls sideways for a long line: by keyboard too. */}
         <pre className="codebox" tabIndex={0}>

@@ -420,7 +420,7 @@ describe('an attempts cell', () => {
 
 describe('the three states', () => {
   it('says nothing is here yet in a section: its heading, a sentence, the one step and the command quiet under it', async () => {
-    await draw(createElement(EmptyState, { title: 'No runs yet', text: 'Every recording shows here.', step: createElement('a', { className: 'btn lime', href: '#/' }, 'Set up triage-bot'), command: 'shadowlap run -- <command>' }));
+    await draw(createElement(EmptyState, { title: 'No runs yet', text: 'Every recording shows here.', copy: true, step: createElement('a', { className: 'btn lime', href: '#/' }, 'Set up triage-bot'), command: 'shadowlap run -- <command>' }));
     const s = r!.one('section.panel.stepempty');
     expect(r!.one('.stepempty h2').textContent).toBe('No runs yet');
     expect(text(r!.one('.stepempty p'))).toBe('Every recording shows here.');
@@ -428,12 +428,18 @@ describe('the three states', () => {
     expect(r!.all('.stepempty p ts-s').map((x) => x.className)).toEqual(['snt']);
     expect(r!.one('.stepempty .actions a').textContent).toBe('Set up triage-bot');
     expect(r!.one('.stepempty .cli').textContent).toBe('or in a terminal$ shadowlap run -- <command>');
+    // its prompt apart, so it is never copied with the command
+    expect(r!.one('.stepempty .cli code b').textContent).toBe('$ ');
     expect(s.querySelector('.cmdline')).toBeNull();
   });
 
-  it('gives the command its box where there is no step, and says a list that matches nothing in a line', async () => {
-    await draw(createElement('div', null, createElement(EmptyState, { title: 'No goldens yet', text: 'Pack a run.', command: 'shadowlap pack 01K --name escalates' }), createElement(EmptyLine, null, 'No runs match.')));
+  it('gives the command its box where there is no step, draws a message as the server wrote it, and says a list that matches nothing in a line', async () => {
+    const message = 'the store at /work/support-agent-production-replica/.shadowlap is locked; run shadowlap doctor.';
+    await draw(createElement('div', null, createElement(EmptyState, { title: 'Tests could not be loaded', text: message, command: 'shadowlap pack 01K --name escalates' }), createElement(EmptyLine, null, 'No runs match.')));
     expect(r!.one('.stepempty .cmdline button.boxcopy').getAttribute('aria-label')).toBe('Copy command');
+    // nothing set in a message: no sentence kept, no no-break space in its command, no word held whole
+    expect(r!.one('.stepempty p').textContent).toBe(message);
+    expect(r!.all('.stepempty p ts-s, .stepempty p ts-w')).toEqual([]);
     expect(r!.one('p.emptyline').textContent).toBe('No runs match.');
   });
 
