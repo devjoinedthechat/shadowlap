@@ -56,9 +56,11 @@ describe('a capture judged as it is imported', () => {
     const before = rules(LOOKED_UP);
     const run = imported(store, before);
     expect(judgeAgain(store, run.runId, before)).toBeNull();
-    expect(importedBefore(store, run.runId, before)).toBe(`imported before, as ${run.runId.slice(0, 10)}`);
+    expect(importedBefore(store, run.runId, before)).toEqual({ line: `imported before, as ${run.runId.slice(0, 10)}`, judged: null });
     const after = rules(OTHER_ORDER);
-    expect(importedBefore(store, run.runId, after)).toMatch(new RegExp(`^imported before, as ${run.runId.slice(0, 10)} · judged again: check failed: every lookup_order call: order_id = "B-7", but lookup_order #\\d+: order_id "A-1042" != "B-7"$`));
+    const again = importedBefore(store, run.runId, after);
+    expect(again.line).toMatch(new RegExp(`^imported before, as ${run.runId.slice(0, 10)} · judged again: check failed: every lookup_order call: order_id = "B-7", but lookup_order #\\d+: order_id "A-1042" != "B-7"$`));
+    expect(again.judged).toMatchObject({ rules: after.key, verdict: 'failed' });
     // Kept with the rules it was judged by this time: it stands until they change again.
     expect(keptCaptureVerdict(store.getRun(run.runId)!)).toMatchObject({ rules: after.key, verdict: 'failed' });
     expect(judgeAgain(store, run.runId, after)).toBeNull();

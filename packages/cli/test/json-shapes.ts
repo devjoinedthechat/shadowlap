@@ -53,7 +53,7 @@ export const SHAPES = {
   // A trace store's import of the traces in a window: the window it read, and each trace it found.
   importBulk: { section: 'import', fields: ['format', 'entries', 'runs', 'skipped', 'kept', 'window', 'traces'] },
   importWindow: { section: 'import', list: 'adds the window it read', fields: ['since', 'until', 'limit', 'traceName'] },
-  importTrace: { section: 'import', list: 'each trace it found, newest first', fields: ['id', 'name', 'startedAt', 'outcome', 'runId', 'reason'] },
+  importTrace: { section: 'import', list: 'each trace it found, newest first', fields: ['id', 'name', 'startedAt', 'outcome', 'runId', 'reason', 'judged'] },
   calibrate: { section: 'calibrate', fields: ['runId', 'source', 'clean', 'rounds', 'normalizers', 'written', 'added', 'stopped'] },
   rules: { section: 'normalize', fields: ['file', 'exists', 'version', 'error', 'rules'] },
   preview: { section: 'normalize', fields: ['runId', 'calls', 'unreadable', 'partial', 'total', 'returned', 'unmasked', 'rules', 'details'] },

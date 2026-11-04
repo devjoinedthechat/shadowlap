@@ -3967,6 +3967,8 @@ Imported 1 of 3 traces: 1 imported before, 1 skipped.
 
 - **Skipped**: a trace with nothing to import is skipped, and so is one the store can't give whole: gone
   since it was listed, or more spans than an import reads.
+- **Imported before**: once the [rules on calls](#import) changed since it was judged, it is judged again
+  from its calls, and its line ends with the verdict it was judged to (*· judged again: 1 check passed*).
 - **A failure** (the store refusing, failing or not answering) stops the import at that trace. The runs
   it made stay, and the same command run again goes on from there.
 
@@ -3998,6 +4000,7 @@ A failure's exit status is the failure's own.
 | `outcome` | `imported`, `already` (imported before, as `runId`), `skipped` (for its `reason`), `failed` (where the import stopped) or `unread` (after that) |
 | `runId` | The run it was imported as |
 | `reason` | Why it was skipped |
+| `judged` | The verdict it was judged to by the rules on calls: an imported trace's, or one imported before once the rules changed; `null` otherwise |
 
 `kept` counts what the traces it imported kept, and `entries` every observation or span it read.
 

@@ -79,6 +79,12 @@ export interface ImportJsonTrace {
   outcome: 'imported' | 'already' | 'skipped' | 'failed' | 'unread';
   runId: string | null;
   reason: string | null;
+  /**
+   * The verdict by the rules on calls it was judged to this time: an imported trace's run's, or for
+   * one imported before, its new verdict once the rules changed since it was judged; null when the
+   * verdict it kept stands, or no rule judges it.
+   */
+  judged: CaptureVerdict | null;
 }
 
 export interface ImportedRun {
@@ -153,10 +159,10 @@ export function judgeAgain(store: StoreOf<'recording'>, runId: string, rules: Ru
   return judgeImported(store, runId, rules);
 }
 
-/** A trace an earlier import brought in, as a window's import lists it: and judged again where the rules on calls changed. */
-export function importedBefore(store: StoreOf<'recording'>, runId: string, rules: RulesOnCalls | null): string {
+/** A trace an earlier import brought in, as a window's import lists it, judged again where the rules on calls changed: its line, and its new verdict (null where the one it kept stands). */
+export function importedBefore(store: StoreOf<'recording'>, runId: string, rules: RulesOnCalls | null): { line: string; judged: CaptureVerdict | null } {
   const again = judgeAgain(store, runId, rules);
-  return `imported before, as ${shortId(runId)}${again ? ` · judged again: ${captureVerdictWords(again)}` : ''}`;
+  return { line: `imported before, as ${shortId(runId)}${again ? ` · judged again: ${captureVerdictWords(again)}` : ''}`, judged: again };
 }
 
 const VERDICT_COLOUR = { passed: p.green, failed: p.red, 'not-applicable': p.dim } as const;

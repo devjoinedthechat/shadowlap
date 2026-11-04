@@ -297,7 +297,7 @@ async function importMany(program: Command, m: Many, w: BulkWindow, asJson: bool
       if (!found.length) console.log(`No traces${named} in ${m.where} started ${window}.`);
       else console.log(`${found.length >= w.limit ? `The newest ${plural(found.length, 'trace')}` : plural(found.length, 'trace')}${named} in ${m.where} that started ${window}:`);
     }
-    const traces: ImportJsonTrace[] = found.map((t) => ({ id: t.id, name: t.name, startedAt: t.startedAt === null ? null : new Date(t.startedAt).toISOString(), outcome: 'unread', runId: null, reason: null }));
+    const traces: ImportJsonTrace[] = found.map((t) => ({ id: t.id, name: t.name, startedAt: t.startedAt === null ? null : new Date(t.startedAt).toISOString(), outcome: 'unread', runId: null, reason: null, judged: null }));
     const runs: ImportJsonRun[] = [];
     const skipped: Skip[] = [];
     // What the traces imported kept; and every span read, of the traces skipped for having nothing to import too.
@@ -311,8 +311,9 @@ async function importMany(program: Command, m: Many, w: BulkWindow, asJson: bool
       };
       const earlier = before.get(t.id);
       if (earlier) {
-        Object.assign(entry, { outcome: 'already', runId: earlier });
-        line(p.dim(importedBefore(store, earlier, importRules().rules)));
+        const before = importedBefore(store, earlier, importRules().rules);
+        Object.assign(entry, { outcome: 'already', runId: earlier, judged: before.judged });
+        line(p.dim(before.line));
         continue;
       }
       let trace: Trace;
@@ -346,7 +347,7 @@ async function importMany(program: Command, m: Many, w: BulkWindow, asJson: bool
       kept.traces++;
       kept.spans += trace.spans;
       for (const k of Object.keys(imported.counts) as Array<keyof TraceImport['counts']>) kept[k] += imported.counts[k];
-      Object.assign(entry, { outcome: 'imported', runId: run.runId });
+      Object.assign(entry, { outcome: 'imported', runId: run.runId, judged: run.judged });
       line(`imported as ${p.bold(shortId(run.runId))}: ${plural(run.calls.model, 'model call')}${run.calls.tool ? ` and ${plural(run.calls.tool, 'tool result')}` : ''}`);
     }
 
