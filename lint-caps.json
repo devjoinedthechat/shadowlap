@@ -295,9 +295,6 @@
     "packages/engine/src/blame.ts": {
       "formatBlame": 48
     },
-    "packages/engine/src/checks/evaluate.ts": {
-      "match": 56
-    },
     "packages/engine/src/compare.ts": {
       "formatComparison": 38,
       "interventionOf": 36,

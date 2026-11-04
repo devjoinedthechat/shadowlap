@@ -274,7 +274,36 @@ function combine(matches: Match[]): Match {
   return { state, why: (not.length ? not : matches).map((m) => m.why).filter(Boolean).join('; ') };
 }
 
+/** A value's test, as the run recorded it: held, broken or undecided, with the values that say so. */
 function match(m: Matcher, actual: unknown, path: string, ctx: MatchContext): Match {
+  switch (m.op) {
+    case 'object':
+    case 'array':
+    case 'all':
+    case 'not':
+      return matchShape(m, actual, path, ctx);
+    default:
+      break;
+  }
+  const subject = path || 'the value';
+  if (actual === undefined) return undecided(`has no ${subject}`);
+  const shown = `${subject} ${showValue(actual)}`;
+  if (m.op === 'in') return matchIn(m, actual, shown, ctx);
+  const o = operandValue(m.operand, ctx);
+  if ('state' in o) return o;
+  switch (m.op) {
+    case '<':
+    case '<=':
+    case '>':
+    case '>=':
+      return compareNumbers(m.op, actual, shown, o);
+    default:
+      return compare(m.op, actual, shown, o);
+  }
+}
+
+/** A literal object or list, matched key by key or item by item, and matchers that must all hold, or must not. */
+function matchShape(m: Extract<Matcher, { op: 'object' | 'array' | 'all' | 'not' }>, actual: unknown, path: string, ctx: MatchContext): Match {
   const subject = path || 'the value';
   switch (m.op) {
     // A value of another kind than the literal written can't be matched key by key or item by item:
@@ -292,51 +321,50 @@ function match(m: Matcher, actual: unknown, path: string, ctx: MatchContext): Ma
       const inner = match(m.matcher, actual, path, ctx);
       return inner.state === 'undecided' ? inner : { ...inner, state: inner.state === 'held' ? 'broken' : 'held' };
     }
-    default:
-      break;
   }
-  if (actual === undefined) return undecided(`has no ${subject}`);
-  const shown = `${subject} ${showValue(actual)}`;
-  if (m.op === 'in') {
-    let list: unknown[];
-    let text: string;
-    if ('list' in m) {
-      const r = resolveReference(m.list, ctx);
-      if ('state' in r) return r;
-      // A path with `*` reads its values; any other reads one list.
-      if (hasWildcard(m.list)) list = r.values;
-      else if (Array.isArray(r.values[0])) list = r.values[0] as unknown[];
-      else return undecided(`${m.list.text} is ${showValue(r.values[0])} (#${r.callNo}), not a list`);
-      text = `${m.list.text} ${showValue(list)} (#${r.callNo})`;
-    } else {
-      const items = m.items.map((o) => operandValue(o, ctx));
-      const problem = items.find((x): x is Match => 'state' in x);
-      if (problem) return problem;
-      const values = items as Array<{ value: unknown; text: string }>;
-      list = values.map((x) => x.value);
-      text = `[${values.map((x) => x.text).join(', ')}]`;
-    }
-    return list.some((x) => argsMatch(actual, x)) ? held(`${shown} in ${text}`) : broken(`${shown} not in ${text}`);
+}
+
+/** `in`: the value is one of a list the rule writes, or of one an earlier call recorded. */
+function matchIn(m: Extract<Matcher, { op: 'in' }>, actual: unknown, shown: string, ctx: MatchContext): Match {
+  let list: unknown[];
+  let text: string;
+  if ('list' in m) {
+    const r = resolveReference(m.list, ctx);
+    if ('state' in r) return r;
+    // A path with `*` reads its values; any other reads one list.
+    if (hasWildcard(m.list)) list = r.values;
+    else if (Array.isArray(r.values[0])) list = r.values[0] as unknown[];
+    else return undecided(`${m.list.text} is ${showValue(r.values[0])} (#${r.callNo}), not a list`);
+    text = `${m.list.text} ${showValue(list)} (#${r.callNo})`;
+  } else {
+    const items = m.items.map((o) => operandValue(o, ctx));
+    const problem = items.find((x): x is Match => 'state' in x);
+    if (problem) return problem;
+    const values = items as Array<{ value: unknown; text: string }>;
+    list = values.map((x) => x.value);
+    text = `[${values.map((x) => x.text).join(', ')}]`;
   }
-  const o = operandValue(m.operand, ctx);
-  if ('state' in o) return o;
-  switch (m.op) {
+  return list.some((x) => argsMatch(actual, x)) ? held(`${shown} in ${text}`) : broken(`${shown} not in ${text}`);
+}
+
+/** `<`, `<=`, `>` and `>=`: a number, or one written plainly as text, on either side, else undecided. */
+function compareNumbers(op: '<' | '<=' | '>' | '>=', actual: unknown, shown: string, o: { value: unknown; text: string }): Match {
+  const a = asNumber(actual);
+  const b = asNumber(o.value);
+  if (a === null) return undecided(`${shown} is not a number`);
+  if (b === null) return undecided(`${o.text} is not a number`);
+  const ok = op === '<' ? a < b : op === '<=' ? a <= b : op === '>' ? a > b : a >= b;
+  return (ok ? held : broken)(`${shown} ${(ok ? PHRASE : NEGATED)[op]} ${o.text}`);
+}
+
+/** `=` and `!=` as `tools` matches arguments, `includes` of text or a list, and how text starts or ends. */
+function compare(op: '=' | '!=' | 'includes' | 'startsWith' | 'endsWith', actual: unknown, shown: string, o: { value: unknown; text: string }): Match {
+  switch (op) {
     case '=':
     case '!=': {
       const equal = argsMatch(actual, o.value);
-      const ok = m.op === '=' ? equal : !equal;
+      const ok = op === '=' ? equal : !equal;
       return (ok ? held : broken)(`${shown} ${equal ? '=' : '!='} ${o.text}`);
-    }
-    case '<':
-    case '<=':
-    case '>':
-    case '>=': {
-      const a = asNumber(actual);
-      const b = asNumber(o.value);
-      if (a === null) return undecided(`${shown} is not a number`);
-      if (b === null) return undecided(`${o.text} is not a number`);
-      const ok = m.op === '<' ? a < b : m.op === '<=' ? a <= b : m.op === '>' ? a > b : a >= b;
-      return (ok ? held : broken)(`${shown} ${(ok ? PHRASE : NEGATED)[m.op]} ${o.text}`);
     }
     case 'includes': {
       let found: boolean;
@@ -349,8 +377,8 @@ function match(m: Matcher, actual: unknown, path: string, ctx: MatchContext): Ma
     case 'endsWith': {
       if (typeof actual !== 'string') return undecided(`${shown} is not text`);
       if (typeof o.value !== 'string') return undecided(`${o.text} is not text`);
-      const ok = m.op === 'startsWith' ? actual.startsWith(o.value) : actual.endsWith(o.value);
-      return (ok ? held : broken)(`${shown} ${(ok ? PHRASE : NEGATED)[m.op]} ${o.text}`);
+      const ok = op === 'startsWith' ? actual.startsWith(o.value) : actual.endsWith(o.value);
+      return (ok ? held : broken)(`${shown} ${(ok ? PHRASE : NEGATED)[op]} ${o.text}`);
     }
   }
 }
