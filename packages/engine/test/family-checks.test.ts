@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { captureVerdict, captureVerdictLine, checkCallAt, familyGoldens, familyRoot, familySpecs, judgeByFamily, judgeCapture, judgeRecording, keptCaptureVerdict, parseTests, rulesOnCalls, Store, storeParents, type RunRecord } from '../src/index.js';
+import { callNeedsCalls, captureVerdict, captureVerdictLine, checkCallAt, familyGoldens, familyRoot, familySpecs, judgeByFamily, judgeCapture, judgeRecording, keptCaptureVerdict, parseTests, rulesOnCalls, Store, storeParents, type RunRecord } from '../src/index.js';
 import { RunBuilder, text, toolUse, usage, user } from './run-fixtures.js';
 
 /**
@@ -154,6 +154,12 @@ describe('the call a failed check turned on', () => {
     // Without the run's calls, only the call its detail names.
     expect(checkCallAt({ label: 'every issue_refund call: after lookup_order', detail: 'issue_refund #4: amount 300 > 240' }, null)).toBe(4);
     expect(checkCallAt({ label: 'send_email called at most 1 time', detail: 'called 3 times' }, null)).toBeNull();
+    // Only a count whose detail names no call needs the run's calls to tell it.
+    expect(callNeedsCalls({ label: 'send_email called at most 1 time', detail: 'called 3 times' })).toBe(true);
+    expect(callNeedsCalls({ label: 'when lookup_order has result.total > 200: at most 2 model calls', detail: '3 model calls; the condition held at lookup_order #2' })).toBe(true);
+    expect(callNeedsCalls({ label: 'every issue_refund call: after lookup_order', detail: 'issue_refund #4: amount 300 > 240' })).toBe(false);
+    expect(callNeedsCalls({ label: 'send_email called at least 4 times', detail: 'called 3 times' })).toBe(false);
+    expect(callNeedsCalls({ label: 'cost at most $0.05', detail: 'cost ≈ $0.071' })).toBe(false);
     store.close();
   });
 });

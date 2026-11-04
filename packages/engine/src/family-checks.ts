@@ -131,17 +131,29 @@ function countedCalls(calls: readonly CallRecord[], name: string, args: string |
   return named.filter((c) => argsMatch(argsOf(c), want));
 }
 
+/** A count's label read back: the tool it counts (with the arguments it names) or the kind of calls, and the most it allows; null for no count, or one with no most (at least). */
+function countOf(part: string): { max: number; tool: string; args: string | undefined } | { max: number; kind: 'api' | 'tool' } | null {
+  const tool = /^(\S+?)(?: with (\{.*\}))? called (.+)$/.exec(part);
+  const kinds = /^(.+? (model|tool) calls?)$/.exec(part);
+  const max = countMax(tool ? tool[3]! : kinds ? kinds[1]! : '');
+  if (max === null || max === Infinity) return null;
+  return tool ? { max, tool: tool[1]!, args: tool[2] } : { max, kind: kinds![2] === 'model' ? 'api' : 'tool' };
+}
+
 /** The first call past what a count allows, from the count's label: a tool's, or the model or tool calls'. */
 function pastCount(label: string, agent: readonly CallRecord[], argsOf: ((c: CallRecord) => unknown) | null): number | null {
   for (const part of countPart(label)) {
-    const tool = /^(\S+?)(?: with (\{.*\}))? called (.+)$/.exec(part);
-    const kinds = /^(.+? (model|tool) calls?)$/.exec(part);
-    const max = countMax(tool ? tool[3]! : kinds ? kinds[1]! : '');
-    if (max === null || max === Infinity) continue;
-    const counted = tool ? countedCalls(agent, tool[1]!, tool[2], argsOf) : agent.filter((c) => c.kind === (kinds![2] === 'model' ? 'api' : 'tool'));
-    if (counted && counted.length > max) return [...counted].sort((a, b) => a.callNo - b.callNo)[max]!.callNo;
+    const count = countOf(part);
+    if (!count) continue;
+    const counted = 'tool' in count ? countedCalls(agent, count.tool, count.args, argsOf) : agent.filter((c) => c.kind === count.kind);
+    if (counted && counted.length > count.max) return [...counted].sort((a, b) => a.callNo - b.callNo)[count.max]!.callNo;
   }
   return null;
+}
+
+/** Whether only the run's calls can tell the call a failed check turned on: its detail names none, and it is a count, whose call is the first past what it allows. */
+export function callNeedsCalls(check: { label: string; detail: string | null }): boolean {
+  return checkCallAt(check, null) === null && countPart(check.label).some((part) => countOf(part) !== null);
 }
 
 /**
