@@ -170,7 +170,7 @@ function callAtWith(store: Store, calls: Calls | null): (c: Pick<StoredCheck, 'l
 }
 
 /** A run judged by its own checks, as it was made. */
-function ownJudged(store: Store, r: IndexedRun, calls: Calls | null, withChecks: boolean): RunJudged | null {
+function ownJudged(store: Store, r: IndexedRun, calls: Calls | null, each: boolean): RunJudged | null {
   const own = r.meta.checks;
   if (!own?.length) return null;
   const callAt = callAtWith(store, calls);
@@ -185,12 +185,12 @@ function ownJudged(store: Store, r: IndexedRun, calls: Calls | null, withChecks:
     today: false,
     goldens: [],
     why: null,
-    ...(withChecks ? { checks: judgedChecks(own, callAt) } : {}),
+    ...(each ? { checks: judgedChecks(own, callAt) } : {}),
   };
 }
 
 /** A capture's verdict by the rules on calls: as kept when it was imported, or judged again since they changed. */
-function importJudged(store: Store, record: RunRecord, w: ParsedWork | null, calls: Calls, withChecks: boolean): RunJudged | null {
+function importJudged(store: Store, record: RunRecord, w: ParsedWork | null, calls: Calls): RunJudged | null {
   const v = w && !w.error ? captureVerdict(store, record, w.rules, calls) : keptCaptureVerdict(record);
   if (!v) return null;
   const again = 'again' in v && v.again === true;
@@ -205,7 +205,7 @@ function importJudged(store: Store, record: RunRecord, w: ParsedWork | null, cal
     today: again,
     goldens: [],
     why: v.why,
-    ...(withChecks ? { checks: judgedChecks(v.checks, callAt) } : {}),
+    checks: judgedChecks(v.checks, callAt),
   };
 }
 
@@ -225,13 +225,16 @@ function checksSince(w: ParsedWork, goldens: readonly string[]): number | null {
   return times.length ? Math.max(...times) : null;
 }
 
-function familyJudged(store: Store, index: RunIndex, record: RunRecord, r: IndexedRun, w: ParsedWork, calls: Calls, withChecks: boolean): RunJudged | null {
+/** The checks of a run's family's goldens, found without a call read: none for a run with no golden of its family under `tests`. */
+function familyOf(store: Store, index: RunIndex, record: RunRecord, w: ParsedWork): ReturnType<typeof familySpecs> {
   const parentOf: ParentOf = (id) => {
     const x = index.byId.get(id);
     return x ? x.parentRunId : undefined;
   };
-  const specs = familySpecs(w.entries, familyGoldens(store, record, w.work.goldens, w.work.dir, parentOf), w.work.dir);
-  if (!specs.length) return null;
+  return familySpecs(w.entries, familyGoldens(store, record, w.work.goldens, w.work.dir, parentOf), w.work.dir);
+}
+
+function familyJudged(store: Store, record: RunRecord, r: IndexedRun, w: ParsedWork, specs: ReturnType<typeof familySpecs>, calls: Calls): RunJudged | null {
   const fam = judgeByFamily(store, record, calls(), specs, w.work.prices);
   if (!fam) return null;
   const since = checksSince(w, fam.goldens);
@@ -245,15 +248,8 @@ function familyJudged(store: Store, index: RunIndex, record: RunRecord, r: Index
     today: since === null || r.startedAt < since,
     goldens: fam.goldens,
     why: null,
-    ...(withChecks ? { checks: judgedChecks(fam.checks, () => null) } : {}),
+    checks: judgedChecks(fam.checks, () => null),
   };
-}
-
-/** What judging a run reads of its calls, before it does: none for its own checks or a kept verdict, else all of them. */
-function readsCalls(store: Store, r: IndexedRun, w: ParsedWork | null): boolean {
-  if (r.meta.checks?.length || r.status === 'running') return false;
-  if (r.kind === 'capture') return !!w && !w.error && keptCaptureVerdict(store.getRun(r.runId) ?? { meta: {} })?.rules !== w.rules.key;
-  return !!w && !w.error && judgedByFamily(r);
 }
 
 export interface JudgeOptions {
@@ -261,13 +257,21 @@ export interface JudgeOptions {
   calls?: Calls;
   /** Each check too: what the run's page shows on the outcome's hover. */
   checks?: boolean;
-  /** Only what needs no call read, or what this thread judged before: a long run's first answer. */
+  /** Only what needs no call read, or what this thread judged before: a list's row, a long run's first answer. */
   quick?: boolean;
+}
+
+/** An outcome with its checks, or without them for a list. */
+function withChecks(v: RunJudged | null, checks: boolean): RunJudged | null {
+  if (!v || checks || !v.checks) return v;
+  const { checks: _each, ...rest } = v;
+  return rest;
 }
 
 /**
  * A run's outcome by checks, or null when no check judges it (a run still recording, one no check
- * applies to); undefined when `quick` and judging it would read its calls.
+ * applies to); undefined when `quick` and judging it would read its calls. What reads calls is kept
+ * whole, each check with it, for the run's page and the lists alike.
  */
 export function runJudged(store: Store, index: RunIndex, runId: string, work: OutcomeWork | null, o: JudgeOptions = {}): RunJudged | null | undefined {
   const r = index.byId.get(runId);
@@ -279,12 +283,16 @@ export function runJudged(store: Store, index: RunIndex, runId: string, work: Ou
   if (r.kind !== 'capture' && (!w || w.error || !judgedByFamily(r))) return null;
   const record = store.getRun(runId);
   if (!record) return null;
-  const kept = r.kind === 'capture' ? (keptCaptureVerdict(record)?.rules ?? null) : null;
-  const key = w ? `${keyOf(w, r, kept)}|${o.checks ? 1 : 0}` : null;
-  if (key && judged.has(key)) return judged.get(key)!;
-  if (o.quick && readsCalls(store, r, w)) return undefined;
-  const out = r.kind === 'capture' ? importJudged(store, record, w, calls, o.checks === true) : familyJudged(store, index, record, r, w!, calls, o.checks === true);
-  return key ? keep(key, out) : out;
+  const kept = r.kind === 'capture' ? keptCaptureVerdict(record) : null;
+  // A capture judged under today's rules, or kept with no project to judge it by: no call read.
+  if (r.kind === 'capture' && (!w || w.error || kept?.rules === w.rules.key)) return withChecks(importJudged(store, record, w, calls), o.checks === true);
+  const specs = r.kind === 'capture' ? null : familyOf(store, index, record, w!);
+  if (specs && !specs.length) return null;
+  const key = keyOf(w!, r, kept?.rules ?? null);
+  if (judged.has(key)) return withChecks(judged.get(key)!, o.checks === true);
+  if (o.quick) return undefined;
+  const out = specs ? familyJudged(store, record, r, w!, specs, calls) : importJudged(store, record, w, calls);
+  return withChecks(keep(key, out), o.checks === true);
 }
 
 /**

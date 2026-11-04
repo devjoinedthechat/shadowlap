@@ -128,12 +128,20 @@ describe('the rows and the run payload', () => {
     const fork = refund(store, { amount: 300, parent: rec, startedAt: T0 + 120_000 });
     const w = work(rec);
     const rows: Array<{ runId: string; judged?: RunJudged | null }> = [{ runId: fork }, { runId: rec }];
-    // A budget of none judges what reads no call; the run's page judges the fork whole, and the list has it after.
-    expect(judgedRows(store, rows, w, 0)).toEqual(rows);
+    // A budget of none judges what reads no call: a run no golden of its family judges says so at once.
+    const lone = refund(store, { amount: 1, startedAt: T0 + 180_000 });
+    expect(judgedRows(store, [...rows, { runId: lone }], w, 0)).toEqual([...rows, { runId: lone, judged: null }]);
+    // Within the budget, newest first: the fork's 6 calls fit, the recording's don't.
     expect(judgedRows(store, rows, w, 6).map((r) => r.judged?.verdict)).toEqual(['failed', undefined]);
+    // Once its page has judged the recording, a list has it with no call read, without each check.
+    expect(judge(store, rec, w, { checks: true })?.checks).toHaveLength(2);
+    const after = judgedRows(store, rows, w, 0);
+    expect(after.map((r) => r.judged?.verdict)).toEqual(['failed', 'passed']);
+    expect(after.map((r) => r.judged?.checks)).toEqual([undefined, undefined]);
     const page = await runJob(store, { kind: 'runs-page', options: {}, team: null, outcome: w }, { whole: true });
     const listed = (JSON.parse(page.body) as { runs: Array<{ runId: string; judged: RunJudged | null }> }).runs;
     expect(listed.map((r) => [r.runId, r.judged?.verdict, r.judged?.callNo, r.judged?.today, r.judged?.checks])).toEqual([
+      [lone, undefined, undefined, undefined, undefined],
       [fork, 'failed', 4, false, undefined],
       [rec, 'passed', null, true, undefined],
     ]);
