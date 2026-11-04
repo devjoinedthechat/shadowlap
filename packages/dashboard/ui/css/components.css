@@ -17,8 +17,6 @@
    and a noun for what the page shows, or a thing's kind and its name; never lime, a tagline or a list of keywords */
 .eyebrow { display: flex; align-items: baseline; gap: .6em; min-width: 0; font: 600 var(--fs-caps)/1.5 var(--mono); letter-spacing: var(--caps); text-transform: uppercase; color: var(--faint); }
 .eyebrow > i:first-child { display: none; }
-.eyebrow.err { color: var(--err); }
-.eyebrow.n, .eyebrow .n { color: var(--dim); }
 .eyebrow a { color: inherit; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
 .eyebrow code { font: inherit; text-transform: none; letter-spacing: .04em; }
 .ph .eyebrow { flex-wrap: wrap; row-gap: 4px; }
@@ -31,8 +29,9 @@
    colour only for what passed or failed */
 .metrics.pfacts { padding: 10px 0 12px; margin: -6px 0 20px; }
 .metric b.ok { color: var(--cq-lime); }
-a.metric { color: inherit; text-decoration: none; }
-a.metric:hover span { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+a.metric { position: relative; color: inherit; text-decoration: none; }
+a.metric:hover span { color: var(--ink); }
+a.metric::after { content: ""; position: absolute; inset: -4px 0; }
 /* on a phone the facts sit in a grid, so no fact is left alone on a row: three across, two when there are two or four */
 @media (max-width: 640px) {
   .metrics.pfacts { display: grid; grid-template-columns: repeat(3, minmax(0, max-content)); column-gap: 22px; row-gap: 8px; }
@@ -52,12 +51,15 @@ a.metric:hover span { color: var(--ink); text-decoration: underline; text-underl
 .panel.sec { border: 0; border-top: 1px solid var(--line); border-radius: 0; background: none; margin-top: var(--gap-section); }
 .panel.sec > header { padding: 14px 0 12px; border-bottom: 0; }
 .panel.sec > header .sub { text-wrap: balance; }
+/* a link among a section's header actions is set with the header's sub, as a quiet line's is */
+.panel.sec > header > .actions > a:not(.btn) { font-size: var(--fs-quiet); }
 .panel.sec > .pbody { padding: 0 0 4px; }
 .grid2 > .panel.sec, .grid2.secs > .panel.sec + .panel.sec { margin-top: 0; }
 .grid2.secs { margin-top: var(--gap-section); column-gap: 40px; }
 /* under tabs, the tabs' own hairline heads the first section: one line, never two */
 .stabs + .panel.sec, .stabs + .stepempty, .stabs + .panel.stepempty { border-top: 0; margin-top: 0; }
 .stabs + .panel.sec > header { padding-top: 2px; }
+.stabs + .stepempty, .stabs + .panel.stepempty { padding-top: 6px; }
 .panel.sec table.t th { background: var(--bg); }
 .panel.sec table.t th:first-child, .panel.sec table.t td:first-child { padding-left: 0; }
 .panel.sec table.t th:last-child, .panel.sec table.t td:last-child { padding-right: 0; }
@@ -68,8 +70,14 @@ a.metric:hover span { color: var(--ink); text-decoration: underline; text-underl
 :where(.panel.sec table.t tbody) tr:hover > td:last-child { box-shadow: var(--bleed) 0 0 var(--hover); }
 :where(.panel.sec table.t tbody) tr:hover > td:only-child { box-shadow: calc(-1 * var(--bleed)) 0 0 var(--hover), var(--bleed) 0 0 var(--hover); }
 .panel.sec .tscroll, .panel.sec.tscroll { margin-left: calc(-1 * var(--bleed)); margin-right: calc(-1 * var(--bleed)); padding-left: var(--bleed); padding-right: var(--bleed); }
-/* a list's row in a section: the same tint and bleed as a table's */
+/* a list's row in a section (Row): the same tint and bleed as a table's, and where you are (a picked or a selected row, one
+   in focus from j and k) on the selected ground, which wins over the pointer's; a table's picked row the same */
 .panel.sec .srow:hover { background: var(--hover); box-shadow: calc(-1 * var(--bleed)) 0 0 var(--hover), var(--bleed) 0 0 var(--hover); }
+.panel.sec .srow.sel, .panel.sec .srow.sel:hover { background: var(--sel); box-shadow: calc(-1 * var(--bleed)) 0 0 var(--sel), var(--bleed) 0 0 var(--sel); }
+table.t tbody tr.sel td, table.t tbody tr.sel:hover td { background: var(--sel); }
+:where(.panel.sec table.t tbody) tr.sel > td:first-child, :where(.panel.sec table.t tbody) tr.sel:hover > td:first-child { box-shadow: calc(-1 * var(--bleed)) 0 0 var(--sel); }
+:where(.panel.sec table.t tbody) tr.sel > td:last-child, :where(.panel.sec table.t tbody) tr.sel:hover > td:last-child { box-shadow: var(--bleed) 0 0 var(--sel); }
+:where(.panel.sec table.t tbody) tr.sel > td:only-child, :where(.panel.sec table.t tbody) tr.sel:hover > td:only-child { box-shadow: calc(-1 * var(--bleed)) 0 0 var(--sel), var(--bleed) 0 0 var(--sel); }
 
 /* ---- a status (Status): a 7px dot and a word, both in the word's colour, passed included ---- */
 /* Its colours are the consequence colours, apart from the origin colours a strip uses: lime passed, red failed, amber
@@ -150,7 +158,7 @@ a.metric:hover span { color: var(--ink); text-decoration: underline; text-underl
 .seg button:hover, .seg a:hover { color: var(--ink); }
 .seg button[aria-pressed="true"], .seg a[aria-pressed="true"], .seg a[aria-current="page"] { color: var(--ink); background: var(--raise); box-shadow: 0 0 0 1px var(--line2); }
 /* On and off is one switch, drawn in ink: its track stays 28 by 16, and it takes taps over 44 by 24 around it */
-.switch { position: relative; display: inline-flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; user-select: none; }
+.switch { position: relative; display: inline-flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; -webkit-user-select: none; user-select: none; }
 .switch::before { content: ""; position: absolute; inset: -4px -8px; }
 .switch i { width: 28px; height: 16px; flex: none; border-radius: var(--r-pill); background: var(--line2); position: relative; transition: background .15s; }
 .switch i::after { content: ""; position: absolute; left: 2px; top: 2px; width: 12px; height: 12px; border-radius: var(--r-dot); background: var(--bg); transition: transform .15s; }
@@ -187,7 +195,6 @@ a.metric:hover span { color: var(--ink); text-decoration: underline; text-underl
 /* a setup step's and an empty state's quiet command: its prompt in the command's own weight, never copied with it */
 .cli code > b { font-weight: inherit; -webkit-user-select: none; user-select: none; }
 
-
 /* ---- a run's id (Id): mono, never broken; in a list, its first six characters quieter ---- */
 /* drawn by the id's own ground, so its text is the id as it is, one text that copies, searches and reads whole */
 code.rnm.rl { background: linear-gradient(90deg, var(--faint) 6ch, var(--id-ink, var(--ink)) 6ch); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
@@ -221,11 +228,11 @@ code.rnm.rl { background: linear-gradient(90deg, var(--faint) 6ch, var(--id-ink,
 .alist > .al > i.inc { background: var(--cq-amber); }
 .alist .more2 { color: var(--faint); font-size: var(--fs-small); }
 .astrip { display: flex; flex-wrap: wrap; gap: 2px; max-width: 520px; margin: 4px 0 8px; }
-.astrip .ac { position: relative; width: 6px; height: 12px; border-radius: var(--r-mark); background: var(--cq-lime); }
+.astrip .ac { display: block; width: 6px; height: 12px; border-radius: var(--r-mark); background: var(--cq-lime); }
 .astrip .ac.no { background: var(--cq-red); }
 .astrip .ac.inc { background: var(--cq-amber); }
+/* a cell is a mark, no target of its own: its attempt shows on hover, the lines under the strip link the runs */
 .astrip .ac:hover { outline: 1px solid var(--ink); outline-offset: 1px; }
-@media (pointer: coarse) { .astrip { row-gap: 12px; } .astrip .ac::before { content: ""; position: absolute; inset: -6px -1px; } }
 
 /* ---- the three states (EmptyState, EmptyLine, Skeleton, ErrorState) ---- */
 /* nothing here yet: a section under a hairline, its heading, one sentence, its step, the command quiet under it */
@@ -236,7 +243,7 @@ code.rnm.rl { background: linear-gradient(90deg, var(--faint) 6ch, var(--id-ink,
 .stepempty p code { overflow-wrap: anywhere; }
 .stepempty .cmdline + .actions { margin-top: 14px; }
 /* a list with nothing to show says so in a line from the left */
-.emptyline { margin: 0; padding: 12px 0; color: var(--faint); font-size: 13px; }
+.emptyline { margin: 0; padding: 16px 0; color: var(--faint); font-size: var(--fs-body); }
 /* still loading: every piece of text a quiet bar along the line it will take, every mark its shape in the same tone, nothing
    to press */
 .skel { --skel: var(--line); }

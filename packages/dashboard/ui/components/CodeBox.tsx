@@ -60,9 +60,13 @@ export function CopyButton({ text, label, children = 'Copy', className = 'linkbt
   );
 }
 
-/** The box's Copy, named by what it copies, its article dropped: an icon in the box's corner, or its words at the end of a file's header (`words`). */
+/**
+ * The box's Copy, named by what it copies, its article dropped: an icon in the box's corner, or its
+ * words at the end of a file's header (`words`), where the file it names says whose it is, so the
+ * golden's or the workflow's is dropped too ("Copy entry"; its toast "Copied the golden’s entry").
+ */
 function BoxCopy({ text, what, words = false }: { text: string; what: string; words?: boolean }) {
-  const label = `Copy ${what.replace(/^(the|a|an) /, '')}`;
+  const label = `Copy ${what.replace(words ? /^the (?:golden’s |workflow )?|^an? / : /^(?:the|a|an) /, '')}`;
   return words ? (
     <CopyButton text={text} label={what}>
       {label}

@@ -49,10 +49,27 @@ function order(a: Node, b: Node): number {
   return kids.indexOf(pa[i] as ChildNode) - kids.indexOf(pb[i] as ChildNode);
 }
 
-/** Whether a term is one that can be defined: laid out, and in no control or place with a hover card of its own. */
+/**
+ * Whether a term shows: in the page, laid out, and in no closed fold. A browser says so
+ * (`checkVisibility`, false in a closed <details> as under `hidden` or `display: none`), since a
+ * closed fold's content still has its boxes (`getClientRects`); where it can't say, a term in a
+ * closed fold, its summary aside, or under the `hidden` attribute is hidden.
+ */
+function shows(el: HTMLElement): boolean {
+  if (!el.isConnected) return false;
+  if (typeof el.checkVisibility === 'function') return el.checkVisibility();
+  if (el.getClientRects().length === 0) return false;
+  for (let n: HTMLElement = el, up = n.parentNode as HTMLElement | null; up?.nodeType === 1; n = up, up = up.parentNode as HTMLElement | null) {
+    if (up.hasAttribute('hidden') && up.getAttribute('hidden') !== 'until-found') return false;
+    if (up.tagName === 'DETAILS' && !up.hasAttribute('open') && n.tagName !== 'SUMMARY') return false;
+  }
+  return true;
+}
+
+/** Whether a term is one that can be defined: shown, and in no control or place with a hover card of its own. */
 function definable(el: HTMLElement): boolean {
   const up = el.parentNode as HTMLElement | null;
-  return el.isConnected && el.getClientRects().length > 0 && !(typeof up?.closest === 'function' && up.closest(SKIP));
+  return shows(el) && !(typeof up?.closest === 'function' && up.closest(SKIP));
 }
 
 /** The terms defined: the first of each word in each scope's order. */

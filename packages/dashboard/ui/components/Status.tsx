@@ -26,6 +26,8 @@ const VERDICT_TONE: Readonly<Record<string, Tone>> = {
   inconclusive: 'warn',
   unsettled: 'warn',
   stopped: 'warn',
+  'not rescued': 'warn',
+  incomplete: 'warn',
   failed: 'err',
   lost: 'err',
   'not fixed': 'err',
@@ -37,13 +39,15 @@ const VERDICT_TONE: Readonly<Record<string, Tone>> = {
 };
 
 /**
- * The tone a verdict word takes: what held (passed, rescued, fixed, kept, accepted) is passed's,
- * what couldn't decide (inconclusive, unsettled, stopped) amber, what didn't hold (failed, lost, not
- * fixed, broken, rejected) failed's, not applicable muted, and a fork's stubbed and blocked writes
- * their own. Any other word is no verdict, and reads muted: never red for what did not fail. A word
- * that is no verdict but has a colour (a fix's verified, a setup that is done) takes it from its page.
+ * The tone a status's verdict word takes: what held (passed, rescued, fixed, kept, accepted) is
+ * passed's, what couldn't decide (inconclusive, unsettled, stopped, a blame no call rescued, a
+ * verify that didn't finish) amber, what didn't hold (failed, lost, not fixed, broken, rejected)
+ * failed's, not applicable muted, and a fork's stubbed and blocked writes their own. Any other word
+ * is no verdict, and reads muted: never red for what did not fail. A word that is no verdict but has
+ * a colour (a fix's verified, a setup that is done) takes it from its page. Not fixes/model.ts's
+ * `verdictTone`, a fix step's verdict in that page's tones.
  */
-export function verdictTone(word: string): Tone {
+export function statusTone(word: string): Tone {
   const w = word.trim().toLowerCase();
   return Object.hasOwn(VERDICT_TONE, w) ? VERDICT_TONE[w]! : 'mu';
 }

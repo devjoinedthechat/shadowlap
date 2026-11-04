@@ -422,7 +422,7 @@ describe('runs', () => {
     expect([base, fork, clean, capture, test, live].map(runType)).toEqual(['recording', 'fork', 'clean', 'capture', 'test', 'recording']);
     expect(runOutcome(live)).toEqual({ tone: 'live', text: 'in progress' });
     expect(runOutcome(test)).toEqual({ tone: 'err', text: 'diverged at #1' });
-    expect(runOutcome(clean)).toEqual({ tone: 'ok', text: 'clean' });
+    expect(runOutcome(clean)).toEqual({ tone: 'n', text: 'clean' });
     expect(runOutcome({ ...fork, checks: { passed: 2, total: 2 } })).toEqual({ tone: 'ok', text: '2 checks passed' });
     expect(runOutcome({ ...base, status: 'failed', blame: { callNo: 9 } })).toEqual({ tone: 'err', text: 'lost at #9' });
     expect(runOutcome(base)).toEqual({ tone: 'n', text: '—' });

@@ -29,9 +29,22 @@ const MARK: Record<Attempt['outcome'], string> = { passed: '', failed: 'no', inc
 const FEW = 6;
 
 /**
- * Each attempt, in the order it ran. A few get a line each (a dot, the run, where it went); more get
- * a cell each, and lines for the first three that failed or couldn't be judged, in the order they
- * ran, with how many more of each. `rescued`, the attempt that is the rescued fork, says so.
+ * What the lines under the cells leave out, as the mock words it ("10 more failed · 63 passed"):
+ * one word a state, so an attempt that couldn't be judged is counted as inconclusive, never as failed.
+ */
+function moreWords(attempts: readonly Attempt[], shown: readonly Attempt[]): string {
+  const left = (o: Attempt['outcome']) => attempts.filter((a) => a.outcome === o).length - shown.filter((a) => a.outcome === o).length;
+  const failed = left('failed');
+  const unsure = left('inconclusive');
+  return [failed ? `${failed} more failed` : '', unsure ? `${unsure} more inconclusive` : '', `${left('passed')} passed`, 'each attempt is a cell above'].filter(Boolean).join(' · ');
+}
+
+/**
+ * Each attempt, in the order it ran. A few get a line each (a dot, the run, where it went), each
+ * line's run a link. More get a cell each, a mark too small to be a target of its own (WCAG 2.5.8),
+ * so it is a picture with its attempt on hover, and lines for the first three that weren't judged
+ * or failed, those not judged first, then how many more of each. `rescued`, the attempt that is the
+ * rescued fork, says so.
  */
 export function AttemptList({ attempts, rescued, id }: { attempts: readonly Attempt[]; rescued?: string | null; id?: string }) {
   const line = (a: Attempt) => (
@@ -51,26 +64,20 @@ export function AttemptList({ attempts, rescued, id }: { attempts: readonly Atte
         {attempts.map(line)}
       </div>
     );
-  // the first three that failed or couldn't be judged, in the order they ran, and how many more of each
-  const shown = attempts.filter((a) => a.outcome !== 'passed').slice(0, 3);
-  const more = (o: Attempt['outcome']) => attempts.filter((a) => a.outcome === o).length - shown.filter((a) => a.outcome === o).length;
-  const said = [more('failed') ? `${more('failed')} more failed` : '', more('inconclusive') ? `${more('inconclusive')} more inconclusive` : '', `${attempts.filter((a) => a.outcome === 'passed').length} passed`];
+  // the first three that weren't judged or failed, those not judged first, and how many more of each
+  const shown = [...attempts.filter((a) => a.outcome === 'inconclusive'), ...attempts.filter((a) => a.outcome === 'failed')].slice(0, 3);
+  const counts = (['passed', 'failed', 'inconclusive'] as const).map((o) => [o, attempts.filter((a) => a.outcome === o).length] as const).filter(([, n]) => n);
   return (
     <div className="attemptsx" id={id}>
-      <div className="astrip" role="group" aria-label={`${plural(attempts.length, 'attempt')}, each opens its run`}>
+      {/* a picture of the attempts in the order they ran: each cell's attempt on hover, its words said once for a screen reader */}
+      <div className="astrip" role="img" aria-label={`${plural(attempts.length, 'attempt')} in the order they ran: ${counts.map(([o, n]) => `${n} ${o}`).join(', ')}`}>
         {attempts.map((a, i) => (
-          <a
-            key={a.runId}
-            className={`ac${MARK[a.outcome] ? ` ${MARK[a.outcome]}` : ''}`}
-            href={a.href}
-            aria-label={`Attempt ${i + 1}, ${a.runId}, ${a.outcome}${a.note ? `, ${a.note}` : ''}`}
-            data-tip={JSON.stringify({ t: `attempt ${i + 1} · ${a.runId}`, ...(a.note ? { s: a.note } : {}) })}
-          />
+          <i key={a.runId} className={`ac${MARK[a.outcome] ? ` ${MARK[a.outcome]}` : ''}`} data-tip={JSON.stringify({ t: `attempt ${i + 1} · ${a.runId}`, s: [a.outcome, a.note].filter(Boolean).join(' · ') })} />
         ))}
       </div>
       <div className="alist">
         {shown.map(line)}
-        <span className="more2">{[...said, 'each attempt is a cell above'].filter(Boolean).join(' · ')}</span>
+        <span className="more2">{moreWords(attempts, shown)}</span>
       </div>
     </div>
   );

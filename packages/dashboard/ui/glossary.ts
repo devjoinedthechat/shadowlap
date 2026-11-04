@@ -23,7 +23,8 @@ export const GLOSSARY = {
   'not re-spent': 'What the replayed calls cost when they were recorded: spend the replays didn’t repeat.',
   'not waited': 'How long the replayed calls took when they were recorded: time this replay didn’t wait.',
   canary: 'A marker unique to each attempt’s payload: a tool call that carries it proves the planted text caused it.',
-  bound: 'The tally’s bound on the pass rate, at the confidence in brackets, exact under the gate that stopped it: the rates its attempts are consistent with, not a promise about later runs. The gate’s rule gives the verdict its meaning.',
+  // two lines, as the hover card draws its \n
+  bound: 'The tally’s bound on the pass rate, at the confidence in brackets, exact under the gate that stopped it: the rates its attempts are consistent with, not a promise about later runs.\nThe gate’s rule gives the verdict its meaning.',
 } as const;
 
 export type GlossaryTerm = keyof typeof GLOSSARY;
@@ -37,8 +38,12 @@ export const isTerm = (k: string): k is GlossaryTerm => Object.hasOwn(GLOSSARY, 
  */
 export const BOUND = /rate(?:[ \u00a0](?:>=|<=))?[ \u00a0]\d\.\d+(?:[ \u00a0]to[ \u00a0]\d\.\d+)?[ \u00a0]\(\d+(?:\.\d+)?%\)/;
 
-/** The words the glossary finds in a line: its terms, `goldens` as golden, each kept whole (no part of a longer word or name). */
-const WORDS = /(^|[^\w-])(goldens?|fenced|blocked|stubbed|injected|rescued|lost|kept|influenced|pass\^5|not[ \u00a0]re-spent|not[ \u00a0]waited|canary)(?![\w-])/g;
+/**
+ * The words the glossary finds in a line: its terms, `goldens` as golden, each kept whole (no part
+ * of a longer word or name). Not canary, which only a dialog's lead defines, where it asks for it
+ * (`<Term k="canary" />`).
+ */
+const WORDS = /(^|[^\w-])(goldens?|fenced|blocked|stubbed|injected|rescued|lost|kept|influenced|pass\^5|not[ \u00a0]re-spent|not[ \u00a0]waited)(?![\w-])/g;
 
 /** A piece of a line: plain text, or a term the glossary defines with the word as the line writes it. */
 export type GlossPiece = string | { term: GlossaryTerm; text: string };

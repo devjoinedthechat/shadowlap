@@ -20,9 +20,11 @@ export { EmptyState } from './States.js';
 /**
  * The muted line above a page's title, the same on every page and the run page's alike: what the
  * page is, the project and a noun for what it shows ("support-agent · this week"), or a thing's
- * kind and its name ("fix · refund-bug"). Mono, small capitals, never lime, never a tagline.
+ * kind and its name ("fix · refund-bug"). Mono, small capitals, in one tone everywhere: never lime,
+ * never red (what went wrong is the title's and its line's to say), never a tagline. `tone`, a run
+ * page's mark of a fork, names it and draws nothing else.
  */
-export function Eyebrow({ tone, children }: { tone?: 'fork' | 'err' | 'n' | undefined; children: ReactNode }) {
+export function Eyebrow({ tone, children }: { tone?: 'fork' | undefined; children: ReactNode }) {
   return <div className={`eyebrow${tone ? ` ${tone}` : ''}`}>{children}</div>;
 }
 
@@ -37,7 +39,6 @@ export function PageHeader({
   title,
   text,
   actions,
-  eyebrowTone,
   className,
   facts,
   factsLabel,
@@ -46,7 +47,6 @@ export function PageHeader({
   title: ReactNode;
   text?: ReactNode;
   actions?: ReactNode;
-  eyebrowTone?: 'fork' | 'err';
   className?: string | undefined;
   facts?: readonly Fact[] | undefined;
   factsLabel?: string | undefined;
@@ -55,7 +55,7 @@ export function PageHeader({
     <>
       <div className={`ph${className ? ` ${className}` : ''}`}>
         <div className="phl">
-          {eyebrow ? <Eyebrow tone={eyebrowTone}>{eyebrow}</Eyebrow> : null}
+          {eyebrow ? <Eyebrow>{eyebrow}</Eyebrow> : null}
           <h1>{title}</h1>
           {text ? <p>{text}</p> : null}
         </div>

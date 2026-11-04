@@ -1,3 +1,4 @@
+import { readdirSync, readFileSync } from 'node:fs';
 import { createElement, useState, type ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AttemptsCell, type Attempt } from '../ui/components/AttemptsCell.js';
@@ -7,10 +8,11 @@ import { Code, CodeText, Command, Copy, Words } from '../ui/components/Copy.js';
 import { factOrder, factTip } from '../ui/components/Facts.js';
 import { Id } from '../ui/components/Id.js';
 import { Link } from '../ui/components/Link.js';
+import { Row } from '../ui/components/Row.js';
 import { Section } from '../ui/components/Section.js';
 import { SegmentedControl } from '../ui/components/Segmented.js';
 import { EmptyLine, EmptyState, ErrorState, Skeleton } from '../ui/components/States.js';
-import { Status, verdictTone } from '../ui/components/Status.js';
+import { Status, statusTone } from '../ui/components/Status.js';
 import { Switch } from '../ui/components/Switch.js';
 import { glossed, Term } from '../ui/components/Term.js';
 import { VerdictLine } from '../ui/components/VerdictLine.js';
@@ -59,12 +61,16 @@ describe('the glossary', () => {
     expect(glossPieces('3 goldens · rate >= 0.73 (95%)')).toEqual(['3 ', { term: 'golden', text: 'goldens' }, ' · ', { term: 'bound', text: 'rate >= 0.73 (95%)' }]);
     expect(glossPieces('rate\u00a00.56\u00a0to\u00a00.95\u00a0(95%) · not\u00a0re-spent')).toEqual([{ term: 'bound', text: 'rate\u00a00.56\u00a0to\u00a00.95\u00a0(95%)' }, ' · ', { term: 'not re-spent', text: 'not\u00a0re-spent' }]);
     expect(glossPieces('lost-at blockedness re-kept')).toEqual(['lost-at blockedness re-kept']);
+    // canary is defined only where a dialog asks for it, never found in a line
+    expect(glossPieces('carried no canary')).toEqual(['carried no canary']);
   });
 
   it('heads a bound’s card with the bound as written, any other word’s with the word', () => {
     expect(termCard('bound', 'rate\u00a0>=\u00a00.73\u00a0(95%)')).toEqual({ t: 'rate >= 0.73 (95%)', s: GLOSSARY.bound });
     expect(termCard('stubbed', 'stubbed').t).toBe('stubbed');
     expect(GLOSSARY.stubbed).toBe('A write after the fork that never ran: the agent got a stand-in result back.');
+    // a bound's card is two lines, as its hover card draws the line break
+    expect(GLOSSARY.bound.split('\n')).toHaveLength(2);
   });
 });
 
@@ -130,12 +136,13 @@ describe('a status and a verdict line', () => {
   });
 
   it('takes a verdict word’s tone from decision 9’s vocabulary', () => {
-    expect(['passed', 'rescued', 'fixed', 'kept', 'accepted'].map(verdictTone)).toEqual(['ok', 'ok', 'ok', 'ok', 'ok']);
-    expect(['inconclusive', 'unsettled', 'stopped'].map(verdictTone)).toEqual(['warn', 'warn', 'warn']);
-    expect(['failed', 'lost', 'not fixed', 'broken', 'rejected'].map(verdictTone)).toEqual(['err', 'err', 'err', 'err', 'err']);
-    expect(['stubbed', 'blocked', 'not applicable'].map(verdictTone)).toEqual(['stub', 'block', 'mu']);
+    expect(['passed', 'rescued', 'fixed', 'kept', 'accepted'].map(statusTone)).toEqual(['ok', 'ok', 'ok', 'ok', 'ok']);
+    // a blame no call rescued, and a verify that didn't finish, are amber, as docs/dashboard.md says
+    expect(['inconclusive', 'unsettled', 'stopped', 'not rescued', 'incomplete'].map(statusTone)).toEqual(['warn', 'warn', 'warn', 'warn', 'warn']);
+    expect(['failed', 'lost', 'not fixed', 'broken', 'rejected'].map(statusTone)).toEqual(['err', 'err', 'err', 'err', 'err']);
+    expect(['stubbed', 'blocked', 'not applicable'].map(statusTone)).toEqual(['stub', 'block', 'mu']);
     // a word that is no verdict reads muted, never red for what did not fail
-    expect(['open', 'set up', 'needs a look', 'not run'].map(verdictTone)).toEqual(['mu', 'mu', 'mu', 'mu']);
+    expect(['open', 'set up', 'needs a look', 'not run'].map(statusTone)).toEqual(['mu', 'mu', 'mu', 'mu']);
   });
 
   it('leads a verdict with its word in its colour, then the sentence in a heading that names the word too, its facts under it and its step at the right', async () => {
@@ -252,6 +259,15 @@ describe('the code box', () => {
     expect(writes).toEqual(['on: push']);
     expect(said).toEqual(['Copied the CI step']);
   });
+
+  it('names a file box’s Copy without whose it is, the file names that, and keeps it in the toast', async () => {
+    clipboard();
+    await draw(createElement(CodeBox, { file: 'shadowlap.config.json', code: '{"tests":{}}', what: 'the golden’s entry' }));
+    expect(r!.one('.codehead button').textContent).toBe('Copy entry');
+    await r!.click(r!.one('.codehead button'));
+    await r!.wait(0);
+    expect(said).toEqual(['Copied the golden’s entry']);
+  });
 });
 
 describe('a link and a run’s id', () => {
@@ -273,6 +289,15 @@ describe('a link and a run’s id', () => {
     expect(plain.getAttribute('title')).toBe('Refund the order');
     expect(linked.parentNode!.className).toBe('more rlink');
     expect(linked.parentNode!.getAttribute('href')).toBe('#/run/01K5CQ8S2C');
+  });
+});
+
+describe('a list’s row', () => {
+  it('draws a row in a section with its hover’s bleed, and where you are on the selected ground, named so to a screen reader', async () => {
+    await draw(createElement('div', null, createElement(Row, { href: '#/run/01K', sel: true, children: 'a' }), createElement(Row, { children: 'b' })));
+    const [sel, plain] = r!.all('.srow');
+    expect([sel.tagName, sel.className, sel.getAttribute('aria-current')]).toEqual(['A', 'srow sel', 'true']);
+    expect([plain.tagName, plain.className, plain.getAttribute('aria-current')]).toEqual(['DIV', 'srow', null]);
   });
 });
 
@@ -309,6 +334,28 @@ describe('a glossary term', () => {
     await r!.click(r!.byText('button', 'Sort'));
     await r!.wait(0);
     expect(defined()).toEqual(['beta']);
+  });
+
+  it('counts a term in a closed fold as not shown: the first use that shows is defined, until the fold opens', async () => {
+    function Folded({ open }: { open: boolean }) {
+      return createElement(
+        'div',
+        { className: 'page' },
+        createElement('details', { open }, createElement('summary', null, 'How it works'), createElement('p', { 'data-row': 'fold' }, createElement(Term, { k: 'stubbed' }))),
+        createElement('p', { 'data-row': 'shown' }, createElement(Term, { k: 'stubbed' })),
+      );
+    }
+    function Toggle() {
+      const [open, setOpen] = useState(false);
+      return createElement('div', null, createElement('button', { onClick: () => setOpen((o) => !o) }, 'Fold'), createElement(Folded, { open }));
+    }
+    await draw(createElement(Toggle));
+    await r!.wait(0);
+    const defined = () => r!.all('.term.on').map((t) => t.parentNode!.getAttribute('data-row'));
+    expect(defined()).toEqual(['shown']);
+    await r!.click(r!.byText('button', 'Fold'));
+    await r!.wait(0);
+    expect(defined()).toEqual(['fold']);
   });
 
   it('defines the word on a tap without opening the row it sits in', async () => {
@@ -378,17 +425,24 @@ describe('an attempts cell', () => {
     ]);
   });
 
-  it('draws more than six attempts a cell each, with lines for the first that failed', async () => {
+  it('draws more than six attempts a cell each, a picture with each on hover, and links the first not judged or failed in lines under it', async () => {
     await draw(createElement(AttemptsCell, { tally: '9 of 12', bound: 'rate 0.43 to 0.95 (95%)', interval: { lo: 0.43, hi: 0.95 }, marks: [0.7, 0.9], tone: 'warn', attempts: runs(12, [1, 4, 7], [10]) }));
     expect(r!.one('.wib').className).toBe('wib y');
     await r!.click(r!.one('.xbtn'));
-    const cells = r!.all('.astrip a.ac');
+    // a cell is a mark too small to take a tap of its own (WCAG 2.5.8): no link, the strip one picture said once
+    const strip = r!.one('.astrip');
+    expect([strip.getAttribute('role'), strip.getAttribute('aria-label')]).toEqual(['img', '12 attempts in the order they ran: 8 passed, 3 failed, 1 inconclusive']);
+    expect(r!.all('.astrip a')).toEqual([]);
+    const cells = r!.all('.astrip .ac');
     expect(cells.map((c) => c.className)).toEqual(['ac', 'ac no', 'ac', 'ac', 'ac no', 'ac', 'ac', 'ac no', 'ac', 'ac', 'ac inc', 'ac']);
-    expect(cells[1].getAttribute('aria-label')).toBe('Attempt 2, 01M5GRZK01, failed, issue_refund called');
-    expect(r!.one('.astrip').getAttribute('aria-label')).toBe('12 attempts, each opens its run');
-    // the first three that failed or couldn't be judged, in the order they ran, and how many more of each
-    expect(r!.all('.alist .al').map((l) => l.querySelector('code')!.textContent)).toEqual(['01M5GRZK01', '01M5GRZK04', '01M5GRZK07']);
-    expect(r!.one('.alist .more2').textContent).toBe('1 more inconclusive · 8 passed · each attempt is a cell above');
+    expect(JSON.parse(cells[1].getAttribute('data-tip')!)).toEqual({ t: 'attempt 2 · 01M5GRZK01', s: 'failed · issue_refund called' });
+    // the first three not judged or failed, those not judged first, each a run that opens, and how many more of each
+    expect(r!.all('.alist .al').map((l) => [l.querySelector('code')!.textContent, l.querySelector('a')!.getAttribute('href')])).toEqual([
+      ['01M5GRZK10', '#/run/01M5GRZK10'],
+      ['01M5GRZK01', '#/run/01M5GRZK01'],
+      ['01M5GRZK04', '#/run/01M5GRZK04'],
+    ]);
+    expect(r!.one('.alist .more2').textContent).toBe('1 more failed · 8 passed · each attempt is a cell above');
   });
 
   it('leaves the list to a row that holds the toggle, and draws no bar where no gate decided', async () => {
@@ -542,5 +596,17 @@ describe('a piece of copy', () => {
     expect(copy.querySelectorAll('ts-p').map((x) => x.textContent)).toEqual(['shadowlap.', 'northwind.', 'internal']);
     expect(copy.querySelectorAll('wbr')).toHaveLength(2);
     expect(copy.textContent).toBe('shadowlap.northwind.internal');
+  });
+});
+
+describe('the stylesheet', () => {
+  it('pairs every rule that keeps text from a selection with the prefixed one Safari takes', () => {
+    const dir = new URL('../ui/css/', import.meta.url);
+    for (const file of readdirSync(dir).filter((f) => f.endsWith('.css'))) {
+      const css = readFileSync(new URL(file, dir), 'utf8');
+      for (const rule of css.match(/[^{}]+\{[^}]*\}/g) ?? []) {
+        if (/(^|[^-])user-select:\s*none/.test(rule)) expect(`${file}: ${rule.trim()}`).toMatch(/-webkit-user-select:\s*none/);
+      }
+    }
   });
 });

@@ -318,7 +318,8 @@ export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'warn' |
     // No check failed, and one could not be decided: amber, neither a pass nor a failure.
     if (o.kind === 'inconclusive') return { tone: 'warn', text: 'check inconclusive' };
     if (o.kind === 'passed' && typeof o.checks === 'number') return { tone: 'ok', text: checksPassedText(o.checks, o.notApplicable) };
-    if (o.kind === 'clean') return { tone: 'ok', text: 'clean' };
+    // a clean replay is no verdict: never passed's lime
+    if (o.kind === 'clean') return { tone: 'n', text: 'clean' };
     // A run cut short (its recorder stopped before it ended) has no outcome, but says why.
     if (o.kind === 'none') return r.status === 'crashed' ? { tone: 'n', text: 'interrupted' } : nothingToReport(r);
   }
@@ -332,7 +333,7 @@ export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'warn' |
   if (r.status === 'crashed') return { tone: 'n', text: 'interrupted' };
   if (r.status === 'failed') return { tone: 'err', text: 'failed' };
   const t = runType(r);
-  if (t === 'clean' || t === 'test') return { tone: 'ok', text: 'clean' };
+  if (t === 'clean' || t === 'test') return { tone: 'n', text: 'clean' };
   return nothingToReport(r);
 }
 
