@@ -20,8 +20,8 @@ interface Props {
   onClose: () => void;
 }
 
-/** A snippet with each searched word, or quoted phrase, marked where it appears. */
-export function markTerms(snippet: string, terms: readonly string[], color: string): Span[] {
+/** A snippet with each searched word, or quoted phrase, marked where it appears: in bold ink, as the dashboard's palette marks a match. */
+export function markTerms(snippet: string, terms: readonly string[]): Span[] {
   const text = snippet.replace(/\s+/g, ' ');
   const lower = text.toLowerCase();
   const spans: Span[] = [];
@@ -38,7 +38,7 @@ export function markTerms(snippet: string, terms: readonly string[], color: stri
       break;
     }
     if (at > i) spans.push({ text: text.slice(i, at) });
-    spans.push({ text: text.slice(at, at + len), color, bold: true });
+    spans.push({ text: text.slice(at, at + len), bold: true });
     i = at + len;
   }
   return spans;
@@ -88,7 +88,7 @@ export function SearchResults({ query, result, width, height, active, onOpen, on
     <Box flexDirection="column" width={width} height={height}>
       <Box height={1}>
         <Text wrap="truncate">
-          <Text backgroundColor={theme.band} color={theme.onBand} bold>
+          <Text backgroundColor={theme.brand} color={theme.onBrand} bold>
             {' shadowlap '}
           </Text>
           <Text color={theme.dim}> {found}</Text>
@@ -115,7 +115,7 @@ export function SearchResults({ query, result, width, height, active, onOpen, on
               cell(`#${h.callNo}`, w.call, {}, 2),
               cell(h.name, w.name, { color: theme.dim }, 2),
               cell(h.field, w.field, { color: theme.dim }, 2),
-              { spans: markTerms(h.snippet, terms, theme.accent), width: w.snippet, gap: 0 },
+              { spans: markTerms(h.snippet, terms), width: w.snippet, gap: 0 },
             ]}
           />
         ))

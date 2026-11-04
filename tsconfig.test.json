@@ -66,6 +66,8 @@
     // These render the Tests and Training pages.
     "packages/dashboard/test/ui-tests-chaos.test.ts",
     "packages/dashboard/test/ui-tests-page.test.ts",
+    // This renders the question a Tests job asks before it runs goldens live, from Tests, a run's banner and the palette.
+    "packages/dashboard/test/ui-tests-ask.test.ts",
     "packages/dashboard/test/ui-training-page.test.ts",
     // These render the job drawer and the top bar, the palette, the card a refused link shows and
     // an exported copy's Provenance.
@@ -73,6 +75,8 @@
     "packages/dashboard/test/ui-palette-modes.test.ts",
     "packages/dashboard/test/ui-token-card.test.ts",
     "packages/dashboard/test/ui-exported-provenance.test.ts",
+    // This renders an exported copy's pages, its runs, a run's page and Compare.
+    "packages/dashboard/test/ui-exported-copy.test.ts",
     // These render Settings.
     "packages/dashboard/test/ui-settings-states.test.ts",
     "packages/dashboard/test/ui-ci-tab.test.ts",
@@ -106,6 +110,9 @@
     "packages/dashboard/test/ui-run-key.test.ts",
     "packages/dashboard/test/ui-shortcut-keys.test.ts",
     "packages/dashboard/test/ui-run-notes.test.ts",
-    "packages/dashboard/test/ui-calls-grouping.test.ts"
+    "packages/dashboard/test/ui-calls-grouping.test.ts",
+    // These render a run's views as their scripts load, and a page or a view whose script didn't come.
+    "packages/dashboard/test/ui-run-views.test.ts",
+    "packages/dashboard/test/ui-page-failed.test.ts"
   ]
 }

@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { createElement, useState, type ReactNode } from 'react';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { Client } from '../ui/api.js';
@@ -10,6 +9,7 @@ import { Keyboard } from '../ui/shell/Keyboard.js';
 import { Palette } from '../ui/shell/Palette.js';
 import { SkipLink } from '../ui/shell/SkipLink.js';
 import { AppContext, type AppState } from '../ui/state.js';
+import { sheet } from './css-sheet.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 
 /**
@@ -82,7 +82,7 @@ beforeAll(() => {
 
 // ---- focus rings in scrolling panes
 
-const css = readFileSync(new URL('../ui/app.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+const css = sheet().replace(/\/\*[\s\S]*?\*\//g, '');
 
 describe('a focus ring in a pane that scrolls', () => {
   /** The panes the stylesheet scrolls, and the panes it draws rings inside. */

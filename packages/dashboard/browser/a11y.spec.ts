@@ -57,17 +57,26 @@ test('the fix’s steps group their attempts by what each did, with no serious o
 });
 
 /** Text tokens, and the surfaces text is drawn on, as the browser computed them on the page. */
-const TEXT = ['--ink', '--dim', '--faint', '--err', '--warn', '--accent', '--o-over', '--o-stub', '--k-write', '--c-write', '--del', '--add'];
-const SURFACES = ['--bg', '--bg2', '--panel', '--raise', '--hover', '--sel', '--code'];
+const TEXT = ['--ink', '--dim', '--faint', '--err', '--warn', '--accent', '--o-rep', '--o-over', '--o-stub', '--o-block', '--k-write', '--c-write', '--del', '--add'];
+const SURFACES = ['--bg', '--bg2', '--panel', '--raise', '--hover', '--sel', '--code', '--pop'];
 
-test('every text colour reaches 4.5:1 on the page and on every panel, as the browser draws them', async ({ page }) => {
+test('every text colour reaches 4.5:1 on the page and on every panel, and a field’s edge 3:1, as the browser draws them', async ({ page }) => {
   await openPage(page, '/', 'main#view .ovg');
+  // Each token as the browser draws it: set as an element's colour and read back, a mix worked out.
   const tokens = await page.evaluate((names) => {
-    const s = getComputedStyle(document.documentElement);
-    return Object.fromEntries(names.map((n) => [n, s.getPropertyValue(n).trim()]));
-  }, [...TEXT, ...SURFACES]);
+    const probe = document.body.appendChild(document.createElement('i'));
+    const out = Object.fromEntries(
+      names.map((n) => {
+        probe.style.color = `var(${n})`;
+        return [n, getComputedStyle(probe).color];
+      }),
+    );
+    probe.remove();
+    return out;
+  }, [...TEXT, ...SURFACES, '--field']);
   const low: string[] = [];
   for (const t of TEXT) for (const s of SURFACES) if (contrast(tokens[t]!, tokens[s]!) < 4.5) low.push(`${t} on ${s}: ${contrast(tokens[t]!, tokens[s]!).toFixed(2)}`);
+  for (const s of ['--bg', '--pop', '--bg2', '--panel']) if (contrast(tokens['--field']!, tokens[s]!) < 3) low.push(`--field on ${s}: ${contrast(tokens['--field']!, tokens[s]!).toFixed(2)}`);
   expect(low).toEqual([]);
   // And faint text where it is drawn, on what is under it.
   const pairs = await page.evaluate(() => {
@@ -314,4 +323,46 @@ test('the Request tab’s fold marks are 24 px tall at least, as WCAG 2.5.8 asks
   const heights = await page.locator('.ibody details > summary').evaluateAll((els) => els.map((el) => el.getBoundingClientRect().height));
   expect(heights.length).toBeGreaterThan(0);
   for (const h of heights) expect(h).toBeGreaterThanOrEqual(24);
+});
+
+test('on a phone no label is under 11px, an avatar’s initials aside, and the floor that raises them lowers nothing', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const small: string[] = [];
+  const pages: Array<[string, string]> = [
+    ['/', 'main#view .ovg'],
+    ['/runs', 'main#view table.runst tbody tr'],
+    [`/run/${demoId('override')}`, 'run'],
+    [`/fixes/${demoId('refundFix')}/blame`, 'fix'],
+    ['/tests', 'main#view table.gt'],
+  ];
+  for (const [path, drawn] of pages) {
+    await openPage(page, path, drawn);
+    const found = await page.evaluate((where) => {
+      const out: string[] = [];
+      for (const el of document.querySelectorAll<HTMLElement>('body *')) {
+        const s = getComputedStyle(el);
+        if (el.closest('.av, .sr') || s.visibility === 'hidden' || !el.getClientRects().length) continue;
+        const text = [...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && n.textContent?.trim());
+        if (text && parseFloat(s.fontSize) < 11) out.push(`${where}: ${el.tagName.toLowerCase()}.${String(el.className).trim().split(/\s+/).join('.')} “${el.textContent?.trim().slice(0, 30)}” at ${s.fontSize}`);
+      }
+      // The floor only raises: with its sizes taken out, no element is drawn larger than with them.
+      const floor: CSSStyleRule[] = [];
+      for (const sheet of document.styleSheets)
+        for (const r of sheet.cssRules)
+          if (r instanceof CSSMediaRule && r.conditionText.includes('max-width: 640px'))
+            for (const x of r.cssRules) if (x instanceof CSSStyleRule && x.selectorText.startsWith(':is(#root, body)') && x.style.fontSize) floor.push(x);
+      if (!floor.length) out.push(`${where}: no label floor in the stylesheet`);
+      const raised = [...document.querySelectorAll<HTMLElement>('body *')].map((el) => ({ el, px: parseFloat(getComputedStyle(el).fontSize) }));
+      const kept = floor.map((r) => ({ r, size: r.style.fontSize }));
+      for (const r of floor) r.style.removeProperty('font-size');
+      for (const { el, px } of raised) {
+        const was = parseFloat(getComputedStyle(el).fontSize);
+        if (px + 0.01 < was) out.push(`${where}: ${el.tagName.toLowerCase()}.${String(el.className).trim().split(/\s+/).join('.')} lowered from ${was}px to ${px}px`);
+      }
+      for (const { r, size } of kept) r.style.setProperty('font-size', size);
+      return out;
+    }, path);
+    small.push(...found);
+  }
+  expect(small).toEqual([]);
 });

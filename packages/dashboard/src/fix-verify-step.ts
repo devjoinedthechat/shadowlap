@@ -1,7 +1,7 @@
-import { describeGate, expectArgs, type FixRecords, footprintDelta, GATE_MAX_ATTEMPTS, gateOdds, keptAttemptVerdict, outcomeOf, type PulledFrom, rateBound, SPRT_DEFAULTS, type SprtGate, type StoredVerdict, unsettledReason, type VerdictStanding, type VerifiedRun, type VerifyOutcome } from '@shadowlap/engine';
+import { describeGate, expectArgs, type FixRecords, fixVerifyHead, footprintDelta, GATE_MAX_ATTEMPTS, gateOdds, keptAttemptVerdict, outcomeOf, type PulledFrom, rateBound, SPRT_DEFAULTS, type SprtGate, type StoredVerdict, unsettledReason, type VerdictStanding, type VerifiedRun, type VerifyOutcome } from '@shadowlap/engine';
 import { verifyEvidence } from './evidence.js';
 import { fieldArgs, rerunFlags, runIds, type RerunFlags } from './rerun.js';
-import { changeName, commandLine, countArgs, finite, fixHref, gateArg, PULLED_CAP, pulledGate, ROLE, runHref, s, shortFailure, sprtGate, type VerifyRow } from './fix-shared.js';
+import { changeName, commandLine, countArgs, finite, fixHref, gateArg, PULLED_CAP, pulledGate, ROLE, runHref, shortFailure, sprtGate, type VerifyRow } from './fix-shared.js';
 
 /** A fix's Verify step: every verdict on a change for it, run by run, and how to ask again. */
 
@@ -91,7 +91,7 @@ export interface VerifyMore {
 }
 
 /** Why a verdict doesn't count for a fix, as its heading says it: `Doesn't count for this fix: its check leaves out send_email called 1 time`. Null for one that counts. */
-function uncountedHead(st: VerdictStanding): string | null {
+export function uncountedHead(st: VerdictStanding): string | null {
   if (st.counts) return null;
   const why = st.why === 'another-check' ? (st.missing?.length ? `its check leaves out ${st.missing.join('; ')}` : 'it was checked under another check') : st.why === 'already-passing' ? 'every run of this fix it checked already passed as recorded' : 'none of the runs it checked fails in this fix';
   return `Doesn't count for this fix: ${why}`;
@@ -105,30 +105,12 @@ function pct(before: number, after: number): string {
 }
 
 /**
- * A verdict's heading, by the runs it checked. An accepted one that counts reads "Every failing run
- * fixed, every good run kept" only when it checked every failing run of the fix; else it says what
- * it did, role by role, as repair's Verified line does: "Fixes 1 of 1 target run, 1 of 1 held-out,
- * keeps 1 of 1 good". One that doesn't count for the fix says why instead (`uncountedHead`).
+ * A verdict's heading, by the runs it checked, in the engine's words (`fixVerifyHead`): "Every failing
+ * run fixed, every good run kept" only when it checked every failing run of the fix, else what it did
+ * role by role. One that doesn't count for the fix says why instead (`uncountedHead`).
  */
 function headline(rec: FixRecords, v: StoredVerdict, standing: VerdictStanding): string {
-  const uncounted = uncountedHead(standing);
-  if (uncounted) return uncounted;
-  const runs = v.report.runs;
-  if (v.verdict === 'accepted') {
-    const checked = new Set(runs.filter((x) => x.role !== 'good').map((x) => x.runId));
-    const good = runs.some((x) => x.role === 'good');
-    if (rec.failing.length && rec.failing.every((id) => checked.has(id))) return good ? 'Every failing run fixed, every good run kept' : 'Every failing run fixed';
-    const tally = (role: VerifiedRun['role']) => {
-      const of = runs.filter((x) => x.role === role);
-      return { n: of.length, text: `${of.filter((x) => x.verdict === 'pass').length} of ${of.length}` };
-    };
-    const [t, h, g] = [tally('target'), tally('holdout'), tally('good')];
-    const parts = [t.n ? `fixes ${t.text} target run${s(t.n)}` : '', h.n ? `${t.n ? '' : 'fixes '}${h.text} held-out` : '', g.n ? `keeps ${g.text} good` : ''].filter(Boolean);
-    const said = parts.join(', ');
-    return said ? `${said.charAt(0).toUpperCase()}${said.slice(1)}` : 'No runs checked';
-  }
-  if (v.verdict === 'rejected') return runs.some((x) => x.role === 'good' && x.verdict === 'fail') ? 'The change broke a run that worked' : 'The change did not fix the failing runs it checked';
-  return 'Not every run settled';
+  return uncountedHead(standing) ?? fixVerifyHead(v.verdict, v.report.runs, rec.failing);
 }
 
 /**

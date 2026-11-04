@@ -8,6 +8,10 @@ import { keepWith } from './run-stats.js';
  * goes on answering meanwhile: the store on a connection of its own that only reads, a job at a time,
  * each answered as JSON text. What it works out that is worth keeping (run totals, what recordings'
  * users asked) goes to the server's thread, whose connection writes it to the store.
+ *
+ * It answers each job by the handler its kind is registered with, from the tables read-jobs.ts lists
+ * (read-registry.ts): importing runJob loads them all, every feature's with them, so a thread answers
+ * every kind the server's own thread does.
  */
 
 export interface ReadWorkerData {

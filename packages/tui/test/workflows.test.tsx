@@ -391,10 +391,11 @@ describe('search across what runs said', () => {
     expect(searchArgs('-1 refund')).toEqual(['search', '--json', '-n', '50', '--', '-1 refund']);
     expect(readSearch('', 'shadowlap search: the store is locked\n', 2)).toEqual({ error: 'shadowlap search: the store is locked' });
     expect(queryTerms('refund "EU limit" policy')).toEqual(['eu limit', 'refund', 'policy']);
-    expect(markTerms('the Refund policy here', ['refund'], 'green').map((s) => [s.text, s.bold === true])).toEqual([
-      ['the ', false],
-      ['Refund', true],
-      [' policy here', false],
+    // A match in bold ink, in no colour of its own: lime means only what passed.
+    expect(markTerms('the Refund policy here', ['refund']).map((s) => [s.text, s.bold === true, s.color])).toEqual([
+      ['the ', false, undefined],
+      ['Refund', true, undefined],
+      [' policy here', false, undefined],
     ]);
   });
 });

@@ -3598,7 +3598,8 @@ Where it writes them:
 | `agents` | The skills alone, in `.agents/skills/shadowlap-setup-agent/` and `.agents/skills/shadowlap-debug-agent/` (below) |
 | `kiro` | The skills alone, in `.kiro/skills/` |
 
-`.agents/skills/` is where Codex, Cursor, GitHub Copilot, Gemini CLI, Antigravity, Windsurf, OpenCode,
+`.agents/skills/` is where Codex, Cursor, GitHub Copilot, Gemini CLI, Antigravity, Devin Desktop (formerly Windsurf),
+OpenCode,
 Cline, Amp, goose, Zed and Junie read skills. Each of those agents' names (`codex`, `cursor`,
 `copilot`, `gemini`, `antigravity`, `windsurf`, `devin`, `opencode`, `cline`, `amp`, `goose`, `zed`,
 `junie`) does the same as `agents`.
@@ -4061,7 +4062,7 @@ skipped.
 A run still recording is refused, exit status 2: every export waits for a run to end, or the copy would
 show it recording for good. With `--lineage`, so is a run whose ancestor is still recording.
 
-A 30-call run comes to about 1.2 MB, most of it the dashboard's own code, styles and fonts, which every
+A 30-call run comes to about 1.1 MB, most of it the dashboard's own code, styles and fonts, which every
 copy carries.
 
 ## export dataset

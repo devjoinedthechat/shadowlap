@@ -79,7 +79,7 @@ export function OutputPane({ title, child, width, height, active, onExit, onClos
       : `exited with code ${exit.code ?? '?'} · Esc closes`
     : 'running…';
   return (
-    <Box flexDirection="column" width={width} height={height} borderStyle="round" borderColor={exit ? (exit.code === 0 ? theme.ok : theme.err) : theme.warn} paddingX={1}>
+    <Box flexDirection="column" width={width} height={height} borderStyle="round" {...(exit ? { borderColor: exit.code === 0 ? theme.ok : theme.err } : {})} paddingX={1}>
       <Text bold>{truncate(title, inner)}</Text>
       {visible.map((l, i) => (
         <Text key={i} wrap="truncate">

@@ -119,7 +119,16 @@ test('Fixes and each fix’s steps, Tests’ dialogs, the palette, the shortcuts
   const states: Array<[string, () => Promise<void>]> = [];
   for (const fx of fixes()) for (const step of ['', '/blame', '/repair', '/verify']) states.push([`fix ${fx}${step}`, at(page, `/fixes/${fx}${step}`, 'fix')]);
   states.push(['Tests', at(page, '/tests')]);
-  // Update goldens…'s dialog, when a golden diverged (Run tests starts its job at once: no dialog to sweep).
+  // Run tests' question: a session that runs goldens marked fork live asks first, and starts nothing
+  // until it is answered (one that only replays would start at once, so then nothing is clicked).
+  states.push(['Tests · Run tests asks', async () => {
+    const runTests = page.locator('main#view button', { hasText: 'Run tests' });
+    const forks = await page.locator('main#view table.gt .chip', { hasText: 'fork' }).count();
+    if (!forks || !(await runTests.count()) || !(await runTests.first().isEnabled())) return;
+    await runTests.first().click();
+    await settled(page, { shows: DIALOG });
+  }], ['Tests · Run tests asks · closed', escape(page)]);
+  // Update goldens…'s dialog, when a golden diverged.
   states.push(['Tests · Update goldens…', async () => {
     const update = page.locator('main#view button', { hasText: 'Update goldens' });
     if (!(await update.count())) return;

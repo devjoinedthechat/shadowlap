@@ -112,14 +112,14 @@ export function useTimelineActions(o: TimelineActionsInput) {
     if (!current) return;
     const which = tab === 'response' ? 'response' : 'request';
     const text = payloadOf(current, which);
-    void copyToClipboard(text).then((ok) => (ok ? say(`copied ${which} of #${current.callNo} (${formatTokens(text.length)} chars)`, 2500, 'ok') : say('clipboard unavailable (pbcopy / xclip / wl-copy / clip not found)', 4000, 'warn')));
+    void copyToClipboard(text).then((ok) => (ok ? say(`copied ${which} of #${current.callNo} (${formatTokens(text.length)} chars)`, 2500, 'info') : say('clipboard unavailable (pbcopy / xclip / wl-copy / clip not found)', 4000, 'warn')));
   };
   const writeOut = () => {
     if (!current) return;
     const file = resolvePath(process.cwd(), `shadowlap-${run.runId.slice(0, 10).toLowerCase()}-call${current.callNo}.json`);
     try {
       writeFileSync(file, JSON.stringify({ call: current, request: loadRequest(store, current), response: payloadOf(current, 'response') }, null, 2));
-      say(`wrote ${file}`, 4000, 'ok');
+      say(`wrote ${file}`, 4000, 'info');
     } catch (err) {
       say(`could not write: ${messageOf(err)}`, 6000, 'err');
     }
@@ -130,7 +130,7 @@ export function useTimelineActions(o: TimelineActionsInput) {
     say('starting the dashboard…', 10_000);
     openDashboard(run.runId, callNo).then(
       ({ url, opened }) => {
-        if (opened) return say(`opened ${callNo !== undefined ? `#${callNo}` : 'this run'} in the dashboard`, 2500, 'ok');
+        if (opened) return say(`opened ${callNo !== undefined ? `#${callNo}` : 'this run'} in the dashboard`, 2500, 'info');
         // No browser (SSH, a container): the link stays up long enough to copy, and goes to the clipboard when there is one.
         void copyToClipboard(url).then((copied) => say(`dashboard${copied ? ' (link copied)' : ''}: ${url}`, 30_000));
       },

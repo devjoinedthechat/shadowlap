@@ -22,9 +22,9 @@ export function Eyebrow({ tone, children }: { tone?: 'fork' | 'err' | 'n' | unde
 }
 
 /** A page's header: eyebrow, title, a line, and the page's actions on the right. */
-export function PageHeader({ eyebrow, title, text, actions, eyebrowTone }: { eyebrow?: ReactNode; title: ReactNode; text?: ReactNode; actions?: ReactNode; eyebrowTone?: 'fork' | 'err' }) {
+export function PageHeader({ eyebrow, title, text, actions, eyebrowTone, className }: { eyebrow?: ReactNode; title: ReactNode; text?: ReactNode; actions?: ReactNode; eyebrowTone?: 'fork' | 'err'; className?: string | undefined }) {
   return (
-    <div className="ph">
+    <div className={`ph${className ? ` ${className}` : ''}`}>
       <div>
         {eyebrow ? <Eyebrow tone={eyebrowTone}>{eyebrow}</Eyebrow> : null}
         <h1>{title}</h1>
@@ -251,6 +251,30 @@ export function EmptyState({ title, text, command, children }: { title: string; 
       {text ? <p>{text}</p> : null}
       {command ? <CmdLine>{command}</CmdLine> : null}
       {children}
+    </section>
+  );
+}
+
+/**
+ * In place of a page, or a part of one, whose code didn't load (`onShow`'s `failed`): one line in the
+ * error tone, and Retry, which loads the page again, since a browser never asks a second time for a
+ * script it failed to load. While the dashboard server can't be reached, Retry waits for it
+ * (`guard`): loading the page then would leave nothing but the browser's own error.
+ */
+export function LoadFailed({ what }: { what: string }) {
+  const { guard } = useApp();
+  return (
+    <section className="loaderr" role="alert">
+      <p>
+        <span className="st err">
+          <i />
+          couldn’t load
+        </span>
+        <span>This {what}’s code didn’t come from the dashboard server. Retry loads the page again.</span>
+      </p>
+      <button className="btn" type="button" onClick={() => guard(() => location.reload())}>
+        Retry
+      </button>
     </section>
   );
 }

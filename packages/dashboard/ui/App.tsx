@@ -1,13 +1,14 @@
 import { useMemo } from 'react';
-import { createClient, type Client } from './api.js';
+import { createClient } from './api.js';
 import { Sprite } from './components/Icon.js';
+import { DashboardPages } from './pages/lazy.js';
 import { Gate } from './shell/Connection.js';
 import { Shell } from './shell/Shell.js';
 import { AppProvider } from './state.js';
 
 /** The dashboard, or, for a link without a session token, the gate that says where the right link comes from. */
-export function App({ token, client }: { token: string | null; client?: Client }) {
-  const c = useMemo(() => client ?? (token ? createClient(token) : null), [client, token]);
+export function App({ token }: { token: string | null }) {
+  const c = useMemo(() => (token ? createClient(token) : null), [token]);
   if (!c)
     return (
       <>
@@ -17,7 +18,7 @@ export function App({ token, client }: { token: string | null; client?: Client }
     );
   return (
     <AppProvider client={c}>
-      <Shell />
+      <Shell pages={DashboardPages} />
     </AppProvider>
   );
 }

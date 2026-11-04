@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { OverviewSummary } from '../api.js';
 import { PageHeader, StepList } from '../components/bits.js';
 import { Page } from '../components/Page.js';
+import { viewerTimeZone } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { ActivityCard, CacheCard, DailyCard, FixesCard, NeedsLook, OriginCard, Outcomes, TodayCard, WatchLive, WeekGrid } from '../overview/panels.js';
 import { isAttempt } from '../runs.js';
@@ -23,15 +24,6 @@ import { setupSteps } from './Setup.js';
 
 /** How often the Overview asks again while the runs' totals are being added up. */
 export const WARMING_ASK_MS = 1000;
-
-/** The viewer's own time zone: weeks and days are theirs. */
-export function viewerTimeZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-  } catch {
-    return 'UTC';
-  }
-}
 
 export function OverviewPage() {
   const { client, meta, runs, live, tick, exported } = useApp();

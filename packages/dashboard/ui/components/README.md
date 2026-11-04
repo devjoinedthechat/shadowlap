@@ -1,7 +1,8 @@
 # Dashboard components
 
-The parts every screen is built from. The stylesheet is `ui/app.css` (the design system: tokens on
-`:root`, dark only, class names shared by every screen); a component renders those classes, so a
+The parts every screen is built from. The stylesheet is `ui/app.css`, which joins a file per area
+from `ui/css/` (the design system: tokens on `:root` in `tokens.css`, dark only, what several pages
+draw in `base.css`, class names shared by every screen); a component renders those classes, so a
 new screen ports its markup by class and reaches for these instead of drawing its own.
 
 The page's Content-Security-Policy allows no inline `style` attribute in markup and no inline
@@ -18,6 +19,13 @@ that comes from data goes there, everything else is a class.
 | `Eyebrow` | `bits.tsx` | The small capitals above a title; `tone="fork"` or `"err"`. |
 | `EmptyState` | `bits.tsx` | Nothing here yet: what it is, and the command that makes it (`.panel.stepempty`). |
 | `StepList` | `bits.tsx` | Numbered setup steps, each with the CLI command that does it (`ol.setup`); a step is `done`, `cur` or `todo`. |
+
+## Code that waits until it shows
+
+| Component | File | Use it for |
+|---|---|---|
+| `onShow` | `OnShow.tsx` | A part of a page heavy enough to wait for a script of its own until it first shows, as a run's views but Calls do. `test/ui-bundle-size.test.ts` holds the structural diff (`JsonDiff.tsx`), the results matrix (`ResultsMatrix.tsx`), the check builder (`ui/checks/`) and each Changes tab (`ui/changes/`, but its `Head.tsx`) to it, failing when one of them is in the first look or loads with a page. Declare a part beside the page that shows it, never in `pages/lazy.tsx`, and `preload()` it on a sign it is about to show (the pointer or the focus on the tabs that switch to it), never as its page opens: what opening a page loads is held to the page's budget. |
+| `LoadFailed` | `bits.tsx` | What a part shows where its script didn't come (`onShow`'s `failed`; a page's in `pages/lazy.tsx`, under its title): one line in the error tone, and Retry, which loads the page again, since a browser never asks twice for a script that failed. Retry waits while the server can't be reached (`guard`). |
 
 ## Overlays
 
@@ -125,7 +133,9 @@ read it as Run blame, Repair from here, Apply the patch and the Tests actions do
 `useServerJobs()` is the job list it reads, every tab's, for a page that waits on other jobs too,
 as Tests waits on a test job with `testsBusy` from `goldens.ts`; `useTestsWait(verb)` reads both, and
 `TestsJobButton` is a button that starts a Tests job from another page, a test replay's banner, and
-waits as the Tests page's own do), and the logic they share, DOM-free
+waits as the Tests page's own do; beside it `TestsAskHost`, which the shell draws once, asks the
+question a Tests job waits on before it runs goldens live, wherever it started, as `startTestsJob`
+in `tests-ask.ts` keeps the server's 409 until it is answered), and the logic they share, DOM-free
 and tested (`model.ts`: chips, steps, the Blame step's row of calls, the change cut to what changed,
 report.md read as blocks, the drawer's outcome words, which jobs hold which tree).
 

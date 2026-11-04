@@ -1,4 +1,4 @@
-import { addPair, agentCallsOf, attemptsToPass, BLAME_DEFAULTS, canonicalize, checkStatus, decideCountUnavailable, decideUnavailable, endedEarlyCount, formatDivergence, formatDuration, formatUsd, gateResult, maxProbes, NO_PAIRS, normalizeResponse, pinRisk, pinRule, pinWords, probeFinding, probeGate, probeRisk, probeTally, searchBlame, unsettledFirst, decidePin, type BlameAttempt, type BlameProbe, type BlameReport, type PinCheck, type Block, type CallRecord, type FixStatus, type GateDecision, type RunRecord, type SprtGate, type StoreOf, type StoredCheck } from '@shadowlap/engine';
+import { addPair, agentCallsOf, attemptsToPass, BLAME_DEFAULTS, blameRules, blameSteps, canonicalize, checkStatus, decideCountUnavailable, decideUnavailable, endedEarlyCount, formatDivergence, formatDuration, formatUsd, gateResult, NO_PAIRS, normalizeResponse, pinRisk, pinWords, probeFinding, probeRisk, probeTally, searchBlame, unsettledFirst, decidePin, type BlameAttempt, type BlameProbe, type BlameReport, type BlameRule, type PinCheck, type Block, type CallRecord, type FixStatus, type GateDecision, type RunRecord, type SprtGate, type StoreOf, type StoredCheck } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, BYPASSED, type Attempt, type AttemptSettings } from './attempts.js';
 import { recordBlameFix } from './fixes.js';
@@ -30,10 +30,12 @@ export interface BlameSettings extends AttemptSettings {
   scope?: string | null;
 }
 
-/** Whether a call was made in `scope`, or in a scope nested in it (`agent/planner` is in `agent`). */
-export function inScope(callScope: unknown, scope: string | null | undefined): boolean {
-  if (!scope) return true;
-  return typeof callScope === 'string' && (callScope === scope || callScope.startsWith(`${scope}/`));
+/**
+ * A blame's settings as the rules its search runs by read them (blameRules in the engine, which its
+ * estimate prices the search by): its gate, or with none its fixed count, and its scan.
+ */
+export function blameRuleOf(s: Pick<BlameSettings, 'gate' | 'attempts' | 'scan'>): BlameRule {
+  return s.gate ? { gate: s.gate, scan: s.scan } : { attempts: s.attempts, scan: s.scan };
 }
 
 export interface BlameInput {
@@ -170,7 +172,7 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
   try {
     // The agent's model calls: a judge check's are none of its answers, so never a step to blame.
     const parentCalls = agentCallsOf(store.getCalls(parent.runId));
-    const steps = parentCalls.filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, s.scope)).map((c) => c.callNo);
+    const steps = blameSteps(parentCalls, s.scope).map((c) => c.callNo);
     if (!steps.length) {
       if (s.scope) {
         const scopes = [...new Set(parentCalls.filter((c) => c.kind === 'api' && typeof c.meta.scope === 'string').map((c) => String(c.meta.scope)))];
@@ -219,9 +221,8 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
     // A probe is decided after each attempt: by the gate, rescued at `good` and lost at `bad`, or by the
     // fixed count. The gate's risk is the whole search's, spent across the most probes it makes: each
     // probe's gate runs at its share, so every claim of every probe holds together but for that risk.
-    const budget = maxProbes(steps.length, s.scan);
-    const each: SprtGate | null = s.gate ? probeGate(s.gate, budget) : null;
-    const limit = each ? each.max : s.attempts;
+    const bounds = blameRules(steps.length, blameRuleOf(s));
+    const { probes: budget, gate: each, limit } = bounds;
     // A gate counts an attempt the provider cut short after the model answered against either verdict; a fixed count runs it again.
     const settle = (passes: number, done: number, cut: number): GateDecision => (each ? decideUnavailable(passes, done, cut, each) : decideCountUnavailable(passes, done, cut, s.attempts, s.needed));
     // The most a probe's claim can be wrong, exactly, at the gate's two rates (the blame gate's for a count).
@@ -312,7 +313,7 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
     // at the next in each, the two at once when --concurrency allows, decided after each pair. It
     // stops the search as a probe does: Ctrl-C, the budget, a provider that stays unavailable. An
     // attempt the provider cut short after the model answered is counted against either verdict.
-    const rule = pinRule(each, budget);
+    const rule = bounds.pin;
     const pin = async (at: BlameProbe, next: BlameProbe): Promise<PinCheck | null> => {
       log(`  ${p.bold(`check of #${at.callNo}`)} ${p.dim(`(fresh pairs at #${at.callNo} and #${next.callNo}: does rescue drop at #${at.callNo}, or fall gradually?)`)}`);
       const pairs: PinCheck['pairs'] = [];

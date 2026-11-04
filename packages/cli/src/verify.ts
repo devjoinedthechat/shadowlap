@@ -1,4 +1,4 @@
-import { addPair, attemptsToPass, BASELINE_DEFAULTS, messageOf, unavailableStop, decideAgainstHistoryAround, decidePairedAround, decideVerify, dropEndsRisk, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, pairsOf, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, rateBound, type BaselineRule, type GateHistory, type PairCounts, type SprtGate, type StoreOf, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { addPair, afterForkOf, attemptsToPass, BASELINE_DEFAULTS, messageOf, unavailableStop, decideAgainstHistoryAround, decidePairedAround, decideVerify, dropEndsRisk, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptMaxOf, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, pairsOf, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, rateBound, type BaselineRule, type GateHistory, type PairCounts, type SprtGate, type StoreOf, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, formatBudget, type Attempt, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { describeAttempt } from './blame.js';
@@ -80,6 +80,8 @@ function goldenOf(store: StoreOf<'recording'>, run: AttemptTarget['parent'], cwd
 
 /** An attempt as the report keeps it. */
 function kept(a: Attempt, costOf: AttemptRunner['costOf']): VerifyAttempt {
+  const forkedAt = a.summary.divergence?.callNo ?? null;
+  const afterFork = afterForkOf(a.calls, forkedAt);
   return {
     runId: a.run.runId,
     passed: a.passed,
@@ -87,11 +89,12 @@ function kept(a: Attempt, costOf: AttemptRunner['costOf']): VerifyAttempt {
     ...(a.cutShort ? { cutShort: true as const } : a.unavailable ? { unavailable: true } : {}),
     exitCode: a.code,
     failures: a.failures,
-    forkedAt: a.summary.divergence?.callNo ?? null,
+    forkedAt,
     spent: a.summary.cost.spent,
     upstreamRequests: a.summary.upstreamRequests,
     footprint: footprintOf(a.calls, costOf),
     unrecordedTools: a.unrecorded,
+    ...(afterFork ? { afterFork } : {}),
   };
 }
 
@@ -115,10 +118,10 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
   // How good runs are kept: against their own baseline, with the gate's risk. A fixed count judges
   // every run on its own, as it did before baselines.
   const config = runner.config.verify ?? {};
-  // A gate's max other than its default caps a good run's pairs too: --gate '{"max":20}' means no run
-  // takes more than 20 attempts an arm. Left at its default, the baseline test has its own.
-  const capped = s.gate && s.gate.max !== SPRT_DEFAULTS.max ? s.gate.max : null;
-  const rule: BaselineRule = { margin: s.margin ?? config.margin ?? KEPT_DEFAULTS.margin, risk: s.gate?.risk ?? SPRT_DEFAULTS.risk, max: s.keptMax ?? config.max ?? capped ?? KEPT_DEFAULTS.max };
+  // The most pairs a good run takes: --kept-max, verify.max, a gate's max other than its default
+  // (--gate '{"max":20}': no run takes more than 20 attempts an arm), else the baseline test's own.
+  // An estimate reads it by the same rule (keptMaxOf), so what it prices is what runs.
+  const rule: BaselineRule = { margin: s.margin ?? config.margin ?? KEPT_DEFAULTS.margin, risk: s.gate?.risk ?? SPRT_DEFAULTS.risk, max: keptMaxOf(s.keptMax ?? config.max, s.gate) };
   const anyGood = input.runs.some((r) => r.role === 'good');
   const baseline: VerifyBaseline = !s.gate
     ? { source: 'none', why: 'a fixed count (--attempts, --passes) judges every run on its own' }

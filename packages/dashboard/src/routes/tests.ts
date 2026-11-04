@@ -10,6 +10,7 @@ import { links } from '../links.js';
 import type { Router } from '../router.js';
 import { configFileError } from '../settings.js';
 import { readTeamStoreInput } from '../team-store.js';
+import { liveAsk } from '../tests-live.js';
 import { bisectChoices, bisectJob, gatePreview, liveTestSession, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type BisectRange, type GoldenSource, type TestsJob, type TestsView } from '../tests.js';
 
 /**
@@ -20,19 +21,21 @@ import { bisectChoices, bisectJob, gatePreview, liveTestSession, normalizeAndTes
  * workflow steps Settings → CI shows (`GET /api/ci/workflows`), and the jobs the Tests screen starts:
  *
  *   test                 { golden?, maxAttempts?,       every golden on disk (the goldens folder's pattern, which the CLI
- *                          continue? }                  expands without a shell, and each pack named elsewhere), or one;
+ *                          continue?, yes? }            expands without a shell, and each pack named elsewhere), or one;
  *                                                       `maxAttempts` raises each gate's limit for that session, and
  *                                                       `continue` carries an inconclusive gate's attempts over (Run more attempts)
  *   test-update          { goldens: [...] } | { golden } re-record each live with writes stubbed; replaced when its checks pass
  *   bisect               { golden | runId, good, bad? }  Find the commit: replays at each commit, halving the range;
  *                                                       for a run, as `GET /api/tests/runs/:id` offers it
- *   normalize-and-test   { golden | runId, path? }       `normalize add` for each value made anew on every run, then `test` on the golden
+ *   normalize-and-test   { golden | runId, path?, yes? } `normalize add` for each value made anew on every run, then `test` on the golden
  *
  * The goldens are the packs on disk, as the CLI lists them (`DashboardOptions.goldens`); a request
  * naming any other is refused. Jobs that replay or rewrite those packs (Find the commit on a golden
  * among them) run one at a time in a project (`testsBusy`), and none starts while a test session, or
  * a session of error-path presets on goldens, runs, wherever it was started (`sessionBusy`): a second
- * is refused with a 409 that names the one running.
+ * is refused with a 409 that names the one running. A `test` or `normalize-and-test` that would run a
+ * golden live (marked fork, an injection gate) asks first: a 409 naming the goldens and why, whose
+ * `confirm`, sent back as `yes`, starts it (tests-live.ts). One that only replays starts at once.
  */
 
 /** The folder the project keeps its goldens in. */
@@ -91,10 +94,18 @@ export function sessionBusy(store: StoreOf<'tests' | 'chaos'>, verb: string): st
   return `${command.length > 60 ? `${command.slice(0, 59)}…` : command} is running: ${verb} once it is done`;
 }
 
-/** A tests job as the job runner takes it: `steps` become the first command and the ones `then` runs. */
-export function testsBuild(job: TestsJob, busy: string | null = null): JobBuildResult {
+/**
+ * A tests job as the job runner takes it: `steps` become the first command and the ones `then` runs.
+ * Refused for what the request got wrong first, then while another job or session holds the goldens
+ * (`busy`), and only then does it ask what it waits on (`ask`, a 409 with its `confirm`: liveAsk), so
+ * the question is never asked for a bad request, or for goldens another job or session holds. The
+ * job runner checks the working tree only once the job is built, after the yes: the pages that ask
+ * it wait while a job holds the tree instead, as the palette does (ui/tests-ask.ts).
+ */
+export function testsBuild(job: TestsJob, busy: string | null = null, ask: { error: string; status: 409; confirm: string } | null = null): JobBuildResult {
   if ('error' in job) return { error: job.error };
   if (busy) return { error: busy, status: 409 };
+  if (ask) return ask;
   const runId = job.runId ? { runId: job.runId } : {};
   if ('args' in job) return { title: job.title, args: job.args, ...runId };
   const [first, ...then] = job.steps;
@@ -190,10 +201,15 @@ export function register(router: Router, ctx: RouteContext): void {
     );
   });
 
-  // `shadowlap test` on one golden links to its replay itself: the one that passed, or the one that failed.
+  // `shadowlap test` on one golden links to its replay itself: the one that passed, or the one that
+  // failed. A session that runs a golden live asks first; one that only replays starts at once.
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.test, {
     title: () => 'Running the tests',
-    build: (req, { store, projectId }) => testsBuild(runTestsJob(goldens(), req, { folder: FOLDER }), busy(store, projectId, req.golden === undefined ? 'run the tests' : 'run it again')),
+    build: (req, { store, projectId }) => {
+      const list = goldens();
+      const job = runTestsJob(list, req, { folder: FOLDER });
+      return testsBuild(job, busy(store, projectId, req.golden === undefined ? 'run the tests' : 'run it again'), liveAsk(list, job, req.yes));
+    },
   });
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.update, {
     title: () => 'Updating goldens',
@@ -215,8 +231,13 @@ export function register(router: Router, ctx: RouteContext): void {
       return testsBuild(job, 'args' in job && inTestFamily({ kind: TEST_JOB_KINDS.bisect, args: job.args }) ? busy(store, projectId, 'find the commit') : null);
     },
   });
+  // The golden's test after the rule asks first as Run tests does, when it runs live.
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.normalize, {
     title: () => 'Adding a normalizer',
-    build: (req, { store, projectId }) => testsBuild(normalizeAndTestJob(store, goldens(), req), busy(store, projectId, 'add the normalizer')),
+    build: (req, { store, projectId }) => {
+      const list = goldens();
+      const job = normalizeAndTestJob(store, list, req);
+      return testsBuild(job, busy(store, projectId, 'add the normalizer'), liveAsk(list, job, req.yes));
+    },
   });
 }

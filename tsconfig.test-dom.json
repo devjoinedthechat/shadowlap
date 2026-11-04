@@ -29,11 +29,13 @@
     "packages/dashboard/test/ui-action-consent.test.ts",
     "packages/dashboard/test/ui-load.test.ts",
     "packages/dashboard/test/ui-tests-page.test.ts",
+    "packages/dashboard/test/ui-tests-ask.test.ts",
     "packages/dashboard/test/ui-training-page.test.ts",
     "packages/dashboard/test/ui-job-stop.test.ts",
     "packages/dashboard/test/ui-palette-modes.test.ts",
     "packages/dashboard/test/ui-token-card.test.ts",
     "packages/dashboard/test/ui-exported-provenance.test.ts",
+    "packages/dashboard/test/ui-exported-copy.test.ts",
     "packages/dashboard/test/ui-settings-states.test.ts",
     "packages/dashboard/test/ui-ci-tab.test.ts",
     "packages/dashboard/test/ui-about.test.ts",
@@ -55,7 +57,9 @@
     "packages/dashboard/test/ui-run-key.test.ts",
     "packages/dashboard/test/ui-shortcut-keys.test.ts",
     "packages/dashboard/test/ui-run-notes.test.ts",
-    "packages/dashboard/test/ui-calls-grouping.test.ts"
+    "packages/dashboard/test/ui-calls-grouping.test.ts",
+    "packages/dashboard/test/ui-run-views.test.ts",
+    "packages/dashboard/test/ui-page-failed.test.ts"
   ],
   "exclude": []
 }
