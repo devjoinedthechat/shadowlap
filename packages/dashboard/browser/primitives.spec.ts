@@ -50,14 +50,18 @@ async function setWidth(page: Page, width: number): Promise<void> {
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 }
 
-/** A block's sentences' classes, and how many lines it takes. */
+/** A block's sentences' classes, and how many lines its text takes: the lines its text's boxes sit on, a few pixels apart at most within one. */
 function copyAt(page: Page, id: string): Promise<{ block: string; sentences: string[]; lines: number }> {
   return page.evaluate((sel) => {
     const b = document.querySelector(`${sel} > *`)!;
-    const range = document.createRange();
-    range.selectNodeContents(b);
-    const tops = new Set([...range.getClientRects()].filter((r) => r.width > 0.5).map((r) => Math.round(r.top)));
-    return { block: b.className, sentences: [...b.querySelectorAll(':scope > ts-s')].map((s) => s.className), lines: tops.size };
+    const tops: number[] = [];
+    const walk = document.createTreeWalker(b, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      const range = document.createRange();
+      range.selectNodeContents(n);
+      for (const r of range.getClientRects()) if (r.width > 0.5 && !tops.some((t) => Math.abs(t - r.top) < 6)) tops.push(r.top);
+    }
+    return { block: b.className, sentences: [...b.querySelectorAll(':scope > ts-s')].map((s) => s.className), lines: tops.length };
   }, `#${id}`);
 }
 
