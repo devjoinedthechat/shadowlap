@@ -7,7 +7,7 @@ import { encodeEventStreamFrame, eventStreamFrames, eventStreamMessages } from '
 import { loadApiRequest, storeApiRequest } from '../src/manifest.js';
 import { applyNormalizers, rewriteText } from '../src/normalize.js';
 import { packRun, unpackRun } from '../src/pack.js';
-import { redactBytes, redactRun, redactRunDetails } from '../src/redact.js';
+import { redactBytes, redactRun, redactRunDetails, redactRunWithDetails } from '../src/redact.js';
 import { Store } from '../src/store.js';
 import type { Normalizer } from '../src/types.js';
 
@@ -322,7 +322,10 @@ describe('redactRun: the run record', () => {
     const dir = join(mkdtempSync(join(tmpdir(), 'fp-redact-judged-')), 'pack');
     packRun(src, run.runId, dir, { redact: [EMAIL] });
     expect(readFileSync(join(dir, 'run.json'), 'utf8')).not.toContain('maya@example.com');
-    expect(redactRunDetails(src.getRun(run.runId)!, [EMAIL]).meta?.judged).toEqual(masked);
+    // The copy that is only read (export html) too.
+    const read = Store.open(':memory:');
+    expect(redactRunWithDetails(src, run.runId, [EMAIL], read).meta?.judged).toEqual(masked);
+    read.close();
     dst.close();
     src.close();
   });

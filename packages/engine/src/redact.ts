@@ -596,19 +596,11 @@ function redactMeta(meta: RunMeta | undefined, rules: Normalizer[], observer?: R
   // A judge's reason is a model's words about what it read, and its check's name is the label's:
   // masked as the detail and the label are.
   if (Array.isArray(meta?.checks)) out.checks = meta.checks.filter(isObject).map((c) => ({ ...c, label: text(c.label), detail: c.detail === null ? null : text(c.detail), ...(typeof c.reason === 'string' ? { reason: text(c.reason) } : {}), ...(isObject(c.judge) && typeof c.judge.name === 'string' ? { judge: { ...c.judge, name: text(c.judge.name) } } : {}) }));
-  // A capture's verdict by the rules on calls names the values its calls had, as a check's detail does.
-  if (isObject(meta?.judged)) out.judged = judgedMasked(meta.judged, text);
   if (isObject(meta?.blame)) {
     const b = meta.blame;
     out.blame = { ...b, ...('oracle' in b ? { oracle: rewriteDeep(b.oracle, rules, observer) as string[] } : {}), ...('fields' in b ? { fields: rewriteDeep(b.fields, rules, observer) as Record<string, unknown> } : {}) };
   }
   return redactRunFacts(out, rules, observer);
-}
-
-/** A capture's verdict by the rules on calls (`meta.judged`) with what a rule's label, its detail and why say masked by `mask`, as a check's are. */
-function judgedMasked(v: NonNullable<RunMeta['judged']>, mask: (s: string) => string): NonNullable<RunMeta['judged']> {
-  const checks = Array.isArray(v.checks) ? v.checks.filter(isObject).map((c) => ({ ...c, label: typeof c.label === 'string' ? mask(c.label) : '', detail: typeof c.detail === 'string' ? mask(c.detail) : null })) : [];
-  return { ...v, checks, why: typeof v.why === 'string' ? mask(v.why) : null };
 }
 
 /**
@@ -894,7 +886,6 @@ export function redactRunDetails(run: RunRecord, rules: Normalizer[]): RunRecord
     if (meta.labels !== undefined) m.labels = deep(meta.labels) as string[];
     if (Array.isArray(meta.notes)) m.notes = meta.notes.map((n) => (isObject(n) ? { ...n, text: deep(n.text) as string } : (deep(n) as RunNote)));
     if (Array.isArray(meta.checks)) m.checks = meta.checks.map((c) => (isObject(c) ? { ...c, label: deep(c.label) as string, detail: deep(c.detail) as string | null, ...('reason' in c ? { reason: deep(c.reason) as string } : {}), ...(isObject(c.judge) ? { judge: { ...c.judge, name: deep(c.judge.name) as string } } : {}) } : (deep(c) as RunCheck)));
-    if (isObject(meta.judged)) m.judged = judgedMasked(meta.judged, text);
     if (isObject(meta.imported) && typeof meta.imported.from === 'string') m.imported = { ...meta.imported, from: text(meta.imported.from) };
     if (isObject(meta.test) && typeof meta.test.golden === 'string') m.test = { ...meta.test, golden: text(meta.test.golden) };
     if (typeof meta.author === 'string') m.author = text(meta.author);
