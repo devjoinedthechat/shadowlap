@@ -29,9 +29,6 @@
     "packages/cli/src/chaos.ts": {
       "runPresets": 92
     },
-    "packages/cli/src/checks.ts": {
-      "match": 56
-    },
     "packages/cli/src/commands/changes.ts": {
       "register > action(\"decisions\")": 47
     },
@@ -300,6 +297,9 @@
     },
     "packages/engine/src/blame.ts": {
       "formatBlame": 48
+    },
+    "packages/engine/src/checks/evaluate.ts": {
+      "match": 56
     },
     "packages/engine/src/compare.ts": {
       "formatComparison": 38,
@@ -596,7 +596,6 @@
     }
   },
   "max-lines": {
-    "packages/cli/src/checks.ts": 1051,
     "packages/cli/src/decisions.ts": 1151,
     "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
