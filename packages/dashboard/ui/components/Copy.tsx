@@ -1,10 +1,10 @@
 import { Fragment, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { commandParts, type CmdPiece } from '../cmdline.js';
-import { codePieces, glue, greedyLines, inlineCodePieces, isShortCopy, sentences, setSentences, type Piece, type SentenceSet } from '../typeset.js';
+import { clauseBreak, codePieces, glue, greedyLines, inlineCodePieces, isShortCopy, sentences, setSentences, type Piece, type SentenceSet } from '../typeset.js';
 
 /**
- * Clean line breaks at render time (MISSING §16 Line breaks): the parts that set a page's copy and
- * code so a line breaks where a careful typesetter would break it, at every width. React owns its
+ * Clean line breaks at render time (the rules are typeset.ts's): the parts that set a page's copy
+ * and code so a line breaks where a careful typesetter would break it, at every width. React owns its
  * text, so nothing reads the page after the fact: each part measures what it sets (a canvas, in its
  * element's own font, against its width) and renders the pieces. What a user copies to run (a
  * command, code, JSON) keeps plain spaces, never a no-break space, and pieces kept whole are nowrap
@@ -19,6 +19,8 @@ declare module 'react' {
       'ts-s': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
       /** A word kept whole (a hyphenated name, an order id): nowrap, never a changed character, so a copy of it is exact. */
       'ts-w': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
+      /** A clause of a sentence of two lines, kept whole, so the sentence breaks after its stop (`.sntp`). */
+      'ts-p': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
     }
   }
 }
@@ -48,41 +50,69 @@ function widthIn(font: string): ((s: string) => number) | null {
   };
 }
 
-/** An element's font as canvas takes it, and the width its text has. */
+/** An element's font as canvas takes it, the width its text has, and how many times the page's fonts have loaded since. */
 interface Box {
   font: string;
   width: number;
+  fonts: number;
+}
+
+/** A font as canvas takes it: the computed shorthand, or its parts where the browser gives none. */
+const fontOf = (cs: CSSStyleDeclaration) => cs.font || `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+
+/**
+ * Measures what `target` gives once it is laid out, again as its width changes, and again once web
+ * fonts load (whose widths the fallback's measures got wrong, though the font's name and the width
+ * stay the same), each time through `read`. Nothing where the page can't be measured (the tests'
+ * renderer). `deps`: what `target` and `read` read from the render, which measures anew when it changes.
+ */
+function useRemeasure(target: () => HTMLElement | null, read: (el: HTMLElement, fontsLoaded: boolean) => void, deps: readonly unknown[]): void {
+  useLayoutEffect(() => {
+    const el = target();
+    if (!el || typeof getComputedStyle !== 'function' || typeof ResizeObserver !== 'function') return;
+    let alive = true;
+    const resized = () => alive && read(el, false);
+    const loaded = () => alive && read(el, true);
+    resized();
+    const ro = new ResizeObserver(resized);
+    ro.observe(el);
+    const fonts = document.fonts as FontFaceSet | undefined;
+    fonts?.addEventListener('loadingdone', loaded);
+    // fonts still loading as it mounts: measured again once they all have
+    if (fonts?.status === 'loading') void fonts.ready.then(loaded);
+    return () => {
+      alive = false;
+      ro.disconnect();
+      fonts?.removeEventListener('loadingdone', loaded);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `target` and `read` are the caller's, new each render; what they read from it is in `deps`
+  }, deps);
 }
 
 /** The font and the content width of the block `ref` holds, read once laid out and again as its width changes or the fonts load. */
 function useBox(ref: { current: HTMLElement | null }): Box | null {
   const [box, setBox] = useState<Box | null>(null);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el || typeof getComputedStyle !== 'function' || typeof ResizeObserver !== 'function') return;
-    const read = () => {
+  useRemeasure(
+    () => ref.current,
+    (el, fontsLoaded) => {
       const cs = getComputedStyle(el);
-      const font = cs.font || `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      const font = fontOf(cs);
       const width = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-      setBox((b) => (b && b.font === font && b.width === width ? b : { font, width }));
-    };
-    read();
-    const ro = new ResizeObserver(read);
-    ro.observe(el);
-    const fonts = document.fonts as FontFaceSet | undefined;
-    fonts?.addEventListener('loadingdone', read);
-    return () => {
-      ro.disconnect();
-      fonts?.removeEventListener('loadingdone', read);
-    };
-  }, [ref]);
+      setBox((b) => (b && !fontsLoaded && b.font === font && b.width === width ? b : { font, width, fonts: (b?.fonts ?? 0) + (fontsLoaded ? 1 : 0) }));
+    },
+    [],
+  );
   return box;
 }
 
 // ---------------------------------------------------------------------------------------------- copy
 
-/** A word with a hyphen, a dash, a slash or a dot inside it, which a browser would break there: kept whole, as rule 4 asks. */
-const splits = (w: string) => /\S[-–—/.]\S/.test(w.replace(/[.,;:!?”’"')\]]+$/, ''));
+/**
+ * A word with a hyphen, a dash, a slash or a dot inside it, which a browser would break there: kept
+ * whole, as rule 4 asks. One of 28 characters or more (a long host, path or name) is left free, so
+ * where no line holds it whole it may break after its dots and hyphens rather than run off a phone.
+ */
+const splits = (w: string) => w.length < 28 && /\S[-–—/.]\S/.test(w.replace(/[.,;:!?”’"')\]]+$/, ''));
 
 /** A sentence's words, each one a browser would break inside kept whole (`ts-w`). */
 function words(text: string): ReactNode[] {
@@ -104,6 +134,16 @@ const allWhole = (text: string) => text.split(/\s+/).filter(Boolean).every(split
 
 const SET_CLASS: Record<SentenceSet, string | null> = { whole: 'snt', balanced: 'snt ts-bal', flow: null };
 
+/** A sentence's words, in two clauses kept whole where it breaks after one (`at`, where the second starts). */
+function sentence(text: string, at: number | null): ReactNode {
+  if (at === null) return words(text);
+  return (
+    <>
+      <ts-p className="sntp">{words(text.slice(0, at - 1))}</ts-p> <ts-p className="sntp">{words(text.slice(at))}</ts-p>
+    </>
+  );
+}
+
 type Block = 'p' | 'span' | 'div' | 'li' | 'dd' | 'h2' | 'h3';
 
 /**
@@ -122,17 +162,19 @@ export function Copy({ children, as: Tag = 'p', className }: { children: string;
   const set = useMemo(() => {
     const parts = short ? sentences(children) : [children];
     const width = box ? widthIn(box.font) : null;
-    if (!box || !width || box.width <= 0) return { parts: parts.map((p) => glue(p)), sets: parts.map((): SentenceSet => 'whole'), lines: 0 };
+    if (!box || !width || box.width <= 0) return { parts: parts.map((p) => glue(p)), sets: parts.map((): SentenceSet => 'whole'), clauses: parts.map(() => null), lines: 0 };
     const room = box.width;
     const measure = { fits: (s: string) => width(s) <= room * 0.96, lines: (s: string) => greedyLines(s, room, width) };
     const glued = parts.map((p) => glue(p, measure));
     const widths = glued.map((p) => width(p));
     const counts = glued.map((p) => measure.lines(p));
     const sets = setSentences(widths, counts, room, width(' ')).map((s, i) => (s === 'balanced' && allWhole(glued[i]!) ? 'flow' : s));
-    return { parts: glued, sets, lines: counts.reduce((a, b) => a + b, 0) };
+    // a sentence of two lines breaks after a clause where one will do, each side whole on its line
+    const clauses = glued.map((p, i) => (sets[i] === 'balanced' ? clauseBreak(p, room, width) : null));
+    return { parts: glued, sets, clauses, lines: counts.reduce((a, b) => a + b, 0) };
   }, [children, short, box]);
-  // One sentence of two lines balances, unless each of its words is kept whole; a longer block wraps pretty (rule 2).
-  const block = set.lines === 2 && set.parts.length === 1 && !allWhole(set.parts[0]!) ? 'ts-bal' : set.lines > 2 ? 'ts-pretty' : null;
+  // One sentence of two lines balances, unless it breaks after a clause or each of its words is kept whole; a longer block wraps pretty (rule 2).
+  const block = set.lines === 2 && set.parts.length === 1 && set.clauses[0] === null && !allWhole(set.parts[0]!) ? 'ts-bal' : set.lines > 2 ? 'ts-pretty' : null;
   const cls = [className, block].filter(Boolean).join(' ') || undefined;
   const body = !short ? words(set.parts[0]!) : set.parts.map((p, i) => {
     const c = SET_CLASS[set.sets[i]!];
@@ -142,7 +184,7 @@ export function Copy({ children, as: Tag = 'p', className }: { children: string;
         {/* role none: the paragraph reads with its text, as it would without the pass */}
         {c ? (
           <ts-s className={c} role="none">
-            {words(p)}
+            {sentence(p, set.clauses[i] ?? null)}
           </ts-s>
         ) : (
           words(p)
@@ -164,17 +206,18 @@ function drawn(pieces: ReadonlyArray<Piece | CmdPiece>): ReactNode[] {
   return pieces.map((p, i) => ('wbr' in p ? <wbr key={i} /> : p.whole ? <span key={i} className="nw">{p.text}</span> : p.text));
 }
 
-/** Whether code fits whole on its line: its width against its block's, once both are measured. */
+/** Whether code fits whole on its line: its width against its block's, measured again as the block's width changes or the fonts load. */
 function useFitsWhole(ref: { current: HTMLElement | null }, text: string, on: boolean): boolean {
   const [whole, setWhole] = useState(false);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    const block = el?.parentElement;
-    if (!on || !el || !block || typeof getComputedStyle !== 'function') return;
-    const cs = getComputedStyle(el);
-    const width = widthIn(cs.font || `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`);
-    if (width) setWhole(width(text) <= block.clientWidth);
-  }, [ref, text, on]);
+  useRemeasure(
+    () => (on ? (ref.current?.parentElement ?? null) : null),
+    (block) => {
+      const code = ref.current;
+      const width = code ? widthIn(fontOf(getComputedStyle(code))) : null;
+      if (width) setWhole(width(text) <= block.clientWidth);
+    },
+    [text, on],
+  );
   return whole;
 }
 

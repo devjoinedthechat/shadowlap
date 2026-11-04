@@ -17,15 +17,15 @@ import { glossed, Term } from '../ui/components/Term.js';
 import { VerdictLine } from '../ui/components/VerdictLine.js';
 import { GLOSSARY, glossPieces, termCard } from '../ui/glossary.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import { codePieces, glue, greedyLines, inlineCodePieces, isShortCopy, sentences, setSentences, type Piece } from '../ui/typeset.js';
+import { clauseBreak, codePieces, glue, greedyLines, inlineCodePieces, isShortCopy, sentences, setSentences, type Piece } from '../ui/typeset.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 
 /**
- * The design system's shared parts (MISSING §16 One page language), each built once: a page's
- * header and facts, a section, a status and a verdict line, one switch and one segmented control,
- * the code box with its one Copy, a link, a run's id and its list form, a glossary term defined at
- * its first use, an attempts cell, the three states, and the render-time line-break parts. Drawn
- * here through test/ui-render.ts: their markup, what a screen reader is told, and their words.
+ * The design system's shared parts, the run page's language on every page, each built once: a
+ * page's header and facts, a section, a status and a verdict line, one switch and one segmented
+ * control, the code box with its one Copy, a link, a run's id and its list form, a glossary term
+ * defined at its first use, an attempts cell, the three states, and the render-time line-break
+ * parts. Drawn here through test/ui-render.ts: their markup, what a screen reader is told, their words.
  */
 
 let r: Rendered | null = null;
@@ -459,6 +459,21 @@ describe('sentences and glue', () => {
     expect(glue('for the 56 model calls in the run', { fits: () => true, lines }).includes('\u00a0in')).toBe(false);
   });
 
+  it('breaks a sentence of two lines after a clause, the strongest stop first, both sides whole on their line', () => {
+    const w = (s: string) => s.length;
+    const blame = 'Asked again at #5, the model escalated and the run passed in 3 of 4 attempts; asked again at #7, in none of 4.';
+    const at = clauseBreak(blame, 80, w)!;
+    expect([blame.slice(0, at - 1), blame.slice(at)]).toEqual(['Asked again at #5, the model escalated and the run passed in 3 of 4 attempts;', 'asked again at #7, in none of 4.']);
+    // a comma only where its shorter side holds a third of the line; a dash keeps the word before it
+    const comma = 'Adds a check to escalate-over-limit, the golden that guards this fix.';
+    expect(comma.slice(clauseBreak(comma, 50, w)!)).toBe('the golden that guards this fix.');
+    expect(clauseBreak('Plants a payload, then runs the agent from the call that reads it.', 60, w)).toBeNull();
+    const dash = 'Writes stay fenced — the agent gets a stand-in result back.';
+    expect(dash.slice(0, clauseBreak(dash, 40, w)! - 1)).toBe('Writes stay fenced —');
+    // never at a stop inside a quotation
+    expect(clauseBreak('It said “refunded, and emailed the customer twice over”', 30, w)).toBeNull();
+  });
+
   it('counts the lines a text sets in, breaking at plain spaces only, and sets each sentence by them', () => {
     const w = (s: string) => s.length;
     expect(greedyLines('aaaa bbbb cccc', 9, w)).toBe(2);
@@ -482,6 +497,9 @@ describe('code, commands and code shown as text', () => {
     expect(drawn(codePieces('check failed: issue_refund #6: amount 240 > get_policy.result.limit 100 (#4)'))).toBe('[check] [failed:] [issue_refund #6:] [amount 240 >] [get_policy.result.limit 100] [(#4)]');
     expect(drawn(codePieces('escalate({"reason":"above the refund limit","to":"tier 2"})'))).toBe('[escalate({]|["reason":"above the refund limit",]|["to":"tier 2"})]');
     expect(drawn(codePieces('{"amount":240}'))).toBe('[{"amount":240}]');
+    // a short object or call stays whole however it is spaced
+    expect(drawn(codePieces('{"amount": 240}'))).toBe('[{"amount": 240}]');
+    expect(drawn(codePieces('issue_refund({"amount": 240})'))).toBe('[issue_refund({"amount": 240})]');
     // never a place to break right before a space, which offers the same break
     expect(codePieces('a, b').some((p, i, all) => 'wbr' in p && !('wbr' in (all[i + 1] ?? WBR_STOP)) && (all[i + 1] as { text: string }).text.startsWith(' '))).toBe(false);
   });

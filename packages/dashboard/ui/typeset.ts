@@ -1,10 +1,18 @@
 /**
- * Line breaks, worked out as a page renders (MISSING §16 Line breaks), for the parts in
- * components/Copy.tsx: where a short piece of copy's sentences end (rule 1), the no-break joins of
- * rule 3 (`glue`), how many lines a text sets in at a width (`greedyLines`), and where code shown
- * as text may wrap (`codePieces`, rule 6). React owns its text, so nothing here reads or writes the
- * page: a component measures (a canvas, in each element's own font) and passes what it measured in.
- * No DOM here: the tests import it.
+ * Line breaks, worked out as a page renders, for the parts in components/Copy.tsx. Every line the
+ * dashboard shows breaks where a careful typesetter would break it, at every width, by six rules:
+ *
+ * 1. Sentences stay whole in short copy: a line breaks between them before it breaks inside one.
+ * 2. No orphans: a block of two lines balances them, a longer one wraps pretty.
+ * 3. What belongs together stays together: a number and its unit, a tally, a separator and the word
+ *    before it, an operator, a small word and the word after it, a compound noun, a flag and its
+ *    value, a sentence's last two words (`glue`).
+ * 4. Short identifiers never split: a run id, a model, a flag, a path, a golden's name.
+ * 5. Controls never wrap (the stylesheet's).
+ * 6. Commands and code break only between their arguments (`codePieces`, and cmdline.ts).
+ *
+ * React owns its text, so nothing here reads or writes the page: a component measures (a canvas, in
+ * each element's own font) and passes what it measured in. No DOM here: the tests import it.
  */
 
 // ---------------------------------------------------------------------------------------------- sentences
@@ -232,6 +240,29 @@ export function setSentences(widths: readonly number[], lines: readonly number[]
   });
 }
 
+/** The stops a sentence may break after, the strongest first: a semicolon, a colon or a dash, then a comma. */
+const CLAUSE = /([;:]| [—–]|,) (?=\S)/g;
+
+/**
+ * Where a sentence of two lines breaks after a clause (rule 2): after a semicolon, a colon or a
+ * dash where the shorter side holds a quarter of the line, after a comma where it holds a third,
+ * the strongest stop first and then the most even, both sides fitting a line. Never at a stop inside
+ * a quotation or brackets. The index where the second side starts, or null where no stop will do.
+ */
+export function clauseBreak(text: string, width: number, measure: (s: string) => number): number | null {
+  const depth = depthAt(text);
+  const cands = [...text.matchAll(CLAUSE)]
+    .filter((m) => (depth[m.index] ?? 0) === 0)
+    .map((m) => {
+      const at = m.index + m[0].length;
+      const [a, b] = [measure(text.slice(0, at - 1)), measure(text.slice(at))];
+      return { at, strong: m[1] !== ',', a, b };
+    })
+    .filter((c) => c.a <= width && c.b <= width && Math.min(c.a, c.b) >= width * (c.strong ? 1 / 4 : 1 / 3));
+  const best = (strong: boolean) => cands.filter((c) => c.strong === strong).sort((x, y) => Math.abs(x.a - x.b) - Math.abs(y.a - y.b))[0];
+  return (best(true) ?? best(false))?.at ?? null;
+}
+
 // ---------------------------------------------------------------------------------------------- code
 
 /** A piece of code or a command: text kept on one line (`whole`) or free to wrap, or a place it may break. */
@@ -256,7 +287,8 @@ const HOLDS = /^ (?:(?:[<>!=]=?|→)(?: |$)|[#−-]?\d[\d.,]*(?![^\s),;:\]}]))/;
  * stays whole. Joined, the pieces are the code as written.
  */
 export function codePieces(s: string): Piece[] {
-  if (s.length <= 30 && !/\s/.test(s)) return [{ text: s, whole: true }];
+  // short code with no space in it, and a short object or call however it is spaced, stays whole
+  if (s.length <= 30 && (!/\s/.test(s) || /[{[]/.test(s))) return [{ text: s, whole: true }];
   const out: Piece[] = [];
   let cur = '';
   const flush = () => {

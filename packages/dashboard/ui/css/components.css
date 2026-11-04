@@ -1,7 +1,7 @@
-/* The design system's shared parts (MISSING §16 One page language), one rule each, drawn by ui/components/ and listed in
-   components/README.md: a page's header and facts, a section, a status, a verdict line, the choice controls, the code box,
-   a run's id, a glossary term, an attempts cell, the three states and the line-break parts. Pages draw these, never their
-   own; a page's own file sets only where a part sits on it. */
+/* The design system's shared parts, the run page's language on every page, one rule each, drawn by ui/components/ and
+   listed in components/README.md: a page's header and facts, a section, a status, a verdict line, the choice controls,
+   the code box, a run's id, a glossary term, an attempts cell, the three states and the line-break parts. Pages draw
+   these, never their own; a page's own file sets only where a part sits on it. */
 
 /* ---- a page's header (PageHeader): the eyebrow, the title, one line of context, the actions at the top right ---- */
 /* One header on every page, as the run page's: a muted line for what the page is, a modest title (24/600 in the display
@@ -245,6 +245,8 @@ code.rnm.rl { background: linear-gradient(90deg, var(--faint) 6ch, var(--id-ink,
    balanced; a block of one sentence that sets in two lines balances, a longer one wraps pretty. Both win over a page's
    own text-wrap. */
 .snt { display: inline-block; max-width: 100%; }
+/* a sentence of two lines broken after a clause: each clause whole on its line */
+.sntp { display: inline-block; max-width: 100%; }
 .ts-bal { text-wrap: balance !important; }
 .ts-pretty { text-wrap: pretty !important; }
 /* a word a browser would break at its hyphen, dash, slash or dot, and inline code of up to 32 characters, never break */

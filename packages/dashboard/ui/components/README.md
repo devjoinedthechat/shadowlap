@@ -12,11 +12,11 @@ that comes from data goes there, everything else is a class.
 
 ## The page's language
 
-Every page speaks the run page's language (MISSING §16 One page language): it opens quietly, with a
-muted kind, its title and its facts, and lays its parts out as full-width sections between
-hairlines. These are its parts, built once; a page draws them and never its own. Pages move onto
-them one by one: `Badge`, `Tag`, `Kpi`, `DeltaPill`, `CmdLine`, `CommandLine`, `CodeBlock` and
-`CopyButton` below stay until the last page that draws one has.
+Every page speaks the run page's language: it opens quietly, with a muted kind, its title and its
+facts, and lays its parts out as full-width sections between hairlines. These are its parts, built
+once; a page draws them and never its own. Pages move onto them one by one: `Badge`, `Tag`, `Kpi`,
+`DeltaPill`, `CmdLine`, `CommandLine`, `CodeBlock` and `CopyButton` below stay until the last page
+that draws one has.
 
 | Component | File | Use it for |
 |---|---|---|
@@ -35,7 +35,7 @@ them one by one: `Badge`, `Tag`, `Kpi`, `DeltaPill`, `CmdLine`, `CommandLine`, `
 | `EmptyState`, `EmptyLine` | `States.tsx` | Nothing here yet: a section under a hairline (`.panel.stepempty`), its heading, one sentence, the one `step` that gets there (the page's lime) with the command for a terminal quiet under it, or with no step the command in its box. A list that matches nothing says so in a line from the left (`EmptyLine`). |
 | `Skeleton` | `States.tsx` | Still loading: `lines` quiet bars under the part's heading, or the part's own markup (`children`) with every text a bar along its line and every mark its shape, nothing to press. A screen reader hears what is loading. |
 | `ErrorState` | `States.tsx` | What couldn't be read: one line in the error tone, its word first ("couldn’t load"), a sentence, and `retry` at its end, which waits while the server can't be reached (`.loaderr`). |
-| `Copy`, `glue` | `Copy.tsx`, `typeset.ts` | A piece of UI copy set as §16 Line breaks asks, at render time: its sentences found, each glued (`glue`: a number with its unit, a tally, a separator with the word before it, a small word with the word after it), each that fits a line kept whole on it, one of two lines balanced on a line of its own, a block of one such sentence balanced and a longer one pretty, all measured in the element's own font as its width changes. Never data: an answer, a prompt, code or an id. |
+| `Copy`, `glue` | `Copy.tsx`, `typeset.ts` | A piece of UI copy set by the line-break rules `typeset.ts` states, at render time: its sentences found, each glued (`glue`: a number with its unit, a tally, a separator with the word before it, a small word with the word after it), each that fits a line kept whole on it, one of two lines balanced on a line of its own, a block of one such sentence balanced and a longer one pretty, all measured in the element's own font as its width changes. Never data: an answer, a prompt, code or an id. |
 | `Code`, `Command`, `CodeText` | `Copy.tsx`, `typeset.ts`, `cmdline.ts` | Inline code whole up to 32 characters, a longer path, host or name whole where its line holds it and else broken only after a slash, a dot or a hyphen (`Code`); a command breaking only between its arguments, its head whole and its `$` never copied (`Command`, `commandParts`); code shown as text breaking at its spaces and after its commas and opening braces, a field keeping its number and an operator the word before it (`CodeText`, `codePieces`). |
 
 ## Layout
