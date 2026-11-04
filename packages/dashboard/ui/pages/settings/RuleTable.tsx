@@ -3,6 +3,7 @@ import { ApiError } from '../../api.js';
 import { Seg } from '../../components/bits.js';
 import { Dialog } from '../../components/Dialog.js';
 import { Icon } from '../../components/Icon.js';
+import { ACTIONS, confirmWords } from '../../labels.js';
 import { messageOf } from '../../../../engine/src/message-of.js';
 import type { RuleRow } from '../../settings-api.js';
 import { useApp } from '../../state.js';
@@ -93,11 +94,14 @@ const MODES: ReadonlyArray<{ key: PatternMode; label: string }> = [
   { key: 'whole', label: 'Whole value' },
 ];
 
+/** A rule dialog's title and confirm: its button's name, `Add normalizer` or `Add redaction rule`. */
+const addName = (list: RuleListName): string => confirmWords((list === 'normalize' ? ACTIONS.addNormalizerRule : ACTIONS.addRedactionRule).label);
+
 /**
- * Add a normalizer, or a redaction rule: a scope, a path, a named pattern and the replacement, as the
- * mock has it, and under Advanced a regex, a tool or call name, or no pattern (the whole value at
- * the path). The command it stands for shows as you type; the server checks the rule as the CLI does
- * and its words show here when it refuses.
+ * Add normalizer…, or Add redaction rule…: a scope, a path, a named pattern and the replacement, as
+ * the mock has it, and under Advanced a regex, a tool or call name, or no pattern (the whole value at
+ * the path). Titled and confirmed with its button's name. The command it stands for shows as you
+ * type; the server checks the rule as the CLI does and its words show here when it refuses.
  */
 export function RuleDialog({
   list,
@@ -126,7 +130,7 @@ export function RuleDialog({
   // What is typed here stays when the dashboard switches project elsewhere, and then goes to the project shown: said so.
   const openedIn = useRef(app.meta?.project?.id ?? null);
   const now = app.meta?.project;
-  const moved = openedIn.current && now?.id && now.id !== openedIn.current ? `The dashboard switched to ${now.name} elsewhere: Add rule adds this to ${now.name}’s ${CONFIG_FILE}.` : null;
+  const moved = openedIn.current && now?.id && now.id !== openedIn.current ? `The dashboard switched to ${now.name} elsewhere: ${addName(list)} adds this to ${now.name}’s ${CONFIG_FILE}.` : null;
   const [f, setF] = useState<RuleFormState>(() => emptyRuleForm(list, patterns));
   const [replaceTyped, setReplaceTyped] = useState(false);
   const [advanced, setAdvanced] = useState(false);
@@ -161,9 +165,9 @@ export function RuleDialog({
   const nameLabel = f.kind === 'tool' ? 'Tool name' : 'Call name';
   return (
     <Dialog
-      title={norm ? 'Add a normalizer' : 'Add a redaction rule'}
+      title={addName(list)}
       text={norm ? 'Masks a value before matching. Older recordings match too, because fingerprints are recomputed under the current rules.' : redactRuleText(teamStore)}
-      ok={busy ? 'Adding…' : 'Add rule'}
+      ok={busy ? 'Adding…' : addName(list)}
       okDisabled={!!problem || busy}
       onOk={() => void add()}
       onClose={onClose}

@@ -1012,7 +1012,7 @@ How Settings writes the config, and what its buttons run, is under [Actions in S
 
 *Matching* holds:
 
-- **The normalizers**, with **Add normalizer** and **Remove**. **Add normalizer** takes a scope, a path, a named pattern, or under Advanced a regex, a tool or call name, or the whole value.
+- **The normalizers**, with **Add normalizer…** and **Remove**. **Add normalizer…** takes a scope, a path, a named pattern, or under Advanced a regex, a tool or call name, or the whole value.
 - **The clock.**
 - **Calibrate**, which names the run it replays: the setup's, else the newest recording made here.
 

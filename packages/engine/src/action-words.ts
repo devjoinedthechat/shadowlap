@@ -64,6 +64,7 @@ export const ACTIONS = {
   // Runs and Training.
   // A trace from a store too: Activity says what it was.
   importCapture: { label: 'Import capture…', doing: 'Importing capture' },
+  addNormalizerRule: { label: 'Add normalizer…' },
   exportPairs: { label: 'Export pairs…', doing: 'Exporting pairs' },
   scoreModel: { label: 'Score model…', doing: 'Scoring model' },
   // Share, each item the copy it makes; a dialog says the verb, a dataset's with the runs it copies (`of 01M50J6C69`).

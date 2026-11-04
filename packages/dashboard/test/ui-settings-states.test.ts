@@ -114,6 +114,21 @@ describe('Settings while shadowlap.config.json can’t be read', () => {
     expect(r.one('.ruletable td.none').textContent).toContain('No normalizers yet');
     expect(r.all('.setrow b').map((b) => b.textContent)).toEqual(['Dates and times', 'Calibrate']);
   });
+
+  it('titles and confirms each rule dialog with its button’s name', async () => {
+    for (const [tab, client, button, name] of [
+      ['matching', { matching: async () => matching(null) }, 'Add normalizer…', 'Add normalizer'],
+      ['redaction', { redaction: async () => redaction(null) }, 'Add redaction rule…', 'Add redaction rule'],
+    ] as const) {
+      r = await page(app({ client }), tab);
+      await r.until('the tab', () => r!.all('.ruletable').length > 0);
+      await r.click(r.byText('.settab header button', button));
+      await r.until('the dialog', () => r!.all('.dialog').length === 1);
+      expect([r.one('.dialog header h3').textContent, r.one('.dialog .dlg-ok').textContent]).toEqual([name, name]);
+      await r.unmount();
+      r = null;
+    }
+  });
 });
 
 describe('Settings for a project whose folder is gone', () => {
@@ -123,7 +138,7 @@ describe('Settings for a project whose folder is gone', () => {
     expect(r.one('.ph h1').textContent).toBe('Can’t open research-agent');
     expect(r.byText('.ph button', 'Remove from the dashboard').disabled).toBe(false);
     const why = 'research-agent’s folder is gone: put it back or remove the project';
-    const add = r.byText('.settab header button', 'Add normalizer');
+    const add = r.byText('.settab header button', 'Add normalizer…');
     expect(add.disabled).toBe(true);
     expect(add.getAttribute('title')).toBe(why);
     for (const b of r.all('.settab .seg button')) expect(b.getAttribute('title')).toBe(why);
@@ -137,7 +152,7 @@ describe('Settings for a project whose folder is gone', () => {
     await r.until('the tab', () => r!.all('.ruletable').length > 0);
     expect(r.one('.ruletable td.none').textContent).toBe('The rules can’t be read while the folder is gone.');
     expect(r.all('.preview')).toHaveLength(0);
-    expect(r.byText('.settab header button', 'Add rule').disabled).toBe(true);
+    expect(r.byText('.settab header button', 'Add redaction rule…').disabled).toBe(true);
   });
 
   it('offers no store setup there', async () => {

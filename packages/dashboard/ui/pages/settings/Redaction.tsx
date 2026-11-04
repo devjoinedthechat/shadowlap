@@ -4,6 +4,7 @@ import { CopyButton } from '../../components/bits.js';
 import { tipCard, tipText } from '../../components/HoverCard.js';
 import { RunPicker } from '../../compare/RunPicker.js';
 import { num } from '../../format.js';
+import { ACTIONS } from '../../labels.js';
 import type { RedactionPreviewView, RedactionSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import { useTeamStore } from '../../teamstore.js';
@@ -48,7 +49,7 @@ export function RedactionTab() {
           <span className="sub">what leaves your machine</span>
           <span className="sp" />
           <button className="btn sm" type="button" disabled={!!off} title={off ?? undefined} onClick={() => app.guard(() => setAdding(true))}>
-            Add rule
+            {ACTIONS.addRedactionRule.label}
           </button>
         </header>
         <div className="pbody">
