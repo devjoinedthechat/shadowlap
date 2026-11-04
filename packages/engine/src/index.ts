@@ -40,13 +40,13 @@ export { blameCheckFor, checkSuggestion, configExpect, failedCheckLabels, labell
 export { recordingsOfRun, testsEntryFor } from './run-checks.js';
 // How a check came out (passed, failed, inconclusive, not applicable), read the same way from any run or test result.
 export { CHECK_STATUSES, STATUS_WORDS, checkOutcome, checkStatus, countStatuses, statusTally, type StoredCheckLike } from './check-status.js';
-// Outcome checks (checks/): the grammar, its parser and the words checks are reported in, none of
-// which needs Node, so the dashboard's pages can bundle them; a run judged by them, a judge check with
-// no verdict inconclusive; and the tests entries in the config. The CLI's checks.ts re-exports them.
+// Outcome checks (checks/): the grammar, its parser, and each check's label and a result's line, none
+// of which needs Node, so the dashboard's pages can bundle them; a run judged by them, a judge check
+// with no verdict inconclusive; and the tests entries in the config. The CLI's checks.ts re-exports them.
 export { EXPECT_KEYS, JUDGE_MODEL, OPERATORS, OPERATOR_ALIASES, aliasOf, hasChecks, judgeChecksOf, pathsNamed, readsOutput, toolsNamed, withoutOutput } from './checks/grammar.js';
 export type { CallCondition, CallRule, CheckResult, CountRange, ExpectSpec, JudgeCheck, Matcher, NamedPath, NamedTool, Operand, Operator, Reference, TestEntry, TestSpec, TextCheck, ToolCheck, WhenRule } from './checks/grammar.js';
 export { parseAmount, parseCallRule, parseCount, parseExpect, parseJudge, parsePredicate, parseWhen } from './checks/parse.js';
-export { CHECK_MARKS, callRuleLabel, checkLine, checkWords, conditionLabel, formatAmount, formatCount, judgeLabel, judgeSource, showValue } from './checks/labels.js';
+export { CHECK_MARKS, callRuleLabel, checkLabels, checkLine, checkWords, conditionLabel, costLabel, countLabel, formatAmount, formatCount, judgeLabel, judgeSource, showValue, textLabels, toolCheckLabel, whenLabel, type CountKey, type TextKey } from './checks/labels.js';
 export { LABEL_INPUT, argsMatch, closestName, evaluateChecks, judgeProvider, judgeResults, notJudgedWhy, storedCalls, storedCheckInput, unreadPaths } from './checks/evaluate.js';
 export type { CheckInput, EvaluateOptions, JudgeCheckVerdict, RecordedCalls, UnreadPath } from './checks/evaluate.js';
 export { CHAOS_TIMEOUT, DEFAULT_CHAOS, TEST_SETTINGS, chaosFor, parseChaosFields, parseTestSettings, parseTests, specFor } from './checks/tests-entry.js';

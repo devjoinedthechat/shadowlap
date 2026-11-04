@@ -38,10 +38,11 @@ import type { CheckStatus, JudgeOutcome } from '../types.js';
  *     a question a model answers about the run. Its verdict comes from the call that asked it,
  *     recorded like any other (`judgeVerdicts`); without one the check is inconclusive, never passed.
  *
- * The engine keeps the grammar (this file), its parser (parse.ts), the words checks are reported in
- * (labels.ts), how a run is judged by them (evaluate.ts) and the tests entries that hold them
- * (tests-entry.ts), so the CLI, the dashboard's server and its pages can read checks one way. This
- * file, parse.ts and labels.ts import nothing of Node, so the dashboard's pages can bundle them.
+ * The engine keeps the grammar (this file), its parser (parse.ts), what each check is called and how
+ * a result reads (labels.ts), how a run is judged by them (evaluate.ts) and the tests entries that
+ * hold them (tests-entry.ts), so the CLI, the dashboard's server and its pages can read checks one
+ * way. This file, parse.ts and labels.ts import nothing of Node, so the dashboard's pages can bundle
+ * them: they parse a check, and label it as `evaluateChecks` reports it, with no run to judge.
  */
 
 export interface CountRange {

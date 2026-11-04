@@ -1,12 +1,14 @@
 import { checkStatus } from '../check-status.js';
 import { aboutUsd, formatUsd } from '../prices.js';
 import type { CheckStatus, JudgeOutcome, StoredCheck } from '../types.js';
-import { pathAt, type CallCondition, type CallRule, type CountRange, type JudgeCheck, type Matcher, type Operand } from './grammar.js';
+import { pathAt, type CallCondition, type CallRule, type CountRange, type ExpectSpec, type JudgeCheck, type Matcher, type Operand, type TextCheck, type ToolCheck } from './grammar.js';
 
 /**
- * What checks are called and how a result reads, as every report writes them: a count, a budget, a
- * rule's clauses, a judge's question, and a result's line with its mark. Nothing here needs Node, so
- * the dashboard's pages can say a check in the same words.
+ * What checks are called and how a result reads, as every report writes them: each kind of check's
+ * label (a tool's count, a count or budget, a text, a rule's clauses, a check under a `when`
+ * condition, a judge's question), every label of an expect in the order `evaluateChecks` reports
+ * them (`checkLabels`), and a result's line with its mark. `evaluateChecks` takes its labels from
+ * here, and nothing here needs Node, so the dashboard's pages can say a check in the same words.
  */
 
 export function formatCount(r: CountRange, noun = 'time'): string {
@@ -106,6 +108,59 @@ export function conditionLabel(c: CallCondition): string {
 
 /** `judge "explains-escalation" answers yes`. */
 export const judgeLabel = (j: JudgeCheck): string => `judge "${j.name}" answers ${j.pass}`;
+
+// ---- Each check's label -------------------------------------------------------------------------
+
+/** A count under `tools`: `send_email called 0 times`, `issue_refund with {"order_id":"A-1042"} called at least 1 time`. */
+export function toolCheckLabel(t: ToolCheck): string {
+  return `${t.name}${t.args ? ` with ${JSON.stringify(t.args)}` : ''} called ${formatCount(t.count)}`;
+}
+
+/** The counts an expect may hold beside `tools`, in the order they are reported, by what each one counts. */
+export const COUNT_NOUNS = { modelCalls: 'model call', toolCalls: 'tool call', inputTokens: 'input token', outputTokens: 'output token' } as const;
+export type CountKey = keyof typeof COUNT_NOUNS;
+const COUNT_KEYS = Object.keys(COUNT_NOUNS) as CountKey[];
+
+/** `at most 12 model calls`, `at least 1 tool call`, `at most 60000 input tokens`. */
+export const countLabel = (key: CountKey, range: CountRange): string => formatCount(range, COUNT_NOUNS[key]);
+
+/** A budget in dollars: `cost at most $0.50`. */
+export const costLabel = (range: CountRange): string => `cost ${formatAmount(range)}`;
+
+/** What each text check reads: what the agent printed, or the last model response. */
+export const TEXT_NOUNS = { output: 'output', answer: 'final answer' } as const;
+export type TextKey = keyof typeof TEXT_NOUNS;
+
+/** A text an `output` or `answer` check asks for or rules out: `final answer includes "refund issued"`, `output doesn't include "cannot help"`. */
+export const textLabel = (key: TextKey, text: string, included: boolean): string => `${TEXT_NOUNS[key]} ${included ? 'includes' : "doesn't include"} "${text}"`;
+
+/** An `output` or `answer` check's labels: the texts it must include, then those it must not. */
+export const textLabels = (key: TextKey, check: TextCheck): string[] => [...check.includes.map((s) => textLabel(key, s, true)), ...check.excludes.map((s) => textLabel(key, s, false))];
+
+/** A check under a `when` rule, said under its condition: `when lookup_order has result.total > 200: escalate called at least 1 time`. */
+export const whenLabel = (c: CallCondition, label: string): string => `${conditionLabel(c)}: ${label}`;
+
+/**
+ * Every check of an expect by its label, in the order `evaluateChecks` reports them: its tools, its
+ * counts and cost, its output and final answer, its `calls` rules, each `when` rule's checks under
+ * the rule's condition, and its judges. A label depends on the check alone, so a golden's checks
+ * have their names before any run is judged by them.
+ */
+export function checkLabels(spec: ExpectSpec): string[] {
+  return [
+    ...spec.tools.map(toolCheckLabel),
+    ...COUNT_KEYS.flatMap((key) => {
+      const range = spec[key];
+      return range ? [countLabel(key, range)] : [];
+    }),
+    ...(spec.cost ? [costLabel(spec.cost)] : []),
+    ...(spec.output ? textLabels('output', spec.output) : []),
+    ...(spec.answer ? textLabels('answer', spec.answer) : []),
+    ...(spec.calls ?? []).map(callRuleLabel),
+    ...(spec.when ?? []).flatMap((w) => checkLabels(w.then).map((label) => whenLabel(w.if, label))),
+    ...(spec.judge ?? []).map(judgeLabel),
+  ];
+}
 
 // ---- Reports ------------------------------------------------------------------------------------
 

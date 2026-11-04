@@ -7,12 +7,14 @@ import { finalAnswer } from '../responses.js';
 import type { StoreOf } from '../store.js';
 import type { CallRecord, JudgeOutcome } from '../types.js';
 import { asNumber, hasWildcard, pathAt, type CallCondition, type CallRule, type CheckResult, type CountRange, type ExpectSpec, type JudgeCheck, type Matcher, type NamedPath, type Operand, type Reference, type TestSpec, type TextCheck, type WhenRule } from './grammar.js';
-import { NEGATED, PHRASE, callRuleLabel, conditionLabel, formatAmount, formatCount, judgeLabel, orList, showValue } from './labels.js';
+import { COUNT_NOUNS, NEGATED, PHRASE, TEXT_NOUNS, callRuleLabel, costLabel, countLabel, formatCount, judgeLabel, orList, showValue, textLabel, toolCheckLabel, whenLabel, type CountKey, type TextKey } from './labels.js';
 
 /**
  * A run judged by its checks: each check's status, what it expected and what happened, from the
- * run's calls and what the agent printed. A judge check takes its verdict from a call that asked it
- * (`judgeVerdicts`); nothing here asks one, so without a verdict it is inconclusive, never passed.
+ * run's calls and what the agent printed. Each result is labelled as labels.ts labels its check, in
+ * the order `checkLabels` lists them. A judge check takes the verdict its caller passes
+ * (`judgeVerdicts`), from a judge call the run recorded or one asked live; nothing here asks a judge
+ * or reads a recorded verdict, so without one the check is inconclusive, never passed.
  */
 
 /** The provider a judge's model belongs to, as `provider:model` names it, or as the model's name says; null when neither does. */
@@ -89,11 +91,12 @@ const inRange = (n: number, r: CountRange) => n >= r.min && n <= r.max;
 /** A result whose status `ok` says: passed or failed. */
 const verdict = (ok: boolean, label: string, detail: string | null): CheckResult => ({ status: ok ? 'passed' : 'failed', ok, label, detail });
 
-function textChecks(check: TextCheck, text: string | null, what: string): CheckResult[] {
+function textChecks(check: TextCheck, text: string | null, key: TextKey): CheckResult[] {
   const haystack = (text ?? '').toLowerCase();
+  const what = TEXT_NOUNS[key];
   return [
-    ...check.includes.map((s) => ({ ok: haystack.includes(s.toLowerCase()), label: `${what} includes "${s}"`, detail: text === null ? `there was no ${what}` : `not found in the ${what}` })),
-    ...check.excludes.map((s) => ({ ok: !haystack.includes(s.toLowerCase()), label: `${what} doesn't include "${s}"`, detail: `found in the ${what}` })),
+    ...check.includes.map((s) => ({ ok: haystack.includes(s.toLowerCase()), label: textLabel(key, s, true), detail: text === null ? `there was no ${what}` : `not found in the ${what}` })),
+    ...check.excludes.map((s) => ({ ok: !haystack.includes(s.toLowerCase()), label: textLabel(key, s, false), detail: `found in the ${what}` })),
   ].map((r) => verdict(r.ok, r.label, r.ok ? null : r.detail));
 }
 
@@ -106,7 +109,6 @@ export function evaluateChecks(spec: ExpectSpec | TestSpec, input: CheckInput, o
     const named = tools.filter((c) => c.name === t.name);
     const matching = t.args ? named.filter((c) => argsMatch(input.argsOf(c), t.args)) : named;
     const n = matching.length;
-    const withArgs = t.args ? ` with ${JSON.stringify(t.args)}` : '';
     let detail: string | null = null;
     if (!inRange(n, t.count)) {
       // Writes fenced after a fork count too, said exactly: `(2 blocked)`, `(1 stubbed)`, `(1 blocked, 1 stubbed)`.
@@ -117,13 +119,14 @@ export function evaluateChecks(spec: ExpectSpec | TestSpec, input: CheckInput, o
       if (t.args && named.length > n) detail += `; ${named.length} call${named.length === 1 ? '' : 's'} with other arguments`;
       if (named.length === 0 && tools.length) detail += `; tools called: ${[...new Set(tools.map((c) => c.name))].join(', ')}`;
     }
-    results.push(verdict(detail === null, `${t.name}${withArgs} called ${formatCount(t.count)}`, detail));
+    results.push(verdict(detail === null, toolCheckLabel(t), detail));
   }
-  const counted = (range: CountRange | undefined, n: number, noun: string) => {
-    if (range) results.push(verdict(inRange(n, range), formatCount(range, noun), inRange(n, range) ? null : formatCount({ min: n, max: n }, noun)));
+  const counted = (key: CountKey, n: number) => {
+    const range = spec[key];
+    if (range) results.push(verdict(inRange(n, range), countLabel(key, range), inRange(n, range) ? null : formatCount({ min: n, max: n }, COUNT_NOUNS[key])));
   };
-  counted(spec.modelCalls, calls.filter((c) => c.kind === 'api').length, 'model call');
-  counted(spec.toolCalls, tools.length, 'tool call');
+  counted('modelCalls', calls.filter((c) => c.kind === 'api').length);
+  counted('toolCalls', tools.length);
 
   // Budgets are measured over the run's model requests whatever their origin: a clean replay sends
   // the same requests it recorded, so this is what the run costs to run live, which is the number a
@@ -131,14 +134,14 @@ export function evaluateChecks(spec: ExpectSpec | TestSpec, input: CheckInput, o
   const api = calls.filter((c) => c.kind === 'api');
   const tokens = (pick: (u: NonNullable<CallRecord['end']>['meta']['usage']) => number | undefined) =>
     api.reduce((sum, c) => sum + (pick(c.end?.meta.usage) ?? 0), 0);
-  counted(spec.inputTokens, tokens((u) => (u ? u.inputTokens + (u.cacheReadInputTokens ?? 0) + (u.cacheCreationInputTokens ?? 0) : 0)), 'input token');
-  counted(spec.outputTokens, tokens((u) => u?.outputTokens), 'output token');
+  counted('inputTokens', tokens((u) => (u ? u.inputTokens + (u.cacheReadInputTokens ?? 0) + (u.cacheCreationInputTokens ?? 0) : 0)));
+  counted('outputTokens', tokens((u) => u?.outputTokens));
 
   if (spec.cost) {
     const priced = api.map((c) => ({ call: c, usd: input.costOf(c) }));
     const unpriced = priced.filter((p) => p.usd === null && p.call.end?.meta.usage);
     const total = priced.reduce((sum, p) => sum + (p.usd ?? 0), 0);
-    const label = `cost ${formatAmount(spec.cost)}`;
+    const label = costLabel(spec.cost);
     if (unpriced.length) {
       // Silently treating an unknown price as zero would let a budget pass on a model nobody costed.
       const models = [...new Set(unpriced.map((p) => p.call.end?.meta.model ?? p.call.meta.model ?? 'unknown'))];
@@ -150,7 +153,7 @@ export function evaluateChecks(spec: ExpectSpec | TestSpec, input: CheckInput, o
   }
 
   if (spec.output) results.push(...textChecks(spec.output, input.output, 'output'));
-  if (spec.answer) results.push(...textChecks(spec.answer, input.answer, 'final answer'));
+  if (spec.answer) results.push(...textChecks(spec.answer, input.answer, 'answer'));
 
   const scope: Scope = { calls, input: calls === input.calls ? input : { ...input, calls } };
   for (const rule of spec.calls ?? []) results.push(callRuleResult(rule, scope));
@@ -434,19 +437,18 @@ function conditionAt(cond: CallCondition, c: CallRecord, scope: Scope): Match {
  */
 function whenResults(rule: WhenRule, scope: Scope, options: EvaluateOptions): CheckResult[] {
   const cond = rule.if;
-  const prefix = conditionLabel(cond);
   const inner = evaluateChecks(rule.then, scope.input, options);
   const tried = scope.calls.filter((c) => c.kind === 'tool' && c.name === cond.tool).map((c) => ({ c, m: conditionAt(cond, c, scope) }));
   const met = tried.find((t) => t.m.state === 'held');
   if (met) {
     const where = `the condition held at ${cond.tool} #${met.c.callNo}${met.m.why ? ` (${met.m.why})` : ''}`;
-    return inner.map((r) => ({ ...r, label: `${prefix}: ${r.label}`, detail: r.detail === null ? null : `${r.detail}; ${where}` }));
+    return inner.map((r) => ({ ...r, label: whenLabel(cond, r.label), detail: r.detail === null ? null : `${r.detail}; ${where}` }));
   }
   const unread = tried.filter((t) => t.m.state === 'undecided');
   const calls = (ts: typeof tried) => problemsDetail(ts.map((t) => `${cond.tool} #${t.c.callNo}: ${t.m.why}`), cond.tool);
-  if (unread.length) return inner.map((r) => ({ status: 'inconclusive' as const, ok: false, label: `${prefix}: ${r.label}`, detail: `could not tell whether the condition held: ${calls(unread)}` }));
+  if (unread.length) return inner.map((r) => ({ status: 'inconclusive' as const, ok: false, label: whenLabel(cond, r.label), detail: `could not tell whether the condition held: ${calls(unread)}` }));
   const seen = tried.length ? calls(tried) : `${cond.tool} was never called`;
-  return inner.map((r) => ({ status: 'not-applicable' as const, ok: true, label: `${prefix}: ${r.label}`, detail: `the condition never held: ${seen}` }));
+  return inner.map((r) => ({ status: 'not-applicable' as const, ok: true, label: whenLabel(cond, r.label), detail: `the condition never held: ${seen}` }));
 }
 
 /**

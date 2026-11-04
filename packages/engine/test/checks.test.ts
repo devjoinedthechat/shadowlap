@@ -2,7 +2,8 @@ import { fileURLToPath } from 'node:url';
 import { createContext, runInContext } from 'node:vm';
 import { build } from 'esbuild';
 import { describe, expect, it } from 'vitest';
-import { checkLine, evaluateChecks, notJudgedWhy, parseExpect, parseTests, Store, storedCheckInput, type JudgeCheck } from '../src/index.js';
+import { checkLabels, checkLine, evaluateChecks, LABEL_INPUT, notJudgedWhy, parseExpect, parseTests, Store, storedCheckInput, type JudgeCheck } from '../src/index.js';
+import type * as labels from '../src/checks/labels.js';
 import { RunBuilder, text, toolUse, usage, user } from './run-fixtures.js';
 
 // Outcome checks live in the engine (src/checks/), so the CLI, the dashboard's server and its pages
@@ -20,6 +21,65 @@ function refundRun(store: Store): string {
   b.model({ messages: ask }, [text('Refund issued for order A-1042.')], { usage: usage(200) });
   return b.end();
 }
+
+/** An expect with every kind of check, a `when` rule's checks of each kind under its condition included. */
+const EVERY_KIND = {
+  tools: { send_email: 0, issue_refund: { count: '>= 1', args: { order_id: 'A-1042' } } },
+  modelCalls: '<= 12',
+  toolCalls: '2-4',
+  inputTokens: '<= 60000',
+  outputTokens: '>= 100',
+  cost: '<= 0.50',
+  output: { includes: ['refund issued'] },
+  answer: { includes: ['A-1042'], excludes: ['cannot help'] },
+  calls: [{ tool: 'issue_refund', after: 'lookup_order', args: { amount: { '<=': '@lookup_order.result.total' } } }],
+  when: [
+    {
+      if: { tool: 'lookup_order', result: { total: { '>': 200 } } },
+      then: { tools: { escalate: '>= 1' }, outputTokens: '<= 800', cost: '<= 0.20', answer: { excludes: ['refunded'] }, calls: [{ tool: 'escalate', after: 'lookup_order' }], judge: [{ name: 'says-escalated', question: 'Does the answer say it was escalated?', model: 'claude-haiku-4-5' }] },
+    },
+    { if: { tool: 'escalate' }, then: { tools: { send_email: '<= 1' } } },
+  ],
+  judge: [{ name: 'explains-refund', question: 'Does the answer say what was refunded?', model: 'claude-haiku-4-5', pass: 'no' }],
+};
+
+/** What the CLI calls each of them, in the order it reports them. */
+const EVERY_LABEL = [
+  'send_email called 0 times',
+  'issue_refund with {"order_id":"A-1042"} called at least 1 time',
+  'at most 12 model calls',
+  '2 to 4 tool calls',
+  'at most 60000 input tokens',
+  'at least 100 output tokens',
+  'cost at most $0.50',
+  'output includes "refund issued"',
+  'final answer includes "A-1042"',
+  'final answer doesn\'t include "cannot help"',
+  'every issue_refund call: after lookup_order, amount <= lookup_order.result.total',
+  'when lookup_order has result.total > 200: escalate called at least 1 time',
+  'when lookup_order has result.total > 200: at most 800 output tokens',
+  'when lookup_order has result.total > 200: cost at most $0.20',
+  'when lookup_order has result.total > 200: final answer doesn\'t include "refunded"',
+  'when lookup_order has result.total > 200: every escalate call: after lookup_order',
+  'when lookup_order has result.total > 200: judge "says-escalated" answers yes',
+  'when escalate is called: send_email called at most 1 time',
+  'judge "explains-refund" answers no',
+];
+
+describe('a check’s label', () => {
+  it('is what evaluateChecks reports it as, in its order, whatever the run did', () => {
+    const spec = parseExpect(EVERY_KIND, '--expect');
+    expect(checkLabels(spec)).toEqual(EVERY_LABEL);
+    expect(evaluateChecks(spec, LABEL_INPUT).map((r) => r.label)).toEqual(EVERY_LABEL);
+    // Judged on a run, where one condition held and the other never did, every status comes up and the labels stay the same.
+    const store = Store.open(':memory:');
+    const runId = refundRun(store);
+    const results = evaluateChecks(spec, storedCheckInput(store, store.getCalls(runId), 'Refund issued.'));
+    expect(results.map((r) => r.label)).toEqual(EVERY_LABEL);
+    expect(new Set(results.map((r) => r.status))).toEqual(new Set(['passed', 'failed', 'inconclusive', 'not-applicable']));
+    store.close();
+  });
+});
 
 describe('a run judged by its checks in the engine', () => {
   it('reads what the run recorded, values from earlier calls included, in the words the CLI prints', () => {
@@ -77,7 +137,7 @@ describe('the browser bundle', () => {
   const builder = `
     export { EXPECT_KEYS, hasChecks } from './grammar.js';
     export { parseExpect } from './parse.js';
-    export { callRuleLabel, checkLine, conditionLabel, formatAmount, formatCount, judgeLabel } from './labels.js';
+    export { callRuleLabel, checkLabels, checkLine, conditionLabel, costLabel, countLabel, formatAmount, formatCount, judgeLabel, textLabels, toolCheckLabel, whenLabel } from './labels.js';
   `;
   const bundle = (format: 'esm' | 'iife') =>
     build({
@@ -96,14 +156,36 @@ describe('the browser bundle', () => {
     expect(out.outputFiles[0].text).toContain('parseExpect');
   });
 
-  it('parses and labels a check with nothing of Node in scope, in the CLI’s words', async () => {
+  /** The bundle run where nothing of Node is in scope, as a page runs it. */
+  async function inPage(): Promise<{ parseExpect: typeof parseExpect } & typeof labels> {
     const out = await bundle('iife');
     const scope = createContext({});
     runInContext(out.outputFiles[0].text, scope);
-    const checks = (scope as { checks: { parseExpect: typeof parseExpect; callRuleLabel: (rule: unknown) => string } }).checks;
+    return (scope as { checks: { parseExpect: typeof parseExpect } & typeof labels }).checks;
+  }
+
+  it('parses and labels a check with nothing of Node in scope, in the CLI’s words', async () => {
+    const checks = await inPage();
     const spec = checks.parseExpect({ calls: [{ tool: 'issue_refund', after: 'lookup_order', args: { amount: { '<=': '@lookup_order.result.total' } } }] }, 'expect');
     expect(checks.callRuleLabel(spec.calls![0])).toBe('every issue_refund call: after lookup_order, amount <= lookup_order.result.total');
     expect(() => checks.parseExpect({ calls: [{ tool: 'issue_refund' }] }, 'expect')).toThrow('expect.calls[0] checks nothing: give it "after", "args" or both (to require a call of issue_refund, use "tools")');
     expect(() => checks.parseExpect({ calls: [{ tool: 'issue_refund', args: { amount: { lte: 100 } } }] }, 'expect')).toThrow('did you mean { "<=": 100 }?');
+  });
+
+  it('labels every kind of check with nothing of Node in scope, as evaluateChecks reports them', async () => {
+    const checks = await inPage();
+    const reported = evaluateChecks(parseExpect(EVERY_KIND, 'expect'), LABEL_INPUT).map((r) => r.label);
+    const spec = checks.parseExpect(EVERY_KIND, 'expect');
+    expect([...checks.checkLabels(spec)]).toEqual(reported);
+    // Each kind by its own label too, as a page labels the one check it is building.
+    const [when] = spec.when!;
+    expect([checks.toolCheckLabel(spec.tools[0]), checks.toolCheckLabel(spec.tools[1])]).toEqual(reported.slice(0, 2));
+    expect([checks.countLabel('modelCalls', spec.modelCalls!), checks.countLabel('toolCalls', spec.toolCalls!), checks.countLabel('inputTokens', spec.inputTokens!), checks.countLabel('outputTokens', spec.outputTokens!)]).toEqual(reported.slice(2, 6));
+    expect(checks.costLabel(spec.cost!)).toBe(reported[6]);
+    expect([...checks.textLabels('output', spec.output!), ...checks.textLabels('answer', spec.answer!)]).toEqual(reported.slice(7, 10));
+    expect(checks.callRuleLabel(spec.calls![0])).toBe(reported[10]);
+    expect(checks.whenLabel(when.if, checks.toolCheckLabel(when.then.tools[0]))).toBe(reported[11]);
+    expect(checks.whenLabel(when.if, checks.judgeLabel(when.then.judge![0]))).toBe(reported[16]);
+    expect(checks.judgeLabel(spec.judge![0])).toBe(reported[18]);
   });
 });
