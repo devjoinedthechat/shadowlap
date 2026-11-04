@@ -2,6 +2,7 @@ import { approx } from '../format.js';
 import { commandText } from '../goldens.js';
 import type { BlameStep, CandidateVerdict, FixBundle, FixDetail, FixRow, RepairStep, StepKey, VerifyMore, VerifyRow, VerifyStep } from '../types.js';
 import { blameStateWord } from '../../../engine/src/blame-words.js';
+import { verdictWord } from '../../../engine/src/verdict-words.js';
 import { ACTIONS } from '../labels.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { lostWords } from '../../../engine/src/run-verdicts.js';
@@ -577,10 +578,11 @@ export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict' | 'counts'> & 
  * checked and how that came out, as the Verify step's switch names it: `fixed · 12 of 12 · rate >=
  * 0.76 (95%) · ≈$0.046 · repair candidate 3 · accepted`, since a run kept under a change says
  * nothing of whether the change was accepted, and "· doesn't count" after one that doesn't count
- * for the fix. A revision stays with the "at" before it (`keepAt`).
+ * for the fix. The verdict is a page's word for it: inconclusive for one that didn't settle every
+ * run, never verify's incomplete. A revision stays with the "at" before it (`keepAt`).
  */
 export function bundleLine(b: Pick<FixBundle, 'kind' | 'attempts' | 'passes' | 'spent' | 'change' | 'verdict' | 'counts'> & { verdictLine?: string | null }, money: (usd: number) => string): string {
-  const change = b.kind === 'verify' && b.change ? [keepAt(b.change), ...(b.verdict ? [b.verdict] : []), ...(b.counts === false ? ["doesn't count"] : [])] : [];
+  const change = b.kind === 'verify' && b.change ? [keepAt(b.change), ...(b.verdict ? [verdictWord(b.verdict)] : []), ...(b.counts === false ? ["doesn't count"] : [])] : [];
   if (b.verdictLine) return [b.verdictLine, ...(b.spent ? [money(b.spent)] : []), ...change].join(' · ');
   const n = b.attempts.length;
   const unsure = b.attempts.filter((a) => a.verdict === 'inconclusive').length;

@@ -857,7 +857,7 @@ describe('fixes for the other views', () => {
     expect(needsLookFixes(store).find((x) => x.fixId === fixId)).toMatchObject({ kind: 'ready', action: 'Apply', detail: 'Escalate refunds above the policy limit' });
   });
 
-  it('says a repair could not ask its repairer, rather than that it found no fix', () => {
+  it('says a repair could not ask its repairer, rather than that its candidates were rejected', () => {
     const email = { tools: { send_email: 1 } };
     const run = makeRun(store, { labels: ['double-email'] });
     const { fix } = blame(run, { expect: email, at: NOW });
@@ -869,9 +869,9 @@ describe('fixes for the other views', () => {
     expect(detail()).toBe('lost at model call #5 · the repairer could not be asked');
     recordRepair(store, { repairId: 'repair-norepairer', dir: '.shadowlap/repairs/repair-norepairer', report: { ...nothing, why: 'no repairer is configured', noRepairer: 'no repairer is configured' }, expect: email, command: 'r', at: NOW + 2 });
     expect(detail()).toBe('lost at model call #5 · no repairer is configured');
-    // One that tried candidates and accepted none looked for a fix, and found none.
+    // One that tried candidates and accepted none had the gate reject each, in a change's words, never a fix's.
     recordRepair(store, { repairId: 'repair-tried', dir: '.shadowlap/repairs/repair-tried', report: repairReport({ targets: [run], accepted: false }), expect: email, command: 'r', at: NOW + 3 });
-    expect(detail()).toBe('lost at model call #5 · no fix found yet');
+    expect(detail()).toBe('lost at model call #5 · the last repair’s candidates were rejected');
   });
 
   it('counts a fork that failed as a failure not blamed yet, and no attempt, test, preset or injection replay', () => {
