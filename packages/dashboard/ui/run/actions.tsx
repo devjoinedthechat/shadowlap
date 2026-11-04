@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { JOB_KINDS, type ActionItem, type BisectOffer, type CallDetail, type RunDetail, type RunOffers } from '../api.js';
 import { consentAsked, dialogCopy, forkMenu, forkMenuTitle, menuLabel } from '../actions.js';
-import { ConsentDialog, PromptDialog } from '../components/Dialog.js';
+import { ConfirmDialog, ConsentDialog, PromptDialog } from '../components/Dialog.js';
 import { Popover } from '../components/Popover.js';
 import { callName, shortId } from '../format.js';
 import { useApp } from '../state.js';
@@ -25,7 +25,8 @@ export interface PendingAction {
 const UNKNOWN_BISECT = (runId: string): BisectOffer => ({ target: { kind: 'run', runId }, failed: true, good: null, bad: null, revisions: [], fork: false, live: false, unavailable: null, args: null });
 
 /**
- * Starts an action, or opens its dialog when it asks for something first. Find breaking commit, which the
+ * Starts an action, or opens its dialog when it asks for something first, or only whether to start
+ * (`asksFirst`: a fork's Repeat 5 times, whose attempts run live). Find breaking commit, which the
  * fork menu lists with the whole run's actions, is the tests' `bisect` job: its dialog asks for a
  * commit where the run still worked. A replay of a run from someone else's pack, or a teammate's
  * pulled from the team store, runs their command: the server refuses it until it is confirmed, and
@@ -59,7 +60,7 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
     if (p.action.disabled) return app.toast(p.action.disabled);
     if (app.actionsOff) return app.toast(app.actionsOff);
     app.guard(() => {
-      if (p.action.prompt) setPending(p);
+      if (p.action.prompt || p.action.asksFirst) setPending(p);
       else start(p);
     });
   };
@@ -100,7 +101,7 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
   return { run, dialog, findCommit };
 }
 
-function ActionDialog({ runId, capture, pending, onRun, onClose }: { runId: string; capture: boolean; pending: PendingAction; onRun: (v: string) => void; onClose: () => void }) {
+function ActionDialog({ runId, capture, pending, onRun, onClose }: { runId: string; capture: boolean; pending: PendingAction; onRun: (v?: string) => void; onClose: () => void }) {
   const copy = dialogCopy(pending.action, {
     id: shortId(runId),
     callNo: pending.callNo,
@@ -108,6 +109,8 @@ function ActionDialog({ runId, capture, pending, onRun, onClose }: { runId: stri
     ...(pending.callName !== undefined ? { callName: pending.callName } : {}),
     ...(pending.recorded !== undefined ? { recorded: pending.recorded } : {}),
   });
+  // Nothing to fill in: it asks only whether to start, as it runs live.
+  if (!pending.action.prompt) return <ConfirmDialog title={copy.title} text={copy.text} ok={copy.ok} onOk={() => onRun()} onClose={onClose} />;
   return (
     <PromptDialog
       title={copy.title}

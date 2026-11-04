@@ -283,7 +283,7 @@ Each task, with the command or page that does it:
 │   l  Force lookup_policy live      --live-tool lookup_policy │
 │   a  Run live from here                      --diverge-at 16 │
 │ The whole run                                                │
-│   e  Repeat 5 times…                              --repeat 5 │
+│   e  Repeat 5 times                               --repeat 5 │
 │   s  Replay with writes stubbed                --writes stub │
 │   b  Find commit that changed i…             bisect --good … │
 │ Fixes                                                        │

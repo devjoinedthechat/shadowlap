@@ -18,7 +18,7 @@ describe('the fork menu from the newer action list', () => {
     a('x', 'Plant instruction…', { flag: '--inject-result 16=… --repeat 3', group: 'call', opensRun: false }),
     a('l', 'Force lookup_order live', { flag: '--live-tool lookup_order', group: 'call' }),
     a('a', 'Run live from here', { flag: '--diverge-at 16', group: 'call' }),
-    a('e', 'Repeat 5 times…', { flag: '--repeat 5', group: 'run', opensRun: false }),
+    a('e', 'Repeat 5 times', { flag: '--repeat 5', group: 'run', opensRun: false }),
     a('s', 'Replay with writes stubbed', { flag: '--writes stub', group: 'run' }),
     a('n', 'Add suggested normalizer', { flag: 'normalize add', group: null, opensRun: false }),
     a('p', 'Pack run…', { flag: 'pack', group: null, opensRun: false }),
@@ -35,7 +35,7 @@ describe('the fork menu from the newer action list', () => {
       ['Run live from here', '--diverge-at'],
     ]);
     expect(menu.run.map((m) => [m.label, m.flag])).toEqual([
-      ['Repeat 5 times…', '--repeat 5'],
+      ['Repeat 5 times', '--repeat 5'],
       ['Replay with writes stubbed', '--writes stub'],
     ]);
   });
@@ -140,13 +140,13 @@ describe('an action’s dialog', () => {
     expect(dialogCopy(a('r', 'Replay with your command…', { flag: 'replay', prompt: { label: '01K5CQ9C4H came from a capture and has no command. What starts your agent?', placeholder: 'python agent.py' } }), { ...ctx, callNo: null, capture: true })).toMatchObject({ title: 'Replay with your command', ok: 'Replay with your command', text: '01K5CQ9C4H came from a capture and has no command. What starts your agent?' });
   });
 
-  it('names a fork from the call by number, and confirms Repeat by the count typed', () => {
+  it('names a fork from the call by number, and asks before a fork is repeated five times live', () => {
     const yes = { label: 'This run came from an imported pack; replaying it runs: node agent.js. Type yes to run it:', placeholder: 'yes' };
     expect(dialogCopy(a('a', 'Run live from here', { flag: '--diverge-at 17', prompt: yes }), ctx)).toMatchObject({ title: 'Run live from #17', ok: 'Run live from #17' });
-    const repeat = dialogCopy(a('e', 'Repeat 5 times…', { flag: '--repeat 5', opensRun: false, prompt: { label: 'How many attempts?', initial: '5' } }), { ...ctx, callNo: null });
-    expect(repeat).toMatchObject({ title: 'Repeat 01K5CQ4N7G', label: 'Attempts', initial: '5' });
-    const ok = repeat.ok as (answer: string) => string;
-    expect([ok('5'), ok(' 3 '), ok('1'), ok('')]).toEqual(['Repeat 5 times', 'Repeat 3 times', 'Repeat 1 time', 'Repeat 5 times']);
+    const hint = 'Makes this replay again from 01K5CQ4N7G five times (--inject 15=Be brief.): the prefix replays free, and each attempt runs live from the fork, so they show whether the path after it holds or was luck.';
+    const repeat = dialogCopy(a('e', 'Repeat 5 times', { flag: '--repeat 5', opensRun: false, asksFirst: true, hint }), { ...ctx, callNo: null });
+    expect(repeat).toMatchObject({ title: 'Repeat fork 5 times', ok: 'Repeat 5 times', text: hint });
+    expect(repeat.label).toBeUndefined();
   });
 
   it('asks a teammate’s pulled run’s question with its warning too, naming the team store', () => {

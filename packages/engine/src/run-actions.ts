@@ -21,7 +21,7 @@ import { normalizeAddArgs } from './volatile.js';
  * call gets Inject instruction…, Switch model from here…, Use changed prompt from here, Fail with
  * HTTP status… and Run live from here; a tool call gets Override result…, Fail with tool error…,
  * Plant instruction… (reads only), Force <tool> live and Run live from here; a recorded user input
- * gets Override user reply… and Run live from here. Then the whole run: Repeat 5 times…, Replay with
+ * gets Override user reply… and Run live from here. Then the whole run: Repeat 5 times, Replay with
  * writes stubbed, and in the terminal UI Find breaking commit….
  */
 
@@ -54,6 +54,13 @@ export interface Action {
   group?: 'call' | 'run';
   /** One line on what it does and why, for its dialog or a hover. */
   hint?: string;
+  /**
+   * Set on an action with `args` that asks before it starts: a fork's Repeat 5 times runs the fork's
+   * change again five times, each attempt live from where it forks. Until Spending decides it by the
+   * job's estimate, the dashboard and the terminal UI ask first, saying what it runs. Without it, an
+   * action with `args` starts at once, as a recording's Repeat 5 times does, replayed offline.
+   */
+  asksFirst?: true;
   /**
    * Set on a replay of a run imported from a pack or pulled from the team store, which runs the
    * command someone else recorded, with --yes for the CLI: `confirm` when its prompt asks only for
@@ -334,17 +341,17 @@ function baseActions(run: RunRecord, call: CallRecord | undefined, context: Acti
   // The flags as a command line has them: the fork's own command, after `--`, last.
   const recorded = recordedFlags(run) ?? [];
   const made = [...recorded.filter((i) => i.kind !== 'command').map((i) => i.flag), ...(run.meta?.expect ? ['--expect …'] : []), ...recorded.filter((i) => i.kind === 'command').map((i) => i.flag)].join(' ');
+  // Five attempts, as its name says: a fork's run live from where it forks, so it asks first.
   actions.push({
     key: 'e',
     label: ACTIONS.repeat.label,
     flag: '--repeat 5',
     group: 'run',
-    hint: again ? `Makes this replay again from ${run.parentRunId!.slice(0, 10)} several times${made ? ` (${made})` : ''}: the prefix replays free, and the attempts show whether the path after the fork holds or was luck.` : 'Replays this run several times: what replays is free, and the attempts show whether the path after a fork holds or was luck.',
-    prompt: {
-      label: 'How many attempts? After a code change, they show whether the path past the fork holds or was luck:',
-      initial: '5',
-      build: (v) => [...base, '--repeat', v.trim(), ...tail],
-    },
+    hint: again
+      ? `Makes this replay again from ${run.parentRunId!.slice(0, 10)} five times${made ? ` (${made})` : ''}: the prefix replays free, and each attempt runs live from the fork, so they show whether the path after it holds or was luck.`
+      : 'Replays this run five times: what replays is free, and the attempts show whether the path after a fork holds or was luck.',
+    args: [...base, '--repeat', '5', ...tail],
+    ...(again ? { asksFirst: true as const } : {}),
     opensRun: false,
   });
   const stubbed = forkArgs(run, new Set(['--writes']));

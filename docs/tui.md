@@ -225,7 +225,7 @@ The menu's actions:
 | `l` | Force *tool* live | tool call | `… --live-tool <name>` |
 | `u` | Override user reply… (starts from the recorded reply) | recorded user input | `… --override <n>=<reply>` |
 | `a` | Run live from here | any call | `… --diverge-at <n>` |
-| `e` | Repeat 5 times… (asks how many attempts) | the whole run | `… --repeat <n>` |
+| `e` | Repeat 5 times (on a fork, asks first: its attempts run live) | the whole run | `… --repeat 5` |
 | `s` | Replay with writes stubbed | the whole run | `… --writes stub` |
 | `b` | Find breaking commit… (asks for a commit where it still worked) | the whole run | `shadowlap bisect <run> --good <commit>` |
 | `r` | Replay | — | `shadowlap replay <run>` |
@@ -237,7 +237,7 @@ The menu's actions:
 
 Each is named as the dashboard's fork menu names it, in the CLI's verbs: an ellipsis means it asks for something before it runs.
 
-- **`e` on a replay** runs again from its parent, with the flags that made it, its own command and its `--expect`.
+- **`e` on a replay** runs again from its parent, with the flags that made it, its own command and its `--expect`. Its five attempts run live from where it forks, so it shows the exact command first, and `Enter` runs it. On a recording, which replays offline, it starts at once.
 - **`s` on a replay** runs again from its parent too.
 - **`b` on a run that passed** reads *Find commit that changed it…*, and searches from its own commit.
 

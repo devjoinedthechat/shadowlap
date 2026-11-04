@@ -221,6 +221,8 @@ export interface ActionItem {
   group: 'call' | 'run' | null;
   /** One line on what the action does and why, for its dialog. */
   hint: string | null;
+  /** Set when it asks before it starts with nothing to fill in: a fork's Repeat 5 times, whose attempts run live from the fork. */
+  asksFirst?: true;
 }
 
 export interface ReadOptions {
@@ -653,6 +655,7 @@ export function actionsFor(run: RunRecord, call: CallRecord | undefined, context
     flag: a.flag ?? null,
     group: a.group ?? null,
     hint: a.hint ?? null,
+    ...(a.asksFirst ? { asksFirst: true as const } : {}),
   }));
 }
 

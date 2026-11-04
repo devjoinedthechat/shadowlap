@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { normalizeConversation, normalizeResponse, Store, unpackRun } from '@shadowlap/engine';
+import { normalizeConversation, normalizeResponse, Store, storeApiRequest, unpackRun } from '@shadowlap/engine';
 import { App } from '../src/app.js';
 import { diffLines } from '../src/diff.js';
 import { Help } from '../src/components/Help.js';
@@ -507,17 +507,62 @@ describe('actions palette', () => {
     stdin.write('\r');
     await frameWith(lastFrame, 'not run: it runs only once you type yes');
     expect(spawned).toEqual([]);
-    // Nor does answering what an action asks first: attempts, then the question again, then Esc.
+    // Repeat 5 times asks nothing else either: the question, with its five attempts, then Esc.
     stdin.write(':');
     await frameWith(lastFrame, 'The whole run');
     stdin.write('e');
+    frame = await frameWith(lastFrame, 'Type yes to run it:');
+    expect(frame).toContain(`shadowlap replay ${runId} --repeat 5`);
+    stdin.write('\u001b');
+    await frameWithout(lastFrame, 'Type yes to run it:');
+    // Nor does answering what an action asks first: the status to fail #3 with, then the question again, then Esc.
+    stdin.write('j');
+    stdin.write('j');
+    await frameMatching(lastFrame, /> #3\s/);
+    stdin.write(':');
+    await frameWith(lastFrame, 'At #3 · model call');
+    stdin.write('f');
     await frameWith(lastFrame, 'Enter to confirm');
     stdin.write('\r');
     frame = await frameWith(lastFrame, 'Type yes to run it:');
-    expect(frame).toMatch(new RegExp(`shadowlap replay ${runId} --repeat \\d+`));
+    expect(frame).toContain(`shadowlap replay ${runId} --fail-at 3=429`);
     stdin.write('\u001b');
     await frameWithout(lastFrame, 'Type yes to run it:');
     expect(spawned).toEqual([]);
+    store.close();
+  });
+
+  it('asks before a fork is repeated five times, live from where it forks, and runs it on Enter', async () => {
+    const { spawn } = await import('node:child_process');
+    const store = Store.open(':memory:');
+    const id = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: 'a'.repeat(64), occurrence: 1 };
+    const withCall = (runId: string, origin: 'live' | 'replayed') => {
+      store.appendCallStart({ runId, callNo: 1, ...id, origin, effect: null, requestRef: storeApiRequest(store, { model: 'claude-sonnet-5', messages: [{ role: 'user', content: 'Refund order A-1042.' }] }), meta: { provider: 'anthropic' }, at: 1 });
+      store.appendCallEnd(id, { runId, callNo: 1, attempt: 0, responseRef: null, outcome: 'ok', meta: { status: 200 }, at: 2 });
+      store.endRun(runId, 'completed');
+    };
+    const recording = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' } });
+    withCall(recording.runId, 'live');
+    const fork = store.createRun({ mode: 'replay', parentRunId: recording.runId, command: { argv: ['node', 'agent.js'], cwd: '.' }, meta: { interventions: [{ kind: 'diverge', at: 1, flag: '--diverge-at 1', args: ['--diverge-at', '1'] }] } });
+    withCall(fork.runId, 'live');
+    const spawned: string[][] = [];
+    const spawnCli = (args: string[]) => {
+      spawned.push(args);
+      return spawn(process.execPath, ['-e', 'console.log("repeated")'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    };
+    const { lastFrame, stdin } = renderAt(<App store={store} runId={fork.runId} spawnCli={spawnCli} columns={120} rows={30} />, 120, 30);
+    await frameWith(lastFrame, '> #1');
+    stdin.write(':');
+    await frameWith(lastFrame, 'The whole run');
+    stdin.write('e');
+    // Its attempts run live: what it runs, and that it costs, before anything does.
+    const frame = await frameWith(lastFrame, 'Enter runs it');
+    expect(frame).toContain('Repeat 5 times');
+    expect(frame).toContain(`shadowlap replay ${recording.runId} --diverge-at 1 --repeat 5, and asks models live, which costs.`);
+    expect(spawned).toEqual([]);
+    stdin.write('\r');
+    await frameWith(lastFrame, 'repeated');
+    expect(spawned).toEqual([['replay', recording.runId, '--diverge-at', '1', '--repeat', '5']]);
     store.close();
   });
 

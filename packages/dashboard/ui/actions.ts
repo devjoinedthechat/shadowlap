@@ -20,6 +20,8 @@ export interface ActionLike {
   group?: 'call' | 'run' | null;
   /** One line on what it does and why, from the server. */
   hint?: string;
+  /** It asks before it starts, with nothing to fill in: a fork's Repeat 5 times, whose attempts run live. */
+  asksFirst?: true;
 }
 
 /** Actions with a place of their own: Replay in the header, Pack in Share, the normalizer in the divergence banner. */
@@ -172,8 +174,8 @@ export interface DialogCopy {
   initial: string;
   placeholder: string;
   multiline: boolean;
-  /** Its confirm: the opener's name without the ellipsis, worked out from the answer where that names a count. */
-  ok: string | ((answer: string) => string);
+  /** Its confirm: the opener's name without the ellipsis. */
+  ok: string;
   /** The command it runs, under the field, with … for what is typed. */
   command?: string;
   /** Answers to pick from (any other answer is accepted too). */
@@ -213,9 +215,6 @@ export function consentTitle(message: string): string {
   if (/came from the team store:/.test(message)) return 'Run a command from the team store?';
   return /came from a program that sent the sidecar its command:/.test(message) ? 'Run a command a program sent the sidecar?' : 'Run a command from an imported pack?';
 }
-
-/** Repeat's confirm, by the count typed: `Repeat 5 times`, `Repeat 1 time`. */
-const repeatTimes = (answer: string): string => `Repeat ${answer.trim() || '5'} time${answer.trim() === '1' ? '' : 's'}`;
 
 /**
  * The words of the dialog an action asks its one thing in, each titled and confirmed with the name
@@ -282,7 +281,8 @@ export function dialogCopy(a: ActionLike, ctx: DialogContext): DialogCopy {
   } else if (a.key === 'm') {
     copy = { ...base, title: `Switch model from ${at}`, text: a.hint ?? `Calls before ${at} replay; from here the new model answers live.`, label: 'Model' };
   } else if (a.key === 'e') {
-    copy = { ...base, title: `Repeat ${ctx.id}`, text: a.hint ?? p.label, label: 'Attempts', initial: p.initial ?? '5', ok: repeatTimes };
+    // A fork's, asked before its five attempts run live from the fork: nothing to fill in.
+    copy = { ...base, title: ACTIONS.repeat.title, text: a.hint ?? p.label, ok: confirmWords(ACTIONS.repeat.label) };
   } else if (a.key === 'p') {
     copy = { ...base, title: `Pack ${ctx.id}`, text: 'A folder to commit as a golden or send to someone: run.json, calls.jsonl and one file per blob. Redaction rules apply to the copy; the store is never changed.', label: 'Folder', ok: 'Pack run' };
   } else if (a.key === 'r') {

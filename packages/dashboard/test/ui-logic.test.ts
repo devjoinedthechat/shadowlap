@@ -616,7 +616,7 @@ describe('fork menu', () => {
       ['Fail with HTTP status…', '--fail-at'],
       ['Run live from here', '--diverge-at'],
     ]);
-    expect(menu.run.map((x) => x.label)).toEqual(['Repeat 5 times…', 'Replay with writes stubbed']);
+    expect(menu.run.map((x) => x.label)).toEqual(['Repeat 5 times', 'Replay with writes stubbed']);
   });
 
   it('uses the server’s flag and group when it sends them', () => {

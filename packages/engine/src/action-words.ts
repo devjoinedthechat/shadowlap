@@ -5,14 +5,21 @@
  * says it in the past tense once it ends (the dashboard's ui/labels.ts). Labels are verb and object,
  * in sentence case with no articles, in the CLI's verb where it has one ("Run <command>" where the
  * bare command reads wrong); an ellipsis means the action asks for something before it runs, and its
- * dialog's title and confirm are the label without it. Share's items are the copies they make, as
- * parallel nouns. No imports: the dashboard's pages bundle it as it is, and its server titles each
- * job from it.
+ * dialog's title and confirm are the label without it, but where `title` or `confirm` says otherwise.
+ * Share's items are the copies they make, as parallel nouns, so their dialogs say the verb. No
+ * imports: the dashboard's pages bundle it as it is, and its server titles each job from it.
  */
 
 export interface ActionWords {
   /** Its name wherever it is offered. */
   label: string;
+  /**
+   * Its dialog's title, where that is more than the label without its ellipsis: the verb for a Share
+   * item (`Export OpenTelemetry trace`), what a fork's Repeat 5 times repeats (`Repeat fork 5 times`).
+   */
+  title?: string;
+  /** Its dialog's confirm, where that is not the label without its ellipsis: `Export trace`, `Pack run`. */
+  confirm?: string;
   /** Its job's title while it runs (`Repairing`, `Finding breaking commit`), for one that runs as a job. */
   doing?: string;
 }
@@ -29,8 +36,9 @@ export const ACTIONS = {
   plantInstruction: { label: 'Plant instruction…', doing: 'Planting instruction' },
   overrideUserReply: { label: 'Override user reply…', doing: 'Forking' },
   runLive: { label: 'Run live from here', doing: 'Forking' },
-  // The fork menu's whole run, and what has a place of its own (the header's Replay, Share's Pack).
-  repeat: { label: 'Repeat 5 times…', doing: 'Repeating' },
+  // The fork menu's whole run, and what has a place of its own (the header's Replay, Share's Pack). A
+  // fork's Repeat 5 times asks first, as its attempts run live from the fork: a recording's replays free.
+  repeat: { label: 'Repeat 5 times', title: 'Repeat fork 5 times', doing: 'Repeating' },
   replayStubbed: { label: 'Replay with writes stubbed', doing: 'Replaying' },
   replay: { label: 'Replay', doing: 'Replaying' },
   replayWithCommand: { label: 'Replay with your command…', doing: 'Replaying' },

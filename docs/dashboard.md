@@ -1300,10 +1300,11 @@ Each action has one name wherever it is offered: its button, its menu item and i
 | A model call | **Inject instruction…** (always as the user), **Switch model from here…**, **Use changed prompt from here**, **Fail with HTTP status…**, **Run live from here** |
 | A tool call | **Override result…**, **Fail with tool error…**, **Plant instruction…** (reads only), **Force *tool* live**, **Run live from here** |
 | A recorded user input | **Override user reply…**, **Run live from here** |
-| The whole run | **Repeat 5 times…** (`--repeat`), **Replay with writes stubbed**, **Find breaking commit…** |
+| The whole run | **Repeat 5 times** (`--repeat 5`), **Replay with writes stubbed**, **Find breaking commit…** |
 
-The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An item that asks for something first ends in an ellipsis, and its dialog is titled and confirmed with its name: **Inject instruction…** opens *Inject instruction at #17*, confirmed with **Inject instruction**, and **Repeat 5 times…** confirms with the count you type (*Repeat 3 times*).
+The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An item that asks for something first ends in an ellipsis, and its dialog is titled and confirmed with its name: **Inject instruction…** opens *Inject instruction at #17*, confirmed with **Inject instruction**.
 
+- **Repeat 5 times** runs five attempts. A recording's replay offline and start at once. A fork's run live from where it forks, so it asks first, in *Repeat fork 5 times*, confirmed with **Repeat 5 times**.
 - **A fork is made again** from its parent, with the flags, command and checks that made it.
 - **An action that needs something from you** (the instruction to inject, the status to fail with, the model to switch to) asks for it in a dialog first. The inject dialog shows the command it runs.
 - **What you type** is passed as text, never read as a file. See [Interventions](./interventions.md).

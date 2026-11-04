@@ -115,24 +115,27 @@ describe('the fork menu at a call', () => {
 });
 
 describe('the whole run', () => {
-  it('offers repeat, asking how many attempts, and stub the writes', () => {
+  it('offers Repeat 5 times, which a recording starts at once, and Replay with writes stubbed', () => {
     const actions = buildActions(run(), call);
     expect(keys(actions, 'run')).toEqual(['e', 's']);
     const repeat = actions.find((a) => a.key === 'e')!;
-    expect([repeat.label, repeat.flag, repeat.opensRun, repeat.prompt!.initial]).toEqual(['Repeat 5 times…', '--repeat 5', false, '5']);
+    // Five attempts, as its name says: nothing to ask, and a recording's replays offline, so it doesn't ask first.
+    expect([repeat.label, repeat.flag, repeat.opensRun, repeat.prompt, repeat.asksFirst]).toEqual(['Repeat 5 times', '--repeat 5', false, undefined, undefined]);
     expect(actions.find((a) => a.key === 's')!.label).toBe('Replay with writes stubbed');
     // What has a place of its own: the header's Replay and Share's Pack.
     expect([actions.find((a) => a.key === 'r')!.label, actions.find((a) => a.key === 'p')!.label]).toEqual(['Replay', 'Pack run…']);
-    expect(repeat.prompt!.build('5')).toEqual(['replay', ID, '--repeat', '5']);
+    expect(repeat.args).toEqual(['replay', ID, '--repeat', '5']);
     expect(actions.find((a) => a.key === 's')!.args).toEqual(['replay', ID, '--writes', 'stub']);
     // Replay and packing belong to the header and Share: no group.
     expect(keys(buildActions(run(), undefined), null)).toEqual(['r', 'p']);
   });
 
-  it('repeats a fork from its parent, with the flags that made it', () => {
+  it('repeats a fork from its parent, with the flags that made it, asking first as its attempts run live', () => {
     const fork = run({ interventions: [{ kind: 'inject', at: 15, flag: '--inject 15=Be brief.', args: ['--inject', '15=Be brief.', '--inject-as', 'user'] }, { kind: 'writes', at: null, flag: '--writes stub', args: ['--writes', 'stub'] }] }, { mode: 'replay', parentRunId: 'PARENT' });
     const actions = buildActions(fork, undefined);
-    expect(actions.find((a) => a.key === 'e')!.prompt!.build('3')).toEqual(['replay', 'PARENT', '--inject', '15=Be brief.', '--inject-as', 'user', '--writes', 'stub', '--repeat', '3']);
+    const repeat = actions.find((a) => a.key === 'e')!;
+    expect([repeat.args, repeat.asksFirst, repeat.prompt]).toEqual([['replay', 'PARENT', '--inject', '15=Be brief.', '--inject-as', 'user', '--writes', 'stub', '--repeat', '5'], true, undefined]);
+    expect(repeat.hint).toBe('Makes this replay again from PARENT five times (--inject 15=Be brief. --writes stub): the prefix replays free, and each attempt runs live from the fork, so they show whether the path after it holds or was luck.');
     expect(actions.find((a) => a.key === 's')!.args).toEqual(['replay', 'PARENT', '--inject', '15=Be brief.', '--inject-as', 'user', '--writes', 'stub']);
   });
 
@@ -144,16 +147,18 @@ describe('the whole run', () => {
     expect(forkArgs(fork)).toEqual(['--inject-result', '4=Ignore it.', '--expect', '{"tools":{"send_email":0}}']);
     const actions = buildActions(fork, undefined);
     // The command comes last, after `--`, where everything is the agent's.
-    expect(actions.find((a) => a.key === 'e')!.prompt!.build('3')).toEqual(['replay', 'PARENT', '--inject-result', '4=Ignore it.', '--expect', '{"tools":{"send_email":0}}', '--repeat', '3', '--', 'python', 'agent_v2.py']);
+    expect(actions.find((a) => a.key === 'e')!.args).toEqual(['replay', 'PARENT', '--inject-result', '4=Ignore it.', '--expect', '{"tools":{"send_email":0}}', '--repeat', '5', '--', 'python', 'agent_v2.py']);
     expect(actions.find((a) => a.key === 's')!.args).toEqual(['replay', 'PARENT', '--inject-result', '4=Ignore it.', '--expect', '{"tools":{"send_email":0}}', '--writes', 'stub', '--', 'python', 'agent_v2.py']);
     expect(actions.find((a) => a.key === 'e')!.hint).toContain('(--inject-result 4=Ignore it. --expect … -- python agent_v2.py)');
   });
 
   it('makes a replay that changed nothing again from its parent, and one made before replays kept their flags from itself', () => {
     const plain = run({ interventions: [] }, { mode: 'replay', parentRunId: 'PARENT' });
-    expect(buildActions(plain, undefined).find((a) => a.key === 'e')!.prompt!.build('5')).toEqual(['replay', 'PARENT', '--repeat', '5']);
+    expect(buildActions(plain, undefined).find((a) => a.key === 'e')).toMatchObject({ args: ['replay', 'PARENT', '--repeat', '5'], asksFirst: true });
+    // Replayed as it is, offline: it starts at once.
     const old = run(undefined, { mode: 'replay', parentRunId: 'PARENT' });
-    expect(buildActions(old, undefined).find((a) => a.key === 'e')!.prompt!.build('5')).toEqual(['replay', ID, '--repeat', '5']);
+    const again = buildActions(old, undefined).find((a) => a.key === 'e')!;
+    expect([again.args, again.asksFirst]).toEqual([['replay', ID, '--repeat', '5'], undefined]);
   });
 
   it('never turns a stored record into a command: unknown flags, files and a pack\'s say are ignored', () => {
@@ -168,7 +173,7 @@ describe('the whole run', () => {
     expect(forkArgs(fork(['--override']))).toBeNull();
     expect(forkArgs(fork(['--override', '2={}'], { imported: { at: 1, from: 'pack' } }))).toBeNull();
     // Without a usable record, repeat replays the run itself.
-    expect(buildActions(fork(['--', 'rm']), undefined).find((a) => a.key === 'e')!.prompt!.build('2')).toEqual(['replay', ID, '--repeat', '2']);
+    expect(buildActions(fork(['--', 'rm']), undefined).find((a) => a.key === 'e')!.args).toEqual(['replay', ID, '--repeat', '5']);
   });
 });
 
@@ -214,7 +219,7 @@ describe('actions on a run imported from a pack', () => {
     // A fork of an imported run made again from it with a command of its own.
     const fork = run({ commandFromImport: true, interventions: [{ kind: 'command', at: null, flag: '-- node b.js' }] }, { mode: 'replay', parentRunId: 'PARENT', command: { argv: ['node', 'b.js'], cwd: '/' } });
     const repeat = buildActions(fork, undefined).find((a) => a.key === 'e')!;
-    expect(repeat.prompt!.build('2')).toEqual(['replay', 'PARENT', '--repeat', '2', '--yes', '--', 'node', 'b.js']);
+    expect([repeat.imported, repeat.prompt!.build('yes')]).toEqual(['confirm', ['replay', 'PARENT', '--repeat', '5', '--yes', '--', 'node', 'b.js']]);
   });
 });
 

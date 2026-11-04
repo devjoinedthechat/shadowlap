@@ -1,4 +1,4 @@
-import { Box, Text } from 'ink';
+import { Box, Text, useInput } from 'ink';
 import { useMemo, type ReactNode } from 'react';
 import { displayOrigin as engineDisplayOrigin, formatDuration, formatTokens, formatUsd, importedCommandSource, lostRange, lostWords, quoteArgv, safeLine, shortCallName, wholeInput, type CallRecord, type RunAbout, type RunRecord, type RunSummary, type Store } from '@shadowlap/engine';
 import { fitAbout } from '../about.js';
@@ -311,6 +311,36 @@ export function ConsentPane({ run, action, args, width, height, onYes, onNo, onC
   );
 }
 
+/**
+ * An action that asks before it starts with nothing to fill in, as the dashboard asks: a fork's
+ * Repeat 5 times, whose attempts run live from the fork. What it does, the exact command line and
+ * that it costs, then Enter runs it, the pane's primary action in lime.
+ */
+export function LivePane({ action, args, width, height, onYes, onCancel }: { action: Action; args: readonly string[]; width: number; height: number; onYes: () => void; onCancel: () => void }) {
+  const theme = useTheme();
+  useInput((input, key) => {
+    if (key.escape || input === 'q') onCancel();
+    else if (key.return) onYes();
+  });
+  return (
+    <Ask width={width} height={height}>
+      <Text bold>{action.label}</Text>
+      {action.hint ? <Text color={theme.dim}>{action.hint}</Text> : null}
+      <Text>
+        <Text color={theme.dim}>It runs </Text>
+        {quoteArgv(['shadowlap', ...args])}
+        <Text color={theme.dim}>, and asks models live, which costs.</Text>
+      </Text>
+      <Text color={theme.dim}>
+        <Text color={theme.ok} bold>
+          Enter
+        </Text>{' '}
+        runs it · Esc goes back
+      </Text>
+    </Ask>
+  );
+}
+
 /** What the timeline's panes act with (useTimelineActions). */
 type TimelineActs = ReturnType<typeof useTimelineActions>;
 
@@ -376,6 +406,8 @@ export function ModeBody({ mode, store, run, current, recording, width, height, 
       );
     case 'consent':
       return <ConsentPane run={run} action={mode.action} args={mode.args} width={width} height={height} onYes={() => acts.runAction(mode.args, mode.refresh === true)} onNo={declined} onCancel={toTimeline} />;
+    case 'live':
+      return <LivePane action={mode.action} args={mode.args} width={width} height={height} onYes={() => acts.runAction(mode.args)} onCancel={toTimeline} />;
     case 'output':
       return (
         <OutputPane
