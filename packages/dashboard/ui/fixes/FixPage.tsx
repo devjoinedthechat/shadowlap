@@ -412,7 +412,7 @@ function ApplyFooter({ job }: { job: JobView }) {
             <ConfirmDialog
               title={ask.title}
               text={ask.text}
-              ok="Update"
+              ok={ask.ok}
               command={ask.command}
               onClose={() => setAsking(false)}
               onOk={() => {

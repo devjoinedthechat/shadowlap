@@ -581,9 +581,9 @@ describe('the job drawer', () => {
     expect(outdatedOf({ outdated: [...outdated, { golden: '', callNo: 1, path: '$' }, { golden: 'x' }, 'goldens/y'] })).toEqual(outdated);
     expect(outdatedOf(null)).toEqual([]);
     const ask = updateOutdatedAsk(outdated);
-    expect(ask).toMatchObject({ title: 'Update 2 goldens?', command: 'shadowlap test goldens/refund-in-limit goldens/01M53A4MZS --update', fields: { goldens: ['goldens/refund-in-limit', 'goldens/01M53A4MZS'] } });
+    expect(ask).toMatchObject({ title: 'Update 2 goldens?', ok: 'Update 2 goldens', command: 'shadowlap test goldens/refund-in-limit goldens/01M53A4MZS --update', fields: { goldens: ['goldens/refund-in-limit', 'goldens/01M53A4MZS'] } });
     expect(ask.text).toMatch(/^They diverge on what the patch changed \(#1 \$\.tools\[4\]\.description\)\. Use this when the change was intended: each is re-recorded live with writes stubbed/);
-    expect(updateOutdatedAsk(outdated.slice(1))).toMatchObject({ title: 'Update 01M53A4MZS?', fields: { golden: 'goldens/01M53A4MZS' } });
+    expect(updateOutdatedAsk(outdated.slice(1))).toMatchObject({ title: 'Update 01M53A4MZS?', ok: 'Update golden', fields: { golden: 'goldens/01M53A4MZS' } });
   });
 
   it('leaves other jobs, and a result it does not know, to the output', () => {

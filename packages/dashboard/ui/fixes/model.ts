@@ -3,7 +3,7 @@ import { commandText } from '../goldens.js';
 import type { BlameStep, CandidateVerdict, FixBundle, FixDetail, FixRow, RepairStep, StepKey, VerifyMore, VerifyRow, VerifyStep } from '../types.js';
 import { blameStateWord } from '../../../engine/src/blame-words.js';
 import { verdictWord } from '../../../engine/src/verdict-words.js';
-import { ACTIONS } from '../labels.js';
+import { ACTIONS, confirmWords } from '../labels.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { lostWords } from '../../../engine/src/run-verdicts.js';
 import { pluralS as s, shortFixId, twoDigits as pad } from '../../../engine/src/words.js';
@@ -818,13 +818,14 @@ export function outdatedOf(result: unknown): OutdatedGolden[] {
  * screen's Update goldens: which, where the patch made them diverge, what an update does, and the
  * command it runs.
  */
-export function updateOutdatedAsk(outdated: readonly OutdatedGolden[]): { title: string; text: string; command: string; fields: Record<string, unknown> } {
+export function updateOutdatedAsk(outdated: readonly OutdatedGolden[]): { title: string; text: string; ok: string; command: string; fields: Record<string, unknown> } {
   const names = outdated.map((g) => g.golden);
   const one = names.length === 1;
   const where = [...new Set(outdated.map((g) => `#${g.callNo} ${g.path}`))];
   return {
     title: one ? `Update ${names[0]!.split('/').pop()!}?` : `Update ${names.length} goldens?`,
     text: `${one ? 'It diverges' : 'They diverge'} on what the patch changed (${where.slice(0, 2).join(', ')}${where.length > 2 ? ', …' : ''}). Use this when the change was intended: ${one ? 'it is' : 'each is'} re-recorded live with writes stubbed, ${one ? 'its' : 'each one’s'} checks run, and the new recording replaces the old one in your working tree only if they pass. You review the change in your pull request.`,
+    ok: one ? confirmWords(ACTIONS.updateGolden.label) : `Update ${names.length} goldens`,
     command: commandText(['test', ...names, '--update']),
     fields: one ? { golden: names[0] } : { goldens: names },
   };
