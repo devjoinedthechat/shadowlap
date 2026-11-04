@@ -4,7 +4,7 @@ import type { SearchHit } from '../../engine/src/search.js';
 import type { RunNote } from '../../engine/src/types.js';
 import { bundleSource } from './fixes/model.js';
 import { ciQuery } from './goldens.js';
-import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns } from './normalize.js';
+import { normalizeCallDetail, normalizeJudged, normalizeMeta, normalizeRunDetail, normalizeRuns } from './normalize.js';
 import { noteParent } from './parents.js';
 import { noProjects, noteRefusal, projectHeader, projectsApi, showProject, type ProjectsApi } from './projects-api.js';
 import { readTokenLink } from './route.js';
@@ -18,6 +18,7 @@ import type { ChaosMatrix, ChaosView, CoverageView } from './types.js';
 import type { FixAttemptGroups } from '../src/attempt-groups.js';
 import type { ForkDifferences } from '../src/fork-differences.js';
 import type { UnrecordedView } from '../src/run-unrecorded.js';
+import type { RunJudged } from '../src/run-outcome.js';
 import { copyAmbiguous, copyRunId } from './runs.js';
 import { runsQueryString } from './runspage/query.js';
 
@@ -275,6 +276,8 @@ export interface Client {
   unrecorded(id: string): Promise<UnrecordedView | null>;
   /** A fix's blame probes and verified runs, their attempts grouped by what each did (`/api/fixes/:id/groups`). */
   attemptGroups(fixId: string): Promise<FixAttemptGroups>;
+  /** A run's outcome by checks alone, each check with it (`GET /api/runs/:id/outcome`): what a long run's first answer leaves to its analysis. */
+  outcome(id: string): Promise<{ judged: RunJudged | null }>;
 }
 
 
@@ -302,6 +305,23 @@ function saveBlob(blob: Blob, filename: string): void {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** A file the server sends to download, and the name it gives it (else `fallbackName`); a refusal as the error the server says. */
+async function fileOf(token: string, path: string, fallbackName: string): Promise<{ filename: string; res: Response }> {
+  const res = await fetch(`/api/${path}`, { headers: { 'x-shadowlap-token': token } });
+  if (!res.ok) {
+    const text = await res.text();
+    let message = text || `HTTP ${res.status}`;
+    try {
+      message = (JSON.parse(text) as { error?: string }).error ?? message;
+    } catch {
+      // plain text
+    }
+    throw new ApiError(res.status, message);
+  }
+  const filename = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? fallbackName;
+  return { filename, res };
 }
 
 export function createClient(token: string): Client {
@@ -360,21 +380,7 @@ export function createClient(token: string): Client {
     return body as T;
   }
   const id = encodeURIComponent;
-  async function fetchFile(path: string, fallbackName: string): Promise<{ filename: string; res: Response }> {
-    const res = await fetch(`/api/${path}`, { headers: { 'x-shadowlap-token': token } });
-    if (!res.ok) {
-      const text = await res.text();
-      let message = text || `HTTP ${res.status}`;
-      try {
-        message = (JSON.parse(text) as { error?: string }).error ?? message;
-      } catch {
-        // plain text
-      }
-      throw new ApiError(res.status, message);
-    }
-    const filename = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? fallbackName;
-    return { filename, res };
-  }
+  const fetchFile = (path: string, fallbackName: string) => fileOf(token, path, fallbackName);
   return {
     exported: false,
     meta: () =>
@@ -508,6 +514,7 @@ export function createClient(token: string): Client {
     forkDifferences: (runId) => request<{ differences: ForkDifferences | null }>(`runs/${id(runId)}/differences`).then((r) => r.differences),
     unrecorded: (runId) => request<{ unrecorded: UnrecordedView | null }>(`runs/${id(runId)}/unrecorded`).then((r) => r.unrecorded),
     attemptGroups: (fixId) => request<FixAttemptGroups>(`fixes/${id(fixId)}/groups`),
+    outcome: (runId) => request<{ judged: unknown }>(`runs/${id(runId)}/outcome`).then((r) => ({ judged: normalizeJudged(r.judged) })),
   };
 }
 
@@ -606,5 +613,7 @@ export function createExportedClient(data: StaticPayload): Client {
     // A copy replays nothing: what its replay would run for real is the store's to say, and reading it would read the run twice.
     unrecorded: () => Promise.resolve(null),
     attemptGroups: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Fixes are not part of it')),
+    // A copy's page holds its run's outcome as it was judged when the copy was made.
+    outcome: (runId) => get<RunDetail>(`runs/${full(runId)}`).then((d) => ({ judged: normalizeJudged(d.judged ?? null) })),
   };
 }

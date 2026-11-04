@@ -28,7 +28,7 @@ export function runLikeOf(d: RunDetail): RunLike {
     parentRunId: d.run.parentRunId,
     mode: d.run.mode,
     status: d.run.status,
-    divergence: d.run.divergence ? { callNo: d.run.divergence.callNo, type: d.run.divergence.type } : null,
+    divergence: d.run.divergence ? { callNo: d.run.divergence.callNo, type: d.run.divergence.type, ...(d.run.divergence.diff?.length ? { diff: d.run.divergence.diff } : {}) } : null,
     command: d.run.command.argv.join(' '),
     codeVersion: d.run.codeVersion,
     startedAt: d.run.startedAt,
@@ -44,6 +44,8 @@ export function runLikeOf(d: RunDetail): RunLike {
     blame: blameOf(d),
     checks,
     ...(state ? { kind: state.kind, outcome: state.outcome, failed: state.failed } : {}),
+    ...(d.judged !== undefined ? { judged: d.judged } : {}),
+    ...(d.exitCode !== undefined ? { exitCode: d.exitCode } : {}),
   };
 }
 

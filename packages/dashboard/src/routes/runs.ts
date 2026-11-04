@@ -7,6 +7,8 @@ import type { Router } from '../router.js';
 import { recordingNow, stillRecording } from '../run-exports.js';
 import { runAffinity } from '../run-index.js';
 import { maskCount } from '../run-mask.js';
+import { outcomeWork } from '../outcome-work.js';
+import { outcomeKey } from '../run-outcome.js';
 import { runVersionTag } from '../run-version.js';
 import { deleteRunsApart } from '../delete-apart.js';
 import { exportHtml, withAncestors, type ExportHtmlResult } from '../static.js';
@@ -32,7 +34,7 @@ export function register(router: Router, ctx: RouteContext): void {
   // `ctx.store` is read in each handler: on a dashboard with several projects it is the current one's.
   // Rows whose totals are on their way have the warm-up go through the runs again, as Runs does.
   router.get('/runs', async (r) => {
-    const a = await ctx.reads.run({ kind: 'recent', read: ctx.read });
+    const a = await ctx.reads.run({ kind: 'recent', read: ctx.read, outcome: outcomeWork(ctx) });
     if (a.warming) ctx.reads.warm();
     sendAnswer(r, a);
   });
@@ -51,13 +53,28 @@ export function register(router: Router, ctx: RouteContext): void {
       throw new HttpError(no.status, no.message);
     }
     const after = count(r, 'after', 'a call number');
-    const etag = runVersionTag(store, run, JSON.stringify([ctx.read, after ?? null]));
+    // Its outcome by checks reads the project's config and goldens (run-outcome.ts): the answer is
+    // tagged by them too, so a page asks again once a check is added or changed.
+    const outcome = outcomeWork(ctx);
+    const etag = runVersionTag(store, run, JSON.stringify([ctx.read, after ?? null, outcomeKey(outcome)]));
     if (r.req.headers['if-none-match'] === etag) {
       r.res.writeHead(304, { etag, 'cache-control': 'no-cache' });
       r.res.end();
       return;
     }
-    sendAnswer(r, await ctx.reads.run({ kind: 'run', runId: run.runId, read: ctx.read, ...(after === undefined ? {} : { after }) }, runAffinity(ctx.store, run.runId)), { etag });
+    sendAnswer(r, await ctx.reads.run({ kind: 'run', runId: run.runId, read: ctx.read, outcome, ...(after === undefined ? {} : { after }) }, runAffinity(ctx.store, run.runId)), { etag });
+  });
+
+  // A run's outcome by checks alone, each check with it (run-outcome.ts): its own, a capture's by
+  // the rules on calls, or its family's goldens' judged from its recording, worked out whole beside
+  // the server by the thread that holds the run.
+  router.get('/runs/:id/outcome', async (r) => {
+    const run = lookupRun(ctx.store, r.params.id!);
+    if (!run) {
+      const no = noSuchRun(ctx.store, r.params.id!);
+      throw new HttpError(no.status, no.message);
+    }
+    sendAnswer(r, await ctx.reads.run({ kind: 'outcome', runId: run.runId, work: outcomeWork(ctx) }, runAffinity(ctx.store, run.runId)));
   });
 
   // The next page of a run's calls (contract 8): those from call `from` on, `limit` of them (500 at

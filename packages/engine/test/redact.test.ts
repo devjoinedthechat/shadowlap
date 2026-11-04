@@ -7,7 +7,7 @@ import { encodeEventStreamFrame, eventStreamFrames, eventStreamMessages } from '
 import { loadApiRequest, storeApiRequest } from '../src/manifest.js';
 import { applyNormalizers, rewriteText } from '../src/normalize.js';
 import { packRun, unpackRun } from '../src/pack.js';
-import { redactBytes, redactRun, redactRunDetails } from '../src/redact.js';
+import { redactBytes, redactRun, redactRunDetails, redactRunWithDetails } from '../src/redact.js';
 import { Store } from '../src/store.js';
 import type { Normalizer } from '../src/types.js';
 
@@ -306,6 +306,26 @@ describe('redactRun: the run record', () => {
     expect(readFileSync(join(dir, 'run.json'), 'utf8')).not.toContain('maya@example.com');
     // The copies that are only read mask what a person or a model wrote in the record too.
     expect(redactRunDetails(src.getRun(run.runId)!, [EMAIL]).meta?.checks).toEqual([{ ...judged, reason: 'It tells <EMAIL> the refund was issued.' }]);
+    dst.close();
+    src.close();
+  });
+
+  it("masks a capture's verdict by the rules on calls in every copy, as it masks a check's", () => {
+    const src = Store.open(':memory:');
+    const run = seed(src);
+    // A rule's detail names the arguments a call had.
+    const kept = { rules: 'k1', at: 1, verdict: 'failed' as const, why: null, checks: [{ status: 'failed' as const, ok: false, label: 'every send_email call: to endsWith "@example.org"', detail: 'send_email #2: to "maya@example.com" doesn\'t end with "@example.org"' }] };
+    src.updateRunMeta(run.runId, { judged: kept });
+    const masked = { ...kept, checks: [{ ...kept.checks[0], detail: 'send_email #2: to "<EMAIL>" doesn\'t end with "@example.org"' }] };
+    const dst = Store.open(':memory:');
+    expect(redactRun(src, run.runId, [EMAIL], dst).meta?.judged).toEqual(masked);
+    const dir = join(mkdtempSync(join(tmpdir(), 'fp-redact-judged-')), 'pack');
+    packRun(src, run.runId, dir, { redact: [EMAIL] });
+    expect(readFileSync(join(dir, 'run.json'), 'utf8')).not.toContain('maya@example.com');
+    // The copy that is only read (export html) too.
+    const read = Store.open(':memory:');
+    expect(redactRunWithDetails(src, run.runId, [EMAIL], read).meta?.judged).toEqual(masked);
+    read.close();
     dst.close();
     src.close();
   });

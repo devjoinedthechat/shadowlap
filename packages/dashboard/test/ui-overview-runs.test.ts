@@ -408,7 +408,7 @@ describe('the Runs page’s requests and words', () => {
     expect(runOutcome({ ...base, status: 'completed' })).toEqual({ tone: 'n', text: '—' });
     expect(runOutcome({ ...base, status: 'running', outcome: { kind: 'running' } })).toEqual({ tone: 'live', text: 'in progress' });
     // A check no one could decide, such as a judge with no verdict: amber, needing a look, no failure.
-    expect(runOutcome({ ...base, status: 'completed', outcome: { kind: 'inconclusive', check: 'polite' } })).toEqual({ tone: 'warn', text: 'check inconclusive' });
+    expect(runOutcome({ ...base, status: 'completed', outcome: { kind: 'inconclusive', check: 'polite' } })).toEqual({ tone: 'warn', text: 'inconclusive' });
   });
 
   it('shows what a run spent, a capture as captured and a run recorded elsewhere by what it cost there', () => {

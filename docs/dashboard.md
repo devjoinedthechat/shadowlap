@@ -236,7 +236,7 @@ Each row shows these columns:
 | Calls by origin | Its calls, colored by origin |
 | Calls | How many calls it made |
 | Spent | What it spent |
-| Status | Its outcome: a fork's says what came of its writes (*forked · 2 writes blocked*), or names the check it failed under *check failed* |
+| Status | Its outcome: what [its checks](#judged-by-checks) say (*check failed at #6*), what a fork's writes came to (*forked · 2 writes blocked*), or a dash |
 | When | When it ran |
 | *good · bad* | The [good/bad key](#labels-and-notes) |
 
@@ -246,6 +246,7 @@ Some runs are shown differently:
 
 - **Attempts** (`--repeat`, blame, verify and the [error-path presets](./error-paths.md)) are bundled under the run they came from rather than listed.
 - **A golden replayed more than once** in one test session (`repeat`) is one test run too: the attempt its result shows, whose checks count every attempt (*5 of 5*).
+- **A fork that failed a check** names the check under *check failed*.
 - **A run imported from a capture** shows the file it came from where a command would be, and its cost as captured rather than spent: that money was spent where the traffic ran.
 - **A run whose recorder stopped before it ended** (killed, or out of memory) reads *interrupted*. It is deleted, packed and pushed like a run that ended.
 
@@ -322,7 +323,7 @@ You can also give a Langfuse, LangSmith, Phoenix or Logfire host and trace id. T
 
 Phoenix's project starts as `PHOENIX_PROJECT` or `PHOENIX_PROJECT_NAME`, else `default`. Logfire is searched back 30 days; an older trace takes [`--since`](./cli.md#traces) in a terminal.
 
-The job runs [`shadowlap import`](./cli.md#import) under the name of the file you picked. Its drawer links to each run it made, or past three, to Runs filtered to them.
+The job runs [`shadowlap import`](./cli.md#import) under the name of the file you picked. Its drawer links to each run it made, or past three, to Runs filtered to them. Each run it makes is judged by the project's rules on calls as it is imported, and its Status says that verdict ([Judged by checks](#judged-by-checks)).
 
 ## A run's page
 
@@ -344,7 +345,7 @@ The header shows what the run is and where it came from, its command, revision a
 - **The agent's exit.**
 - **Where a test diverged.**
 
-Its counts come first: calls, replayed, live, fenced, upstream requests and spent. Then comes what replaying saved: not re-spent, and the time not waited (each replayed call's duration where it was recorded).
+How it came out comes first, as Runs' Status says it: *check failed at #6*, its call a link, or *no checks* ([Judged by checks](#judged-by-checks)). Then come its counts: calls, replayed, live, fenced, upstream requests and spent. Then comes what replaying saved: not re-spent, and the time not waited (each replayed call's duration where it was recorded).
 
 - **A capture** whose file kept no times (nock, VCR) shows no duration. One of the model calls alone says its tool calls were not captured.
 - **A recording unpacked from someone's pack** says *recording · from a pack*.
@@ -435,6 +436,36 @@ The server works out how a run stands once, for its page and every list:
 - **A run that stopped before it ended** (Ctrl-C, a kill, a crash, a recorder that went away) reads *interrupted* in grey after what it is (*recording · interrupted*, *fork @3 · interrupted*), ended at its last call. It stopped; it did not fail.
 
 An interrupted run's page says so in a banner: a fork's banner says how it forked, and its header that it stopped. Open while it recorded, the page ends on *Recording interrupted*. Runs, the sidebar, the Forks view (a `--repeat`'s attempts too), Provenance's lineage, the Overview and the activity feed say *interrupted* too.
+
+### Judged by checks
+
+How a run came out by its checks is its page's first fact and Runs' Status, in the same words:
+
+| On its page | In Runs' Status | When |
+| --- | --- | --- |
+| *check failed at #6* | *check failed at #6* | A check failed: at the call it names, or the first call past what a count allows, which the page links |
+| *2 checks passed* | *2 checks passed* | Every check passed or did not apply |
+| *inconclusive* | *inconclusive* | A check could not be decided, such as a judge with no recorded verdict, or a check on what the agent printed |
+| *not applicable* | *not applicable* | No check applied: a capture none of whose rules on calls had a call to read |
+| *diverged at #1* | *diverged at #1* | A test replay left its golden at that call, which the page links |
+| *exited 1* | *exited 1* | The agent exited with an error and no check failed: the code where its test result kept it, else *exited with an error* |
+| *no checks* | A dash, or a fork's writes (*forked · 2 writes blocked*) | No check judges the run, a clean replay among them |
+
+A run blame found lost says the check it failed in both places. The sidebar says where it was lost (*lost at #9*), as blame's finding does, and *check failed* without the call.
+
+The checks are the first of these the run has:
+
+- **Its own**, as it was made: by `shadowlap test`, `--expect` or an attempt's oracle.
+- **A capture's**, by the rules on calls, judged as it was [imported](./cli.md#import). Once the rules change, it is judged again from its calls.
+- **Its family's**: a finished run that kept no verdict is judged by the checks of the goldens packed from its recording, or from a replay or a fork of it, as `shadowlap.config.json` gives them.
+
+A family's checks judge the run from its recording, as [`shadowlap check`](./checks.md#try-a-check-on-your-recordings) judges one, so the two say the same. Nothing is replayed. A judge check takes the verdict the recording holds, else it is inconclusive, and so is a check on what the agent printed, which a recording doesn't keep.
+
+A run recorded before the checks that judge it says *by today's checks*: after the word on its page, and to a screen reader in Runs. A golden's checks count from when it was packed, or from a later change to them, which the dashboard keeps for this machine once it has seen them.
+
+Both show the same card on hover: what judged the run, and each check with how it came out and what it found. Judging reads a run's calls beside the server, and what is judged is kept per version of the config. A list judges its rows within the calls it reads for their totals: a longer run's row keeps its own outcome until its page has judged it. A long run's page says nothing of its checks until then.
+
+An [exported copy](./cli.md#export-html) holds each run's own verdict and a capture's from its import. It has no project, so no family's checks judge its runs.
 
 ### What a fork did differently
 
@@ -1810,6 +1841,7 @@ Every request needs the session token in `x-shadowlap-token`.
 | `GET /api/runs/:id/provenance`, `/show` | The run's record for Provenance, with what a copy made at this point would mask; `shadowlap show --json` as the CLI prints it |
 | `GET /api/runs/:id/unrecorded` | The tools the model called that the run never recorded, read beside the server from every model call's answer |
 | `GET /api/runs/:id/differences` | What a fork did differently from its parent (`null` for a run that is no fork of a run in the store) |
+| `GET /api/runs/:id/outcome` | The run's outcome by checks, each check with it ([Judged by checks](#judged-by-checks)) |
 | `GET /api/runs/:id/offers` | What the run's page offers |
 | `GET /api/search?q=`, `GET /api/compare?a=&b=[&part=head]` | Search recorded content; compare two runs |
 
@@ -1819,6 +1851,8 @@ Every request needs the session token in `x-shadowlap-token`.
 - **Its about line**: each run, in the list, on its own and in its family, carries its `about` line. That is its `text`, where it comes from (`from`: `user`, `agent`, `input`, `golden`, `change`, `nothing`, `source` or `command`), and for a replay or a fork its `change` (the flag, the call it changed and where it forked).
 - **A preset's attempt** in the family carries its `preset`: the preset's words, and the verdict of the session that decided it.
 - **Its state**: a run's `state` (kind, outcome, failed, interrupted) is the one the run list works out for it, and its status is the list's. A run its recorder left running reads `crashed`, ended at its last call.
+- **Its outcome by checks**: `judged` says what judged it (`by`: `own`, `import` or `family`), its `verdict`, the checks' `counts`, the `callNo` it turned on, the `first` check that failed, `today`, `since`, the `goldens` and `why`. It is `null` when no check judges the run. The page's answer and Runs' rows add each of `checks`; the sidebar's rows leave them out.
+- **Its agent's exit**: a test replay its agent's exit failed carries `exitCode` where its test result kept the code.
 - **Its family**: each run of the family carries the same `status`, `kind`, `outcome` and `failed`, an attempt the list leaves out included. The HTML file holds such a run the same way.
 - **Its calls**: a call row carries `via` for a model call made to a host of another provider's format (the host; `provider` is then its format), and `extraRead` for a replay's extra read.
 - **Its WebSockets**: a run carries its `websockets` (`target`, `count`, `action`: `tunnelled` or `refused`) when it keeps them.

@@ -1,6 +1,8 @@
+import { passedWords } from '../../engine/src/checks/labels.js';
 import { isAttempt as isAttemptRun } from '../../engine/src/run-roles.js';
-import { lostWords } from '../../engine/src/run-verdicts.js';
+import { FAILURE_WORDS, lostWords } from '../../engine/src/run-verdicts.js';
 import { filterTerms } from '../src/links.js';
+import type { RunJudged } from '../src/run-outcome.js';
 import { approx, money, num, plural, shortId } from './format.js';
 import { countOrigins, parseOrigins, type Origin7, type OriginCounts } from './origins.js';
 
@@ -15,7 +17,8 @@ export interface RunLike {
   parentRunId: string | null;
   mode: 'record' | 'replay';
   status: 'running' | 'completed' | 'failed' | 'crashed';
-  divergence: { callNo: number; type: string } | null;
+  /** Where a replay left its recording; `diff`, on a run's page, what changed in the request there. */
+  divergence: { callNo: number; type: string; diff?: ReadonlyArray<{ path?: string }> } | null;
   command: string;
   codeVersion: string | null;
   startedAt: number;
@@ -53,7 +56,19 @@ export interface RunLike {
   failed?: boolean | null;
   /** What the run was about (decision 10: the id names it), when the server says. */
   about?: { text: string; from: string } | null;
+  /** Its outcome by checks, when the server judged it (run-outcome.ts): its own, a capture's by the rules on calls, or its family's goldens'. */
+  judged?: JudgedLike | null;
+  /** For a test replay whose agent exited with an error: the code, as its test result says it; absent where nothing kept it. */
+  exitCode?: number | null;
 }
+
+/**
+ * A run's outcome by checks as the server judges it (run-outcome.ts): its own checks, a capture's by
+ * the rules on calls, or its family's goldens' judged from its recording, `today` when those came
+ * after it was recorded. What Status and the run's first fact say; each check, for their hover, on
+ * the run's page and Runs' rows.
+ */
+export type JudgedLike = Pick<RunJudged, 'by' | 'verdict' | 'counts' | 'callNo' | 'today'> & Partial<Pick<RunJudged, 'first' | 'goldens' | 'why' | 'checks' | 'since'>>;
 
 export type RunType = 'recording' | 'capture' | 'fork' | 'clean' | 'replay' | 'test';
 
@@ -81,11 +96,8 @@ export function countChecks(checks: ReadonlyArray<{ ok: boolean; status?: string
 /** The checks counts say failed: neither passed, inconclusive nor not applicable. */
 export const checksFailed = (c: CheckCounts): number => c.total - c.passed - (c.inconclusive ?? 0) - (c.notApplicable ?? 0);
 
-/** `2 checks passed`, `1 check passed, 2 not applicable`: a check that did not apply never counts as passed. */
-export function checksPassedText(passed: number, notApplicable = 0): string {
-  if (!notApplicable) return `${plural(passed, 'check')} passed`;
-  return passed ? `${plural(passed, 'check')} passed, ${num(notApplicable)} not applicable` : `${plural(notApplicable, 'check')} not applicable`;
-}
+/** `2 checks passed`, `1 check passed, 2 not applicable`: a check that did not apply never counts as passed. The engine's words, as an import's verdict says them. */
+export const checksPassedText = (passed: number, notApplicable = 0): string => passedWords(passed, notApplicable);
 
 export const isLive = (r: Pick<RunLike, 'status'>): boolean => r.status === 'running';
 
@@ -245,10 +257,10 @@ export function runSubline(r: RunLike): string {
 }
 
 /**
- * The sidebar's line: what happened, in a few words. A run that failed says so first, in the words
- * of Runs' Status (`lost at #9`, `diverged at #3`, `check failed`), and one whose check could not be
- * decided says `inconclusive`, as the design's sidebar words it (Runs, with the room, says `check
- * inconclusive`); then what it is. `err` is said in red, `warn` in amber.
+ * The sidebar's line: what happened, in a few words. A run that needs a look says so first, in the
+ * design's sidebar words (sideNeeds): where blame found it lost (`lost at #9`), where a test diverged
+ * (`diverged at #3`), how its agent exited, `check failed`, or `inconclusive`; then what it is. `err`
+ * is said in red, `warn` in amber.
  */
 export function sideLine(r: RunLike): { text: string; err?: string; warn?: string } {
   const counts = runCounts(r);
@@ -257,11 +269,11 @@ export function sideLine(r: RunLike): { text: string; err?: string; warn?: strin
   const t = runType(r);
   // Stopped before it ended, failing nothing else: what it is, then that, as the Forks view says it.
   if (isInterrupted(r)) return { text: `${kindWord(r)} · interrupted · ${calls}` };
-  const out = runOutcome(r);
+  const needs = sideNeeds(r);
   // A recording or a capture is what a run is unless the line says otherwise: its calls follow.
   const what = ` · ${t === 'recording' || t === 'capture' ? calls : kindWord(r)}`;
-  if (out.tone === 'err') return { err: out.text, text: what };
-  if (out.tone === 'warn') return { warn: 'inconclusive', text: what };
+  if (needs?.tone === 'err') return { err: needs.text, text: what };
+  if (needs?.tone === 'warn') return { warn: needs.text, text: what };
   if (t === 'clean') return { text: counts ? `clean replay · ${num(counts.rep)}/${num(r.calls)}` : `clean replay · ${calls}` };
   if (t === 'fork') {
     const went = counts ? ` · ${num(counts.live + counts.fail)} live${counts.block ? ` · ${num(counts.block)} blocked` : ''}${counts.stub ? ` · ${num(counts.stub)} stubbed` : ''}` : ` · ${calls}`;
@@ -272,18 +284,38 @@ export function sideLine(r: RunLike): { text: string; err?: string; warn?: strin
   return { text: `${runSource(r)} · ${calls}` };
 }
 
+/** Where blame found a run lost, as the server's outcome or an older server's blame says it. */
+function lostCall(r: RunLike): { callNo: number; range?: unknown } | null {
+  const o = r.outcome;
+  if (o) return o.kind === 'lost' && typeof o.callNo === 'number' ? { callNo: o.callNo, range: o.range } : null;
+  return r.blame?.callNo ? { callNo: r.blame.callNo, range: r.blame.range } : null;
+}
+
+/**
+ * What needs a look, in the design's sidebar words: the run's outcome (outcomeOf), but a run blame
+ * found lost says where (`lost at #9`, the blame's finding, where Runs' Status says the check it
+ * failed), and a failed check says `check failed`, its call left to Runs, which has the room.
+ */
+function sideNeeds(r: RunLike): { text: string; tone: 'err' | 'warn' } | null {
+  const out = outcomeOf(r);
+  if (out.tone === 'warn') return { text: 'inconclusive', tone: 'warn' };
+  if (out.tone !== 'err') return null;
+  const lost = lostCall(r);
+  if (lost) return { text: lostWords(lost.callNo, lost.range), tone: 'err' };
+  return { text: out.of === 'judged' || out.of === 'check' ? 'check failed' : out.text, tone: 'err' };
+}
+
 /**
  * What the sidebar, and a phone's Runs row, say after a run's about line (decision 10: the id names
- * the run, the about line says what it was): only what needs a look, or how far a recording has
- * got: `9 calls` while it records, `diverged at #1`, `lost at #9`, `check failed`, `inconclusive`
- * (as the design's sidebar words it; Runs' Status, with the room, says `check inconclusive`),
- * `interrupted`. Null for a run that needs nothing. `tone`: a failure in red, inconclusive in amber.
+ * the run, the about line says what it was): only what needs a look (sideNeeds), or how far a
+ * recording has got: `9 calls` while it records, `diverged at #1`, `lost at #9`, `check failed`,
+ * `inconclusive`, `interrupted`. Null for a run that needs nothing. `tone`: a failure in red,
+ * inconclusive in amber.
  */
 export function sideStatus(r: RunLike & { lostAt?: number | null }): { text: string; tone: 'err' | 'warn' | null } | null {
   if (isLive(r)) return { text: plural(r.calls, 'call'), tone: null };
-  const out = runOutcome(r);
-  if (out.tone === 'err') return { text: out.text, tone: 'err' };
-  if (out.tone === 'warn') return { text: 'inconclusive', tone: 'warn' };
+  const needs = sideNeeds(r);
+  if (needs) return needs;
   if (isInterrupted(r)) return { text: 'interrupted', tone: null };
   return null;
 }
@@ -297,44 +329,107 @@ export function fencedText(c: Pick<OriginCounts, 'block' | 'stub'>): string {
 }
 
 /** A run with nothing to report: a fork says what came of its writes (`forked · 2 writes blocked`), any other run a dash. */
-function nothingToReport(r: RunLike): { tone: 'fk' | 'n'; text: string } {
+function nothingToReport(r: RunLike): RunOutcomeWords & { of: OutcomeOf } {
   const counts = runType(r) === 'fork' && r.divergence?.type !== 'ended_early' ? runCounts(r) : null;
-  return counts ? { tone: 'fk', text: `forked · ${fencedText(counts)}` } : { tone: 'n', text: '—' };
+  return counts ? { of: 'fork', tone: 'fk', text: `forked · ${fencedText(counts)}` } : { of: 'none', tone: 'n', text: '—' };
+}
+
+/** What a status judged by today's checks adds, after its words: the checks came after the run was recorded. */
+export const TODAY = 'by today’s checks';
+
+/** A run's status: its tone and words; `at`, the words before the call it turned on and the call (a page links it); `today`, judged by checks added after it was recorded. */
+export interface RunOutcomeWords {
+  tone: 'live' | 'err' | 'ok' | 'warn' | 'n' | 'fk' | 'mu';
+  text: string;
+  at?: { words: string; callNo: number };
+  today?: true;
 }
 
 /**
- * The Runs table's status: the outcome only, in a dot and a few words. A fork with nothing else to
- * report says what came of its writes, by a neutral dot (`fk`): what it fenced is no verdict.
+ * What decided a run's status, which its hover says (outcome-tip.ts): a recording in progress, a
+ * divergence, the checks that judged it, a check that failed or the agent's exit, a check that could
+ * not be decided, checks that passed, an interruption, a fork's writes, or nothing.
  */
-export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'warn' | 'n' | 'fk'; text: string } {
-  if (isLive(r)) return { tone: 'live', text: 'in progress' };
+export type OutcomeOf = 'live' | 'diverged' | 'judged' | 'check' | 'exit' | 'inconclusive' | 'passed' | 'interrupted' | 'fork' | 'none';
+
+/** How the agent's exit reads in a status: `exited 1` where its code was kept, else as the engine says it. */
+export const exitWords = (r: Pick<RunLike, 'exitCode'>): string => (typeof r.exitCode === 'number' && r.exitCode !== 0 ? `exited ${r.exitCode}` : FAILURE_WORDS.exit.replace(/^the agent /, ''));
+
+/** Words that end on the call they name, for a page to link it: `diverged at #3`. */
+const atCall = (tone: RunOutcomeWords['tone'], words: string, callNo: number): RunOutcomeWords => ({ tone, text: `${words} #${callNo}`, at: { words, callNo } });
+
+/**
+ * Whether the checks that judged a run say how it came out: not while it records or where a test
+ * diverged, nor where the agent's exit failed it with no check of its own failing. A run blame found
+ * lost failed its own check, which it names; a family's verdict never stands for a run's own failure.
+ */
+function judgedDecides(r: RunLike, j: JudgedLike): boolean {
   const o = r.outcome;
+  if (!o || o.kind === 'none' || o.kind === 'clean' || o.kind === 'passed' || o.kind === 'inconclusive') return true;
+  return j.by === 'own' && j.verdict === 'failed' && (o.kind === 'lost' || (o.kind === 'check-failed' && !!o.check));
+}
+
+/**
+ * The status the checks that judged a run give it (`judged`), where they decide it (judgedDecides):
+ * `check failed at #6` (`2 checks failed` with more), `inconclusive`, `2 checks passed`, `not
+ * applicable`; null without a verdict to say.
+ */
+export function judgedOutcome(r: RunLike): RunOutcomeWords | null {
+  const j = r.judged;
+  if (!j || !judgedDecides(r, j)) return null;
+  const today = j.today ? { today: true as const } : {};
+  if (j.verdict === 'failed') {
+    const words = j.counts.failed > 1 ? `${plural(j.counts.failed, 'check')} failed` : 'check failed';
+    return { ...(j.callNo !== null ? atCall('err', `${words} at`, j.callNo) : { tone: 'err', text: words }), ...today };
+  }
+  if (j.verdict === 'inconclusive') return { tone: 'warn', text: 'inconclusive', ...today };
+  if (j.verdict === 'passed') return { tone: 'ok', text: checksPassedText(j.counts.passed, j.counts.notApplicable), ...today };
+  return { tone: 'mu', text: 'not applicable', ...today };
+}
+
+/**
+ * How a run came out, and what decided it, in the words the Runs table's Status and a run's first
+ * fact say: in progress; a test replay that diverged, at its call; the verdict of the checks that
+ * judged it (judgedOutcome); a check that failed, or the agent's exit (`exited 1`); a check that
+ * could not be decided, `inconclusive`; checks that passed; `interrupted`. A run no check judges says
+ * nothing, a dash, a clean replay too (how faithful it was is no verdict), and a fork what came of
+ * its writes, by a neutral dot (`fk`). Where blame found a run lost, the check it failed says it:
+ * the sidebar and the blame's finding say where it was lost.
+ */
+export function outcomeOf(r: RunLike): RunOutcomeWords & { of: OutcomeOf } {
+  if (isLive(r)) return { of: 'live', tone: 'live', text: 'in progress' };
+  const o = r.outcome;
+  if (o?.kind === 'running') return { of: 'live', tone: 'live', text: 'in progress' };
+  const diverged = o ? (o.kind === 'diverged' && typeof o.callNo === 'number' ? o.callNo : null) : r.test && r.divergence ? r.divergence.callNo : null;
+  if (diverged !== null) return { of: 'diverged', ...atCall('err', 'diverged at', diverged) };
+  const judged = judgedOutcome(r);
+  if (judged) return { of: 'judged', ...judged };
   if (o) {
-    if (o.kind === 'running') return { tone: 'live', text: 'in progress' };
-    if (o.kind === 'diverged' && typeof o.callNo === 'number') return { tone: 'err', text: `diverged at #${o.callNo}` };
-    if (o.kind === 'lost' && typeof o.callNo === 'number') return { tone: 'err', text: lostWords(o.callNo, o.range) };
-    // A check, or the agent's exit (an outcome that names no check), in the sidebar's words.
-    if (o.kind === 'check-failed') return { tone: 'err', text: failedWord(r) };
+    // A check, or the agent's exit (an outcome that names no check).
+    if (o.kind === 'lost' || o.kind === 'check-failed') return failedWord(r) === 'check failed' ? { of: 'check', tone: 'err', text: 'check failed' } : { of: 'exit', tone: 'err', text: exitWords(r) };
     // No check failed, and one could not be decided: amber, neither a pass nor a failure.
-    if (o.kind === 'inconclusive') return { tone: 'warn', text: 'check inconclusive' };
-    if (o.kind === 'passed' && typeof o.checks === 'number') return { tone: 'ok', text: checksPassedText(o.checks, o.notApplicable) };
-    // a clean replay is no verdict: never passed's lime
-    if (o.kind === 'clean') return { tone: 'n', text: 'clean' };
+    if (o.kind === 'inconclusive') return { of: 'inconclusive', tone: 'warn', text: 'inconclusive' };
+    if (o.kind === 'passed' && typeof o.checks === 'number') return { of: 'passed', tone: 'ok', text: checksPassedText(o.checks, o.notApplicable) };
+    // A clean replay is no verdict, never passed's lime: no check judges it, a dash.
+    if (o.kind === 'clean') return { of: 'none', tone: 'n', text: '—' };
     // A run cut short (its recorder stopped before it ended) has no outcome, but says why.
-    if (o.kind === 'none') return r.status === 'crashed' ? { tone: 'n', text: 'interrupted' } : nothingToReport(r);
+    if (o.kind === 'none') return r.status === 'crashed' ? { of: 'interrupted', tone: 'n', text: 'interrupted' } : nothingToReport(r);
   }
-  if (r.test && r.divergence) return { tone: 'err', text: `diverged at #${r.divergence.callNo}` };
-  if (r.blame && r.blame.callNo) return { tone: 'err', text: lostWords(r.blame.callNo, r.blame.range) };
+  if (r.blame && r.blame.callNo) return { of: 'check', tone: 'err', text: 'check failed' };
   if (r.checks && r.checks.total) {
-    if (checksFailed(r.checks) > 0) return { tone: 'err', text: 'check failed' };
-    if (r.checks.inconclusive) return { tone: 'warn', text: 'check inconclusive' };
-    return { tone: 'ok', text: checksPassedText(r.checks.passed, r.checks.notApplicable) };
+    if (checksFailed(r.checks) > 0) return { of: 'check', tone: 'err', text: 'check failed' };
+    if (r.checks.inconclusive) return { of: 'inconclusive', tone: 'warn', text: 'inconclusive' };
+    return { of: 'passed', tone: 'ok', text: checksPassedText(r.checks.passed, r.checks.notApplicable) };
   }
-  if (r.status === 'crashed') return { tone: 'n', text: 'interrupted' };
-  if (r.status === 'failed') return { tone: 'err', text: 'failed' };
-  const t = runType(r);
-  if (t === 'clean' || t === 'test') return { tone: 'n', text: 'clean' };
+  if (r.status === 'crashed') return { of: 'interrupted', tone: 'n', text: 'interrupted' };
+  if (r.status === 'failed') return { of: 'exit', tone: 'err', text: exitWords(r) };
   return nothingToReport(r);
+}
+
+/** The Runs table's status: the outcome only, in a dot and a few words (outcomeOf). */
+export function runOutcome(r: RunLike): RunOutcomeWords {
+  const { of: _of, ...words } = outcomeOf(r);
+  return words;
 }
 
 /**
@@ -342,7 +437,7 @@ export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'warn' |
  * came of its writes (`forked · 2 writes blocked`), or the check it failed, named in its own words
  * under `check failed` (`check`), as the run's page names a check it can tell no more of.
  */
-export function runStatus(r: RunLike): { tone: ReturnType<typeof runOutcome>['tone']; text: string; check?: string } {
+export function runStatus(r: RunLike): RunOutcomeWords & { check?: string } {
   const out = runOutcome(r);
   const check = r.outcome?.kind === 'check-failed' ? r.outcome.check : null;
   if (out.tone === 'err' && check && runType(r) === 'fork') return { ...out, check };

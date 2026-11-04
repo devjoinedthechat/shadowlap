@@ -29,7 +29,7 @@ import { firstFailedCall, openingCall } from '../run/open-at.js';
 import { ancestorsOf, callTree, heads, unfolded } from '../run/groups.js';
 import { useMarkRun, useRunLabels } from '../components/RunKey.js';
 import { markKey, MARKS, type RunMark } from '../runkey.js';
-import { Banner, DiffPanel, Metrics, RunLoading, ScopeBar } from '../run/parts.js';
+import { Banner, DiffPanel, RunLoading, RunMetrics, ScopeBar } from '../run/parts.js';
 import { usePagedRun } from '../run/paged-run.js';
 import { followPages, isPending, listedCalls, type ListedCall } from '../run/paging.js';
 import { runNotes } from '../run/notes.js';
@@ -489,7 +489,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   return (
     <div className="rv">
       <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} />
-      <Metrics run={run} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} />
+      <RunMetrics run={run} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} />
       <Banner run={run} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={() => setShowDiff(!showDiff)} onSelect={select} onAction={actions.run} preset={preset} />
       {showDiff ? <DiffPanel run={run} test={offers?.test ?? null} /> : null}
       <RunNotes notes={notes} onSelect={select} />

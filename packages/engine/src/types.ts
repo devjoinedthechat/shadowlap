@@ -2,6 +2,8 @@
  * Shared domain types. Field names mirror the store schema.
  */
 
+import type { CaptureVerdict } from './family-checks.js';
+
 export type CallKind = 'api' | 'tool' | 'clock' | 'random';
 export type Origin = 'live' | 'replayed' | 'blocked' | 'stubbed' | 'overridden';
 export type Effect = 'pure' | 'read' | 'write';
@@ -295,6 +297,12 @@ export interface RunMeta {
   repeat?: { group: string; attempt: number; of: number };
   /** Outcome checks from `shadowlap test` or `shadowlap blame`, as they came out for this run: a judge check's with its verdict and reason. Older runs' carry no `status`: read it with `checkStatus`. */
   checks?: StoredCheck[];
+  /**
+   * Set by `shadowlap import` on a capture: its verdict by the project's rules on calls as it was
+   * imported, with the rules it was judged by, so it is judged again once they change
+   * (family-checks.ts). Read it with `keptCaptureVerdict`: a run can come from a pack.
+   */
+  judged?: CaptureVerdict;
   /**
    * One attempt of a `shadowlap blame` probe: the run blamed, the model call forced live, and whether the attempt passed.
    * Its verdict is `unavailable` when the agent failed while its provider was (unavailable.ts): retried, never counted.

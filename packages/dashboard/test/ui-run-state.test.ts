@@ -44,11 +44,12 @@ describe('an interrupted run, everywhere it is shown', () => {
     expect(runOutcome(older)).toEqual({ tone: 'n', text: 'interrupted' });
   });
 
-  it('says a run whose agent exited with an error failed, in Runs as in the sidebar; a check, when one failed', () => {
+  it('says a run whose agent exited with an error exited, in Runs as in the sidebar, with its code where a test kept it; a check, when one failed', () => {
     // The engine's outcome for an agent's error exit names no check.
     const exited: RunLike = { ...base, status: 'failed', kind: 'recording', outcome: { kind: 'check-failed', check: null }, failed: true };
-    expect(runOutcome(exited)).toEqual({ tone: 'err', text: 'failed' });
-    expect(sideLine(exited)).toEqual({ err: 'failed', text: ' · 8 calls' });
+    expect(runOutcome(exited)).toEqual({ tone: 'err', text: 'exited with an error' });
+    expect(sideLine(exited)).toEqual({ err: 'exited with an error', text: ' · 8 calls' });
+    expect(runOutcome({ ...exited, exitCode: 1 })).toEqual({ tone: 'err', text: 'exited 1' });
     const checked: RunLike = { ...exited, outcome: { kind: 'check-failed', check: 'issue_refund never called' } };
     expect(runOutcome(checked)).toEqual({ tone: 'err', text: 'check failed' });
     expect(sideLine(checked)).toEqual({ err: 'check failed', text: ' · 8 calls' });

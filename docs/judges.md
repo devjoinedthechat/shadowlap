@@ -110,7 +110,7 @@ A check is not judged when the recording doesn't hold its verdict and the judge 
 A golden whose only checks that did not pass are inconclusive ones is itself *inconclusive*, not failed: the agent failed no check. It is marked `?` in amber, counted apart, and fails the run all the same (exit status 3) unless `--inconclusive warn` lets it through. Elsewhere:
 
 - the JSON report gives it `verdict: "inconclusive"` and the failure kind `inconclusive`;
-- the Runs list shows the run as *check inconclusive* in amber;
+- the Runs list shows the run as *inconclusive* in amber;
 - blame refuses it (`inconclusive`): no probe could pass a check that can't be decided as recorded;
 - the GitHub Action's fix on failure skips it, saying how to record the verdict.
 

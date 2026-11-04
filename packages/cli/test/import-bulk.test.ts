@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -206,8 +206,8 @@ describe('shadowlap import langfuse, the traces in a window', () => {
     expect(json.traces.map((t: unknown) => keys(t))).toEqual([fields('importTrace'), fields('importTrace')]);
     expect(json.window).toEqual({ since: '2026-10-01T00:00:00.000Z', until: '2026-10-08T00:00:00.000Z', limit: 100, traceName: 'support-chat' });
     expect(json.traces).toEqual([
-      { id: T1, name: 'support-chat', startedAt: LANGFUSE_TRACES[0].startTime, outcome: 'imported', runId: json.runs[0].runId, reason: null },
-      { id: T2, name: 'support-chat', startedAt: LANGFUSE_TRACES[1].startTime, outcome: 'imported', runId: json.runs[1].runId, reason: null },
+      { id: T1, name: 'support-chat', startedAt: LANGFUSE_TRACES[0].startTime, outcome: 'imported', runId: json.runs[0].runId, reason: null, judged: null },
+      { id: T2, name: 'support-chat', startedAt: LANGFUSE_TRACES[1].startTime, outcome: 'imported', runId: json.runs[1].runId, reason: null, judged: null },
     ]);
     expect(json.runs.map((x: { key: string; source: string; calls: unknown }) => [x.key, x.source, x.calls])).toEqual([
       [T1, 'langfuse:11111111', { model: 3, tool: 1 }],
@@ -216,6 +216,42 @@ describe('shadowlap import langfuse, the traces in a window', () => {
     expect(json.kept).toMatchObject({ traces: 2, spans: 14, modelCalls: 6, modelCallsImported: 6 });
     const filter = JSON.parse(new URL(seen[0].slice(4), 'http://x').searchParams.get('filter')!) as unknown[];
     expect(filter).toContainEqual({ type: 'string', column: 'traceName', operator: '=', value: 'support-chat' });
+  });
+
+  it('judges each trace by the rules on calls as it imports it, and once they change, each it imported before, said in its line and in --json', async () => {
+    const db = freshDb();
+    handle = langfuseV2();
+    const config = join(db, '..', 'shadowlap.config.json');
+    const rule = (orderId: string) => writeFileSync(config, JSON.stringify({ tests: { 'goldens/support': { expect: { calls: [{ tool: 'lookup_order', args: { order_id: orderId } }] } } } }));
+    rule('A-1042');
+    const first = await shadowlap(db, ['import', 'langfuse', ...WINDOW, '--trace-name', 'support-chat', '--host', host, '--json'], KEYS);
+    expect(first.code, first.err).toBe(0);
+    const imported = JSON.parse(first.out) as { traces: Array<{ outcome: string; runId: string; judged: { verdict: string } | null }> };
+    expect(imported.traces.map((t) => [t.outcome, t.judged?.verdict])).toEqual([
+      ['imported', 'passed'],
+      ['imported', 'passed'],
+    ]);
+    // The rules stay: each imported before keeps its verdict.
+    const same = await shadowlap(db, ['import', 'langfuse', ...WINDOW, '--trace-name', 'support-chat', '--host', host, '--json'], KEYS);
+    expect((JSON.parse(same.out) as { traces: Array<{ outcome: string; judged: unknown }> }).traces.map((t) => [t.outcome, t.judged])).toEqual([
+      ['already', null],
+      ['already', null],
+    ]);
+    // A rule its calls break: each imported before is judged again, and says so.
+    rule('B-7');
+    const again = await shadowlap(db, ['import', 'langfuse', ...WINDOW, '--trace-name', 'support-chat', '--host', host], KEYS);
+    expect(again.code, again.err).toBe(0);
+    const t1Run = imported.traces[0].runId;
+    expect(again.out).toContain(`  11111111-41b8-4d  imported before, as ${t1Run.slice(0, 10)} · judged again: check failed: every lookup_order call: order_id = "B-7", but lookup_order #`);
+    const kept = Store.open(db);
+    try {
+      expect(kept.getRun(t1Run)?.meta?.judged).toMatchObject({ verdict: 'failed' });
+    } finally {
+      kept.close();
+    }
+    // And once more with --json: the verdict it kept now stands.
+    const json = await shadowlap(db, ['import', 'langfuse', ...WINDOW, '--trace-name', 'support-chat', '--host', host, '--json'], KEYS);
+    expect((JSON.parse(json.out) as { traces: Array<{ judged: unknown }> }).traces.map((t) => t.judged)).toEqual([null, null]);
   });
 
   it('stops at a failure that is not the one trace\'s, keeps what it imported, and goes on from there when run again', async () => {

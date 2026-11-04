@@ -1,3 +1,5 @@
+import type { CaptureVerdict } from './family-checks.js';
+import { isObject } from './is-object.js';
 import { rewriteText, type RewriteObserver } from './normalize.js';
 import type { StoreOf } from './store.js';
 import type { CallRecord, Normalizer, NotRecorded, RunMeta, RunRecord } from './types.js';
@@ -109,9 +111,21 @@ export function runInterventions(store: StoreOf<'recording'>, run: RunRecord, ca
 }
 
 /**
+ * A capture's verdict as a copy keeps it: what each rule's label and detail, and why, say masked by
+ * `mask`, as a check's are. Kept here, not in family-checks.ts, whose checks load judge.ts and so
+ * redact.ts, which loads this module.
+ */
+function maskedCaptureVerdict(v: CaptureVerdict, mask: (s: string) => string): CaptureVerdict {
+  const checks = Array.isArray(v.checks) ? v.checks.filter(isObject).map((c) => ({ ...c, label: typeof c.label === 'string' ? mask(c.label) : '', detail: typeof c.detail === 'string' ? mask(c.detail) : null })) : [];
+  return { ...v, checks, why: typeof v.why === 'string' ? mask(v.why) : null };
+}
+
+/**
  * Run metadata with redaction rules applied to what this module keeps on a run: the hosts the guard
- * named, which can name internal systems, for a copy (pack, export html). A replay's flags are masked
- * with the rest of the run's record (redact.ts). `observer` hears each change, for the preview.
+ * named, which can name internal systems, and a capture's verdict by the rules on calls, whose rules'
+ * details name the values its calls had (family-checks.ts), for a copy (pack, export html). A
+ * replay's flags are masked with the rest of the run's record (redact.ts). `observer` hears each
+ * change, for the preview.
  */
 export function redactRunFacts(meta: RunMeta, rules: readonly Normalizer[], observer?: RewriteObserver): RunMeta {
   if (!rules.length) return meta;
@@ -121,6 +135,7 @@ export function redactRunFacts(meta: RunMeta, rules: readonly Normalizer[], obse
   if (typeof nr === 'object' && nr !== null && Array.isArray((nr as NotRecorded).hosts)) {
     out.notRecorded = { ...(nr as NotRecorded), hosts: (nr as NotRecorded).hosts.map((h) => (typeof h === 'object' && h !== null && typeof h.target === 'string' ? { ...h, target: text(h.target) } : h)) };
   }
+  if (isObject(meta.judged)) out.judged = maskedCaptureVerdict(meta.judged, text);
   return out;
 }
 

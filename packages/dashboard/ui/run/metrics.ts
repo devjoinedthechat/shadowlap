@@ -1,5 +1,8 @@
+import type { Tone } from '../components/Status.js';
 import { approx, ktok, money, receiptDuration } from '../format.js';
 import type { OriginCounts } from '../origins.js';
+import { outcomeTip, type OutcomeTip } from '../outcome-tip.js';
+import { outcomeOf, type RunLike, type RunOutcomeWords } from '../runs.js';
 
 /**
  * The run's numbers, in the order the page shows them: the counts lead; what replaying saved comes
@@ -68,3 +71,37 @@ export function metricItems(m: MetricInput): MetricItem[] {
   if (m.notWaitedMs) items.push([receiptDuration(m.notWaitedMs), 'not waited', 'q']);
   return items;
 }
+
+// ---- How the run came out: its first fact ----
+
+/** The first fact: a status, a dot and a word in its verdict's colour, the call it turned on apart (a link), and what judged it, on hover. */
+export interface OutcomeFact {
+  /** Its tone as Status draws it: muted for no checks, nothing yet and an interrupted run, none of them a verdict. */
+  tone: Tone;
+  /** Its words, without the call: `check failed at`, `2 checks passed`, `no checks`. */
+  words: string;
+  callNo: number | null;
+  /** Judged by checks its family's goldens added after it was recorded, or rules on calls changed since its import. */
+  today: boolean;
+  /** Its hover, the card Runs' Status shows too (outcome-tip.ts). */
+  tip: OutcomeTip;
+}
+
+/**
+ * How the run came out, its page's first fact, in the words Runs' Status has (outcomeOf): the
+ * verdict of the checks that judged it, the call it turned on apart, by today's checks after it when
+ * they came after the run. A run no check judges says `no checks`, by a grey dot, a clean replay and a
+ * fork too (how faithful a replay was is no verdict), and its hover says how a check comes to judge
+ * it. `pending`: a long run whose first answer came before its analysis judged it, which says nothing
+ * yet. An interrupted run says so muted, by a grey dot, as every status that is no verdict.
+ */
+export function outcomeFact(r: RunLike, o: { tools: number; pending?: boolean }): OutcomeFact {
+  if (o.pending) return { tone: 'mu', words: '…', callNo: null, today: false, tip: { title: 'Judging it by its checks', sub: 'Read from all its calls, beside the server.', rows: [], said: 'judging it by its checks' } };
+  const out = outcomeOf(r);
+  const tip = outcomeTip(r, out, o.tools);
+  if (out.of === 'none' || out.of === 'fork') return { tone: 'mu', words: 'no checks', callNo: null, today: false, tip };
+  return { tone: factTone(out.tone), words: out.at?.words ?? out.text, callNo: out.at?.callNo ?? null, today: !!out.today, tip };
+}
+
+/** The first fact's tone as Status draws it: what Runs sets with no dot (an interrupted run) or a neutral one (a fork's writes) is no verdict, so muted. */
+const factTone = (t: RunOutcomeWords['tone']): Tone => (t === 'n' || t === 'fk' ? 'mu' : t);

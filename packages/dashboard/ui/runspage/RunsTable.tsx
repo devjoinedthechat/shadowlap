@@ -9,7 +9,9 @@ import { labelTerm } from '../../src/links.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useWindow } from '../run/window-hook.js';
-import { kindWord, runOrigins, runSource, runSpent, runStatus, sideStatus, type RunSort } from '../runs.js';
+import { kindWord, outcomeOf, runOrigins, runSource, runSpent, runStatus, sideStatus, TODAY, type RunLike, type RunSort } from '../runs.js';
+import { tipCard } from '../components/HoverCard.js';
+import { outcomeTip } from '../outcome-tip.js';
 import type { RunListItem } from '../types.js';
 import { localTitle } from './bulk.js';
 import { ByAvatar } from './people.js';
@@ -180,6 +182,12 @@ export function RunsTable({
   );
 }
 
+/** A row's Status on hover: what judged it and each check, as the run's first fact has it (outcome-tip.ts). */
+function statusTip(r: RunLike): string {
+  const tip = outcomeTip(r, outcomeOf(r));
+  return tipCard(tip.title, tip.rows.map(([label, value, color]) => ({ label, value, color })), tip.sub);
+}
+
 /** The height of the rows not drawn, above or below those that are. */
 function Spacer({ height, cols }: { height: number; cols: number }) {
   return (
@@ -281,7 +289,7 @@ const Row = memo(function Row({ at, run: r, on, selectable, byColumn, you, onPic
       <td className="stcell hide-sm">
         {out.check ? (
           // The check it failed, under the words, as wide as the column already is: whole on hover.
-          <span className="st err named">
+          <span className="st err named" data-tip={statusTip(r)}>
             <i />
             <span className="stw">
               {out.text}
@@ -292,9 +300,11 @@ const Row = memo(function Row({ at, run: r, on, selectable, byColumn, you, onPic
             </span>
           </span>
         ) : (
-          <span className={`st ${out.tone}`} aria-label={out.text === '—' ? 'nothing to report' : undefined}>
+          // What judged it, on hover, the card the run's first fact has; judged by checks its family's goldens added after it was recorded, said to a screen reader too.
+          <span className={`st ${out.tone}`} aria-label={out.text === '—' ? 'no checks' : undefined} data-tip={statusTip(r)}>
             {out.tone === 'n' ? null : <i />}
             {afterDots(out.text)}
+            {out.today ? <span className="sr"> {TODAY}</span> : null}
           </span>
         )}
       </td>

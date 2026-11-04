@@ -1,8 +1,10 @@
 import { basename } from 'node:path';
 import { links } from '@shadowlap/dashboard';
-import { recordEvent, type StoreOf } from '@shadowlap/engine';
+import { captureVerdictLine, captureVerdictWords, judgeCapture, keptCaptureVerdict, messageOf, plural, recordEvent, RULES_ON_CALLS, rulesOnCalls, type CaptureVerdict, type RulesOnCalls, type StoreOf } from '@shadowlap/engine';
+import { loadTests } from './config.js';
 import { append, IMPORTED_LABEL, type ImportedCall, type ImportResult, type Skip } from './import-capture.js';
 import { emitJobEvent } from './job-events.js';
+import { palette as p, shortId } from './ui.js';
 
 /**
  * What every `shadowlap import` subcommand does once its runs are written: drop the runs that got
@@ -40,6 +42,12 @@ export interface ImportJsonRun {
   calls: { model: number; tool: number };
   labels: string[];
   imported: ImportedCall[];
+  /**
+   * Its verdict by the project's rules on calls (every `calls` check in a golden's expect), kept on
+   * the run: passed, failed by the first rule broken, or not applicable with why. Null with no rule to
+   * judge it by, or a config that can't be read.
+   */
+  judged: CaptureVerdict | null;
 }
 
 export interface ImportJson {
@@ -71,6 +79,12 @@ export interface ImportJsonTrace {
   outcome: 'imported' | 'already' | 'skipped' | 'failed' | 'unread';
   runId: string | null;
   reason: string | null;
+  /**
+   * The verdict by the rules on calls it was judged to this time: an imported trace's run's, or for
+   * one imported before, its new verdict once the rules changed since it was judged; null when the
+   * verdict it kept stands, or no rule judges it.
+   */
+  judged: CaptureVerdict | null;
 }
 
 export interface ImportedRun {
@@ -107,10 +121,76 @@ export function importedRunsLink(runs: ReadonlyArray<Pick<ImportJsonRun, 'source
 }
 
 /**
- * Settles one run an import wrote: deletes it when it holds no call, else records `capture.imported`
- * for it and returns it as `--json` lists it.
+ * What an import judges each run by: the rules on calls in the project's shadowlap.config.json, read
+ * once per command from the folder it runs in; a config that can't be read judges nothing, and says
+ * why once (`judgedLines`).
  */
-export function settleRun(store: StoreOf<'recording' | 'activity'>, o: { format: ImportFormat; key: string | null; result: ImportResult; author?: string | null }): ImportJsonRun | null {
+let rulesHere: { cwd: string; rules: RulesOnCalls | null; error: string | null } | null = null;
+
+export function importRules(cwd: string = process.cwd()): { rules: RulesOnCalls | null; error: string | null } {
+  if (rulesHere?.cwd !== cwd) {
+    try {
+      rulesHere = { cwd, rules: rulesOnCalls(loadTests(cwd)), error: null };
+    } catch (err) {
+      rulesHere = { cwd, rules: null, error: messageOf(err) };
+    }
+  }
+  return rulesHere;
+}
+
+/**
+ * A capture judged by the project's rules on calls and its verdict kept on the run, with the rules
+ * it was judged by: null, keeping nothing, with no rule to judge it by.
+ */
+export function judgeImported(store: StoreOf<'recording'>, runId: string, rules: RulesOnCalls | null): CaptureVerdict | null {
+  const judged = rules ? judgeCapture(store, store.getCalls(runId), rules) : null;
+  if (judged) store.updateRunMeta(runId, { judged });
+  return judged;
+}
+
+/**
+ * A run an earlier import made, judged again and its verdict kept anew when the rules on calls have
+ * changed since it was judged (a trace imported again is skipped, but the rules it is judged by may
+ * not be those it was): its new verdict, or null when it stands.
+ */
+export function judgeAgain(store: StoreOf<'recording'>, runId: string, rules: RulesOnCalls | null): CaptureVerdict | null {
+  const run = store.getRun(runId);
+  if (!run || !rules?.rules.length || keptCaptureVerdict(run)?.rules === rules.key) return null;
+  return judgeImported(store, runId, rules);
+}
+
+/** A trace an earlier import brought in, as a window's import lists it, judged again where the rules on calls changed: its line, and its new verdict (null where the one it kept stands). */
+export function importedBefore(store: StoreOf<'recording'>, runId: string, rules: RulesOnCalls | null): { line: string; judged: CaptureVerdict | null } {
+  const again = judgeAgain(store, runId, rules);
+  return { line: `imported before, as ${shortId(runId)}${again ? ` · judged again: ${captureVerdictWords(again)}` : ''}`, judged: again };
+}
+
+const VERDICT_COLOUR = { passed: p.green, failed: p.red, 'not-applicable': p.dim } as const;
+
+/**
+ * What an import says of its runs' verdicts by the rules on calls, after what it imported: one run's
+ * line (`✓ judged by the rules on calls in shadowlap.config.json · 1 check passed`); several runs'
+ * counted, each failed one named; no rule to judge by, or a config that can't be read, in a dim line.
+ */
+export function judgedLines(runs: readonly ImportJsonRun[], cwd: string = process.cwd()): string[] {
+  if (!runs.length) return [];
+  const { error } = importRules(cwd);
+  if (error) return [p.yellow(`! not judged by ${RULES_ON_CALLS}: ${error}`)];
+  const judged = runs.filter((r): r is ImportJsonRun & { judged: CaptureVerdict } => r.judged !== null);
+  if (!judged.length) return [p.dim(`  no rule on calls in shadowlap.config.json to judge ${runs.length === 1 ? 'it' : 'them'} by`)];
+  if (judged.length === 1 && runs.length === 1) return [VERDICT_COLOUR[judged[0]!.judged.verdict](captureVerdictLine(judged[0]!.judged))];
+  const count = (v: CaptureVerdict['verdict']) => judged.filter((r) => r.judged.verdict === v);
+  const failed = count('failed');
+  const parts = [failed.length ? `${failed.length} failed (${failed.map((r) => shortId(r.runId)).join(', ')})` : '', count('passed').length ? `${count('passed').length} passed` : '', count('not-applicable').length ? `${count('not-applicable').length} not applicable` : ''].filter(Boolean);
+  return [(failed.length ? p.red : p.green)(`${plural(judged.length, 'run')} judged by ${RULES_ON_CALLS}: ${parts.join(', ')}`)];
+}
+
+/**
+ * Settles one run an import wrote: deletes it when it holds no call, else records `capture.imported`
+ * for it, judges it by the project's rules on calls (keeping the verdict on it), and returns it as
+ * `--json` lists it. `rules` default to those of the folder the import runs in (`importRules`).
+ */
+export function settleRun(store: StoreOf<'recording' | 'activity'>, o: { format: ImportFormat; key: string | null; result: ImportResult; author?: string | null; rules?: RulesOnCalls | null }): ImportJsonRun | null {
   const { result, key } = o;
   if (!result.imported.length) {
     store.deleteRun(result.run.runId);
@@ -125,7 +205,8 @@ export function settleRun(store: StoreOf<'recording' | 'activity'>, o: { format:
     ref: sourceName(source),
     data: { format: o.format, from: source, key, modelCalls: calls.model, toolCalls: calls.tool },
   });
-  return { runId: result.run.runId, source, key, calls, labels: result.run.meta?.labels ?? [], imported: result.imported };
+  const judged = judgeImported(store, result.run.runId, o.rules === undefined ? importRules().rules : o.rules);
+  return { runId: result.run.runId, source, key, calls, labels: result.run.meta?.labels ?? [], imported: result.imported, judged };
 }
 
 /**
@@ -149,13 +230,13 @@ export function reportImportJob(json: ImportJson, env: NodeJS.ProcessEnv = proce
  */
 export function settleImport(
   store: StoreOf<'recording' | 'activity'>,
-  o: { format: ImportFormat; entries: number; runs: ImportedRun[]; skipped?: Skip[]; kept?: TraceKept; author?: string | null; env?: NodeJS.ProcessEnv },
+  o: { format: ImportFormat; entries: number; runs: ImportedRun[]; skipped?: Skip[]; kept?: TraceKept; author?: string | null; env?: NodeJS.ProcessEnv; rules?: RulesOnCalls | null },
 ): ImportJson {
   const skipped: Skip[] = [...(o.skipped ?? [])];
   const runs: ImportJsonRun[] = [];
   for (const { key, result } of o.runs) {
     append(skipped, result.skipped);
-    const run = settleRun(store, { format: o.format, key, result, author: o.author ?? null });
+    const run = settleRun(store, { format: o.format, key, result, author: o.author ?? null, ...(o.rules !== undefined ? { rules: o.rules } : {}) });
     if (run) runs.push(run);
   }
   const json: ImportJson = { format: o.format, entries: o.entries, runs, skipped, ...(o.kept ? { kept: o.kept } : {}) };

@@ -37,10 +37,10 @@ describe('the Runs table', () => {
   it('says how many checks passed and how many did not apply, and inconclusive in amber', () => {
     expect(runOutcome(row({ outcome: { kind: 'passed', checks: 1, notApplicable: 2 } }))).toEqual({ tone: 'ok', text: '1 check passed, 2 not applicable' });
     expect(runOutcome(row({ outcome: { kind: 'passed', checks: 0, notApplicable: 2 } }))).toEqual({ tone: 'ok', text: '2 checks not applicable' });
-    expect(runOutcome(row({ outcome: { kind: 'inconclusive', check: 'judge "j" answers yes' } }))).toEqual({ tone: 'warn', text: 'check inconclusive' });
+    expect(runOutcome(row({ outcome: { kind: 'inconclusive', check: 'judge "j" answers yes' } }))).toEqual({ tone: 'warn', text: 'inconclusive' });
     // From the counts alone, as a server that sends no outcome has it.
     expect(runOutcome(row({ checks: { passed: 1, total: 3, notApplicable: 2 } }))).toEqual({ tone: 'ok', text: '1 check passed, 2 not applicable' });
-    expect(runOutcome(row({ checks: { passed: 1, total: 2, inconclusive: 1 } }))).toEqual({ tone: 'warn', text: 'check inconclusive' });
+    expect(runOutcome(row({ checks: { passed: 1, total: 2, inconclusive: 1 } }))).toEqual({ tone: 'warn', text: 'inconclusive' });
     expect(runOutcome(row({ checks: { passed: 1, total: 2 } }))).toEqual({ tone: 'err', text: 'check failed' });
     expect(isFailed({ ...row({ checks: { passed: 1, total: 3, notApplicable: 2 } }), failed: undefined } as never)).toBe(false);
   });

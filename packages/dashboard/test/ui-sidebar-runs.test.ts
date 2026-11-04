@@ -48,7 +48,7 @@ const FORK = run('01M5H2ECBJ6W9N2T5H8K1D4FQZ', { parentRunId: REC.runId, mode: '
 const FORK2 = run('01M5H2EDGW3J7P0X4C9V2B6NRM', { parentRunId: FORK.runId, mode: 'replay', kind: 'fork', label: 'fork @19', divergence: { callNo: 19, type: 'request_changed' }, origins: `${'r'.repeat(18)}ss`, calls: 20, startedAt: T + 3 });
 // A fork whose check failed: send_email was called more often than its check allows.
 const FAILED_FORK = run('01M5H2EFHX5K2Q8M1R7T4W9CZD', { parentRunId: REC.runId, mode: 'replay', kind: 'fork', label: 'fork @7', divergence: { callNo: 7, type: 'request_changed' }, status: 'completed', outcome: { kind: 'check-failed', check: 'send_email called 1 time' }, failed: true, origins: `${'r'.repeat(6)}${'l'.repeat(20)}bbbb`, startedAt: T + 4 });
-// A recording blame found lost at its model call #9: Runs says so, and so does the sidebar.
+// A recording blame found lost at its model call #9: the sidebar says so, and Runs that its check failed.
 const LOST = run('01M5H2E9Q2C6YDRJ11VPNM4W0J', { command: 'node agent.mjs A-1150', status: 'failed', outcome: { kind: 'lost', callNo: 9 }, failed: true, lostAt: 9, calls: 11, origins: 'l'.repeat(11), startedAt: T - 10 });
 // A test whose judge check could not be decided: neither passed nor failed.
 const UNSURE = run('01M5H2EHJ4R8N3W6T1Y5B9CXQK', { parentRunId: REC.runId, mode: 'replay', kind: 'test', label: 'test', test: { golden: 'goldens/refund-polite' }, outcome: { kind: 'inconclusive', check: 'judge "polite" answers yes' }, origins: 'r'.repeat(30), startedAt: T + 5 });
@@ -121,7 +121,8 @@ describe('the Runs table', () => {
     // The check it failed, named under the words, and whole on hover.
     expect(status(FAILED_FORK.runId)).toEqual(['st err named', 'check failed: “send_email called 1 time”']);
     expect(row(r, FAILED_FORK.runId).querySelector('.stc')!.getAttribute('title')).toBe('check failed: “send_email called 1 time”');
-    expect(status(LOST.runId)).toEqual(['st err', 'lost at #9']);
+    // Blame found where it was lost, as the sidebar says; its Status says how it came out: the check it failed.
+    expect(status(LOST.runId)).toEqual(['st err', 'check failed']);
     // A recording with nothing to report keeps its dash.
     expect(status(REC.runId)).toEqual(['st n', '—']);
   });
