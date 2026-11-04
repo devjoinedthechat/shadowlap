@@ -14,6 +14,7 @@ import { localRunIds } from './routes/store.js';
 import type { MaskCount } from './run-mask.js';
 import { runCalls } from './run-calls.js';
 import { loadRunIndex } from './run-index.js';
+import { withExitCodes } from './exit-codes.js';
 import { judgedRows, OUTCOME_READS, runJudged, type OutcomeWork } from './run-outcome.js';
 import { analyseRun } from './run-page.js';
 import { asksFor, asksOf, warmProgress, warmRunStats } from './run-stats.js';
@@ -176,8 +177,8 @@ function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns'>, tea
       return { ...x, local: local.has(x.runId) || n > 0, ...(n ? { localAttempts: { run: local.has(x.runId), attempts: n } } : {}) };
     });
   }
-  // Each row's outcome by checks, those that read calls within the rows' budget, each check with it for Status's hover (run-outcome.ts).
-  return answer({ ...page, runs: judgedRows(store, runs, outcome, whole ? Infinity : ROW_CALLS_BUDGET, { checks: true }) }, { tagged: true });
+  // Each row's outcome by checks, those that read calls within the rows' budget, each check with it for Status's hover, and a test replay's exit code (run-outcome.ts).
+  return answer({ ...page, runs: withExitCodes(store, judgedRows(store, runs, outcome, whole ? Infinity : ROW_CALLS_BUDGET, { checks: true })) }, { tagged: true });
 }
 
 /** A fix's page, with what the server's thread found in the working tree: patches in it already, and pulled ones `fix apply` refuses there. */
@@ -263,7 +264,7 @@ const CORE_READS: ReadTable<CoreJob> = {
   },
   recent: (store, job, { whole }) => {
     // The rows' totals as far as they are known: the sidebar asks again while some are warming.
-    const runs = judgedRows(store, listRuns(store, { ...job.read, known: !whole }), job.outcome ?? null, whole ? Infinity : ROW_CALLS_BUDGET);
+    const runs = withExitCodes(store, judgedRows(store, listRuns(store, { ...job.read, known: !whole }), job.outcome ?? null, whole ? Infinity : ROW_CALLS_BUDGET));
     const warming = rowsWarming(runs);
     return answer({ runs, ...(warming ? { warming } : {}) }, { tagged: true });
   },

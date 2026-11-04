@@ -53,14 +53,16 @@ describe('a fix whose run blame found lost gradually around two calls', () => {
 });
 
 describe('Runs and the sidebar', () => {
-  it('say a run lost gradually around two calls so, from the server\'s outcome or, without one, its blame', () => {
+  it('say a run lost gradually around two calls so in the sidebar, from the server\'s outcome or, without one, its blame, and Runs the check it failed', () => {
     const lost = { ...run, outcome: { kind: 'lost', callNo: 5, range: gradual } };
-    expect(runOutcome(lost)).toEqual({ tone: 'err', text: 'lost gradually around #5 and #7' });
     expect(sideLine(lost)).toEqual({ err: 'lost gradually around #5 and #7', text: ' · 30 calls' });
     expect(sideStatus(lost)).toEqual({ text: 'lost gradually around #5 and #7', tone: 'err' });
-    expect(runOutcome({ ...run, blame: { callNo: 5, range: gradual } })).toEqual({ tone: 'err', text: 'lost gradually around #5 and #7' });
+    expect(sideStatus({ ...run, blame: { callNo: 5, range: gradual } })).toEqual({ text: 'lost gradually around #5 and #7', tone: 'err' });
     // At one call, the call.
-    expect(runOutcome({ ...run, outcome: { kind: 'lost', callNo: 5 } })).toEqual({ tone: 'err', text: 'lost at #5' });
+    expect(sideStatus({ ...run, outcome: { kind: 'lost', callNo: 5 } })).toEqual({ text: 'lost at #5', tone: 'err' });
+    // Runs' Status says how it came out: the check blame saw it fail.
+    expect(runOutcome(lost)).toEqual({ tone: 'err', text: 'check failed' });
+    expect(runOutcome({ ...run, blame: { callNo: 5, range: gradual } })).toEqual({ tone: 'err', text: 'check failed' });
   });
 });
 
@@ -86,10 +88,10 @@ describe('a run blame found lost between two calls, the probes between them unde
     expect(blameWords({ outcome: 'blamed', lostAt: 3, range: two })).toBe('lost between #3 and #5');
   });
 
-  it('reads as lost between them in Runs, the sidebar and the run page\'s banner', () => {
+  it('reads as lost between them in the sidebar and the run page\'s banner, and as the check it failed in Runs', () => {
     const lost = { ...run, outcome: normalizeOutcome({ kind: 'lost', callNo: 3, range: between }) };
     expect(lost.outcome).toEqual({ kind: 'lost', callNo: 3, range: two });
-    expect(runOutcome(lost)).toEqual({ tone: 'err', text: 'lost between #3 and #5' });
+    expect(runOutcome(lost)).toEqual({ tone: 'err', text: 'check failed' });
     expect(sideLine(lost)).toEqual({ err: 'lost between #3 and #5', text: ' · 30 calls' });
     expect(sideStatus(lost)).toEqual({ text: 'lost between #3 and #5', tone: 'err' });
     // The banner names both calls, and where the first sits among the model calls: from there on.

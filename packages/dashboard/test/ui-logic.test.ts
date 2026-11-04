@@ -421,10 +421,11 @@ describe('runs', () => {
   it('names what each run is and what came of it', () => {
     expect([base, fork, clean, capture, test, live].map(runType)).toEqual(['recording', 'fork', 'clean', 'capture', 'test', 'recording']);
     expect(runOutcome(live)).toEqual({ tone: 'live', text: 'in progress' });
-    expect(runOutcome(test)).toEqual({ tone: 'err', text: 'diverged at #1' });
-    expect(runOutcome(clean)).toEqual({ tone: 'ok', text: 'clean' });
+    expect(runOutcome(test)).toEqual({ tone: 'err', text: 'diverged at #1', at: { words: 'diverged at', callNo: 1 } });
+    // How faithful a clean replay was is no verdict: no check judges it, a dash.
+    expect(runOutcome(clean)).toEqual({ tone: 'n', text: '—' });
     expect(runOutcome({ ...fork, checks: { passed: 2, total: 2 } })).toEqual({ tone: 'ok', text: '2 checks passed' });
-    expect(runOutcome({ ...base, status: 'failed', blame: { callNo: 9 } })).toEqual({ tone: 'err', text: 'lost at #9' });
+    expect(runOutcome({ ...base, status: 'failed', blame: { callNo: 9 } })).toEqual({ tone: 'err', text: 'check failed' });
     expect(runOutcome(base)).toEqual({ tone: 'n', text: '—' });
     expect(runSubline(fork)).toBe('fork @17 of 01K5CQ4N7G · python refund_agent.py');
     expect(runSubline(capture)).toBe('capture · traffic.har');
@@ -435,20 +436,20 @@ describe('runs', () => {
     expect(sideLine(live)).toEqual({ text: 'recording · 9 calls so far' });
   });
 
-  it('says a failure in the sidebar in the words of Runs’ Status, then what the run is', () => {
+  it('says a failure in the sidebar in the design’s sidebar words, then what the run is', () => {
     const lost = { ...base, status: 'failed' as const, outcome: { kind: 'lost', callNo: 9 }, failed: true };
-    expect(runOutcome(lost)).toEqual({ tone: 'err', text: 'lost at #9' });
-    // Not "check failed": Runs says where blame found it lost.
+    // Runs says the check it failed; the sidebar, where blame found it lost.
+    expect(runOutcome(lost)).toEqual({ tone: 'err', text: 'check failed' });
     expect(sideLine(lost)).toEqual({ err: 'lost at #9', text: ' · 30 calls' });
     expect(sideLine(test)).toEqual({ err: 'diverged at #1', text: ' · test' });
     const failedFork = { ...fork, outcome: { kind: 'check-failed', check: 'send_email called 1 time' }, failed: true };
     expect(sideLine(failedFork)).toEqual({ err: 'check failed', text: ' · fork @17' });
     // The agent's exit names no check; a check that could not be decided is amber, neither passed nor
     // failed, and the sidebar says it in the design's one word where Runs, with the room, says more.
-    expect(sideLine({ ...base, status: 'failed', outcome: { kind: 'check-failed', check: null }, failed: true })).toEqual({ err: 'failed', text: ' · 30 calls' });
+    expect(sideLine({ ...base, status: 'failed', outcome: { kind: 'check-failed', check: null }, failed: true })).toEqual({ err: 'exited with an error', text: ' · 30 calls' });
     const unsure = { ...test, status: 'completed' as const, outcome: { kind: 'inconclusive', check: 'judge "polite" answers yes' }, failed: false };
     expect(sideLine(unsure)).toEqual({ warn: 'inconclusive', text: ' · test' });
-    expect(runOutcome(unsure)).toEqual({ tone: 'warn', text: 'check inconclusive' });
+    expect(runOutcome(unsure)).toEqual({ tone: 'warn', text: 'inconclusive' });
   });
 
   it('says what a fork did in its Status: what came of its writes, or the check it failed', () => {
@@ -470,7 +471,7 @@ describe('runs', () => {
     // The outcome stays in a word or two for the lists that say it beside other things; a recording names no check here.
     expect(runOutcome(failedFork)).toEqual({ tone: 'err', text: 'check failed' });
     expect(runStatus({ ...base, outcome: { kind: 'check-failed', check: 'issue_refund never called with {"amount":240}' }, failed: true })).toEqual({ tone: 'err', text: 'check failed' });
-    expect(runStatus({ ...fork, outcome: { kind: 'lost', callNo: 4 }, failed: true })).toEqual({ tone: 'err', text: 'lost at #4' });
+    expect(runStatus({ ...fork, outcome: { kind: 'lost', callNo: 4 }, failed: true })).toEqual({ tone: 'err', text: 'check failed' });
   });
 
   it('says clean replay wherever a clean replay is named', () => {

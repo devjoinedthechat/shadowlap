@@ -12,6 +12,7 @@ import { ACTIONS } from '../labels.js';
 import { href } from '../route.js';
 import { runType, TODAY } from '../runs.js';
 import { tipCard } from '../components/HoverCard.js';
+import { useLoad } from '../hooks.js';
 import { scopeCount, scopeDepth, scopeHint, scopeLeaf } from '../scopes.js';
 import { useApp } from '../state.js';
 import { bannerNormalizerAsk, startTestsJob } from '../tests-ask.js';
@@ -34,8 +35,18 @@ export function RunLoading() {
   );
 }
 
-/** The run's numbers: the counts lead; what replaying saved comes last, as a quieter receipt. */
-export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail; notWaitedMs: number | null; notWaitedUnknown: number }) {
+/** The run's numbers, led by its outcome by checks: the payload's, or asked for alone where its first answer came before its analysis judged it (useJudged). */
+export function RunMetrics(props: { run: RunDetail; notWaitedMs: number | null; notWaitedUnknown: number }) {
+  const judged = useJudged(props.run);
+  return <Metrics {...props} judged={judged ?? null} pending={judged === undefined} />;
+}
+
+/**
+ * The run's numbers: how it came out leads, by the checks that judged it (`judged`, the payload's
+ * unless given; `pending` while a long run's analysis is yet to judge it); the counts follow; what
+ * replaying saved comes last, as a quieter receipt.
+ */
+export function Metrics({ run, notWaitedMs, notWaitedUnknown, judged = run.judged ?? null, pending = false }: { run: RunDetail; notWaitedMs: number | null; notWaitedUnknown: number; judged?: RunDetail['judged']; pending?: boolean }) {
   const s = run.summary;
   const items = metricItems({
     // A recording's count as the poll says it, as its list has it: its page is asked for again only
@@ -55,7 +66,7 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail
     refused: run.calls.filter((c) => c.outcome === 'error' && refusedOffline(c)).length,
   });
   // How it came out leads: the verdict of the checks that judged it, as Runs' Status says it.
-  const fact = outcomeFact({ ...runLikeOf(run), judged: run.judged ?? null }, { tools: s.byKind.tool });
+  const fact = outcomeFact({ ...runLikeOf(run), judged: judged ?? null }, { tools: s.byKind.tool, pending });
   return (
     <section className="metrics" title={notWaitedUnknown ? `${notWaitedUnknown} replayed calls’ recorded durations were not found` : undefined}>
       <Outcome fact={fact} runId={run.run.runId} />
@@ -69,7 +80,23 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail
   );
 }
 
-/** The run's first fact: a dot and its verdict's word, the call it turned on as a link, by today's checks after it; what judged it on hover. */
+/**
+ * The run's outcome by checks: the payload's, or for a long run whose first answer came before its
+ * analysis judged it, the server's answer alone (`/api/runs/:id/outcome`) once it has it; undefined
+ * until then.
+ */
+function useJudged(run: RunDetail): RunDetail['judged'] {
+  const { client } = useApp();
+  const ask = run.judged === undefined && !!run.warming && run.run.status !== 'running';
+  const asked = useLoad(() => (ask ? client.outcome(run.run.runId) : null), ask ? `${run.run.runId}:${run.callsTotal}` : 'none');
+  if (!ask) return run.judged ?? null;
+  return asked.data ? asked.data.judged : asked.error ? null : undefined;
+}
+
+/**
+ * The run's first fact: a dot and its verdict's word, the call it turned on as a link, by today's
+ * checks after it; what judged it on hover, and to a screen reader the check it names.
+ */
 function Outcome({ fact, runId }: { fact: OutcomeFact; runId: string }) {
   const tip = tipCard(fact.tip.title, fact.tip.rows.map(([label, value, color]) => ({ label, value, color })), fact.tip.sub);
   return (
@@ -80,9 +107,12 @@ function Outcome({ fact, runId }: { fact: OutcomeFact; runId: string }) {
         {fact.callNo !== null ? (
           <>
             {' '}
-            <a href={href.run(runId, fact.callNo)}>#{fact.callNo}</a>
+            <a className="bn" href={href.run(runId, fact.callNo)}>
+              #{fact.callNo}
+            </a>
           </>
         ) : null}
+        {fact.tip.said ? <span className="sr">: {fact.tip.said}</span> : null}
       </span>
       {fact.today ? <span className="rtoday">{TODAY}</span> : null}
     </span>

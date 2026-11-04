@@ -1,5 +1,6 @@
 import type { RunJudged } from '../src/run-outcome.js';
 import type { ActionItem, BlameView, CacheMissView, CallDetail, CheckView, FixView, Intervention, Meta, NotRecordedView, PromptChoice, RunDetail, RunListItem, RunOutcomeView, RunStateView } from './types.js';
+import { CHECK_STATUSES } from '../../engine/src/check-status.js';
 import { isObject } from '../../engine/src/is-object.js';
 import { lostRange } from '../../engine/src/run-verdicts.js';
 import { int, num, str } from '../src/fields.js';
@@ -34,24 +35,19 @@ export function normalizeMeta(m: Meta): Meta {
 
 // ---------------------------------------------------------------------------------------------- the run list
 
-/**
- * The run list: where blame found a run lost (`lostAt` or `blame`), and which runs are attempts
- * bundled under another (`attemptKind`, the server's classification by the engine's one rule, and
- * `attemptOf`, the run it is bundled under). An attempt whose run is not in the list is listed like
- * any run, rather than vanishing.
- */
-const VERDICTS = ['passed', 'failed', 'inconclusive', 'not-applicable'] as const;
+/** How a check can come out, as the engine says it. */
+const VERDICTS: readonly string[] = CHECK_STATUSES;
 
 /**
  * A run's outcome by checks as the server judged it (run-outcome.ts), field by field; null for one
  * that isn't one. Each check its page shows on hover is kept only whole.
  */
 export function normalizeJudged(v: unknown): RunJudged | null {
-  if (!isObject(v) || (v.by !== 'own' && v.by !== 'import' && v.by !== 'family') || !VERDICTS.includes(v.verdict as RunJudged['verdict']) || !isObject(v.counts)) return null;
+  if (!isObject(v) || (v.by !== 'own' && v.by !== 'import' && v.by !== 'family') || !VERDICTS.includes(v.verdict as string) || !isObject(v.counts)) return null;
   const n = (x: unknown) => int(x) ?? 0;
   const first = isObject(v.first) && typeof v.first.label === 'string' ? { label: v.first.label, detail: str(v.first.detail) } : null;
   const checks = Array.isArray(v.checks)
-    ? v.checks.filter(isObject).flatMap((c) => (typeof c.label === 'string' && VERDICTS.includes(c.status as RunJudged['verdict']) ? [{ label: c.label, status: c.status as RunJudged['verdict'], detail: str(c.detail), callNo: int(c.callNo), ...(typeof c.golden === 'string' ? { golden: c.golden } : {}) }] : []))
+    ? v.checks.filter(isObject).flatMap((c) => (typeof c.label === 'string' && VERDICTS.includes(c.status as string) ? [{ label: c.label, status: c.status as RunJudged['verdict'], detail: str(c.detail), callNo: int(c.callNo), ...(typeof c.golden === 'string' ? { golden: c.golden } : {}) }] : []))
     : null;
   return {
     by: v.by,
@@ -62,17 +58,31 @@ export function normalizeJudged(v: unknown): RunJudged | null {
     today: v.today === true,
     goldens: Array.isArray(v.goldens) ? v.goldens.filter((g): g is string => typeof g === 'string') : [],
     why: str(v.why),
+    ...(v.since === 'packed' || v.since === 'changed' ? { since: v.since } : {}),
     ...(checks ? { checks } : {}),
   };
 }
 
-/** A run's or a row's `judged`, normalized where it has one. */
-const judgedOf = (v: { judged?: unknown }): { judged?: RunJudged | null } => (v.judged === undefined ? {} : { judged: normalizeJudged(v.judged) });
+/**
+ * A run's or a row's `judged`, normalized where it has one, and its agent's exit code where a test
+ * result kept it: a whole number, or none.
+ */
+function judgedOf(v: { judged?: unknown; exitCode?: unknown }): { judged?: RunJudged | null; exitCode?: number } {
+  const code = int(v.exitCode);
+  return { ...(v.judged === undefined ? {} : { judged: normalizeJudged(v.judged) }), ...(code !== null ? { exitCode: code } : {}) };
+}
 
+/**
+ * The run list: where blame found a run lost (`lostAt` or `blame`), and which runs are attempts
+ * bundled under another (`attemptKind`, the server's classification by the engine's one rule, and
+ * `attemptOf`, the run it is bundled under). An attempt whose run is not in the list is listed like
+ * any run, rather than vanishing.
+ */
 export function normalizeRuns(list: readonly RunListItem[]): RunListItem[] {
   const ids = new Set(list.map((r) => r.runId));
   return list.map((r) => {
-    const out: RunListItem = { ...r, ...judgedOf(r) };
+    const { exitCode: _code, ...row } = r;
+    const out: RunListItem = { ...row, ...judgedOf(r) };
     const lost = int(r.lostAt);
     if (!(isObject(r.blame) && int(r.blame.callNo) !== null) && lost !== null) out.blame = { callNo: lost };
     const of = str(r.attemptOf);
@@ -209,7 +219,8 @@ export function normalizeState(v: unknown): RunStateView | null {
 }
 
 export function normalizeRunDetail(d: RunDetail): RunDetail {
-  const out: RunDetail = { ...d, actions: normalizeActions(d.actions), ...judgedOf(d) };
+  const { exitCode: _code, ...run } = d;
+  const out: RunDetail = { ...run, actions: normalizeActions(d.actions), ...judgedOf(d) };
   if (d.state !== undefined) out.state = normalizeState(d.state);
   // The attempts deleting it takes with it: a count, or, unsaid, none named.
   if (d.attempts !== undefined) {

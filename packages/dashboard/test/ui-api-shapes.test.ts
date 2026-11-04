@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeAction, normalizeActions, normalizeMeta, normalizeRunDetail, normalizeRuns, sentence } from '../ui/normalize.js';
-import { copyAmbiguous, copyRunId, exportStartRun, familyLine, isAttempt, isFailed, repeatBundle, runOutcome, runType, type RepeatAttempt, type RunLike } from '../ui/runs.js';
+import { copyAmbiguous, copyRunId, exportStartRun, familyLine, isAttempt, isFailed, repeatBundle, runOutcome, runType, sideStatus, type RepeatAttempt, type RunLike } from '../ui/runs.js';
 import type { ActionItem, RunDetail, RunListItem } from '../ui/types.js';
 
 // The dashboard reads what other parts of the API send in their own shapes: these turn each into
@@ -55,10 +55,11 @@ describe('meta', () => {
 });
 
 describe('the run list', () => {
-  it('reads where blame lost a run from lostAt, as the Runs table’s rows say it', () => {
+  it('reads where blame lost a run from lostAt, as the sidebar says it, and the check it failed in the Runs table’s rows', () => {
     const [lost, plain] = normalizeRuns([row('01A', { lostAt: 17 }), row('01B', { lostAt: null })]);
     expect(lost.blame).toEqual({ callNo: 17 });
-    expect(runOutcome(lost)).toEqual({ tone: 'err', text: 'lost at #17' });
+    expect(sideStatus(lost)).toEqual({ text: 'lost at #17', tone: 'err' });
+    expect(runOutcome(lost)).toEqual({ tone: 'err', text: 'check failed' });
     expect(isFailed(lost)).toBe(true);
     expect(plain.blame).toBeUndefined();
   });
@@ -73,12 +74,12 @@ describe('the run list', () => {
     expect(runType(server)).toBe('recording');
     expect(runOutcome(server)).toEqual({ tone: 'ok', text: '2 checks passed' });
     expect(runOutcome({ ...row('01Q'), outcome: { kind: 'check-failed', check: 'send_email called 0×' } })).toEqual({ tone: 'err', text: 'check failed' });
-    expect(runOutcome({ ...row('01R'), outcome: { kind: 'diverged', callNo: 1 } })).toEqual({ tone: 'err', text: 'diverged at #1' });
+    expect(runOutcome({ ...row('01R'), outcome: { kind: 'diverged', callNo: 1 } })).toEqual({ tone: 'err', text: 'diverged at #1', at: { words: 'diverged at', callNo: 1 } });
     expect(runOutcome({ ...row('01S'), outcome: { kind: 'none' } })).toEqual({ tone: 'n', text: '—' });
     expect(isFailed({ ...row('01T', { status: 'failed' }), failed: false })).toBe(false);
     // Without them: today's fields.
     expect(runType(row('01U', { mode: 'replay', parentRunId: '01P', divergence: { callNo: 17, type: 'request_changed' } }))).toBe('fork');
-    expect(runOutcome(row('01V', { status: 'failed' }))).toEqual({ tone: 'err', text: 'failed' });
+    expect(runOutcome(row('01V', { status: 'failed' }))).toEqual({ tone: 'err', text: 'exited with an error' });
   });
 });
 

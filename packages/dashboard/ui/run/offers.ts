@@ -1,4 +1,4 @@
-import { num, shortId } from '../format.js';
+import { goldenName, num, shortId } from '../format.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { bisectCost } from '../runspage/find-commit.js';
@@ -74,8 +74,8 @@ export function updatesAfterRules(t: Pick<TestBannerOffer, 'normalizeAndTest'>):
   return !!t.normalizeAndTest && (t.normalizeAndTest.at(-1) ?? []).includes('--update');
 }
 
-/** A golden as the Tests screen names it: its path without the goldens folder. */
-export const goldenName = (golden: string): string => golden.replace(/^goldens\//, '');
+/** A golden as the Tests screen names it (format.ts). */
+export { goldenName };
 
 /**
  * The diverged test's actions. Once every rule Add normalizer adds is in the config, the banner says

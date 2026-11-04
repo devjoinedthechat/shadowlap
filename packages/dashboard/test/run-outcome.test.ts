@@ -10,6 +10,10 @@ import { runJob } from '../src/read-jobs.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import { outcomeWork } from '../src/outcome-work.js';
 import { judgedRows, runJudged, type OutcomeWork, type RunJudged } from '../src/run-outcome.js';
+import { normalizeRunDetail } from '../ui/normalize.js';
+import { outcomeFact } from '../ui/run/metrics.js';
+import { runLikeOf } from '../ui/run/model.js';
+import type { RunDetail } from '../ui/types.js';
 import { loadRunIndex } from '../src/run-index.js';
 import type { GoldenSource } from '../src/tests.js';
 import { recordLoop } from './long-run.js';
@@ -136,12 +140,13 @@ describe('a list of runs', () => {
     const rec = refund(store, { amount: 200 });
     const own = refund(store, { amount: 300, parent: rec, startedAt: T0 + 120_000, meta: { checks: [{ status: 'failed', ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }] } });
     // Past the budget the row waits, as its totals do; within it, the count's call: the email, #5.
-    expect(judgedRows(store, [{ runId: own }], null, 0)).toEqual([{ runId: own }]);
-    const [row] = judgedRows(store, [{ runId: own }], null, 6, { checks: true });
+    const rows: Array<{ runId: string; judged?: RunJudged | null }> = [{ runId: own }];
+    expect(judgedRows(store, rows, null, 0)).toEqual([{ runId: own }]);
+    const [row] = judgedRows(store, rows, null, 6, { checks: true });
     expect(row?.judged).toMatchObject({ by: 'own', verdict: 'failed', callNo: 5, checks: [{ status: 'failed', callNo: 5 }] });
     // Once judged, a list has it with no budget at all, and without each check where it shows none.
-    expect(judgedRows(store, [{ runId: own }], null, 0)[0]?.judged).toEqual(expect.objectContaining({ callNo: 5 }));
-    expect(judgedRows(store, [{ runId: own }], null, 0)[0]?.judged?.checks).toBeUndefined();
+    expect(judgedRows(store, rows, null, 0)[0]?.judged).toEqual(expect.objectContaining({ callNo: 5 }));
+    expect(judgedRows(store, rows, null, 0)[0]?.judged?.checks).toBeUndefined();
     store.close();
   });
 
@@ -153,7 +158,8 @@ describe('a list of runs', () => {
     try {
       // A project with goldens and counts, and no rule on calls.
       const counts = work(cap, { tests: { 'goldens/refund': { expect: { tools: { send_email: '<= 1' } } } } });
-      const rows = judgedRows(store, [{ runId: cap }, { runId: next }], counts, 6);
+      const listed: Array<{ runId: string; judged?: RunJudged | null }> = [{ runId: cap }, { runId: next }];
+      const rows = judgedRows(store, listed, counts, 6);
       expect(rows[0]?.judged).toBeNull();
       expect(read.mock.calls.map(([id]) => id)).toEqual([next]);
       expect(rows[1]?.judged).toMatchObject({ callNo: 5 });
@@ -314,11 +320,28 @@ describe('a run of 100,000 calls', () => {
     const golden: GoldenSource = { path: 'goldens/report', runId: run.runId, packedAt: Date.now(), mode: 'replay', repeat: 1, passes: 1, checks: ['read_file called at most 10 times'] };
     dash = await startDashboard({ store, dbPath, port: 0, project: { path: dir }, goldens: () => [golden] });
     const read = vi.spyOn(store, 'getCalls');
-    try {
-      const res = await fetch(`${dash.url}/api/runs/${run.runId}/outcome`, { headers: { 'x-shadowlap-token': dash.token } });
+    const get = async (path: string) => {
+      const res = await fetch(`${dash!.url}/api/runs/${run.runId}${path}`, { headers: { 'x-shadowlap-token': dash!.token } });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { judged: RunJudged };
+      return res.json();
+    };
+    // What the page's first fact shows of an answer: the payload's verdict, or nothing yet where it has none (RunMetrics).
+    const fact = (body: unknown) => {
+      const d = normalizeRunDetail(body as RunDetail);
+      return outcomeFact({ ...runLikeOf(d), judged: d.judged ?? null }, { tools: d.summary.byKind.tool, pending: d.judged === undefined });
+    };
+    try {
+      // Its first answer comes from its first calls, before its analysis judged it: no verdict yet, never "no checks".
+      const first = await get('');
+      expect(first).toMatchObject({ warming: { total: 100_000 } });
+      expect(first).not.toHaveProperty('judged');
+      expect(fact(first)).toMatchObject({ words: '…', callNo: null });
+      // The page asks for the outcome alone meanwhile, which the run's thread works out whole.
+      const body = (await get('/outcome')) as { judged: RunJudged };
       expect(body.judged).toMatchObject({ by: 'family', verdict: 'failed', callNo: 22, today: true, goldens: ['goldens/report'] });
+      // Asked again, its page has it, and says what the outcome does.
+      const again = await get('');
+      expect(fact(again)).toMatchObject({ tone: 'err', words: 'check failed at', callNo: 22, today: true });
       expect(read).not.toHaveBeenCalled();
     } finally {
       read.mockRestore();

@@ -76,6 +76,8 @@ export interface RunListExtras {
   about?: RunAbout | null;
   /** Its outcome by checks, as the server judged it (run-outcome.ts); absent from an older server, and while it isn't judged yet. */
   judged?: RunJudged | null;
+  /** For a test replay its agent's exit failed: the code, as its test result keeps it. */
+  exitCode?: number;
 }
 export type RunListItem = Omit<ServerRunListItem, 'about'> & RunListExtras;
 

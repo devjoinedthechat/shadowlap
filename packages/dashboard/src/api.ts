@@ -4,6 +4,7 @@ import { kindFacts, lookupRun, modelResolver, runLabel } from '@shadowlap/engine
 import { presetMarks, type PresetMark } from './chaos.js';
 import { fixForRun, type FixForRun } from './fixes.js';
 import { aboutOfRun, aboutsOf } from './run-about.js';
+import { exitCodes } from './exit-codes.js';
 import type { RunJudged } from './run-outcome.js';
 import { captureSource, loadRunIndex } from './run-index.js';
 import { recentRuns, type RunRow } from './runs-list.js';
@@ -187,6 +188,8 @@ export interface RunDetail extends RunPageFacts {
    * a long run's first answer, until its analysis has judged it.
    */
   judged?: RunJudged | null;
+  /** For a test replay its agent's exit failed: the code, as its test result keeps it (run-outcome.ts `exitCodes`). */
+  exitCode?: number;
 }
 
 export interface CallDetail {
@@ -436,6 +439,7 @@ function firstPageOfLongRun(store: Store, run: RunRecord, shown: RunRecord, stat
     state,
     attemptPlace: attemptPlace(store, run),
     warming: { done: head.length, total: whole.calls },
+    ...exitOf(store, shown),
   };
 }
 
@@ -482,7 +486,14 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
     attemptPlace: attemptPlace(store, run),
     ...(after === undefined ? {} : { after }),
     ...(whole ? {} : { warming: { done, total: calls.length } }),
+    ...exitOf(store, shown),
   };
+}
+
+/** A test replay's agent exit code, where its exit failed it and its test result kept the code. */
+function exitOf(store: Store, run: RunRecord): Pick<RunDetail, 'exitCode'> {
+  const code = exitCodes(store, [{ runId: run.runId, status: run.status, test: run.meta?.test ?? null }]).get(run.runId);
+  return code === undefined ? {} : { exitCode: code };
 }
 
 /** A page of a run's calls (`GET /api/runs/:id/calls?from=&limit=`, contract 8). */

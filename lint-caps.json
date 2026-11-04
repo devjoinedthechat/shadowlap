@@ -485,7 +485,7 @@
       "trainingView": 182
     },
     "packages/dashboard/ui/api.ts": {
-      "createClient": 189
+      "createClient": 177
     },
     "packages/dashboard/ui/components/Drawer.tsx": {
       "Drawer": 176

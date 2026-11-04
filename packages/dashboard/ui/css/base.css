@@ -202,6 +202,9 @@ table.t th.num, table.calls th.num, table.calls th.n { font: 500 10px var(--mono
    two lines tall anyway, rather than take the Run column's room */
 .st.fk { color: var(--dim); }
 .st.fk i { background: var(--line2); }
+/* muted: a verdict that is none (not applicable), or no check at all, by a grey dot */
+.st.mu { color: var(--faint); }
+.st.mu i { background: var(--line2); }
 
 .nil { color: var(--faint); }
 .st.live { color: var(--ink); }
