@@ -3,11 +3,12 @@ import { describe, expect, it } from 'vitest';
 import { recordBlame, Store } from '@shadowlap/engine';
 import { fixKey, parseStoreUrl, pull, push, type SyncContext } from '@shadowlap/remote';
 import { MemoryStore } from './fakes/memory.js';
-import { blameReport, EXPECT, makeRun } from '../../engine/test/fix-fixtures.js';
+import { blameReport, EXPECT, makeRun, ORACLE } from '../../engine/test/fix-fixtures.js';
 
 /**
  * What a store keeps for its owner alone stays on this machine: the advice they put away in the
- * dashboard (dismissals) never goes up with a push, and a pull never brings anyone's down.
+ * dashboard (dismissals) never goes up with a push, and a pull never brings anyone's down. And what
+ * a pull does bring keeps what the store keeps of it here: a fix starts its checks with its own.
  */
 
 const loc = parseStoreUrl('s3://agent-runs/team');
@@ -63,4 +64,19 @@ describe('what stays on this machine', () => {
     ]);
   });
 
+  it('starts a pulled fix with the check it came with as its first, from when it was opened, by whoever opened it', async () => {
+    const remote = new MemoryStore(loc);
+    const dana = machine(remote, 'dana@northwind.example');
+    const { fixId } = blamed(dana.store);
+    expect((await push(dana, { all: true })).fixes.sent).toEqual([fixId]);
+
+    const maya = machine(remote, 'maya@northwind.example');
+    await pull(maya);
+    const fix = maya.store.getFix(fixId)!;
+    expect(fix.check).toMatchObject({ expect: EXPECT, oracle: ORACLE });
+    expect(maya.store.fixChecks(fixId)).toEqual([{ fixId, position: 0, at: 2_000, actor: 'dana@northwind.example', check: fix.check }]);
+    // Pulled again, the fix is merged, not kept anew: still the one check.
+    await pull(maya);
+    expect(maya.store.fixChecks(fixId)).toHaveLength(1);
+  });
 });

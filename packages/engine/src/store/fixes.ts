@@ -1,15 +1,15 @@
 /**
  * Fixes: each failure from the blame that reproduced it to a change that held (fixes), the runs and
- * reports linked to it (fix_links), and every blame, verdict and repair report, kept whole (blames,
- * verdicts, repairs).
+ * reports linked to it (fix_links), each check it has had (fix_checks), and every blame, verdict and
+ * repair report, kept whole (blames, verdicts, repairs).
  */
 import type { BlameReport } from '../blame.js';
 import type { RepairOutcome, RepairReport } from '../repair.js';
 import type { VerifyOutcome, VerifyReport } from '../verify.js';
 import { StorePart } from './core.js';
 
-// ---- Fixes (v4): the rows of the fixes, fix_links, blames, verdicts and repairs tables. fixes.ts
-// decides what goes in them; these are only their shapes.
+// ---- Fixes (v4): the rows of the fixes, fix_links, fix_checks (v6), blames, verdicts and repairs
+// tables. fixes.ts decides what goes in them; these are only their shapes.
 
 export type FixStatus = 'open' | 'verified' | 'applied';
 export type FixLinkKind = 'failing' | 'good' | 'blame' | 'repair' | 'verify';
@@ -22,9 +22,10 @@ export interface StoredFix {
   /** Every label but `good` its failing runs carried when they joined it, in the order they came. */
   labels: string[];
   /**
-   * The check its first blame was made under: the `--expect` JSON as given (null for the exit code
-   * alone), its canonical key (`check:<canonical JSON>`, `check:exit`), the oracle as the labels of
-   * what a passing run does, and in words.
+   * The check it has: the one its first blame was made under, or the one it was given since
+   * (setFixCheck; fixChecks keeps each it has had). The `--expect` JSON as given (null for the exit
+   * code alone), its canonical key (`check:<canonical JSON>`, `check:exit`), the oracle as the labels
+   * of what a passing run does, and in words.
    */
   check: { expect: unknown; key: string; oracle: string[]; text: string };
   status: FixStatus;
@@ -129,6 +130,22 @@ export interface StoredVerdict {
   pulled?: PulledFrom | null;
 }
 
+/**
+ * A check a fix has had (v6): the one its first blame was made under, or one it was given since
+ * (setFixCheck). A blame, repair or verdict made under it keeps it, by its key, once the fix has
+ * another.
+ */
+export interface StoredFixCheck {
+  fixId: string;
+  /** Its place among the fix's checks: 0 for the first. */
+  position: number;
+  /** When the fix took it, and who gave it: for the first, its blame's author (`data.openedBy`). */
+  at: number;
+  actor: string | null;
+  /** The check, as a fix holds it. */
+  check: StoredFix['check'];
+}
+
 /** One `shadowlap repair`: its report.json, and where its files are. */
 export interface StoredRepair {
   /** The name of its directory, `repair-<time>`. */
@@ -145,28 +162,23 @@ export interface StoredRepair {
 }
 
 export abstract class Fixes extends StorePart {
-  // ---- Fixes (v4): fixes, their links, and the blame, verdict and repair reports behind them ----
+  // ---- Fixes (v4): fixes, their links and (v6) checks, and the blame, verdict and repair reports behind them ----
 
+  /** Keeps a new fix, with its check as the first of its checks (fixChecks), at once. */
   insertFix(fix: StoredFix): void {
-    this.db
-      .prepare(
-        `INSERT INTO fixes (fix_id, title, labels, check_key, check_expect, check_oracle, check_text, status, opened_at, verified_at, applied_at, data)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        fix.fixId,
-        fix.title,
-        JSON.stringify(fix.labels),
-        fix.check.key,
-        fix.check.expect === null || fix.check.expect === undefined ? null : JSON.stringify(fix.check.expect),
-        JSON.stringify(fix.check.oracle),
-        fix.check.text,
-        fix.status,
-        fix.openedAt,
-        fix.verifiedAt,
-        fix.appliedAt,
-        JSON.stringify(fix.data),
-      );
+    const write = () => {
+      this.db
+        .prepare(
+          `INSERT INTO fixes (fix_id, title, labels, check_key, check_expect, check_oracle, check_text, status, opened_at, verified_at, applied_at, data)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(fix.fixId, fix.title, JSON.stringify(fix.labels), ...checkColumns(fix.check), fix.status, fix.openedAt, fix.verifiedAt, fix.appliedAt, JSON.stringify(fix.data));
+      this.db
+        .prepare(`INSERT INTO fix_checks (fix_id, position, at, check_key, check_expect, check_oracle, check_text, actor) VALUES (?, 0, ?, ?, ?, ?, ?, ?)`)
+        .run(fix.fixId, fix.openedAt, ...checkColumns(fix.check), fix.data.openedBy ?? null);
+    };
+    if (this.db.isTransaction) write();
+    else this.transaction(write);
   }
 
   getFix(fixId: string): StoredFix | null {
@@ -223,6 +235,37 @@ export abstract class Fixes extends StorePart {
       ? this.db.prepare(`SELECT * FROM fix_links WHERE ref = ? AND kind = ? ORDER BY at ASC, fix_id ASC`).all(ref, kind)
       : this.db.prepare(`SELECT * FROM fix_links WHERE ref = ? ORDER BY at ASC, fix_id ASC`).all(ref);
     return rows.map(rowToFixLink);
+  }
+
+  /** Each check a fix has had, the first first: the last is the one it has. None for an unknown fix. */
+  fixChecks(fixId: string): StoredFixCheck[] {
+    return this.db.prepare(`SELECT * FROM fix_checks WHERE fix_id = ? ORDER BY position ASC`).all(fixId).map(rowToFixCheck);
+  }
+
+  /**
+   * Gives a fix another check (`shadowlap fix check`): its key, `--expect`, oracle and words take the
+   * place of the ones it has, and its checks (fixChecks) gain it as the newest, at once, so what was
+   * made under the one before keeps it. Only the check changes: whether the fix is open or verified
+   * is the caller's to say. False, with nothing written, when it is the fix's check already; an
+   * unknown fix throws.
+   */
+  setFixCheck(fixId: string, check: StoredFix['check'], o: { at?: number; actor?: string | null } = {}): boolean {
+    const write = (): boolean => {
+      const columns = checkColumns(check);
+      const done = this.db.prepare(`UPDATE fixes SET check_key = ?, check_expect = ?, check_oracle = ?, check_text = ? WHERE fix_id = ? AND check_key <> ?`).run(...columns, fixId, check.key);
+      if (Number(done.changes) === 0) {
+        if (!this.db.prepare(`SELECT 1 AS x FROM fixes WHERE fix_id = ?`).get(fixId)) throw new Error(`unknown fix ${fixId}`);
+        return false;
+      }
+      this.db
+        .prepare(
+          `INSERT INTO fix_checks (fix_id, position, at, check_key, check_expect, check_oracle, check_text, actor)
+           SELECT ?, COALESCE(MAX(position) + 1, 0), ?, ?, ?, ?, ?, ? FROM fix_checks WHERE fix_id = ?`,
+        )
+        .run(fixId, o.at ?? Date.now(), ...columns, o.actor ?? null, fixId);
+      return true;
+    };
+    return this.db.isTransaction ? write() : this.transaction(write);
   }
 
   putBlame(b: StoredBlame): void {
@@ -292,6 +335,17 @@ const strings = (v: unknown): string[] => {
   return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
 };
 
+/** A check as its columns keep it (check_key, check_expect, check_oracle, check_text): the --expect and the oracle as JSON, no --expect (the exit code alone) as null. */
+const checkColumns = (c: StoredFix['check']): [string, string | null, string, string] => [c.key, c.expect === null || c.expect === undefined ? null : JSON.stringify(c.expect), JSON.stringify(c.oracle), c.text];
+
+/** A check read back from those columns, in a fix's row or its checks'. */
+const checkOf = (row: Record<string, unknown>): StoredFix['check'] => ({
+  expect: typeof row.check_expect === 'string' ? (JSON.parse(row.check_expect) as unknown) : null,
+  key: String(row.check_key),
+  oracle: strings(row.check_oracle),
+  text: String(row.check_text),
+});
+
 /** A blame's or a verdict's flags and where a pull brought it from, as its record keeps them: only those it has. */
 function extras(r: Pick<StoredBlame, 'rerun' | 'pulled'>): { rerun?: StepRerun; pulled?: PulledFrom } {
   return { ...(r.rerun ? { rerun: r.rerun } : {}), ...(r.pulled ? { pulled: r.pulled } : {}) };
@@ -326,13 +380,17 @@ function rowToFix(row: Record<string, unknown>): StoredFix {
     fixId: String(row.fix_id),
     title: String(row.title),
     labels: strings(row.labels),
-    check: { expect: typeof row.check_expect === 'string' ? (JSON.parse(row.check_expect) as unknown) : null, key: String(row.check_key), oracle: strings(row.check_oracle), text: String(row.check_text) },
+    check: checkOf(row),
     status: row.status as FixStatus,
     openedAt: Number(row.opened_at),
     verifiedAt: nullableNumber(row.verified_at),
     appliedAt: nullableNumber(row.applied_at),
     data: typeof row.data === 'string' ? (record(row.data)) : {},
   };
+}
+
+function rowToFixCheck(row: Record<string, unknown>): StoredFixCheck {
+  return { fixId: String(row.fix_id), position: Number(row.position), at: Number(row.at), actor: row.actor === null || row.actor === undefined ? null : String(row.actor), check: checkOf(row) };
 }
 
 function rowToFixLink(row: Record<string, unknown>): FixLink {

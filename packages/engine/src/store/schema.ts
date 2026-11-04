@@ -183,8 +183,24 @@ CREATE TABLE IF NOT EXISTS repairs (
   accepted   INTEGER NOT NULL,
   record     TEXT    NOT NULL
 );
--- Any write to a fix, its links or the reports behind it moves the 'fixes' counter, whoever makes
--- it (the CLI's blame, repair, fix title or apply, the dashboard, a pull): the Fixes pages follow it.
+-- v6: each check a fix has had, in the order it had them, the last the one it has (its own check_*
+-- columns): the check its first blame was made under, then each one it was given since, with when
+-- and by whom. A blame, repair or verdict made under an earlier check keeps that check here, by its
+-- key, after the fix takes another. A fix kept before has the check it has as its first.
+CREATE TABLE IF NOT EXISTS fix_checks (
+  fix_id        TEXT    NOT NULL REFERENCES fixes(fix_id) ON DELETE CASCADE,
+  position      INTEGER NOT NULL,
+  at            INTEGER NOT NULL,
+  check_key     TEXT    NOT NULL,
+  check_expect  TEXT,
+  check_oracle  TEXT    NOT NULL,
+  check_text    TEXT    NOT NULL,
+  actor         TEXT,
+  PRIMARY KEY (fix_id, position)
+);
+-- Any write to a fix, its links, its checks or the reports behind it moves the 'fixes' counter,
+-- whoever makes it (the CLI's blame, repair, fix title or apply, the dashboard, a pull): the Fixes
+-- pages follow it.
 INSERT OR IGNORE INTO change_counts (name, n) VALUES ('fixes', 0);
 CREATE TRIGGER IF NOT EXISTS change_counts_fixes_insert AFTER INSERT ON fixes BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'fixes'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_fixes_update AFTER UPDATE ON fixes BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'fixes'; END;
@@ -192,6 +208,9 @@ CREATE TRIGGER IF NOT EXISTS change_counts_fixes_delete AFTER DELETE ON fixes BE
 CREATE TRIGGER IF NOT EXISTS change_counts_fix_links_insert AFTER INSERT ON fix_links BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'fixes'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_fix_links_update AFTER UPDATE ON fix_links BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'fixes'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_fix_links_delete AFTER DELETE ON fix_links BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'fixes'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_fix_checks_insert AFTER INSERT ON fix_checks BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'fixes'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_fix_checks_update AFTER UPDATE ON fix_checks BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'fixes'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_fix_checks_delete AFTER DELETE ON fix_checks BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'fixes'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_blames_insert AFTER INSERT ON blames BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'fixes'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_verdicts_insert AFTER INSERT ON verdicts BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'fixes'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_repairs_insert AFTER INSERT ON repairs BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'fixes'; END;
@@ -670,6 +689,23 @@ export function storeFileProblem(path: string): string | null {
   return storeDirProblem(dirname(path));
 }
 
+/**
+ * v6, what the dashboard's pages keep, in one step. The SCHEMA above creates its tables and triggers
+ * (dismissals, fix_checks); a fix kept before (`found` is the version the store was at) has its check
+ * as the first of its checks.
+ */
+function addVersion6(db: SqliteDatabase, found: number | null): void {
+  if (found === null || found >= 6) return;
+  // Its first check's author is the fix's (data.openedBy), when its data says one: data that doesn't
+  // read as JSON is never handed to json_type, which would refuse it and the store with it.
+  db.exec(
+    `INSERT INTO fix_checks (fix_id, position, at, check_key, check_expect, check_oracle, check_text, actor)
+     SELECT fix_id, 0, opened_at, check_key, check_expect, check_oracle, check_text,
+       CASE WHEN json_valid(data) THEN CASE WHEN json_type(data, '$.openedBy') = 'text' THEN json_extract(data, '$.openedBy') END END
+     FROM fixes WHERE NOT EXISTS (SELECT 1 FROM fix_checks c WHERE c.fix_id = fixes.fix_id)`,
+  );
+}
+
 /** Takes group and other permissions off a store created by an earlier version. */
 function restrictToOwner(path: string): void {
   if (process.platform === 'win32' || typeof process.getuid !== 'function') return;
@@ -766,6 +802,7 @@ export function openDatabase(path: string): SqliteDatabase {
     // build kept has none, its spend having counted them.
     const scoreColumns = db.prepare(`PRAGMA table_info(task_scores)`).all().map((r) => String(r.name));
     if (!scoreColumns.includes('judge_spent')) db.exec(`ALTER TABLE task_scores ADD COLUMN judge_spent REAL`);
+    addVersion6(db, found);
     db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)`).run(String(SCHEMA_VERSION));
     db.exec('COMMIT');
   } catch (err) {
