@@ -4,34 +4,64 @@ import { copyText } from '../dom.js';
 import { shellWords } from '../format.js';
 import { ORIGIN_NAME, type Origin7 } from '../origins.js';
 import { useApp } from '../state.js';
+import { Facts, type Fact } from './Facts.js';
 import { Icon } from './Icon.js';
+import { ErrorState } from './States.js';
 
 /**
  * The small parts every screen is built from. Each renders the design system's classes; see
  * components/README.md for which to reach for.
  */
 
-/** The small capitals above a title. */
+export { SegmentedControl as Seg } from './Segmented.js';
+export { EmptyState } from './States.js';
+
+/**
+ * The muted line above a page's title, the same on every page and the run page's alike: what the
+ * page is, the project and a noun for what it shows ("support-agent · this week"), or a thing's
+ * kind and its name ("fix · refund-bug"). Mono, small capitals, never lime, never a tagline.
+ */
 export function Eyebrow({ tone, children }: { tone?: 'fork' | 'err' | 'n' | undefined; children: ReactNode }) {
-  return (
-    <div className={`eyebrow${tone ? ` ${tone}` : ''}`}>
-      <i />
-      {children}
-    </div>
-  );
+  return <div className={`eyebrow${tone ? ` ${tone}` : ''}`}>{children}</div>;
 }
 
-/** A page's header: eyebrow, title, a line, and the page's actions on the right. */
-export function PageHeader({ eyebrow, title, text, actions, eyebrowTone, className }: { eyebrow?: ReactNode; title: ReactNode; text?: ReactNode; actions?: ReactNode; eyebrowTone?: 'fork' | 'err'; className?: string | undefined }) {
+/**
+ * One header on every page: the eyebrow, the title (24/600 in the display face), at most one short
+ * line of context, the page's actions at the top right (under the title on a phone, the lime one
+ * first), then its facts under a hairline (`Facts`), named for a screen reader by the page's title
+ * or by `factsLabel`.
+ */
+export function PageHeader({
+  eyebrow,
+  title,
+  text,
+  actions,
+  eyebrowTone,
+  className,
+  facts,
+  factsLabel,
+}: {
+  eyebrow?: ReactNode;
+  title: ReactNode;
+  text?: ReactNode;
+  actions?: ReactNode;
+  eyebrowTone?: 'fork' | 'err';
+  className?: string | undefined;
+  facts?: readonly Fact[] | undefined;
+  factsLabel?: string | undefined;
+}) {
   return (
-    <div className={`ph${className ? ` ${className}` : ''}`}>
-      <div>
-        {eyebrow ? <Eyebrow tone={eyebrowTone}>{eyebrow}</Eyebrow> : null}
-        <h1>{title}</h1>
-        {text ? <p>{text}</p> : null}
+    <>
+      <div className={`ph${className ? ` ${className}` : ''}`}>
+        <div className="phl">
+          {eyebrow ? <Eyebrow tone={eyebrowTone}>{eyebrow}</Eyebrow> : null}
+          <h1>{title}</h1>
+          {text ? <p>{text}</p> : null}
+        </div>
+        {actions ? <div className="actions">{actions}</div> : null}
       </div>
-      {actions ? <div className="actions">{actions}</div> : null}
-    </div>
+      {facts?.length ? <Facts facts={facts} label={factsLabel ?? (typeof title === 'string' ? title : 'The page')} /> : null}
+    </>
   );
 }
 
@@ -117,19 +147,6 @@ export function Tabs<K extends string>({ items, value, onChange, label }: { item
         <button key={t.key} type="button" role="tab" aria-selected={value === t.key} onClick={() => onChange(t.key)}>
           {t.label}
           {t.count !== undefined ? <span className="count">{t.count.toLocaleString('en-US')}</span> : null}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/** A segmented switch: Chart or Table, Text or Raw. */
-export function Seg<K extends string>({ items, value, onChange, label }: { items: ReadonlyArray<{ key: K; label: string }>; value: K; onChange: (k: K) => void; label: string }) {
-  return (
-    <div className="seg" role="group" aria-label={label}>
-      {items.map((t) => (
-        <button key={t.key} type="button" aria-pressed={value === t.key} onClick={() => onChange(t.key)}>
-          {t.label}
         </button>
       ))}
     </div>
@@ -243,18 +260,6 @@ export function CopyButton({ text, label, children = 'Copy', className = 'linkbt
   );
 }
 
-/** When nothing is here yet: what it is, and the command that makes it. */
-export function EmptyState({ title, text, command, children }: { title: string; text?: ReactNode; command?: string; children?: ReactNode }) {
-  return (
-    <section className="panel stepempty">
-      <h3>{title}</h3>
-      {text ? <p>{text}</p> : null}
-      {command ? <CmdLine>{command}</CmdLine> : null}
-      {children}
-    </section>
-  );
-}
-
 /**
  * In place of a page, or a part of one, whose code didn't load (`onShow`'s `failed`): one line in the
  * error tone, and Retry, which loads the page again, since a browser never asks a second time for a
@@ -262,21 +267,7 @@ export function EmptyState({ title, text, command, children }: { title: string; 
  * (`guard`): loading the page then would leave nothing but the browser's own error.
  */
 export function LoadFailed({ what }: { what: string }) {
-  const { guard } = useApp();
-  return (
-    <section className="loaderr" role="alert">
-      <p>
-        <span className="st err">
-          <i />
-          couldn’t load
-        </span>
-        <span>This {what}’s code didn’t come from the dashboard server. Retry loads the page again.</span>
-      </p>
-      <button className="btn" type="button" onClick={() => guard(() => location.reload())}>
-        Retry
-      </button>
-    </section>
-  );
+  return <ErrorState retry={() => location.reload()}>{`This ${what}’s code didn’t come from the dashboard server. Retry loads the page again.`}</ErrorState>;
 }
 
 export interface Step {
