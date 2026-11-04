@@ -1,22 +1,47 @@
 import type { ComponentType } from 'react';
+import { LoadFailed, PageHeader } from '../components/bits.js';
 import { onShow, type OnShow } from '../components/OnShow.js';
 import { Page } from '../components/Page.js';
 import { setupShowsOn } from '../projects.js';
 import type { Route } from '../route.js';
+import { useRoute } from '../router.js';
+import { projectOf } from '../shell/ProjectBlock.js';
 import { useApp } from '../state.js';
+import { pageTitle } from '../title.js';
 import { NotFoundPage } from './NotFound.js';
 
 /**
  * The pages the dashboard's shell routes to, each in a script of its own that loads the first time
  * the page opens (`onShow`): esbuild splits the bundle at each `import()` (ui-bundles.mjs), so the
  * app's first script holds the shell and what the pages share, and a page's own code comes when it
- * is asked for. While it loads the page waits empty, as it does before the project is known. An
- * exported copy is built from an entry of its own (main-copy.tsx) with the pages it shows
- * (pages/copy.tsx), so nothing here is in it.
+ * is asked for. While it loads the page waits empty, as it does before the project is known; a page
+ * whose code didn't come says so under its title, with Retry (`PageFailed`). An exported copy is
+ * built from an entry of its own (main-copy.tsx) with the pages it shows (pages/copy.tsx), so
+ * nothing here is in it.
  */
 
 function onOpen<P extends object>(load: () => Promise<ComponentType<P>>): OnShow<P> {
-  return onShow(load, <Page>{null}</Page>);
+  return onShow(load, { waiting: <Page>{null}</Page>, failed: <PageFailed /> });
+}
+
+/**
+ * A page whose code didn't come: its title, as the browser's tab names it, over one line that says
+ * so, with Retry (`LoadFailed`), which loads the page again. A run's page is titled by the run's
+ * id, in the code face.
+ */
+function PageFailed() {
+  const route = useRoute();
+  const { exported, meta, runs } = useApp();
+  const setup = setupShowsOn(route, { exported, meta, runs });
+  const run = route.page === 'run' && !setup;
+  const eyebrow = [projectOf(meta)?.name, run ? 'run' : null].filter(Boolean).join(' · ');
+  const problem = meta?.project?.problem ? { name: meta.project.name } : null;
+  return (
+    <Page>
+      <PageHeader eyebrow={eyebrow || undefined} title={pageTitle(route, { setup, problem })} className={run ? 'rerr' : undefined} />
+      <LoadFailed what="page" />
+    </Page>
+  );
 }
 
 export const OverviewPage = onOpen(() => import('./Overview.js').then((m) => m.OverviewPage));

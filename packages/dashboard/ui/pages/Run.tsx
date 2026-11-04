@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { JOB_KINDS, type CallDetail, type RunDetail } from '../api.js';
-import { Legend } from '../components/bits.js';
+import { Legend, LoadFailed } from '../components/bits.js';
 import { useMenu } from '../components/Popover.js';
 import { Page } from '../components/Page.js';
 import { Strip, stripDetail, type StripCall } from '../components/Strip.js';
@@ -44,13 +44,15 @@ import { RunHeader } from '../run/RunHeader.js';
 
 /**
  * The views but Calls, each in a script of its own that loads the first time it shows (`onShow`).
- * The page loads them as it opens, beside the run, so a switch to one draws it at once.
+ * The page loads them as it opens, beside the run, so a switch to one draws it at once. One whose
+ * code didn't come says so in the view, with Retry.
  */
-const TurnsView = onShow(() => import('../run/TurnsView.js').then((m) => m.TurnsView));
-const ContextView = onShow(() => import('../run/ContextView.js').then((m) => m.ContextView));
-const TimelineView = onShow(() => import('../run/TimelineView.js').then((m) => m.TimelineView));
-const ForksView = onShow(() => import('../run/ForksView.js').then((m) => m.ForksView));
-const ProvenanceView = onShow(() => import('../run/ProvenanceView.js').then((m) => m.ProvenanceView));
+const VIEW_OPTIONS = { failed: <LoadFailed what="view" /> };
+const TurnsView = onShow(() => import('../run/TurnsView.js').then((m) => m.TurnsView), VIEW_OPTIONS);
+const ContextView = onShow(() => import('../run/ContextView.js').then((m) => m.ContextView), VIEW_OPTIONS);
+const TimelineView = onShow(() => import('../run/TimelineView.js').then((m) => m.TimelineView), VIEW_OPTIONS);
+const ForksView = onShow(() => import('../run/ForksView.js').then((m) => m.ForksView), VIEW_OPTIONS);
+const ProvenanceView = onShow(() => import('../run/ProvenanceView.js').then((m) => m.ProvenanceView), VIEW_OPTIONS);
 
 function loadViews(): void {
   for (const view of [TurnsView, ContextView, TimelineView, ForksView, ProvenanceView]) view.preload();
