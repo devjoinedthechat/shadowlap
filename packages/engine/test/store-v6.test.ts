@@ -121,6 +121,16 @@ describe('a test session: the pull request it ran for, and what its comment carr
     store.setTestSessionPullRequest(here.sessionId, null);
     expect(store.getTestSession(here.sessionId)?.pullRequest).toBeNull();
     expect(() => store.setTestSessionPullRequest('01NOSESSION', pr)).toThrow('unknown test session 01NOSESSION');
+    // Kept as it reads back, from its start and named later: a number that is no pull request's, and
+    // a page that is no web page's address, are none.
+    const odd = { number: 0, url: 'javascript:alert(1)', source: 'SHADOWLAP_PR' };
+    const started = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], pullRequest: odd, owner: null });
+    expect(started.pullRequest).toEqual({ number: null, url: null, source: 'SHADOWLAP_PR' });
+    expect(store.getTestSession(started.sessionId)?.pullRequest).toEqual(started.pullRequest);
+    store.setTestSessionPullRequest(here.sessionId, { ...odd, number: 7 });
+    expect(store.getTestSession(here.sessionId)?.pullRequest).toEqual({ number: 7, url: null, source: 'SHADOWLAP_PR' });
+    const raw = (store as unknown as { db: { prepare(sql: string): { get(...a: unknown[]): Record<string, unknown> | undefined } } }).db;
+    expect(raw.prepare(`SELECT pull_request FROM test_sessions WHERE session_id = ?`).get(here.sessionId)?.pull_request).toBe(JSON.stringify({ number: 7, url: null, source: 'SHADOWLAP_PR' }));
     store.close();
   });
 

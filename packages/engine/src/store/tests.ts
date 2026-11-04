@@ -217,7 +217,8 @@ export abstract class Tests extends StorePart {
       upstreamRequests: 0,
       actor: input.actor ?? null,
       interrupted: false,
-      pullRequest: input.pullRequest ?? null,
+      // As it reads back: a number or a page that is none is kept as none.
+      pullRequest: pullRequestOf(input.pullRequest ?? null),
       comment: null,
     };
     this.db
@@ -251,9 +252,10 @@ export abstract class Tests extends StorePart {
     return row ? rowToTestSession(row) : null;
   }
 
-  /** Names the pull request a session ran for, in place of the one it named, or none (null). An unknown session throws. */
+  /** Names the pull request a session ran for, as it reads back, in place of the one it named, or none (null). An unknown session throws. */
   setTestSessionPullRequest(sessionId: string, pullRequest: TestSessionPullRequest | null): void {
-    const done = this.db.prepare(`UPDATE test_sessions SET pull_request = ? WHERE session_id = ?`).run(pullRequest === null ? null : JSON.stringify(pullRequest), sessionId);
+    const kept = pullRequestOf(pullRequest);
+    const done = this.db.prepare(`UPDATE test_sessions SET pull_request = ? WHERE session_id = ?`).run(kept === null ? null : JSON.stringify(kept), sessionId);
     if (Number(done.changes) === 0) throw new Error(`unknown test session ${sessionId}`);
   }
 
