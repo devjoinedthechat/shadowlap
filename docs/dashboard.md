@@ -1305,7 +1305,7 @@ Each action has one name wherever it is offered: its button, its menu item and i
 
 The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An item that asks for something first ends in an ellipsis, and its dialog is titled and confirmed with its name: **Inject instruction…** opens *Inject instruction at #17*, confirmed with **Inject instruction**.
 
-- **Repeat 5 times** runs five attempts. A recording's replay offline and start at once. A fork's run live from where it forks, so it asks first, in *Repeat fork 5 times*, confirmed with **Repeat 5 times**.
+- **Repeat 5 times** runs five attempts. On a recording they replay offline, and it starts at once. On a fork they run live from where it forks, so it asks first, in *Repeat fork 5 times*, confirmed with **Repeat 5 times**.
 - **A fork is made again** from its parent, with the flags, command and checks that made it.
 - **An action that needs something from you** (the instruction to inject, the status to fail with, the model to switch to) asks for it in a dialog first. The inject dialog shows the command it runs.
 - **What you type** is passed as text, never read as a file. See [Interventions](./interventions.md).
@@ -1331,7 +1331,7 @@ The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An 
 | OpenTelemetry trace… | A trace sent to a collector, or written to a file (a file only: it is sent nowhere else) |
 | HAR file             | The run's model calls; it also downloads                                                 |
 
-- **Each dialog** says the verb for the copy it makes: **OpenTelemetry trace…** opens *Export OpenTelemetry trace*, confirmed with **Export trace**, **Eval dataset…** *Export eval dataset of* the run, confirmed with **Export dataset**, and **Pack…** confirms with **Pack run**.
+- **Each dialog** says the verb for the copy it makes: *Export OpenTelemetry trace*, confirmed with **Export trace**; *Export eval dataset of* the run, confirmed with **Export dataset**; and Pack's, confirmed with **Pack run**.
 - **Where copies go**: into `.shadowlap/exports/` in the project, unless a pack names another folder, and never through a link that is already there.
 - **Redaction**: the menu says how many redaction rules each copy applies. A trace carries no prompt text, so only the rules without a path.
 - **When**: a run is copied once it has ended.

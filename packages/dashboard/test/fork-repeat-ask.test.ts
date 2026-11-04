@@ -4,8 +4,8 @@ import { actionsFor } from '../src/api.js';
 
 /**
  * The fork menu's Repeat 5 times, as the server lists it for the page: five attempts, nothing to fill
- * in, and on a fork, whose attempts run live from where it forks, the page asks first; a recording's
- * replay offline and start at once.
+ * in, and on a fork, whose attempts run live from where it forks, the page asks first; on a
+ * recording they replay offline, and it starts at once.
  */
 
 const ID = '01K5CQ4N7G0000000000000000';

@@ -66,12 +66,11 @@ export const ACTIONS = {
   addNormalizerAndUpdate: { label: 'Add normalizer and update', doing: 'Adding normalizer and updating golden' },
   addNormalizerRule: { label: 'Add normalizer…' },
   findBreakingCommit: { label: 'Find breaking commit…', doing: 'Finding breaking commit' },
-  // Runs and Training.
-  // A trace from a store too: Activity says what it was.
+  // Runs and Training. Import capture… takes a trace from a store too, which Activity names.
   importCapture: { label: 'Import capture…', doing: 'Importing capture' },
   exportPairs: { label: 'Export pairs…', doing: 'Exporting pairs' },
   scoreModel: { label: 'Score model…', doing: 'Scoring model' },
-  // Share, each item the copy it makes; a dialog says the verb, a dataset's with the runs it copies (`of 01M50J6C69`).
+  // Share, each item the copy it makes, its dialog the verb; a dataset's names the runs it copies.
   exportHtml: { label: 'HTML report', doing: 'Exporting HTML report' },
   pack: { label: 'Pack…', confirm: 'Pack run', doing: 'Packing' },
   exportDataset: { label: 'Eval dataset…', title: 'Export eval dataset', confirm: 'Export dataset', doing: 'Exporting dataset' },
