@@ -32,4 +32,12 @@ describe('the toast a job ends with', () => {
     expect(endToast(done({ kind: 'apply', title: 'Finishing the apply', args: ['fix', 'apply', 'fx-1'], code: 0, result: { status: 'applied', tests: 'passed' } }), [])).toBe('Finished the apply · applied · tests passed · exit 0');
     expect(endToast(done({ args: ['test', 'goldens/a'], code: 1 }), ['5 passed, 1 failed'])).toBe('Ran tests · 1 failed · exit 1');
   });
+
+  it('judges a job of several steps by its last, each step running only once the one before it succeeded', () => {
+    const failed = ['5 passed, 1 failed'];
+    expect(endToast(done({ kind: 'pack-test', title: 'Packing and testing', args: ['pack', 'X', 'goldens/x'], code: 1 }), failed)).toBe('Packed and tested · 1 failed · exit 1');
+    expect(endToast(done({ kind: 'normalize-and-test', title: 'Adding normalizer and re-running', args: ['normalize', 'add'], code: 1 }), failed)).toBe('Added normalizer and re-ran · 1 failed · exit 1');
+    // An update whose checks failed replaced nothing: what ran, then.
+    expect(endToast(done({ kind: 'normalize-and-test', title: 'Adding normalizer and updating golden', args: ['normalize', 'add'], code: 1 }), failed)).toBe('Tried adding normalizer and updating golden · 1 failed · exit 1');
+  });
 });

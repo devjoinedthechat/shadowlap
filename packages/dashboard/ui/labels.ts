@@ -53,7 +53,7 @@ const PAST: Readonly<Record<string, string>> = {
  * failed`, `Replayed · diverged at #3`. Every other one's says it did what it set out to (imported,
  * exported, deleted, repaired, blamed), which a job that came out badly didn't.
  */
-const RAN: ReadonlySet<string> = new Set(['Checking', 'Forking', 'Inspecting', 'Planting', 'Previewing', 'Reading', 'Recording', 'Repeating', 'Replaying', 'Running', 'Testing']);
+const RAN: ReadonlySet<string> = new Set(['Checking', 'Forking', 'Inspecting', 'Planting', 'Previewing', 'Reading', 'Recording', 'Re-running', 'Repeating', 'Replaying', 'Running', 'Testing']);
 
 /** What ran, for a verb whose own words for it are not `Tried <verb>`: a verify checked, a search searched. */
 const TRIED: Readonly<Record<string, string>> = {
@@ -73,19 +73,22 @@ export type JobEnd = 'ok' | 'ran' | 'not';
  * happened: word by word, each -ing word in its past tense (`Adding normalizer and updating golden`
  * ends as `Added normalizer and updated golden`), with no ellipsis, for a job that did what its title
  * says, or whose own status says it did (`applied · tests failed`, after Applying fix); for one that
- * ran and came out badly, only where the past tense says no more than that it ran (`Ran tests`).
- * Otherwise it leads with what ran, the rest of the title as it was: `Tried importing capture`,
- * `Searched for breaking commit`. A title with no -ing word stays as it is.
+ * ran and came out badly, only where the past tense says no more than that it ran (`Ran tests`). A
+ * title of several steps is judged by its last, the one its status is about, as a step runs only once
+ * the one before it succeeded: `Packed and tested · 1 failed`, `Added normalizer and re-ran · 1
+ * failed`. Otherwise it leads with what ran, the rest of the title as it was: `Tried importing
+ * capture`, `Searched for breaking commit`. A title with no -ing word stays as it is.
  */
 export function doneWords(title: string, end: JobEnd, status = ''): string {
   const words = title.replace(/…$/, '').split(' ');
   const first = words[0] ?? '';
-  const pastOf = PAST[first];
-  if (!pastOf) return words.join(' ');
-  const did = end === 'ok' || (end === 'ran' && (RAN.has(first) || status.toLowerCase().startsWith(pastOf.toLowerCase())));
+  const ing = (w: string): string => `${w.charAt(0).toUpperCase()}${w.slice(1)}`;
+  if (!PAST[first]) return words.join(' ');
+  const last = ing(words.filter((w) => PAST[ing(w)]).at(-1)!);
+  const did = end === 'ok' || (end === 'ran' && (RAN.has(last) || status.toLowerCase().startsWith(PAST[last]!.toLowerCase())));
   if (!did) return [TRIED[first] ?? `Tried ${first.toLowerCase()}`, ...words.slice(1)].join(' ');
   const past = (w: string, i: number): string => {
-    const p = PAST[`${w.charAt(0).toUpperCase()}${w.slice(1)}`];
+    const p = PAST[ing(w)];
     return !p ? w : i ? p.toLowerCase() : p;
   };
   return words.map(past).join(' ');
