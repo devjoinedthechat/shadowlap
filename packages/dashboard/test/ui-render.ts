@@ -439,7 +439,7 @@ export interface FakeEvent {
 }
 
 /** React's prop for each event type it hears. */
-const HANDLER: Record<string, string> = { click: 'onClick', mousedown: 'onMouseDown', mousemove: 'onMouseMove', keydown: 'onKeyDown', input: 'onChange', change: 'onChange', focusin: 'onFocus', focusout: 'onBlur' };
+const HANDLER: Record<string, string> = { click: 'onClick', mousedown: 'onMouseDown', mousemove: 'onMouseMove', pointerenter: 'onPointerEnter', keydown: 'onKeyDown', input: 'onChange', change: 'onChange', focusin: 'onFocus', focusout: 'onBlur' };
 
 function dispatch(doc: FakeDocument, win: FakeWindow, target: FakeElement, type: string, init: Partial<FakeEvent>): FakeEvent {
   let stopped = false;
@@ -516,6 +516,10 @@ export interface Rendered {
   byText(selector: string, text: string): FakeElement;
   /** A click on it. */
   click(el: FakeElement): Promise<void>;
+  /** The pointer moving onto it from outside the page, as a mouse's or a finger's does: it and what holds it hear pointerenter. */
+  hover(el: FakeElement): Promise<void>;
+  /** The focus moving to it, as Tab or a screen reader moves it: it and what holds it hear focusin. */
+  focus(el: FakeElement): Promise<void>;
   /** A key pressed where the focus is (or on `el`), heard as the page hears it. Tab moves the focus unless something prevented it. */
   press(key: string, mods?: { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean }, el?: FakeElement): Promise<FakeEvent>;
   /** Types `text` into a field, as one change. */
@@ -563,6 +567,19 @@ export async function render(element: ReactElement): Promise<Rendered> {
         dispatch(doc, win, el, 'mousedown', {});
         el.focus();
         dispatch(doc, win, el, 'click', {});
+      });
+      check();
+    },
+    async hover(el) {
+      await act(async () => {
+        dispatch(doc, win, el, 'pointerenter', {});
+      });
+      check();
+    },
+    async focus(el) {
+      await act(async () => {
+        el.focus();
+        dispatch(doc, win, el, 'focusin', {});
       });
       check();
     },

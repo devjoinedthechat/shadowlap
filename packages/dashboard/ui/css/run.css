@@ -140,6 +140,8 @@
 .filter-in .kbd { position: absolute; right: 7px; top: 50%; transform: translateY(-50%); }
 /* The list puts its rows itself (window-hook.ts), keeping the call asked for in view as rows above it change height: no anchoring of the browser's own moves it as well. */
 .vbody { flex: 1; overflow: auto; min-height: 0; overflow-anchor: none; }
+/* a view whose code couldn't be loaded: its line under the tabs, whose own hairline is above it */
+.vbody > .loaderr { margin: 0; padding: 14px 16px; border-top: 0; }
 table.calls { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.calls th { position: sticky; top: 0; z-index: 1; background: var(--bg); text-align: left; font: 500 10px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); padding: 8px 10px; border-bottom: 1px solid var(--line); }
 table.calls td { padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
