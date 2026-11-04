@@ -128,8 +128,8 @@ function parse(work: OutcomeWork): ParsedWork {
 
 /** What a run judged by its family or again by its rules is kept as, per thread: by the work it was judged by and where its calls stand. */
 const judged = new Map<string, RunJudged | null>();
-/** The most kept: a store's runs' worth, and then the oldest go. */
-const KEEP = 20_000;
+/** The most kept, the oldest going first: most are a run no golden of its family judges, kept as null. */
+const KEEP = 5_000;
 
 const keyOf = (w: ParsedWork, r: IndexedRun, kept: string | null) => `${w.key}|${r.runId}|${r.callEvents}|${r.status}|${String(r.endedAt)}|${kept ?? ''}`;
 
@@ -280,16 +280,17 @@ export function runJudged(store: Store, index: RunIndex, runId: string, work: Ou
   let read: CallRecord[] | null = null;
   const calls: Calls = () => (read ??= o.calls ? o.calls() : store.getCalls(runId));
   if (r.meta.checks?.length) return ownJudged(store, r, o.quick ? null : calls, o.checks === true);
-  if (r.kind !== 'capture' && (!w || w.error || !judgedByFamily(r))) return null;
+  // With no golden, or no tests entry, no family's checks judge a run: nothing read for it.
+  if (r.kind !== 'capture' && (!w || w.error || !w.entries.length || !w.work.goldens.length || !judgedByFamily(r))) return null;
   const record = store.getRun(runId);
   if (!record) return null;
   const kept = r.kind === 'capture' ? keptCaptureVerdict(record) : null;
   // A capture judged under today's rules, or kept with no project to judge it by: no call read.
   if (r.kind === 'capture' && (!w || w.error || kept?.rules === w.rules.key)) return withChecks(importJudged(store, record, w, calls), o.checks === true);
-  const specs = r.kind === 'capture' ? null : familyOf(store, index, record, w!);
-  if (specs && !specs.length) return null;
   const key = keyOf(w!, r, kept?.rules ?? null);
   if (judged.has(key)) return withChecks(judged.get(key)!, o.checks === true);
+  const specs = r.kind === 'capture' ? null : familyOf(store, index, record, w!);
+  if (specs && !specs.length) return keep(key, null);
   if (o.quick) return undefined;
   const out = specs ? familyJudged(store, record, r, w!, specs, calls) : importJudged(store, record, w, calls);
   return withChecks(keep(key, out), o.checks === true);
