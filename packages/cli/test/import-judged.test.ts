@@ -17,7 +17,7 @@ import { importTrace } from '../src/import-trace.js';
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/traces/${name}`, import.meta.url), 'utf8');
 /** otel-genai.json's support agent looks up order A-1042 and refunds it. */
-const TRACE = () => readOtel(parseOtlpFile(fixture('otel-genai.json'))).traces[0]!;
+const TRACE = () => readOtel(parseOtlpFile(fixture('otel-genai.json'))).traces[0];
 
 const rules = (args: Record<string, unknown>) => rulesOnCalls(parseTests({ 'goldens/support': { expect: { calls: [{ tool: 'lookup_order', args }], tools: { send_email: 0 } } } }));
 const LOOKED_UP = { order_id: 'A-1042' };
@@ -25,7 +25,7 @@ const OTHER_ORDER = { order_id: 'B-7' };
 
 function imported(store: Store, by: ReturnType<typeof rules> | null) {
   const { result } = importTrace(store, TRACE(), { source: 'otel-traces.json', labels: ['otel'] });
-  return settleImport(store, { format: 'otel', entries: 1, runs: [{ key: null, result }], rules: by, env: {} }).runs[0]!;
+  return settleImport(store, { format: 'otel', entries: 1, runs: [{ key: null, result }], rules: by, env: {} }).runs[0];
 }
 
 const dirs: string[] = [];
@@ -43,7 +43,7 @@ describe('a capture judged as it is imported', () => {
     // A rule it breaks: failed, by the first rule broken and the call.
     const broken = imported(store, rules(OTHER_ORDER)).judged!;
     expect(broken.verdict).toBe('failed');
-    expect(broken.checks[0]!.detail).toMatch(/^lookup_order #\d+: order_id "A-1042" != "B-7"$/);
+    expect(broken.checks[0].detail).toMatch(/^lookup_order #\d+: order_id "A-1042" != "B-7"$/);
     // No rule on calls: nothing is judged, and nothing is kept.
     const none = imported(store, null);
     expect(none.judged).toBeNull();
@@ -98,7 +98,7 @@ describe('shadowlap import, judged by the rules on calls', () => {
     const fails = project([{ tool: 'lookup_order', args: OTHER_ORDER }]);
     const json = await shadowlap(fails, ['import', 'otel', 'otel-traces.json', '--json']);
     expect(json.code, json.err).toBe(0);
-    const run = (JSON.parse(json.out) as { runs: Array<{ judged: { verdict: string; checks: Array<{ status: string }> } }> }).runs[0]!;
+    const run = (JSON.parse(json.out) as { runs: Array<{ judged: { verdict: string; checks: Array<{ status: string }> } }> }).runs[0];
     expect(run.judged.verdict).toBe('failed');
     expect(run.judged.checks.map((c) => c.status)).toEqual(['failed']);
 
