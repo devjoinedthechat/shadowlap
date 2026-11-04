@@ -212,7 +212,7 @@ export { DECISIONS_ID, JUDGED_IN_RECORDED_STATE, MIGRATE_ID, NO_TOKENS, RANK_LAB
 export type { DecisionCall, DecisionChange, DecisionChangeKind, DecisionComparison, DecisionCounts, DecisionJudge, DecisionJudgeSide, DecisionOptions, DecisionRank, DecisionRemedy, DecisionRun, DecisionStep, DecisionStop, DecisionsChange, DecisionsJudged, DecisionsReport, DecisionsVerify, DecisionView, EffectOf, FromCodeChange, ModelDecision, TokenCount } from './decisions.js';
 export { longDate, replacementModels, retiredFields, retirementOf, retirementPlatform, retirementsOf, retirementTable, retirementTableProblems, tableModel } from './model-retirements.js';
 export type { FieldRetirement, ModelRetirement, RetirementNotice, RetirementPlatform, RetirementSource, RetirementTable } from './model-retirements.js';
-export type { DecisionRunRow, DecisionSessionRow, NewDecisionSession } from './store.js';
+export type { DecisionRunRow, DecisionSessionRow, MigrationApplied, NewDecisionSession } from './store.js';
 // Injection tests: trust, payloads and their canaries, what an attempt wrote, and --clean's neutral
 // result (shadowlap injection, and the dashboard's read model of its results).
 export { DEFAULT_BASELINES, INJECTION_CHECK, INJECTION_VERDICTS, PAYLOAD_LIMITS, atPath, canaryIn, carriesMark, cleanBound, cleanDecided, cleanRule, configuredTrust, describeIdentifiers, displayPath, fillPayload, findCanary, goneWrites, hasCanary, identifiersOf, injectionTemplates, keepingCanaries, neutralResult, newCanary, normalizedArgs, noVerdicts, parseInjectionEntry, parsePayloads, parseToolTrust, plantMarks, proofLine, selectTemplates, strongestVerdict, templatePayload, trustOf, unexplainedWrites, untrustedReads, writeBaseline, writeRecurs } from './injection.js';

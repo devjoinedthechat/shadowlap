@@ -1,9 +1,11 @@
 /**
  * Decisions: each `shadowlap decisions` or `migrate` session, its report as --json prints it without
- * its runs (decision_sessions), and each run's part of it, a row of its own (decision_runs), so a
- * run's page reads its decisions without the rest of the session.
+ * its runs (decision_sessions), with a migration's config change once applied, and each run's part of
+ * it, a row of its own (decision_runs), so a run's page reads its decisions without the rest of the
+ * session.
  */
-import { StorePart } from './core.js';
+import { isObject } from '../is-object.js';
+import { parseJsonColumn, StorePart } from './core.js';
 
 // ---- Decisions: the shapes of the decision tables ----
 
@@ -19,6 +21,26 @@ export interface DecisionSessionRow {
   flagged: number;
   actor: string | null;
   revision: string | null;
+  /** v6: a migration's config change, once applied (setMigrationApplied); null until then, and for a decisions session. */
+  applied: MigrationApplied | null;
+}
+
+/**
+ * What applying a migration's config change did (`shadowlap migrate apply`, Apply config change on
+ * Changes), kept on its session: the switch is in the working tree from then on, for the goldens it
+ * left behind to be re-recorded. The files it changed are the report's config change, which applying
+ * changes no more of.
+ */
+export interface MigrationApplied {
+  /** When it was applied, and who applied it (resolveAuthor). */
+  at: number;
+  by: string | null;
+  /**
+   * The goldens it left behind: replayed offline once it was applied, each diverged at a call on the
+   * request field the switch changed (`$.model`), as fix apply names a patch's. A golden re-recorded
+   * since (`test --update`) no longer waits, which its results say.
+   */
+  outdated: Array<{ golden: string; callNo: number; path: string }>;
 }
 
 /** One run's part of a session: its rank and changed steps, and its report (a `DecisionRun`) whole. */
@@ -32,7 +54,7 @@ export interface DecisionRunRow {
   data: Record<string, unknown>;
 }
 
-export interface NewDecisionSession extends Omit<DecisionSessionRow, 'runs' | 'flagged'> {
+export interface NewDecisionSession extends Omit<DecisionSessionRow, 'runs' | 'flagged' | 'applied'> {
   /** The report without its runs. */
   data: Record<string, unknown>;
   runs: Array<Pick<DecisionRunRow, 'runId' | 'golden' | 'rank' | 'changed' | 'data'>>;
@@ -41,14 +63,18 @@ export interface NewDecisionSession extends Omit<DecisionSessionRow, 'runs' | 'f
 export abstract class Decisions extends StorePart {
   // ---- Decisions: decisions and migrate sessions, and each run's part of one ----
 
-  /** Keeps a session and its runs, in one transaction; a session kept again under its id is replaced. */
+  /**
+   * Keeps a session and its runs, in one transaction; a session kept again under its id is replaced,
+   * a migration keeping its config change applied (a verify of its runs keeps it again).
+   */
   putDecisionSession(s: NewDecisionSession): void {
     const flagged = s.runs.filter((r) => r.rank !== null && r.rank <= 2).length;
     this.transaction(() => {
+      const kept = s.kind === 'migrate' ? this.db.prepare(`SELECT applied FROM decision_sessions WHERE session_id = ? AND kind = 'migrate'`).get(s.sessionId)?.applied : null;
       this.db.prepare(`DELETE FROM decision_sessions WHERE session_id = ?`).run(s.sessionId);
       this.db
-        .prepare(`INSERT INTO decision_sessions (session_id, kind, at, change, runs, flagged, actor, revision, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(s.sessionId, s.kind, s.at, s.change, s.runs.length, flagged, s.actor, s.revision, JSON.stringify(s.data));
+        .prepare(`INSERT INTO decision_sessions (session_id, kind, at, change, runs, flagged, actor, revision, data, applied) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(s.sessionId, s.kind, s.at, s.change, s.runs.length, flagged, s.actor, s.revision, JSON.stringify(s.data), typeof kept === 'string' ? kept : null);
       const insert = this.db.prepare(`INSERT OR REPLACE INTO decision_runs (session_id, run_id, position, golden, rank, changed, at, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
       s.runs.forEach((r, i) => insert.run(s.sessionId, r.runId, i, r.golden, r.rank, r.changed, s.at, JSON.stringify(r.data)));
     });
@@ -64,6 +90,7 @@ export abstract class Decisions extends StorePart {
       flagged: Number(r.flagged),
       actor: r.actor === null ? null : String(r.actor),
       revision: r.revision === null ? null : String(r.revision),
+      applied: r.kind === 'migrate' ? appliedOf(parseJsonColumn<unknown>(r.applied, null)) : null,
     };
   }
 
@@ -126,7 +153,24 @@ export abstract class Decisions extends StorePart {
       .map((r) => ({ request: String(r.request), verdict: r.verdict === 'yes' ? ('yes' as const) : ('no' as const), reason: typeof r.reason === 'string' ? r.reason : '' }));
   }
 
+  /** Keeps what applying a migration's config change did, in place of what was kept, or takes it away (null). A session that is no migration throws. */
+  setMigrationApplied(sessionId: string, applied: MigrationApplied | null): void {
+    const done = this.db.prepare(`UPDATE decision_sessions SET applied = ? WHERE session_id = ? AND kind = 'migrate'`).run(applied === null ? null : JSON.stringify(applied), sessionId);
+    if (Number(done.changes) === 0) throw new Error(`no migration ${sessionId}`);
+  }
+
   deleteDecisionSession(sessionId: string): void {
     this.db.prepare(`DELETE FROM decision_sessions WHERE session_id = ?`).run(sessionId);
   }
+}
+
+/** A migration's applied state as kept, when it reads as one: a golden that doesn't (no name, call or field) is left out. */
+function appliedOf(v: unknown): MigrationApplied | null {
+  if (!isObject(v) || typeof v.at !== 'number') return null;
+  const outdated = Array.isArray(v.outdated) ? v.outdated.filter(isObject) : [];
+  return {
+    at: v.at,
+    by: typeof v.by === 'string' ? v.by : null,
+    outdated: outdated.flatMap((g) => (typeof g.golden === 'string' && typeof g.callNo === 'number' && Number.isSafeInteger(g.callNo) && g.callNo > 0 && typeof g.path === 'string' ? [{ golden: g.golden, callNo: g.callNo, path: g.path }] : [])),
+  };
 }

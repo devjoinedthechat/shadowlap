@@ -3,13 +3,13 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { checkKey, recordBlame, SCHEMA_VERSION, Store, type StoredFix } from '../src/index.js';
+import { checkKey, recordBlame, SCHEMA_VERSION, Store, type MigrationApplied, type StoredFix } from '../src/index.js';
 import { blameReport, EXPECT, makeRun, ORACLE } from './fix-fixtures.js';
 
 /**
  * Store schema v6, what the dashboard's pages keep, added in one step: the advice put away
  * (dismissals), each check a fix has had (fix_checks), the pull request a CI test session ran for and
- * what its comment carried, and the 'tests' and 'dismissals' counters.
+ * what its comment carried, a migration's applied state, and the 'tests' and 'dismissals' counters.
  */
 
 const require = createRequire(import.meta.url);
@@ -31,6 +31,7 @@ const blame = (store: Store, runId: string, o: { expect?: unknown; at?: number; 
 const EMAIL = { tools: { send_email: 1 } };
 const emailCheck: StoredFix['check'] = { expect: EMAIL, key: checkKey(EMAIL), oracle: ['the agent exits 0', 'send_email called 1 time'], text: 'send_email called 1 time' };
 const migration = (sessionId: string, at = 3_000) => ({ sessionId, kind: 'migrate' as const, at, change: 'the model claude-sonnet-5-5', actor: 'dana@northwind.example', revision: 'd2e8a1f', data: { to: 'claude-sonnet-5-5' }, runs: [{ runId: '01RUNA', golden: 'goldens/refund-in-limit', rank: 3, changed: 1, data: { runId: '01RUNA' } }] });
+const APPLIED: MigrationApplied = { at: 4_000, by: 'dana@northwind.example', outdated: [{ golden: 'goldens/refund-flow-budget', callNo: 3, path: '$.model' }] };
 
 /** The store at `path` taken back to what a v5 build kept: none of v6's tables, columns, triggers or counters, and its version. */
 function asVersion5(path: string): void {
@@ -39,7 +40,7 @@ function asVersion5(path: string): void {
   expect(triggers).toHaveLength(12);
   for (const name of triggers) raw.exec(`DROP TRIGGER ${name}`);
   raw.exec(`DROP TABLE dismissals; DROP TABLE fix_checks`);
-  raw.exec(`ALTER TABLE test_sessions DROP COLUMN pull_request; ALTER TABLE test_sessions DROP COLUMN comment`);
+  raw.exec(`ALTER TABLE test_sessions DROP COLUMN pull_request; ALTER TABLE test_sessions DROP COLUMN comment; ALTER TABLE decision_sessions DROP COLUMN applied`);
   raw.exec(`DELETE FROM change_counts WHERE name IN ('tests', 'dismissals'); UPDATE meta SET value = '5' WHERE key = 'schema_version'`);
   raw.close();
 }
@@ -63,17 +64,18 @@ describe('store schema v6', () => {
     expect(second.schemaVersion()).toBe(6);
     // What a v5 build kept reads back as it was.
     expect(second.listFixes().map((f) => f.check.key)).toEqual([checkKey(EMAIL), checkKey(EXPECT)]);
-    expect(second.getDecisionSession('mg-01M50000000000000000000001')).toMatchObject({ change: 'the model claude-sonnet-5-5' });
     // Each fix's check is its first, from when the fix was opened, by whoever opened it.
     expect(second.fixChecks(opened.fixId)).toEqual([{ fixId: opened.fixId, position: 0, at: 2_000, actor: 'dana@northwind.example', check: { expect: EXPECT, key: checkKey(EXPECT), oracle: ORACLE, text: 'issue_refund with {"amount":240} called 0 times' } }]);
     expect(second.fixChecks(nobody.fixId)).toMatchObject([{ position: 0, at: 2_500, actor: null, check: { key: checkKey(EMAIL) } }]);
-    // A session kept before ran for no pull request and kept no comment.
+    // A session kept before ran for no pull request and kept no comment; a migration kept before was never applied.
     expect(second.getTestSession(session.sessionId)).toMatchObject({ revision: 'd2e8a1f', passed: 1, pullRequest: null, comment: null });
+    expect(second.getDecisionSession('mg-01M50000000000000000000001')).toMatchObject({ change: 'the model claude-sonnet-5-5', applied: null });
     expect(second.listDismissals()).toEqual([]);
     expect(second.changeCounts()).toMatchObject({ tests: 0, dismissals: 0 });
     // What v6 keeps, kept from now on.
     second.setTestSessionPullRequest(session.sessionId, { number: 142, url: 'https://github.com/northwind/support-agent/pull/142', source: 'GitHub Actions (pull_request)' });
     expect(second.changeCounts().tests).toBeGreaterThan(0);
+    second.setMigrationApplied('mg-01M50000000000000000000001', APPLIED);
     second.putDismissal({ key: 'coverage', facts: ['3f9a2c1d5e8b7a60'] });
     expect(second.setFixCheck(opened.fixId, emailCheck, { at: 5_000, actor: 'maya@northwind.example' })).toBe(true);
     second.close();
@@ -87,6 +89,7 @@ describe('store schema v6', () => {
     ]);
     expect(third.fixChecks(nobody.fixId)).toHaveLength(1);
     expect(third.getTestSession(session.sessionId)?.pullRequest).toEqual({ number: 142, url: 'https://github.com/northwind/support-agent/pull/142', source: 'GitHub Actions (pull_request)' });
+    expect(third.getDecisionSession('mg-01M50000000000000000000001')?.applied).toEqual(APPLIED);
     expect(third.listDismissals().map((d) => d.key)).toEqual(['coverage']);
     third.close();
   });
@@ -189,6 +192,44 @@ describe('a test session: the pull request it ran for, and what its comment carr
     blame(store, run);
     store.putDecisionSession(migration('mg-01M50000000000000000000002'));
     expect(moved()).toBe(false);
+    store.close();
+  });
+});
+
+describe("a migration's applied state", () => {
+  it('keeps what applying did on the migration, keeps it when the session is kept again, and takes it away', () => {
+    const store = Store.open(':memory:');
+    store.putDecisionSession(migration('mg-01M50000000000000000000001'));
+    store.putDecisionSession({ ...migration('dc-01M50000000000000000000002'), kind: 'decisions' });
+    expect(store.getDecisionSession('mg-01M50000000000000000000001')?.applied).toBeNull();
+    const before = store.changeCounts().decisions;
+    store.setMigrationApplied('mg-01M50000000000000000000001', APPLIED);
+    expect(store.changeCounts().decisions).toBeGreaterThan(before);
+    expect(store.getDecisionSession('mg-01M50000000000000000000001')?.applied).toEqual(APPLIED);
+    expect(store.listDecisionSessions().map((s) => [s.sessionId, s.applied])).toEqual([
+      ['mg-01M50000000000000000000001', APPLIED],
+      ['dc-01M50000000000000000000002', null],
+    ]);
+    // A verify of its runs keeps the session again: still applied.
+    store.putDecisionSession({ ...migration('mg-01M50000000000000000000001'), data: { to: 'claude-sonnet-5-5', verified: true } });
+    expect(store.getDecisionSession('mg-01M50000000000000000000001')).toMatchObject({ data: { verified: true }, applied: APPLIED });
+    // A decisions session is no migration, and one that isn't kept has nothing to apply.
+    expect(() => store.setMigrationApplied('dc-01M50000000000000000000002', APPLIED)).toThrow('no migration dc-01M50000000000000000000002');
+    expect(() => store.setMigrationApplied('mg-01M5NONE', APPLIED)).toThrow('no migration mg-01M5NONE');
+    store.setMigrationApplied('mg-01M50000000000000000000001', null);
+    expect(store.getDecisionSession('mg-01M50000000000000000000001')?.applied).toBeNull();
+    store.close();
+  });
+
+  it('reads an applied state kept in another shape without the goldens that are none', () => {
+    const store = Store.open(':memory:');
+    const raw = (store as unknown as { db: { prepare(sql: string): { run(...a: unknown[]): unknown } } }).db;
+    store.putDecisionSession(migration('mg-01M50000000000000000000001'));
+    const keep = (applied: unknown) => raw.prepare(`UPDATE decision_sessions SET applied = ? WHERE session_id = 'mg-01M50000000000000000000001'`).run(JSON.stringify(applied));
+    keep({ at: 4_000, by: 5, outdated: [{ golden: 'goldens/a', callNo: 3, path: '$.model' }, { golden: 'goldens/b', callNo: 0, path: '$.model' }, { golden: 'goldens/c', callNo: 2 }, 'goldens/d'] });
+    expect(store.getDecisionSession('mg-01M50000000000000000000001')?.applied).toEqual({ at: 4_000, by: null, outdated: [{ golden: 'goldens/a', callNo: 3, path: '$.model' }] });
+    keep({ by: 'dana@northwind.example', outdated: [] });
+    expect(store.getDecisionSession('mg-01M50000000000000000000001')?.applied).toBeNull();
     store.close();
   });
 });

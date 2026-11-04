@@ -382,6 +382,8 @@ CREATE TRIGGER IF NOT EXISTS change_counts_team_sync_update AFTER UPDATE ON team
 -- each run's part is a row of its own, so a run's page reads its decisions without the rest of the
 -- session. Sessions name runs by id with no foreign key: a session outlives a run gc deletes. Every
 -- write moves the 'decisions' counter, so the Changes page follows a session another process keeps.
+-- v6: a migration's config change once applied (applied: when, by whom, and the goldens it left
+-- behind, as JSON in the shape store/decisions.ts gives); null until then, and for a decisions session.
 CREATE TABLE IF NOT EXISTS decision_sessions (
   session_id  TEXT    PRIMARY KEY,
   kind        TEXT    NOT NULL CHECK (kind IN ('decisions', 'migrate')),
@@ -391,7 +393,8 @@ CREATE TABLE IF NOT EXISTS decision_sessions (
   flagged     INTEGER NOT NULL,
   actor       TEXT,
   revision    TEXT,
-  data        TEXT    NOT NULL
+  data        TEXT    NOT NULL,
+  applied     TEXT
 );
 CREATE INDEX IF NOT EXISTS decision_sessions_at ON decision_sessions (at);
 CREATE TABLE IF NOT EXISTS decision_runs (
@@ -714,13 +717,14 @@ function columnsOf(db: SqliteDatabase, table: string): string[] {
 /**
  * v6, what the dashboard's pages keep, in one step. The SCHEMA above creates its tables and triggers
  * (dismissals, fix_checks, the 'tests' counter); a store from before gains its columns here: the pull
- * request a CI test session ran for and what its comment carried. A fix kept before (`found` is the
- * version the store was at) has its check as the first of its checks.
+ * request a CI test session ran for and what its comment carried, and a migration's applied state.
+ * A fix kept before (`found` is the version the store was at) has its check as the first of its checks.
  */
 function addVersion6(db: SqliteDatabase, found: number | null): void {
   const sessionColumns = columnsOf(db, 'test_sessions');
   if (!sessionColumns.includes('pull_request')) db.exec(`ALTER TABLE test_sessions ADD COLUMN pull_request TEXT`);
   if (!sessionColumns.includes('comment')) db.exec(`ALTER TABLE test_sessions ADD COLUMN comment TEXT`);
+  if (!columnsOf(db, 'decision_sessions').includes('applied')) db.exec(`ALTER TABLE decision_sessions ADD COLUMN applied TEXT`);
   if (found === null || found >= 6) return;
   // Its first check's author is the fix's (data.openedBy), when its data says one: data that doesn't
   // read as JSON is never handed to json_type, which would refuse it and the store with it.
