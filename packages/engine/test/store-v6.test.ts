@@ -13,7 +13,7 @@ import { blameReport, EXPECT, makeRun, ORACLE } from './fix-fixtures.js';
  */
 
 const require = createRequire(import.meta.url);
-const { DatabaseSync } = require('node:sqlite') as { DatabaseSync: new (p: string) => { exec(sql: string): void; prepare(sql: string): { all(...a: unknown[]): Array<Record<string, unknown>> }; close(): void } };
+const { DatabaseSync } = require('node:sqlite') as { DatabaseSync: new (p: string) => { exec(sql: string): void; prepare(sql: string): { all(...a: unknown[]): Array<Record<string, unknown>>; run(...a: unknown[]): unknown }; close(): void } };
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -92,6 +92,26 @@ describe('store schema v6', () => {
     expect(third.getDecisionSession('mg-01M50000000000000000000001')?.applied).toEqual(APPLIED);
     expect(third.listDismissals().map((d) => d.key)).toEqual(['coverage']);
     third.close();
+  });
+
+  it("upgrades a v5 store whose fixes keep data that doesn't read as JSON, or none, or no author in words: their first checks name nobody", () => {
+    const path = storePath();
+    const first = Store.open(path);
+    // Five fixes, each opened by someone; the first four come to keep data no author can be read from.
+    const kept = ['not json', null, '[1,2]', '{"openedBy":7}', JSON.stringify({ openedBy: 'dana@northwind.example' })];
+    const fixes = kept.map((_, i): StoredFix => ({ fixId: `fx-01M3RZ0000000000000000V5D${i}`, title: `Fix ${i}`, labels: [], check: emailCheck, status: 'open', openedAt: 1_000 + i, verifiedAt: null, appliedAt: null, data: { openedBy: 'dana@northwind.example' } }));
+    for (const fix of fixes) first.insertFix(fix);
+    first.close();
+    asVersion5(path);
+    const raw = new DatabaseSync(path);
+    fixes.forEach((fix, i) => raw.prepare(`UPDATE fixes SET data = ? WHERE fix_id = ?`).run(kept[i], fix.fixId));
+    raw.close();
+
+    // Data that doesn't read as JSON never reaches json_type, which would refuse it and the store with it.
+    const second = Store.open(path);
+    expect(second.schemaVersion()).toBe(6);
+    expect(fixes.map((fix) => second.fixChecks(fix.fixId))).toEqual(fixes.map((fix, i) => [{ fixId: fix.fixId, position: 0, at: fix.openedAt, actor: i === 4 ? 'dana@northwind.example' : null, check: emailCheck }]));
+    second.close();
   });
 
   it('refuses a store a newer Shadowlap wrote, as it always has', () => {
