@@ -368,7 +368,11 @@ export function isFailedOutcome(o: RunOutcome): boolean {
   return o.kind === 'diverged' || o.kind === 'lost' || o.kind === 'check-failed';
 }
 
-/** The outcome in the words the Runs table uses. */
+/**
+ * The outcome in a few words, as a fork's changes say a passed one (fork-changes.ts). Not Runs'
+ * Status, which says how the checks that judged a run came out (the dashboard's outcomeOf):
+ * `inconclusive`, `check failed` where blame found it lost, and a dash for a clean replay.
+ */
 export function outcomeLabel(o: RunOutcome): string {
   switch (o.kind) {
     case 'running':
