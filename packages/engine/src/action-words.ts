@@ -39,8 +39,8 @@ export const ACTIONS = {
   // Fixes: blame, repair, verify and apply.
   runBlame: { label: 'Run blame', doing: 'Blaming' },
   runBlameAgain: { label: 'Run blame again', doing: 'Blaming again' },
-  // It asks which model, and its job is titled by the one asked: `Blaming with claude-opus-5-5`.
-  runBlameStronger: { label: 'Run blame with stronger model…' },
+  // Its dialog asks which model, so it ends in an ellipsis; the model is in the command, not the title.
+  runBlameStronger: { label: 'Run blame with stronger model…', doing: 'Blaming with stronger model' },
   runRepair: { label: 'Run repair', doing: 'Repairing' },
   runVerify: { label: 'Run verify', doing: 'Verifying' },
   runMoreAttempts: { label: 'Run more attempts', doing: 'Running more attempts' },
@@ -54,16 +54,16 @@ export const ACTIONS = {
   addNormalizerAndUpdate: { label: 'Add normalizer and update', doing: 'Adding normalizer and updating golden' },
   findBreakingCommit: { label: 'Find breaking commit…', doing: 'Finding breaking commit' },
   // Runs and Training.
+  // A trace from a store too: Activity says what it was.
   importCapture: { label: 'Import capture…', doing: 'Importing capture' },
-  importTrace: { label: 'Import capture…', doing: 'Importing trace' },
   exportPairs: { label: 'Export pairs…', doing: 'Exporting pairs' },
   scoreModel: { label: 'Score model…', doing: 'Scoring model' },
   // Share, each item the copy it makes.
   exportHtml: { label: 'HTML report', doing: 'Exporting HTML report' },
   pack: { label: 'Pack…', doing: 'Packing' },
   exportDataset: { label: 'Eval dataset…', doing: 'Exporting dataset' },
+  // To a file or a collector alike.
   exportTrace: { label: 'OpenTelemetry trace…', doing: 'Exporting trace' },
-  sendTrace: { label: 'OpenTelemetry trace…', doing: 'Sending trace' },
   exportHar: { label: 'HAR file', doing: 'Exporting HAR file' },
   // Settings and the palette.
   calibrate: { label: 'Calibrate', doing: 'Calibrating' },

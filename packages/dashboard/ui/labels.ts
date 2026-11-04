@@ -24,7 +24,9 @@ const PAST: Readonly<Record<string, string>> = {
   Finding: 'Found',
   Forking: 'Forked',
   Importing: 'Imported',
+  Finishing: 'Finished',
   Inspecting: 'Inspected',
+  Marking: 'Marked',
   Migrating: 'Migrated',
   Packing: 'Packed',
   Planting: 'Planted',
@@ -46,29 +48,41 @@ const PAST: Readonly<Record<string, string>> = {
 };
 
 /**
- * A verb whose past tense would claim more than happened (verified, repaired, found) when the job
- * didn't end well: what ran instead, the rest of the title as it was (`Tried repairing`).
+ * The -ing words whose past tense says only that the job ran, whatever came of it: `Ran tests · 1
+ * failed`, `Replayed · diverged at #3`. Every other one's says it did what it set out to (imported,
+ * exported, deleted, repaired, blamed), which a job that came out badly didn't.
  */
+const RAN: ReadonlySet<string> = new Set(['Checking', 'Forking', 'Inspecting', 'Planting', 'Previewing', 'Reading', 'Recording', 'Repeating', 'Replaying', 'Running', 'Testing']);
+
+/** What ran, for a verb whose own words for it are not `Tried <verb>`: a verify checked, a search searched. */
 const TRIED: Readonly<Record<string, string>> = {
   Finding: 'Searched for',
-  Migrating: 'Tried migrating',
-  Packing: 'Tried packing',
-  Repairing: 'Tried repairing',
   Verifying: 'Checked',
-  Applying: 'Tried applying',
-  Connecting: 'Tried connecting',
 };
 
 /**
- * A job's title in the past tense, for the toast that says it ended: word by word, each -ing word in
- * its past tense (`Adding normalizer and updating golden` ends as `Added normalizer and updated
- * golden`), with no ellipsis. One that didn't end well (`ok` false) leads with what ran where the past
- * tense would claim more (`Tried repairing`). A title with no -ing word stays as it is.
+ * How a job came out, as its toast words its title: it did what its title says (`ok`); it ran, and
+ * came out badly (`ran`: tests that failed, a replay that diverged, a search that found nothing); or
+ * it never did (`not`: refused before it ran, or an error and nothing more).
  */
-export function doneWords(title: string, ok: boolean): string {
+export type JobEnd = 'ok' | 'ran' | 'not';
+
+/**
+ * A job's title in the past tense, for the toast that says it ended, where that claims no more than
+ * happened: word by word, each -ing word in its past tense (`Adding normalizer and updating golden`
+ * ends as `Added normalizer and updated golden`), with no ellipsis, for a job that did what its title
+ * says, or whose own status says it did (`applied · tests failed`, after Applying fix); for one that
+ * ran and came out badly, only where the past tense says no more than that it ran (`Ran tests`).
+ * Otherwise it leads with what ran, the rest of the title as it was: `Tried importing capture`,
+ * `Searched for breaking commit`. A title with no -ing word stays as it is.
+ */
+export function doneWords(title: string, end: JobEnd, status = ''): string {
   const words = title.replace(/…$/, '').split(' ');
-  const tried = ok ? undefined : TRIED[words[0] ?? ''];
-  if (tried) return [tried, ...words.slice(1)].join(' ');
+  const first = words[0] ?? '';
+  const pastOf = PAST[first];
+  if (!pastOf) return words.join(' ');
+  const did = end === 'ok' || (end === 'ran' && (RAN.has(first) || status.toLowerCase().startsWith(pastOf.toLowerCase())));
+  if (!did) return [TRIED[first] ?? `Tried ${first.toLowerCase()}`, ...words.slice(1)].join(' ');
   const past = (w: string, i: number): string => {
     const p = PAST[`${w.charAt(0).toUpperCase()}${w.slice(1)}`];
     return !p ? w : i ? p.toLowerCase() : p;

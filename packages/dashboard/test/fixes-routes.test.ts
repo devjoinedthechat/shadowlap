@@ -781,9 +781,10 @@ describe('what settles an unsettled fix', () => {
     const plain = makeRun(store, { labels: ['digest'] });
     const { fix: other } = recordBlame(store, { runId: plain, report: blameReport(plain, 'unrescuable'), expect: EXPECT, scope: null, command: `shadowlap blame ${plain.slice(0, 10)}`, rerun: { flags: [], command: null }, title: 'digest', checkText: 'exits 0' });
     await start();
-    await started({ kind: 'blame', fixId: fix.fixId, again: true });
+    expect((await started({ kind: 'blame', fixId: fix.fixId, again: true })).title).toBe('Blaming again');
     expect(spawned.at(-1)).toEqual(['blame', run, '--expect', JSON.stringify(EXPECT), '--gate', '{"good":0.4,"max":40}']);
-    await started({ kind: 'blame', fixId: other.fixId, model: 'claude-opus-5-5' });
+    // Titled by the action's name: the model is in the command it runs.
+    expect((await started({ kind: 'blame', fixId: other.fixId, model: 'claude-opus-5-5' })).title).toBe('Blaming with stronger model');
     expect(spawned.at(-1)).toEqual(['blame', plain, '--expect', JSON.stringify(EXPECT), '--attempts', '5', '--passes', '2', '--model', 'claude-opus-5-5']);
     expect((await job({ kind: 'blame', fixId: other.fixId, model: '--writes=allow' })).status).toBe(400);
     expect((await job({ kind: 'blame', fixId: other.fixId, again: true })).status).toBe(409);

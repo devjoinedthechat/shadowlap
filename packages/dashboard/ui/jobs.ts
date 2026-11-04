@@ -1,5 +1,5 @@
 import { fixJobStatus } from './fixes/model.js';
-import { ACTIONS, doneWords } from './labels.js';
+import { ACTIONS, doneWords, type JobEnd } from './labels.js';
 import { trainingJobStatus } from './training.js';
 
 /**
@@ -263,22 +263,36 @@ export function lastLine(lines: readonly string[]): string {
 }
 
 /**
- * What the toast says when a job ends behind a closed drawer: its title in the past tense and how it
- * came out, in the drawer's status words ("Ran tests · 1 failed · exit 1", "Tried repairing · no fix
- * found · exit 1"), a status that only repeats the verb left out ("Forked · exit 0"). When those say
- * no more than the exit code, the last line the job printed says it instead. One stopped says so
- * ("Running tests stopped"): it ended on no outcome to say in the past.
+ * How a job came out, by its drawer's status: in lime, it did what its title says; refused before it
+ * ran, killed, or failing with nothing but an exit code, it never did; any other way, it ran and came
+ * out badly (tests failed, a replay diverged, a search found nothing, nothing was scored).
+ */
+function jobEnd(status: { text: string; tone: string }): JobEnd {
+  if (status.tone === 'ok') return 'ok';
+  return /^(refused\b|stopped$|lost\b|exit \d+$)/.test(status.text) ? 'not' : 'ran';
+}
+
+/**
+ * What the toast says when a job ends behind a closed drawer: its title in the past tense, where that
+ * claims no more than happened, and how it came out, in the drawer's status words ("Ran tests · 1
+ * failed · exit 1", "Tried repairing · no fix found · exit 1", "Tried importing capture ·
+ * shadowlap: x.har is not a HAR file"), a status that only repeats the verb left out ("Forked · exit
+ * 0"). When those say no more than the exit code, the last line the job printed says it instead. One
+ * stopped says so ("Running tests stopped"): it ended on no outcome to say in the past.
  */
 export function endToast(job: JobLike, lines: readonly string[]): string {
   if (job.stopped) return `${jobTitle(job)} stopped`;
-  const { text: status, tone } = jobStatus(job, lines);
-  const done = doneWords(jobTitle(job), tone === 'ok');
+  const st = jobStatus(job, lines);
+  const status = st.text;
+  const done = doneWords(jobTitle(job), jobEnd(st), status);
   const last = lastLine(lines);
   const said = /^(finished · )?exit \d+$/.test(status) && last ? last : status.replace(/^finished · /, '');
-  // What it said that only repeats the verb goes: "Forked · exit 0", "Found breaking commit · exit 0",
-  // "Packed share/x · 14 calls".
-  const [verb = ''] = done.toLowerCase().split(' ');
-  if (said.startsWith(`${verb} · `)) return `${done} · ${said.slice(verb.length + 3)}`;
+  // What it said that only repeats the title goes: "Forked · exit 0", "Found breaking commit · exit 0",
+  // "Packed share/x · 14 calls", "Applied fix · tests failed · exit 1", "Marked the fix applied · exit 0".
+  const words = done.toLowerCase().split(' ');
+  const verb = words[0] ?? '';
+  const repeated = [verb, words.at(-1) ?? ''].find((w) => said.startsWith(`${w} · `));
+  if (repeated) return `${done} · ${said.slice(repeated.length + 3)}`;
   return !done.includes(' ') && said.startsWith(`${verb} `) ? `${done} ${said.slice(verb.length + 1)}` : `${done} · ${said}`;
 }
 

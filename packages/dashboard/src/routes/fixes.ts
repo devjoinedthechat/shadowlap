@@ -139,7 +139,7 @@ function fixBlameJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' 
   const next = req.again === true ? d.actions.blameAgain! : d.actions.blameStronger!;
   const consent = needsConsent({ runs: [run], yes: req.yes, args, pulled: next.pulled ? { what: `${id}'s blame`, left: next.left } : null });
   if ('ask' in consent) return consent.ask;
-  return { args: [...args, ...consent.yes], runId: run.runId, title: req.again === true ? ACTIONS.runBlameAgain.doing : `Blaming with ${req.model as string}` };
+  return { args: [...args, ...consent.yes], runId: run.runId, title: req.again === true ? ACTIONS.runBlameAgain.doing : ACTIONS.runBlameStronger.doing };
 }
 
 /**

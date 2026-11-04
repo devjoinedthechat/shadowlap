@@ -359,7 +359,7 @@ export function exportOtelJob(store: StoreOf<'recording'>, project: ProjectInfo 
   if (req.endpoint !== undefined && req.endpoint !== null && req.endpoint !== '') {
     const endpoint = collectorUrl(req.endpoint);
     if (!endpoint) return { error: 'a collector is an http or https address, such as http://localhost:4318' };
-    return { args: ['export', 'otel', run.runId, '--endpoint', endpoint], runId: run.runId, title: ACTIONS.sendTrace.doing };
+    return { args: ['export', 'otel', run.runId, '--endpoint', endpoint], runId: run.runId, title: ACTIONS.exportTrace.doing };
   }
   const file = traceFile(req.out, run.runId);
   if (!file) return { error: 'a file name is letters, digits, dots, dashes and underscores, such as trace.json' };

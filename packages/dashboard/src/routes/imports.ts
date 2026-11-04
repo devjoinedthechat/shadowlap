@@ -129,7 +129,8 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/imports', (r) => r.json({ formats: FILE_FORMATS, traces: traceSources(process.env), uploadLimit: ctx.project && !ctx.readOnly ? ctx.uploads.maxBytes : null }));
 
   ctx.jobs.registerJobKind('import', {
-    title: (req) => ((TRACE_SOURCES as readonly unknown[]).includes(req.format) ? ACTIONS.importTrace.doing : ACTIONS.importCapture.doing),
+    // A trace from a store is imported as a capture is: Activity says which it was.
+    title: () => ACTIONS.importCapture.doing,
     build: (req, { upload }) => {
       const format = req.format;
       if ((TRACE_SOURCES as readonly unknown[]).includes(format)) {

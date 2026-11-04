@@ -408,12 +408,14 @@ describe('one name for each action, and its forms', () => {
   it('titles and confirms a dialog with the name, its drawer in the -ing form and its toast in the past', () => {
     expect([confirmWords(ACTIONS.findBreakingCommit.label), dialogName(ACTIONS.runLive.label, 17), dialogName(ACTIONS.switchModel.label, 3)]).toEqual(['Find breaking commit', 'Run live from #17', 'Switch model from #3']);
     expect([ACTIONS.runRepair, ACTIONS.applyFix, ACTIONS.findBreakingCommit, ACTIONS.importCapture, ACTIONS.exportPairs, ACTIONS.scoreModel].map((a) => a.doing)).toEqual(['Repairing', 'Applying fix', 'Finding breaking commit', 'Importing capture', 'Exporting pairs', 'Scoring model']);
-    expect(doneWords(ACTIONS.runTests.doing, true)).toBe('Ran tests');
-    expect(doneWords(ACTIONS.addNormalizerAndUpdate.doing, true)).toBe('Added normalizer and updated golden');
-    expect(doneWords(ACTIONS.findBreakingCommit.doing, true)).toBe('Found breaking commit');
+    expect(doneWords(ACTIONS.runTests.doing, 'ok')).toBe('Ran tests');
+    expect(doneWords(ACTIONS.addNormalizerAndUpdate.doing, 'ok')).toBe('Added normalizer and updated golden');
+    expect(doneWords(ACTIONS.findBreakingCommit.doing, 'ok')).toBe('Found breaking commit');
+    expect(doneWords(ACTIONS.runBlameStronger.doing, 'ok')).toBe('Blamed with stronger model');
     // One that didn't end well says what ran, where the past tense would claim more than happened.
-    expect([doneWords(ACTIONS.runRepair.doing, false), doneWords(ACTIONS.findBreakingCommit.doing, false), doneWords(ACTIONS.applyFix.doing, false)]).toEqual(['Tried repairing', 'Searched for breaking commit', 'Tried applying fix']);
-    expect(doneWords('Blaming with claude-opus-5-5', true)).toBe('Blamed with claude-opus-5-5');
+    expect([doneWords(ACTIONS.runRepair.doing, 'ran'), doneWords(ACTIONS.findBreakingCommit.doing, 'ran'), doneWords(ACTIONS.applyFix.doing, 'not'), doneWords(ACTIONS.importCapture.doing, 'not')]).toEqual(['Tried repairing', 'Searched for breaking commit', 'Tried applying fix', 'Tried importing capture']);
+    // A past tense that says only that it ran holds once it ran, and an outcome its own status gives.
+    expect([doneWords(ACTIONS.runTests.doing, 'ran'), doneWords(ACTIONS.runTests.doing, 'not'), doneWords(ACTIONS.applyFix.doing, 'ran', 'applied · tests failed · exit 1')]).toEqual(['Ran tests', 'Tried running tests', 'Applied fix']);
   });
 
   it('is the name each place offers it by: the palette, Share, the drawer and the server’s job titles', () => {

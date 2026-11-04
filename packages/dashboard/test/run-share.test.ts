@@ -121,7 +121,7 @@ describe('the Share menu’s jobs', () => {
 
   it('sends a trace to a collector, or writes it into .shadowlap/exports', () => {
     const id = addRun(store, { startedAt: T0 + 4, calls: 'l' });
-    expect(exportOtelJob(store, proj(), { runId: id, endpoint: 'http://localhost:4318/' })).toEqual({ args: ['export', 'otel', id, '--endpoint', 'http://localhost:4318'], runId: id, title: 'Sending trace' });
+    expect(exportOtelJob(store, proj(), { runId: id, endpoint: 'http://localhost:4318/' })).toEqual({ args: ['export', 'otel', id, '--endpoint', 'http://localhost:4318'], runId: id, title: 'Exporting trace' });
     expect(exportOtelJob(store, proj(), { runId: id, out: 'trace.json' })).toMatchObject({ args: ['export', 'otel', id, '--out', '.shadowlap/exports/trace.json'] });
     expect(exportOtelJob(store, proj(), { runId: id })).toMatchObject({ args: ['export', 'otel', id, '--out', `.shadowlap/exports/${id.slice(0, 10).toLowerCase()}.otel.json`] });
     // Only the file's name is kept: it lands in the exports folder whatever path was typed.
