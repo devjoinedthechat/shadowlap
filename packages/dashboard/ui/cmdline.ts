@@ -64,14 +64,18 @@ function argPieces(w: string): CmdPiece[] {
 const isFlag = (w: string) => /^--?[a-z]/i.test(w);
 
 export function cmdParts(cmd: string): CmdPiece[] {
-  const words = cmdWords(cmd);
+  return wordParts(cmdWords(cmd), false);
+}
+
+/** A command's words cut where they may wrap; `glued`, `--` is kept with the word after it, as a flag is with its value. */
+function wordParts(words: readonly string[], glued: boolean): CmdPiece[] {
   const out: CmdPiece[] = [];
   for (let i = 0; i < words.length; i++) {
     if (out.length) out.push(free(' '));
     const w = words[i]!;
     const next = words[i + 1];
     // The flag and the space after it are one piece: no line ends between a flag and its value.
-    if (isFlag(w) && next !== undefined && !next.startsWith('--')) {
+    if ((isFlag(w) || (glued && w === '--')) && next !== undefined && !next.startsWith('--')) {
       out.push(whole(`${w} `), ...argPieces(next));
       i++;
       continue;
@@ -79,4 +83,21 @@ export function cmdParts(cmd: string): CmdPiece[] {
     out.push(...argPieces(w));
   }
   return out;
+}
+
+/**
+ * A command as a code box sets it (`Command`, components/Copy.tsx): as `cmdParts` cuts it, with its
+ * head whole. The head is the program and the words up to its first flag, one piece while it is
+ * short (four words, 34 characters), so `shadowlap test 'goldens/*'` never breaks inside; the
+ * program is the head's first piece, so the `$` drawn before it never ends a line alone. `--` stays
+ * with the command it introduces. Joined, the pieces are the command.
+ */
+export function commandParts(cmd: string): CmdPiece[] {
+  const words = cmdWords(cmd);
+  let h = 0;
+  while (h < words.length && h < 4 && !words[h]!.startsWith('-') && words.slice(0, h + 1).join(' ').length <= 34) h++;
+  if (h === 0) return wordParts(words, true);
+  const head: CmdPiece[] = [whole(words[0]!), ...(h > 1 ? [free(' '), whole(words.slice(1, h).join(' '))] : [])];
+  const rest = wordParts(words.slice(h), true);
+  return rest.length ? [...head, free(' '), ...rest] : head;
 }
