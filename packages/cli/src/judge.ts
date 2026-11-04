@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import { applyNormalizers, canonicalize, estimateCost, isJudgeCall, JUDGE_REQUEST_VERSION, JUDGE_SCOPE, judgeAskId, judgeMaterial, judgeRequest, judgeRules, judgeTarget, loadApiRequest, matchedClockOf, materialDifference, materialOfRequest, messageOf, readVerdict, type CallRecord, type ClockMode, type ClockReference, type GivenAnswer, type JudgeMaterial, type JudgeProvider, type JudgeRequest, type JudgeSummary, type Normalizer, type Price, type RunRecord, type Store, type StoreOf } from '@shadowlap/engine';
+import { canonicalize, estimateCost, heldVerdict, isJudgeCall, JUDGE_REQUEST_VERSION, JUDGE_SCOPE, judgeAskId, judgeMaterialFor, judgeRequest, judgeTarget, loadApiRequest, matchedClockOf, materialDifference, materialOfRequest, messageOf, readVerdict, type ClockMode, type JudgeMaterial, type JudgeMaterialSource, type JudgeProvider, type JudgeRequest, type JudgeSummary, type Judged, type Normalizer, type Price, type RunRecord, type Store, type StoreOf } from '@shadowlap/engine';
 import { providers, Sidecar } from '@shadowlap/sidecar';
-import { JUDGE_KEYS, judgeChecksOf, notJudgedWhy, type EvaluateOptions, type JudgeCheck, type JudgeVerdict, type TestSpec } from './checks.js';
+import { JUDGE_KEYS, judgeChecksOf, type JudgeCheck, type JudgeVerdict, type TestSpec } from './checks.js';
 import type { ShadowlapConfig } from './config.js';
 
 /**
@@ -63,60 +63,16 @@ export interface JudgeRunContext {
 }
 
 /**
- * What the material of a judge check comes from: a run's calls, what its agent printed (null for a
- * recording, which keeps none), and the dates replay matching masks in that run (matchedClockOf).
- * `answers` gives answers in place of the ones calls recorded, by call number: the decision diff's
- * new answer at a step, judged in the recorded run's state.
+ * What a judge check's material comes from, what `evaluateChecks` takes of judged checks, and the
+ * verdicts a run already holds: the engine's (checks/recorded.ts), which `shadowlap check` and the
+ * dashboard judge recordings by. The CLI's modules import them from here.
  */
-export interface JudgeMaterialSource {
-  calls: CallRecord[];
-  output: string | null;
-  clock?: ClockReference;
-  answers?: ReadonlyMap<number, GivenAnswer>;
-}
+export { heldVerdict, judgedOptions, recordedVerdicts, type Judged, type JudgeMaterialSource } from '@shadowlap/engine';
 
 /** A run's calls and output as the material of its judge checks, with the dates matching masks in it under `clock`. */
 export function materialOf(store: StoreOf<'recording'>, runId: string, output: string | null, clock: ClockMode | undefined, calls = store.getCalls(runId)): JudgeMaterialSource {
   const ref = matchedClockOf(store, runId, clock);
   return { calls, output, ...(ref !== undefined ? { clock: ref } : {}) };
-}
-
-/** What a check's judge reads in `material`, with the project's rules: its redactions, then what matching masks. */
-function materialFor(store: Store, j: JudgeCheck, material: JudgeMaterialSource, o: { redact?: readonly Normalizer[] | undefined; normalize?: readonly Normalizer[] | undefined }): ReturnType<typeof judgeMaterial> {
-  return judgeMaterial(store, material.calls, j.of, { output: material.output, redact: o.redact ?? [], ...(o.normalize?.length ? { normalize: o.normalize } : {}), ...(material.clock !== undefined ? { clock: material.clock } : {}), ...(material.answers?.size ? { answers: material.answers } : {}) });
-}
-
-/**
- * A judge's request as a replay compares it with the recording's: the body as sent, with only the
- * recording's own redaction rules that reach a judge's request applied, as the sidecar's matching
- * applies them (judgeRules). Canonical text, so two compare as strings.
- */
-function comparable(body: unknown, redactions: readonly Normalizer[], name: string): string {
-  const rules = judgeRules(redactions);
-  return canonicalize(rules.length ? applyNormalizers(body, rules, 'api', name) : body);
-}
-
-export interface Judged {
-  /** The checks that got a verdict, by name: what `evaluateChecks` takes as `judgeVerdicts`. */
-  verdicts: Map<string, JudgeVerdict>;
-  /** Why each other check got none. */
-  notJudged: Map<string, string>;
-}
-
-/**
- * What `evaluateChecks` takes of judged checks: each verdict, and for each check with none, why
- * (`not judged: …`); a check the judging never reached says so as engine/src/checks/evaluate.ts
- * words it (`notJudgedWhy`).
- */
-export function judgedOptions(judged: Judged | null): EvaluateOptions {
-  if (!judged) return {};
-  return {
-    judgeVerdicts: judged.verdicts,
-    judgeMissing: (j) => {
-      const why = judged.notJudged.get(j.name);
-      return why === undefined ? notJudgedWhy(j) : `not judged: ${why}`;
-    },
-  };
 }
 
 /** How many times a judge's call that may pass is asked again, and how long it waits before each: half a second, then two. */
@@ -174,9 +130,9 @@ export interface PreparedJudge {
 export function prepareJudge(store: Store, j: JudgeCheck, material: JudgeMaterialSource, o: { redact?: readonly Normalizer[] | undefined; normalize?: readonly Normalizer[] | undefined }): PreparedJudge | { why: string } {
   const target = judgeTarget(j.model);
   if (!target) return { why: `Shadowlap can't tell which provider serves ${j.model}` };
-  let m: ReturnType<typeof judgeMaterial>;
+  let m: ReturnType<typeof judgeMaterialFor>;
   try {
-    m = materialFor(store, j, material, o);
+    m = judgeMaterialFor(store, j, material, o);
   } catch (err) {
     // A redaction rule that can't be applied: nothing is sent unmasked.
     return { why: `what it reads could not be made: ${messageOf(err)}` };
@@ -277,57 +233,6 @@ export async function askJudges(judges: readonly JudgeCheck[], material: JudgeMa
 /** Judge checks a run's agent didn't finish for: none is judged, and each says why. */
 export function unjudged(judges: readonly JudgeCheck[], why: string): Judged {
   return { verdicts: new Map(), notJudged: new Map(judges.map((j) => [j.name, why])) };
-}
-
-/**
- * The verdict a run already holds for a judge check: its own judge call for the same ask (question,
- * what it reads, model), the newest that got one. With `material`, only a call that sent the very
- * request the check would send now, compared as a replay compares it (under the run's own redaction
- * rules, `redactions`), so a pack never keeps a verdict its replays would not be served.
- */
-export function heldVerdict(store: Store, calls: readonly CallRecord[], j: JudgeCheck, o: { material?: JudgeMaterialSource; redact?: readonly Normalizer[]; normalize?: readonly Normalizer[]; redactions?: readonly Normalizer[] } = {}): (JudgeVerdict & { callNo: number }) | null {
-  const ask = judgeAskId(j);
-  const target = judgeTarget(j.model);
-  let wanted: string | null = null;
-  if (o.material && target) {
-    let m: ReturnType<typeof judgeMaterial>;
-    try {
-      m = materialFor(store, j, o.material, o);
-    } catch {
-      return null;
-    }
-    if ('missing' in m) return null;
-    const request = judgeRequest(target, j, m);
-    wanted = comparable(request.body, o.redactions ?? [], `POST ${request.path}`);
-  }
-  for (const c of [...calls].reverse()) {
-    if (!isJudgeCall(c) || c.meta.judge?.ask !== ask || c.end?.outcome !== 'ok' || !c.end.responseRef) continue;
-    if (wanted !== null) {
-      let sent: unknown;
-      try {
-        sent = c.requestRef ? loadApiRequest(store, c.requestRef) : null;
-      } catch {
-        continue;
-      }
-      if (comparable(sent, o.redactions ?? [], c.name) !== wanted) continue;
-    }
-    const provider = c.end.meta.provider ?? c.meta.provider;
-    const verdict = readVerdict(store.getBlob(c.end.responseRef), c.end.meta.headers?.['content-type'], typeof provider === 'string' ? provider : undefined);
-    if ('error' in verdict) continue;
-    return { ...verdict, source: 'recording', cost: 0, callNo: c.callNo };
-  }
-  return null;
-}
-
-/** Every judge check a run already holds a verdict for, as `evaluateChecks` takes them; the rest have no recorded verdict. */
-export function recordedVerdicts(store: Store, calls: readonly CallRecord[], judges: readonly JudgeCheck[]): Judged {
-  const out: Judged = { verdicts: new Map(), notJudged: new Map() };
-  for (const j of judges) {
-    const held = heldVerdict(store, calls, j);
-    if (held) out.verdicts.set(j.name, held);
-    else out.notJudged.set(j.name, j.of === 'output' ? 'no recorded verdict, and a recording keeps no output to judge' : 'no recorded verdict');
-  }
-  return out;
 }
 
 export interface JudgedRun extends Judged {

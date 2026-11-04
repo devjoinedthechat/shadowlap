@@ -1,14 +1,14 @@
 import type { ChildProcess } from 'node:child_process';
-import { UNAVAILABLE_RETRY, attemptsInARow, checkStatus, estimateCost, formatDuration, formatUsd, isJudgeCall, judgeTarget, providerUnavailable, retryDelay, unavailableReason, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store, type StoreOf, type Unavailable, type UnrecordedTool } from '@shadowlap/engine';
+import { UNAVAILABLE_RETRY, attemptsInARow, checkFailures, estimateCost, judgeRecording, formatDuration, formatUsd, isJudgeCall, judgeTarget, providerUnavailable, retryDelay, unavailableReason, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store, type StoreOf, type Unavailable, type UnrecordedTool } from '@shadowlap/engine';
 import { Sidecar, type Interventions } from '@shadowlap/sidecar';
 import { newRunMeta } from './activity.js';
 import { AGENT_NODE_TOO_OLD, refusedPreload } from './agent-node.js';
 import { spawnAgent } from './agent-registry.js';
 import { AgentStop, exitStatus, GROUPS, trackAgent } from './agent-signals.js';
-import { evaluateChecks, judgeChecksOf, judgeLabel, readsOutput, storedCheckInput, withoutOutput, type CheckResult, type EvaluateOptions, type JudgeCheck, type TestSpec } from './checks.js';
+import { evaluateChecks, judgeChecksOf, judgeLabel, storedCheckInput, type CheckResult, type JudgeCheck, type TestSpec } from './checks.js';
 import { killTree } from './kill-tree.js';
 import { guardAccept, loadConfig, readCodeVersion, upstreamOverrides, type ShadowlapConfig } from './config.js';
-import { judgedOptions, judgesOf, liveJudge, recordedVerdicts, type Judged } from './judge.js';
+import { judgedOptions, judgesOf, liveJudge, type Judged } from './judge.js';
 import { oracleLabels } from './oracle.js';
 import { keyEnvPatch } from './placeholder-keys.js';
 import { agentEnv, judgeAttempt, outputDrained, type GuardMode } from './run-agent.js';
@@ -489,8 +489,8 @@ function markUnavailable(store: StoreOf<'recording'>, runId: string, meta: Parti
   if (Object.keys(patch).length) store.updateRunMeta(runId, patch);
 }
 
-/** Why the checks fail a run: each failed check, and each that could not be decided (an inconclusive check never passes). */
-const failed = (checks: readonly CheckResult[]) => checks.filter((c) => !c.ok).map((c) => `${c.label}, but ${c.status === 'inconclusive' ? `it is inconclusive: ${c.detail!}` : c.detail!}`);
+/** Why the checks fail a run (the engine's checkFailures). */
+const failed = checkFailures;
 
 /**
  * Why an attempt can't have a verdict for a judge check, or null when it can: an attempt is a fork,
@@ -526,35 +526,8 @@ export function undecidableRefusal(spec: TestSpec | null, command: string): stri
 }
 
 /**
- * How a recorded run fares against the oracle, from what the recording holds: its exit status and
- * every check but those on its output, which is not recorded; `calls` and `when` rules read the
- * recorded arguments and results, so they cost nothing. A judge check takes the verdict the run holds
- * for it (its own judge call), and is no evidence either way without one. Null when that can't
- * settle it, and `unsettled` says why: a check on the output, a check that is inconclusive (a judge
- * with no recorded verdict), a run still recording, or a partial recording that holds no tool calls.
- * `checks` are the results, the ones on the output left out.
+ * How a recorded run fares against the oracle, from what the recording holds: the engine's
+ * (checks/recorded.ts), which `shadowlap check` judges recordings by and the dashboard judges a run
+ * by its family's checks with.
  */
-export function judgeRecording(
-  store: Store,
-  run: RunRecord,
-  calls: CallRecord[],
-  spec: TestSpec | null,
-  prices?: ShadowlapConfig['prices'],
-  options: EvaluateOptions = {},
-): { passed: boolean | null; failures: string[]; checks: CheckResult[]; unsettled: string[] } {
-  const failures: string[] = [];
-  if (run.status === 'failed') failures.push('the agent exited with a non-zero code');
-  else if (run.status === 'crashed') failures.push('the run was interrupted');
-  // A judge check takes the verdict the run already holds for it: the call its judge made, answered.
-  const judges = spec ? judgeChecksOf(spec) : [];
-  const held = judges.length && !options.judgeVerdicts ? judgedOptions(recordedVerdicts(store, calls, judges)) : {};
-  const checks = spec ? evaluateChecks(withoutOutput(spec), storedCheckInput(store, calls, '', prices), { ...held, ...options }) : [];
-  failures.push(...failed(checks.filter((c) => checkStatus(c) === 'failed')));
-  const unsettled = [
-    ...(run.status === 'running' ? ['it is still recording'] : []),
-    ...(spec && readsOutput(spec) ? ["a check reads what the agent printed, which a recording doesn't keep"] : []),
-    ...(run.meta?.covers?.length && !run.meta.covers.includes('tool') ? ['it is a partial recording that holds no tool calls'] : []),
-    ...failed(checks.filter((c) => c.status === 'inconclusive')),
-  ];
-  return { passed: failures.length ? false : unsettled.length ? null : true, failures, checks, unsettled };
-}
+export { judgeRecording };
