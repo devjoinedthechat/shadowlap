@@ -122,7 +122,7 @@ export { DATASET_FORMATS, datasetRows, type DatasetExample, type DatasetFormat }
 export { indexSearch, MATCH_END, MATCH_START, searchCalls, searchExpression, searchIndexBehind, updateSearchIndex, type SearchHit, type SearchIndexRun } from './search.js';
 export { LABEL_MAX, NOTE_MAX, cleanLabel, withLabels, withNote } from './labels-notes.js';
 export { formatRepeats, pathOf, summarizeRepeats } from './repeat.js';
-export { describeBlocks, describeRescue, formatBlame, lostWhere, maxProbes, notTheAnswer, probeBound, probeFinding, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedWhy, unrescuedWords, unsettledFirst } from './blame.js';
+export { blameStateWord, describeBlocks, describeRescue, formatBlame, INCONCLUSIVE_FIRST, INCONCLUSIVE_FIRST_HEAD, lostWhere, maxProbes, notTheAnswer, probeBound, probeFinding, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedWhy, unrescuedWords, unsettledFirst } from './blame.js';
 export type { BlameAttempt, BlameContrast, BlameOutcome, BlameProbe, BlameReport, BlameSearchOptions, BlameSearchResult, Confidence, PinCheck, ProbeVerdict } from './blame.js';
 export { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateShort, gateVerdict, keptTally, keptVerdict, outcomeOf, runVerdict, unsettledReason, verifyRule } from './verify.js';
 // What answered an attempt's tool calls after its fork: verify's line on it and its warnings.

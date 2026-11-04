@@ -1,12 +1,12 @@
-import { commitTitle, fixCost, fixLabelInfo, type FixRecords, fixRecords, type FixStatus, formatUsd, lostWords, noRepairerOf, outcomeOf, type RepairCandidate, shownBlame, type StoredFix, type StoreOf, unrescuedHead, unsettledFirst } from '@shadowlap/engine';
+import { blameStateWord, commitTitle, fixCost, fixLabelInfo, type FixRecords, fixRecords, type FixStatus, formatUsd, lostWords, noRepairerOf, outcomeOf, type RepairCandidate, shownBlame, type StoredFix, type StoreOf, unrescuedHead, unsettledFirst } from '@shadowlap/engine';
 import { acceptedCandidate, acceptedVerdict, brokenOf, counting, fixHref, repairCounts, repairerLabel, s, shownRepair, type StepKey } from './fix-shared.js';
 
 /** The Fixes list: a row for each fix, the most recently opened first, with its status, its failing runs and how far blame, repair and verify got. */
 
 /**
  * Done, to do, (Verify only) rejected, or `warn`: a step that ran and needs a look, in amber, never
- * the grey of one not run yet: a blame no model call rescued ("not rescued"), one that couldn't
- * settle ("not settled") or stopped part way ("blame stopped"), a verify left inconclusive or
+ * the grey of one not run yet: a blame no model call rescued ("not rescued"), one whose first probe
+ * couldn't tell ("inconclusive") or stopped part way ("blame stopped"), a verify left inconclusive or
  * stopped before every run settled ("not settled").
  */
 export type StepState = 'done' | 'todo' | 'no' | 'warn';
@@ -116,9 +116,9 @@ function stepsOf(rec: FixRecords): FixStep[] {
     const cost = `${r.attempts} attempt${s(r.attempts)} · ${approx(r.spent)}`;
     // At the call blame names, or around or between two when no one call is pinned.
     if (b.outcome === 'blamed' && r.blamed) blame = { key: 'blame', n: '01', state: 'done', short: lostWords(r.blamed.callNo, r.range), title: lostWords(r.blamed.callNo, r.range, 'title'), meta: `confidence ${r.confidence} · ${cost}` };
-    // Its first probe couldn't tell: not settled, never a finding that no call rescues the run.
+    // Its first probe couldn't tell: inconclusive at the first model call, never a finding that no call rescues the run.
     // Not rescued from any model call only where blame's bound bears it out; else from the first, as blame's report heads it.
-    else if (b.outcome === 'unrescuable') blame = { key: 'blame', n: '01', state: 'warn', short: unsettledFirst(r) ? 'not settled' : 'not rescued', title: unrescuedHead(r).replace(/^\S+ /, ''), meta: cost };
+    else if (b.outcome === 'unrescuable') blame = { key: 'blame', n: '01', state: 'warn', short: blameStateWord('unrescuable', unsettledFirst(r)), title: unrescuedHead(r).replace(/^\S+ /, ''), meta: cost };
     else blame = { key: 'blame', n: '01', state: 'warn', short: 'blame stopped', title: 'Stopped before the search finished', meta: r.stopReason ?? cost };
   }
 

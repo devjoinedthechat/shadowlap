@@ -240,7 +240,7 @@ The report leads with where the run was lost, then the evidence for it:
 | **The re-asked call #n: …; #n′, the next model call: …** | The evidence on both sides of the boundary |
 | **Checked with N fresh pairs: #n rescued …, #n′ …** | The check of a pinned call: its pairs, what each call passed, and what they show |
 | **Not rescued from any model call** | Even resampled from the first model call, the gate found the run lost |
-| **Not settled from the first model call** | The first probe could not tell a rescue from a loss |
+| **Inconclusive at the first model call** | The first probe could not tell a rescue from a loss |
 | **Confidence** | *high*, *medium* or *low*, read from the error bound it states |
 | **At #n** | What the model answered at the blamed call in the recording, and in a fork that went on to pass |
 | **Probes** | Every call probed, with its tally, the bound of its pass rate and its verdict |
@@ -257,9 +257,9 @@ The report leads with where the run was lost, then the evidence for it:
 
 **Not rescued from any model call.** The run was rescued less than 60% of the time from the first model call, and so from any call, wrong at most the gate's risk. *Not rescued from the first model call* says the same under a rule that can be wrong more often (a fixed count).
 
-**Not settled from the first model call.** Resampled from the first model call, the run passed some attempts and failed others, and the gate could not tell a rescue from a loss within its attempts: *inconclusive*, with its tally and bound. Or an attempt there could not be judged, and the report gives the check and why.
+**Inconclusive at the first model call.** Resampled from the first model call, the run passed some attempts and failed others, and the gate could not tell a rescue from a loss within its attempts: *inconclusive*, with its tally and bound. Or an attempt there could not be judged, and the report gives the check and why.
 
-Confidence is then low, and the report says how to settle it: more attempts (`max`) or a lower bar (`good`) with `--gate`, or what decides the check. The run keeps it so: `shadowlap show`, its page, Needs a look, Fixes and a repair that reuses the blame say *not settled*, never *not rescued*.
+Confidence is then low, and the report says how to settle it: more attempts (`max`) or a lower bar (`good`) with `--gate`, or what decides the check. The run keeps it so: `shadowlap show`, its page, Needs a look, Fixes and a repair that reuses the blame say *inconclusive at the first model call*, never *not rescued*.
 
 **Confidence.** The line states its error bound, the sum of the risks of the probes that decided: `<= 2.9% risk that the call is wrong: 3 probes decided, at <= 0.8% risk each, and the check of #5, at <= 0.6%`.
 
@@ -344,7 +344,7 @@ These are the flags this page covers. [The CLI reference](./cli.md#blame) lists 
 | 0 | The search reached a verdict: a blamed call, or no call that rescues the run |
 | 1 | Blame refused what it saw, such as a run that passes its oracle or does not replay as recorded |
 | 2 | Blame can't start, such as on a run with no model call to probe ([the CLI reference](./cli.md#blame)) |
-| 3 | It stopped before a verdict: the budget spent, a provider that stayed unavailable, or a search *not settled from the first model call* |
+| 3 | It stopped before a verdict: the budget spent, a provider that stayed unavailable, or a search *inconclusive at the first model call* |
 | 128 + n | A stop signal: 130 for Ctrl-C |
 
 ## JSON

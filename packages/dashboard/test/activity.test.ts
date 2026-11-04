@@ -424,7 +424,7 @@ describe('a test session', () => {
     expect(JSON.stringify(items)).not.toContain('null');
     expect(items.find((i) => i.at === 210)).toMatchObject({ kind: 'fail', text: 'Tests ran · 2 passed, 2 failed, 1 inconclusive' });
     expect(items.find((i) => i.at === 220)).toMatchObject({ kind: 'warn', text: 'Tests ran · 4 passed, 0 failed, 1 inconclusive' });
-    expect(items.find((i) => i.at === 230)).toMatchObject({ kind: 'blame', text: 'Blamed · Refunds above the limit, not settled from the first model call' });
+    expect(items.find((i) => i.at === 230)).toMatchObject({ kind: 'blame', text: 'Blamed · Refunds above the limit, inconclusive at the first model call' });
     store.close();
   });
 
@@ -532,7 +532,7 @@ describe('an outcome that is inconclusive', () => {
     store.updateRunMeta(rec, { blame: { at: 500, outcome: 'unrescuable', unsettled: true, callNo: null, confidence: 'low', rescuedRunId: null, fields: {}, oracle: [], probes: [{ callNo: 1, passes: 0, attempts: 1, rescued: false }], spent: 0 } });
     const items = activity(store).items;
     expect(items.find((i) => i.id === 'g:g-judge')?.text).toMatch(/· 1 of 3 passed their checks, 1 inconclusive$/);
-    expect(items.find((i) => i.id === `r:${rec}:blame`)).toMatchObject({ kind: 'blame', text: 'Blamed · not settled from the first model call' });
+    expect(items.find((i) => i.id === `r:${rec}:blame`)).toMatchObject({ kind: 'blame', text: 'Blamed · inconclusive at the first model call' });
     store.close();
   });
 });

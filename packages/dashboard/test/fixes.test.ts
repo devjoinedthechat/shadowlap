@@ -161,14 +161,14 @@ describe('the Fixes list', () => {
   it('reads a blame whose first probe could not tell apart, and one whose gate it can\'t read without breaking the page', () => {
     const gate: SprtGate = { kind: 'sprt', ...BLAME_DEFAULTS };
     const runId = makeRun(store, { labels: ['flaky'], calls: ['api', 'tool', 'api'] });
-    // Seven passes in twenty from the first model call: between 10% and 60%, so not settled.
+    // Seven passes in twenty from the first model call: between 10% and 60%, so inconclusive.
     const outcomes = [...Array(6).fill([true, false, false]).flat(), true, false] as boolean[];
     const base = blameReport(runId, 'unrescuable');
     const first = { ...base.probes[0], passes: 7, rescued: false, decision: 'inconclusive' as const, gate: gateResult(gate, outcomes), attempts: outcomes.map((passed, i) => ({ ...base.probes[0].attempts[0], runId: `${runId.slice(0, 20)}${String(i).padStart(6, '0')}`, passed })) };
     const unsettled = recordBlame(store, { runId, report: { ...base, gate, confidence: 'low', probes: [first], lost: first }, expect: EXPECT, scope: null, command: 'shadowlap blame x', title: 'Flaky refunds', checkText: 'x', at: NOW });
     const b = fixDetail(store, unsettled.fix.fixId)!.blame!;
-    expect(b).toMatchObject({ title: 'Not settled from the first model call', confidence: 'low', confidenceWhy: '#1 was inconclusive: whether resampling rescues the run is not settled', boundary: 'Resampled from the first model call, #1: inconclusive · 7 of 20 · rate 0.10 to 0.64 (95%).', rule: 'gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts' });
-    expect(b.look).toContain('Not settled: resampled from #1');
+    expect(b).toMatchObject({ title: 'Inconclusive at the first model call', confidence: 'low', confidenceWhy: '#1 was inconclusive: whether resampling rescues the run is undecided', boundary: 'Resampled from the first model call, #1: inconclusive · 7 of 20 · rate 0.10 to 0.64 (95%).', rule: 'gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts' });
+    expect(b.look).toContain('Inconclusive: resampled from #1');
     expect(b.probes[0]).toMatchObject({ verdict: 'inconclusive', bound: 'rate 0.10 to 0.64 (95%)' });
     expect(b.callRow.find((c) => c.callNo === 1)).toMatchObject({ verdict: 'inconclusive' });
 
@@ -262,15 +262,15 @@ describe('a fix', () => {
     report.confidence = 'low';
     const { fix } = recordBlame(store, { runId: failing, report, expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: NOW });
     const b = fixDetail(store, fix.fixId)!.blame!;
-    expect(b).toMatchObject({ title: 'Not settled from the first model call', boundary: `Resampled from the first model call, #1: an attempt could not be judged: ${why}.` });
-    expect(b.look).toContain('Not settled: a check could not be decided on an attempt');
+    expect(b).toMatchObject({ title: 'Inconclusive at the first model call', boundary: `Resampled from the first model call, #1: an attempt could not be judged: ${why}.` });
+    expect(b.look).toContain('Inconclusive: a check could not be decided on an attempt');
     expect(b.probes).toEqual([expect.objectContaining({ callNo: 1, verdict: 'inconclusive', passes: 0, attempts: 1, inconclusive: 1, bound: null })]);
     expect(b.callRow[0]).toMatchObject({ callNo: 1, verdict: 'inconclusive', passes: 0, attempts: 1, inconclusive: 1 });
     expect(b.bundles[0].attempts).toEqual([expect.objectContaining({ passed: false, verdict: 'inconclusive', note: 'inconclusive: judge "issued" answers yes' })]);
-    // Wherever the blame is summed up, it is not settled, never "not rescued".
-    expect(fixList(store).fixes[0].steps[0]).toMatchObject({ state: 'warn', short: 'not settled', title: 'Not settled from the first model call' });
-    expect(needsLookFixes(store).find((x) => x.fixId === fix.fixId)?.detail).toBe('not settled from the first model call · no fix yet');
-    expect(fixForRun(store, failing)?.blame).toMatchObject({ outcome: 'unrescuable', unsettled: true, short: 'not settled from the first model call' });
+    // Wherever the blame is summed up, it is inconclusive at the first model call, never "not rescued".
+    expect(fixList(store).fixes[0].steps[0]).toMatchObject({ state: 'warn', short: 'inconclusive', title: 'Inconclusive at the first model call' });
+    expect(needsLookFixes(store).find((x) => x.fixId === fix.fixId)?.detail).toBe('inconclusive at the first model call · no fix yet');
+    expect(fixForRun(store, failing)?.blame).toMatchObject({ outcome: 'unrescuable', unsettled: true, short: 'inconclusive at the first model call' });
     expect(fixDetail(store, fix.fixId)!.blames).toEqual([expect.objectContaining({ outcome: 'unrescuable', unsettled: true })]);
   });
 
@@ -576,7 +576,7 @@ describe('a fix', () => {
     expect(noFix(kept(['a'], (r) => blameReport(r, 'unrescuable')))).toBe('No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.');
     const write = { name: 'post_digest', message: 'channel_not_found: #refunds', callNo: 1 };
     expect(noFix(kept(['b'], (r) => ({ ...blameReport(r, 'unrescuable'), failedWrite: write })))).toBe("Blame found that no answer of the model's lost this run, so a rewrite of the prompt can't fix it: the repair ends “No fix to try”. Look at the tools, the harness or the command.");
-    // Its first probe couldn't tell: not settled, which is no finding that no answer of the model's lost the run.
+    // Its first probe couldn't tell: inconclusive, which is no finding that no answer of the model's lost the run.
     const unsure = (r: string) => {
       const base = blameReport(r, 'unrescuable');
       return { ...base, probes: [{ ...base.probes[0], decision: 'inconclusive' as const }] };

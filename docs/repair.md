@@ -426,7 +426,7 @@ A repair logs `repair.accepted` or `repair.empty` in the store's activity, and `
 
 - **No answer of the model's lost the runs**: every attempt failed on a write's recorded error again, or the attempts that passed answered as the recording did. The reason says that instead, as the fix's Blame step does, and suggests no stronger model.
 - **No run could be blamed at all**, such as when each passed its check when replayed: it says why.
-- **Blame settled nowhere**: its first probe could not tell (*Not settled from the first model call*, which `shadowlap blame` alone ends with 3). It says what settles it.
+- **Blame settled nowhere**: its first probe could not tell (*Inconclusive at the first model call*, which `shadowlap blame` alone ends with 3). It says what settles it.
 
 **Stopped.** `--budget` spent, too little of it left to ask the repairer, or a provider that stayed unavailable: 3. Ctrl-C, a closed terminal or SIGTERM: 128 plus the signal's number (130, 129, 143), whatever the outcome, one that comes while repair removes its last worktree or closes its store too. What was found so far is reported.
 
@@ -524,7 +524,7 @@ Each entry of `targets`:
 
 - **`outcome`** is `passes` when the run passed the check as replayed, so there was no failure to blame, and `error` when blame couldn't run.
 - **`range`** has `gradual: true` when its check found no drop beyond chance from one to the next: rescue falls by less than the gate's rates apart, or the check could not tell. That is as [blame](./blame.md#how-it-works) words it (*lost gradually, around model calls #17 and #18*), `callNo` being the first. It is `null` otherwise.
-- **`unsettled`** marks a run not settled rather than not rescued. It is absent otherwise.
+- **`unsettled`** marks a run inconclusive at the first model call rather than not rescued. It is absent otherwise.
 
 ### Each candidate
 

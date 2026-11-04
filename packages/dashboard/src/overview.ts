@@ -452,7 +452,7 @@ function todayPanel(store: Store, index: RunIndex, inWindow: IndexedRun[], stats
         const run = index.byId.get(runId);
         const fix = fixOfRun(store, runId);
         const outcome = run?.meta.blame?.outcome;
-        // Placed on no call only because its first probe couldn't tell: not settled, not "not rescued".
+        // Placed on no call only because its first probe couldn't tell: inconclusive, not "not rescued".
         // Lost around or between two calls when no one call is pinned: Today says so, never that one call did.
         return { runId, outcome: outcome === 'blamed' || outcome === 'unrescuable' || outcome === 'stopped' ? outcome : null, ...(run?.meta.blame?.unsettled ? { unsettled: true as const } : {}), lostAt: run ? lostAt(classifiable(run)) : null, range: run?.meta.blame?.range ?? null, title: fix?.title ?? null, fixId: fix?.fixId ?? null };
       }),

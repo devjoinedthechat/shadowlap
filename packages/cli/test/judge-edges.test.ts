@@ -412,7 +412,7 @@ describe('a repeated golden whose attempt a judge could not answer after its cou
 });
 
 describe('a blame probe whose attempt a judge could not answer', () => {
-  it('is inconclusive, never lost: the search is not settled from the first model call', async () => {
+  it('is inconclusive, never lost: the search is inconclusive at the first model call', async () => {
     config({});
     // Each answer differs (Refund 1 issued., Refund 2 issued.): the replay as recorded reads the recorded one, which the judge answers.
     const rec = await record({ VARIANT: 'n' });
@@ -427,11 +427,11 @@ describe('a blame probe whose attempt a judge could not answer', () => {
     expect(blame.probes[0].runs).toEqual([expect.objectContaining({ passed: false, verdict: 'inconclusive' })]);
     const text = await shadowlap(['blame', rec, '--expect', expect_, '--attempts', '2', '--passes', '1', '--concurrency', '1'], { VARIANT: 'n' });
     expect(text.code, text.out).toBe(3);
-    expect(text.out).toContain('? Not settled from the first model call');
+    expect(text.out).toContain('? Inconclusive at the first model call');
     expect(text.out).toContain('Resampled from the first model call, #1: an attempt could not be judged: judge "issued" answers yes, but it is inconclusive');
     expect(text.out).toMatch(/inconclusive · an attempt not judged/);
     expect(text.out).not.toMatch(/Not rescued from any model call|lost · |✗ judge/);
-    // What the run keeps of it says so, and shadowlap show reads it: not settled, never "not rescued".
+    // What the run keeps of it says so, and shadowlap show reads it: inconclusive, never "not rescued".
     const store = Store.open(join(work, '.shadowlap', 'shadowlap.db'));
     try {
       expect(store.getRun(rec)!.meta?.blame).toMatchObject({ outcome: 'unrescuable', unsettled: true });
@@ -439,7 +439,7 @@ describe('a blame probe whose attempt a judge could not answer', () => {
       store.close();
     }
     const shown = (await shadowlap(['show', rec])).stdout;
-    expect(shown).toContain('blame: not settled from the first model call');
+    expect(shown).toContain('blame: inconclusive at the first model call');
     expect(shown).not.toContain('not rescued');
   }, 120_000);
 });

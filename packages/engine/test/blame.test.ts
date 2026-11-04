@@ -1,4 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { INCONCLUSIVE_FIRST_HEAD } from '../src/blame-words.js';
 import { blameSpan, confidenceWhy, decidePin, describeBlocks, describeRescue, formatBlame, maxProbes, notTheAnswer, pinRisk, pinRule, pinWords, probeBound, probeFinding, probeGate, probeRisk, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedHead, unrescuedWhy, unsettledFirst, type BlameProbe, type BlameReport, type PinCheck } from '../src/blame.js';
 import { addPair, NO_PAIRS, pairedOdds, pairedWorstCase } from '../src/noninferiority.js';
 import { plain } from '../src/report.js';
@@ -507,11 +510,11 @@ describe('probes decided by a gate', () => {
     expect(unsettledFirst(full)).toBe(true);
     const why = unrescuedWhy(full);
     expect(why.evidence).toBe('Resampled from the first model call, #1: inconclusive · 7 of 20 · rate 0.10 to 0.64 (95%).');
-    expect(why.look).toContain('Not settled: resampled from #1, the run passes some of the time, too often to call it lost and too rarely to call it rescued');
+    expect(why.look).toContain('Inconclusive: resampled from #1, the run passes some of the time, too often to call it lost and too rarely to call it rescued');
     expect(why.look).toContain(`--gate '{"good":0.4,"max":40}'`);
     expect(why.look).not.toContain('not one unlucky answer');
     const text = formatBlame(full);
-    expect(text).toContain('? Not settled from the first model call');
+    expect(text).toContain('? Inconclusive at the first model call');
     expect(text).not.toContain('Not rescued from any model call');
     expect(text).toContain('Confidence: low (#1 was inconclusive)');
     // One that found the first call lost is still the finding it was.
@@ -533,14 +536,14 @@ describe('probes decided by a gate', () => {
     expect(probeFinding(first, GATE)).toBe('inconclusive · an attempt not judged');
     expect(probeBound(first, GATE)).toBeNull();
     expect(probeFinding(undecided(1, 1, [true], null), null)).toBe('inconclusive · 1 of 1 passed, an attempt not judged');
-    // The search takes it as not rescued, and says it is not settled, with why, never that no call rescues the run.
+    // The search takes it as not rescued, and says it is inconclusive, with why, never that no call rescues the run.
     const r = await searchBlame({ steps: [1, 2], probe: async (callNo, step) => (step === 1 ? first : gated(callNo, step, [false, false, false, false])), scan: 0 });
     expect(r).toMatchObject({ outcome: 'unrescuable', confidence: 'low' });
     const full = report({ ...r, probes: r.probes });
     expect(unsettledFirst(full)).toBe(true);
-    expect(unrescuedWhy(full)).toEqual({ evidence: `Resampled from the first model call, #1: an attempt could not be judged: ${why}.`, look: 'Not settled: a check could not be decided on an attempt, so no probe can say whether resampling rescues the run. Give it what decides it (a judge that can answer, a value its condition can read), and blame again.' });
+    expect(unrescuedWhy(full)).toEqual({ evidence: `Resampled from the first model call, #1: an attempt could not be judged: ${why}.`, look: 'Inconclusive: a check could not be decided on an attempt, so no probe can say whether resampling rescues the run. Give it what decides it (a judge that can answer, a value its condition can read), and blame again.' });
     const text = formatBlame(full);
-    expect(text).toContain('? Not settled from the first model call');
+    expect(text).toContain('? Inconclusive at the first model call');
     expect(text).toMatch(/#1 +1 of 4 +an attempt not judged +inconclusive/);
     expect(text).not.toMatch(/Not rescued from any model call|0 of 1|lost · /);
     // As the one after the boundary, under a fixed count: inconclusive there, not lost.
@@ -583,5 +586,15 @@ describe('probes decided by a gate', () => {
   it('says why no call was blamed in the gate\'s words', () => {
     const first = gated(1, 1, [false, false, false, false]);
     expect(unrescuedWhy({ probes: [first], needed: 2, gate: GATE, sameAnswer: null, failedWrite: null }).evidence).toBe('Resampled from the first model call, #1: lost · 0 of 4 · rate <= 0.61 (95%).');
+  });
+});
+
+describe('a blame whose first probe could not tell, in the docs', () => {
+  it('reads as blame heads it, inconclusive at the first model call, on every page that names it', () => {
+    for (const page of ['blame', 'gating', 'repair', 'cli']) {
+      const text = readFileSync(fileURLToPath(new URL(`../../../docs/${page}.md`, import.meta.url)), 'utf8');
+      expect(text, `docs/${page}.md`).toContain(`*${INCONCLUSIVE_FIRST_HEAD}*`);
+      expect(text, `docs/${page}.md`).not.toMatch(/not settled from the first model call/i);
+    }
   });
 });

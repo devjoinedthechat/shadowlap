@@ -1,4 +1,4 @@
-import { type AttemptVerdict, BLAME_DEFAULTS, type BlameReport, describeBlocks, describeRescue, expectArgs, findPairs, type FixRecords, GATE_MAX_ATTEMPTS, hasRecordedCommand, keptAttemptVerdict, lostWords, pinWords, probeBound, probeFinding, probeTally, probeWord, type PulledFrom, rescueRule, scopeArg, type SprtGate, type StoredBlame, type StoreOf, unrescuedWhy, unsettledFirst } from '@shadowlap/engine';
+import { type AttemptVerdict, BLAME_DEFAULTS, type BlameReport, describeBlocks, describeRescue, expectArgs, findPairs, type FixRecords, GATE_MAX_ATTEMPTS, hasRecordedCommand, keptAttemptVerdict, lostWords, pinWords, probeBound, probeFinding, probeTally, probeWord, type PulledFrom, rescueRule, scopeArg, type SprtGate, type StoredBlame, type StoreOf, unrescuedHead, unrescuedWhy, unsettledFirst } from '@shadowlap/engine';
 import { blameEvidence, gateEvidence, type BlameEvidence, type GateEvidence } from './evidence.js';
 import { fieldArgs, rerunFlags, runIds, type RerunFlags } from './rerun.js';
 import { askedAgain, attemptNote, commandLine, countArgs, type FixActions, gateArg, noAnswerLost, PULLED_CAP, pulledGate, runHref, sprtGate } from './fix-shared.js';
@@ -106,8 +106,10 @@ export function blameStep(store: StoreOf<'recording' | 'readModels' | 'fixes'>, 
         : `Resampling #${r.blamed.callNo} rescued ${probeTally(r.blamed, ' attempts')}; ${r.lost?.undecided ? `#${r.lost.callNo}, the next model call, was inconclusive: ${probeTally(r.lost, ' passed')}.` : r.lost ? `resampling #${r.lost.callNo}, the next model call, rescued ${probeTally(r.lost)}.` : 'it is the last model call, and the recording, which kept its answer, fails.'}`;
     boundary += checked;
   } else if (b.outcome === 'unrescuable') {
-    // Its first probe couldn't tell: not a finding that no answer lost it.
-    title = unsettledFirst(r) ? 'Not settled from the first model call' : 'Not rescued from any model call';
+    // Blame's own headline, without its mark: inconclusive at the first model call when its first
+    // probe couldn't tell, which is no finding that no answer lost it; else not rescued, from any
+    // model call only where its bound bears that out.
+    title = unrescuedHead(r).replace(/^\S+ /, '');
     boundary = unrescuedWhy(r).evidence ?? 'No probe rescued the run.';
   } else {
     title = 'Stopped before the search finished';
@@ -120,7 +122,7 @@ export function blameStep(store: StoreOf<'recording' | 'readModels' | 'fixes'>, 
       ? r.nonMonotone.length
         ? `rescue worked again at ${r.nonMonotone.map((x) => `#${x.rescued} after failing at #${x.lost}`).join(', ')}, so the boundary is not clean`
         : unsettledFirst(r)
-          ? `#${r.probes[0]!.callNo} was inconclusive: whether resampling rescues the run is not settled`
+          ? `#${r.probes[0]!.callNo} was inconclusive: whether resampling rescues the run is undecided`
           : 'the search did not finish'
       : r.confidence === 'medium' && r.lost
         ? r.lost.decision === 'inconclusive'
@@ -219,7 +221,7 @@ export function blameNext(store: StoreOf<'recording'>, rec: FixRecords, b: Store
   const pulled = b.pulled ?? null;
   const g = pulledGate(sprtGate(b.report.gate), !!pulled, PULLED_CAP.blame);
   if (stopped || unsettled) {
-    // Not settled: more attempts and a lower bar, as blame's report words it; stopped: the same gate, to the end.
+    // Inconclusive: more attempts and a lower bar, as blame's report words it; stopped: the same gate, to the end.
     const lower = g ? Math.max(0.05, +(g.good - 0.2).toFixed(2)) : null;
     const gate: SprtGate | null = g && unsettled ? { ...g, good: lower !== null && lower > g.bad ? lower : g.good, max: Math.min(pulled ? PULLED_CAP.blame : GATE_MAX_ATTEMPTS, g.max * 2) } : g;
     const made = blameArgs(b, rec.fix.check.expect, gate ? gateArg(gate, BLAME_DEFAULTS) : blameCount(b.report, !!pulled));

@@ -1,6 +1,7 @@
 import { approx } from '../format.js';
 import { commandText } from '../goldens.js';
 import type { BlameStep, CandidateVerdict, FixBundle, FixDetail, FixRow, RepairStep, StepKey, VerifyMore, VerifyRow, VerifyStep } from '../types.js';
+import { blameStateWord } from '../../../engine/src/blame-words.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { lostWords } from '../../../engine/src/run-verdicts.js';
 import { pluralS as s, shortFixId, twoDigits as pad } from '../../../engine/src/words.js';
@@ -740,12 +741,11 @@ export function inlineParts(text: string): Array<{ code: boolean; text: string }
 
 /**
  * How another blame of the fix came out, as the Blame step lists it after Also blamed: where it found
- * the run lost (at a call, or around or between two), not settled or not rescued, or stopped.
+ * the run lost (at a call, or around or between two), inconclusive or not rescued, or stopped.
  */
 export function otherBlameWords(o: FixDetail['blames'][number]): string {
   if (o.outcome === 'blamed' && o.lostAt !== null) return lostWords(o.lostAt, o.range);
-  if (o.outcome === 'unrescuable') return o.unsettled ? 'not settled' : 'not rescued';
-  return 'stopped';
+  return blameStateWord(o.outcome === 'unrescuable' ? 'unrescuable' : 'stopped', o.unsettled === true);
 }
 
 // ---------------------------------------------------------------------------------------------- the job drawer
@@ -768,10 +768,10 @@ export function fixJobStatus(job: { kind?: string; code: number | null; result?:
     // At the call it names, or around or between two when no one call is pinned.
     if (r.outcome === 'blamed' && blamed !== null) return { text: `${lostWords(blamed, r.range)} · ${exit}`, tone };
     if (r.outcome === 'unrescuable') {
-      // Its first probe couldn't tell, and nothing else was found (blame's unsettledFirst): not settled, never "not rescued".
+      // Its first probe couldn't tell, and nothing else was found (blame's unsettledFirst): inconclusive, never "not rescued".
       const first = Array.isArray(r.probes) && isObject(r.probes[0]) ? r.probes[0] : null;
       const unsettled = first?.decision === 'inconclusive' && !r.sameAnswer && !r.failedWrite;
-      return { text: `${unsettled ? 'not settled' : 'not rescued'} · ${exit}`, tone: job.code === 0 ? 'warn' : 'err' };
+      return { text: `${blameStateWord('unrescuable', unsettled)} · ${exit}`, tone: job.code === 0 ? 'warn' : 'err' };
     }
     if (r.outcome === 'stopped') return { text: `stopped early · ${exit}`, tone: 'err' };
     return null;

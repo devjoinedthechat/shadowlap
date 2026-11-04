@@ -146,6 +146,6 @@ function reportBlame(report: BlameRun, flags: BlameFlags): void {
   if (report.fix) emitJobEvent({ type: 'link', label: 'Open the fix', href: fixHref(report.fix.fixId, 'blame') });
   emitJobEvent({ type: 'result', data: blameJson(report) });
   // A verdict (a blamed call, or none that rescues the run), 0; stopped before one, by its reason;
-  // not settled from the first model call, which is no verdict, 3.
+  // inconclusive at the first model call, which is no verdict, 3.
   process.exitCode = report.outcome === 'stopped' ? stoppedStatus(report.stopReason) : unsettledFirst(report) ? EXIT.inconclusive : EXIT.ok;
 }

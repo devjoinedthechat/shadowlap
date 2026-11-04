@@ -160,7 +160,7 @@
       "workflowYaml": 31
     },
     "packages/dashboard/src/fix-blame-step.ts": {
-      "blameStep": 41
+      "blameStep": 40
     },
     "packages/dashboard/src/fix-bundles.ts": {
       "fixBundles": 82
@@ -169,7 +169,7 @@
       "fixForRun": 44
     },
     "packages/dashboard/src/fix-list.ts": {
-      "stepsOf": 32
+      "stepsOf": 31
     },
     "packages/dashboard/src/fix-verify-step.ts": {
       "verifyMore": 41
@@ -223,7 +223,7 @@
       "FixActions": 37
     },
     "packages/dashboard/ui/fixes/model.ts": {
-      "fixJobStatus": 38
+      "fixJobStatus": 37
     },
     "packages/dashboard/ui/goldens.ts": {
       "updatePlan": 32

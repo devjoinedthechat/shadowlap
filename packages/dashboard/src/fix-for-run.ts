@@ -17,7 +17,7 @@ export interface RunBlame {
   blameId: string;
   at: number;
   outcome: StoredBlame['outcome'];
-  /** It placed the failure on no call only because its first probe couldn't tell: not settled, never "not rescued". Absent otherwise. */
+  /** It placed the failure on no call only because its first probe couldn't tell: inconclusive at the first model call, never "not rescued". Absent otherwise. */
   unsettled?: true;
   lostAt: number | null;
   /** The two calls it was lost around or between, when no one call is pinned (lostRange): the banner says so, never "lost at". */

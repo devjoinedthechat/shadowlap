@@ -77,7 +77,7 @@ export interface FixActions {
   /**
    * An open fix whose blame couldn't settle where its run was lost (`unsettled`: its first probe
    * passed between the gate's two rates) or stopped part way (`stopped`): Blame again, the same
-   * blame under the fix's check, without the budget that stopped it, and for one not settled with
+   * blame under the fix's check, without the budget that stopped it, and for one inconclusive with
    * more attempts and a lower bar, as blame's report says (`gate`). Null otherwise.
    */
   blameAgain: { kind: 'unsettled' | 'stopped'; argv: string[]; command: string; gate: SprtGate | null; pulled: PulledFrom | null; left: string[] } | null;

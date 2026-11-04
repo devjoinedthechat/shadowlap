@@ -40,8 +40,8 @@ describe('the Overview’s words', () => {
     expect(outcomeWords({ kind: 'lost', callNo: 7, range: { from: 7, to: 9, gradual: true } })).toBe('lost gradually around #7 and #9');
     expect(outcomeWords({ kind: 'diverged', callNo: 1 })).toBe('diverged at #1');
     expect(blameWords({ outcome: 'unrescuable', lostAt: null })).toBe('not rescued from any model call');
-    // One whose first probe couldn't tell is not settled, never a finding that no call rescues the run.
-    expect(blameWords({ outcome: 'unrescuable', unsettled: true, lostAt: null })).toBe('not settled from the first model call');
+    // One whose first probe couldn't tell is inconclusive at the first model call, never a finding that no call rescues the run.
+    expect(blameWords({ outcome: 'unrescuable', unsettled: true, lostAt: null })).toBe('inconclusive at the first model call');
     expect(blameWords({ outcome: 'stopped', lostAt: null })).toBe('blame stopped early');
     expect(blameWords({ outcome: null, lostAt: null })).toBe('not placed yet');
     expect(testsKpi(null, 0)).toEqual({ value: '—', note: 'no goldens yet', tone: '' });

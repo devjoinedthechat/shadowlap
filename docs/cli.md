@@ -1043,7 +1043,7 @@ It stops before a verdict, exit status 3, when:
 
 - the budget is spent, or the provider unavailable;
 - what the replay as recorded showed could not be decided;
-- its first probe could not tell a rescue from a loss (*Not settled from the first model call*).
+- its first probe could not tell a rescue from a loss (*Inconclusive at the first model call*).
 
 ## verify
 

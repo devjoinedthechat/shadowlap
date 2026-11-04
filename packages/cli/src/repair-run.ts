@@ -550,7 +550,7 @@ class RepairRun {
     if (stored.outcome === 'unrescuable') {
       // What it found is kept whole with its fix: the same search, when the kept blame is the one on the run.
       const same = kept.outcome === 'unrescuable' && JSON.stringify(kept.report.oracle) === JSON.stringify(this.oracle) && JSON.stringify(kept.report.rescue?.fields ?? {}) === JSON.stringify(fields);
-      // One whose first probe couldn't tell is not settled, which is no finding that no call rescues the run.
+      // One whose first probe couldn't tell is inconclusive, which is no finding that no call rescues the run.
       const unsettled = stored.unsettled === true || (same && unsettledFirst(kept.report));
       this.log(`  ${shortId(runId)}: ${unrescuedWords(unsettled)}, from the blame already stored on it`);
       return { target: { ...base, outcome: 'unrescuable', ...(unsettled ? { unsettled: true } : {}), reused: true }, repairCase: null, request: null, model: null, notTheAnswer: same ? notTheAnswer(kept.report) : null };
