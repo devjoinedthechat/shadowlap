@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CmdLine, PageHeader } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
+import { ACTIONS, confirmWords } from '../labels.js';
 import { messageOf } from '../../../engine/src/message-of.js';
 import { expectProject, type AddProjectView } from '../projects-api.js';
 import { codeParts } from '../projects.js';
@@ -10,7 +11,7 @@ import { navigate } from '../router.js';
 import { useApp } from '../state.js';
 
 /**
- * Add a project (#/new): pick the folder your agent's code is in. Typing filters the folders the
+ * Add project (#/new): pick the folder your agent's code is in. Typing filters the folders the
  * server suggests (one level at a time, within the home folder and configured roots, never hidden
  * or system folders); each says what kind of project it holds, those already added are disabled,
  * and a folder without project files says why it can't be added. The button names the folder and
@@ -65,7 +66,7 @@ export function NewProjectPage() {
   if (unsupported || oneStore)
     return (
       <Page>
-        <PageHeader eyebrow="projects" title="Add a project" text="A project is a folder with your agent’s code, and it keeps its own store." />
+        <PageHeader eyebrow="projects" title={confirmWords(ACTIONS.addProject.label)} text="A project is a folder with your agent’s code, and it keeps its own store." />
         <section className="panel stepempty">
           <h3>Start the dashboard in that folder</h3>
           <p>This dashboard serves one store: start one with shadowlap dashboard to add and switch projects.</p>
@@ -98,7 +99,7 @@ export function NewProjectPage() {
   const next = view?.next;
   return (
     <Page>
-      <PageHeader eyebrow="projects" title={view?.title ?? 'Add a project'} text={view?.intro ?? 'Pick the folder your agent’s code is in. Nothing runs until you click.'} />
+      <PageHeader eyebrow="projects" title={view?.title ?? confirmWords(ACTIONS.addProject.label)} text={view?.intro ?? 'Pick the folder your agent’s code is in. Nothing runs until you click.'} />
       <div className="newgrid">
         <section className="panel">
           <div className="pbody">

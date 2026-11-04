@@ -1,6 +1,7 @@
 import { JOB_KINDS } from '../../api.js';
 import { copyText } from '../../dom.js';
 import { num } from '../../format.js';
+import { ACTIONS } from '../../labels.js';
 import { href } from '../../route.js';
 import type { StoreSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
@@ -13,7 +14,7 @@ import { shareLinksLine, syncText } from './logic.js';
  * Store: the team store, the project's runs in a bucket you own. Free, with nothing hosted: push
  * copies this machine's runs there, pull brings the team's back, and CI pushes its test runs. The
  * bucket, your access, the last sync with what is in the store and only here, and Push from CI. A
- * project with none says so, and Set up the store opens the setup's page (`#/setup/store`, in
+ * project with none says so, and Set up team store opens the setup's page (`#/setup/store`, in
  * StoreSetup.tsx), as the design's Set up Team does; a setup under way leads back there from here.
  */
 export function StoreTab() {
@@ -196,7 +197,7 @@ function CiStepButton({ step }: { step: CopiedStep }) {
 }
 
 /**
- * A project with no store: what one is, and Set up the store, which opens the setup's page as the
+ * A project with no store: what one is, and Set up team store, which opens the setup's page as the
  * design's Set up Team does; its command where the dashboard has no setup. Read-only, it says why
  * not. While shadowlap.config.json can't be read, whether it names a store is unknown, and the setup
  * would write into the file every command refuses: no setup is offered, only what to do first. With
@@ -222,11 +223,11 @@ function NoStore({ setup, unreadable, gone }: { setup: boolean; unreadable: bool
         </div>
       ) : actionsOff ? (
         <button className="btn lime" type="button" disabled title={actionsOff}>
-          Set up the store
+          {ACTIONS.setUpTeamStore.label}
         </button>
       ) : (
         <a className="btn lime" href={href.storeSetup()}>
-          Set up the store
+          {ACTIONS.setUpTeamStore.label}
         </a>
       )}
     </section>

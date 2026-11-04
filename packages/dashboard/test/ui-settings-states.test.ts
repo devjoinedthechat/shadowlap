@@ -101,11 +101,11 @@ describe('Settings while shadowlap.config.json can’t be read', () => {
     expect(r.all('.nostore a, .nostore button')).toHaveLength(0);
   });
 
-  it('offers Set up the store for a file that reads and names none', async () => {
+  it('offers Set up team store for a file that reads and names none', async () => {
     r = await page(app({ client: { store: async () => store(null) } }), 'store');
     await r.until('the tab', () => r!.all('.nostore').length > 0);
     expect(r.one('.nostore h3').textContent).toBe('No store yet');
-    expect(r.byText('.nostore a', 'Set up the store').getAttribute('href')).toBe('#/setup/store');
+    expect(r.byText('.nostore a', 'Set up team store').getAttribute('href')).toBe('#/setup/store');
   });
 
   it('still says "No normalizers yet" and offers Calibrate for a file that reads', async () => {

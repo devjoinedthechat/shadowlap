@@ -67,7 +67,7 @@ export const ROUTE_MODULES: RouteModule[] = [
   settings,
   // Settings → Coding agents' install: the skill-install job kind.
   codingAgents,
-  // Several projects behind one dashboard: the switcher, Add a project, the setup, removing one.
+  // Several projects behind one dashboard: the switcher, Add project, the setup, removing one.
   projects,
   // Training: pairs, tasks, scores and the models to score (#/training).
   training,

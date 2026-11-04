@@ -242,7 +242,7 @@ export interface Client {
   storeSetup: StoreSetupApi;
 
   // ---- Projects
-  /** Projects: the switcher, Add a project, removing one, and the setup (`projects-api.ts`). */
+  /** Projects: the switcher, Add project, removing one, and the setup (`projects-api.ts`). */
   projects: ProjectsApi;
 
   // ---- Training

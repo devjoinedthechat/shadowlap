@@ -11,7 +11,7 @@ import type { LiveRun, Meta } from './types.js';
 
 /**
  * Whether the current project's setup shows in place of the page the route names: on every page but
- * Settings (and Add a project) while the project has no runs, on the Overview while its setup isn't
+ * Settings (and Add project) while the project has no runs, on the Overview while its setup isn't
  * finished, and always at `#/setup`. Null while that can't be told yet (neither the run list nor
  * the meta has arrived): the page waits rather than flashing. An exported copy never shows it.
  */
@@ -159,7 +159,7 @@ export function exportedLine(runs: number): string {
 /**
  * Whether a page stays as it is when the dashboard switches to another project elsewhere (another
  * tab switched, or removed the project this one showed): a page every project has (the Overview,
- * Runs, Tests, Fixes, Training, Settings, Add a project, the setup) stays, with whatever is typed on
+ * Runs, Tests, Fixes, Training, Settings, Add project, the setup) stays, with whatever is typed on
  * it, and reads the current project's data; one that names a run, a pair of runs or a fix of the
  * project it showed has nothing to show in the other and goes to the Overview. A dialog open on a
  * page that stays closes, unless it holds only what was typed into it (`dialogOnSwitch`).

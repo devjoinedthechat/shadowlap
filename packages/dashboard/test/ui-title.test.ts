@@ -18,9 +18,9 @@ describe('a tab’s title', () => {
     expect(title('#/compare')).toBe('Compare — shadowlap');
     expect(title('#/training')).toBe('Pairs · Training — shadowlap');
     expect(title('#/training/tasks')).toBe('Tasks · Training — shadowlap');
-    expect(title('#/new')).toBe('Add a project — shadowlap');
+    expect(title('#/new')).toBe('Add project — shadowlap');
     expect(title('#/setup')).toBe('Set up — shadowlap');
-    expect(title('#/setup/store')).toBe('Set up the store — shadowlap');
+    expect(title('#/setup/store')).toBe('Set up team store — shadowlap');
     expect(title('#/nothing-here')).toBe('Not found — shadowlap');
   });
 

@@ -1,7 +1,7 @@
 import type { AddProjectView, RemoveDialogView, SetupView, SwitcherView } from '../src/projects.js';
 
 /**
- * Projects' part of the API client (`client.projects`): the switcher, Add a project, removing one,
+ * Projects' part of the API client (`client.projects`): the switcher, Add project, removing one,
  * and the current project's setup. A dashboard that serves one store (an older server, `--read-only`,
  * the terminal UI's) has none of it: `list()` and `setup()` answer null there, and the pages fall
  * back to what they showed before. Types only from the server's read model (`src/projects.ts`).

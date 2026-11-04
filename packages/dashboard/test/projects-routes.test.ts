@@ -481,7 +481,7 @@ describe('adding a project', () => {
     const w = await world();
     const page = await w.api<{ title: string; folders: Array<{ display: string; note: string; disabled: boolean }>; button: { label: string; disabled: boolean }; next: { title: string; steps: Array<{ title: string }> } }>('projects/folders?q=');
     expect(page.status).toBe(200);
-    expect(page.body.title).toBe('Add a project');
+    expect(page.body.title).toBe('Add project');
     const shown = Object.fromEntries(page.body.folders.map((f) => [f.display, [f.note, f.disabled]]));
     expect(shown).toMatchObject({
       '~/research-agent': ['Python · uv · pyproject.toml · uv.lock', false],

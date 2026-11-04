@@ -1100,14 +1100,14 @@ Credentials in a copied config:
 - Push from CI (every test run, its report and each fix CI opens), with its step to copy; the Fix on failure step on the CI tab follows it;
 - while a setup is under way, the step that is next, with **Continue the setup**.
 
-With no team store, **Set up the store** opens the store's setup page.
+With no team store, **Set up team store** opens the store's setup page.
 
 ### When the config or the folder can't be read
 
 While `shadowlap.config.json` can't be read:
 
 - the tabs say so where their rules would be;
-- they offer neither **Calibrate** nor **Set up the store**, which would read or write the same file;
+- they offer neither **Calibrate** nor **Set up team store**, which would read or write the same file;
 - *CI* says so too, and each step says in its `env` what it leaves out until the file is fixed, as an amber row of what it needs does;
 - no clock mode shows as chosen.
 
@@ -1115,7 +1115,7 @@ When the project's folder is gone, Settings says so in its header, with **Remove
 
 ## The team store's setup
 
-The team store's setup (`#/setup/store`) is a page of its own. You reach it from Settings → Store's **Set up the store**, or the palette's **Set up team store**.
+The team store's setup (`#/setup/store`) is a page of its own. You reach it from Settings → Store's **Set up team store**, or the palette's.
 
 It has [four steps](./team.md#set-it-up). Each unlocks the next, with its command beside it where it has one:
 
@@ -2136,7 +2136,7 @@ A button that is off says why on hover. The usual reasons:
 | The dashboard is [read-only](#read-only-mode), or was started without the CLI behind it | Start it with `shadowlap dashboard` |
 | A repair or an apply [holds the working tree](#one-job-at-a-time-on-your-working-tree) | Wait until it is done |
 | A test job is running in the project | Wait: the button says what is running |
-| `shadowlap.config.json` can't be read | Fix the file: **Calibrate** and **Set up the store** come back |
+| `shadowlap.config.json` can't be read | Fix the file: **Calibrate** and **Set up team store** come back |
 | Repair: `claude` can't be found | Install Claude Code, or set `SHADOWLAP_CLAUDE` to its path |
 | Find breaking commit, on a run from someone else's pack | Replay it with your own command first, and find breaking commit from that run |
 | The project's folder is gone | Put the folder back, or remove the project |
