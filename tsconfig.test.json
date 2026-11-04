@@ -111,7 +111,8 @@
     "packages/dashboard/test/ui-shortcut-keys.test.ts",
     "packages/dashboard/test/ui-run-notes.test.ts",
     "packages/dashboard/test/ui-calls-grouping.test.ts",
-    // This renders a page whose script didn't come.
+    // These render a run's views as their scripts load, and a page or a view whose script didn't come.
+    "packages/dashboard/test/ui-run-views.test.ts",
     "packages/dashboard/test/ui-page-failed.test.ts"
   ]
 }

@@ -4,8 +4,10 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * A component whose code waits in a script of its own until it first shows. esbuild splits the
  * bundle at each `import()` (ui-bundles.mjs), so what holds it opens without that code, and the
  * script loads the first time it is drawn, `waiting` in its place meanwhile (nothing unless given).
- * Once the script is in, it draws at once wherever it shows. `preload` loads it ahead: a page warms
- * what it is likely to show next once it has drawn, so that draws at once too.
+ * Once the script is in, it draws at once wherever it shows. `preload` loads it ahead, on a sign that
+ * it is about to show (the pointer or the focus reaching the tabs that switch to it), so that draws
+ * at once too. A page never loads one as it opens: what opening a page loads is the page's own code,
+ * which the bundle size test holds to the page's budget.
  *
  * A script that fails to come (the dashboard stopped, or was updated since the page opened) leaves
  * `failed` in its place, wherever it shows, for as long as the page is open: a browser keeps a

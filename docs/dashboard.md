@@ -1731,8 +1731,8 @@ An exported copy holds every call.
 
 The dashboard's first script holds the shell and what the pages share. The rest loads the first time it is needed:
 
-- **A page's own code** loads when you first open the page, which waits empty until it comes.
-- **A run's views but Calls** each have a script of their own, loaded as the run's page opens, so switching to one draws it at once.
+- **A page's own code** loads when you first open the page, which waits empty until it comes. Opening a page loads nothing more.
+- **A run's views but Calls** each have a script of their own. They load once the pointer or the focus reaches the Views tabs, or the view first changes, so switching to one draws it at once.
 - **A script that can't be loaded** (the dashboard stopped, or was updated since the page opened) leaves a line that says so under the page's title, or in the view. Its **Retry** loads the page again, since a browser never asks twice for a script that failed, and waits while the server can't be reached.
 
 An exported copy is one script, built apart with only what a copy shows: its runs, a run's page with every view, and Compare between them.

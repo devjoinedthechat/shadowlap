@@ -58,6 +58,7 @@
     "packages/dashboard/test/ui-shortcut-keys.test.ts",
     "packages/dashboard/test/ui-run-notes.test.ts",
     "packages/dashboard/test/ui-calls-grouping.test.ts",
+    "packages/dashboard/test/ui-run-views.test.ts",
     "packages/dashboard/test/ui-page-failed.test.ts"
   ],
   "exclude": []
