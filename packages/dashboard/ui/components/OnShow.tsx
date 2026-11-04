@@ -14,12 +14,14 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * script's failure and never asks for it again, so only loading the page again brings it
  * (`LoadFailed`'s Retry, components/bits.tsx).
  *
- * The shell's pages load this way (pages/lazy.tsx), and so does a part of a page heavy enough to wait
- * for a script of its own, such as a run's views but Calls (pages/Run.tsx). A part is declared beside
- * the page that shows it, never in pages/lazy.tsx: an exported copy, one script with the pages it
- * shows (main-copy.tsx), then holds the parts they show and none of the dashboard's other pages.
- * The bundle size test holds each page's and each part's script to a budget of its own
- * (test/ui-bundle-size.test.ts).
+ * The shell's pages load this way (pages/lazy.tsx), and so does each part of a page heavy enough to
+ * wait for a script of its own: a run's views but Calls (pages/Run.tsx). So must the structural diff
+ * (components/JsonDiff.tsx), the results matrix (components/ResultsMatrix.tsx), the check builder
+ * (checks/) and each Changes tab (changes/): test/ui-bundle-size.test.ts fails when one of them is in
+ * the first look or loads with a page. A part is declared beside the page that shows it, never in
+ * pages/lazy.tsx: an exported copy, one script with the pages it shows (main-copy.tsx), then holds
+ * the parts they show and none of the dashboard's other pages. The bundle size test holds each
+ * page's and each part's script to a budget of its own.
  */
 export interface OnShow<P> {
   (props: P): JSX.Element;
