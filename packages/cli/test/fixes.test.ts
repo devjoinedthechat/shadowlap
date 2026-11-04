@@ -214,12 +214,12 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     const listed = json<{ fixes: Array<Record<string, any>>; counts: Record<string, number> }>(await shadowlap(['fix', 'ls', '--json']));
     expect(listed.counts).toEqual({ all: 1, open: 1, verified: 0 });
     expect(listed.fixes[0]).toMatchObject({ fixId, status: 'open', title: 'Refunds above the limit issued without approval', label: 'refund-over-limit', failing: 2, good: 0, check: 'issue_refund never called with {"amount":240}', source: null });
-    expect(listed.fixes[0].steps.map((x: { short: string }) => x.short)).toEqual([`lost at #${decision}`, 'no fix yet', 'not verified']);
+    expect(listed.fixes[0].steps.map((x: { short: string }) => x.short)).toEqual([`lost at #${decision}`, 'no change yet', 'not verified']);
     expect(listed.fixes[0].attempts).toBeGreaterThan(0);
     // Listed 42 s after it opened, by the command's clock: the blames before it can take more than a minute.
     const table = (await shadowlap(['fix', 'ls'], clockAt(listed.fixes[0].openedAt + 42_000))).stdout;
     // What its runs did, now that the title no longer says it, and what they must do.
-    expect(table).toMatch(new RegExp(`open +${fixId.slice(0, 13)} +Refunds above the limit issued without approval +refund-over-limit · 2 failing +lost at #${decision} · no fix yet · not verified\n +failed: issue_refund called with amount 240 · must: issue_refund never called with \\{"amount":240\\} · opened 42s ago\n`));
+    expect(table).toMatch(new RegExp(`open +${fixId.slice(0, 13)} +Refunds above the limit issued without approval +refund-over-limit · 2 failing +lost at #${decision} · no change yet · not verified\n +failed: issue_refund called with amount 240 · must: issue_refund never called with \\{"amount":240\\} · opened 42s ago\n`));
 
     // The code as it is fixes nothing: the verdict is kept, rejected, and the fix stays open.
     const rejected = await shadowlap(['verify', '--fixes', 'label:refund-over-limit', '--keeps', 'label:good', '--expect', ORACLE, '--json']);
@@ -326,7 +326,7 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     expect(shown.goodRuns.map((x: { runId: string }) => x.runId)).toEqual([good]);
     expect(shown.steps.map((x: { state: string; short: string }) => [x.state, x.short])).toEqual([
       ['done', `lost at #${decision}`],
-      ['done', 'prompt fix'],
+      ['done', 'prompt change'],
       ['done', '2 fixed · 1 kept'],
     ]);
     expect(shown.steps[1]).toMatchObject({ title: 'Escalate refunds above the policy limit', meta: 'candidate 3 of 3 · proposed by anthropic:claude-opus-5-5' });
@@ -455,8 +455,8 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
 
     const shown = json(await shadowlap(['fix', 'show', fixId, '--json']));
     expect(shown.status).toBe('open');
-    expect(shown.steps[1]).toEqual({ key: 'repair', n: '02', state: 'todo', short: 'no fix yet', title: 'No fix yet', meta: '1 candidate tried, none accepted' });
-    expect(shown.repair).toMatchObject({ accepted: false, outcome: 'not-fixed', title: 'No fix yet', why: 'the gate accepted none of the 1 candidate tried', change: null, roles: [] });
+    expect(shown.steps[1]).toEqual({ key: 'repair', n: '02', state: 'todo', short: 'no change yet', title: 'No change yet', meta: '1 candidate tried, none accepted' });
+    expect(shown.repair).toMatchObject({ accepted: false, outcome: 'not-fixed', title: 'No change yet', why: 'the gate accepted none of the 1 candidate tried', change: null, roles: [] });
     expect(shown.repair.candidates.map((c: { verdict: string; why: string }) => c.verdict)).toEqual(['set aside', 'rejected']);
     expect(shown.repair.files.map((f: { name: string }) => f.name)).toEqual(['report.md', 'report.json']);
     expect(shown.verify).toEqual([]);
@@ -499,13 +499,13 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     const fixId = report.fixes[0].fixId as string;
 
     const shown = json(await shadowlap(['fix', 'show', fixId, '--json'], { SHADOWLAP_CLAUDE: claude }));
-    expect(shown.steps[1]).toEqual({ key: 'repair', n: '02', state: 'todo', short: 'no fix yet', title: 'No fix yet', meta: why });
+    expect(shown.steps[1]).toEqual({ key: 'repair', n: '02', state: 'todo', short: 'no change yet', title: 'No change yet', meta: why });
     expect(shown.repair).toMatchObject({ outcome: 'not-fixed', repairer: null, why, noRepairer: { text: why, warning } });
     // The repair it suggests next would ask the same missing claude: it says so.
     expect(shown.repairer).toEqual({ name: 'claude-code', configured: false, problem: `This repair asks your own Claude Code, and ${claude}, which SHADOWLAP_CLAUDE names, was not found: point SHADOWLAP_CLAUDE at Claude Code, or name another repairer in shadowlap.config.json (repair.repairer).` });
 
     const human = (await shadowlap(['fix', 'show', fixId], { SHADOWLAP_CLAUDE: claude })).stdout;
-    expect(human).toMatch(/· +02 repair +No fix yet +the repairer could not be asked: /);
+    expect(human).toMatch(/· +02 repair +No change yet +the repairer could not be asked: /);
     expect(human).toMatch(new RegExp(`\\nRepair · ${report.repairId}, not fixed \\d+s ago · the repairer could not be asked: .*no-claude-here was not found\\n`));
     expect(human).toContain(`  ! ${warning}\n`);
     expect(human).toContain(`, which SHADOWLAP_CLAUDE names, was not found: point SHADOWLAP_CLAUDE at Claude Code`);

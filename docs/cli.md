@@ -1251,7 +1251,7 @@ With `--json`, each subcommand prints:
 Lists fixes, the most recently opened first. Each fix takes up to three lines:
 
 1. Its status (`open`, `verified`, `applied`), id, title, label, failing runs, and how far each step
-   got (*lost at #5 · prompt fix · 3 fixed · 1 kept*).
+   got (*lost at #5 · prompt change · 3 fixed · 1 kept*).
 2. What its failing runs did and the check they must meet
    (*failed: send_email called twice, not once · must: send_email called once*), where the fix came
    from (*from CI · PR #138*) and when it was opened.

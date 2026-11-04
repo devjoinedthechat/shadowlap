@@ -5,7 +5,7 @@ import { startMockOpenAI, turn, type MockServer as OpenAIServer } from '@shadowl
 
 /**
  * The mock providers list their models the way the real Models APIs do, so what asks a provider for
- * its models (`tasks models`, the dashboard's Score a model) offers them when it is pointed at the
+ * its models (`tasks models`, the dashboard's Score model…) offers them when it is pointed at the
  * mocks, as the demo store is, instead of saying the list couldn't be read.
  */
 
