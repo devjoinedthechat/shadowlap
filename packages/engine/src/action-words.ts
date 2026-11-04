@@ -66,12 +66,12 @@ export const ACTIONS = {
   importCapture: { label: 'Import capture…', doing: 'Importing capture' },
   exportPairs: { label: 'Export pairs…', doing: 'Exporting pairs' },
   scoreModel: { label: 'Score model…', doing: 'Scoring model' },
-  // Share, each item the copy it makes.
+  // Share, each item the copy it makes; a dialog says the verb, a dataset's with the runs it copies (`of 01M50J6C69`).
   exportHtml: { label: 'HTML report', doing: 'Exporting HTML report' },
-  pack: { label: 'Pack…', doing: 'Packing' },
-  exportDataset: { label: 'Eval dataset…', doing: 'Exporting dataset' },
+  pack: { label: 'Pack…', confirm: 'Pack run', doing: 'Packing' },
+  exportDataset: { label: 'Eval dataset…', title: 'Export eval dataset', confirm: 'Export dataset', doing: 'Exporting dataset' },
   // To a file or a collector alike.
-  exportTrace: { label: 'OpenTelemetry trace…', doing: 'Exporting trace' },
+  exportTrace: { label: 'OpenTelemetry trace…', title: 'Export OpenTelemetry trace', confirm: 'Export trace', doing: 'Exporting trace' },
   exportHar: { label: 'HAR file', doing: 'Exporting HAR file' },
   // Settings and the palette.
   calibrate: { label: 'Calibrate', doing: 'Calibrating' },

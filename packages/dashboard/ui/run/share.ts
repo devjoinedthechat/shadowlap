@@ -73,6 +73,18 @@ export function shareNote(offers: Pick<RunOffers, 'copies'> | null | undefined, 
  * The most runs one dataset takes, as the server's `export-dataset` job does (run-exports.ts
  * `MAX_DATASET_RUNS`): every id goes on the CLI's command line.
  */
+/**
+ * A copy's dialog, titled and confirmed in its action's words, as Share names the copy and its
+ * dialog says the verb: `Export OpenTelemetry trace`, confirmed `Export trace`; `Export eval dataset
+ * of 01M50J6C69` (or `of 3 runs`), confirmed `Export dataset`; `Pack 01M50J6C69`, confirmed `Pack run`.
+ */
+export function shareDialog(key: 'pack' | 'dataset' | 'otel', ids: readonly string[]): { title: string; ok: string } {
+  const runs = ids.length === 1 ? shortId(ids[0]!) : `${num(ids.length)} runs`;
+  if (key === 'pack') return { title: `Pack ${runs}`, ok: ACTIONS.pack.confirm };
+  if (key === 'dataset') return { title: `${ACTIONS.exportDataset.title} of ${runs}`, ok: ACTIONS.exportDataset.confirm };
+  return { title: ACTIONS.exportTrace.title, ok: ACTIONS.exportTrace.confirm };
+}
+
 export const DATASET_MAX_RUNS = 500;
 
 /** Why a dataset can't be made from this many runs (the Runs page picks up to 1,000), or null when it can. */

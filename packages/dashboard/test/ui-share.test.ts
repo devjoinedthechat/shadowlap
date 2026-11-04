@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { divergenceButtons, updatePlan } from '../ui/goldens.js';
 import { askedTools, callDetail, resultLine, type CallLike } from '../ui/run/calls.js';
 import { bisectBlocked, bisectCopy, bisectLabel, blameOfferFor, blameSource, blameTitle, divergedActions, goldenName, updateGoldenCopy, updatesAfterRules, type BlameFacts } from '../ui/run/offers.js';
-import { canPush, defaultPackFolder, htmlCopyVia, pushTitle, sharedLink, shareItemOff, shareItems, shareNote, STILL_RECORDING } from '../ui/run/share.js';
+import { canPush, defaultPackFolder, htmlCopyVia, pushTitle, shareDialog, sharedLink, shareItemOff, shareItems, shareNote, STILL_RECORDING } from '../ui/run/share.js';
 import type { BisectOffer, DivergenceView, RunOffers, TestBannerOffer, TestsView } from '../ui/types.js';
 
 // The run page's Share menu, Run blame, Find the commit and the Calls view's detail, as the page words
@@ -22,6 +22,13 @@ describe('the Share menu', () => {
     expect(shareItems({ can: all, team }).find((i) => i.key === 'otel')).toEqual({ key: 'otel', label: 'OpenTelemetry trace…', note: 'export otel · a span per call, for the tools you already use' });
     // Parallel nouns, the copy each makes, an ellipsis on each that asks first.
     expect(shareItems({ can: all, team }).map((i) => i.label)).toEqual(['Share link', 'HTML report', 'Pack…', 'Eval dataset…', 'OpenTelemetry trace…', 'HAR file']);
+  });
+
+  it('titles and confirms each copy’s dialog with its action’s verb, and the runs it copies', () => {
+    expect(shareDialog('otel', [RUN])).toEqual({ title: 'Export OpenTelemetry trace', ok: 'Export trace' });
+    expect(shareDialog('dataset', [RUN])).toEqual({ title: 'Export eval dataset of 01M50J6C69', ok: 'Export dataset' });
+    expect(shareDialog('dataset', [RUN, '01M50J6C70T0S34ZZX4WBXJKD1', '01M50J6C71T0S34ZZX4WBXJKD1']).title).toBe('Export eval dataset of 3 runs');
+    expect(shareDialog('pack', [RUN])).toEqual({ title: 'Pack 01M50J6C69', ok: 'Pack run' });
   });
 
   it('says how many redaction rules each copy applies, and when a trace takes fewer', () => {

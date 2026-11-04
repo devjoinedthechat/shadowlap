@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { JOB_KINDS } from '../api.js';
-import { num, shortId } from '../format.js';
-import { datasetCommand, datasetFile, datasetTooMany } from '../run/share.js';
+import { datasetCommand, datasetFile, datasetTooMany, shareDialog } from '../run/share.js';
 import { useApp } from '../state.js';
 import { CmdLine, CopyButton } from './bits.js';
 import { Dialog } from './Dialog.js';
@@ -25,9 +24,8 @@ export function DatasetDialog({ ids, rules = null, onClose }: { ids: string[]; r
   const cmd = datasetCommand(ids, { format, calls, file });
   return (
     <Dialog
-      title={`Export ${ids.length === 1 ? shortId(ids[0]!) : `${num(ids.length)} runs`} as an eval dataset`}
+      {...shareDialog('dataset', ids)}
       text={`One JSON line per example: the conversation exactly as the model saw it, its answer, and metadata with the labels, notes and check results.${redaction}${tooMany ? ` ${tooMany}` : ''}`}
-      ok="Export"
       okDisabled={!!tooMany}
       onClose={onClose}
       onOk={() => {

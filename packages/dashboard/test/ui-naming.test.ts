@@ -395,10 +395,13 @@ function displayOf(el: CssNode, ancestors: CssNode[], rules: ReturnType<typeof r
 
 describe('one name for each action, and its forms', () => {
   it('names each action verb and object, in sentence case, with no article, an ellipsis on each that asks first', () => {
-    for (const [key, { label }] of Object.entries(ACTIONS)) {
-      expect(label, key).toMatch(/^[A-Z]/);
-      expect(label.split(' ').slice(1).filter((w) => /^[A-Z][a-z]/.test(w) && !/^(OpenTelemetry|HTML|HAR)$/.test(w)), key).toEqual([]);
-      expect(label, key).not.toMatch(/\b(the|a|an)\b/i);
+    for (const [key, words] of Object.entries(ACTIONS)) {
+      // Its dialog's title and confirm too, where they aren't its label without the ellipsis.
+      for (const label of [words.label, ...('title' in words ? [words.title] : []), ...('confirm' in words ? [words.confirm] : [])]) {
+        expect(label, key).toMatch(/^[A-Z]/);
+        expect(label.split(' ').slice(1).filter((w) => /^[A-Z][a-z]/.test(w) && !/^(OpenTelemetry|HTML|HAR)$/.test(w)), key).toEqual([]);
+        expect(label, key).not.toMatch(/\b(the|a|an)\b/i);
+      }
     }
     expect([ACTIONS.findBreakingCommit, ACTIONS.importCapture, ACTIONS.exportPairs, ACTIONS.scoreModel, ACTIONS.runBlameStronger].map((a) => a.label)).toEqual(['Find breaking commit…', 'Import capture…', 'Export pairs…', 'Score model…', 'Run blame with stronger model…']);
     // "Run <command>" where the bare command reads wrong; nothing to ask, no ellipsis.

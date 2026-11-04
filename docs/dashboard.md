@@ -1330,6 +1330,7 @@ The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An 
 | OpenTelemetry trace… | A trace sent to a collector, or written to a file (a file only: it is sent nowhere else) |
 | HAR file             | The run's model calls; it also downloads                                                 |
 
+- **Each dialog** says the verb for the copy it makes: **OpenTelemetry trace…** opens *Export OpenTelemetry trace*, confirmed with **Export trace**, **Eval dataset…** *Export eval dataset of* the run, confirmed with **Export dataset**, and **Pack…** confirms with **Pack run**.
 - **Where copies go**: into `.shadowlap/exports/` in the project, unless a pack names another folder, and never through a link that is already there.
 - **Redaction**: the menu says how many redaction rules each copy applies. A trace carries no prompt text, so only the rules without a path.
 - **When**: a run is copied once it has ended.
