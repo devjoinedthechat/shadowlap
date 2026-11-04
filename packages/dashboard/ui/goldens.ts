@@ -1,4 +1,5 @@
 import { approx } from './format.js';
+import { ACTIONS, confirmWords } from './labels.js';
 import { rateBound } from '../../engine/src/stats.js';
 import { twoDigits as pad } from '../../engine/src/words.js';
 import { href } from './route.js';
@@ -61,14 +62,14 @@ export function sessionLine(view: TestsView, running = false): { command: string
 /**
  * The jobs that replay or rewrite the goldens on disk, by what each is doing, as the server tells
  * them apart: while one runs in a project, another is refused there (409), so its button waits.
- * Find the commit counts when it searches a golden; on a run, it touches no golden.
+ * Find breaking commit counts when it searches a golden; on a run, it touches no golden.
  */
 const TEST_FAMILY = new Map<string, string>([
   ['test', 'a test session'],
   ['test-update', 'an update of goldens'],
   ['normalize-and-test', 'a normalizer and its re-run'],
   ['pack-test', 'a new golden being packed and tested'],
-  ['bisect', 'find the commit'],
+  ['bisect', confirmWords(ACTIONS.findBreakingCommit.label).toLowerCase()],
 ]);
 
 type FamilyJob = { kind?: string | undefined; args?: readonly string[] | undefined; done: boolean; project?: { id: string } | undefined };
@@ -103,7 +104,7 @@ export function runningTests<T extends { kind?: string | undefined; done: boolea
 }
 
 /**
- * The commits Find the commit's dialog offers as good ones, newest first, as the mock words them:
+ * The commits Find breaking commit's dialog offers as good ones, newest first, as the mock words them:
  * `c91d0f4 · Escalate refunds above the limit`, with how the golden did there when it didn't pass
  * under today's checks: failed, inconclusive (neither passed nor failed), or passed under others. `initial` is the one to start on: the newest that passed under them, older
  * than `tried` when a search from that one named no first bad commit (it already failed there); ''
@@ -372,7 +373,7 @@ export interface DivergenceButtons {
   normalize: { label: string; lead: boolean; run: 'normalize' | 'normalize-update' | 'rerun' } | null;
   update: { lead: boolean } | null;
   /**
-   * Find the commit, unless what it found still stands or the pack can't be read: with a range to
+   * Find breaking commit, unless what it found still stands or the pack can't be read: with a range to
    * start from, or asking for a good commit (always, once a search between the known ones named none).
    */
   bisect: { range: boolean; live: boolean } | null;
@@ -405,7 +406,7 @@ export function divergenceButtons(d: DivergenceView, has: (kind: string) => bool
 }
 
 /**
- * Find the commit under a failure (a divergence, or a check, an exit, no calls): none while what it
+ * Find breaking commit under a failure (a divergence, or a check, an exit, no calls): none while what it
  * found stands (the card says it), while a search found it passing at the commit it fails at (no
  * other good commit helps: the failure isn't in a commit), for a pack that can't be read, or where
  * the server runs no bisect. It starts from the range the page knows, or asks for a good commit when
@@ -416,13 +417,13 @@ export function findCommitButton(f: Pick<DivergenceView, 'found' | 'missed' | 'b
   return { range: !!f.bisect && !f.missed, live: !!f.bisect?.live };
 }
 
-/** What Find the commit found, for the card above the buttons. */
+/** What Find breaking commit found, for the card above the buttons. */
 export function foundLine(f: FoundCommit): { rev: string; subject: string; meta: string } {
   return { rev: f.rev, subject: f.subject, meta: [f.author, f.date ? shortDate(f.date) : null, n(f.tokens, 'token')].filter(Boolean).join(' · ') };
 }
 
 /**
- * When Find the commit named no first bad commit: where it looked, and why, for the line above the
+ * When Find breaking commit named no first bad commit: where it looked, and why, for the line above the
  * buttons. Passing at the commit it fails at, the failure is in no commit: it is in changes not
  * committed there, or it doesn't happen every time.
  */
@@ -609,7 +610,7 @@ export function testsPalette(view: TestsView | null, o: { update: boolean }): Te
   if (!view || view.empty) return [];
   // An inconclusive golden neither passed nor failed, as Tests marks it.
   const out: TestsPaletteEntry[] = view.rows.map((r) => ({ group: 'Tests', label: r.name, mono: true, hint: goldenHint(r), to: href.tests() }));
-  if (view.diverged.length && o.update) out.unshift({ group: 'Actions', label: 'Update goldens…', hint: 'shadowlap test --update', mono: false, job: true, to: TESTS_UPDATE_HASH });
+  if (view.diverged.length && o.update) out.unshift({ group: 'Actions', label: ACTIONS.updateGoldens.label, hint: 'shadowlap test --update', mono: false, job: true, to: TESTS_UPDATE_HASH });
   return out;
 }
 

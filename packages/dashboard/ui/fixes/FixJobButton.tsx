@@ -6,7 +6,7 @@ import { useApp } from '../state.js';
 import { useTreeBusy } from './tree.js';
 
 /**
- * A button on a fix's page that starts a job running the agent from the working tree (Blame again,
+ * A button on a fix's page that starts a job running the agent from the working tree (Run blame again,
  * Run more attempts, Verify again): lime when it is the page's next step, its command on hover, and
  * plain, with why, while it can't start (a read-only dashboard, a server without the job, a repair
  * or an apply holding the tree). A job whose runs came from someone else's pack asks once more

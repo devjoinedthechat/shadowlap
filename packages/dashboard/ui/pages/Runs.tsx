@@ -28,6 +28,7 @@ import { useTeamStore } from '../teamstore.js';
 import { errorText } from '../toast.js';
 import type { BisectChoices, ChipCounts, RunsPage as RunsPageView, RunsPageRow, RunsQuery } from '../types.js';
 import { viewerTimeZone } from './Overview.js';
+import { ACTIONS } from '../labels.js';
 
 /**
  * Runs: every run in a table, a page at a time from the server, with the 12-week calendar above it,
@@ -123,7 +124,7 @@ addPaletteSource(({ app, go }) =>
     : [
         {
           group: 'Actions',
-          label: 'Import a capture…',
+          label: ACTIONS.importCapture.label,
           // The dialog's sources, short enough to show whole on a desktop's row; the file formats match unseen.
           hint: 'a file, or a Langfuse, LangSmith, Phoenix or Logfire trace',
           match: 'HAR nock VCR LiteLLM OpenTelemetry OTLP',
@@ -424,7 +425,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
             {hasKind(JOB_KINDS.importCapture) ? (
               <button className="btn" type="button" disabled={!!actionsOff} title={off} onClick={() => guard(() => setDialog('import'))}>
                 <Icon name="import" />
-                Import a capture
+                {ACTIONS.importCapture.label}
               </button>
             ) : null}
           </>

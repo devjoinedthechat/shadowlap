@@ -18,6 +18,7 @@ import { useApp } from '../state.js';
 import { divergedAsk, moreAttemptsAsk, runTestsAsk, startTestsJob, type TestsAsk } from '../tests-ask.js';
 import { keepTests, onTestsChanged, testsPaletteCommands } from '../tests-palette.js';
 import { FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from './TestsDialogs.js';
+import { ACTIONS, confirmWords } from '../labels.js';
 
 /**
  * Tests (#/tests): every golden CI runs and how it did at each revision. The verdict for the goldens'
@@ -48,7 +49,7 @@ export function TestsPage() {
   const view = loaded.data;
   const [open, setOpen] = useState<Open | null>(null);
   const running = jobs.some((w) => !w.job.done && !w.lost && TEST_KINDS.has(w.job.kind ?? ''));
-  // What the server is running, from every tab and terminal dashboard: a test job (Find the commit
+  // What the server is running, from every tab and terminal dashboard: a test job (Find breaking commit
   // on a golden among them), a test session started in a terminal, or a repair holding the working
   // tree makes it refuse an action that replays or rewrites the goldens.
   const serverJobs = useServerJobs();
@@ -109,7 +110,7 @@ export function TestsPage() {
   const runWait = wait('run the tests');
   const updateWait = wait('update them');
   const updateGoldenWait = wait('update it');
-  const findWait = wait('find the commit');
+  const findWait = wait(confirmWords(ACTIONS.findBreakingCommit.label).toLowerCase());
   // A gate against history needs the store kept between CI's runs.
   const historyGate = view.rows.some((r) => r.gate?.gate.kind === 'baseline');
   // An injection test runs live from each payload it plants, as a fork does: CI needs the keys for it.
@@ -122,12 +123,12 @@ export function TestsPage() {
       </a>
       {view.diverged.length && hasKind(JOB_KINDS.testUpdate) ? (
         <button className="btn" type="button" disabled={!!updateWait} title={updateWait ?? undefined} onClick={() => guard(() => setOpen({ kind: 'update', paths: view.diverged }))}>
-          Update goldens…
+          {ACTIONS.updateGoldens.label}
         </button>
       ) : null}
       {hasKind(JOB_KINDS.tests) ? (
         <button className="btn lime" type="button" disabled={!!runWait} title={runWait ?? undefined} onClick={() => start(JOB_KINDS.tests, {}, runTestsAsk(view))}>
-          Run tests
+          {ACTIONS.runTests.label}
         </button>
       ) : null}
     </>
@@ -208,12 +209,12 @@ export function TestsPage() {
               ) : null}
               {b.update ? (
                 <button className="btn" type="button" disabled={!!goldenWait} title={goldenWait ?? undefined} onClick={() => guard(() => setOpen({ kind: 'update', paths: [d.golden] }))}>
-                  Update golden
+                  {ACTIONS.updateGolden.label}
                 </button>
               ) : null}
               {b.bisect ? (
                 <button className="btn" type="button" disabled={!!findWait} title={findWait ?? undefined} onClick={() => guard(() => findCommit(d))}>
-                  {b.bisect.range && !b.bisect.live ? 'Find the commit' : 'Find the commit…'}
+                  {b.bisect.range && !b.bisect.live ? confirmWords(ACTIONS.findBreakingCommit.label) : ACTIONS.findBreakingCommit.label}
                 </button>
               ) : null}
             </div>
@@ -591,7 +592,7 @@ function ReportLines({ lines }: { lines: ReportLine[] }) {
   );
 }
 
-/** What Find the commit found: the first bad commit, its message, who made it, when, and what it cost. */
+/** What Find breaking commit found: the first bad commit, its message, who made it, when, and what it cost. */
 function BisectCard({ found }: { found: FoundCommit }) {
   const f = foundLine(found);
   return (
@@ -605,17 +606,17 @@ function BisectCard({ found }: { found: FoundCommit }) {
   );
 }
 
-/** Find the commit named no first bad commit between the commits it was given: where it looked, and why. */
+/** Find breaking commit named no first bad commit between the commits it was given: where it looked, and why. */
 function BisectMissLine({ missed }: { missed: BisectMiss }) {
   return (
     <div className="bisect miss">
-      <span className="k">find the commit</span>
+      <span className="k">{confirmWords(ACTIONS.findBreakingCommit.label).toLowerCase()}</span>
       <span className="m">{missedLine(missed)}</span>
     </div>
   );
 }
 
-/** A failed golden's report, as the CLI prints it, with what Find the commit found (or that it found none) above the buttons. */
+/** A failed golden's report, as the CLI prints it, with what Find breaking commit found (or that it found none) above the buttons. */
 function ReportPanel({ name, runId, lines, found, missed, children }: { name: string; runId: string | null; lines: ReportLine[]; found: FoundCommit | null; missed: BisectMiss | null; children: ReactNode }) {
   return (
     <section className="panel gpanel">
@@ -676,7 +677,7 @@ function FailurePanel({ f, off, button, onBisect }: { f: FailureView; off: strin
       {button ? (
         <div className="actions">
           <button className="btn" type="button" disabled={!!off} title={off} onClick={onBisect}>
-            {button.range && !button.live ? 'Find the commit' : 'Find the commit…'}
+            {button.range && !button.live ? confirmWords(ACTIONS.findBreakingCommit.label) : ACTIONS.findBreakingCommit.label}
           </button>
         </div>
       ) : null}

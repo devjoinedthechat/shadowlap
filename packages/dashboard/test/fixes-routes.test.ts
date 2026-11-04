@@ -548,7 +548,7 @@ describe('the repair job', () => {
     // The page loaded before the config named anthropic: its dialog said the user's own Claude Code.
     const stale = await job({ kind: 'repair', fixId: fix.fixId, repairer: 'claude-code' });
     expect(stale.status).toBe(409);
-    expect((await json(stale)).error).toBe('the repairer in shadowlap.config.json changed since this page loaded: now anthropic. Nothing ran: open Repair from here again');
+    expect((await json(stale)).error).toBe('the repairer in shadowlap.config.json changed since this page loaded: now anthropic. Nothing ran: open Run repair again');
     expect(spawned).toEqual([]);
     // Read again, the dialog names anthropic, which the CLI reads from the config by itself.
     const asked = await started({ kind: 'repair', fixId: fix.fixId, repairer: 'anthropic' });
@@ -696,7 +696,7 @@ describe('the apply job', () => {
     const { fixId } = story();
     await start();
     const j = await started({ kind: 'apply', fixId });
-    expect(j.title).toBe('Applying the patch');
+    expect(j.title).toBe('Applying fix');
     expect(spawned.at(-1)).toEqual(['fix', 'apply', fixId]);
     await finished(j);
     markFixApplied(store, fixId, { patch: 'applied', repairId: 'repair-munzln2i', goldens: [], tests: 'skipped', by: 'dana', via: 'fix apply' });

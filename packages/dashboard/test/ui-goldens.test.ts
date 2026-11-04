@@ -408,7 +408,7 @@ describe('waiting for a test job', () => {
     // A search of a run touches no golden; one of a golden does.
     const jobs = [{ kind: 'bisect', args: ['bisect', '01K5CQ4V5K0000000000000002', '--good', 'c91d0f4', '--fork'], done: false }, { kind: 'test', done: true }];
     expect(testsBusy(jobs, 'run the tests')).toBeNull();
-    expect(testsBusy([{ kind: 'bisect', args: ['bisect', 'goldens/refund-in-limit', '--good', 'c91d0f4'], done: false }], 'run the tests')).toBe('Find the commit is running: run the tests once it is done.');
+    expect(testsBusy([{ kind: 'bisect', args: ['bisect', 'goldens/refund-in-limit', '--good', 'c91d0f4'], done: false }], 'run the tests')).toBe('Find breaking commit is running: run the tests once it is done.');
     expect(testsBusy([...jobs, { kind: 'test-update', done: false }], 'run the tests')).toBe('An update of goldens is running: run the tests once it is done.');
     expect(testsBusy([{ kind: 'normalize-and-test', done: false }], 'update it')).toBe('A normalizer and its re-run is running: update it once it is done.');
     // Another project's job doesn't hold this one's goldens.

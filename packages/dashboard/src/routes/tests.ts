@@ -1,4 +1,4 @@
-import { messageOf, type Normalizer, type StoreOf } from '@shadowlap/engine';
+import { ACTIONS, confirmWords, messageOf, type Normalizer, type StoreOf } from '@shadowlap/engine';
 import { describeEvent } from '../activity.js';
 import { liveChaosSession } from '../chaos.js';
 import { ciWorkflows, fixPreview, gitFacts, goldenProviders, parseCiOptions } from '../ci-workflows.js';
@@ -15,7 +15,7 @@ import { bisectChoices, bisectJob, gatePreview, liveTestSession, normalizeAndTes
 
 /**
  * Tests: the goldens and how they did (`GET /api/tests`), what a run's page offers about a test
- * replay and Find the commit (`GET /api/tests/runs/:id`), what a gate's figures would do
+ * replay and Find breaking commit (`GET /api/tests/runs/:id`), what a gate's figures would do
  * (`GET /api/tests/gate?good=&bad=&risk=&max=`, or `?baseline=history&drop=&window=&min=&max=`
  * figured against `&history=47/50`), the
  * workflow steps Settings → CI shows (`GET /api/ci/workflows`), and the jobs the Tests screen starts:
@@ -25,12 +25,12 @@ import { bisectChoices, bisectJob, gatePreview, liveTestSession, normalizeAndTes
  *                                                       `maxAttempts` raises each gate's limit for that session, and
  *                                                       `continue` carries an inconclusive gate's attempts over (Run more attempts)
  *   test-update          { goldens: [...] } | { golden } re-record each live with writes stubbed; replaced when its checks pass
- *   bisect               { golden | runId, good, bad? }  Find the commit: replays at each commit, halving the range;
+ *   bisect               { golden | runId, good, bad? }  Find breaking commit: replays at each commit, halving the range;
  *                                                       for a run, as `GET /api/tests/runs/:id` offers it
  *   normalize-and-test   { golden | runId, path?, yes? } `normalize add` for each value made anew on every run, then `test` on the golden
  *
  * The goldens are the packs on disk, as the CLI lists them (`DashboardOptions.goldens`); a request
- * naming any other is refused. Jobs that replay or rewrite those packs (Find the commit on a golden
+ * naming any other is refused. Jobs that replay or rewrite those packs (Find breaking commit on a golden
  * among them) run one at a time in a project (`testsBusy`), and none starts while a test session, or
  * a session of error-path presets on goldens, runs, wherever it was started (`sessionBusy`): a second
  * is refused with a 409 that names the one running. A `test` or `normalize-and-test` that would run a
@@ -47,7 +47,7 @@ export const TEST_JOB_KINDS = { test: 'test', update: 'test-update', bisect: 'bi
 /**
  * Jobs that replay the goldens on disk or rewrite them, by what each is doing: a second one at once
  * would replay a pack the other is rewriting, or report a session the other's results land in. A
- * setup's Keep it as a test packs a new golden and tests it. Find the commit on a golden reads its
+ * setup's Keep it as a test packs a new golden and tests it. Find breaking commit on a golden reads its
  * pack and answers the failure it started from, so it runs alone too; on a run, it touches none.
  * The error-path presets replay a golden's pack (on a run, they touch none), and packing goldens
  * of production writes new ones into the goldens folder.
@@ -57,7 +57,7 @@ const TEST_FAMILY = new Map<string, string>([
   ['test-update', 'an update of goldens'],
   ['normalize-and-test', 'a normalizer and its re-run'],
   ['pack-test', 'a new golden being packed and tested'],
-  ['bisect', 'find the commit'],
+  ['bisect', confirmWords(ACTIONS.findBreakingCommit.label).toLowerCase()],
   ['chaos', 'a session of error-path presets'],
   ['coverage-pack', 'a coverage pack'],
 ]);
@@ -114,7 +114,7 @@ export function testsBuild(job: TestsJob, busy: string | null = null, ask: { err
 }
 
 /**
- * Tests' Find the commit as the project's checkout can run it: a golden whose last pass was at a
+ * Tests' Find breaking commit as the project's checkout can run it: a golden whose last pass was at a
  * commit this checkout lacks (a CI test session's merge commit, a teammate's) asks for a good one,
  * and one that failed at such a commit is searched up to HEAD. The commits its dialog offers are
  * those this checkout has, each with its subject. As it is without a project folder or when git
@@ -131,9 +131,9 @@ async function rangesInCheckout(view: TestsView, root: string | null | undefined
   return { ...view, divergences: view.divergences.map(inCheckout), failures: view.failures.map(inCheckout) };
 }
 
-// Find the commit that named no first bad commit, in the activity feed: why, so the next search
+// Find breaking commit that named no first bad commit, in the activity feed: why, so the next search
 // starts elsewhere. A golden's answer opens Tests, which shows it; a run's, the run.
-describeEvent('bisect.none', (e, d) => ({ kind: 'test', text: `No first bad commit · ${e.ref ?? 'Find the commit'}${typeof d.why === 'string' && d.why ? `: ${d.why}` : ''}`, href: e.runId ? links.run(e.runId) : links.tests() }));
+describeEvent('bisect.none', (e, d) => ({ kind: 'test', text: `No first bad commit · ${e.ref ?? confirmWords(ACTIONS.findBreakingCommit.label)}${typeof d.why === 'string' && d.why ? `: ${d.why}` : ''}`, href: e.runId ? links.run(e.runId) : links.tests() }));
 
 export function register(router: Router, ctx: RouteContext): void {
   const goldens = (): GoldenSource[] => ctx.options.goldens?.() ?? [];
@@ -153,7 +153,7 @@ export function register(router: Router, ctx: RouteContext): void {
     r.tagged(await rangesInCheckout(testsView(ctx.store, goldens(), { folder: FOLDER, normalizers: normalizers() }), ctx.project?.path));
   });
 
-  // A run's page: the diverged-test banner of a replay `shadowlap test` made, and Find the commit's
+  // A run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's
   // choices for any run (`before`: the calendar's first day picked, in milliseconds).
   router.get('/tests/runs/:id', async (r) => {
     const run = ctx.store.getRun(r.params.id!);
@@ -204,7 +204,7 @@ export function register(router: Router, ctx: RouteContext): void {
   // `shadowlap test` on one golden links to its replay itself: the one that passed, or the one that
   // failed. A session that runs a golden live asks first; one that only replays starts at once.
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.test, {
-    title: () => 'Running the tests',
+    title: () => ACTIONS.runTests.doing,
     build: (req, { store, projectId }) => {
       const list = goldens();
       const job = runTestsJob(list, req, { folder: FOLDER });
@@ -212,12 +212,12 @@ export function register(router: Router, ctx: RouteContext): void {
     },
   });
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.update, {
-    title: () => 'Updating goldens',
+    title: () => ACTIONS.updateGoldens.doing,
     build: (req, { store, projectId }) => testsBuild(updateGoldensJob(goldens(), req), busy(store, projectId, 'update it')),
   });
   // A golden's search waits for the tests, and they for it; a run's searches nothing on disk.
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.bisect, {
-    title: () => 'Finding the commit',
+    title: () => ACTIONS.findBreakingCommit.doing,
     build: async (req, { store, project, projectId }) => {
       // Whether this checkout has the commit a run's search would end at, asked of git beside the
       // server before the job is built: bisectJob looks the answer up.
@@ -228,12 +228,12 @@ export function register(router: Router, ctx: RouteContext): void {
         here = (revs) => (known ? new Set(revs.filter((rev) => known.has(rev))) : null);
       }
       const job = bisectJob(store, goldens(), req, here ? { here } : {});
-      return testsBuild(job, 'args' in job && inTestFamily({ kind: TEST_JOB_KINDS.bisect, args: job.args }) ? busy(store, projectId, 'find the commit') : null);
+      return testsBuild(job, 'args' in job && inTestFamily({ kind: TEST_JOB_KINDS.bisect, args: job.args }) ? busy(store, projectId, confirmWords(ACTIONS.findBreakingCommit.label).toLowerCase()) : null);
     },
   });
   // The golden's test after the rule asks first as Run tests does, when it runs live.
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.normalize, {
-    title: () => 'Adding a normalizer',
+    title: () => ACTIONS.addNormalizer.doing,
     build: (req, { store, projectId }) => {
       const list = goldens();
       const job = normalizeAndTestJob(store, list, req);

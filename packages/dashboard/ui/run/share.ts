@@ -1,8 +1,10 @@
 import { num, shortId } from '../format.js';
+import { ACTIONS } from '../labels.js';
 import type { RunOffers } from '../types.js';
 
 /**
- * The Share menu without the DOM: which copies it lists, in the mock's order and words, and the note
+ * The Share menu without the DOM: which copies it lists, in the mock's order and words (parallel nouns,
+ * an ellipsis on each that asks first), and the note
  * under them on how many redaction rules each applies (decision 6). The tests import it.
  */
 
@@ -16,11 +18,11 @@ export interface ShareItem {
 
 const ITEMS: Record<ShareKey, Omit<ShareItem, 'key'>> = {
   link: { label: 'Share link', note: 'a redacted report in your bucket · expires in 7 days' },
-  html: { label: 'HTML file', note: 'export html · these views in one file that opens anywhere' },
-  pack: { label: 'Pack', note: 'pack · a folder for a golden, or for a colleague to replay' },
-  dataset: { label: 'Dataset for evals', note: 'export dataset · JSONL, Braintrust, Langfuse or OpenAI chat' },
-  otel: { label: 'OpenTelemetry trace', note: 'export otel · a span per call, for the tools you already use' },
-  har: { label: 'HAR', note: 'export har · the model calls, for anything that reads HTTP archives' },
+  html: { label: ACTIONS.exportHtml.label, note: 'export html · these views in one file that opens anywhere' },
+  pack: { label: ACTIONS.pack.label, note: 'pack · a folder for a golden, or for a colleague to replay' },
+  dataset: { label: ACTIONS.exportDataset.label, note: 'export dataset · JSONL, Braintrust, Langfuse or OpenAI chat' },
+  otel: { label: ACTIONS.exportTrace.label, note: 'export otel · a span per call, for the tools you already use' },
+  har: { label: ACTIONS.exportHar.label, note: 'export har · the model calls, for anything that reads HTTP archives' },
 };
 
 /**

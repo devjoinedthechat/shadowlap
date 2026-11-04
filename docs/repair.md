@@ -384,7 +384,7 @@ Such a repair ends not fixed, with why: *the repairer could not be asked: the An
 
 **Found only when asked.** Anything else that keeps a repairer from answering (`claude` not found or not runnable, a server out of reach) shows only when it is asked, once blame has run. The repair is kept all the same, with its blames and the fix they opened or joined, and `--json` prints its report.
 
-The fix's Repair step and `shadowlap fix show` say the same. The dashboard's Repair from here checks first that `claude` can be found, when Claude Code is the repairer it would ask.
+The fix's Repair step and `shadowlap fix show` say the same. The dashboard's Run repair checks first that `claude` can be found, when Claude Code is the repairer it would ask.
 
 ## The fix it reports to
 

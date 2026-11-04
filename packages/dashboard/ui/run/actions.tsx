@@ -21,11 +21,11 @@ export interface PendingAction {
   callName?: string;
 }
 
-/** A Find the commit with nothing known about the run's revisions: the dialog asks for a commit. */
+/** A Find breaking commit with nothing known about the run's revisions: the dialog asks for a commit. */
 const UNKNOWN_BISECT = (runId: string): BisectOffer => ({ target: { kind: 'run', runId }, failed: true, good: null, bad: null, revisions: [], fork: false, live: false, unavailable: null, args: null });
 
 /**
- * Starts an action, or opens its dialog when it asks for something first. Find the commit, which the
+ * Starts an action, or opens its dialog when it asks for something first. Find breaking commit, which the
  * fork menu lists with the whole run's actions, is the tests' `bisect` job: its dialog asks for a
  * commit where the run still worked. A replay of a run from someone else's pack, or a teammate's
  * pulled from the team store, runs their command: the server refuses it until it is confirmed, and

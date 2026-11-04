@@ -7,9 +7,10 @@ import { sentence } from '../normalize.js';
 import { useApp } from '../state.js';
 import type { BisectChoices } from '../types.js';
 import { bisectCommand, bisectCost, bisectRequest, bisectUpTo, revisionTally } from './find-commit.js';
+import { ACTIONS, confirmWords } from '../labels.js';
 
 /**
- * Find the commit, from the calendar: the first failure on the days picked is where it started
+ * Find breaking commit, from the calendar: the first failure on the days picked is where it started
  * failing, and bisect replays it at commits between one where it still worked (before the first day
  * picked) and its own, halving each time, to name the first that broke it. Replays are free, so it
  * costs no tokens, unless its replays have to run live from where they diverge (`bisectCost`). A
@@ -25,16 +26,16 @@ export function FindCommitDialog({ runId, choices, earlier = null, onClose }: { 
   const upTo = bisectUpTo(choices);
   if (choices.unavailable)
     return (
-      <Dialog title={`Find the commit that broke ${what}`} text={sentence(choices.unavailable)} onClose={onClose}>
+      <Dialog title={`Find breaking commit for ${what}`} text={sentence(choices.unavailable)} onClose={onClose}>
         {null}
       </Dialog>
     );
   const rev = good.trim();
   return (
     <Dialog
-      title={`Find the commit that broke ${what}`}
+      title={`Find breaking commit for ${what}`}
       text={`Replays it at commits between a good one and ${upTo}, halving each time, and names the first where it fails. ${bisectCost(choices)}`}
-      ok="Find the commit"
+      ok={confirmWords(ACTIONS.findBreakingCommit.label)}
       okDisabled={!/^[A-Za-z0-9][A-Za-z0-9._/~^-]{0,199}$/.test(rev) || rev === upTo}
       onClose={onClose}
       onOk={() => {

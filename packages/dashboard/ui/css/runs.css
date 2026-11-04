@@ -97,7 +97,7 @@ table.runst tr.picked td { background: var(--sel); }
 .impdlg .capfile .pick { flex: none; }
 .calgrid button.cd:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
 
-/* Find the commit on a dashboard that changes nothing: off, saying why on hover */
+/* Find breaking commit on a dashboard that changes nothing: off, saying why on hover */
 .calside .linkbtn[disabled] { opacity: .5; cursor: not-allowed; }
 .calside .linkbtn[disabled]:hover { background: none; color: var(--ink); }
 

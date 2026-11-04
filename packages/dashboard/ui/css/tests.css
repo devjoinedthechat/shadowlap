@@ -115,7 +115,7 @@ table.gt .chk .ck .cw { text-wrap: balance; }
 
 /* goldens run again since the session the verdict names: a quiet note, their results on hover */
 .verdict.tv p .tsince { color: var(--dim); cursor: help; }
-/* Find the commit named no first bad commit: where it looked and why, in the card's place */
+/* Find breaking commit named no first bad commit: where it looked and why, in the card's place */
 .bisect.miss .m { color: var(--dim); }
 
 table.gt td.glast .rsub { font: 11.5px/1.5 var(--mono); color: var(--faint); }

@@ -330,7 +330,7 @@ describe('the same question from elsewhere', () => {
     const sent: Sent[] = [];
     const watched: Array<Promise<JobView>> = [];
     const page = await shown(app(sent, watched), createElement(Palette, { route: { page: 'overview' } }));
-    await page.click(page.all('.palit').find((el) => el.textContent.startsWith('Run the tests'))!);
+    await page.click(page.all('.palit').find((el) => el.textContent.startsWith('Run tests'))!);
     await page.until('the question', () => dialog(page) !== null);
     expect(said(dialog(page)!)).toEqual({ title: 'Run tests', text: `${WORDS}.`, commands: ['$shadowlap test goldens/*'], ok: 'Run tests' });
     await page.click(page.one('.dialog .dlg-ok'));
@@ -343,7 +343,7 @@ describe('the same question from elsewhere', () => {
     const watched: Array<Promise<JobView>> = [];
     const repair = { id: 'j-repair', kind: 'repair', done: false, worktree: { use: 'writes', doing: 'a repair is verifying candidates made from your working tree', folder: null } };
     const page = await shown(app(sent, watched, { live: true, serverJobs: [repair] }), createElement(Palette, { route: { page: 'overview' } }));
-    await page.click(page.all('.palit').find((el) => el.textContent.startsWith('Run the tests'))!);
+    await page.click(page.all('.palit').find((el) => el.textContent.startsWith('Run tests'))!);
     await page.until('the refusal', () => watched.length === 1);
     expect(dialog(page)).toBeNull();
     expect(testsQuestion()).toBeNull();

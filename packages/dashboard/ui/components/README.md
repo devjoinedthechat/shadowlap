@@ -122,7 +122,7 @@ view's blame and verify bundles (`Bundles.tsx`), Run blame (`RunBlame.tsx`, whic
 when the server can't find it), what the breadcrumb and the palette know about fixes (`data.ts`),
 why an action can't start while a repair or an apply holds the project's working tree
 (`tree.ts`: `useTreeBusy(use, verb)` gives the reason, or null; any button that runs the agent can
-read it as Run blame, Repair from here, Apply the patch and the Tests actions do, and
+read it as Run blame, Run repair, Apply fix and the Tests actions do, and
 `useServerJobs()` is the job list it reads, every tab's, for a page that waits on other jobs too,
 as Tests waits on a test job with `testsBusy` from `goldens.ts`; `useTestsWait(verb)` reads both, and
 `TestsJobButton` is a button that starts a Tests job from another page, a test replay's banner, and

@@ -8,6 +8,7 @@ import { shortId } from '../format.js';
 import { useApp } from '../state.js';
 import { parseCheck } from './model.js';
 import { useTreeBusy } from './tree.js';
+import { ACTIONS } from '../labels.js';
 
 /**
  * Run blame, for a failed run never blamed: a job that finds the model call where the run was lost
@@ -55,7 +56,7 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn', titl
     <>
       <button className={className} type="button" disabled={!!why} title={why ?? title} onClick={() => app.guard(() => void start({}))}>
         {icon ? <Icon name="loop" /> : null}
-        Run blame
+        {ACTIONS.runBlame.label}
       </button>
       {asking?.kind === 'check' ? (
         <CheckDialog
@@ -68,7 +69,7 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn', titl
       {asking?.kind === 'consent' ? (
         <ConsentDialog
           why={asking.why}
-          ok="Run blame"
+          ok={ACTIONS.runBlame.label}
           onClose={() => setAsking(null)}
           onOk={() => {
             const { fields, confirm } = asking;
@@ -104,7 +105,7 @@ function CheckDialog({ runId, text, onClose, onRun }: { runId: string; text: str
     });
   };
   return (
-    <Dialog title={`Blame ${shortId(runId)}`} text={text} ok="Run blame" okDisabled={!value.trim() || sending} onOk={submit} onClose={onClose}>
+    <Dialog title={`${ACTIONS.runBlame.label} on ${shortId(runId)}`} text={text} ok={ACTIONS.runBlame.label} okDisabled={!value.trim() || sending} onOk={submit} onClose={onClose}>
       <div className="form one">
         <label>
           Check (JSON)

@@ -11,6 +11,7 @@ import { useApp } from '../../state.js';
 import { CONFIG_FILE, CommandLine, editErrorText } from './common.js';
 import { UNUSED_WORTH, bytesText, gcDeleteCommand, gcDeleteWhat, gcDryRun, gcGivesBack, proposedCount } from './logic.js';
 import { settingsChanged } from './events.js';
+import { ACTIONS } from '../../labels.js';
 
 /**
  * What Settings' jobs offer once they end, in the job drawer's footer: calibrate's "Add it
@@ -112,5 +113,5 @@ addPaletteSource(({ app }) => {
     );
   }
   if (before) return [];
-  return [{ group: 'Actions', label: 'Calibrate', hint: 'propose normalizers', job: true, run: () => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.calibrate, {}))) }];
+  return [{ group: 'Actions', label: ACTIONS.calibrate.label, hint: 'propose normalizers', job: true, run: () => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.calibrate, {}))) }];
 });

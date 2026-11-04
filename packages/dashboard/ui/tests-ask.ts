@@ -3,6 +3,7 @@ import type { JobView } from './api.js';
 import { mergeTreeJobs, treeBusy, type TreeJob } from './fixes/model.js';
 import { commandText } from './goldens.js';
 import type { TestBannerOffer, TestsView } from './types.js';
+import { ACTIONS } from './labels.js';
 
 /**
  * A Tests job that would run anything live asks first, wherever it was started: Tests' Run tests,
@@ -97,7 +98,7 @@ export function answerTestsQuestion(app: TestsJobApp, yes: boolean): void {
 
 /** Run tests: every golden, as the page's command runs them. */
 export function runTestsAsk(view: Pick<TestsView, 'commands'>): TestsAsk {
-  return { title: 'Run tests', ok: 'Run tests', commands: [commandText(view.commands.run)] };
+  return { title: ACTIONS.runTests.label, ok: ACTIONS.runTests.label, commands: [commandText(view.commands.run)] };
 }
 
 /** What the palette's question reads of the app (`AppState`). */
@@ -124,7 +125,7 @@ export function paletteTestsAsk(app: PaletteTestsApp): () => Promise<TestsAsk> {
 
 /** Run more attempts on a golden whose gate ran out of them, with the command the page shows on its hover. */
 export function moreAttemptsAsk(name: string, args: readonly string[]): TestsAsk {
-  return { title: `Run more attempts on ${name}`, ok: 'Run more attempts', commands: [commandText(args)] };
+  return { title: `${ACTIONS.runMoreAttempts.label} on ${name}`, ok: ACTIONS.runMoreAttempts.label, commands: [commandText(args)] };
 }
 
 /** What a normalizer's job is called by its steps: it updates the golden after the rules when its last step re-records it. */

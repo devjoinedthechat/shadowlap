@@ -19,7 +19,9 @@ describe('the Share menu', () => {
     expect(shareItems({ can: all, team: null }).map((i) => i.key)).toEqual(['html', 'pack', 'dataset', 'otel', 'har']);
     // A server without the jobs still downloads the HTML file, and packs through the run's own action.
     expect(shareItems({ can: (k) => k === 'pack', team }).map((i) => i.key)).toEqual(['html', 'pack']);
-    expect(shareItems({ can: all, team }).find((i) => i.key === 'otel')).toEqual({ key: 'otel', label: 'OpenTelemetry trace', note: 'export otel · a span per call, for the tools you already use' });
+    expect(shareItems({ can: all, team }).find((i) => i.key === 'otel')).toEqual({ key: 'otel', label: 'OpenTelemetry trace…', note: 'export otel · a span per call, for the tools you already use' });
+    // Parallel nouns, the copy each makes, an ellipsis on each that asks first.
+    expect(shareItems({ can: all, team }).map((i) => i.label)).toEqual(['Share link', 'HTML report', 'Pack…', 'Eval dataset…', 'OpenTelemetry trace…', 'HAR file']);
   });
 
   it('says how many redaction rules each copy applies, and when a trace takes fewer', () => {

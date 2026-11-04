@@ -15,6 +15,7 @@ import type { JobView } from '../../types.js';
 import { LoadProblem, Loading } from './common.js';
 import { stepWords } from '../../../src/store-steps.js';
 import { setupStates, type SetupStepState } from './store-logic.js';
+import { ACTIONS } from '../../labels.js';
 
 /**
  * The team store's setup, free like the rest of Shadowlap, on a page of its own (`#/setup/store`)
@@ -424,7 +425,7 @@ addPaletteSource(({ app, go }) => {
   );
   const v = lastSetup;
   if (!v) return [];
-  if (!v.store) return [{ group: 'Actions', label: 'Set up the team store', hint: 'your team’s runs, in a bucket you own', run: () => go(href.storeSetup()) }];
-  if (v.active && v.next) return [{ group: 'Actions', label: 'Continue setting up the store', hint: `step ${v.next.step} of 4: ${stepWords(v.next.title)}`, run: () => go(href.storeSetup()) }];
+  if (!v.store) return [{ group: 'Actions', label: ACTIONS.setUpTeamStore.label, hint: 'your team’s runs, in a bucket you own', run: () => go(href.storeSetup()) }];
+  if (v.active && v.next) return [{ group: 'Actions', label: ACTIONS.continueTeamStoreSetup.label, hint: `step ${v.next.step} of 4: ${stepWords(v.next.title)}`, run: () => go(href.storeSetup()) }];
   return [];
 });

@@ -259,7 +259,7 @@ describe('the Tests screen', () => {
     expect(d.normalizeAndTest).toEqual([['normalize', 'add', '--kind', 'tool', '--name', 'issue_refund', '--path', '$.args.order_id', '--replace', '<ID>'], ['test', 'goldens/x']]);
     expect(view.rows[0].last.line).toBe('diverged at call 2 · $.args.order_id changed, an id that may be a real change');
     expect(view.commands.updateAll).toEqual(['test', 'goldens/x', '--update']);
-    expect(normalizeAndTestJob(store, goldensX, { golden: 'goldens/x' })).toMatchObject({ title: 'Adding a normalizer', steps: d.normalizeAndTest });
+    expect(normalizeAndTestJob(store, goldensX, { golden: 'goldens/x' })).toMatchObject({ title: 'Adding normalizer', steps: d.normalizeAndTest });
     store.close();
   });
 
@@ -395,7 +395,7 @@ describe('the Tests screen', () => {
     expect(view.commands.run).toEqual(['test', 'goldens/*', 'evals/b']);
     expect(view.commands.ci).toBe(`shadowlap test 'goldens/*' evals/b --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`);
     expect(view.rows.find((r) => r.path === '--writes')).toMatchObject({ error: 'its path starts with "-", which the CLI would read as an option: rename it under "tests" in shadowlap.config.json', last: { line: 'can\'t be read: its path starts with "-", which the CLI would read as an option: rename it under "tests" in shadowlap.config.json' } });
-    expect(runTestsJob(list, {})).toEqual({ title: 'Running the tests', args: ['test', 'goldens/*', 'evals/b'] });
+    expect(runTestsJob(list, {})).toEqual({ title: 'Running tests', args: ['test', 'goldens/*', 'evals/b'] });
     for (const golden of ['--online', '--writes', '-x/y']) {
       expect(runTestsJob(list, { golden }), golden).toHaveProperty('error');
       expect(updateGoldensJob(list, { goldens: ['goldens/a', golden] }), golden).toEqual({ error: `no such golden: ${golden}` });
@@ -825,8 +825,8 @@ describe('Find the commit from a run', () => {
     const cut = store.createRun({ mode: 'replay', command: { argv: agent, cwd: '/p' }, codeVersion: 'e3f9b20', meta: { test: { golden: 'goldens/refund-in-limit', session: stopped.sessionId } } });
     store.endRun(cut.runId, 'crashed');
     store.finishTestSession(stopped.sessionId, { passed: 0, failed: 0, upstreamRequests: 0, interrupted: true });
-    expect(bisectChoices(store, cut.runId, { goldens })).toMatchObject({ unavailable: 'this replay was cut short, so it says nothing about goldens/refund-in-limit: find the commit from the golden on Tests', args: null });
-    expect(bisectJob(store, goldens, { runId: cut.runId, good: 'c91d0f4' })).toEqual({ error: 'this replay was cut short, so it says nothing about goldens/refund-in-limit: find the commit from the golden on Tests' });
+    expect(bisectChoices(store, cut.runId, { goldens })).toMatchObject({ unavailable: 'this replay was cut short, so it says nothing about goldens/refund-in-limit: find breaking commit from the golden on Tests', args: null });
+    expect(bisectJob(store, goldens, { runId: cut.runId, good: 'c91d0f4' })).toEqual({ error: 'this replay was cut short, so it says nothing about goldens/refund-in-limit: find breaking commit from the golden on Tests' });
     store.close();
   });
 
@@ -877,7 +877,7 @@ describe('Find the commit from a run', () => {
     expect(c).toMatchObject({ target: { kind: 'run', runId: quiet }, failed: true, good: null, bad: 'fff6666', fork: true, live: true, expect: EXPECT, unavailable: null, args: null });
     expect(c.revisions.map((r) => r.rev)).toEqual(['eee5555', 'ddd4444', 'bbb2222', 'aaa1111']);
     // The job forks each replay and judges it by that check.
-    expect(bisectJob(store, [], { runId: quiet, good: 'bbb2222' })).toEqual({ title: 'Finding the commit', args: ['bisect', quiet, '--good', 'bbb2222', '--bad', 'fff6666', '--expect', JSON.stringify(EXPECT), '--fork'], runId: quiet });
+    expect(bisectJob(store, [], { runId: quiet, good: 'bbb2222' })).toEqual({ title: 'Finding breaking commit', args: ['bisect', quiet, '--good', 'bbb2222', '--bad', 'fff6666', '--expect', JSON.stringify(EXPECT), '--fork'], runId: quiet });
     // A run that failed a check given with its own --expect is judged by that one.
     const own = make('fff6666', T0 + 6 * DAY, 'completed', { expect: { tools: { send_email: 1 } }, checks: [{ ok: false, label: 'send_email called 1 time' }] } as never);
     expect(bisectChoices(store, own, { goldens: [] })).toMatchObject({ failed: true, fork: true, expect: { tools: { send_email: 1 } }, unavailable: null });
@@ -922,15 +922,15 @@ describe('Find the commit from a run', () => {
 
 describe('jobs for the Tests actions', () => {
   it('runs every golden, or the one named, and nothing the browser makes up', () => {
-    expect(runTestsJob(goldens, {})).toEqual({ title: 'Running the tests', args: ['test', 'goldens/*'] });
-    expect(runTestsJob(goldens, { golden: 'goldens/refund-flow' })).toEqual({ title: 'Running the tests', args: ['test', 'goldens/refund-flow'] });
+    expect(runTestsJob(goldens, {})).toEqual({ title: 'Running tests', args: ['test', 'goldens/*'] });
+    expect(runTestsJob(goldens, { golden: 'goldens/refund-flow' })).toEqual({ title: 'Running tests', args: ['test', 'goldens/refund-flow'] });
     for (const golden of ['goldens/../../etc', '--update', 'goldens/*', 42]) expect(runTestsJob(goldens, { golden })).toHaveProperty('error');
     expect(runTestsJob([], {})).toEqual({ error: 'no goldens yet: pack a run you consider correct into goldens/ first' });
   });
 
   it('updates the goldens named, each once', () => {
     expect(updateGoldensJob(goldens, { goldens: ['goldens/refund-in-limit', 'goldens/refund-flow', 'goldens/refund-in-limit'] })).toEqual({ title: 'Updating goldens', args: ['test', 'goldens/refund-in-limit', 'goldens/refund-flow', '--update'] });
-    expect(updateGoldensJob(goldens, { golden: 'goldens/refund-in-limit' })).toEqual({ title: 'Updating a golden', args: ['test', 'goldens/refund-in-limit', '--update'] });
+    expect(updateGoldensJob(goldens, { golden: 'goldens/refund-in-limit' })).toEqual({ title: 'Updating golden', args: ['test', 'goldens/refund-in-limit', '--update'] });
     expect(updateGoldensJob(goldens, { goldens: ['goldens/refund-flow', '--online'] })).toEqual({ error: 'no such golden: --online' });
     expect(updateGoldensJob(goldens, { goldens: [] })).toHaveProperty('error');
   });
@@ -938,7 +938,7 @@ describe('jobs for the Tests actions', () => {
   it('adds the normalizer the stored divergence names, then re-runs the golden', () => {
     const store = sampleStore();
     const job = normalizeAndTestJob(store, goldens, { golden: 'goldens/refund-in-limit' });
-    expect(job).toEqual({ title: 'Adding a normalizer', steps: [['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/refund-in-limit']], runId: 'R_C_LIMIT' });
+    expect(job).toEqual({ title: 'Adding normalizer', steps: [['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/refund-in-limit']], runId: 'R_C_LIMIT' });
     expect(normalizeAndTestJob(store, goldens, { golden: 'goldens/refund-in-limit', path: '$.metadata.other' })).toEqual({ error: 'no value that changes every run diverged at that path' });
     expect(normalizeAndTestJob(store, goldens, { golden: 'goldens/refund-flow' })).toEqual({ error: 'goldens/refund-flow did not diverge the last time it ran' });
     expect(normalizeAndTestJob(store, goldens, { golden: 'goldens/nope' })).toHaveProperty('error');
@@ -954,19 +954,19 @@ describe('jobs for the Tests actions', () => {
     store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/refund-in-limit', ok: false, failure: 'diverged', runId: replay.runId });
     expect(normalizeAndTestJob(store, goldens, { runId: replay.runId })).toEqual({ error: 'goldens/refund-in-limit diverged on more than values that change every run: if the change was intended, update the golden' });
     store.setDivergence(replay.runId, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, diff: [{ path: '$.metadata.user_id', op: 'changed', before: UUID_A, after: UUID_B }] });
-    expect(normalizeAndTestJob(store, goldens, { runId: replay.runId })).toMatchObject({ title: 'Adding a normalizer', steps: [['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/refund-in-limit']], runId: replay.runId });
+    expect(normalizeAndTestJob(store, goldens, { runId: replay.runId })).toMatchObject({ title: 'Adding normalizer', steps: [['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/refund-in-limit']], runId: replay.runId });
     expect(normalizeAndTestJob(store, [], { runId: replay.runId })).toEqual({ error: 'goldens/refund-in-limit is no longer a golden on disk' });
     // Two values that change every run: one rule alone leaves the other diverging, so the golden is updated after it.
     store.setDivergence(replay.runId, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, diff: [{ path: '$.metadata.user_id', op: 'changed', before: UUID_A, after: UUID_B }, { path: '$.metadata.trace_id', op: 'changed', before: UUID_B, after: UUID_A }] });
-    expect(normalizeAndTestJob(store, goldens, { runId: replay.runId })).toMatchObject({ title: 'Adding a normalizer', steps: [expect.arrayContaining(['$.metadata.user_id']), expect.arrayContaining(['$.metadata.trace_id']), ['test', 'goldens/refund-in-limit']] });
-    expect(normalizeAndTestJob(store, goldens, { runId: replay.runId, path: '$.metadata.trace_id' })).toMatchObject({ title: 'Adding a normalizer and updating the golden', steps: [expect.arrayContaining(['$.metadata.trace_id']), ['test', 'goldens/refund-in-limit', '--update']] });
+    expect(normalizeAndTestJob(store, goldens, { runId: replay.runId })).toMatchObject({ title: 'Adding normalizer', steps: [expect.arrayContaining(['$.metadata.user_id']), expect.arrayContaining(['$.metadata.trace_id']), ['test', 'goldens/refund-in-limit']] });
+    expect(normalizeAndTestJob(store, goldens, { runId: replay.runId, path: '$.metadata.trace_id' })).toMatchObject({ title: 'Adding normalizer and updating golden', steps: [expect.arrayContaining(['$.metadata.trace_id']), ['test', 'goldens/refund-in-limit', '--update']] });
     store.close();
   });
 
   it('finds the commit for a golden or a run, from revisions that look like ones', () => {
     const store = sampleStore();
-    expect(bisectJob(store, goldens, { golden: 'goldens/refund-in-limit', good: 'c91d0f4', bad: 'd2e8a1f' })).toEqual({ title: 'Finding the commit', args: ['bisect', 'goldens/refund-in-limit', '--good', 'c91d0f4', '--bad', 'd2e8a1f'] });
-    expect(bisectJob(store, goldens, { golden: 'goldens/refund-in-limit', good: 'v1.2.0' })).toEqual({ title: 'Finding the commit', args: ['bisect', 'goldens/refund-in-limit', '--good', 'v1.2.0'] });
+    expect(bisectJob(store, goldens, { golden: 'goldens/refund-in-limit', good: 'c91d0f4', bad: 'd2e8a1f' })).toEqual({ title: 'Finding breaking commit', args: ['bisect', 'goldens/refund-in-limit', '--good', 'c91d0f4', '--bad', 'd2e8a1f'] });
+    expect(bisectJob(store, goldens, { golden: 'goldens/refund-in-limit', good: 'v1.2.0' })).toEqual({ title: 'Finding breaking commit', args: ['bisect', 'goldens/refund-in-limit', '--good', 'v1.2.0'] });
     for (const good of ['--output=x', '-x', 'a..b', 'a b', '', null, 7]) expect(bisectJob(store, goldens, { golden: 'goldens/refund-in-limit', good }), String(good)).toEqual({ error: 'name a commit where it still worked' });
     expect(bisectJob(store, goldens, { golden: 'goldens/refund-in-limit', good: 'c91d0f4', bad: '--exec=x' })).toEqual({ error: 'that is not a commit' });
     expect(bisectJob(store, goldens, { golden: 'elsewhere/x', good: 'c91d0f4' })).toHaveProperty('error');
@@ -974,7 +974,7 @@ describe('jobs for the Tests actions', () => {
     expect(checkedRevision('HEAD~3')).toBe('HEAD~3');
     const failed = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: '/p' }, codeVersion: 'fff6666' });
     store.endRun(failed.runId, 'failed');
-    expect(bisectJob(store, goldens, { runId: failed.runId, good: 'c91d0f4' })).toEqual({ title: 'Finding the commit', args: ['bisect', failed.runId, '--good', 'c91d0f4', '--bad', 'fff6666', '--fork'], runId: failed.runId });
+    expect(bisectJob(store, goldens, { runId: failed.runId, good: 'c91d0f4' })).toEqual({ title: 'Finding breaking commit', args: ['bisect', failed.runId, '--good', 'c91d0f4', '--bad', 'fff6666', '--fork'], runId: failed.runId });
     expect(bisectJob(store, goldens, { runId: failed.runId, good: 'fff6666' })).toEqual({ error: 'fff6666 is where it fails: choose an earlier commit where it still worked' });
     expect(bisectJob(store, goldens, { runId: 'not-a-run', good: 'c91d0f4' })).toEqual({ error: 'no such run' });
     store.close();
@@ -1146,7 +1146,7 @@ describe('goldens with a gate', () => {
     expect(runTestsJob(gated, { golden: 'goldens/flaky', maxAttempts: 40 })).toEqual({ title: 'Running more attempts', args: ['test', 'goldens/flaky', '--max-attempts', '40'] });
     expect(runTestsJob(gated, { golden: 'goldens/flaky', maxAttempts: 0 })).toEqual({ error: 'maxAttempts is a whole number from 1 to 1000' });
     expect(runTestsJob(gated, { golden: 'goldens/flaky', maxAttempts: '40; rm -rf /' })).toMatchObject({ error: expect.any(String) });
-    expect(runTestsJob(gated, {})).toEqual({ title: 'Running the tests', args: ['test', 'goldens/*'] });
+    expect(runTestsJob(gated, {})).toEqual({ title: 'Running tests', args: ['test', 'goldens/*'] });
   });
 });
 
@@ -1228,7 +1228,7 @@ describe('each golden\'s checks, by how its last result came out on them', () =>
     const judged = view.inconclusive.find((v) => v.golden === 'goldens/judged')!;
     expect(judged.judge).toEqual({ name: 'explains-escalation', label: judgeLabel, model: 'claude-haiku-4-5', provider: 'anthropic', why: 'not judged: no recorded verdict and the test runs offline', held: 'none', changed: null, update: ['test', 'goldens/judged', '--update'], keys: null });
     // Its update is the job Update golden runs.
-    expect(updateGoldensJob(GOLDENS, { golden: 'goldens/judged' })).toEqual({ title: 'Updating a golden', args: judged.judge!.update });
+    expect(updateGoldensJob(GOLDENS, { golden: 'goldens/judged' })).toEqual({ title: 'Updating golden', args: judged.judge!.update });
     const keyless = view.inconclusive.find((v) => v.golden === 'goldens/keyless')!;
     expect(keyless.judge).toMatchObject({ update: null, keys: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] });
     s.close();

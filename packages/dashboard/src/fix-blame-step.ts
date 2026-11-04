@@ -205,7 +205,7 @@ function blameCount(r: BlameReport, pulled = false): string[] | null {
 }
 
 /**
- * Blame again, or Blame with a stronger model, for an open fix whose shown blame placed its failure
+ * Run blame again, or Run blame with stronger model, for an open fix whose shown blame placed its failure
  * on no call (`FixActions`): built from that blame's checked fields (`blameArgs`), under the fix's
  * check now, with the run named in full and without its budget. Neither for a fix whose run is gone,
  * one whose command came from a capture, which has none to run again, or a blame kept before its

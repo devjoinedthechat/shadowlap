@@ -76,12 +76,12 @@ describe('a fix', () => {
     expect(verifyFor({ verify: [], defaultVerify: null }, null)).toBeNull();
   });
 
-  it('offers Repair from here on an open fix, Apply on a verified one, and Patch applied once it is in', () => {
+  it('offers Run repair on an open fix, Apply fix on a verified one, and Patch applied once it is in', () => {
     const repair = { argv: ['repair'], command: 'shadowlap repair', noFix: null };
     const patch = { kind: 'patch' as const, argv: ['fix', 'apply', 'fx-1'], gitApply: 'git apply x/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff: 'diff --git a/agent.mjs b/agent.mjs\n', patchFile: 'x/fix.patch', refused: null, inTree: false, goldens: 1, change: null };
     expect(fixAction({ status: 'open', actions: actions({ repair }) })).toEqual({ kind: 'repair' });
-    expect(fixAction({ status: 'open', actions: actions({}) })).toEqual({ kind: 'none', label: 'Repair from here', why: expect.stringMatching(/nothing to repair from here/) });
-    expect(fixAction({ status: 'verified', actions: actions({ apply: patch }) })).toEqual({ kind: 'apply', label: 'Apply the patch' });
+    expect(fixAction({ status: 'open', actions: actions({}) })).toEqual({ kind: 'none', label: 'Run repair', why: expect.stringMatching(/nothing to repair from here/) });
+    expect(fixAction({ status: 'verified', actions: actions({ apply: patch }) })).toEqual({ kind: 'apply', label: 'Apply fix' });
     expect(fixAction({ status: 'verified', actions: actions({ apply: { ...patch, kind: 'mark', gitApply: null } }) })).toEqual({ kind: 'apply', label: 'Mark applied' });
     // Merged, or applied by hand: applying only marks it applied.
     expect(fixAction({ status: 'verified', actions: actions({ apply: { ...patch, gitApply: null, inTree: true } }) })).toEqual({ kind: 'apply', label: 'Mark applied' });
@@ -89,7 +89,7 @@ describe('a fix', () => {
     expect(fixAction({ status: 'applied', actions: actions({ apply: { ...patch, pending: 'run shadowlap test on its goldens' }, applied: true }) })).toEqual({ kind: 'apply', label: 'Finish applying' });
     // A patch fix apply refuses: the button stays off, and says why on hover.
     const refused = { ...patch, gitApply: null, refused: 'it changes agent.mjs and EVIL.txt, where its accepted candidate changes agent.mjs alone' };
-    expect(fixAction({ status: 'verified', actions: actions({ apply: refused }) })).toEqual({ kind: 'none', label: 'Apply the patch', why: 'This patch is not the change its repair verified: it changes agent.mjs and EVIL.txt, where its accepted candidate changes agent.mjs alone. Nothing applies it from here.' });
+    expect(fixAction({ status: 'verified', actions: actions({ apply: refused }) })).toEqual({ kind: 'none', label: 'Apply fix', why: 'This patch is not the change its repair verified: it changes agent.mjs and EVIL.txt, where its accepted candidate changes agent.mjs alone. Nothing applies it from here.' });
     expect(fixAction({ status: 'applied', actions: actions({ apply: { ...refused, pending: 'run shadowlap test on its goldens' }, applied: true }) })).toMatchObject({ kind: 'none' });
     expect(fixAction({ status: 'applied', actions: actions({ apply: refused, applied: true }) })).toEqual({ kind: 'applied' });
   });
@@ -132,7 +132,7 @@ describe('a fix', () => {
     ]);
   });
 
-  it('keeps Repair from here but not as the lead when the repair would end with no fix to try, and says why', () => {
+  it('keeps Run repair but not as the lead when the repair would end with no fix to try, and says why', () => {
     const noFix = 'No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.';
     expect(repairAside({ actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair', noFix } }) })).toBe(noFix);
     // A blame that couldn't settle has a look of its own on the Blame step, which says nothing of a repair.
@@ -140,7 +140,7 @@ describe('a fix', () => {
     expect(repairAside({ actions: actions({}) })).toBeNull();
   });
 
-  it('names the repairer Repair from here asks as the fix reads again, and sends that one', () => {
+  it('names the repairer Run repair asks as the fix reads again, and sends that one', () => {
     const fix = (repairer: FixDetail['repairer'], o: Partial<FixDetail> = {}) =>
       ({ status: 'open', repairer, actions: actions({ repair: { argv: ['repair'], command: `shadowlap repair${repairer.configured ? '' : ' --repairer claude-code'}`, noFix: null } }), ...o }) as FixDetail;
     // The page loaded before the config named a repairer; the dialog reads it again as it opens.
@@ -362,9 +362,9 @@ describe('the Verify step', () => {
   it('leads an open fix with its blame’s next step while blame placed the failure on no call', () => {
     const none = actions({});
     const gate = { kind: 'sprt' as const, good: 0.4, bad: 0.1, risk: 0.05, max: 40 };
-    expect(blameNextStep({ status: 'open', actions: { ...none, blameAgain: { kind: 'unsettled', argv: [], command: 'shadowlap blame R --gate x', gate, pulled: null, left: [] } } })).toEqual({ kind: 'again', label: 'Blame again', tip: 'More attempts and a lower bar: a rescue at 40% or more, up to 40 attempts', command: 'shadowlap blame R --gate x' });
+    expect(blameNextStep({ status: 'open', actions: { ...none, blameAgain: { kind: 'unsettled', argv: [], command: 'shadowlap blame R --gate x', gate, pulled: null, left: [] } } })).toEqual({ kind: 'again', label: 'Run blame again', tip: 'More attempts and a lower bar: a rescue at 40% or more, up to 40 attempts', command: 'shadowlap blame R --gate x' });
     expect(blameNextStep({ status: 'open', actions: { ...none, blameAgain: { kind: 'stopped', argv: [], command: 'c', gate: null, pulled: null, left: [] } } })).toMatchObject({ kind: 'again', tip: 'Runs the search to the end, without the budget that stopped it' });
-    expect(blameNextStep({ status: 'open', actions: { ...none, blameStronger: { argv: [], command: 'c --model <model>', attempts: 4, spent: 0.002, pulled: null, left: [] } } })).toMatchObject({ kind: 'stronger', label: 'Blame with a stronger model…' });
+    expect(blameNextStep({ status: 'open', actions: { ...none, blameStronger: { argv: [], command: 'c --model <model>', attempts: 4, spent: 0.002, pulled: null, left: [] } } })).toMatchObject({ kind: 'stronger', label: 'Run blame with stronger model…' });
     expect(blameNextStep({ status: 'open', actions: none })).toBeNull();
     expect(blameNextStep({ status: 'verified', actions: { ...none, blameStronger: { argv: [], command: 'c', attempts: 4, spent: 0, pulled: null, left: [] } } })).toBeNull();
   });

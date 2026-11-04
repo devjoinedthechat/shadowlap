@@ -8,6 +8,7 @@ import { useApp } from '../state.js';
 import type { FixDetail, VerifyStep } from '../types.js';
 import type { VerifiedRunGroups } from '../../src/attempt-groups.js';
 import { runOutcomeWord, verdictWord } from '../../../engine/src/verdict-words.js';
+import { ACTIONS } from '../labels.js';
 import { AttemptGroups, useAttemptGroups } from './AttemptGroups.js';
 import { FixJobButton } from './FixJobButton.js';
 import { keepAt, moreLine, outcomeTone, tokens, verdictTone, verifyFor } from './model.js';
@@ -165,7 +166,7 @@ function Verdict({ v, fixId }: { v: VerifyStep; fixId: string }) {
           <FixJobButton
             kind={JOB_KINDS.verify}
             fields={{ fixId, verifyId: v.verifyId }}
-            label={more.kind === 'more' ? 'Run more attempts' : 'Verify again'}
+            label={more.kind === 'more' ? ACTIONS.runMoreAttempts.label : ACTIONS.verifyAgain.label}
             verb={more.kind === 'more' ? 'run more attempts' : 'verify again'}
             lead
             className="btn sm"

@@ -39,6 +39,7 @@ import { RunNotes } from '../run/RunNotes.js';
 import { RunHeader } from '../run/RunHeader.js';
 import { TimelineView } from '../run/TimelineView.js';
 import { TurnsView } from '../run/TurnsView.js';
+import { ACTIONS } from '../labels.js';
 
 /**
  * A run: its header and numbers, a banner for how it forked, where it was lost or that it is
@@ -292,7 +293,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
     setFilterWanted(false);
   }, [filterWanted, view]);
   const forkMenu = useMenu();
-  // What the page offers beyond the run's record: Share's counts, Push, Run blame, Find the commit.
+  // What the page offers beyond the run's record: Share's counts, Push, Run blame, Find breaking commit.
   // None of it applies while the run records, so it is asked for once it has ended, and again as runs change.
   const offers = useLoad(() => (exported || live ? null : client.offers(runId)), `${runId}:offers:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data ?? null;
   const actions = useActionRunner(runId, !!run.source, offers);
@@ -403,7 +404,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   useEffect(() => {
     const items: PaletteCommand[] = [];
     const replay = run.actions.find((a) => a.key === 'r');
-    if (!exported && !actionsOff && replay && !live) items.push({ group: 'This run', label: `Replay ${shortId(runId)}`, hint: 'shadowlap replay', job: true, run: () => actions.run({ action: replay, callNo: null }) });
+    if (!exported && !actionsOff && replay && !live) items.push({ group: 'This run', label: ACTIONS.replay.label, hint: `shadowlap replay ${shortId(runId)}`, job: true, run: () => actions.run({ action: replay, callNo: null }) });
     if (canFork && selected !== null)
       items.push({
         group: 'This run',

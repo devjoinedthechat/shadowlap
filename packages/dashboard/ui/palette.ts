@@ -1,3 +1,5 @@
+import { ACTIONS } from './labels.js';
+
 /**
  * The command palette's matching: which items a query shows, in which order. No DOM here: the
  * tests import it. The palette itself is `shell/Palette.tsx`.
@@ -35,11 +37,11 @@ export function palettePlaceholder(o: { exported: boolean; actions: boolean; off
  * training data asks for first, then what runs the agent, and Keyboard shortcuts last. An action not
  * named here goes before Keyboard shortcuts, in the order it was added.
  */
-export const ACTION_ORDER: readonly string[] = ['Update goldens…', 'Export preference pairs…', 'Score a model on the tasks…', 'Run the tests', 'Import a capture…', 'Calibrate'];
+export const ACTION_ORDER: readonly string[] = [ACTIONS.updateGoldens.label, ACTIONS.exportPairs.label, ACTIONS.scoreModel.label, ACTIONS.runTests.label, ACTIONS.importCapture.label, ACTIONS.calibrate.label];
 
 /** Where an action sits in its group: its place in ACTION_ORDER, then unnamed actions, then Keyboard shortcuts. */
 export function actionRank(label: string): number {
-  if (label === 'Keyboard shortcuts') return ACTION_ORDER.length + 1;
+  if (label === ACTIONS.keyboardShortcuts.label) return ACTION_ORDER.length + 1;
   const i = ACTION_ORDER.indexOf(label);
   return i < 0 ? ACTION_ORDER.length : i;
 }

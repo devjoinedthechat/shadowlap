@@ -1,3 +1,4 @@
+import { ACTIONS } from '@shadowlap/engine';
 import { actionArgs, lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import type { Router } from '../router.js';
@@ -11,7 +12,8 @@ import type { Router } from '../router.js';
  */
 
 /** The drawer's title for each run action, as the mock words them. */
-const ACTION_TITLES: Record<string, string> = { r: 'Replaying', s: 'Replaying', e: 'Repeating', p: 'Packing', n: 'Adding a normalizer' };
+/** A run action's title, by its key, as its drawer heads it: the -ing form of its name; any other fork's is Forking. */
+const ACTION_TITLES: Record<string, string> = { r: ACTIONS.replay.doing, s: ACTIONS.replayStubbed.doing, e: ACTIONS.repeat.doing, p: ACTIONS.packRun.doing, n: ACTIONS.addNormalizer.doing, x: ACTIONS.plantInstruction.doing };
 
 export function register(router: Router, ctx: RouteContext): void {
   const { jobs } = ctx;

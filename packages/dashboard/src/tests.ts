@@ -1,4 +1,4 @@
-import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, isObject, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, plural, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { ACTIONS, attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, isObject, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, plural, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { gateLine, gateRuleOf } from './verdict.js';
 import { links } from './links.js';
@@ -272,7 +272,7 @@ export interface FoundCommit {
   at: number;
 }
 
-/** What Find the commit said when it named no first bad commit: why, between which commits it looked, and how it came out. */
+/** What Find breaking commit said when it named no first bad commit: why, between which commits it looked, and how it came out. */
 export interface BisectMiss {
   why: string;
   good: string | null;
@@ -288,7 +288,7 @@ export interface BisectMiss {
 }
 
 /**
- * A commit Find the commit's dialog offers as one where the golden still worked: a revision it was
+ * A commit Find breaking commit's dialog offers as one where the golden still worked: a revision it was
  * tested at before it failed, and how it did there.
  */
 export interface BisectRevision {
@@ -348,19 +348,19 @@ export interface DivergenceView {
    * make it match.
    */
   rulesAdded: boolean;
-  /** Find the commit: from the last revision where it passed under today's checks to the one where it failed (null: HEAD). */
+  /** Find breaking commit: from the last revision where it passed under today's checks to the one where it failed (null: HEAD). */
   bisect: BisectRange | null;
-  /** What Find the commit found, kept until the golden passes again. */
+  /** What Find breaking commit found, kept until the golden passes again. */
   found: FoundCommit | null;
-  /** Find the commit ran since and named no first bad commit (it already failed at the good one, say): why, until it passes again or finds one. */
+  /** Find breaking commit ran since and named no first bad commit (it already failed at the good one, say): why, until it passes again or finds one. */
   missed: BisectMiss | null;
-  /** Commits to offer as good ones when Find the commit asks, newest first. */
+  /** Commits to offer as good ones when Find breaking commit asks, newest first. */
   revisions: BisectRevision[];
   /** Why its pack can't be read, or null: such a golden can't be bisected. */
   unreadable: string | null;
 }
 
-/** Find the commit for a golden: the command, and whether its replays cost tokens. */
+/** Find breaking commit for a golden: the command, and whether its replays cost tokens. */
 export interface BisectRange {
   good: string;
   bad: string | null;
@@ -972,7 +972,7 @@ export function underChecks(r: TestResult, now: readonly string[]): boolean {
 }
 
 /**
- * Find the commit for a failing golden, from the newest result that passed before the failure at
+ * Find breaking commit for a failing golden, from the newest result that passed before the failure at
  * another revision, under the checks the golden has now: a pass under other checks (one added since,
  * say) may be a commit where it already fails them, and bisect would find nothing. Best is a pass of
  * the recording that fails now, tested as committed: a pass of an earlier recording of the golden
@@ -990,11 +990,11 @@ function bisectFor(golden: string, history: readonly TestResult[], failed: TestR
   return { good: goodRev, bad, args: ['bisect', golden, '--good', goodRev, ...(bad ? ['--bad', bad] : [])], live };
 }
 
-/** How many commits Find the commit's dialog offers at most. */
+/** How many commits Find breaking commit's dialog offers at most. */
 const DIALOG_REVISIONS = 12;
 
 /**
- * The commits a golden was tested at before it failed, newest first, for Find the commit's dialog to
+ * The commits a golden was tested at before it failed, newest first, for Find breaking commit's dialog to
  * offer as good ones: each as committed (bisect checks out commits), with how it did there (its
  * newest result, a committed one before one with changes on top) and whether under today's checks.
  */
@@ -1013,7 +1013,7 @@ function bisectRevisions(history: readonly TestResult[], failed: TestResult, che
     .map(({ r, rev }) => ({ rev, at: r.at, result: r.ok ? 'pass' : 'fail', verdict: verdictOfResult(r), sameChecks: underChecks(r, checks) }));
 }
 
-/** What Find the commit said about a golden: a first bad commit, or none and why (the `bisect.found` and `bisect.none` activity events). */
+/** What Find breaking commit said about a golden: a first bad commit, or none and why (the `bisect.found` and `bisect.none` activity events). */
 type BisectAnswer = { found: FoundCommit; missed: null } | { found: null; missed: BisectMiss };
 
 /**
@@ -1028,7 +1028,7 @@ interface AnswerEvent {
 
 const MISS_OUTCOMES = new Set(['fails-at-good', 'passes-at-bad', 'untestable']);
 
-/** Every answer Find the commit gave, by golden, newest first. */
+/** Every answer Find breaking commit gave, by golden, newest first. */
 function bisectAnswers(store: StoreOf<'activity'>): Map<string, AnswerEvent[]> {
   const out = new Map<string, AnswerEvent[]>();
   for (const e of store.listEvents({ kinds: ['bisect.found', 'bisect.none'], limit: 500 })) {
@@ -1057,7 +1057,7 @@ function bisectAnswers(store: StoreOf<'activity'>): Map<string, AnswerEvent[]> {
 const sameCommit = (a: string, b: string) => a.startsWith(b) || b.startsWith(a);
 
 /**
- * What Find the commit said about the failure a golden shows, newest first: an answer stands only
+ * What Find breaking commit said about the failure a golden shows, newest first: an answer stands only
  * for the failures since the golden last passed, and only when it answered one of them. One given
  * while the golden passed (a search from an old replay's page, or one still running when a session
  * passed it) is about a failure that is over, however it fails next. A search that found it passing
@@ -1552,7 +1552,7 @@ export function testRunBanner(store: StoreOf<'recording' | 'tests'>, runId: stri
   };
 }
 
-// ---- Find the commit, from a run: the run page's fork menu and the calendar's failed days ----
+// ---- Find breaking commit, from a run: the run page's fork menu and the calendar's failed days ----
 
 export interface BisectChoices {
   /** What bisect replays: the golden a test replay came from, which replays offline, or the run itself. */
@@ -1588,7 +1588,7 @@ export interface BisectChoices {
   fork: boolean;
   /** Replays run live from where they diverge (`fork`, or a golden that may fork): the search costs tokens. */
   live: boolean;
-  /** Why Find the commit can't start from this run, for the disabled action's hover; null when it can. */
+  /** Why Find breaking commit can't start from this run, for the disabled action's hover; null when it can. */
   unavailable: string | null;
   /**
    * It failed at a commit with no parent in the project's checkout (its first, or the oldest a
@@ -1612,7 +1612,7 @@ function runFailed(run: RunRecord): boolean {
 }
 
 /**
- * Find the commit that broke a run. A replay made by `shadowlap test` of a golden on disk bisects the
+ * Find breaking commit for a run. A replay made by `shadowlap test` of a golden on disk bisects the
  * golden, which replays offline; any other run is bisected as it is. `goldens` are the packs on disk
  * (`projectGoldens`), with the checks the config gives each; `before` limits the good commits to runs
  * started before it (the calendar passes the first day picked).
@@ -1678,7 +1678,7 @@ export function bisectChoices(store: StoreOf<'recording' | 'fixes' | 'tests'>, r
   let unavailable: string | null = null;
   if (run.status === 'running') unavailable = 'this run is still recording';
   // A test replay a signal cut short has no result: it says nothing about its golden either way.
-  else if (ofGolden && run.status === 'crashed' && !result) unavailable = `this replay was cut short, so it says nothing about ${golden!}: find the commit from the golden on Tests`;
+  else if (ofGolden && run.status === 'crashed' && !result) unavailable = `this replay was cut short, so it says nothing about ${golden!}: find breaking commit from the golden on Tests`;
   else if (unsure) unavailable = `${golden!} came out inconclusive in this replay's session, neither passed nor failed, so there is no failure to find the commit of: Tests says what settles it`;
   else if (undecided) unavailable = `this run is inconclusive, neither passed nor failed: a check could not be decided (${undecided.label}), so there is no failure to find the commit of`;
   else if (!ofGolden && !hasRecordedCommand(run)) unavailable = `this run ${withoutCommand(run)}, so there is no command to run at each commit: replay it once with your agent (shadowlap replay ${run.runId} -- <command>) and find the commit from that run`;
@@ -1758,10 +1758,10 @@ export function runTestsJob(goldens: readonly GoldenSource[], req: Record<string
   }
   if (req.golden !== undefined) {
     const golden = knownGolden(goldens, req.golden);
-    return golden ? { title: more.length ? 'Running more attempts' : 'Running the tests', args: ['test', golden, ...more] } : { error: 'no such golden: name one of the packs in the goldens folder or under "tests" in the config' };
+    return golden ? { title: more.length ? ACTIONS.runMoreAttempts.doing : ACTIONS.runTests.doing, args: ['test', golden, ...more] } : { error: 'no such golden: name one of the packs in the goldens folder or under "tests" in the config' };
   }
   if (!goldens.length) return { error: `no goldens yet: pack a run you consider correct into ${options.folder ?? 'goldens'}/ first` };
-  return { title: 'Running the tests', args: ['test', ...testPatterns(goldens, options.folder), ...more] };
+  return { title: ACTIONS.runTests.doing, args: ['test', ...testPatterns(goldens, options.folder), ...more] };
 }
 
 /** Update golden, or Update goldens… for several: each re-recorded live with writes stubbed, and replaced only when its checks pass. */
@@ -1774,7 +1774,7 @@ export function updateGoldensJob(goldens: readonly GoldenSource[], req: Record<s
     if (!golden) return { error: `no such golden: ${typeof r === 'string' ? r : 'a name that is not text'}` };
     if (!paths.includes(golden)) paths.push(golden);
   }
-  return { title: paths.length === 1 ? 'Updating a golden' : 'Updating goldens', args: ['test', ...paths, '--update'] };
+  return { title: paths.length === 1 ? ACTIONS.updateGolden.doing : ACTIONS.updateGoldens.doing, args: ['test', ...paths, '--update'] };
 }
 
 /**
@@ -1813,11 +1813,11 @@ export function normalizeAndTestJob(store: StoreOf<'recording' | 'tests'>, golde
   }
   const steps = normalizeSteps(volatile, golden);
   if (!steps) return { error: `${golden} diverged on more than values that change every run: if the change was intended, update the golden` };
-  return { title: volatile.coversAll ? 'Adding a normalizer' : 'Adding a normalizer and updating the golden', steps, ...(runId ? { runId } : {}) };
+  return { title: volatile.coversAll ? ACTIONS.addNormalizer.doing : ACTIONS.addNormalizerAndUpdate.doing, steps, ...(runId ? { runId } : {}) };
 }
 
 /**
- * Find the commit: for a golden (`golden`, from the Tests screen) or a run (`runId`, from its page or
+ * Find breaking commit: for a golden (`golden`, from the Tests screen) or a run (`runId`, from its page or
  * the calendar), from `good` up to `bad` (default: where it failed, else HEAD, which is also where
  * it stops when `here` says this checkout lacks the commit it failed at). A replay of a golden on
  * disk bisects the golden; a run that failed on its own replays with `--fork`, judged by the check it
@@ -1837,7 +1837,7 @@ export function bisectJob(store: StoreOf<'recording' | 'fixes' | 'tests'>, golde
     const source = goldens.find((g) => g.path === golden);
     const error = source ? unreadable(source) : null;
     if (error) return { error: `${golden} can't be read: ${error}` };
-    return { title: 'Finding the commit', args: ['bisect', golden, '--good', good, ...(bad ? ['--bad', bad] : [])] };
+    return { title: ACTIONS.findBreakingCommit.doing, args: ['bisect', golden, '--good', good, ...(bad ? ['--bad', bad] : [])] };
   }
   const choices = typeof req.runId === 'string' && /^[0-9A-Z]{26}$/.test(req.runId) ? bisectChoices(store, req.runId, { goldens }) : null;
   if (!choices) return { error: 'no such run' };
@@ -1849,5 +1849,5 @@ export function bisectJob(store: StoreOf<'recording' | 'fixes' | 'tests'>, golde
   if (!bad && upTo && options.here?.([upTo])?.has(upTo) === false) upTo = null;
   if (upTo === good) return { error: `${good} is where it fails: choose an earlier commit where it still worked` };
   // A run blame found failing a check, or one whose own --expect failed: each replay is judged by it.
-  return { title: 'Finding the commit', args: bisectArgs(ref, good, upTo, choices.fork, choices.expect ?? null), runId: req.runId as string };
+  return { title: choices.failed ? ACTIONS.findBreakingCommit.doing : ACTIONS.findChangingCommit.doing, args: bisectArgs(ref, good, upTo, choices.fork, choices.expect ?? null), runId: req.runId as string };
 }

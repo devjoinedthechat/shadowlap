@@ -1,3 +1,4 @@
+import { ACTIONS, confirmWords, dialogName, forceLiveLabel } from './labels.js';
 import type { PromptChoice } from './types.js';
 
 /**
@@ -31,14 +32,14 @@ const RUN_KEYS = new Set(['r', 's', 'e', 'n', 'p']);
  * the engine's, in the CLI's verbs, an ellipsis on each that asks for something first.
  */
 const KNOWN: Record<string, { label: string; flag: string }> = {
-  i: { label: 'Inject instruction…', flag: '--inject' },
-  m: { label: 'Switch model from here…', flag: '--model' },
-  g: { label: 'Use changed prompt from here', flag: '--prompt-from' },
-  f: { label: 'Fail with HTTP status…', flag: '--fail-at' },
-  o: { label: 'Override result…', flag: '--override' },
-  a: { label: 'Run live from here', flag: '--diverge-at' },
-  e: { label: 'Repeat 5 times…', flag: '--repeat' },
-  s: { label: 'Replay with writes stubbed', flag: '--writes stub' },
+  i: { label: ACTIONS.injectInstruction.label, flag: '--inject' },
+  m: { label: ACTIONS.switchModel.label, flag: '--model' },
+  g: { label: ACTIONS.useChangedPrompt.label, flag: '--prompt-from' },
+  f: { label: ACTIONS.failWithStatus.label, flag: '--fail-at' },
+  o: { label: ACTIONS.overrideResult.label, flag: '--override' },
+  a: { label: ACTIONS.runLive.label, flag: '--diverge-at' },
+  e: { label: ACTIONS.repeat.label, flag: '--repeat' },
+  s: { label: ACTIONS.replayStubbed.label, flag: '--writes stub' },
 };
 
 /** Most used first, as the mock lists them; keys it does not know sit before force-live and diverge. */
@@ -61,7 +62,7 @@ function capitalize(s: string): string {
 /** An action's words for the menu: the server's label without "Fork:" and its trailing flag. */
 export function menuLabel(a: ActionLike, toolName?: string | null): string {
   if (!a.flag) {
-    if (a.key === 'l' && toolName) return `Force ${toolName} live`;
+    if (a.key === 'l' && toolName) return forceLiveLabel(toolName);
     const known = KNOWN[a.key];
     if (known) return known.label;
   }
@@ -213,15 +214,6 @@ export function consentTitle(message: string): string {
   return /came from a program that sent the sidecar its command:/.test(message) ? 'Run a command a program sent the sidecar?' : 'Run a command from an imported pack?';
 }
 
-/**
- * An action's name as its dialog's title and confirm say it: its menu name without the ellipsis, and
- * the call it acts from by number (`Run live from #17`, never "from here").
- */
-export function dialogName(label: string, callNo: number | null): string {
-  const name = label.replace(/…$/, '');
-  return callNo === null ? name : name.replace(/ from here$/, ` from #${callNo}`);
-}
-
 /** Repeat's confirm, by the count typed: `Repeat 5 times`, `Repeat 1 time`. */
 const repeatTimes = (answer: string): string => `Repeat ${answer.trim() || '5'} time${answer.trim() === '1' ? '' : 's'}`;
 
@@ -252,11 +244,11 @@ export function dialogCopy(a: ActionLike, ctx: DialogContext): DialogCopy {
           : `The instruction is added at ${at} and stays in place for every later request of the fork. Calls before it replay.`),
       placeholder: p.placeholder ?? 'Escalate refunds above the regional limit to tier 2.',
       multiline: true,
-      ok: 'Inject instruction',
+      ok: confirmWords(ACTIONS.injectInstruction.label),
       command: `shadowlap replay ${ctx.id} ${flag}`,
     };
   } else if (isUserAnswer(a)) {
-    copy = { ...base, title: `Override user reply at ${at}`, text: a.hint ?? 'The agent gets this reply instead of the recorded one. Calls before it replay; from here the run goes on live, with writes fenced.', multiline: true, ok: 'Override user reply' };
+    copy = { ...base, title: `Override user reply at ${at}`, text: a.hint ?? 'The agent gets this reply instead of the recorded one. Calls before it replay; from here the run goes on live, with writes fenced.', multiline: true, ok: confirmWords(ACTIONS.overrideUserReply.label) };
   } else if (isOverride(a)) {
     copy = {
       ...base,
@@ -265,10 +257,10 @@ export function dialogCopy(a: ActionLike, ctx: DialogContext): DialogCopy {
       initial: prettyJson(p.initial) ?? (ctx.recorded === undefined ? '' : JSON.stringify(ctx.recorded, null, 2)),
       placeholder: p.placeholder ?? '{"ok": true}',
       multiline: true,
-      ok: 'Override result',
+      ok: confirmWords(ACTIONS.overrideResult.label),
     };
   } else if (a.key === 't') {
-    copy = { ...base, title: `Fail ${at}${named} with tool error`, text: a.hint ?? 'The tool doesn’t run: the agent gets the error instead, and its error path runs live. Calls before it replay.', label: 'Error', initial: p.initial ?? 'timeout', ok: 'Fail with tool error' };
+    copy = { ...base, title: `Fail ${at}${named} with tool error`, text: a.hint ?? 'The tool doesn’t run: the agent gets the error instead, and its error path runs live. Calls before it replay.', label: 'Error', initial: p.initial ?? 'timeout', ok: confirmWords(ACTIONS.failWithToolError.label) };
   } else if (a.key === 'x') {
     copy = {
       ...base,
@@ -276,7 +268,7 @@ export function dialogCopy(a: ActionLike, ctx: DialogContext): DialogCopy {
       text: a.hint ?? 'The text is added to what the tool returned, as an attacker would. Calls before it replay free; from here the agent runs live, with writes fenced, and the run’s checks say whether it obeyed.',
       label: 'Instruction',
       multiline: true,
-      ok: 'Plant instruction',
+      ok: confirmWords(ACTIONS.plantInstruction.label),
     };
   } else if (a.key === 'f') {
     copy = {
@@ -285,7 +277,7 @@ export function dialogCopy(a: ActionLike, ctx: DialogContext): DialogCopy {
       text: a.hint ?? 'Nothing is sent. Every attempt fails, so the SDK’s retry policy runs and then gives up: the path worth testing.',
       label: p.choices?.length ? 'Status' : 'Status (429 rate limit, 500 or 529 overloaded, 400 bad request)',
       initial: p.initial ?? '429',
-      ok: 'Fail with HTTP status',
+      ok: confirmWords(ACTIONS.failWithStatus.label),
     };
   } else if (a.key === 'm') {
     copy = { ...base, title: `Switch model from ${at}`, text: a.hint ?? `Calls before ${at} replay; from here the new model answers live.`, label: 'Model' };

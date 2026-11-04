@@ -1,6 +1,6 @@
 import { lstatSync, mkdirSync, readdirSync, realpathSync, type Stats } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { DATASET_FORMATS, REDACTION_EXPORTS, messageOf, type Normalizer, type RedactionExport, type RunRecord, type StoreOf } from '@shadowlap/engine';
+import { ACTIONS, DATASET_FORMATS, REDACTION_EXPORTS, messageOf, type Normalizer, type RedactionExport, type RunRecord, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import type { JobBuildResult, ProjectInfo } from './jobs.js';
 
@@ -178,7 +178,7 @@ export function exportHtmlJob(store: StoreOf<'recording'>, project: ProjectInfo 
   if (typeof root !== 'string') return root;
   const target = exportTarget(root, `shadowlap-${short(run.runId)}.html`);
   if (typeof target !== 'string') return target;
-  return { args: ['export', 'html', run.runId, target, '--lineage'], runId: run.runId, title: 'Exporting HTML' };
+  return { args: ['export', 'html', run.runId, target, '--lineage'], runId: run.runId, title: ACTIONS.exportHtml.doing };
 }
 
 /** `export har <run> .shadowlap/exports/<id>.har`: the model calls, with every redaction rule applied. */
@@ -189,7 +189,7 @@ export function exportHarJob(store: StoreOf<'recording'>, project: ProjectInfo |
   if (typeof root !== 'string') return root;
   const target = exportTarget(root, `${short(run.runId)}.har`);
   if (typeof target !== 'string') return target;
-  return { args: ['export', 'har', run.runId, target], runId: run.runId, title: 'Exporting HAR' };
+  return { args: ['export', 'har', run.runId, target], runId: run.runId, title: ACTIONS.exportHar.doing };
 }
 
 /**
@@ -235,7 +235,7 @@ export function packJob(store: StoreOf<'recording'>, project: ProjectInfo | null
   if (typeof root !== 'string') return root;
   const folder = packTarget(root, req.dir ?? `${EXPORTS_DIR}/${short(run.runId)}`);
   if (typeof folder !== 'string') return folder;
-  return { args: ['pack', run.runId, folder], runId: run.runId, title: 'Packing' };
+  return { args: ['pack', run.runId, folder], runId: run.runId, title: ACTIONS.pack.doing };
 }
 
 const RUN_ID = /^[0-9A-Za-z]{1,26}$/;
@@ -278,7 +278,7 @@ function packRunsJob(store: StoreOf<'recording'>, project: ProjectInfo | null, r
     commands.push(['pack', runId, target]);
   }
   const [first, ...rest] = commands;
-  return { args: first!, ...(rest.length ? { then: rest } : {}), runId: runIds.length === 1 ? runIds[0]! : null, title: runIds.length === 1 ? 'Packing' : `Packing ${runIds.length} runs` };
+  return { args: first!, ...(rest.length ? { then: rest } : {}), runId: runIds.length === 1 ? runIds[0]! : null, title: runIds.length === 1 ? ACTIONS.pack.doing : `Packing ${runIds.length} runs` };
 }
 
 /** The most runs one dataset takes: the Runs page's bulk bar offers Dataset up to this many (ui/runspage/bulk.ts). */
@@ -324,7 +324,7 @@ export function exportDatasetJob(store: StoreOf<'recording'>, project: ProjectIn
   if (!file) return { error: 'a file name is letters, digits, dots, dashes and underscores, such as dataset.jsonl' };
   const target = exportTarget(root, file);
   if (typeof target !== 'string') return target;
-  return { args: ['export', 'dataset', ...runIds, '--calls', calls, '--format', format, '--out', target], runId: runIds.length === 1 ? runIds[0]! : null, title: 'Exporting a dataset' };
+  return { args: ['export', 'dataset', ...runIds, '--calls', calls, '--format', format, '--out', target], runId: runIds.length === 1 ? runIds[0]! : null, title: ACTIONS.exportDataset.doing };
 }
 
 /** A collector's address: http or https, nothing the CLI could take for an option. */
@@ -359,7 +359,7 @@ export function exportOtelJob(store: StoreOf<'recording'>, project: ProjectInfo 
   if (req.endpoint !== undefined && req.endpoint !== null && req.endpoint !== '') {
     const endpoint = collectorUrl(req.endpoint);
     if (!endpoint) return { error: 'a collector is an http or https address, such as http://localhost:4318' };
-    return { args: ['export', 'otel', run.runId, '--endpoint', endpoint], runId: run.runId, title: 'Sending a trace' };
+    return { args: ['export', 'otel', run.runId, '--endpoint', endpoint], runId: run.runId, title: ACTIONS.sendTrace.doing };
   }
   const file = traceFile(req.out, run.runId);
   if (!file) return { error: 'a file name is letters, digits, dots, dashes and underscores, such as trace.json' };
@@ -367,7 +367,7 @@ export function exportOtelJob(store: StoreOf<'recording'>, project: ProjectInfo 
   if (typeof root !== 'string') return root;
   const target = exportTarget(root, file);
   if (typeof target !== 'string') return target;
-  return { args: ['export', 'otel', run.runId, '--out', target], runId: run.runId, title: 'Exporting a trace' };
+  return { args: ['export', 'otel', run.runId, '--out', target], runId: run.runId, title: ACTIONS.exportTrace.doing };
 }
 
 // ---- what each copy applies (decision 6) -----------------------------------------------------------

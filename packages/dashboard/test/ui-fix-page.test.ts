@@ -211,14 +211,14 @@ describe('the Repair step', () => {
   });
 });
 
-describe('Repair from here', () => {
+describe('Run repair', () => {
   it('says a repair that would reuse blames that rescued no run ends with no fix to try, and bills nothing', async () => {
     const run = newRun({ labels: ['digest'] });
     const report = blameReport(run, 'unrescuable');
     store.updateRunMeta(run, { blame: { at: NOW, outcome: 'unrescuable', callNo: null, confidence: 'high', rescuedRunId: null, fields: {}, oracle: report.oracle, probes: [], spent: 0 } });
     const { fix } = blame(run, { report });
     await open(fix.fixId);
-    const button = r!.byText('.ph .actions button', 'Repair from here');
+    const button = r!.byText('.ph .actions button', 'Run repair');
     // Still there, but no longer the lead, with why on hover.
     expect(button.className).toBe('btn');
     expect(button.props.title).toBe('No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.');
@@ -229,7 +229,7 @@ describe('Repair from here', () => {
     await r!.unmount();
     // Where claude can't be found the dialog says so, and still that the repair would end with no fix to try.
     await open(fix.fixId, null, null, { problem: 'This repair asks your own Claude Code, and claude was not found on this machine.' });
-    await r!.click(r!.byText('.ph .actions button', 'Repair from here'));
+    await r!.click(r!.byText('.ph .actions button', 'Run repair'));
     await r!.until('the dialog to read the fix again', () => r!.all('.dialog .fxdlg').length > 0);
     expect(text(r!.one('.dialog header p'))).toBe('This repair asks your own Claude Code, and claude was not found on this machine.');
     expect(r!.all('.dialog .fxdlg').map(text)).toEqual(['No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.']);
@@ -239,7 +239,7 @@ describe('Repair from here', () => {
     const run = newRun({ labels: ['refund-bug'] });
     const { fix } = blame(run);
     await open(fix.fixId);
-    const button = r!.byText('.ph .actions button', 'Repair from here');
+    const button = r!.byText('.ph .actions button', 'Run repair');
     expect(button.className).toBe('btn lime');
     await r!.click(button);
     await r!.until('the dialog to read the fix again', () => r!.all('.dialog .fxdlg').length > 0);
@@ -255,7 +255,7 @@ describe('Repair from here', () => {
   });
 });
 
-describe('Apply the patch', () => {
+describe('Apply fix', () => {
   /** A verified fix, its repair's patch not applied yet. */
   function verified(): string {
     const run = newRun({ labels: ['refund-bug'] });
@@ -275,7 +275,10 @@ describe('Apply the patch', () => {
 
   it('offers the patch and git apply to copy while the patch is still to apply', async () => {
     await open(verified());
-    expect(buttons()).toEqual(['Copy git apply', 'Apply the patch']);
+    expect(buttons()).toEqual(['Copy git apply', 'Apply fix']);
+    // Its dialog asks with its name, as one that changes your working tree, and confirms with it.
+    await r!.click(r!.byText('.ph .actions button', 'Apply fix'));
+    expect([text(r!.one('.dialog h3')), text(r!.one('.dialog .dlg-ok'))]).toEqual(['Apply fix?', 'Apply fix']);
   });
 
   it('offers the patch to read on an applied fix, never a git apply that would fail', async () => {
@@ -364,8 +367,8 @@ describe('what settles a fix left unsettled', () => {
     const more = r!.byText('.verdict .actions button', 'Run more attempts');
     expect(more.className).toBe('btn sm lime');
     expect(JSON.parse(String(more.props['data-tip']))).toMatchObject({ t: 'Verifies the change again from the start, up to 80 attempts a run', s: `$ shadowlap verify --fixes ${run} --expect '${JSON.stringify(EXPECT)}' --set temperature=1` });
-    // The header's Repair from here reads plain while the step leads.
-    expect(r!.byText('.ph .actions button', 'Repair from here').className).toBe('btn');
+    // The header's Run repair reads plain while the step leads.
+    expect(r!.byText('.ph .actions button', 'Run repair').className).toBe('btn');
     expect(text(r!.one('.fxreceipt.vmore'))).toBe(`${run.slice(0, 10)} is inconclusive: the budget of $0.01 is spent. Run more attempts verifies again from the start (verify has no --continue), up to 80 a run, without its --budget 0.012: about 12 attempts, ≈$0.144.`);
     // The reasons say nothing the line doesn't.
     expect(r!.all('ul.fxwarn.bad')).toEqual([]);
@@ -374,10 +377,10 @@ describe('what settles a fix left unsettled', () => {
     await r!.unmount();
     // On the Blame step, the fix's own lead is back.
     await open(fix.fixId, 'blame');
-    expect(r!.byText('.ph .actions button', 'Repair from here').className).toBe('btn lime');
+    expect(r!.byText('.ph .actions button', 'Run repair').className).toBe('btn lime');
   });
 
-  it('leads with Blame again a blame that couldn’t settle, and asks for the model a stronger blame asks', async () => {
+  it('leads with Run blame again a blame that couldn’t settle, and asks for the model a stronger blame asks', async () => {
     const run = newRun({ labels: ['double-email'] });
     const report = blameReport(run, 'unrescuable');
     report.gate = { kind: 'sprt', good: 0.6, bad: 0.1, risk: 0.05, max: 20 };
@@ -386,20 +389,22 @@ describe('what settles a fix left unsettled', () => {
     const started: Array<[string, unknown]> = [];
     await open(fix.fixId, null, null, { started });
     expect(r!.all('.ph .actions button').map((b) => [text(b), b.className])).toEqual([
-      ['Repair from here', 'btn'],
-      ['Blame again', 'btn lime'],
+      ['Run repair', 'btn'],
+      ['Run blame again', 'btn lime'],
     ]);
-    await r!.click(r!.byText('.ph .actions button', 'Blame again'));
+    await r!.click(r!.byText('.ph .actions button', 'Run blame again'));
     expect(started).toEqual([['blame', { fixId: fix.fixId, again: true }]]);
     await r!.unmount();
     const other = newRun({ labels: ['digest'] });
     const { fix: plain } = blame(other, { report: blameReport(other, 'unrescuable'), title: 'The agent exited with code 1' });
     started.length = 0;
     await open(plain.fixId, null, null, { started });
-    const stronger = r!.byText('.ph .actions button', 'Blame with a stronger model…');
+    const stronger = r!.byText('.ph .actions button', 'Run blame with stronger model…');
     expect(stronger.className).toBe('btn lime');
     await r!.click(stronger);
-    expect(text(r!.one('.dialog h3'))).toBe('Blame with a stronger model');
+    // Titled with its button's name, without the ellipsis, and confirmed so.
+    expect(text(r!.one('.dialog h3'))).toBe('Run blame with stronger model');
+    expect(text(r!.one('.dialog .dlg-ok'))).toBe('Run blame with stronger model');
     expect(text(r!.one('.dialog header p'))).toContain('the last blame took 4 attempts');
     expect(started).toEqual([]);
   });

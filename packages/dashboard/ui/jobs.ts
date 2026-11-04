@@ -1,4 +1,5 @@
 import { fixJobStatus } from './fixes/model.js';
+import { ACTIONS, doneWords } from './labels.js';
 import { trainingJobStatus } from './training.js';
 
 /**
@@ -56,43 +57,32 @@ export function isPlainReplay(job: Pick<JobLike, 'args'>): boolean {
   return own[0] === 'replay' && !own.includes('--repeat') && !forks(job.args);
 }
 
-/** What the drawer calls a job: "Replaying", "Forking", "Packing". */
+/** The drawer's title for a command a job runs with no title of its own: the -ing form of its action's name. */
+const DOING: Readonly<Record<string, string>> = {
+  pack: ACTIONS.packRun.doing,
+  normalize: ACTIONS.addNormalizer.doing,
+  redact: ACTIONS.addRedactionRule.doing,
+  blame: ACTIONS.runBlame.doing,
+  repair: ACTIONS.runRepair.doing,
+  verify: ACTIONS.runVerify.doing,
+  test: ACTIONS.runTests.doing,
+  import: ACTIONS.importCapture.doing,
+  calibrate: ACTIONS.calibrate.doing,
+  bisect: ACTIONS.findBreakingCommit.doing,
+  gc: 'Cleaning up',
+  rm: 'Deleting',
+};
+
+/** Each export's, by what it exports. */
+const EXPORTING: Readonly<Record<string, string>> = { html: ACTIONS.exportHtml.doing, har: ACTIONS.exportHar.doing, otel: ACTIONS.exportTrace.doing, dataset: ACTIONS.exportDataset.doing };
+
+/** What the drawer calls a job: "Replaying", "Forking", "Packing", the server's title when it sends one. */
 export function jobTitle(job: JobLike): string {
   if (job.title) return job.title;
   const [cmd, sub] = job.args;
-  switch (cmd) {
-    case 'replay':
-      if (ownArgs(job.args).includes('--repeat')) return 'Repeating';
-      return forks(job.args) ? 'Forking' : 'Replaying';
-    case 'pack':
-      return 'Packing';
-    case 'normalize':
-      return 'Adding a normalizer';
-    case 'redact':
-      return 'Adding a redaction rule';
-    case 'export':
-      return sub === 'html' ? 'Exporting HTML' : sub === 'har' ? 'Exporting HAR' : sub === 'otel' ? 'Exporting a trace' : sub === 'dataset' ? 'Exporting a dataset' : 'Exporting';
-    case 'blame':
-      return 'Blaming';
-    case 'repair':
-      return 'Repairing';
-    case 'verify':
-      return 'Verifying';
-    case 'test':
-      return 'Running the tests';
-    case 'import':
-      return 'Importing a capture';
-    case 'calibrate':
-      return 'Calibrating';
-    case 'gc':
-      return 'Cleaning up';
-    case 'rm':
-      return 'Deleting';
-    case 'bisect':
-      return 'Finding the commit';
-    default:
-      return 'Running';
-  }
+  if (cmd === 'replay') return ownArgs(job.args).includes('--repeat') ? ACTIONS.repeat.doing : forks(job.args) ? 'Forking' : ACTIONS.replay.doing;
+  if (cmd === 'export') return EXPORTING[sub ?? ''] ?? 'Exporting';
+  return DOING[cmd ?? ''] ?? 'Running';
 }
 
 /** The command as typed, for the drawer's first line. */
@@ -237,7 +227,7 @@ export function jobStatus(job: JobLike, lines: readonly string[], lost = false):
   // So did a fork that left the recording before the call its flag acts on.
   const early = forkDivergedEarly(job, lines);
   if (early) return { text: `diverged at #${early.callNo}, before ${FORK_WORDS[early.target.flag]!} at #${early.target.callNo}${early.live ? ' · went live' : ''} · ${exit}`, tone: code === 0 ? 'warn' : 'err' };
-  // Find the commit: whether bisect named the first bad commit.
+  // Find breaking commit: whether bisect named the first bad commit.
   if (/^✓ first bad commit /m.test(all)) return { text: `found · ${exit}`, tone: 'ok' };
   if (/^✗ no first bad commit/m.test(all)) return { text: `not found · ${exit}`, tone: 'warn' };
   // `shadowlap test` (Run tests, Update golden, Add normalizer and re-run): the last totals it printed.
@@ -273,16 +263,23 @@ export function lastLine(lines: readonly string[]): string {
 }
 
 /**
- * What the toast says when a job ends behind a closed drawer: its title and how it came out, in the
- * drawer's status words ("Running the tests finished · 1 failed · exit 1"). When those say no more than
- * the exit code, the last line the job printed says it instead.
+ * What the toast says when a job ends behind a closed drawer: its title in the past tense and how it
+ * came out, in the drawer's status words ("Ran tests · 1 failed · exit 1", "Tried repairing · no fix
+ * found · exit 1"), a status that only repeats the verb left out ("Forked · exit 0"). When those say
+ * no more than the exit code, the last line the job printed says it instead. One stopped says so
+ * ("Running tests stopped"): it ended on no outcome to say in the past.
  */
 export function endToast(job: JobLike, lines: readonly string[]): string {
   if (job.stopped) return `${jobTitle(job)} stopped`;
-  const status = jobStatus(job, lines).text;
-  const generic = /^(finished · )?exit \d+$/.test(status);
+  const { text: status, tone } = jobStatus(job, lines);
+  const done = doneWords(jobTitle(job), tone === 'ok');
   const last = lastLine(lines);
-  return `${jobTitle(job)} finished · ${generic && last ? last : status.replace(/^finished · /, '')}`;
+  const said = /^(finished · )?exit \d+$/.test(status) && last ? last : status.replace(/^finished · /, '');
+  // What it said that only repeats the verb goes: "Forked · exit 0", "Found breaking commit · exit 0",
+  // "Packed share/x · 14 calls".
+  const [verb = ''] = done.toLowerCase().split(' ');
+  if (said.startsWith(`${verb} · `)) return `${done} · ${said.slice(verb.length + 3)}`;
+  return !done.includes(' ') && said.startsWith(`${verb} `) ? `${done} ${said.slice(verb.length + 1)}` : `${done} · ${said}`;
 }
 
 /**

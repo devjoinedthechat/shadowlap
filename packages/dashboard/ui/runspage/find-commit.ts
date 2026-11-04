@@ -3,7 +3,7 @@ import { commandText } from '../goldens.js';
 import type { BisectChoices } from '../types.js';
 
 /**
- * What Find the commit asks for: the bisect job's fields and the command the dialog shows. No DOM
+ * What Find breaking commit asks for: the bisect job's fields and the command the dialog shows. No DOM
  * here: the tests import it.
  */
 
@@ -40,7 +40,7 @@ export function bisectCommand(runId: string, choices: Pick<BisectChoices, 'bad' 
 }
 
 /**
- * What the search costs, as Find the commit's dialogs say it. A run that failed on its own is
+ * What the search costs, as Find breaking commit's dialogs say it. A run that failed on its own is
  * replayed with `--fork`: one live replay decides each commit, so a failure that doesn't happen
  * every time can pass at a commit that has it. A golden that may fork runs live from where it
  * diverges; any other replay is free.

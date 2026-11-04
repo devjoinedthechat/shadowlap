@@ -2693,7 +2693,7 @@ SIGTERM or a closed terminal (SIGHUP).
 | `--allow-unrecorded <names>` | With `--recordings`: replay these tools again for real, though a recording never recorded them (below) | — |
 
 - **No command**: serve never sees the command that starts your process, so the run has none, as a
-  capture has none. Replaying it, or a fork, blame or Find the commit, needs your command after `--`.
+  capture has none. Replaying it, or a fork, blame or Find breaking commit, needs your command after `--`.
 - **Several runs**: hosts that manage several runs (a test runner) can create them through the
   sidecar's `/v1/runs` API. Each run's environment pins it: the provider base URLs carry the run id, and
   SDK calls send an `X-Shadowlap-Run` header. So several processes can record through one sidecar at
@@ -3738,7 +3738,7 @@ into a golden for `shadowlap test`.
 **Labels and authors.** Every imported run is labelled `imported`, and appears in the dashboard's
 activity feed. It names who imported it as its author: `SHADOWLAP_AUTHOR` when set, `ci` in CI,
 otherwise git's `user.email`. Its source is the file's name; `--name <name>` records another. The
-dashboard's Import a capture passes the name of the file you picked, which it keeps under a name of its
+dashboard's Import capture… passes the name of the file you picked, which it keeps under a name of its
 own while it imports.
 
 `import` exits 1 when nothing could be imported: `runs` is empty. An import of

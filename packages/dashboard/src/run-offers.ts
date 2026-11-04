@@ -10,7 +10,7 @@ import { runState } from './runs-list.js';
 /**
  * What the run page offers to do with a run beyond its own record, worked out from the project's
  * config: how many redaction rules each copy in the Share menu applies, whether the run is only on
- * this machine (Push), whether Run blame applies and the check it would likely use, Find the commit's
+ * this machine (Push), whether Run blame applies and the check it would likely use, Find breaking commit's
  * revisions, and what the banner of a test that diverged can do. A plain function, like the other
  * read models.
  */
@@ -61,7 +61,7 @@ export interface RunOffers {
   team: { store: string; state: TeamState; localAttempts?: { run: boolean; attempts: number } } | null;
   /** Run blame, for a failed run never blamed; null otherwise. */
   blame: BlameOffer | null;
-  /** Find the commit: the revisions to start from, or why it can't start from this run. */
+  /** Find breaking commit: the revisions to start from, or why it can't start from this run. */
   bisect: BisectChoices | null;
   /** A replay made by `shadowlap test` whose golden diverged: Add normalizer and Update golden, or that the normalizer was added. */
   test: TestOffer | null;
@@ -72,9 +72,9 @@ export interface RunOffersInput {
   redact: readonly Normalizer[];
   /** shadowlap.config.json as written: `store` (the team store), `tests` (each golden's checks) and `normalize` (its normalizers). */
   config: { store?: unknown; tests?: unknown; normalize?: unknown } | null;
-  /** The goldens on disk, for Find the commit on a test replay; none when the dashboard was given none. */
+  /** The goldens on disk, for Find breaking commit on a test replay; none when the dashboard was given none. */
   goldens?: readonly GoldenSource[];
-  /** The commit the project's HEAD is at, for Find the commit on a run that passed; null outside git. */
+  /** The commit the project's HEAD is at, for Find breaking commit on a run that passed; null outside git. */
   head?: string | null;
 }
 
@@ -223,7 +223,7 @@ export function testOffer(store: StoreOf<'recording' | 'tests'>, run: RunRecord,
 }
 
 /**
- * Find the commit for a run blame found failing when this store holds no fix to say which check: one
+ * Find breaking commit for a run blame found failing when this store holds no fix to say which check: one
  * that exited 0 and kept no checks of its own failed the check blame was given. With the run's fix
  * here, bisectChoices reads that check from it and searches with it (`--expect`, replayed with
  * `--fork`), and this changes nothing. Without it (a pack carries a run's blame, never its fix), the
@@ -254,7 +254,7 @@ export function sameCommit(a: string, b: string): boolean {
 }
 
 /**
- * Find the commit for a run that passed: bisect searches the commits after the run's own, up to HEAD,
+ * Find breaking commit for a run that passed: bisect searches the commits after the run's own, up to HEAD,
  * for the first where it does something else. A run made at HEAD has nothing after it to search yet
  * (the CLI would stop at once, `--good` and `--bad` being the same commit), so the page says so
  * rather than offer a search that can't start.
@@ -265,7 +265,7 @@ export function passingBisect(b: BisectChoices | null, head: string | null | und
 }
 
 /**
- * The store as Find the commit reads a run its recorder left marked running: as the run list has
+ * The store as Find breaking commit reads a run its recorder left marked running: as the run list has
  * it, interrupted and ended at its last call, as one stopped with Ctrl-C reads, never as one still
  * recording. Any other run is read as it is.
  */

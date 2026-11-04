@@ -218,7 +218,7 @@ The rest is what commands record as they change the project or write something:
 
 An entry no page shows, such as a [preview of a change](./decisions.md), is a plain line that opens nothing. A replay that parted from its recording only over a value that changes on every run, such as a UUID or a timestamp, reads as diverged rather than forked. Nobody changed anything, and a normalizer would mask it.
 
-Who did it is the run's author, worked out when the run was made: `SHADOWLAP_AUTHOR` if set, `ci` in CI, else git's `user.email`, else the OS user. The author stays on this machine: packs and HTML files (`export html`, or **Share → HTML file** on a run) leave it out.
+Who did it is the run's author, worked out when the run was made: `SHADOWLAP_AUTHOR` if set, `ci` in CI, else git's `user.email`, else the OS user. The author stays on this machine: packs and HTML files (`export html`, or **Share → HTML report** on a run) leave it out.
 
 ## Runs
 
@@ -257,14 +257,14 @@ Above the table:
 - **A filter**: every word must be in the run's id, about line, kind, labels, command, source or revision. `label:good` is the runs labelled exactly that. A label with a space in it is quoted, `label:"needs review"`, as its chip writes it.
 - **Sorting** by calls, spend or time.
 
-### The calendar and Find the commit
+### The calendar and Find breaking commit
 
 Above the table, twelve weeks of days, a column per week, are shaded by how many runs each day had of what the chips and the filter match. So with **Failed** picked, it shows when something started failing.
 
 - **Pick days**: click a day, drag across several, or Shift-click to extend. The table and the chip counts follow.
 - **From the keyboard**: the arrow keys move between days, Enter picks one, and Escape clears.
 
-With **Failed** picked and days chosen, **Find the commit** bisects from the first failure of those days, between a commit where it still worked and its own:
+With **Failed** picked and days chosen, **Find breaking commit…** bisects from the first failure of those days, between a commit where it still worked and its own:
 
 - It offers only commits this checkout has. A teammate's runs can name commits of theirs, and a failure whose own commit isn't here is bisected up to HEAD.
 - A failure at the repository's first commit (or the oldest a shallow clone has) has nothing before it to search. The dialog says so, and bisects from the first failure of those days that started later, or offers no search when none did.
@@ -298,7 +298,7 @@ What the table shows is in the address: the filter's words, the chip, the sort a
 
 ### Import a capture or a trace
 
-**Import a capture or a trace** is on Runs, and in Search or jump to. Drop or pick a file. The format is guessed from its name and its first bytes, and can be changed:
+**Import capture…** is on Runs, and in Search or jump to. Drop or pick a file. The format is guessed from its name and its first bytes, and can be changed:
 
 | File | Read as |
 | --- | --- |
@@ -451,7 +451,7 @@ Under a fork's banner, from the call it left its parent at on, the page lists wh
 
 **Show each** lists the writes one by one, a hundred at most; Compare has the rest. Arguments and words are compared after the project's normalizers, so an id or a time made anew is no change. The first four changes show, **Show all** opens the rest, and **Compare →** opens the whole comparison.
 
-An exported copy holds this list when the file holds the fork's parent too (`export html --lineage`, **Share → HTML file**), masked by the redaction rules. Otherwise it leaves it out.
+An exported copy holds this list when the file holds the fork's parent too (`export html --lineage`, **Share → HTML report**), masked by the redaction rules. Otherwise it leaves it out.
 
 ### What Shadowlap did not record
 
@@ -661,7 +661,7 @@ The **good/bad key** labels a run `good` or `bad` in one press:
 
 What the two labels mean:
 
-- **`good`** marks a run a fix must not make worse than its own baseline. Repair from here takes a fix's good runs from the runs labelled `good`, as `repair --keeps label:good` does, and keeps a change only if each is kept against its baseline.
+- **`good`** marks a run a fix must not make worse than its own baseline. Run repair takes a fix's good runs from the runs labelled `good`, as `repair --keeps label:good` does, and keeps a change only if each is kept against its baseline.
 - **`bad`** names a run that went wrong, for `repair --fixes label:bad`.
 
 A run is never both: marking it good takes bad off, and a press of the label it has takes it off. Each press says what it did in a toast with **Undo**, and `u` does the same from anywhere while the toast shows. Either puts the labels back as they were, and hands the focus back to the key. The toast's words are said in a live region that is always on the page, so a screen reader hears them.
@@ -936,14 +936,14 @@ Each failure follows as the CLI prints it. A divergence offers:
 
 - **Add normalizer and re-run**, which leads when a value made anew on every run is all that changed. It becomes **Re-run** once the rule is in the config.
 - **Update golden.**
-- **Find the commit**, whose answer then shows above the buttons while the golden keeps failing as it did when the search started.
+- **Find breaking commit**, whose answer then shows above the buttons while the golden keeps failing as it did when the search started.
 
-Find the commit's answer is the first bad commit, or why there is none between the commits it searched, with **Find the commit…** to search from an older one.
+Find breaking commit's answer is the first bad commit, or why there is none between the commits it searched, with **Find breaking commit…** to search from an older one.
 
 - **An answer given while the golden passed**, or about an earlier failure, never shows over a later one.
 - **A golden passing at the commit it fails at**: when the search found that, the failure is in changes not committed there, or doesn't happen every time. It says so, and offers no other commit until it fails at another one.
 
-A failed check, a non-zero exit or a replay with no calls shows with its checks and the agent's last lines of output, as `test --markdown` prints them. It offers **Find the commit** unless the pack can't be read.
+A failed check, a non-zero exit or a replay with no calls shows with its checks and the agent's last lines of output, as `test --markdown` prints them. It offers **Find breaking commit…** unless the pack can't be read.
 
 ### Inconclusive goldens
 
@@ -985,10 +985,10 @@ Training shows:
 - **The goldens as tasks**: where a model takes over, what scores it, and whether it can be scored.
 - **Each scored model's mean**, with a pip per attempt that opens its run.
 
-**Export pairs** and **Score a model** run [`export pairs` and `tasks score`](./training.md#in-the-dashboard) as jobs.
+**Export pairs…** and **Score model…** run [`export pairs` and `tasks score`](./training.md#in-the-dashboard) as jobs.
 
-- **Score a model** offers only the models that can answer a ready task, and names the ones it leaves out, with why. A recording on Bedrock, Vertex AI, Azure OpenAI or the Gemini API is translated for another provider's model.
-- **Score a model is off** while a repair or an applied patch changes the working tree.
+- **Score model…** offers only the models that can answer a ready task, and names the ones it leaves out, with why. A recording on Bedrock, Vertex AI, Azure OpenAI or the Gemini API is translated for another provider's model.
+- **Score model… is off** while a repair or an applied patch changes the working tree.
 
 A task whose test forks before its takeover opens that test's run where it forked. It offers **Update the golden…**, which adds the normalizer a value that changes every run needs, and runs `test --update` on the golden.
 
@@ -1115,7 +1115,7 @@ When the project's folder is gone, Settings says so in its header, with **Remove
 
 ## The team store's setup
 
-The team store's setup (`#/setup/store`) is a page of its own. You reach it from Settings → Store's **Set up the store**, or the palette's **Set up the team store**.
+The team store's setup (`#/setup/store`) is a page of its own. You reach it from Settings → Store's **Set up the store**, or the palette's **Set up team store**.
 
 It has [four steps](./team.md#set-it-up). Each unlocks the next, with its command beside it where it has one:
 
@@ -1128,7 +1128,7 @@ While a setup is under way:
 
 - Needs a look leads back to it first;
 - Settings → Store names the next step;
-- the palette offers **Continue setting up the store**;
+- the palette offers **Continue team store setup**;
 - the status bar says *setting up*.
 
 A setup finished before says so, with the way to Settings → Store.
@@ -1287,6 +1287,8 @@ The only project can't be removed.
 
 Labels, notes and actions run only from a dashboard started with `shadowlap dashboard`; elsewhere their buttons say why they are off. Each action is a [job](#jobs) that runs the CLI.
 
+Each action has one name wherever it is offered: its button, its menu item and its entry in Search or jump to. Its dialog is titled and confirmed with that name, and its drawer heads it in the -ing form (**Run repair**, *Repairing*). A name is verb and object in the CLI's words, with no article, and it ends in an ellipsis when the action asks for something before it runs (**Find breaking commit…**).
+
 ### Actions on a run
 
 **Replay** re-runs the recorded command.
@@ -1317,15 +1319,15 @@ The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An 
 
 **A run imported from a capture** has no command, so its menu shows a note and one action, **Replay with your command…**. That replay records every kind of call, and every fork works on it.
 
-**Share** copies the run, each copy a job:
+**Share** copies the run, each copy a job, its items named for the copies they make, in the order it lists them:
 
-| Copy                | What it makes                                                                            |
-| ------------------- | ---------------------------------------------------------------------------------------- |
-| HTML file           | The run with the runs it came from; it also downloads                                    |
-| HAR                 | The run's model calls; it also downloads                                                 |
-| Pack                | A pack, into a folder inside the project                                                 |
-| Dataset             | A dataset for evals, in a format and with the examples you pick                          |
-| OpenTelemetry trace | A trace sent to a collector, or written to a file (a file only: it is sent nowhere else) |
+| Copy                 | What it makes                                                                            |
+| -------------------- | ---------------------------------------------------------------------------------------- |
+| HTML report          | The run with the runs it came from; it also downloads                                    |
+| Pack…                | A pack, into a folder inside the project                                                 |
+| Eval dataset…        | A dataset for evals, in a format and with the examples you pick                          |
+| OpenTelemetry trace… | A trace sent to a collector, or written to a file (a file only: it is sent nowhere else) |
+| HAR file             | The run's model calls; it also downloads                                                 |
 
 - **Where copies go**: into `.shadowlap/exports/` in the project, unless a pack names another folder, and never through a link that is already there.
 - **Redaction**: the menu says how many redaction rules each copy applies. A trace carries no prompt text, so only the rules without a path.
@@ -1334,7 +1336,7 @@ The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An 
 
 A run whose recorder was killed reads *interrupted* in every copy, as it does on every screen. The pack, the HTML file (with the redaction rules or without) and the trace hold it ended at its last call, so whoever opens or unpacks it never sees it recording. The store is left as it is.
 
-Where jobs can't run (a read-only dashboard), **Share → HTML file** comes straight from the dashboard, made apart from its own work so pages keep answering. One that takes more than two minutes (a redaction rule whose pattern is slow on the run's text, or a run too long for a download) is stopped, naming the rule most likely at fault. `shadowlap export html` makes it from a terminal.
+Where jobs can't run (a read-only dashboard), **Share → HTML report** comes straight from the dashboard, made apart from its own work so pages keep answering. One that takes more than two minutes (a redaction rule whose pattern is slow on the run's text, or a run too long for a download) is stopped, naming the rule most likely at fault. `shadowlap export html` makes it from a terminal.
 
 With a [team store](./team.md), a share link comes first, its drawer ending on **Copy link**. The report opens for anyone with the link until it expires, 7 days at most. A run only on this machine has **Push** in its header, as does a run in the store whose attempts aren't (Push sends them).
 
@@ -1351,7 +1353,7 @@ When the run failed a check none of those give, or nothing says what a passing r
 
 ### Actions on a fix
 
-**Repair from here**, on an open fix, runs [`shadowlap repair`](./repair.md):
+**Run repair**, on an open fix, runs [`shadowlap repair`](./repair.md):
 
 - **From** the fix's failing runs, its check and the scope its blame searched, so the repair blames the same calls and reuses that blame.
 - **Keeping** the fix's own good runs (those a repair or a verify of it kept), else the runs labelled `good` that run the same agent, else none. A good run of another agent checks nothing a change to this one touches.
@@ -1364,7 +1366,7 @@ It asks first, since it runs your agent live. It says that each candidate is ver
 - **Claude Code not found**: when that repairer is Claude Code and `claude` can't be found on the PATH the dashboard's jobs get (or where `SHADOWLAP_CLAUDE` points), the dialog says so, with what to do, and Repair stays off. The server refuses the job: it would blame every failing run and find no one to propose a fix.
 - **An API repairer's key** can't be checked without asking it, so the repair says why when it couldn't.
 
-**No fix to try.** When the blame of every failing run rescued it from no call, the repair would reuse those blames and end *No fix to try* without running the agent. Repair from here stays, but is no longer the page's lead button. Its hover and its dialog say so, and why:
+**No fix to try.** When the blame of every failing run rescued it from no call, the repair would reuse those blames and end *No fix to try* without running the agent. Run repair stays, but is no longer the page's lead button. Its hover and its dialog say so, and why:
 
 - no answer of the model's lost the run, since every attempt met a write's recorded error again, or the attempts that passed answered as the recording did;
 - blame couldn't settle where it was lost;
@@ -1372,14 +1374,14 @@ It asks first, since it runs your agent live. It says that each candidate is ver
 
 The dialog then leaves out the line about billed model calls, and the blame's own next step leads instead:
 
-- **Blame again**, for a blame that couldn't settle (more attempts and a lower bar, as blame's report says), or that stopped part way (to the end, without its budget), under the fix's check.
-- **Blame with a stronger model…**, which asks for the model first, for one that asked the recorded model again and rescued the run from no call, unless blame found the model's answer isn't what lost the run.
+- **Run blame again**, for a blame that couldn't settle (more attempts and a lower bar, as blame's report says), or that stopped part way (to the end, without its budget), under the fix's check.
+- **Run blame with stronger model…**, which asks for the model first, for one that asked the recorded model again and rescued the run from no call, unless blame found the model's answer isn't what lost the run.
 
 Each is built from the blame's report and the flags kept beside it, as Run more attempts is. A blame a pull brought asks first, showing the exact command.
 
 **Copy git apply**, on a verified fix, copies the command that applies its patch by hand, `git -c core.autocrlf=false apply <patch>`. The flag keeps Git for Windows' `core.autocrlf` from writing a file with LF back with CRLF on every line. A teammate's patch with LF, for a checkout where the file has CRLF, applies only through that conversion, with plain `git apply`.
 
-**Apply the patch** runs [`shadowlap fix apply`](./cli.md#fix) once you confirm, since it changes your working tree. The confirm dialog names every file the patch changes, and shows the patch itself. The patch goes in with `git apply`, the recordings the fixed code made are copied into `goldens/`, and `shadowlap test` replays them. The button then reads *Patch applied*, and **View the patch** takes the place of Copy git apply.
+**Apply fix** runs [`shadowlap fix apply`](./cli.md#fix) once you confirm, since it changes your working tree. The confirm dialog names every file the patch changes, and shows the patch itself. The patch goes in with `git apply`, the recordings the fixed code made are copied into `goldens/`, and `shadowlap test` replays them. The button then reads *Patch applied*, and **View the patch** takes the place of Copy git apply.
 
 - **A fix with no patch** (verified on the working tree, or with a change of request fields) reads *Marked applied* once applying marks it. Its hover names the change its agent makes, or says it was verified on the working tree, and the activity feed says *Marked applied* too.
 - **A patch already in your working tree** (a pull request merged it, or you applied it by hand), which `git apply --reverse --check` recognises as `fix apply` does, needs no applying. The button reads **Mark applied**, which copies the goldens it is missing, runs them and marks the fix applied; Copy git apply is gone, and the Overview no longer counts the fix as ready to apply.
@@ -1405,19 +1407,19 @@ Tests runs its goldens as jobs too:
 | **Run tests**                 | `shadowlap test goldens/*`, plus each pack the config names elsewhere |
 | **Update golden**             | `shadowlap test <golden> --update`, once you confirm                  |
 | **Add normalizer and re-run** | `shadowlap normalize add …`, then `shadowlap test <golden>`           |
-| **Find the commit**           | `shadowlap bisect`, from the newest revision where the golden passed  |
+| **Find breaking commit…**     | `shadowlap bisect`, from the newest revision where the golden passed  |
 
-These jobs run one at a time in a project. While any of the following runs, **Run tests**, **Update golden**, **Add normalizer and re-run** and **Find the commit** wait, saying what is running:
+These jobs run one at a time in a project. While any of the following runs, **Run tests**, **Update golden**, **Add normalizer and re-run** and **Find breaking commit…** wait, saying what is running:
 
-- another of these jobs, **Find the commit** on a golden among them, which reads its pack and answers the failure it started from;
+- another of these jobs, **Find breaking commit…** on a golden among them, which reads its pack and answers the failure it started from;
 - a setup packing and testing its golden;
 - a test session or the [error-path presets](./error-paths.md) on goldens (`test --chaos`), started in a terminal or another dashboard, named by their command.
 
-The server refuses another such job with the same words, from any tab, the palette's *Run the tests* included. A test replay's page disables its **Add normalizer** (or **Add normalizer and update…**) and **Update golden** the same way. Find the commit on a run that is no test replay touches no golden, and doesn't wait.
+The server refuses another such job with the same words, from any tab, the palette's *Run tests* included. A test replay's page disables its **Add normalizer** (or **Add normalizer and update…**) and **Update golden** the same way. Find breaking commit on a run that is no test replay touches no golden, and doesn't wait.
 
 **Run tests** runs `shadowlap test goldens/*` (plus each pack the config names elsewhere), with no shell: the CLI expands the pattern itself, as it does in CI. The page follows the session as each result lands. Its drawer ends on one primary action, **Tests**, with the replays of the first three goldens that failed linked above it. A run of one golden ends on its replay.
 
-**A session that runs live asks first.** Before a session runs a golden live, **Run tests**, **Run more attempts**, **Re-run** and each **Add normalizer** button ask, on Tests and on a test replay's page, and so does the palette's *Run the tests*. A test replays offline, except for two things that run live:
+**A session that runs live asks first.** Before a session runs a golden live, **Run tests**, **Run more attempts**, **Re-run** and each **Add normalizer** button ask, on Tests and on a test replay's page, and so does the palette's *Run tests*. A test replays offline, except for two things that run live:
 
 - **A golden marked `fork`** runs live from where it forks, writes blocked, and asks its judge checks live.
 - **An [injection gate](./injection.md#gate-ci-on-it)** runs live from each payload it plants, writes stubbed.
@@ -1428,7 +1430,7 @@ The dialog names the goldens that go live and why, and shows the commands. It op
 
 **Add normalizer and re-run** is two commands in one job: `shadowlap normalize add …` for each value that changes every run, then `shadowlap test <golden>`, the second only when the first succeeded. The drawer links to the replay that passed. When the rule alone can't make the replay match, it asks first, and updates the golden after it.
 
-**Find the commit** runs `shadowlap bisect` from the newest revision where the golden passed under its checks as they stand. A pass from before a check was added may be a commit where it already fails that check.
+**Find breaking commit…** runs `shadowlap bisect` from the newest revision where the golden passed under its checks as they stand. A pass from before a check was added may be a commit where it already fails that check.
 
 - **It asks first** when there is no such revision, after a search from it named no first bad commit, or for a golden marked `fork` (its replays cost tokens). It offers the commits the golden was tested at, each with its subject and how it did there (*c91d0f4 · Escalate refunds above the limit*), or any other.
 - **Another commit…** is a field beside the list, which stays to pick one from again.
@@ -1473,6 +1475,7 @@ How a replay or a fork ended:
 Closing and stopping:
 
 - **Closing the drawer** leaves the job running. The top bar counts the jobs running (*1 job running*), from every tab and every page, and a click opens the newest one's drawer again.
+- **A job that ends behind a closed drawer** says so in a toast, its title in the past tense with how it came out (*Ran tests · 1 failed · exit 1*). Where the past tense would claim more than happened, it says what ran instead (*Tried repairing · no fix found · exit 1*).
 - **Stop**, in the drawer while its job runs, stops the command and the agent it started, as Ctrl-C would, even an agent that ignores the signal (it is killed after five seconds); the drawer then says *stopped*. It asks first while the job holds your working tree: a repair verifying candidates made from it, a patch being applied.
 - **A run the stopped job left recording** is marked as interrupted, so it no longer shows as live and can be deleted.
 
@@ -1489,7 +1492,7 @@ The server asks that question itself: a 409 naming the exact command lines, with
 
 **A golden recorded elsewhere.** A job that runs a golden from a pack your repository doesn't track, recorded elsewhere, and passes the CLI `--yes`, asks the same of its command. Such jobs are a decision diff from the working tree or with a verify, a migration, verifying what a session flagged, and an injection test. A job the server asked nothing of passes no `--yes`, whatever its request sent, and the CLI, with no terminal to ask in, refuses such a golden ([`test`](./cli.md#test) says why).
 
-**A repair or a blame** that would run a command from someone else's pack asks once more before it does. **Find the commit** is off on such a run, with the reason on hover, since it would run that command at every commit. Replay it with your own command first, and find the commit from that run.
+**A repair or a blame** that would run a command from someone else's pack asks once more before it does. **Find breaking commit…** is off on such a run, with the reason on hover, since it would run that command at every commit. Replay it with your own command first, and find the commit from that run.
 
 ### One job at a time on your working tree
 
@@ -1497,7 +1500,7 @@ An apply changes your working tree, and a repair makes its candidates from it, s
 
 - **It can't start** while a job runs your agent from that tree: a recording, a blame, a replay or fork, a test, a calibration.
 - **Until it is done**, any of those is refused, with what holds the tree. Their buttons wait, with the reason on hover, and Search or jump to leaves Calibrate out.
-- **Run blame**, **Repair from here**, **Apply the patch** and the Tests actions that run your agent (**Run tests**, **Update golden**, **Add normalizer and re-run**) are off meanwhile, and say so on hover.
+- **Run blame**, **Run repair**, **Apply fix** and the Tests actions that run your agent (**Run tests**, **Update golden**, **Add normalizer and re-run**) are off meanwhile, and say so on hover.
 - **Any other action that runs your agent** is refused, with the reason.
 - **A job in another project's folder** doesn't wait.
 
@@ -1522,7 +1525,7 @@ Read-only mode shows every page and changes nothing in your runs. Use it to show
 
 - **Refused**: replay, fork and the other actions, labels, notes, uploads and deletes. Each says why where you would have used it.
 - **The top bar** says *read-only*, with the reason on hover, and Search or jump to leaves the actions out.
-- **Downloading a run as HTML** (**Share → HTML file**) still works, since it changes nothing: the file comes straight from the dashboard instead of being written into the project.
+- **Downloading a run as HTML** (**Share → HTML report**) still works, since it changes nothing: the file comes straight from the dashboard instead of being written into the project.
 - **The store**: read-only mode needs an existing store and never creates one. It opens that store the way every command does, which brings an older store's layout up to date and lets search build its index.
 - **Uploads**: it leaves the uploads folder alone, even files another dashboard left there.
 
@@ -1544,7 +1547,7 @@ The file has the same views as the dashboard, with the run's data built in and n
 
 From the dashboard:
 
-- **Share → HTML file**, in a run's header, writes the same file for that run and the runs it came from into `.shadowlap/exports/`, and downloads it. Its output says whether redaction rules applied. On a read-only dashboard it downloads the file without writing it.
+- **Share → HTML report**, in a run's header, writes the same file for that run and the runs it came from into `.shadowlap/exports/`, and downloads it. Its output says whether redaction rules applied. On a read-only dashboard it downloads the file without writing it.
 - **Share → HAR** does the same for the model calls, and names how many rules it applied.
 
 ## Keyboard shortcuts
@@ -1642,7 +1645,7 @@ Closing the terminal stops the dashboard and its jobs. To keep it running after 
 
 - [The command that starts your agent](#the-command-that-starts-your-agent) is asked about the first time it runs in a folder.
 - [Commands from someone else](#commands-from-someone-else) (a pack's, a teammate's, a program's) run only once you confirm the exact lines.
-- **Repair from here** and **Apply the patch** ask first: see [Actions on a fix](#actions-on-a-fix).
+- **Run repair** and **Apply fix** ask first: see [Actions on a fix](#actions-on-a-fix).
 - **Update golden** asks first, and so does a test session that runs goldens live: see [Actions on Tests](#actions-on-tests).
 - **Delete N runs** and **Free 53.5 MB** ask first: see [Actions in Settings](#actions-in-settings).
 - **Also delete its recordings** asks you to type the project's name: see [Removing a project](#removing-a-project).
@@ -1791,7 +1794,7 @@ Every request needs the session token in `x-shadowlap-token`.
 | `GET /api/runs/:id/calls?from=&limit=&whole=` | A page of a run's calls from call `from` on, `limit` of them (500 at most): `calls`, `callsTotal`, `callsNext` |
 | `GET /api/runs/page?limit&cursor&from&to&types&q&sort` | A page of the Runs table (at most 500 rows), each row with its `about` line |
 | `GET /api/runs/days?weeks&tz&types&q` | Runs per day for the calendar, in the viewer's days |
-| `GET /api/runs/bisect?from&to&types&q` | Find the commit for the days picked: their first failure, and what bisect can start from |
+| `GET /api/runs/bisect?from&to&types&q` | Find breaking commit for the days picked: their first failure, and what bisect can start from |
 | `POST /api/runs/labels { ids, add, remove }`, `POST /api/runs/delete { ids }` | Label or delete several runs at once, by their full ids |
 | `POST /api/runs/known { ids }` | Which of these runs are still in the store (changes nothing, so a read-only dashboard answers it too) |
 | `POST /api/runs/:id/labels`, `/notes`; `DELETE /api/runs/:id` | Changes to a run |
@@ -1816,7 +1819,7 @@ Every request needs the session token in `x-shadowlap-token`.
 
 **The Runs table.** `q` matches every word in a run's id, about line, labels, command, source or revision, and `label:<name>` the runs with that label exactly. Pass `next` as `cursor` for the page after. While the about lines `q` reads, or the totals `sort=spent` reads, are still being worked out, it answers from those known and says `warming: { done, total }`.
 
-**Find the commit for days.** When the first failure failed at the first commit, with nothing before it to search, `/api/runs/bisect` gives the first that started later, with the one passed over and why in `earlier`.
+**Find breaking commit for days.** When the first failure failed at the first commit, with nothing before it to search, `/api/runs/bisect` gives the first that started later, with the one passed over and why in `earlier`.
 
 **Provenance** gives what a copy made at this point would mask:
 
@@ -1834,7 +1837,7 @@ Every request needs the session token in `x-shadowlap-token`.
 - how each run `ended`;
 - the fork's `writes`, each with its `fate`.
 
-**Offers**: how many redaction rules each copy applies, where the run stands with the team store, whether Run blame applies (and the check it would likely use), and Find the commit's revisions. For a test that diverged, the actions it offers, or that its normalizer was added and the replay that passed since.
+**Offers**: how many redaction rules each copy applies, where the run stands with the team store, whether Run blame applies (and the check it would likely use), and Find breaking commit's revisions. For a test that diverged, the actions it offers, or that its normalizer was added and the replay that passed since.
 
 **Compare.** `part=head` answers at once with what the page shows while the whole comparison is worked out:
 
@@ -1875,7 +1878,7 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 | --- | --- |
 | `GET /api/tests` | The Tests screen |
 | `GET /api/tests/gate?good=&bad=&risk=&max=`, `?baseline=history&drop=&window=&min=&max=&history=47/50` | What a [gate](./gating.md)'s figures would do |
-| `GET /api/tests/runs/:id?before=<ms>` | For a run's page: the diverged-test banner of a replay `shadowlap test` made, and Find the commit's choices |
+| `GET /api/tests/runs/:id?before=<ms>` | For a run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's choices |
 | `GET /api/ci/workflows?fix=&alerts=&budget=&repairer=&onlyMain=&secret=&inconclusive=` | Settings → CI: your workflow for those options |
 
 **The Tests screen** (`/api/tests`) holds:
@@ -1888,7 +1891,7 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 - each golden's checks as its last result came out on each (`checkResults`, below);
 - each golden's `gate`, and what it decided last (`last.gate`, below);
 - each golden's error-path `presets` as their last session left them: `null` when none ran, else their verdict, how many ran, passed, failed and were inconclusive, a `line`, and the attempt to open;
-- the divergences and other failures as the CLI printed them, each with Find the commit's range, what it last said about this failure (`found`, or `missed` with why and its `outcome`), and the commits its dialog offers (`revisions`, with subjects);
+- the divergences and other failures as the CLI printed them, each with Find breaking commit's range, what it last said about this failure (`found`, or `missed` with why and its `outcome`), and the commits its dialog offers (`revisions`, with subjects);
 - the inconclusive goldens apart from them, with `judge` (below);
 - a test session in progress wherever it was started (`running`), with the session's counts `passed`, `failed` and `inconclusive`, by each result's verdict;
 - error-path presets on goldens in progress wherever they were started, a terminal, another dashboard or a job (`chaosRunning`: the session's `id`, `command` and `startedAt`);
@@ -1926,7 +1929,7 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 
 A gate against history is figured at seven pass rates against the baseline `history` names, 47 of 50 unless given: the chance it fails at each of those pass rates is its power to catch a drop. Figures the config would refuse are a 400 with its message.
 
-**A run's test** (`/api/tests/runs/:id`): the diverged-test banner has `rulesAdded` once the config has its rules. Find the commit's choices are the target, good and bad commits, revisions to pick from with their subjects, the check a run is judged by in `expect`, whether it costs tokens, or why it can't start. `before` limits the good commits to runs before it.
+**A run's test** (`/api/tests/runs/:id`): the diverged-test banner has `rulesAdded` once the config has its rules. Find breaking commit's choices are the target, good and bad commits, revisions to pick from with their subjects, the check a run is judged by in `expect`, whether it costs tokens, or why it can't start. `before` limits the good commits to runs before it.
 
 **Your workflow** (`/api/ci/workflows`) takes its options: `fix`, `alerts` and `onlyMain` on or off, `budget` in dollars, `repairer` as `repair --repairer` takes it, `secret` the webhook secret's name, and `inconclusive` fail or warn. It answers with one job that runs the goldens once (`workflow`), what it needs, and for each part its own step and a preview of what lands. Whether the step pushes is no option: it follows Push from CI in `shadowlap.config.json`, read as `/settings/store` reads it (`fixOnFailure.teamStore`).
 
@@ -2035,7 +2038,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | --- | --- |
 | `action { runId, key, callNo?, value?, yes? }` | A run action the terminal UI shares: replay, the fork menu, repeat, pack, the suggested normalizer |
 | `apply { fixId }` | [`fix apply`](./cli.md#fix): a verified fix's patch into the working tree, its goldens tested |
-| `bisect { golden \| runId, good, bad? }` | Find the commit |
+| `bisect { golden \| runId, good, bad? }` | Find breaking commit |
 | `blame { runId, expect?, yes? }` | Blame with the check the run failed: the one given, else the one it was judged by, else a 422 that asks for it |
 | `blame { fixId, again: true, yes? }`, `blame { fixId, model, yes? }` | An open fix's blame again, under its check, when it couldn't settle or stopped part way, or with another model when nothing rescued its run |
 | `calibrate { runId?, write? }` | The setup's recording, else the newest finished one made here, unless one is named |
@@ -2101,7 +2104,7 @@ Outside a dashboard job the variable is unset, and nothing is written.
 - on any page, Settings tab, run, view, inspector tab, menu or dialog;
 - on Fixes and each fix's steps, the palette, and the shortcuts on Overview, Runs, Fixes and Settings;
 - on a toast with Undo, or the bar that says the dashboard can't be reached;
-- on every page, Settings tab and fix step again, with a few runs and Import a capture, at a phone's width (390 px).
+- on every page, Settings tab and fix step again, with a few runs and Import capture…, at a phone's width (390 px).
 
 It also checks the contrast of text and of a field's edge, the focus order, the skip link, the focus rings and every overlay's focus. It checks 24 px targets, a phone's width with no label under 11 px, and that every link the server writes opens a page.
 
@@ -2134,7 +2137,7 @@ A button that is off says why on hover. The usual reasons:
 | A test job is running in the project | Wait: the button says what is running |
 | `shadowlap.config.json` can't be read | Fix the file: **Calibrate** and **Set up the store** come back |
 | Repair: `claude` can't be found | Install Claude Code, or set `SHADOWLAP_CLAUDE` to its path |
-| Find the commit, on a run from someone else's pack | Replay it with your own command first, and find the commit from that run |
+| Find breaking commit, on a run from someone else's pack | Replay it with your own command first, and find breaking commit from that run |
 | The project's folder is gone | Put the folder back, or remove the project |
 
 ### A page took too long
@@ -2142,7 +2145,7 @@ A button that is off says why on hover. The usual reasons:
 Work on one of the dashboard's threads that runs past its time is stopped, and its page says it took too long. A request has two minutes per 50,000 calls of the runs it reads, at least two, and what can wait ten; see [Large stores and long runs](#large-stores-and-long-runs).
 
 - **Compare**: what came first stays, with the `shadowlap diff` command, which has no time limit.
-- **Share → HTML file** on a read-only dashboard: it is stopped, naming the redaction rule most likely at fault. `shadowlap export html` makes it from a terminal.
+- **Share → HTML report** on a read-only dashboard: it is stopped, naming the redaction rule most likely at fault. `shadowlap export html` makes it from a terminal.
 - **Redaction's preview** of a long run reads up to its limits and says how far it got; `shadowlap redact preview` reads it all.
 
 ### The dashboard runs on another machine

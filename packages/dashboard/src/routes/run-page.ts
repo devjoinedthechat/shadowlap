@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { readConfigFile, type Normalizer, type ToolTrust } from '@shadowlap/engine';
+import { ACTIONS, readConfigFile, type Normalizer, type ToolTrust } from '@shadowlap/engine';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import { sendAnswer } from '../read-pool.js';
@@ -11,14 +11,14 @@ import type { GoldenSource } from '../tests.js';
 
 /**
  * The run page beyond the run itself: `GET /api/runs/:id/offers` (what the page offers to do with a
- * run: Share's redaction counts, Push, Run blame's check, Find the commit, the diverged test's
+ * run: Share's redaction counts, Push, Run blame's check, Find breaking commit, the diverged test's
  * actions), `GET /api/runs/:id/show` (`shadowlap show --json`, for Provenance's Copy), and the Share
  * menu's job kinds: export-html, pack, export-dataset, export-otel and export-har.
  */
 
 /**
  * The goldens on disk, when the dashboard was started with them (`DashboardOptions.goldens`, which
- * the Tests screen's routes need too): Find the commit then bisects a test replay's golden.
+ * the Tests screen's routes need too): Find breaking commit then bisects a test replay's golden.
  */
 function goldensOf(ctx: RouteContext): GoldenSource[] {
   const fn = (ctx.options as { goldens?: (() => unknown) | undefined }).goldens;
@@ -72,7 +72,7 @@ export function register(router: Router, ctx: RouteContext): void {
     const head = ctx.project ? await projectHead(ctx.project.path) : null;
     const offers = runOffers(store, r.params.id!, { redact, config, goldens: goldensOf(ctx), head });
     if (!offers) throw new HttpError(404, `no run ${r.params.id!}`);
-    // Find the commit offers only commits this checkout has: a teammate's pulled run names theirs.
+    // Find breaking commit offers only commits this checkout has: a teammate's pulled run names theirs.
     r.tagged(offers.bisect ? { ...offers, bisect: await choicesInCheckout(ctx.project?.path, offers.bisect) } : offers);
   });
 
@@ -89,9 +89,9 @@ export function register(router: Router, ctx: RouteContext): void {
   });
 
   const { jobs, project } = ctx;
-  jobs.registerJobKind(EXPORT_KINDS.html, { title: () => 'Exporting HTML', build: (req, b) => exportHtmlJob(b.store, project, req) });
-  jobs.registerJobKind(EXPORT_KINDS.pack, { title: () => 'Packing', build: (req, b) => packJob(b.store, project, req) });
-  jobs.registerJobKind(EXPORT_KINDS.dataset, { title: () => 'Exporting a dataset', build: (req, b) => exportDatasetJob(b.store, project, req) });
-  jobs.registerJobKind(EXPORT_KINDS.otel, { title: () => 'Exporting a trace', build: (req, b) => exportOtelJob(b.store, project, req) });
-  jobs.registerJobKind(EXPORT_KINDS.har, { title: () => 'Exporting HAR', build: (req, b) => exportHarJob(b.store, project, req) });
+  jobs.registerJobKind(EXPORT_KINDS.html, { title: () => ACTIONS.exportHtml.doing, build: (req, b) => exportHtmlJob(b.store, project, req) });
+  jobs.registerJobKind(EXPORT_KINDS.pack, { title: () => ACTIONS.pack.doing, build: (req, b) => packJob(b.store, project, req) });
+  jobs.registerJobKind(EXPORT_KINDS.dataset, { title: () => ACTIONS.exportDataset.doing, build: (req, b) => exportDatasetJob(b.store, project, req) });
+  jobs.registerJobKind(EXPORT_KINDS.otel, { title: () => ACTIONS.exportTrace.doing, build: (req, b) => exportOtelJob(b.store, project, req) });
+  jobs.registerJobKind(EXPORT_KINDS.har, { title: () => ACTIONS.exportHar.doing, build: (req, b) => exportHarJob(b.store, project, req) });
 }

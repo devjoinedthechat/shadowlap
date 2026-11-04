@@ -2,6 +2,7 @@ import { approx } from '../format.js';
 import { commandText } from '../goldens.js';
 import type { BlameStep, CandidateVerdict, FixBundle, FixDetail, FixRow, RepairStep, StepKey, VerifyMore, VerifyRow, VerifyStep } from '../types.js';
 import { blameStateWord } from '../../../engine/src/blame-words.js';
+import { ACTIONS } from '../labels.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { lostWords } from '../../../engine/src/run-verdicts.js';
 import { pluralS as s, shortFixId, twoDigits as pad } from '../../../engine/src/words.js';
@@ -123,20 +124,20 @@ export function stepLeads(f: Pick<FixDetail, 'defaultStep' | 'verify' | 'default
 }
 
 /**
- * The header's next step for an open fix besides Repair from here, as the design's fixActions()
- * orders them: Blame again while its blame couldn't settle where the run was lost or stopped part
- * way, Blame with a stronger model while asking the recorded model again rescued it from no call.
- * Either leads, with Repair from here plain beside it; null when blame found the call.
+ * The header's next step for an open fix besides Run repair, as the design's fixActions()
+ * orders them: Run blame again while its blame couldn't settle where the run was lost or stopped part
+ * way, Run blame with stronger model while asking the recorded model again rescued it from no call.
+ * Either leads, with Run repair plain beside it; null when blame found the call.
  */
-export function blameNextStep(f: Pick<FixDetail, 'status' | 'actions'>): { kind: 'again'; label: 'Blame again'; tip: string; command: string } | { kind: 'stronger'; label: 'Blame with a stronger model…'; tip: string; command: string } | null {
+export function blameNextStep(f: Pick<FixDetail, 'status' | 'actions'>): { kind: 'again'; label: typeof ACTIONS.runBlameAgain.label; tip: string; command: string } | { kind: 'stronger'; label: typeof ACTIONS.runBlameStronger.label; tip: string; command: string } | null {
   if (f.status !== 'open') return null;
   const again = f.actions.blameAgain;
   if (again) {
     const tip = again.kind === 'stopped' ? 'Runs the search to the end, without the budget that stopped it' : `More attempts and a lower bar: a rescue at ${Math.round((again.gate?.good ?? 0.4) * 100)}% or more, up to ${again.gate?.max ?? 40} attempts`;
-    return { kind: 'again', label: 'Blame again', tip, command: again.command };
+    return { kind: 'again', label: ACTIONS.runBlameAgain.label, tip, command: again.command };
   }
   const stronger = f.actions.blameStronger;
-  if (stronger) return { kind: 'stronger', label: 'Blame with a stronger model…', tip: 'Asks first: another model answers from each probed call instead of the recorded one', command: stronger.command };
+  if (stronger) return { kind: 'stronger', label: ACTIONS.runBlameStronger.label, tip: 'Asks first: another model answers from each probed call instead of the recorded one', command: stronger.command };
   return null;
 }
 
@@ -155,18 +156,18 @@ export function moreLine(m: Pick<VerifyMore, 'kind' | 'run' | 'max' | 'expected'
 }
 
 /** What the page's main button does, if anything: repair an open fix, apply a verified one, finish an apply, or nothing. */
-export type FixAction = { kind: 'repair' } | { kind: 'apply'; label: 'Apply the patch' | 'Mark applied' | 'Finish applying' } | { kind: 'applied' } | { kind: 'none'; label: 'Repair from here' | 'Apply the patch'; why: string };
+export type FixAction = { kind: 'repair' } | { kind: 'apply'; label: typeof ACTIONS.applyFix.label | 'Mark applied' | 'Finish applying' } | { kind: 'applied' } | { kind: 'none'; label: typeof ACTIONS.runRepair.label | typeof ACTIONS.applyFix.label; why: string };
 
 export function fixAction(f: Pick<FixDetail, 'status' | 'actions'>): FixAction {
-  if (f.status === 'open') return f.actions.repair ? { kind: 'repair' } : { kind: 'none', label: 'Repair from here', why: 'None of its failing runs is left in the store, so there is nothing to repair from here.' };
+  if (f.status === 'open') return f.actions.repair ? { kind: 'repair' } : { kind: 'none', label: ACTIONS.runRepair.label, why: 'None of its failing runs is left in the store, so there is nothing to repair from here.' };
   const apply = f.actions.apply;
-  if (!apply) return { kind: 'none', label: 'Apply the patch', why: 'No change has been verified for it.' };
+  if (!apply) return { kind: 'none', label: ACTIONS.applyFix.label, why: 'No change has been verified for it.' };
   if (f.actions.applied && !apply.pending) return { kind: 'applied' };
   // More than the one rewrite its repair verified: fix apply won't put it in, so neither does the button.
-  if (apply.refused) return { kind: 'none', label: 'Apply the patch', why: `This patch is not the change its repair verified: ${apply.refused}. Nothing applies it from here.` };
+  if (apply.refused) return { kind: 'none', label: ACTIONS.applyFix.label, why: `This patch is not the change its repair verified: ${apply.refused}. Nothing applies it from here.` };
   if (f.actions.applied) return { kind: 'apply', label: 'Finish applying' };
   // Its patch is in the working tree already (merged, or applied by hand): applying only marks it applied.
-  return { kind: 'apply', label: apply.kind === 'mark' || apply.inTree ? 'Mark applied' : 'Apply the patch' };
+  return { kind: 'apply', label: apply.kind === 'mark' || apply.inTree ? 'Mark applied' : ACTIONS.applyFix.label };
 }
 
 /**
@@ -194,7 +195,7 @@ export function appliedButton(apply: Pick<NonNullable<FixDetail['actions']['appl
 }
 
 /**
- * What Apply the patch says before it changes the working tree: every file the patch changes, how
+ * What Apply fix says before it changes the working tree: every file the patch changes, how
  * it goes in, and what runs after. A teammate's patch, from the team store, runs nothing here: no
  * replay of the goldens, until it has been read.
  */
@@ -220,7 +221,7 @@ export function patchLines(diff: string): Array<{ text: string; tone: 'add' | 'd
 }
 
 /**
- * Why Repair from here isn't the page's lead action, or null when it is: the repair would end "No
+ * Why Run repair isn't the page's lead action, or null when it is: the repair would end "No
  * fix to try" without running the agent, since the blame of every failing run rescued it from no
  * call (`noFix`, with why: no answer of the model's lost it, blame couldn't settle where, or nothing
  * rescued it). The button stays, plain, with this on hover, and its dialog says it in place of what
@@ -230,7 +231,7 @@ export function repairAside(f: Pick<FixDetail, 'actions'>): string | null {
   return f.actions.repair?.noFix ?? null;
 }
 
-/** What the Repair from here dialog says and sends, once the fix is read again as it opens. */
+/** What the Run repair dialog says and sends, once the fix is read again as it opens. */
 export interface RepairAsk {
   /** Whether Repair can be confirmed: the fix was read, and it can still be repaired from here. */
   ready: boolean;
@@ -244,7 +245,7 @@ export interface RepairAsk {
 }
 
 /**
- * The Repair from here dialog. Who is asked for candidates (and so whose account pays) comes from
+ * The Run repair dialog. Who is asked for candidates (and so whose account pays) comes from
  * shadowlap.config.json, which can change while the page stays open, so the dialog reads the fix
  * again as it opens (`fresh`; null while that is out) and names the repairer it read. When the read
  * fails it names the page's, as it loaded: the job is sent with the repairer named, and the server

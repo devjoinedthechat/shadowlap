@@ -22,11 +22,12 @@ import { FailedMust, Flagged } from './parts.js';
 import { RepairStepView } from './RepairStep.js';
 import { useTreeBusy } from './tree.js';
 import { VerifyStepView } from './VerifyStep.js';
+import { ACTIONS, confirmWords } from '../labels.js';
 
 /**
  * A fix (#/fixes/<id>[/<step>[/<sub>]]): its title, check and runs; the stepper (Blame, Repair,
  * Verify), opened on the step its URL names or its last finished one; and what can be done next:
- * Repair from here on an open fix, Apply the patch on a verified one.
+ * Run repair on an open fix, Apply fix on a verified one.
  */
 export function FixPage({ id, step, sub }: { id: string; step: string | null; sub: string | null }) {
   const { client, tick, feeds } = useApp();
@@ -155,13 +156,13 @@ function FixHeader({ fix, reload, leads }: { fix: FixDetail; reload: () => void;
 }
 
 /**
- * Repair from here, or Copy git apply and Apply the patch, each asking first. Disabled, with the
+ * Run repair, or Copy git apply and Apply fix, each asking first. Disabled, with the
  * reason, where nothing runs, while another job uses the working tree, or when there is nothing to
  * do. A repair whose runs came from someone else's pack asks once more before it runs their command.
- * Repair from here is the lead action unless it would end "No fix to try", the blame of every
+ * Run repair is the lead action unless it would end "No fix to try", the blame of every
  * failing run having rescued it from no call: then it stays, as a plain button that says why on
  * hover (`repairAside`), and the blame's own next step leads when there is one (`blameNextStep`):
- * Blame again, for a blame that couldn't settle or stopped part way, or Blame with a stronger
+ * Run blame again, for a blame that couldn't settle or stopped part way, or Blame with a stronger
  * model. A patch in the working tree already, merged or applied by hand, is only to be marked
  * applied, and an applied fix offers its patch to read: git apply would fail on either. While the
  * open step leads with its own next step (`leads`: a verdict left incomplete, with Run more
@@ -235,7 +236,7 @@ export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boo
     <>
       {copy}
       <button className={aside || blameNext || leads ? 'btn' : 'btn lime'} type="button" disabled={!!why} title={why ?? aside ?? undefined} onClick={() => app.guard(() => setAsking(action.kind === 'repair' ? 'repair' : 'apply'))}>
-        {action.kind === 'repair' ? 'Repair from here' : action.label}
+        {action.kind === 'repair' ? ACTIONS.runRepair.label : action.label}
       </button>
       {blameNext ? (
         <FixJobButton
@@ -254,7 +255,7 @@ export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boo
       {consent ? (
         <ConsentDialog
           why={consent.why}
-          ok={consent.kind === JOB_KINDS.repair ? 'Repair' : 'Run'}
+          ok={consent.kind === JOB_KINDS.repair ? ACTIONS.runRepair.label : 'Run'}
           onClose={() => setConsent(null)}
           onOk={() => {
             const c = consent;
@@ -297,9 +298,9 @@ function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose: () => 
     : (ask.why ?? 'Reading which repairer shadowlap.config.json names…');
   return (
     <Dialog
-      title="Repair from here"
+      title={ACTIONS.runRepair.label}
       text={text}
-      ok="Repair"
+      ok={ACTIONS.runRepair.label}
       okDisabled={!ask.ready}
       onClose={onClose}
       onOk={() => {
@@ -317,7 +318,7 @@ function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose: () => 
 }
 
 /**
- * Blame with a stronger model asks first, for the model: it answers from each probed call instead of
+ * Run blame with stronger model asks first, for the model: it answers from each probed call instead of
  * the recorded one, live, writes stubbed, at what that model costs a call. If it finds the call, the
  * model's capability is the problem; if it doesn't either, the code and the tools are.
  */
@@ -326,7 +327,7 @@ function StrongerDialog({ fix, onRun, onClose }: { fix: FixDetail; onRun: (model
   const base = s ? s.command.replace(/ --model <model>$/, '') : '';
   return (
     <PromptDialog
-      title="Blame with a stronger model"
+      title={confirmWords(ACTIONS.runBlameStronger.label)}
       text={
         <>
           Probes the run again, with the model you name answering from each probed call instead of the recorded one asked again. If it finds a call, the model’s capability is the problem; if it doesn’t either, look at the code and the tools.
@@ -335,7 +336,7 @@ function StrongerDialog({ fix, onRun, onClose }: { fix: FixDetail; onRun: (model
       }
       label="Model"
       placeholder="claude-opus-5-5"
-      ok="Blame"
+      ok={confirmWords(ACTIONS.runBlameStronger.label)}
       command={(model) => `${base} --model ${model.trim() || '<model>'}`}
       onRun={(model) => model.trim() && onRun(model.trim())}
       onClose={onClose}
@@ -373,7 +374,7 @@ function ApplyDialog({ fix, label, onClose, onRun }: { fix: FixDetail; label: st
     return <ConfirmDialog title="Finish applying the fix?" text={`The patch is in your working tree. What is left: ${apply.pending ?? 'nothing'}.`} ok={label} command={command} onOk={run} onClose={onClose} />;
   // What goes in is what is shown: the patch itself, with every file it changes named.
   return (
-    <Dialog title="Apply the patch?" text={applyText(apply)} ok={label} onOk={run} onClose={onClose}>
+    <Dialog title={`${confirmWords(ACTIONS.applyFix.label)}?`} text={applyText(apply)} ok={label} onOk={run} onClose={onClose}>
       {apply.diff ? (
         <pre className="fxcode fxpatch">
           {patchLines(apply.diff).map((l, i) => (

@@ -47,8 +47,8 @@ describe('the Share menu’s jobs', () => {
   it('writes HTML and HAR into .shadowlap/exports, with the runs it came from in the HTML', () => {
     const id = addRun(store, { startedAt: T0, calls: 'll' });
     const html = exportHtmlJob(store, proj(), { runId: id.slice(0, 10) });
-    expect(html).toEqual({ args: ['export', 'html', id, `.shadowlap/exports/shadowlap-${id.slice(0, 10).toLowerCase()}.html`, '--lineage'], runId: id, title: 'Exporting HTML' });
-    expect(exportHarJob(store, proj(), { runId: id })).toEqual({ args: ['export', 'har', id, `.shadowlap/exports/${id.slice(0, 10).toLowerCase()}.har`], runId: id, title: 'Exporting HAR' });
+    expect(html).toEqual({ args: ['export', 'html', id, `.shadowlap/exports/shadowlap-${id.slice(0, 10).toLowerCase()}.html`, '--lineage'], runId: id, title: 'Exporting HTML report' });
+    expect(exportHarJob(store, proj(), { runId: id })).toEqual({ args: ['export', 'har', id, `.shadowlap/exports/${id.slice(0, 10).toLowerCase()}.har`], runId: id, title: 'Exporting HAR file' });
     // The folder is there for the CLI to write into.
     expect(() => readFileSync(join(project, '.shadowlap', 'exports'))).toThrow(/EISDIR/);
     expect(exportHtmlJob(store, proj(), {})).toMatchObject({ error: 'runId is required' });
@@ -109,7 +109,7 @@ describe('the Share menu’s jobs', () => {
     expect(exportDatasetJob(store, proj(), { runIds: [a], format: 'braintrust', calls: 'model' })).toEqual({
       args: ['export', 'dataset', a, '--calls', 'model', '--format', 'braintrust', '--out', `.shadowlap/exports/dataset-${a.slice(0, 10).toLowerCase()}.jsonl`],
       runId: a,
-      title: 'Exporting a dataset',
+      title: 'Exporting dataset',
     });
     const both = exportDatasetJob(store, proj(), { runIds: [a, b, a.slice(0, 12)] }, new Date('2026-10-15T09:41:07Z'));
     expect(both).toMatchObject({ args: ['export', 'dataset', a, b, '--calls', 'final', '--format', 'jsonl', '--out', '.shadowlap/exports/dataset-2-runs-20261015-094107.jsonl'], runId: null });
@@ -121,7 +121,7 @@ describe('the Share menu’s jobs', () => {
 
   it('sends a trace to a collector, or writes it into .shadowlap/exports', () => {
     const id = addRun(store, { startedAt: T0 + 4, calls: 'l' });
-    expect(exportOtelJob(store, proj(), { runId: id, endpoint: 'http://localhost:4318/' })).toEqual({ args: ['export', 'otel', id, '--endpoint', 'http://localhost:4318'], runId: id, title: 'Sending a trace' });
+    expect(exportOtelJob(store, proj(), { runId: id, endpoint: 'http://localhost:4318/' })).toEqual({ args: ['export', 'otel', id, '--endpoint', 'http://localhost:4318'], runId: id, title: 'Sending trace' });
     expect(exportOtelJob(store, proj(), { runId: id, out: 'trace.json' })).toMatchObject({ args: ['export', 'otel', id, '--out', '.shadowlap/exports/trace.json'] });
     expect(exportOtelJob(store, proj(), { runId: id })).toMatchObject({ args: ['export', 'otel', id, '--out', `.shadowlap/exports/${id.slice(0, 10).toLowerCase()}.otel.json`] });
     // Only the file's name is kept: it lands in the exports folder whatever path was typed.

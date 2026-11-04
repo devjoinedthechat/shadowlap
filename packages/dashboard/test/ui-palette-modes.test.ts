@@ -44,7 +44,7 @@ const placeholder = (r: Rendered) => r.one('.palin input').getAttribute('placeho
 const actions = (r: Rendered) =>
   r
     .all('.palit')
-    .filter((el) => /^(Run the tests|Keyboard shortcuts)/.test(el.textContent))
+    .filter((el) => /^(Run tests|Keyboard shortcuts)/.test(el.textContent))
     .map((el) => [el.querySelector('.pl')!.textContent, el.querySelector('.ph2')!.textContent, el.className.includes('waits')]);
 
 let r: Rendered | null = null;
@@ -66,7 +66,7 @@ describe('Search or jump to, as the dashboard stands', () => {
     r = await render(createElement(AppContext.Provider, { value: app({ client: { startJob } as unknown as Client }) }, createElement(Palette, { route: OVERVIEW })));
     expect(placeholder(r)).toBe('Search runs, pages, actions and what runs recorded');
     expect(actions(r)).toEqual([
-      ['Run the tests', 'shadowlap test goldens/*', false],
+      ['Run tests', 'shadowlap test goldens/*', false],
       ['Keyboard shortcuts', '?', false],
     ]);
   });
@@ -79,10 +79,10 @@ describe('Search or jump to, as the dashboard stands', () => {
     expect(placeholder(r)).toBe('Search runs and pages');
     // The job waits, dimmed, its reason as its hint; what isn't a job stays as it was.
     expect(actions(r)).toEqual([
-      ['Run the tests', PAUSED_HINT, true],
+      ['Run tests', PAUSED_HINT, true],
       ['Keyboard shortcuts', '?', false],
     ]);
-    const tests = r.all('.palit').find((el) => el.textContent.startsWith('Run the tests'))!;
+    const tests = r.all('.palit').find((el) => el.textContent.startsWith('Run tests'))!;
     expect(tests.getAttribute('aria-disabled')).toBe('true');
     await r.click(tests);
     expect(startJob).not.toHaveBeenCalled();

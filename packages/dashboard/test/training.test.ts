@@ -296,7 +296,7 @@ describe('the Training read model', () => {
     expect(view.serve!.response).toBe(['200 OK', '{ "score": 0.5,', '  "checks": [', '    { "check": "the agent exits 0", "pass": true },', '    { "check": "issue_refund called 0 times", "pass": false } ],', '  "run": "<run id>", "spent": 0 }'].join('\n'));
 
     const dialog = view.scoreDialog!;
-    expect(dialog.title).toBe('Score a model on 2 tasks');
+    expect(dialog.title).toBe('Score model on 2 tasks');
     expect(dialog.groups).toEqual(['Recorded with', 'Anthropic API', 'OpenAI API', 'Ollama, on this machine']);
     expect(dialog.options.map((o) => [o.label, o.lastScore, o.request])).toEqual([
       ['claude-sonnet-5 · scored 1.00', 1, { model: 'claude-sonnet-5', baseUrl: null, goldens: null }],

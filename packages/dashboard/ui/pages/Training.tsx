@@ -14,6 +14,7 @@ import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
 import { ENDPOINT, exportCommand, filterGroups, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickNote, pipClass, pipTip, scoreCommand, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type PairChip, type TrainingDialog } from '../training.js';
+import { ACTIONS, confirmWords } from '../labels.js';
 
 /**
  * Training (#/training, #/training/tasks): preference pairs read from the attempts blame, verify and
@@ -54,7 +55,7 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
 
   // Scoring runs the agent from the project's working tree: not while a repair or an apply changes it.
   const busy = useTreeBusy('reads', 'score');
-  const action = tab === 'pairs' ? (canExport ? { label: 'Export pairs', kind: 'export' as const, off: actionsOff } : null) : canScore ? { label: 'Score a model', kind: 'score' as const, off: actionsOff ?? busy } : null;
+  const action = tab === 'pairs' ? (canExport ? { label: ACTIONS.exportPairs.label, kind: 'export' as const, off: actionsOff } : null) : canScore ? { label: ACTIONS.scoreModel.label, kind: 'score' as const, off: actionsOff ?? busy } : null;
   return (
     <Page>
       <PageHeader
@@ -537,7 +538,7 @@ function ExportPairsDialog({ view, onClose }: { view: TrainingView; onClose: () 
     <Dialog
       title={d.title}
       text={d.text}
-      ok="Export"
+      ok={confirmWords(ACTIONS.exportPairs.label)}
       onOk={() =>
         guard(() => {
           watchJob(client.startJob(JOB_KINDS.pairs, { format, minConfidence: min }));
@@ -651,9 +652,9 @@ function ScoreDialog({ view, busy, onClose }: { view: TrainingView; /** Why scor
   const note = models.error ? `The models couldn’t be listed (${models.error.message}). Your own endpoint still works.` : !listed ? 'Asking each provider for its models…' : pickNote(d, current, endpoint);
   return (
     <Dialog
-      title={d?.title ?? `Score a model on ${plural(view.tabs.tasks, 'task')}`}
+      title={d?.title ?? `${confirmWords(ACTIONS.scoreModel.label)} on ${plural(view.tabs.tasks, 'task')}`}
       text="Each attempt replays the calls before the takeover from the recording, then runs the rest against this model with writes stubbed. The checks score it."
-      ok="Score"
+      ok={confirmWords(ACTIONS.scoreModel.label)}
       okDisabled={!fields || !!busy}
       onOk={() => {
         if (!fields || busy) return;

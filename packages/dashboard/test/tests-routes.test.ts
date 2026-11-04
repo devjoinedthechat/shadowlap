@@ -229,7 +229,7 @@ describe('one job at a time on the goldens', () => {
         [{ kind: 'test-update', golden: 'goldens/refund-in-limit' }, 'A test session is running: update it once it is done'],
         [{ kind: 'normalize-and-test', golden: 'goldens/refund-in-limit' }, 'A test session is running: add the normalizer once it is done'],
         // A pass during the search would leave its answer about a failure that is over.
-        [{ kind: 'bisect', golden: 'goldens/refund-in-limit', good: 'c91d0f4' }, 'A test session is running: find the commit once it is done'],
+        [{ kind: 'bisect', golden: 'goldens/refund-in-limit', good: 'c91d0f4' }, 'A test session is running: find breaking commit once it is done'],
       ]);
       return (await started.json()) as JobView;
     });
@@ -242,10 +242,10 @@ describe('one job at a time on the goldens', () => {
       const started = await post({ kind: 'bisect', golden: 'goldens/refund-in-limit', good: 'c91d0f4' });
       expect(started.status, await started.clone().text()).toBe(202);
       await refused([
-        [{ kind: 'test' }, 'Find the commit is running: run the tests once it is done'],
-        [{ kind: 'test-update', golden: 'goldens/refund-in-limit' }, 'Find the commit is running: update it once it is done'],
-        [{ kind: 'normalize-and-test', golden: 'goldens/refund-in-limit' }, 'Find the commit is running: add the normalizer once it is done'],
-        [{ kind: 'bisect', golden: 'goldens/refund-flow', good: 'c91d0f4' }, 'Find the commit is running: find the commit once it is done'],
+        [{ kind: 'test' }, 'Find breaking commit is running: run the tests once it is done'],
+        [{ kind: 'test-update', golden: 'goldens/refund-in-limit' }, 'Find breaking commit is running: update it once it is done'],
+        [{ kind: 'normalize-and-test', golden: 'goldens/refund-in-limit' }, 'Find breaking commit is running: add the normalizer once it is done'],
+        [{ kind: 'bisect', golden: 'goldens/refund-flow', good: 'c91d0f4' }, 'Find breaking commit is running: find breaking commit once it is done'],
       ]);
       return (await started.json()) as JobView;
     });
@@ -259,7 +259,7 @@ describe('one job at a time on the goldens', () => {
       await refused([
         [{ kind: 'test' }, 'shadowlap test goldens/* is running: run the tests once it is done'],
         [{ kind: 'test-update', golden: 'goldens/refund-in-limit' }, 'shadowlap test goldens/* is running: update it once it is done'],
-        [{ kind: 'bisect', golden: 'goldens/refund-in-limit', good: 'c91d0f4' }, 'shadowlap test goldens/* is running: find the commit once it is done'],
+        [{ kind: 'bisect', golden: 'goldens/refund-in-limit', good: 'c91d0f4' }, 'shadowlap test goldens/* is running: find breaking commit once it is done'],
       ]);
       // The page shows it, so its buttons wait too.
       expect((await getJson<TestsView>(dash, 'tests')).running).toMatchObject({ id: s.sessionId, command: 'shadowlap test goldens/*', live: true });
@@ -277,7 +277,7 @@ describe('one job at a time on the goldens', () => {
       await refused([
         [{ kind: 'test' }, 'shadowlap test goldens/refund-flow --chaos is running: run the tests once it is done'],
         [{ kind: 'test-update', golden: 'goldens/refund-in-limit' }, 'shadowlap test goldens/refund-flow --chaos is running: update it once it is done'],
-        [{ kind: 'bisect', golden: 'goldens/refund-in-limit', good: 'c91d0f4' }, 'shadowlap test goldens/refund-flow --chaos is running: find the commit once it is done'],
+        [{ kind: 'bisect', golden: 'goldens/refund-in-limit', good: 'c91d0f4' }, 'shadowlap test goldens/refund-flow --chaos is running: find breaking commit once it is done'],
         [{ kind: 'chaos', golden: 'goldens/refund-in-limit' }, 'shadowlap test goldens/refund-flow --chaos is running: run its presets once it is done'],
       ]);
       // The page shows it, so its buttons wait too, and the presets' sessions read it as running.
@@ -431,7 +431,7 @@ describe('the Tests jobs', () => {
     spawned.length = 0;
     // evals/kept-elsewhere is marked fork: the question comes first, and spawns nothing.
     const view = await job(await withYes({ kind: 'test' }));
-    expect(view).toMatchObject({ title: 'Running the tests', args: ['test', 'goldens/*', 'evals/kept-elsewhere'], code: 0 });
+    expect(view).toMatchObject({ title: 'Running tests', args: ['test', 'goldens/*', 'evals/kept-elsewhere'], code: 0 });
     expect(spawned).toEqual([['test', 'goldens/*', 'evals/kept-elsewhere']]);
   });
 
@@ -448,7 +448,7 @@ describe('the Tests jobs', () => {
   it('updates the goldens named, each once, and only goldens on disk', async () => {
     const view = await job({ kind: 'test-update', goldens: ['goldens/refund-in-limit', 'goldens/broken-flow', 'goldens/refund-in-limit'] });
     expect(view).toMatchObject({ title: 'Updating goldens', args: ['test', 'goldens/refund-in-limit', 'goldens/broken-flow', '--update'], code: 1 });
-    expect((await job({ kind: 'test-update', golden: 'goldens/refund-in-limit' })).title).toBe('Updating a golden');
+    expect((await job({ kind: 'test-update', golden: 'goldens/refund-in-limit' })).title).toBe('Updating golden');
     expect((await post({ kind: 'test-update', goldens: ['goldens/refund-in-limit', '--online'] })).status).toBe(400);
     expect((await post({ kind: 'test-update', goldens: [] })).status).toBe(400);
   });
@@ -456,7 +456,7 @@ describe('the Tests jobs', () => {
   it('finds the commit between revisions that look like ones, never an option', async () => {
     spawned.length = 0;
     const view = await job({ kind: 'bisect', golden: 'goldens/refund-in-limit', good: 'c91d0f4', bad: 'd2e8a1f' });
-    expect(view).toMatchObject({ title: 'Finding the commit', args: ['bisect', 'goldens/refund-in-limit', '--good', 'c91d0f4', '--bad', 'd2e8a1f'] });
+    expect(view).toMatchObject({ title: 'Finding breaking commit', args: ['bisect', 'goldens/refund-in-limit', '--good', 'c91d0f4', '--bad', 'd2e8a1f'] });
     // A tested `+dirty` revision is its commit; no bad one is HEAD.
     expect((await job({ kind: 'bisect', golden: 'goldens/refund-in-limit', good: 'c91d0f4+dirty' })).args).toEqual(['bisect', 'goldens/refund-in-limit', '--good', 'c91d0f4']);
     for (const good of ['--upload-pack=touch /tmp/x', 'a..b', '', null]) {
@@ -502,7 +502,7 @@ describe('the Tests jobs', () => {
     const view = await job({ kind: 'normalize-and-test', golden: 'goldens/refund-in-limit' });
     const normalize = ['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'];
     expect(spawned).toEqual([normalize, ['test', 'goldens/refund-in-limit']]);
-    expect(view).toMatchObject({ title: 'Adding a normalizer', args: normalize, code: 0, newRunId: '01K5CQ4V5K0000000000000002', runId: 'R2_LIMIT' });
+    expect(view).toMatchObject({ title: 'Adding normalizer', args: normalize, code: 0, newRunId: '01K5CQ4V5K0000000000000002', runId: 'R2_LIMIT' });
     expect(view.lines).toContain('$ shadowlap test goldens/refund-in-limit');
     expect(view.lines.indexOf('added normalizer #1 to shadowlap.config.json')).toBeLessThan(view.lines.indexOf('$ shadowlap test goldens/refund-in-limit'));
     expect(view.links.map((l) => l.label)).toEqual(['Open the passing run', 'Tests']);
@@ -616,7 +616,7 @@ describe('a session that runs a golden live', () => {
     const q = await asked({ kind: 'normalize-and-test', runId: RUN });
     expect(q.error).toBe(`${INJECTION}. ${BILLED}`);
     expect(spawned).toEqual([]);
-    expect(await ran({ kind: 'normalize-and-test', runId: RUN, yes: q.confirm })).toMatchObject({ title: 'Adding a normalizer', runId: RUN });
+    expect(await ran({ kind: 'normalize-and-test', runId: RUN, yes: q.confirm })).toMatchObject({ title: 'Adding normalizer', runId: RUN });
     expect(spawned.at(-1)).toEqual(['test', 'goldens/refund-in-limit']);
   });
 

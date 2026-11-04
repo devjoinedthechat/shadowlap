@@ -1,7 +1,7 @@
 import { fieldValue, type StepRerun } from '@shadowlap/engine';
 
 /**
- * The arguments Blame again, Run more attempts and Verify again run `shadowlap` with, built from a
+ * The arguments Run blame again, Run more attempts and Verify again run `shadowlap` with, built from a
  * kept blame's or verdict's checked fields: its report (runs, gate, request fields), its check, its
  * scope, and the flags it kept beside them (`StepRerun`), each one a flag this list allows with a
  * value of the shape it allows. Never from the command line it kept, which a pull can bring from

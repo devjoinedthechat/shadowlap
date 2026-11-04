@@ -1,4 +1,4 @@
-import { CAPS_ONLY_NOTE, countPairs, findPairs, isObject, oneSided as findOneSided, fixLabelInfo, fixOfRun, isInconclusiveNote, mainRefusal, modelReach, normalizeAddArgs, PAIR_FORMATS, plural, refusedLine, ruleInForce, volatileValues, type ModelChoice, type ModelListing, type ModelReach, type Normalizer, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type StoreOf, type Task, type TaskScoreRow } from '@shadowlap/engine';
+import { ACTIONS, confirmWords, CAPS_ONLY_NOTE, countPairs, findPairs, isObject, oneSided as findOneSided, fixLabelInfo, fixOfRun, isInconclusiveNote, mainRefusal, modelReach, normalizeAddArgs, PAIR_FORMATS, plural, refusedLine, ruleInForce, volatileValues, type ModelChoice, type ModelListing, type ModelReach, type Normalizer, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type StoreOf, type Task, type TaskScoreRow } from '@shadowlap/engine';
 import { fixForRun } from './fixes.js';
 import { links } from './links.js';
 
@@ -469,7 +469,7 @@ export function scoreDialogView(tasks: readonly Task[], scores: readonly TaskSco
   // The first model not scored yet that answers every ready task, else the first not scored yet.
   const first = options.find((o) => o.lastScore === null && o.request.goldens === null) ?? options.find((o) => o.lastScore === null) ?? options[0] ?? null;
   return {
-    title: `Score a model on ${plural(ready.length, 'task')}`,
+    title: `${confirmWords(ACTIONS.scoreModel.label)} on ${plural(ready.length, 'task')}`,
     options,
     groups: [...new Set(options.map((o) => o.group))],
     selected: first?.key ?? null,
@@ -718,7 +718,7 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
     },
     serve,
     exportDialog: {
-      title: 'Export preference pairs',
+      title: confirmWords(ACTIONS.exportPairs.label),
       text: 'One JSON line per pair: the conversation as the model saw it at that call, the answer to prefer and the one to avoid. Redaction rules apply to the copy.',
       high: counts.high,
       all: counts.all,

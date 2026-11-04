@@ -1,4 +1,5 @@
 import { num, shortId } from '../format.js';
+import { ACTIONS, confirmWords } from '../labels.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { bisectCost } from '../runspage/find-commit.js';
 import type { BisectOffer, BlameOffer, RunOffers, TestBannerOffer } from '../types.js';
@@ -6,7 +7,7 @@ import type { BisectOffer, BlameOffer, RunOffers, TestBannerOffer } from '../typ
 /**
  * What the run page offers beyond the run's record, in words and choices, without the DOM: Run blame
  * (whether it applies, and the check it would likely use; Fixes' button sends it), the diverged
- * test's Add normalizer, and Find the commit's dialog. The tests import it.
+ * test's Add normalizer, and Find breaking commit's dialog. The tests import it.
  */
 
 /** A shell-quoted value, as the command lines the page shows have it. */
@@ -193,14 +194,14 @@ export interface BisectCopy {
 }
 
 /**
- * What the server may add to Find the commit's choices: each commit's subject, from the project's git
+ * What the server may add to Find breaking commit's choices: each commit's subject, from the project's git
  * (`c91d0f4 · Escalate refunds above the limit`), and the check each replay is judged by, for a run
  * blame found failing one though it exited 0 (`--expect`).
  */
 type BisectFrom = Omit<BisectOffer, 'revisions'> & { revisions: ReadonlyArray<BisectOffer['revisions'][number] & { subject?: string | null }>; expect?: Record<string, unknown> | null };
 
 /**
- * Find the commit's dialog, from what the server offers: a run that failed looks for where it
+ * Find breaking commit's dialog, from what the server offers: a run that failed looks for where it
  * started failing, from a commit where it still worked up to its own; one that passed, for the first
  * commit after its own that changes what it does. Replays are free unless they run live past where
  * they differ. Each commit is named by its subject when the server knows it, as the design does.
@@ -216,7 +217,7 @@ export function bisectCopy(runId: string, offer: BisectOffer): BisectCopy {
   if (b.good && !choices.some((c) => c.value === b.good)) choices.unshift({ value: b.good, label: b.failed ? `${b.good} · where it last passed` : `${b.good} · this run` });
   return {
     title: b.failed ? `Find breaking commit for ${shortId(runId)}` : `Find commit that changed ${shortId(runId)}`,
-    ok: bisectLabel(b).label.replace(/…$/, ''),
+    ok: confirmWords(bisectLabel(b).label),
     text: b.failed
       ? `Replays ${b.target.kind === 'golden' ? target : 'the run'} at commits between a good one and ${upTo}, halving each time, and names the first where it fails. ${cost}`
       : `Replays ${b.target.kind === 'golden' ? target : 'the run'} at commits from ${b.good ?? 'its own'} to HEAD, halving each time, and names the first where it does something else. ${cost}`,
@@ -235,12 +236,12 @@ export function bisectCopy(runId: string, offer: BisectOffer): BisectCopy {
  */
 export function bisectLabel(b: Pick<BisectOffer, 'failed'> | null | undefined): { label: string; hint: string } {
   return b && !b.failed
-    ? { label: 'Find commit that changed it…', hint: 'Replays it at the commits after its own, halving each time, and names the first where it does something else' }
-    : { label: 'Find breaking commit…', hint: 'Replays it at commits between a good one and its own, halving each time' };
+    ? { label: ACTIONS.findChangingCommit.label, hint: 'Replays it at the commits after its own, halving each time, and names the first where it does something else' }
+    : { label: ACTIONS.findBreakingCommit.label, hint: 'Replays it at commits between a good one and its own, halving each time' };
 }
 
 /**
- * Why Find the commit can't run from here, for the disabled item's hover: what the server says about
+ * Why Find breaking commit can't run from here, for the disabled item's hover: what the server says about
  * the run, or that this dashboard has no bisect job (with the command to run instead); null when it can.
  */
 export function bisectBlocked(runId: string, b: BisectOffer | null, hasJob: boolean): string | null {

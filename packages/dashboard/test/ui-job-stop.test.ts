@@ -20,7 +20,7 @@ function job(over: Partial<JobView> = {}): JobView {
   return {
     id: 'a1b2c3d4e5f60718',
     kind: 'test',
-    title: 'Running the tests',
+    title: 'Running tests',
     args: ['test', 'goldens/*'],
     worktree: { use: 'reads', doing: 'a test is running your agent from your working tree', folder: PROJECT },
     runId: null,
@@ -103,14 +103,14 @@ describe('what a screen reader hears of a job', () => {
     }
     r = await render(createElement(Host));
     const said = () => r!.all('.drawer [role="status"]').map((s) => s.textContent);
-    expect(said()).toEqual(['Running the tests: running']);
+    expect(said()).toEqual(['Running tests: running']);
     expect(inLive(r.one('.drawer pre'))).toBe(false);
     print('[shadowlap] golden 01M5GS3E4G passed');
     await r.until('the line', () => r!.one('.drawer pre').textContent.includes('passed'));
-    expect(said()).toEqual(['Running the tests: running']);
+    expect(said()).toEqual(['Running tests: running']);
     finish();
-    await r.until('the end', () => said()[0] !== 'Running the tests: running');
-    expect(said()).toEqual(['Running the tests: 3 passed · exit 0']);
+    await r.until('the end', () => said()[0] !== 'Running tests: running');
+    expect(said()).toEqual(['Running tests: 3 passed · exit 0']);
     expect(inLive(r.one('.drawer pre'))).toBe(false);
   });
 });
@@ -148,7 +148,7 @@ describe('Stop in the job drawer', () => {
 
   it('says a stopped job was stopped, and offers Stop only while a job runs', async () => {
     r = await render(createElement(AppContext.Provider, { value: app({ client: {} as Client, jobs: [watched(job({ done: true, stopped: true, code: 143, endedAt: 2_000 }))] }) }, createElement(JobDrawer)));
-    expect(header(r)).toBe('Running the tests · stopped · exit 143');
+    expect(header(r)).toBe('Running tests · stopped · exit 143');
     expect(r.all('.drawer header button').map((b) => b.textContent)).toEqual(['']);
   });
 
@@ -158,7 +158,7 @@ describe('Stop in the job drawer', () => {
     r = await render(createElement(AppContext.Provider, { value: app({ client: { stopJob } as unknown as Client, toast, jobs: [watched(job())] }) }, createElement(JobDrawer)));
     await r.click(r.byText('.drawer header button', 'Stop'));
     await r.until('the answer to the stop', () => toast.mock.calls.length > 0);
-    expect(toast).toHaveBeenCalledWith('Running the tests had ended already');
+    expect(toast).toHaveBeenCalledWith('Running tests had ended already');
   });
 });
 

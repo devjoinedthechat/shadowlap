@@ -5,7 +5,7 @@ import { commandText } from '../goldens.js';
 import { bisectCopy, type UpdateGoldenCopy } from './offers.js';
 
 /**
- * The run page's dialogs that start another slice's job: Find the commit, and Update golden. Each
+ * The run page's dialogs that start another slice's job: Find breaking commit, and Update golden. Each
  * says what will run; the server builds it. Run blame's check dialog is Fixes' (fixes/RunBlame.tsx),
  * and Add normalizer and update asks in the Tests screen's own dialog (pages/TestsDialogs.tsx).
  */
