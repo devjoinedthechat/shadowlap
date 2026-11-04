@@ -156,3 +156,35 @@ describe('a field’s edge', () => {
     expect(off).toEqual([]);
   });
 });
+
+describe('the design system’s parts', () => {
+  /** The colour the last rule naming `selector` gives its text. */
+  const colourOf = (selector: string) => {
+    let found: string | undefined;
+    for (const r of rules()) if (r.selectors.includes(selector) && r.decls.has('color')) found = r.decls.get('color');
+    return found;
+  };
+
+  it('sets every status, verdict word, fact, attempt line, empty line and control of the shared parts at 4.5:1 on every surface', () => {
+    const parts = ['.st.ok', '.st.err', '.st.warn', '.st.mu', '.st.n', '.st.done', '.st.stub', '.st.block', '.vw.ok', '.vw.err', '.vw.warn', '.vw.mu', '.vw.done', '.verdict p', '.verdict > .badge.n', '.metric b.ok', '.emptyline', '.acell', '.alist > .al', '.alist .more2', '.boxcopy', '.xbtn', '.seg button, .seg a', '.eyebrow', '.ph p'];
+    const low: string[] = [];
+    for (const p of parts) {
+      const sel = p.split(', ')[0];
+      const c = colourOf(sel);
+      expect(c, p).toBeDefined();
+      for (const s of SURFACES) {
+        const x = ratio(resolve(c!)!, resolve(`var(${s})`)!);
+        if (x < 4.5) low.push(`${p} on ${s}: ${x.toFixed(2)}:1`);
+      }
+    }
+    expect(low).toEqual([]);
+  });
+
+  it('draws a segmented control’s chosen option in ink on the raised ground, a list’s quiet id part in the faint ink', () => {
+    const chosen = rules().find((r) => r.selectors.includes('.seg button[aria-pressed="true"]'))!;
+    expect([chosen.decls.get('color'), chosen.decls.get('background')]).toEqual(['var(--ink)', 'var(--raise)']);
+    expect(ratio(resolve('var(--ink)')!, resolve('var(--raise)')!)).toBeGreaterThanOrEqual(4.5);
+    const id = rules().find((r) => r.selectors.includes('code.rnm.rl'))!;
+    expect(id.decls.get('background')).toBe('linear-gradient(90deg, var(--faint) 6ch, var(--id-ink, var(--ink)) 6ch)');
+  });
+});

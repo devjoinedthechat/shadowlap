@@ -6,6 +6,7 @@
    in the same file, or in a file further down this list. */
 @import './css/tokens.css';
 @import './css/base.css';
+@import './css/components.css';
 @import './css/shell.css';
 @import './css/overview.css';
 @import './css/runs.css';
