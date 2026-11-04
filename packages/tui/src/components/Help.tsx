@@ -121,7 +121,7 @@ export function Help({ width, height, context = 'timeline', onClose }: { width: 
     if (!l) return <Text key={i}> </Text>;
     if (l.kind === 'title') {
       return (
-        <Text key={i} color={theme.accent} bold>
+        <Text key={i} bold>
           {l.text}
         </Text>
       );
@@ -143,7 +143,7 @@ export function Help({ width, height, context = 'timeline', onClose }: { width: 
   ];
 
   return (
-    <Box flexDirection="column" width={width} height={height} borderStyle="round" borderColor={theme.accent} paddingX={2}>
+    <Box flexDirection="column" width={width} height={height} borderStyle="round" paddingX={2}>
       <Text wrap="truncate">
         <Text bold>Keys</Text>
         <Text color={theme.dim}>{context === 'runs' ? ' · runs' : ' · calls and inspector'}</Text>

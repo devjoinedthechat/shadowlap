@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { links } from '@shadowlap/dashboard';
-import { byRule, commandIsImported, controlOpen, fieldValue, formatDecisions, hasRecordedCommand, judgeOpen, SPRT_DEFAULTS, unsettledReason, type DecisionsReport, type DecisionsVerify } from '@shadowlap/engine';
+import { byRule, commandIsImported, decisionsUnsettled, fieldValue, formatDecisions, hasRecordedCommand, migrateBreaks, migrateUnsettled, SPRT_DEFAULTS, unsettledReason, unsettledRun, type DecisionsReport, type DecisionsVerify } from '@shadowlap/engine';
 import { DECISIONS_SAMPLES, DecisionsError, commandProblem, decisionsCommand, resolveTargets, runDecisions, type DecisionsSettings, type DecisionTarget } from '../decisions.js';
 import { verifySession } from '../decisions-verify.js';
 import { goldenConsented } from '../golden-consent.js';
@@ -92,25 +92,12 @@ function inconclusiveExit(mode: 'fail' | 'warn', why: string | null): number {
 }
 
 /**
- * Why a decisions report settles nothing, or null: it stopped early, a run could not be asked, a run
- * it doesn't flag has a step that waits on a judge (judgeOpen: a text-only change a judge check reads
- * could not be judged, in any sample, and might be judged otherwise, which would flag it) or on its
- * control (controlOpen: a changed step the request as recorded got no answer for, for now), verify
- * didn't settle the runs it took.
+ * Why a decisions report settles nothing, or null, by the engine's rule (decisionsUnsettled), the one
+ * the dashboard reads a kept session by: it stopped early, a run could not be asked, a run it doesn't
+ * flag has a step that waits on a judge or on its control, verify didn't settle the runs it took.
  */
 export function decisionsInconclusive(r: DecisionsReport): string | null {
-  if (r.stopReason) return `it stopped before every step was asked: ${r.stopReason}`;
-  // A run that could not be asked at all (a --from-code change that is more than a prompt, a model that refused every step) is no preview of it.
-  const unasked = r.runs.filter((x) => x.refused || (x.steps > 0 && x.asked === 0 && x.counts.notAsked > 0));
-  if (unasked.length) return `${unasked.length} run${unasked.length === 1 ? '' : 's'} could not be asked`;
-  const unjudged = r.runs.filter((x) => !r.flagged.includes(x.runId) && x.decisions.some((s) => judgeOpen(s)));
-  if (unjudged.length) return `${unjudged.length} run${unjudged.length === 1 ? ' has' : 's have'} a text-only change a judge check reads that could not be judged`;
-  // A change the request as recorded got no answer to tell from the model's own variation (controlOpen) settles nothing.
-  const unsettled = r.runs.filter((x) => !r.flagged.includes(x.runId) && x.decisions.some((s) => controlOpen(s)));
-  if (unsettled.length) return `${unsettled.length} run${unsettled.length === 1 ? ' has' : 's have'} a changed step the request as recorded got no answer for, so it could not be told from the model's own variation`;
-  if (r.verify?.verdict === 'incomplete') return 'verify did not settle every run it took';
-  if (r.verify?.verdict === 'not-run' && r.verify.reasons.length) return `verify did not run: ${r.verify.reasons[0]!}`;
-  return null;
+  return decisionsUnsettled({ stopReason: r.stopReason, flagged: r.flagged, runs: r.runs.map(unsettledRun), verify: r.verify });
 }
 
 export function register(program: Command): void {
@@ -160,7 +147,8 @@ export function register(program: Command): void {
           else process.stdout.write(`\n${verifyLines(out.verify, `${out.sessionId}, ${out.change}`)}`);
           emitJobEvent({ type: 'result', data: out as unknown as Record<string, unknown> });
           const v = out.verify;
-          const why = v.verdict === 'incomplete' ? 'verify did not settle every run it took' : v.verdict === 'not-run' && v.reasons.length ? `verify did not run: ${v.reasons[0]!}` : null;
+          // Nothing was asked again, so only verify's part of the engine's rule can leave it open.
+          const why = decisionsUnsettled({ stopReason: null, flagged: [], runs: [], verify: v });
           process.exitCode = v.verdict === 'rejected' ? EXIT.failed : inconclusiveExit(flags.inconclusive, why);
         } catch (err) {
           failed(err, flags.json, 'decisions');
@@ -307,15 +295,14 @@ export function register(program: Command): void {
 }
 
 /**
- * 1 when a run verify took breaks under the new model; when the report settles nothing (it stopped
- * early, a step got no answer, a flagged run went unverified, a text-only change a judge check reads
- * could not be judged), 3 with `--inconclusive fail` and 0 with `warn`; else 0.
+ * By the engine's rules, the ones the dashboard reads a kept migration by: 1 when the switch breaks a
+ * run verify took (migrateBreaks); when the report settles nothing (migrateUnsettled: it stopped early,
+ * verify didn't settle a run it took, a run is inconclusive), 3 with `--inconclusive fail` and 0 with
+ * `warn`; else 0.
  */
 export function migrateExit(r: MigrateReport, inconclusive: 'fail' | 'warn' = 'fail'): number {
-  if (r.passes.verdict === 'rejected' || r.passes.runs.some((x) => x.verified && x.verdict === 'failed')) return EXIT.failed;
-  const open = r.passes.runs.filter((x) => x.verdict === 'inconclusive').length;
-  const unsettled = r.stopReason ? `it stopped before every step was asked: ${r.stopReason}` : r.passes.verdict === 'incomplete' ? 'verify did not settle every run it took' : open ? `${open} run${open === 1 ? ' is' : 's are'} inconclusive` : null;
-  return inconclusiveExit(inconclusive, unsettled);
+  if (migrateBreaks(r.passes)) return EXIT.failed;
+  return inconclusiveExit(inconclusive, migrateUnsettled(r));
 }
 
 function verifyLines(v: DecisionsVerify, what: string | null): string {

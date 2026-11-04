@@ -229,6 +229,7 @@ The report has these parts:
 | **Accepted / Rejected / Incomplete** | The verdict on the change                                                |
 | **The runs**                         | Each run's role, outcome and tally, and where it forked or why it failed |
 | **Warnings**                         | What the evidence lacks                                                  |
+| **after the fork**                   | What answered the attempts' tool calls after their forks                 |
 | **per run, as it would run live**    | Input tokens and cost per run, as recorded and under the change          |
 | **verifying**                        | What the verification itself cost, and the code version it verified      |
 
@@ -248,7 +249,15 @@ The report has these parts:
 
 A good run kept against its baseline shows both tallies and the bound on its drop (`0 of 7 passed, baseline 7 of 7 · drop >= 0.03 (95%)`).
 
-**Warnings.** What the evidence lacks: no held-out or good runs, a good run judged on its own for want of a baseline, a recording that contradicts its role, a tool that changed without `--live-tool`, a connection that bypassed Shadowlap.
+**Warnings.** What the evidence lacks: no held-out or good runs, a good run judged on its own for want of a baseline, a recording that contradicts its role, a tool that changed without `--live-tool`, a connection that bypassed Shadowlap. Also what the attempts got after the fork, below: a good run whose two arms got different answers, and a person's recorded answers served in order.
+
+**after the fork.** What answered the tool calls the attempts made from their forks on, the change's and the good runs' baselines' apart:
+
+- *answered as recorded*: a pure tool, or a read under [`--reads replay`](./cli.md#verify), with the same arguments;
+- *given a person's recorded answers in order*, whatever the agent then asked;
+- *ran live*, *stubbed* or *blocked*.
+
+Model calls are left out: after the fork they run live by design. A good run warns when its change's attempts got stubbed or blocked answers for a share of their calls 10 points or more above its baseline's: the two arms then ran against different answers.
 
 **per run, as it would run live.** Input tokens and cost per run as recorded and under the change, as budget checks count them: every model request, whatever its origin. A prompt that grows shows up here.
 
@@ -424,6 +433,7 @@ Each entry of a run's `runs`, and of `baselineRuns`:
 | `cutShort` | boolean | `true` when the provider cut it short after the model answered |
 | `unavailable` | boolean | `unavailable: true` on the attempt it stopped on, when the provider stayed unavailable |
 | `unrecordedTools` | array | The tools its model called that its run never recorded, which ran for real in it |
+| `afterFork` | object | What answered its tool calls from the fork on: `{ recorded, inOrder, live, stubbed, blocked }`; absent when it replayed clean |
 
 A footprint is `{ inputTokens, outputTokens, cost }`, with `cost` null when a model has no price: the agent's model calls, never a judge check's.
 
@@ -431,6 +441,7 @@ A footprint is `{ inputTokens, outputTokens, cost }`, with `cost` null when a mo
 
 - **Replays run in today's environment.** A replay re-runs a run's recorded command, but in the environment verify runs in, not the one the run was recorded in. If what makes a run *that* run comes from an environment variable (which customer, which ticket), every run replays with today's value. Pass it as an argument instead, where the recorded command keeps it.
 - **A tool's own code runs only with `--live-tool`**: a call whose arguments didn't change is served from the recording ([a fix inside a tool](#a-fix-inside-a-tool)).
+- **A person's answers come in the order given.** After the fork no one is there to type, so each attempt gets a person's recorded answers in order, whatever the agent then asked. Where the change alters the conversation, they may not fit it. The report warns when an attempt got any ([reading the report](#reading-the-report)).
 - **A short history knows little**: against 50 attempts, a run at 90% with no drop is kept 18.9% of the time ([against history](#against-history)).
 
 ## See also

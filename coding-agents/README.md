@@ -9,7 +9,7 @@ the second. CI runs every command they name against the repository's reference a
 | For | What it is | Install |
 |---|---|---|
 | Claude Code | [`claude-code/`](./claude-code): a plugin with both skills, as `/shadowlap:setup-agent` and `/shadowlap:debug-agent` | `shadowlap skill install` puts it into the project's `.claude/skills/shadowlap/`. For every project instead: `claude plugin marketplace add devjoinedthechat/shadowlap@v<version>`, `claude plugin install shadowlap@shadowlap`, then `claude plugin update shadowlap@shadowlap` |
-| Codex, Cursor, GitHub Copilot, Gemini CLI, Antigravity, Windsurf, OpenCode, Cline, Amp, goose, Zed, Junie | The same skills, as `shadowlap-setup-agent` and `shadowlap-debug-agent` | `shadowlap skill install agents` (or any of their names) puts them into the project's `.agents/skills/` |
+| Codex, Cursor, GitHub Copilot, Gemini CLI, Antigravity, Devin Desktop (formerly Windsurf), OpenCode, Cline, Amp, goose, Zed, Junie | The same skills, as `shadowlap-setup-agent` and `shadowlap-debug-agent` | `shadowlap skill install agents` (or any of their names) puts them into the project's `.agents/skills/` |
 | Kiro | The same | `shadowlap skill install kiro` puts them into the project's `.kiro/skills/` |
 
 `shadowlap skill install` copies what came with the CLI, so it needs no network and the commands

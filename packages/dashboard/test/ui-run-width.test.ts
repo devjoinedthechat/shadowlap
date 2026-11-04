@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
@@ -7,6 +6,7 @@ import { glued } from '../ui/format.js';
 import { bannerFor } from '../ui/run/banner.js';
 import { Inspector } from '../ui/run/Inspector.js';
 import { DiffPanel } from '../ui/run/parts.js';
+import { sheet } from './css-sheet.js';
 
 /**
  * A long command line or model id never makes a run's page wider than the window: a 266-character
@@ -15,7 +15,7 @@ import { DiffPanel } from '../ui/run/parts.js';
  * whole page scrolled sideways.
  */
 
-const css = readFileSync(new URL('../ui/app.css', import.meta.url), 'utf8');
+const css = sheet();
 
 /** The declarations of every rule that names `selector` at the top level of the stylesheet (not inside a media query). */
 function topRule(selector: string): string {

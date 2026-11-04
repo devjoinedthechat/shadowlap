@@ -27,6 +27,8 @@ export interface CallSpec {
 }
 
 export interface RunSpec {
+  /** The run's id, for the same runs in two stores; a new one otherwise. */
+  runId?: string;
   mode?: 'record' | 'replay';
   parent?: string;
   startedAt: number;
@@ -48,6 +50,7 @@ export function usageAt(callNo: number): Usage {
 
 export function addRun(store: Store, spec: RunSpec): string {
   const run = store.createRun({
+    ...(spec.runId ? { runId: spec.runId } : {}),
     mode: spec.mode ?? (spec.parent ? 'replay' : 'record'),
     ...(spec.parent ? { parentRunId: spec.parent } : {}),
     command: { argv: spec.argv ?? ['python', 'refund_agent.py'], cwd: '/work' },

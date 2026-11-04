@@ -35,7 +35,7 @@ export function FixJobView({ job, again, width, height, onYes, onDecline, onCanc
     { isActive: !asks },
   );
   return (
-    <Box flexDirection="column" width={width} height={height} borderStyle="round" borderColor={job.blocked ? theme.err : job.ask ? theme.warn : theme.accent} paddingX={1}>
+    <Box flexDirection="column" width={width} height={height} borderStyle="round" {...(job.blocked ? { borderColor: theme.err } : job.ask ? { borderColor: theme.warn } : {})} paddingX={1}>
       <Text wrap="truncate">
         <Text bold>{job.label}</Text>
         {job.fix ? <Text color={theme.dim}> · {safeLine(`${job.fix.id} ${job.fix.title}`)}</Text> : null}
@@ -44,8 +44,10 @@ export function FixJobView({ job, again, width, height, onYes, onDecline, onCanc
       {again ? <Text color={theme.warn}>{again}</Text> : null}
       {job.who ? <Text color={theme.dim}>It asks {safeLine(job.who)} for candidates, so that account pays for them.</Text> : null}
       {job.aside ? <Text color={theme.warn}>{job.aside}</Text> : null}
-      <Text color={theme.dim}>
-        It runs <Text color={theme.accent}>{quoteArgv(['shadowlap', ...job.args])}</Text>, and asks models live, which costs.
+      <Text>
+        <Text color={theme.dim}>It runs </Text>
+        {quoteArgv(['shadowlap', ...job.args])}
+        <Text color={theme.dim}>, and asks models live, which costs.</Text>
       </Text>
       {job.blocked ? (
         <>
@@ -66,7 +68,8 @@ export function FixJobView({ job, again, width, height, onYes, onDecline, onCanc
         </>
       ) : (
         <Text color={theme.dim}>
-          <Text color={theme.accent} bold>
+          {/* The pane's primary action, in the one lime a page's primary action takes. */}
+          <Text color={theme.ok} bold>
             Enter
           </Text>{' '}
           runs it · Esc goes back

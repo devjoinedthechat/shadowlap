@@ -51,27 +51,24 @@ function fit(c: Cell): Span[] {
 /**
  * One row of a list, exactly `width` wide, as one truncating Text: sibling Texts in a Box get
  * flex-shrunk by the layout engine when a row overflows, which silently drops the narrowest cells
- * first (the `>` that marks the selection, at 80 columns). The selected row is filled from edge to
- * edge, lime in the focused pane, as lazygit and k9s mark theirs; the `>` stays for a terminal
- * without colour.
+ * first (the `>` that marks the selection, at 80 columns). The selected row is drawn as the
+ * dashboard draws where you are: its words keep their colours, on the selection ground from edge to
+ * edge, and bold in the focused pane. The `>` stays for a terminal without colour.
  */
 export function Row({ cells, width, selected = null }: { cells: Cell[]; width: number; selected?: Selection }) {
   const t = useTheme();
-  const band = selected === 'focus';
-  const bg = band ? t.band : selected === 'blur' ? t.selection : undefined;
+  const focus = selected === 'focus';
+  const bg = selected ? t.selection : undefined;
   const spans = cells.filter((c) => c.width > 0).flatMap(fit);
   const used = spans.reduce((n, s) => n + widthOf(s.text), 0);
   return (
     <Box height={1} width={width} flexShrink={0}>
       <Text wrap="truncate" {...(bg ? { backgroundColor: bg } : {})}>
-        {spans.map((s, i) => {
-          const color = band ? t.onBand : s.color;
-          return (
-            <Text key={i} {...(color ? { color } : {})} bold={band || s.bold === true}>
-              {s.text}
-            </Text>
-          );
-        })}
+        {spans.map((s, i) => (
+          <Text key={i} {...(s.color ? { color: s.color } : {})} bold={focus || s.bold === true}>
+            {s.text}
+          </Text>
+        ))}
         {used < width ? ' '.repeat(width - used) : ''}
       </Text>
     </Box>
@@ -82,8 +79,8 @@ export function Row({ cells, width, selected = null }: { cells: Cell[]; width: n
 export type Hint = readonly [key: string, does: string];
 
 /**
- * Key hints in at most `width` columns, as many whole hints as fit: the key in lime, what it does in
- * the secondary colour. The first hint is `? help`, so a narrow terminal still says where the rest are.
+ * Key hints in at most `width` columns, as many whole hints as fit: the key in bold ink, what it does
+ * in the secondary colour. The first hint is `? help`, so a narrow terminal still says where the rest are.
  */
 export function KeyHints({ hints, width, lead }: { hints: readonly Hint[]; width: number; /** A state the keys act on, before them: `filter: live (28/30)`. */ lead?: string }) {
   const t = useTheme();
@@ -99,13 +96,11 @@ export function KeyHints({ hints, width, lead }: { hints: readonly Hint[]; width
     <Box height={1} width={width} flexShrink={0}>
       <Text wrap="truncate">
         {' '}
-        {lead ? <Text color={t.accent}>{`${lead}  `}</Text> : null}
+        {lead ? <Text>{`${lead}  `}</Text> : null}
         {shown.map(([k, d], i) => (
           <Text key={k}>
             {i ? '  ' : ''}
-            <Text color={t.accent} bold>
-              {k}
-            </Text>
+            <Text bold>{k}</Text>
             <Text color={t.dim}> {d}</Text>
           </Text>
         ))}
@@ -114,12 +109,17 @@ export function KeyHints({ hints, width, lead }: { hints: readonly Hint[]; width
   );
 }
 
-export type Tone = 'info' | 'ok' | 'warn' | 'err';
+/**
+ * A message's tone: what it says it did (opened, deleted, copied, saved) in ink; a warning amber; a
+ * failure red. None is lime, which is what passed and the primary action: the dashboard's toasts
+ * take none either.
+ */
+export type Tone = 'info' | 'warn' | 'err';
 
 /** One line of text in a tone, cut to `width`: a message in the footer, a question, the detail line. */
 export function Line({ children, width, tone, color }: { children: ReactNode; width: number; tone?: Tone; color?: string }) {
   const t = useTheme();
-  const c = color ?? (tone === 'ok' ? t.ok : tone === 'warn' ? t.warn : tone === 'err' ? t.err : tone === 'info' ? undefined : t.dim);
+  const c = color ?? (tone === 'warn' ? t.warn : tone === 'err' ? t.err : tone === 'info' ? undefined : t.dim);
   return (
     <Box height={1} width={width} flexShrink={0}>
       <Text wrap="truncate" {...(c ? { color: c } : {})}>

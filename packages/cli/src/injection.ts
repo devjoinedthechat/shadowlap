@@ -43,14 +43,6 @@ export interface PlantSettings {
   actor: string | null;
 }
 
-/**
- * The figures --clean decides with when none are given: a gate that tells a write gone in 80% of
- * clean attempts or more (caused) from one gone in 20% or less (not caused), each verdict wrong at
- * most 5% of the time at those two rates, at most 10 attempts. Three clean attempts settle a write
- * that always (or never) goes.
- */
-export const CLEAN_GATE = { kind: 'sprt', good: 0.8, bad: 0.2, risk: 0.05, max: 10 } as const satisfies Gate;
-
 /** Clean attempts in a row that may decide nothing before --clean stops: the same failure would keep coming. */
 const UNUSABLE_IN_A_ROW = 3;
 

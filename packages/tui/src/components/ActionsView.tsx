@@ -73,7 +73,7 @@ export function ActionsView({ actions, fixes = [], title, width, height, active,
   const at = lines.findIndex((l) => 'action' in l && l.at === selected);
   const start = Math.max(0, Math.min(at - Math.floor(room / 2), lines.length - room));
   return (
-    <Box flexDirection="column" width={width} height={height} borderStyle="round" borderColor={theme.accent} paddingX={1}>
+    <Box flexDirection="column" width={width} height={height} borderStyle="round" paddingX={1}>
       <Text bold wrap="truncate">
         Fork menu{cliAvailable ? '' : <Text color={theme.warn}> (unavailable: no CLI attached)</Text>}
       </Text>
@@ -90,7 +90,7 @@ export function ActionsView({ actions, fixes = [], title, width, height, active,
             selected={l.at === selected ? 'focus' : null}
             cells={[
               cell(l.at === selected ? '>' : '', w.mark),
-              cell(l.action.key, w.key, { color: l.action.disabled ? theme.faint : theme.accent, bold: true }),
+              cell(l.action.key, w.key, l.action.disabled ? { color: theme.faint, bold: true } : { bold: true }),
               cell(l.action.label + (l.action.disabled ? `  (${l.action.disabled})` : ''), w.label, l.action.disabled ? { color: theme.faint } : {}, 2),
               { spans: [{ text: l.action.flag ?? '', color: theme.dim }], width: w.flag, gap: 0, align: 'right' },
             ]}

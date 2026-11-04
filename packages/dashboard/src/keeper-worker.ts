@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs';
 import { parentPort, workerData } from 'node:worker_threads';
 import { Store } from '@shadowlap/engine';
 import { keepQueue } from './keep-queue.js';
@@ -15,11 +14,7 @@ const port = parentPort!;
 const { dbPath } = workerData as { dbPath: string };
 let store: Store | null = null;
 /** The store, opened with the first rows; one deleted meanwhile is never made anew to keep rows in (the queue drops them). */
-const open = (): Store => {
-  if (!existsSync(dbPath)) throw new Error(`no store at ${dbPath}`);
-  return Store.open(dbPath);
-};
-const queue = keepQueue(() => (store ??= open()));
+const queue = keepQueue(() => (store ??= Store.openExisting(dbPath)));
 
 port.on('message', (m: ToKeeper) => {
   if (m.type === 'stats') queue.stats(m.rows);

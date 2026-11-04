@@ -142,6 +142,8 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
 
   const stores = new StoreFiles({ log, realHome: projects?.registry.realHome ?? '', several: !!projects });
   const several = projects ? new ProjectStores(projects, stores) : null;
+  // A project removed here has every thread on its store let go of it before its recordings are deleted.
+  const unhold = projects?.holdStores((dbPath) => stores.letGo(dbPath));
   const uploads = new UploadStore({
     // Uploads go to the folder of the project current when they arrive, as its jobs run there; one
     // that can't be served now refuses them with the reason.
@@ -181,6 +183,7 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
     close: (o = {}) => {
       if (o.now) jobs.kill();
       return (closing ??= (async () => {
+        unhold?.();
         stores.stopWatching();
         const closed = new Promise<void>((resolve) => server.close(() => resolve()));
         server.closeAllConnections?.();
@@ -234,7 +237,7 @@ function servingOne(opts: DashboardOptions, project: { name: string; path: strin
     // A store the caller opened can't be opened anew here: what reads it stops, and the pages say why.
     const how = stores.moved(opts.dbPath);
     if (how) {
-      stores.letGo(opts.dbPath!);
+      void stores.letGo(opts.dbPath!);
       throw new HttpError(409, stores.movedWords(how, opts.dbPath!, null));
     }
     return { router: single, current: null };
