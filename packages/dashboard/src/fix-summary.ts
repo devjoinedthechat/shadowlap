@@ -104,15 +104,26 @@ export interface NeedsLookItem {
 }
 
 /**
- * Why a repair that accepted nothing found no fix, when its repairer was never asked and nothing
+ * Why a repair that accepted nothing made no change, when its repairer was never asked and nothing
  * else was tried: in a few words, `the repairer could not be asked` (claude was not found, say), or
- * that none is configured or it had nothing to rewrite. Null for a repair that looked for a fix.
+ * that none is configured or it had nothing to rewrite. Null for a repair that looked for a change.
  */
 function unaskedWords(r: StoredRepair): string | null {
   if (r.accepted || r.report.candidates.length) return null;
   const none = noRepairerOf(r.report)?.text;
   if (!none) return null;
   return none.startsWith(NO_REPAIRER.notAsked) ? NO_REPAIRER.notAsked : none;
+}
+
+/**
+ * What the last repair of a fix still open left, in a change's words, as a repair makes a change and
+ * the fix is the failure worked through: why its repairer was never asked; that the gate rejected
+ * every candidate it tried, or that it found none to try; or, for a change accepted under another
+ * check than the fix's, that the change is not verified for it yet.
+ */
+function repairLeft(r: StoredRepair): string {
+  if (acceptedCandidate(r)) return 'the last repair’s change is not verified yet';
+  return unaskedWords(r) ?? (r.report.candidates.length ? 'the last repair’s candidates were rejected' : 'the last repair found no change to try');
 }
 
 /**
@@ -128,12 +139,12 @@ export function needsLookFixes(store: StoreOf<'recording' | 'readModels' | 'fixe
     if (fix.status === 'open') {
       const b = shownBlame(rec);
       // At the call blame names, or around or between two when no one call is pinned.
-      const where = b?.outcome === 'blamed' && b.report.blamed ? lostWords(b.report.blamed.callNo, b.report.range, 'calls') : b?.outcome === 'unrescuable' ? unrescuedWords(unsettledFirst(b.report)) : 'blame stopped early';
+      const where = b?.outcome === 'blamed' && b.report.blamed ? lostWords(b.report.blamed.callNo, b.report.range, 'calls') : b?.outcome === 'unrescuable' ? unrescuedWords(unsettledFirst(b.report)) : 'blame stopped part way';
       // No answer of the model's lost it: a repair of the prompt is no fix, so the row opens the fix and says where to look.
       const elsewhere = noAnswerLost(b);
-      // A repair whose repairer was never asked looked for no fix: it says why, not that none was found.
+      // A repair whose repairer was never asked looked for no change: it says why, not that its candidates were rejected.
       const last = rec.repairs.at(-1);
-      const repaired = last ? (unaskedWords(last) ?? 'no fix found yet') : 'no fix yet';
+      const repaired = last ? repairLeft(last) : 'no change yet';
       open.push({ kind: 'open', href: fixHref(fix.fixId), icon: 'blame', title: fix.title, detail: `${where} · ${elsewhere ? 'look at the tools, the harness or the command' : repaired}`, action: elsewhere ? 'Open' : 'Fix it', fixId: fix.fixId, runId: null, at: fix.openedAt });
     } else if (fix.status === 'verified') {
       // Its patch is in the working tree already: nothing is ready to apply, and the fix's page offers Mark applied.

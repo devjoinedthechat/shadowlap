@@ -1,3 +1,4 @@
+import { INCONCLUSIVE_FIRST_HEAD } from './blame-words.js';
 import type { Block } from './deltas.js';
 import { fisherGreater } from './exact-tests.js';
 import { antitonic } from './isotonic.js';
@@ -626,12 +627,10 @@ export function unsettledFirst(r: Pick<BlameReport, 'outcome' | 'probes' | 'same
   return r.outcome === 'unrescuable' && !r.sameAnswer && !r.failedWrite && r.probes[0]?.decision === 'inconclusive';
 }
 
-/**
- * A blame that placed the failure on no call, in a few words, as a run's page, Needs a look and
- * `shadowlap show` say it: not settled when its first probe couldn't tell (`unsettledFirst`), else
- * not rescued from any model call.
- */
-export const unrescuedWords = (unsettled: boolean): string => (unsettled ? 'not settled from the first model call' : 'not rescued from any model call');
+// A blame that placed the failure on no call, in a few words, as a run's page, Needs a look and
+// `shadowlap show` say it: inconclusive at the first model call when its first probe couldn't tell
+// (`unsettledFirst`), else not rescued from any model call. In a module of its own, so a page bundles it.
+export { blameStateWord, INCONCLUSIVE_FIRST, INCONCLUSIVE_FIRST_HEAD, unrescuedWords } from './blame-words.js';
 
 /**
  * Where a blamed run was lost, as blame's report says it: `at model call #5` when the check pinned
@@ -663,7 +662,7 @@ export function unrescuedWhy(r: Pick<BlameReport, 'probes' | 'needed' | 'sameAns
   if (first?.undecided) {
     return {
       evidence: `Resampled from the first model call, #${first.callNo}: an attempt could not be judged: ${first.undecided}.`,
-      look: 'Not settled: a check could not be decided on an attempt, so no probe can say whether resampling rescues the run. Give it what decides it (a judge that can answer, a value its condition can read), and blame again.',
+      look: 'Inconclusive: a check could not be decided on an attempt, so no probe can say whether resampling rescues the run. Give it what decides it (a judge that can answer, a value its condition can read), and blame again.',
     };
   }
   const gated = !!first?.decision && !!r.gate;
@@ -672,7 +671,7 @@ export function unrescuedWhy(r: Pick<BlameReport, 'probes' | 'needed' | 'sameAns
     const lower = Math.max(0.05, +(g.good - 0.2).toFixed(2));
     return {
       evidence: `Resampled from the first model call, #${first.callNo}: ${probeFinding(first, g)}.`,
-      look: `Not settled: resampled from #${first.callNo}, the run passes some of the time, too often to call it lost and too rarely to call it rescued, so it may still be an answer the model gets right only sometimes. More attempts or a lower bar settle it: --gate '{"good":${lower > g.bad ? lower : g.good},"max":${Math.min(1000, g.max * 2)}}'.`,
+      look: `Inconclusive: resampled from #${first.callNo}, the run passes some of the time, too often to call it lost and too rarely to call it rescued, so it may still be an answer the model gets right only sometimes. More attempts or a lower bar settle it: --gate '{"good":${lower > g.bad ? lower : g.good},"max":${Math.min(1000, g.max * 2)}}'.`,
     };
   }
   // What "not rescued" means here: no resample of any call reaches the gate's rescue rate, since
@@ -750,10 +749,10 @@ export function blameSpan(r: Pick<BlameReport, 'blamed' | 'probes'> & { range?: 
  * only when the bound supports it: the first probe found the run lost there, with its error within
  * the search's risk (or, for a report made before bounds, as blame said it then). A rule that may be
  * wrong more often than that says only what it saw: not rescued from the first model call. A first
- * probe that couldn't tell is not settled.
+ * probe that couldn't tell is inconclusive, the gate's own word.
  */
 export function unrescuedHead(r: Pick<BlameReport, 'outcome' | 'probes' | 'sameAnswer' | 'failedWrite' | 'confidence'> & { errorBound?: number | null }, p: Palette = plain): string {
-  if (unsettledFirst(r)) return `${p.yellow('?')} ${p.bold('Not settled from the first model call')}`;
+  if (unsettledFirst(r)) return `${p.yellow('?')} ${p.bold(INCONCLUSIVE_FIRST_HEAD)}`;
   const supported = r.sameAnswer || r.failedWrite || r.errorBound === undefined || r.confidence === 'high';
   return `${p.red('✗')} ${p.bold(supported ? 'Not rescued from any model call' : 'Not rescued from the first model call')}`;
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { JOB_KINDS } from '../../api.js';
 import { useTreeBusy } from '../../fixes/tree.js';
+import { ACTIONS } from '../../labels.js';
 import { useApp } from '../../state.js';
 import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, rulesUnreadable, SAVING, useEditor, useFolderGone, useSettingsData } from './common.js';
 import { RuleDialog, RuleTable, addedText, removedText } from './RuleTable.js';
@@ -40,7 +41,7 @@ export function MatchingTab() {
           <span className="sub">what is not part of a request’s identity</span>
           <span className="sp" />
           <button className="btn sm" type="button" disabled={!!off} title={off ?? undefined} onClick={() => app.guard(() => setAdding(true))}>
-            Add normalizer
+            {ACTIONS.addNormalizerRule.label}
           </button>
         </header>
         <div className="pbody">

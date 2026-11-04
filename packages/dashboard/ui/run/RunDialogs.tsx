@@ -5,12 +5,12 @@ import { commandText } from '../goldens.js';
 import { bisectCopy, type UpdateGoldenCopy } from './offers.js';
 
 /**
- * The run page's dialogs that start another slice's job: Find the commit, and Update golden. Each
+ * The run page's dialogs that start another slice's job: Find breaking commit, and Update golden. Each
  * says what will run; the server builds it. Run blame's check dialog is Fixes' (fixes/RunBlame.tsx),
  * and Add normalizer and update asks in the Tests screen's own dialog (pages/TestsDialogs.tsx).
  */
 
-/** Find the commit: a commit where it still worked, from the revisions its runs were made at, or any other. */
+/** Find breaking commit…: a commit where it still worked, from the revisions its runs were made at, or any other. */
 export function BisectDialog({ runId, offer, onRun, onClose }: { runId: string; offer: BisectOffer; onRun: (good: string) => void; onClose: () => void }) {
   const copy = bisectCopy(runId, offer);
   return (
@@ -22,7 +22,7 @@ export function BisectDialog({ runId, offer, onRun, onClose }: { runId: string; 
       placeholder="a commit, a tag or a branch"
       {...(copy.choices.length ? { choices: copy.choices } : {})}
       command={(good) => copy.command(good || '…')}
-      ok="Find the commit"
+      ok={copy.ok}
       onRun={onRun}
       onClose={onClose}
     />

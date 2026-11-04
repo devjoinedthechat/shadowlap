@@ -1,4 +1,4 @@
-import { controlOpen, decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, emptyCounts, fixVerifyHead, goldensPassed, judgeOpen, migrateBreaks, migrateUnsettled, outcomeOf, plural, verifyHead, type DecisionCounts, type DecisionStep, type DecisionsVerify, type MigratePasses, type Normalizer, type StepRerun, type StoreOf, type TestResult, type TestSession, type UnsettledRun, type VerdictStanding, type VerifiedRun, type VerifyOutcome, type VerifyReport } from '@shadowlap/engine';
+import { controlOpen, decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, emptyCounts, fixVerifyHead, goldensPassed, judgeOpen, migrateBreaks, migrateUnsettled, outcomeOf, plural, runOutcomeWord, verdictWord, verifyHead, type DecisionCounts, type DecisionStep, type DecisionsVerify, type MigratePasses, type Normalizer, type StepRerun, type StoreOf, type TestResult, type TestSession, type UnsettledRun, type VerdictStanding, type VerifiedRun, type VerifyOutcome, type VerifyReport } from '@shadowlap/engine';
 import { changeName, fieldsOf } from './fix-shared.js';
 import { uncountedHead } from './fix-verify-step.js';
 import { asksForAll, optionLike, resultLine, verdictOfResult, type GoldenSource, type GoldenVerdict } from './tests.js';
@@ -574,7 +574,8 @@ function fixesOf(store: Store, ids: readonly string[]): Map<string, VerifyFix> {
 }
 
 /**
- * Verifies as rows: each run's outcome in verify's words, and the verdict headed as the fix's Verify
+ * Verifies as rows: each run's outcome in a page's words (inconclusive for one verify left open, which
+ * its report says unsettled), and the verdict headed as the fix's Verify
  * step heads it, read out of the kept report without its attempts. Titled by the fix it is a row of;
  * what it verified named by what changed, as that step names it, with the repair candidate, code and
  * fields apart.
@@ -597,7 +598,7 @@ function verifyRows(store: Store, ids: readonly string[]): VerifyVerdict[] {
     const fix = fixes.get(id);
     if (!r || !fix) return [];
     const checked = parsed<Array<Pick<VerifiedRun, 'runId' | 'role' | 'verdict' | 'decision' | 'undecided'>>>(r.runs, []);
-    const runs = checked.map((x) => ({ role: x.role, outcome: outcomeOf(x) }));
+    const runs = checked.map((x) => ({ role: x.role, outcome: runOutcomeWord(outcomeOf(x)) }));
     const verdict: VerifyOutcome = r.verdict === 'accepted' || r.verdict === 'rejected' ? r.verdict : 'incomplete';
     // What changeName reads of the report: the request fields it set and the code it ran at.
     const report: Pick<VerifyReport, 'fields' | 'codeVersion'> = { fields: parsed<Record<string, unknown>>(r.fields, {}), codeVersion: str(r.code_version) };
@@ -605,7 +606,7 @@ function verifyRows(store: Store, ids: readonly string[]): VerifyVerdict[] {
     const shape = { candidate, command: str(r.command) ?? '', rerun: parsed<StepRerun | null>(r.rerun, null), report: report as VerifyReport };
     const outcomes = new Map<string, number>();
     for (const x of runs) outcomes.set(x.outcome, (outcomes.get(x.outcome) ?? 0) + 1);
-    const word: VerdictWord = verdict === 'incomplete' ? 'inconclusive' : verdict;
+    const word: VerdictWord = verdictWord(verdict);
     return [
       {
         kind: 'verify' as const,

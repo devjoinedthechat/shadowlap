@@ -1036,9 +1036,9 @@ describe('Training in the dashboard', () => {
       expect(download.headers.get('content-disposition')).toContain('pairs.jsonl');
       expect(await download.text()).toBe(readFileSync(join(work, '.shadowlap', 'exports', 'pairs.jsonl'), 'utf8'));
 
-      // Score a model: every ready task, 5 attempts, against the mock; the drawer links to the scores.
+      // Score model: every ready task, 5 attempts, against the mock; the drawer links to the scores.
       const scored = await runJob({ kind: 'score', model: 'claude-good', attempts: 5 });
-      expect(scored).toMatchObject({ done: true, code: 0, title: 'Scoring a model', links: [{ label: 'Open the scores', href: '#/training/tasks' }] });
+      expect(scored).toMatchObject({ done: true, code: 0, title: 'Scoring model', links: [{ label: 'Open the scores', href: '#/training/tasks' }] });
 
       const view = (await (await api('training')).json()) as {
         strip: { left: { value: string; file: string | null }; best: { value: string } };

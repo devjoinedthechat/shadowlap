@@ -97,9 +97,9 @@ export function fixFor(store: StoreOf<'fixes'>, runId: string): StoredFix | null
 
 /** How the run's fix stands, in the dashboard's words; what to run next when there is none. */
 export function fixFact(run: RunRecord, fix: StoredFix | null, outcome: RunOutcome): Fact | null {
-  if (fix) return fix.status === 'open' ? { text: `no fix yet for “${fix.title}”`, tone: 'warn' } : { text: `fixed: “${fix.title}”, ${fix.status}`, tone: 'ok' };
+  if (fix) return fix.status === 'open' ? { text: `no change yet for “${fix.title}”`, tone: 'warn' } : { text: `fixed: “${fix.title}”, ${fix.status}`, tone: 'ok' };
   if (!isFailing(outcome, fix)) return null;
-  return run.meta?.blame ? { text: 'no fix yet', tone: 'warn' } : { text: 'not blamed yet', tone: 'info' };
+  return run.meta?.blame ? { text: 'no change yet', tone: 'warn' } : { text: 'not blamed yet', tone: 'info' };
 }
 
 export function unrecordedOf(store: StoreOf<'recording'>, runId: string, declared: Declared = {}): UnrecordedTool[] {

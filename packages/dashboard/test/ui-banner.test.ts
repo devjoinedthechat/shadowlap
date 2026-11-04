@@ -159,12 +159,12 @@ describe('the run’s banner', () => {
   it('says a run failed: with its fix, not blamed yet, or blamed without a call to name', () => {
     expect(bannerFor({ ...base, checks: [{ label: 'send_email called once', ok: false }] })).toEqual({ kind: 'failed', why: 'check failed: send_email called once · not blamed yet', fix: null, blamed: false });
     const fix = { id: 'fx-2', status: 'open', title: 'Confirmation email sent twice' };
-    expect(bannerFor({ ...base, status: 'failed', fix })).toMatchObject({ why: 'the agent exited with an error · no fix yet for “Confirmation email sent twice”', fix });
+    expect(bannerFor({ ...base, status: 'failed', fix })).toMatchObject({ why: 'the agent exited with an error · no change yet for “Confirmation email sent twice”', fix });
     expect(bannerFor({ ...base, status: 'failed', fix: { ...fix, status: 'verified' } })).toMatchObject({ why: 'the agent exited with an error · fixed: “Confirmation email sent twice”, verified' });
     expect(bannerFor({ ...base, status: 'crashed', blame: { callNo: null, outcome: 'unrescuable' } })).toEqual({ kind: 'failed', why: 'the run was interrupted · blame found no call whose answer, asked again, saves the run', fix: null, blamed: true });
     expect(bannerFor({ ...base, blame: { callNo: null, outcome: 'stopped' } })).toMatchObject({ why: 'blame confirmed it fails · blame stopped before it found the call', blamed: true });
-    // Its first probe couldn't tell: not settled, which is no finding that no call saves the run.
-    expect(bannerFor({ ...base, status: 'crashed', blame: { callNo: null, outcome: 'unrescuable', unsettled: true } })).toEqual({ kind: 'failed', why: 'the run was interrupted · blame not settled from the first model call', fix: null, blamed: true });
+    // Its first probe couldn't tell: inconclusive, which is no finding that no call saves the run.
+    expect(bannerFor({ ...base, status: 'crashed', blame: { callNo: null, outcome: 'unrescuable', unsettled: true } })).toEqual({ kind: 'failed', why: 'the run was interrupted · blame inconclusive at the first model call', fix: null, blamed: true });
   });
 
   it('shows nothing for a run with nothing to say', () => {

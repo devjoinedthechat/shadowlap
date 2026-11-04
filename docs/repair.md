@@ -8,7 +8,7 @@ Name the failing runs, the good runs, the check a passing run meets, and the mod
 
 ```sh
 shadowlap repair --fixes label:refund-bug --keeps label:good \
-  --expect '{"tools":{"issue_refund":{"count":0,"args":{"amount":240}}}}' --repairer anthropic
+  --expect '{"calls":[{"tool":"issue_refund","after":"lookup_order","args":{"amount":{"<=":100}}}]}' --repairer anthropic
 ```
 
 It prints:
@@ -35,14 +35,14 @@ It prints:
      1  invalid   system prompt: You are a support agent. Follow the refund policy. For order A-1…
         it mentions A-1042, which only the failing runs contain: a fix has to hold for cases it has not seen
      2  rejected  tool issue_refund: Refund an order in full. Check the policy first.
-        target run 01M5FA9VJ6 not fixed: 0 of 3 passed · rate <= 0.71 (95%) (issue_refund with {"amount":240} called 0 times, but called 1 time (1 blocked or…
+        target run 01M5FA9VJ6 not fixed: 0 of 3 passed · rate <= 0.71 (95%) (every issue_refund call: after lookup_order, amount <= 100, but issue_refund #6:…
      3  accepted  system prompt: You are a support agent. Follow the refund policy: escalate ever…
 
   cost: blame ≈$0.107 · repairer ≈$0.0085 · verify ≈$0.238
   patch: .shadowlap/repairs/repair-mvi5coxh/fix.patch   apply it: git -c core.autocrlf=false apply .shadowlap/repairs/repair-mvi5coxh/fix.patch
   report: .shadowlap/repairs/repair-mvi5coxh/report.md
   recordings of the fixed runs, for shadowlap test: .shadowlap/repairs/repair-mvi5coxh/goldens/01M5FA9VJ6 .shadowlap/repairs/repair-mvi5coxh/goldens/01M5FA9W23 .shadowlap/repairs/repair-mvi5coxh/goldens/01M5FA9VTD
-  fix fx-01M5FA9ZQR · issue_refund called with amount 240 · verified · shadowlap fix show fx-01M5FA9ZQR
+  fix fx-01M5FA9ZQR · issue_refund: amount 240 > 100 · verified · shadowlap fix show fx-01M5FA9ZQR
 ```
 
 Of the three rewrites the repairer proposed, the first named the order that failed and was set aside before anything ran. The second changed nothing the model acted on, and the gate rejected it. The third was accepted.
@@ -384,7 +384,7 @@ Such a repair ends not fixed, with why: *the repairer could not be asked: the An
 
 **Found only when asked.** Anything else that keeps a repairer from answering (`claude` not found or not runnable, a server out of reach) shows only when it is asked, once blame has run. The repair is kept all the same, with its blames and the fix they opened or joined, and `--json` prints its report.
 
-The fix's Repair step and `shadowlap fix show` say the same. The dashboard's Repair from here checks first that `claude` can be found, when Claude Code is the repairer it would ask.
+The fix's Repair step and `shadowlap fix show` say the same. The dashboard's Run repair checks first that `claude` can be found, when Claude Code is the repairer it would ask.
 
 ## The fix it reports to
 
@@ -426,7 +426,7 @@ A repair logs `repair.accepted` or `repair.empty` in the store's activity, and `
 
 - **No answer of the model's lost the runs**: every attempt failed on a write's recorded error again, or the attempts that passed answered as the recording did. The reason says that instead, as the fix's Blame step does, and suggests no stronger model.
 - **No run could be blamed at all**, such as when each passed its check when replayed: it says why.
-- **Blame settled nowhere**: its first probe could not tell (*Not settled from the first model call*, which `shadowlap blame` alone ends with 3). It says what settles it.
+- **Blame settled nowhere**: its first probe could not tell (*Inconclusive at the first model call*, which `shadowlap blame` alone ends with 3). It says what settles it.
 
 **Stopped.** `--budget` spent, too little of it left to ask the repairer, or a provider that stayed unavailable: 3. Ctrl-C, a closed terminal or SIGTERM: 128 plus the signal's number (130, 129, 143), whatever the outcome, one that comes while repair removes its last worktree or closes its store too. What was found so far is reported.
 
@@ -524,7 +524,7 @@ Each entry of `targets`:
 
 - **`outcome`** is `passes` when the run passed the check as replayed, so there was no failure to blame, and `error` when blame couldn't run.
 - **`range`** has `gradual: true` when its check found no drop beyond chance from one to the next: rescue falls by less than the gate's rates apart, or the check could not tell. That is as [blame](./blame.md#how-it-works) words it (*lost gradually, around model calls #17 and #18*), `callNo` being the first. It is `null` otherwise.
-- **`unsettled`** marks a run not settled rather than not rescued. It is absent otherwise.
+- **`unsettled`** marks a run inconclusive at the first model call rather than not rescued. It is absent otherwise.
 
 ### Each candidate
 

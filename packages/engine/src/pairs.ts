@@ -1,5 +1,5 @@
 import { createHash, type Hash } from 'node:crypto';
-import { describeBlocks } from './blame.js';
+import { describeBlocks, INCONCLUSIVE_FIRST_HEAD } from './blame.js';
 import { canonicalize } from './canonical.js';
 import { normalizeConversation, type Turn, type TurnBlock } from './conversation.js';
 import { messagesOf, type DatasetMessage } from './dataset.js';
@@ -787,7 +787,7 @@ function readPairs(store: StoreOf<'recording' | 'fixes'>, runs: RunRecord[]): Pa
       source.why =
         blame.outcome === 'unrescuable'
           ? blame.unsettled === true
-            ? 'Not settled from the first model call: blame could not tell whether another answer makes the run pass, so there is none to prefer yet.'
+            ? `${INCONCLUSIVE_FIRST_HEAD}: blame could not tell whether another answer makes the run pass, so there is none to prefer yet.`
             : 'Not rescued from any model call: no other answer made the run pass, so there is none to prefer.'
           : 'The search stopped before it settled, so no call was blamed.';
       continue;

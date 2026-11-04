@@ -327,7 +327,7 @@ describe('the buttons under a divergence', () => {
 
   it('ask before an Add normalizer that updates the golden too, and offer none for another change', () => {
     const updates = divergence('a', { normalizerFixes: false, normalizeAndTest: [['normalize', 'add', '--path', '$.id', '--replace', '<ID>'], ['test', 'goldens/a', '--update']] });
-    expect(divergenceButtons(updates, all).normalize).toEqual({ label: 'Add normalizer and update…', lead: false, run: 'normalize-update' });
+    expect(divergenceButtons(updates, all).normalize).toEqual({ label: 'Add normalizer and update', lead: false, run: 'normalize-update' });
     const prompt = divergence('a', { volatile: null, normalizerFixes: false, normalizeAndTest: null });
     expect(divergenceButtons(prompt, all)).toMatchObject({ normalize: null, update: { lead: false }, note: null });
   });
@@ -408,7 +408,7 @@ describe('waiting for a test job', () => {
     // A search of a run touches no golden; one of a golden does.
     const jobs = [{ kind: 'bisect', args: ['bisect', '01K5CQ4V5K0000000000000002', '--good', 'c91d0f4', '--fork'], done: false }, { kind: 'test', done: true }];
     expect(testsBusy(jobs, 'run the tests')).toBeNull();
-    expect(testsBusy([{ kind: 'bisect', args: ['bisect', 'goldens/refund-in-limit', '--good', 'c91d0f4'], done: false }], 'run the tests')).toBe('Find the commit is running: run the tests once it is done.');
+    expect(testsBusy([{ kind: 'bisect', args: ['bisect', 'goldens/refund-in-limit', '--good', 'c91d0f4'], done: false }], 'run the tests')).toBe('Find breaking commit is running: run the tests once it is done.');
     expect(testsBusy([...jobs, { kind: 'test-update', done: false }], 'run the tests')).toBe('An update of goldens is running: run the tests once it is done.');
     expect(testsBusy([{ kind: 'normalize-and-test', done: false }], 'update it')).toBe('A normalizer and its re-run is running: update it once it is done.');
     // Another project's job doesn't hold this one's goldens.
@@ -438,7 +438,7 @@ describe('the Update golden dialog', () => {
     const v = view({ divergences: [], diverged: [], rows: [row('judged')], inconclusive: [{ golden: 'goldens/judged', name: 'judged', runId: null, reason: 'check inconclusive', checks: [], details: null, gate: null, judge }] });
     const plan = updatePlan(v, ['goldens/judged']);
     // As the mock's dialog has it: no card, since nothing diverged and the title names the golden.
-    expect(plan).toMatchObject({ title: 'Update judged?', goldens: [], advise: null, instead: null, note: null, command: 'shadowlap test goldens/judged --update', ok: 'Update' });
+    expect(plan).toMatchObject({ title: 'Update judged?', goldens: [], advise: null, instead: null, note: null, command: 'shadowlap test goldens/judged --update', ok: 'Update golden' });
     expect(plan.text).toBe('Its replay is clean: only its judge check has no verdict in the pack. Updating asks the judge once, live, with the Anthropic key in the dashboard’s environment, and keeps the verdict; nothing is re-recorded.');
     // A judge whose model names no provider is asked with whatever key its model needs.
     expect(updatePlan(view({ ...v, inconclusive: [{ ...v.inconclusive[0], judge: { ...judge, provider: null } }] }), ['goldens/judged']).text).toContain('Updating asks the judge once, live, with the key in the dashboard’s environment, and keeps the verdict');
@@ -454,7 +454,7 @@ describe('the Update golden dialog', () => {
     const judge: UnjudgedCheck = { name: 'explains-escalation', label: 'judge "explains-escalation" answers yes', model: 'claude-haiku-4-5', provider: 'anthropic', why: '', held: 'older', changed: null, update: ['test', 'goldens/judged', '--update'], keys: null };
     const plan = (j: UnjudgedCheck) => updatePlan(view({ divergences: [], diverged: [], rows: [row('judged')], inconclusive: [{ golden: 'goldens/judged', name: 'judged', runId: null, reason: 'check inconclusive', checks: [], details: null, gate: null, judge: j }] }), ['goldens/judged']);
     const older = plan(judge);
-    expect(older).toMatchObject({ title: 'Update judged?', goldens: [], advise: null, ok: 'Update', command: 'shadowlap test goldens/judged --update' });
+    expect(older).toMatchObject({ title: 'Update judged?', goldens: [], advise: null, ok: 'Update golden', command: 'shadowlap test goldens/judged --update' });
     expect(older.text).toBe('Its replay is clean: only its judge check’s verdict in the pack was given to an older form of the judge’s request, which a replay no longer sends. Updating asks the judge once, live, with the Anthropic key in the dashboard’s environment, and keeps its new verdict; nothing is re-recorded.');
     const material = plan({ ...judge, held: 'material', changed: 'it read "order 8f3a" where it now reads "order 1b2c"' });
     expect(material.text).toBe('Its replay is clean, but its judge check’s verdict in the pack was given on other material than the replay reads now. Updating asks the judge once, live, with the Anthropic key in the dashboard’s environment, and keeps its new verdict; nothing is re-recorded.');
@@ -476,7 +476,7 @@ describe('the Update golden dialog', () => {
       ['You review the change', 'in your pull request'],
     ]);
     expect(plan.advise).toEqual({ title: 'A normalizer fixes this for good', path: '$.metadata.user_id', text: 'looks like a UUID, which changes every run. Updating re-records it, and the next run diverges again.' });
-    expect(plan.instead).toEqual({ label: 'Add the normalizer instead', golden: 'goldens/refund-in-limit', run: 'normalize' });
+    expect(plan.instead).toEqual({ label: 'Add normalizer and re-run', golden: 'goldens/refund-in-limit', run: 'normalize' });
     expect(plan.note).toBeNull();
     expect(plan.command).toBe('shadowlap test goldens/refund-in-limit --update');
     expect(plan.ok).toBe('Update anyway');
@@ -497,7 +497,7 @@ describe('the Update golden dialog', () => {
     const v = view({ divergences: [divergence('escalate-over-limit', { volatile: null, normalizerFixes: false, normalizeAndTest: null })], diverged: ['goldens/escalate-over-limit'] });
     const plan = updatePlan(v, ['goldens/escalate-over-limit']);
     expect(plan.advise).toBeNull();
-    expect(plan.ok).toBe('Update');
+    expect(plan.ok).toBe('Update golden');
     expect(plan.steps[1]).toEqual(['Its checks run', 'exit status']);
     // An id that may be a real change gets no amber note: only the person knows.
     const maybe = view({ divergences: [divergence('refund-in-limit', { maybeReal: true, volatile: { ...UUID, certain: false } })] });
@@ -508,7 +508,7 @@ describe('the Update golden dialog', () => {
     const added = divergence('refund-in-limit', { volatile: { ...UUID, op: 'added' }, normalizerFixes: false, normalizeAndTest: [['normalize', 'add', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/refund-in-limit', '--update']] });
     const plan = updatePlan(view({ divergences: [added] }), ['goldens/refund-in-limit']);
     expect(plan.advise!.text).toBe('is new in every request and looks like a UUID, which changes every run. Updating re-records it, and the next run diverges again.');
-    expect(plan.instead).toEqual({ label: 'Add the normalizer and update', golden: 'goldens/refund-in-limit', run: 'normalize-update' });
+    expect(plan.instead).toEqual({ label: 'Add normalizer and update', golden: 'goldens/refund-in-limit', run: 'normalize-update' });
     // A server that doesn't run normalize-and-test gets the note, and no button that would do nothing.
     expect(updatePlan(view({ divergences: [added] }), ['goldens/refund-in-limit'], (k) => k !== 'normalize-and-test').instead).toBeNull();
   });
@@ -531,7 +531,7 @@ describe('the Update golden dialog', () => {
     expect(plan.advise).toBeNull();
     expect(plan.instead).toBeNull();
     expect(plan.note).toEqual(['The normalizer for ', { code: '$.metadata.user_id' }, ' is in shadowlap.config.json already', ', so the run after this update matches.']);
-    expect(plan.ok).toBe('Update');
+    expect(plan.ok).toBe('Update golden');
   });
 
   it('leaves goldens whose rules are in the config out of the amber note for several', () => {
@@ -543,9 +543,9 @@ describe('the Update golden dialog', () => {
     expect(plan.advise!.text).toBe('refund-in-limit diverged on values that change every run. Updating re-records it, and the next run diverges again.');
     expect(plan.note).toEqual(['The normalizers for refund-flow are in shadowlap.config.json now: a re-run passes without updating it.']);
     expect(plan.ok).toBe('Update anyway');
-    // All of them masked already: no amber note, and the update reads plainly.
+    // All of them masked already: no amber note, and the update reads plainly, naming how many it updates.
     const masked = view({ divergences: [left, { ...left, golden: 'goldens/limit-three', name: 'limit-three' }], diverged: [left.golden, 'goldens/limit-three'] });
-    expect(updatePlan(masked, masked.diverged)).toMatchObject({ advise: null, instead: null, note: null, ok: 'Update' });
+    expect(updatePlan(masked, masked.diverged)).toMatchObject({ advise: null, instead: null, note: null, ok: 'Update 2 goldens' });
   });
 
   it('quotes what a shell would need quoting in the command', () => {

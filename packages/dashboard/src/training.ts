@@ -1,4 +1,4 @@
-import { CAPS_ONLY_NOTE, countPairs, findPairs, isObject, oneSided as findOneSided, fixLabelInfo, fixOfRun, isInconclusiveNote, mainRefusal, modelReach, normalizeAddArgs, PAIR_FORMATS, plural, refusedLine, ruleInForce, volatileValues, type ModelChoice, type ModelListing, type ModelReach, type Normalizer, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type StoreOf, type Task, type TaskScoreRow } from '@shadowlap/engine';
+import { ACTIONS, confirmWords, CAPS_ONLY_NOTE, countPairs, findPairs, isObject, oneSided as findOneSided, fixLabelInfo, fixOfRun, isInconclusiveNote, mainRefusal, modelReach, normalizeAddArgs, PAIR_FORMATS, plural, refusedLine, ruleInForce, volatileValues, type ModelChoice, type ModelListing, type ModelReach, type Normalizer, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type StoreOf, type Task, type TaskScoreRow } from '@shadowlap/engine';
 import { fixForRun } from './fixes.js';
 import { links } from './links.js';
 
@@ -469,7 +469,7 @@ export function scoreDialogView(tasks: readonly Task[], scores: readonly TaskSco
   // The first model not scored yet that answers every ready task, else the first not scored yet.
   const first = options.find((o) => o.lastScore === null && o.request.goldens === null) ?? options.find((o) => o.lastScore === null) ?? options[0] ?? null;
   return {
-    title: `Score a model on ${plural(ready.length, 'task')}`,
+    title: `${confirmWords(ACTIONS.scoreModel.label)} on ${plural(ready.length, 'task')}`,
     options,
     groups: [...new Set(options.map((o) => o.group))],
     selected: first?.key ?? null,
@@ -640,7 +640,7 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
         text: `All of them reward “${warn.rewards}”, so a model that learned only that would score full marks.${opposite ? ` ${opposite.name} rewards the opposite once ${once!}.` : ''}`,
         name: opposite?.name ?? null,
         once,
-        fix: oppositeUpdate ? { label: 'Update the golden…', href: null, update: oppositeUpdate } : opposite?.status === 'blocked' ? { label: `${isInconclusiveNote(opposite.note) ? 'Settle' : 'Fix'} it on Tests`, href: links.tests(), update: null } : null,
+        fix: oppositeUpdate ? { label: ACTIONS.updateGolden.label, href: null, update: oppositeUpdate } : opposite?.status === 'blocked' ? { label: `${isInconclusiveNote(opposite.note) ? 'Settle' : 'Fix'} it on Tests`, href: links.tests(), update: null } : null,
       }
     : null;
   // Tasks a model can be scored on first, then what keeps the rest from being one; the project's order within each.
@@ -718,7 +718,7 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
     },
     serve,
     exportDialog: {
-      title: 'Export preference pairs',
+      title: confirmWords(ACTIONS.exportPairs.label),
       text: 'One JSON line per pair: the conversation as the model saw it at that call, the answer to prefer and the one to avoid. Redaction rules apply to the copy.',
       high: counts.high,
       all: counts.all,
@@ -813,5 +813,5 @@ export function taskUpdateJob(body: unknown, store: StoreOf<'recording'>, tasks:
   if (task.golden.startsWith('-')) return { error: 'a golden path must not start with "-"' };
   const u = taskUpdate(store, task, normalizers);
   if (!u) return { error: `${task.name} is not blocked by its test forking before the takeover${task.status === 'blocked' ? `: ${task.note ?? 'its test fails'}; ${isInconclusiveNote(task.note) ? 'settle' : 'fix'} it on Tests` : ''}` };
-  return { steps: u.steps, title: u.rerecords ? `Updating ${task.name}` : `Adding a normalizer for ${task.name}` };
+  return { steps: u.steps, title: u.rerecords ? `Updating ${task.name}` : `${ACTIONS.addNormalizer.doing} for ${task.name}` };
 }

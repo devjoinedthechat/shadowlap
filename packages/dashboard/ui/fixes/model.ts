@@ -1,6 +1,9 @@
 import { approx } from '../format.js';
 import { commandText } from '../goldens.js';
 import type { BlameStep, CandidateVerdict, FixBundle, FixDetail, FixRow, RepairStep, StepKey, VerifyMore, VerifyRow, VerifyStep } from '../types.js';
+import { blameStateWord } from '../../../engine/src/blame-words.js';
+import { verdictWord } from '../../../engine/src/verdict-words.js';
+import { ACTIONS, confirmWords } from '../labels.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { lostWords } from '../../../engine/src/run-verdicts.js';
 import { pluralS as s, shortFixId, twoDigits as pad } from '../../../engine/src/words.js';
@@ -122,20 +125,20 @@ export function stepLeads(f: Pick<FixDetail, 'defaultStep' | 'verify' | 'default
 }
 
 /**
- * The header's next step for an open fix besides Repair from here, as the design's fixActions()
- * orders them: Blame again while its blame couldn't settle where the run was lost or stopped part
- * way, Blame with a stronger model while asking the recorded model again rescued it from no call.
- * Either leads, with Repair from here plain beside it; null when blame found the call.
+ * The header's next step for an open fix besides Run repair, as the design's fixActions()
+ * orders them: Run blame again while its blame couldn't settle where the run was lost or stopped part
+ * way, Run blame with stronger model while asking the recorded model again rescued it from no call.
+ * Either leads, with Run repair plain beside it; null when blame found the call.
  */
-export function blameNextStep(f: Pick<FixDetail, 'status' | 'actions'>): { kind: 'again'; label: 'Blame again'; tip: string; command: string } | { kind: 'stronger'; label: 'Blame with a stronger model…'; tip: string; command: string } | null {
+export function blameNextStep(f: Pick<FixDetail, 'status' | 'actions'>): { kind: 'again'; label: typeof ACTIONS.runBlameAgain.label; tip: string; command: string } | { kind: 'stronger'; label: typeof ACTIONS.runBlameStronger.label; tip: string; command: string } | null {
   if (f.status !== 'open') return null;
   const again = f.actions.blameAgain;
   if (again) {
     const tip = again.kind === 'stopped' ? 'Runs the search to the end, without the budget that stopped it' : `More attempts and a lower bar: a rescue at ${Math.round((again.gate?.good ?? 0.4) * 100)}% or more, up to ${again.gate?.max ?? 40} attempts`;
-    return { kind: 'again', label: 'Blame again', tip, command: again.command };
+    return { kind: 'again', label: ACTIONS.runBlameAgain.label, tip, command: again.command };
   }
   const stronger = f.actions.blameStronger;
-  if (stronger) return { kind: 'stronger', label: 'Blame with a stronger model…', tip: 'Asks first: another model answers from each probed call instead of the recorded one', command: stronger.command };
+  if (stronger) return { kind: 'stronger', label: ACTIONS.runBlameStronger.label, tip: 'Asks first: another model answers from each probed call instead of the recorded one', command: stronger.command };
   return null;
 }
 
@@ -147,24 +150,25 @@ export function blameNextStep(f: Pick<FixDetail, 'status' | 'actions'>): { kind:
  */
 export function moreLine(m: Pick<VerifyMore, 'kind' | 'run' | 'max' | 'expected' | 'cost' | 'budget'>): string {
   if (m.kind === 'again') return ` stopped at attempt ${m.run.attempt ?? '?'}, which could not be judged${m.run.why ? `: ${m.run.why}` : ''}. Verify again once it can be.`;
-  const why = m.run.state === 'inconclusive' ? ' is inconclusive.' : ` is not settled${m.run.why ? `: ${m.run.why}` : ''}.`;
+  // Inconclusive, the page's one word for a run its attempts left open, with why when they stopped first.
+  const why = ` is inconclusive${m.run.state !== 'inconclusive' && m.run.why ? `: ${m.run.why}` : ''}.`;
   const takes = `about\u00a0${m.expected} attempt${m.expected === 1 ? '' : 's'}${m.cost !== null ? `, ${approx(m.cost)}` : ''}`;
   return `${why} Run more attempts verifies again from the start (verify has no --continue), up to ${m.max} a run${m.budget ? `, without its --budget ${m.budget}` : ''}: ${takes}.`;
 }
 
 /** What the page's main button does, if anything: repair an open fix, apply a verified one, finish an apply, or nothing. */
-export type FixAction = { kind: 'repair' } | { kind: 'apply'; label: 'Apply the patch' | 'Mark applied' | 'Finish applying' } | { kind: 'applied' } | { kind: 'none'; label: 'Repair from here' | 'Apply the patch'; why: string };
+export type FixAction = { kind: 'repair' } | { kind: 'apply'; label: typeof ACTIONS.applyFix.label | 'Mark applied' | 'Finish applying' } | { kind: 'applied' } | { kind: 'none'; label: typeof ACTIONS.runRepair.label | typeof ACTIONS.applyFix.label; why: string };
 
 export function fixAction(f: Pick<FixDetail, 'status' | 'actions'>): FixAction {
-  if (f.status === 'open') return f.actions.repair ? { kind: 'repair' } : { kind: 'none', label: 'Repair from here', why: 'None of its failing runs is left in the store, so there is nothing to repair from here.' };
+  if (f.status === 'open') return f.actions.repair ? { kind: 'repair' } : { kind: 'none', label: ACTIONS.runRepair.label, why: 'None of its failing runs is left in the store, so there is nothing to repair from here.' };
   const apply = f.actions.apply;
-  if (!apply) return { kind: 'none', label: 'Apply the patch', why: 'No change has been verified for it.' };
+  if (!apply) return { kind: 'none', label: ACTIONS.applyFix.label, why: 'No change has been verified for it.' };
   if (f.actions.applied && !apply.pending) return { kind: 'applied' };
   // More than the one rewrite its repair verified: fix apply won't put it in, so neither does the button.
-  if (apply.refused) return { kind: 'none', label: 'Apply the patch', why: `This patch is not the change its repair verified: ${apply.refused}. Nothing applies it from here.` };
+  if (apply.refused) return { kind: 'none', label: ACTIONS.applyFix.label, why: `This patch is not the change its repair verified: ${apply.refused}. Nothing applies it from here.` };
   if (f.actions.applied) return { kind: 'apply', label: 'Finish applying' };
   // Its patch is in the working tree already (merged, or applied by hand): applying only marks it applied.
-  return { kind: 'apply', label: apply.kind === 'mark' || apply.inTree ? 'Mark applied' : 'Apply the patch' };
+  return { kind: 'apply', label: apply.kind === 'mark' || apply.inTree ? 'Mark applied' : ACTIONS.applyFix.label };
 }
 
 /**
@@ -192,7 +196,7 @@ export function appliedButton(apply: Pick<NonNullable<FixDetail['actions']['appl
 }
 
 /**
- * What Apply the patch says before it changes the working tree: every file the patch changes, how
+ * What Apply fix says before it changes the working tree: every file the patch changes, how
  * it goes in, and what runs after. A teammate's patch, from the team store, runs nothing here: no
  * replay of the goldens, until it has been read.
  */
@@ -218,7 +222,7 @@ export function patchLines(diff: string): Array<{ text: string; tone: 'add' | 'd
 }
 
 /**
- * Why Repair from here isn't the page's lead action, or null when it is: the repair would end "No
+ * Why Run repair isn't the page's lead action, or null when it is: the repair would end "No
  * fix to try" without running the agent, since the blame of every failing run rescued it from no
  * call (`noFix`, with why: no answer of the model's lost it, blame couldn't settle where, or nothing
  * rescued it). The button stays, plain, with this on hover, and its dialog says it in place of what
@@ -228,7 +232,7 @@ export function repairAside(f: Pick<FixDetail, 'actions'>): string | null {
   return f.actions.repair?.noFix ?? null;
 }
 
-/** What the Repair from here dialog says and sends, once the fix is read again as it opens. */
+/** What the Run repair dialog says and sends, once the fix is read again as it opens. */
 export interface RepairAsk {
   /** Whether Repair can be confirmed: the fix was read, and it can still be repaired from here. */
   ready: boolean;
@@ -242,7 +246,7 @@ export interface RepairAsk {
 }
 
 /**
- * The Repair from here dialog. Who is asked for candidates (and so whose account pays) comes from
+ * The Run repair dialog. Who is asked for candidates (and so whose account pays) comes from
  * shadowlap.config.json, which can change while the page stays open, so the dialog reads the fix
  * again as it opens (`fresh`; null while that is out) and names the repairer it read. When the read
  * fails it names the page's, as it loaded: the job is sent with the repairer named, and the server
@@ -494,7 +498,7 @@ function commonPrefix(a: string, b: string): number {
 
 /**
  * A run's outcome as a badge, in the verdicts' colours: fixed and kept in lime, broken and not fixed
- * in red, and inconclusive or not settled in amber, the colour of a run nothing has decided.
+ * in red, and inconclusive in amber, the colour of a run nothing has decided.
  */
 export function outcomeTone(o: VerifyRow['outcome']): 'ok' | 'no' | 'y' {
   return o === 'fixed' || o === 'kept' ? 'ok' : o === 'unsettled' || o === 'inconclusive' ? 'y' : 'no';
@@ -563,7 +567,7 @@ export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict' | 'counts'> & 
   if (b.tone === 'y') return { kind: 'warn', label: 'Verify attempts: inconclusive' };
   if (b.verdict === 'accepted') return { kind: 'fixok', label: 'Verify accepted the change' };
   if (b.verdict === 'rejected') return { kind: 'fixbad', label: 'Verify rejected the change' };
-  return { kind: 'warn', label: 'Verify attempts, not settled' };
+  return { kind: 'warn', label: 'Verify attempts: inconclusive' };
 }
 
 /**
@@ -574,10 +578,11 @@ export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict' | 'counts'> & 
  * checked and how that came out, as the Verify step's switch names it: `fixed · 12 of 12 · rate >=
  * 0.76 (95%) · ≈$0.046 · repair candidate 3 · accepted`, since a run kept under a change says
  * nothing of whether the change was accepted, and "· doesn't count" after one that doesn't count
- * for the fix. A revision stays with the "at" before it (`keepAt`).
+ * for the fix. The verdict is a page's word for it: inconclusive for one that didn't settle every
+ * run, never verify's incomplete. A revision stays with the "at" before it (`keepAt`).
  */
 export function bundleLine(b: Pick<FixBundle, 'kind' | 'attempts' | 'passes' | 'spent' | 'change' | 'verdict' | 'counts'> & { verdictLine?: string | null }, money: (usd: number) => string): string {
-  const change = b.kind === 'verify' && b.change ? [keepAt(b.change), ...(b.verdict ? [b.verdict] : []), ...(b.counts === false ? ["doesn't count"] : [])] : [];
+  const change = b.kind === 'verify' && b.change ? [keepAt(b.change), ...(b.verdict ? [verdictWord(b.verdict)] : []), ...(b.counts === false ? ["doesn't count"] : [])] : [];
   if (b.verdictLine) return [b.verdictLine, ...(b.spent ? [money(b.spent)] : []), ...change].join(' · ');
   const n = b.attempts.length;
   const unsure = b.attempts.filter((a) => a.verdict === 'inconclusive').length;
@@ -740,12 +745,11 @@ export function inlineParts(text: string): Array<{ code: boolean; text: string }
 
 /**
  * How another blame of the fix came out, as the Blame step lists it after Also blamed: where it found
- * the run lost (at a call, or around or between two), not settled or not rescued, or stopped.
+ * the run lost (at a call, or around or between two), inconclusive or not rescued, or stopped.
  */
 export function otherBlameWords(o: FixDetail['blames'][number]): string {
   if (o.outcome === 'blamed' && o.lostAt !== null) return lostWords(o.lostAt, o.range);
-  if (o.outcome === 'unrescuable') return o.unsettled ? 'not settled' : 'not rescued';
-  return 'stopped';
+  return blameStateWord(o.outcome === 'unrescuable' ? 'unrescuable' : 'stopped', o.unsettled === true);
 }
 
 // ---------------------------------------------------------------------------------------------- the job drawer
@@ -768,12 +772,12 @@ export function fixJobStatus(job: { kind?: string; code: number | null; result?:
     // At the call it names, or around or between two when no one call is pinned.
     if (r.outcome === 'blamed' && blamed !== null) return { text: `${lostWords(blamed, r.range)} · ${exit}`, tone };
     if (r.outcome === 'unrescuable') {
-      // Its first probe couldn't tell, and nothing else was found (blame's unsettledFirst): not settled, never "not rescued".
+      // Its first probe couldn't tell, and nothing else was found (blame's unsettledFirst): inconclusive, never "not rescued".
       const first = Array.isArray(r.probes) && isObject(r.probes[0]) ? r.probes[0] : null;
       const unsettled = first?.decision === 'inconclusive' && !r.sameAnswer && !r.failedWrite;
-      return { text: `${unsettled ? 'not settled' : 'not rescued'} · ${exit}`, tone: job.code === 0 ? 'warn' : 'err' };
+      return { text: `${blameStateWord('unrescuable', unsettled)} · ${exit}`, tone: job.code === 0 ? 'warn' : 'err' };
     }
-    if (r.outcome === 'stopped') return { text: `stopped early · ${exit}`, tone: 'err' };
+    if (r.outcome === 'stopped') return { text: `${blameStateWord('stopped', false)} · ${exit}`, tone: 'err' };
     return null;
   }
   if (job.kind === 'repair') {
@@ -814,13 +818,14 @@ export function outdatedOf(result: unknown): OutdatedGolden[] {
  * screen's Update goldens: which, where the patch made them diverge, what an update does, and the
  * command it runs.
  */
-export function updateOutdatedAsk(outdated: readonly OutdatedGolden[]): { title: string; text: string; command: string; fields: Record<string, unknown> } {
+export function updateOutdatedAsk(outdated: readonly OutdatedGolden[]): { title: string; text: string; ok: string; command: string; fields: Record<string, unknown> } {
   const names = outdated.map((g) => g.golden);
   const one = names.length === 1;
   const where = [...new Set(outdated.map((g) => `#${g.callNo} ${g.path}`))];
   return {
     title: one ? `Update ${names[0]!.split('/').pop()!}?` : `Update ${names.length} goldens?`,
     text: `${one ? 'It diverges' : 'They diverge'} on what the patch changed (${where.slice(0, 2).join(', ')}${where.length > 2 ? ', …' : ''}). Use this when the change was intended: ${one ? 'it is' : 'each is'} re-recorded live with writes stubbed, ${one ? 'its' : 'each one’s'} checks run, and the new recording replaces the old one in your working tree only if they pass. You review the change in your pull request.`,
+    ok: one ? confirmWords(ACTIONS.updateGolden.label) : `Update ${names.length} goldens`,
     command: commandText(['test', ...names, '--update']),
     fields: one ? { golden: names[0] } : { goldens: names },
   };

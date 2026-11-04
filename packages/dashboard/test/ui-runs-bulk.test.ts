@@ -100,7 +100,9 @@ describe('the bulk bar’s Dataset', () => {
     expect(text(r, '.dialog header p')).toContain('The 3 redaction rules apply to the conversations and answers it keeps.');
     const cmd = text(r, '.dialog .cmdline');
     expect(cmd).toMatch(/^\$shadowlap export dataset 01M5H2DJ1W 01M5H2DJR4 --calls final --format jsonl --out \.shadowlap\/exports\/dataset-2-runs-\d{8}-\d{6}\.jsonl$/);
-    await r.click(r.byText('.dialog button', 'Export'));
+    // Titled and confirmed as a run's Share names it, for the runs it copies.
+    expect(text(r, '.dialog header h3')).toBe('Export eval dataset of 2 runs');
+    await r.click(r.byText('.dialog button', 'Export dataset'));
     // The file the command names is the file the job writes.
     const file = cmd.split('.shadowlap/exports/')[1];
     expect(s.client.startJob).toHaveBeenCalledWith('export-dataset', { runIds: [A, B], format: 'jsonl', calls: 'final', out: file });

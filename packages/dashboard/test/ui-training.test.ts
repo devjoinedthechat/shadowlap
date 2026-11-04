@@ -124,12 +124,12 @@ describe('the palette’s Training actions', () => {
     noteTrainingCounts(null);
     expect(trainingPalette(ctx(['pairs', 'score']), KINDS)).toEqual([]);
     noteTrainingCounts({ tabs: { pairs: 3, tasks: 2 } });
-    expect(trainingPalette(ctx(['pairs', 'score']), KINDS).map((c) => c.label)).toEqual(['Export preference pairs…', 'Score a model on the tasks…']);
-    expect(trainingPalette(ctx(['pairs']), KINDS).map((c) => c.label)).toEqual(['Export preference pairs…']);
+    expect(trainingPalette(ctx(['pairs', 'score']), KINDS).map((c) => c.label)).toEqual(['Export pairs…', 'Score model…']);
+    expect(trainingPalette(ctx(['pairs']), KINDS).map((c) => c.label)).toEqual(['Export pairs…']);
     noteTrainingCounts({ tabs: { pairs: 0, tasks: 2 } });
-    expect(trainingPalette(ctx(['pairs', 'score']), KINDS).map((c) => c.label)).toEqual(['Score a model on the tasks…']);
+    expect(trainingPalette(ctx(['pairs', 'score']), KINDS).map((c) => c.label)).toEqual(['Score model…']);
     noteTrainingCounts({ tabs: { pairs: 3, tasks: 0 } });
-    expect(trainingPalette(ctx(['pairs', 'score']), KINDS).map((c) => [c.label, c.hint, c.group])).toEqual([['Export preference pairs…', 'shadowlap export pairs', 'Actions']]);
+    expect(trainingPalette(ctx(['pairs', 'score']), KINDS).map((c) => [c.label, c.hint, c.group])).toEqual([['Export pairs…', 'shadowlap export pairs', 'Actions']]);
     expect(trainingPalette(ctx(['pairs'], [], true), KINDS)).toEqual([]);
   });
 
@@ -152,7 +152,7 @@ describe('the palette’s Training actions', () => {
       expect(trainingPalette(live, KINDS)).toEqual([]);
       await flush();
       expect([reads, told]).toEqual([2, 1]);
-      expect(trainingPalette(live, KINDS).map((c) => c.label)).toEqual(['Export preference pairs…']);
+      expect(trainingPalette(live, KINDS).map((c) => c.label)).toEqual(['Export pairs…']);
       await flush();
       // More pairs change nothing it offers, so an open palette isn't rebuilt for them.
       answer = { tabs: { pairs: 5, tasks: 0 } };

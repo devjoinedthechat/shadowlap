@@ -1,8 +1,10 @@
 import { num, shortId } from '../format.js';
+import { ACTIONS } from '../labels.js';
 import type { RunOffers } from '../types.js';
 
 /**
- * The Share menu without the DOM: which copies it lists, in the mock's order and words, and the note
+ * The Share menu without the DOM: which copies it lists, in the mock's order and words (parallel nouns,
+ * an ellipsis on each that asks first), and the note
  * under them on how many redaction rules each applies (decision 6). The tests import it.
  */
 
@@ -16,11 +18,11 @@ export interface ShareItem {
 
 const ITEMS: Record<ShareKey, Omit<ShareItem, 'key'>> = {
   link: { label: 'Share link', note: 'a redacted report in your bucket · expires in 7 days' },
-  html: { label: 'HTML file', note: 'export html · these views in one file that opens anywhere' },
-  pack: { label: 'Pack', note: 'pack · a folder for a golden, or for a colleague to replay' },
-  dataset: { label: 'Dataset for evals', note: 'export dataset · JSONL, Braintrust, Langfuse or OpenAI chat' },
-  otel: { label: 'OpenTelemetry trace', note: 'export otel · a span per call, for the tools you already use' },
-  har: { label: 'HAR', note: 'export har · the model calls, for anything that reads HTTP archives' },
+  html: { label: ACTIONS.exportHtml.label, note: 'export html · these views in one file that opens anywhere' },
+  pack: { label: ACTIONS.pack.label, note: 'pack · a folder for a golden, or for a colleague to replay' },
+  dataset: { label: ACTIONS.exportDataset.label, note: 'export dataset · JSONL, Braintrust, Langfuse or OpenAI chat' },
+  otel: { label: ACTIONS.exportTrace.label, note: 'export otel · a span per call, for the tools you already use' },
+  har: { label: ACTIONS.exportHar.label, note: 'export har · the model calls, for anything that reads HTTP archives' },
 };
 
 /**
@@ -71,6 +73,18 @@ export function shareNote(offers: Pick<RunOffers, 'copies'> | null | undefined, 
  * The most runs one dataset takes, as the server's `export-dataset` job does (run-exports.ts
  * `MAX_DATASET_RUNS`): every id goes on the CLI's command line.
  */
+/**
+ * A copy's dialog, titled and confirmed in its action's words, as Share names the copy and its
+ * dialog says the verb: `Export OpenTelemetry trace`, confirmed `Export trace`; `Export eval dataset
+ * of 01M50J6C69` (or `of 3 runs`), confirmed `Export dataset`; `Pack 01M50J6C69`, confirmed `Pack run`.
+ */
+export function shareDialog(key: 'pack' | 'dataset' | 'otel', ids: readonly string[]): { title: string; ok: string } {
+  const runs = ids.length === 1 ? shortId(ids[0]!) : `${num(ids.length)} runs`;
+  if (key === 'pack') return { title: `Pack ${runs}`, ok: ACTIONS.pack.confirm };
+  if (key === 'dataset') return { title: `${ACTIONS.exportDataset.title} of ${runs}`, ok: ACTIONS.exportDataset.confirm };
+  return { title: ACTIONS.exportTrace.title, ok: ACTIONS.exportTrace.confirm };
+}
+
 export const DATASET_MAX_RUNS = 500;
 
 /** Why a dataset can't be made from this many runs (the Runs page picks up to 1,000), or null when it can. */

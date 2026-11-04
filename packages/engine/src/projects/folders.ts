@@ -4,7 +4,7 @@ import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } fr
 import { displayPath, expandHome, isWithin, realpathOrNull, tildePath } from './paths.js';
 
 /**
- * Folders for the dashboard's Add a project page: what kind of project a folder holds, and the
+ * Folders for the dashboard's Add project page: what kind of project a folder holds, and the
  * folders to suggest while a path is typed.
  *
  * Suggesting folders means the dashboard's server lists directories, so it does that within limits
@@ -43,7 +43,7 @@ import { displayPath, expandHome, isWithin, realpathOrNull, tildePath } from './
 
 export type ProjectLanguage = 'python' | 'node' | 'deno' | 'go' | 'rust' | 'ruby' | 'java';
 
-/** What a folder holds, as the Add a project page shows it. */
+/** What a folder holds, as the Add project page shows it. */
 export interface FolderKind {
   /** `Python · uv`, `Node · npm`, `Python · Node`; null when the folder has no project files. */
   kind: string | null;

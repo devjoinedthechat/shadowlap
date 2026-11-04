@@ -215,39 +215,41 @@ The menu's actions:
 
 | Key | Action | At | Runs |
 | --- | --- | --- | --- |
-| `i` | Inject an instruction (asks for text) | model call | `… --inject <n>=<text> --inject-as user` |
-| `m` | Switch the model from here (asks for a model) | model call | `… --model <n>:<model>` |
-| `g` | Fork with your changed prompt | model call | `… --prompt-from <n>` |
-| `f` | Answer with an HTTP failure (asks for a status) | model call | `… --fail-at <n>=<status>` |
-| `o` | Override this tool's result (opens with the recorded result to edit) | tool call | `… --override <n>=<json>` |
-| `t` | Answer with a tool error (`timeout`, `error` or `error:<message>`, or a status) | tool call | `… --fail-at <n>=<failure>` |
-| `x` | Plant a prompt injection here (asks for the text) | read tool call | `… --inject-result <n>=<text> --repeat 3` |
-| `l` | Force this tool live | tool call | `… --live-tool <name>` |
-| `u` | Answer differently as the user (starts from the recorded reply) | recorded user input | `… --override <n>=<reply>` |
-| `a` | Diverge here | any call | `… --diverge-at <n>` |
-| `e` | Repeat the replay and compare (asks how many attempts) | the whole run | `… --repeat <n>` |
-| `s` | Stub the writes | the whole run | `… --writes stub` |
-| `b` | Find the commit that broke it (asks for a commit where it still worked) | the whole run | `shadowlap bisect <run> --good <commit>` |
-| `r` | Replay this run | — | `shadowlap replay <run>` |
-| `n` | Add the divergence's suggested normalizer | — | `shadowlap normalize add …` |
-| `p` | Pack this run (asks for a directory) | — | `shadowlap pack <run> <dir>` |
-| `B` | Find the call it was lost at | a failed run | `shadowlap blame <run> [--expect <json>]` |
-| `R` | Repair the fix it fails in | a run in an open fix | `shadowlap repair --fixes … [--keeps …] [--scope …] [--expect <json>] [--repairer claude-code]` |
-| `V` | Verify a change for the fix | a run in a fix | `shadowlap verify --fixes … [--holdout …] [--keeps …] [--expect <json>]` |
+| `i` | Inject instruction… (asks for text) | model call | `… --inject <n>=<text> --inject-as user` |
+| `m` | Switch model from here… (asks for a model) | model call | `… --model <n>:<model>` |
+| `g` | Use changed prompt from here | model call | `… --prompt-from <n>` |
+| `f` | Fail with HTTP status… (asks for a status) | model call | `… --fail-at <n>=<status>` |
+| `o` | Override result… (opens with the recorded result to edit) | tool call | `… --override <n>=<json>` |
+| `t` | Fail with tool error… (`timeout`, `error` or `error:<message>`, or a status) | tool call | `… --fail-at <n>=<failure>` |
+| `x` | Plant instruction… (asks for the text) | read tool call | `… --inject-result <n>=<text> --repeat 3` |
+| `l` | Force *tool* live | tool call | `… --live-tool <name>` |
+| `u` | Override user reply… (starts from the recorded reply) | recorded user input | `… --override <n>=<reply>` |
+| `a` | Run live from here | any call | `… --diverge-at <n>` |
+| `e` | Repeat 5 times (on a fork, asks first: its attempts run live) | the whole run | `… --repeat 5` |
+| `s` | Replay with writes stubbed | the whole run | `… --writes stub` |
+| `b` | Find breaking commit… (asks for a commit where it still worked) | the whole run | `shadowlap bisect <run> --good <commit>` |
+| `r` | Replay | — | `shadowlap replay <run>` |
+| `n` | Add suggested normalizer (the divergence's) | — | `shadowlap normalize add …` |
+| `p` | Pack run… (asks for a directory) | — | `shadowlap pack <run> <dir>` |
+| `B` | Run blame: find the call it was lost at | a failed run | `shadowlap blame <run> [--expect <json>]` |
+| `R` | Run repair: repair the fix it fails in | a run in an open fix | `shadowlap repair --fixes … [--keeps …] [--scope …] [--expect <json>] [--repairer claude-code]` |
+| `V` | Run verify: verify a change for the fix | a run in a fix | `shadowlap verify --fixes … [--holdout …] [--keeps …] [--expect <json>]` |
 
-- **`e` on a replay** runs again from its parent, with the flags that made it, its own command and its `--expect`.
+Each is named as the dashboard's fork menu names it, in the CLI's verbs: an ellipsis means it asks for something before it runs.
+
+- **`e` on a replay** runs again from its parent, with the flags that made it, its own command and its `--expect`. Its five attempts run live from where it forks, so it shows the exact command first, and `Enter` runs it. On a recording, which replays offline, it starts at once.
 - **`s` on a replay** runs again from its parent too.
-- **`b` on a run that passed** finds the commit that changed it, from its own.
+- **`b` on a run that passed** reads *Find commit that changed it…*, and searches from its own commit.
 
 Each action runs the CLI against the same store and streams its output into a pane. When it created a run, `Enter` opens it. The TUI never reimplements engine behavior: it is a front end to the same commands you'd type.
 
 ### What the menu offers, case by case
 
-- **A run still recording**: the forks, the replay, the pack and Find the commit are off until it finishes, and each says so ("fork once the recording finishes"), as in the dashboard. The run is tailed, so they turn on when it ends.
+- **A run still recording**: the forks, the replay, the pack and Find breaking commit… are off until it finishes, and each says so ("fork once the recording finishes"), as in the dashboard. The run is tailed, so they turn on when it ends.
 - **A run whose recording process was killed** stays marked running, but nothing will add to it. The runs list and the header call it interrupted, as the dashboard does, and its actions are on, as `replay` and `pack` take it.
-- **A recorded user input** offers only a different answer and diverge: running it live or overriding it as a tool result would mean asking a person again.
+- **A recorded user input** offers only Override user reply… and Run live from here: forcing it live or overriding it as a tool result would mean asking a person again.
 - **A run imported from a capture** has no command, so its menu shows a note, a replay that asks for your command (which goes after `--`), and Pack, with blame, repair and verify off until that replay. That replay records every kind of call, and every fork works on it.
-- **Find the commit** is off for a run recorded outside git, and for a run from someone else's pack, whose command it would run at every commit.
+- **Find breaking commit…** is off for a run recorded outside git, and for a run from someone else's pack, whose command it would run at every commit.
 
 Inject always passes `--inject-as user`, which every provider takes. What you type is passed as text: an override or a planted instruction that starts with `@` is never read as a file. From a terminal, `--inject-result <n>=@payload.txt` reads one.
 
@@ -327,7 +329,7 @@ Lime that reads well on a dark background disappears on a light one. So before i
 
 ## Cost, model and stop reason
 
-Every model call stores the model it was made with, the provider's stop reason and the response size. The meta tab shows them with the usage split into uncached input, output, cache reads and cache writes, and an approximate cost at list price.
+Every model call stores the model it was made with, the provider's stop reason and the response size. The meta tab shows them with the usage, the whole input split into cache read, cache creation and uncached, then the output, and an approximate cost at list price.
 
 - **Replayed calls** show what they *would* have cost: that money was not re-spent.
 - **The runs list** has a cost column, and its detail line shows wall time, what a run spent and what its replay saved.

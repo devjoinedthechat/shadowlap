@@ -14,10 +14,11 @@ import { DotParts, Flagged, Markdown, StepHead } from './parts.js';
  */
 export function RepairStepView({ fix }: { fix: FixDetail }) {
   const r = fix.repair;
+  // Headed in the stepper's word for it, as every page says it: a repair makes a change, and none yet is "No change yet".
   if (!r)
     return (
       <EmptyState
-        title="No fix yet"
+        title={fix.steps.find((x) => x.key === 'repair')?.title ?? 'No change yet'}
         text="repair blames the failing runs, asks a model for prompt rewrites, and keeps the smallest one that fixes them without breaking the good runs. A fix of your own goes through verify."
         command={fix.commands.repair}
       />
@@ -117,7 +118,7 @@ function NothingAccepted({ r }: { r: RepairStep }) {
   return (
     <>
       <StepHead
-        title="No fix yet"
+        title={r.title}
         text={
           <>
             {head}

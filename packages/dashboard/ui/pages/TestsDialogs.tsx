@@ -4,6 +4,7 @@ import { CmdLine } from '../components/bits.js';
 import { Dialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { commandText, revisionChoices, updatePlan, type UpdatePlan } from '../goldens.js';
+import { ACTIONS, confirmWords } from '../labels.js';
 
 /**
  * The Tests screen's dialogs: Update golden (one or several, in the style of Remove project), Find
@@ -95,7 +96,7 @@ export function UpdateGoldensDialog({ view, paths, has, onUpdate, onInstead, onC
 const ANOTHER = '\u0000another';
 
 /**
- * Find the commit for a golden when it can't just start: no revision where it passed under today's
+ * Find breaking commit for a golden when it can't just start: no revision where it passed under today's
  * checks is known, or a search from it (`tried`) named no first bad commit, so it asks for a commit
  * where it still worked, offering the commits the golden was tested at with their subjects (as the
  * mock's select does), starting on an older one than `tried`, or on Another commit… with its field
@@ -133,7 +134,7 @@ export function FindCommitDialog({ name, golden, range, live, revisions, tried, 
     />
   );
   return (
-    <Dialog title={`Find the commit that broke ${name}`} text={`Replays ${name} at commits ${between}, halving each time, and names the first where it fails. ${cost}`} ok="Find the commit" okDisabled={!ok} onOk={run} onClose={onClose}>
+    <Dialog title={`Find breaking commit for ${name}`} text={`Replays ${name} at commits ${between}, halving each time, and names the first where it fails. ${cost}`} ok={confirmWords(ACTIONS.findBreakingCommit.label)} okDisabled={!ok} onOk={run} onClose={onClose}>
       {range ? null : (
         <div className="form one">
           <label>
@@ -168,9 +169,9 @@ export function NormalizeUpdateDialog({ name, steps, onRun, onClose }: { name: s
   const rules = steps.length - 1;
   return (
     <Dialog
-      title={`Add the normalizer and update ${name}?`}
+      title={`${ACTIONS.addNormalizerAndUpdate.label} ${name}?`}
       text={`The ${rules === 1 ? 'rule' : 'rules'} alone can’t make the replay match, so ${name} is re-recorded live after ${rules === 1 ? 'it' : 'them'}, with writes stubbed, and replaced only if its checks pass. Without ${rules === 1 ? 'the rule' : 'them'}, the next run diverges again.`}
-      ok="Add and update"
+      ok={ACTIONS.addNormalizerAndUpdate.label}
       onOk={onRun}
       onClose={onClose}
     >

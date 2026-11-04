@@ -278,21 +278,21 @@ Each task, with the command or page that does it:
 ╭──────────────────────────────────────────────────────────────╮
 │ Fork menu                                                    │
 │ At #16 · lookup_policy · pure tool                           │
-│ > o  Override this tool’s result             --override 16=… │
-│   t  Answer with a tool error           --fail-at 16=timeout │
+│ > o  Override result…                        --override 16=… │
+│   t  Fail with tool error…              --fail-at 16=timeout │
 │   l  Force lookup_policy live      --live-tool lookup_policy │
-│   a  Diverge here                            --diverge-at 16 │
+│   a  Run live from here                      --diverge-at 16 │
 │ The whole run                                                │
-│   e  Repeat the replay and comp…                  --repeat 5 │
-│   s  Stub the writes                           --writes stub │
-│   b  Find the commit that chang…             bisect --good … │
+│   e  Repeat 5 times                               --repeat 5 │
+│   s  Replay with writes stubbed                --writes stub │
+│   b  Find commit that changed i…             bisect --good … │
 │ Fixes                                                        │
-│   B  Find the call it was lost …                       blame │
-│   R  Repair the fix it fails in…                      repair │
-│   V  Verify a change for the fi…                      verify │
+│   B  Run blame                                         blame │
+│   R  Run repair                                       repair │
+│   V  Run verify                                       verify │
 │ ────────────────────────                                     │
-│   r  Replay this run (clean if …                      replay │
-│   p  Pack this run to a directo…                        pack │
+│   r  Replay                                           replay │
+│   p  Pack run…                                          pack │
 │ The agent gets this instead of the recorded result. Calls b… │
 ╰──────────────────────────────────────────────────────────────╯
  a letter runs its action  enter run  j/k move  esc close

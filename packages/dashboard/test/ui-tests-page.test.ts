@@ -157,7 +157,7 @@ describe('the Tests page', () => {
     expect(all(dialog, '.rmp, .ondisk.first')).toHaveLength(0);
     expect(all(dialog, '.ondisk.steps li span').map((s) => s.textContent)).toEqual(['Replayed offline, as recorded', 'Its judge asked once, live', 'Its verdict kept in the pack', 'You review the change']);
     expect(one(dialog, '.cmdline').textContent).toBe('$shadowlap test goldens/judged --update');
-    await page.click(page.byText('.dialog button', 'Update'));
+    await page.click(page.byText('.dialog button', 'Update golden'));
     expect(started).toEqual([{ kind: 'test-update', fields: { golden: 'goldens/judged' } }]);
   });
 

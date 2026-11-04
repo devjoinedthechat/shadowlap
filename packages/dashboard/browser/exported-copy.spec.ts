@@ -6,7 +6,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { dash, demoId, expectAccessible } from './dashboard.js';
 
 /**
- * An exported copy as Share → HTML file gives it, opened from a file as whoever it is sent to opens
+ * An exported copy as Share → HTML report gives it, opened from a file as whoever it is sent to opens
  * it: one script, built from an entry of its own (ui/main-copy.tsx) with only the pages a copy shows,
  * under a Content-Security-Policy that runs that script alone and loads nothing. In the dashboard a
  * run's views but Calls each wait for a script of their own (ui/components/OnShow.tsx); in a copy

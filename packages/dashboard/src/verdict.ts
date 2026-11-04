@@ -1,4 +1,4 @@
-import { decisionWord, describeBaselineRule, describeGate, dropBound, gateOf, outcomeOf, probeFinding, rescueRule, verdictLine, rateBound, type BlameProbe, type BlameReport, type Gate, type GateResult, type SprtGate, type VerifiedRun, type VerifyReport } from '@shadowlap/engine';
+import { decisionWord, describeBaselineRule, describeGate, dropBound, gateOf, outcomeOf, probeFinding, rescueRule, runOutcomeWord, verdictLine, rateBound, type BlameProbe, type BlameReport, type Gate, type GateResult, type SprtGate, type VerifiedRun, type VerifyReport } from '@shadowlap/engine';
 
 /**
  * A gate's verdict as every page says it (decision 9): the verdict word, the tally and the Wilson
@@ -60,10 +60,12 @@ export function probeLine(p: BlameProbe, r: Pick<BlameReport, 'needed' | 'attemp
  * replay` for one its first attempt settled; a good run decided against its own baseline by both
  * tallies and the bound on its drop, `kept · 38 of 38, baseline 38 of 38 · drop <= 0.10 (95%)`; with a
  * fixed count, the tally alone; an attempt that could not be judged counted apart, with no bound, as
- * the CLI prints it (`inconclusive · 2 of 2 passed, attempt 3 not judged`).
+ * the CLI prints it (`inconclusive · 2 of 2 passed, attempt 3 not judged`). One its attempts left
+ * open is inconclusive too, the one word a page has for it, whether its gate couldn't decide or the
+ * verify stopped first (verify's report says unsettled).
  */
 export function verifiedLine(x: VerifiedRun): { line: string; tone: VerdictTone } {
-  const word = outcomeOf(x);
+  const word = runOutcomeWord(outcomeOf(x));
   const tone = toneOf(word);
   if (x.undecided) {
     const judged = x.attempts.filter((a) => a.verdict !== 'inconclusive').length;

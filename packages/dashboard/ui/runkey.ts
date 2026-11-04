@@ -3,7 +3,7 @@ import type { RunMark } from '../../engine/src/run-marks.js';
 /**
  * The good/bad key: one press labels a run `good` or `bad`, the two labels a run can't hold at once,
  * and a press of the one it holds takes it off. `good` is a run a fix must not make worse than its
- * own baseline (`repair --keeps label:good`, and Repair from here takes a fix's good runs from it);
+ * own baseline (`repair --keeps label:good`, and Run repair takes a fix's good runs from it);
  * `bad` names a run that went wrong, for `repair --fixes label:bad`. The key itself, what a press
  * changes and what it says are the engine's (run-marks.ts), which the terminal UI's key is too; here
  * is what the page adds: each press can be undone, the change it made taken back. No DOM here: the

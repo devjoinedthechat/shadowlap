@@ -219,7 +219,7 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
     repair: p ? repairStep(store, rec, p, fix.fixId, pulled(p), commands.repair) : null,
     repairs: [...rec.repairs].reverse().map((x) => {
       const c = acceptedCandidate(x);
-      return { repairId: x.repairId, at: x.at, outcome: x.outcome, accepted: x.accepted, title: c ? commitTitle(c) : 'No fix yet' };
+      return { repairId: x.repairId, at: x.at, outcome: x.outcome, accepted: x.accepted, title: c ? commitTitle(c) : 'No change yet' };
     }),
     verify,
     // The newest that counts: one that doesn't count for the fix never opens the step.

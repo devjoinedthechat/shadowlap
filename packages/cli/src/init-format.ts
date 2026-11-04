@@ -288,7 +288,7 @@ export interface InitJson extends Omit<InitReport, 'tools' | 'config' | 'modelSe
    * the dashboard's job drawer.
    */
   modelServer: ModelServer | null;
-  /** The folder as Add a project describes it. */
+  /** The folder as Add project describes it. */
   folder: FolderKind;
   summary: {
     /** `Python 3.12 · uv`, `Node 22 · TypeScript · pnpm`; null when nothing was recognised. */

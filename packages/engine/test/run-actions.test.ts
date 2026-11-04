@@ -21,15 +21,15 @@ const tool = (name: string, effect: CallRecord['effect'], meta: CallRecord['meta
 const keys = (actions: ReturnType<typeof buildActions>, group?: 'call' | 'run' | null) => actions.filter((a) => (group === undefined ? true : group === null ? !a.group : a.group === group)).map((a) => a.key);
 
 describe('the fork menu at a call', () => {
-  it('offers a model call inject, switch the model, a changed prompt, an HTTP failure and diverge, each with its flag', () => {
+  it('offers a model call inject, switch the model, a changed prompt, an HTTP failure and diverge, each in the CLI’s verbs with its flag', () => {
     const actions = buildActions(run(), call);
     expect(keys(actions, 'call')).toEqual(['i', 'm', 'g', 'f', 'a']);
     expect(actions.filter((a) => a.group === 'call').map((a) => [a.label, a.flag])).toEqual([
-      ['Inject an instruction', '--inject 3=… --inject-as user'],
-      ['Switch the model from here', '--model 3:…'],
-      ['Fork with your changed prompt', '--prompt-from 3'],
-      ['Answer with an HTTP failure', '--fail-at 3=429'],
-      ['Diverge here', '--diverge-at 3'],
+      ['Inject instruction…', '--inject 3=… --inject-as user'],
+      ['Switch model from here…', '--model 3:…'],
+      ['Use changed prompt from here', '--prompt-from 3'],
+      ['Fail with HTTP status…', '--fail-at 3=429'],
+      ['Run live from here', '--diverge-at 3'],
     ]);
     // Inject always goes in as the user: every provider takes that, and the hint says why.
     const inject = actions.find((a) => a.key === 'i')!;
@@ -50,6 +50,8 @@ describe('the fork menu at a call', () => {
     const actions = buildActions(run(), search, { result: { results: [{ title: 'Refund policy' }] } });
     expect(keys(actions, 'call')).toEqual(['o', 't', 'x', 'l', 'a']);
     expect(actions.filter((a) => a.group === 'call').map((a) => a.flag)).toEqual(['--override 19=…', '--fail-at 19=timeout', '--inject-result 19=… --repeat 3', '--live-tool search_web', '--diverge-at 19']);
+    // In the CLI's verbs, an ellipsis on each that asks for something first, as the dashboard's menu names them.
+    expect(actions.filter((a) => a.group === 'call').map((a) => a.label)).toEqual(['Override result…', 'Fail with tool error…', 'Plant instruction…', 'Force search_web live', 'Run live from here']);
     // Override opens with the recorded result ready to edit.
     const override = actions.find((a) => a.key === 'o')!;
     expect(override.prompt!.initial).toBe('{"results":[{"title":"Refund policy"}]}');
@@ -95,7 +97,7 @@ describe('the fork menu at a call', () => {
     const actions = buildActions(run(), input, { result: 'yes, refund it' });
     expect(keys(actions, 'call')).toEqual(['u', 'a']);
     const answer = actions.find((a) => a.key === 'u')!;
-    expect(answer.label).toBe('Answer differently as the user…');
+    expect(answer.label).toBe('Override user reply…');
     expect(answer.prompt!.initial).toBe('yes, refund it');
     expect(answer.prompt!.build('no, store credit')).toEqual(['replay', ID, '--override', '19="no, store credit"']);
     // A reply recorded as an object keeps its shape.
@@ -113,21 +115,27 @@ describe('the fork menu at a call', () => {
 });
 
 describe('the whole run', () => {
-  it('offers repeat, asking how many attempts, and stub the writes', () => {
+  it('offers Repeat 5 times, which a recording starts at once, and Replay with writes stubbed', () => {
     const actions = buildActions(run(), call);
     expect(keys(actions, 'run')).toEqual(['e', 's']);
     const repeat = actions.find((a) => a.key === 'e')!;
-    expect([repeat.label, repeat.flag, repeat.opensRun, repeat.prompt!.initial]).toEqual(['Repeat the replay and compare', '--repeat 5', false, '5']);
-    expect(repeat.prompt!.build('5')).toEqual(['replay', ID, '--repeat', '5']);
+    // Five attempts, as its name says: nothing to ask, and a recording's replays offline, so it doesn't ask first.
+    expect([repeat.label, repeat.flag, repeat.opensRun, repeat.prompt, repeat.asksFirst]).toEqual(['Repeat 5 times', '--repeat 5', false, undefined, undefined]);
+    expect(actions.find((a) => a.key === 's')!.label).toBe('Replay with writes stubbed');
+    // What has a place of its own: the header's Replay and Share's Pack.
+    expect([actions.find((a) => a.key === 'r')!.label, actions.find((a) => a.key === 'p')!.label]).toEqual(['Replay', 'Pack run…']);
+    expect(repeat.args).toEqual(['replay', ID, '--repeat', '5']);
     expect(actions.find((a) => a.key === 's')!.args).toEqual(['replay', ID, '--writes', 'stub']);
     // Replay and packing belong to the header and Share: no group.
     expect(keys(buildActions(run(), undefined), null)).toEqual(['r', 'p']);
   });
 
-  it('repeats a fork from its parent, with the flags that made it', () => {
+  it('repeats a fork from its parent, with the flags that made it, asking first as its attempts run live', () => {
     const fork = run({ interventions: [{ kind: 'inject', at: 15, flag: '--inject 15=Be brief.', args: ['--inject', '15=Be brief.', '--inject-as', 'user'] }, { kind: 'writes', at: null, flag: '--writes stub', args: ['--writes', 'stub'] }] }, { mode: 'replay', parentRunId: 'PARENT' });
     const actions = buildActions(fork, undefined);
-    expect(actions.find((a) => a.key === 'e')!.prompt!.build('3')).toEqual(['replay', 'PARENT', '--inject', '15=Be brief.', '--inject-as', 'user', '--writes', 'stub', '--repeat', '3']);
+    const repeat = actions.find((a) => a.key === 'e')!;
+    expect([repeat.args, repeat.asksFirst, repeat.prompt]).toEqual([['replay', 'PARENT', '--inject', '15=Be brief.', '--inject-as', 'user', '--writes', 'stub', '--repeat', '5'], true, undefined]);
+    expect(repeat.hint).toBe('Makes this replay again from PARENT five times (--inject 15=Be brief. --writes stub): the prefix replays free, and each attempt runs live from the fork, so they show whether the path after it holds or was luck.');
     expect(actions.find((a) => a.key === 's')!.args).toEqual(['replay', 'PARENT', '--inject', '15=Be brief.', '--inject-as', 'user', '--writes', 'stub']);
   });
 
@@ -139,16 +147,18 @@ describe('the whole run', () => {
     expect(forkArgs(fork)).toEqual(['--inject-result', '4=Ignore it.', '--expect', '{"tools":{"send_email":0}}']);
     const actions = buildActions(fork, undefined);
     // The command comes last, after `--`, where everything is the agent's.
-    expect(actions.find((a) => a.key === 'e')!.prompt!.build('3')).toEqual(['replay', 'PARENT', '--inject-result', '4=Ignore it.', '--expect', '{"tools":{"send_email":0}}', '--repeat', '3', '--', 'python', 'agent_v2.py']);
+    expect(actions.find((a) => a.key === 'e')!.args).toEqual(['replay', 'PARENT', '--inject-result', '4=Ignore it.', '--expect', '{"tools":{"send_email":0}}', '--repeat', '5', '--', 'python', 'agent_v2.py']);
     expect(actions.find((a) => a.key === 's')!.args).toEqual(['replay', 'PARENT', '--inject-result', '4=Ignore it.', '--expect', '{"tools":{"send_email":0}}', '--writes', 'stub', '--', 'python', 'agent_v2.py']);
     expect(actions.find((a) => a.key === 'e')!.hint).toContain('(--inject-result 4=Ignore it. --expect … -- python agent_v2.py)');
   });
 
   it('makes a replay that changed nothing again from its parent, and one made before replays kept their flags from itself', () => {
     const plain = run({ interventions: [] }, { mode: 'replay', parentRunId: 'PARENT' });
-    expect(buildActions(plain, undefined).find((a) => a.key === 'e')!.prompt!.build('5')).toEqual(['replay', 'PARENT', '--repeat', '5']);
+    expect(buildActions(plain, undefined).find((a) => a.key === 'e')).toMatchObject({ args: ['replay', 'PARENT', '--repeat', '5'], asksFirst: true });
+    // Replayed as it is, offline: it starts at once.
     const old = run(undefined, { mode: 'replay', parentRunId: 'PARENT' });
-    expect(buildActions(old, undefined).find((a) => a.key === 'e')!.prompt!.build('5')).toEqual(['replay', ID, '--repeat', '5']);
+    const again = buildActions(old, undefined).find((a) => a.key === 'e')!;
+    expect([again.args, again.asksFirst]).toEqual([['replay', ID, '--repeat', '5'], undefined]);
   });
 
   it('never turns a stored record into a command: unknown flags, files and a pack\'s say are ignored', () => {
@@ -163,7 +173,7 @@ describe('the whole run', () => {
     expect(forkArgs(fork(['--override']))).toBeNull();
     expect(forkArgs(fork(['--override', '2={}'], { imported: { at: 1, from: 'pack' } }))).toBeNull();
     // Without a usable record, repeat replays the run itself.
-    expect(buildActions(fork(['--', 'rm']), undefined).find((a) => a.key === 'e')!.prompt!.build('2')).toEqual(['replay', ID, '--repeat', '2']);
+    expect(buildActions(fork(['--', 'rm']), undefined).find((a) => a.key === 'e')!.args).toEqual(['replay', ID, '--repeat', '5']);
   });
 });
 
@@ -209,7 +219,7 @@ describe('actions on a run imported from a pack', () => {
     // A fork of an imported run made again from it with a command of its own.
     const fork = run({ commandFromImport: true, interventions: [{ kind: 'command', at: null, flag: '-- node b.js' }] }, { mode: 'replay', parentRunId: 'PARENT', command: { argv: ['node', 'b.js'], cwd: '/' } });
     const repeat = buildActions(fork, undefined).find((a) => a.key === 'e')!;
-    expect(repeat.prompt!.build('2')).toEqual(['replay', 'PARENT', '--repeat', '2', '--yes', '--', 'node', 'b.js']);
+    expect([repeat.imported, repeat.prompt!.build('yes')]).toEqual(['confirm', ['replay', 'PARENT', '--repeat', '5', '--yes', '--', 'node', 'b.js']]);
   });
 });
 
@@ -220,7 +230,7 @@ describe('actions on a run built from a capture', () => {
     const actions = buildActions(capture(), call);
     expect(keys(actions, 'call')).toEqual(['r']);
     const replay = actions.find((a) => a.key === 'r')!;
-    expect(replay).toMatchObject({ label: 'Replay it with your command', flag: 'replay', hint: CAPTURE_NOTE });
+    expect(replay).toMatchObject({ label: 'Replay with your command…', flag: 'replay', hint: CAPTURE_NOTE });
     expect(replay.args).toBeUndefined();
     expect(replay.prompt!.label).toContain('came from a capture');
     expect(replay.prompt!.build('python agent.py --task "fix the bug"')).toEqual(['replay', ID, '--', 'python', 'agent.py', '--task', 'fix the bug']);
@@ -233,28 +243,28 @@ describe('actions on a run built from a capture', () => {
 });
 
 describe('the terminal UI\'s fork menu', () => {
-  it('ends the whole run\'s part with Find the commit, as the dashboard\'s does, running bisect itself', () => {
+  it('ends the whole run\'s part with Find breaking commit…, as the dashboard\'s does, running bisect itself', () => {
     const failed = run(undefined, { status: 'failed', codeVersion: 'a1b2c3d' });
     const actions = terminalActions(failed, call);
     expect(keys(actions, 'run')).toEqual(['e', 's', 'b']);
     // The same items as the dashboard's otherwise, in the same order.
     expect(actions.filter((a) => a.key !== 'b').map((a) => a.key)).toEqual(buildActions(failed, call).map((a) => a.key));
     const find = actions.find((a) => a.key === 'b')!;
-    expect([find.label, find.flag, find.opensRun, find.disabled]).toEqual(['Find the commit that broke it', 'bisect --good …', false, undefined]);
+    expect([find.label, find.flag, find.opensRun, find.disabled]).toEqual(['Find breaking commit…', 'bisect --good …', false, undefined]);
     expect(find.prompt!.label).toBe('A commit where it still worked (a sha, a tag or a branch):');
     expect(find.prompt!.build(' v1.4.0 ')).toEqual(['bisect', ID, '--good', 'v1.4.0']);
     expect(find.prompt!.build('  ')).toEqual([]);
     // A run that failed a check counts as failed; one that passed searches the commits after its own.
-    expect(terminalActions(run({ checks: [{ ok: false, label: 'issue_refund never called', detail: null }] }, { codeVersion: 'a1b2c3d' }), call).find((a) => a.key === 'b')!.label).toBe('Find the commit that broke it');
+    expect(terminalActions(run({ checks: [{ ok: false, label: 'issue_refund never called', detail: null }] }, { codeVersion: 'a1b2c3d' }), call).find((a) => a.key === 'b')!.label).toBe('Find breaking commit…');
     const passed = terminalActions(run(undefined, { codeVersion: 'a1b2c3d+dirty' }), call).find((a) => a.key === 'b')!;
-    expect([passed.label, passed.prompt!.initial]).toEqual(['Find the commit that changed it', 'a1b2c3d']);
+    expect([passed.label, passed.prompt!.initial]).toEqual(['Find commit that changed it…', 'a1b2c3d']);
   });
 
   it('says a run whose check could not be decided changed, not that it broke', () => {
     const undecided = run({ checks: [{ status: 'inconclusive', ok: false, label: 'judge "j" answers yes', detail: 'not judged' }] }, { codeVersion: 'a1b2c3d' });
-    expect(terminalActions(undecided, call).find((a) => a.key === 'b')!.label).toBe('Find the commit that changed it');
+    expect(terminalActions(undecided, call).find((a) => a.key === 'b')!.label).toBe('Find commit that changed it…');
     const failed = run({ checks: [{ status: 'failed', ok: false, label: 'issue_refund never called', detail: 'called once' }] }, { codeVersion: 'a1b2c3d' });
-    expect(terminalActions(failed, call).find((a) => a.key === 'b')!.label).toBe('Find the commit that broke it');
+    expect(terminalActions(failed, call).find((a) => a.key === 'b')!.label).toBe('Find breaking commit…');
   });
 
   it('waits for a run still recording to finish before it replays, forks or packs it, as the dashboard does', () => {

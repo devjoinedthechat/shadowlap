@@ -129,8 +129,8 @@ describe('the Training page', () => {
   it('shows the file Export pairs writes and the command it runs, as the format and confidence change', async () => {
     const started: Array<{ kind: string; fields: Record<string, unknown> }> = [];
     r = await render(page('pairs', started));
-    await r.until('the page to load', () => r!.all('button').some((b) => b.textContent.trim() === 'Export pairs'));
-    await r.click(r.byText('button', 'Export pairs'));
+    await r.until('the page to load', () => r!.all('button').some((b) => b.textContent.trim() === 'Export pairs…'));
+    await r.click(r.byText('button', 'Export pairs…'));
     const dialog = () => r!.one('.dialog');
     expect(dialog().textContent).toContain('It writes .shadowlap/exports/pairs.jsonl in the project folder');
     expect(r.one('.dialog .cmdline').textContent).toBe('$shadowlap export pairs --min-confidence high --format openai-preference --out .shadowlap/exports/pairs.jsonl');
@@ -140,14 +140,16 @@ describe('the Training page', () => {
     await r.type(r.all('.dialog select')[0], 'trl');
     await r.type(r.all('.dialog select')[1], 'medium');
     expect(r.one('.dialog .cmdline').textContent).toBe('$shadowlap export pairs --min-confidence medium --format trl --out .shadowlap/exports/pairs.jsonl');
-    await r.click(r.byText('.dialog button', 'Export'));
+    // Titled and confirmed with its button's name, without the ellipsis.
+    expect(r.one('.dialog h3').textContent).toBe('Export pairs');
+    await r.click(r.byText('.dialog button', 'Export pairs'));
     expect(started).toEqual([{ kind: 'pairs', fields: { format: 'trl', minConfidence: 'medium' } }]);
   });
 
   it('shows the command Score a model runs for the model picked', async () => {
     r = await render(page('tasks'));
-    await r.until('the page to load', () => r!.all('button').some((b) => b.textContent.trim() === 'Score a model'));
-    await r.click(r.byText('button', 'Score a model'));
+    await r.until('the page to load', () => r!.all('button').some((b) => b.textContent.trim() === 'Score model…'));
+    await r.click(r.byText('button', 'Score model…'));
     await r.until('the models to be listed', () => r!.all('.dialog .cmdline').length === 1);
     expect(r.one('.dialog .cmdline').textContent).toBe('$shadowlap tasks score goldens/01M5GS0TFN goldens/01M5GS0VWV --model claude-haiku-4-5 --attempts 5');
     // Word by word, so --model never breaks between its dashes.

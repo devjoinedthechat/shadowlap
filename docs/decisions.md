@@ -328,9 +328,9 @@ Usage and cost are read from each answer as for any live call, under the configu
 
 ### What a run costs under the change
 
-What a run costs under the change is worked out as a run would spend it, not as asking spent it. A run's steps follow one another, each reading from the prompt cache the prefix the step before it wrote. Asking them again caches otherwise: several at once each write the cache, and a second sample of a step reads all of it.
+What a run costs under the change is worked out as a run would spend it, not as asking spent it. A run's steps follow one another, each reading from the prompt cache the prefix the step before it cached. Asking them again caches otherwise: several at once each cache the prefix anew, and a second sample of a step reads all of it.
 
-So a step's cost after the change is its changed answer's input, split between cache reads, cache writes and plain input as the recorded call's input was, and its output, priced for the model asked. What asking spent is reported apart (`spent`).
+So a step's cost after the change is its changed answer's input, split between cache read, cache creation and uncached input as the recorded call's input was, and its output, priced for the model asked. What asking spent is reported apart (`spent`).
 
 ### Prompt caching
 

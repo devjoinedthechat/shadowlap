@@ -107,7 +107,7 @@ describe('addProjectPage', () => {
 
   it('lists the suggestions with what each holds, folders already added disabled', () => {
     const v = addProjectPage({ query: '', suggestions, home: HOME });
-    expect(v.title).toBe('Add a project');
+    expect(v.title).toBe('Add project');
     expect(v.intro).toBe('Pick the folder your agent’s code is in. Nothing runs until you click.');
     // Those that can be added first, then those already added, then those without project files.
     expect(v.folders.map((f) => [f.display, f.note, f.disabled])).toEqual([

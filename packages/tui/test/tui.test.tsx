@@ -1,9 +1,10 @@
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { normalizeConversation, normalizeResponse, Store, unpackRun } from '@shadowlap/engine';
+import { normalizeConversation, normalizeResponse, Store, storeApiRequest, unpackRun } from '@shadowlap/engine';
 import { App } from '../src/app.js';
 import { diffLines } from '../src/diff.js';
 import { Help } from '../src/components/Help.js';
+import { usageWords } from '../src/components/Inspector.js';
 import { conversationLines, fitItems } from '../src/render.js';
 import { renderAt } from './terminal.js';
 import { parseSse, streamView } from '../src/sse.js';
@@ -449,9 +450,12 @@ describe('actions palette', () => {
     stdin.write(':');
     let frame = await frameWith(lastFrame, 'At #3 · model call');
     expect(frame).toContain('Fork menu');
-    expect(frame).toContain('Inject an instruction');
+    expect(frame).toContain('Inject instruction…');
     expect(frame).toContain('--inject 3=… --inject-as user'); // each line carries its flag
-    expect(frame).toContain('Switch the model from here');
+    expect(frame).toContain('Switch model from here…');
+    expect(frame).toContain('Use changed prompt from here');
+    expect(frame).toContain('Fail with HTTP status…');
+    expect(frame).toContain('Run live from here');
     expect(frame).toContain('The whole run');
     expect(frame).not.toContain('--live-tool'); // not a tool call
 
@@ -503,17 +507,62 @@ describe('actions palette', () => {
     stdin.write('\r');
     await frameWith(lastFrame, 'not run: it runs only once you type yes');
     expect(spawned).toEqual([]);
-    // Nor does answering what an action asks first: attempts, then the question again, then Esc.
+    // Repeat 5 times asks nothing else either: the question, with its five attempts, then Esc.
     stdin.write(':');
     await frameWith(lastFrame, 'The whole run');
     stdin.write('e');
+    frame = await frameWith(lastFrame, 'Type yes to run it:');
+    expect(frame).toContain(`shadowlap replay ${runId} --repeat 5`);
+    stdin.write('\u001b');
+    await frameWithout(lastFrame, 'Type yes to run it:');
+    // Nor does answering what an action asks first: the status to fail #3 with, then the question again, then Esc.
+    stdin.write('j');
+    stdin.write('j');
+    await frameMatching(lastFrame, /> #3\s/);
+    stdin.write(':');
+    await frameWith(lastFrame, 'At #3 · model call');
+    stdin.write('f');
     await frameWith(lastFrame, 'Enter to confirm');
     stdin.write('\r');
     frame = await frameWith(lastFrame, 'Type yes to run it:');
-    expect(frame).toMatch(new RegExp(`shadowlap replay ${runId} --repeat \\d+`));
+    expect(frame).toContain(`shadowlap replay ${runId} --fail-at 3=429`);
     stdin.write('\u001b');
     await frameWithout(lastFrame, 'Type yes to run it:');
     expect(spawned).toEqual([]);
+    store.close();
+  });
+
+  it('asks before a fork is repeated five times, live from where it forks, and runs it on Enter', async () => {
+    const { spawn } = await import('node:child_process');
+    const store = Store.open(':memory:');
+    const id = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: 'a'.repeat(64), occurrence: 1 };
+    const withCall = (runId: string, origin: 'live' | 'replayed') => {
+      store.appendCallStart({ runId, callNo: 1, ...id, origin, effect: null, requestRef: storeApiRequest(store, { model: 'claude-sonnet-5', messages: [{ role: 'user', content: 'Refund order A-1042.' }] }), meta: { provider: 'anthropic' }, at: 1 });
+      store.appendCallEnd(id, { runId, callNo: 1, attempt: 0, responseRef: null, outcome: 'ok', meta: { status: 200 }, at: 2 });
+      store.endRun(runId, 'completed');
+    };
+    const recording = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' } });
+    withCall(recording.runId, 'live');
+    const fork = store.createRun({ mode: 'replay', parentRunId: recording.runId, command: { argv: ['node', 'agent.js'], cwd: '.' }, meta: { interventions: [{ kind: 'diverge', at: 1, flag: '--diverge-at 1', args: ['--diverge-at', '1'] }] } });
+    withCall(fork.runId, 'live');
+    const spawned: string[][] = [];
+    const spawnCli = (args: string[]) => {
+      spawned.push(args);
+      return spawn(process.execPath, ['-e', 'console.log("repeated")'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    };
+    const { lastFrame, stdin } = renderAt(<App store={store} runId={fork.runId} spawnCli={spawnCli} columns={120} rows={30} />, 120, 30);
+    await frameWith(lastFrame, '> #1');
+    stdin.write(':');
+    await frameWith(lastFrame, 'The whole run');
+    stdin.write('e');
+    // Its attempts run live: what it runs, and that it costs, before anything does.
+    const frame = await frameWith(lastFrame, 'Enter runs it');
+    expect(frame).toContain('Repeat 5 times');
+    expect(frame).toContain(`shadowlap replay ${recording.runId} --diverge-at 1 --repeat 5, and asks models live, which costs.`);
+    expect(spawned).toEqual([]);
+    stdin.write('\r');
+    await frameWith(lastFrame, 'repeated');
+    expect(spawned).toEqual([['replay', recording.runId, '--diverge-at', '1', '--repeat', '5']]);
     store.close();
   });
 
@@ -529,7 +578,7 @@ describe('actions palette', () => {
     stdin.write('j'); // #3, the first model call
     await frameMatching(lastFrame, /> #3\s/);
     stdin.write(':');
-    await frameWith(lastFrame, 'Inject an instruction');
+    await frameWith(lastFrame, 'Inject instruction…');
     stdin.write('i');
     await frameWith(lastFrame, 'Instruction to add at #3:');
     stdin.write('Be brief.');
@@ -635,5 +684,15 @@ describe('render helpers', () => {
     const lines = diffLines({ type: 'forced', callNo: 4, kind: 'tool', name: 'search_web', replayedBefore: 3 }, 80).map((l) => l.text);
     expect(lines[0]).toContain('Diverged at call 4 (tool search_web)');
     expect(lines[1]).toContain('forced live');
+  });
+});
+
+describe('the meta tab', () => {
+  it('counts a model call’s whole input and splits it as the dashboard does: cache read, cache creation and uncached', () => {
+    expect(usageWords({ inputTokens: 200, outputTokens: 56, cacheReadInputTokens: 4000, cacheCreationInputTokens: 400 })).toBe('4.6k in (4.0k cache read, 400 cache creation, 200 uncached), 56 out');
+    expect(usageWords({ inputTokens: 1200, outputTokens: 56, cacheReadInputTokens: 0, cacheCreationInputTokens: 300 })).toBe('1.5k in (300 cache creation, 1.2k uncached), 56 out');
+    // No prompt cache used: the input alone.
+    expect(usageWords({ inputTokens: 1200, outputTokens: 56 })).toBe('1.2k in, 56 out');
+    expect(usageWords({ inputTokens: 200, outputTokens: 56, cacheCreationInputTokens: 400 })).not.toMatch(/write/);
   });
 });

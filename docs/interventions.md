@@ -443,7 +443,7 @@ counts the failures.
 shadowlap replay 01K5CQ4N7G --inject "15=Prefer sources from 2026." --repeat 5 --concurrency 5
 ```
 
-A fork records the flags that made it. So the fork menu's Repeat and Stub make it again from its
+A fork records the flags that made it. So the fork menu's Repeat 5 times and Replay with writes stubbed make it again from its
 parent with the same flags, its own command when it ran one after `--`, and the checks it was judged by
 with `--expect`. A replay that changed nothing (a fork your code change made) is made again from its
 parent too.
@@ -461,12 +461,12 @@ selected call, one line each with its flag on the right:
 
 | At | The fork menu offers |
 |---|---|
-| A model call | Inject, switch the model, your changed prompt, an HTTP failure and diverge |
-| A tool call | Override (opening with the recorded result to edit), a tool error, a planted instruction (reads only), force live and diverge |
-| A recorded user input | A different answer and diverge |
-| The whole run | Repeat, which asks how many attempts; stub the writes; find the commit that broke it |
+| A model call | Inject instruction…, Switch model from here…, Use changed prompt from here, Fail with HTTP status…, Run live from here |
+| A tool call | Override result… (opening with the recorded result to edit), Fail with tool error…, Plant instruction… (reads only), Force *tool* live, Run live from here |
+| A recorded user input | Override user reply…, Run live from here |
+| The whole run | Repeat 5 times, which asks first on a fork, as its attempts run live; Replay with writes stubbed; Find breaking commit… |
 
-Find the commit that broke it is [`bisect`](./cli.md#bisect), which asks for a commit where the run
+Each is named in the CLI's verbs, an ellipsis where it asks for something first. Find breaking commit… is [`bisect`](./cli.md#bisect), which asks for a commit where the run
 still worked. The menu asks for the one line of input an action needs, runs the CLI, and opens the run
 it created. Inject always passes `--inject-as user`. See [Terminal UI](./tui.md#actions).
 

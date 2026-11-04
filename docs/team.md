@@ -14,7 +14,7 @@ It is part of the open-source Shadowlap, free under Apache-2.0 like everything e
 
 ## Set it up
 
-Setting up takes four steps, each building on the one before. Run them in a terminal, or on the dashboard's setup page (`#/setup/store`: Settings → Store's **Set up the store**, or **Set up the team store** in the palette):
+Setting up takes four steps, each building on the one before. Run them in a terminal, or on the dashboard's setup page (`#/setup/store`: **Set up team store**, on Settings → Store or in the palette):
 
 ```sh
 shadowlap store set s3://<bucket>/<project> --check                   # 1. connect your bucket
@@ -50,7 +50,7 @@ Until **Finish**, the store works already, and the dashboard leads back to the s
 
 - it is first in the Overview's Needs a look;
 - Settings → Store names the step that is next, with **Continue the setup**;
-- the palette offers **Continue setting up the store**;
+- the palette offers **Continue team store setup**;
 - the status bar says *setting up*.
 
 A store set in a terminal has no setup under way: it shows as the store straight away, and the setup page shows the steps left.
@@ -267,7 +267,7 @@ What a pull brings is someone else's work. Shadowlap checks it as strictly as a 
 
 A teammate's blame or verdict is run again only from what was checked. A pull marks every blame and verdict it brings as pulled, on this machine only.
 
-- **Blame again**, **Run more attempts** and **Verify again** build their command from the report and the flags kept beside it: each a flag Shadowlap allows, with a value of its shape.
+- **Run blame again**, **Run more attempts** and **Verify again** build their command from the report and the flags kept beside it: each a flag Shadowlap allows, with a value of its shape.
 - **Never the fix's command line.** They never build it from the command line the fix carries, nor with a value holding a control or format character.
 - **None of the teammate's commands.** A pulled one runs without the teammate's `--build`, `--base` and command after `--`, which ran on their machine.
 - **A bounded budget.** It spends at most twice what Shadowlap runs by itself, as the table below gives.

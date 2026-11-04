@@ -25,8 +25,8 @@ export function TestsJobButton({ verb, off, title, className, onClick, children 
  * The question a Tests job waits on before it runs anything live (tests-ask.ts), wherever it was
  * started: Tests' buttons, a test replay's banner, the palette. The server's words name the goldens
  * that go live and why, the commands the job runs follow, and only its button sends the yes. It
- * opens on that button, as the other asks before a job that bills do (Repair from here, Update
- * golden, Find the commit): Cancel takes the focus first only where a dialog deletes or stops
+ * opens on that button, as the other asks before a job that bills do (Run repair, Update
+ * golden, Find breaking commit): Cancel takes the focus first only where a dialog deletes or stops
  * something, or runs a command someone else recorded (ConsentDialog). The shell draws it once, over
  * every page.
  */

@@ -10,7 +10,7 @@ import { readTeamStoreInput, type TeamStoreInput } from '../team-store.js';
 import { goldensOf } from './overview.js';
 
 /**
- * The Runs page: the table a page at a time, the 12-week calendar above it, Find the commit for the
+ * The Runs page: the table a page at a time, the 12-week calendar above it, Find breaking commit for the
  * failures on the days picked, and the bulk bar's label and delete.
  *
  *   GET  /api/runs/page?limit&cursor&from&to&types&q&attempts&sort   a page of the table
@@ -18,7 +18,7 @@ import { goldensOf } from './overview.js';
  *
  * With a team store, `types=local` (the Local chip, where Needs a look's Push leads) is the runs only
  * on this machine, as the store's status counts them, and the chip counts say how many.
- *   GET  /api/runs/bisect?from&to&types&q                             Find the commit, for the days picked
+ *   GET  /api/runs/bisect?from&to&types&q                             Find breaking commit, for the days picked
  *   POST /api/runs/labels { ids, add, remove }                        label several runs
  *   POST /api/runs/delete { ids }                                     delete several runs
  *   POST /api/runs/known { ids }                                      which runs picked are still there
@@ -35,14 +35,14 @@ import { goldensOf } from './overview.js';
 export type RunsPageRow = RunRow & { local?: boolean; localAttempts?: { run: boolean; attempts: number } };
 
 /**
- * What Find the commit offers for the failures on the days picked: the run it starts from and the
+ * What Find breaking commit offers for the failures on the days picked: the run it starts from and the
  * choices bisect has, or why there is none. `earlier` is the first failure on those days when it
  * failed at the first commit, with nothing before it to search, and why: the run offered is the
  * first failure that started later.
  */
 export type DaysBisect = { runId: string; label: string; command: string; startedAt: number; choices: BisectChoices; earlier?: { runId: string; why: string } } | { runId: null; reason: string };
 
-/** Failures on the days picked that Find the commit looks through for one that started after the first commit. */
+/** Failures on the days picked that Find breaking commit looks through for one that started after the first commit. */
 const LATER_FAILURES = 50;
 
 /** The team store as the project's config names it, for the Local chip and the `local` tag; null without one. */
@@ -74,7 +74,7 @@ export function register(router: Router, ctx: RouteContext): void {
     sendAnswer(r, a);
   });
 
-  // Find the commit, from the calendar: with Failed picked and days chosen, the first failure in
+  // Find breaking commit, from the calendar: with Failed picked and days chosen, the first failure in
   // those days is where it started failing; bisect looks between a commit where it still worked
   // before the first day picked and that failure's own commit. A failure at the first commit has
   // nothing before it to search: the first failure that started later is offered instead, and the

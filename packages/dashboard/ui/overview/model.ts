@@ -1,3 +1,4 @@
+import { unrescuedWords } from '../../../engine/src/blame-words.js';
 import { lostWords } from '../../../engine/src/run-verdicts.js';
 import { cents, durLong, num, plural } from '../format.js';
 import { ORIGIN_CODE, type Origin7 } from '../origins.js';
@@ -44,13 +45,13 @@ export function reproducedNote(o: OverviewSummary['outcomes']['reproduced']): st
 /**
  * How a blame on Today's line came out, in the words Needs a look and the fix use: where the run
  * was lost (at a call, or around or between two), that no model call rescued it (or, when its first
- * probe couldn't tell, that it is not settled), or that it stopped early; while it still probes, that
+ * probe couldn't tell, that it is inconclusive at the first model call), or that it stopped early; while it still probes, that
  * nothing is placed yet.
  */
 export function blameWords(b: Pick<OverviewSummary['today']['blame']['runs'][number], 'outcome' | 'lostAt'> & { unsettled?: boolean; range?: unknown }): string {
   if (b.outcome === 'blamed' && b.lostAt) return lostWords(b.lostAt, b.range);
-  if (b.outcome === 'unrescuable') return b.unsettled ? 'not settled from the first model call' : 'not rescued from any model call';
-  if (b.outcome === 'stopped') return 'blame stopped early';
+  if (b.outcome === 'unrescuable') return unrescuedWords(b.unsettled === true);
+  if (b.outcome === 'stopped') return 'blame stopped part way';
   return 'not placed yet';
 }
 

@@ -113,7 +113,8 @@ beforeAll(() => {
     fixAccepted = fixVerify(store, { verifyId: 'vf-01M5000000000000000000000A', at: at(15), failing: ['01M3RZ0001000000000000000A'], report: verifyReport([{ runId: '01M3RZ0001000000000000000A', role: 'target', pass: true }, { runId: '01M3RZ0002000000000000000A', role: 'good', pass: true }]) });
     fixVerify(store, { verifyId: 'vf-01M5000000000000000000000B', at: at(16), title: 'send_email before issue_refund', report: verifyReport([{ runId: '01M3RZ0003000000000000000A', role: 'target', pass: false }, { runId: '01M3RZ0004000000000000000A', role: 'holdout', pass: true }]) });
     const open = verifyReport([{ runId: '01M3RZ0005000000000000000A', role: 'target', pass: true }, { runId: '01M3RZ0006000000000000000A', role: 'good', pass: true }]);
-    fixVerify(store, { verifyId: 'vf-01M5000000000000000000000C', at: at(17), report: { ...open, verdict: 'incomplete', runs: [open.runs[0], { ...open.runs[1], verdict: 'open', decision: 'inconclusive' }] } });
+    // One run its gate couldn't decide, and one the verify stopped before deciding: both are open.
+    fixVerify(store, { verifyId: 'vf-01M5000000000000000000000C', at: at(17), report: { ...open, verdict: 'incomplete', runs: [open.runs[0], { ...open.runs[1], verdict: 'open', decision: 'inconclusive' }, { ...open.runs[0], runId: '01M3RZ0009000000000000000A', verdict: 'open' }] } });
     fixVerify(store, { verifyId: 'vf-01M5000000000000000000000D', at: at(18), candidate: 3, standing: { counts: false, why: 'another-check', missing: ['send_email called 0 times'] }, report: verifyReport([{ runId: '01M3RZ0007000000000000000A', role: 'target', pass: true }]) });
     // The verify the accepted preview ran, which a fix keeps too: the preview's verdict, no row of its own. And a verify no fix keeps.
     fixVerify(store, { verifyId: 'vf-01M5FROMPREVIEW0000000000', at: at(3.5), report: verifyReport([{ runId: '01K5RUN0000000000000000001', role: 'target', pass: true }]) });
@@ -184,8 +185,8 @@ describe('every change checked', () => {
     const rows = verdictsView(store, GOLDENS).rows;
     expect(row<VerifyVerdict>(rows, 'vf-01M5000000000000000000000A')).toMatchObject({ fixId: fixAccepted, title: 'issue_refund called with amount 240', checked: '2 runs', moved: ['1 fixed', '1 kept'], word: 'accepted', tone: 'ok', line: 'Every failing run fixed, every good run kept', code: '370712a+dirty', repairId: null, candidate: null, codeVersion: '370712a+dirty', fields: null, verdict: 'accepted', counts: true, by: null });
     expect(row<VerifyVerdict>(rows, 'vf-01M5000000000000000000000B')).toMatchObject({ title: 'send_email before issue_refund', moved: ['1 not fixed', '1 fixed'], word: 'rejected', tone: 'no', line: 'The change did not fix the failing runs it checked' });
-    // verify's incomplete is inconclusive, as every verdict that settled nothing reads.
-    expect(row<VerifyVerdict>(rows, 'vf-01M5000000000000000000000C')).toMatchObject({ moved: ['1 fixed', '1 inconclusive'], word: 'inconclusive', tone: 'y', verdict: 'incomplete', line: 'Not every run settled' });
+    // verify's incomplete is inconclusive, as every verdict that settled nothing reads, and so is each run it left open, never unsettled.
+    expect(row<VerifyVerdict>(rows, 'vf-01M5000000000000000000000C')).toMatchObject({ moved: ['1 fixed', '2 inconclusive'], word: 'inconclusive', tone: 'y', verdict: 'incomplete', line: 'Not every run settled' });
     // A repair's candidate: what it verified, by the repair and the candidate, apart from the code it ran at.
     expect(row<VerifyVerdict>(rows, 'vf-01M5000000000000000000000D')).toMatchObject({ code: 'repair candidate 3', repairId: 'repair-munzln2i', candidate: 3, codeVersion: '370712a+dirty', counts: false, line: "Doesn't count for this fix: its check leaves out send_email called 0 times" });
     expect(rows.map((r) => r.id)).not.toContain('vf-01M5FROMPREVIEW0000000000');

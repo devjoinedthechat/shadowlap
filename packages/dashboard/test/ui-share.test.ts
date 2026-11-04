@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { divergenceButtons, updatePlan } from '../ui/goldens.js';
 import { askedTools, callDetail, resultLine, type CallLike } from '../ui/run/calls.js';
 import { bisectBlocked, bisectCopy, bisectLabel, blameOfferFor, blameSource, blameTitle, divergedActions, goldenName, updateGoldenCopy, updatesAfterRules, type BlameFacts } from '../ui/run/offers.js';
-import { canPush, defaultPackFolder, htmlCopyVia, pushTitle, sharedLink, shareItemOff, shareItems, shareNote, STILL_RECORDING } from '../ui/run/share.js';
+import { canPush, defaultPackFolder, htmlCopyVia, pushTitle, shareDialog, sharedLink, shareItemOff, shareItems, shareNote, STILL_RECORDING } from '../ui/run/share.js';
 import type { BisectOffer, DivergenceView, RunOffers, TestBannerOffer, TestsView } from '../ui/types.js';
 
 // The run page's Share menu, Run blame, Find the commit and the Calls view's detail, as the page words
@@ -19,7 +19,16 @@ describe('the Share menu', () => {
     expect(shareItems({ can: all, team: null }).map((i) => i.key)).toEqual(['html', 'pack', 'dataset', 'otel', 'har']);
     // A server without the jobs still downloads the HTML file, and packs through the run's own action.
     expect(shareItems({ can: (k) => k === 'pack', team }).map((i) => i.key)).toEqual(['html', 'pack']);
-    expect(shareItems({ can: all, team }).find((i) => i.key === 'otel')).toEqual({ key: 'otel', label: 'OpenTelemetry trace', note: 'export otel · a span per call, for the tools you already use' });
+    expect(shareItems({ can: all, team }).find((i) => i.key === 'otel')).toEqual({ key: 'otel', label: 'OpenTelemetry trace…', note: 'export otel · a span per call, for the tools you already use' });
+    // Parallel nouns, the copy each makes, an ellipsis on each that asks first.
+    expect(shareItems({ can: all, team }).map((i) => i.label)).toEqual(['Share link', 'HTML report', 'Pack…', 'Eval dataset…', 'OpenTelemetry trace…', 'HAR file']);
+  });
+
+  it('titles and confirms each copy’s dialog with its action’s verb, and the runs it copies', () => {
+    expect(shareDialog('otel', [RUN])).toEqual({ title: 'Export OpenTelemetry trace', ok: 'Export trace' });
+    expect(shareDialog('dataset', [RUN])).toEqual({ title: 'Export eval dataset of 01M50J6C69', ok: 'Export dataset' });
+    expect(shareDialog('dataset', [RUN, '01M50J6C70T0S34ZZX4WBXJKD1', '01M50J6C71T0S34ZZX4WBXJKD1']).title).toBe('Export eval dataset of 3 runs');
+    expect(shareDialog('pack', [RUN])).toEqual({ title: 'Pack 01M50J6C69', ok: 'Pack run' });
   });
 
   it('says how many redaction rules each copy applies, and when a trace takes fewer', () => {
@@ -112,7 +121,7 @@ describe('Run blame and Find the commit', () => {
 
   it('asks for a commit where it still worked, from the revisions its runs were made at', () => {
     const c = bisectCopy(RUN, offer());
-    expect(c.title).toBe('Find the commit that broke 01M50J6C69');
+    expect([c.title, c.ok]).toEqual(['Find breaking commit for 01M50J6C69', 'Find breaking commit']);
     expect(c.text).toBe('Replays the run at commits between a good one and d2e8a1f, halving each time, and names the first where it fails. Replays are free, so this costs no tokens.');
     expect(c.choices).toEqual([
       { value: 'c91d0f4', label: 'c91d0f4 · 3 runs' },
@@ -148,15 +157,15 @@ describe('Run blame and Find the commit', () => {
 
   it('looks for what changed a run that passed, not what broke it', () => {
     const passed = offer({ failed: false, good: 'a7b3c2e', bad: null, revisions: [{ rev: 'c91d0f4', at: 0, runs: 3, failed: 0 }] });
-    expect(bisectLabel(passed)).toEqual({ label: 'Find the commit that changed it', hint: 'Replays it at the commits after its own, halving each time, and names the first where it does something else' });
+    expect(bisectLabel(passed)).toEqual({ label: 'Find commit that changed it…', hint: 'Replays it at the commits after its own, halving each time, and names the first where it does something else' });
     const c = bisectCopy(RUN, passed);
-    expect(c.title).toBe('Find the commit that changed 01M50J6C69');
+    expect([c.title, c.ok]).toEqual(['Find commit that changed 01M50J6C69', 'Find commit that changed it']);
     expect(c.text).toBe('Replays the run at commits from a7b3c2e to HEAD, halving each time, and names the first where it does something else. Replays are free, so this costs no tokens.');
     expect(c.label).toBe('Start from');
     expect(c.initial).toBe('a7b3c2e');
     // A run that failed, or one nothing is known of, looks for what broke it.
-    expect(bisectLabel(offer()).label).toBe('Find the commit that broke it');
-    expect(bisectLabel(null).label).toBe('Find the commit that broke it');
+    expect(bisectLabel(offer()).label).toBe('Find breaking commit…');
+    expect(bisectLabel(null).label).toBe('Find breaking commit…');
     // At HEAD there is nothing after it to search: the server says so, and the item says why.
     expect(bisectBlocked(RUN, { ...passed, unavailable: 'this run passed at a7b3c2e, which is HEAD: there is no later commit to search yet' }, true)).toBe('this run passed at a7b3c2e, which is HEAD: there is no later commit to search yet');
   });
@@ -254,24 +263,24 @@ describe('the diverged test’s actions', () => {
   it('adds the normalizer and re-runs the golden in one click when the rule alone makes the replay match, leading when a value made anew is all that changed', () => {
     expect(updatesAfterRules(test())).toBe(false);
     expect(divergedActions({ ...all, test: test() })).toEqual({
-      normalizer: { kind: 'job', label: 'Add normalizer', lead: true, off: null, title: "shadowlap normalize add --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", asks: null },
+      normalizer: { kind: 'job', label: 'Add normalizer and re-run', lead: true, off: null, title: "shadowlap normalize add --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", asks: null },
       update: true,
     });
-    expect(divergedActions({ ...all, test: test({ maybeReal: true }) }).normalizer).toMatchObject({ kind: 'job', label: 'Add normalizer', lead: false, asks: null });
+    expect(divergedActions({ ...all, test: test({ maybeReal: true }) }).normalizer).toMatchObject({ kind: 'job', label: 'Add normalizer and re-run', lead: false, asks: null });
   });
 
   it('asks first when the rule alone can’t make the replay match, with the commands the Tests screen’s dialog lists, since the golden is re-recorded live after it', () => {
     expect(updatesAfterRules(added())).toBe(true);
     expect(divergedActions({ ...all, test: added() })).toEqual({
-      normalizer: { kind: 'job', label: 'Add normalizer and update…', lead: false, off: null, title: "shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", asks: [ADD, ['test', 'goldens/refund-in-limit', '--update']] },
+      normalizer: { kind: 'job', label: 'Add normalizer and update', lead: false, off: null, title: "shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", asks: [ADD, ['test', 'goldens/refund-in-limit', '--update']] },
       update: true,
     });
     // The Tests screen's button for the same steps reads the same, and asks too.
     const d = { normalizeAndTest: added().normalizeAndTest, normalizerFixes: false, maybeReal: false, rulesAdded: false, found: null, missed: null, bisect: null, unreadable: null, volatile: null } as unknown as DivergenceView;
-    expect(divergenceButtons(d, () => true).normalize).toEqual({ label: 'Add normalizer and update…', lead: false, run: 'normalize-update' });
+    expect(divergenceButtons(d, () => true).normalize).toEqual({ label: 'Add normalizer and update', lead: false, run: 'normalize-update' });
     // Read-only: the button says why it is off, and never opens the dialog.
     const readOnly = 'This dashboard is read-only: it was started with --read-only.';
-    expect(divergedActions({ ...all, actionsOff: readOnly, test: added() }).normalizer).toMatchObject({ kind: 'job', label: 'Add normalizer and update…', off: readOnly, title: readOnly });
+    expect(divergedActions({ ...all, actionsOff: readOnly, test: added() }).normalizer).toMatchObject({ kind: 'job', label: 'Add normalizer and update', off: readOnly, title: readOnly });
   });
 
   it('says the normalizer was added once it is in the config, with the replay that passed since, and offers the update while the rule alone can’t make it match', () => {
@@ -289,7 +298,7 @@ describe('the diverged test’s actions', () => {
     // The run's own action adds the rule alone, records nothing: it needs no asking either way.
     expect(divergedActions({ ...all, hasNormalizeJob: false, hasUpdateJob: false, test: added() })).toEqual({ normalizer: { kind: 'action' }, update: false });
     const readOnly = 'This dashboard is read-only: it was started with --read-only.';
-    expect(divergedActions({ ...all, actionsOff: readOnly, test: test() }).normalizer).toEqual({ kind: 'job', label: 'Add normalizer', lead: true, off: readOnly, title: readOnly, asks: null });
+    expect(divergedActions({ ...all, actionsOff: readOnly, test: test() }).normalizer).toEqual({ kind: 'job', label: 'Add normalizer and re-run', lead: true, off: readOnly, title: readOnly, asks: null });
     expect(divergedActions({ ...all, hasNormalizeJob: false, actionsOff: readOnly, test: test() }).normalizer).toBeNull();
     // A server that says nothing of the test.
     expect(divergedActions({ ...all, test: null })).toEqual({ normalizer: { kind: 'action' }, update: false });
@@ -320,11 +329,11 @@ describe('the diverged test’s actions', () => {
       name: 'refund-in-limit',
       at: 'diverged at call 3',
       checks: '2 checks',
-      advise: { path: '$.metadata.user_id', text: 'is new in every request and looks like a UUID, which changes every run. Updating re-records it, and the next run diverges again.', instead: 'Add the normalizer and update' },
+      advise: { path: '$.metadata.user_id', text: 'is new in every request and looks like a UUID, which changes every run. Updating re-records it, and the next run diverges again.', instead: 'Add normalizer and update' },
       note: null,
       ok: 'Update anyway',
     });
-    expect(updateGoldenCopy(test(), 3, true).advise?.instead).toBe('Add the normalizer instead');
+    expect(updateGoldenCopy(test(), 3, true).advise?.instead).toBe('Add normalizer and re-run');
     // Where the server can't add it, the box says so without a button.
     expect(updateGoldenCopy(added(), 3, false).advise?.instead).toBeNull();
     // A golden with no checks is judged on its exit status; a server that doesn't send them, by what the replay ran.

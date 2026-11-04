@@ -1043,7 +1043,7 @@ It stops before a verdict, exit status 3, when:
 
 - the budget is spent, or the provider unavailable;
 - what the replay as recorded showed could not be decided;
-- its first probe could not tell a rescue from a loss (*Not settled from the first model call*).
+- its first probe could not tell a rescue from a loss (*Inconclusive at the first model call*).
 
 ## verify
 
@@ -1251,7 +1251,7 @@ With `--json`, each subcommand prints:
 Lists fixes, the most recently opened first. Each fix takes up to three lines:
 
 1. Its status (`open`, `verified`, `applied`), id, title, label, failing runs, and how far each step
-   got (*lost at #5 · prompt fix · 3 fixed · 1 kept*).
+   got (*lost at #5 · prompt change · 3 fixed · 1 kept*).
 2. What its failing runs did and the check they must meet
    (*failed: send_email called twice, not once · must: send_email called once*), where the fix came
    from (*from CI · PR #138*) and when it was opened.
@@ -1670,7 +1670,7 @@ the report holds, as in every export, pack and share link.
 | `counts` | Steps by the rank they were given (below) |
 | `flagged` | The runs a rank 1 or 2 change flags: beyond the control's variation, or with no control by what most samples show |
 | `cost` | Per run, the mean `before` and `after` in USD; what asking `spent`; `upstreamRequests`; and `unknownModels` with no price |
-| `tokens` | `before` and `after`, each `input`, `output`, `cacheRead` and `cacheWrite` |
+| `tokens` | `before` and `after`, each `input` (uncached), `output`, `cacheRead` and `cacheWrite` (cache creation) |
 | `retirements` | Each model the runs use, or switch to, that its provider retires (below) |
 | `notes` | What to keep in mind reading it (below) |
 | `warnings` | The report's warnings |
@@ -1755,8 +1755,8 @@ More on a step's fields:
 - **`control`**: `asked`, `answered`, `changed`, `ranks`, and `error`, why fewer than 3 were answered.
   With it, `rank` and `majority` are the rank the change earns beyond the control, or `null`. It is
   absent below 3 samples.
-- **`tokens.after`**: in a run like the recorded one, its input split between cache reads, cache writes
-  and plain input, as the recorded call's was.
+- **`tokens.after`**: in a run like the recorded one, its input split between cache read, cache creation
+  and uncached input, as the recorded call's was.
 
 A step's `judge` is `now`'s, the sample shown: the most consequential, or, among text-only ones, one
 whose words could not be judged. It lists each check:
@@ -2693,7 +2693,7 @@ SIGTERM or a closed terminal (SIGHUP).
 | `--allow-unrecorded <names>` | With `--recordings`: replay these tools again for real, though a recording never recorded them (below) | — |
 
 - **No command**: serve never sees the command that starts your process, so the run has none, as a
-  capture has none. Replaying it, or a fork, blame or Find the commit, needs your command after `--`.
+  capture has none. Replaying it, or a fork, blame or Find breaking commit, needs your command after `--`.
 - **Several runs**: hosts that manage several runs (a test runner) can create them through the
   sidecar's `/v1/runs` API. Each run's environment pins it: the provider base URLs carry the run id, and
   SDK calls send an `X-Shadowlap-Run` header. So several processes can record through one sidecar at
@@ -3738,7 +3738,7 @@ into a golden for `shadowlap test`.
 **Labels and authors.** Every imported run is labelled `imported`, and appears in the dashboard's
 activity feed. It names who imported it as its author: `SHADOWLAP_AUTHOR` when set, `ci` in CI,
 otherwise git's `user.email`. Its source is the file's name; `--name <name>` records another. The
-dashboard's Import a capture passes the name of the file you picked, which it keeps under a name of its
+dashboard's Import capture… passes the name of the file you picked, which it keeps under a name of its
 own while it imports.
 
 `import` exits 1 when nothing could be imported: `runs` is empty. An import of

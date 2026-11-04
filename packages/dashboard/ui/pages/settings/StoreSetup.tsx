@@ -15,6 +15,7 @@ import type { JobView } from '../../types.js';
 import { LoadProblem, Loading } from './common.js';
 import { stepWords } from '../../../src/store-steps.js';
 import { setupStates, type SetupStepState } from './store-logic.js';
+import { ACTIONS } from '../../labels.js';
 
 /**
  * The team store's setup, free like the rest of Shadowlap, on a page of its own (`#/setup/store`)
@@ -23,7 +24,7 @@ import { setupStates, type SetupStepState } from './store-logic.js';
  * credentials this machine would use, the access to ask the cloud admin for, then `store set
  * --check`, which writes the store only once the check passes); push your runs (`push --all`); push
  * from CI (the step for GitHub Actions, GitLab CI or other CI, then I added it or Skip for now);
- * bring your team (the config change to commit, then Finish). Settings → Store's Set up the store
+ * bring your team (the config change to commit, then Finish). Settings → Store's Set up team store
  * leads here, and so does the palette, and Needs a look while a setup is under way. `view` is the
  * server's (`GET /api/store/setup`); the steps' jobs and records go through it.
  */
@@ -370,7 +371,7 @@ export function StoreSetupPage() {
   }, [jobs]);
   const loaded = useLoad(() => client.storeSetup.view(), 'store-setup', `${tick}:${feeds.team ?? 0}:${seen}`);
   const name = projectOf(meta)?.name ?? 'this project';
-  const header = <PageHeader eyebrow={`store · ${name}`} title="Set up the store" text={SETUP_TEXT} />;
+  const header = <PageHeader eyebrow={`store · ${name}`} title={ACTIONS.setUpTeamStore.label} text={SETUP_TEXT} />;
   const view = loaded.data;
   if (!view) return <Page>{header}{loaded.error ? <LoadProblem error={loaded.error} /> : <Loading title="Store" />}</Page>;
   const onChange = (job?: Promise<JobView>) => {
@@ -424,7 +425,7 @@ addPaletteSource(({ app, go }) => {
   );
   const v = lastSetup;
   if (!v) return [];
-  if (!v.store) return [{ group: 'Actions', label: 'Set up the team store', hint: 'your team’s runs, in a bucket you own', run: () => go(href.storeSetup()) }];
-  if (v.active && v.next) return [{ group: 'Actions', label: 'Continue setting up the store', hint: `step ${v.next.step} of 4: ${stepWords(v.next.title)}`, run: () => go(href.storeSetup()) }];
+  if (!v.store) return [{ group: 'Actions', label: ACTIONS.setUpTeamStore.label, hint: 'your team’s runs, in a bucket you own', run: () => go(href.storeSetup()) }];
+  if (v.active && v.next) return [{ group: 'Actions', label: ACTIONS.continueTeamStoreSetup.label, hint: `step ${v.next.step} of 4: ${stepWords(v.next.title)}`, run: () => go(href.storeSetup()) }];
   return [];
 });

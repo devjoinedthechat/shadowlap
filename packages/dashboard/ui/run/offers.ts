@@ -1,4 +1,5 @@
 import { num, shortId } from '../format.js';
+import { ACTIONS, confirmWords } from '../labels.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { bisectCost } from '../runspage/find-commit.js';
 import type { BisectOffer, BlameOffer, RunOffers, TestBannerOffer } from '../types.js';
@@ -6,7 +7,7 @@ import type { BisectOffer, BlameOffer, RunOffers, TestBannerOffer } from '../typ
 /**
  * What the run page offers beyond the run's record, in words and choices, without the DOM: Run blame
  * (whether it applies, and the check it would likely use; Fixes' button sends it), the diverged
- * test's Add normalizer, and Find the commit's dialog. The tests import it.
+ * test's Add normalizer, and Find breaking commit's dialog. The tests import it.
  */
 
 /** A shell-quoted value, as the command lines the page shows have it. */
@@ -82,14 +83,14 @@ export const goldenName = (golden: string): string => golden.replace(/^goldens\/
  * normalizer is the tests' `normalize-and-test` job (shown disabled with why where jobs can't run),
  * or, on a server without it, the run's own normalizer action (the rule alone). When the rule alone
  * makes the replay match, the job adds it and runs the golden again, in one click. When it can't,
- * the job re-records the golden live after it: the button reads "Add normalizer and update…", and
+ * the job re-records the golden live after it: the button reads "Add normalizer and update", and
  * `asks` holds the commands the Tests screen's dialog lists before the job starts. Update golden is
  * the tests' `test-update` job, offered until the rule is in, and after that while the rule alone
  * can't make the replay match and no replay has passed since.
  */
 export type NormalizerChoice =
   | { kind: 'added'; passingRun: string | null }
-  | { kind: 'job'; label: 'Add normalizer' | 'Add normalizer and update…'; lead: boolean; off: string | null; title: string | null; asks: string[][] | null }
+  | { kind: 'job'; label: string; lead: boolean; off: string | null; title: string | null; asks: string[][] | null }
   | { kind: 'action' }
   | null;
 
@@ -108,7 +109,7 @@ export function divergedActions(o: {
   const lead = t ? t.normalizerFixes && !t.maybeReal : true;
   const normalizer: NormalizerChoice =
     t?.normalizeAndTest && o.hasNormalizeJob
-      ? { kind: 'job', label: updates ? 'Add normalizer and update…' : 'Add normalizer', lead, off: o.actionsOff, title: o.actionsOff ?? t.volatile?.command ?? null, asks: updates ? t.normalizeAndTest : null }
+      ? { kind: 'job', label: updates ? ACTIONS.addNormalizerAndUpdate.label : ACTIONS.addNormalizerAndRerun.label, lead, off: o.actionsOff, title: o.actionsOff ?? t.volatile?.command ?? null, asks: updates ? t.normalizeAndTest : null }
       : o.action && !o.actionsOff
         ? { kind: 'action' }
         : null;
@@ -132,7 +133,7 @@ export interface UpdateGoldenCopy {
   advise: { path: string; text: string; instead: string | null } | null;
   /** The plain line above the command, its path set in code. */
   note: { path: string | null } | null;
-  ok: 'Update' | 'Update anyway';
+  ok: string;
 }
 
 const checkCount = (n: number) => `${num(n)} ${n === 1 ? 'check' : 'checks'}`;
@@ -150,7 +151,7 @@ export function updateGoldenCopy(t: TestBannerOffer, callNo: number, canNormaliz
       ? {
           path: v.path,
           text: `${v.op === 'added' ? 'is new in every request and ' : ''}looks like ${v.looks}, which changes every run. Updating re-records it, and the next run diverges again.`,
-          instead: canNormalize ? (updatesAfterRules(t) ? 'Add the normalizer and update' : 'Add the normalizer instead') : null,
+          instead: canNormalize ? (updatesAfterRules(t) ? ACTIONS.addNormalizerAndUpdate.label : ACTIONS.addNormalizerAndRerun.label) : null,
         }
       : null;
   return {
@@ -159,7 +160,7 @@ export function updateGoldenCopy(t: TestBannerOffer, callNo: number, canNormaliz
     checks,
     advise,
     note: t.normalized && updatesAfterRules(t) ? { path: v?.path ?? null } : null,
-    ok: advise ? 'Update anyway' : 'Update',
+    ok: advise ? 'Update anyway' : confirmWords(ACTIONS.updateGolden.label),
   };
 }
 
@@ -181,6 +182,8 @@ export function blameSource(offer: BlameOffer): string {
 
 export interface BisectCopy {
   title: string;
+  /** Its confirm: the menu item's name without the ellipsis. */
+  ok: string;
   text: string;
   label: string;
   /** The revisions to pick from, newest first, each with how its runs went; any other is accepted too. */
@@ -191,14 +194,14 @@ export interface BisectCopy {
 }
 
 /**
- * What the server may add to Find the commit's choices: each commit's subject, from the project's git
+ * What the server may add to Find breaking commit's choices: each commit's subject, from the project's git
  * (`c91d0f4 · Escalate refunds above the limit`), and the check each replay is judged by, for a run
  * blame found failing one though it exited 0 (`--expect`).
  */
 type BisectFrom = Omit<BisectOffer, 'revisions'> & { revisions: ReadonlyArray<BisectOffer['revisions'][number] & { subject?: string | null }>; expect?: Record<string, unknown> | null };
 
 /**
- * Find the commit's dialog, from what the server offers: a run that failed looks for where it
+ * Find breaking commit's dialog, from what the server offers: a run that failed looks for where it
  * started failing, from a commit where it still worked up to its own; one that passed, for the first
  * commit after its own that changes what it does. Replays are free unless they run live past where
  * they differ. Each commit is named by its subject when the server knows it, as the design does.
@@ -213,7 +216,8 @@ export function bisectCopy(runId: string, offer: BisectOffer): BisectCopy {
   const expect = b.expect && Object.keys(b.expect).length ? ` --expect ${quote(JSON.stringify(b.expect))}` : '';
   if (b.good && !choices.some((c) => c.value === b.good)) choices.unshift({ value: b.good, label: b.failed ? `${b.good} · where it last passed` : `${b.good} · this run` });
   return {
-    title: `${bisectLabel(b).label.replace(/ it$/, '')} ${shortId(runId)}`,
+    title: b.failed ? `Find breaking commit for ${shortId(runId)}` : `Find commit that changed ${shortId(runId)}`,
+    ok: confirmWords(bisectLabel(b).label),
     text: b.failed
       ? `Replays ${b.target.kind === 'golden' ? target : 'the run'} at commits between a good one and ${upTo}, halving each time, and names the first where it fails. ${cost}`
       : `Replays ${b.target.kind === 'golden' ? target : 'the run'} at commits from ${b.good ?? 'its own'} to HEAD, halving each time, and names the first where it does something else. ${cost}`,
@@ -225,18 +229,19 @@ export function bisectCopy(runId: string, offer: BisectOffer): BisectCopy {
 }
 
 /**
- * Find the commit's name in the fork menu and the palette, and its hover when it can run: the commit
- * that broke a run that failed (or one nothing is known of); for a run that passed, the first commit
- * after its own that changed what it does.
+ * Find breaking commit…'s name in the fork menu and the palette, as the terminal UI's names it, and
+ * its hover when it can run: the commit that broke a run that failed (or one nothing is known of);
+ * for a run that passed, the first commit after its own that changed what it does. It asks for a
+ * commit first, so it ends in an ellipsis.
  */
 export function bisectLabel(b: Pick<BisectOffer, 'failed'> | null | undefined): { label: string; hint: string } {
   return b && !b.failed
-    ? { label: 'Find the commit that changed it', hint: 'Replays it at the commits after its own, halving each time, and names the first where it does something else' }
-    : { label: 'Find the commit that broke it', hint: 'Replays it at commits between a good one and its own, halving each time' };
+    ? { label: ACTIONS.findChangingCommit.label, hint: 'Replays it at the commits after its own, halving each time, and names the first where it does something else' }
+    : { label: ACTIONS.findBreakingCommit.label, hint: 'Replays it at commits between a good one and its own, halving each time' };
 }
 
 /**
- * Why Find the commit can't run from here, for the disabled item's hover: what the server says about
+ * Why Find breaking commit can't run from here, for the disabled item's hover: what the server says about
  * the run, or that this dashboard has no bisect job (with the command to run instead); null when it can.
  */
 export function bisectBlocked(runId: string, b: BisectOffer | null, hasJob: boolean): string | null {

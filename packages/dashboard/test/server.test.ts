@@ -388,8 +388,8 @@ describe('dashboard server: actions', () => {
     const menu = (await (await api(`runs/${runId}/calls/4`)).json()) as { actions: Array<{ key: string; prompt: unknown }> };
     expect(menu.actions.find((a) => a.key === 'r')).toMatchObject({ prompt: null });
     const before = spawned.length;
-    // An answer to the action's question (a number of attempts, an instruction, an edited result,
-    // even a typed yes) is no consent: the command runs only once the request says yes itself.
+    // An answer to the action's question (an instruction, an edited result, even a typed yes) is no
+    // consent: the command runs only once the request says yes itself.
     for (const body of [{ key: 'r' }, { key: 'r', value: 'yes' }, { key: 'r', yes: 'true' }, { key: 'r', yes: true }, { key: 'e', value: '3' }, { key: 'i', callNo: 3, value: 'Be brief.' }, { key: 'o', callNo: 4, value: '{}' }]) {
       const refused = await post(body);
       expect(refused.status, JSON.stringify(body)).toBe(409);
@@ -398,19 +398,20 @@ describe('dashboard server: actions', () => {
       expect(asked.confirm).toMatch(/^[0-9a-f]{32}$/);
     }
     expect(spawned.length).toBe(before);
-    // The yes is the question's confirm, for the lines it named: Replay's, then three attempts'.
+    // The yes is the question's confirm, for the lines it named: Replay's, then Repeat 5 times'.
     const confirmOf = async (body: Record<string, unknown>) => ((await (await post(body)).json()) as { confirm: string }).confirm;
     const replayYes = await confirmOf({ key: 'r' });
     expect((await post({ key: 'r', yes: replayYes })).status).toBe(202);
     expect(spawned.at(-1)).toEqual(['replay', runId, '--yes']);
-    const threeYes = await confirmOf({ key: 'e', value: '3' });
-    expect(threeYes).not.toBe(replayYes);
-    // A yes to one command line is none to another: four attempts are asked again, with their own confirm.
-    const four = await post({ key: 'e', value: '4', yes: threeYes });
-    expect(four.status).toBe(409);
-    expect(((await four.json()) as { error: string; confirm: string }).confirm).not.toBe(threeYes);
-    expect((await post({ key: 'e', value: '3', yes: threeYes })).status).toBe(202);
-    expect(spawned.at(-1)).toEqual(['replay', runId, '--repeat', '3', '--yes']);
+    const repeatYes = await confirmOf({ key: 'e' });
+    expect(repeatYes).not.toBe(replayYes);
+    // A yes to one command line is none to another: Replay's runs no repeat, which is asked again, with its own confirm.
+    const other = await post({ key: 'e', yes: replayYes });
+    expect(other.status).toBe(409);
+    expect(((await other.json()) as { error: string; confirm: string }).confirm).toBe(repeatYes);
+    // Five attempts, whatever a request says of how many.
+    expect((await post({ key: 'e', value: '3', yes: repeatYes })).status).toBe(202);
+    expect(spawned.at(-1)).toEqual(['replay', runId, '--repeat', '5', '--yes']);
     // Its question is still asked first: no answer, no run.
     expect((await post({ key: 'i', callNo: 3, yes: replayYes })).status).toBe(400);
   });
@@ -434,7 +435,7 @@ describe('dashboard server: actions', () => {
 
       const d = (await (await api(`runs/${capture.runId}/calls/1`)).json()) as { actions: Array<{ key: string; label: string; prompt: { label: string } | null; disabled: string | null; group: string | null; hint: string | null }> };
       // A note and one item: the forks wait for a replay with the agent's command.
-      expect(d.actions.filter((a) => a.group === 'call')).toEqual([expect.objectContaining({ key: 'r', label: 'Replay it with your command', disabled: null, hint: expect.stringContaining('A capture has no command') })]);
+      expect(d.actions.filter((a) => a.group === 'call')).toEqual([expect.objectContaining({ key: 'r', label: 'Replay with your command…', disabled: null, hint: expect.stringContaining('A capture has no command') })]);
 
       const post = (body: unknown) => api(`runs/${capture.runId}/actions`, { method: 'POST', body: JSON.stringify(body) });
       expect((await post({ key: 'r', value: 'python agent.py "a b"' })).status).toBe(202);

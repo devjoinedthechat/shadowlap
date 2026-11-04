@@ -10,7 +10,7 @@ import { errorText } from '../toast.js';
 import type { PendingAction } from './actions.js';
 import { DatasetDialog } from '../components/DatasetDialog.js';
 import { redactRuleCount } from './provenance.js';
-import { defaultPackFolder, htmlCopyVia, shareItemOff, shareItems, shareNote, type ShareKey } from './share.js';
+import { defaultPackFolder, htmlCopyVia, shareDialog, shareItemOff, shareItems, shareNote, type ShareKey } from './share.js';
 // The share job's drawer offers the link it made.
 import './share-link.js';
 
@@ -72,11 +72,10 @@ export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: 
   if (dialog === 'pack')
     return (
       <PromptDialog
-        title={`Pack ${shortId(id)}`}
+        {...shareDialog('pack', [id])}
         text="A folder to commit as a golden or send to someone: run.json, calls.jsonl and one file per blob. Redaction rules apply to the copy; the store is never changed."
         label="Folder, inside the project"
         initial={defaultPackFolder(id)}
-        ok="Pack"
         command={`shadowlap pack ${shortId(id)} …`}
         onClose={close}
         onRun={(dir) => {
@@ -116,9 +115,8 @@ function OtelDialog({ runId, rules, onClose, onRun }: { runId: string; rules: nu
   const [where, setWhere] = useState('http://localhost:4318');
   return (
     <Dialog
-      title="Export as an OpenTelemetry trace"
+      {...shareDialog('otel', [runId])}
       text={`One trace: a span for the run and one per call, with the GenAI attributes plus origin, effect, fingerprint and cost. Its ids come from the run id, so exporting again updates the same trace.${rules ? ` It carries no prompt text; ${rules === 1 ? 'the redaction rule without a path applies' : `the ${rules} redaction rules without a path apply`} to what it keeps.` : ''}${to === 'file' ? ' A file stays in the project: nothing is sent.' : ''}`}
-      ok="Export"
       okDisabled={!where.trim()}
       onClose={onClose}
       onOk={() => {

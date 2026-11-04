@@ -47,11 +47,11 @@ function app(asked: Asked[], watched: Array<Promise<JobView>>, refuse: (a: Asked
 }
 
 const replay: ActionItem = { key: 'r', label: 'Replay', opensRun: true, prompt: null, disabled: null, group: null };
-const repeat: ActionItem = { key: 'e', label: 'Repeat the replay', opensRun: false, prompt: { label: 'This run came from an imported pack; replaying it runs: node agent.mjs. Attempts:', initial: '5' }, disabled: null, flag: '--repeat …', group: 'run' };
+const inject: ActionItem = { key: 'i', label: 'Inject instruction…', opensRun: true, prompt: { label: 'This run came from an imported pack; replaying it runs: node agent.mjs. Instruction to add at #3:' }, disabled: null, flag: '--inject 3=… --inject-as user', group: 'call' };
 
 function Runner({ action }: { action: ActionItem }) {
   const runner = useActionRunner(RUN);
-  return createElement('div', null, createElement('button', { type: 'button', className: 'go', onClick: () => runner.run({ action, callNo: null }) }, 'Go'), runner.dialog);
+  return createElement('div', null, createElement('button', { type: 'button', className: 'go', onClick: () => runner.run({ action, callNo: action.group === 'call' ? 3 : null }) }, 'Go'), runner.dialog);
 }
 
 let r: Rendered | null = null;
@@ -118,17 +118,18 @@ describe('an action on someone else’s run', () => {
   it('asks its own question first, and the yes after it, sending the answer with both', async () => {
     const asked: Asked[] = [];
     const watched: Array<Promise<JobView>> = [];
-    const page = await open(repeat, app(asked, watched, unconfirmed(' --repeat 3')));
+    const page = await open(inject, app(asked, watched, unconfirmed(" --inject '3=Be brief.' --inject-as user")));
     await page.click(page.one('.go'));
-    const field = page.one('[role="dialog"] input');
-    await page.type(field, '3');
-    await page.click(page.byText('.dlg-ok', 'Run'));
+    const field = page.one('[role="dialog"] textarea');
+    await page.type(field, 'Be brief.');
+    // Its confirm is the menu item's name, without the ellipsis.
+    await page.click(page.byText('.dlg-ok', 'Inject instruction'));
     await page.until('the question', () => page.all('[role="dialog"]').some((d) => d.textContent.includes('Run a command from an imported pack?')));
     await page.click(page.byText('.dlg-ok', 'Run'));
     await page.until('the job', () => watched.length === 1);
     expect(asked).toEqual([
-      { key: 'e', value: '3', yes: null },
-      { key: 'e', value: '3', yes: confirmOf(' --repeat 3') },
+      { key: 'i', value: 'Be brief.', yes: null },
+      { key: 'i', value: 'Be brief.', yes: confirmOf(" --inject '3=Be brief.' --inject-as user") },
     ]);
   });
 
@@ -152,5 +153,36 @@ describe('an action on someone else’s run', () => {
     await again.until('the error', () => shown.length === 1);
     expect(again.all('[role="dialog"]')).toEqual([]);
     expect(other).toEqual([{ key: 'r', yes: null }]);
+  });
+});
+
+describe('a fork repeated five times', () => {
+  const repeat = (o: Partial<ActionItem> = {}): ActionItem => ({ key: 'e', label: 'Repeat 5 times', opensRun: false, prompt: null, disabled: null, flag: '--repeat 5', group: 'run', hint: 'Makes this replay again from 01M5GRX8K4 five times: the prefix replays free, and each attempt runs live from the fork, so they show whether the path after it holds or was luck.', ...o });
+
+  it('asks first, titled for what it repeats and confirmed with its name, as its attempts run live', async () => {
+    const asked: Asked[] = [];
+    const watched: Array<Promise<JobView>> = [];
+    const page = await open(repeat({ asksFirst: true }), app(asked, watched, () => null));
+    await page.click(page.one('.go'));
+    await page.until('the question', () => page.all('[role="dialog"]').length === 1);
+    const dialog = page.one('[role="dialog"]');
+    expect(dialog.textContent).toContain('Repeat fork 5 times');
+    expect(dialog.textContent).toContain('each attempt runs live from the fork');
+    // Nothing to fill in: no field, and nothing is sent before its confirm.
+    expect(page.all('[role="dialog"] input, [role="dialog"] textarea')).toEqual([]);
+    expect(asked).toEqual([]);
+    await page.click(page.byText('.dlg-ok', 'Repeat 5 times'));
+    await page.until('the job', () => watched.length === 1);
+    expect(asked).toEqual([{ key: 'e', yes: null }]);
+  });
+
+  it('starts at once on a recording, whose attempts replay offline', async () => {
+    const asked: Asked[] = [];
+    const watched: Array<Promise<JobView>> = [];
+    const page = await open(repeat(), app(asked, watched, () => null));
+    await page.click(page.one('.go'));
+    await page.until('the job', () => watched.length === 1);
+    expect(page.all('[role="dialog"]')).toEqual([]);
+    expect(asked).toEqual([{ key: 'e', yes: null }]);
   });
 });

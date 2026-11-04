@@ -225,7 +225,7 @@ describe('GET /api/models', () => {
     // No OpenAI key here, so OpenAI was never asked.
     expect(view.notes).toEqual([{ group: 'OpenAI API', note: 'OPENAI_API_KEY is not set' }]);
     expect(asked.sort()).toEqual(['http://127.0.0.1:11434/api/tags', 'https://api.anthropic.com/v1/models?limit=100']);
-    expect(view.dialog).toMatchObject({ title: 'Score a model on 1 task', groups: ['Recorded with', 'Anthropic API', 'Ollama, on this machine'], selected: 'claude-haiku-4-5\n', attempts: [5, 10] });
+    expect(view.dialog).toMatchObject({ title: 'Score model on 1 task', groups: ['Recorded with', 'Anthropic API', 'Ollama, on this machine'], selected: 'claude-haiku-4-5\n', attempts: [5, 10] });
     expect(view.dialog!.options.find((o) => o.id === 'qwen2.5:7b')).toMatchObject({ request: { model: 'qwen2.5:7b', baseUrl: 'http://127.0.0.1:11434/v1' }, label: 'qwen2.5:7b · scored 0.75', note: 'Runs at http://127.0.0.1:11434/v1 · not a paid API · replaces its score of 0.75' });
   });
 
@@ -271,7 +271,7 @@ describe('the pairs and score jobs', () => {
     spawned.length = 0;
     const res = await startJob(dash, { kind: 'score', model: 'qwen2.5:7b', baseUrl: 'http://127.0.0.1:11434/v1', attempts: 10 });
     expect(res.status).toBe(202);
-    expect(((await res.json()) as JobView).title).toBe('Scoring a model');
+    expect(((await res.json()) as JobView).title).toBe('Scoring model');
     expect(spawned).toEqual([['tasks', 'score', 'goldens/refund-over-limit', '--model', 'qwen2.5:7b', '--base-url', 'http://127.0.0.1:11434/v1', '--attempts', '10']]);
     for (const [body, error] of [
       [{ model: 'm; rm -rf /' }, 'model must be a model name, such as qwen2.5:7b'],

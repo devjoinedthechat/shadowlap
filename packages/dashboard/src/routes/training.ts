@@ -1,4 +1,4 @@
-import { listingInput, listModelChoices, messageOf, type ModelListing, type Normalizer, type Price, type Task } from '@shadowlap/engine';
+import { ACTIONS, listingInput, listModelChoices, messageOf, type ModelListing, type Normalizer, type Price, type Task } from '@shadowlap/engine';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import { sendAnswer } from '../read-pool.js';
@@ -102,7 +102,7 @@ export function register(router: Router, ctx: RouteContext): void {
   });
 
   ctx.jobs.registerJobKind('pairs', {
-    title: () => 'Exporting pairs',
+    title: () => ACTIONS.exportPairs.doing,
     build: (req) => {
       const built = exportPairsJob(req);
       return 'error' in built ? built : { args: built.args };
@@ -110,7 +110,7 @@ export function register(router: Router, ctx: RouteContext): void {
   });
 
   ctx.jobs.registerJobKind('score', {
-    title: () => 'Scoring a model',
+    title: () => ACTIONS.scoreModel.doing,
     build: (req) => {
       // Read now, not from the cache: a golden fixed a moment ago is a task to score.
       const t = tasks(true);
@@ -122,7 +122,7 @@ export function register(router: Router, ctx: RouteContext): void {
 
   // Update the golden of a task its test's early fork blocks; once its test replays to the takeover, it is ready.
   ctx.jobs.registerJobKind('task-update', {
-    title: () => 'Updating a golden',
+    title: () => ACTIONS.updateGolden.doing,
     build: (req, { store }) => {
       const t = tasks(true);
       if (t.error) return { error: t.error, status: 409 };

@@ -1,14 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { recordBlame, recordVerdict, Store, type BlameReport, type VerifiedRun } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, verifyReport } from '../../engine/test/fix-fixtures.js';
-import { fixBundles, fixList } from '../src/fixes.js';
+import { fixBundles, fixDetail, fixList } from '../src/fixes.js';
 import { runsRule, verifiedLine } from '../src/verdict.js';
+import { bundleLine } from '../ui/fixes/model.js';
 
 /**
  * A good run verify keeps against its own baseline is said by its baseline: both tallies and the
- * bound on its drop, never a pass rate alone, under the baseline's rule; and a blame that rescued the
- * run from no call is headed as blame's report heads it, "any model call" only where its bound bears
- * that out.
+ * bound on its drop, never a pass rate alone, under the baseline's rule; a run a verify left open is
+ * inconclusive, as its verdict is; and a blame that rescued the run from no call is headed as blame's
+ * report heads it, "any model call" only where its bound bears that out.
  */
 
 let store: Store;
@@ -82,6 +83,26 @@ describe('a good run kept against its baseline', () => {
   });
 });
 
+describe('a run a verify left open', () => {
+  it('is inconclusive in the Forks view, its verdict too, never unsettled or incomplete', () => {
+    const failing = makeRun(store, { labels: ['refund-bug'] });
+    recordBlame(store, { runId: failing, report: blameReport(failing), expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: 1_000 });
+    // Stopped before its gate decided: three attempts passed, and the run is left open.
+    const report = { ...verifyReport([{ runId: failing, role: 'target', pass: true }]), verdict: 'incomplete' as const, stopReason: 'the budget ran out' };
+    const attempts = report.runs[0].attempts.slice(0, 3).map((a, i) => {
+      const runId = `01M5G0000000000000000000B${i}`;
+      store.createRun({ runId, mode: 'replay', parentRunId: failing, command: { argv: ['node', 'agent.mjs'], cwd: '.' }, startedAt: 2_000 + i, meta: { verify: { role: 'target', passed: true, verdict: 'passed' } } });
+      store.endRun(runId, 'completed');
+      return { ...a, runId };
+    });
+    report.runs[0] = { ...report.runs[0], attempts, passes: 3, verdict: 'open' };
+    recordVerdict(store, { report, expect: EXPECT, command: 'shadowlap verify --fixes label:refund-bug', at: 2_000 });
+    const [bundle] = fixBundles(store, failing)!.filter((b) => b.kind === 'verify');
+    expect(bundle).toMatchObject({ verdictLine: 'inconclusive · 3 of 3', tone: 'y', verdict: 'incomplete' });
+    expect(bundleLine(bundle, (usd) => `≈$${usd.toFixed(3)}`)).toBe('inconclusive · 3 of 3 · ≈$0.036 · 370712a+dirty · inconclusive');
+  });
+});
+
 describe('a blame that rescued the run from no call', () => {
   it('is headed "not rescued from any model call" only where its bound bears it out', () => {
     const a = makeRun(store, { labels: ['a'] });
@@ -94,5 +115,8 @@ describe('a blame that rescued the run from no call', () => {
     const titles = fixList(store).fixes.map((f) => f.steps[0].title);
     expect(titles.sort()).toEqual(['Not rescued from any model call', 'Not rescued from the first model call']);
     expect(fixList(store).fixes.every((f) => f.steps[0].short === 'not rescued')).toBe(true);
+    // Its fix's Blame step heads it the same way, from blame's own headline.
+    const step = (label: string) => fixDetail(store, fixList(store).fixes.find((f) => f.label === label)!.fixId)!.blame!.title;
+    expect([step('a'), step('b')]).toEqual(['Not rescued from the first model call', 'Not rescued from any model call']);
   });
 });

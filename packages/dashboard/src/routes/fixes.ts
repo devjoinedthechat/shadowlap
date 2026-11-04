@@ -1,4 +1,4 @@
-import { blameCheckFor, DEFAULT_REPAIRER, failedCheckLabels, FIX_STATUSES, FixIdError, type FixStatus, hasRecordedCommand, type JobConsent, needsConsent, readConfigFile, repairerProblem, repairJobArgv, resolveFix, type RunRecord, selectedRuns, setFixTitle, type StoredFix, type StoreOf } from '@shadowlap/engine';
+import { ACTIONS, blameCheckFor, DEFAULT_REPAIRER, failedCheckLabels, FIX_STATUSES, FixIdError, type FixStatus, hasRecordedCommand, type JobConsent, needsConsent, readConfigFile, repairerProblem, repairJobArgv, resolveFix, type RunRecord, selectedRuns, setFixTitle, type StoredFix, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { fixBundles, fixDetail, fixList, patchesToCheck, pulledPatchesToCheck } from '../fixes.js';
@@ -116,7 +116,7 @@ function importedCommand(runs: RunRecord[], yes: unknown, args: readonly string[
 const MODEL = /^[A-Za-z0-9][\w.:/@-]{0,119}$/;
 
 /**
- * Blame again, or Blame with a stronger model, for an open fix whose blame placed its failure on no
+ * Run blame again, or Run blame with stronger model, for an open fix whose blame placed its failure on no
  * call: the command the fix's page offers (`actions.blameAgain`, `actions.blameStronger` with the
  * model asked for), built by the server from that blame, never from the browser's arguments.
  */
@@ -139,7 +139,7 @@ function fixBlameJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' 
   const next = req.again === true ? d.actions.blameAgain! : d.actions.blameStronger!;
   const consent = needsConsent({ runs: [run], yes: req.yes, args, pulled: next.pulled ? { what: `${id}'s blame`, left: next.left } : null });
   if ('ask' in consent) return consent.ask;
-  return { args: [...args, ...consent.yes], runId: run.runId, title: req.again === true ? 'Blaming again' : `Blaming with ${req.model as string}` };
+  return { args: [...args, ...consent.yes], runId: run.runId, title: req.again === true ? ACTIONS.runBlameAgain.doing : ACTIONS.runBlameStronger.doing };
 }
 
 /**
@@ -157,7 +157,7 @@ function verifyJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 
   const runs = v.rows.map((x) => store.getRun(x.runId)).filter((r): r is RunRecord => r !== null);
   const consent = needsConsent({ runs, yes: req.yes, args: v.more.argv, pulled: v.more.pulled ? { what: `${short(fix.fixId)}'s verdict ${v.verifyId.slice(0, 13)}`, left: v.more.left } : null });
   if ('ask' in consent) return consent.ask;
-  return { args: [...v.more.argv, ...consent.yes], title: v.more.kind === 'more' ? 'Running more attempts' : 'Verifying again' };
+  return { args: [...v.more.argv, ...consent.yes], title: v.more.kind === 'more' ? ACTIONS.runMoreAttempts.doing : ACTIONS.verifyAgain.doing };
 }
 
 function blameJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, configDir: string | null): JobBuildResult {
@@ -201,7 +201,7 @@ function repairerChanged(req: JobRequest, configured: string | null): JobBuildRe
   const now = configured ?? DEFAULT_REPAIRER;
   if (req.repairer.trim() === now) return null;
   const who = configured ? now : `none, so your own Claude Code (${DEFAULT_REPAIRER})`;
-  return { error: `the repairer in shadowlap.config.json changed since this page loaded: now ${who}. Nothing ran: open Repair from here again`, status: 409 };
+  return { error: `the repairer in shadowlap.config.json changed since this page loaded: now ${who}. Nothing ran: open Run repair again`, status: 409 };
 }
 
 function repairJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, repairer: string | null): JobBuildResult {
@@ -228,7 +228,7 @@ function applyJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | '
   if (!apply) return { error: `${short(fix.fixId)} is open: no change has been verified for it yet, so there is nothing to apply`, status: 409 };
   if (d.actions.applied && !apply.pending) return { error: `${short(fix.fixId)} is applied already, and nothing is left to do`, status: 409 };
   if (apply.refused) return { error: `${short(fix.fixId)}'s patch is not the change its repair verified: ${apply.refused}. Nothing ran`, status: 409 };
-  return { args: apply.argv, title: apply.kind === 'mark' ? 'Marking the fix applied' : d.actions.applied ? 'Finishing the apply' : 'Applying the patch' };
+  return { args: apply.argv, title: apply.kind === 'mark' ? 'Marking the fix applied' : d.actions.applied ? 'Finishing the apply' : ACTIONS.applyFix.doing };
 }
 
 export function register(router: Router, ctx: RouteContext): void {
@@ -271,8 +271,9 @@ export function register(router: Router, ctx: RouteContext): void {
 
   // Repair and apply change the working tree, and blame runs the agent from it: the job manager
   // runs no two of them at once in one project where that would clash (worktree.ts).
-  jobs.registerJobKind('blame', { title: () => 'Blaming', build: (req, b) => blameJob(req, b.store, b.project?.path ?? null) });
-  jobs.registerJobKind('repair', { title: () => 'Repairing', build: (req, b) => repairJob(req, b.store, configuredRepairer(ctx)) });
-  jobs.registerJobKind('apply', { title: () => 'Applying the patch', build: (req, b) => applyJob(req, b.store) });
-  jobs.registerJobKind('verify', { title: () => 'Verifying', build: (req, b) => verifyJob(req, b.store) });
+  // Each titled as its drawer heads it, in the -ing form of the name its button has.
+  jobs.registerJobKind('blame', { title: () => ACTIONS.runBlame.doing, build: (req, b) => blameJob(req, b.store, b.project?.path ?? null) });
+  jobs.registerJobKind('repair', { title: () => ACTIONS.runRepair.doing, build: (req, b) => repairJob(req, b.store, configuredRepairer(ctx)) });
+  jobs.registerJobKind('apply', { title: () => ACTIONS.applyFix.doing, build: (req, b) => applyJob(req, b.store) });
+  jobs.registerJobKind('verify', { title: () => ACTIONS.runVerify.doing, build: (req, b) => verifyJob(req, b.store) });
 }

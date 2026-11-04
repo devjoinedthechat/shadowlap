@@ -6,6 +6,7 @@ import type { DayCount, RunsByDay } from '../types.js';
 import { Avatar } from './people.js';
 import { CAL_CELLS, CAL_NOUN, calSummary, counted, dayTip, dragEnd, dragOver, dragStart, failedOf, keyPick, monthLabels, moveDay, shownRange, spanText, type Drag } from './calendar-model.js';
 import { dayText } from '../overview/model.js';
+import { ACTIONS } from '../labels.js';
 
 /**
  * Twelve weeks above the Runs table, a column per week, coloured by runs per day in four shades
@@ -29,9 +30,9 @@ export function Calendar({
   onPick: (range: [number, number] | null) => void;
   /** A team store is set: the hover names who ran them, the summary who ran most. */
   byPerson: boolean;
-  /** Find the commit, offered with Failed picked and days chosen that failed; null hides it. */
+  /** Find breaking commit, offered with Failed picked and days chosen that failed; null hides it. */
   onFindCommit: ((range: [number, number]) => void) | null;
-  /** Why actions can't run here (a read-only dashboard): Find the commit is off, saying why. */
+  /** Why actions can't run here (a read-only dashboard): Find breaking commit is off, saying why. */
   actionsOff?: string | null;
 }) {
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -183,7 +184,7 @@ export function Calendar({
           ) : null}
           {range && onFindCommit && chip === 'failed' && sum.failed > 0 ? (
             <button className="linkbtn" type="button" disabled={!!actionsOff} title={actionsOff ?? undefined} onClick={() => onFindCommit(range)}>
-              Find the commit
+              {ACTIONS.findBreakingCommit.label}
             </button>
           ) : null}
         </div>

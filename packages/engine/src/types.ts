@@ -420,7 +420,7 @@ export interface BlameRecord {
   outcome: 'blamed' | 'unrescuable' | 'stopped';
   /**
    * True when it placed the failure on no call only because its first probe could not tell (blame.ts
-   * `unsettledFirst`): `unrescuable` then means not settled, never that no call rescues the run.
+   * `unsettledFirst`): `unrescuable` then means inconclusive at the first model call, never that no call rescues the run.
    * Absent otherwise, and from blames kept before it was.
    */
   unsettled?: boolean;

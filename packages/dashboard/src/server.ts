@@ -77,7 +77,7 @@ export interface DashboardOptions {
   /**
    * The project's goldens, read fresh on every call: the packs in its goldens folder and those its
    * config's `tests` name, as `projectGoldens` in the CLI lists them. Tests shows them, and its jobs
-   * take only these; the Overview counts their passing and failing tests, and Find the commit (on the
+   * take only these; the Overview counts their passing and failing tests, and Find breaking commit (on the
    * Runs calendar and a run's page) starts from them. Without it the project has no goldens.
    */
   goldens?: () => GoldenSource[];

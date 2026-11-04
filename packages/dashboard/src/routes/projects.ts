@@ -17,7 +17,7 @@ import { sessionBusy, testsBusy } from './tests.js';
  *   GET  /api/projects                     the switcher: every project, its path and runs, the current one
  *   POST /api/projects {path}              adds a folder (within the limits `checkFolder` keeps) and switches to it
  *   POST /api/projects/:id/select          switches: the store, config and folder jobs run in follow
- *   GET  /api/projects/folders?q=&pick=    Add a project: folders for a typed path, and the picked one checked
+ *   GET  /api/projects/folders?q=&pick=    Add project: folders for a typed path, and the picked one checked
  *   GET  /api/projects/:id/remove          the Remove dialog: what stays on disk, and the zone that deletes recordings
  *   POST /api/projects/:id/remove {deleteRecordings?, name?}   removes it (deleting its store once the typed name matches)
  *   GET  /api/setup                        the current project's setup: four steps, each with its command

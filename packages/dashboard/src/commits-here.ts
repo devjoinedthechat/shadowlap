@@ -2,7 +2,7 @@ import { gitAsync } from './patch-in-tree.js';
 import { bisectArgs, type BisectChoices, type BisectRange, type BisectRevision } from './tests.js';
 
 /**
- * Find the commit offers only commits this checkout has, wherever it is offered: the Runs calendar,
+ * Find breaking commit offers only commits this checkout has, wherever it is offered: the Runs calendar,
  * a run's page and Tests. With a team store, a teammate's runs and CI's test sessions name commits
  * of their own checkout (a pull request's merge commit, a branch never fetched), which bisect can't
  * start from or stop at here. Each commit offered carries its subject, as `git log` shows it, so a
@@ -126,7 +126,7 @@ export async function commitAuthors(cwd: string, revs: ReadonlyArray<string | nu
 }
 
 /**
- * Find the commit's choices without the commits this checkout doesn't have: the good one falls to
+ * Find breaking commit's choices without the commits this checkout doesn't have: the good one falls to
  * the newest one here where the runs didn't all fail, and the bad one to HEAD when the failure's own
  * commit isn't here. Each revision left is named by its subject in `subjects`.
  */
@@ -179,7 +179,7 @@ async function atFirstCommit(root: string, c: BisectChoices): Promise<BisectChoi
 }
 
 /**
- * A run's Find the commit as the project's checkout can run it: only commits this checkout has, and
+ * A run's Find breaking commit as the project's checkout can run it: only commits this checkout has, and
  * no search from a failure at its first commit. As it is without a project folder, or when git
  * can't say.
  */
@@ -191,7 +191,7 @@ export async function choicesInCheckout(root: string | null | undefined, c: Bise
 }
 
 /**
- * A golden's Find the commit (Tests) as this checkout can run it: none without the commit where it
+ * A golden's Find breaking commit (Tests) as this checkout can run it: none without the commit where it
  * last passed, so the page asks for one, and up to HEAD when the commit where it failed isn't here.
  */
 export function rangeHere(golden: string, range: BisectRange, here: ReadonlySet<string>): BisectRange | null {
@@ -200,7 +200,7 @@ export function rangeHere(golden: string, range: BisectRange, here: ReadonlySet<
   return { ...range, bad, args: ['bisect', golden, '--good', range.good, ...(bad ? ['--bad', bad] : [])] };
 }
 
-/** The commits a golden's Find the commit dialog offers, those this checkout has, each with its subject. */
+/** The commits a golden's Find breaking commit dialog offers, those this checkout has, each with its subject. */
 export function revisionsHere(revisions: readonly BisectRevision[], here: ReadonlySet<string>, subjects: ReadonlyMap<string, string>): BisectRevision[] {
   return revisions.filter((r) => here.has(r.rev)).map((r) => (subjects.has(r.rev) ? { ...r, subject: subjects.get(r.rev)! } : r));
 }

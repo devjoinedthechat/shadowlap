@@ -1,4 +1,5 @@
 import { shortId } from './format.js';
+import { ACTIONS, confirmWords } from './labels.js';
 import { settingsTabLabel } from './pages/settings/tabs.js';
 import type { Route } from './route.js';
 import type { RunAbout } from './types.js';
@@ -79,11 +80,11 @@ export function pageTitle(route: Route, facts: TitleFacts = {}): string {
     case 'settings':
       return `${settingsTabLabel(route.tab)} · Settings`;
     case 'new':
-      return 'Add a project';
+      return confirmWords(ACTIONS.addProject.label);
     case 'setup':
       return 'Set up';
     case 'store-setup':
-      return 'Set up the store';
+      return ACTIONS.setUpTeamStore.label;
     case 'notfound':
       return 'Not found';
   }

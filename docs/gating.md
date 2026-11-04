@@ -808,7 +808,7 @@ How blame reads its probes:
 - **A probe still between the two after its `max`** is inconclusive and claims nothing. So the run was lost somewhere between the last call that rescued it and the call before the first found lost after it.
 - **The [confidence](./blame.md#how-it-works)** is read from the sum of the exact risks of the probes that claimed something: high when it is within the 5%.
 - **A call the probes pin** is checked against the next with fresh pairs before the run is said to be lost there. That is the paired test above, on the next call's attempt less the pinned call's, at a probe's share. It is pinned when rescue drops there beyond chance, else *lost gradually, around* the two calls, and the check's exact risk joins the sum.
-- **When the first probe is the inconclusive one**, blame says *Not settled from the first model call*, at low confidence, with how to settle it (more attempts, or a lower `good`), rather than *Not rescued*. A run that passes some of the time when resampled from its first call may still be an unlucky answer.
+- **When the first probe is the inconclusive one**, blame says *Inconclusive at the first model call*, at low confidence, with how to settle it (more attempts, or a lower `good`), rather than *Not rescued*. A run that passes some of the time when resampled from its first call may still be an unlucky answer.
 - **With `--concurrency n`**, a probe decides on its attempts in the order they started, and starts one only while fewer than *n* have started that it hasn't counted. So at most *n* − 1 run past the attempt that decides. It keeps its first verdict: attempts still running when it came are reported, but never reopen it.
 
 ## Reference

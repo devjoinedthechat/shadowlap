@@ -237,6 +237,8 @@ export function normalizeAction(a: ActionItem): ActionItem {
   if (a.group === 'call' || a.group === 'run' || a.group === null) out.group = a.group;
   const hint = str(a.hint);
   if (hint) out.hint = hint;
+  // A fork's Repeat 5 times asks before it runs live, though it has nothing to fill in.
+  if (a.asksFirst === true) out.asksFirst = true;
   if (a.prompt) {
     const prompt: NonNullable<ActionItem['prompt']> = { label: a.prompt.label };
     if (typeof a.prompt.placeholder === 'string') prompt.placeholder = a.prompt.placeholder;

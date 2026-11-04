@@ -157,7 +157,7 @@ describe('unpack: a pack is untrusted input', () => {
       ['blamed', /meta\.blame: must be an object/],
     ];
     for (const [b, message] of cases) rejects(withBlame(b), message);
-    // The record blame writes imports, one not settled from its first model call too.
+    // The record blame writes imports, one inconclusive at its first model call too.
     const store = Store.open(':memory:');
     const run = store.getRun(unpackRun(store, withBlame({ ...blame, scope: 'triage' })).imported[0])!;
     expect(run.meta?.blame).toEqual({ ...blame, scope: 'triage' });

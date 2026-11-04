@@ -1,7 +1,12 @@
 import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import { bannerFor, beforeFork, failedCheckText, failureText, fencedWords, type BannerInput } from '../ui/run/banner.js';
 import { CallsToolbar, originFilters } from '../ui/run/CallsView.js';
+import { ContextView } from '../ui/run/ContextView.js';
+import { Inspector } from '../ui/run/Inspector.js';
+import { AppContext, type AppState } from '../ui/state.js';
+import type { CallDetail, CallRow, RunDetail } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -85,5 +90,24 @@ describe('the Calls view', () => {
     const counts = { all: 32, live: 14, rep: 15, over: 1, inject: 0, fail: 0, block: 2 };
     page = await render(createElement(CallsToolbar, { counts, filter: 'all', onFilter: () => undefined, text: '', onText: () => undefined, inputRef: { current: null } }));
     expect(page.all('.ofilter button').map((b) => b.textContent)).toEqual(['All32', 'Live14', 'Replayed15', 'Overridden1', 'Fenced2']);
+  });
+});
+
+describe('a call’s input, split as the recording keeps it', () => {
+  // 4,600 input tokens: 4,000 read from the prompt cache, 400 cache creation (cacheCreationInputTokens), 200 uncached.
+  const call = { callNo: 3, kind: 'api', name: 'POST /v1/messages', origin: 'live', effect: null, outcome: 'ok', status: 200, model: 'claude-opus-5', stopReason: 'end_turn', latencyMs: 812, ttftMs: null, usage: { input: 200, output: 56, cacheRead: 4000, cacheWrite: 400 }, cost: null, bytes: null, attempts: 0, replayedFrom: null, error: null, fingerprint: 'f'.repeat(64), occurrence: 1, startedAt: 1, headers: {} } as unknown as CallRow;
+
+  it('names its parts cache read, cache creation and uncached, in the Context view, its hover cards and the call’s details', () => {
+    const run = { run: { divergence: null }, cache: { misses: [] } } as unknown as RunDetail;
+    const chart = renderToStaticMarkup(createElement(ContextView, { run, calls: [call], selected: 3, onSelect: () => undefined }));
+    const legend = chart.slice(chart.indexOf('<div class="legend">'), chart.indexOf('</div>', chart.indexOf('<div class="legend">')));
+    expect(legend.split(/<[^>]*>/).filter((t) => t.trim())).toEqual(['cache read', 'cache creation', 'uncached', 'output']);
+    expect(chart).toContain('[&quot;cache read&quot;,&quot;4,000&quot;,&quot;var(--c-read)&quot;],[&quot;cache creation&quot;,&quot;400&quot;,&quot;var(--c-write)&quot;],[&quot;uncached&quot;,&quot;200&quot;,&quot;var(--c-unc)&quot;]');
+    const app = { client: {}, exported: true, actionsOff: null, toast: () => undefined, guard: (fn: () => void) => fn() } as unknown as AppState;
+    const detail = { call, notes: [], actions: [] } as unknown as CallDetail;
+    const details = renderToStaticMarkup(createElement(AppContext.Provider, { value: app }, createElement(Inspector, { runId: 'R', call, calls: [call], detail, error: null, tab: 'details', onTab: () => undefined, onStep: () => undefined, change: null, live: false })));
+    expect(details).toContain('<dt>Input tokens</dt><dd>4,600 <small>4,000 cache read · 400 cache creation · 200 uncached</small></dd>');
+    // A write is only ever a tool that changes something.
+    for (const html of [chart, details]) expect(html).not.toMatch(/cache write/i);
   });
 });

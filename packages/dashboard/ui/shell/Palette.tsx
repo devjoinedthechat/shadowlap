@@ -3,6 +3,7 @@ import { JOB_KINDS, type RecordedHit } from '../api.js';
 import { AboutLine, FitHint, useFitAbouts } from '../components/About.js';
 import { Icon } from '../components/Icon.js';
 import { isMac } from '../dom.js';
+import { ACTIONS } from '../labels.js';
 import { callName, shortId } from '../format.js';
 import { jobRunning } from '../jobs.js';
 import { highlight, INDEXING_RETRY_MS, indexingNote, limitRecorded, matchPalette, palettePlaceholder, PAUSED_HINT, RECORDED_MIN_CHARS, runsById, runsToAskFor, snippetParts, words } from '../palette.js';
@@ -75,15 +76,15 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
           ['Tests', href.tests()],
           ['Training', href.training()],
           ['Settings', href.settings()],
-          ['Add a project', href.newProject()],
+          [ACTIONS.addProject.label, href.newProject()],
         ];
     for (const [label, to] of pages) out.push({ group: 'Go to', label, hint: '', run: () => go(to) });
     // Not a second session while one started here runs: Tests' own button says so meanwhile. One that
     // would run goldens live asks first, over whatever page is open, as Tests' Run tests does, with
     // the command read from Tests once the server asks (paletteTestsAsk).
     if (!app.actionsOff && app.hasKind(JOB_KINDS.tests) && !jobRunning(app.jobs, TEST_KINDS))
-      out.push({ group: 'Actions', label: 'Run the tests', hint: 'shadowlap test goldens/*', job: true, run: () => startTestsJob(app, JOB_KINDS.tests, {}, paletteTestsAsk(app)) });
-    out.push({ group: 'Actions', label: 'Keyboard shortcuts', hint: '?', run: () => app.setHelp(true) });
+      out.push({ group: 'Actions', label: ACTIONS.runTests.label, hint: 'shadowlap test goldens/*', job: true, run: () => startTestsJob(app, JOB_KINDS.tests, {}, paletteTestsAsk(app)) });
+    out.push({ group: 'Actions', label: ACTIONS.keyboardShortcuts.label, hint: '?', run: () => app.setHelp(true) });
     for (const source of paletteSources()) {
       try {
         out.push(...source({ app, route, go }).filter((x) => x.group !== 'Actions' || !app.actionsOff));

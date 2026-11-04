@@ -7,6 +7,7 @@ import { useLoad } from '../hooks.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { FILE_FORMATS, fileHead, HEAD_BYTES, IMPORT_ACCEPT, IMPORT_FILE_FORMATS, keyList, OTEL_SAMPLE_NAME, phoenixProjectNote, phoenixProjectOk, pickedFormat, sampleTrace, TRACE_COPY, traceIdOk, type ImportFileFormat, type TraceSource } from './imports.js';
+import { ACTIONS, confirmWords } from '../labels.js';
 
 /**
  * Import a capture or a trace: a file (dropped or picked; its format guessed from its name and its
@@ -87,9 +88,9 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <Dialog
-      title="Import a capture or a trace"
+      title={confirmWords(ACTIONS.importCapture.label)}
       text="Turns traffic another tool captured, or a trace you already store, into a recording you can replay your own code against. What the source didn’t keep runs live on replay, with writes fenced."
-      ok={busy ? 'Uploading…' : 'Import'}
+      ok={busy ? 'Uploading…' : confirmWords(ACTIONS.importCapture.label)}
       okDisabled={!ready}
       onOk={() => void run()}
       onClose={onClose}

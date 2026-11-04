@@ -1,3 +1,4 @@
+import { ACTIONS, confirmWords, dialogName, forceLiveLabel } from './labels.js';
 import type { PromptChoice } from './types.js';
 
 /**
@@ -19,6 +20,8 @@ export interface ActionLike {
   group?: 'call' | 'run' | null;
   /** One line on what it does and why, from the server. */
   hint?: string;
+  /** It asks before it starts, with nothing to fill in: a fork's Repeat 5 times, whose attempts run live. */
+  asksFirst?: true;
 }
 
 /** Actions with a place of their own: Replay in the header, Pack in Share, the normalizer in the divergence banner. */
@@ -26,16 +29,19 @@ export const OWN_PLACE = new Set(['r', 'p', 'n']);
 /** Today's run-wide keys, for a server that does not send `group`. */
 const RUN_KEYS = new Set(['r', 's', 'e', 'n', 'p']);
 
-/** The mock's words for today's actions, used while the server does not send its own flags. */
+/**
+ * The fork menu's words for an action a server sends without its flag (one older than the flags):
+ * the engine's, in the CLI's verbs, an ellipsis on each that asks for something first.
+ */
 const KNOWN: Record<string, { label: string; flag: string }> = {
-  i: { label: 'Inject an instruction', flag: '--inject' },
-  m: { label: 'Switch the model from here', flag: '--model' },
-  g: { label: 'Fork with your changed prompt', flag: '--prompt-from' },
-  f: { label: 'Answer with an HTTP failure', flag: '--fail-at' },
-  o: { label: 'Override this tool’s result', flag: '--override' },
-  a: { label: 'Diverge here', flag: '--diverge-at' },
-  e: { label: 'Repeat the replay and compare', flag: '--repeat' },
-  s: { label: 'Stub the writes', flag: '--writes stub' },
+  i: { label: ACTIONS.injectInstruction.label, flag: '--inject' },
+  m: { label: ACTIONS.switchModel.label, flag: '--model' },
+  g: { label: ACTIONS.useChangedPrompt.label, flag: '--prompt-from' },
+  f: { label: ACTIONS.failWithStatus.label, flag: '--fail-at' },
+  o: { label: ACTIONS.overrideResult.label, flag: '--override' },
+  a: { label: ACTIONS.runLive.label, flag: '--diverge-at' },
+  e: { label: ACTIONS.repeat.label, flag: '--repeat' },
+  s: { label: ACTIONS.replayStubbed.label, flag: '--writes stub' },
 };
 
 /** Most used first, as the mock lists them; keys it does not know sit before force-live and diverge. */
@@ -58,7 +64,7 @@ function capitalize(s: string): string {
 /** An action's words for the menu: the server's label without "Fork:" and its trailing flag. */
 export function menuLabel(a: ActionLike, toolName?: string | null): string {
   if (!a.flag) {
-    if (a.key === 'l' && toolName) return `Force ${toolName} live`;
+    if (a.key === 'l' && toolName) return forceLiveLabel(toolName);
     const known = KNOWN[a.key];
     if (known) return known.label;
   }
@@ -168,6 +174,7 @@ export interface DialogCopy {
   initial: string;
   placeholder: string;
   multiline: boolean;
+  /** Its confirm: the opener's name without the ellipsis. */
   ok: string;
   /** The command it runs, under the field, with … for what is typed. */
   command?: string;
@@ -210,7 +217,8 @@ export function consentTitle(message: string): string {
 }
 
 /**
- * The words of the dialog an action asks its one thing in. The server's own hint, when it sends one,
+ * The words of the dialog an action asks its one thing in, each titled and confirmed with the name
+ * its menu item has, as one action is named everywhere. The server's own hint, when it sends one,
  * says what the action does; the dialog says an instruction goes in as a user message only when the
  * server's flag says so (`--inject-as user`).
  */
@@ -219,14 +227,15 @@ export function dialogCopy(a: ActionLike, ctx: DialogContext): DialogCopy {
   const n = ctx.callNo;
   const at = n === null ? '' : `#${n}`;
   const named = ctx.callName ? ` ${ctx.callName}` : '';
-  const base = { initial: p.initial ?? '', placeholder: p.placeholder ?? '', multiline: false, ok: a.opensRun ? 'Fork' : 'Run' };
+  const opener = dialogName(menuLabel(a, ctx.callName), n);
+  const base = { initial: p.initial ?? '', placeholder: p.placeholder ?? '', multiline: false, ok: opener };
   let copy: DialogCopy;
   if (isInject(a)) {
     const asUser = injectsAsUser(a);
     const flag = a.flag ? a.flag.replace(/=…/g, '="…"') : `--inject ${n ?? 'n'}="…"`;
     copy = {
       ...base,
-      title: `Inject an instruction at ${at}`,
+      title: `Inject instruction at ${at}`,
       text:
         a.hint ??
         (asUser
@@ -234,11 +243,11 @@ export function dialogCopy(a: ActionLike, ctx: DialogContext): DialogCopy {
           : `The instruction is added at ${at} and stays in place for every later request of the fork. Calls before it replay.`),
       placeholder: p.placeholder ?? 'Escalate refunds above the regional limit to tier 2.',
       multiline: true,
-      ok: 'Fork',
+      ok: confirmWords(ACTIONS.injectInstruction.label),
       command: `shadowlap replay ${ctx.id} ${flag}`,
     };
   } else if (isUserAnswer(a)) {
-    copy = { ...base, title: `Answer ${at} differently`, text: a.hint ?? 'The agent gets this reply instead of the recorded one. Calls before it replay; from here the run goes on live, with writes fenced.', multiline: true, ok: 'Fork' };
+    copy = { ...base, title: `Override user reply at ${at}`, text: a.hint ?? 'The agent gets this reply instead of the recorded one. Calls before it replay; from here the run goes on live, with writes fenced.', multiline: true, ok: confirmWords(ACTIONS.overrideUserReply.label) };
   } else if (isOverride(a)) {
     copy = {
       ...base,
@@ -247,38 +256,39 @@ export function dialogCopy(a: ActionLike, ctx: DialogContext): DialogCopy {
       initial: prettyJson(p.initial) ?? (ctx.recorded === undefined ? '' : JSON.stringify(ctx.recorded, null, 2)),
       placeholder: p.placeholder ?? '{"ok": true}',
       multiline: true,
-      ok: 'Fork',
+      ok: confirmWords(ACTIONS.overrideResult.label),
     };
   } else if (a.key === 't') {
-    copy = { ...base, title: `Answer ${at}${named} with an error`, text: a.hint ?? 'The tool doesn’t run: the agent gets the error instead, and its error path runs live. Calls before it replay.', label: 'Error', initial: p.initial ?? 'timeout', ok: 'Fork' };
+    copy = { ...base, title: `Fail ${at}${named} with tool error`, text: a.hint ?? 'The tool doesn’t run: the agent gets the error instead, and its error path runs live. Calls before it replay.', label: 'Error', initial: p.initial ?? 'timeout', ok: confirmWords(ACTIONS.failWithToolError.label) };
   } else if (a.key === 'x') {
     copy = {
       ...base,
-      title: `Plant an instruction in ${at}${named}`,
+      title: `Plant instruction in ${at}${named}`,
       text: a.hint ?? 'The text is added to what the tool returned, as an attacker would. Calls before it replay free; from here the agent runs live, with writes fenced, and the run’s checks say whether it obeyed.',
       label: 'Instruction',
       multiline: true,
-      ok: 'Fork',
+      ok: confirmWords(ACTIONS.plantInstruction.label),
     };
   } else if (a.key === 'f') {
     copy = {
       ...base,
-      title: `Answer ${at} with a failure`,
+      title: `Fail ${at} with HTTP status`,
       text: a.hint ?? 'Nothing is sent. Every attempt fails, so the SDK’s retry policy runs and then gives up: the path worth testing.',
       label: p.choices?.length ? 'Status' : 'Status (429 rate limit, 500 or 529 overloaded, 400 bad request)',
       initial: p.initial ?? '429',
-      ok: 'Fork',
+      ok: confirmWords(ACTIONS.failWithStatus.label),
     };
   } else if (a.key === 'm') {
-    copy = { ...base, title: `Switch the model from ${at}`, text: a.hint ?? `Calls before ${at} replay; from here the new model answers live.`, label: 'Model', ok: 'Fork' };
+    copy = { ...base, title: `Switch model from ${at}`, text: a.hint ?? `Calls before ${at} replay; from here the new model answers live.`, label: 'Model' };
   } else if (a.key === 'e') {
-    copy = { ...base, title: 'Repeat the replay and compare', text: a.hint ?? p.label, label: 'Attempts', initial: p.initial ?? '5', ok: 'Run' };
+    // A fork's, asked before its five attempts run live from the fork: nothing to fill in.
+    copy = { ...base, title: ACTIONS.repeat.title, text: a.hint ?? p.label, ok: confirmWords(ACTIONS.repeat.label) };
   } else if (a.key === 'p') {
-    copy = { ...base, title: `Pack ${ctx.id}`, text: 'A folder to commit as a golden or send to someone: run.json, calls.jsonl and one file per blob. Redaction rules apply to the copy; the store is never changed.', label: 'Folder', ok: 'Pack' };
+    copy = { ...base, title: `Pack ${ctx.id}`, text: 'A folder to commit as a golden or send to someone: run.json, calls.jsonl and one file per blob. Redaction rules apply to the copy; the store is never changed.', label: 'Folder', ok: 'Pack run' };
   } else if (a.key === 'r') {
-    copy = { ...base, title: ctx.capture ? 'Replay a capture' : 'Replay', text: p.label, ok: 'Replay' };
+    copy = { ...base, title: opener, text: p.label };
   } else {
-    copy = { ...base, title: menuLabel(a), text: a.hint ?? p.label };
+    copy = { ...base, title: opener, text: a.hint ?? p.label };
   }
   if (p.choices?.length) copy.choices = p.choices;
   // An imported pack's question (or a pulled run's) carries its warning: it is asked as it is.

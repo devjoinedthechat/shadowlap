@@ -19,7 +19,7 @@ export function useServerJobs(): JobListItem[] {
 
 /**
  * Why an action that uses the project's working tree as `use` can't start now, as the server would
- * refuse it, or null: what Run blame, Repair from here, Apply the patch and the Tests actions read to
+ * refuse it, or null: what Run blame, Run repair, Apply fix and the Tests actions read to
  * disable themselves, with the reason (`treeBusy`). Only jobs in this project's tree count.
  */
 export function useTreeBusy(use: 'reads' | 'writes', verb: string): string | null {

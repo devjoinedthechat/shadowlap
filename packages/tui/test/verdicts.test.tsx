@@ -1,12 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { markToast, Store, unpackRun, type CallRecord, type RunRecord } from '@shadowlap/engine';
+import { markToast, Store, unpackRun, type CallRecord, type RunRecord, type StoredFix } from '@shadowlap/engine';
 import { App } from '../src/app.js';
 import { attemptResult, attemptsText, attemptTallies, leftRunning } from '../src/attempts.js';
 import { forkEffects } from '../src/fork-effects.js';
 import { marked } from '../src/marks.js';
-import { failedCheckText, standing, unrecordedConsequence, unrecordedName, verdictOf } from '../src/verdict.js';
+import { blameFact, failedCheckText, fixFact, standing, unrecordedConsequence, unrecordedName, verdictOf } from '../src/verdict.js';
 import { renderAt } from './terminal.js';
 
 const GOLDEN = fileURLToPath(new URL('../../../testing/golden/reference-agent/', import.meta.url));
@@ -258,5 +258,18 @@ describe('how a run stands, in the terminal', () => {
     const run = { status: 'completed', meta: { blame: { outcome: 'unrescuable' } } } as unknown as RunRecord;
     expect(standing(run, { kind: 'check-failed', check: null })).toEqual({ text: 'blame confirmed it fails', tone: 'err' });
     expect(standing({ ...run, status: 'failed' }, { kind: 'check-failed', check: null })!.text).toBe('the agent exited with an error');
+  });
+
+  it('says a blame whose first probe could not tell is inconclusive at the first model call, as show does, never not rescued', () => {
+    const blamed = (blame: Record<string, unknown>) => ({ status: 'failed', meta: { blame: { at: 1, callNo: null, confidence: 'low', ...blame } } }) as unknown as RunRecord;
+    expect(blameFact(blamed({ outcome: 'unrescuable', unsettled: true }))).toEqual({ text: 'inconclusive at the first model call', tone: 'warn' });
+    expect(blameFact(blamed({ outcome: 'unrescuable' }))).toEqual({ text: 'not rescued from any model call', tone: 'warn' });
+  });
+
+  it('says an open fix has no change yet, as the dashboard’s run page does: repair makes a change, a fix is the failure worked through', () => {
+    const failed = { status: 'failed', meta: { blame: { outcome: 'blamed', callNo: 9 } } } as unknown as RunRecord;
+    const fix = { fixId: FIX, title: 'Confirmation email sent twice', status: 'open' } as unknown as StoredFix;
+    expect(fixFact(failed, fix, { kind: 'lost', callNo: 9 })).toEqual({ text: 'no change yet for “Confirmation email sent twice”', tone: 'warn' });
+    expect(fixFact(failed, null, { kind: 'lost', callNo: 9 })).toEqual({ text: 'no change yet', tone: 'warn' });
   });
 });

@@ -165,10 +165,10 @@ describe('palette', () => {
   });
 
   it('orders Actions as the design does, whichever page added them, with Keyboard shortcuts last', () => {
-    const actions: PaletteEntry[] = ['Keyboard shortcuts', 'Run the tests', 'Calibrate', 'Import a capture…', 'Something new…', 'Score a model on the tasks…', 'Export preference pairs…', 'Update goldens…'].map((label) => ({ group: 'Actions', label, hint: '' }));
+    const actions: PaletteEntry[] = ['Keyboard shortcuts', 'Run tests', 'Calibrate', 'Import capture…', 'Something new…', 'Score model…', 'Export pairs…', 'Update goldens…'].map((label) => ({ group: 'Actions', label, hint: '' }));
     expect(matchPalette(actions, '').map((x) => x.label)).toEqual([...ACTION_ORDER, 'Something new…', 'Keyboard shortcuts']);
     // Typed, a better match still leads.
-    expect(matchPalette(actions, 'e').map((x) => x.label).slice(0, 2)).toEqual(['Export preference pairs…', 'Update goldens…']);
+    expect(matchPalette(actions, 'e').map((x) => x.label).slice(0, 2)).toEqual(['Export pairs…', 'Update goldens…']);
   });
 
   it('marks the first typed word and the server’s matches', () => {
@@ -288,17 +288,17 @@ describe('cache misses', () => {
 
   it('says where the cache missed, only there, and for calls that never used it that each turn sent the history again', () => {
     const cached = [m(1, 0, 200, 3000), m(3, 3000, 100, 400), m(17, 1200, 2700, 500)];
-    expect(cacheNote(cached, cacheMisses(cached))).toEqual({ lead: 'Only #17 missed the cache.', parts: ['#17 sent 2,300 tokens again and wrote the prompt to the cache anew.'] });
-    // A fork's change at #17: #17 wrote the prompt to the cache again, and the calls after it read it
+    expect(cacheNote(cached, cacheMisses(cached))).toEqual({ lead: 'Only #17 missed the cache.', parts: ['#17 sent 2,300 tokens again, and the prompt was cached again.'] });
+    // A fork's change at #17: #17 cached the prompt again, and the calls after it read it
     // from there. It never says the change does this to every call after it: they hit.
     const fork = [...cached, m(19, 3700, 60, 200), m(21, 3960, 50, 100)];
     expect(cacheNote(fork, cacheMisses(fork), { callNo: 17, path: '$.model' })).toEqual({
       lead: 'Only #17 missed the cache.',
-      parts: ['The prompt changed at ', { code: '$.model' }, ', so #17 sent 2,300 tokens again and wrote the prompt to the cache anew; the calls after it read it from there.'],
+      parts: ['The prompt changed at ', { code: '$.model' }, ', so #17 sent 2,300 tokens again, and the prompt was cached again; the calls after it read it from there.'],
     });
     expect(cacheNote(fork, cacheMisses(fork)).parts.map((p) => (typeof p === 'string' ? p : p.code)).join('')).not.toMatch(/every call after it/);
     expect(cacheNote(cached, cacheMisses(cached), { callNo: 5, path: '$.messages[3]' }).parts).toHaveLength(1);
-    // A miss that wrote nothing to the cache says only what it sent again.
+    // A miss that cached nothing again says only what it sent again.
     const unwritten = [m(1, 0, 200, 3000), m(3, 3000, 100, 400), m(17, 1200, 2700)];
     expect(cacheNote(unwritten, cacheMisses(unwritten)).parts).toEqual(['#17 sent 2,300 tokens again.']);
     const never = [m(1, 0, 2000), m(2, 0, 2400), m(3, 0, 2800)];
@@ -307,13 +307,13 @@ describe('cache misses', () => {
     const churn = [m(1, 0, 200, 3000), m(2, 50, 200, 3100), m(3, 50, 200, 3250)];
     expect(cacheNote(churn, cacheMisses(churn))).toEqual({ lead: 'Every model call after the first missed the cache.', parts: ['Something early in the prompt changes on every call (a time, an id), so each sent the whole prompt again: 6,450 tokens.'] });
     const two = [m(1, 0, 200, 3000), m(3, 3000, 100, 400), m(17, 1200, 2700, 500), m(19, 3700, 60, 200), m(21, 1000, 2900, 300), m(23, 4000, 50, 100)];
-    expect(cacheNote(two, cacheMisses(two))).toEqual({ lead: 'The cache missed at #17 and #21.', parts: ['They sent 5,260 tokens again and wrote the prompt to the cache anew; the calls after each read it from there.'] });
+    expect(cacheNote(two, cacheMisses(two))).toEqual({ lead: 'The cache missed at #17 and #21.', parts: ['They sent 5,260 tokens again, and the prompt was cached again; the calls after each read it from there.'] });
     const many = Array.from({ length: 10 }, (_, i) => ({ callNo: i + 1, tokens: 1100 }));
     expect(cacheNote(cached, many).lead).toBe('The cache missed at #1, #2, #3, #4, #5, #6, #7, #8 and 2 more.');
     // No misses: the calls read the previous prompt from the cache, or nothing used it.
     expect(cacheNote([m(1, 0, 200, 3000), m(3, 3000, 100, 400)], [])).toEqual({ lead: null, parts: ['Every model call read the previous prompt from the cache.'] });
     expect(cacheNote([m(1, 0, 200, 3000, undefined, 1), m(3, 3000, 100, 400, undefined, 1)], []).parts[0]).toMatch(/^Each conversation starts its own context/);
-    expect(cacheNote([m(1, 0, 300), m(2, 0, 500)], []).parts).toEqual(['No model call here wrote to the prompt cache or read from it, and none sent 1,024 tokens of its conversation again.']);
+    expect(cacheNote([m(1, 0, 300), m(2, 0, 500)], []).parts).toEqual(['No model call here cached its prompt or read from the cache, and none sent 1,024 tokens of its conversation again.']);
   });
 
   it('heads the misses with where they are, or for calls that never cached with the tokens sent again', () => {
@@ -610,23 +610,23 @@ describe('fork menu', () => {
   it('puts the call’s actions first in the mock’s order, then the whole run, leaving out what has its own place', () => {
     const menu = forkMenu(today);
     expect(menu.call.map((x) => [x.label, x.flag])).toEqual([
-      ['Inject an instruction', '--inject'],
-      ['Switch the model from here', '--model'],
-      ['Fork with your changed prompt', '--prompt-from'],
-      ['Answer with an HTTP failure', '--fail-at'],
-      ['Diverge here', '--diverge-at'],
+      ['Inject instruction…', '--inject'],
+      ['Switch model from here…', '--model'],
+      ['Use changed prompt from here', '--prompt-from'],
+      ['Fail with HTTP status…', '--fail-at'],
+      ['Run live from here', '--diverge-at'],
     ]);
-    expect(menu.run.map((x) => x.label)).toEqual(['Repeat the replay and compare', 'Stub the writes']);
+    expect(menu.run.map((x) => x.label)).toEqual(['Repeat 5 times', 'Replay with writes stubbed']);
   });
 
   it('uses the server’s flag and group when it sends them', () => {
-    const next = [a('t', 'Answer with a tool error', { flag: '--fail-at 16=timeout', group: 'call' }), a('b', 'Find the commit that broke it', { flag: 'bisect', group: 'run' }), a('l', 'Fork: force get_policy live (--live-tool)')];
+    const next = [a('t', 'Fail with tool error…', { flag: '--fail-at 16=timeout', group: 'call' }), a('b', 'Find breaking commit…', { flag: 'bisect', group: 'run' }), a('l', 'Fork: force get_policy live (--live-tool)')];
     const menu = forkMenu(next, 'get_policy');
     expect(menu.call.map((x) => [x.label, x.flag])).toEqual([
-      ['Answer with a tool error', '--fail-at'],
+      ['Fail with tool error…', '--fail-at'],
       ['Force get_policy live', '--live-tool'],
     ]);
-    expect(menu.run.map((x) => [x.label, x.flag])).toEqual([['Find the commit that broke it', 'bisect']]);
+    expect(menu.run.map((x) => [x.label, x.flag])).toEqual([['Find breaking commit…', 'bisect']]);
     expect(menuLabel(a('z', 'Fork: plant a prompt injection (--inject-result)'))).toBe('Plant a prompt injection');
     expect(menuFlag(a('z', 'Fork: plant a prompt injection (--inject-result)'))).toBe('--inject-result');
   });
@@ -664,11 +664,11 @@ describe('job drawer', () => {
 
   it('says how a job ended when its drawer was closed: the outcome, or its last line when that is all the exit code says', () => {
     const tests = { args: ['test', 'goldens/a', 'goldens/b'], done: true, code: 1 };
-    expect(endToast(tests, ['✗ refund-in-limit diverged at call 3', '5 passed, 1 failed', 'If the change was intended, update it: shadowlap test goldens/refund-in-limit --update'])).toBe('Running the tests finished · 1 failed · exit 1');
-    expect(endToast({ args: ['replay', 'X'], done: true, code: 0 }, ['⑂ Forked at call 1: 0 calls replayed, then 6 live', '  shadowlap show 01M51XXYH5'])).toBe('Replaying finished · diverged at #1 · went live · exit 0');
-    expect(endToast({ args: ['replay', 'X', '--inject', '1=Escalate it'], done: true, code: 0 }, ['⑂ Forked at call 1: 0 calls replayed, then 6 live', '  shadowlap show 01M51XXYH5'])).toBe('Forking finished · forked · exit 0');
-    expect(endToast({ args: ['pack', 'X', 'share/x'], done: true, code: 0 }, ['✓ packed share/x · 14 calls'])).toBe('Packing finished · packed share/x · 14 calls');
-    expect(endToast({ args: ['pack', 'X', 'share/x'], done: true, code: 2 }, [])).toBe('Packing finished · exit 2');
+    expect(endToast(tests, ['✗ refund-in-limit diverged at call 3', '5 passed, 1 failed', 'If the change was intended, update it: shadowlap test goldens/refund-in-limit --update'])).toBe('Ran tests · 1 failed · exit 1');
+    expect(endToast({ args: ['replay', 'X'], done: true, code: 0 }, ['⑂ Forked at call 1: 0 calls replayed, then 6 live', '  shadowlap show 01M51XXYH5'])).toBe('Replayed · diverged at #1 · went live · exit 0');
+    expect(endToast({ args: ['replay', 'X', '--inject', '1=Escalate it'], done: true, code: 0 }, ['⑂ Forked at call 1: 0 calls replayed, then 6 live', '  shadowlap show 01M51XXYH5'])).toBe('Forked · exit 0');
+    expect(endToast({ args: ['pack', 'X', 'share/x'], done: true, code: 0 }, ['✓ packed share/x · 14 calls'])).toBe('Packed share/x · 14 calls');
+    expect(endToast({ args: ['pack', 'X', 'share/x'], done: true, code: 2 }, [])).toBe('Tried packing · exit 2');
   });
 
   it('says a replay the CLI refused for a tool the run never recorded is refused, and what the tool does, not a bare exit', () => {
@@ -681,7 +681,7 @@ describe('job drawer', () => {
     ];
     const blame = { kind: 'blame', args: ['blame', '01K0UNKNOW0000000000000000', '--expect', '{"tools":{"send_email":1}}'], done: true, code: 2 };
     expect(jobStatus(blame, refusal)).toEqual({ text: 'refused · an unrecorded tool may write · exit 2', tone: 'err' });
-    expect(endToast(blame, refusal)).toBe(`${jobTitle(blame)} finished · refused · an unrecorded tool may write · exit 2`);
+    expect(endToast(blame, refusal)).toBe('Tried blaming · refused · an unrecorded tool may write · exit 2');
     const several = ["shadowlap: 01K0UNKNOW holds model calls of tools Shadowlap never recorded, which write, or may: a replay serves the model's answers again, so it would run them again for real."];
     expect(jobStatus({ args: ['replay', 'X'], done: true, code: 2 }, several)).toEqual({ text: 'refused · unrecorded tools write, or may · exit 2', tone: 'err' });
     expect(jobStatus({ args: ['replay', 'X'], done: true, code: 2 }, ['shadowlap: 01K0UNKNOW holds model calls of a tool Shadowlap never recorded, which writes: a replay serves …']).text).toBe('refused · an unrecorded tool writes · exit 2');
@@ -692,7 +692,7 @@ describe('job drawer', () => {
     expect(jobStatus({ ...tests, done: false, code: null }, [])).toEqual({ text: 'stopping', tone: '' });
     expect(jobStatus(tests, ['1 passed, 0 failed, 1 not run: interrupted'])).toEqual({ text: 'stopped · exit 143', tone: 'warn' });
     expect(jobStatus({ ...tests, code: null }, [])).toEqual({ text: 'stopped', tone: 'warn' });
-    expect(endToast(tests, ['1 passed, 0 failed, 1 not run: interrupted'])).toBe('Running the tests stopped');
+    expect(endToast(tests, ['1 passed, 0 failed, 1 not run: interrupted'])).toBe('Running tests stopped');
     // A job that ended on its own still says how it came out.
     expect(jobStatus({ ...tests, stopped: false, code: 1 }, ['5 passed, 1 failed'])).toEqual({ text: '1 failed · exit 1', tone: 'err' });
   });
@@ -712,7 +712,7 @@ describe('job drawer', () => {
   it('counts the jobs running in the top bar, and reopens the newest whose drawer is closed', () => {
     const job = (id: string, args: string[], done = false, startedAt = 0) => ({ id, args, done, startedAt });
     const list = [job('j3', ['test', 'goldens/a'], false, 3), job('j2', ['repair', '--fixes', 'X'], false, 2), job('j1', ['replay', 'X'], true, 1)];
-    expect(runningChip(list, null)).toEqual({ count: 2, label: '2 jobs running', opens: 'j3', title: 'Running the tests, Repairing: open the newest one’s drawer' });
+    expect(runningChip(list, null)).toEqual({ count: 2, label: '2 jobs running', opens: 'j3', title: 'Running tests, Repairing: open the newest one’s drawer' });
     // The newest has its drawer open: the chip opens the other.
     expect(runningChip(list, 'j3')?.opens).toBe('j2');
     // A job this tab has just started comes after the server's list until it is read again: still the newest.
@@ -775,7 +775,7 @@ describe('job drawer', () => {
     expect(forkDivergedEarly(inject, DIVERGED)).toEqual({ callNo: 3, live: true, target: { callNo: 17, flag: '--inject' } });
     expect(jobStatus(inject, DIVERGED)).toEqual({ text: 'diverged at #3, before the inject at #17 · went live · exit 0', tone: 'warn' });
     expect(jobStatus({ ...inject, code: 1 }, DIVERGED)).toEqual({ text: 'diverged at #3, before the inject at #17 · went live · exit 1', tone: 'err' });
-    expect(endToast(inject, DIVERGED)).toBe('Forking finished · diverged at #3, before the inject at #17 · went live · exit 0');
+    expect(endToast(inject, DIVERGED)).toBe('Forked · diverged at #3, before the inject at #17 · went live · exit 0');
     expect(jobStatus(fork(['--override', '16={"limit":100}']), DIVERGED).text).toBe('diverged at #3, before the override at #16 · went live · exit 0');
     expect(jobStatus(fork(['--fail-at=19=529']), DIVERGED).text).toBe('diverged at #3, before the failure at #19 · went live · exit 0');
     expect(jobStatus(fork(['--model', '15:claude-opus-5']), DIVERGED).text).toBe('diverged at #3, before the model switch at #15 · went live · exit 0');

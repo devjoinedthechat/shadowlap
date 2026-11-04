@@ -672,7 +672,7 @@ export interface RepairTarget {
   outcome: 'blamed' | 'unrescuable' | 'stopped' | 'passes' | 'error';
   /**
    * An `unrescuable` blame that placed the failure on no call only because its first probe couldn't
-   * tell (blame.ts `unsettledFirst`): not settled, never a finding that no call rescues the run.
+   * tell (blame.ts `unsettledFirst`): inconclusive at the first model call, never a finding that no call rescues the run.
    * Absent otherwise, and from reports made before it was.
    */
   unsettled?: boolean;

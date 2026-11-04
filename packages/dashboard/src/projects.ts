@@ -1,5 +1,7 @@
 import {
+  ACTIONS,
   AGENT_NODE_MIN,
+  confirmWords,
   UPSTREAM_ENV,
   defaultGolden,
   nameConfirms,
@@ -24,7 +26,7 @@ import { SETUP_INTRO } from './setup-words.js';
 import { links } from './links.js';
 
 /**
- * The dashboard's read model for projects: plain data for the project switcher, the Add a project
+ * The dashboard's read model for projects: plain data for the project switcher, the Add project
  * page, a project's setup and the Remove dialog, built from the project list and what each store
  * says. No HTTP and no file access here: the server gathers the inputs (the registry, store facts
  * and counts from `ProjectHost`, folder suggestions) and these functions decide what the screens
@@ -150,7 +152,7 @@ export function projectSwitcher(input: { projects: readonly ProjectEntry[]; curr
 }
 
 // ---------------------------------------------------------------------------------------------
-// Add a project (#/new)
+// Add project (#/new)
 
 export interface AddFolderItem {
   /** The real path: what Add sends. */
@@ -199,7 +201,7 @@ export interface PickedFolder {
   added?: boolean;
 }
 
-/** Add a project: the folder field, its suggestions, the picked folder, and what happens next. */
+/** Add project: the folder field, its suggestions, the picked folder, and what happens next. */
 export function addProjectPage(input: { query: string; suggestions: FolderSuggestions; picked?: PickedFolder | null; home: string }): AddProjectView {
   const picked = input.picked ?? null;
   const folders = input.suggestions.folders.map(
@@ -223,7 +225,7 @@ export function addProjectPage(input: { query: string; suggestions: FolderSugges
   const query = input.query.trim();
   return {
     eyebrow: 'projects',
-    title: 'Add a project',
+    title: confirmWords(ACTIONS.addProject.label),
     intro: 'Pick the folder your agent’s code is in. Nothing runs until you click.',
     field: { label: 'Folder', placeholder: '~/path/to/your/agent', value: input.query },
     listed: input.suggestions.listed,

@@ -40,7 +40,7 @@ export function redactionNotes(teamStore: boolean): string {
   ].join(' ');
 }
 
-/** What Add a redaction rule says it does, with or without a team store. */
+/** What Add redaction rule… says it does, with or without a team store. */
 export function redactRuleText(teamStore: boolean): string {
   return `Masks stored content in every export, pack and share link of a run.${teamStore ? ' Push copies runs to your team store as recorded.' : ''} A redacted pack still replays: its rules apply as normalizers.`;
 }

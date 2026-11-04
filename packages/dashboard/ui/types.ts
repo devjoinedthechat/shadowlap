@@ -122,7 +122,7 @@ export interface BlameView {
   scope?: string | null;
   /** `blamed`, or `unrescuable` (no call it asked again saved the run), or `stopped` before it was done. */
   outcome?: 'blamed' | 'unrescuable' | 'stopped' | null;
-  /** An `unrescuable` blame whose first probe couldn't tell: not settled, never "no call saves the run". */
+  /** An `unrescuable` blame whose first probe couldn't tell: inconclusive at the first model call, never "no call saves the run". */
   unsettled?: boolean;
   /** What asking again did, in a few words: "asked again, it calls escalate instead". */
   short?: string | null;
@@ -487,7 +487,7 @@ export interface LabelRunsResult {
 
 /** `GET /api/tests`: the goldens on disk and how each did, with the reports as the CLI prints them. */
 export type { BisectChoices, BisectMiss, BisectRange, BisectRevision, DivergenceView, FailureView, FoundCommit, GatePreview, GateResultView, GateView, GoldenCheck, GoldenRow, GoldenVerdict, HistoryCell, InconclusiveView, MoreAttempts, SinceResult, TestRunBanner, TestsSessionView, TestsVerdict, TestsView, UnjudgedCheck } from '../src/tests.js';
-/** `GET /api/tests/runs/:id`: what a run's page offers about a test replay, and Find the commit's choices. */
+/** `GET /api/tests/runs/:id`: what a run's page offers about a test replay, and Find breaking commit's choices. */
 export interface TestRunView {
   banner: import('../src/tests.js').TestRunBanner | null;
   bisect: import('../src/tests.js').BisectChoices | null;

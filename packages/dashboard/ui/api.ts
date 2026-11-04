@@ -155,7 +155,7 @@ export interface Client {
   lineage(id: string): Promise<LineageNode[]>;
   /** The run's record for Provenance, or null when the server does not work it out. */
   provenance(id: string): Promise<ProvenanceView | null>;
-  /** What the run page offers for a run (Share's counts, Push, Run blame, Find the commit), or null when the server does not say. */
+  /** What the run page offers for a run (Share's counts, Push, Run blame, Find breaking commit), or null when the server does not say. */
   offers(id: string): Promise<RunOffers | null>;
   /** `shadowlap show <run> --json` as the CLI prints it, or null when the server does not serve it. */
   showJson(id: string): Promise<unknown>;
@@ -198,7 +198,7 @@ export interface Client {
   runsPage(q: RunsQuery): Promise<RunsPage & { runs: RunsPageRow[] }>;
   /** Runs per day for the calendar, in the viewer's days. */
   runsByDay(q: { tz: string; weeks?: number; types?: readonly string[]; q?: string }): Promise<RunsByDay>;
-  /** Find the commit for the failures on the days picked: the first failure there, and what bisect can start from. */
+  /** Find breaking commit for the failures on the days picked: the first failure there, and what bisect can start from. */
   daysBisect(q: RunsQuery & { from: number; to: number }): Promise<DaysBisect>;
   /** Labels several runs at once, by their full ids. */
   labelRuns(ids: readonly string[], add: readonly string[], remove?: readonly string[]): Promise<LabelRunsResult>;
@@ -228,7 +228,7 @@ export interface Client {
   /** The goldens on disk and how each did (`/api/tests`). */
   tests(): Promise<TestsView>;
   /**
-   * A run's test banner (a replay `shadowlap test` made that diverged) and Find the commit's choices
+   * A run's test banner (a replay `shadowlap test` made that diverged) and Find breaking commit's choices
    * (`/api/tests/runs/:id`); `before` limits the good commits to runs before it, as the calendar's days do.
    */
   testRun(id: string, before?: number): Promise<TestRunView>;
@@ -242,7 +242,7 @@ export interface Client {
   storeSetup: StoreSetupApi;
 
   // ---- Projects
-  /** Projects: the switcher, Add a project, removing one, and the setup (`projects-api.ts`). */
+  /** Projects: the switcher, Add project, removing one, and the setup (`projects-api.ts`). */
   projects: ProjectsApi;
 
   // ---- Training

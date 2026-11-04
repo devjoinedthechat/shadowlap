@@ -7,8 +7,10 @@ A run usually goes wrong well before it visibly fails: the agent refunds an orde
 Give blame the failing run, and what a passing run must do:
 
 ```sh
-shadowlap blame <run> --expect '{"tools":{"issue_refund":0}}'
+shadowlap blame <run> --expect '{"calls":[{"tool":"issue_refund","after":"lookup_order","args":{"amount":{"<=":100}}}]}'
 ```
+
+The check is one [rule on calls](./checks.md#rules-on-calls): every refund comes after the order's lookup and is at most $100, the policy's limit. So the same check fits every run of the agent: a good run's $40 refund passes it, and the failing run's $240 refund fails it.
 
 It prints:
 
@@ -28,7 +30,7 @@ It prints:
     #7  4 of 4  0 of 6 passed · rate <= 0.59 (99%)   lost
 
   63 attempts · 114 upstream requests · ≈$0 spent (no price for small-model) · every call before a probe replayed from the recording
-  oracle: the agent exits 0; issue_refund called 0 times
+  oracle: the agent exits 0; every issue_refund call: after lookup_order, amount <= 100
   rescued fork: shadowlap diff 01M3R1YKHF 01M3R1YMHF    shadowlap ui 01M3R1YMHF --call 5
 …
 ```
@@ -240,7 +242,7 @@ The report leads with where the run was lost, then the evidence for it:
 | **The re-asked call #n: …; #n′, the next model call: …** | The evidence on both sides of the boundary |
 | **Checked with N fresh pairs: #n rescued …, #n′ …** | The check of a pinned call: its pairs, what each call passed, and what they show |
 | **Not rescued from any model call** | Even resampled from the first model call, the gate found the run lost |
-| **Not settled from the first model call** | The first probe could not tell a rescue from a loss |
+| **Inconclusive at the first model call** | The first probe could not tell a rescue from a loss |
 | **Confidence** | *high*, *medium* or *low*, read from the error bound it states |
 | **At #n** | What the model answered at the blamed call in the recording, and in a fork that went on to pass |
 | **Probes** | Every call probed, with its tally, the bound of its pass rate and its verdict |
@@ -257,9 +259,9 @@ The report leads with where the run was lost, then the evidence for it:
 
 **Not rescued from any model call.** The run was rescued less than 60% of the time from the first model call, and so from any call, wrong at most the gate's risk. *Not rescued from the first model call* says the same under a rule that can be wrong more often (a fixed count).
 
-**Not settled from the first model call.** Resampled from the first model call, the run passed some attempts and failed others, and the gate could not tell a rescue from a loss within its attempts: *inconclusive*, with its tally and bound. Or an attempt there could not be judged, and the report gives the check and why.
+**Inconclusive at the first model call.** Resampled from the first model call, the run passed some attempts and failed others, and the gate could not tell a rescue from a loss within its attempts: *inconclusive*, with its tally and bound. Or an attempt there could not be judged, and the report gives the check and why.
 
-Confidence is then low, and the report says how to settle it: more attempts (`max`) or a lower bar (`good`) with `--gate`, or what decides the check. The run keeps it so: `shadowlap show`, its page, Needs a look, Fixes and a repair that reuses the blame say *not settled*, never *not rescued*.
+Confidence is then low, and the report says how to settle it: more attempts (`max`) or a lower bar (`good`) with `--gate`, or what decides the check. The run keeps it so: `shadowlap show`, its page, Needs a look, Fixes and a repair that reuses the blame say *inconclusive at the first model call*, never *not rescued*.
 
 **Confidence.** The line states its error bound, the sum of the risks of the probes that decided: `<= 2.9% risk that the call is wrong: 3 probes decided, at <= 0.8% risk each, and the check of #5, at <= 0.6%`.
 
@@ -276,7 +278,7 @@ Confidence is then low, and the report says how to settle it: more attempts (`ma
 Every blame is kept in the store whole, with the fix it opens or joins. A **fix** is one failure, from the blame that reproduced it to a change that held: [`shadowlap fix`](./cli.md#fix) lists them and shows each one's blame, repair and verify. The report ends with it:
 
 ```text
-  fix fx-01M3RZ4XKN · issue_refund called with amount 240 · opened · shadowlap fix show fx-01M3RZ4XKN
+  fix fx-01M3RZ4XKN · issue_refund: amount 240 > 100 · opened · shadowlap fix show fx-01M3RZ4XKN
 ```
 
 Each blame also logs a `blame.done` event in the store's activity. Run by a dashboard job, it reports a link to the fix's Blame step.
@@ -344,7 +346,7 @@ These are the flags this page covers. [The CLI reference](./cli.md#blame) lists 
 | 0 | The search reached a verdict: a blamed call, or no call that rescues the run |
 | 1 | Blame refused what it saw, such as a run that passes its oracle or does not replay as recorded |
 | 2 | Blame can't start, such as on a run with no model call to probe ([the CLI reference](./cli.md#blame)) |
-| 3 | It stopped before a verdict: the budget spent, a provider that stayed unavailable, or a search *not settled from the first model call* |
+| 3 | It stopped before a verdict: the budget spent, a provider that stayed unavailable, or a search *inconclusive at the first model call* |
 | 128 + n | A stop signal: 130 for Ctrl-C |
 
 ## JSON

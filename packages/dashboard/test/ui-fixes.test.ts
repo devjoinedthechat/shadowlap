@@ -76,12 +76,12 @@ describe('a fix', () => {
     expect(verifyFor({ verify: [], defaultVerify: null }, null)).toBeNull();
   });
 
-  it('offers Repair from here on an open fix, Apply on a verified one, and Patch applied once it is in', () => {
+  it('offers Run repair on an open fix, Apply fix on a verified one, and Patch applied once it is in', () => {
     const repair = { argv: ['repair'], command: 'shadowlap repair', noFix: null };
     const patch = { kind: 'patch' as const, argv: ['fix', 'apply', 'fx-1'], gitApply: 'git apply x/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff: 'diff --git a/agent.mjs b/agent.mjs\n', patchFile: 'x/fix.patch', refused: null, inTree: false, goldens: 1, change: null };
     expect(fixAction({ status: 'open', actions: actions({ repair }) })).toEqual({ kind: 'repair' });
-    expect(fixAction({ status: 'open', actions: actions({}) })).toEqual({ kind: 'none', label: 'Repair from here', why: expect.stringMatching(/nothing to repair from here/) });
-    expect(fixAction({ status: 'verified', actions: actions({ apply: patch }) })).toEqual({ kind: 'apply', label: 'Apply the patch' });
+    expect(fixAction({ status: 'open', actions: actions({}) })).toEqual({ kind: 'none', label: 'Run repair', why: expect.stringMatching(/nothing to repair from here/) });
+    expect(fixAction({ status: 'verified', actions: actions({ apply: patch }) })).toEqual({ kind: 'apply', label: 'Apply fix' });
     expect(fixAction({ status: 'verified', actions: actions({ apply: { ...patch, kind: 'mark', gitApply: null } }) })).toEqual({ kind: 'apply', label: 'Mark applied' });
     // Merged, or applied by hand: applying only marks it applied.
     expect(fixAction({ status: 'verified', actions: actions({ apply: { ...patch, gitApply: null, inTree: true } }) })).toEqual({ kind: 'apply', label: 'Mark applied' });
@@ -89,7 +89,7 @@ describe('a fix', () => {
     expect(fixAction({ status: 'applied', actions: actions({ apply: { ...patch, pending: 'run shadowlap test on its goldens' }, applied: true }) })).toEqual({ kind: 'apply', label: 'Finish applying' });
     // A patch fix apply refuses: the button stays off, and says why on hover.
     const refused = { ...patch, gitApply: null, refused: 'it changes agent.mjs and EVIL.txt, where its accepted candidate changes agent.mjs alone' };
-    expect(fixAction({ status: 'verified', actions: actions({ apply: refused }) })).toEqual({ kind: 'none', label: 'Apply the patch', why: 'This patch is not the change its repair verified: it changes agent.mjs and EVIL.txt, where its accepted candidate changes agent.mjs alone. Nothing applies it from here.' });
+    expect(fixAction({ status: 'verified', actions: actions({ apply: refused }) })).toEqual({ kind: 'none', label: 'Apply fix', why: 'This patch is not the change its repair verified: it changes agent.mjs and EVIL.txt, where its accepted candidate changes agent.mjs alone. Nothing applies it from here.' });
     expect(fixAction({ status: 'applied', actions: actions({ apply: { ...refused, pending: 'run shadowlap test on its goldens' }, applied: true }) })).toMatchObject({ kind: 'none' });
     expect(fixAction({ status: 'applied', actions: actions({ apply: refused, applied: true }) })).toEqual({ kind: 'applied' });
   });
@@ -132,15 +132,15 @@ describe('a fix', () => {
     ]);
   });
 
-  it('keeps Repair from here but not as the lead when the repair would end with no fix to try, and says why', () => {
+  it('keeps Run repair but not as the lead when the repair would end with no fix to try, and says why', () => {
     const noFix = 'No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.';
     expect(repairAside({ actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair', noFix } }) })).toBe(noFix);
     // A blame that couldn't settle has a look of its own on the Blame step, which says nothing of a repair.
-    expect(repairAside({ actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair', noFix: null } }), blame: { look: 'Not settled: resampled from #1…' } as FixDetail['blame'] } as FixDetail)).toBeNull();
+    expect(repairAside({ actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair', noFix: null } }), blame: { look: 'Inconclusive: resampled from #1…' } as FixDetail['blame'] } as FixDetail)).toBeNull();
     expect(repairAside({ actions: actions({}) })).toBeNull();
   });
 
-  it('names the repairer Repair from here asks as the fix reads again, and sends that one', () => {
+  it('names the repairer Run repair asks as the fix reads again, and sends that one', () => {
     const fix = (repairer: FixDetail['repairer'], o: Partial<FixDetail> = {}) =>
       ({ status: 'open', repairer, actions: actions({ repair: { argv: ['repair'], command: `shadowlap repair${repairer.configured ? '' : ' --repairer claude-code'}`, noFix: null } }), ...o }) as FixDetail;
     // The page loaded before the config named a repairer; the dialog reads it again as it opens.
@@ -342,7 +342,7 @@ describe('the Verify step', () => {
 
   it('says what Run more attempts takes, and why the run it names is open', () => {
     const run = { runId: '01M5JERYHZ', state: 'stopped' as const, why: 'the budget of $0.01 is spent', attempt: null };
-    expect(moreLine({ kind: 'more', run, max: 80, expected: 12, cost: 0.045, budget: '0.012' })).toBe(' is not settled: the budget of $0.01 is spent. Run more attempts verifies again from the start (verify has no --continue), up to 80 a run, without its --budget 0.012: about\u00a012 attempts, ≈$0.045.');
+    expect(moreLine({ kind: 'more', run, max: 80, expected: 12, cost: 0.045, budget: '0.012' })).toBe(' is inconclusive: the budget of $0.01 is spent. Run more attempts verifies again from the start (verify has no --continue), up to 80 a run, without its --budget 0.012: about\u00a012 attempts, ≈$0.045.');
     expect(moreLine({ kind: 'more', run: { ...run, state: 'inconclusive', why: null }, max: 160, expected: 35, cost: null, budget: null })).toBe(' is inconclusive. Run more attempts verifies again from the start (verify has no --continue), up to 160 a run: about\u00a035 attempts.');
     expect(moreLine({ kind: 'again', run: { ...run, state: 'unjudged', why: 'no key for anthropic', attempt: 3 }, max: 80, expected: 3, cost: null, budget: null })).toBe(' stopped at attempt 3, which could not be judged: no key for anthropic. Verify again once it can be.');
   });
@@ -362,9 +362,9 @@ describe('the Verify step', () => {
   it('leads an open fix with its blame’s next step while blame placed the failure on no call', () => {
     const none = actions({});
     const gate = { kind: 'sprt' as const, good: 0.4, bad: 0.1, risk: 0.05, max: 40 };
-    expect(blameNextStep({ status: 'open', actions: { ...none, blameAgain: { kind: 'unsettled', argv: [], command: 'shadowlap blame R --gate x', gate, pulled: null, left: [] } } })).toEqual({ kind: 'again', label: 'Blame again', tip: 'More attempts and a lower bar: a rescue at 40% or more, up to 40 attempts', command: 'shadowlap blame R --gate x' });
+    expect(blameNextStep({ status: 'open', actions: { ...none, blameAgain: { kind: 'unsettled', argv: [], command: 'shadowlap blame R --gate x', gate, pulled: null, left: [] } } })).toEqual({ kind: 'again', label: 'Run blame again', tip: 'More attempts and a lower bar: a rescue at 40% or more, up to 40 attempts', command: 'shadowlap blame R --gate x' });
     expect(blameNextStep({ status: 'open', actions: { ...none, blameAgain: { kind: 'stopped', argv: [], command: 'c', gate: null, pulled: null, left: [] } } })).toMatchObject({ kind: 'again', tip: 'Runs the search to the end, without the budget that stopped it' });
-    expect(blameNextStep({ status: 'open', actions: { ...none, blameStronger: { argv: [], command: 'c --model <model>', attempts: 4, spent: 0.002, pulled: null, left: [] } } })).toMatchObject({ kind: 'stronger', label: 'Blame with a stronger model…' });
+    expect(blameNextStep({ status: 'open', actions: { ...none, blameStronger: { argv: [], command: 'c --model <model>', attempts: 4, spent: 0.002, pulled: null, left: [] } } })).toMatchObject({ kind: 'stronger', label: 'Run blame with stronger model…' });
     expect(blameNextStep({ status: 'open', actions: none })).toBeNull();
     expect(blameNextStep({ status: 'verified', actions: { ...none, blameStronger: { argv: [], command: 'c', attempts: 4, spent: 0, pulled: null, left: [] } } })).toBeNull();
   });
@@ -449,7 +449,7 @@ describe('the Forks view’s bundles', () => {
     expect([attempt('A', true), attempt('B', false), unsure].map(attemptMark)).toEqual([undefined, 'no', 'unsure']);
     // An attempt kept before attempts had a verdict reads as whether it passed.
     expect(attemptMark({ passed: false })).toBe('no');
-    expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true), unsure], passes: 1, change: 'working tree', verdict: 'incomplete' }), (usd) => `≈$${usd.toFixed(3)}`)).toBe('2 attempts, 1 passed, 1 inconclusive · working tree · incomplete');
+    expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true), unsure], passes: 1, change: 'working tree', verdict: 'incomplete' }), (usd) => `≈$${usd.toFixed(3)}`)).toBe('2 attempts, 1 passed, 1 inconclusive · working tree · inconclusive');
   });
 });
 
@@ -548,15 +548,15 @@ describe('the job drawer', () => {
     const other = { blameId: 'b1', runId: '01M5', at: 1, outcome: 'blamed' as const, lostAt: 5, range: null, confidence: 'high' };
     expect(otherBlameWords(other)).toBe('lost at #5');
     expect(otherBlameWords({ ...other, range: { from: 5, to: 7, gradual: true } })).toBe('lost gradually around #5 and #7');
-    expect(otherBlameWords({ ...other, outcome: 'unrescuable', lostAt: null, unsettled: true })).toBe('not settled');
+    expect(otherBlameWords({ ...other, outcome: 'unrescuable', lostAt: null, unsettled: true })).toBe('inconclusive');
     expect(otherBlameWords({ ...other, outcome: 'stopped', lostAt: null })).toBe('stopped');
     expect(jobStatus(job('blame', 0, { outcome: 'unrescuable', blamed: null }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'warn' });
-    // Its first probe couldn't tell, and nothing else was found: not settled, never "not rescued".
+    // Its first probe couldn't tell, and nothing else was found: inconclusive, never "not rescued".
     const unsettled = { outcome: 'unrescuable', blamed: null, sameAnswer: null, failedWrite: null, probes: [{ callNo: 1, decision: 'inconclusive' }] };
-    expect(jobStatus(job('blame', 0, unsettled), [])).toEqual({ text: 'not settled · exit 0', tone: 'warn' });
+    expect(jobStatus(job('blame', 0, unsettled), [])).toEqual({ text: 'inconclusive · exit 0', tone: 'warn' });
     expect(jobStatus(job('blame', 0, { ...unsettled, failedWrite: { name: 'post_digest', message: 'channel_not_found', callNo: 1 } }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'warn' });
     expect(jobStatus(job('blame', 0, { ...unsettled, probes: [{ callNo: 1, decision: 'fail' }] }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'warn' });
-    expect(jobStatus(job('blame', 1, { outcome: 'stopped' }), [])).toEqual({ text: 'stopped early · exit 1', tone: 'err' });
+    expect(jobStatus(job('blame', 1, { outcome: 'stopped' }), [])).toEqual({ text: 'stopped · exit 1', tone: 'err' });
     expect(jobStatus(job('repair', 0, { outcome: 'fixed' }), [])).toEqual({ text: 'fixed · exit 0', tone: 'ok' });
     expect(jobStatus(job('repair', 1, { outcome: 'not-fixed' }), [])).toEqual({ text: 'no fix found · exit 1', tone: 'err' });
     // Claude Code was never asked, and nothing else was tried: no fix was looked for, which is no failure of the agent's.
@@ -581,9 +581,9 @@ describe('the job drawer', () => {
     expect(outdatedOf({ outdated: [...outdated, { golden: '', callNo: 1, path: '$' }, { golden: 'x' }, 'goldens/y'] })).toEqual(outdated);
     expect(outdatedOf(null)).toEqual([]);
     const ask = updateOutdatedAsk(outdated);
-    expect(ask).toMatchObject({ title: 'Update 2 goldens?', command: 'shadowlap test goldens/refund-in-limit goldens/01M53A4MZS --update', fields: { goldens: ['goldens/refund-in-limit', 'goldens/01M53A4MZS'] } });
+    expect(ask).toMatchObject({ title: 'Update 2 goldens?', ok: 'Update 2 goldens', command: 'shadowlap test goldens/refund-in-limit goldens/01M53A4MZS --update', fields: { goldens: ['goldens/refund-in-limit', 'goldens/01M53A4MZS'] } });
     expect(ask.text).toMatch(/^They diverge on what the patch changed \(#1 \$\.tools\[4\]\.description\)\. Use this when the change was intended: each is re-recorded live with writes stubbed/);
-    expect(updateOutdatedAsk(outdated.slice(1))).toMatchObject({ title: 'Update 01M53A4MZS?', fields: { golden: 'goldens/01M53A4MZS' } });
+    expect(updateOutdatedAsk(outdated.slice(1))).toMatchObject({ title: 'Update 01M53A4MZS?', ok: 'Update golden', fields: { golden: 'goldens/01M53A4MZS' } });
   });
 
   it('leaves other jobs, and a result it does not know, to the output', () => {

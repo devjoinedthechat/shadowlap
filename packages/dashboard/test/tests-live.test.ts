@@ -11,7 +11,7 @@ import { liveAsk, liveReasons, sessionLiveGoldens, testedGoldens } from '../src/
  */
 
 const at = (path: string, over: Partial<GoldenSource> = {}): GoldenSource => ({ path, runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [], ...over });
-const session = (...args: string[]): TestsJob => ({ title: 'Running the tests', args: ['test', ...args] });
+const session = (...args: string[]): TestsJob => ({ title: 'Running tests', args: ['test', ...args] });
 
 describe('what a session runs live', () => {
   it('reads which goldens a test command runs as the CLI expands it, and why each goes live', () => {

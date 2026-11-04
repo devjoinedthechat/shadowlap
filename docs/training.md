@@ -677,7 +677,7 @@ run never got there (the change verified added a step before the call), the grou
 attempt at its own call, *attempt of* the run it replayed. Every source is listed, the ones that made
 none with why.
 
-**Export pairs** asks for the format (*OpenAI preference* or *TRL preference*) and the confidence, and
+**Export pairs…** asks for the format (*OpenAI preference* or *TRL preference*) and the confidence, and
 shows the file it writes and the command. It then runs `export pairs` into
 `.shadowlap/exports/pairs.jsonl` in the project folder. The job's drawer offers the file for download,
 and Activity logs it.
@@ -689,8 +689,8 @@ what scores it, which tools run live or are stubbed after the takeover, and its 
 checks only cap tokens and cost has no call to take over). It opens the golden's run at the takeover,
 or Tests for a blocked one.
 
-**Update the golden…** A task blocked because its test forks before the takeover opens that test's run
-at the call where it forked, and offers **Update the golden…**. A dialog shows what it runs, and the
+**Update golden.** A task blocked because its test forks before the takeover opens that test's run
+at the call where it forked, and offers **Update golden**. A dialog shows what it runs, and the
 job runs it:
 
 - a `normalize add` for each value the fork shows that changes every run and the config doesn't mask,
@@ -716,7 +716,7 @@ its judge checks cost (*≈$0.120 spent · judge ≈$0.010*), and when.
 
 ### Score a model
 
-**Score a model** lists the models `tasks models` lists, with the keys and addresses in the
+**Score model…** lists the models `tasks models` lists, with the keys and addresses in the
 dashboard's environment, each with what an attempt costs and its last score:
 
 - the model the recordings used;
@@ -744,7 +744,7 @@ scored when one stopped) and links to the scores.
   OpenAI-compatible endpoint is Ollama's own server.
 - **A read-only dashboard** asks no provider: it lists the recorded models and those scored before.
 - **While the working tree changes.** Scoring runs the agent from the project's working tree. So while
-  a repair or an applied patch is changing it, **Score a model** is off and says why on hover (the
+  a repair or an applied patch is changing it, **Score model…** is off and says why on hover (the
   dialog says it too).
 
 ### Jobs
@@ -757,8 +757,8 @@ They run as dashboard jobs. The page names the kind and its fields, and the serv
 | `score`       | `model`, `baseUrl`, `attempts` of 5 or 10, and `goldens` (every ready task by default)     |
 | `task-update` | `golden`, a task blocked by an early fork; the commands come from the store and the config |
 
-A read-only dashboard shows the page and runs none of them. The palette offers Export pairs and Score
-a model from any page when there is something to export or score.
+A read-only dashboard shows the page and runs none of them. The palette offers Export pairs… and Score
+model… from any page when there is something to export or score.
 
 ## From a training loop
 

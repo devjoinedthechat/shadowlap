@@ -180,7 +180,7 @@ await click(byText('.play button', 'Play'), 450);
 await wait(2000);
 await click(`document.getElementById('forkBtn')`);
 await wait(600);
-await click(byText('.pop.fkm button', 'Inject an instruction'), 500);
+await click(byText('.pop.fkm button', 'Inject instruction…'), 500);
 await until(`!!document.querySelector('textarea')`);
 await wait(350);
 await type('Prefer sources from 2026.', 26);

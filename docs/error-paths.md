@@ -241,7 +241,7 @@ Runs lists the recording, and `shadowlap show` on an attempt opens the error pat
 The store also names the process running each session until the session ends, as it does for a test
 session. So the [dashboard](./dashboard.md) reads presets started in a terminal as running. While
 they run on goldens, the jobs that replay or rewrite the goldens wait for them and name the command:
-Run tests, Update golden and Find the commit. A session whose process was killed holds nothing up:
+Run tests, Update golden and Find breaking commit. A session whose process was killed holds nothing up:
 it reads as one that did not finish.
 
 ## Limits

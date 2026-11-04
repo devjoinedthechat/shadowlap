@@ -1,3 +1,4 @@
+import { ACTIONS, forceLiveLabel } from './action-words.js';
 import { checkStatus } from './check-status.js';
 import { literalValue, noLateSystemMessage } from './interventions.js';
 import { isObject } from './is-object.js';
@@ -15,10 +16,13 @@ import { normalizeAddArgs } from './volatile.js';
  * the answer. Here in the engine, which both use, so the dashboard needs nothing of the terminal UI
  * (and so none of its Ink and React).
  *
- * Only what applies to the call is offered, one line each with its flag on the right: a model call
- * gets inject, switch the model, a changed prompt, an HTTP failure and diverge; a tool call gets
- * override, a tool error, a planted instruction (reads only), force live and diverge; a recorded user
- * input gets a different answer and diverge. Then the whole run: repeat, stub the writes.
+ * Only what applies to the call is offered, one line each with its flag on the right, each named in
+ * the CLI's verbs as the dashboard names it, an ellipsis where it asks for something first: a model
+ * call gets Inject instruction…, Switch model from here…, Use changed prompt from here, Fail with
+ * HTTP status… and Run live from here; a tool call gets Override result…, Fail with tool error…,
+ * Plant instruction… (reads only), Force <tool> live and Run live from here; a recorded user input
+ * gets Override user reply… and Run live from here. Then the whole run: Repeat 5 times, Replay with
+ * writes stubbed, and in the terminal UI Find breaking commit….
  */
 
 export interface Action {
@@ -50,6 +54,13 @@ export interface Action {
   group?: 'call' | 'run';
   /** One line on what it does and why, for its dialog or a hover. */
   hint?: string;
+  /**
+   * Set on an action with `args` that asks before it starts: a fork's Repeat 5 times runs the fork's
+   * change again five times, each attempt live from where it forks. Until Spending decides it by the
+   * job's estimate, the dashboard and the terminal UI ask first, saying what it runs. Without it, an
+   * action with `args` starts at once, as a recording's Repeat 5 times does, replayed offline.
+   */
+  asksFirst?: true;
   /**
    * Set on a replay of a run imported from a pack or pulled from the team store, which runs the
    * command someone else recorded, with --yes for the CLI: `confirm` when its prompt asks only for
@@ -109,7 +120,7 @@ export function buildActions(run: RunRecord, call: CallRecord | undefined, conte
 }
 
 /**
- * The terminal UI's fork menu: the dashboard's, which ends the whole run's part with Find the commit.
+ * The terminal UI's fork menu: the dashboard's, which ends the whole run's part with Find breaking commit….
  * The dashboard runs that as the tests' bisect job, from its own offers; the terminal UI runs
  * `shadowlap bisect` itself.
  */
@@ -131,7 +142,7 @@ export function terminalActions(run: RunRecord, call: CallRecord | undefined, co
 const WAITS: Record<string, string> = { r: 'replay once the recording finishes', p: 'pack once the recording finishes', b: 'look for the commit once the recording finishes' };
 
 /**
- * Find the commit: a run that failed is looked for where it started failing, between a commit where
+ * Find breaking commit…: a run that failed is looked for where it started failing, between a commit where
  * it still worked and HEAD; one that passed, where it started doing something else after its own
  * commit. Replays are offline, so it costs nothing. Not for a capture, which has no command to run
  * at each commit; off for a run from someone else's pack, whose command it would run at every one,
@@ -149,7 +160,7 @@ export function bisectAction(run: RunRecord): Action | null {
       : null;
   return {
     key: 'b',
-    label: failed ? 'Find the commit that broke it' : 'Find the commit that changed it',
+    label: failed ? ACTIONS.findBreakingCommit.label : ACTIONS.findChangingCommit.label,
     flag: 'bisect --good …',
     group: 'run',
     hint: failed
@@ -218,7 +229,7 @@ function captureActions(run: RunRecord): Action[] {
   return [
     {
       key: 'r',
-      label: 'Replay it with your command',
+      label: ACTIONS.replayWithCommand.label,
       flag: 'replay',
       group: 'call',
       hint: CAPTURE_NOTE,
@@ -239,8 +250,9 @@ function captureActions(run: RunRecord): Action[] {
 function packAction(id: string): Action {
   return {
     key: 'p',
-    label: 'Pack this run to a directory (redaction rules applied)',
+    label: ACTIONS.packRun.label,
     flag: 'pack',
+    hint: 'Copies the run to a folder, the redaction rules applied, to commit as a golden or send to someone. The store is never changed.',
     prompt: { label: 'Directory:', initial: `./shadowlap-${id.slice(0, 10).toLowerCase()}`, build: (v) => ['pack', id, v] },
     opensRun: false,
   };
@@ -317,7 +329,7 @@ export function forkCommand(run: RunRecord): string[] {
 
 function baseActions(run: RunRecord, call: CallRecord | undefined, context: ActionContext): Action[] {
   const id = run.runId;
-  const actions: Action[] = [{ key: 'r', label: 'Replay this run (clean if nothing changed)', flag: 'replay', args: ['replay', id], opensRun: true }];
+  const actions: Action[] = [{ key: 'r', label: ACTIONS.replay.label, flag: 'replay', hint: 'Replays the run as recorded: clean if nothing changed, else it names the call where a request first differed.', args: ['replay', id], opensRun: true }];
   if (call) actions.push(...callActions(id, call, context));
 
   // The whole run. A replay Shadowlap made is made again from its parent with the flags that made it
@@ -329,23 +341,23 @@ function baseActions(run: RunRecord, call: CallRecord | undefined, context: Acti
   // The flags as a command line has them: the fork's own command, after `--`, last.
   const recorded = recordedFlags(run) ?? [];
   const made = [...recorded.filter((i) => i.kind !== 'command').map((i) => i.flag), ...(run.meta?.expect ? ['--expect …'] : []), ...recorded.filter((i) => i.kind === 'command').map((i) => i.flag)].join(' ');
+  // Five attempts, as its name says: a fork's run live from where it forks, so it asks first.
   actions.push({
     key: 'e',
-    label: 'Repeat the replay and compare',
+    label: ACTIONS.repeat.label,
     flag: '--repeat 5',
     group: 'run',
-    hint: again ? `Makes this replay again from ${run.parentRunId!.slice(0, 10)} several times${made ? ` (${made})` : ''}: the prefix replays free, and the attempts show whether the path after the fork holds or was luck.` : 'Replays this run several times: what replays is free, and the attempts show whether the path after a fork holds or was luck.',
-    prompt: {
-      label: 'How many attempts? After a code change, they show whether the path past the fork holds or was luck:',
-      initial: '5',
-      build: (v) => [...base, '--repeat', v.trim(), ...tail],
-    },
+    hint: again
+      ? `Makes this replay again from ${run.parentRunId!.slice(0, 10)} five times${made ? ` (${made})` : ''}: the prefix replays free, and each attempt runs live from the fork, so they show whether the path after it holds or was luck.`
+      : 'Replays this run five times: what replays is free, and the attempts show whether the path after a fork holds or was luck.',
+    args: [...base, '--repeat', '5', ...tail],
+    ...(again ? { asksFirst: true as const } : {}),
     opensRun: false,
   });
   const stubbed = forkArgs(run, new Set(['--writes']));
   actions.push({
     key: 's',
-    label: 'Stub the writes',
+    label: ACTIONS.replayStubbed.label,
     flag: '--writes stub',
     group: 'run',
     hint: 'Write tools after the fork return their stub instead of being blocked, so the agent goes on as if they had worked.',
@@ -357,14 +369,14 @@ function baseActions(run: RunRecord, call: CallRecord | undefined, context: Acti
   if (hint?.normalizer) {
     const n = hint.normalizer;
     // The same rule the divergence report prints: a hint without a path masks the pattern in every string.
-    actions.push({ key: 'n', label: `Add the suggested normalizer (${n.pattern ?? 'whole value'} at ${n.path ?? '*'})`, flag: 'normalize add', args: normalizeAddArgs(n), opensRun: false });
+    actions.push({ key: 'n', label: `Add suggested normalizer (${n.pattern ?? 'whole value'} at ${n.path ?? '*'})`, flag: 'normalize add', args: normalizeAddArgs(n), opensRun: false });
   }
   actions.push(packAction(id));
   return actions;
 }
 
 /**
- * Instructions an attacker might leave in a tool's result, for Plant a prompt injection to start
+ * Instructions an attacker might leave in a tool's result, for Plant instruction… to start
  * from: the usual aims (leaking the conversation, setting a rule aside, acting without asking). Not
  * a suite of payloads: a red-teaming tool's are planted the same way, typed or pasted as text.
  */
@@ -378,14 +390,14 @@ export const PLANTED_INSTRUCTIONS: ReadonlyArray<{ value: string; label: string 
 /** The forks at one call: only those that apply to it. */
 function callActions(id: string, call: CallRecord, context: ActionContext): Action[] {
   const n = call.callNo;
-  const diverge: Action = { key: 'a', label: 'Diverge here', flag: `--diverge-at ${n}`, group: 'call', hint: `Calls before #${n} replay; #${n} and everything after it run live, with writes fenced.`, args: ['replay', id, '--diverge-at', String(n)], opensRun: true };
+  const diverge: Action = { key: 'a', label: ACTIONS.runLive.label, flag: `--diverge-at ${n}`, group: 'call', hint: `Calls before #${n} replay; #${n} and everything after it run live, with writes fenced.`, args: ['replay', id, '--diverge-at', String(n)], opensRun: true };
 
   if (call.kind === 'api') {
     const model = typeof call.end?.meta.model === 'string' ? call.end.meta.model : typeof call.meta.model === 'string' ? call.meta.model : undefined;
     return [
       {
         key: 'i',
-        label: 'Inject an instruction',
+        label: ACTIONS.injectInstruction.label,
         flag: `--inject ${n}=… --inject-as user`,
         group: 'call',
         // Named when the call's model is one that rejects it outright, as the dialog the dashboard opens says.
@@ -395,7 +407,7 @@ function callActions(id: string, call: CallRecord, context: ActionContext): Acti
       },
       {
         key: 'm',
-        label: 'Switch the model from here',
+        label: ACTIONS.switchModel.label,
         flag: `--model ${n}:…`,
         group: 'call',
         hint: `Calls before #${n} replay; from here the new model answers live.`,
@@ -404,7 +416,7 @@ function callActions(id: string, call: CallRecord, context: ActionContext): Acti
       },
       {
         key: 'g',
-        label: 'Fork with your changed prompt',
+        label: ACTIONS.useChangedPrompt.label,
         flag: `--prompt-from ${n}`,
         group: 'call',
         hint: `Model calls before #${n} replay as recorded; from #${n} the model sees the system prompt and tools in your code now.`,
@@ -413,7 +425,7 @@ function callActions(id: string, call: CallRecord, context: ActionContext): Acti
       },
       {
         key: 'f',
-        label: 'Answer with an HTTP failure',
+        label: ACTIONS.failWithStatus.label,
         flag: `--fail-at ${n}=429`,
         group: 'call',
         hint: 'Nothing is sent. Every attempt fails, so the SDK’s retry policy runs and then gives up: the path worth testing.',
@@ -446,7 +458,7 @@ function callActions(id: string, call: CallRecord, context: ActionContext): Acti
     return [
       {
         key: 'u',
-        label: 'Answer differently as the user…',
+        label: ACTIONS.overrideUserReply.label,
         flag: `--override ${n}=…`,
         group: 'call',
         hint: 'The agent gets this reply instead of the recorded one. Calls before it replay; from here the run goes on live, with writes fenced.',
@@ -462,7 +474,7 @@ function callActions(id: string, call: CallRecord, context: ActionContext): Acti
   const actions: Action[] = [
     {
       key: 'o',
-      label: 'Override this tool’s result',
+      label: ACTIONS.overrideResult.label,
       flag: `--override ${n}=…`,
       group: 'call',
       hint: 'The agent gets this instead of the recorded result. Calls before it replay.',
@@ -476,7 +488,7 @@ function callActions(id: string, call: CallRecord, context: ActionContext): Acti
     },
     {
       key: 't',
-      label: 'Answer with a tool error',
+      label: ACTIONS.failWithToolError.label,
       flag: `--fail-at ${n}=timeout`,
       group: 'call',
       hint: 'The tool doesn’t run: the agent gets the error instead, and its error path runs live. Calls before it replay.',
@@ -498,7 +510,7 @@ function callActions(id: string, call: CallRecord, context: ActionContext): Acti
   if (call.effect === 'read') {
     actions.push({
       key: 'x',
-      label: 'Plant a prompt injection here',
+      label: ACTIONS.plantInstruction.label,
       flag: `--inject-result ${n}=… --repeat 3`,
       group: 'call',
       hint: 'The text is added to what the tool returned, as an attacker would. Calls before it replay free; from here the agent runs live three times, with writes fenced, and the run’s checks say whether it obeyed (without any, compare the attempts). Payloads from a red-teaming tool such as promptfoo work too.',
@@ -511,7 +523,7 @@ function callActions(id: string, call: CallRecord, context: ActionContext): Acti
       opensRun: false,
     });
   }
-  actions.push({ key: 'l', label: `Force ${call.name} live`, flag: `--live-tool ${call.name}`, group: 'call', hint: `Runs the first call of ${call.name} for real instead of serving its recorded result: what a fixed tool needs, since its call key did not change.`, args: ['replay', id, '--live-tool', call.name], opensRun: true });
+  actions.push({ key: 'l', label: forceLiveLabel(call.name), flag: `--live-tool ${call.name}`, group: 'call', hint: `Runs the first call of ${call.name} for real instead of serving its recorded result: what a fixed tool needs, since its call key did not change.`, args: ['replay', id, '--live-tool', call.name], opensRun: true });
   actions.push(diverge);
   return actions;
 }

@@ -1,4 +1,5 @@
 import { commandText } from './goldens.js';
+import { ACTIONS } from './labels.js';
 import { href } from './route.js';
 import type { ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, TrainingView } from './types.js';
 import { isObject } from '../../engine/src/is-object.js';
@@ -242,8 +243,8 @@ export interface TrainingCommand {
 }
 
 /**
- * The palette's Training actions: Export preference pairs… when there are pairs, Score a model on the
- * tasks… when a task is ready, each only when this dashboard runs its job kind (`kinds`, the client's
+ * The palette's Training actions: Export pairs… when there are pairs, Score model… when a task is
+ * ready, each only when this dashboard runs its job kind (`kinds`, the client's
  * JOB_KINDS). Each time the palette opens, the counts are read again (an ETag keeps it cheap): a blame
  * or a fixed test may have changed them since, and an open palette is told when they did. Until they
  * were read once, neither is offered. Either opens Training, and its dialog when there is something
@@ -259,7 +260,7 @@ export function trainingPalette({ app, go }: TrainingPaletteContext, kinds: { pa
       go(href.training(tab));
       requestTrainingDialog(kind);
     });
-  if (app.hasKind(kinds.pairs) && counts.pairs > 0) out.push({ group: 'Actions', label: 'Export preference pairs…', hint: 'shadowlap export pairs', job: true, run: open('pairs', 'export') });
-  if (app.hasKind(kinds.score) && counts.ready > 0) out.push({ group: 'Actions', label: 'Score a model on the tasks…', hint: 'shadowlap tasks score', job: true, run: open('tasks', 'score') });
+  if (app.hasKind(kinds.pairs) && counts.pairs > 0) out.push({ group: 'Actions', label: ACTIONS.exportPairs.label, hint: 'shadowlap export pairs', job: true, run: open('pairs', 'export') });
+  if (app.hasKind(kinds.score) && counts.ready > 0) out.push({ group: 'Actions', label: ACTIONS.scoreModel.label, hint: 'shadowlap tasks score', job: true, run: open('tasks', 'score') });
   return out;
 }

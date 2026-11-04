@@ -12,7 +12,7 @@ export interface RepairStep {
   dir: string;
   outcome: RepairOutcome;
   accepted: boolean;
-  /** The accepted change in a few words (the commit title), or "No fix yet". */
+  /** The accepted change in a few words (the commit title), or "No change yet". */
   title: string;
   /** Why nothing was accepted. */
   why: string | null;
@@ -143,7 +143,7 @@ export function repairStep(store: StoreOf<'fixes'>, rec: FixRecords, r: StoredRe
     dir,
     outcome: r.outcome,
     accepted: r.accepted,
-    title: c ? commitTitle(c) : 'No fix yet',
+    title: c ? commitTitle(c) : 'No change yet',
     why: c ? null : why,
     repairer: repairerLabel(r),
     noRepairer: none,

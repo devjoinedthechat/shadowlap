@@ -23,6 +23,8 @@ export type Mode =
   | { kind: 'prompt'; action: Action }
   /** A replay of someone else's run, asked once more on its own: the exact command line it runs, then a yes. */
   | { kind: 'consent'; action: Action; args: string[]; refresh?: boolean }
+  /** An action that asks before it starts, with nothing to fill in (a fork's Repeat 5 times, whose attempts run live): what it runs, then Enter. */
+  | { kind: 'live'; action: Action; args: string[] }
   /** Blame: what a passing run does, then the command runs. */
   | { kind: 'fix'; fix: BlameAction }
   /**

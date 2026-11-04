@@ -56,12 +56,12 @@ describe('a run blame found lost gradually around two calls', () => {
     expect(fixList(store).fixes[0].steps[0]).toMatchObject({ state: 'done', short: 'lost gradually around #5 and #7', title: 'Lost gradually around model calls #5 and #7' });
     expect(fixDetail(store, fix.fixId)!.steps[0]).toMatchObject({ title: 'Lost gradually around model calls #5 and #7' });
     expect(fixDetail(store, fix.fixId)!.blame).toMatchObject({ title: 'Lost gradually around model calls #5 and #7' });
-    expect(needsLookFixes(store).find((x) => x.fixId === fix.fixId)?.detail).toBe('lost gradually around model calls #5 and #7 · no fix yet');
+    expect(needsLookFixes(store).find((x) => x.fixId === fix.fixId)?.detail).toBe('lost gradually around model calls #5 and #7 · no change yet');
     // Pinned to one call, it says the call.
     const pinned = makeRun(store, { labels: ['double-email'] });
     const { fix: one } = blame(pinned, { expect: { tools: { send_email: 1 } }, title: 'send_email called twice, not once' });
     expect(one.fixId).not.toBe(fix.fixId);
-    expect(needsLookFixes(store).find((x) => x.fixId === one.fixId)?.detail).toBe('lost at model call #5 · no fix yet');
+    expect(needsLookFixes(store).find((x) => x.fixId === one.fixId)?.detail).toBe('lost at model call #5 · no change yet');
   });
 });
 
@@ -77,14 +77,14 @@ describe('the Fixes list', () => {
     expect(list.fixes[0]).toMatchObject({ status: 'open', title: 'send_email called twice, not once', label: 'double-email', labels: ['double-email'], failing: 1, good: 0, href: `#/fixes/${openFix.fixId}`, broken: null });
     expect(list.fixes[0].steps.map((s) => [s.state, s.short])).toEqual([
       ['done', 'lost at #5'],
-      ['todo', 'no fix yet'],
+      ['todo', 'no change yet'],
       ['todo', 'not verified'],
     ]);
     expect(list.fixes[1]).toMatchObject({ status: 'verified', label: 'refund-bug', failing: 2, good: 1, check: 'issue_refund never called with {"amount":240}', verifiedAt: NOW - DAY });
     // What its verdicts that held did, run by run: never "3 of 3 held", which counts the good run as held.
     expect(list.fixes[1].steps.map((s) => [s.state, s.short])).toEqual([
       ['done', 'lost at #5'],
-      ['done', 'prompt fix'],
+      ['done', 'prompt change'],
       ['done', '2 fixed · 1 kept'],
     ]);
     expect(list.fixes[1].attempts).toBeGreaterThan(0);
@@ -118,8 +118,8 @@ describe('the Fixes list', () => {
     expect(x.fixId).toBe(stopped.fix.fixId);
     expect(x.steps.map((s) => [s.state, s.short, s.title])).toEqual([
       // A step that ran and needs a look is amber (warn), never the grey of one not run yet.
-      ['warn', 'blame stopped', 'Stopped before the search finished'],
-      ['todo', 'no fix yet', 'No fix yet'],
+      ['warn', 'stopped', 'Stopped before the search finished'],
+      ['todo', 'no change yet', 'No change yet'],
       ['no', 'rejected', 'Rejected'],
     ]);
     expect(x.steps[0].meta).toBe('the budget of $0.05 is spent');
@@ -161,14 +161,14 @@ describe('the Fixes list', () => {
   it('reads a blame whose first probe could not tell apart, and one whose gate it can\'t read without breaking the page', () => {
     const gate: SprtGate = { kind: 'sprt', ...BLAME_DEFAULTS };
     const runId = makeRun(store, { labels: ['flaky'], calls: ['api', 'tool', 'api'] });
-    // Seven passes in twenty from the first model call: between 10% and 60%, so not settled.
+    // Seven passes in twenty from the first model call: between 10% and 60%, so inconclusive.
     const outcomes = [...Array(6).fill([true, false, false]).flat(), true, false] as boolean[];
     const base = blameReport(runId, 'unrescuable');
     const first = { ...base.probes[0], passes: 7, rescued: false, decision: 'inconclusive' as const, gate: gateResult(gate, outcomes), attempts: outcomes.map((passed, i) => ({ ...base.probes[0].attempts[0], runId: `${runId.slice(0, 20)}${String(i).padStart(6, '0')}`, passed })) };
     const unsettled = recordBlame(store, { runId, report: { ...base, gate, confidence: 'low', probes: [first], lost: first }, expect: EXPECT, scope: null, command: 'shadowlap blame x', title: 'Flaky refunds', checkText: 'x', at: NOW });
     const b = fixDetail(store, unsettled.fix.fixId)!.blame!;
-    expect(b).toMatchObject({ title: 'Not settled from the first model call', confidence: 'low', confidenceWhy: '#1 was inconclusive: whether resampling rescues the run is not settled', boundary: 'Resampled from the first model call, #1: inconclusive · 7 of 20 · rate 0.10 to 0.64 (95%).', rule: 'gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts' });
-    expect(b.look).toContain('Not settled: resampled from #1');
+    expect(b).toMatchObject({ title: 'Inconclusive at the first model call', confidence: 'low', confidenceWhy: '#1 was inconclusive: whether resampling rescues the run is undecided', boundary: 'Resampled from the first model call, #1: inconclusive · 7 of 20 · rate 0.10 to 0.64 (95%).', rule: 'gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts' });
+    expect(b.look).toContain('Inconclusive: resampled from #1');
     expect(b.probes[0]).toMatchObject({ verdict: 'inconclusive', bound: 'rate 0.10 to 0.64 (95%)' });
     expect(b.callRow.find((c) => c.callNo === 1)).toMatchObject({ verdict: 'inconclusive' });
 
@@ -262,15 +262,15 @@ describe('a fix', () => {
     report.confidence = 'low';
     const { fix } = recordBlame(store, { runId: failing, report, expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: NOW });
     const b = fixDetail(store, fix.fixId)!.blame!;
-    expect(b).toMatchObject({ title: 'Not settled from the first model call', boundary: `Resampled from the first model call, #1: an attempt could not be judged: ${why}.` });
-    expect(b.look).toContain('Not settled: a check could not be decided on an attempt');
+    expect(b).toMatchObject({ title: 'Inconclusive at the first model call', boundary: `Resampled from the first model call, #1: an attempt could not be judged: ${why}.` });
+    expect(b.look).toContain('Inconclusive: a check could not be decided on an attempt');
     expect(b.probes).toEqual([expect.objectContaining({ callNo: 1, verdict: 'inconclusive', passes: 0, attempts: 1, inconclusive: 1, bound: null })]);
     expect(b.callRow[0]).toMatchObject({ callNo: 1, verdict: 'inconclusive', passes: 0, attempts: 1, inconclusive: 1 });
     expect(b.bundles[0].attempts).toEqual([expect.objectContaining({ passed: false, verdict: 'inconclusive', note: 'inconclusive: judge "issued" answers yes' })]);
-    // Wherever the blame is summed up, it is not settled, never "not rescued".
-    expect(fixList(store).fixes[0].steps[0]).toMatchObject({ state: 'warn', short: 'not settled', title: 'Not settled from the first model call' });
-    expect(needsLookFixes(store).find((x) => x.fixId === fix.fixId)?.detail).toBe('not settled from the first model call · no fix yet');
-    expect(fixForRun(store, failing)?.blame).toMatchObject({ outcome: 'unrescuable', unsettled: true, short: 'not settled from the first model call' });
+    // Wherever the blame is summed up, it is inconclusive at the first model call, never "not rescued".
+    expect(fixList(store).fixes[0].steps[0]).toMatchObject({ state: 'warn', short: 'inconclusive', title: 'Inconclusive at the first model call' });
+    expect(needsLookFixes(store).find((x) => x.fixId === fix.fixId)?.detail).toBe('inconclusive at the first model call · no change yet');
+    expect(fixForRun(store, failing)?.blame).toMatchObject({ outcome: 'unrescuable', unsettled: true, short: 'inconclusive at the first model call' });
     expect(fixDetail(store, fix.fixId)!.blames).toEqual([expect.objectContaining({ outcome: 'unrescuable', unsettled: true })]);
   });
 
@@ -278,7 +278,7 @@ describe('a fix', () => {
     const failing = makeRun(store, { labels: ['refund-bug'] });
     const { fix } = blame(failing, { outcome: 'unrescuable' });
     expect(fixList(store).fixes[0].steps[0]).toMatchObject({ short: 'not rescued', title: 'Not rescued from any model call' });
-    expect(needsLookFixes(store).find((x) => x.fixId === fix.fixId)?.detail).toBe('not rescued from any model call · no fix yet');
+    expect(needsLookFixes(store).find((x) => x.fixId === fix.fixId)?.detail).toBe('not rescued from any model call · no change yet');
     expect(fixForRun(store, failing)?.blame).toMatchObject({ outcome: 'unrescuable', short: 'not rescued from any model call' });
     expect(fixForRun(store, failing)?.blame).not.toHaveProperty('unsettled');
   });
@@ -347,7 +347,7 @@ describe('a fix', () => {
     // claude wasn't found: the step says so, never "no repairer needed", and its header has the warning that says what to do.
     keep('repair-claudegone', nothing({ why: 'the repairer could not be asked: claude was not found', noRepairer: 'the repairer could not be asked: claude was not found', warnings: [warning] }), NOW);
     let d = fixDetail(store, fix.fixId)!;
-    expect(d.steps[1]).toEqual({ key: 'repair', n: '02', state: 'todo', short: 'no fix yet', title: 'No fix yet', meta: 'the repairer could not be asked: claude was not found' });
+    expect(d.steps[1]).toEqual({ key: 'repair', n: '02', state: 'todo', short: 'no change yet', title: 'No change yet', meta: 'the repairer could not be asked: claude was not found' });
     expect(d.repair).toMatchObject({ repairer: null, why: 'the repairer could not be asked: claude was not found', noRepairer: { text: 'the repairer could not be asked: claude was not found', warning } });
 
     // Kept before repair said it in a few words: read from its warning.
@@ -425,8 +425,8 @@ describe('a fix', () => {
     // The Forks view under the good run: the attempt reads inconclusive, never failed.
     const [bundle] = fixBundles(store, good)!.filter((b) => b.kind === 'verify');
     expect(bundle.attempts).toEqual([expect.objectContaining({ runId: attempt, passed: false, verdict: 'inconclusive', note: 'inconclusive: judge "issued" answers yes' })]);
-    // The fix's Verify step says why it is not settled: a run it verified is inconclusive, not a verify that stopped.
-    expect(fixDetail(store, fix.fixId)!.steps[2]).toMatchObject({ state: 'warn', short: 'not settled', meta: 'a run it verified is inconclusive' });
+    // The fix's Verify step says why it is inconclusive: a run it verified is inconclusive, not a verify that stopped.
+    expect(fixDetail(store, fix.fixId)!.steps[2]).toMatchObject({ state: 'warn', short: 'inconclusive', meta: 'a run it verified is inconclusive' });
   });
 
   it('reads an attempt its provider was unavailable for as inconclusive, never failed', () => {
@@ -471,7 +471,7 @@ describe('a fix', () => {
   it("opens the Verify step on the newest verdict that counts, never on a later one that doesn't", () => {
     const run = makeRun(store, { labels: ['double-email'] });
     const { fix } = blame(run);
-    // Under the fix's check, a run it could not settle: it counts, and the step is not settled.
+    // Under the fix's check, a run it could not settle: it counts, and the step is inconclusive.
     const unsettled = verifyReport([{ runId: run, role: 'target', pass: true }]);
     unsettled.runs[0] = { ...unsettled.runs[0], verdict: 'open', decision: 'inconclusive' };
     Object.assign(unsettled, decideVerify(unsettled.runs, null));
@@ -479,12 +479,12 @@ describe('a fix', () => {
     // Then accepted under the exit code alone: it doesn't count, and never opens as the fix's verdict.
     const other = recordVerdict(store, { report: verifyReport([{ runId: run, role: 'target', pass: true, recorded: true }], { oracle: EXIT_ORACLE }), expect: null, command: 'v', at: NOW + 1 }).verdict;
     const d = fixDetail(store, fix.fixId)!;
-    expect(d.steps[2]).toMatchObject({ short: 'not settled' });
+    expect(d.steps[2]).toMatchObject({ short: 'inconclusive' });
     expect(d.verify.map((v) => v.verifyId)).toEqual([other.verifyId, counted.verifyId]);
     expect(d.defaultVerify).toBe(counted.verifyId);
     expect(d.verify.map((v) => [v.label, v.headline])).toEqual([
       ["370712a+dirty · accepted · doesn't count", "Doesn't count for this fix: its check leaves out issue_refund with {\"amount\":240} called 0 times"],
-      ['370712a+dirty · incomplete', 'Not every run settled'],
+      ['370712a+dirty · inconclusive', 'Not every run settled'],
     ]);
     // With no verdict that counts, the newest opens.
     const lone = makeRun(store, { labels: ['lone'] });
@@ -576,7 +576,7 @@ describe('a fix', () => {
     expect(noFix(kept(['a'], (r) => blameReport(r, 'unrescuable')))).toBe('No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.');
     const write = { name: 'post_digest', message: 'channel_not_found: #refunds', callNo: 1 };
     expect(noFix(kept(['b'], (r) => ({ ...blameReport(r, 'unrescuable'), failedWrite: write })))).toBe("Blame found that no answer of the model's lost this run, so a rewrite of the prompt can't fix it: the repair ends “No fix to try”. Look at the tools, the harness or the command.");
-    // Its first probe couldn't tell: not settled, which is no finding that no answer of the model's lost the run.
+    // Its first probe couldn't tell: inconclusive, which is no finding that no answer of the model's lost the run.
     const unsure = (r: string) => {
       const base = blameReport(r, 'unrescuable');
       return { ...base, probes: [{ ...base.probes[0], decision: 'inconclusive' as const }] };
@@ -830,7 +830,7 @@ describe('fixes for the other views', () => {
       ['unblamed', 'Run blame'],
       ['ready', 'Apply'],
     ]);
-    expect(items[0]).toMatchObject({ fixId: openFix.fixId, title: 'send_email called twice, not once', detail: 'lost at model call #5 · no fix yet', href: `#/fixes/${openFix.fixId}`, icon: 'blame' });
+    expect(items[0]).toMatchObject({ fixId: openFix.fixId, title: 'send_email called twice, not once', detail: 'lost at model call #5 · no change yet', href: `#/fixes/${openFix.fixId}`, icon: 'blame' });
     // A run is named by its id, with what it was about: a label is no name (this one asked nothing, so its command).
     expect(items[1]).toMatchObject({ runId: unblamed, href: `#/run/${unblamed}`, title: `A run failed: ${unblamed.slice(0, 10)}`, detail: 'node agent.mjs · not blamed yet', expect: EXPECT, icon: 'fail' });
     expect(items[2]).toMatchObject({ runId: blamedBefore, detail: 'node agent.mjs · not blamed yet' });
@@ -857,21 +857,21 @@ describe('fixes for the other views', () => {
     expect(needsLookFixes(store).find((x) => x.fixId === fixId)).toMatchObject({ kind: 'ready', action: 'Apply', detail: 'Escalate refunds above the policy limit' });
   });
 
-  it('says a repair could not ask its repairer, rather than that it found no fix', () => {
+  it('says a repair could not ask its repairer, rather than that its candidates were rejected', () => {
     const email = { tools: { send_email: 1 } };
     const run = makeRun(store, { labels: ['double-email'] });
     const { fix } = blame(run, { expect: email, at: NOW });
     const detail = () => needsLookFixes(store).find((x) => x.fixId === fix.fixId)!.detail;
-    expect(detail()).toBe('lost at model call #5 · no fix yet');
+    expect(detail()).toBe('lost at model call #5 · no change yet');
     const nothing = { ...repairReport({ targets: [run], accepted: false }), repairer: null, candidates: [], diagnosis: null, cost: { blame: 0, repairer: null, verify: 0 } };
     const why = 'the repairer could not be asked: claude was not found';
     recordRepair(store, { repairId: 'repair-claudegone', dir: '.shadowlap/repairs/repair-claudegone', report: { ...nothing, why, noRepairer: why, warnings: [`${why}: install Claude Code, or set SHADOWLAP_CLAUDE to its path`] }, expect: email, command: 'r', at: NOW + 1 });
     expect(detail()).toBe('lost at model call #5 · the repairer could not be asked');
     recordRepair(store, { repairId: 'repair-norepairer', dir: '.shadowlap/repairs/repair-norepairer', report: { ...nothing, why: 'no repairer is configured', noRepairer: 'no repairer is configured' }, expect: email, command: 'r', at: NOW + 2 });
     expect(detail()).toBe('lost at model call #5 · no repairer is configured');
-    // One that tried candidates and accepted none looked for a fix, and found none.
+    // One that tried candidates and accepted none had the gate reject each, in a change's words, never a fix's.
     recordRepair(store, { repairId: 'repair-tried', dir: '.shadowlap/repairs/repair-tried', report: repairReport({ targets: [run], accepted: false }), expect: email, command: 'r', at: NOW + 3 });
-    expect(detail()).toBe('lost at model call #5 · no fix found yet');
+    expect(detail()).toBe('lost at model call #5 · the last repair’s candidates were rejected');
   });
 
   it('counts a fork that failed as a failure not blamed yet, and no attempt, test, preset or injection replay', () => {
@@ -914,7 +914,7 @@ describe('fixes for the other views', () => {
     const other = blame(makeRun(store, { labels: ['refunds'] }), { outcome: 'unrescuable', at: NOW - 1 }).fix;
     expect(needsLookFixes(store).map((x) => [x.fixId, x.action, x.detail])).toEqual([
       [fix.fixId, 'Open', 'not rescued from any model call · look at the tools, the harness or the command'],
-      [other.fixId, 'Fix it', 'not rescued from any model call · no fix yet'],
+      [other.fixId, 'Fix it', 'not rescued from any model call · no change yet'],
     ]);
     // The fix's page still offers Repair from here, and its Blame step says why the prompt is not the place to look.
     const d = fixDetail(store, fix.fixId)!;

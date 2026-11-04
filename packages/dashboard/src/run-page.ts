@@ -452,7 +452,7 @@ export function conversationSource(store: Store, run: RunRecord, calls: readonly
 
 export interface RunBlame {
   outcome: 'blamed' | 'unrescuable' | 'stopped';
-  /** It placed the failure on no call only because its first probe couldn't tell: not settled, never "not rescued". Absent otherwise. */
+  /** It placed the failure on no call only because its first probe couldn't tell: inconclusive at the first model call, never "not rescued". Absent otherwise. */
   unsettled?: true;
   /** The model call whose recorded answer lost the run. */
   callNo: number | null;

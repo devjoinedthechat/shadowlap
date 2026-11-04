@@ -10,7 +10,7 @@ import { counted, liveFrom, modelFactor, noEstimate, noPriceWords, spentLive, ti
  * Plant instruction…, three attempts live from the model call that reads the planted text.
  */
 
-/** The attempts the fork menu's Repeat asks for unless told otherwise (run-actions.ts, `--repeat 5`). */
+/** The attempts the fork menu's Repeat 5 times runs (run-actions.ts, `--repeat 5`). */
 export const REPEAT_TIMES = 5;
 
 /** The attempts the fork menu's Plant instruction… runs (run-actions.ts, `--inject-result … --repeat 3`). */

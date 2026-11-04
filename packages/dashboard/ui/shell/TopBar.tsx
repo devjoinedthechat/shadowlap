@@ -1,6 +1,7 @@
 import { Fragment, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
 import { Spin } from '../components/bits.js';
 import { Brand, Icon } from '../components/Icon.js';
+import { ACTIONS, confirmWords } from '../labels.js';
 import { settingsTabLabel } from '../pages/settings/tabs.js';
 import { shortId } from '../format.js';
 import { knownParent, onParentNoted } from '../parents.js';
@@ -33,11 +34,11 @@ function crumbsFor(route: Route, lineageOf: (id: string) => Array<{ runId: strin
     case 'settings':
       return [{ label: 'Settings', href: href.settings() }, { label: settingsTabLabel(route.tab), mono: true }];
     case 'new':
-      return [{ label: 'Add a project' }];
+      return [{ label: confirmWords(ACTIONS.addProject.label) }];
     case 'setup':
       return [{ label: 'Set up' }];
     case 'store-setup':
-      return [{ label: 'Set up the store' }];
+      return [{ label: ACTIONS.setUpTeamStore.label }];
     default:
       return [];
   }
