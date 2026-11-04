@@ -128,7 +128,7 @@ describe('a run judged by its family’s checks', () => {
       unsettled: ["a check reads what the agent printed, which a recording doesn't keep"],
       checks: [{ status: 'passed' }, { status: 'not-applicable', detail: 'the condition never held: escalate was never called' }],
     });
-    expect(judgeRecording(store, run(store, rec), store.getCalls(rec), never[0]!.spec).passed).toBeNull();
+    expect(judgeRecording(store, run(store, rec), store.getCalls(rec), never[0].spec).passed).toBeNull();
     // A failure still fails it.
     const over = refund(store, { amount: 200, emails: 2, parent: rec });
     expect(judgeByFamily(store, run(store, over), store.getCalls(over), specs)).toMatchObject({ verdict: 'failed', callNo: 6 });
