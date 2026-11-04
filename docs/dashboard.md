@@ -2101,9 +2101,10 @@ Outside a dashboard job the variable is unset, and nothing is written.
 - on any page, Settings tab, run, view, inspector tab, menu or dialog;
 - on Fixes and each fix's steps, the palette, and the shortcuts on Overview, Runs, Fixes and Settings;
 - on a toast with Undo, or the bar that says the dashboard can't be reached;
+- on an exported copy's run, opened from a file;
 - on every page, Settings tab and fix step again, with a few runs and Import a capture, at a phone's width (390 px).
 
-It also checks the contrast of text and of a field's edge, the focus order, the skip link, the focus rings and every overlay's focus. It checks 24 px targets, a phone's width with no label under 11 px, and that every link the server writes opens a page.
+It also checks the contrast of text and of a field's edge, the focus order, the skip link, the focus rings and every overlay's focus. It checks 24 px targets, a phone's width with no label under 11 px, and that every link the server writes opens a page. An exported copy, opened from a file, must draw its run's every view, its runs and Compare without loading a thing or logging an error.
 
 **A large store.** `node scripts/dashboard-scale.mjs --calls 20000 --runs 10000` builds a large store and times what a browser asks for on it; see [Large stores and long runs](#large-stores-and-long-runs).
 
