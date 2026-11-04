@@ -10,7 +10,8 @@ import { countOrigins, parseOrigins } from '../origins.js';
 import { NormalizeUpdateDialog } from '../pages/TestsDialogs.js';
 import { ACTIONS } from '../labels.js';
 import { href } from '../route.js';
-import { runType } from '../runs.js';
+import { runType, TODAY } from '../runs.js';
+import { tipCard } from '../components/HoverCard.js';
 import { scopeCount, scopeDepth, scopeHint, scopeLeaf } from '../scopes.js';
 import { useApp } from '../state.js';
 import { bannerNormalizerAsk, startTestsJob } from '../tests-ask.js';
@@ -18,7 +19,7 @@ import type { PendingAction } from './actions.js';
 import type { PresetAttempt } from './preset.js';
 import { bannerFor, DIVERGED } from './banner.js';
 import { refusedOffline } from './calls.js';
-import { metricItems, type MetricInput } from './metrics.js';
+import { metricItems, outcomeFact, type MetricInput, type OutcomeFact } from './metrics.js';
 import { attemptLinks, attemptOf, originOf, pulledSpender, runLikeOf } from './model.js';
 import { fixStatusWords, nextStepOf, runBlameOffer } from './next-step.js';
 import { blameTitle, divergedActions, goldenName, updateGoldenCopy, updatesAfterRules } from './offers.js';
@@ -53,8 +54,11 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail
     notWaitedMs,
     refused: run.calls.filter((c) => c.outcome === 'error' && refusedOffline(c)).length,
   });
+  // How it came out leads: the verdict of the checks that judged it, as Runs' Status says it.
+  const fact = outcomeFact({ ...runLikeOf(run), judged: run.judged ?? null }, { tools: s.byKind.tool });
   return (
     <section className="metrics" title={notWaitedUnknown ? `${notWaitedUnknown} replayed calls’ recorded durations were not found` : undefined}>
+      <Outcome fact={fact} runId={run.run.runId} />
       {items.map(([v, label, cls], i) => (
         <span className="metric" key={i}>
           <b className={cls || undefined}>{typeof v === 'number' ? num(v) : v}</b>
@@ -62,6 +66,26 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail
         </span>
       ))}
     </section>
+  );
+}
+
+/** The run's first fact: a dot and its verdict's word, the call it turned on as a link, by today's checks after it; what judged it on hover. */
+function Outcome({ fact, runId }: { fact: OutcomeFact; runId: string }) {
+  const tip = tipCard(fact.tip.title, fact.tip.rows.map(([label, value, color]) => ({ label, value, color })), fact.tip.sub);
+  return (
+    <span className="metric rout">
+      <span className={`st ${fact.tone}`} data-tip={tip}>
+        {fact.tone === 'n' ? null : <i />}
+        {fact.words}
+        {fact.callNo !== null ? (
+          <>
+            {' '}
+            <a href={href.run(runId, fact.callNo)}>#{fact.callNo}</a>
+          </>
+        ) : null}
+      </span>
+      {fact.today ? <span className="rtoday">{TODAY}</span> : null}
+    </span>
   );
 }
 

@@ -1,5 +1,6 @@
 import { approx, ktok, money, receiptDuration } from '../format.js';
 import type { OriginCounts } from '../origins.js';
+import { judgedOutcome, runOutcome, type RunLike, type RunOutcomeWords } from '../runs.js';
 
 /**
  * The run's numbers, in the order the page shows them: the counts lead; what replaying saved comes
@@ -67,4 +68,63 @@ export function metricItems(m: MetricInput): MetricItem[] {
   if (m.cost.saved || m.tokensNotRespent) items.push([money(m.cost.saved), `not re-spent${m.tokensNotRespent ? ` · ${ktok(m.tokensNotRespent)} input tokens` : ''}`, 'q']);
   if (m.notWaitedMs) items.push([receiptDuration(m.notWaitedMs), 'not waited', 'q']);
   return items;
+}
+
+// ---- How the run came out: its first fact ----
+
+/** A check as the run's outcome judged it, for the fact's hover (run-outcome.ts `JudgedCheck`). */
+export interface FactCheck {
+  label: string;
+  status: 'passed' | 'failed' | 'inconclusive' | 'not-applicable';
+  detail: string | null;
+}
+
+/** The first fact: a dot and a word in its verdict's colour, the call it turned on apart (a link), and what judged it, on hover. */
+export interface OutcomeFact {
+  tone: RunOutcomeWords['tone'];
+  /** Its words, without the call: `check failed at`, `2 checks passed`, `no checks`. */
+  words: string;
+  callNo: number | null;
+  /** Judged by checks its family's goldens added after it was recorded, or rules on calls changed since its import. */
+  today: boolean;
+  /** Its hover: a title, a line under it, and each check with how it came out. */
+  tip: { title: string; sub: string | null; rows: Array<[string, string, string]> };
+}
+
+const STATUS_COLOUR: Readonly<Record<FactCheck['status'], string>> = { passed: 'var(--cq-lime)', failed: 'var(--err)', inconclusive: 'var(--cq-amber)', 'not-applicable': 'var(--faint)' };
+const STATUS_WORD: Readonly<Record<FactCheck['status'], string>> = { passed: 'passed', failed: 'failed', inconclusive: 'inconclusive', 'not-applicable': 'not applicable' };
+
+/** Each check as the hover lists it: its label, then how it came out and what it found. */
+const rowsOf = (checks: readonly FactCheck[]): Array<[string, string, string]> => checks.map((c) => [c.label, `${STATUS_WORD[c.status]}${c.detail ? ` · ${c.detail}` : ''}`, STATUS_COLOUR[c.status]]);
+
+/** What judged it, as the hover's title and the line under it says. */
+function judgedTip(j: NonNullable<OutcomeInput['judged']>): Pick<OutcomeFact['tip'], 'title' | 'sub'> {
+  const goldens = j.goldens.join(' and ');
+  if (j.by === 'family') return j.today ? { title: 'Today’s checks, judged from the recording', sub: `It was recorded before them: ${goldens}’s checks, added with the golden or since.` } : { title: 'Its family’s checks', sub: `${goldens}’s checks, which it was made under.` };
+  if (j.by === 'import') return { title: j.today ? 'Judged again by today’s rules on calls' : 'Judged when it was imported', sub: j.why ? `Not applicable: ${j.why}.` : 'By the rules on calls in shadowlap.config.json.' };
+  return { title: 'Its checks', sub: null };
+}
+
+/** What the first fact reads: the run as the lists read it, with its outcome's checks and whether it made a tool call. */
+export interface OutcomeInput extends RunLike {
+  judged?: (NonNullable<RunLike['judged']> & { goldens: string[]; why: string | null; checks?: readonly FactCheck[] }) | null;
+}
+
+/**
+ * How the run came out, its page's first fact, in the words Runs' Status has (runOutcome): the
+ * verdict of the checks that judged it, the call it turned on apart, by today's checks after it when
+ * they came after the run. A run no check judges says `no checks`, a clean replay and a fork too
+ * (how faithful a replay was is no verdict), and its hover says how a check comes to judge it.
+ */
+export function outcomeFact(r: OutcomeInput, o: { tools: number }): OutcomeFact {
+  const out = runOutcome(r);
+  if (out.tone === 'live') return { tone: 'live', words: out.text, callNo: null, today: false, tip: { title: 'Still recording', sub: 'It is judged once it finishes.', rows: [] } };
+  const j = r.judged;
+  if (j && judgedOutcome(r)) return { tone: out.tone, words: out.at?.words ?? out.text, callNo: out.at?.callNo ?? null, today: !!out.today, tip: { ...judgedTip(j), rows: rowsOf(j.checks ?? []) } };
+  if (out.text === 'interrupted') return { tone: 'n', words: out.text, callNo: null, today: false, tip: { title: 'Stopped before it ended', sub: 'Ctrl-C, a kill or a crash: it stopped, and did not fail.', rows: [] } };
+  if (out.tone === 'n' || out.tone === 'fk' || out.text === 'clean') {
+    const how = o.tools ? 'Pack it as a golden with checks, or give a golden of its family checks under "tests" in shadowlap.config.json.' : 'It made no tool call, and a check on calls reads them.';
+    return { tone: 'n', words: 'no checks', callNo: null, today: false, tip: { title: 'No check judges this run', sub: how, rows: [] } };
+  }
+  return { tone: out.tone, words: out.text, callNo: null, today: false, tip: { title: out.text.charAt(0).toUpperCase() + out.text.slice(1), sub: null, rows: [] } };
 }

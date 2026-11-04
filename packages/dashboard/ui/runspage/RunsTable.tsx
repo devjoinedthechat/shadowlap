@@ -9,7 +9,7 @@ import { labelTerm } from '../../src/links.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useWindow } from '../run/window-hook.js';
-import { kindWord, runOrigins, runSource, runSpent, runStatus, sideStatus, type RunSort } from '../runs.js';
+import { kindWord, runOrigins, runSource, runSpent, runStatus, sideStatus, TODAY, TODAY_TIP, type RunSort } from '../runs.js';
 import type { RunListItem } from '../types.js';
 import { localTitle } from './bulk.js';
 import { ByAvatar } from './people.js';
@@ -292,9 +292,11 @@ const Row = memo(function Row({ at, run: r, on, selectable, byColumn, you, onPic
             </span>
           </span>
         ) : (
-          <span className={`st ${out.tone}`} aria-label={out.tone === 'n' ? 'nothing to report' : undefined}>
+          // Judged by checks its family's goldens added after it was recorded: said on hover and to a screen reader.
+          <span className={`st ${out.tone}`} aria-label={out.tone === 'n' ? 'nothing to report' : undefined} title={out.today ? TODAY_TIP : undefined}>
             {out.tone === 'n' ? null : <i />}
             {afterDots(out.text)}
+            {out.today ? <span className="sr"> {TODAY}</span> : null}
           </span>
         )}
       </td>

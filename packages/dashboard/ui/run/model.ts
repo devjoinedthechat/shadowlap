@@ -44,6 +44,7 @@ export function runLikeOf(d: RunDetail): RunLike {
     blame: blameOf(d),
     checks,
     ...(state ? { kind: state.kind, outcome: state.outcome, failed: state.failed } : {}),
+    ...(d.judged !== undefined ? { judged: d.judged } : {}),
   };
 }
 

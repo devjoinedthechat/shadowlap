@@ -53,6 +53,22 @@ export interface RunLike {
   failed?: boolean | null;
   /** What the run was about (decision 10: the id names it), when the server says. */
   about?: { text: string; from: string } | null;
+  /** Its outcome by checks, when the server judged it (run-outcome.ts): its own, a capture's by the rules on calls, or its family's goldens'. */
+  judged?: JudgedLike | null;
+}
+
+/**
+ * A run's outcome by checks as the server judges it (run-outcome.ts): its own checks, a capture's by
+ * the rules on calls, or its family's goldens' judged from its recording, `today` when those came
+ * after it was recorded. What Status and the run's first fact say.
+ */
+export interface JudgedLike {
+  by: 'own' | 'import' | 'family';
+  verdict: 'passed' | 'failed' | 'inconclusive' | 'not-applicable';
+  counts: { passed: number; failed: number; inconclusive: number; notApplicable: number };
+  /** The call it turned on: the first failed check's. */
+  callNo: number | null;
+  today: boolean;
 }
 
 export type RunType = 'recording' | 'capture' | 'fork' | 'clean' | 'replay' | 'test';
@@ -302,12 +318,48 @@ function nothingToReport(r: RunLike): { tone: 'fk' | 'n'; text: string } {
   return counts ? { tone: 'fk', text: `forked · ${fencedText(counts)}` } : { tone: 'n', text: '—' };
 }
 
+/** What a status judged by today's checks adds, after its words: the checks came after the run was recorded. */
+export const TODAY = 'by today’s checks';
+/** Its hover: what it was judged by, and from what. */
+export const TODAY_TIP = 'By today’s checks, judged from the recording: it was recorded before them';
+
+/** A run's status: its tone and words; `at`, the words before the call it turned on and the call (a page links it); `today`, judged by checks added after it was recorded. */
+export interface RunOutcomeWords {
+  tone: 'live' | 'err' | 'ok' | 'warn' | 'n' | 'fk';
+  text: string;
+  at?: { words: string; callNo: number };
+  today?: true;
+}
+
+/**
+ * The status the checks that judged a run give it (`judged`), where they decide it: not while it
+ * records, diverged or was lost, nor where the agent's exit or blame failed it with no check named.
+ * `check failed at #6` (`2 checks failed` with more), `check inconclusive`, `2 checks passed`, `not
+ * applicable`; null without a verdict to say.
+ */
+export function judgedOutcome(r: RunLike): RunOutcomeWords | null {
+  const j = r.judged;
+  const o = r.outcome;
+  if (!j || (o && o.kind !== 'none' && o.kind !== 'clean' && o.kind !== 'passed' && o.kind !== 'inconclusive' && !(o.kind === 'check-failed' && o.check && j.by === 'own'))) return null;
+  const today = j.today ? { today: true as const } : {};
+  if (j.verdict === 'failed') {
+    const words = j.counts.failed > 1 ? `${plural(j.counts.failed, 'check')} failed` : 'check failed';
+    return j.callNo !== null ? { tone: 'err', text: `${words} at #${j.callNo}`, at: { words: `${words} at`, callNo: j.callNo }, ...today } : { tone: 'err', text: words, ...today };
+  }
+  if (j.verdict === 'inconclusive') return { tone: 'warn', text: 'check inconclusive', ...today };
+  if (j.verdict === 'passed') return { tone: 'ok', text: checksPassedText(j.counts.passed, j.counts.notApplicable), ...today };
+  return { tone: 'fk', text: 'not applicable', ...today };
+}
+
 /**
  * The Runs table's status: the outcome only, in a dot and a few words. A fork with nothing else to
- * report says what came of its writes, by a neutral dot (`fk`): what it fenced is no verdict.
+ * report says what came of its writes, by a neutral dot (`fk`): what it fenced is no verdict. Where
+ * checks judged it, their verdict (judgedOutcome).
  */
-export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'warn' | 'n' | 'fk'; text: string } {
+export function runOutcome(r: RunLike): RunOutcomeWords {
   if (isLive(r)) return { tone: 'live', text: 'in progress' };
+  const judged = judgedOutcome(r);
+  if (judged) return judged;
   const o = r.outcome;
   if (o) {
     if (o.kind === 'running') return { tone: 'live', text: 'in progress' };
@@ -341,7 +393,7 @@ export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'warn' |
  * came of its writes (`forked · 2 writes blocked`), or the check it failed, named in its own words
  * under `check failed` (`check`), as the run's page names a check it can tell no more of.
  */
-export function runStatus(r: RunLike): { tone: ReturnType<typeof runOutcome>['tone']; text: string; check?: string } {
+export function runStatus(r: RunLike): RunOutcomeWords & { check?: string } {
   const out = runOutcome(r);
   const check = r.outcome?.kind === 'check-failed' ? r.outcome.check : null;
   if (out.tone === 'err' && check && runType(r) === 'fork') return { ...out, check };

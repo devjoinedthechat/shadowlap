@@ -1,4 +1,5 @@
 import type { ActionItem as ServerAction, CallDetail as ServerCallDetail, CallRow as ServerCallRow, CallsPage as ServerCallsPage, LineageNode as ServerLineageNode, RunDetail as ServerRunDetail, RunListItem as ServerRunListItem } from '../src/api.js';
+import type { RunJudged } from '../src/run-outcome.js';
 import type { RunOffers as ServerRunOffers } from '../src/run-offers.js';
 import type { RunAbout } from '../../engine/src/about.js';
 export type { AboutFrom, RunAbout } from '../../engine/src/about.js';
@@ -73,6 +74,8 @@ export interface RunListExtras {
    * Absent from an older server, and from a copy exported before it: the views show the id alone.
    */
   about?: RunAbout | null;
+  /** Its outcome by checks, as the server judged it (run-outcome.ts); absent from an older server, and while it isn't judged yet. */
+  judged?: RunJudged | null;
 }
 export type RunListItem = Omit<ServerRunListItem, 'about'> & RunListExtras;
 
