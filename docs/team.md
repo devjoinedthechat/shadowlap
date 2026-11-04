@@ -14,7 +14,7 @@ It is part of the open-source Shadowlap, free under Apache-2.0 like everything e
 
 ## Set it up
 
-Setting up takes four steps, each building on the one before. Run them in a terminal, or on the dashboard's setup page (`#/setup/store`: Settings → Store's **Set up the store**, or **Set up team store** in the palette):
+Setting up takes four steps, each building on the one before. Run them in a terminal, or on the dashboard's setup page (`#/setup/store`: **Set up team store**, on Settings → Store or in the palette):
 
 ```sh
 shadowlap store set s3://<bucket>/<project> --check                   # 1. connect your bucket
