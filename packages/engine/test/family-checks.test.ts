@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { captureVerdict, captureVerdictLine, checkCallAt, familyGoldens, familyRoot, familySpecs, judgeByFamily, judgeCapture, keptCaptureVerdict, parseTests, rulesOnCalls, Store, storeParents, type RunRecord } from '../src/index.js';
+import { captureVerdict, captureVerdictLine, checkCallAt, familyGoldens, familyRoot, familySpecs, judgeByFamily, judgeCapture, judgeRecording, keptCaptureVerdict, parseTests, rulesOnCalls, Store, storeParents, type RunRecord } from '../src/index.js';
 import { RunBuilder, text, toolUse, usage, user } from './run-fixtures.js';
 
 /**
@@ -97,6 +97,43 @@ describe('a run judged by its family’s checks', () => {
     expect(judgeByFamily(store, run(store, rec), store.getCalls(rec), [])).toBeNull();
     store.close();
   });
+
+  it('holds a check on what the agent printed inconclusive, under a when too, and says what shadowlap check says', () => {
+    const store = Store.open(':memory:');
+    const rec = refund(store);
+    const printed = parseTests({
+      'goldens/refund': { expect: { tools: { send_email: '<= 1' }, output: { includes: 'Refund issued' } } },
+      // Its condition held at the lookup (total 240): the output check under it can't be decided either.
+      'goldens/large': { expect: { when: [{ if: { tool: 'lookup_order', result: { total: { '>': 200 } } }, then: { output: { excludes: 'error' } } }] } },
+      // A golden whose only check reads the output.
+      'goldens/said': { expect: { output: { includes: 'A-1042' } } },
+    });
+    const goldens = ['goldens/refund', 'goldens/large', 'goldens/said'].map((path) => ({ path, runId: rec }));
+    const specs = familySpecs(printed, goldens, DIR);
+    const judged = judgeByFamily(store, run(store, rec), store.getCalls(rec), specs)!;
+    expect(judged.verdict).toBe('inconclusive');
+    expect(judged.checks.map((c) => [c.label, c.status, c.detail])).toEqual([
+      ['send_email called at most 1 time', 'passed', null],
+      ['output includes "Refund issued"', 'inconclusive', 'a recording keeps no output'],
+      ['when lookup_order has result.total > 200: output doesn\'t include "error"', 'inconclusive', 'a recording keeps no output'],
+      ['output includes "A-1042"', 'inconclusive', 'a recording keeps no output'],
+    ]);
+    expect(judged.unsettled).toEqual([]);
+    // shadowlap check calls each of these recordings inconclusive too.
+    for (const { spec } of specs) expect(judgeRecording(store, run(store, rec), store.getCalls(rec), spec).passed).toBeNull();
+    // A condition that never held: the check under it doesn't apply, but check still can't settle a spec that reads the output.
+    const never = familySpecs(parseTests({ 'goldens/refund': { expect: { tools: { send_email: '<= 1' }, when: [{ if: { tool: 'escalate' }, then: { output: { includes: 'escalated' } } }] } } }), [{ path: 'goldens/refund', runId: rec }], DIR);
+    expect(judgeByFamily(store, run(store, rec), store.getCalls(rec), never)).toMatchObject({
+      verdict: 'inconclusive',
+      unsettled: ["a check reads what the agent printed, which a recording doesn't keep"],
+      checks: [{ status: 'passed' }, { status: 'not-applicable', detail: 'the condition never held: escalate was never called' }],
+    });
+    expect(judgeRecording(store, run(store, rec), store.getCalls(rec), never[0]!.spec).passed).toBeNull();
+    // A failure still fails it.
+    const over = refund(store, { amount: 200, emails: 2, parent: rec });
+    expect(judgeByFamily(store, run(store, over), store.getCalls(over), specs)).toMatchObject({ verdict: 'failed', callNo: 6 });
+    store.close();
+  });
 });
 
 describe('the call a failed check turned on', () => {
@@ -178,8 +215,9 @@ describe('a capture judged by the rules on calls', () => {
     const after = rulesOnCalls(only(WITHIN_TOTAL));
     expect(captureVerdict(store, run(store, id), after, calls)).toMatchObject({ verdict: 'failed', again: true, rules: after.key });
     expect(read).toBe(1);
-    // With no rule left to judge it by, it has no verdict.
+    // With no rule left to judge it by, it has no verdict, and nothing of it is read.
     expect(captureVerdict(store, run(store, id), rulesOnCalls([]), calls)).toBeNull();
+    expect(read).toBe(1);
     // What a pack can carry is read field by field.
     expect(keptCaptureVerdict({ meta: { judged: { rules: 1, verdict: 'passed', checks: [] } } } as unknown as RunRecord)).toBeNull();
     store.close();

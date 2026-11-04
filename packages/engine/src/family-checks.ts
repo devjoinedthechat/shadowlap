@@ -3,8 +3,8 @@ import { resolve } from 'node:path';
 import { checkStatus } from './check-status.js';
 import { argsMatch, evaluateChecks, storedCalls, storedCheckInput, type CheckInput } from './checks/evaluate.js';
 import { hasChecks, type CallRule, type CheckResult, type TestEntry, type TestSpec } from './checks/grammar.js';
-import { callRuleLabel, CHECK_MARKS, checkWords } from './checks/labels.js';
-import { judgeRecording } from './checks/recorded.js';
+import { callRuleLabel, CHECK_MARKS, checkLabels, checkWords, passedWords, RULES_ON_CALLS } from './checks/labels.js';
+import { checkFailures, judgeRecording, NO_OUTPUT_KEPT, outputUnjudged, READS_OUTPUT } from './checks/recorded.js';
 import { isObject } from './is-object.js';
 import { JUDGE_SCOPE } from './judge-scope.js';
 import type { Price } from './prices.js';
@@ -18,8 +18,9 @@ import type { CallRecord, CheckStatus, RunRecord, StoredCheck } from './types.js
  * - A run that kept no verdict of its own is judged by its family's checks: those of the goldens
  *   packed from its recording, or from a replay or a fork of it, as shadowlap.config.json's `tests`
  *   gives them now. `shadowlap check` judges a recording so (checks/recorded.ts), and so does the
- *   dashboard, so the two say the same; a judge check takes the verdict the recording holds for it,
- *   and without one is inconclusive, never passed.
+ *   dashboard, so the two say the same: a judge check takes the verdict the recording holds for it,
+ *   and without one is inconclusive, never passed; a check on what the agent printed is
+ *   inconclusive, since a recording keeps no output.
  * - A capture is judged by the project's rules on calls when it is imported: every `calls` check in
  *   any golden's expect, since a rule on calls reads only the calls a run made and holds for any run
  *   of the agent. Counts, `when` rules, judges and budgets belong to their golden's own scenario and
@@ -181,40 +182,63 @@ export function checksVerdict(checks: ReadonlyArray<Pick<StoredCheck, 'ok' | 'st
 export interface FamilyJudged {
   /** The goldens whose checks judged it, nearest first. */
   goldens: string[];
+  /** As its checks came out; inconclusive, short of a failure, while `unsettled` says why the recording can't settle them. */
   verdict: ChecksVerdict;
   /** Each check, a golden's after the nearest golden's with the same label left out. */
   checks: FamilyCheck[];
   /** The call the first failed check turned on. */
   callNo: number | null;
+  /**
+   * Why the recording can't settle its checks besides a check that says so, as `shadowlap check`
+   * says it: a run still recording, a partial recording that holds no tool calls, a judge of what
+   * the agent printed. Empty when nothing but the checks decides it.
+   */
+  unsettled: string[];
+}
+
+/** Results in the order a spec's labels have them (checkLabels): those a recording judges and those on the output it can't, as one report. */
+function inLabelOrder(results: readonly CheckResult[], labels: readonly string[]): CheckResult[] {
+  const at = (r: CheckResult) => {
+    const i = labels.indexOf(r.label);
+    return i < 0 ? labels.length : i;
+  };
+  return [...results].sort((a, b) => at(a) - at(b));
 }
 
 /**
  * A run judged from its recording by its family's checks (familySpecs), as `shadowlap check` judges
- * a recording: each golden's checks but those on the output, a judge by the verdict the run holds
- * for it. A check two goldens share is judged once, by the nearest. Null when none applies to it.
+ * a recording: each golden's checks, a judge by the verdict the run holds for it, a check on what
+ * the agent printed inconclusive (outputUnjudged). A check two goldens share is judged once, by the
+ * nearest. What keeps `shadowlap check` from settling them that no check says (`unsettled`) leaves
+ * the verdict inconclusive, short of a failure, so the two say the same. Null when none applies to it.
  */
 export function judgeByFamily(store: Store, run: RunRecord, calls: CallRecord[], specs: ReadonlyArray<{ golden: string; spec: TestSpec }>, prices?: Record<string, Price>): FamilyJudged | null {
   const checks: FamilyCheck[] = [];
   const goldens: string[] = [];
+  const unsettled: string[] = [];
   const input = storedCalls(store);
   for (const { golden, spec } of specs) {
-    const judged = judgeRecording(store, run, calls, spec, prices).checks;
+    const judged = judgeRecording(store, run, calls, spec, prices);
+    const unkept = outputUnjudged(store, calls, spec);
+    const results = inLabelOrder([...judged.checks, ...unkept], checkLabels(spec));
     let used = false;
-    for (const c of judged) {
+    for (const c of results) {
       if (checks.some((x) => x.label === c.label)) continue;
       checks.push({ ...c, golden, callNo: checkStatus(c) === 'failed' ? checkCallAt(c, calls, input.argsOf) : null });
       used = true;
     }
     if (used) goldens.push(golden);
+    // Each reason a check says already (an inconclusive check, the output a recording doesn't keep) is said by it.
+    const said = new Set(checkFailures(results.filter((c) => c.status === 'inconclusive')));
+    if (unkept.some((c) => c.status === 'inconclusive' && c.detail === NO_OUTPUT_KEPT)) said.add(READS_OUTPUT);
+    for (const why of judged.unsettled) if (!said.has(why) && !unsettled.includes(why)) unsettled.push(why);
   }
   if (!checks.length) return null;
-  return { goldens, verdict: checksVerdict(checks), checks, callNo: checks.find((c) => checkStatus(c) === 'failed')?.callNo ?? null };
+  const verdict = checksVerdict(checks);
+  return { goldens, verdict: unsettled.length && verdict !== 'failed' ? 'inconclusive' : verdict, checks, callNo: checks.find((c) => checkStatus(c) === 'failed')?.callNo ?? null, unsettled };
 }
 
 // ---- A capture judged by the rules on calls ------------------------------------------------------
-
-/** Where the rules a capture is judged by are, as its verdict says it. */
-export const RULES_ON_CALLS = 'the rules on calls in shadowlap.config.json';
 
 /** The project's rules on calls: every `calls` check in any golden's expect, once each, and a key that changes when they do. */
 export interface RulesOnCalls {
@@ -295,6 +319,8 @@ export function keptCaptureVerdict(run: Pick<RunRecord, 'meta'>): CaptureVerdict
 export function captureVerdict(store: StoreOf<'recording'>, run: Pick<RunRecord, 'meta'>, rules: RulesOnCalls, calls: () => CallRecord[]): (CaptureVerdict & { again: boolean }) | null {
   const kept = keptCaptureVerdict(run);
   if (kept && kept.rules === rules.key) return { ...kept, again: false };
+  // No rule left to judge it by: nothing to read its calls for.
+  if (!rules.rules.length) return null;
   const now = judgeCapture(store, calls(), rules);
   return now ? { ...now, again: true } : null;
 }
@@ -313,8 +339,7 @@ export function captureVerdictWords(v: Pick<CaptureVerdict, 'verdict' | 'why' | 
     return `check failed: ${checkWords(first, ', but ')}`;
   }
   const passed = v.checks.filter((c) => checkStatus(c) === 'passed').length;
-  const na = v.checks.length - passed;
-  return `${passed} check${passed === 1 ? '' : 's'} passed${na ? `, ${na} not applicable` : ''}`;
+  return passedWords(passed, v.checks.length - passed);
 }
 
 /** The line `shadowlap import` prints for a capture's verdict: `✓ judged by the rules on calls in shadowlap.config.json · 1 check passed`. */

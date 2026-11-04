@@ -164,6 +164,23 @@ export function checkLabels(spec: ExpectSpec): string[] {
 
 // ---- Reports ------------------------------------------------------------------------------------
 
+/** Where the rules a capture is judged by are, as its verdict says it: `shadowlap import` prints it, and the dashboard's pages show it. */
+export const RULES_ON_CALLS = 'the rules on calls in shadowlap.config.json';
+
+/** A count as a report writes it: `1,000` from a thousand on. */
+const countWords = (n: number) => (n >= 1000 ? n.toLocaleString('en-US') : String(n));
+
+/**
+ * Checks that passed, and those that did not apply, in a few words, as an import's verdict and the
+ * pages' status say them: `2 checks passed`, `1 check passed, 2 not applicable`, `1 check not
+ * applicable`. A check that did not apply never counts as passed.
+ */
+export function passedWords(passed: number, notApplicable = 0): string {
+  const noun = (n: number) => `${countWords(n)} check${n === 1 ? '' : 's'}`;
+  if (!notApplicable) return `${noun(passed)} passed`;
+  return passed ? `${noun(passed)} passed, ${countWords(notApplicable)} not applicable` : `${noun(notApplicable)} not applicable`;
+}
+
 /** Each status's mark at the start of a report's line. */
 export const CHECK_MARKS: Readonly<Record<CheckStatus, string>> = { passed: '✓', failed: '✗', inconclusive: '?', 'not-applicable': '–' };
 

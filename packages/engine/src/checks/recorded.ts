@@ -9,7 +9,7 @@ import type { Price } from '../prices.js';
 import type { Store } from '../store.js';
 import type { CallRecord, Normalizer, RunRecord } from '../types.js';
 import { evaluateChecks, notJudgedWhy, storedCheckInput, type EvaluateOptions, type JudgeCheckVerdict } from './evaluate.js';
-import { judgeChecksOf, readsOutput, withoutOutput, type CheckResult, type JudgeCheck, type TestSpec } from './grammar.js';
+import { hasChecks, judgeChecksOf, readsOutput, withoutOutput, type CheckResult, type ExpectSpec, type JudgeCheck, type TestSpec } from './grammar.js';
 
 /**
  * A recording judged by checks from what it holds, replaying nothing: its exit status and every
@@ -123,6 +123,30 @@ export function recordedVerdicts(store: Store, calls: readonly CallRecord[], jud
   return out;
 }
 
+/** Why a recording can't settle checks that read what the agent printed (`judgeRecording`'s `unsettled`). */
+export const READS_OUTPUT = "a check reads what the agent printed, which a recording doesn't keep";
+
+/** What a check on what the agent printed says of a recording, which keeps none: it can't be decided. */
+export const NO_OUTPUT_KEPT = 'a recording keeps no output';
+
+/** A spec's checks on what the agent printed alone, under the `when` rules that hold them: what `withoutOutput` leaves out. */
+function outputPart(spec: ExpectSpec): ExpectSpec {
+  const when = (spec.when ?? []).map((w) => ({ ...w, then: outputPart(w.then) })).filter((w) => hasChecks(w.then));
+  return { tools: [], ...(spec.output ? { output: spec.output } : {}), ...(when.length ? { when } : {}) };
+}
+
+/**
+ * The checks on what the agent printed, which `judgeRecording` leaves out of a recording's results,
+ * as they come out on one: inconclusive, for a recording keeps no output, never passed or failed.
+ * Under a `when` they go as its condition has them: one whose condition never held does not apply,
+ * and one whose condition can't be read is inconclusive for that.
+ */
+export function outputUnjudged(store: Store, calls: CallRecord[], spec: ExpectSpec): CheckResult[] {
+  const part = outputPart(spec);
+  if (!hasChecks(part)) return [];
+  return evaluateChecks(part, storedCheckInput(store, calls, '')).map((r) => (r.status === 'passed' || r.status === 'failed' ? { status: 'inconclusive', ok: false, label: r.label, detail: NO_OUTPUT_KEPT } : r));
+}
+
 /** Why the checks fail a run: each failed check, and each that could not be decided (an inconclusive check never passes). */
 export const checkFailures = (checks: readonly CheckResult[]): string[] => checks.filter((c) => !c.ok).map((c) => `${c.label}, but ${c.status === 'inconclusive' ? `it is inconclusive: ${c.detail!}` : c.detail!}`);
 
@@ -157,7 +181,7 @@ export function judgeRecording(store: Store, run: RunRecord, calls: CallRecord[]
   failures.push(...checkFailures(checks.filter((c) => checkStatus(c) === 'failed')));
   const unsettled = [
     ...(run.status === 'running' ? ['it is still recording'] : []),
-    ...(spec && readsOutput(spec) ? ["a check reads what the agent printed, which a recording doesn't keep"] : []),
+    ...(spec && readsOutput(spec) ? [READS_OUTPUT] : []),
     ...(run.meta?.covers?.length && !run.meta.covers.includes('tool') ? ['it is a partial recording that holds no tool calls'] : []),
     ...checkFailures(checks.filter((c) => c.status === 'inconclusive')),
   ];

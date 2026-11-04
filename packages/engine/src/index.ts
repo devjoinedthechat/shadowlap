@@ -39,7 +39,7 @@ export { blameCheckFor, checkSuggestion, configExpect, failedCheckLabels, labell
 // The tests entry a run is judged by when it was given no --expect (the CLI's replays, the dashboard's Run blame).
 export { recordingsOfRun, testsEntryFor } from './run-checks.js';
 // A run judged by checks it was not given (A13, E26): by its family's goldens' checks, from its recording; a capture by the rules on calls.
-export { RULES_ON_CALLS, captureVerdict, captureVerdictLine, captureVerdictWords, checkCallAt, checksVerdict, familyGoldens, familyRoot, familySpecs, judgeByFamily, judgeCapture, keptCaptureVerdict, rulesOnCalls, storeParents } from './family-checks.js';
+export { captureVerdict, captureVerdictLine, captureVerdictWords, checkCallAt, checksVerdict, familyGoldens, familyRoot, familySpecs, judgeByFamily, judgeCapture, keptCaptureVerdict, rulesOnCalls, storeParents } from './family-checks.js';
 export type { CaptureVerdict, ChecksVerdict, FamilyCheck, FamilyGolden, FamilyJudged, ParentOf, RulesOnCalls } from './family-checks.js';
 // How a check came out (passed, failed, inconclusive, not applicable), read the same way from any run or test result.
 export { CHECK_STATUSES, STATUS_WORDS, checkOutcome, checkStatus, countStatuses, statusTally, type StoredCheckLike } from './check-status.js';
@@ -49,13 +49,13 @@ export { CHECK_STATUSES, STATUS_WORDS, checkOutcome, checkStatus, countStatuses,
 export { EXPECT_KEYS, JUDGE_MODEL, OPERATORS, OPERATOR_ALIASES, aliasOf, hasChecks, judgeChecksOf, pathsNamed, readsOutput, toolsNamed, withoutOutput } from './checks/grammar.js';
 export type { CallCondition, CallRule, CheckResult, CountRange, ExpectSpec, JudgeCheck, Matcher, NamedPath, NamedTool, Operand, Operator, Reference, TestEntry, TestSpec, TextCheck, ToolCheck, WhenRule } from './checks/grammar.js';
 export { parseAmount, parseCallRule, parseCount, parseExpect, parseJudge, parsePredicate, parseWhen } from './checks/parse.js';
-export { CHECK_MARKS, callRuleLabel, checkLabels, checkLine, checkWords, conditionLabel, costLabel, countLabel, formatAmount, formatCount, judgeLabel, judgeSource, showValue, textLabels, toolCheckLabel, whenLabel, type CountKey, type TextKey } from './checks/labels.js';
+export { CHECK_MARKS, RULES_ON_CALLS, callRuleLabel, checkLabels, checkLine, checkWords, conditionLabel, costLabel, countLabel, formatAmount, formatCount, judgeLabel, judgeSource, passedWords, showValue, textLabels, toolCheckLabel, whenLabel, type CountKey, type TextKey } from './checks/labels.js';
 export { LABEL_INPUT, argsMatch, closestName, evaluateChecks, judgeProvider, judgeResults, notJudgedWhy, storedCalls, storedCheckInput, unreadPaths } from './checks/evaluate.js';
 export type { CheckInput, EvaluateOptions, JudgeCheckVerdict, RecordedCalls, UnreadPath } from './checks/evaluate.js';
 export { CHAOS_TIMEOUT, DEFAULT_CHAOS, TEST_SETTINGS, chaosFor, parseChaosFields, parseTestSettings, parseTests, specFor } from './checks/tests-entry.js';
 export type { ChaosSpec, ExpectParser, TestSettings } from './checks/tests-entry.js';
 // A recording judged from what it holds, a judge check by the verdict it recorded: `shadowlap check`'s, and the dashboard's for a run judged by its family's checks.
-export { checkFailures, heldVerdict, judgeMaterialFor, judgeRecording, judgedOptions, recordedVerdicts } from './checks/recorded.js';
+export { NO_OUTPUT_KEPT, READS_OUTPUT, checkFailures, heldVerdict, judgeMaterialFor, judgeRecording, judgedOptions, outputUnjudged, recordedVerdicts } from './checks/recorded.js';
 export type { Judged, JudgeMaterialSource, RecordingJudged } from './checks/recorded.js';
 export type { NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession, TestSessionComment, TestSessionPullRequest } from './store.js';
 export { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, unmaskedHints, valueHints, volatileValue, volatileValues, type VolatileValue, type VolatileValues } from './volatile.js';
