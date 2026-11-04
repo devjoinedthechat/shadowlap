@@ -3,8 +3,11 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { asTheyStand, carriesCredentials, redactRunWithDetails, Store, type StoreOf, type Normalizer, type Price, type RunRecord } from '@shadowlap/engine';
 import { callDetailFrom, compare, lineage, listRuns, runDetail, type ConversationMemo } from './api.js';
+import { withExitCodes } from './exit-codes.js';
 import { forkDifferences } from './fork-differences.js';
 import { runCalls } from './run-calls.js';
+import { loadRunIndex } from './run-index.js';
+import { judgedRows, runJudged } from './run-outcome.js';
 import { analyseRun } from './run-page.js';
 import { countAttempts } from './run-cache.js';
 import type { MetaView } from './views.js';
@@ -87,8 +90,10 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
   const read = opts.prices ? { prices: opts.prices } : {};
   const responses: Record<string, unknown> = {};
   const keep = opts.keepAuthor;
-  // Every run the file holds is listed, however old, an attempt someone chose to export included.
-  const runs = listRuns(store, { ...read, ids: runIds }).map((r) => (keep ? r : anonymous(r)));
+  // Every run the file holds is listed, however old, an attempt someone chose to export included,
+  // each with its outcome by checks as the copy holds it: its own, or a capture's kept from its
+  // import, masked with the rest of its record. A copy has no project, so no family's checks judge it.
+  const runs = withExitCodes(store, judgedRows(store, listRuns(store, { ...read, ids: runIds }), null, Infinity, { checks: true })).map((r) => (keep ? r : anonymous(r)));
   const records = runIds.map((id) => store.getRun(id)).filter((r): r is RunRecord => r !== null);
   // Counted as the dashboard counts them (run-roles.ts): an attempt is bundled only under a run the copy holds.
   const attempts = countAttempts(records).attempts;
@@ -122,14 +127,15 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
     const detail = runDetail(store, runId, read, { limit: Infinity });
     const record = store.getRun(runId);
     if (!detail || !record) continue;
+    const all = runCalls(store, runId);
+    const judged = runJudged(store, loadRunIndex(store), runId, null, { calls: () => [...all], checks: true }) ?? null;
     // Only runs in the file are linked from it: a Compare or parent link to a run left out would dead-end.
-    responses[`runs/${runId}`] = { ...detail, run: withoutFolder(keep ? detail.run : withoutAuthor(detail.run)), parent: detail.parent && runIds.includes(detail.parent.runId) ? detail.parent : null };
+    responses[`runs/${runId}`] = { ...detail, judged, run: withoutFolder(keep ? detail.run : withoutAuthor(detail.run)), parent: detail.parent && runIds.includes(detail.parent.runId) ? detail.parent : null };
     responses[`runs/${runId}/lineage`] = { nodes: (lineage(store, runId, read) ?? []).filter((n) => runIds.includes(n.runId)).map((n) => (keep ? n : anonymous(n))) };
     // What a fork did differently, when the file holds its parent too: it quotes the parent's calls.
     if (record.parentRunId && runIds.includes(record.parentRunId)) responses[`runs/${runId}/differences`] = { differences: forkDifferences(store, runId) };
     // Every call's details from one read of the run and one analysis of it: asking for each call on
     // its own read the whole run again, so a run's export took time with the square of its length.
-    const all = runCalls(store, runId);
     const analysis = analyseRun(store, record, all);
     const memo: ConversationMemo = {};
     for (const call of all) {

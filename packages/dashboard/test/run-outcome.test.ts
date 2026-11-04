@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -8,6 +8,7 @@ import { CHECKS_SEEN_FILE } from '../src/checks-seen.js';
 import type { RouteContext } from '../src/context.js';
 import { runJob } from '../src/read-jobs.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
+import { exportHtml } from '../src/static.js';
 import { outcomeWork } from '../src/outcome-work.js';
 import { judgedRows, runJudged, type OutcomeWork, type RunJudged } from '../src/run-outcome.js';
 import { normalizeRunDetail } from '../ui/normalize.js';
@@ -261,6 +262,36 @@ describe('what the server reads of the project', () => {
     // Kept for this machine, for a dashboard started later.
     const kept = JSON.parse(readFileSync(join(shadowlapHome(), CHECKS_SEEN_FILE), 'utf8')) as { projects: Record<string, Record<string, { at: number | null }>> };
     expect(kept.projects[dir]?.['goldens/refund']?.at).toBe(T0 + 5000);
+  });
+});
+
+describe('an exported copy', () => {
+  const dirs: string[] = [];
+  afterAll(() => {
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  });
+
+  it("holds each run's own verdict and a capture's kept from its import, read from the copy its redaction rules make", () => {
+    const uiDir = mkdtempSync(join(tmpdir(), 'sl-run-outcome-ui-'));
+    dirs.push(uiDir);
+    mkdirSync(join(uiDir, 'assets', 'fonts'), { recursive: true });
+    writeFileSync(join(uiDir, 'assets', 'app.css'), '.app { color: red }\n');
+    writeFileSync(join(uiDir, 'assets', 'app.js'), 'console.log(1);\n');
+    writeFileSync(join(uiDir, 'assets', 'favicon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
+    const store = Store.open(':memory:');
+    const cap = refund(store, { amount: 300, meta: { covers: ['api', 'tool'], imported: { at: T0, from: 'langfuse:7f3a9c2e' } } });
+    store.updateRunMeta(cap, { judged: judgeCapture(store, store.getCalls(cap), rulesOnCalls(parseTests({ 'goldens/refund': { expect: { calls: [WITHIN_TOTAL] } } })), T0)! });
+    const own = refund(store, { amount: 200, startedAt: T0 + 1000, meta: { checks: [{ status: 'failed', ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }] } });
+    // With a rule, the file is made from a copy of the runs with their records masked (redact.ts).
+    const redact = [{ kind: 'tool' as const, name: '*', path: '$.order_id', pattern: 'A-\\d+', replace: '<ORDER>' }];
+    const { html } = exportHtml({ store, runIds: [cap, own], uiDir, now: T0 + 5000, redact });
+    const data = JSON.parse(/<script type="application\/json" id="shadowlap-data">(.*?)<\/script>/s.exec(html)![1].split('<\\/').join('</')) as { responses: Record<string, { judged?: RunJudged | null; runs?: Array<{ runId: string; judged?: RunJudged | null }> }> };
+    expect(data.responses[`runs/${cap}`]?.judged).toMatchObject({ by: 'import', verdict: 'failed', callNo: 4, first: { detail: 'issue_refund #4: amount 300 > lookup_order.result.total 240 (#2)' } });
+    expect(data.responses[`runs/${own}`]?.judged).toMatchObject({ by: 'own', verdict: 'failed', callNo: 5 });
+    const rows = data.responses['runs']?.runs ?? [];
+    expect(rows.find((r) => r.runId === cap)?.judged).toMatchObject({ by: 'import', verdict: 'failed', checks: [{ status: 'failed' }] });
+    expect(rows.find((r) => r.runId === own)?.judged).toMatchObject({ by: 'own', callNo: 5 });
+    store.close();
   });
 });
 
