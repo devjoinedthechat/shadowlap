@@ -2,15 +2,17 @@ import { createElement, type ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { commandParts, type CmdPiece } from '../ui/cmdline.js';
 import { Code, CodeText, Command, Copy } from '../ui/components/Copy.js';
+import { glossed, Term } from '../ui/components/Term.js';
+import { GLOSSARY, glossPieces, termCard } from '../ui/glossary.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { codePieces, glue, greedyLines, inlineCodePieces, isShortCopy, sentences, setSentences, type Piece } from '../ui/typeset.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 
 /**
- * The render-time line-break parts (MISSING §16 Line breaks): a short copy's sentences, the
- * no-break joins of rule 3, the lines a text sets in, inline code, a command and code shown as text,
- * each copying as written. Drawn here through test/ui-render.ts, which lays nothing out, so a part
- * that measures draws what it draws before it can.
+ * The render-time line-break parts (MISSING §16 Line breaks) and the glossary: a short copy's
+ * sentences, the no-break joins of rule 3, the lines a text sets in, inline code, a command and code
+ * shown as text, each copying as written, and a word the glossary defines at its first use on a
+ * page. Drawn here through test/ui-render.ts: their markup, what a screen reader is told, their words.
  */
 
 let r: Rendered | null = null;
@@ -39,6 +41,67 @@ const draw = async (el: ReactElement) => (r = await render(inApp(el)));
 const text = (el: FakeElement) => el.textContent.replace(/\u00a0/g, ' ');
 /** Pieces drawn as text: a piece kept whole in brackets, a place to break `|`. */
 const drawn = (pieces: ReadonlyArray<Piece | CmdPiece>) => pieces.map((p) => ('wbr' in p ? '|' : p.whole ? `[${p.text}]` : p.text)).join('');
+
+describe('the glossary', () => {
+  it('finds its words whole in a line, goldens as golden and a bound as one term, never inside a longer word or a name', () => {
+    expect(glossPieces('lost at #5, blocked by the fork')).toEqual([{ term: 'lost', text: 'lost' }, ' at #5, ', { term: 'blocked', text: 'blocked' }, ' by the fork']);
+    expect(glossPieces('3 goldens · rate >= 0.73 (95%)')).toEqual(['3 ', { term: 'golden', text: 'goldens' }, ' · ', { term: 'bound', text: 'rate >= 0.73 (95%)' }]);
+    expect(glossPieces('rate\u00a00.56\u00a0to\u00a00.95\u00a0(95%) · not\u00a0re-spent')).toEqual([{ term: 'bound', text: 'rate\u00a00.56\u00a0to\u00a00.95\u00a0(95%)' }, ' · ', { term: 'not re-spent', text: 'not\u00a0re-spent' }]);
+    expect(glossPieces('lost-at blockedness re-kept')).toEqual(['lost-at blockedness re-kept']);
+  });
+
+  it('heads a bound’s card with the bound as written, any other word’s with the word', () => {
+    expect(termCard('bound', 'rate\u00a0>=\u00a00.73\u00a0(95%)')).toEqual({ t: 'rate >= 0.73 (95%)', s: GLOSSARY.bound });
+    expect(termCard('stubbed', 'stubbed').t).toBe('stubbed');
+    expect(GLOSSARY.stubbed).toBe('A write after the fork that never ran: the agent got a stand-in result back.');
+  });
+});
+
+describe('a glossary term', () => {
+  /** The element a term's aria-describedby names. */
+  const definition = (term: FakeElement) => r!.all('[id]').find((x) => x.getAttribute('id') === term.getAttribute('aria-describedby'))!;
+
+  it('defines a word at its first use on a page, on hover, to the keyboard and to a screen reader, and leaves the rest plain', async () => {
+    await draw(createElement('div', { className: 'page' }, createElement('p', null, createElement(Term, { k: 'stubbed' })), createElement('p', null, 'send_email ', createElement(Term, { k: 'stubbed' }))));
+    await r!.wait(0);
+    const [first, later] = r!.all('.term');
+    expect([first.className, first.getAttribute('tabindex'), first.getAttribute('data-term')]).toEqual(['term on', '0', 'stubbed']);
+    expect(JSON.parse(first.getAttribute('data-tip')!)).toEqual({ t: 'stubbed', s: GLOSSARY.stubbed });
+    const def = definition(first);
+    expect(def.hasAttribute('hidden')).toBe(true);
+    expect(def.textContent).toBe(GLOSSARY.stubbed);
+    expect([later.className, later.getAttribute('tabindex'), later.getAttribute('aria-describedby'), later.getAttribute('data-tip')]).toEqual(['term', null, null, null]);
+  });
+
+  it('never defines one in a control or a place with a hover card of its own, and counts a dialog’s apart from the page’s', async () => {
+    await draw(
+      createElement(
+        'div',
+        { className: 'page' },
+        createElement('button', null, createElement(Term, { k: 'lost' })),
+        createElement('span', { 'data-tip': '{"t":"x"}' }, createElement(Term, { k: 'lost' })),
+        createElement('p', null, createElement(Term, { k: 'lost' })),
+        createElement('div', { className: 'dialog' }, createElement(Term, { k: 'lost' })),
+      ),
+    );
+    await r!.wait(0);
+    expect(r!.all('.term').map((t) => t.className)).toEqual(['term', 'term', 'term on', 'term on']);
+  });
+
+  it('defines the next use once the first goes, and heads a bound’s card with the bound', async () => {
+    function Lines({ first }: { first: boolean }) {
+      return createElement('div', { className: 'page' }, first ? createElement('p', { key: 'a' }, glossed('lost at #5')) : null, createElement('p', { key: 'b' }, glossed('lost · rate <= 0.49 (95%)')));
+    }
+    r = await render(inApp(createElement(Lines, { first: true })));
+    await r.wait(0);
+    expect(r.all('.term.on').map((t) => t.textContent)).toEqual(['lost', 'rate <= 0.49 (95%)']);
+    expect(JSON.parse(r.all('.term.on')[1].getAttribute('data-tip')!).t).toBe('rate <= 0.49 (95%)');
+    await r.unmount();
+    r = await render(inApp(createElement(Lines, { first: false })));
+    await r.wait(0);
+    expect(r.all('.term.on').map((t) => t.textContent)).toEqual(['lost', 'rate <= 0.49 (95%)']);
+  });
+});
 
 describe('sentences and glue', () => {
   it('finds a short copy’s sentences, never after an abbreviation or inside a quotation', () => {
