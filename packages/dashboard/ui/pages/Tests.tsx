@@ -110,7 +110,7 @@ export function TestsPage() {
   const runWait = wait('run the tests');
   const updateWait = wait('update them');
   const updateGoldenWait = wait('update it');
-  const findWait = wait(confirmWords(ACTIONS.findBreakingCommit.label).toLowerCase());
+  const findWait = wait('find the breaking commit');
   // A gate against history needs the store kept between CI's runs.
   const historyGate = view.rows.some((r) => r.gate?.gate.kind === 'baseline');
   // An injection test runs live from each payload it plants, as a fork does: CI needs the keys for it.

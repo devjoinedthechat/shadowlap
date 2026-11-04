@@ -228,7 +228,7 @@ export function register(router: Router, ctx: RouteContext): void {
         here = (revs) => (known ? new Set(revs.filter((rev) => known.has(rev))) : null);
       }
       const job = bisectJob(store, goldens(), req, here ? { here } : {});
-      return testsBuild(job, 'args' in job && inTestFamily({ kind: TEST_JOB_KINDS.bisect, args: job.args }) ? busy(store, projectId, confirmWords(ACTIONS.findBreakingCommit.label).toLowerCase()) : null);
+      return testsBuild(job, 'args' in job && inTestFamily({ kind: TEST_JOB_KINDS.bisect, args: job.args }) ? busy(store, projectId, 'find the breaking commit') : null);
     },
   });
   // The golden's test after the rule asks first as Run tests does, when it runs live.

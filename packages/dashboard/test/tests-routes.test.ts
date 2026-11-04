@@ -229,7 +229,7 @@ describe('one job at a time on the goldens', () => {
         [{ kind: 'test-update', golden: 'goldens/refund-in-limit' }, 'A test session is running: update it once it is done'],
         [{ kind: 'normalize-and-test', golden: 'goldens/refund-in-limit' }, 'A test session is running: add the normalizer once it is done'],
         // A pass during the search would leave its answer about a failure that is over.
-        [{ kind: 'bisect', golden: 'goldens/refund-in-limit', good: 'c91d0f4' }, 'A test session is running: find breaking commit once it is done'],
+        [{ kind: 'bisect', golden: 'goldens/refund-in-limit', good: 'c91d0f4' }, 'A test session is running: find the breaking commit once it is done'],
       ]);
       return (await started.json()) as JobView;
     });
@@ -245,7 +245,7 @@ describe('one job at a time on the goldens', () => {
         [{ kind: 'test' }, 'Find breaking commit is running: run the tests once it is done'],
         [{ kind: 'test-update', golden: 'goldens/refund-in-limit' }, 'Find breaking commit is running: update it once it is done'],
         [{ kind: 'normalize-and-test', golden: 'goldens/refund-in-limit' }, 'Find breaking commit is running: add the normalizer once it is done'],
-        [{ kind: 'bisect', golden: 'goldens/refund-flow', good: 'c91d0f4' }, 'Find breaking commit is running: find breaking commit once it is done'],
+        [{ kind: 'bisect', golden: 'goldens/refund-flow', good: 'c91d0f4' }, 'Find breaking commit is running: find the breaking commit once it is done'],
       ]);
       return (await started.json()) as JobView;
     });
@@ -259,7 +259,7 @@ describe('one job at a time on the goldens', () => {
       await refused([
         [{ kind: 'test' }, 'shadowlap test goldens/* is running: run the tests once it is done'],
         [{ kind: 'test-update', golden: 'goldens/refund-in-limit' }, 'shadowlap test goldens/* is running: update it once it is done'],
-        [{ kind: 'bisect', golden: 'goldens/refund-in-limit', good: 'c91d0f4' }, 'shadowlap test goldens/* is running: find breaking commit once it is done'],
+        [{ kind: 'bisect', golden: 'goldens/refund-in-limit', good: 'c91d0f4' }, 'shadowlap test goldens/* is running: find the breaking commit once it is done'],
       ]);
       // The page shows it, so its buttons wait too.
       expect((await getJson<TestsView>(dash, 'tests')).running).toMatchObject({ id: s.sessionId, command: 'shadowlap test goldens/*', live: true });
@@ -277,7 +277,7 @@ describe('one job at a time on the goldens', () => {
       await refused([
         [{ kind: 'test' }, 'shadowlap test goldens/refund-flow --chaos is running: run the tests once it is done'],
         [{ kind: 'test-update', golden: 'goldens/refund-in-limit' }, 'shadowlap test goldens/refund-flow --chaos is running: update it once it is done'],
-        [{ kind: 'bisect', golden: 'goldens/refund-in-limit', good: 'c91d0f4' }, 'shadowlap test goldens/refund-flow --chaos is running: find breaking commit once it is done'],
+        [{ kind: 'bisect', golden: 'goldens/refund-in-limit', good: 'c91d0f4' }, 'shadowlap test goldens/refund-flow --chaos is running: find the breaking commit once it is done'],
         [{ kind: 'chaos', golden: 'goldens/refund-in-limit' }, 'shadowlap test goldens/refund-flow --chaos is running: run its presets once it is done'],
       ]);
       // The page shows it, so its buttons wait too, and the presets' sessions read it as running.

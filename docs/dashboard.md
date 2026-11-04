@@ -1409,11 +1409,11 @@ Tests runs its goldens as jobs too:
 | **Run tests**                 | `shadowlap test goldens/*`, plus each pack the config names elsewhere |
 | **Update golden**             | `shadowlap test <golden> --update`, once you confirm                  |
 | **Add normalizer and re-run** | `shadowlap normalize add …`, then `shadowlap test <golden>`           |
-| **Find breaking commit…**     | `shadowlap bisect`, from the newest revision where the golden passed  |
+| **Find breaking commit**      | `shadowlap bisect`, from the newest revision where the golden passed  |
 
-These jobs run one at a time in a project. While any of the following runs, **Run tests**, **Update golden**, **Add normalizer and re-run** and **Find breaking commit…** wait, saying what is running:
+These jobs run one at a time in a project. While any of the following runs, **Run tests**, **Update golden**, **Add normalizer and re-run** and **Find breaking commit** wait, saying what is running:
 
-- another of these jobs, **Find breaking commit…** on a golden among them, which reads its pack and answers the failure it started from;
+- another of these jobs, **Find breaking commit** on a golden among them, which reads its pack and answers the failure it started from;
 - a setup packing and testing its golden;
 - a test session or the [error-path presets](./error-paths.md) on goldens (`test --chaos`), started in a terminal or another dashboard, named by their command.
 
@@ -1432,9 +1432,9 @@ The dialog names the goldens that go live and why, and shows the commands. It op
 
 **Add normalizer and re-run** is two commands in one job: `shadowlap normalize add …` for each value that changes every run, then `shadowlap test <golden>`, the second only when the first succeeded. The drawer links to the replay that passed. When the rule alone can't make the replay match, it asks first, and updates the golden after it.
 
-**Find breaking commit…** runs `shadowlap bisect` from the newest revision where the golden passed under its checks as they stand. A pass from before a check was added may be a commit where it already fails that check.
+**Find breaking commit** runs `shadowlap bisect` from the newest revision where the golden passed under its checks as they stand. A pass from before a check was added may be a commit where it already fails that check.
 
-- **It asks first** when there is no such revision, after a search from it named no first bad commit, or for a golden marked `fork` (its replays cost tokens). It offers the commits the golden was tested at, each with its subject and how it did there (*c91d0f4 · Escalate refunds above the limit*), or any other.
+- **It asks first**, as **Find breaking commit…**, when there is no such revision, after a search from it named no first bad commit, or for a golden marked `fork` (its replays cost tokens). It offers the commits the golden was tested at, each with its subject and how it did there (*c91d0f4 · Escalate refunds above the limit*), or any other.
 - **Another commit…** is a field beside the list, which stays to pick one from again.
 - **Only commits this checkout has**, as on Runs and a run's page. A golden that last passed at a commit it lacks (a pull request's merge commit in CI, say) asks for one, and one that failed at such a commit is searched up to HEAD.
 
@@ -2139,7 +2139,7 @@ A button that is off says why on hover. The usual reasons:
 | A test job is running in the project | Wait: the button says what is running |
 | `shadowlap.config.json` can't be read | Fix the file: **Calibrate** and **Set up team store** come back |
 | Repair: `claude` can't be found | Install Claude Code, or set `SHADOWLAP_CLAUDE` to its path |
-| Find breaking commit, on a run from someone else's pack | Replay it with your own command first, and find breaking commit from that run |
+| Find breaking commit, on a run from someone else's pack | Replay it with your own command first, and find the breaking commit from that run |
 | The project's folder is gone | Put the folder back, or remove the project |
 
 ### A page took too long

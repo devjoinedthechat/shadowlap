@@ -825,8 +825,8 @@ describe('Find the commit from a run', () => {
     const cut = store.createRun({ mode: 'replay', command: { argv: agent, cwd: '/p' }, codeVersion: 'e3f9b20', meta: { test: { golden: 'goldens/refund-in-limit', session: stopped.sessionId } } });
     store.endRun(cut.runId, 'crashed');
     store.finishTestSession(stopped.sessionId, { passed: 0, failed: 0, upstreamRequests: 0, interrupted: true });
-    expect(bisectChoices(store, cut.runId, { goldens })).toMatchObject({ unavailable: 'this replay was cut short, so it says nothing about goldens/refund-in-limit: find breaking commit from the golden on Tests', args: null });
-    expect(bisectJob(store, goldens, { runId: cut.runId, good: 'c91d0f4' })).toEqual({ error: 'this replay was cut short, so it says nothing about goldens/refund-in-limit: find breaking commit from the golden on Tests' });
+    expect(bisectChoices(store, cut.runId, { goldens })).toMatchObject({ unavailable: 'this replay was cut short, so it says nothing about goldens/refund-in-limit: find the breaking commit from the golden on Tests', args: null });
+    expect(bisectJob(store, goldens, { runId: cut.runId, good: 'c91d0f4' })).toEqual({ error: 'this replay was cut short, so it says nothing about goldens/refund-in-limit: find the breaking commit from the golden on Tests' });
     store.close();
   });
 
@@ -859,9 +859,9 @@ describe('Find the commit from a run', () => {
       ['bbb2222', 1, 0, 1],
       ['aaa1111', 1, 0, 0],
     ]);
-    // The inconclusive replay itself neither passed nor failed: there is no failure to find the commit of.
+    // The inconclusive replay itself neither passed nor failed: there is no breaking commit to find.
     const from = bisectChoices(store, unsure, { goldens: [x] })!;
-    expect(from).toMatchObject({ failed: false, args: null, unavailable: "goldens/x came out inconclusive in this replay's session, neither passed nor failed, so there is no failure to find the commit of: Tests says what settles it" });
+    expect(from).toMatchObject({ failed: false, args: null, unavailable: "goldens/x came out inconclusive in this replay's session, neither passed nor failed, so there is no breaking commit to find: Tests says what settles it" });
     expect(bisectJob(store, [x], { runId: unsure, good: 'aaa1111' })).toEqual({ error: from.unavailable });
     store.close();
   });
@@ -890,7 +890,7 @@ describe('Find the commit from a run', () => {
     const judge = { ok: false, status: 'inconclusive', label: 'judge "calm" answers yes', detail: 'not judged: no recorded verdict and no key for gemini' };
     const unsure = make('fff6666', T0 + 5 * DAY, 'completed', { expect: { judge: [{ name: 'calm', question: 'Is the reply calm?', of: 'answer', model: 'gemini-3-flash' }] }, checks: [judge] } as never);
     const c = bisectChoices(store, unsure, { goldens: [] })!;
-    expect(c).toMatchObject({ failed: false, fork: false, expect: null, args: null, unavailable: 'this run is inconclusive, neither passed nor failed: a check could not be decided (judge "calm" answers yes), so there is no failure to find the commit of' });
+    expect(c).toMatchObject({ failed: false, fork: false, expect: null, args: null, unavailable: 'this run is inconclusive, neither passed nor failed: a check could not be decided (judge "calm" answers yes), so there is no breaking commit to find' });
     expect(bisectJob(store, [], { runId: unsure, good: 'bbb2222' })).toEqual({ error: c.unavailable });
     // A check that failed beside it is a failure all the same, judged by the run's own --expect.
     const failing = make('fff6666', T0 + 6 * DAY, 'completed', { expect: { tools: { send_email: 1 } }, checks: [{ ok: false, status: 'failed', label: 'send_email called 1 time', detail: 'called 0 times' }, judge] } as never);
