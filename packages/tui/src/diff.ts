@@ -29,9 +29,13 @@ export function divergenceSummary(d: DivergenceReport): string {
   }
 }
 
-/** The divergence report as the diff tab shows it, wrapped to `width`, in the theme's colours. */
+/**
+ * The divergence report as the diff tab shows it, wrapped to `width`, in the theme's colours: a run
+ * that replayed clean in the replayed colour, a fork you asked for in ink, a divergence nobody asked
+ * for in amber, and what a changed request removed in red, what it added in ink.
+ */
 export function diffLines(d: DivergenceReport | null, width: number, theme: Theme = THEMES.dark): RenderedLine[] {
-  if (!d) return [{ text: 'This run did not diverge.', color: theme.ok }];
+  if (!d) return [{ text: 'This run did not diverge.', color: theme.origin.replayed }];
   const out: RenderedLine[] = [];
   const say = (text: string, color?: string, head = false) => {
     for (const t of wrap(text, width)) out.push({ text: t, ...(color ? { color } : {}), ...(head ? { head } : {}) });
@@ -41,7 +45,7 @@ export function diffLines(d: DivergenceReport | null, width: number, theme: Them
     say(`every request the agent sent matched, but it stopped before its recording did, without making #${d.callNo}`, theme.dim);
     return out;
   }
-  say(`✗ Diverged at call ${d.callNo} (${d.kind} ${d.name}): ${d.replayedBefore} calls replayed before divergence`, theme.warn, true);
+  say(`✗ Diverged at call ${d.callNo} (${d.kind} ${d.name}): ${d.replayedBefore} calls replayed before divergence`, d.type === 'forced' ? undefined : theme.warn, true);
   switch (d.type) {
     case 'forced':
       say(d.reason ?? 'forced live by --live-tool or --diverge-at', theme.dim);
@@ -56,9 +60,9 @@ export function diffLines(d: DivergenceReport | null, width: number, theme: Them
       if (d.counterpart) say(`compared with run ${d.counterpart.runId.slice(0, 10)}, call ${d.counterpart.callNo}`, theme.dim);
       out.push({ text: '' });
       for (const e of d.diff ?? []) {
-        say(`${e.op === 'changed' ? '~' : e.op === 'added' ? '+' : '-'} ${e.path}`, theme.accent, true);
+        say(`${e.op === 'changed' ? '~' : e.op === 'added' ? '+' : '-'} ${e.path}`, undefined, true);
         if (e.op !== 'added') for (const l of value(e.before, width - 4)) out.push({ text: `  - ${l}`, color: theme.err });
-        if (e.op !== 'removed') for (const l of value(e.after, width - 4)) out.push({ text: `  + ${l}`, color: theme.ok });
+        if (e.op !== 'removed') for (const l of value(e.after, width - 4)) out.push({ text: `  + ${l}` });
         out.push({ text: '' });
       }
       for (const h of d.hints ?? []) {

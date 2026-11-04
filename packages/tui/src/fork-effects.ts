@@ -11,7 +11,12 @@ export interface ForkChange {
   detail: string;
   before: string | null;
   after: string | null;
-  tone: Tone;
+  /**
+   * Its colour, as the dashboard's fork banner ranks a change: a write's in the write colour
+   * (`write`); a stop or a hand-over that changed amber, a look; how the two ended in its own tone;
+   * anything else in ink (`info`).
+   */
+  tone: Tone | 'write';
 }
 
 export interface ForkEnd {
@@ -46,7 +51,8 @@ export function forkEffects(store: StoreOf<'recording'>, run: RunRecord, calls: 
   if (!compared) return null;
   // How the two ended, as a change: red when the fork fails where its parent did not, green the other way round.
   const endTone: Tone = ended.fork.failed && !ended.parent.failed ? 'err' : ended.parent.failed && !ended.fork.failed ? 'ok' : 'info';
-  const changes = compared.changes.map((c): ForkChange => ({ rank: c.rank, detail: c.detail, before: c.before, after: c.after, tone: c.kind === 'ended' ? endTone : c.rank === 1 ? 'warn' : 'info' }));
+  // Rank 1 is a write that changed and rank 2 how the run stops or hands over, which the dashboard tags in the write colour and in amber; how the two ended takes its own tone.
+  const changes = compared.changes.map((c): ForkChange => ({ rank: c.rank, detail: c.detail, before: c.before, after: c.after, tone: c.kind === 'ended' ? endTone : c.rank === 1 ? 'write' : c.rank === 2 ? 'warn' : 'info' }));
   const { words } = compared;
   return {
     most: changes.length ? RANK_LABELS[changes[0]!.rank] : null,

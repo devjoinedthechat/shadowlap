@@ -7,7 +7,7 @@ import { ago, conversationAt, loadRequest, loadResponseBytes } from '../data.js'
 import { diffLines } from '../diff.js';
 import { conversationLines, formatBytes, jsonLines, truncate, wrap, type RenderedLine } from '../render.js';
 import { streamView } from '../sse.js';
-import { useTheme, type Theme } from '../theme.js';
+import { hereStyle, useTheme, type Theme } from '../theme.js';
 
 export type Tab = 'conversation' | 'request' | 'response' | 'meta' | 'diff' | 'verdict';
 export const TABS: Tab[] = ['conversation', 'request', 'response', 'meta'];
@@ -234,18 +234,18 @@ export function Inspector({ store, calls, index, tab, scroll, play, onPlayTick, 
   const shownWidth = names.length ? names.reduce((n, t) => n + t.length + 2, 0) : SHORT[tab].length + 6;
 
   return (
-    <Box flexDirection="column" width={width} height={height} borderStyle="round" borderColor={focused ? theme.accent : theme.faint} paddingX={1}>
+    <Box flexDirection="column" width={width} height={height} borderStyle="round" {...(focused ? {} : { borderColor: theme.faint })} paddingX={1}>
       <Box height={1} flexShrink={0}>
         <Text wrap="truncate">
           {names.length ? (
             tabs.map((t, i) => (
-              <Text key={t} {...(t === tab ? { backgroundColor: theme.band, color: theme.onBand, bold: true } : { color: theme.dim })}>
+              <Text key={t} {...(t === tab ? hereStyle(theme) : { color: theme.faint })}>
                 {` ${names[i] ?? t} `}
               </Text>
             ))
           ) : (
             <Text>
-              <Text backgroundColor={theme.band} color={theme.onBand} bold>{` ${SHORT[tab]} `}</Text>
+              <Text {...hereStyle(theme)}>{` ${SHORT[tab]} `}</Text>
               <Text color={theme.faint}>{` ${tabs.indexOf(tab) + 1}/${tabs.length}`}</Text>
             </Text>
           )}
@@ -255,13 +255,13 @@ export function Inspector({ store, calls, index, tab, scroll, play, onPlayTick, 
       {visible.map((l, i) => {
         const text = truncate(l.text, innerWidth) || ' ';
         if (l.head && l.role !== 'label' && !l.color) {
-          // A turn's name: bold, the system prompt's quieter, and a new turn says so in lime.
+          // A turn's name: bold, the system prompt's quieter, and a new turn says so.
           return (
             <Text key={i} wrap="truncate">
               <Text bold {...(l.role === 'system' ? { color: theme.dim } : {})}>
                 {text}
               </Text>
-              {l.fresh ? <Text color={theme.accent}> · new</Text> : null}
+              {l.fresh ? ' · new' : null}
             </Text>
           );
         }

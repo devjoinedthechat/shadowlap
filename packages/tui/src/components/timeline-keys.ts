@@ -112,7 +112,7 @@ function runKey(input: string, k: TimelineKeys): boolean {
     else k.setMode({ kind: 'note', callNo: k.current?.callNo ?? null });
   } else if (input === 'b') toLost(k);
   else if (mark) {
-    if (k.onMark) k.say(k.onMark(run.runId, mark), 4000, 'ok');
+    if (k.onMark) k.say(k.onMark(run.runId, mark), 4000, 'info');
   } else if (input === 'n') {
     if (!k.toFork()) k.say('this run did not diverge');
   } else if (input === ']') k.jump(1);

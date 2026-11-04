@@ -270,7 +270,7 @@ Each task, with the command or page that does it:
   <sub>What if <code>lookup_policy</code> had returned the EU limit? The&nbsp;run&nbsp;forks&nbsp;at&nbsp;call&nbsp;17&nbsp;(<a href="scripts/readme-shots.mjs">source</a>).</sub>
 </p>
 
-`shadowlap ui` shows your runs in the terminal, on a dark or a light background. It shows why a run failed, where blame found it lost and whether its fix held, and where a fork left its parent and what it then did differently. Each call has conversation, request, response and meta tabs. Press&nbsp;`:` for the what&#8209;ifs at the selected call, and to blame, repair or verify the&nbsp;run:
+`shadowlap ui` shows your runs in the terminal, in the dashboard's colours on a dark or a light background. It shows why a run failed, where blame found it lost and whether its fix held, and where a fork left its parent and what it then did differently. Each call has conversation, request, response and meta tabs. Press&nbsp;`:` for the what&#8209;ifs at the selected call, and to blame, repair or verify the&nbsp;run:
 
 ```text
  01M64J4H6F fork @17 of 01M64J4EMP · 32 calls · 15 replayed · …
