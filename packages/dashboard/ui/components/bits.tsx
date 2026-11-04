@@ -3,6 +3,7 @@ import { cmdParts } from '../cmdline.js';
 import { shellWords } from '../format.js';
 import { ORIGIN_NAME, type Origin7 } from '../origins.js';
 import { CopyButton } from './CodeBox.js';
+import { CommandPieces } from './Copy.js';
 import { Facts, type Fact } from './Facts.js';
 import { Icon } from './Icon.js';
 import { ErrorState } from './States.js';
@@ -203,7 +204,7 @@ export function CmdLine({ children }: { children: string }) {
   return (
     <div className="cmdline">
       <b>$</b>
-      {cmdParts(children).map((p, i) => ('wbr' in p ? <wbr key={i} /> : p.whole ? <span key={i} className="nw">{p.text}</span> : <span key={i}>{p.text}</span>))}
+      <CommandPieces pieces={cmdParts(children)} room={null} />
     </div>
   );
 }

@@ -131,7 +131,7 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .badge.no { background: color-mix(in srgb, var(--err) 14%, transparent); color: var(--err); }
 .badge.y { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
 .badge.n { background: var(--raise); color: var(--dim); box-shadow: inset 0 0 0 1px var(--line2); }
-.cmdline { display: block; padding: 10px 12px; border-radius: 10px; background: var(--code); border: 1px solid var(--line); font: 12px/1.65 var(--mono); color: var(--dim); overflow-wrap: anywhere; }
+.cmdline { display: block; padding: 10px 12px; border-radius: 10px; background: var(--code); border: 1px solid var(--line); font: 12px/1.65 var(--mono); color: var(--dim); overflow-wrap: break-word; }
 .cmdline b { color: var(--faint); font-weight: 400; margin-right: 6px; }
 
 .legend { display: flex; flex-wrap: wrap; gap: 14px; font: 11.5px var(--mono); color: var(--faint); }
