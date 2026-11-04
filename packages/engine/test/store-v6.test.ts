@@ -8,7 +8,8 @@ import { blameReport, EXPECT, makeRun, ORACLE } from './fix-fixtures.js';
 
 /**
  * Store schema v6, what the dashboard's pages keep, added in one step: the advice put away
- * (dismissals), each check a fix has had (fix_checks), and the 'dismissals' counter.
+ * (dismissals), each check a fix has had (fix_checks), the pull request a CI test session ran for and
+ * what its comment carried, and the 'tests' and 'dismissals' counters.
  */
 
 const require = createRequire(import.meta.url);
@@ -31,14 +32,15 @@ const EMAIL = { tools: { send_email: 1 } };
 const emailCheck: StoredFix['check'] = { expect: EMAIL, key: checkKey(EMAIL), oracle: ['the agent exits 0', 'send_email called 1 time'], text: 'send_email called 1 time' };
 const migration = (sessionId: string, at = 3_000) => ({ sessionId, kind: 'migrate' as const, at, change: 'the model claude-sonnet-5-5', actor: 'dana@northwind.example', revision: 'd2e8a1f', data: { to: 'claude-sonnet-5-5' }, runs: [{ runId: '01RUNA', golden: 'goldens/refund-in-limit', rank: 3, changed: 1, data: { runId: '01RUNA' } }] });
 
-/** The store at `path` taken back to what a v5 build kept: none of v6's tables, triggers or counters, and its version. */
+/** The store at `path` taken back to what a v5 build kept: none of v6's tables, columns, triggers or counters, and its version. */
 function asVersion5(path: string): void {
   const raw = new DatabaseSync(path);
-  const triggers = raw.prepare(`SELECT name FROM sqlite_master WHERE type = 'trigger' AND (name LIKE 'change_counts_fix_checks_%' OR name LIKE 'change_counts_dismissals_%')`).all().map((r) => String(r.name));
-  expect(triggers).toHaveLength(6);
+  const triggers = raw.prepare(`SELECT name FROM sqlite_master WHERE type = 'trigger' AND (name LIKE 'change_counts_test_%' OR name LIKE 'change_counts_fix_checks_%' OR name LIKE 'change_counts_dismissals_%')`).all().map((r) => String(r.name));
+  expect(triggers).toHaveLength(12);
   for (const name of triggers) raw.exec(`DROP TRIGGER ${name}`);
   raw.exec(`DROP TABLE dismissals; DROP TABLE fix_checks`);
-  raw.exec(`DELETE FROM change_counts WHERE name = 'dismissals'; UPDATE meta SET value = '5' WHERE key = 'schema_version'`);
+  raw.exec(`ALTER TABLE test_sessions DROP COLUMN pull_request; ALTER TABLE test_sessions DROP COLUMN comment`);
+  raw.exec(`DELETE FROM change_counts WHERE name IN ('tests', 'dismissals'); UPDATE meta SET value = '5' WHERE key = 'schema_version'`);
   raw.close();
 }
 
@@ -61,14 +63,17 @@ describe('store schema v6', () => {
     expect(second.schemaVersion()).toBe(6);
     // What a v5 build kept reads back as it was.
     expect(second.listFixes().map((f) => f.check.key)).toEqual([checkKey(EMAIL), checkKey(EXPECT)]);
-    expect(second.getTestSession(session.sessionId)).toMatchObject({ revision: 'd2e8a1f', passed: 1 });
     expect(second.getDecisionSession('mg-01M50000000000000000000001')).toMatchObject({ change: 'the model claude-sonnet-5-5' });
     // Each fix's check is its first, from when the fix was opened, by whoever opened it.
     expect(second.fixChecks(opened.fixId)).toEqual([{ fixId: opened.fixId, position: 0, at: 2_000, actor: 'dana@northwind.example', check: { expect: EXPECT, key: checkKey(EXPECT), oracle: ORACLE, text: 'issue_refund with {"amount":240} called 0 times' } }]);
     expect(second.fixChecks(nobody.fixId)).toMatchObject([{ position: 0, at: 2_500, actor: null, check: { key: checkKey(EMAIL) } }]);
+    // A session kept before ran for no pull request and kept no comment.
+    expect(second.getTestSession(session.sessionId)).toMatchObject({ revision: 'd2e8a1f', passed: 1, pullRequest: null, comment: null });
     expect(second.listDismissals()).toEqual([]);
-    expect(second.changeCounts()).toMatchObject({ dismissals: 0 });
+    expect(second.changeCounts()).toMatchObject({ tests: 0, dismissals: 0 });
     // What v6 keeps, kept from now on.
+    second.setTestSessionPullRequest(session.sessionId, { number: 142, url: 'https://github.com/northwind/support-agent/pull/142', source: 'GitHub Actions (pull_request)' });
+    expect(second.changeCounts().tests).toBeGreaterThan(0);
     second.putDismissal({ key: 'coverage', facts: ['3f9a2c1d5e8b7a60'] });
     expect(second.setFixCheck(opened.fixId, emailCheck, { at: 5_000, actor: 'maya@northwind.example' })).toBe(true);
     second.close();
@@ -81,6 +86,7 @@ describe('store schema v6', () => {
       [1, checkKey(EMAIL), 'maya@northwind.example'],
     ]);
     expect(third.fixChecks(nobody.fixId)).toHaveLength(1);
+    expect(third.getTestSession(session.sessionId)?.pullRequest).toEqual({ number: 142, url: 'https://github.com/northwind/support-agent/pull/142', source: 'GitHub Actions (pull_request)' });
     expect(third.listDismissals().map((d) => d.key)).toEqual(['coverage']);
     third.close();
   });
@@ -93,6 +99,97 @@ describe('store schema v6', () => {
     raw.close();
     expect(() => Store.open(path)).toThrow(`${path} was written by a newer Shadowlap (store schema v7; this build understands v6). Upgrade Shadowlap, or point --db at another store.`);
     expect(() => Store.openReadOnly(path)).toThrow('this build understands v6');
+  });
+});
+
+describe('a test session: the pull request it ran for, and what its comment carried', () => {
+  it('keeps the pull request a session ran for, from its start or named later', () => {
+    const store = Store.open(':memory:');
+    const pr = { number: 142, url: 'https://github.com/northwind/support-agent/pull/142', source: 'GitHub Actions (pull_request)' };
+    const ci = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'd2e8a1f', pullRequest: pr, owner: null });
+    expect(ci.pullRequest).toEqual(pr);
+    expect(store.getTestSession(ci.sessionId)?.pullRequest).toEqual(pr);
+    expect(store.listTestSessions()[0]).toMatchObject({ sessionId: ci.sessionId, pullRequest: pr, comment: null });
+    // A session on a person's machine runs for none; one named later, without a number or a page, as SHADOWLAP_PR may.
+    const here = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], owner: null });
+    expect(here.pullRequest).toBeNull();
+    store.setTestSessionPullRequest(here.sessionId, { number: null, url: null, source: 'SHADOWLAP_PR' });
+    expect(store.getTestSession(here.sessionId)?.pullRequest).toEqual({ number: null, url: null, source: 'SHADOWLAP_PR' });
+    store.setTestSessionPullRequest(here.sessionId, null);
+    expect(store.getTestSession(here.sessionId)?.pullRequest).toBeNull();
+    expect(() => store.setTestSessionPullRequest('01NOSESSION', pr)).toThrow('unknown test session 01NOSESSION');
+    store.close();
+  });
+
+  it("keeps each part of a session's comment beside the parts kept already, and takes one out with null", () => {
+    const store = Store.open(':memory:');
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], owner: null });
+    store.setTestSessionComment(s.sessionId, { decisions: 'dc-01M50000000000000000000001' });
+    expect(store.getTestSession(s.sessionId)?.comment).toEqual({ decisions: 'dc-01M50000000000000000000001', costPerRun: null });
+    // A part kept by a job after the first leaves the first one's.
+    store.setTestSessionComment(s.sessionId, { costPerRun: { before: 0.029, after: 0.031 } });
+    expect(store.getTestSession(s.sessionId)?.comment).toEqual({ decisions: 'dc-01M50000000000000000000001', costPerRun: { before: 0.029, after: 0.031 } });
+    store.setTestSessionComment(s.sessionId, { costPerRun: { before: null, after: 0.034 } });
+    expect(store.getTestSession(s.sessionId)?.comment?.costPerRun).toEqual({ before: null, after: 0.034 });
+    // Taken out one by one, until the session keeps none.
+    store.setTestSessionComment(s.sessionId, { decisions: null });
+    expect(store.getTestSession(s.sessionId)?.comment).toEqual({ decisions: null, costPerRun: { before: null, after: 0.034 } });
+    store.setTestSessionComment(s.sessionId, { costPerRun: null });
+    expect(store.getTestSession(s.sessionId)?.comment).toBeNull();
+    expect(() => store.setTestSessionComment('01NOSESSION', { decisions: 'dc-x' })).toThrow('unknown test session 01NOSESSION');
+    store.close();
+  });
+
+  it('reads a pull request or a comment kept in any other shape as none, part by part', () => {
+    const store = Store.open(':memory:');
+    const raw = (store as unknown as { db: { prepare(sql: string): { run(...a: unknown[]): unknown } } }).db;
+    const s = store.startTestSession({ command: ['shadowlap', 'test'], owner: null });
+    const keep = (pr: unknown, comment: unknown) => raw.prepare(`UPDATE test_sessions SET pull_request = ?, comment = ? WHERE session_id = ?`).run(pr, comment, s.sessionId);
+    keep(JSON.stringify({ number: 0, url: 7, source: 'GitHub Actions (pull_request)' }), JSON.stringify({ decisions: 3, costPerRun: { before: 'a lot', after: 0.03 } }));
+    expect(store.getTestSession(s.sessionId)).toMatchObject({ pullRequest: { number: null, url: null, source: 'GitHub Actions (pull_request)' }, comment: { decisions: null, costPerRun: { before: null, after: 0.03 } } });
+    keep(JSON.stringify({ number: 142 }), JSON.stringify([]));
+    expect(store.getTestSession(s.sessionId)).toMatchObject({ pullRequest: null, comment: null });
+    // A page that is no web page's address is none: it never reaches a link.
+    keep(JSON.stringify({ number: 142, url: 'javascript:alert(1)', source: 'SHADOWLAP_PR' }), null);
+    expect(store.getTestSession(s.sessionId)?.pullRequest).toEqual({ number: 142, url: null, source: 'SHADOWLAP_PR' });
+    keep('not json', 'not json');
+    expect(store.getTestSession(s.sessionId)).toMatchObject({ pullRequest: null, comment: null });
+    // A comment that doesn't read never stops a part being kept: it is none, and the part takes its place.
+    store.setTestSessionComment(s.sessionId, { decisions: 'dc-01M50000000000000000000001' });
+    expect(store.getTestSession(s.sessionId)?.comment).toEqual({ decisions: 'dc-01M50000000000000000000001', costPerRun: null });
+    store.close();
+  });
+
+  it('moves the tests counter on every write to a session or a result, and nothing else does', () => {
+    const store = Store.open(':memory:');
+    const tests = () => store.changeCounts().tests;
+    expect(tests()).toBe(0);
+    let last = tests();
+    const moved = () => {
+      const now = tests();
+      const did = now > last;
+      last = now;
+      return did;
+    };
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], owner: null });
+    expect(moved()).toBe(true);
+    store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/refund-in-limit', ok: true });
+    expect(moved()).toBe(true);
+    // A result kept again for the same golden replaces the first, and moves it too.
+    store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/refund-in-limit', ok: false, failure: 'check' });
+    expect(moved()).toBe(true);
+    store.finishTestSession(s.sessionId, { passed: 0, failed: 1, upstreamRequests: 0 });
+    expect(moved()).toBe(true);
+    store.setTestSessionPullRequest(s.sessionId, { number: 7, url: null, source: 'SHADOWLAP_PR' });
+    expect(moved()).toBe(true);
+    store.setTestSessionComment(s.sessionId, { decisions: 'dc-01M50000000000000000000001' });
+    expect(moved()).toBe(true);
+    // A run, a fix and a decision session are no test session.
+    const run = makeRun(store);
+    blame(store, run);
+    store.putDecisionSession(migration('mg-01M50000000000000000000002'));
+    expect(moved()).toBe(false);
+    store.close();
   });
 });
 

@@ -40,7 +40,7 @@ export { blameCheckFor, checkSuggestion, configExpect, failedCheckLabels, labell
 export { recordingsOfRun, testsEntryFor } from './run-checks.js';
 // How a check came out (passed, failed, inconclusive, not applicable), read the same way from any run or test result.
 export { CHECK_STATUSES, STATUS_WORDS, checkOutcome, checkStatus, countStatuses, statusTally, type StoredCheckLike } from './check-status.js';
-export type { NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession } from './store.js';
+export type { NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession, TestSessionComment, TestSessionPullRequest } from './store.js';
 export { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, unmaskedHints, valueHints, volatileValue, volatileValues, type VolatileValue, type VolatileValues } from './volatile.js';
 export type { TeamFixRow, TeamRunRow, TeamRunState, TeamSyncRow } from './store.js';
 // The advice Needs a look shows that its owner put away, kept in the project's store alone, and the rule that brings it back.

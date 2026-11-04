@@ -219,7 +219,9 @@ CREATE TRIGGER IF NOT EXISTS change_counts_repairs_insert AFTER INSERT ON repair
 -- across revisions outlives the runs that gc deletes: no foreign key on run ids. A golden is its
 -- pack folder relative to the project (goldens/refund-flow); the runs a session made carry
 -- meta.test = { golden, session }. A session stopped by a signal ends with interrupted = 1 and the
--- results of the goldens that finished before it.
+-- results of the goldens that finished before it. v6: the pull or merge request a CI session ran
+-- for (pull_request) and what the comment the Action keeps on it carried beside each golden's
+-- verdict line (comment), as JSON in the shapes store/tests.ts gives.
 CREATE TABLE IF NOT EXISTS test_sessions (
   session_id         TEXT    PRIMARY KEY,
   started_at         INTEGER NOT NULL,
@@ -230,7 +232,9 @@ CREATE TABLE IF NOT EXISTS test_sessions (
   failed             INTEGER NOT NULL DEFAULT 0,
   upstream_requests  INTEGER NOT NULL DEFAULT 0,
   actor              TEXT,
-  interrupted        INTEGER NOT NULL DEFAULT 0 CHECK (interrupted IN (0, 1))
+  interrupted        INTEGER NOT NULL DEFAULT 0 CHECK (interrupted IN (0, 1)),
+  pull_request       TEXT,
+  comment            TEXT
 );
 CREATE INDEX IF NOT EXISTS test_sessions_started ON test_sessions (started_at);
 
@@ -248,6 +252,16 @@ CREATE TABLE IF NOT EXISTS test_results (
   PRIMARY KEY (session_id, golden)
 );
 CREATE INDEX IF NOT EXISTS test_results_golden ON test_results (golden, at);
+-- v6: every write to a session or a golden's result moves the 'tests' counter, whoever makes it (a
+-- test in a terminal, CI's, the dashboard's), so Tests and Changes follow a session another process
+-- keeps, and the parts of its pull request comment as each is kept.
+INSERT OR IGNORE INTO change_counts (name, n) VALUES ('tests', 0);
+CREATE TRIGGER IF NOT EXISTS change_counts_test_sessions_insert AFTER INSERT ON test_sessions BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'tests'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_test_sessions_update AFTER UPDATE ON test_sessions BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'tests'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_test_sessions_delete AFTER DELETE ON test_sessions BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'tests'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_test_results_insert AFTER INSERT ON test_results BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'tests'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_test_results_update AFTER UPDATE ON test_results BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'tests'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_test_results_delete AFTER DELETE ON test_results BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'tests'; END;
 
 -- v4: tests. The process running each test session not ended yet, as run_owners does for runs, so
 -- a session still running (in a terminal, from another dashboard) is told from one whose process
@@ -689,12 +703,24 @@ export function storeFileProblem(path: string): string | null {
   return storeDirProblem(dirname(path));
 }
 
+/** A table's columns, by name. */
+function columnsOf(db: SqliteDatabase, table: string): string[] {
+  return db
+    .prepare(`PRAGMA table_info(${table})`)
+    .all()
+    .map((r) => String(r.name));
+}
+
 /**
  * v6, what the dashboard's pages keep, in one step. The SCHEMA above creates its tables and triggers
- * (dismissals, fix_checks); a fix kept before (`found` is the version the store was at) has its check
- * as the first of its checks.
+ * (dismissals, fix_checks, the 'tests' counter); a store from before gains its columns here: the pull
+ * request a CI test session ran for and what its comment carried. A fix kept before (`found` is the
+ * version the store was at) has its check as the first of its checks.
  */
 function addVersion6(db: SqliteDatabase, found: number | null): void {
+  const sessionColumns = columnsOf(db, 'test_sessions');
+  if (!sessionColumns.includes('pull_request')) db.exec(`ALTER TABLE test_sessions ADD COLUMN pull_request TEXT`);
+  if (!sessionColumns.includes('comment')) db.exec(`ALTER TABLE test_sessions ADD COLUMN comment TEXT`);
   if (found === null || found >= 6) return;
   // Its first check's author is the fix's (data.openedBy), when its data says one: data that doesn't
   // read as JSON is never handed to json_type, which would refuse it and the store with it.

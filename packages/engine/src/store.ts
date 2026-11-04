@@ -47,7 +47,7 @@ export type { CreateRunInput } from './store/recording.js';
 export { noFullTextSearch, SCHEMA_VERSION } from './store/schema.js';
 export type { SearchState } from './store/search.js';
 export type { TeamFixRow, TeamRunRow, TeamRunState, TeamSyncRow } from './store/team.js';
-export type { InjectionGateData, NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession } from './store/tests.js';
+export type { InjectionGateData, NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession, TestSessionComment, TestSessionPullRequest } from './store/tests.js';
 export type { NewPairsExport, PairsExport, TaskScoreRow } from './store/training.js';
 
 /**
