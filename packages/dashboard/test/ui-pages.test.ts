@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { parseExpect } from '../../cli/src/checks.js';
+import { parseExpect } from '@shadowlap/engine';
 
 // The pages later slices replace say how to do it in the CLI today: the commands they show must be
 // ones the CLI takes as they are written.
