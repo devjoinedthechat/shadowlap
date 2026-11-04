@@ -12,6 +12,7 @@ import { ACTIONS } from '../labels.js';
 import { href } from '../route.js';
 import { runType, TODAY } from '../runs.js';
 import { tipCard } from '../components/HoverCard.js';
+import { Status } from '../components/Status.js';
 import { useLoad } from '../hooks.js';
 import { scopeCount, scopeDepth, scopeHint, scopeLeaf } from '../scopes.js';
 import { useApp } from '../state.js';
@@ -94,15 +95,14 @@ function useJudged(run: RunDetail): RunDetail['judged'] {
 }
 
 /**
- * The run's first fact: a dot and its verdict's word, the call it turned on as a link, by today's
- * checks after it; what judged it on hover, and to a screen reader the check it names.
+ * The run's first fact: its status, a dot and its verdict's word, the call it turned on as a link,
+ * by today's checks after it; what judged it on hover, and to a screen reader the check it names.
  */
 function Outcome({ fact, runId }: { fact: OutcomeFact; runId: string }) {
   const tip = tipCard(fact.tip.title, fact.tip.rows.map(([label, value, color]) => ({ label, value, color })), fact.tip.sub);
   return (
     <span className="metric rout">
-      <span className={`st ${fact.tone}`} data-tip={tip}>
-        {fact.tone === 'n' ? null : <i />}
+      <Status tone={fact.tone} tip={tip}>
         {fact.words}
         {fact.callNo !== null ? (
           <>
@@ -113,7 +113,7 @@ function Outcome({ fact, runId }: { fact: OutcomeFact; runId: string }) {
           </>
         ) : null}
         {fact.tip.said ? <span className="sr">: {fact.tip.said}</span> : null}
-      </span>
+      </Status>
       {fact.today ? <span className="rtoday">{TODAY}</span> : null}
     </span>
   );

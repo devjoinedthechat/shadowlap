@@ -134,11 +134,12 @@ describe("a run's first fact", () => {
     // No check judges it: a clean replay and a fork say so too, by a grey dot.
     expect(outcomeFact({ ...BASE, judged: null }, { tools: 3 })).toMatchObject({ tone: 'mu', words: 'no checks', tip: { title: 'No check applies to this run' } });
     expect(outcomeFact({ ...BASE, kind: 'fork', mode: 'replay', divergence: { callNo: 2, type: 'request_changed' }, origins: 'rlb', judged: null }, { tools: 1 }).words).toBe('no checks');
-    expect(outcomeFact({ ...BASE, status: 'crashed', judged: null }, { tools: 3 }).words).toBe('interrupted');
+    // Interrupted is no verdict: muted, as Status draws every such word.
+    expect(outcomeFact({ ...BASE, status: 'crashed', judged: null }, { tools: 3 })).toMatchObject({ tone: 'mu', words: 'interrupted' });
     // A test that diverged: its call a link.
     expect(outcomeFact({ ...BASE, kind: 'test', outcome: { kind: 'diverged', callNo: 1 } }, { tools: 3 })).toMatchObject({ tone: 'err', words: 'diverged at', callNo: 1 });
     // A long run's first answer, before its analysis judged it: no verdict yet, never "no checks".
-    expect(outcomeFact({ ...BASE, judged: null }, { tools: 3, pending: true })).toMatchObject({ tone: 'n', words: '…', callNo: null });
+    expect(outcomeFact({ ...BASE, judged: null }, { tools: 3, pending: true })).toMatchObject({ tone: 'mu', words: '…', callNo: null });
   });
 
   it('leads the run page’s facts as the run payload says it, its check said to a screen reader', async () => {
@@ -160,14 +161,15 @@ describe("a run's first fact", () => {
     const work: OutcomeWork = { version: 'v1', tests: { 'goldens/refund': { expect: { tools: { send_email: 0 } } } }, dir: '/work/project', goldens: [{ path: 'goldens/refund', runId, packedAt: 1_760_000_100_000 }] };
     const d = normalizeRunDetail(JSON.parse((await runJob(store, { kind: 'run', runId, read: {}, outcome: work })).body) as RunDetail);
     const html = renderToStaticMarkup(createElement(Metrics, { run: d, notWaitedMs: null, notWaitedUnknown: 0 }));
+    // A status as Status draws it: its dot kept from a screen reader, which hears the words.
     expect(html).toContain(`<span class="metric rout"><span class="st err" data-tip=`);
-    expect(html).toContain(`check failed at <a class="bn" href="#/run/${runId}/2">#2</a><span class="sr">: send_email called 0 times, but called 1 time</span></span><span class="rtoday">by today’s checks</span></span>`);
+    expect(html).toContain(`<i aria-hidden="true"></i>check failed at <a class="bn" href="#/run/${runId}/2">#2</a><span class="sr">: send_email called 0 times, but called 1 time</span></span><span class="rtoday">by today’s checks</span></span>`);
     // Its counts follow.
     expect(html.indexOf('rout')).toBeLessThan(html.indexOf('model calls'));
     // Before its analysis judged a long run: nothing said yet.
     const { judged: _verdict, ...first } = d;
     const pending = renderToStaticMarkup(createElement(Metrics, { run: first, notWaitedMs: null, notWaitedUnknown: 0, judged: null, pending: true }));
-    expect(pending).toContain('<span class="metric rout"><span class="st n" data-tip=');
+    expect(pending).toContain('<span class="metric rout"><span class="st mu" data-tip=');
     expect(pending).not.toContain('no checks');
     store.close();
   });

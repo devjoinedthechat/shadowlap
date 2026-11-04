@@ -1,3 +1,4 @@
+import type { Tone } from '../components/Status.js';
 import { approx, ktok, money, receiptDuration } from '../format.js';
 import type { OriginCounts } from '../origins.js';
 import { outcomeTip, type OutcomeTip } from '../outcome-tip.js';
@@ -73,9 +74,10 @@ export function metricItems(m: MetricInput): MetricItem[] {
 
 // ---- How the run came out: its first fact ----
 
-/** The first fact: a dot and a word in its verdict's colour, the call it turned on apart (a link), and what judged it, on hover. */
+/** The first fact: a status, a dot and a word in its verdict's colour, the call it turned on apart (a link), and what judged it, on hover. */
 export interface OutcomeFact {
-  tone: RunOutcomeWords['tone'];
+  /** Its tone as Status draws it: muted for no checks, nothing yet and an interrupted run, none of them a verdict. */
+  tone: Tone;
   /** Its words, without the call: `check failed at`, `2 checks passed`, `no checks`. */
   words: string;
   callNo: number | null;
@@ -91,12 +93,15 @@ export interface OutcomeFact {
  * they came after the run. A run no check judges says `no checks`, by a grey dot, a clean replay and a
  * fork too (how faithful a replay was is no verdict), and its hover says how a check comes to judge
  * it. `pending`: a long run whose first answer came before its analysis judged it, which says nothing
- * yet.
+ * yet. An interrupted run says so muted, by a grey dot, as every status that is no verdict.
  */
 export function outcomeFact(r: RunLike, o: { tools: number; pending?: boolean }): OutcomeFact {
-  if (o.pending) return { tone: 'n', words: '…', callNo: null, today: false, tip: { title: 'Judging it by its checks', sub: 'Read from all its calls, beside the server.', rows: [], said: 'judging it by its checks' } };
+  if (o.pending) return { tone: 'mu', words: '…', callNo: null, today: false, tip: { title: 'Judging it by its checks', sub: 'Read from all its calls, beside the server.', rows: [], said: 'judging it by its checks' } };
   const out = outcomeOf(r);
   const tip = outcomeTip(r, out, o.tools);
   if (out.of === 'none' || out.of === 'fork') return { tone: 'mu', words: 'no checks', callNo: null, today: false, tip };
-  return { tone: out.tone, words: out.at?.words ?? out.text, callNo: out.at?.callNo ?? null, today: !!out.today, tip };
+  return { tone: factTone(out.tone), words: out.at?.words ?? out.text, callNo: out.at?.callNo ?? null, today: !!out.today, tip };
 }
+
+/** The first fact's tone as Status draws it: what Runs sets with no dot (an interrupted run) or a neutral one (a fork's writes) is no verdict, so muted. */
+const factTone = (t: RunOutcomeWords['tone']): Tone => (t === 'n' || t === 'fk' ? 'mu' : t);
