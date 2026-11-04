@@ -211,7 +211,7 @@
       "scriptEnd": 56
     },
     "packages/dashboard/ui/actions.ts": {
-      "dialogCopy": 41
+      "dialogCopy": 40
     },
     "packages/dashboard/ui/compare/model.ts": {
       "changeCards": 33
@@ -251,7 +251,7 @@
       "ScoreDialog": 34
     },
     "packages/dashboard/ui/pages/settings/RuleTable.tsx": {
-      "RuleDialog": 38
+      "RuleDialog": 37
     },
     "packages/dashboard/ui/pages/settings/Store.tsx": {
       "StoreTab": 34

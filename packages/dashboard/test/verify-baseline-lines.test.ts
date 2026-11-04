@@ -99,7 +99,7 @@ describe('a run a verify left open', () => {
     recordVerdict(store, { report, expect: EXPECT, command: 'shadowlap verify --fixes label:refund-bug', at: 2_000 });
     const [bundle] = fixBundles(store, failing)!.filter((b) => b.kind === 'verify');
     expect(bundle).toMatchObject({ verdictLine: 'inconclusive · 3 of 3', tone: 'y', verdict: 'incomplete' });
-    expect(bundleLine(bundle!, (usd) => `≈$${usd.toFixed(3)}`)).toBe('inconclusive · 3 of 3 · ≈$0.036 · 370712a+dirty · inconclusive');
+    expect(bundleLine(bundle, (usd) => `≈$${usd.toFixed(3)}`)).toBe('inconclusive · 3 of 3 · ≈$0.036 · 370712a+dirty · inconclusive');
   });
 });
 
