@@ -461,8 +461,8 @@ describe('store schema version', () => {
     second.close();
   });
 
-  it('upgrades a v4 store to v5, which keeps the process running each session of error-path presets and what scored attempts\' judges cost', async () => {
-    expect(SCHEMA_VERSION).toBe(5);
+  it('upgrades a v4 store, which gains v5\'s process running each session of error-path presets and what scored attempts\' judges cost', async () => {
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(5);
     const path = join(freshDir(), 's.db');
     const first = Store.open(path);
     // A session a v4 build started and never ended (its process was killed), and one that ended.
@@ -479,7 +479,7 @@ describe('store schema version', () => {
     raw.close();
 
     const second = Store.open(path);
-    expect(second.schemaVersion()).toBe(5);
+    expect(second.schemaVersion()).toBe(SCHEMA_VERSION);
     expect(second.listChaosSessions().map((s) => [s.sessionId, s.endedAt])).toEqual([
       ['DONE', 30],
       ['LEFT', null],
@@ -503,7 +503,7 @@ describe('store schema version', () => {
     second.close();
     // Opened again, nothing is migrated twice.
     const third = Store.open(path);
-    expect(third.schemaVersion()).toBe(5);
+    expect(third.schemaVersion()).toBe(SCHEMA_VERSION);
     expect(third.listChaosSessions()).toHaveLength(4);
     expect(third.listTaskScores().map((r) => r.judgeSpent)).toEqual([null, 0.002]);
     third.close();

@@ -10,7 +10,7 @@ import { dirname, join } from 'node:path';
 import { messageOf } from '../message-of.js';
 import { DatabaseSync, rollBack, type SqliteDatabase } from './core.js';
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS runs (
@@ -513,6 +513,23 @@ CREATE TABLE IF NOT EXISTS chaos_session_owners (
   pid         INTEGER NOT NULL,
   host        TEXT    NOT NULL
 );
+
+-- v6: dismissals. The advice Needs a look shows (behaviours no golden covers, runs only on this
+-- machine, a model that retires) that whoever keeps this store put away: by the advice's key, with
+-- the facts it stated then, when, and who. It stays put away while every fact it states is one of
+-- those, so only a new fact brings it back. Kept in this store alone, so it is per project and its
+-- owner's: a push and a pull leave it out, and nobody's Dismiss changes what a teammate sees. Every
+-- write moves the 'dismissals' counter, so a page follows one made in another tab.
+CREATE TABLE IF NOT EXISTS dismissals (
+  key    TEXT    PRIMARY KEY,
+  facts  TEXT    NOT NULL,
+  at     INTEGER NOT NULL,
+  actor  TEXT
+);
+INSERT OR IGNORE INTO change_counts (name, n) VALUES ('dismissals', 0);
+CREATE TRIGGER IF NOT EXISTS change_counts_dismissals_insert AFTER INSERT ON dismissals BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'dismissals'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_dismissals_update AFTER UPDATE ON dismissals BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'dismissals'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_dismissals_delete AFTER DELETE ON dismissals BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'dismissals'; END;
 
 -- Replay start: the fingerprint a stored request came to under one set of matching rules, so a
 -- replay of a long run doesn't read and hash every request again (the sidecar's

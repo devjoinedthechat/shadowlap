@@ -43,6 +43,8 @@ export { CHECK_STATUSES, STATUS_WORDS, checkOutcome, checkStatus, countStatuses,
 export type { NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession } from './store.js';
 export { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, unmaskedHints, valueHints, volatileValue, volatileValues, type VolatileValue, type VolatileValues } from './volatile.js';
 export type { TeamFixRow, TeamRunRow, TeamRunState, TeamSyncRow } from './store.js';
+// The advice Needs a look shows that its owner put away, kept in the project's store alone, and the rule that brings it back.
+export { stillDismissed, type NewDismissal, type StoredDismissal } from './store.js';
 // The team store's counts, by run (attempts filed under their run): Settings → Store, Needs a look, store show.
 export { abandonedRuns, teamRunCounts, type TeamRunCounts } from './team-runs.js';
 export { recordEvent, type EventKind, type RecordEventInput } from './events.js';
