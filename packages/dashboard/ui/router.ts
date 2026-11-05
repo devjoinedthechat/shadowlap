@@ -46,7 +46,8 @@ export function useRoute(): Route {
       if (step?.kind === 'open') history.replaceState(history.state, '', `${location.pathname}${location.search}${step.to}`);
       const next = currentRoute();
       const had = document.activeElement;
-      leaving.current = had && document.querySelector('#view')?.contains(had) ? had : null;
+      // A menu or a dialog sits beside the page, and goes with it the same.
+      leaving.current = had && had.closest('#view, #menu, #layer') ? had : null;
       setRoute((prev) => (routeHref(prev) === routeHref(next) ? prev : next));
     };
     window.addEventListener('hashchange', on);

@@ -80,6 +80,15 @@ test('a menu keeps its keys: ↓ opens it, a letter finds an item, Home and End 
   await expect(share).toBeFocused();
 });
 
+test('a menu’s link that opens another page hands the focus to that page', async ({ page }) => {
+  await openPage(page, `/run/${demoId('ticket')}`, 'run');
+  await shareButton(page).click();
+  await page.locator(`${MENU} a[role="menuitem"]`).click();
+  await expect(page.locator(MENU)).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => location.hash)).toContain('settings');
+  await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('#view'))).toBe(true);
+});
+
 test('a menu’s rows are 34 to 36px, one line each, and it is 340 or 280px wide', async ({ page }) => {
   await openPage(page, `/run/${demoId('ticket')}`, 'run');
   await page.locator('#forkBtn').click();

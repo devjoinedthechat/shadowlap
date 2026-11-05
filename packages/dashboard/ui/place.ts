@@ -18,12 +18,11 @@ const LEAST_ROOM = 120;
 /** A picker's or a project menu's least width, the narrower of a menu's two. */
 const NARROW = 280;
 
-/** What placing a menu says: its corner, a height to scroll within where it doesn't fit, and whether it went over its button. */
+/** What placing a menu says: its corner, and a height to scroll within where it doesn't fit. */
 export interface MenuPlace {
   top: number;
   left: number;
   maxHeight: number | null;
-  up: boolean;
 }
 
 /**
@@ -40,7 +39,7 @@ export function placeMenu(anchor: Box, pop: { width: number; height: number }, v
   const height = Math.min(pop.height, room);
   const start = align ? align === 'start' : (anchor.left + anchor.right) / 2 < view.width / 2;
   const left = Math.max(EDGE, Math.min(start ? anchor.left : anchor.right - pop.width, view.width - pop.width - EDGE));
-  return { top: up ? anchor.top - GAP - height : anchor.bottom + GAP, left, maxHeight: pop.height > room ? room : null, up };
+  return { top: up ? anchor.top - GAP - height : anchor.bottom + GAP, left, maxHeight: pop.height > room ? room : null };
 }
 
 /** A picker's width: its button's, at least the narrower of a menu's two, within the window's margins. */

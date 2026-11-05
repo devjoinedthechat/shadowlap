@@ -41,7 +41,6 @@ const placed = (el: HTMLElement, p: MenuPlace) => {
   el.style.top = `${p.top}px`;
   el.style.left = `${p.left}px`;
   el.style.maxHeight = p.maxHeight === null ? '' : `${p.maxHeight}px`;
-  el.classList.toggle('up', p.up);
 };
 
 /** Places it again as the window or the menu itself changes size: a menu whose items arrive after it opens grows, and must still end inside the window. */
@@ -72,7 +71,6 @@ export function Popover({ anchor, onClose, children, className = '', align, matc
     if (!el) return;
     if (sheet || !anchor) {
       for (const p of ['top', 'left', 'width', 'maxHeight'] as const) el.style[p] = '';
-      el.classList.remove('up');
       return;
     }
     return keepPlaced(
