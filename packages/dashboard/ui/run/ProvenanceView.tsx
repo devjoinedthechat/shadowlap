@@ -310,7 +310,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
                   </tr>
                 ) : null}
                 {run.calls.slice(win.start, win.end).map((c, j) => (
-                  <tr key={c.callNo} data-wi={win.start + j} data-acts="" aria-selected={c.callNo === selected} onClick={() => navigate(href.run(r.runId, c.callNo, 'provenance'), true)}>
+                  <tr key={c.callNo} data-wi={win.start + j} data-call={c.callNo} data-acts="" aria-selected={c.callNo === selected} onClick={() => navigate(href.run(r.runId, c.callNo, 'provenance'), true)}>
                     <td className="num left">{c.callNo}</td>
                     <td>{callName(c.kind, c.name)}</td>
                     {scopes.length ? (

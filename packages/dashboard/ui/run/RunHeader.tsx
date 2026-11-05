@@ -5,10 +5,13 @@ import { Eyebrow, Tag } from '../components/bits.js';
 import { ConfirmDialog } from '../components/Dialog.js';
 import { RunKey } from '../components/RunKey.js';
 import { MARKS, type RunMark } from '../runkey.js';
-import { tipCard } from '../components/HoverCard.js';
+import { tipCard, tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { useMenu } from '../components/Popover.js';
 import { copyText } from '../dom.js';
+import { headingRef } from '../focus-manager.js';
+import { ACTIONS } from '../labels.js';
+import { shortcut } from '../shortcuts.js';
 import { dur, shortId, stamp, wholeCounts } from '../format.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
@@ -129,7 +132,7 @@ export function RunHeader({
       <div className="rmain">
         {eyebrow}
         <div className="rtitle">
-          <h1 className="rnm" title={r.runId}>
+          <h1 className="rnm" title={r.runId} ref={headingRef}>
             {shortId(r.runId)}
           </h1>
           {tag ? <Tag cls={tag.cls}>{tag.text}</Tag> : null}
@@ -169,7 +172,7 @@ export function RunHeader({
       </div>
       <div className="actions">
         {pair && next.key !== 'compare' ? (
-          <a className="btn" href={href.compare(pair[0], pair[1])}>
+          <a className="btn" href={href.compare(pair[0], pair[1])} data-tip={compareTip(pair[0], pair[1])} {...shortcut('compare')}>
             {r.parentRunId ? 'Compare with parent' : 'Compare'}
           </a>
         ) : null}
@@ -195,13 +198,13 @@ export function RunHeader({
               className={next.key === 'replay' ? 'btn lime' : 'btn'}
               type="button"
               disabled={live || !!actionsOff || !replay || !!replay.disabled}
-              title={live ? 'Replay once the recording finishes' : (off ?? replay?.disabled ?? undefined)}
-              onClick={() => replay && onAction({ action: replay, callNo: null })}
+              data-tip={tipText(live ? 'Replay once the recording finishes' : (off ?? replay?.disabled ?? ACTIONS.replay.label))}
+              onClick={() => replay && onAction({ action: replay, callNo: null })} {...shortcut('replay')}
             >
               <Icon name="replay" />
               Replay
             </button>
-            {next.key === 'blame' ? <RunBlameButton runId={r.runId} failed={next.offer.failed} title={blameTitle(next.offer)} className="btn lime" icon /> : null}
+            {next.key === 'blame' ? <RunBlameButton runId={r.runId} failed={next.offer.failed} title={blameTitle(next.offer)} className="btn lime" icon mark={shortcut('blame')} /> : null}
             {next.key === 'fix' ? <FixLead fix={next.fix} /> : null}
             {next.key === 'compare' ? <CompareLead from={next.parent} to={r.runId} /> : null}
             <button
@@ -211,8 +214,8 @@ export function RunHeader({
               aria-haspopup="menu"
               aria-expanded={forkMenu.open}
               disabled={live || !!actionsOff || selected === null}
-              title={live ? 'Fork once the recording finishes' : off}
-              onClick={(e) => forkMenu.toggle(e.currentTarget)}
+              data-tip={forkTip(live, off)}
+              onClick={(e) => forkMenu.toggle(e.currentTarget)} {...shortcut('fork')}
             >
               <Icon name="fork" />
               Fork at #{selected ?? '–'}
@@ -267,10 +270,16 @@ function FixLead({ fix }: { fix: NonNullable<RunDetail['fix']> }) {
   );
 }
 
+/** Fork's card: why it waits, else what its menu shows. */
+const forkTip = (live: boolean, off: string | undefined) => tipText(live ? 'Fork once the recording finishes' : (off ?? 'Each change in the menu shows the flag it runs'));
+
+/** Compare's card: which run it is read against, and the command that does the same. */
+const compareTip = (from: string, to: string) => tipCard(`Against ${shortId(from)}`, [], `shadowlap diff ${shortId(from)} ${shortId(to)}`);
+
 /** Compare with parent, as the step a fork or an attempt leads with: it is read against the run it came from. */
 function CompareLead({ from, to }: { from: string; to: string }) {
   return (
-    <a className="btn lime" href={href.compare(from, to)} data-tip={tipCard(`Against ${shortId(from)}`, [], `shadowlap diff ${shortId(from)} ${shortId(to)}`)}>
+    <a className="btn lime" href={href.compare(from, to)} data-tip={compareTip(from, to)} {...shortcut('compare')}>
       <Icon name="compare" />
       Compare with parent
     </a>

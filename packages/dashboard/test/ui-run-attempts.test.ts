@@ -121,7 +121,7 @@ describe('a fork that failed', () => {
     expect(page.all('.banner.fork button').some((b) => b.textContent === 'Run blame')).toBe(false);
     const lead = page.byText('.rhead .actions button', 'Run blame');
     expect(lead.className).toBe('btn lime');
-    expect(lead.props.title).toBe('Find the model call where this run was lost, with the checks it was replayed with');
+    expect(JSON.parse(String(lead.props['data-tip']))).toMatchObject({ t: 'Run blame', s: 'Find the model call where this run was lost, with the checks it was replayed with' });
     // Replay is there, plain: the one lime button is the next step.
     expect(page.byText('.rhead .actions button', 'Replay').className).toBe('btn');
     await page.unmount();

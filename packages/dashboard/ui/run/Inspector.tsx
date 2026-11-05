@@ -2,11 +2,13 @@ import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from '
 import { applyDeltas } from '../../../engine/src/deltas.js';
 import { INPUT_PARTS } from '../../../engine/src/tokens.js';
 import type { Block, CallDetail, CallRow, Delta, RunNote, Turn, TurnBlock } from '../api.js';
-import { Org, Seg } from '../components/bits.js';
+import { Org, Seg, Tabs } from '../components/bits.js';
+import { tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { JsonTree } from '../components/Json.js';
 import { copyText } from '../dom.js';
 import { asJson, dur, formatUsd, jsonText, num, shortFingerprint, stamp } from '../format.js';
+import { shortcut, shortcutCard } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { refusedOffline } from './calls.js';
@@ -22,6 +24,12 @@ import { conversationLink, modelLabel, originOf, tokensText, turnCalls } from '.
 
 export type InspectorTab = 'conversation' | 'response' | 'request' | 'details';
 export const TABS: readonly InspectorTab[] = ['conversation', 'response', 'request', 'details'];
+
+const TAB_NAMES: Readonly<Record<InspectorTab, string>> = { conversation: 'Conversation', response: 'Response', request: 'Request', details: 'Details' };
+const PART_KEYS = ['part1', 'part2', 'part3', 'part4'] as const;
+
+/** The inspector's tabs, each with its key, 1 to 4, and a card that says it while single keys are on. */
+const TAB_ITEMS = () => TABS.map((key, i) => ({ key, label: TAB_NAMES[key], mark: shortcut(PART_KEYS[i]!), tip: tipText(TAB_NAMES[key]) }));
 
 let formatJsonPref = true;
 
@@ -54,7 +62,7 @@ export function Inspector({ runId, call, calls, models, detail, error, tab, onTa
   const rest = call.kind === 'api' ? [tokensText(call), call.origin === 'replayed' || call.latencyMs === null ? null : dur(call.latencyMs)].filter(Boolean).join(' · ') : '';
   const summary = call.kind === 'api' ? [call.model, rest].filter(Boolean).join(' · ') : call.effect ? `${call.effect} tool` : call.kind;
   return (
-    <section className="insp" aria-label={`Call ${call.callNo}`}>
+    <section className="insp" id="insp" aria-label={`Call ${call.callNo}`}>
       <div className="ihead">
         <span className="cn">#{call.callNo}</span>
         <span className="ct" title={call.name}>
@@ -63,10 +71,10 @@ export function Inspector({ runId, call, calls, models, detail, error, tab, onTa
         <Org origin={originOf(call)} />
         {call.scope ? <span className="scopetag">{call.scope}</span> : null}
         <span className="nav">
-          <button className="ibtn" type="button" aria-label="Previous call (k)" onClick={() => onStep(-1)}>
+          <button className="ibtn" type="button" aria-label="Previous call" data-tip={tipText(shortcutCard('prevCall')!)} onClick={() => onStep(-1)} {...shortcut('prevCall')}>
             <Icon name="up" />
           </button>
-          <button className="ibtn" type="button" aria-label="Next call (j)" onClick={() => onStep(1)}>
+          <button className="ibtn" type="button" aria-label="Next call" data-tip={tipText(shortcutCard('nextCall')!)} onClick={() => onStep(1)} {...shortcut('nextCall')}>
             <Icon name="down" />
           </button>
         </span>
@@ -89,14 +97,8 @@ export function Inspector({ runId, call, calls, models, detail, error, tab, onTa
           </span>
         ) : null}
       </div>
-      <div className="tabs" role="tablist" aria-label="Inspector">
-        {TABS.map((t, i) => (
-          <button key={t} type="button" role="tab" aria-selected={tab === t} title={`${i + 1}`} onClick={() => onTab(t)}>
-            {t === 'conversation' ? 'Conversation' : t === 'response' ? 'Response' : t === 'request' ? 'Request' : 'Details'}
-          </button>
-        ))}
-      </div>
-      <div className="ibody" key={`${runId}:${call.callNo}:${tab}`} tabIndex={-1}>
+      <Tabs label="The selected call" idPrefix="itab" panelId="ibody" items={TAB_ITEMS()} value={tab} onChange={onTab} />
+      <div className="ibody" id="ibody" key={`${runId}:${call.callNo}:${tab}`} role="tabpanel" aria-labelledby={`itab-${tab}`} tabIndex={-1}>
         {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} change={change} flag={flag ?? null} onSelect={onSelect} /> : tab === 'response' ? <ResponseTab detail={detail} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} models={models} />}
       </div>
     </section>

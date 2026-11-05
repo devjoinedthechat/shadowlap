@@ -1,3 +1,5 @@
+import { tipCard } from '../components/HoverCard.js';
+import type { ShortcutMark } from '../shortcuts.js';
 import { useState } from 'react';
 import { consentAsked } from '../actions.js';
 import { ApiError, JOB_KINDS } from '../api.js';
@@ -19,7 +21,7 @@ import { ACTIONS } from '../labels.js';
  * confirmed. Disabled, with the reason, where nothing runs or while a repair or an apply changes the
  * working tree the agent would run from.
  */
-export function RunBlameButton({ runId, failed = [], className = 'linkbtn', title = 'Find the model call where this run was lost', icon = false }: { runId: string; failed?: readonly string[]; className?: string; /** The hover when nothing stops it. */ title?: string; /** With the fix loop's icon, as the run page's lead button. */ icon?: boolean }) {
+export function RunBlameButton({ runId, failed = [], className = 'linkbtn', title = 'Find the model call where this run was lost', icon = false, mark }: { runId: string; failed?: readonly string[]; className?: string; /** The hover when nothing stops it. */ title?: string; /** With the fix loop's icon, as the run page's lead button, whose hover is a card. */ icon?: boolean; /** Its key, where it is the run's next step. */ mark?: ShortcutMark }) {
   const app = useApp();
   const busy = useTreeBusy('reads', 'blame');
   const [asking, setAsking] = useState<null | { kind: 'check' } | { kind: 'consent'; why: string; confirm: string; fields: Record<string, unknown> }>(null);
@@ -54,7 +56,7 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn', titl
   const failedText = failed.length ? `It failed “${failed[0]!}”${failed.length > 1 ? ` and ${failed.length - 1} more` : ''}, a check shadowlap.config.json doesn’t give. ` : '';
   return (
     <>
-      <button className={className} type="button" disabled={!!why} title={why ?? title} onClick={() => app.guard(() => void start({}))}>
+      <button className={className} type="button" disabled={!!why} {...(icon ? { 'data-tip': tipCard(ACTIONS.runBlame.label, [], why ?? title) } : { title: why ?? title })} onClick={() => app.guard(() => void start({}))} {...mark}>
         {icon ? <Icon name="loop" /> : null}
         {ACTIONS.runBlame.label}
       </button>
