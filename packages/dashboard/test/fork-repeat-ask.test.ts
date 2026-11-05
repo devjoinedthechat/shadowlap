@@ -32,7 +32,7 @@ describe('what a call’s actions tell the dialog that asks', () => {
   });
 
   it('names the model that takes no system message mid-conversation, for an instruction’s row', () => {
-    const inject = (model: string) => actionsFor(run(), call({ kind: 'api', name: 'POST /v1/messages', effect: null, meta: { model } } as Partial<CallRecord>), {}).find((a) => a.key === 'i')!;
+    const inject = (model: string) => actionsFor(run(), call({ kind: 'api', name: 'POST /v1/messages', effect: null, meta: { model } }), {}).find((a) => a.key === 'i')!;
     expect(inject('claude-sonnet-5').noSystemMessage).toBe('claude-sonnet-5');
     expect(inject('claude-haiku-4-5').noSystemMessage).toBeUndefined();
   });

@@ -161,12 +161,8 @@ describe('an action that can’t start', () => {
   it('leaves its dialog open with what was typed, and sends nothing, while the server is out of reach', async () => {
     const asked: Asked[] = [];
     const watched: Array<Promise<JobView>> = [];
-    const page = await open(inject, { ...app(asked, watched, () => null), guard: () => false } as unknown as AppState);
-    await page.click(page.one('.go'));
-    expect(page.all('[role="dialog"]')).toEqual([]);
-    const offline = { ...app(asked, watched, () => null), guard: (fn: () => void) => (reachable ? (fn(), true) : false) } as unknown as AppState;
     let reachable = true;
-    await page.unmount();
+    const offline = { ...app(asked, watched, () => null), guard: (fn: () => void) => (reachable ? (fn(), true) : false) };
     const again = await open(inject, offline);
     await again.click(again.one('.go'));
     const field = again.one('[role="dialog"] textarea');

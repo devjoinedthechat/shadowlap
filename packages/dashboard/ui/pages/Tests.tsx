@@ -84,7 +84,6 @@ export function TestsPage() {
 
   // A job that would run goldens live asks first, in the shell's dialog, saying `ask`'s words around
   // the server's; one that only replays starts on the click (tests-ask.ts).
-  // Its dialog closes as it starts; while it can't start, the dialog stays.
   const start = (kind: string, fields: Record<string, unknown>, ask?: TestsAsk) => {
     const went = startTestsJob(app, kind, fields, ask);
     if (went !== false) setOpen(null);
