@@ -30,14 +30,14 @@ describe('the toast a job ends with', () => {
     expect(endToast(done({ kind: 'apply', title: 'Applying fix', args: ['fix', 'apply', 'fx-1'], code: 1, result: { status: 'applied', tests: 'failed' } }), [])).toBe('Applied fix · tests failed · exit 1');
     expect(endToast(done({ kind: 'apply', title: 'Marking the fix applied', args: ['fix', 'apply', 'fx-1'], code: 0, result: { status: 'applied' } }), [])).toBe('Marked the fix applied · exit 0');
     expect(endToast(done({ kind: 'apply', title: 'Finishing the apply', args: ['fix', 'apply', 'fx-1'], code: 0, result: { status: 'applied', tests: 'passed' } }), [])).toBe('Finished the apply · applied · tests passed · exit 0');
-    expect(endToast(done({ args: ['test', 'goldens/a'], code: 1 }), ['5 passed, 1 failed'])).toBe('Ran tests · 1 failed · exit 1');
+    expect(endToast(done({ args: ['test', 'goldens/a'], code: 1 }), ['5 passed, 1 failed'])).toBe('Ran tests · failed · 5 of 6 goldens passed · exit 1');
   });
 
   it('judges a job of several steps by its last, each step running only once the one before it succeeded', () => {
-    const failed = ['5 passed, 1 failed'];
-    expect(endToast(done({ kind: 'pack-test', title: 'Packing and testing', args: ['pack', 'X', 'goldens/x'], code: 1 }), failed)).toBe('Packed and tested · 1 failed · exit 1');
-    expect(endToast(done({ kind: 'normalize-and-test', title: 'Adding normalizer and re-running', args: ['normalize', 'add'], code: 1 }), failed)).toBe('Added normalizer and re-ran · 1 failed · exit 1');
+    const failed = ['0 passed, 1 failed'];
+    expect(endToast(done({ kind: 'pack-test', title: 'Packing and testing', args: ['pack', 'X', 'goldens/x'], code: 1 }), failed)).toBe('Packed and tested · failed · exit 1');
+    expect(endToast(done({ kind: 'normalize-and-test', title: 'Adding normalizer and re-running', args: ['normalize', 'add'], code: 1 }), failed)).toBe('Added normalizer and re-ran · failed · exit 1');
     // An update whose checks failed replaced nothing: what ran, then.
-    expect(endToast(done({ kind: 'normalize-and-test', title: 'Adding normalizer and updating golden', args: ['normalize', 'add'], code: 1 }), failed)).toBe('Tried adding normalizer and updating golden · 1 failed · exit 1');
+    expect(endToast(done({ kind: 'normalize-and-test', title: 'Adding normalizer and updating golden', args: ['normalize', 'add'], code: 1 }), failed)).toBe('Tried adding normalizer and updating golden · diverged again · exit 1');
   });
 });

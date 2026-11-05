@@ -665,7 +665,7 @@ describe('job drawer', () => {
 
   it('says how a job ended when its drawer was closed: the outcome, or its last line when that is all the exit code says', () => {
     const tests = { args: ['test', 'goldens/a', 'goldens/b'], done: true, code: 1 };
-    expect(endToast(tests, ['✗ refund-in-limit diverged at call 3', '5 passed, 1 failed', 'If the change was intended, update it: shadowlap test goldens/refund-in-limit --update'])).toBe('Ran tests · 1 failed · exit 1');
+    expect(endToast(tests, ['✗ refund-in-limit diverged at call 3', '5 passed, 1 failed', 'If the change was intended, update it: shadowlap test goldens/refund-in-limit --update'])).toBe('Ran tests · failed · 5 of 6 goldens passed · exit 1');
     expect(endToast({ args: ['replay', 'X'], done: true, code: 0 }, ['⑂ Forked at call 1: 0 calls replayed, then 6 live', '  shadowlap show 01M51XXYH5'])).toBe('Replayed · diverged at #1 · went live · exit 0');
     expect(endToast({ args: ['replay', 'X', '--inject', '1=Escalate it'], done: true, code: 0 }, ['⑂ Forked at call 1: 0 calls replayed, then 6 live', '  shadowlap show 01M51XXYH5'])).toBe('Forked · exit 0');
     expect(endToast({ args: ['pack', 'X', 'share/x'], done: true, code: 0 }, ['✓ packed share/x · 14 calls'])).toBe('Packed share/x · 14 calls');
@@ -695,7 +695,7 @@ describe('job drawer', () => {
     expect(jobStatus({ ...tests, code: null }, [])).toEqual({ text: 'stopped', tone: 'warn' });
     expect(endToast(tests, ['1 passed, 0 failed, 1 not run: interrupted'])).toBe('Running tests stopped');
     // A job that ended on its own still says how it came out.
-    expect(jobStatus({ ...tests, stopped: false, code: 1 }, ['5 passed, 1 failed'])).toEqual({ text: '1 failed · exit 1', tone: 'err' });
+    expect(jobStatus({ ...tests, stopped: false, code: 1 }, ['5 passed, 1 failed'])).toEqual({ text: 'failed · 5 of 6 goldens passed · exit 1', tone: 'err' });
   });
 
   it('asks before stopping a job that changes the working tree, and stops any other at once', () => {

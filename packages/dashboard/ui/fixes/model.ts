@@ -777,7 +777,7 @@ export function fixJobStatus(job: { kind?: string; code: number | null; result?:
       const unsettled = first?.decision === 'inconclusive' && !r.sameAnswer && !r.failedWrite;
       return { text: `${blameStateWord('unrescuable', unsettled)} · ${exit}`, tone: job.code === 0 ? 'warn' : 'err' };
     }
-    if (r.outcome === 'stopped') return { text: `${blameStateWord('stopped', false)} · ${exit}`, tone: 'err' };
+    if (r.outcome === 'stopped') return { text: `${blameStateWord('stopped', false)} · ${exit}`, tone: 'warn' };
     return null;
   }
   if (job.kind === 'repair') {
@@ -786,8 +786,8 @@ export function fixJobStatus(job: { kind?: string; code: number | null; result?:
       const unasked = typeof r.noRepairer === 'string' && r.noRepairer.trim() !== '' && !(Array.isArray(r.candidates) && r.candidates.length);
       return unasked ? { text: `repairer not asked · ${exit}`, tone: 'warn' } : { text: `no fix found · ${exit}`, tone: 'err' };
     }
-    if (r.outcome === 'no-diagnosis') return { text: `nothing to try · ${exit}`, tone: 'err' };
-    if (r.outcome === 'stopped') return { text: `stopped · ${exit}`, tone: 'err' };
+    if (r.outcome === 'no-diagnosis') return { text: `no fix to try · ${exit}`, tone: 'warn' };
+    if (r.outcome === 'stopped') return { text: `stopped · ${exit}`, tone: 'warn' };
     return null;
   }
   if (job.kind === 'apply') {

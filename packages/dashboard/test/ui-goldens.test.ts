@@ -585,17 +585,18 @@ describe('the palette', () => {
 
 describe('the jobs the screen starts', () => {
   it('says whether Find the commit found it', () => {
-    expect(jobStatus({ args: ['bisect'], done: true, code: 0 }, ['  replay at 7f20b6a  diverged at call 1', '✓ first bad commit 4e7b2d1 · Send the user id with every request · Ravi · 2026-09-30', '  2 checks passed'])).toEqual({ text: 'found · exit 0', tone: 'ok' });
-    expect(jobStatus({ args: ['bisect'], done: true, code: 1 }, ['✗ no first bad commit: every commit in the range passes'])).toEqual({ text: 'not found · exit 1', tone: 'warn' });
+    expect(jobStatus({ args: ['bisect'], done: true, code: 0 }, ['  replay at 7f20b6a  diverged at call 1', '✓ first bad commit 4e7b2d1 · Send the user id with every request · Ravi · 2026-09-30', '  2 checks passed'])).toEqual({ text: 'first bad commit 4e7b2d1 · exit 0', tone: 'ok' });
+    expect(jobStatus({ args: ['bisect'], done: true, code: 1 }, ['✗ no first bad commit: every commit in the range passes'])).toEqual({ text: 'no first bad commit · exit 1', tone: 'warn' });
   });
 
   it('ends a test job on its totals, whatever its replays printed before them', () => {
     // An update whose new recording diverged again: its replay forked and the agent died offline.
     const update = ['▸ escalate-over-limit · re-recording live, writes stubbed', '✗ escalate-over-limit: diverged at call 2 (api POST /v1/messages)', '    ⑂ Forked at call 2: 1 calls replayed, then 1 live; 0 upstream requests', '      the agent process exited with an error', '', '0 passed, 1 failed · 4 upstream requests'];
-    expect(jobStatus({ args: ['test'], done: true, code: 1 }, update)).toEqual({ text: '1 failed · exit 1', tone: 'err' });
+    expect(jobStatus({ kind: 'test-update', args: ['test'], done: true, code: 1 }, update)).toEqual({ text: 'diverged again · exit 1', tone: 'err' });
+    expect(jobStatus({ args: ['test'], done: true, code: 1 }, update)).toEqual({ text: 'failed · exit 1', tone: 'err' });
     // Add normalizer and re-run: two commands, the test's totals last.
-    expect(jobStatus({ args: ['normalize'], done: true, code: 0 }, ['$ shadowlap test goldens/a', '✓ a: 10/10 replayed, 2 checks passed', '', '1 passed, 0 failed · 0 upstream requests'])).toEqual({ text: '1 passed · exit 0', tone: 'ok' });
-    expect(jobStatus({ args: ['test'], done: true, code: 0 }, ['4 passed, 0 failed · 17 upstream requests'])).toEqual({ text: '4 passed · exit 0', tone: 'ok' });
+    expect(jobStatus({ args: ['normalize'], done: true, code: 0 }, ['$ shadowlap test goldens/a', '✓ a: 10/10 replayed, 2 checks passed', '', '1 passed, 0 failed · 0 upstream requests'])).toEqual({ text: 'passed · exit 0', tone: 'ok' });
+    expect(jobStatus({ args: ['test'], done: true, code: 0 }, ['4 passed, 0 failed · 17 upstream requests'])).toEqual({ text: 'passed · 4 of 4 goldens passed · exit 0', tone: 'ok' });
   });
 
   it('says a stopped session was interrupted, not that it passed or failed', () => {

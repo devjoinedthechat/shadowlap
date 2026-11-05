@@ -26,6 +26,7 @@ const PAST: Readonly<Record<string, string>> = {
   Importing: 'Imported',
   Finishing: 'Finished',
   Inspecting: 'Inspected',
+  Installing: 'Installed',
   Marking: 'Marked',
   Migrating: 'Migrated',
   Packing: 'Packed',

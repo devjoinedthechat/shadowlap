@@ -1,4 +1,5 @@
 import { fixJobStatus } from './fixes/model.js';
+import { jobEnding, ownArgs, type JobWords } from './job-ending.js';
 import { ACTIONS, doneWords, type JobEnd } from './labels.js';
 import { trainingJobStatus } from './training.js';
 
@@ -36,12 +37,6 @@ export function afterPollError(e: { status: number | null; unreachable: boolean;
 
 /** The replay options that change the run at a call: a replay with one of them is a fork. */
 const FORK_FLAGS = ['--inject', '--override', '--fail-at', '--model', '--prompt-from', '--diverge-at', '--live-tool', '--inject-result', '--set', '--live-input'];
-
-/** A command's own options: what follows `--` is the agent's command, with flags of its own. */
-function ownArgs(args: readonly string[]): readonly string[] {
-  const end = args.indexOf('--');
-  return end < 0 ? args : args.slice(0, end);
-}
 
 /** Whether a replay's options fork it at a call (`--inject 17=…`, `--fail-at=19=529`). */
 function forks(args: readonly string[]): boolean {
@@ -90,7 +85,7 @@ export function jobCommand(args: readonly string[]): string {
   return `shadowlap ${args.map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`)).join(' ')}`;
 }
 
-export type LineTone = '' | 'p' | 'ok' | 'y' | 'no';
+export type LineTone = '' | 'p' | 'ok' | 'y' | 'no' | 'dim';
 
 /** How the drawer colours an output line, from the marks the CLI prints. */
 export function lineTone(line: string): LineTone {
@@ -98,7 +93,9 @@ export function lineTone(line: string): LineTone {
   if (t.startsWith('$ ')) return 'p';
   if (/^(✓|●)/.test(t)) return 'ok';
   if (/^(✗|error\b|Error\b)/.test(t)) return 'no';
-  if (/^(⑂|⚠|!|warning\b)/.test(t)) return 'y';
+  // `?` an inconclusive golden, `–` a check that doesn't apply.
+  if (/^(⑂|⚠|!|\?|warning\b)/.test(t)) return 'y';
+  if (t.startsWith('– ')) return 'dim';
   // Training: a `tasks score` attempt that missed a check ("3 · ✓ … · ✗ … · 0.33"), as the mock marks it.
   if (/^\d+ · /.test(t) && t.includes('✗')) return 'y';
   return '';
@@ -205,7 +202,7 @@ export function unrecordedRefused(lines: readonly string[]): string | null {
  * How a job ended, in the drawer's status line: the outcome first, then the exit code. Worked out
  * from the CLI's own words when the server sends no structured result.
  */
-export function jobStatus(job: JobLike, lines: readonly string[], lost = false): { text: string; tone: '' | 'ok' | 'warn' | 'err' } {
+export function jobStatus(job: JobLike, lines: readonly string[], lost = false): JobWords {
   if (lost && !job.done) return { text: 'lost · the dashboard server no longer has this job', tone: 'err' };
   if (!job.done) return { text: job.stopped ? 'stopping' : 'running', tone: '' };
   // Stopped on request: that is how it ended, whatever its exit code says.
@@ -227,17 +224,9 @@ export function jobStatus(job: JobLike, lines: readonly string[], lost = false):
   // So did a fork that left the recording before the call its flag acts on.
   const early = forkDivergedEarly(job, lines);
   if (early) return { text: `diverged at #${early.callNo}, before ${FORK_WORDS[early.target.flag]!} at #${early.target.callNo}${early.live ? ' · went live' : ''} · ${exit}`, tone: code === 0 ? 'warn' : 'err' };
-  // Find breaking commit: whether bisect named the first bad commit.
-  if (/^✓ first bad commit /m.test(all)) return { text: `found · ${exit}`, tone: 'ok' };
-  if (/^✗ no first bad commit/m.test(all)) return { text: `not found · ${exit}`, tone: 'warn' };
-  // `shadowlap test` (Run tests, Update golden, Add normalizer and re-run): the last totals it printed.
-  const totals = [...all.matchAll(/^(\d+) passed, (\d+) failed(, \d+ not run: interrupted)?/gm)].at(-1);
-  if (totals) {
-    // Stopped: the goldens after the one it was replaying didn't run, so the counts are no verdict.
-    if (totals[3] || code === 130 || code === 143) return { text: `interrupted · ${exit}`, tone: 'warn' };
-    const failed = Number(totals[2]);
-    return failed ? { text: `${failed} failed · ${exit}`, tone: 'err' } : { text: `${totals[1]!} passed · ${exit}`, tone: code === 0 ? 'ok' : 'err' };
-  }
+  // A session, an update, a search, a verify or a repeat: in the words of its kind.
+  const ending = jobEnding(job, all, code);
+  if (ending) return ending;
   // Refused before it ran anything: why, never a bare exit code.
   const refused = code !== 0 ? unrecordedRefused(lines) : null;
   if (refused) return { text: `refused · ${refused} · ${exit}`, tone: 'err' };
@@ -253,11 +242,19 @@ export function jobStatus(job: JobLike, lines: readonly string[], lost = false):
   return { text: exit, tone: 'err' };
 }
 
+/** A line kept to `max` characters: its first sentence where that fits, else cut after a whole word, with nothing dangling before the `…`. */
+function cutClean(line: string, max: number): string {
+  const first = /^(.+?[.!?])(\s|$)/.exec(line)?.[1];
+  const s = first && first.length <= max ? first : line;
+  const cut = s.length > max ? `${s.slice(0, Math.max(1, s.slice(0, max + 1).lastIndexOf(' '))).replace(/[\s,;:·…–—-]+$/, '')}…` : s;
+  return cut.replace(/\.$/, '');
+}
+
 /** The last line worth repeating in a toast when a job finishes behind a closed drawer. */
 export function lastLine(lines: readonly string[]): string {
   for (let i = lines.length - 1; i >= 0; i--) {
     const t = lines[i]!.replace(/^[\s✓✗⑂●!]+/, '').trim();
-    if (t) return t.length > 70 ? `${t.slice(0, 69)}…` : t;
+    if (t) return cutClean(t, 70);
   }
   return '';
 }
@@ -267,18 +264,18 @@ export function lastLine(lines: readonly string[]): string {
  * ran, killed, or failing with nothing but an exit code, it never did; any other way, it ran and came
  * out badly (tests failed, a replay diverged, a search found nothing, nothing was scored).
  */
-function jobEnd(status: { text: string; tone: string }): JobEnd {
+export function jobEnd(status: { text: string; tone: string }): JobEnd {
   if (status.tone === 'ok') return 'ok';
   return /^(refused\b|stopped$|lost\b|exit \d+$)/.test(status.text) ? 'not' : 'ran';
 }
 
 /**
- * What the toast says when a job ends behind a closed drawer: its title in the past tense, where that
- * claims no more than happened, and how it came out, in the drawer's status words ("Ran tests · 1
- * failed · exit 1", "Tried repairing · no fix found · exit 1", "Tried importing capture ·
- * shadowlap: x.har is not a HAR file"), a status that only repeats the verb left out ("Forked · exit
- * 0"). When those say no more than the exit code, the last line the job printed says it instead. One
- * stopped says so ("Running tests stopped"): it ended on no outcome to say in the past.
+ * What the toast says when a job ends behind a hidden drawer: its title in the past tense, where that
+ * claims no more than happened, and how it came out, in the drawer's status words ("Ran tests · failed
+ * · 2 of 7 goldens passed · exit 1", "Tried repairing · no fix found · exit 1", "Tried importing
+ * capture · shadowlap: x.har is not a HAR file"), a status that only repeats the verb left out
+ * ("Forked · exit 0"). When those say no more than the exit code, the last line the job printed says
+ * it instead. One stopped says so ("Running tests stopped"): it ended on no outcome to say in the past.
  */
 export function endToast(job: JobLike, lines: readonly string[]): string {
   if (job.stopped) return `${jobTitle(job)} stopped`;
@@ -287,13 +284,34 @@ export function endToast(job: JobLike, lines: readonly string[]): string {
   const done = doneWords(jobTitle(job), jobEnd(st), status);
   const last = lastLine(lines);
   const said = /^(finished · )?exit \d+$/.test(status) && last ? last : status.replace(/^finished · /, '');
-  // What it said that only repeats the title goes: "Forked · exit 0", "Found breaking commit · exit 0",
-  // "Packed share/x · 14 calls", "Applied fix · tests failed · exit 1", "Marked the fix applied · exit 0".
+  // "Packed share/x · 14 calls", where it said that goes on from the title's one word.
+  const verb = done.toLowerCase().split(' ')[0] ?? '';
+  const left = withoutRepeat(done, said);
+  return left === said && !done.includes(' ') && said.startsWith(`${verb} `) ? `${done} ${said.slice(verb.length + 1)}` : `${done} · ${left}`;
+}
+
+/**
+ * What a job said beside its past-tense title, less what only repeats the title: "Forked · exit 0",
+ * "Applied fix · tests failed · exit 1", "Marked the fix applied · exit 0".
+ */
+function withoutRepeat(done: string, said: string): string {
   const words = done.toLowerCase().split(' ');
-  const verb = words[0] ?? '';
-  const repeated = [verb, words.at(-1) ?? ''].find((w) => said.startsWith(`${w} · `));
-  if (repeated) return `${done} · ${said.slice(repeated.length + 3)}`;
-  return !done.includes(' ') && said.startsWith(`${verb} `) ? `${done} ${said.slice(verb.length + 1)}` : `${done} · ${said}`;
+  const repeated = [words[0] ?? '', words.at(-1) ?? ''].find((w) => said.startsWith(`${w} · `));
+  return repeated ? said.slice(repeated.length + 3) : said;
+}
+
+/**
+ * The drawer's header and the status bar's chip: what it does or did, how that stands and in what
+ * colour. Running, its -ing title. Ended, its past tense, where that claims no more than happened,
+ * the same words its toast leads with, and a status that doesn't repeat them. A job stopped by hand
+ * or lost keeps its -ing title: it ended on no outcome to say in the past.
+ */
+export function jobHeader(job: JobLike, lines: readonly string[], lost = false): JobWords & { title: string } {
+  const title = jobTitle(job);
+  const st = jobStatus(job, lines, lost);
+  if (!job.done || job.stopped) return { title, ...st };
+  const done = doneWords(title, jobEnd(st), st.text);
+  return { title: done, text: withoutRepeat(done, st.text), tone: st.tone };
 }
 
 /**
