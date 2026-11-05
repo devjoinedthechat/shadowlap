@@ -175,7 +175,6 @@ export function RunHeader({
         ) : null}
         {exported ? (next.key === 'compare' ? <CompareLead from={next.parent} to={r.runId} /> : null) : (
           <>
-            {/* Its menu says what waits: on a read-only dashboard the HTML report still downloads. */}
             <ActionButton className="btn" reads aria-haspopup="menu" aria-expanded={share.open} onClick={(e) => share.toggle(e.currentTarget)}>
               <Icon name="share" />
               Share

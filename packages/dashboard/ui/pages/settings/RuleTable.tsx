@@ -146,8 +146,7 @@ export function RuleDialog({
     });
     setError(null);
   };
-  const problem = ruleProblem(f);
-  const warning = ruleWarning(f);
+  const [problem, warning] = [ruleProblem(f), ruleWarning(f)];
   // Enter as the confirm: while it waits, why in a toast, the dialog and the rule kept.
   const whenFree = useWhenFree();
   const add = async () => {
