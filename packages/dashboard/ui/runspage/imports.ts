@@ -1,4 +1,5 @@
 import type { FactWords } from '../actions.js';
+import { quoteArg } from '../jobs.js';
 import { guessImportFormat, IMPORT_FILE_FORMATS, type ImportFileFormat } from '../../../engine/src/import-format.js';
 import { OTEL_SAMPLE, OTEL_SAMPLE_NAME, type OtlpSpan, type OtlpTrace } from './sample-otel.js';
 
@@ -64,29 +65,29 @@ export const TRACE_COPY: Readonly<Record<TraceSource, { name: string; id: string
     id: 'a UUID or 32 hex characters, from the trace’s page',
     idRule: 'letters, digits, dashes, dots and colons',
     holds: 'a tool’s output only where the trace has it; tool definitions often aren’t stored',
-    keys: 'LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY',
+    keys: '`LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`',
   },
   langsmith: {
     name: 'LangSmith',
     id: 'a UUID, from the trace’s page in LangSmith',
     idRule: 'letters, digits, dashes, dots and colons',
     holds: 'a tool’s output where you logged it',
-    keys: 'LANGSMITH_API_KEY',
+    keys: '`LANGSMITH_API_KEY`',
   },
   phoenix: {
     name: 'Phoenix',
     id: '32 hex characters, from the trace’s page in Phoenix',
     idRule: '32 hex characters',
     holds: 'tool definitions, and a tool’s output where its instrumentation logged it',
-    keys: 'PHOENIX_API_KEY',
+    keys: '`PHOENIX_API_KEY`',
     keyQuiet: 'where your Phoenix asks for one; nothing passes through Shadowlap',
   },
   logfire: {
     name: 'Logfire',
     id: '32 hex characters, from the trace’s details in Logfire',
     idRule: '32 hex characters',
-    holds: 'tool definitions, a tool’s arguments, and its result with record_return=True',
-    keys: 'LOGFIRE_READ_TOKEN',
+    holds: 'tool definitions, a tool’s arguments, and its result with `record_return=True`',
+    keys: '`LOGFIRE_READ_TOKEN`',
     looksBack: true,
   },
 };
@@ -169,22 +170,22 @@ export function importWords(o: {
     return {
       line: o.uploads ? null : 'This dashboard takes no files: start it in your project with shadowlap dashboard, or import in a terminal with shadowlap import',
       rows: [onReplay],
-      command: `shadowlap import ${o.picked?.format ?? '<format>'} ${o.picked?.file.name ?? '<file>'}`,
+      command: `shadowlap import ${o.picked?.format ?? '<format>'} ${o.picked ? quoteArg(o.picked.file.name) : '<file>'}`,
     };
   }
   const copy = TRACE_COPY[o.source];
-  const names = o.keys ? keyList(o.keys.keyNames) : copy.keys;
+  const names = o.keys ? keyList(o.keys.keyNames.map((n) => `\`${n}\``)) : copy.keys;
   const one = o.keys?.keyNames.length === 1;
-  const host = o.host && o.host !== o.defaults?.host ? ` --host ${o.host}` : '';
-  const project = o.source === 'phoenix' && o.project.trim() !== o.defaults?.project ? ` --project=${o.project.trim()}` : '';
+  const host = o.host && o.host !== o.defaults?.host ? ` --host ${quoteArg(o.host)}` : '';
+  const project = o.source === 'phoenix' && o.project.trim() !== o.defaults?.project ? ` ${quoteArg(`--project=${o.project.trim()}`)}` : '';
   return {
     line: o.keys && !o.keys.keys ? `${names} ${one ? 'is' : 'are'} not set where this dashboard runs: set ${one ? 'it' : 'them'}, then start shadowlap dashboard again` : null,
     rows: [
       { label: 'Holds', value: 'messages and model settings', quiet: copy.holds },
-      ...(copy.looksBack ? [{ label: 'Looks back', value: '30 days', quiet: 'an older trace takes --since in a terminal' }] : []),
+      ...(copy.looksBack ? [{ label: 'Looks back', value: '30 days', quiet: 'an older trace takes `--since` in a terminal' }] : []),
       onReplay,
       { label: 'Key', value: `${names} on this machine`, quiet: copy.keyQuiet ?? 'nothing passes through Shadowlap' },
     ],
-    command: `shadowlap import ${o.source} ${o.id.trim() || '<trace id>'}${host}${project}`,
+    command: `shadowlap import ${o.source} ${o.id.trim() ? quoteArg(o.id.trim()) : '<trace-id>'}${host}${project}`,
   };
 }

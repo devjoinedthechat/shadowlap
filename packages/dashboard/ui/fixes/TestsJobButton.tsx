@@ -1,4 +1,5 @@
 import { useSyncExternalStore, type ReactNode } from 'react';
+import { namedIn } from '../components/Id.js';
 import { Dialog } from '../components/Dialog.js';
 import { useApp } from '../state.js';
 import { answerTestsQuestion, liveFacts, onTestsQuestion, testsQuestion } from '../tests-ask.js';
@@ -35,11 +36,12 @@ export function TestsAskHost() {
   if (!q) return null;
   return (
     <Dialog
-      title={q.title}
+      title={q.name ? namedIn(q.title, q.name) : q.title}
       lead={q.lead}
       doc={q.doc}
-      // Without the server's list of goldens, its sentence says which and why.
-      facts={[...(q.live ? liveFacts(q.live) : [{ label: 'Runs live', value: q.why }]), ...(q.facts ?? [])]}
+      // A question with rows of its own keeps to them (Run more attempts: its limit, and how soon it
+      // settles); else the goldens that go live, or without the server's list, its sentence.
+      facts={q.facts ?? (q.live ? liveFacts(q.live) : [{ label: 'Runs live', value: q.why }])}
       command={q.commands?.length ? { command: q.commands } : null}
       cost={{ price: 'Billed by your provider', parts: q.parts ?? [] }}
       ok={q.ok}

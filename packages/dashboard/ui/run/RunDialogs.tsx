@@ -27,7 +27,7 @@ export function BisectDialog({ runId, offer, onRun, onClose }: { runId: string; 
       lead={copy.lead}
       doc="bisect"
       facts={copy.facts}
-      command={copy.command(good || '…')}
+      command={copy.command(good || '<commit>')}
       cost={copy.cost}
       ok={copy.ok}
       okDisabled={!COMMIT_NAME.test(good)}

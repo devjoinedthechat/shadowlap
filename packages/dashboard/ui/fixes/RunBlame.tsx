@@ -5,7 +5,8 @@ import { ConsentDialog, Dialog, pressWayOn } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { namedIn } from '../components/Id.js';
 import { shortId } from '../format.js';
-import { useApp } from '../state.js';
+import { guardedWayOn, useApp } from '../state.js';
+import { errorText } from '../toast.js';
 import { parseCheck } from './model.js';
 import { useTreeBusy } from './tree.js';
 import { ACTIONS } from '../labels.js';
@@ -42,6 +43,8 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn', titl
           return 'expect' in fields ? err.message : null;
         }
         if (err instanceof ApiError && err.status === 400 && 'expect' in fields) return err.message;
+        // No answer came: the check dialog stays, with what was typed and why.
+        if (!(err instanceof ApiError) && 'expect' in fields) return errorText(err);
         const asked = fields.yes === undefined ? consentAsked(err) : null;
         if (asked) setAsking({ kind: 'consent', ...asked, fields });
         else {
@@ -63,7 +66,7 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn', titl
           runId={runId}
           line={failedLine}
           onClose={() => setAsking(null)}
-          onRun={(expect) => start({ expect })}
+          onRun={(expect) => guardedWayOn(app.guard, () => start({ expect })) || Promise.resolve(null)}
         />
       ) : null}
       {asking?.kind === 'consent' ? (
@@ -71,9 +74,7 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn', titl
           why={asking.why}
           ok={ACTIONS.runBlame.label}
           onClose={() => setAsking(null)}
-          onOk={() => {
-            void start({ ...asking.fields, yes: asking.confirm });
-          }}
+          onOk={() => app.guard(() => void start({ ...asking.fields, yes: asking.confirm }))}
         />
       ) : null}
     </>

@@ -21,12 +21,14 @@ import { ACTIONS } from './labels.js';
 /** What a job's question says besides the server's words: its title, its button and the commands the job runs. */
 export interface TestsAsk {
   title: string;
+  /** The golden its title names, set in mono there. */
+  name?: string;
   lead: string;
   doc: DocKey;
   ok: string;
   /** Each command as a person would type it (`shadowlap test goldens/*`). */
   commands?: readonly string[];
-  /** What it says beyond the session's goldens: a limit, and how soon it settles. */
+  /** Its own rows, in place of the goldens that go live: a limit, and how soon it settles. */
   facts?: readonly FactWords[];
   /** What it bills, past `Billed by your provider`. */
   parts?: readonly string[];
@@ -97,11 +99,16 @@ export function startTestsJob(app: TestsJobApp, kind: string, fields: Record<str
   });
 }
 
-/** The answer to the question waiting: yes sends its job again with its `confirm`; no drops it, and nothing runs. */
-export function answerTestsQuestion(app: TestsJobApp, yes: boolean): void {
+/**
+ * The answer to the question waiting: yes sends its job again with its `confirm`, and the question
+ * goes once that is sent; no drops it, and nothing runs. False while the job can't start (offline),
+ * so its dialog stays open with the question.
+ */
+export function answerTestsQuestion(app: TestsJobApp, yes: boolean): boolean {
   const q = asking;
-  ask(null);
-  if (q && yes) startTestsJob(app, q.kind, { ...q.fields, yes: q.confirm }, q);
+  const sent = !q || !yes || startTestsJob(app, q.kind, { ...q.fields, yes: q.confirm }, q);
+  if (sent) ask(null);
+  return sent;
 }
 
 // ---- what each button's question says ----
@@ -138,6 +145,7 @@ export function moreAttemptsAsk(name: string, more: Pick<MoreAttempts, 'args' | 
   const ran = more.attempts - more.most;
   return {
     title: `${ACTIONS.runMoreAttempts.label} on ${name}`,
+    name,
     lead: `Carries its gate on from attempt ${ran + 1}, for this session only.`,
     doc: 'gating',
     ok: ACTIONS.runMoreAttempts.label,

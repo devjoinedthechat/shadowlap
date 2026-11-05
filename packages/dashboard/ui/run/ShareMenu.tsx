@@ -12,7 +12,8 @@ import type { PendingAction } from './actions.js';
 import { DatasetDialog } from '../components/DatasetDialog.js';
 import { namedIn } from '../components/Id.js';
 import { redactRuleCount } from './provenance.js';
-import { defaultPackFolder, EXPORTS, htmlCopyVia, PACK_HOLDS, redactsFact, shareCommand, shareDialog, shareItemOff, shareItems, shareNote, shareWhy, type ShareKey } from './share.js';
+import { jobCommand, quoteArg } from '../jobs.js';
+import { defaultPackFolder, EXPORTS, htmlCopyVia, PACK_HOLDS, packRunCommand, redactsFact, shareCommand, shareDialog, shareItemOff, shareItems, shareNote, shareWhy, type ShareKey } from './share.js';
 // The share job's drawer offers the link it made.
 import './share-link.js';
 
@@ -81,7 +82,7 @@ export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: 
         facts={[PACK_HOLDS, redactsFact(offers?.copies.formats.find((f) => f.id === 'pack')?.rules ?? null)]}
         label="Folder, inside the project"
         initial={defaultPackFolder(id)}
-        command={(dir) => `shadowlap pack ${shortId(id)} ${dir || '…'}`}
+        command={(dir) => packRunCommand(id, dir)}
         onClose={close}
         onRun={(dir) => job(JOB_KINDS.pack, { runId: id, dir })}
       />
@@ -123,7 +124,7 @@ export function OtelDialog({ runId, rules, onClose, onRun }: { runId: string; ru
       lead="Exports the run as one trace: a span for the run and one per call."
       doc="traces"
       facts={[redactsFact(rules, true), { label: 'Re-export', value: 'updates the same trace', quiet: 'its ids come from the run’s' }]}
-      command={`shadowlap export otel ${shortId(runId)} ${to === 'file' ? `--out ${EXPORTS}/${where.trim() || '…'}` : `--endpoint ${where.trim() || '…'}`}`}
+      command={`${jobCommand(['export', 'otel', shortId(runId)])} ${to === 'file' ? `--out ${where.trim() ? quoteArg(`${EXPORTS}/${where.trim()}`) : `${EXPORTS}/…`}` : `--endpoint ${where.trim() ? quoteArg(where.trim()) : '…'}`}`}
       okDisabled={!where.trim()}
       onClose={onClose}
       onOk={() => onRun({ runId, ...(to === 'file' ? { out: where.trim() } : { endpoint: where.trim() }) })}

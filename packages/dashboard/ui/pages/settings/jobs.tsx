@@ -49,7 +49,7 @@ function CleanupFooter({ job }: { job: JobView }) {
   const [started, setStarted] = useState(false);
   const dry = gcDryRun(job);
   if (!dry) return null;
-  const runs = `${dry.count.toLocaleString('en-US')} ${dry.count === 1 ? 'run' : 'runs'}`;
+  const runs = `${dry.count.toLocaleString('en-US')}\u00a0${dry.count === 1 ? 'run' : 'runs'}`;
   // No run old enough, but space to give back: a plain gc, which deletes no run.
   const freeOnly = dry.count === 0;
   const label = freeOnly ? `Free ${bytesText(gcGivesBack(dry))}` : `Delete ${runs}`;

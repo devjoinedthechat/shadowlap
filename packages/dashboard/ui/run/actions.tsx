@@ -4,6 +4,7 @@ import { consentAsked, forkMenu, forkMenuTitle, forkRowLine, menuLabel } from '.
 import { dialogCopy } from './fork-dialog.js';
 import { ConfirmDialog, ConsentDialog, PromptDialog } from '../components/Dialog.js';
 import { tipCard } from '../components/HoverCard.js';
+import { namedIn } from '../components/Id.js';
 import { Popover } from '../components/Popover.js';
 import { callName, shortId } from '../format.js';
 import { confirmWords } from '../labels.js';
@@ -103,7 +104,7 @@ export function ActionDialog({ runId, capture, forkAt, pending, onRun, onClose }
     ...(pending.recorded !== undefined ? { recorded: pending.recorded } : {}),
   });
   const { title, lead, doc, warn, facts, factsUnder, cost, ok } = copy;
-  const slots = { title, lead, ok, onClose, ...(doc ? { doc } : {}), ...(warn ? { warn } : {}), ...(facts ? { facts } : {}), ...(cost ? { cost } : {}) };
+  const slots = { title: copy.titleName ? namedIn(title, copy.titleName) : title, lead, ok, onClose, ...(doc ? { doc } : {}), ...(warn ? { warn } : {}), ...(facts ? { facts } : {}), ...(cost ? { cost } : {}) };
   // Nothing to fill in: it asks only whether to start, as it runs live.
   if (!pending.action.prompt) return <ConfirmDialog {...slots} {...(copy.command ? { command: copy.command('') } : {})} onOk={() => onRun()} />;
   return (

@@ -115,7 +115,7 @@ export function scoreCost(dialog: ScoreDialogView | null, pick: string): CostWor
   if (pick === ENDPOINT) return { price: 'Free', parts: ['runs at your endpoint, writes stubbed'] };
   const o = dialog ? pickedOption(dialog, pick) : null;
   if (!o) return null;
-  if (o.local) return { price: 'Free', parts: [`runs at ${o.baseUrl ?? 'this machine'}, writes stubbed`] };
+  if (o.local) return { price: 'Free', parts: [`runs at ${o.baseUrl ? `\`${o.baseUrl}\`` : 'this machine'}, writes stubbed`] };
   return { price: o.perAttempt === null ? 'Billed by your provider' : `${approx(o.perAttempt)} an attempt`, parts: ['live from each takeover, writes stubbed'] };
 }
 

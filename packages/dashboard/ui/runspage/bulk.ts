@@ -1,6 +1,6 @@
 import type { FactWords } from '../actions.js';
 import { num, plural, shortId } from '../format.js';
-import { jobCommand } from '../jobs.js';
+import { jobCommand, quoteArg } from '../jobs.js';
 import type { BulkSkip, DeleteResult, LabelRunsResult } from '../types.js';
 
 /** What the bulk bar says once it has acted on the runs picked, and what Push sends. No DOM here: the tests import it. */
@@ -30,12 +30,12 @@ export function deleteLead(runs: number, attempts: number): string {
 
 /** What keeps its data and what is left alone, as a Delete's rows. */
 export function deleteFacts(runs: number, live: readonly string[]): FactWords[] {
-  return [{ label: 'Forks, replays', value: 'keep their own data', quiet: `they lose the link to ${runs === 1 ? 'it' : 'them'}` }, ...(live.length ? [{ label: 'Left alone', value: live.map((id) => shortId(id)).join(', '), quiet: 'still recording' }] : [])];
+  return [{ label: 'Forks, replays', value: 'keep their own data', quiet: `they lose the link to ${runs === 1 ? 'it' : 'them'}` }, ...(live.length ? [{ label: 'Left alone', value: live.map((id) => `\`${shortId(id)}\``).join(', '), quiet: 'still recording' }] : [])];
 }
 
 /** Add label's command, a line a run, the label as it is typed: the first few and how many more, for a long pick. */
 export function labelCommands(ids: readonly string[], label: string): { shown: readonly string[]; full: string } {
-  const lines = ids.map((id) => `shadowlap label ${shortId(id)} ${label ? (/^[\w@%+=:,./-]+$/.test(label) ? label : `'${label.replace(/'/g, `'\\''`)}'`) : '…'}`);
+  const lines = ids.map((id) => `shadowlap label ${shortId(id)} ${label ? quoteArg(label) : '<label>'}`);
   return lines.length <= RM_SHOWN ? { shown: lines, full: lines.join('\n') } : { shown: [...lines.slice(0, RM_SHOWN), `… and ${num(lines.length - RM_SHOWN)} more`], full: lines.join('\n') };
 }
 

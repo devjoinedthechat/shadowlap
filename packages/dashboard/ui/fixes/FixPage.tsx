@@ -12,7 +12,7 @@ import { approx, GLUED_SEPARATOR } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { addJobFooter } from '../job-actions.js';
 import { href } from '../route.js';
-import { useApp } from '../state.js';
+import { guardedWayOn, useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import type { FixDetail } from '../types.js';
 import { BlameStepView } from './BlameStep.js';
@@ -151,16 +151,22 @@ export function RenameFixDialog({ fix, onClose, onDone }: { fix: FixDetail; onCl
       ok="Rename"
       command={(title) => `shadowlap fix title ${shortFixId(fix.fixId)} ${title ? `"${title.replace(/(["\\$`])/g, '\\$1')}"` : '…'}`}
       onClose={onClose}
-      onRun={(title) => {
-        app.client.renameFix(fix.fixId, title).then(
-          (d) => {
-            rememberFix(d);
-            app.toast(`Renamed: ${d.title}`);
-            onDone();
-          },
-          (err: unknown) => app.toast(errorText(err), 'error'),
-        );
-      }}
+      onRun={(title) =>
+        guardedWayOn(app.guard, () =>
+          app.client.renameFix(fix.fixId, title).then(
+            (d) => {
+              rememberFix(d);
+              app.toast(`Renamed: ${d.title}`);
+              onDone();
+              return true;
+            },
+            (err: unknown) => {
+              app.toast(errorText(err), 'error');
+              return false;
+            },
+          ),
+        )
+      }
     />
   );
 }

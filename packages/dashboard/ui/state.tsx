@@ -78,7 +78,6 @@ export interface AppState {
   actionsOff: string | null;
   /** Whether the server runs a job kind (`meta.jobKinds`); a server that lists none runs none of them. */
   hasKind: (kind: string) => boolean;
-  /** Runs `fn`, or says why it cannot while the server is unreachable. */
   /** Runs `fn` unless the server is out of reach, which it says in a toast; whether it ran, so a dialog that can't start stays open. */
   guard: (fn: () => void) => boolean;
   /** A notice at the bottom of the window; `error` for a refusal or a failure, which stays until dismissed (`toast.ts`). */
@@ -138,6 +137,19 @@ const AppStoreContext = createContext<AppStore | null>(null);
 
 /** The app's state as a plain value, for a test that renders a component with an app of its own. AppProvider gives a store instead. */
 export const AppContext = createContext<AppState | null>(null);
+
+/**
+ * A dialog's way on that waits for the server's answer: `run`'s promise, which resolves false on a
+ * refusal so the dialog stays with what was typed, or false at once where `guard` keeps it from
+ * starting (offline).
+ */
+export function guardedWayOn<T>(guard: AppState['guard'], run: () => Promise<T>): Promise<T> | false {
+  let out: Promise<T> | false = false;
+  guard(() => {
+    out = run();
+  });
+  return out;
+}
 
 /** The store a component reads: AppProvider's, or one holding a test's plain value. */
 function useAppStore(): AppStore {

@@ -11,7 +11,7 @@ import { dialogOnSwitch, noteDialogDropped, onShownProject, shownProject } from 
 import type { PromptChoice } from '../types.js';
 import { CommandRow, type CommandRowProps } from './CommandRow.js';
 import { CostLine, useCostStick, type CostLineProps } from './CostLine.js';
-import { DialogFacts, factId, shownFacts, type DialogFactRows } from './DialogFacts.js';
+import { DialogFacts, factId, inCode, shownFacts, type DialogFactRows } from './DialogFacts.js';
 
 /**
  * What every modal stands on: a scrim in the layer slot, the app behind it inert, Tab kept inside it,
@@ -164,7 +164,7 @@ function DialogBody({ id, warn, facts, children, factsUnder, runs, command, cost
     <div className="db" ref={body}>
       {warn ? (
         <p id={`${id}warn`} className={`dwarn${warn.tone === 'red' ? ' red' : ''}`}>
-          {warn.text}
+          {inCode(warn.text)}
         </p>
       ) : null}
       <DialogFacts rows={facts ?? []} id={`${id}a`} />

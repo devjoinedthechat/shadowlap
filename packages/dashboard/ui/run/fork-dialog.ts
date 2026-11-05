@@ -1,6 +1,8 @@
 import { ACTIONS, confirmWords, dialogName } from '../labels.js';
 import type { DocKey } from '../docs-links.js';
+import { shortId } from '../format.js';
 import type { PromptChoice } from '../types.js';
+import { packRunCommand } from './share.js';
 import { injectsAsUser, isInject, isOverride, isUserAnswer, menuLabel, type ActionLike, type CostWords, type FactWords } from '../actions.js';
 
 /**
@@ -45,6 +47,8 @@ export interface DialogCopy {
   initial: string;
   placeholder: string;
   multiline: boolean;
+  /** The run its title names, set in mono there. */
+  titleName?: string;
   /** Its confirm: the opener's name without the ellipsis. */
   ok: string;
   /** Rows above the fields. */
@@ -76,20 +80,33 @@ export interface DialogContext {
 const billed = (...parts: string[]): CostWords => ({ price: 'Billed by your provider', parts });
 const NEXT_CALL_LIVE = 'live from the next model call, writes fenced';
 
-/** What a field's answer reads as in a command: whole, quoted where a shell would split it, … while it is empty. */
-function shellValue(answer: string, quote = false): string {
-  if (!answer) return quote ? '"…"' : '…';
+/** What a field's answer reads as in a command: whole, quoted where a shell would split it, `empty` (…) while it is empty. */
+function shellValue(answer: string, quote = false, empty = '…'): string {
+  if (!answer) return quote ? `"${empty}"` : empty;
   return !quote && /^[\w@%+=:,./-]+$/.test(answer) ? answer : `"${answer.replace(/(["\\$`])/g, '\\$1')}"`;
 }
 
 /** A fork's `$` row: its flag with the answer in the place of what it asks, as the answer changes. */
-function forkLine(id: string, flag: string | undefined, quote = false): ((answer: string) => string) | undefined {
+function forkLine(id: string, flag: string | undefined, quote = false, empty = '…'): ((answer: string) => string) | undefined {
   if (!flag) return undefined;
   return (answer) => {
-    const v = shellValue(answer, quote);
-    return `shadowlap replay ${id} ${flag.includes('…') ? flag.replace('…', v) : flag.replace(/=\S*/, `=${v}`)}`;
+    const v = shellValue(answer, quote, empty);
+    // Put in by a function, so a `$&` or a `$'` typed in the answer stays the answer's.
+    return `shadowlap replay ${id} ${flag.includes('…') ? flag.replace('…', () => v) : flag.replace(/=\S*/, () => `=${v}`)}`;
   };
 }
+
+/** Fail with tool error's command, as its action sends it: "error, with a message" and no message is a plain error. */
+function toolErrorLine(id: string, flag: string | undefined): { command?: (answer: string) => string } {
+  const line = forkLine(id, flag);
+  return line ? { command: (answer) => line(answer.trim() === 'error:' ? 'error' : answer) } : {};
+}
+
+/** The tool a write forced live names, in code wherever its warning says it. */
+const toolInCode = (warns: string, flag: string | undefined) => {
+  const tool = /--live-tool (\S+)/.exec(flag ?? '')?.[1];
+  return tool ? warns.replace(tool, () => `\`${tool}\``) : warns;
+};
 
 /** The last words of an action's question, without the warning before them. */
 const afterWarning = (label: string) => label.slice(label.lastIndexOf('. ') + 1).trim();
@@ -154,7 +171,7 @@ const FORKS: Record<string, (c: ForkContext) => Partial<DialogCopy>> = {
     fieldName: 'The error',
     initial: p.initial ?? 'timeout',
     ok: confirmWords(ACTIONS.failWithToolError.label),
-    ...withCommand(forkLine(ctx.id, a.flag)),
+    ...toolErrorLine(ctx.id, a.flag),
     cost: billed(NEXT_CALL_LIVE),
   }),
   x: ({ a, ctx, at, named, p }) => ({
@@ -185,7 +202,7 @@ const FORKS: Record<string, (c: ForkContext) => Partial<DialogCopy>> = {
     lead: `The new model answers from ${at} on; the calls before it replay.`,
     doc: 'switchModel',
     label: 'Model',
-    ...withCommand(forkLine(ctx.id, a.flag)),
+    ...withCommand(forkLine(ctx.id, a.flag, false, '<model>')),
     cost: billed(`live from ${at}, writes fenced`),
   }),
   e: ({ a, ctx }) => ({
@@ -193,24 +210,26 @@ const FORKS: Record<string, (c: ForkContext) => Partial<DialogCopy>> = {
     lead: typeof ctx.forkAt === 'number' ? `Runs this fork’s change five times from #${ctx.forkAt} and compares the paths they take.` : 'Runs this fork’s change five times and compares the paths they take.',
     doc: 'repeatFork',
     ok: confirmWords(ACTIONS.repeat.label),
-    ...(a.command ? { command: () => a.command! } : {}),
+    // The server's command names the run whole; the row shows it short, as every fork's does.
+    ...(a.command ? { command: () => a.command!.replace(/\b[0-9A-HJKMNP-TV-Z]{26}\b/g, (id) => shortId(id)) } : {}),
     cost: billed(`5 attempts, live from ${typeof ctx.forkAt === 'number' ? `#${ctx.forkAt}` : 'the fork'}, writes fenced`),
   }),
   l: ({ a, ctx, named }) => ({
     lead: `Runs${named} for real at its first call and at every call of it after.`,
     doc: 'forceLive',
-    ...(a.warns ? { warn: { text: a.warns, tone: 'red' as const } } : {}),
+    ...(a.warns ? { warn: { text: toolInCode(a.warns, a.flag), tone: 'red' as const } } : {}),
     ...(a.flag ? { command: () => `shadowlap replay ${ctx.id} ${a.flag!}` } : {}),
     cost: billed('live from its first call, other writes fenced'),
   }),
   p: ({ ctx }) => ({
     title: `Pack ${ctx.id}`,
+    titleName: ctx.id,
     lead: 'Packs the run into a folder to commit as a golden or send to someone.',
     doc: 'packs',
     label: 'Folder',
     ok: 'Pack run',
     facts: [{ label: 'Holds', value: '`run.json`, `calls.jsonl` and one file per blob' }],
-    command: (dir) => `shadowlap pack ${ctx.id} ${shellValue(dir)}`,
+    command: (dir) => packRunCommand(ctx.id, dir),
   }),
   r: ({ ctx }) => ({
     title: confirmWords(ACTIONS.replayWithCommand.label),
@@ -219,7 +238,7 @@ const FORKS: Record<string, (c: ForkContext) => Partial<DialogCopy>> = {
     label: 'Command',
     ok: confirmWords(ACTIONS.replayWithCommand.label),
     factsUnder: [{ label: 'On replay', value: 'what the capture doesn’t hold runs live, writes fenced' }],
-    command: (cmd) => `shadowlap replay ${ctx.id} -- ${cmd || '…'}`,
+    command: (cmd) => `shadowlap replay ${ctx.id} -- ${cmd || '<command>'}`,
     cost: billed('only what runs live'),
   }),
 };

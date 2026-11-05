@@ -1,5 +1,6 @@
 import type { FactWords } from '../actions.js';
 import { num, shortId } from '../format.js';
+import { draftCommand } from '../jobs.js';
 import { ACTIONS } from '../labels.js';
 import type { RunOffers } from '../types.js';
 
@@ -41,6 +42,11 @@ export function redactsFact(rules: number | null, trace = false): FactWords | nu
   const by = `by ${num(rules)} ${rules === 1 ? 'rule' : 'rules'}`;
   if (trace) return rules ? { label: 'Redacts', value: by, quiet: 'a trace holds no prompt, arguments or results' } : { label: 'Redacts', value: 'nothing', quiet: 'no redaction rules; a trace holds no prompt, arguments or results' };
   return rules ? { label: 'Redacts', value: by, quiet: 'the store never changes' } : { label: 'Redacts', value: 'nothing', quiet: 'no redaction rules: the copy holds what was recorded' };
+}
+
+/** Pack's command for one run, wherever it is asked (Share, the bulk bar, the key `p`): the folder as typed, quoted as its job's is. */
+export function packRunCommand(runId: string, dir: string): string {
+  return draftCommand(['pack', shortId(runId), dir.trim()]);
 }
 
 /** What a pack holds, its one fact besides that. */

@@ -1,4 +1,5 @@
 import { Fragment, useEffect, type ReactNode, type RefObject } from 'react';
+import { inCode } from './DialogFacts.js';
 
 export interface CostLineProps {
   /** What it bills, first and in ink. */
@@ -14,7 +15,7 @@ export interface CostLineProps {
  * for all of it breaks after a dot. It holds the foot of the body while the body scrolls.
  */
 export function CostLine({ price, parts = [], flow = false }: CostLineProps) {
-  const all = [<b key="price">{price}</b>, ...parts];
+  const all = [<b key="price">{price}</b>, ...parts.map(inCode)];
   return (
     <p className={`dlgnote dcost${flow ? ' flow' : ''}`}>
       {all.map((part, i) => (

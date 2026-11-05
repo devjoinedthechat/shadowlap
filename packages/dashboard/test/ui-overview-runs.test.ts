@@ -320,7 +320,7 @@ describe('the Runs page’s requests and words', () => {
     expect(deleteFacts(2, [])).toEqual([{ label: 'Forks, replays', value: 'keep their own data', quiet: 'they lose the link to them' }]);
     expect(deleteFacts(1, ['01K5CQ6L0P0000000000000000'])).toEqual([
       { label: 'Forks, replays', value: 'keep their own data', quiet: 'they lose the link to it' },
-      { label: 'Left alone', value: '01K5CQ6L0P', quiet: 'still recording' },
+      { label: 'Left alone', value: '`01K5CQ6L0P`', quiet: 'still recording' },
     ]);
     // The command it shows deletes the same: rm takes a run's attempts with it.
     expect(rmCommand(two)).toEqual({ shown: 'shadowlap rm 01K5CQ4N7G 01K5CQ4N9A', full: 'shadowlap rm 01K5CQ4N7G 01K5CQ4N9A' });

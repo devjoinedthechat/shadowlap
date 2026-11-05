@@ -27,7 +27,9 @@ import { ImportDialog } from '../ui/runspage/ImportDialog.js';
 import { RemoveProjectDialog } from '../ui/shell/RemoveProject.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { TestsAskHost } from '../ui/fixes/TestsJobButton.js';
-import { answerTestsQuestion, startTestsJob, type TestsAsk } from '../ui/tests-ask.js';
+import { answerTestsQuestion, moreAttemptsAsk, startTestsJob, type TestsAsk } from '../ui/tests-ask.js';
+import { packRunCommand } from '../ui/run/share.js';
+import { importWords } from '../ui/runspage/imports.js';
 import { ApiError, type BisectOffer, type TestsView } from '../ui/api.js';
 import { render, type Rendered } from './ui-render.js';
 
@@ -165,6 +167,32 @@ describe('a fork’s ask', () => {
   ])('%s', async (_name, a, want) => {
     const shown = a.key === 'r' ? fork(a, null) : a.key === 'l' ? createElement(ActionDialog, { runId: '01K5CQ4N7G0000000000000000', capture: false, forkAt: null, pending: { action: { ...a, label: 'Force lookup_order live' }, callNo: 17, callName: 'lookup_order' }, onRun: () => true, ...closes }) : fork(a);
     holds(await open(shown), want);
+  });
+
+  it('draws what was typed as one command, `&&`, `$&` and all, and copies it whole', async () => {
+    const writes: string[] = [];
+    vi.stubGlobal('navigator', { clipboard: { writeText: (t: string) => (writes.push(t), Promise.resolve()) } });
+    try {
+      const page = await open(fork(action('i', 'Inject instruction…', { flag: '--inject 17=… --inject-as user' })));
+      await page.type(page.one('[role="dialog"] textarea'), "Check a && b first, pay $& and $' here");
+      const want = 'shadowlap replay 01K5CQ4N7G --inject 17="Check a && b first, pay \\$& and \\$\' here" --inject-as user';
+      expect(page.all('[role="dialog"] .cmdline .cstep')).toEqual([]);
+      expect(page.one('[role="dialog"] .cmdline').textContent).toBe(`$${want}`);
+      await page.click(page.one('[role="dialog"] .cmdline button.boxcopy'));
+      await page.wait(0);
+      expect(writes).toEqual([want]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('sets in code the tool a write forced live names in its red line, and what a tool error with no message sends', async () => {
+    const live = await open(createElement(ActionDialog, { runId: '01K5CQ4N7G0000000000000000', capture: false, forkAt: null, pending: { action: action('l', 'Force send_email live', { flag: '--live-tool send_email', prompt: null, asksFirst: true, warns: 'send_email acts on your systems' }), callNo: 17, callName: 'send_email' }, onRun: () => true, ...closes }));
+    expect(live.all('[role="dialog"] .dwarn code').map((c) => c.textContent)).toEqual(['send_email']);
+    await live.unmount();
+    const choices = [{ value: 'timeout', label: 'timeout' }, { value: 'error:', label: 'error, with a message', text: 'Message' }];
+    const page = await open(fork(action('t', 'Fail with tool error…', { flag: '--fail-at 17=timeout', prompt: { label: 'How:', initial: 'error:', choices } })));
+    expect(page.one('[role="dialog"] .cmdline').textContent).toBe('$shadowlap replay 01K5CQ4N7G --fail-at 17=error');
   });
 
   it('names a red line first to a screen reader, then the lead, and a run’s field by name', async () => {
@@ -308,6 +336,58 @@ describe('a golden’s dialogs', () => {
     expect(page.one('[role="dialog"] .dfacts').textContent).toBe('Runs live1 golden marked forkfrom where it forks, writes blocked');
     answerTestsQuestion(app, false);
     await page.until('it to go', () => page.all('[role="dialog"]').length === 0);
+  });
+
+  const asksConsent = (sent: Array<Record<string, unknown>>) => ({
+    startJob: (_kind: string, fields: Record<string, unknown>) => {
+      sent.push(fields);
+      return fields.yes ? Promise.resolve({ id: 'j' }) : Promise.reject(new ApiError(409, 'goldens/a is marked fork. Confirm it to run it', 'c'.repeat(32), [{ path: 'goldens/a', why: [{ kind: 'fork' }] }]));
+    },
+  });
+
+  it('the Tests ask: Run more attempts, with its own rows alone and the golden in mono', async () => {
+    const app = appWith({ client: asksConsent([]) });
+    const page = await open(createElement(TestsAskHost), app);
+    startTestsJob(app, 'test', {}, moreAttemptsAsk('a', { args: ['test', 'goldens/a', '--attempts', '8'], attempts: 8, most: 3, expected: 2.4, settles: 0.9 }));
+    await page.until('the question', () => page.all('[role="dialog"]').length === 1);
+    holds(page, { title: 'Run more attempts on a', doc: 'gating', first: OK, ok: 'Run more attempts' });
+    expect(page.one('[role="dialog"] h3 code').textContent).toBe('a');
+    expect(page.all('[role="dialog"] .dfacts dt').map((d) => d.textContent)).toEqual(['Limit', 'Settles']);
+    answerTestsQuestion(app, false);
+    await page.until('it to go', () => page.all('[role="dialog"]').length === 0);
+  });
+
+  it('keeps the Tests ask open, with its question, while its job can’t start', async () => {
+    let online = true;
+    const sent: Array<Record<string, unknown>> = [];
+    const guard = (fn: () => void) => {
+      if (!online) return false;
+      fn();
+      return true;
+    };
+    const app = appWith({ client: asksConsent(sent), guard });
+    const page = await open(createElement(TestsAskHost), app);
+    startTestsJob(app, 'test', {}, { title: 'Run tests', lead: 'Replays every golden, as CI does.', doc: 'ciMode', ok: 'Run tests', commands: ['shadowlap test goldens/*'] });
+    await page.until('the question', () => page.all('[role="dialog"]').length === 1);
+    online = false;
+    await page.click(page.one('[role="dialog"] .dlg-ok'));
+    expect(page.all('[role="dialog"]')).toHaveLength(1);
+    expect(sent).toHaveLength(1);
+    online = true;
+    await page.click(page.one('[role="dialog"] .dlg-ok'));
+    await page.until('it to go', () => page.all('[role="dialog"]').length === 0);
+    expect(sent.at(-1)).toMatchObject({ yes: 'c'.repeat(32) });
+  });
+});
+
+describe('a `$` row', () => {
+  it('quotes what was typed as the job will take it, and says `…` or the mock’s placeholder while it is empty', () => {
+    expect(packRunCommand('01K5CQ4N7G0000000000000000', 'my packs/one')).toBe("shadowlap pack 01K5CQ4N7G 'my packs/one'");
+    expect(packRunCommand('01K5CQ4N7G0000000000000000', '  ')).toBe('shadowlap pack 01K5CQ4N7G …');
+    const words = (o: Partial<Parameters<typeof importWords>[0]>) => importWords({ source: 'file', picked: null, id: '', host: '', project: '', keys: null, defaults: null, uploads: true, ...o }).command;
+    expect(words({ picked: { file: { name: 'my trace.json' }, format: 'otel' } })).toBe("shadowlap import otel 'my trace.json'");
+    expect(words({ source: 'langfuse' })).toBe('shadowlap import langfuse <trace-id>');
+    expect(words({ source: 'phoenix', id: 'abc', project: 'my project', defaults: { project: 'default' } })).toBe("shadowlap import phoenix abc '--project=my project'");
   });
 });
 
@@ -459,6 +539,30 @@ describe('the bulk bar’s dialogs', () => {
     await page.click(page.byText('.bulkbar button', 'Label'));
     holds(page, { title: 'Add label to 3 runs', doc: 'labels', first: 'input[type="text"]', ok: 'Add label' });
     expect(page.all('[role="dialog"] .cstep')).toHaveLength(3);
+  });
+  it('Add label names its Copy by what the box holds, and copies every command past the five it shows', async () => {
+    const writes: string[] = [];
+    vi.stubGlobal('navigator', { clipboard: { writeText: (t: string) => (writes.push(t), Promise.resolve()) } });
+    try {
+      const six = [...'ABCDEF'].map((c) => ({ runId: `01M5H2DJ${c}${'0'.repeat(17)}`, status: 'completed', attempts: 0 }));
+      const labelled = async (runs: typeof six) => {
+        const page = await open(createElement(BulkBar, { runs: runs as never, store: false, clear: () => undefined, onDone: () => undefined }), appWith({ client: { offers: () => new Promise(() => undefined) } }));
+        await page.click(page.byText('.bulkbar button', 'Label'));
+        return page;
+      };
+      const many = await labelled(six);
+      const copy = many.one('[role="dialog"] .cmdline button.boxcopy');
+      expect(copy.getAttribute('aria-label')).toBe('Copy commands');
+      await many.click(copy);
+      await many.wait(0);
+      expect(writes.at(-1)!.split('\n')).toEqual(six.map((x) => `shadowlap label ${x.runId.slice(0, 10)} <label>`));
+      await many.unmount();
+      const one = await labelled(six.slice(0, 1));
+      expect(one.one('[role="dialog"] .cmdline button.boxcopy').getAttribute('aria-label')).toBe('Copy command');
+      expect(one.one('[role="dialog"] .cmdline').textContent).toBe('$shadowlap label 01M5H2DJA0 <label>');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
   it('Delete runs, leaving alone the one still recording', async () => {
     const page = await bar();

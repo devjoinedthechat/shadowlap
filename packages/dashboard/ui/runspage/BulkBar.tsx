@@ -8,12 +8,11 @@ import { Icon } from '../components/Icon.js';
 import { Id, namedIn } from '../components/Id.js';
 import { num, plural, shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
-import { jobCommand } from '../jobs.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
-import { defaultPackFolder, PACK_HOLDS, redactsFact } from '../run/share.js';
+import { defaultPackFolder, PACK_HOLDS, packRunCommand, redactsFact } from '../run/share.js';
 import { isLive } from '../runs.js';
-import { useApp } from '../state.js';
+import { guardedWayOn, useApp } from '../state.js';
 import type { JobView } from '../types.js';
 import { bulkToast, datasetOff, deleteFacts, deleteLead, inBatches, joinDeleted, joinLabelled, labelCommands, named, packCommand, packOff, rmCommand } from './bulk.js';
 
@@ -126,18 +125,27 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
           ok="Add label"
           command={(label) => {
             const c = labelCommands(ids, label);
-            return { command: c.shown, what: 'the commands', ...(c.shown.length < ids.length ? { full: c.full } : {}) };
+            // A Copy named by what it holds, and the whole list wherever the box shows only its first few.
+            return { command: c.shown, ...(ids.length > 1 ? { what: 'the commands' } : {}), ...(c.full !== c.shown.join('\n') ? { full: c.full } : {}) };
           }}
           onClose={() => setOpen(null)}
-          onRun={(label) => {
-            inBatches(ids, (part) => client.labelRuns(part, [label])).then(joinLabelled).then(
-              (out) => {
-                toast(bulkToast({ verb: 'Labelled', done: out.done.map((d) => d.runId), of: ids.length, skipped: out.skipped, suffix: ` “${label}”` }));
-                onDone();
-              },
-              (err: unknown) => toast(errorText(err), 'error'),
-            );
-          }}
+          onRun={(label) =>
+            guardedWayOn(guard, () =>
+              inBatches(ids, (part) => client.labelRuns(part, [label]))
+                .then(joinLabelled)
+                .then(
+                  (out) => {
+                    toast(bulkToast({ verb: 'Labelled', done: out.done.map((d) => d.runId), of: ids.length, skipped: out.skipped, suffix: ` “${label}”` }));
+                    onDone();
+                    return true;
+                  },
+                  (err: unknown) => {
+                    toast(errorText(err), 'error');
+                    return false;
+                  },
+                ),
+            )
+          }
         />
       ) : null}
       {open === 'delete' ? (
@@ -190,7 +198,7 @@ export function PackDialog({ ids, onClose, onRun }: { ids: readonly string[]; on
       initial={one ? defaultPackFolder(one) : '.shadowlap/exports'}
       ok={one ? 'Pack run' : `Pack ${plural(ids.length, 'run')}`}
       command={(dir) => {
-        if (one) return jobCommand(['pack', shortId(one), dir]);
+        if (one) return packRunCommand(one, dir);
         const cmd = packCommand(ids, dir);
         return { command: cmd.shown, what: 'the commands', ...(cmd.full !== cmd.shown ? { full: cmd.full } : {}) };
       }}

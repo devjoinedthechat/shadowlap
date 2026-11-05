@@ -320,7 +320,7 @@ export function AddServerDialog({ files, onClose }: { files: ToolsSettings['mcp'
           <input value={target} placeholder={transport === 'http' ? 'https://mcp.linear.app/mcp' : 'npx -y @modelcontextprotocol/server-github'} spellCheck={false} autoComplete="off" onChange={(e) => setTarget(e.target.value)} />
         </label>
       </div>
-      <DialogFacts rows={[{ label: 'Effects', value: 'from each tool’s readOnlyHint', quiet: 'any other tool is a write' }]} />
+      <DialogFacts rows={[{ label: 'Effects', value: 'from each tool’s `readOnlyHint`', quiet: 'any other tool is a write' }]} />
       <p className="muted mcphow">{transport === 'http' ? 'The client starts the proxy, and the proxy talks to the remote server over Streamable HTTP.' : 'The client starts the proxy, and the proxy starts the server.'}</p>
       {entry ? <pre className="codebox">{entry}</pre> : null}
       {line.error && asked === target.trim() ? <p className="fieldnote err">{line.error.message}</p> : null}
