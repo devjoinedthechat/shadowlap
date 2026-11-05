@@ -1677,11 +1677,11 @@ Each row is one line: what it does, then what it runs. What it is for and the co
 ### Focus and accessibility
 
 - **Skip to content** is Tab's first stop on every page. It takes the focus past the top bar and the sidebar to the page's heading.
-- **A new page** takes the focus to its heading, so a screen reader says where you are and Tab goes on from there. A step within a page (a call, a view, a fix's step, a filter) leaves it where it was, and a first load moves nothing. No move scrolls the page.
+- **Opening a page** takes the focus to its heading, so a screen reader says where you are and Tab goes on from there. A step within a page (a call, a view, a fix's step, a filter) leaves it where it was, and a first load moves nothing. No move scrolls the page.
 - **What the page draws anew** hands the focus to its counterpart, found by what it is, so Tab goes on from where you were. Focus you moved away yourself stays away.
 - **A job's end** that takes away the control you started it from hands the focus to the step that took its place, else to the job's drawer.
 - **Tabs** (a run's views, the inspector) are one Tab stop: `←` and `→` move along them round the ends, Home and End go to the first and last, and a count is read apart from its name. Settings and Training switch pages with links.
-- **A row that opens on a click** names what it opens with a real link, which the keyboard reaches, a screen reader reads and a browser opens in a new tab.
+- **A row that opens on a click** names what it opens with a real link, which the keyboard reaches, a screen reader reads and a browser opens in a tab of its own.
 - **Search or jump to** keeps the focus in its field while ↑ and ↓ move through what it offers, as a screen reader expects of a combobox.
 - **Closing** a menu, a dialog or the palette hands the focus back to what had it, or to the control drawn in its place when the page has drawn it anew. A click outside a menu that lands on another control leaves the focus there.
 - **Closing a job's drawer** from inside it hands the focus back to where it was, or else to the page. On a phone the sidebar takes the focus to its first item as it opens, and closing it from inside it, or with a click beside it, hands the focus to its button.

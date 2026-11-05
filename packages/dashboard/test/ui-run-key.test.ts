@@ -175,7 +175,7 @@ describe('a run’s keys', () => {
     const keys = await opened(toasts);
     expect(keys('[')).toBe(true);
     await r!.until('the toast', () => toasts.length > 0);
-    expect(toasts[0]!.text).toBe('No run before 01M5GRX8K4 in the list');
+    expect(toasts[0].text).toBe('No run before 01M5GRX8K4 in the list');
     expect(keys(']')).toBe(true);
     await r!.until('the step', () => location.hash === '#/run/OTHERRUN00000000000000');
     shownRuns.current = null;

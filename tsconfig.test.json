@@ -51,6 +51,7 @@
     "packages/dashboard/test/ui-compare-states.test.ts",
     // These render the shell's dialogs and palette, or ask through the page's client.
     "packages/dashboard/test/ui-dialog-tab.test.ts",
+    "packages/dashboard/test/ui-list-keys.test.ts",
     "packages/dashboard/test/ui-palette-ids.test.ts",
     "packages/dashboard/test/ui-client-cache.test.ts",
     // These render the Runs page's bulk bar, the Overview's panels and the lists of runs.

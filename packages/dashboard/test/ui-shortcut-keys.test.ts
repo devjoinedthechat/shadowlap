@@ -48,7 +48,7 @@ describe('the table of keys', () => {
 
   it('lists every g key, each with its page', () => {
     const lines = sheetLines('Go to', place(), true);
-    expect(lines.map((l) => l.chips.at(-1)!.text).sort()).toEqual(Object.keys(GO_KEYS).sort());
+    expect(lines.map((l) => l.chips.at(-1)?.text).sort()).toEqual(Object.keys(GO_KEYS).sort());
     expect(lines.every((l) => l.single)).toBe(true);
     expect(goKeyColumn('#/runs')).toBe('g r');
     expect(goKeyColumn('#/new')).toBeUndefined();
@@ -130,7 +130,7 @@ describe('the sheet', () => {
   it('has one Close, its lines by group, and a switch that dims them', async () => {
     const state = hand({ help: true, setHelp: () => undefined });
     r = await render(createElement(AppContext.Provider, { value: state }, createElement(Keyboard), createElement(Shortcuts, { onRun: false })));
-    expect(r.all('.hgroup h4').map((h) => h.childNodes[0]!.textContent)).toEqual(['Anywhere', 'In a list', 'Go to', 'On a run']);
+    expect(r.all('.hgroup h4').map((h) => h.childNodes[0].textContent)).toEqual(['Anywhere', 'In a list', 'Go to', 'On a run']);
     expect(r.all('.hcol')).toHaveLength(3);
     expect(r.all('.help button').map((b) => b.textContent)).toEqual(['Single-key shortcuts', 'Close']);
     expect(r.one('.hgroup.off small').textContent).toBe('open a run to use these');

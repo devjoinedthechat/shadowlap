@@ -162,7 +162,7 @@ describe('the list keys', () => {
     await r.press('j');
     await act(async () => set([...ITEMS]));
     expect(krows()).toEqual(['#/run/B']);
-    await act(async () => set([ITEMS[0]!, ITEMS[2]!]));
+    await act(async () => set([ITEMS[0], ITEMS[2]]));
     expect(krows()).toEqual([]);
     await r.press('j');
     expect(rowInFocus()).toBe('#/run/A');
