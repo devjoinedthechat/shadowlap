@@ -1,5 +1,5 @@
 import { relative } from 'node:path';
-import { agentCallsOf, applyEdit, BLAME_DEFAULTS, blameSteps, CHARS_PER_TOKEN, checkEdit, describeBlocks, editSize, footprintDelta, forbiddenDetails, formatUsd, isJudgeCall, isObject, loadApiRequest, lostWhere, messageOf, modelSwitch, NO_REPAIRER, normalizeConversation, notTheAnswer, redactRun, releaseLock, repairNeverRewritesAt, rewritableAnchors, rewriteGrowth, rewriteText, safeLine, Store, toolDefinitions, unavailableStop, unifiedDiff, unrescuedWords, unsettledFirst, type Anchor, type Conversation, type Normalizer, type RepairCandidate, type RepairRange, type RepairReport, type RepairTarget, type SourceFile, type StoreOf, type Surface, type VerifyRole } from '@shadowlap/engine';
+import { agentCallsOf, applyEdit, BLAME_DEFAULTS, blameSteps, CHARS_PER_TOKEN, checkEdit, describeBlocks, editSize, footprintDelta, forbiddenDetails, formatUsd, isJudgeCall, isObject, loadApiRequest, lostWhere, messageOf, modelSwitch, NO_REPAIRER, normalizeConversation, notTheAnswer, redactRun, releaseLock, repairNeverRewritesAt, reusedBlame, rewritableAnchors, rewriteGrowth, rewriteText, safeLine, Store, toolDefinitions, unavailableStop, unifiedDiff, unrescuedWords, unsettledFirst, type Anchor, type Conversation, type Normalizer, type RepairCandidate, type RepairRange, type RepairReport, type RepairTarget, type SourceFile, type StoreOf, type Surface, type VerifyRole } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { judgeRecording, type AttemptTarget } from './attempts.js';
 import { BlameError, responseBlocks, runBlame } from './blame.js';
@@ -546,10 +546,9 @@ class RepairRun {
    * longer in the store. Only a blame kept with its fix is reused, so the repair has a fix to report to.
    */
   private storedBlame(runId: string, fields: Record<string, unknown>, base: RepairTarget, steps: number[]): Blamed | Lost | null {
-    const { store } = this.env;
-    const stored = store.getRun(runId)?.meta?.blame;
-    const kept = store.blamesOfRun(runId).at(-1);
-    if (!stored || !kept || JSON.stringify(stored.oracle) !== JSON.stringify(this.oracle) || JSON.stringify(stored.fields ?? {}) !== JSON.stringify(fields) || (stored.scope ?? null) !== (this.s.scope ?? null)) return null;
+    const reused = reusedBlame(this.env.store, runId, { oracle: this.oracle, fields, scope: this.s.scope ?? null });
+    if (!reused) return null;
+    const { stored, kept } = reused;
     if (stored.outcome === 'unrescuable') {
       // What it found is kept whole with its fix: the same search, when the kept blame is the one on the run.
       const same = kept.outcome === 'unrescuable' && JSON.stringify(kept.report.oracle) === JSON.stringify(this.oracle) && JSON.stringify(kept.report.rescue?.fields ?? {}) === JSON.stringify(fields);
@@ -558,7 +557,6 @@ class RepairRun {
       this.log(`  ${shortId(runId)}: ${unrescuedWords(unsettled)}, from the blame already stored on it`);
       return { target: { ...base, outcome: 'unrescuable', ...(unsettled ? { unsettled: true } : {}), reused: true }, repairCase: null, request: null, model: null, notTheAnswer: same ? notTheAnswer(kept.report) : null };
     }
-    if (stored.outcome !== 'blamed' || stored.callNo === null || !stored.rescuedRunId || !store.getRun(stored.rescuedRunId)) return null;
     this.log(`  ${shortId(runId)}: lost ${lostWhere(stored.callNo, stored.range)}, from the blame already stored on it`);
     base.reused = true;
     return { callNo: stored.callNo, rescuedRunId: stored.rescuedRunId, range: rangeOf(stored.range, steps) };
