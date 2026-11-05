@@ -274,8 +274,7 @@ export function TestsPage() {
         </section>
       </div>
       <p className="hintx tfoot">{view.note}</p>
-      {/* The dialog already says what an update does, so what it offers instead opens no dialog of
-          its own, though a session that runs a golden live still asks first (tests-ask.ts). */}
+      {/* What it offers instead opens no dialog of its own, though a session that runs a golden live still asks first (tests-ask.ts). */}
       {open?.kind === 'update' ? (
         <UpdateGoldensDialog
           view={view}
