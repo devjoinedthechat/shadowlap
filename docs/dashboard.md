@@ -1672,6 +1672,8 @@ These keys work on a run's page:
 | `+` / `-`       | Label the run good or bad, again to take it off                                              |
 | Esc             | Back to where you came from                                                                  |
 
+**`b`** presses Run blame only where the run's page leads with it, not the Run blame beside a crash's Find breaking commit.
+
 **Esc** does one thing a press: it closes a menu, a dialog, the palette or a job's drawer, then the sidebar on a phone, then leaves a field, then hides a hover card. Only then does it go up: a run's open diff closes, a run or a fix goes back the way you came, Runs' selection clears, and the row in focus lets go.
 
 **The way back** lands on the row or the link you left. A page opened cold goes up to its crumbs' parent: a fork or a replay to the run it came from, a run to Runs, a fix to Fixes. `[`, `]` and opening a run's parent add nothing to the way back, and a page it already passed through takes it back to there.
