@@ -7,6 +7,8 @@ import * as checks from './checks.js';
 import * as codingAgents from './coding-agents.js';
 import * as compare from './compare.js';
 import * as decisions from './decisions.js';
+// What the billed jobs a page offers would cost, each a pooled read (estimates.ts).
+import * as estimates from './estimates.js';
 import * as files from './files.js';
 import * as fixes from './fixes.js';
 import * as jobs from './jobs.js';
@@ -85,6 +87,7 @@ export const ROUTE_MODULES: RouteModule[] = [
   attemptGroups,
   verdicts,
   userSettings,
+  estimates,
 ];
 
 export function registerRoutes(router: Router, ctx: RouteContext): void {

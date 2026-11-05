@@ -50,6 +50,7 @@ const JOBS: { [K in ReadJob['kind']]: Extract<ReadJob, { kind: K }> } = {
   fix: { kind: 'fix', fixId: FIX, repairer: null },
   outcome: { kind: 'outcome', runId: FORK, work: null },
   next: { kind: 'next', runId: FORK, outcome: null, next: null },
+  'run-estimates': { kind: 'run-estimates', runId: FORK, at: 1, model: null },
   warm: { kind: 'warm', budgetMs: 50 },
   analyse: { kind: 'analyse', runId: REC },
 };
