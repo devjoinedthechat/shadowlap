@@ -73,8 +73,9 @@ describe('the table of keys', () => {
     expect(keyColumn('help')).toBe('?');
     setSingleKeys(false);
     expect(shortcut('replay')).toEqual({});
-    expect(keyColumn('help')).toBeUndefined();
-    expect(goKeyColumn('#/runs')).toBeUndefined();
+    // The palette's column reads the switch as it draws: a row built with it off has its key when it comes on.
+    expect(keyColumn('help')).toBe('?');
+    expect(goKeyColumn('#/runs')).toBe('g r');
     // A key with no mark marks nothing, whatever the switch says.
     setSingleKeys(true);
     expect(shortcut('up')).toEqual({});
@@ -116,13 +117,20 @@ describe('the table of keys', () => {
     const pressed = vi.fn();
     const said: string[] = [];
     const say = (w: string) => void said.push(w);
-    r = await render(createElement('div', {}, createElement('button', { type: 'button', onClick: pressed, ...shortcut('replay') }, 'Replay'), createElement('button', { type: 'button', disabled: true, 'data-tip': JSON.stringify({ t: 'Fork once the recording finishes' }), ...shortcut('fork') }, 'Fork'), createElement('button', { type: 'button', title: 'Why not', 'aria-disabled': 'true', ...shortcut('compare') }, 'Compare')));
+    r = await render(createElement('div', {}, createElement('button', { type: 'button', onClick: pressed, ...shortcut('replay') }, 'Replay'), createElement('button', { type: 'button', disabled: true, title: 'Fork once the recording finishes', ...shortcut('fork') }, 'Fork'), createElement('button', { type: 'button', title: 'Why not', 'aria-disabled': 'true', ...shortcut('compare') }, 'Compare')));
     expect(pressShortcut('blame', say)).toBe(false);
     expect(pressShortcut('replay', say)).toBe(true);
     expect(pressed).toHaveBeenCalledOnce();
     expect(pressShortcut('fork', say)).toBe(true);
     expect(pressShortcut('compare', say)).toBe(true);
     expect(said).toEqual(['Fork once the recording finishes', 'Why not']);
+  });
+
+  it('says nothing for a button off with no reason, whatever its card says', async () => {
+    const say = vi.fn();
+    r = await render(createElement('button', { type: 'button', disabled: true, 'data-tip': JSON.stringify({ t: 'Each change in the menu shows the flag it runs' }), ...shortcut('fork') }, 'Fork'));
+    expect(pressShortcut('fork', say)).toBe(true);
+    expect(say).not.toHaveBeenCalled();
   });
 });
 
@@ -183,7 +191,7 @@ describe('the key handler', () => {
     expect(location.hash).toBe('#/runs');
   });
 
-  it('opens nothing on ⌘K over a dialog, and sends / to the page’s filter, a copy’s too', async () => {
+  it('sends / to the page’s filter, a copy’s too, and opens nothing for it', async () => {
     const setPalette = vi.fn();
     r = await keyboard(hand({ setPalette, exported: true }), createElement('input', { type: 'search', id: 'runsQuery' }));
     await r.press('/');

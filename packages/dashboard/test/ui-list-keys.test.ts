@@ -1,18 +1,24 @@
 import { act, createElement, useRef, useState } from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Dialog } from '../ui/components/Dialog.js';
+import { MenuItem, Popover, useMenu } from '../ui/components/Popover.js';
 import { Tabs } from '../ui/components/Tabs.js';
 import { backRowKey, isDetail, pageSig, samePage, trailAfter, type TrailStop } from '../ui/focus.js';
-import { handOnAtEnd, headingRef, notingJobFrom, stepsSideways } from '../ui/focus-manager.js';
-import { useListKeys } from '../ui/list-keys.js';
+import { headingRef, stepsSideways } from '../ui/focus-manager.js';
+import { noteShownRuns, shownRuns, useListKeys } from '../ui/list-keys.js';
+import { OverlaySlots } from '../ui/overlays/slots.js';
 import { noteParent } from '../ui/parents.js';
+import { runRowScope } from '../ui/run-row.js';
 import { parseRoute } from '../ui/route.js';
 import { navigate, useRoute } from '../ui/router.js';
 import { Keyboard } from '../ui/shell/Keyboard.js';
 import { Palette } from '../ui/shell/Palette.js';
 import { RecentRuns } from '../ui/shell/Sidebar.js';
+import { keyColumn, setSingleKeys } from '../ui/shortcuts.js';
 import { recentRunIds } from '../ui/runs.js';
 import type { RunListItem } from '../ui/types.js';
 import { AppContext, type AppState } from '../ui/state.js';
+import { addressBar, app, watchThePage } from './ui-route-helpers.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -20,50 +26,6 @@ import { render, type Rendered } from './ui-render.js';
  * data, drawn `.krow`, walked with j and k, opened, picked, and offered to ⌘K; a page's move handing
  * the focus to its heading or to the row Esc came back for.
  */
-
-function app(over: Partial<AppState> = {}): AppState {
-  const base = {
-    client: { search: async () => ({ hits: [] }), runsPage: async () => ({ runs: [], total: 0, next: null, chipCounts: {} }) },
-    conn: 'ok',
-    exported: false,
-    meta: null,
-    runs: [],
-    runCommands: [],
-    actionsOff: null,
-    hasKind: () => false,
-    jobs: [],
-    guard: (fn: () => void) => fn(),
-    watchJob: () => undefined,
-    toast: () => undefined,
-    palette: false,
-    setPalette: () => undefined,
-    help: false,
-    setHelp: () => undefined,
-    sideOpen: false,
-    setSideOpen: () => undefined,
-    runKeys: { current: null },
-  };
-  return { ...base, ...over } as unknown as AppState;
-}
-
-/** An address bar as a browser's: a link followed sets it, and the router hears it. */
-function addressBar(start: string) {
-  let hash = start;
-  const location = {
-    pathname: '/',
-    search: '',
-    get hash() {
-      return hash;
-    },
-    set hash(to: string) {
-      hash = to;
-      window.dispatchEvent(new Event('hashchange'));
-    },
-  };
-  vi.stubGlobal('location', location);
-  vi.stubGlobal('history', { state: null, replaceState: (_s: unknown, _t: string, url: string) => void (hash = url.slice(url.indexOf('#'))) });
-  return location;
-}
 
 interface Item {
   id: string;
@@ -82,13 +44,30 @@ function List({ rows = ITEMS, picks, drawn, show, actions }: { rows?: Item[]; pi
   );
 }
 
+/** A menu's button, its menu in the slot beside the app where the shell draws one. */
+function ShareMenu() {
+  const menu = useMenu();
+  return createElement(
+    'span',
+    null,
+    createElement('button', { type: 'button', id: 'share', onClick: (e: { currentTarget: HTMLElement }) => menu.toggle(e.currentTarget) }, 'Share'),
+    menu.open && menu.anchor ? createElement(Popover, { anchor: menu.anchor, onClose: menu.close, label: 'Share', children: [createElement(MenuItem, { key: 'html', label: 'HTML file', onPick: menu.close }), createElement(MenuItem, { key: 'har', label: 'HAR', onPick: menu.close })] }) : null,
+  );
+}
+
 let r: Rendered | null = null;
+beforeAll(() => {
+  // No layout here: a menu is placed against a window of this size.
+  Object.assign(globalThis, { innerWidth: 1440, innerHeight: 900 });
+});
 beforeEach(() => {
   addressBar('#/runs');
 });
 afterEach(async () => {
   await r?.unmount();
   r = null;
+  setSingleKeys(true);
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -154,6 +133,25 @@ describe('the list keys', () => {
     expect(rowInFocus()).toBe('#/run/A');
   });
 
+  it('leave the focus where it is on Esc with no row in focus, a row’s checkbox or link keeping its place for Tab', async () => {
+    r = await render(page(createElement(List)));
+    const box = r.all('input')[0];
+    await r.focus(box);
+    const esc = await r.press('Escape');
+    expect(r.focused()).toBe(box);
+    expect(esc.defaultPrevented).toBe(false);
+  });
+
+  it('let go on Esc of the list that holds the row in focus, with the focus in another', async () => {
+    r = await render(page([createElement(List, { key: 'one', rows: [ITEMS[0]] }), createElement(List, { key: 'two', rows: [ITEMS[1]] })]));
+    await r.press('j');
+    expect(krows()).toEqual(['#/run/A']);
+    await r.focus(r.all('input')[1]);
+    await r.press('Escape');
+    expect(krows()).toEqual([]);
+    expect(r.focused().tagName).toBe('H1');
+  });
+
   it('keep the row’s place as the page draws again, and let go of a row that leaves the rows', async () => {
     let set!: (rows: Item[]) => void;
     function Filtered() {
@@ -192,17 +190,23 @@ describe('the list keys', () => {
     expect(rowInFocus()).toBe('#/run/B');
   });
 
-  it('take no key from a field, and stop while a dialog is open', async () => {
+  it('take no key from a field, / going to the page’s filter and Esc leaving it for the row in focus', async () => {
     r = await render(page([createElement('input', { key: 'f', type: 'search', id: 'runsQuery' }), createElement(List, { key: 'l' })]));
     await r.press('j', {}, r.one('#runsQuery'));
     expect(krows()).toEqual([]);
-    // / goes to the page's own filter, Esc in it leaves it for the row in focus.
     await r.press('j');
     await r.press('/');
     expect(r.focused().getAttribute('id')).toBe('runsQuery');
     const esc = await r.press('Escape');
     expect(esc.defaultPrevented).toBe(true);
     expect(rowInFocus()).toBe('#/run/A');
+  });
+
+  it('stop while a dialog is open', async () => {
+    r = await render(page([createElement(List, { key: 'l' }), createElement(Dialog, { key: 'd', title: 'Delete run', ok: 'Delete run', tone: 'danger', onOk: () => undefined, onClose: () => undefined })]));
+    await r.press('j');
+    expect(krows()).toEqual([]);
+    expect(r.focused().closest('[role="dialog"]')).not.toBeNull();
   });
 });
 
@@ -251,6 +255,31 @@ describe('⌘K on a row', () => {
     await r.until('the palette', () => r!.all('.palette').length === 1);
     expect(labels()).toContain('Runs');
     expect(r.all('.palg code')).toEqual([]);
+  });
+});
+
+describe('the palette’s key column', () => {
+  const opened = (state: AppState) => render(createElement(AppContext.Provider, { value: state }, createElement(Palette, { route: parseRoute('#/run/A') })));
+
+  it('draws by the switch as it opens, on a row built while the switch was off', async () => {
+    setSingleKeys(false);
+    const state = app({ palette: true, runCommands: [{ group: 'This run', label: 'Replay', hint: 'again', key: keyColumn('replay'), run: () => undefined }] });
+    r = await opened(state);
+    expect(r.all('.palk')).toEqual([]);
+    await r.unmount();
+    setSingleKeys(true);
+    r = await opened(state);
+    expect(r.all('.palk kbd').map((k) => k.textContent)).toContain('r');
+  });
+
+  it('gives a row of Runs its key from the table, and the sidebar’s row none, having nothing to select', () => {
+    const runs = [{ runId: 'RUNONE', parentRunId: null, startedAt: 1, mode: 'record', status: 'completed' }];
+    const row = (o: Partial<Parameters<typeof runRowScope>[1]>) =>
+      runRowScope(runs[0] as never, { runs: runs as never, toast: () => undefined, ...o })
+        .items()
+        .map((x) => [x.label, x.key]);
+    expect(row({ pick: () => undefined, pickKey: keyColumn('rowPick') })).toContainEqual(['Select run', 'x']);
+    expect(row({}).map((x) => x[0])).toEqual(['Open run', 'Copy ID']);
   });
 });
 
@@ -375,12 +404,84 @@ describe('a move between pages', () => {
     expect(r.focused().getAttribute('id')).toBe('other');
   });
 
-  it('leaves the focus where you moved it while the page comes', async () => {
+  it('takes the focus from a control of the page it left, the heading kept', async () => {
     r = await render(createElement(Routed));
     await moved('#/run/A');
     await r.focus(r.one('#other'));
     await moved('#/run/B');
     expect(r.focused().textContent).toBe('B');
+  });
+
+  /** A page whose heading comes once its read has answered, the shell's link and a menu's button beside it. */
+  function Late() {
+    const route = useRoute();
+    const [came, setCame] = useState(false);
+    arrive = () => setCame(true);
+    return createElement(
+      AppContext.Provider,
+      { value: app() },
+      createElement('div', { id: 'app' }, createElement('nav', {}, createElement('a', { href: '#/runs', id: 'side' }, 'Runs'), createElement(ShareMenu)), createElement('main', { id: 'view', tabIndex: -1 }, route.page === 'run' && came ? createElement('h1', { ref: headingRef }, route.id) : createElement('p', {}, 'Loading'))),
+      createElement(OverlaySlots),
+      createElement(Keyboard),
+    );
+  }
+  let arrive!: () => void;
+
+  it('leaves the focus where you moved it while the page comes', async () => {
+    r = await render(createElement(Late));
+    await moved('#/run/A');
+    await r.focus(r.one('#side'));
+    await act(async () => arrive());
+    expect(r.one('h1').textContent).toBe('A');
+    expect(r.focused().getAttribute('id')).toBe('side');
+  });
+
+  it('gives the heading the focus as it comes, with the focus left alone', async () => {
+    r = await render(createElement(Late));
+    await moved('#/run/A');
+    expect(r.focused().getAttribute('id')).toBe('view');
+    await act(async () => arrive());
+    expect(r.focused().tagName).toBe('H1');
+  });
+
+  it('leaves a menu opened while the page comes its focus, the heading arriving behind it', async () => {
+    const changed = watchThePage();
+    r = await render(createElement(Late));
+    await moved('#/run/A');
+    await r.click(r.one('#share'));
+    await r.until('the menu to take the focus', () => r!.focused().textContent === 'HTML file');
+    expect(r.focused().closest('#menu')).not.toBeNull();
+    await act(async () => arrive());
+    await changed();
+    expect(r.focused().textContent).toBe('HTML file');
+  });
+
+  it('leaves a menu opened after Esc went up its focus, and closing it hands the focus to its button', async () => {
+    const changed = watchThePage();
+    addressBar('#/run/FORK');
+    noteParent(['FORK'], 'PARENT');
+    function Up() {
+      const route = useRoute();
+      return createElement(
+        AppContext.Provider,
+        { value: app() },
+        createElement('div', { id: 'app' }, createElement('main', { id: 'view', tabIndex: -1 }, createElement('h1', { ref: headingRef }, route.page === 'run' ? route.id : route.page), createElement(ShareMenu))),
+        createElement(OverlaySlots),
+        createElement(Keyboard),
+      );
+    }
+    r = await render(createElement(Up));
+    await r.press('Escape');
+    expect(location.hash).toBe('#/run/PARENT');
+    expect(r.focused().tagName).toBe('H1');
+    await r.click(r.one('#share'));
+    await r.until('the menu to take the focus', () => r!.focused().textContent === 'HTML file');
+    await changed();
+    expect(r.focused().textContent).toBe('HTML file');
+    await r.press('Escape');
+    expect(r.focused().getAttribute('id')).toBe('share');
+    await changed();
+    expect(r.focused().getAttribute('id')).toBe('share');
   });
 });
 
@@ -433,93 +534,6 @@ describe('the sidebar’s runs', () => {
     await r.press('Escape');
     expect(r.focused().tagName).toBe('H1');
     expect(location.hash).toBe('#/run/RUNONE');
-  });
-});
-
-describe('what is drawn anew', () => {
-  /** A page that draws a control anew at each step within it, as a run's view does. */
-  function Step() {
-    const route = useRoute();
-    return createElement('div', { id: 'app' }, createElement('main', { id: 'view', tabIndex: -1 }, createElement('h1', {}, 'A run'), createElement('button', { type: 'button', key: route.page === 'run' ? route.call : 0, id: 'kept' }, 'Kept')));
-  }
-
-  it('hands the focus to its counterpart, and a move you made yourself stays', async () => {
-    addressBar('#/run/A/1');
-    r = await render(createElement(Step));
-    const first = r.one('#kept');
-    await r.focus(first);
-    await act(async () => void (location.hash = '#/run/A/2'));
-    expect(r.one('#kept')).not.toBe(first);
-    expect(r.focused().getAttribute('id')).toBe('kept');
-    expect(r.focused()).toBe(r.one('#kept'));
-  });
-});
-
-describe('a job’s end', () => {
-  const tick = () => act(() => new Promise<void>((done) => setTimeout(done, 80)));
-  /** A section whose button started a job; what the job's end draws in its place comes with `after`. */
-  function Part({ after }: { after: boolean }) {
-    return createElement(
-      'main',
-      { id: 'view' },
-      createElement('button', { type: 'button', id: 'elsewhere' }, 'Elsewhere'),
-      createElement('section', { id: 'part' }, after ? createElement('button', { type: 'button', className: 'btn lime', id: 'step' }, 'Revert') : createElement('button', { type: 'button', className: 'btn', id: 'start' }, 'Find it')),
-    );
-  }
-  function Shown() {
-    const [after, setAfter] = useState(false);
-    ended = setAfter;
-    return createElement(Part, { after });
-  }
-  let ended!: (on: boolean) => void;
-
-  it('hands the focus on to the step that took the control’s place in its part of the page', async () => {
-    r = await render(createElement(Shown));
-    await r.focus(r.one('#start'));
-    await notingJobFrom(Promise.resolve({ id: 'job-1' }));
-    await act(async () => ended(true));
-    handOnAtEnd('job-1');
-    await tick();
-    expect(r.focused().getAttribute('id')).toBe('step');
-  });
-
-  it('hands it to the drawer where nothing took the control’s place: its way on, else its log', async () => {
-    function Gone({ lime }: { lime: boolean }) {
-      const [after, setAfter] = useState(false);
-      ended = setAfter;
-      return createElement(
-        'div',
-        {},
-        createElement('main', { id: 'view' }, createElement('section', { id: 'part' }, after ? null : createElement('button', { type: 'button', className: 'btn', id: 'start' }, 'Verify'))),
-        createElement('div', { className: 'drawer' }, createElement('pre', { id: 'log', tabIndex: 0 }, 'output'), lime ? createElement('button', { type: 'button', className: 'btn lime', id: 'on' }, 'Run test') : null),
-      );
-    }
-    r = await render(createElement(Gone, { lime: true }));
-    await r.focus(r.one('#start'));
-    await notingJobFrom(Promise.resolve({ id: 'job-3' }));
-    await act(async () => ended(true));
-    handOnAtEnd('job-3');
-    await tick();
-    expect(r.focused().getAttribute('id')).toBe('on');
-    await r.unmount();
-    r = await render(createElement(Gone, { lime: false }));
-    await r.focus(r.one('#start'));
-    await notingJobFrom(Promise.resolve({ id: 'job-4' }));
-    await act(async () => ended(true));
-    handOnAtEnd('job-4');
-    await tick();
-    expect(r.focused().getAttribute('id')).toBe('log');
-  });
-
-  it('leaves the focus where you moved it', async () => {
-    r = await render(createElement(Shown));
-    await r.focus(r.one('#start'));
-    await notingJobFrom(Promise.resolve({ id: 'job-2' }));
-    await r.focus(r.one('#elsewhere'));
-    await act(async () => ended(true));
-    handOnAtEnd('job-2');
-    await tick();
-    expect(r.focused().getAttribute('id')).toBe('elsewhere');
   });
 });
 
@@ -593,5 +607,101 @@ describe('Tabs', () => {
     const held = await r.press('ArrowLeft', { metaKey: true });
     expect(held.defaultPrevented).toBe(false);
     expect(selected()).toEqual(['t-c']);
+  });
+
+  it('never pulls the focus back later for Home on the first tab or End on the last', async () => {
+    let set!: (v: 'a' | 'b' | 'c') => void;
+    function Beside() {
+      const [v, setV] = useState<'a' | 'b' | 'c'>('a');
+      set = setV;
+      return createElement('div', {}, createElement(Tabs<'a' | 'b' | 'c'>, { label: 'Things', idPrefix: 't', value: v, onChange: setV, items: [{ key: 'a', label: 'A' }, { key: 'b', label: 'B' }, { key: 'c', label: 'C' }] }), createElement('button', { type: 'button', id: 'away' }, 'Away'));
+    }
+    r = await render(createElement(Beside));
+    await r.focus(r.one('#t-a'));
+    await r.press('Home');
+    await r.focus(r.one('#away'));
+    await act(async () => set('c'));
+    await act(async () => set('a'));
+    expect(r.focused().getAttribute('id')).toBe('away');
+    await act(async () => set('c'));
+    await r.focus(r.one('#t-c'));
+    await r.press('End');
+    await r.focus(r.one('#away'));
+    await act(async () => set('a'));
+    await act(async () => set('c'));
+    expect(r.focused().getAttribute('id')).toBe('away');
+  });
+
+  it('forgets a tab reached that another took the place of', async () => {
+    let set!: (v: 'a' | 'b' | 'c') => void;
+    function Redirects() {
+      const [v, setV] = useState<'a' | 'b' | 'c'>('b');
+      set = setV;
+      return createElement('div', {}, createElement(Tabs<'a' | 'b' | 'c'>, { label: 'Things', idPrefix: 't', value: v, onChange: (to) => setV(to === 'c' ? 'a' : to), items: [{ key: 'a', label: 'A' }, { key: 'b', label: 'B' }, { key: 'c', label: 'C' }] }), createElement('button', { type: 'button', id: 'away' }, 'Away'));
+    }
+    r = await render(createElement(Redirects));
+    await r.focus(r.one('#t-b'));
+    await r.press('End');
+    expect(selected()).toEqual(['t-a']);
+    await r.focus(r.one('#away'));
+    await act(async () => set('c'));
+    expect(r.focused().getAttribute('id')).toBe('away');
+  });
+});
+
+describe('the runs a list notes for `[` and `]`', () => {
+  afterEach(() => {
+    shownRuns.current = null;
+  });
+  const deferred = <T,>() => {
+    let answer!: (v: T) => void;
+    let fail!: (e: Error) => void;
+    const promise = new Promise<T>((yes, no) => {
+      answer = yes;
+      fail = no;
+    });
+    return { promise, answer, fail };
+  };
+
+  it('reads a page once for two presses, lists it once, and ends where the pages end', async () => {
+    const page = deferred<{ ids: string[]; next: string | null }>();
+    const read = vi.fn(() => page.promise);
+    const grew = vi.fn();
+    noteShownRuns(['A'], 'p2', read, grew);
+    const { more } = shownRuns.current!;
+    const both = Promise.all([more!(), more!()]);
+    expect(read).toHaveBeenCalledOnce();
+    page.answer({ ids: ['B', 'C'], next: null });
+    const [one, two] = await both;
+    expect(one).toEqual(['A', 'B', 'C']);
+    expect(two).toEqual(['A', 'B', 'C']);
+    expect(shownRuns.current).toEqual({ ids: ['A', 'B', 'C'], more: null });
+    expect(grew).toHaveBeenCalledExactlyOnceWith(3);
+    // A press that held the old note reads nothing more.
+    expect(await more!()).toEqual(['A', 'B', 'C']);
+    expect(read).toHaveBeenCalledOnce();
+  });
+
+  it('reads on page by page, and asks again after a page that failed', async () => {
+    const read = vi.fn<(cursor: string) => Promise<{ ids: string[]; next: string | null }>>().mockRejectedValueOnce(new Error('no')).mockResolvedValueOnce({ ids: ['B'], next: 'p3' }).mockResolvedValueOnce({ ids: ['C'], next: null });
+    noteShownRuns(['A'], 'p2', read);
+    await expect(shownRuns.current!.more!()).rejects.toThrow('no');
+    expect(shownRuns.current!.ids).toEqual(['A']);
+    await shownRuns.current!.more!();
+    await shownRuns.current!.more!();
+    expect(read.mock.calls.map((c) => c[0])).toEqual(['p2', 'p2', 'p3']);
+    expect(shownRuns.current).toEqual({ ids: ['A', 'B', 'C'], more: null });
+  });
+
+  it('leaves a list noted since alone when an older one’s page comes', async () => {
+    const page = deferred<{ ids: string[]; next: string | null }>();
+    const grew = vi.fn();
+    noteShownRuns(['A'], 'p2', () => page.promise, grew);
+    const reading = shownRuns.current!.more!();
+    noteShownRuns(['X', 'Y'], null, () => Promise.reject(new Error('no read')));
+    page.answer({ ids: ['B'], next: null });
+    await reading;
+    expect(shownRuns.current).toEqual({ ids: ['X', 'Y'], more: null });
+    expect(grew).not.toHaveBeenCalled();
   });
 });
