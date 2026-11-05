@@ -1607,7 +1607,9 @@ The dashboard's keys:
 
 ### Menus, pickers and dialogs
 
-Whatever opens over a page follows one set of rules. While a menu or a dialog is open, the page's own keys wait. ⌘K still opens Search or jump to from a menu.
+Whatever opens over a page follows one set of rules. While a menu or a dialog is open, the page's own keys wait. ⌘K still opens Search or jump to from a menu. Going to another page, with Back or a link, closes it.
+
+A menu's keys:
 
 | In a menu | What it does |
 | --- | --- |
@@ -1618,7 +1620,7 @@ Whatever opens over a page follows one set of rules. While a menu or a dialog is
 | `→` / `←` | A row's second button, as a project's × |
 | Tab or Esc | Close it, with the focus on its button |
 
-Each row is one line: what it does, then what it runs. What it is for, and its whole command, are on its hover card.
+Each row is one line: what it does, then what it runs. What it is for and the command it runs are on its hover card, a long command up to its first arguments.
 
 **A run picker** filters by id, about line or label, and says *Nothing matches.* when the filter leaves none. The arrows, Home, End, PageUp and PageDown move through the list, a check marks the run picked, and Enter picks another.
 
@@ -1629,16 +1631,17 @@ Each row is one line: what it does, then what it runs. What it is for, and its w
 - **A click on the dimmed page** closes it only when the press starts and ends there, so a selection dragged out of a command never does.
 - **With something changed**, Esc or a click on the dimmed page asks first: *Discard what you changed?*, with **Keep editing** focused and **Discard**. A second Esc keeps editing, and Cancel never asks.
 
-**A hover card** shows after 400 ms under a pointer, and the next one at once while one was showing. It shows at once for the keyboard's focus, and a tap on a touch screen toggles one on a fact that is no link or button. A card never covers the menu its button opened or a dialog's buttons.
+**A hover card** shows after 400 ms under a pointer, and the next one at once while one was showing. It shows at once for the keyboard's focus, and a tap on a touch screen toggles one on a fact that is no link or button. In a row that opens or selects on a tap, the tap does that instead. A card never covers the menu its button opened or a dialog's buttons, and it goes with its page.
 
-**On a phone** a menu, a picker and a dialog are sheets from the foot of the screen, with 44 px rows and buttons. A tap on what is dimmed closes a menu. On a touch screen a dialog doesn't start on its field, and a picker opened by a tap starts on its list, so the keyboard stays closed until you tap the field.
+**On a phone** a menu, a picker and a dialog are sheets from the foot of the screen, with 44 px rows and buttons. A tap on what is dimmed closes a menu. On a touch screen a dialog doesn't start on its field: it starts on its action, or on Cancel while the action waits. A picker opened by a tap starts on its list, so the keyboard stays closed until you tap the field.
 
 ### Focus and accessibility
 
 - **Skip to the page** is Tab's first stop on every page. It takes the focus past the top bar and the sidebar to the page itself.
 - **Search or jump to** keeps the focus in its field while ↑ and ↓ move through what it offers, as a screen reader expects of a combobox.
-- **Closing** a menu, a dialog, the palette, a job's drawer or the sidebar on a phone hands the focus back to what had it, or to the control drawn in its place when the page has drawn it anew. A click outside a menu that lands on another control leaves the focus there.
-- **A link in the page that opens another** (a fix from the list, another fix's verdict) hands the focus to the page it opened. A run picked in Compare leaves it on the picker.
+- **Closing** a menu, a dialog or the palette hands the focus back to what had it, or to the control drawn in its place when the page has drawn it anew. A click outside a menu that lands on another control leaves the focus there.
+- **Closing a job's drawer** from inside it hands the focus back to where it was, or else to the page. Closing the sidebar on a phone from inside it hands the focus to its button.
+- **A link that opens another page** (a fix from the list, another fix's verdict, a link in a menu or a dialog) hands the focus to the page it opened, and so does Back with a menu or a dialog open. A run picked in Compare leaves it on the picker.
 - **A focus ring** is drawn whole in every pane that scrolls. A pane that scrolls with no control in it (the Timeline, Turns and Context, a run's calls on Provenance, a code block, a command to copy, a job's output, a dialog's body) takes the focus itself, so the keyboard can scroll it.
 - **What has a hover card and no action of its own** takes the focus where it stands on its own (a run's outcome, a fact), so what a hover shows is never only a hover's. In a row or a chart it doesn't, and a mark with no words of its own is named by its card.
 - **Every target** is 24 px at least, as WCAG 2.5.8 asks, and text reaches WCAG AA's contrast on every surface it is drawn on.
