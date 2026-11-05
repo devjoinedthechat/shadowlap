@@ -184,7 +184,7 @@ describe('the run page’s next step', () => {
 
   it('asks a capture whose failure names no check for it after your command, saying what it will run', async () => {
     const run = detail({ state: failedState, source: 'cassette.json', next: { key: 'blame', label: 'Run blame', capture: true, offer: { from: 'ask', failed: [] }, command: `shadowlap blame ${REC.slice(0, 10)} --expect '<what it must do>' -- <your command>` } });
-    const a = app({}, { startJob: () => Promise.reject(new ApiError(422, 'say what a passing run must do')) } as never);
+    const a = app({}, { startJob: () => Promise.reject(new ApiError(422, 'say what a passing run must do')) });
     page = await render(both(run, null, a));
     await page.click(page.byText('.rhead .actions button', 'Run blame'));
     await page.type(page.one('.dialog input'), 'python agent.py');
