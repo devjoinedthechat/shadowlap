@@ -1610,7 +1610,7 @@ The dashboard's keys:
 | ⌘Z or Ctrl Z, `u` | Undo, while a toast offers it (a good or bad label), from anywhere but a field being typed in |
 | `g` then `o` `r` `c` `f` `t` `a` `s` | Overview, Runs, Compare, Fixes, Tests, Training, Settings |
 | `?` | All shortcuts |
-| Esc | Close a menu, then a dialog, then hide a running job or close a finished one, then the sidebar on a phone, then hide a hover card |
+| Esc | Close a menu, then a dialog, then hide or close the job's drawer, then the phone's sidebar, then a hover card |
 
 ### Menus, pickers and dialogs
 

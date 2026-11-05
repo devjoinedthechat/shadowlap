@@ -150,7 +150,7 @@ export function register(router: Router, ctx: RouteContext): void {
   // and goes when it ends; one its recorder left is ended as interrupted by the CLI's push, as gc
   // would, so it goes now. Building the job only names them: nothing changes before it runs.
   ctx.jobs.registerJobKind('push', {
-    title: (req) => (req.all === true ? 'Pushing local runs' : 'Pushing to store'),
+    title: () => 'Pushing to store',
     build: (req, { store }) => {
       if (!ctx.project) return { error: 'the team store needs a project folder: start the dashboard in your project with shadowlap dashboard', status: 501 };
       const team = teamStoreFor(ctx);

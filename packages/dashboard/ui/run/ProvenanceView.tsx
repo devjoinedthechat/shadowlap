@@ -345,7 +345,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
       )}
       <div className="actions">
         {show.data !== null && show.data !== undefined ? (
-          <button type="button" className="btn" title={`shadowlap show ${shortId(r.runId)} --json, as the CLI prints it`} onClick={() => void copyText(JSON.stringify(show.data, null, 2)).then((ok) => toast(ok ? 'Copied the show command' : 'Copying was refused by the browser'))}>
+          <button type="button" className="btn" title={`shadowlap show ${shortId(r.runId)} --json, as the CLI prints it`} onClick={() => void copyText(JSON.stringify(show.data, null, 2)).then((ok) => toast(ok ? 'Copied the run’s show --json' : 'Copying was refused by the browser'))}>
             <Icon name="copy" />
             Copy show --json
           </button>

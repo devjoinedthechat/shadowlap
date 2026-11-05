@@ -102,8 +102,8 @@ project in the job, so a server switched since refuses it.
 ## State and logic
 
 `state.tsx` holds what every screen shares (`useApp()`): the client, `meta`, the run list, the
-connection, `actionsOff` (why actions cannot run here, for a disabled control's title: the server's
-`readOnlyReason` when it sends one), `hasKind` (whether the server runs a job kind), `guard` (runs an
+connection, `actionsOff` (why actions cannot run here, which `ActionButton` and `useActionWait` read for a waiting
+control's card: the server's `readOnlyReason` when it sends one), `hasKind` (whether the server runs a job kind), `guard` (runs an
 action, or says actions are paused while the server is unreachable), toasts, jobs and the palette's
 This run entries. It is a store read through `useSyncExternalStore`: a component re-renders when a
 field it reads changes (while rendering, in an effect or in a handler), and for no other, so the

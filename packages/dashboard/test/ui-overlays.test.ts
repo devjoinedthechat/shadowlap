@@ -402,11 +402,14 @@ describe('a modal', () => {
     await openDialog((close) => createElement(Dialog, { title: 'Delete run', ok: 'Delete run', tone: 'danger', onOk: close, onClose: close }));
     expect(modalOpen()).toBe(true);
     expect(overlayOpen()).toBe(true);
-    for (const sel of ['#app', '#conn', '#dock', 'a.skip']) expect(r!.one(sel).hasAttribute('inert'), sel).toBe(true);
+    for (const sel of ['#app', '#dock', 'a.skip']) expect(r!.one(sel).hasAttribute('inert'), sel).toBe(true);
+    // The connection bar is a row of the app's grid: out of reach with it.
+    expect(r!.one('#conn').closest('[inert]')).toBe(r!.one('#app'));
     expect(r!.one('#layer').hasAttribute('inert')).toBe(false);
     await r!.press('Escape');
     expect(modalOpen()).toBe(false);
-    for (const sel of ['#app', '#conn', '#dock', 'a.skip']) expect(r!.one(sel).hasAttribute('inert'), sel).toBe(false);
+    for (const sel of ['#app', '#dock', 'a.skip']) expect(r!.one(sel).hasAttribute('inert'), sel).toBe(false);
+    expect(r!.one('#conn').closest('[inert]')).toBeNull();
     expect(words(r!.focused())).toBe('button Open');
   });
 

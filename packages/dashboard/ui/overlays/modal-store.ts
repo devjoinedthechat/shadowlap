@@ -62,7 +62,7 @@ export function openersNow(): readonly Opener[] {
   return a && a !== document.body ? [openerOf(a)] : [];
 }
 
-const BEHIND = '#app, #conn, #dock, a.skip';
+const BEHIND = '#app, #dock, a.skip';
 /** An ended session's card is over everything, what is open over the page too. */
 const BEHIND_ALL = `${BEHIND}, #menu, #layer`;
 

@@ -1,4 +1,4 @@
-/* What opens over a page: dialogs, menus and pickers, the palette, the shortcuts, hover cards, the job drawer and toasts.
+/* What opens over a page: dialogs, menus and pickers, the palette, the shortcuts and hover cards (the job drawer and toasts are dock.css's).
    Every overlay stands on this one surface: the page's own ground (--pop), set apart from what it covers by one edge and its
    shadow (--shadow-pop, whose ring is the edge), never a tone of its own. Its rows tint as the page's rows do. With forced
    colours, which draw no shadow, each takes a 1px outline in the text colour, or a clear border of its own shows as one (the
@@ -100,8 +100,6 @@
 .pop.picker.sheet .opt { min-height: 44px; align-items: center; }
 .pop.picker.sheet .pfilter { height: 44px; }
 
-/* A job's output wraps rather than run past the drawer's edge, every line read whole; it scrolls down, by keyboard too. */
-/* A notice's one action, as Undo: dark text on the light toast, underlined, its ring in the toast's own dark */
 .help { width: min(760px, 100%); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; overflow: hidden; border-radius: var(--r-overlay); }
 .help:focus { outline: none; }
 .help > header { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 18px 20px 0; }
@@ -152,8 +150,6 @@
 .dialog .dz .confirm { margin-top: 12px; }
 .dialog .confirm.bad input { border-color: var(--err); box-shadow: 0 0 0 3px color-mix(in srgb, var(--err) 15%, transparent); }
 
-/* While runs are picked, a job's drawer opens above the bulk bar (46px tall, 44px up) instead of over its buttons;
-   below 720px, above its lines (106px tall on a phone, 40px up) */
 
 .palscrim { align-items: flex-start; padding-top: 12vh; }
 .palette { width: min(620px, 100%); border-radius: var(--r-overlay); overflow: hidden; }
@@ -195,7 +191,6 @@
 /* Fork menu: its one note sits close under its head. */
 .pop.fkm .pnote { padding: 2px 10px 6px; }
 
-/* the job drawer names the folders a job wrote (a pack); files download from its footer */
 
 .dialog p.fxdlg { margin: 0; color: var(--dim); font-size: 13px; }
 .dialog p.fxdlg + p.fxdlg { margin-top: 8px; }

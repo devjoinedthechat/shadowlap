@@ -1,4 +1,4 @@
-import { formatUsd, pluralS as s, safeLine, shortFixId, type Palette } from '@shadowlap/engine';
+import { formatUsd, pluralS as s, repairOutcomeWord, safeLine, shortFixId, type Palette } from '@shadowlap/engine';
 import type { FixDetail, FixList, FixRow, FixStep } from '@shadowlap/dashboard';
 import { ago, quoteArgv, table } from './ui.js';
 
@@ -45,8 +45,6 @@ function tally(x: { passes: number; attempts: number; inconclusive: number }, un
   return judged ? `${x.passes} of ${judged}${unit}, ${apart}` : apart;
 }
 
-/** A repair's outcome in words, as `shadowlap repair` prints it. */
-const OUTCOME: Record<NonNullable<FixDetail['repair']>['outcome'], string> = { fixed: 'fixed', 'not-fixed': 'not fixed', 'no-diagnosis': 'no fix to try', stopped: 'stopped' };
 
 export function formatFixList(list: FixList, p: Palette): string {
   if (!list.fixes.length) return p.dim(`No fixes here. A fix starts from a blame: shadowlap blame <run> --expect '<check>'`);
@@ -109,7 +107,7 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
   if (r) {
     // Who proposed its candidates, or why no repairer did ("the repairer could not be asked: claude was not found").
     const by = r.repairer ? ` · proposed by ${r.repairer}` : r.noRepairer ? ` · ${one(r.noRepairer.text, 300)}` : '';
-    out.push('', p.bold(`Repair · ${r.repairId}, ${r.accepted ? 'accepted' : OUTCOME[r.outcome]} ${ago(r.at)}${by}`));
+    out.push('', p.bold(`Repair · ${r.repairId}, ${r.accepted ? 'accepted' : repairOutcomeWord(r.outcome)} ${ago(r.at)}${by}`));
     if (r.change) {
       out.push(`  ${p.dim(`${one(r.change.file, 80)} · ${one(r.change.anchor, 60)}`)}`);
       out.push(`  ${p.red(`- ${one(r.change.before, 200)}`)}`, `  ${p.green(`+ ${one(r.change.after, 200)}`)}`);

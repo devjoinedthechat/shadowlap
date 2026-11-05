@@ -2,6 +2,7 @@ import { approx } from '../format.js';
 import { commandText } from '../goldens.js';
 import type { BlameStep, CandidateVerdict, FixBundle, FixDetail, FixRow, RepairStep, StepKey, VerifyMore, VerifyRow, VerifyStep } from '../types.js';
 import { blameStateWord } from '../../../engine/src/blame-words.js';
+import { repairOutcomeWord } from '../../../engine/src/repair-words.js';
 import { verdictWord } from '../../../engine/src/verdict-words.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { isObject } from '../../../engine/src/is-object.js';
@@ -781,13 +782,14 @@ export function fixJobStatus(job: { kind?: string; code: number | null; result?:
     return null;
   }
   if (job.kind === 'repair') {
-    if (r.outcome === 'fixed') return { text: `${isObject(r.error) ? 'fixed, not handed over' : 'fixed'} · ${exit}`, tone };
+    // The words the CLI says a repair's end in (`repairOutcomeWord`), but for what only a job's line tells.
+    if (r.outcome === 'fixed') return { text: `${repairOutcomeWord('fixed')}${isObject(r.error) ? ', not handed over' : ''} · ${exit}`, tone };
     if (r.outcome === 'not-fixed') {
       const unasked = typeof r.noRepairer === 'string' && r.noRepairer.trim() !== '' && !(Array.isArray(r.candidates) && r.candidates.length);
       return unasked ? { text: `repairer not asked · ${exit}`, tone: 'warn' } : { text: `no fix found · ${exit}`, tone: 'err' };
     }
-    if (r.outcome === 'no-diagnosis') return { text: `no fix to try · ${exit}`, tone: 'warn' };
-    if (r.outcome === 'stopped') return { text: `stopped · ${exit}`, tone: 'warn' };
+    if (r.outcome === 'no-diagnosis') return { text: `${repairOutcomeWord('no-diagnosis')} · ${exit}`, tone: 'warn' };
+    if (r.outcome === 'stopped') return { text: `${repairOutcomeWord('stopped')} · ${exit}`, tone: 'warn' };
     return null;
   }
   if (job.kind === 'apply') {
