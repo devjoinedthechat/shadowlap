@@ -87,6 +87,9 @@ export class FakeElement {
   hasAttribute(name: string): boolean {
     return this.attributes.has(name);
   }
+  getAttributeNames(): string[] {
+    return [...this.attributes.keys()];
+  }
   get tabIndex(): number {
     const t = this.attributes.get('tabindex');
     if (t !== undefined) return Number(t);
@@ -136,6 +139,7 @@ export class FakeElement {
   /** No styles and no layout: a style set is kept nowhere, and every size is 0. */
   readonly style = { setProperty: (): void => undefined, removeProperty: (): string => '', getPropertyValue: (): string => '' };
   readonly offsetWidth = 0;
+  readonly offsetHeight = 0;
   readonly clientWidth = 0;
   /** Laid out when it is in the page: there is no layout here. */
   getClientRects(): object[] {
@@ -143,6 +147,10 @@ export class FakeElement {
   }
   scrollIntoView(): void {}
   select(): void {}
+  /** A click the page sends itself: it and what holds it hear it, as a browser's do. */
+  click(): void {
+    this.ownerDocument.sent?.(this, 'click');
+  }
   setSelectionRange(): void {}
   addEventListener(type: string, fn: Listener): void {
     let set = this.listeners.get(type);
@@ -164,12 +172,17 @@ export class FakeTextArea extends FakeElement {}
 export class FakeDocument {
   readonly body: FakeElement;
   activeElement: FakeElement;
+  /** How an element sends an event of its own (`click()`), once it is in a page. */
+  sent: ((el: FakeElement, type: string) => void) | null = null;
   /** Listeners the page adds to the document itself. */
   private readonly own: FakeElement;
+  /** Those it adds for the capture phase, which hear an event before anything in the page does. */
+  private readonly capturing: FakeElement;
   constructor() {
     this.body = new FakeElement('BODY', this);
     this.activeElement = this.body;
     this.own = new FakeElement('#document', this);
+    this.capturing = new FakeElement('#document', this);
   }
   createElement(tag: string): FakeElement {
     return make(tag, this);
@@ -180,16 +193,22 @@ export class FakeDocument {
   querySelector(selector: string): FakeElement | null {
     return this.querySelectorAll(selector)[0] ?? null;
   }
-  addEventListener(type: string, fn: Listener): void {
-    this.own.addEventListener(type, fn);
+  addEventListener(type: string, fn: Listener, options?: boolean | { capture?: boolean; passive?: boolean }): void {
+    (isCapture(options) ? this.capturing : this.own).addEventListener(type, fn);
   }
-  removeEventListener(type: string, fn: Listener): void {
-    this.own.removeEventListener(type, fn);
+  removeEventListener(type: string, fn: Listener, options?: boolean | { capture?: boolean }): void {
+    (isCapture(options) ? this.capturing : this.own).removeEventListener(type, fn);
   }
   heard(type: string): Listener[] {
     return this.own.heard(type);
   }
+  /** The listeners added for `type`'s capture phase, as the document hears an event first. */
+  heardFirst(type: string): Listener[] {
+    return this.capturing.heard(type);
+  }
 }
+
+const isCapture = (options: boolean | { capture?: boolean } | undefined): boolean => options === true || (typeof options === 'object' && options.capture === true);
 
 function make(tag: string, doc: FakeDocument): FakeElement {
   const t = tag.toUpperCase();
@@ -210,6 +229,8 @@ interface Compound {
   ids: string[];
   attrs: Array<{ name: string; value: string | null }>;
   nots: Compound[];
+  /** `:focus-visible`: here, the element that has the focus, as a key moves it. */
+  focused: boolean;
 }
 
 /** `s` cut where `at` says, outside brackets and parentheses. */
@@ -231,7 +252,7 @@ function splitTop(s: string, at: (ch: string) => boolean): string[] {
 }
 
 function parseCompound(s: string): Compound {
-  const c: Compound = { tag: null, classes: [], ids: [], attrs: [], nots: [] };
+  const c: Compound = { tag: null, classes: [], ids: [], attrs: [], nots: [], focused: false };
   let i = 0;
   const tag = /^[a-zA-Z][a-zA-Z0-9-]*/.exec(s);
   if (tag) {
@@ -245,6 +266,7 @@ function parseCompound(s: string): Compound {
     else if ((m = /^#([\w-]+)/.exec(rest))) c.ids.push(m[1]);
     else if ((m = /^\[([\w-]+)(?:=(?:"([^"]*)"|'([^']*)'|([\w-]+)))?\]/.exec(rest))) c.attrs.push({ name: m[1], value: m[2] ?? m[3] ?? m[4] ?? null });
     else if ((m = /^:not\(([^()]*)\)/.exec(rest))) c.nots.push(parseCompound(m[1].trim()));
+    else if ((m = /^:focus-visible/.exec(rest))) c.focused = true;
     else throw new Error(`the test renderer reads no selector like "${s}"`);
     i += m[0].length;
   }
@@ -265,6 +287,7 @@ function matchCompound(el: FakeElement, c: Compound): boolean {
   if (!c.classes.every((x) => classes.includes(x))) return false;
   if (!c.ids.every((x) => el.getAttribute('id') === x)) return false;
   if (!c.attrs.every((a) => el.hasAttribute(a.name) && (a.value === null || el.getAttribute(a.name) === a.value))) return false;
+  if (c.focused && el.ownerDocument.activeElement !== el) return false;
   return !c.nots.some((n) => matchCompound(el, n));
 }
 
@@ -439,7 +462,7 @@ export interface FakeEvent {
 }
 
 /** React's prop for each event type it hears. */
-const HANDLER: Record<string, string> = { click: 'onClick', mousedown: 'onMouseDown', mousemove: 'onMouseMove', pointerenter: 'onPointerEnter', keydown: 'onKeyDown', input: 'onChange', change: 'onChange', focusin: 'onFocus', focusout: 'onBlur' };
+const HANDLER: Record<string, string> = { click: 'onClick', mousedown: 'onMouseDown', mouseup: 'onMouseUp', mousemove: 'onMouseMove', pointerenter: 'onPointerEnter', keydown: 'onKeyDown', input: 'onChange', change: 'onChange', focusin: 'onFocus', focusout: 'onBlur' };
 
 function dispatch(doc: FakeDocument, win: FakeWindow, target: FakeElement, type: string, init: Partial<FakeEvent>): FakeEvent {
   let stopped = false;
@@ -463,6 +486,7 @@ function dispatch(doc: FakeDocument, win: FakeWindow, target: FakeElement, type:
   } as FakeEvent;
   e.nativeEvent = e;
   const prop = HANDLER[type];
+  for (const fn of doc.heardFirst(type)) if (!stopped) fn(e);
   for (let n: FakeElement | null = target; n && !stopped; n = n.parentNode) {
     const fn = prop ? n.props[prop] : undefined;
     if (typeof fn === 'function') {
@@ -514,8 +538,10 @@ export interface Rendered {
   one(selector: string): FakeElement;
   /** The element whose text is `text`, among those the selector matches. */
   byText(selector: string, text: string): FakeElement;
-  /** A click on it. */
+  /** A click on it: the press, the focus it moves, the release and the click, as a browser sends them. */
   click(el: FakeElement): Promise<void>;
+  /** One event on it, as a browser sends it: a press that ends elsewhere, the pointer coming over it. It and what holds it hear it, then the document and the window. */
+  fire(el: FakeElement, type: string, init?: Partial<FakeEvent> & { pointerType?: string; clientX?: number; relatedTarget?: FakeElement | null }): Promise<FakeEvent>;
   /** The pointer moving onto it from outside the page, as a mouse's or a finger's does: it and what holds it hear pointerenter. */
   hover(el: FakeElement): Promise<void>;
   /** The focus moving to it, as Tab or a screen reader moves it: it and what holds it hear focusin. */
@@ -537,6 +563,7 @@ const g = globalThis as Record<string, unknown>;
 export async function render(element: ReactElement): Promise<Rendered> {
   const doc = new FakeDocument();
   const win = new FakeWindow();
+  doc.sent = (el, type) => void dispatch(doc, win, el, type, {});
   const names = ['document', 'window', 'HTMLElement', 'HTMLInputElement', 'HTMLTextAreaElement', 'IS_REACT_ACT_ENVIRONMENT'] as const;
   const saved = new Map(names.map((n) => [n, Object.getOwnPropertyDescriptor(g, n)]));
   Object.assign(g, { document: doc, window: win, HTMLElement: FakeElement, HTMLInputElement: FakeInput, HTMLTextAreaElement: FakeTextArea, IS_REACT_ACT_ENVIRONMENT: true });
@@ -566,9 +593,18 @@ export async function render(element: ReactElement): Promise<Rendered> {
       await act(async () => {
         dispatch(doc, win, el, 'mousedown', {});
         el.focus();
+        dispatch(doc, win, el, 'mouseup', {});
         dispatch(doc, win, el, 'click', {});
       });
       check();
+    },
+    async fire(el, type, init = {}) {
+      let e!: FakeEvent;
+      await act(async () => {
+        e = dispatch(doc, win, el, type, init);
+      });
+      check();
+      return e;
     },
     async hover(el) {
       await act(async () => {
