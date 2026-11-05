@@ -16,7 +16,7 @@ import type { NextStep } from '../types.js';
 import type { PendingAction } from './actions.js';
 import { useDivergedJobs } from './diverged.js';
 import { checksOf } from './model.js';
-import { blameBesideCard, stepCard, stepCost, stepJob, type StepCard } from './next-step.js';
+import { blameBesideCard, replayAction, stepCard, stepCost, stepJob, type StepCard } from './next-step.js';
 import { blameTitle } from './offers.js';
 
 /**
@@ -68,13 +68,12 @@ interface StepProps {
 /** Replay, as the header keeps it: the lime one where nothing else needs doing, else plain. On a clean or a test replay it replays the recording that replay came from. */
 export function ReplayButton({ run, step, lime, onAction }: { run: RunDetail; step: NextStep | null; lime: boolean; onAction: (p: PendingAction) => void }) {
   const { actionsOff } = useApp();
-  const action = run.actions.find((a) => a.key === 'r');
-  const live = run.run.status === 'running';
-  const off = (live ? 'Replay once the recording finishes' : null) ?? actionsOff ?? action?.disabled ?? null;
+  const action = replayAction(step) ?? run.actions.find((a) => a.key === 'r');
+  const off = step?.off ?? actionsOff ?? action?.disabled ?? null;
   const target = step?.key === 'replay' && step.runId !== run.run.runId ? { runId: step.runId } : {};
   return (
     <button
-      className={lime ? 'btn lime' : 'btn'}
+      className={lime && (!off || off === step?.off) ? 'btn lime' : 'btn'}
       type="button"
       disabled={!!off || !action}
       {...(lime ? { 'data-next': 'replay' } : {})}

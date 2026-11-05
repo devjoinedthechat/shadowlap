@@ -322,9 +322,10 @@ describe('a run’s next step', () => {
     expect(step(replayed)).toMatchObject({ key: 'replay', label: 'Replay recording', runId: rec, title: `Replays ${rec.slice(0, 10)}, the recording this replay came from`, command: `shadowlap replay ${rec.slice(0, 10)}` });
     const capture = addRun(store, { startedAt: T0 + MIN, argv: [NO_COMMAND], meta: { imported: { at: T0, from: '/work/cap.jsonl' }, covers: ['api'] }, calls: 'll' });
     expect(step(capture)).toMatchObject({ key: 'replay', label: 'Replay with your command…', runId: capture, command: `shadowlap replay ${capture.slice(0, 10)} -- <your command>` });
-    // A clean replay of a capture has a command of its own: it replays itself, as its capture has none to replay with.
+    // A clean replay of a capture replays the capture too, which takes your command: the action that asks for it comes with the step.
     const ofCapture = addRun(store, { parent: capture, startedAt: T0 + 2 * MIN, calls: 'rr' });
-    expect(step(ofCapture)).toMatchObject({ key: 'replay', label: 'Replay', runId: ofCapture });
+    expect(step(ofCapture)).toMatchObject({ key: 'replay', label: 'Replay recording', runId: capture, command: `shadowlap replay ${capture.slice(0, 10)} -- <your command>`, action: { key: 'r', prompt: { label: expect.stringContaining('What starts your agent?') } } });
+    expect(step(replayed)).not.toHaveProperty('action');
     expect(replayStepOf(store, replayed)).toMatchObject({ label: 'Replay recording', runId: rec });
     expect(replayStepOf(store, rec)).toMatchObject({ label: 'Replay', runId: rec });
   });

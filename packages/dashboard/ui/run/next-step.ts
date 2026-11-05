@@ -1,6 +1,7 @@
 import { costLine, costWords } from '../../../engine/src/estimates/spending.js';
 import { ACTIONS, confirmWords } from '../labels.js';
-import type { BlameBeside, NextStep, RunDetail } from '../types.js';
+import { normalizeAction } from '../normalize.js';
+import type { ActionItem, BlameBeside, NextStep, RunDetail } from '../types.js';
 import { blameTitle } from './offers.js';
 
 /**
@@ -12,6 +13,11 @@ import { blameTitle } from './offers.js';
 /** A run's next step: null for an answer that has none, as an exported copy's that holds no comparison to make. */
 export function nextStepOf(run: Pick<RunDetail, 'next'>): NextStep | null {
   return run.next ?? null;
+}
+
+/** The action a Replay brings for a recording with no command of its own, which asks for yours, as a page's actions are read. */
+export function replayAction(step: NextStep | null): ActionItem | null {
+  return step?.key === 'replay' && step.action ? normalizeAction(step.action as unknown as ActionItem) : null;
 }
 
 /**

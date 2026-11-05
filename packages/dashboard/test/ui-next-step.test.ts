@@ -215,6 +215,15 @@ describe('the run page’s next step', () => {
     expect(waiting.props.title).toBe('Replay once the recording finishes');
   });
 
+  it('asks for your command before it replays the capture a replay came from, with the action its recording has', async () => {
+    const asks = { key: 'r', label: 'Replay with your command…', prompt: { label: `${PARENT.slice(0, 10)} came from a capture and has no command. What starts your agent?`, placeholder: 'python agent.py' } };
+    const next = { key: 'replay', label: 'Replay recording', runId: PARENT, action: asks, title: `Replays ${PARENT.slice(0, 10)}, the recording this replay came from`, command: `shadowlap replay ${PARENT.slice(0, 10)} -- <your command>` } as unknown as NextStep;
+    const actions: unknown[] = [];
+    page = await render(createElement(AppContext.Provider, { value: app() }, createElement(RunHeader, header(detail({ parent: PARENT, state: passedState, next, replay: next }), null, { onAction: (p) => actions.push(p) }))));
+    await page.click(page.byText('.rhead .actions button', 'Replay recording'));
+    expect(actions).toMatchObject([{ action: { key: 'r', prompt: asks.prompt }, callNo: null, runId: PARENT }]);
+  });
+
   it('compares an attempt or a fork with the run it came from, with its command on hover', async () => {
     const compare: NextStep = { key: 'compare', label: 'Compare with parent', parent: PARENT, href: `#/compare/${PARENT}/${REC}`, title: `Against ${PARENT.slice(0, 10)}`, command: `shadowlap diff ${PARENT.slice(0, 10)} ${REC.slice(0, 10)}` };
     page = await render(createElement(AppContext.Provider, { value: app() }, createElement(RunHeader, header(detail({ parent: PARENT, state: { ...passedState, kind: 'fork' }, next: compare })))));

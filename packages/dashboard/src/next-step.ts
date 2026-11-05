@@ -38,7 +38,7 @@ import {
   type TestResult,
   type ToolTrust,
 } from '@shadowlap/engine';
-import { lookupRun, noSuchRun } from './api.js';
+import { actionsFor, lookupRun, noSuchRun, type ActionItem } from './api.js';
 import { chaosMatrices, type ChaosMatrix } from './chaos.js';
 import { GOLDEN_HISTORY } from './bisect-start.js';
 import { HEX } from './commits-here.js';
@@ -87,7 +87,7 @@ import { bisectAnswers, bisectChoices, standingAnswer, underChecks, unjudgedOffl
  * - a fork: Compare with parent;
  * - a recording that didn't fail, no golden made from it yet: Pack as golden…;
  * - anything else: Replay; on a clean or a test replay Replay recording, which replays the run it came
- *   from; on a capture Replay with your command….
+ *   from; on a capture, or a replay of one, what starts your agent is asked first.
  *
  * A step that runs a job says what it runs and, on a run's page, what it bills: its estimate, from the
  * engine, read from the recording it replays (`pricedNextStep`). A list reads no run's calls for its
@@ -140,7 +140,7 @@ interface StepWords extends NextStepRow {
 /** The fields each kind of step adds for what it does. */
 export type NextStep = StepWords &
   (
-    | { key: 'replay'; runId: string }
+    | { key: 'replay'; runId: string; action?: ActionItem }
     | { key: 'passing' | 'injection-proof' | 'preset-proof'; runId: string }
     | { key: 'compare'; parent: string }
     | { key: 'fix'; fixId: string; status: FixStatus }
@@ -275,13 +275,20 @@ interface Facts {
 /** What a command takes from you where a run has none of its own, left for you to fill in: the one word of a command line that isn't quoted. */
 const YOUR_COMMAND = '-- <your command>';
 
-/** Replay: a clean or a test replay is the recording it came from served again, so it replays that recording, and says so. */
-export function replayStep(row: Pick<IndexedRun, 'runId' | 'kind' | 'parentRunId'>, record: RunRecord, index: RunIndex): NextStep {
-  // Not a capture's, which has no command of its own to replay it with: the replay of it has one.
-  const parent = row.parentRunId && index.byId.get(row.parentRunId)?.source === null ? row.parentRunId : null;
-  if ((row.kind === 'clean' || row.kind === 'test') && parent) return { key: 'replay', label: ACTIONS.replayRecording.label, runId: parent, title: `Replays ${short(parent)}, the recording this replay came from`, command: commandLine(['replay', short(parent)]) };
-  if (!hasRecordedCommand(record)) return { key: 'replay', label: ACTIONS.replayWithCommand.label, runId: row.runId, command: `${commandLine(['replay', short(row.runId)])} ${YOUR_COMMAND}` };
-  return { key: 'replay', label: ACTIONS.replay.label, runId: row.runId, command: commandLine(['replay', short(row.runId)]) };
+/**
+ * Replay: a clean or a test replay is the recording it came from served again, so it replays that
+ * recording, and says so. One with no command of its own, a capture, takes yours: the action that asks
+ * for it comes with the step, for the page that shows the replay of it.
+ */
+export function replayStep(store: StoreOf<'recording'>, row: Pick<IndexedRun, 'runId' | 'kind' | 'parentRunId'>, record: RunRecord, index: RunIndex): NextStep {
+  const parent = (row.kind === 'clean' || row.kind === 'test') && row.parentRunId ? index.byId.get(row.parentRunId) : undefined;
+  const target = parent?.runId ?? row.runId;
+  const commandless = !hasRecordedCommand(parent ? { command: { argv: parent.argv } } : record);
+  const command = `${commandLine(['replay', short(target)])}${commandless ? ` ${YOUR_COMMAND}` : ''}`;
+  if (!parent) return { key: 'replay', label: commandless ? ACTIONS.replayWithCommand.label : ACTIONS.replay.label, runId: target, command };
+  const recording = commandless ? store.getRun(target) : null;
+  const action = recording ? actionsFor(recording, undefined).find((a) => a.key === 'r') : undefined;
+  return { key: 'replay', label: ACTIONS.replayRecording.label, runId: target, title: `Replays ${short(target)}, the recording this replay came from`, command, ...(action ? { action } : {}) };
 }
 
 function compareStep(parent: string, runId: string): Decided {
@@ -654,7 +661,7 @@ function packStep(f: Facts): Decided | null {
 
 function decide(f: Facts): Decided {
   const { row, record, index } = f;
-  if (row.status === 'running') return { ...replayStep(row, record, index), label: ACTIONS.replay.label, off: 'Replay once the recording finishes' };
+  if (row.status === 'running') return { ...replayStep(f.store, row, record, index), label: ACTIONS.replay.label, off: 'Replay once the recording finishes' };
   return (
     testStep(f) ??
     attemptStep(f) ??
@@ -667,7 +674,7 @@ function decide(f: Facts): Decided {
     ruleStep(f) ??
     (row.kind === 'fork' && row.parentRunId && index.byId.has(row.parentRunId) ? compareStep(row.parentRunId, row.runId) : null) ??
     packStep(f) ??
-    replayStep(row, record, index)
+    replayStep(f.store, row, record, index)
   );
 }
 
@@ -768,7 +775,7 @@ export function replayStepOf(store: Store, runId: string): NextStep | null {
   const index = loadRunIndex(store);
   const row = index.byId.get(runId);
   const record = row ? store.getRun(runId) : null;
-  return row && record ? replayStep(row, record, index) : null;
+  return row && record ? replayStep(store, row, record, index) : null;
 }
 
 /**

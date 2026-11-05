@@ -8,7 +8,7 @@ import { href, type View } from '../route.js';
 import { navigate } from '../router.js';
 import { MARKS, type RunMark } from '../runkey.js';
 import { useApp, type PaletteCommand } from '../state.js';
-import { nextStepOf } from './next-step.js';
+import { nextStepOf, replayAction } from './next-step.js';
 import { useStepWait } from './NextStepButton.js';
 import { bisectLabel } from './offers.js';
 
@@ -29,7 +29,7 @@ function leadCommands(run: RunDetail, o: { exported: boolean; actionsOff: string
   if (next && !next.off && (next.href || !o.actionsOff)) items.push({ ...stepEntry(next, o.wait), run: () => (next.href ? navigate(next.href) : pressStep(o.toast)) });
   const replay = run.actions.find((a) => a.key === 'r');
   const again = run.replay?.key === 'replay' ? run.replay : null;
-  if (!o.exported && !o.actionsOff && replay && run.run.status !== 'running' && next?.key !== 'replay') items.push({ group: 'This run', label: again?.label ?? ACTIONS.replay.label, hint: again?.command ?? `shadowlap replay ${shortId(runId)}`, job: true, run: () => o.run({ action: replay, callNo: null, ...(again && again.runId !== runId ? { runId: again.runId } : {}) }) });
+  if (!o.exported && !o.actionsOff && replay && run.run.status !== 'running' && next?.key !== 'replay') items.push({ group: 'This run', label: again?.label ?? ACTIONS.replay.label, hint: again?.command ?? `shadowlap replay ${shortId(runId)}`, job: true, run: () => o.run({ action: replayAction(again) ?? replay, callNo: null, ...(again && again.runId !== runId ? { runId: again.runId } : {}) }) });
   return items;
 }
 
