@@ -360,3 +360,17 @@ test('a job’s end hands the focus to what took its control’s place, however 
   await expect(page.locator('.rhead .actions .btn.lime', { hasText: 'Open the fix' })).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.activeElement?.textContent?.trim())).toBe('Open the fix');
 });
+
+test('a menu opened while the page left still owes its focus keeps it: Esc up from a fork opened cold, then f', async ({ page }) => {
+  await openPage(page, `/run/${demoId('override')}`, 'run');
+  await page.keyboard.press('Escape');
+  await expect.poll(() => hash(page)).not.toContain(demoId('override'));
+  await page.locator('h1.rnm').waitFor();
+  await page.keyboard.press('f');
+  const items = page.locator('#menu [role^="menuitem"]');
+  await expect(items.first()).toBeFocused();
+  await page.waitForTimeout(500);
+  await expect(items.first()).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(items.nth(1)).toBeFocused();
+});
