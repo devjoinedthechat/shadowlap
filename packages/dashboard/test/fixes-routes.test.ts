@@ -744,6 +744,24 @@ describe('the apply job', () => {
     expect(spawned.length).toBe(before);
   });
 
+  it('checks the names the page gives among themselves alone: what each other golden takes, fix apply reads', async () => {
+    const [a, b] = [makeRun(store, { labels: ['refund-bug'] }), makeRun(store, { labels: ['refund-bug'] })];
+    const { fix } = blame(a);
+    recordRepair(store, { repairId: 'repair-twogolds', dir: '.shadowlap/repairs/repair-twogolds', report: repairReport({ targets: [a, b], dir: '.shadowlap/repairs/repair-twogolds' }), expect: EXPECT, command: 'r' });
+    const [ra, rb] = [a.slice(0, 10), b.slice(0, 10)];
+    // repair --goldens copied the second's recording already: the page asks the first's name alone.
+    mkdirSync(join(project, 'goldens', rb), { recursive: true });
+    await start();
+    expect((await json(await api(`fixes/${fix.fixId}`))).actions.apply).toMatchObject({ goldens: 2, names: [{ run: ra, name: 'refund-bug-1' }] });
+    // The name the second would take, were it copied now, is the first's to take.
+    const j = await started({ kind: 'apply', fixId: fix.fixId, names: { [ra]: 'refund-bug-2' } });
+    expect(spawned.at(-1)).toEqual(['fix', 'apply', fix.fixId, '--name', `${ra}=refund-bug-2`]);
+    await finished(j);
+    const res = await job({ kind: 'apply', fixId: fix.fixId, names: { [ra]: 'refund-twice', [rb]: 'refund-twice' } });
+    expect(res.status).toBe(400);
+    expect((await json(res)).error).toBe('Each golden needs a name of its own.');
+  });
+
   it('marks applied a fix verified on the working tree as it is, which has no patch', async () => {
     const run = makeRun(store, { labels: ['double-email'] });
     const { fix } = blame(run, { expect: { tools: { send_email: 1 } } });

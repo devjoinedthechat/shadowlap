@@ -227,9 +227,10 @@ function repairJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 
 /**
  * The names the page gave the goldens apply copies now (`names`, `{ <run>: <name> }`, each run by the
  * short id the fix's page gave it), as `fix apply --name` takes them, or why they won't do: a run it
- * copies no recording of now, or a name the engine's rule refuses, with the rest as each takes it.
- * Whether a name is taken, `fix apply` reads in the goldens folder, and refuses before it changes
- * anything. None given, each takes the name the fix's label makes.
+ * copies no recording of, or a name the engine's rule refuses, read among the names given alone.
+ * Whether one is taken, or is the name a golden given none takes, `fix apply` reads in the goldens
+ * folder (where a recording copied before keeps its own), and refuses before it changes anything.
+ * None given, each takes the name the fix's label makes.
  */
 function namesFor(given: unknown, offered: ReadonlyArray<{ run: string; name: string }>): { names: Array<{ run: string; name: string }> } | { error: string } {
   if (given === undefined) return { names: [] };
@@ -241,7 +242,7 @@ function namesFor(given: unknown, offered: ReadonlyArray<{ run: string; name: st
     names.push({ run, name: name.trim() });
   }
   const problem = goldenNamesProblem(
-    offered.map((o) => names.find((n) => n.run === o.run)?.name ?? o.name),
+    names.map((n) => n.name),
     { folder: APPLY_GOLDENS, held: [] },
   );
   return problem ? { error: problem.text } : { names };

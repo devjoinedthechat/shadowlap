@@ -410,7 +410,8 @@ export function ApplyDialog({ fix, label, onClose, onRun }: { fix: FixDetail; la
   // What goes in is what is shown: the patch itself, with every file it changes named.
   return (
     <Dialog {...asks} title={`${confirmWords(ACTIONS.applyFix.label)}?`} lead="Applies the fix to your working tree, for you to review before you commit." warn={apply.pulled ? { text: PULLED_LINE } : null}>
-      <DialogSteps steps={applySteps(apply, copiedTo(names))} />
+      {/* What the fields name, once the goldens folder was read; else every recording, as far as the page knows. */}
+      <DialogSteps steps={applySteps(apply, { count: apply.held ? names.offered.length : apply.goldens, to: copiedTo(names) })} />
       {apply.diff ? (
         <pre className="fxcode fxpatch">
           {patchLines(apply.diff).map((l, i) => (
