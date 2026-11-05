@@ -83,6 +83,8 @@ export interface DialogProps {
   className?: string;
   /** `cancel` focuses Cancel when the dialog opens, for a confirm that can't be undone: Enter twice never deletes anything. */
   initialFocus?: 'cancel';
+  /** Something no field holds was changed (a file dropped): Esc and the scrim ask first, as they do for a field's edit. */
+  dirty?: boolean;
   /**
    * A dialog belongs to the project the page showed when it opened: when the dashboard switches to
    * another project elsewhere (another tab), it closes, since its action would land in that one.
@@ -92,7 +94,7 @@ export interface DialogProps {
   keepOnSwitch?: boolean;
 }
 
-export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = false, onOk, onClose, cancel = 'Cancel', className = '', initialFocus, keepOnSwitch = false }: DialogProps) {
+export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = false, onOk, onClose, cancel = 'Cancel', className = '', initialFocus, dirty = false, keepOnSwitch = false }: DialogProps) {
   const ref = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   useScrollStop(body);
@@ -127,7 +129,8 @@ export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = 
   const requestClose = (by: 'key' | 'scrim') => {
     // While it asks, a second Esc keeps editing, and the scrim does nothing.
     if (asking) return by === 'key' ? keepEditing(true) : undefined;
-    if (!edited.current || !ref.current || formState(ref.current) === opened.current) return onClose();
+    const changed = dirty || (edited.current && !!ref.current && formState(ref.current) !== opened.current);
+    if (!changed) return onClose();
     askedFrom.current = document.activeElement as HTMLElement | null;
     setAsking(true);
   };
