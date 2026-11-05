@@ -57,6 +57,14 @@ function widthIn(font: string): ((s: string) => number) | null {
 /** A font as canvas takes it: the computed shorthand, or its parts where the browser gives none. */
 const fontOf = (cs: CSSStyleDeclaration) => cs.font || `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
 
+/** Whether words fit a field whole, in its own type at the width it has; true where the page can't measure. */
+export function fitsField(el: HTMLElement, text: string): boolean {
+  if (typeof getComputedStyle !== 'function') return true;
+  const cs = getComputedStyle(el);
+  const width = widthIn(fontOf(cs));
+  return !width || width(text) <= el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+}
+
 /** Whether the page can be measured: a browser's layout (not the tests' renderer). */
 const canMeasure = () => typeof getComputedStyle === 'function' && typeof ResizeObserver === 'function';
 

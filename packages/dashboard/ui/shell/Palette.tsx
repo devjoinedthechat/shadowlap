@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import { JOB_KINDS, type RecordedHit } from '../api.js';
 import { AboutLine, FitHint, useFitAbouts } from '../components/About.js';
+import { fitsField } from '../components/Copy.js';
 import { Modal } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { isMac } from '../dom.js';
@@ -20,7 +21,7 @@ import { useApp, type AppState, type PaletteCommand } from '../state.js';
 import { paletteTestsAsk, startTestsJob } from '../tests-ask.js';
 
 /**
- * Search or jump to (⌘K, Ctrl K, or / away from a run): This run, Go to, Actions, Runs, Fixes,
+ * Search or jump to (⌘K, Ctrl K, or / away from a run and Runs): This run, Go to, Actions, Runs, Fixes,
  * Tests, Projects, and, from three characters, what runs recorded. Every typed word must match.
  *
  * It is a combobox, as ARIA's pattern has it: the field keeps the focus, ↑ and ↓ move the active
@@ -42,8 +43,25 @@ export function Palette({ route }: { route: Route }) {
 
 const go = (to: string) => navigate(to);
 
-/** Past this, a row's name no longer fits the field's words: they say "this row". */
-const SCOPE_NAME_FITS = 32;
+/**
+ * The row whose actions the palette opened on, for as long as it stays on them, and the field's words
+ * for them: its name where that fits the field whole, measured again as the window's size changes,
+ * else "this row".
+ */
+function useRowScope(input: RefObject<HTMLInputElement | null>) {
+  const [scope, setScope] = useState(rowScopeNow);
+  useEffect(() => dropRowScope, []);
+  const own = scope ? `Actions for ${scope.name}` : null;
+  const [fits, setFits] = useState(true);
+  useLayoutEffect(() => {
+    if (!own) return;
+    const measure = () => setFits(!input.current || fitsField(input.current, own));
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [input, own]);
+  return { scope, setScope, scopeWords: own && (fits ? own : 'Actions for this row') };
+}
 
 /** What runs recorded, from three characters, through the server's search. It answers from what its index holds; while that is behind, the palette asks again, so matches arrive as it catches up. */
 function useRecordedHits(app: AppState, q: string): { hits: RecordedHit[]; note: string | null } {
@@ -168,16 +186,14 @@ function PaletteRow({ x, n, q, at, paused, id, moved, pick }: { x: PaletteComman
 function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
   const app = useApp();
   const [q, setQ] = useState('');
-  // A row's actions, for as long as it opened on them.
-  const [scope, setScope] = useState(rowScopeNow);
-  useEffect(() => dropRowScope, []);
+  const input = useRef<HTMLInputElement>(null);
+  const { scope, setScope, scopeWords } = useRowScope(input);
   const [i, setI] = useState(0);
   // The ring on the row is the keyboard's: the pointer's place shows by the ground alone.
   const [byKeys, setByKeys] = useState(false);
   const list = useRef<HTMLDivElement>(null);
   // Each hint fitted to the rest of its row, once laid out: an about line at whole words, a command at its end.
   useFitAbouts(list);
-  const input = useRef<HTMLInputElement>(null);
 
   // The field takes the focus; closing hands it back to what had it, as a dialog does (`Modal`). A
   // phone's sidebar it was opened from closes behind it, so it opens centred on the page.
@@ -276,7 +292,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
           <input
             ref={input}
             type="text"
-            placeholder={scope ? `Actions for ${scope.name.length > SCOPE_NAME_FITS ? 'this row' : scope.name}` : palettePlaceholder({ exported: app.exported, actions: !app.actionsOff, offline })}
+            placeholder={scopeWords ?? palettePlaceholder({ exported: app.exported, actions: !app.actionsOff, offline })}
             autoComplete="off"
             spellCheck={false}
             value={q}

@@ -4,6 +4,7 @@ import { Switch } from '../components/Switch.js';
 import { isMac, paletteKeyLabel } from '../dom.js';
 import { useScrollStop } from '../hooks.js';
 import { copyCompares } from '../runs.js';
+import { ACTIONS } from '../labels.js';
 import { setSingleKeys, sheetLines, switchSentence, useSingleKeys, type SheetGroup, type SheetLine, type SheetPlace } from '../shortcuts.js';
 import { useApp } from '../state.js';
 
@@ -65,7 +66,7 @@ function Panel({ onRun, close }: { onRun: boolean; close: () => void }) {
     <Modal requestClose={close}>
       <div className="help" role="dialog" aria-modal="true" aria-labelledby="helpT" tabIndex={-1} ref={ref}>
         <header>
-          <h3 id="helpT">Keyboard shortcuts</h3>
+          <h3 id="helpT">{ACTIONS.keyboardShortcuts.label}</h3>
         </header>
         <div className="hbody" ref={body}>
           <div className="hgrid">
