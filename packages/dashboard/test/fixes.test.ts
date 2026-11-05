@@ -622,22 +622,7 @@ describe('a fix', () => {
     report.patch += ['diff --git a/EVIL.txt b/EVIL.txt', 'new file mode 100644', '--- /dev/null', '+++ b/EVIL.txt', '@@ -0,0 +1 @@', '+from the bucket', ''].join('\n');
     recordRepair(store, { repairId: 'repair-tampered', dir: '.shadowlap/repairs/repair-tampered', report, expect: EXPECT, command: 'r', at: NOW });
     const d = fixDetail(store, fix.fixId)!;
-    expect(d.actions.apply).toEqual({
-      kind: 'patch',
-      argv: ['fix', 'apply', fix.fixId],
-      gitApply: null,
-      pending: null,
-      pulled: false,
-      files: ['agent.mjs', 'EVIL.txt'],
-      diff: report.patch,
-      patchFile: '.shadowlap/repairs/repair-tampered/fix.patch',
-      refused: 'it changes agent.mjs and EVIL.txt, where its accepted candidate changes agent.mjs alone',
-      inTree: false,
-      goldens: 1,
-      names: [{ run: run.slice(0, 10), name: 'refund-bug' }],
-      held: null,
-      change: null,
-    });
+    expect(d.actions.apply).toEqual({ kind: 'patch', argv: ['fix', 'apply', fix.fixId], gitApply: null, pending: null, pulled: false, files: ['agent.mjs', 'EVIL.txt'], diff: report.patch, patchFile: '.shadowlap/repairs/repair-tampered/fix.patch', refused: 'it changes agent.mjs and EVIL.txt, where its accepted candidate changes agent.mjs alone', inTree: false, goldens: 1, names: [{ run: run.slice(0, 10), name: 'refund-bug' }], held: null, change: null });
     expect(d.repair!.files[0]).toEqual({ name: 'fix.patch', note: '2 files · +2 −1' });
   });
 

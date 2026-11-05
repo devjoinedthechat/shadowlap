@@ -297,14 +297,14 @@ describe('Apply fix', () => {
   it('asks a name for each golden it copies, checks it as it is typed, and sends it with the job', async () => {
     const started: Array<[string, unknown]> = [];
     const fixId = verified();
-    const run = fixDetail(store, fixId)!.actions.apply!.names[0]!.run;
+    const run = fixDetail(store, fixId)!.actions.apply!.names[0].run;
     await open(fixId, null, null, { started, held: ['refund-in-limit'] });
     await r!.click(r!.byText('.ph .actions button', 'Apply fix'));
     const field = () => r!.one('.dialog .gnames input');
     const said = () => r!.all('.dialog .fieldnote.err').map(text);
     const ok = () => r!.one('.dialog .dlg-ok');
     const command = () => text(r!.one('.dialog .cmdline'));
-    const copied = () => text(r!.all('.dialog .ondisk.steps li small')[1]!);
+    const copied = () => text(r!.all('.dialog .ondisk.steps li small')[1]);
     // Under the patch, prefilled from the fix's label, never the run's id; its command and its step follow it.
     expect(text(r!.one('.dialog .gnames label'))).toBe(`The golden from ${run}goldens/`);
     expect([field().value, field().getAttribute('aria-label')]).toEqual(['refund-bug', `Name of the golden from ${run}`]);
@@ -317,7 +317,7 @@ describe('Apply fix', () => {
       ['', 'Give the golden a name.'],
       ['refund-in-limit', 'goldens/refund-in-limit is taken: pick another name.'],
     ]) {
-      await r!.type(field(), typed!);
+      await r!.type(field(), typed);
       expect([said(), ok().disabled, field().getAttribute('aria-invalid')]).toEqual([[why], true, 'true']);
       expect(field().getAttribute('aria-describedby')).toBe(r!.one('.dialog .fieldnote.err').getAttribute('id'));
     }

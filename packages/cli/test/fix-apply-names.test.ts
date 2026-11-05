@@ -41,7 +41,7 @@ const DIR = `.shadowlap/repairs/${REPAIR}`;
 function verified(o: { label?: string | null; runs?: number } = {}): { fix: StoredFix; runs: string[]; ids: string[] } {
   const labels = o.label === null ? [] : [o.label ?? 'refund-over-limit'];
   const runs = Array.from({ length: o.runs ?? 1 }, () => makeRun(store, { labels }));
-  recordBlame(store, { runId: runs[0]!, report: blameReport(runs[0]!), expect: EXPECT, scope: null, command: 'c', title: 'Refunds over the limit', checkText: 'x' });
+  recordBlame(store, { runId: runs[0], report: blameReport(runs[0]), expect: EXPECT, scope: null, command: 'c', title: 'Refunds over the limit', checkText: 'x' });
   const report = repairReport({ targets: runs, dir: DIR });
   mkdirSync(join(project, DIR), { recursive: true });
   writeFileSync(join(project, DIR, 'fix.patch'), report.patch!);
@@ -49,7 +49,7 @@ function verified(o: { label?: string | null; runs?: number } = {}): { fix: Stor
     mkdirSync(join(project, g), { recursive: true });
     writeFileSync(join(project, g, 'run.json'), `{"recording":"${g}"}\n`);
   }
-  const fix = recordRepair(store, { repairId: REPAIR, dir: DIR, report, expect: EXPECT, command: 'r' }).fixes[0]!.fix;
+  const fix = recordRepair(store, { repairId: REPAIR, dir: DIR, report, expect: EXPECT, command: 'r' }).fixes[0].fix;
   return { fix, runs: runs.map((r) => r.slice(0, 10)), ids: runs };
 }
 
@@ -70,7 +70,7 @@ describe('fix apply --name', () => {
   it('copies each recording under the name it is given, the fix’s label naming the rest, numbered', async () => {
     const { fix, runs } = verified({ runs: 2 });
     const lines: string[] = [];
-    const result = await applyFix(store, fix, options(lines, [{ run: runs[0]!, name: 'refund-in-limit' }]));
+    const result = await applyFix(store, fix, options(lines, [{ run: runs[0], name: 'refund-in-limit' }]));
     expect(result.goldens).toEqual([
       { run: runs[0], from: `${DIR}/goldens/${runs[0]}`, to: 'goldens/refund-in-limit', copied: true },
       { run: runs[1], from: `${DIR}/goldens/${runs[1]}`, to: 'goldens/refund-over-limit-2', copied: true },
@@ -89,12 +89,12 @@ describe('fix apply --name', () => {
 
   it('takes a run by its whole id', async () => {
     const { fix, ids } = verified();
-    expect((await applyFix(store, fix, options([], [{ run: ids[0]!, name: 'refund-twice' }]))).goldens.map((g) => g.to)).toEqual(['goldens/refund-twice']);
+    expect((await applyFix(store, fix, options([], [{ run: ids[0], name: 'refund-twice' }]))).goldens.map((g) => g.to)).toEqual(['goldens/refund-twice']);
   });
 
   it('takes a run by the start of its id', async () => {
     const { fix, ids } = verified({ label: 'double-email' });
-    expect((await applyFix(store, fix, options([], [{ run: ids[0]!.slice(0, 8), name: 'email-twice' }]))).goldens.map((g) => g.to)).toEqual(['goldens/email-twice']);
+    expect((await applyFix(store, fix, options([], [{ run: ids[0].slice(0, 8), name: 'email-twice' }]))).goldens.map((g) => g.to)).toEqual(['goldens/email-twice']);
   });
 
   it('refuses a name that won’t do before anything changes, saying how to name it', async () => {
@@ -136,7 +136,7 @@ describe('fix apply --name', () => {
   it('finds the recording an apply stopped part way copied under its name there, rather than taken', async () => {
     const { fix, runs } = verified();
     mkdirSync(join(project, 'goldens', 'refund-over-limit'), { recursive: true });
-    writeFileSync(join(project, 'goldens', 'refund-over-limit', 'run.json'), readFileSync(join(project, DIR, 'goldens', runs[0]!, 'run.json')));
+    writeFileSync(join(project, 'goldens', 'refund-over-limit', 'run.json'), readFileSync(join(project, DIR, 'goldens', runs[0], 'run.json')));
     const lines: string[] = [];
     const result = await applyFix(store, fix, options(lines));
     expect(result.goldens).toEqual([{ run: runs[0], from: `${DIR}/goldens/${runs[0]}`, to: 'goldens/refund-over-limit', copied: false }]);
@@ -160,7 +160,7 @@ describe('fix apply --name', () => {
   it("names none of a teammate's repair's recordings, which stay on the machine that ran it", async () => {
     const { fix, runs } = verified();
     store.markRepairPulled('s3://northwind-agent-runs/support-agent', REPAIR);
-    expect(await refused(fix, [{ run: runs[0]!, name: 'refund-bug' }])).toBe(`the recordings ${REPAIR} made stay on the machine that ran it, which came with a pull: --name names none here`);
+    expect(await refused(fix, [{ run: runs[0], name: 'refund-bug' }])).toBe(`the recordings ${REPAIR} made stay on the machine that ran it, which came with a pull: --name names none here`);
   });
 
   it('reads --name as <run>=<name>', () => {
