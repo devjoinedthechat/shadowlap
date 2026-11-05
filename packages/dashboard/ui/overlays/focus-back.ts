@@ -20,14 +20,17 @@ export function tabbables(root: HTMLElement): HTMLElement[] {
 /**
  * The element a dialog's focus starts on: its drop zone, where it asks for a file (Import capture),
  * else the first that `selector` (`dialogFocus`) finds that shows and is enabled: a field a choice
- * hides never takes it. A dialog whose way on waits for something, or that only shows something,
- * starts on Cancel or Close; with neither, on the first thing in it that takes it, else on itself.
+ * hides never takes it. A dialog that only shows something starts on its Close; one whose way on
+ * waits for something, on the first thing in it that takes it; with nothing, on itself.
  */
 export function firstFocus(root: HTMLElement, selector: string): HTMLElement {
   const takes = (el: HTMLElement) => !(el as HTMLButtonElement).disabled && reachable(el);
   const drop = selector === '.dlg-cancel' ? null : root.querySelector<HTMLElement>('.drop[tabindex]');
   if (drop && takes(drop)) return drop;
-  return [...root.querySelectorAll<HTMLElement>(`${selector}, .dlg-cancel`)].sort((a, b) => Number(a.matches('.dlg-cancel')) - Number(b.matches('.dlg-cancel'))).find(takes) ?? tabbables(root)[0] ?? root;
+  const found = [...root.querySelectorAll<HTMLElement>(selector)].find(takes);
+  if (found) return found;
+  const close = root.querySelector('.dlg-ok') ? null : root.querySelector<HTMLElement>('.dlg-cancel');
+  return (close && takes(close) ? close : tabbables(root)[0]) ?? root;
 }
 
 /** What a control is, to find its counterpart once the page has drawn it anew. */
@@ -61,11 +64,11 @@ function likes(key: ControlKey): HTMLElement[] {
   return [...document.querySelectorAll<HTMLElement>(key.tag)].filter((el) => isLike(el, key));
 }
 
-/** A control's key: its id, else its data attributes, where it leads, its name and its words, and which of its likes it is. */
+/** A control's key: its id, else its data attributes, where it leads, its name and its words, and which of its likes it is. Null for one with nothing that tells it from another: a bare field. */
 export function controlKey(el: HTMLElement | null): ControlKey | null {
   if (!el?.getAttributeNames) return null;
-  const tag = el.tagName.toLowerCase();
-  const key: ControlKey = { tag, id: el.getAttribute('id'), attrs: attrsOf(el), text: wordsOf(el), nth: 0 };
+  const key: ControlKey = { tag: el.tagName.toLowerCase(), id: el.getAttribute('id'), attrs: attrsOf(el), text: wordsOf(el), nth: 0 };
+  if (!key.id && !key.attrs.length && !key.text) return null;
   return { ...key, nth: Math.max(0, likes(key).indexOf(el)) };
 }
 

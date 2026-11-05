@@ -82,19 +82,19 @@ export function useMedia(query: string): boolean {
  * stop. Measured after every render and as the window or the pane changes size.
  */
 export function useScrollStop(ref: RefObject<HTMLElement | null>): void {
-  useLayoutEffect(() => {
+  const set = useCallback(() => {
     const el = ref.current;
     if (!el) return;
-    const set = () => {
-      if (el.scrollHeight > el.clientHeight + 1 && !tabbables(el).length) el.tabIndex = 0;
-      else if (el.getAttribute('tabindex') === '0') el.removeAttribute('tabindex');
-    };
-    set();
-    if (typeof ResizeObserver !== 'function') return;
+    if (el.scrollHeight > el.clientHeight + 1 && !tabbables(el).length) el.tabIndex = 0;
+    else if (el.getAttribute('tabindex') === '0') el.removeAttribute('tabindex');
+  }, [ref]);
+  useLayoutEffect(set);
+  useEffect(() => {
+    if (!ref.current || typeof ResizeObserver !== 'function') return;
     const sized = new ResizeObserver(set);
-    sized.observe(el);
+    sized.observe(ref.current);
     return () => sized.disconnect();
-  });
+  }, [ref, set]);
 }
 
 /** A per-browser convenience kept in localStorage; it works without storage, for this page only. */

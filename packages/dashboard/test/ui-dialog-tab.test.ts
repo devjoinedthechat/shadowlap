@@ -1,6 +1,7 @@
 import { createElement } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Dialog } from '../ui/components/Dialog.js';
+import { MenuItem, Popover, useMenu } from '../ui/components/Popover.js';
 import { Keyboard } from '../ui/shell/Keyboard.js';
 import { Shortcuts } from '../ui/shell/Shortcuts.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -48,6 +49,11 @@ afterEach(async () => {
   r = null;
 });
 
+beforeAll(() => {
+  // No layout here: a menu is placed against a window of this size.
+  Object.assign(globalThis, { innerWidth: 1440, innerHeight: 900 });
+});
+
 describe('Tab in a modal dialog', () => {
   it('goes round Delete run’s two buttons, and brings a focus left on the page behind back in', async () => {
     r = await render(
@@ -82,6 +88,45 @@ describe('Tab in a modal dialog', () => {
     expect(focus(r)).toBe('button Close');
     await r.press('Escape');
     expect(setHelp).toHaveBeenCalledExactlyOnceWith(false);
+  });
+
+  it('goes round what shows while it asks before discarding an edit', async () => {
+    r = await render(
+      createElement(AppContext.Provider, { value: app() }, createElement(Keyboard), ...page(), createElement(Dialog, { key: 'dialog', title: 'Rename', ok: 'Rename', onOk: () => undefined, onClose: () => undefined, children: createElement('input', { type: 'text', onChange: () => undefined }) })),
+    );
+    await r.type(r.one('input'), 'edited');
+    await r.press('Escape');
+    expect(focus(r)).toBe('button Keep editing');
+    await r.press('Tab');
+    expect(focus(r)).toBe('button Discard');
+    // Round past Cancel and the action, which wait in the footer while it asks.
+    await r.press('Tab');
+    expect(r.focused().tagName).toBe('INPUT');
+    await r.press('Tab', { shiftKey: true });
+    expect(focus(r)).toBe('button Discard');
+  });
+
+  it('closes a menu in it on Tab, staying in the dialog', async () => {
+    function WithMenu() {
+      const menu = useMenu();
+      return createElement(
+        Dialog,
+        { title: 'Pack', ok: 'Pack run', onOk: () => undefined, onClose: () => undefined },
+        createElement('button', { type: 'button', id: 'more', onClick: (e: { currentTarget: HTMLElement }) => menu.toggle(e.currentTarget) }, 'More'),
+        menu.anchor ? createElement(Popover, { anchor: menu.anchor, onClose: menu.close, label: 'More', children: createElement(MenuItem, { label: 'One', onPick: menu.close }) }) : null,
+      );
+    }
+    r = await render(createElement(AppContext.Provider, { value: app() }, createElement(Keyboard), ...page(), createElement(WithMenu, { key: 'dialog' })));
+    await r.click(r.one('#more'));
+    expect(r.focused().textContent).toBe('One');
+    // Esc closes the menu first, and the dialog stays.
+    await r.press('Escape');
+    expect(focus(r)).toBe('button More');
+    expect(r.all('[role="dialog"]')).toHaveLength(1);
+    await r.click(r.one('#more'));
+    await r.press('Tab');
+    expect(r.all('[role="menu"]')).toEqual([]);
+    expect(focus(r)).toBe('button Cancel');
   });
 
   it('leaves Tab to the browser on a page with no dialog open', async () => {

@@ -24,15 +24,19 @@ const stack: OpenModal[] = [];
 export const modalOpen = (): boolean => stack.length > 0;
 const topModal = (): OpenModal | null => stack.at(-1) ?? null;
 
-/** What takes the focus back when a modal closes, read as it is about to open: a menu's item stands for the menu's button, and a dialog's control for its opener too. */
+/**
+ * What takes the focus back when a modal closes, read as it is about to open: a menu's item stands
+ * for the menu's button. A modal's control is itself while that modal stays, and its opener once it
+ * has gone: what goes with an overlay has no counterpart on the page.
+ */
 export function openersNow(): readonly Opener[] {
   if (typeof document === 'undefined') return [];
   const a = document.activeElement as HTMLElement | null;
   const menu = shownMenu();
   if (menu && a && menu.root.contains(a)) return [menu.opener];
-  const own = a && a !== document.body ? [openerOf(a)] : [];
   const top = topModal();
-  return a && top?.root()?.contains(a) ? [...own, ...top.openers] : own;
+  if (a && top?.root()?.contains(a)) return [{ el: a, key: null }, ...top.openers];
+  return a && a !== document.body ? [openerOf(a)] : [];
 }
 
 const BEHIND = '#app, #conn, #dock, a.skip';

@@ -6,6 +6,7 @@ import { controlKey, findControl, firstFocus } from '../ui/overlays/focus-back.j
 import { typeAhead } from '../ui/overlays/menu-store.js';
 import { holdBehind, modalOpen, overlayOpen } from '../ui/overlays/modal-store.js';
 import { InSlot } from '../ui/overlays/slots.js';
+import { keepPlaced, placeMenu, type PopMeasure } from '../ui/place.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { app, media, menuOf, noMedia, shell, words } from './ui-overlays-page.js';
 import { render, type Rendered } from './ui-render.js';
@@ -15,8 +16,7 @@ import { render, type Rendered } from './ui-render.js';
  * a person presses the keys: where each goes, what it takes from the page, where the focus goes as it
  * opens and closes, the keys it keeps from the page and the ask before it discards an edit. The real
  * browser checks the same on the pages, and that a phone gets its sheets (browser/overlays.spec.ts).
- * Pickers are test/ui-picker.test.ts's, hover cards test/ui-hover-cards.test.ts's, and where a menu
- * goes test/ui-run-page.test.ts's.
+ * Pickers are test/ui-picker.test.ts's, hover cards test/ui-hover-cards.test.ts's.
  */
 
 let r: Rendered | null = null;
@@ -106,6 +106,72 @@ describe('the three slots', () => {
   it('fall back to where a part is drawn when no shell drew them', async () => {
     r = await render(createElement(AppContext.Provider, { value: app() }, createElement('main', { id: 'view' }, createElement(Dialog, { title: 'A dialog', onClose: () => undefined }))));
     expect(r.one('main').contains(r.one('.dialog'))).toBe(true);
+  });
+});
+
+describe('a menu’s place', () => {
+  const view = { width: 1440, height: 900 };
+  it('hangs under its opener at the edge nearer the window’s middle, or the edge it is told, and stays 12px inside the window', () => {
+    // A button on the window's right lines up by its right edge, one on its left by its left edge.
+    expect(placeMenu({ left: 1000, right: 1100, top: 66, bottom: 100 }, { width: 330, height: 300 }, view)).toEqual({ top: 106, left: 770, maxHeight: null, up: false });
+    expect(placeMenu({ left: 40, right: 120, top: 66, bottom: 100 }, { width: 330, height: 300 }, view)).toEqual({ top: 106, left: 40, maxHeight: null, up: false });
+    expect(placeMenu({ left: 1000, right: 1100, top: 66, bottom: 100 }, { width: 330, height: 300 }, view, 'start').left).toBe(1000);
+    expect(placeMenu({ left: 40, right: 400, top: 66, bottom: 100 }, { width: 330, height: 300 }, view, 'end').left).toBe(70);
+    // Wider than the window's edge allows.
+    expect(placeMenu({ left: 1400, right: 1430, top: 66, bottom: 100 }, { width: 330, height: 300 }, view, 'start').left).toBe(1098);
+    expect(placeMenu({ left: 10, right: 60, top: 6, bottom: 40 }, { width: 330, height: 300 }, view, 'end').left).toBe(12);
+  });
+
+  it('goes over its button when there is more room there, and scrolls in the room there is, never over the button', () => {
+    // Under a low row: 6px over the button, its height whole.
+    expect(placeMenu({ left: 1180, right: 1204, top: 576, bottom: 600 }, { width: 330, height: 343 }, view)).toEqual({ top: 227, left: 874, maxHeight: null, up: true });
+    // It would fit under the button: it stays there, however much room there is over it.
+    expect(placeMenu({ left: 1180, right: 1204, top: 576, bottom: 600 }, { width: 330, height: 282 }, view).up).toBe(false);
+    // Taller than either side: the side with more room, as tall as that room, its edge 12px from the window's.
+    const over = placeMenu({ left: 40, right: 120, top: 500, bottom: 534 }, { width: 340, height: 700 }, view);
+    expect(over).toEqual({ top: 12, left: 40, maxHeight: 482, up: true });
+    const under = placeMenu({ left: 40, right: 120, top: 300, bottom: 334 }, { width: 340, height: 700 }, view);
+    expect(under).toEqual({ top: 340, left: 40, maxHeight: 548, up: false });
+    // A low window never squeezes it below three rows.
+    expect(placeMenu({ left: 40, right: 120, top: 20, bottom: 54 }, { width: 340, height: 300 }, { width: 800, height: 150 }).maxHeight).toBe(120);
+  });
+
+  it('moves over its button when it grows after opening under a low row', () => {
+    // The fork icon of call #22 at 1440 × 900: the menu opens on "Loading the call…", 40px tall, and
+    // grows to 343px once the call arrives.
+    const anchor = { left: 1180, right: 1204, top: 576, bottom: 600 };
+    let height = 40;
+    const measure = (): PopMeasure => ({ anchor, pop: { width: 330, height }, view });
+    const places: Array<{ top: number; left: number }> = [];
+    let grew: (() => void) | null = null;
+    let stopped = false;
+    const stop = keepPlaced(measure, undefined, (p) => places.push(p), (again) => {
+      grew = again;
+      return () => {
+        stopped = true;
+      };
+    });
+    expect(places).toEqual([{ top: 606, left: 874, maxHeight: null, up: false }]);
+    height = 343;
+    grew!();
+    const last = places.at(-1)!;
+    expect(last.top + height).toBeLessThanOrEqual(view.height - 12);
+    expect(last).toEqual({ top: 227, left: 874, maxHeight: null, up: true });
+    // On a phone, 390 × 844, under row #7 near the bottom, were it not a sheet.
+    const phone = { width: 390, height: 844 };
+    const low = { left: 330, right: 354, top: 764, bottom: 788 };
+    height = 40;
+    const onPhone: Array<{ top: number; left: number }> = [];
+    let phoneGrew: (() => void) | null = null;
+    keepPlaced(() => ({ anchor: low, pop: { width: 330, height }, view: phone }), undefined, (p) => onPhone.push(p), (again) => {
+      phoneGrew = again;
+      return () => {};
+    });
+    height = 343;
+    phoneGrew!();
+    expect(onPhone.at(-1)!.top + height).toBeLessThanOrEqual(phone.height - 12);
+    stop();
+    expect(stopped).toBe(true);
   });
 });
 
@@ -448,9 +514,9 @@ describe('a modal’s first focus', () => {
     expect(words(r!.focused())).toBe('button Rename');
   });
 
-  it('starts on Cancel where the way on waits, on Close where it only shows something, on a drop zone where it asks for a file, on itself with nothing', async () => {
+  it('starts on the first thing that takes it where the way on waits, on Close where it only shows something, on a drop zone where it asks for a file, on itself with nothing', async () => {
     await openDialog((close) => createElement(Dialog, { title: 'Replace', ok: 'Replace', okDisabled: true, onOk: close, onClose: close }, createElement('a', { href: '#/docs' }, 'In the docs')));
-    expect(words(r!.focused())).toBe('button Cancel');
+    expect(words(r!.focused())).toBe('a In the docs');
     await r!.unmount();
     await openDialog((close) => createElement(Dialog, { title: 'Show patch', onClose: close }, createElement('a', { href: '#/docs' }, 'In the docs')));
     expect(words(r!.focused())).toBe('button Close');
@@ -614,6 +680,34 @@ describe('what opened an overlay', () => {
     expect(controlKey(r.one('a') as unknown as HTMLElement)).toMatchObject({ tag: 'a', attrs: expect.arrayContaining([['href', '#/runs'], ['aria-label', 'Runs']]) as unknown, text: 'All', nth: 0 });
     expect(findControl({ tag: 'button', id: 'gone', attrs: [], text: 'Nothing like it', nth: 0 })).toBeNull();
     expect(controlKey(null)).toBeNull();
+  });
+
+  it('has no key where nothing tells it from another: a bare field never hands the focus to the page’s', async () => {
+    r = await render(createElement('div', null, createElement('input', { id: 'one' }), createElement('input', {})));
+    expect(controlKey(r.one('#one') as unknown as HTMLElement)).toMatchObject({ id: 'one' });
+    expect(controlKey(r.one('input:not([id])') as unknown as HTMLElement)).toBeNull();
+  });
+
+  it('goes back to what opened a modal opened from another that has gone', async () => {
+    function Swap() {
+      const [open, setOpen] = useState<'no' | 'first' | 'second'>('no');
+      return createElement(
+        'div',
+        null,
+        createElement('input', { type: 'text', placeholder: 'A field of the page’s' }),
+        createElement('button', { type: 'button', id: 'start', onClick: () => setOpen('first') }, 'Start'),
+        open === 'first' ? createElement(Dialog, { title: 'First', ok: 'Next', onOk: () => setOpen('second'), onClose: () => setOpen('no') }, createElement('input', { type: 'text', id: 'inner' })) : null,
+        open === 'second' ? createElement(Dialog, { title: 'Second', onClose: () => setOpen('no') }) : null,
+      );
+    }
+    r = await render(shell({}, createElement(Swap, { key: 'swap' })));
+    await r.click(r.one('#start'));
+    r.one('.dlg-ok').focus();
+    await r.click(r.one('.dlg-ok'));
+    expect(r.all('.dialog h3').map((h) => h.textContent)).toEqual(['Second']);
+    await r.press('Escape');
+    expect(r.all('.dialog')).toEqual([]);
+    expect(words(r.focused())).toBe('button Start');
   });
 
   it('hands the focus to the sidebar’s button where the closed sidebar hides it, and to the page with nothing left', async () => {
