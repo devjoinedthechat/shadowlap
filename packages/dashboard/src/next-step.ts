@@ -76,8 +76,8 @@ import { bisectAnswers, bisectChoices, standingAnswer, underChecks, unjudgedOffl
  * - any other attempt: Compare with parent, failed or not, since it is one sample of many;
  * - a test replay whose agent exited (a crash): Find breaking commit, Run blame plain beside it, until
  *   the commit is named;
- * - a recording's newest injection test: Open proof where it failed, Run injection test… where a
- *   budget stopped it, Re-run injection test (Re-run test for a golden's gate) where it showed too
+ * - a recording's newest injection test: Open proof where it failed, Run injection test… where it
+ *   stopped early, Re-run injection test (Re-run test for a golden's gate) where it showed too
  *   little to say; a read proven to have caused a write, in a recording no golden is made from yet:
  *   Pack with injection gate…;
  * - error-path presets that failed: Open proof (presets left inconclusive change nothing);

@@ -61,3 +61,24 @@ test('a step’s hover says what it does and runs, and what it bills where it do
   await lime(page).hover();
   await expect(page.locator('.tip')).toContainText('At most');
 });
+
+test('while a job holds the working tree, a step goes plain and says why, in the palette too, and a press starts nothing', async ({ page }) => {
+  const posts: string[] = [];
+  page.on('request', (r) => {
+    if (r.method() === 'POST') posts.push(r.url());
+  });
+  await page.route('**/api/jobs', (route) => (route.request().method() === 'GET' ? route.fulfill({ json: { jobs: [{ id: 'held', kind: 'repair', title: 'Run repair', done: false, startedAt: Date.now(), worktree: { folder: null, use: 'writes', doing: 'a repair is running' }, project: null }] } }) : route.continue()));
+  const WAITS = 'A repair is running: blame once it is done.';
+  await openPage(page, `/run/${demoId('digestFailed')}`, 'run');
+  await expect(lime(page)).toHaveCount(0);
+  const step = page.locator('.rhead [data-next]');
+  await expect(step).toBeDisabled();
+  await expect(step).toHaveAttribute('title', WAITS);
+  await palette(page);
+  await expect(thisRun(page)).toHaveClass(/waits/);
+  await expect(thisRun(page)).toContainText(WAITS);
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.toast').filter({ hasText: WAITS })).toBeVisible();
+  await expect(page.locator('.palette')).toBeVisible();
+  expect(posts).toEqual([]);
+});
