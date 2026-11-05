@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { isTyping } from '../dom.js';
+import { isMac, isTyping } from '../dom.js';
 import { focusBack, openerOf, type Opener } from '../overlays/focus-back.js';
 import { onOverlayChange } from '../overlays/modal-store.js';
 import { useApp } from '../state.js';
@@ -117,7 +117,7 @@ export function ToastHost() {
     live.current = toastText;
     setOut(false);
     setShown(toastText);
-    if (toastText.kind !== 'error') announce(`${toastText.text}${toastText.action ? actionSaid(toastText.action) : ''}`);
+    if (toastText.kind !== 'error') announce(`${toastText.text}${toastText.action ? actionSaid(toastText.action, isMac()) : ''}`);
   }, [toastText, leave, back]);
 
   // Drawn at its place the first time; a way out that takes the focus keeps the toast while it holds it.
