@@ -152,7 +152,7 @@ describe('Search or jump to', () => {
     expect(keys('Runs')).toEqual(['g', 'r']);
     expect(keys('Keyboard shortcuts')).toEqual(['?']);
     expect(keys('Add project…')).toEqual([]);
-    expect(r.one('.palit.on .palk kbd').textContent).toBeTruthy();
+    expect(r.all('.palit.on .palk kbd').map((k) => k.textContent)).toEqual(['g', 'o']);
     await r.unmount();
     setSingleKeys(false);
     r = await render(createElement(PaletteOpener, { base: app() }));

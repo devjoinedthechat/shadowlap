@@ -14,7 +14,8 @@ import { href, type Route } from '../route.js';
 import { navigate } from '../router.js';
 import { normalizeRuns } from '../normalize.js';
 import { isAttempt, kindWord, runSource, type RunLike } from '../runs.js';
-import { goKeyColumn, keyColumn, singleKeysOn } from '../shortcuts.js';
+import { goKeyColumn, keyColumn } from '../shortcuts.js';
+import { singleKeysOn } from '../single-keys.js';
 import { useApp, type AppState, type PaletteCommand } from '../state.js';
 import { paletteTestsAsk, startTestsJob } from '../tests-ask.js';
 

@@ -2,7 +2,8 @@ import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from '
 import { applyDeltas } from '../../../engine/src/deltas.js';
 import { INPUT_PARTS } from '../../../engine/src/tokens.js';
 import type { Block, CallDetail, CallRow, Delta, RunNote, Turn, TurnBlock } from '../api.js';
-import { Org, Seg, Tabs } from '../components/bits.js';
+import { Org, Seg } from '../components/bits.js';
+import { Tabs } from '../components/Tabs.js';
 import { tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { JsonTree } from '../components/Json.js';

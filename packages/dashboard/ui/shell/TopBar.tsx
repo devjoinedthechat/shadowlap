@@ -1,4 +1,4 @@
-import { useSingleKeys } from '../shortcuts.js';
+import { useSingleKeys } from '../single-keys.js';
 import { Fragment, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
 import { Spin } from '../components/bits.js';
 import { Brand, Icon } from '../components/Icon.js';

@@ -1,14 +1,17 @@
-import { useSyncExternalStore } from 'react';
 import { ACTIONS } from './labels.js';
 import { GO_KEYS } from './route.js';
+import { singleKeysOn } from './single-keys.js';
+
+export { setSingleKeys, singleKeysOn, useSingleKeys } from './single-keys.js';
 
 /**
  * Every key the dashboard answers to, declared once. The shortcuts sheet draws this table, a control
  * says its key by spreading `shortcut(id)` (so `aria-keyshortcuts` and its hover card read it from
  * there, and a key finds its control by `data-shortcut`), and the palette's key column reads it too.
- * A single key can be turned off on the sheet, and the browser remembers it (`setSingleKeys`): off,
+ * A single key can be turned off on the sheet, and the browser remembers it (single-keys.ts): off,
  * only ⌘K, Esc, Enter and the arrows work, and nothing advertises a single key. No DOM at import: the
- * tests import it.
+ * tests import it. The table waits with the pages, the palette and the sheet: the first look holds
+ * the key handler and the switch alone.
  */
 
 export type SheetGroup = 'Anywhere' | 'In a list' | 'Go to' | 'On a run';
@@ -38,7 +41,7 @@ interface Shortcut {
 const notCopy = (p: SheetPlace) => !p.exported;
 
 const TABLE = {
-  palette: { group: 'Anywhere', chips: '⌘ K', aria: 'Meta+K Control+K', label: 'Search or jump to anything', when: notCopy },
+  palette: { group: 'Anywhere', chips: '⌘ K', label: 'Search or jump to anything', when: notCopy },
   filter: { group: 'Anywhere', chips: '/', label: (p) => (p.onRun ? 'Filter calls' : p.onRuns ? 'Filter runs' : 'Search or jump to anything'), when: (p) => !p.exported || p.onRun || p.onRuns },
   help: { group: 'Anywhere', chips: '?', aria: '?', label: 'Show these shortcuts' },
   undo: { group: 'Anywhere', chips: 'u', aria: 'u', label: 'Undo, while a toast offers it' },
@@ -83,7 +86,6 @@ const TABLE = {
   markGood: { chips: '+', aria: 'Plus' },
   markBad: { chips: '-', aria: '-' },
   back: { group: 'On a run', chips: 'Esc', label: 'Back to where you came from' },
-  pick: { chips: 'x' },
 } satisfies Record<string, Shortcut>;
 
 export type ShortcutId = keyof typeof TABLE;
@@ -118,45 +120,6 @@ export function sheetLines(group: SheetGroup, place: SheetPlace, mac: boolean): 
 /** What the switch's sentence says stays on: an exported copy has no palette. */
 export function switchSentence(exported: boolean, paletteKey: string): string {
   return `Off, only ${exported ? '' : `${paletteKey}, `}Esc, Enter and the arrows work.`;
-}
-
-const STORED = 'shadowlap-single-keys';
-let on: boolean | null = null;
-const listeners = new Set<() => void>();
-
-/** Whether single-key shortcuts are on: read from the browser on first use, on where it can't say. */
-export function singleKeysOn(): boolean {
-  if (on === null) {
-    try {
-      on = localStorage.getItem(STORED) !== 'off';
-    } catch {
-      on = true;
-    }
-  }
-  return on;
-}
-
-/** Turns them on or off for this browser; it works without storage, for this page only. */
-export function setSingleKeys(next: boolean): void {
-  on = next;
-  try {
-    localStorage.setItem(STORED, next ? 'on' : 'off');
-  } catch {
-    // Remembered for this page only.
-  }
-  for (const fn of [...listeners]) fn();
-}
-
-function subscribe(fn: () => void): () => void {
-  listeners.add(fn);
-  return () => {
-    listeners.delete(fn);
-  };
-}
-
-/** The switch, read so a component draws again when it moves. The third argument is for tests that draw to a string, where every key is on. */
-export function useSingleKeys(): boolean {
-  return useSyncExternalStore(subscribe, singleKeysOn, () => true);
 }
 
 export interface ShortcutMark {

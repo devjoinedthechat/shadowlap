@@ -75,8 +75,9 @@ describe('the table of keys', () => {
     expect(shortcut('replay')).toEqual({});
     expect(keyColumn('help')).toBeUndefined();
     expect(goKeyColumn('#/runs')).toBeUndefined();
-    // ⌘K is no single key: it stays.
-    expect(shortcut('palette')).toEqual({ 'aria-keyshortcuts': 'Meta+K Control+K', 'data-shortcut': 'palette' });
+    // A key with no mark marks nothing, whatever the switch says.
+    setSingleKeys(true);
+    expect(shortcut('up')).toEqual({});
   });
 
   it('remembers the switch in the browser, and works where storage throws', async () => {
@@ -85,7 +86,7 @@ describe('the table of keys', () => {
     setSingleKeys(false);
     expect(stored.get('shadowlap-single-keys')).toBe('off');
     vi.resetModules();
-    const fresh = await import('../ui/shortcuts.js');
+    const fresh = await import('../ui/single-keys.js');
     expect(fresh.singleKeysOn()).toBe(false);
     fresh.setSingleKeys(true);
     expect(stored.get('shadowlap-single-keys')).toBe('on');
@@ -98,7 +99,7 @@ describe('the table of keys', () => {
       },
     });
     vi.resetModules();
-    const blocked = await import('../ui/shortcuts.js');
+    const blocked = await import('../ui/single-keys.js');
     expect(blocked.singleKeysOn()).toBe(true);
     blocked.setSingleKeys(false);
     expect(blocked.singleKeysOn()).toBe(false);

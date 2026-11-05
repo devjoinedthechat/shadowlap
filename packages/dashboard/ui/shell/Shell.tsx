@@ -1,4 +1,5 @@
 import { useEffect, useSyncExternalStore, type ComponentType } from 'react';
+import { onShow } from '../components/OnShow.js';
 import { tabAbout } from '../about.js';
 import { JobDrawer } from '../components/Drawer.js';
 import { HoverCardLayer } from '../components/HoverCard.js';
@@ -14,12 +15,14 @@ import { useApp } from '../state.js';
 import { docTitle, onOpenRunAbout, openRunAbout, TAB_ABOUT_MAX } from '../title.js';
 import { ExpiredCard, OfflineBar } from './Connection.js';
 import { Keyboard } from './Keyboard.js';
-import { Palette } from './Palette.js';
-import { Shortcuts } from './Shortcuts.js';
 import { Sidebar } from './Sidebar.js';
 import { SkipLink } from './SkipLink.js';
 import { StatusBar } from './StatusBar.js';
 import { TopBar } from './TopBar.js';
+
+/** The palette and the shortcuts sheet wait in scripts of their own, which load as the shell first draws, so they answer at once and with the server gone. */
+const Palette = onShow(() => import('./Palette.js').then((m) => m.Palette));
+const Shortcuts = onShow(() => import('./Shortcuts.js').then((m) => m.Shortcuts));
 
 /**
  * What the shell draws where the page goes, for the route the address bar holds: the dashboard's

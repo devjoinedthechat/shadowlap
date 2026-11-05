@@ -52,8 +52,9 @@ test('Enter opens the row, the run’s heading takes the focus, and Esc comes ba
 
 test('Esc on a run opened cold goes up to its parent, or to Runs', async ({ page }) => {
   await openPage(page, `/run/${demoId('override')}`, 'run');
+  const parent = await page.locator('nav.crumbs a[href^="#/run/"]').last().getAttribute('href');
   await page.keyboard.press('Escape');
-  await expect.poll(() => hash(page)).toContain(`#/run/${demoId('refundBug')}`);
+  await expect.poll(() => hash(page)).toContain(parent!);
   await page.locator('h1.rnm').waitFor();
   await page.keyboard.press('Escape');
   await expect.poll(() => hash(page)).toContain('#/runs');

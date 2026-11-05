@@ -18,7 +18,7 @@ import { ByAvatar } from './people.js';
 import { RunKey } from '../components/RunKey.js';
 import { markKey, MARKS, type RunMark } from '../runkey.js';
 import { useListKeys, type RowScope } from '../list-keys.js';
-import { singleKeysOn } from '../shortcuts.js';
+import { singleKeysOn } from '../single-keys.js';
 
 /**
  * The Runs table, one row a run: its id (decision 10: the id is its name), then what it was about in

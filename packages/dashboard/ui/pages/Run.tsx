@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { JOB_KINDS, type CallDetail, type RunDetail } from '../api.js';
-import { Legend, LoadFailed, Tabs } from '../components/bits.js';
+import { Legend, LoadFailed } from '../components/bits.js';
+import { Tabs } from '../components/Tabs.js';
 import { tipText } from '../components/HoverCard.js';
 import { useMenu } from '../components/Popover.js';
 import { Page } from '../components/Page.js';

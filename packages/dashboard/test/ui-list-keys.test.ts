@@ -1,6 +1,6 @@
 import { act, createElement, useRef, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Tabs } from '../ui/components/bits.js';
+import { Tabs } from '../ui/components/Tabs.js';
 import { backRowKey, isDetail, pageSig, samePage, trailAfter, type TrailStop } from '../ui/focus.js';
 import { headingRef } from '../ui/focus-manager.js';
 import { useListKeys } from '../ui/list-keys.js';

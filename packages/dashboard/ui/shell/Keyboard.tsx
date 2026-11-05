@@ -11,7 +11,7 @@ import { knownParent } from '../parents.js';
 import { GO_KEYS, GO_WINDOW_MS, href } from '../route.js';
 import { copyCompares } from '../runs.js';
 import { currentRoute, navigate } from '../router.js';
-import { singleKeysOn, useSingleKeys } from '../shortcuts.js';
+import { singleKeysOn, useSingleKeys } from '../single-keys.js';
 import { useApp, type AppState } from '../state.js';
 import { toastKey, UNDO_KEY } from '../toast.js';
 import { crumbParent } from './top.js';

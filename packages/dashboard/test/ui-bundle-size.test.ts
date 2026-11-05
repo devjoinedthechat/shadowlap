@@ -36,12 +36,12 @@ const COPY = 900 * KB;
 
 /** The pages the shell routes to, by their chunk's name: the list grows as pages land. */
 const PAGES = ['Compare', 'Fixes', 'NewProject', 'Overview', 'Run', 'Runs', 'Settings', 'Setup', 'StoreSetup', 'Tests', 'Training'];
-/** The parts of pages in scripts of their own, by their chunk's name: the list grows as parts land. */
-const PARTS = ['ContextView', 'ForksView', 'ProvenanceView', 'TimelineView', 'TurnsView'];
+/** The parts of pages, and the shell's palette and shortcuts sheet, in scripts of their own, by their chunk's name: the list grows as parts land. */
+const PARTS = ['ContextView', 'ForksView', 'Palette', 'ProvenanceView', 'Shortcuts', 'TimelineView', 'TurnsView'];
 /** The pages an exported copy shows (ui/pages/copy.tsx). */
 const COPY_PAGES = ['Compare', 'Run', 'Runs'];
-/** The parts the copy's pages show, in its one script: a run's views but Calls. */
-const COPY_PARTS = ['ContextView', 'ForksView', 'ProvenanceView', 'TimelineView', 'TurnsView'];
+/** The parts the copy shows, in its one script: a run's views but Calls, and what its shell holds. */
+const COPY_PARTS = ['ContextView', 'ForksView', 'Palette', 'ProvenanceView', 'Shortcuts', 'TimelineView', 'TurnsView'];
 
 /**
  * The parts heavy enough that they must wait for a script of their own (`onShow`), by their modules:
