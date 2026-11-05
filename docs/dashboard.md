@@ -1418,17 +1418,18 @@ Each is built from the blame's report and the flags kept beside it, as Run more 
 
 **Apply fix** runs [`shadowlap fix apply`](./cli.md#fix) once you confirm, since it changes your working tree. The confirm dialog names every file the patch changes, and shows the patch itself. The patch goes in with `git apply`, the recordings the fixed code made are copied into `goldens/`, and `shadowlap test` replays them. The button then reads *Patch applied*, and **Show patch** takes the place of Copy git apply.
 
-Under the patch, the dialog asks a name for each golden it copies: *The golden from `01K5CQ2E8M`*, filled with the fix's label (`refund-bug`, or `refund-bug-1` and `refund-bug-2` for two), never the run's id.
-
-- A name takes lower-case letters, digits and hyphens, one golden each, and not one `goldens/` holds already. Under the field, the dialog says why one won't do, such as *goldens/refund-bug is taken: pick another name.*, and Apply fix waits until each will.
-- The command follows what you type, `shadowlap fix apply <fix> --name 01K5CQ2E8M=refund-bug`, and the step says where each recording goes.
-- A golden copied before keeps its name and is asked none, as [`fix apply`](./cli.md#fix-apply) keeps it. So do Mark applied and Finish applying, which ask the names of the goldens they copy.
-
 - **A fix with no patch** (verified on the working tree, or with a change of request fields) reads *Marked applied* once applying marks it. Its hover names the change its agent makes, or says it was verified on the working tree, and the activity feed says *Marked applied* too.
 - **A patch already in your working tree** (a pull request merged it, or you applied it by hand), which `git apply --reverse --check` recognises as `fix apply` does, needs no applying. The button reads **Mark applied**, which copies the goldens it is missing, runs them and marks the fix applied; Copy git apply is gone, and the Overview no longer counts the fix as ready to apply.
 - **A teammate's repair**, from the team store: the patch goes in alone, and nothing runs it. Its recordings are on their machine, and your goldens aren't replayed against it until you have read it and run `shadowlap test`.
 - **A patch that is more than the change its repair verified** (another file, a file made, renamed or given a mode, lines its candidate doesn't rewrite) can't be applied from here. The button stays off and says why, Copy git apply is gone, and `fix apply` refuses it.
 - **A teammate's patch that is no rewrite a repair makes in your working tree** (code or a comment rewritten, text past the end of its string, a file or a value that runs) is refused the same way. See [the team store](./team.md#a-teammates-patch-is-held-to-a-repairs-rewrites).
+
+Under the patch, the dialog asks a name for each golden it copies: *The golden from `01K5CQ2E8M`*, filled with the fix's label (`refund-bug`, or `refund-bug-1` and `refund-bug-2` for two), never the run's id.
+
+- A name takes lower-case letters, digits and hyphens, from a letter or a digit, one golden each, and not one `goldens/` holds already. Under the field, the dialog says why one won't do, such as *goldens/refund-bug is taken: pick another name.*, and Apply fix waits until each will.
+- The command follows what you type, `shadowlap fix apply <fix> --name 01K5CQ2E8M=refund-bug`, and the step says where each recording goes.
+- A recording in `goldens/` already keeps its name and is asked none, as [`fix apply`](./cli.md#fix-apply) keeps it: one an earlier apply copied, under whatever name it gave it, or one `repair --goldens` copied under the run's id.
+- Mark applied and Finish applying ask the names of the goldens they copy too.
 
 For a patch repaired here, or a teammate's already in your tree, the project's other goldens are replayed offline too. A prompt or a tool description goes into every request, so a golden recorded before the change can diverge on it from the first call.
 

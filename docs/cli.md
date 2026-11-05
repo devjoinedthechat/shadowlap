@@ -1227,14 +1227,14 @@ A fix is one failure, from the blame that reproduced it to a change that held.
 
 Its subcommands take these flags:
 
-| Flag                | What it does                                                              | Default   |
-| ------------------- | ------------------------------------------------------------------------- | --------- |
-| `--status <status>` | `fix ls`: only open, verified (applied ones too) or applied fixes         | —         |
-| `--name <run>=<name>` | `fix apply`: the name of the golden copied from a fixed run (repeatable) | The fix's label |
-| `--goldens <dir>`   | `fix apply`: where the recordings go                                      | `goldens` |
-| `--no-test`         | `fix apply`: copy the recordings without running `shadowlap test` on them | —         |
-| `--build <command>` | `fix apply`: rebuild the agent after the patch, before the test           | —         |
-| `--json`            | Print it as JSON: the dashboard's read model of Fixes (below)             | —         |
+| Flag                  | What it does                                                              | Default         |
+| --------------------- | ------------------------------------------------------------------------- | --------------- |
+| `--status <status>`   | `fix ls`: only open, verified (applied ones too) or applied fixes         | —               |
+| `--name <run>=<name>` | `fix apply`: the name of the golden copied from a fixed run (repeatable)  | The fix's label |
+| `--goldens <dir>`     | `fix apply`: where the recordings go                                      | `goldens`       |
+| `--no-test`           | `fix apply`: copy the recordings without running `shadowlap test` on them | —               |
+| `--build <command>`   | `fix apply`: rebuild the agent after the patch, before the test           | —               |
+| `--json`              | Print it as JSON: the dashboard's read model of Fixes (below)             | —               |
 
 With `--json`, each subcommand prints:
 
@@ -1379,6 +1379,9 @@ step.
   `patchFile`;
 - `inTree` when it is in the working tree already, which applying only marks;
 - how many recordings applying copies into the goldens folder, in `goldens`;
+- each it copies now, by its `run` (the short id), with the `name` it takes unless `--name` gives
+  another, in `names`; and the names the goldens folder holds, which none may take, in `held`
+  (`null` where the folder isn't read);
 - the request fields a change with no patch set, in `change`;
 - `refused`, saying why `fix apply` won't apply it, when the patch is more than the change its repair
   verified, or a teammate's is no rewrite a repair makes in this working tree. `gitApply` is `null`
