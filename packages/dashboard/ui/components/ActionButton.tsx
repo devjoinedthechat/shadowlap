@@ -78,7 +78,7 @@ export function ActionButton({ why, whyAct, whyTip, tip, sub, command, href, onC
       toast(reason, 'notice', whyAct ? { ...whyAct, returnTo: from, focus: keyboard } : undefined);
     };
     const plain = className.replace(/\b(lime|danger)\b/g, '').replace(/\s+/g, ' ').trim();
-    const card = tipCard(tip ?? title ?? rest['aria-label'] ?? wordsOf(children), [], whyTip ?? reason, command);
+    const card = tipCard(tip ?? rest['aria-label'] ?? title ?? wordsOf(children), [], whyTip ?? reason, command);
     return (
       <button {...rest} ref={ref} type={type} className={plain} aria-disabled="true" data-why={reason} data-tip={card} onClick={press}>
         {children}

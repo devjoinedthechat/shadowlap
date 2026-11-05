@@ -21,7 +21,7 @@ export function lineTone(line: string): LineTone {
   if (/^(✓|●)/.test(t)) return 'ok';
   if (/^(✗|error\b|Error\b)/.test(t)) return 'no';
   // `?` an inconclusive golden, `–` a check that doesn't apply.
-  if (/^(⑂|⚠|!|\?|warning\b)/.test(t)) return 'y';
+  if (/^(⑂|⚠|!|\? |warning\b)/.test(t)) return 'y';
   if (t.startsWith('– ')) return 'dim';
   // Training: a `tasks score` attempt that missed a check ("3 · ✓ … · ✗ … · 0.33"), as the mock marks it.
   if (/^\d+ · /.test(t) && t.includes('✗')) return 'y';

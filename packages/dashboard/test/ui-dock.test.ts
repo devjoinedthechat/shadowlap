@@ -5,6 +5,7 @@ import { JobDrawer } from '../ui/components/Drawer.js';
 import { chipJob, drawnJob, endedBehind, jobClosed, jobOpened, jobsLeftBehind, jobStarted, type WatchedJob } from '../ui/job-store.js';
 import { endChip } from '../ui/jobs.js';
 import { closeTopPanel } from '../ui/overlays/slots.js';
+import { parseRoute, samePage } from '../ui/route.js';
 import { JobChip } from '../ui/shell/JobChip.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { ToastAction } from '../ui/toast.js';
@@ -453,5 +454,21 @@ describe('what waits', () => {
     await r!.click(button);
     expect(toasts[0][0]).toBe('A check stands in the way');
     expect(toasts[0][2]).toMatchObject({ label: 'Open Tests', run });
+  });
+});
+
+describe('a way on and the page on the screen', () => {
+  const on = (hash: string, to: string) => samePage(parseRoute(hash), parseRoute(to));
+
+  it('is the page whatever call, view or step is picked, and another run, fix, tab or filter is another page', () => {
+    expect(on('#/tests', '#/tests')).toBe(true);
+    expect(on('#/run/A', '#/run/A/3/forks')).toBe(true);
+    expect(on('#/run/A', '#/run/B')).toBe(false);
+    expect(on('#/fixes/fx-1', '#/fixes/fx-1/blame')).toBe(true);
+    expect(on('#/fixes', '#/fixes/fx-1')).toBe(false);
+    expect(on('#/settings/store', '#/settings/matching')).toBe(false);
+    expect(on('#/runs', '#/runs?q=x')).toBe(false);
+    expect(on('#/runs?q=x', '#/runs?q=x')).toBe(true);
+    expect(on('#/tests', '#/runs')).toBe(false);
   });
 });

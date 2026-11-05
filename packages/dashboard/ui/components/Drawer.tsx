@@ -117,7 +117,7 @@ function JobLog({ job, lines, running }: { job: WatchedJob['job']; lines: readon
   useEffect(() => {
     const el = out.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [lines.length]);
+  }, [lines.length, job.total]);
   return (
     <pre ref={out} id="jout" tabIndex={0} role="log" aria-live="off" aria-label="Output">
       <span className="p">$ {jobCommand(job.args)}</span>
@@ -259,9 +259,9 @@ function WayOn({ watched, close, elsewhere }: { watched: WatchedJob; close: () =
  */
 function useJobEnd(watched: WatchedJob, panel: { readonly current: HTMLElement | null }, fold: () => void): void {
   const { toast, openJob, dropToast } = useApp();
-  const { job, lines } = watched;
+  const { job } = watched;
   const hidden = !watched.open;
-  const now = useLatest({ hidden, toastText: endToast(job, lines), error: jobStatus(job, lines).tone === 'err', toast, openJob, dropToast, fold });
+  const now = useLatest({ hidden, job, lines: watched.lines, toast, openJob, dropToast, fold });
   const said = useRef(job.done);
   const offered = useRef<ToastAction | null>(null);
   useEffect(() => {
@@ -276,7 +276,8 @@ function useJobEnd(watched: WatchedJob, panel: { readonly current: HTMLElement |
       const action: ToastAction = next ? { label: next.textContent.trim(), run: () => next.click(), onGone } : { label: 'Show', run: () => now.current.openJob(job.id, true), onGone };
       document.body.classList.add('jobtoast');
       offered.current = action;
-      now.current.toast(now.current.toastText, now.current.error ? 'error' : 'notice', action);
+      const { job: ended, lines } = now.current;
+      now.current.toast(endToast(ended, lines), jobStatus(ended, lines).tone === 'err' ? 'error' : 'notice', action);
       return;
     }
     const focus = setTimeout(() => {
@@ -334,6 +335,8 @@ function useDockFocus(watched: WatchedJob, panel: { readonly current: HTMLElemen
 
 function Drawer({ watched }: { watched: WatchedJob }) {
   const { closeJob, meta } = useApp();
+  // Gone, what sits over it takes its place, once it is off the page.
+  useEffect(() => retoast, []);
   const { job, lines, lost = false } = watched;
   const hidden = !watched.open;
   const running = !job.done && !lost;

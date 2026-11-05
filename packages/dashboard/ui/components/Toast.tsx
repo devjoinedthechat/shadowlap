@@ -43,7 +43,7 @@ function useUndoKeys(shown: Shown | null, out: boolean, conn: string, act: (t: S
  * on. Esc or Tab on the button hands the focus back, as does a toast that goes while holding it.
  */
 export function ToastHost() {
-  const { toastText, jobs, conn } = useApp();
+  const { toastText, conn } = useApp();
   const [shown, setShown] = useState<Shown | null>(null);
   const [out, setOut] = useState(false);
   const [said, setSaid] = useState('');
@@ -132,8 +132,8 @@ export function ToastHost() {
     wait(shown);
   }, [shown, wait]);
 
-  // Placed again as what sits under it moves: a dialog or a sheet, the job's drawer, the window's size.
-  useLayoutEffect(() => retoast(), [jobs, conn]);
+  // Placed again as what sits under it moves: a dialog or a sheet, the window's size. What sits at
+  // the content's foot says so itself (the job's drawer, its chip, the bulk bar).
   useEffect(() => {
     const stop = onOverlayChange(retoast);
     window.addEventListener('resize', retoast);

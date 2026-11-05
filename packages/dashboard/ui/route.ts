@@ -57,9 +57,10 @@ export function isView(s: unknown): s is View {
   return typeof s === 'string' && (VIEWS as readonly string[]).includes(s);
 }
 
-/** Whether two routes show one page: picking a call, a view or a fix's step stays on it. */
+/** Whether two routes show one page: picking a call, a view or a fix's step stays on it, and Runs is the page its filter shows. */
 export function samePage(a: Route, b: Route): boolean {
   if (a.page !== b.page) return false;
+  if (a.page === 'runs') return JSON.stringify(a) === JSON.stringify(b);
   if ((a.page === 'run' || a.page === 'fixes') && a.id !== (b as typeof a).id) return false;
   return (a.page !== 'settings' && a.page !== 'training') || a.tab === (b as typeof a).tab;
 }

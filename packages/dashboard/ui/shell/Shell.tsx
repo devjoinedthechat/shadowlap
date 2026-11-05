@@ -11,7 +11,7 @@ import { OverlaySlots } from '../overlays/slots.js';
 import { setupShowsOn } from '../projects.js';
 import type { Route } from '../route.js';
 import { useRoute } from '../router.js';
-import { useApp } from '../state.js';
+import { useApp, useAppSelector } from '../state.js';
 import { docTitle, onOpenRunAbout, openRunAbout, TAB_ABOUT_MAX } from '../title.js';
 import { ExpiredCard, OfflineBar } from './Connection.js';
 import { Keyboard } from './Keyboard.js';
@@ -33,10 +33,16 @@ export type Pages = ComponentType<{ route: Route }>;
 /** The job's drawer: its code loads as the first job shows. */
 const JobDrawer = onShow(() => import('../components/Drawer.js').then((m) => m.JobDrawer));
 
+/** Reads the jobs for the shell, which a job's every line would redraw otherwise. */
+function Dock() {
+  const drawn = useAppSelector((app) => !!drawnJob(app.jobs));
+  return drawn ? <JobDrawer /> : null;
+}
+
 /** The app: top bar, sidebar, the page, the status bar, and what sits over them. */
 export function Shell({ pages: PageSlot }: { pages: Pages }) {
   const route = useRoute();
-  const { setSideOpen, closeJobs, conn, jobs } = useApp();
+  const { setSideOpen, closeJobs, conn } = useApp();
   useDocTitle(route);
 
   // The phone sidebar closes on navigation; a finished job's drawer closes when the page changes (not
@@ -67,7 +73,7 @@ export function Shell({ pages: PageSlot }: { pages: Pages }) {
       <OverlaySlots />
       <Palette route={route} />
       <Shortcuts onRun={route.page === 'run'} />
-      {drawnJob(jobs) ? <JobDrawer /> : null}
+      <Dock />
       {/* A Tests job that would run goldens live asks here, whichever page or the palette started it. */}
       <TestsAskHost />
       <ToastHost />
