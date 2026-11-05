@@ -9,9 +9,6 @@
 /** A golden's name: lower-case letters, digits and hyphens, from a letter or a digit. */
 const NAME = /^[a-z0-9][a-z0-9-]*$/;
 
-/** The longest name a golden takes. */
-export const GOLDEN_NAME_MAX = 64;
-
 /** The longest name a label or a title makes, before a number goes after it. */
 const MADE_MAX = 40;
 
@@ -49,16 +46,15 @@ export interface GoldenNameProblem {
 
 /**
  * Why the names for the goldens apply copies won't do, or null when each will: every one given, of
- * lower-case letters, digits and hyphens, the only one with that name, and none taken in the goldens
- * folder. `held` names what that folder holds, read without case, as macOS and Windows read a
- * folder's name; `folder` is the goldens folder as the words show it (`goldens`).
+ * lower-case letters, digits and hyphens from a letter or a digit, the only one with that name, and
+ * none taken in the goldens folder. `held` names what that folder holds, read without case, as macOS
+ * and Windows read a folder's name; `folder` is the goldens folder as the words show it (`goldens`).
  */
 export function goldenNamesProblem(names: readonly string[], o: { folder: string; held: readonly string[] }): GoldenNameProblem | null {
   const held = new Set(o.held.map((h) => h.toLowerCase()));
   const checks: Array<[(n: string, i: number) => boolean, (n: string) => string]> = [
     [(n) => !n, () => (names.length > 1 ? 'Give each golden a name.' : 'Give the golden a name.')],
     [(n) => !NAME.test(n), () => 'A golden’s name takes lower-case letters, digits and hyphens.'],
-    [(n) => n.length > GOLDEN_NAME_MAX, () => `A golden’s name takes at most ${GOLDEN_NAME_MAX} characters.`],
     [(n, i) => names.indexOf(n) !== i, () => 'Each golden needs a name of its own.'],
     [(n) => held.has(n), (n) => `${o.folder.replace(/\/+$/, '')}/${n} is taken: pick another name.`],
   ];

@@ -37,8 +37,8 @@ describe('a golden’s name', () => {
     expect(goldenNamesProblem([''], ok)).toEqual({ at: 0, text: 'Give the golden a name.' });
     expect(goldenNamesProblem(['refund-bug-1', ''], ok)).toEqual({ at: 1, text: 'Give each golden a name.' });
     for (const bad of ['Double-Email', 'double_email', 'double email', '-double', 'goldens/x', '..']) expect(goldenNamesProblem([bad], ok)).toEqual({ at: 0, text: 'A golden’s name takes lower-case letters, digits and hyphens.' });
-    expect(goldenNamesProblem(['a'.repeat(64)], ok)).toBeNull();
-    expect(goldenNamesProblem(['a'.repeat(65)], ok)).toEqual({ at: 0, text: 'A golden’s name takes at most 64 characters.' });
+    // No more to it than that: E28's rule, as the mock's dialog keeps it.
+    expect(goldenNamesProblem(['a'.repeat(100), '0-refund--twice-'], ok)).toBeNull();
     expect(goldenNamesProblem(['refund-bug', 'refund-bug'], ok)).toEqual({ at: 1, text: 'Each golden needs a name of its own.' });
     // Taken in the folder, read without case as macOS and Windows read a folder's name.
     expect(goldenNamesProblem(['refund-bug', 'confirmation-email'], { folder: 'goldens/', held: ['Confirmation-Email'] })).toEqual({ at: 1, text: 'goldens/confirmation-email is taken: pick another name.' });

@@ -1443,9 +1443,9 @@ goldens folder named for what a test reads it by, never the run's id:
   `--name 01K5CQ2E8M=double-email`. Give one for each golden you name.
 - A golden you don't name takes the fix's label, else its title, as a name: `refund-bug`, or
   `refund-bug-1` and `refund-bug-2` for two.
-- A name takes lower-case letters, digits and hyphens, at most 64 of them. Each golden needs one of
-  its own, and not one the goldens folder holds already, read without case as macOS and Windows read
-  a folder's name.
+- A name takes lower-case letters, digits and hyphens, from a letter or a digit. Each golden needs
+  one of its own, and not one the goldens folder holds already, read without case as macOS and
+  Windows read a folder's name.
 
 A name that won't do changes nothing: `fix apply` says why and how to give another, and exits 2. It
 prints where each golden went and the run it holds (`copied goldens/double-email from 01K5CQ2E8M`).
