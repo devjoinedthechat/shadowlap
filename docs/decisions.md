@@ -36,6 +36,7 @@ goldens/research 01M58W8A0Z  11 of 11 model calls asked · 3 changed, most: rank
 
   Later steps are judged in the recorded run's state: after the first changed decision, each step says what the change decides where the recorded run was, not where the changed run would have got to. shadowlap verify runs it end to end.
   Each step was asked 3 times under the change and 3 times as recorded: a change is ranked only when its decisions run more consequential than the recorded request's own, by an exact permutation test at 5% a step.
+  A step that reads the same can still decide otherwise some of the time: at 3 samples, one that does so 1 time in 5 is ranked 0.8% of the time.
   asking: 66 upstream requests · ≈$0.174 spent · per run ≈$0.043 → ≈$0.014 (−67%)
 ```
 
@@ -210,7 +211,7 @@ The report's notes count the steps a check reads: those it came out otherwise fo
 ### What no judge reads
 
 - **A run that did not complete** (its agent exited with an error, or it was interrupted) is judged by none of its checks, as `pack` and `test` judge none. It fails its checks whatever a judge says, so its text-only changes are counted, and the report says so.
-- **A check on what the agent printed** (`"of": "output"`) reads no model call's answer. The report names it, and verify judges it end to end when it takes the run (`--then-verify`, `migrate`), as it takes only a run with a write, stop or judged change. Nothing judges it under the change for a run whose changes are text only.
+- **A check on what the agent printed** (`"of": "output"`) reads no model call's answer. The report names it, and verify judges it end to end: a run whose text changed is among [those a preview can't clear](#then-verify) when such a check reads it.
 - **The words of an earlier step**, as given. The requests after it carry them back to the model as recorded, so no run holds that answer with the rest as recorded.
 
 ## Reading the report
@@ -234,7 +235,7 @@ Each run lists its changed steps, the most consequential first. The report's par
 
 The steps don't depend on each other: step 9 is asked with the conversation as recorded up to step 9, whatever step 3 decided. That is what makes them parallel and free of side effects.
 
-It is also the report's limit: **after the first changed decision, later steps are judged in the recorded run's state**, which the changed agent may never have reached. Every report says so. It narrows where to look; [`verify`](./verify.md) is the end-to-end check, and `--then-verify` runs it on exactly the runs that need it.
+It is also the report's limit: **after the first changed decision, later steps are judged in the recorded run's state**, which the changed agent may never have reached. A model that skips a read and later acts without it looks fine at the later steps, which still see what it read. Every report says so. It narrows where to look; [`verify`](./verify.md) is the end-to-end check, and `--then-verify` runs it on [the runs a preview can't clear](#then-verify).
 
 ### Samples and the control
 
@@ -256,6 +257,18 @@ With 3 samples a side, no split comes out less often than 1 in 20, so a change i
 
 **Fewer than 3 samples.** With fewer than 3 samples nothing can reach 5%, so the control isn't asked. A step flags its run when more than half its samples show a write, stop or judged change, and the report says such a change was not told from the model's own variation.
 
+### What a step that reads the same is worth
+
+A step that reads the same can still decide otherwise some of the time. The control's test is built against false alarms, so few samples miss what a model does only sometimes, and 3 samples miss more than 1. This table gives the chance a step is ranked, in the easiest case, where it never decides otherwise as recorded:
+
+| `--samples` | Shows 1 time in 10 | Shows 1 time in 5 | Shows 1 time in 2 |
+| ---------: | ----------------: | ---------------: | ---------------: |
+| 1 | 10% | 20% | 50% |
+| 3 | 0.1% | 0.8% | 12.5% |
+| 10 | 1.3% | 12.1% | 82.8% |
+| 20 | 4.3% | 37% | 99.4% |
+
+So no number of samples clears a run on its own, and a report with a step that reads the same says what it is worth. [Verify](#then-verify) runs the runs that have something to lose.
 ### Steps the control can't decide
 
 Some steps aren't ranked, or aren't ranked against the control:
@@ -388,7 +401,13 @@ A call is sent with the query it was recorded with, credentials left out: an Azu
 shadowlap decisions goldens/* --from-code --then-verify
 ```
 
-After asking, `--then-verify` runs [`verify`](./verify.md) on the runs with a rank 1 or 2 change, and only on those. Runs with no write, stop or judged change are not replayed.
+After asking, `--then-verify` runs [`verify`](./verify.md) on the runs a preview can't clear, since it asks each step in the recorded run's state and only a few times. A run asked again goes end to end when any of these holds:
+
+- **It acts on the world.** A step as recorded calls a write tool, a tool no recording gives an effect, or hands over, however alike its steps look.
+- **Any sample decided otherwise.** That covers every rank from 1 to 4, a changed read included, ranked or not.
+- **Its words changed and a check reads more than them.** A preview only answers a judge of a model call's words, so any other check, such as `answer`, `output` or a token limit, is verify's.
+
+A run with none of these is cleared and not replayed: it is listed as not run end to end. `--strict` still fails only on a rank 1 or 2 change.
 
 - **The checks.** Each run is judged by its checks from `shadowlap.config.json` (or `--expect`): a golden's own, and for a run named by id those of the recording it comes from (the golden a test replayed, or the pack it was unpacked from). It runs one verify per set of checks.
 - **The roles.** Each run plays the role its recording plays under them. A run that passes them as recorded must be kept: no worse than the same run without the change (for a switch, on the model it was recorded with) by 10 points or more, as [verify keeps a good run](./verify.md#good-runs-against-their-own-baseline). One that fails them must pass under the change.
@@ -399,7 +418,7 @@ The verdict is kept like any other, and the report ends with the commands that v
 
 ### Verify a session later
 
-A session kept earlier can be verified later, or one run of it: `shadowlap decisions --verify dc-01M58W8A0Z… [run]` verifies the runs it flagged the same way, without asking anything again. It keeps what verify finds in the session, over what an earlier verify found for the others. The dashboard runs it as its `decisions-verify` job.
+A session kept earlier can be verified later, or one run of it: `shadowlap decisions --verify dc-01M58W8A0Z… [run]` verifies the runs it could not clear the same way, without asking anything again. It keeps what verify finds in the session, over what an earlier verify found for the others. The dashboard runs it as its `decisions-verify` job.
 
 A run whose gate ran out of attempts between its bounds, or that an attempt it could not judge stopped, is *inconclusive*, and the session stays incomplete until a verify settles it. Each run keeps the rule that decided it, so a session verified again under another gate states each rule once, over the runs it decided.
 
@@ -427,9 +446,11 @@ What changes
 What still passes
   goldens/research             passed · kept, verified · 38 of 38, baseline 38 of 38 · drop <= 0.10 (95%)
   kept unless it drops 10+ points below its baseline, attempt for attempt, <= 5% risk, up to 200 pairs
+  1 of 1 run verified end to end
 
 What it costs
   per run      ≈$0.043 → ≈$0.014 (−67%) · 12,700 → 12,700 tokens
+  end to end   12,260 → 12,260 input tokens · ≈$0.043 → ≈$0.014 (−67%)
   checking it  ≈$0.014 asking, ≈$2.20 verifying
 
 What to set
@@ -442,7 +463,7 @@ The config change
 It works in three steps:
 
 1. It runs `decisions --model` on your goldens (`goldens/*`, or the packs and runs you name).
-2. It runs `verify` on the runs with a rank 1 or 2 change, each decided by verify's gate as `--then-verify` decides it.
+2. It runs `verify` on [the runs a preview can't clear](#then-verify), each decided by verify's gate as `--then-verify` decides it.
 3. It compares what a run costs.
 
 **Which calls it switches.** The agent's calls: those made with the models `--from` names, else those made with a model that retires, by the [retirement table](#model-retirements), else those made with the model the runs use most. A simulated user or a sub-agent on another model keeps its own, in the preview and in verify.
@@ -452,11 +473,13 @@ The report has four blocks, in order:
 | Block | What it holds |
 |---|---|
 | **What changes** | Each write, stop and judged change, with the recorded and the changed action; the rest counted |
-| **What still passes** | Each run's verdict: *passed*, *failed* or *inconclusive* |
-| **What it costs** | Per run, before and after, from the recorded calls and the changed answers, and what checking cost |
+| **What still passes** | Each run's verdict: *passed*, *failed* or *inconclusive*, and how many of the runs were verified end to end |
+| **What it costs** | Per run, before and after, from the recorded calls and the changed answers; end to end; and what checking cost |
 | **What to set** | The fields the switch needs, each with why |
 
 **What changes** counts the text-only changes with how many a judge check read as recorded, and how many it could not judge.
+
+**What it costs** gives its end-to-end line from what verify's attempts did, which sees a run that takes more steps than the recorded ones.
 
 ### What still passes
 
@@ -468,7 +491,7 @@ Each run's verdict is *passed*, *failed* or *inconclusive*. A run verified says 
 
 It gives its tally and the bound of its pass rate, or for a run kept against its baseline both tallies and the bound on its drop, under the rule that decided it, each rule stated once. An attempt that could not be judged is counted apart, never as one that failed (*2 of 2, attempt 3 not judged*).
 
-- **Unchanged.** A run with no write, stop or judged change is *unchanged*: it is not re-run, and its recording's own verdict under its checks stands.
+- **Unchanged.** A run the preview cleared is *unchanged*: it is not run end to end, and its recording's own verdict under its checks stands. The first line claims only what ran: *keeps the run it verified passing*, or, when none ran, *decided the same in the preview*.
 - **Not judged.** A run with a text-only change a judge check reads that could not be judged is *inconclusive* (`not-judged`): the words might read otherwise.
 
 ### What to set
@@ -524,7 +547,13 @@ When no string names the model (it comes from an environment variable or a deplo
 
 The pull request body shows what the project's redaction rules leave of the values it quotes.
 
-**Exit status.** Migrate exits 1 when a verified run breaks. A report that settles nothing (a step got no answer, a flagged run went unverified, the budget ran out) exits 3 unless `--inconclusive warn`.
+**Exit status.** Migrate exits 1 when a verified run breaks. A report that settles nothing (a step got no answer, a run that needed verify went unverified, the budget ran out) exits 3 unless `--inconclusive warn`.
+
+### Once the old model is gone
+
+A good run is kept against the same run [on the model it was recorded with](./verify.md#the-baseline), and a model that retired can't run. The baseline then says nothing of what the switch did, so each such run is [judged by its gate on its own](./verify.md#no-baseline), and the report's warnings say why. A run that fails its checks under the model it switches to fails, whatever the old one can no longer show.
+
+The old model's behavior can only be measured before it retires. So migrate before the date when you can: a run judged against its baseline tells a drop of 10 points, and a gate alone only tells 90% from 70%.
 
 ## Model retirements
 
@@ -577,8 +606,8 @@ These are the flags this page covers. [The CLI reference](./cli.md#decisions) li
 | `--samples <n>` | Ask each step *n* times under the change, and *n* times as recorded ([samples](#samples-and-the-control)) | 3 |
 | `--concurrency <n>` | The requests in flight | 4 |
 | `--budget <usd>` | Stop once this much is spent, judging included | — |
-| `--then-verify` | Verify the runs with a rank 1 or 2 change ([then verify](#then-verify)) | — |
-| `--verify <session>` | Verify the runs a kept session flagged, asking nothing again | — |
+| `--then-verify` | Verify the runs a preview can't clear ([then verify](#then-verify)) | — |
+| `--verify <session>` | Verify the runs a kept session could not clear, asking nothing again | — |
 | `--expect`, `--gate`, `--attempts`, `--passes` | With `--then-verify` or `--verify`: as for [`verify`](./verify.md) | — |
 | `--strict` | Exit 1 when a run has a rank 1 or 2 change, for CI | — |
 | `--inconclusive fail\|warn` | What a result that settles nothing does: `warn` lets it pass with a warning | `fail` |

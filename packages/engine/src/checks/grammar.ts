@@ -260,6 +260,11 @@ export function hasChecks(spec: ExpectSpec): boolean {
   return spec.tools.length > 0 || !!spec.modelCalls || !!spec.toolCalls || !!spec.inputTokens || !!spec.outputTokens || !!spec.cost || !!spec.output || !!spec.answer || !!spec.calls?.length || !!spec.when?.length || !!spec.judge?.length;
 }
 
+/** Whether any check reads more than one model call's words, the only check a preview can answer: what the run did, or what the agent printed. */
+export function readsMoreThanAStep(spec: ExpectSpec): boolean {
+  return hasChecks({ ...spec, judge: [] }) || !!spec.judge?.some((j) => j.of === 'output');
+}
+
 /** Whether any check reads what the agent printed, which a recording does not keep: `output`, or a judge of the output. */
 export function readsOutput(spec: ExpectSpec): boolean {
   return !!spec.output || !!spec.judge?.some((j) => j.of === 'output') || !!spec.when?.some((w) => readsOutput(w.then));
