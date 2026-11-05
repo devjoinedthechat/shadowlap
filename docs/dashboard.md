@@ -1418,6 +1418,12 @@ Each is built from the blame's report and the flags kept beside it, as Run more 
 
 **Apply fix** runs [`shadowlap fix apply`](./cli.md#fix) once you confirm, since it changes your working tree. The confirm dialog names every file the patch changes, and shows the patch itself. The patch goes in with `git apply`, the recordings the fixed code made are copied into `goldens/`, and `shadowlap test` replays them. The button then reads *Patch applied*, and **Show patch** takes the place of Copy git apply.
 
+Under the patch, the dialog asks a name for each golden it copies: *The golden from `01K5CQ2E8M`*, filled with the fix's label (`refund-bug`, or `refund-bug-1` and `refund-bug-2` for two), never the run's id.
+
+- A name takes lower-case letters, digits and hyphens, one golden each, and not one `goldens/` holds already. Under the field, the dialog says why one won't do, such as *goldens/refund-bug is taken: pick another name.*, and Apply fix waits until each will.
+- The command follows what you type, `shadowlap fix apply <fix> --name 01K5CQ2E8M=refund-bug`, and the step says where each recording goes.
+- A golden copied before keeps its name and is asked none, as [`fix apply`](./cli.md#fix-apply) keeps it. So do Mark applied and Finish applying, which ask the names of the goldens they copy.
+
 - **A fix with no patch** (verified on the working tree, or with a change of request fields) reads *Marked applied* once applying marks it. Its hover names the change its agent makes, or says it was verified on the working tree, and the activity feed says *Marked applied* too.
 - **A patch already in your working tree** (a pull request merged it, or you applied it by hand), which `git apply --reverse --check` recognises as `fix apply` does, needs no applying. The button reads **Mark applied**, which copies the goldens it is missing, runs them and marks the fix applied; Copy git apply is gone, and the Overview no longer counts the fix as ready to apply.
 - **A teammate's repair**, from the team store: the patch goes in alone, and nothing runs it. Its recordings are on their machine, and your goldens aren't replayed against it until you have read it and run `shadowlap test`.
@@ -2123,7 +2129,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | Job | What it runs |
 | --- | --- |
 | `action { runId, key, callNo?, value?, yes? }` | A run action the terminal UI shares: replay, the fork menu, repeat, pack, the suggested normalizer |
-| `apply { fixId }` | [`fix apply`](./cli.md#fix): a verified fix's patch into the working tree, its goldens tested |
+| `apply { fixId, names? }` | [`fix apply`](./cli.md#fix): a verified fix's patch into the working tree, its goldens named by their runs as `names` says, and tested |
 | `bisect { golden \| runId, good, bad? }` | Find breaking commit |
 | `blame { runId, expect?, yes? }` | Blame with the check the run failed: the one given, else the one it was judged by, else a 422 that asks for it |
 | `blame { fixId, again: true, yes? }`, `blame { fixId, model, yes? }` | An open fix's blame again, under its check, when it couldn't settle or stopped part way, or with another model when nothing rescued its run |

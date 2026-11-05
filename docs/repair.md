@@ -408,7 +408,7 @@ What the repair does to the fix depends on how it ends:
 
 **A failed hand-over**, such as a push or `gh pr create` refused, a file changed during the repair, or the recordings that could not be copied to `--goldens`. Repair says why and exits 1, and keeps the repair anyway: `report.json` is written, and the report's warnings say where the hand-over stopped. Goldens that didn't reach the project are left for `shadowlap fix apply` to copy.
 
-[`shadowlap fix apply <fix>`](./cli.md#fix) hands a verified fix over later. It applies `fix.patch`, copies the recordings in `goldens/` into the project's goldens folder, runs `shadowlap test` on them, and marks the fix applied.
+[`shadowlap fix apply <fix>`](./cli.md#fix) hands a verified fix over later. It applies `fix.patch`, copies the recordings in `goldens/` into the project's goldens folder, runs `shadowlap test` on them, and marks the fix applied. Each recording becomes a golden named after the fix's label, unless [`--name <run>=<name>`](./cli.md#fix-apply) gives it one, such as `--name 01K5CQ2E8M=double-email`. `repair --goldens` copies them under the run's id.
 
 A repair logs `repair.accepted` or `repair.empty` in the store's activity, and `fix.applied` for a fix `--apply` applied. Run by a dashboard job, it reports a link to the fix's Repair step.
 
