@@ -371,7 +371,7 @@ describe('the sidebar’s runs', () => {
   function Side({ keys, setPalette }: { keys: (e: unknown) => boolean; setPalette: (on: boolean) => void }) {
     return createElement(
       AppContext.Provider,
-      { value: app({ runKeys: { current: keys } as never, setPalette }) },
+      { value: app({ runKeys: { current: keys }, setPalette }) },
       createElement('aside', { id: 'side' }, createElement(RecentRuns, { runs: RUNS, current: null, loading: false, rowActions: (x: RunListItem) => ({ name: x.runId, items: () => [] }) })),
       createElement('main', { id: 'view', tabIndex: -1 }, createElement('h1', {}, 'A run')),
       createElement(Keyboard),
