@@ -37,6 +37,12 @@ export interface JobFile {
  */
 export interface JobView {
   id: string;
+  /**
+   * What it was estimated to bill when it started, as the page showed it (its card, its ask), so its
+   * drawer says the same however the store moves after; absent for a job that started with none.
+   * Nothing reads it to decide what runs.
+   */
+  estimate?: JobEstimate;
   /** The registered kind it was started as: `action` for the run actions, then `blame`, `import`, … */
   kind: string;
   /** What the drawer calls it: "Replaying", "Forking", "Importing a capture". */
@@ -83,6 +89,14 @@ export interface JobView {
 }
 
 /** A job in `GET /api/jobs` (`{ jobs }`, newest first): everything but its output and its result, which `GET /api/jobs/:id` has. */
+/** An estimate as a job keeps it (the engine's `Estimate`, in part): its price, and what Spending and the drawer hold it to. */
+export interface JobEstimate {
+  usd: number | null;
+  ceiling: boolean;
+  per?: string;
+  stops?: number;
+}
+
 export type JobListItem = Omit<JobView, 'lines' | 'result'>;
 
 /** A run recording now, with its calls so far. */
