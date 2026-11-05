@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import { JOB_KINDS, type RecordedHit } from '../api.js';
 import { AboutLine, FitHint, useFitAbouts } from '../components/About.js';
-import { fitsField } from '../components/Copy.js';
+import { fontOf, widthIn } from '../components/Copy.js';
 import { Modal } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { isMac } from '../dom.js';
@@ -42,6 +42,14 @@ export function Palette({ route }: { route: Route }) {
 }
 
 const go = (to: string) => navigate(to);
+
+/** Whether words fit a field whole, in its own type at the width it has; true where the page can't measure. */
+function fitsField(el: HTMLElement, text: string): boolean {
+  if (typeof getComputedStyle !== 'function') return true;
+  const cs = getComputedStyle(el);
+  const width = widthIn(fontOf(cs));
+  return !width || width(text) <= el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+}
 
 /**
  * The row whose actions the palette opened on, for as long as it stays on them, and the field's words

@@ -38,7 +38,7 @@ let canvas: CanvasRenderingContext2D | null | undefined;
 let canvasFont = '';
 
 /** A text's width on one line in a CSS font, or null where the page can't measure (no canvas: the tests' renderer). */
-function widthIn(font: string): ((s: string) => number) | null {
+export function widthIn(font: string): ((s: string) => number) | null {
   if (canvas === undefined) {
     const el = typeof document !== 'undefined' ? (document.createElement('canvas') as Partial<HTMLCanvasElement>) : null;
     canvas = typeof el?.getContext === 'function' ? el.getContext('2d') : null;
@@ -55,15 +55,7 @@ function widthIn(font: string): ((s: string) => number) | null {
 }
 
 /** A font as canvas takes it: the computed shorthand, or its parts where the browser gives none. */
-const fontOf = (cs: CSSStyleDeclaration) => cs.font || `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-
-/** Whether words fit a field whole, in its own type at the width it has; true where the page can't measure. */
-export function fitsField(el: HTMLElement, text: string): boolean {
-  if (typeof getComputedStyle !== 'function') return true;
-  const cs = getComputedStyle(el);
-  const width = widthIn(fontOf(cs));
-  return !width || width(text) <= el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-}
+export const fontOf = (cs: CSSStyleDeclaration) => cs.font || `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
 
 /** Whether the page can be measured: a browser's layout (not the tests' renderer). */
 const canMeasure = () => typeof getComputedStyle === 'function' && typeof ResizeObserver === 'function';

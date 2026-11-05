@@ -8,7 +8,8 @@ import { markChange, markKey, markTitle, markToast, undoChange, withChange } fro
 import { RunsTable, type TableRun } from '../ui/runspage/RunsTable.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { ACTION_TOAST_MS, toastKey, UNDO_KEY, type ToastAction } from '../ui/toast.js';
-import { noteShownRuns, shownRuns } from '../ui/list-keys.js';
+import { shownRuns } from '../ui/list-keys.js';
+import { noteShownRuns } from '../ui/runspage/shown-runs.js';
 import { setSingleKeys } from '../ui/shortcuts.js';
 import { render, type Rendered } from './ui-render.js';
 
