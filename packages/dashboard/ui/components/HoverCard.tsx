@@ -349,7 +349,7 @@ function clicked(e: MouseEvent): void {
   else show(el, null, 'tap');
 }
 
-/** Esc hides a card in the press that closes the menu or dialog it shows over; on the page, the page's own Esc does, and only the next one goes on (Keyboard.tsx). */
+/** Esc hides a card in the press that closes the menu or dialog it shows over. With neither open it is the shell's Esc, after a panel and the phone's sidebar (Keyboard.tsx). */
 function escape(e: KeyboardEvent): void {
   if (e.key === 'Escape' && shown && overlayOpen()) hideTip();
 }

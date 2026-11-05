@@ -124,7 +124,6 @@ const app = (client: Client) =>
     watchJob: () => undefined,
     toast: () => undefined,
     refresh: () => undefined,
-    registerLayer: () => () => undefined,
     setRunCommands: () => undefined,
     setPalette: () => undefined,
     runKeys: { current: null },

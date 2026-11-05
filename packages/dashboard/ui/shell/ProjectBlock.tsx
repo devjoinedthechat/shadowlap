@@ -19,9 +19,9 @@ import { RemoveProjectDialog } from './RemoveProject.js';
 /**
  * The project at the top of the sidebar, and the switcher behind it: each project on this machine
  * with its runs and its folder on its hover card, the current one checked, those still being set up,
- * Add project…, and × to remove one while there is more than one. Switching swaps the dashboard onto that project's
- * store and opens the Overview. A dashboard that serves one store (an exported copy, `--read-only`)
- * shows the project alone.
+ * Add project…, and × to remove one while there is more than one. Switching swaps the dashboard onto
+ * that project's store and opens the Overview. A dashboard that serves one store (an exported copy,
+ * `--read-only`) shows the project alone.
  */
 
 export function projectOf(meta: Meta | null): { name: string; path: string } | null {
@@ -171,7 +171,7 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
         <span className="pa">{initial(project.name)}</span>
         <span className="pn">
           <b>{project.name}</b>
-          {/* A long folder keeps its last folders, as the switcher's list shows it; the whole path is on hover. */}
+          {/* A long folder keeps its last folders; the whole path is on hover. */}
           <small>{compactPath(project.display ?? project.path, 30)}</small>
         </span>
         <Icon name="caret" className="caret" />

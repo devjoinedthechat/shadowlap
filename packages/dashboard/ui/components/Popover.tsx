@@ -23,7 +23,7 @@ export interface PopoverProps {
   className?: string;
   /** Which of the button's edges it lines up with: by default the one nearer the window's middle. */
   align?: 'start' | 'end';
-  /** As wide as the opener, at least the narrower of a menu's two widths: a picker, the project switcher. */
+  /** As wide as the opener, at least the narrower of a menu's two widths: a picker. */
   matchWidth?: boolean;
   label?: string;
   /** A picker is a dialog holding a combobox and a list. */
