@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
-import { GATEWAY_UNCHANGED, isGatewayRequest, isObject, loadApiRequest, messageOf, modelInRequest, placeInjection, plantInToolResult, recordingsOfRun, refused, requestShape, setRequestFields, switchModel, type CallRecord, type RunRecord, type SerializedError, type StoreOf } from '@shadowlap/engine';
+import { GATEWAY_UNCHANGED, isGatewayRequest, isObject, loadApiRequest, messageOf, modelInRequest, placeInjection, plantInToolResult, recordedChecks, refused, requestShape, setRequestFields, switchModel, type CallRecord, type RunRecord, type SerializedError, type StoreOf } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
-import { evaluateChecks, specFor, storedCheckInput, type CheckResult, type TestSpec } from './checks.js';
+import { evaluateChecks, storedCheckInput, type CheckResult, type TestSpec } from './checks.js';
 import { loadTests, type ShadowlapConfig } from './config.js';
 import { judgedOptions, type Judged } from './judge.js';
 
@@ -135,12 +135,7 @@ export function checksOfRun(store: StoreOf<'recording'>, run: RunRecord, cwd: st
   } catch {
     return null;
   }
-  if (!tests.length) return null;
-  for (const dir of recordingsOfRun(store, run)) {
-    const spec = specFor(tests, dir, cwd);
-    if (spec) return { spec, source: dir };
-  }
-  return null;
+  return tests.length ? recordedChecks(tests, store, run, cwd) : null;
 }
 
 /**
