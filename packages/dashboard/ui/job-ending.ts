@@ -1,3 +1,5 @@
+import { ownArgs } from './job-title.js';
+
 /**
  * How a job ended, in the words its own kind has for it: a session's verdict and tally, an update
  * that held or diverged again, the commit a search named, a verify's verdict, a repeat's paths. What
@@ -20,12 +22,6 @@ interface EndedJob {
 }
 
 const asRecord = (v: unknown): Record<string, unknown> | null => (typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
-
-/** A command's own options: what follows `--` is the agent's command, with flags of its own. */
-export function ownArgs(args: readonly string[]): readonly string[] {
-  const end = args.indexOf('--');
-  return end < 0 ? args : args.slice(0, end);
-}
 
 /** The last totals `shadowlap test` printed, each golden by its verdict. */
 function sessionTotals(all: string): { passed: number; failed: number; inconclusive: number; interrupted: boolean } | null {

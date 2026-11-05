@@ -1,9 +1,24 @@
 import { useEffect } from 'react';
 import { Spin } from '../components/bits.js';
+import { onShow } from '../components/OnShow.js';
 import { useServerJobs } from '../fixes/tree.js';
-import { chipJob } from '../job-store.js';
+import { chipJob, endedBehind, type JobChipView } from '../job-store.js';
 import { useApp } from '../state.js';
 import { retoast } from '../toast-place.js';
+
+/** The chip of a hidden job that ended: its words load with its drawer, which is drawn, hidden, by then. */
+const EndedChip = onShow(() => import('../components/Drawer.js').then((m) => m.EndedChip));
+
+/** The chip itself. */
+export function ChipButton({ view }: { view: JobChipView }) {
+  const { openJob } = useApp();
+  return (
+    <button type="button" className={`jobchip${view.tone ? ` ${view.tone}` : ''}`} aria-label={view.name} title={view.title} onClick={() => openJob(view.opens, true)}>
+      {view.running ? <Spin /> : <i />}
+      {view.label}
+    </button>
+  );
+}
 
 /**
  * The status bar's chip, which leads its right-hand side: what a job off the screen is doing, or what
@@ -11,9 +26,10 @@ import { retoast } from '../toast-place.js';
  * it floats at the window's foot as a pill, and the bar keeps room for it (`body.jobmin`).
  */
 export function JobChip() {
-  const { conn, jobs, openJob } = useApp();
-  const chip = chipJob(useServerJobs(), jobs);
-  const shown = !!chip && conn !== 'expired';
+  const { conn, jobs } = useApp();
+  const running = chipJob(useServerJobs(), jobs);
+  const ended = running ? null : endedBehind(jobs);
+  const shown = (!!running || !!ended) && conn !== 'expired';
   useEffect(() => {
     document.body.classList.toggle('jobmin', shown);
     retoast();
@@ -25,12 +41,7 @@ export function JobChip() {
   if (!shown) return null;
   return (
     <>
-      <span className="st-job">
-        <button type="button" className={`jobchip${chip.tone ? ` ${chip.tone}` : ''}`} aria-label={chip.name} title={chip.title} onClick={() => openJob(chip.opens, true)}>
-          {chip.running ? <Spin /> : <i />}
-          {chip.label}
-        </button>
-      </span>
+      <span className="st-job">{running ? <ChipButton view={running} /> : <EndedChip watched={ended!} />}</span>
       <span className="sep" />
     </>
   );

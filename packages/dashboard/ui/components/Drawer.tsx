@@ -1,12 +1,12 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { JOB_KINDS } from '../api.js';
-import { pageLeads } from '../dom.js';
+import { dockFocus, pageLeads } from '../dom.js';
 import { useTreeBusy } from '../fixes/tree.js';
 import { shortId } from '../format.js';
 import { useLatest } from '../hooks.js';
 import { jobFooter } from '../job-actions.js';
 import { drawnJob } from '../job-store.js';
-import { calibrationTarget, endToast, forkDivergedEarly, jobCommand, jobHeader, jobStatus, lineTone, openRunWords, replayDivergence, stopAsk } from '../jobs.js';
+import { calibrationTarget, endChip, endToast, forkDivergedEarly, jobCommand, jobHeader, jobStatus, lineTone, openRunWords, replayDivergence, stopAsk } from '../jobs.js';
 import { overlayOpen } from '../overlays/modal-store.js';
 import { InSlot, usePanel } from '../overlays/slots.js';
 import { href, parseRoute, samePage } from '../route.js';
@@ -15,7 +15,9 @@ import { switchProject } from '../shell/ProjectBlock.js';
 import { useApp, type WatchedJob } from '../state.js';
 import { retoast } from '../toast-place.js';
 import { errorText, type ToastAction } from '../toast.js';
-import { DotParts, Spin } from './bits.js';
+import { ChipButton } from '../shell/JobChip.js';
+import { Spin } from './bits.js';
+import { DotParts } from './DotParts.js';
 import { Dialog } from './Dialog.js';
 import { Icon } from './Icon.js';
 
@@ -39,11 +41,9 @@ export function JobDrawer() {
   ) : null;
 }
 
-/** The drawer's own place for the focus: its log while it shows, else the button that shows it, else Close. */
-export function dockFocus(): boolean {
-  const to = ['#jout', '#jlog', '#jx'].map((s) => document.querySelector<HTMLElement>(s)).find((x) => x && x.getClientRects().length && !x.closest('[inert]'));
-  to?.focus({ preventScroll: true });
-  return !!to;
+/** The status bar's chip of a hidden job that ended. */
+export function EndedChip({ watched }: { watched: WatchedJob }) {
+  return <ChipButton view={endChip(watched)} />;
 }
 
 /** The way on a job's end offers, where several show: its primary link, then what its kind adds, then a file. */

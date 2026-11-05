@@ -1,5 +1,5 @@
 import { num, plural, shortId } from '../format.js';
-import { jobCommand } from '../jobs.js';
+import { jobCommand } from '../job-title.js';
 import type { BulkSkip, DeleteResult, LabelRunsResult } from '../types.js';
 
 /** What the bulk bar says once it has acted on the runs picked, and what Push sends. No DOM here: the tests import it. */

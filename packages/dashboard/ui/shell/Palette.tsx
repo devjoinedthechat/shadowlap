@@ -6,7 +6,7 @@ import { Icon } from '../components/Icon.js';
 import { isMac } from '../dom.js';
 import { ACTIONS } from '../labels.js';
 import { callName, shortId } from '../format.js';
-import { jobRunning } from '../jobs.js';
+import { jobRunning } from '../job-title.js';
 import { highlight, INDEXING_RETRY_MS, indexingNote, limitRecorded, matchPalette, palettePlaceholder, PAUSED_HINT, RECORDED_MIN_CHARS, runsById, runsToAskFor, snippetParts, words } from '../palette.js';
 import { onPaletteSourcesChanged, paletteSources } from '../palette-sources.js';
 import { href, type Route } from '../route.js';

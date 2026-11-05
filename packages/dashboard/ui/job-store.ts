@@ -1,7 +1,7 @@
 import { ApiError, type JobView } from './api.js';
 import { isUnreachable } from './backoff.js';
 import type { Conn } from './connection.js';
-import { afterPollError, jobHeader, jobTitle, type RunningJob } from './jobs.js';
+import { afterPollError, jobTitle, type RunningJob } from './job-title.js';
 
 /**
  * The jobs this page follows, one list that the job's drawer and the status bar's chip both read
@@ -167,12 +167,12 @@ export interface JobChipView {
 }
 
 /**
- * The status bar's chip, from the jobs running in every tab and the ones this page follows. One job
- * running that isn't on the screen: what it does, and a click opens it. Several: how many, opening
- * the newest not already open (the server lists jobs newest first, but one this tab has just started
- * may not be on its list yet, so they go by when they started). None running: the hidden job that
- * ended, in its verdict's colour, until it is opened and closed. Nothing while the only job running
- * has its drawer on the screen.
+ * The status bar's chip while jobs run, from the jobs running in every tab and the ones this page
+ * follows. One job running that isn't on the screen: what it does, and a click opens it. Several: how
+ * many, opening the newest not already open (the server lists jobs newest first, but one this tab has
+ * just started may not be on its list yet, so they go by when they started). Nothing while the only
+ * job running has its drawer on the screen. None running, a hidden job that ended takes the chip
+ * (`endedBehind`, `endChip`), until it is opened and closed.
  */
 export function chipJob(jobs: readonly RunningJob[], watched: readonly WatchedJob[]): JobChipView | null {
   const open = watched.find((w) => w.open)?.job.id;
@@ -187,8 +187,10 @@ export function chipJob(jobs: readonly RunningJob[], watched: readonly WatchedJo
     const [t, how] = [titleOf(opens), opens.stopped ? 'stopping' : 'running'];
     return { label: `${t} · ${how}`, name: `Show job: ${t}, ${how}`, opens: opens.id, running: true, tone: '' };
   }
-  const ended = watched.find((w) => w.hidden && finished(w));
-  if (!ended) return null;
-  const end = jobHeader(ended.job, ended.lines, !!ended.lost);
-  return { label: `${end.title} · ${end.text}`, name: `Show job: ${end.title}, ${end.text.replace(/ · /g, ', ')}`, opens: ended.job.id, running: false, tone: end.tone };
+  return null;
+}
+
+/** A hidden job that has ended. */
+export function endedBehind(watched: readonly WatchedJob[]): WatchedJob | null {
+  return watched.find((w) => w.hidden && finished(w)) ?? null;
 }

@@ -1,7 +1,8 @@
 import { act, createElement, useEffect, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { JobDrawer } from '../ui/components/Drawer.js';
-import { chipJob, drawnJob, jobClosed, jobOpened, jobsLeftBehind, jobStarted, type WatchedJob } from '../ui/job-store.js';
+import { chipJob, drawnJob, endedBehind, jobClosed, jobOpened, jobsLeftBehind, jobStarted, type WatchedJob } from '../ui/job-store.js';
+import { endChip } from '../ui/jobs.js';
 import { closeTopPanel } from '../ui/overlays/slots.js';
 import { JobChip } from '../ui/shell/JobChip.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -93,9 +94,11 @@ describe('the status bar’s chip', () => {
   it('says how a hidden job ended, in its colour, until it gives way to one running', () => {
     const ended = job({ id: 'e', done: true, code: 0, args: ['replay', 'X'] });
     const hidden = [entry(ended, { open: false, hidden: true, lines: ['✓ Replay clean: 30/30 calls replayed'] })];
-    expect(chipJob([], hidden)).toEqual({ label: 'Replayed · reproduced · exit 0', name: 'Show job: Replayed, reproduced, exit 0', opens: 'e', running: false, tone: 'ok' });
+    expect(chipJob([], hidden)).toBeNull();
+    expect(endChip(endedBehind(hidden)!)).toEqual({ label: 'Replayed · reproduced · exit 0', name: 'Show job: Replayed, reproduced, exit 0', opens: 'e', running: false, tone: 'ok' });
     expect(chipJob([fork], hidden)).toMatchObject({ label: 'Forking · running', opens: 'f' });
-    expect(chipJob([], [entry(job({ id: 'l', title: 'Forking' }), { open: false, hidden: true, lost: true })])).toMatchObject({ label: 'Forking · lost · the dashboard server no longer has this job', tone: 'err' });
+    expect(endedBehind([entry(job({ id: 'r' }), { open: false, hidden: true })])).toBeNull();
+    expect(endChip(entry(job({ id: 'l', title: 'Forking' }), { open: false, hidden: true, lost: true }))).toMatchObject({ label: 'Forking · lost · the dashboard server no longer has this job', tone: 'err' });
   });
 });
 
@@ -283,6 +286,7 @@ describe('the drawer', () => {
     expect(on.toast[0].action!.label).toBe('Open fix');
     expect(body(r)).toContain('jobtoast');
     // Its chip says it too, and steps aside on a phone while the toast does.
+    await r.until('the chip’s words', () => r!.all('.status .jobchip').length === 1);
     expect(r.one('.status .jobchip').textContent).toBe('Blamed · lost at #5 · exit 0');
     expect(r.one('.status .jobchip').className).toContain('ok');
     const action = on.toast[0].action!;

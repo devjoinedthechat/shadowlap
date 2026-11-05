@@ -9,7 +9,7 @@ import { Dialog, PromptDialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { num, plural, shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
-import { jobCommand } from '../jobs.js';
+import { jobCommand } from '../job-title.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { defaultPackFolder } from '../run/share.js';

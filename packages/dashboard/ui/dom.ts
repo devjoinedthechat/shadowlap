@@ -58,3 +58,10 @@ export function coarsePointer(): boolean {
 export function pageLeads(): boolean {
   return typeof document !== 'undefined' && !!document.querySelector('#view .btn.lime');
 }
+
+/** The job's drawer's own place for the focus: its log while it shows, else the button that shows it, else Close. */
+export function dockFocus(): boolean {
+  const to = ['#jout', '#jlog', '#jx'].map((s) => document.querySelector<HTMLElement>(s)).find((x) => x && x.getClientRects().length && !x.closest('[inert]'));
+  to?.focus({ preventScroll: true });
+  return !!to;
+}

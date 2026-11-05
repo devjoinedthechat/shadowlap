@@ -4,7 +4,7 @@ import { isUnreachable } from './backoff.js';
 import { connStart, connStep, feedCursor, feedMoves, onTick, secondsLeft, withLiveCalls, type Conn } from './connection.js';
 import { useLatest } from './hooks.js';
 import { JobStore, type JobWatch, type WatchedJob } from './job-store.js';
-import { endToast, jobStatus, jobTitle, wayOnOf } from './jobs.js';
+import { jobTitle } from './job-title.js';
 import { endedRecordings, recordingToast } from './live.js';
 import type { PaletteGroup } from './palette.js';
 import { navigate, previewState } from './router.js';
@@ -491,9 +491,11 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       // there to take. One a newer job replaced has neither: its way on from what it reported, unless
       // that is in another project, else Show.
       if (watched?.open || watched?.hidden) return;
-      const way = job.project && job.project.id !== meta?.project?.id ? null : wayOnOf(job);
-      const action: ToastAction = way ? { label: way.label, run: () => navigate(way.href) } : { label: 'Show', run: () => openJobNow.current(job.id, true) };
-      toast(endToast(job, lines), jobStatus(job, lines).tone === 'err' ? 'error' : 'notice', action);
+      void import('./jobs.js').then(({ endToast, jobStatus, wayOnOf }) => {
+        const way = job.project && job.project.id !== meta?.project?.id ? null : wayOnOf(job);
+        const action: ToastAction = way ? { label: way.label, run: () => navigate(way.href) } : { label: 'Show', run: () => openJobNow.current(job.id, true) };
+        toast(endToast(job, lines), jobStatus(job, lines).tone === 'err' ? 'error' : 'notice', action);
+      });
     },
     lost: (job, watched) => {
       if (!watched?.open) toast(`${jobTitle(job)}: the dashboard server no longer has this job`, 'error');

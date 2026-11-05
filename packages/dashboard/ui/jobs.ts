@@ -1,89 +1,17 @@
 import { fixJobStatus } from './fixes/model.js';
-import { jobEnding, ownArgs, type JobWords } from './job-ending.js';
-import { ACTIONS, doneWords, type JobEnd } from './labels.js';
+import { jobEnding, type JobWords } from './job-ending.js';
+import { forks, isPlainReplay, jobCommand, jobTitle, ownArgs, type JobLike, type RunningJob } from './job-title.js';
+import type { JobChipView, WatchedJob } from './job-store.js';
+import { doneWords, type JobEnd } from './labels.js';
 import { trainingJobStatus } from './training.js';
 
-/**
- * What the job drawer says about a CLI run the dashboard started: its title, how each output line
- * is coloured, and how it ended. No DOM here: the tests import it.
- */
-
-export interface JobLike {
-  args: string[];
-  done: boolean;
-  code: number | null;
-  title?: string;
-  kind?: string;
-  /** What the command reported as its outcome (what `--json` would print). */
-  result?: unknown;
-  /** Someone asked it to stop. */
-  stopped?: boolean;
-}
-
-/** What following a job does after a poll for it failed. */
-export type AfterPollError = 'retry' | 'wait' | 'stop' | 'lost';
+export { afterPollError, isPlainReplay, jobCommand, jobRunning, jobTitle, type AfterPollError, type JobLike, type RunningJob } from './job-title.js';
 
 /**
- * After a failed poll: wait while the server is unreachable and pick the job up again once it is
- * back; stop when the link expired (the page says so); call the job lost when the server no longer
- * has it (it was restarted) or keeps refusing to say.
+ * What the job drawer says about a CLI run the dashboard started: how each output line is coloured,
+ * and how it ended. It loads with the drawer; what the first look needs of a job is `job-title.ts`'s.
+ * No DOM here: the tests import it.
  */
-export function afterPollError(e: { status: number | null; unreachable: boolean; failures: number }): AfterPollError {
-  if (e.status === 401) return 'stop';
-  if (e.status === 404) return 'lost';
-  if (e.unreachable) return 'wait';
-  return e.failures >= 5 ? 'lost' : 'retry';
-}
-
-/** The replay options that change the run at a call: a replay with one of them is a fork. */
-const FORK_FLAGS = ['--inject', '--override', '--fail-at', '--model', '--prompt-from', '--diverge-at', '--live-tool', '--inject-result', '--set', '--live-input'];
-
-/** Whether a replay's options fork it at a call (`--inject 17=…`, `--fail-at=19=529`). */
-function forks(args: readonly string[]): boolean {
-  return ownArgs(args).some((a) => FORK_FLAGS.includes(a.split('=')[0]!));
-}
-
-/**
- * A Replay: `replay <run>` with nothing that forks it and no `--repeat`. A policy for the writes or
- * the reads keeps it one (Replay with writes stubbed), and so does the command a capture is replayed with.
- */
-export function isPlainReplay(job: Pick<JobLike, 'args'>): boolean {
-  const own = ownArgs(job.args);
-  return own[0] === 'replay' && !own.includes('--repeat') && !forks(job.args);
-}
-
-/** The drawer's title for a command a job runs with no title of its own: the -ing form of its action's name. */
-const DOING: Readonly<Record<string, string>> = {
-  pack: ACTIONS.packRun.doing,
-  normalize: ACTIONS.addNormalizer.doing,
-  redact: ACTIONS.addRedactionRule.doing,
-  blame: ACTIONS.runBlame.doing,
-  repair: ACTIONS.runRepair.doing,
-  verify: ACTIONS.runVerify.doing,
-  test: ACTIONS.runTests.doing,
-  import: ACTIONS.importCapture.doing,
-  calibrate: ACTIONS.calibrate.doing,
-  bisect: ACTIONS.findBreakingCommit.doing,
-  gc: 'Cleaning up',
-  rm: 'Deleting',
-};
-
-/** Each export's, by what it exports. */
-const EXPORTING: Readonly<Record<string, string>> = { html: ACTIONS.exportHtml.doing, har: ACTIONS.exportHar.doing, otel: ACTIONS.exportTrace.doing, dataset: ACTIONS.exportDataset.doing };
-
-/** What the drawer calls a job: "Replaying", "Forking", "Packing", the server's title when it sends one. */
-export function jobTitle(job: JobLike): string {
-  if (job.title) return job.title;
-  const [cmd, sub] = job.args;
-  if (cmd === 'replay') return ownArgs(job.args).includes('--repeat') ? ACTIONS.repeat.doing : forks(job.args) ? 'Forking' : ACTIONS.replay.doing;
-  if (cmd === 'export') return EXPORTING[sub ?? ''] ?? 'Exporting';
-  return DOING[cmd ?? ''] ?? 'Running';
-}
-
-/** The command as typed, for the drawer's first line. */
-export function jobCommand(args: readonly string[]): string {
-  return `shadowlap ${args.map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`)).join(' ')}`;
-}
 
 export type LineTone = '' | 'p' | 'ok' | 'y' | 'no' | 'dim';
 
@@ -315,27 +243,6 @@ export function jobHeader(job: JobLike, lines: readonly string[], lost = false):
 }
 
 /**
- * Whether a job of one of `kinds` (the jobs that run the goldens) is still running, as far as this
- * page follows it: the palette offers no second session meanwhile. A job the server lost is over.
- */
-export function jobRunning(jobs: ReadonlyArray<{ job: Pick<JobLike, 'done' | 'kind'>; lost?: boolean }>, kinds: ReadonlySet<string>): boolean {
-  return jobs.some((w) => !w.job.done && !w.lost && kinds.has(w.job.kind ?? ''));
-}
-
-/** A job as Stop and the status bar's chip read it: whether it runs, and how it uses its working tree. */
-export interface RunningJob {
-  id: string;
-  done: boolean;
-  args?: readonly string[];
-  title?: string;
-  kind?: string;
-  stopped?: boolean;
-  /** When it started: the chip opens the newest. */
-  startedAt?: number;
-  worktree?: { use: 'reads' | 'writes'; doing: string } | null;
-}
-
-/**
  * What Stop asks first, for a job that holds the working tree (a repair verifying candidates made
  * from it, a patch being applied): stopped part way, the tree is what it says. Null for any other job, which
  * Stop stops at once, as Ctrl-C would: a run it was making ends as interrupted.
@@ -363,4 +270,10 @@ export function wayOnOf(job: JobLike & { links?: ReadonlyArray<{ label: string; 
   const first = links.find((l) => !l.secondary) ?? links[0];
   if (first) return { label: first.label, href: first.href };
   return job.newRunId ? { label: openRunWords(job), href: `#/run/${job.newRunId}` } : null;
+}
+
+/** The status bar's chip for a hidden job that ended: what it did and how, in its verdict's colour. */
+export function endChip(w: Pick<WatchedJob, 'job' | 'lines' | 'lost'>): JobChipView {
+  const end = jobHeader(w.job, w.lines, !!w.lost);
+  return { label: `${end.title} · ${end.text}`, name: `Show job: ${end.title}, ${end.text.replace(/ · /g, ', ')}`, opens: w.job.id, running: false, tone: end.tone };
 }

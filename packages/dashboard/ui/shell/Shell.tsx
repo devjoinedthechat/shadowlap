@@ -1,11 +1,12 @@
 import { useEffect, useSyncExternalStore, type ComponentType } from 'react';
 import { tabAbout } from '../about.js';
-import { JobDrawer } from '../components/Drawer.js';
 import { HoverCardLayer } from '../components/HoverCard.js';
+import { onShow } from '../components/OnShow.js';
 import { Sprite } from '../components/Icon.js';
 import { ToastHost } from '../components/Toast.js';
 import { useFixTitle } from '../fixes/data.js';
 import { TestsAskHost } from '../fixes/TestsJobButton.js';
+import { drawnJob } from '../job-store.js';
 import { OverlaySlots } from '../overlays/slots.js';
 import { setupShowsOn } from '../projects.js';
 import type { Route } from '../route.js';
@@ -29,10 +30,13 @@ import { TopBar } from './TopBar.js';
  */
 export type Pages = ComponentType<{ route: Route }>;
 
+/** The job's drawer: its code loads as the first job shows. */
+const JobDrawer = onShow(() => import('../components/Drawer.js').then((m) => m.JobDrawer));
+
 /** The app: top bar, sidebar, the page, the status bar, and what sits over them. */
 export function Shell({ pages: PageSlot }: { pages: Pages }) {
   const route = useRoute();
-  const { setSideOpen, closeJobs, conn } = useApp();
+  const { setSideOpen, closeJobs, conn, jobs } = useApp();
   useDocTitle(route);
 
   // The phone sidebar closes on navigation; a finished job's drawer closes when the page changes (not
@@ -63,7 +67,7 @@ export function Shell({ pages: PageSlot }: { pages: Pages }) {
       <OverlaySlots />
       <Palette route={route} />
       <Shortcuts onRun={route.page === 'run'} />
-      <JobDrawer />
+      {drawnJob(jobs) ? <JobDrawer /> : null}
       {/* A Tests job that would run goldens live asks here, whichever page or the palette started it. */}
       <TestsAskHost />
       <ToastHost />

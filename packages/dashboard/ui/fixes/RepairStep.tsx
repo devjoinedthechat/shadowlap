@@ -2,7 +2,7 @@ import { Badge, CmdLine, EmptyState } from '../components/bits.js';
 import { shortId } from '../format.js';
 import type { FixDetail, RepairStep } from '../types.js';
 import { candidateTone, changeParts, fixStamp, footWarnings, nothingAcceptedWhy, repairBy, repairReceipt, roleBadges } from './model.js';
-import { DotParts } from '../components/bits.js';
+import { DotParts } from '../components/DotParts.js';
 import { Flagged, Markdown, StepHead } from './parts.js';
 
 /**
