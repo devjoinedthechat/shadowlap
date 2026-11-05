@@ -1,11 +1,10 @@
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
-import { nextStepWork } from '../outcome-work.js';
+import { goldensOf, nextStepWork } from '../outcome-work.js';
 import { overviewOptions } from '../overview.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { readTeamStoreInput } from '../team-store.js';
-import type { GoldenSource } from '../tests.js';
 
 /**
  * `GET /api/summary?tz=`: the Overview, worked out in the viewer's days (their IANA time zone, UTC
@@ -15,15 +14,6 @@ import type { GoldenSource } from '../tests.js';
  * kept, ahead of time, newest first; until those of the two weeks it adds up are, it answers at once
  * with how far that has got, `{ warming: { done, total } }`, and the page asks again.
  */
-
-/** The goldens on disk the dashboard was given, or none; a folder being edited reads as none for a moment. */
-export function goldensOf(ctx: RouteContext): GoldenSource[] {
-  try {
-    return ctx.options.goldens?.() ?? [];
-  } catch {
-    return [];
-  }
-}
 
 export function register(router: Router, ctx: RouteContext): void {
   router.get('/summary', async (r) => {

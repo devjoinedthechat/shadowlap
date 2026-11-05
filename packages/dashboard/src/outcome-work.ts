@@ -6,7 +6,7 @@ import { keepSeenChecks, seenChecks, type SeenChecks } from './checks-seen.js';
 import type { RouteContext } from './context.js';
 import type { NextStepWork } from './next-step.js';
 import type { OutcomeWork } from './run-outcome.js';
-import { goldensOf } from './routes/overview.js';
+import type { GoldenSource } from './tests.js';
 
 /**
  * What the server reads of the project, on its own thread, for the read models to judge runs by the
@@ -77,6 +77,15 @@ function checksKey(tests: unknown, entries: readonly TestEntry[], golden: string
     .update(JSON.stringify(isObject(raw) ? (raw.expect ?? null) : null))
     .digest('base64url')
     .slice(0, 16);
+}
+
+/** The goldens on disk the dashboard was given, or none; a folder being edited reads as none for a moment. */
+export function goldensOf(ctx: RouteContext): GoldenSource[] {
+  try {
+    return ctx.options.goldens?.() ?? [];
+  } catch {
+    return [];
+  }
 }
 
 /** The config's trust marks as the CLI reads them; a config mid-edit leaves them out. */
@@ -153,6 +162,13 @@ export function outcomeWork(ctx: RouteContext): OutcomeWork | null {
 
 /** What a run's next step reads of the project, for the current request; outside a project, the goldens the dashboard was given. */
 export function nextStepWork(ctx: RouteContext): NextStepWork {
+  return projectWork(ctx).next;
+}
+
+/** Both, for a request that asks both, from its one look at what they were read from: each look stats every file watched. */
+export function projectWork(ctx: RouteContext): { outcome: OutcomeWork | null; next: NextStepWork } {
   const dir = ctx.project?.path;
-  return dir ? keptWork(ctx, dir).steps : stepsWork(ctx, null, null);
+  if (!dir) return { outcome: null, next: stepsWork(ctx, null, null) };
+  const { work, steps } = keptWork(ctx, dir);
+  return { outcome: work, next: steps };
 }
