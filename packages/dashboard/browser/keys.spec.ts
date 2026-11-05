@@ -141,6 +141,8 @@ test('Tab starts at the skip link, then the top bar, and a new page starts Tab f
   await openRuns(page);
   await page.keyboard.press('Tab');
   await expect(page.locator('a.skip')).toBeFocused();
+  await page.keyboard.press('Tab');
+  expect(await page.evaluate(() => !!document.activeElement?.closest('header.top'))).toBe(true);
   await page.locator('aside#side .navlist a', { hasText: 'Fixes' }).click();
   await expect.poll(() => page.evaluate(() => document.activeElement?.matches('main#view h1'))).toBe(true);
   await page.keyboard.press('Tab');
@@ -162,4 +164,199 @@ test('on a phone, the drawer takes the focus to its first item, and a click besi
   await page.locator('aside#side .navlist a', { hasText: 'Fixes' }).click();
   await expect(page.locator('aside#side.open')).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => document.activeElement?.matches('main#view h1'))).toBe(true);
+});
+
+test('Esc on a row’s link, with no row in focus, leaves the focus where Tab had it', async ({ page }) => {
+  await openRuns(page);
+  const link = page.locator(`${RUNS} a.rowa`).first();
+  await link.focus();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(link).toBeFocused();
+});
+
+test('in forced colours the row in focus keeps an outline, the ground and the bar being gone', async ({ page }) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  await openRuns(page);
+  await page.keyboard.press('j');
+  const row = page.locator(`${RUNS}.krow`);
+  await expect(row).toHaveCount(1);
+  expect(await row.evaluate((el) => `${getComputedStyle(el).outlineStyle} ${getComputedStyle(el).outlineWidth}`)).toBe('solid 2px');
+});
+
+test('a row j brings into view stops above the selection bar, on a desktop and on a phone', async ({ page }) => {
+  for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(size);
+    await openRuns(page);
+    await page.keyboard.press('j');
+    await page.keyboard.press('x');
+    const bar = page.locator('.bulkbar');
+    await bar.waitFor();
+    for (let i = 0; i < 24; i++) {
+      await page.keyboard.press('j');
+      const [rowBottom, barTop] = await page.evaluate(() => [document.querySelector('.krow')!.getBoundingClientRect().bottom, document.querySelector('.bulkbar')!.getBoundingClientRect().top]);
+      expect(rowBottom, `row ${i + 2} at ${size.width}`).toBeLessThanOrEqual(barTop + 1);
+    }
+  }
+});
+
+test('a control’s hover card says its key, and Provenance’s card its name over what it holds', async ({ page }) => {
+  await openPage(page, `/run/${demoId('override')}`, 'run');
+  await page.locator('#forkBtn').hover();
+  await expect(page.locator('.tip .kbd')).toHaveText('f');
+  // Provenance's card is a name and a sentence; the tab v shows next says v.
+  while ((await page.locator('#vtab-forks').getAttribute('aria-selected')) !== 'true') await page.keyboard.press('v');
+  const card = JSON.parse((await page.locator('#vtab-provenance').getAttribute('data-tip'))!) as { t: string; s?: string };
+  expect(card.t).toBe('Provenance');
+  expect(card.s).toMatch(/^The run’s record/);
+  await page.locator('#vtab-provenance').hover();
+  await expect(page.locator('.tip b')).toHaveText('Provenancev');
+  await expect(page.locator('.tip .kbd')).toHaveText('v');
+});
+
+test('n’s call on a fork’s banner says its key, and n selects it', async ({ page }) => {
+  await openPage(page, `/run/${demoId('override')}`, 'run');
+  const mark = page.locator('#view [data-shortcut="jump"]');
+  await expect(mark).toHaveAttribute('aria-keyshortcuts', 'n');
+  expect(JSON.parse((await mark.getAttribute('data-tip'))!)).toMatchObject({ t: 'Jump to fork' });
+  const n = (await mark.textContent())!.replace('#', '');
+  await page.keyboard.press('n');
+  await expect(page.locator('.vbody tr[aria-selected="true"]')).toHaveAttribute('data-call', n);
+});
+
+test('Esc closes a run’s diff first, its toggle taking the focus from inside it, and the next goes up', async ({ page }) => {
+  await openPage(page, `/run/${demoId('override')}`, 'run');
+  const at = await hash(page);
+  const toggle = page.locator('#view [data-act="diff"]');
+  await toggle.click();
+  await page.locator('.diffpanel').evaluate((el: HTMLElement) => {
+    el.tabIndex = -1;
+    el.focus();
+  });
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.diffpanel')).toHaveCount(0);
+  await expect(toggle).toBeFocused();
+  expect(await hash(page)).toBe(at);
+  // With the focus elsewhere it stays there.
+  await toggle.click();
+  const tab = page.locator('#vtab-calls');
+  await tab.focus();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.diffpanel')).toHaveCount(0);
+  await expect(tab).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect.poll(() => hash(page)).not.toBe(at);
+});
+
+test('This run’s keys in the palette come back with the switch, with no other call selected', async ({ page }) => {
+  await openPage(page, `/run/${demoId('override')}`, 'run');
+  const replayRow = page.locator('.palit', { has: page.locator('.pl', { hasText: /^Replay$/ }) });
+  await page.keyboard.press('?');
+  await page.locator('.help [role="switch"]').click();
+  await page.locator('.help footer button').click();
+  await page.reload();
+  await page.locator('h1.rnm').waitFor();
+  await page.keyboard.press('ControlOrMeta+k');
+  await expect(replayRow).toHaveCount(1);
+  await expect(replayRow.locator('.palk')).toHaveCount(0);
+  // The sheet, from the palette: single keys back on.
+  await page.locator('.palin input').fill('Keyboard shortcuts');
+  await page.keyboard.press('Enter');
+  await page.locator('.help [role="switch"]').click();
+  await page.locator('.help footer button').click();
+  await page.keyboard.press('ControlOrMeta+k');
+  await expect(replayRow.locator('.palk kbd')).toHaveText('r');
+});
+
+test('⌘K on a run in the sidebar offers its actions, with nothing to select there', async ({ page }) => {
+  await openRuns(page);
+  const run = page.locator('aside#side a.run').first();
+  await run.focus();
+  await page.keyboard.press('ControlOrMeta+k');
+  await page.locator('.palette').waitFor();
+  const labels = await page.locator('.palit .pl').allTextContents();
+  expect(labels[0]).toBe('Open run');
+  expect(labels).toContain('Copy ID');
+  expect(labels).not.toContain('Select run');
+  await expect(page.locator('.palin input')).toHaveAttribute('placeholder', /^Actions for \w+$/);
+  await page.keyboard.press('Escape');
+  await expect(run).toBeFocused();
+});
+
+test('the palette says “this row” where a row’s name doesn’t fit its field, measured again as the window changes', async ({ page }) => {
+  await openRuns(page);
+  await page.keyboard.press('j');
+  await page.keyboard.press('ControlOrMeta+k');
+  const field = page.locator('.palin input');
+  await expect(field).toHaveAttribute('placeholder', /^Actions for \w{10}$/);
+  await page.setViewportSize({ width: 220, height: 700 });
+  await expect(field).toHaveAttribute('placeholder', 'Actions for this row');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(field).toHaveAttribute('placeholder', /^Actions for \w{10}$/);
+});
+
+test('the sheet’s switch stays in view at the foot of its lines', async ({ page }) => {
+  await openPage(page, `/run/${demoId('override')}`, 'run');
+  await page.keyboard.press('?');
+  const body = page.locator('.help .hbody');
+  await body.waitFor();
+  for (const top of [0, 100_000]) {
+    await body.evaluate((el, y) => el.scrollTo(0, y), top);
+    const [sw, pane] = await page.evaluate(() => [document.querySelector('.help [role="switch"]')!.getBoundingClientRect().bottom, document.querySelector('.help .hbody')!.getBoundingClientRect().bottom]);
+    expect(sw).toBeLessThanOrEqual(pane);
+  }
+});
+
+test('a row of a section drawn as a Row shows where you are as a table’s does, the pointer over it too', async ({ page }) => {
+  await openRuns(page);
+  const shadow = await page.evaluate(() => {
+    const host = document.createElement('section');
+    host.className = 'panel sec';
+    host.innerHTML = '<div class="srow krow" id="kr">A row</div><div class="srow" id="plain">Another</div>';
+    document.querySelector('main#view .page-in')!.prepend(host);
+    return getComputedStyle(document.getElementById('kr')!).boxShadow;
+  });
+  // The ground on both sides and the bar at the outer edge, as many shadows as a table's row draws.
+  expect(shadow.split(/\),\s*|\)\s+/).filter(Boolean).length).toBeGreaterThanOrEqual(3);
+  await page.locator('#kr').hover();
+  expect(await page.locator('#kr').evaluate((el) => getComputedStyle(el).boxShadow)).toBe(shadow);
+});
+
+test.describe('on a touch screen', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+
+  test('the palette shows no keys', async ({ page }) => {
+    await openRuns(page);
+    await page.keyboard.press('ControlOrMeta+k');
+    await page.locator('.palin input').fill('Add project');
+    await expect(page.locator('.palit.on .kbd')).toHaveCount(1);
+    const shown = await page.locator('.palin .kbd, .palit .kbd, .palit .palk, .palfoot').evaluateAll((els) => els.map((el) => getComputedStyle(el).display));
+    expect(shown.length).toBeGreaterThan(1);
+    expect(new Set(shown)).toEqual(new Set(['none']));
+  });
+});
+
+test('a job’s end hands the focus to what took its control’s place, however long the page takes to draw it', async ({ page }) => {
+  const run = demoId('digestFailed');
+  const fix = { role: 'failing', fix: { fixId: 'fx-0000000000000000000000000A', href: '#/fixes/fx-0000000000000000000000000A', title: 'The agent exited with code 1', status: 'open', label: 'digest', check: 'the agent exits 0' }, blame: null, probe: null, verify: null };
+  const job = (done: boolean) => ({ id: 'stubjob', kind: 'blame', title: 'Blaming', args: ['blame', run], worktree: { use: 'reads', doing: 'a blame is running your agent from your working tree', folder: '/x' }, runId: run, opensRun: false, startedAt: Date.now() - 1000, endedAt: done ? Date.now() : null, done, stopped: false, code: done ? 3 : null, newRunId: null, runs: [], links: [], files: [], total: 0, lines: [], project: { id: 'support-agent', name: 'support-agent' } });
+  let polls = 0;
+  let ended = false;
+  await page.route('**/api/jobs', (route) => (route.request().method() === 'POST' ? route.fulfill({ status: 202, json: job(false) }) : route.continue()));
+  await page.route('**/api/jobs/stubjob*', (route) => {
+    ended = ++polls >= 3;
+    return route.fulfill({ json: job(ended) });
+  });
+  // The run read after the job's end comes late, as a busy read pool's does.
+  await page.route(new RegExp(`/api/runs/${run}(\\?.*)?$`), async (route) => {
+    const body = (await (await route.fetch()).json()) as Record<string, unknown>;
+    if (ended) await new Promise((done) => setTimeout(done, 600));
+    await route.fulfill({ json: { ...body, fix: ended ? fix : { role: 'unblamed', fix: null, blame: null, probe: null, verify: null } } });
+  });
+  await openPage(page, `/run/${run}`, 'run');
+  const lead = page.locator('.rhead .actions .btn.lime', { hasText: 'Run blame' });
+  await lead.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.rhead .actions .btn.lime', { hasText: 'Open the fix' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.activeElement?.textContent?.trim())).toBe('Open the fix');
 });
