@@ -14,9 +14,9 @@ export const plainButton = (className: string): string => className.replace(' li
  * server refuse it. Read again whenever the change feed says a job started, ended or reported.
  * None on a page where nothing can run.
  */
-export function useServerJobs(): JobListItem[] {
+export function useServerJobs(wanted = true): JobListItem[] {
   const { client, exported, actionsOff, feeds, jobs } = useApp();
-  const listed = useLoad(() => (exported || actionsOff ? null : client.jobs()), 'server-jobs', feeds.jobs ?? 0);
+  const listed = useLoad(() => (exported || actionsOff || !wanted ? null : client.jobs()), wanted ? 'server-jobs' : 'none', feeds.jobs ?? 0);
   return useMemo(() => mergeTreeJobs(listed.data, jobs), [listed.data, jobs]);
 }
 
@@ -47,7 +47,7 @@ export function useTestsWait(verb: string): string | null {
  */
 export function useJobWait(job: { verb: string; tests: boolean } | null): string | null {
   const { meta } = useApp();
-  const jobs = useServerJobs();
+  const jobs = useServerJobs(!!job);
   if (!job) return null;
   return (job.tests ? testsBusy(jobs, job.verb, meta?.project?.id ?? null) : null) ?? treeBusy(jobs, 'reads', job.verb, meta?.project?.path ?? null);
 }
