@@ -1,8 +1,7 @@
 import { goldenName, num, shortId } from '../format.js';
 import { ACTIONS, confirmWords } from '../labels.js';
-import { isObject } from '../../../engine/src/is-object.js';
 import { bisectCost } from '../runspage/find-commit.js';
-import type { BisectOffer, BlameOffer, RunOffers, TestBannerOffer } from '../types.js';
+import type { BisectOffer, BlameOffer, TestBannerOffer } from '../types.js';
 
 /**
  * What the run page offers beyond the run's record, in words and choices, without the DOM: Run blame
@@ -12,41 +11,6 @@ import type { BisectOffer, BlameOffer, RunOffers, TestBannerOffer } from '../typ
 
 /** A shell-quoted value, as the command lines the page shows have it. */
 const quote = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
-
-/** What the page knows of a run for Run blame when the server sends no offers (an older server). */
-export interface BlameFacts {
-  /** Blame has been run on it already. */
-  blamed: boolean;
-  /** It came from a capture, with no command to run again. */
-  capture: boolean;
-  argv: readonly string[];
-  status: string;
-  /** The labels of the checks it failed. */
-  failed: string[];
-  /** The check of the fix its labels point to (`blameExpect`). */
-  fixExpect: unknown;
-  /** Its own `--expect`. */
-  ownExpect: unknown;
-  /** How many model calls it made: blame asks them again, so a run with none has nothing to blame. */
-  modelCalls: number;
-}
-
-/**
- * Run blame for a failed run: what the server offers, or, from a server that offers nothing, the
- * same worked out from the run: the check the fix's labels suggest, the run's own --expect, a check
- * to ask for, or the exit status. Null where blame doesn't apply, as on an interrupted run that
- * failed no check (blame needs a run that fails again as recorded).
- */
-export function blameOfferFor(offers: Pick<RunOffers, 'blame'> | null, f: BlameFacts): BlameOffer | null {
-  if (offers) return offers.blame;
-  if (f.blamed || f.capture || !f.argv.length || f.status === 'running' || !f.modelCalls) return null;
-  const failed = f.failed;
-  if (!failed.length && f.status !== 'failed') return null;
-  if (f.fixExpect !== undefined && f.fixExpect !== null) return { from: 'fix', expect: f.fixExpect, failed };
-  if (failed.length && isObject(f.ownExpect)) return { from: 'run', expect: f.ownExpect, failed };
-  if (failed.length) return { from: 'ask', failed };
-  return { from: 'exit', expect: null, failed };
-}
 
 const BLAME_HOVER: Record<BlameOffer['from'], string> = {
   run: 'with the checks it was replayed with',
@@ -90,7 +54,7 @@ export { goldenName };
  */
 export type NormalizerChoice =
   | { kind: 'added'; passingRun: string | null }
-  | { kind: 'job'; label: string; lead: boolean; off: string | null; title: string | null; asks: string[][] | null }
+  | { kind: 'job'; label: string; off: string | null; title: string | null; asks: string[][] | null }
   | { kind: 'action' }
   | null;
 
@@ -105,11 +69,9 @@ export function divergedActions(o: {
   const t = o.test;
   const updates = !!t && updatesAfterRules(t);
   if (t?.normalized) return { normalizer: { kind: 'added', passingRun: t.passingRun }, update: o.hasUpdateJob && updates && !t.passingRun };
-  // An id that may be a real change: neither button leads.
-  const lead = t ? t.normalizerFixes && !t.maybeReal : true;
   const normalizer: NormalizerChoice =
     t?.normalizeAndTest && o.hasNormalizeJob
-      ? { kind: 'job', label: updates ? ACTIONS.addNormalizerAndUpdate.label : ACTIONS.addNormalizerAndRerun.label, lead, off: o.actionsOff, title: o.actionsOff ?? t.volatile?.command ?? null, asks: updates ? t.normalizeAndTest : null }
+      ? { kind: 'job', label: updates ? ACTIONS.addNormalizerAndUpdate.label : ACTIONS.addNormalizerAndRerun.label, off: o.actionsOff, title: o.actionsOff ?? t.volatile?.command ?? null, asks: updates ? t.normalizeAndTest : null }
       : o.action && !o.actionsOff
         ? { kind: 'action' }
         : null;

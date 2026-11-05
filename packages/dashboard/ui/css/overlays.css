@@ -41,6 +41,7 @@
 .dialog textarea { min-height: 84px; resize: vertical; }
 .dialog textarea:focus, .dialog input:focus { border-color: var(--accent-line); }
 .dialog .cmdline { margin-top: 10px; }
+.dialog pre.gateentry { margin: 10px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .dialog .cmdcopy { margin-top: 8px; }
 .dialog footer { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 20px 18px; }
 .dialog footer > [hidden], .help footer > [hidden] { display: none; }

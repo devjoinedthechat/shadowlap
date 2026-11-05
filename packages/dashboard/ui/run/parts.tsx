@@ -1,13 +1,13 @@
 import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { wholeInput } from '../../../engine/src/tokens.js';
-import { JOB_KINDS, type BlameView, type CheckView, type RunDetail, type RunOffers } from '../api.js';
+import type { BlameView, CheckView, RunDetail, RunOffers } from '../api.js';
+import type { NextStepKey } from '../../src/next-step.js';
 import type { TestBannerOffer } from '../types.js';
 import { CmdLine } from '../components/bits.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
 import { TestsJobButton } from '../fixes/TestsJobButton.js';
 import { callName, clip, glued, GLUED_SEPARATOR, jsonText, num, shortId } from '../format.js';
 import { countOrigins, parseOrigins } from '../origins.js';
-import { NormalizeUpdateDialog } from '../pages/TestsDialogs.js';
 import { ACTIONS } from '../labels.js';
 import { href } from '../route.js';
 import { runType, TODAY } from '../runs.js';
@@ -16,16 +16,15 @@ import { Status } from '../components/Status.js';
 import { useLoad } from '../hooks.js';
 import { scopeCount, scopeDepth, scopeHint, scopeLeaf } from '../scopes.js';
 import { useApp } from '../state.js';
-import { bannerNormalizerAsk, startTestsJob } from '../tests-ask.js';
 import type { PendingAction } from './actions.js';
 import type { PresetAttempt } from './preset.js';
 import { bannerFor, DIVERGED } from './banner.js';
 import { refusedOffline } from './calls.js';
 import { metricItems, outcomeFact, type MetricInput, type OutcomeFact } from './metrics.js';
 import { attemptLinks, attemptOf, originOf, pulledSpender, runLikeOf } from './model.js';
-import { fixStatusWords, nextStepOf, runBlameOffer } from './next-step.js';
-import { blameTitle, divergedActions, goldenName, updateGoldenCopy, updatesAfterRules } from './offers.js';
-import { UpdateGoldenDialog } from './RunDialogs.js';
+import { useDivergedJobs } from './diverged.js';
+import { fixStatusWords, nextStepOf } from './next-step.js';
+import { blameTitle, goldenName, updatesAfterRules } from './offers.js';
 
 /** The run page while its run loads (a run of 50,000 calls takes seconds): it says so, and is busy for a screen reader. */
 export function RunLoading() {
@@ -229,11 +228,13 @@ function CallWords({ words, call }: { words: string; call: (n: number) => ReactN
 /** The run's one banner: recording now, a preset's attempt, how it forked, where it was lost, what was not recorded, its checks, or that it failed. */
 export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggleDiff, onSelect, onAction, preset = null }: BannerProps) {
   const app = useApp();
-  const [dialog, setDialog] = useState<'update' | 'normalize' | null>(null);
   const r = run.run;
   const iv = run.intervention ?? null;
   const flagRow = iv?.callNo ? run.calls.find((c) => c.callNo === iv.callNo) : undefined;
-  const test = offers?.test ?? null;
+  // The header leads with the run's next step; the banner doesn't offer it again.
+  const next = nextStepOf(run);
+  const leads = (key: NextStepKey) => next?.key === key;
+  const test = offers?.test ?? (next?.key === 'normalizer' || next?.key === 'update-golden' ? next.test : null);
   const b = bannerFor({
     status: r.status,
     type: runType(runLikeOf(run)),
@@ -258,7 +259,6 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
     preset,
   });
   if (!b) return null;
-  const job = (kind: string, fields: Record<string, unknown>) => app.guard(() => app.watchJob(app.client.startJob(kind, fields)));
   const call = (n: number) => (
     <button className="bn" type="button" onClick={() => onSelect(n)}>
       #{n}
@@ -270,21 +270,19 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
     </button>
   );
   const off = app.actionsOff;
-  // The header leads with the run's next step; the banner doesn't offer it again.
-  const next = nextStepOf(run, { offers, exported: app.exported, preset, blame, checks });
   // Run blame: the fixes' blame job, which finds the check the run failed (asking when nothing names
   // it) and ends with a link to the fix. Not for a run blame has been run on already, nor in a copy,
-  // nor where the header leads with it.
-  const runBlame = (blamed: boolean) => {
-    if (next.key === 'blame') return null;
-    const offer = runBlameOffer(run, { offers, exported: app.exported, blame: blamed ? blame : null, checks });
+  // nor where the header has it, as its next step or beside a crash's.
+  const runBlame = () => {
+    if (leads('blame') || (next?.key === 'bisect' && next.blame)) return null;
+    const offer = offers?.blame ?? null;
     // The server picks the check, as the CLI judges the run; disabled with why on a read-only dashboard or while a repair holds the tree.
     return offer ? <RunBlameButton runId={r.runId} failed={offer.failed} title={blameTitle(offer)} /> : null;
   };
   // The fix, linked; where the header opens it already, how it stands instead (open, verified).
   const fixLink = (step?: string) => {
     if (!run.fix) return null;
-    if (next.key === 'fix') {
+    if (leads('fix')) {
       const st = fixStatusWords(run.fix.status);
       return (
         <span className={`st ${st.tone}`} title={`“${run.fix.title}” is ${st.why}`}>
@@ -329,82 +327,8 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
           ) : null}
         </section>
       );
-    case 'diverged': {
-      // A test replay: Add normalizer and re-run adds the rule and runs its golden again, Update golden re-records
-      // it; each is the tests' job. When the rule alone can't make the replay match, the job updates
-      // the golden after it, live, so it asks first in the Tests screen's dialog. A server without the
-      // jobs falls back to the run's own normalizer action. Once the rule is in the config, the banner
-      // says so and links the replay that passed. A golden whose test runs live (an injection gate)
-      // asks first, as Tests does (tests-ask.ts).
-      const normalizer = run.actions.find((a) => a.key === 'n');
-      const acts = divergedActions({ test, hasNormalizeJob: app.hasKind(JOB_KINDS.normalizeAndTest), hasUpdateJob: app.hasKind(JOB_KINDS.testUpdate), action: !!normalizer, actionsOff: off });
-      const add = acts.normalizer;
-      const addNormalizer = () => startTestsJob(app, JOB_KINDS.normalizeAndTest, { runId: r.runId }, bannerNormalizerAsk(test));
-      return (
-        <section className="banner blame">
-          <span className="bk">diverged at</span>
-          {call(b.callNo)}
-          <code>{r.divergence?.name ?? ''}</code>
-          <Why>{b.why}</Why>
-          {b.path ? <span className="path">~ {test?.volatile?.path ?? test?.cause ?? b.path}</span> : null}
-          <span className="end">
-            {add?.kind === 'added' ? (
-              <>
-                <span className="st ok">
-                  <i />
-                  normalizer added
-                </span>
-                {add.passingRun ? (
-                  <a className="more" href={href.run(add.passingRun)}>
-                    Passing run →
-                  </a>
-                ) : null}
-              </>
-            ) : add?.kind === 'job' ? (
-              <TestsJobButton className={`btn sm${add.lead ? ' lime' : ''}`} verb="add the normalizer" off={add.off} title={add.title} onClick={() => (add.asks ? app.guard(() => setDialog('normalize')) : addNormalizer())}>
-                {add.label}
-              </TestsJobButton>
-            ) : add?.kind === 'action' && normalizer ? (
-              <button className="btn sm lime" type="button" disabled={!!normalizer.disabled} onClick={() => onAction({ action: normalizer, callNo: null })}>
-                {ACTIONS.addNormalizer.label}
-              </button>
-            ) : null}
-            {acts.update ? (
-              <TestsJobButton className="btn sm" verb="update it" off={off} onClick={() => app.guard(() => setDialog('update'))}>
-                {ACTIONS.updateGolden.label}
-              </TestsJobButton>
-            ) : null}
-            {b.diff ? diffToggle : null}
-          </span>
-          {dialog === 'update' && test ? (
-            <UpdateGoldenDialog
-              golden={test.golden}
-              copy={updateGoldenCopy(test, b.callNo, add?.kind === 'job', checks.length)}
-              onAddNormalizer={() => {
-                setDialog(null);
-                addNormalizer();
-              }}
-              onClose={() => setDialog(null)}
-              onOk={() => {
-                setDialog(null);
-                job(JOB_KINDS.testUpdate, { golden: test.golden });
-              }}
-            />
-          ) : null}
-          {dialog === 'normalize' && test && add?.kind === 'job' && add.asks ? (
-            <NormalizeUpdateDialog
-              name={goldenName(test.golden)}
-              steps={add.asks}
-              onClose={() => setDialog(null)}
-              onRun={() => {
-                setDialog(null);
-                addNormalizer();
-              }}
-            />
-          ) : null}
-        </section>
-      );
-    }
+    case 'diverged':
+      return <DivergedBanner run={run} test={test} leads={leads} checks={checks.length} call={call} path={b.path} why={b.why} callNo={b.callNo} diff={b.diff ? diffToggle : null} onAction={onAction} />;
     case 'attempt': {
       // An attempt, as the design draws every one: how it came out first, in its colour, then what was
       // asked again with which attempt it is, and the writes; the whole line wraps rather than cut a
@@ -443,14 +367,14 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
           <Why code={b.flag}>{b.why}</Why>
           {b.path ? <span className="path">~ {b.path}</span> : null}
           <span className="end">
-            {b.normalizer && normalizer && !off ? (
-              <button className="btn sm lime" type="button" disabled={!!normalizer.disabled} onClick={() => onAction({ action: normalizer, callNo: null })}>
+            {b.normalizer && normalizer && !off && !leads('rule') ? (
+              <button className="btn sm" type="button" disabled={!!normalizer.disabled} onClick={() => onAction({ action: normalizer, callNo: null })}>
                 {ACTIONS.addNormalizer.label}
               </button>
             ) : null}
             {b.diff ? diffToggle : null}
             {/* A fork that failed is blamed as any failed run is: its fix, or Run blame. */}
-            {b.failed ? (run.fix ? fixLink() : runBlame(!!blame)) : null}
+            {b.failed ? (run.fix ? fixLink() : runBlame()) : null}
           </span>
         </section>
       );
@@ -498,7 +422,7 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
         </section>
       );
     case 'failed': {
-      const blameButton = b.fix ? null : runBlame(b.blamed);
+      const blameButton = b.fix || b.blamed ? null : runBlame();
       return (
         <section className="banner blame">
           <span className="bk">failed</span>
@@ -508,6 +432,57 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
       );
     }
   }
+}
+
+/**
+ * A test that diverged: where, on what, and its golden's jobs (useDivergedJobs) where the header
+ * doesn't lead with them. Once the rule is in the config, the banner says so and links the replay
+ * that passed.
+ */
+function DivergedBanner({ run, test, leads, checks, call, path, why, callNo, diff, onAction }: { run: RunDetail; test: TestBannerOffer | null; leads: (key: NextStepKey) => boolean; checks: number; call: (n: number) => ReactNode; path: string | null; why: string; callNo: number; diff: ReactNode; onAction: (p: PendingAction) => void }) {
+  const app = useApp();
+  const jobs = useDivergedJobs(run, test, checks);
+  const normalizer = run.actions.find((a) => a.key === 'n');
+  const add = jobs.acts.normalizer;
+  return (
+    <section className="banner blame">
+      <span className="bk">diverged at</span>
+      {call(callNo)}
+      <code>{run.run.divergence?.name ?? ''}</code>
+      <Why>{why}</Why>
+      {path ? <span className="path">~ {test?.volatile?.path ?? test?.cause ?? path}</span> : null}
+      <span className="end">
+        {add?.kind === 'added' ? (
+          <>
+            <span className="st ok">
+              <i />
+              normalizer added
+            </span>
+            {add.passingRun && !leads('passing') ? (
+              <a className="more" href={href.run(add.passingRun)}>
+                Passing run →
+              </a>
+            ) : null}
+          </>
+        ) : add?.kind === 'job' && !leads('normalizer') ? (
+          <TestsJobButton className="btn sm" verb="add the normalizer" off={add.off} title={add.title} onClick={jobs.normalize}>
+            {add.label}
+          </TestsJobButton>
+        ) : add?.kind === 'action' && normalizer && !leads('normalizer') ? (
+          <button className="btn sm" type="button" disabled={!!normalizer.disabled} onClick={() => onAction({ action: normalizer, callNo: null })}>
+            {ACTIONS.addNormalizer.label}
+          </button>
+        ) : null}
+        {jobs.acts.update && !leads('update-golden') ? (
+          <TestsJobButton className="btn sm" verb="update it" off={app.actionsOff} onClick={jobs.update}>
+            {ACTIONS.updateGolden.label}
+          </TestsJobButton>
+        ) : null}
+        {diff}
+      </span>
+      {jobs.dialogs}
+    </section>
+  );
 }
 
 /**

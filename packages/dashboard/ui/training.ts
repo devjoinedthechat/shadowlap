@@ -2,7 +2,6 @@ import { commandText } from './goldens.js';
 import { ACTIONS } from './labels.js';
 import { href } from './route.js';
 import type { ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, TrainingView } from './types.js';
-import { isObject } from '../../engine/src/is-object.js';
 import { twoDigits as pad } from '../../engine/src/words.js';
 
 /**
@@ -146,32 +145,6 @@ export function leftOutLine(leftOut: ScoreDialogView['leftOut'] | undefined): st
   if (!leftOut?.length) return null;
   const names = (models: string[]) => (models.length > 3 ? `${models.slice(0, 3).join(', ')} and ${models.length - 3} more` : models.join(', '));
   return `Not offered: ${leftOut.map((l) => `${l.models.length === 1 ? l.models[0]! : `${l.group}: ${names(l.models)}`} (${l.why})`).join(' · ')}`;
-}
-
-const count = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
-
-/**
- * How a Training job ended, in the job drawer's status line, from the result it reports: Score a model
- * by the tasks it scored (`scored · mean 0.87`; `3 of 4 tasks scored` when a golden no longer replays
- * up to its takeover or was skipped; `nothing scored`), Export pairs by the pairs it wrote. Null for
- * other jobs, or one that sent no result: the drawer then reads the CLI's words.
- */
-export function trainingJobStatus(job: { kind?: string; code: number | null; result?: unknown }): { text: string; tone: 'ok' | 'warn' | 'err' } | null {
-  const r = job.result;
-  if (job.code === null || !isObject(r)) return null;
-  const exit = `exit ${job.code}`;
-  if (job.kind === 'score') {
-    const tasks = Array.isArray(r.tasks) ? r.tasks.filter(isObject) : [];
-    const total = tasks.length + (Array.isArray(r.skipped) ? r.skipped.length : 0);
-    const scored = tasks.filter((t) => Array.isArray(t.attempts) && t.attempts.length > 0).length;
-    if (typeof r.mean !== 'number' || !scored) return { text: `nothing scored · ${exit}`, tone: 'err' };
-    if (job.code === 0 && scored === total) return { text: `scored · mean ${r.mean.toFixed(2)} · ${exit}`, tone: 'ok' };
-    return { text: `${scored} of ${count(total, 'task')} scored · ${exit}`, tone: 'warn' };
-  }
-  if (job.kind === 'pairs' && typeof r.pairs === 'number') {
-    return r.pairs ? { text: `${count(r.pairs, 'pair')} written · ${exit}`, tone: job.code === 0 ? 'ok' : 'err' } : { text: `nothing exported · ${exit}`, tone: 'warn' };
-  }
-  return null;
 }
 
 // ---- the palette opens a Training dialog from any page ----

@@ -28,6 +28,12 @@ export interface PaletteCommand {
   about?: { text: string; from: string } | null;
   /** Words it matches that don't show (a run's kind, command and labels). */
   match?: string;
+  /** Found only once something is typed, never listed on the open palette. */
+  typed?: boolean;
+  /** The key that does what it does, where it has one. */
+  key?: string;
+  /** Why it can't start now, a job holding what it needs: its hint says so, dimmed, and so does picking it. */
+  wait?: string;
   run: () => void;
 }
 

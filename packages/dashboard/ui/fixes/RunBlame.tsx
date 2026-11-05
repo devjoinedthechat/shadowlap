@@ -2,12 +2,12 @@ import { useState } from 'react';
 import { consentAsked } from '../actions.js';
 import { ApiError, JOB_KINDS } from '../api.js';
 import { CmdLine } from '../components/bits.js';
-import { ConsentDialog, Dialog } from '../components/Dialog.js';
+import { ConsentDialog, Dialog, PromptDialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { shortId } from '../format.js';
 import { useApp } from '../state.js';
 import { parseCheck } from './model.js';
-import { useTreeBusy } from './tree.js';
+import { plainButton, useTreeBusy } from './tree.js';
 import { ACTIONS } from '../labels.js';
 
 /**
@@ -16,13 +16,38 @@ import { ACTIONS } from '../labels.js';
  * config's tests for the recording it replays, the fix it fails in or its labels point to, or the
  * agent's exit); when nothing says what a passing run must do, this asks for it, naming the checks
  * the run failed (`failed`). A run whose command came from someone else's pack runs only once
- * confirmed. Disabled, with the reason, where nothing runs or while a repair or an apply changes the
- * working tree the agent would run from.
+ * confirmed; a capture, which has none, asks for yours first (`capture`). Disabled, with the reason,
+ * where nothing runs or while a repair or an apply changes the working tree the agent would run from.
  */
-export function RunBlameButton({ runId, failed = [], className = 'linkbtn', title = 'Find the model call where this run was lost', icon = false }: { runId: string; failed?: readonly string[]; className?: string; /** The hover when nothing stops it. */ title?: string; /** With the fix loop's icon, as the run page's lead button. */ icon?: boolean }) {
+export function RunBlameButton({
+  runId,
+  failed = [],
+  className = 'linkbtn',
+  title = 'Find the model call where this run was lost',
+  tip,
+  icon = false,
+  lead = false,
+  capture = false,
+  line,
+}: {
+  runId: string;
+  failed?: readonly string[];
+  className?: string;
+  /** The hover when nothing stops it. */
+  title?: string;
+  /** Or a hover card. */
+  tip?: string;
+  /** With the fix loop's icon, as the run page's lead button. */
+  icon?: boolean;
+  /** It is the run's next step, which the palette presses. */
+  lead?: boolean;
+  capture?: boolean;
+  /** The command it runs, where it knows it: a capture's asks for what fills in its `<your command>`. */
+  line?: string;
+}) {
   const app = useApp();
   const busy = useTreeBusy('reads', 'blame');
-  const [asking, setAsking] = useState<null | { kind: 'check' } | { kind: 'consent'; why: string; confirm: string; fields: Record<string, unknown> }>(null);
+  const [asking, setAsking] = useState<null | { kind: 'command' } | { kind: 'check'; command: string | null } | { kind: 'consent'; why: string; confirm: string; fields: Record<string, unknown> }>(null);
   const why = app.actionsOff ?? busy;
   /**
    * Starts the blame. What the check dialog should show instead comes back: why the server refused
@@ -38,7 +63,7 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn', titl
       },
       (err: unknown) => {
         if (err instanceof ApiError && err.status === 422) {
-          setAsking({ kind: 'check' });
+          setAsking({ kind: 'check', command: typeof fields.command === 'string' ? fields.command : null });
           return 'expect' in fields ? err.message : null;
         }
         if (err instanceof ApiError && err.status === 400 && 'expect' in fields) return err.message;
@@ -54,16 +79,35 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn', titl
   const failedText = failed.length ? `It failed “${failed[0]!}”${failed.length > 1 ? ` and ${failed.length - 1} more` : ''}, a check shadowlap.config.json doesn’t give. ` : '';
   return (
     <>
-      <button className={className} type="button" disabled={!!why} title={why ?? title} onClick={() => app.guard(() => void start({}))}>
+      <button
+        className={why ? plainButton(className) : className}
+        type="button"
+        disabled={!!why}
+        {...(why ? { title: why } : tip ? { 'data-tip': tip } : { title })}
+        {...(lead ? { 'data-next': 'blame' } : {})}
+        onClick={() => app.guard(() => (capture ? setAsking({ kind: 'command' }) : void start({})))}
+      >
         {icon ? <Icon name="loop" /> : null}
         {ACTIONS.runBlame.label}
       </button>
+      {asking?.kind === 'command' ? (
+        <PromptDialog
+          title={`${ACTIONS.runBlame.label} on ${shortId(runId)}`}
+          label={`${shortId(runId)} came from a capture and has no command. What starts your agent?`}
+          placeholder="python agent.py"
+          command={(command) => (line ?? `shadowlap blame ${shortId(runId)} -- <your command>`).replace('<your command>', () => command || '<your command>')}
+          ok={ACTIONS.runBlame.label}
+          onClose={() => setAsking(null)}
+          onRun={(command) => void start({ command })}
+        />
+      ) : null}
       {asking?.kind === 'check' ? (
         <CheckDialog
           runId={runId}
           text={`${failedText}Say what a passing run must do, as the expect object of an outcome check: blame asks the model calls again until the run does it.`}
+          command={asking.command}
           onClose={() => setAsking(null)}
-          onRun={(expect) => start({ expect })}
+          onRun={(expect) => start({ expect, ...(asking.command ? { command: asking.command } : {}) })}
         />
       ) : null}
       {asking?.kind === 'consent' ? (
@@ -87,7 +131,7 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn', titl
  * open, with what was typed, until the job has started: a check that isn't an object, or one the
  * server refuses, says why under the field.
  */
-function CheckDialog({ runId, text, onClose, onRun }: { runId: string; text: string; onClose: () => void; onRun: (expect: Record<string, unknown>) => Promise<string | null> }) {
+function CheckDialog({ runId, text, command, onClose, onRun }: { runId: string; text: string; command: string | null; onClose: () => void; onRun: (expect: Record<string, unknown>) => Promise<string | null> }) {
   const [value, setValue] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -132,7 +176,7 @@ function CheckDialog({ runId, text, onClose, onRun }: { runId: string; text: str
           {error}
         </p>
       ) : null}
-      <CmdLine>{`shadowlap blame ${shortId(runId)} --expect '<check>'`}</CmdLine>
+      <CmdLine>{`shadowlap blame ${shortId(runId)} --expect '<check>'${command ? ` -- ${command}` : ''}`}</CmdLine>
     </Dialog>
   );
 }

@@ -1,3 +1,4 @@
+import { consentAsked } from './actions.js';
 import { ACTIONS } from './labels.js';
 
 /**
@@ -17,6 +18,42 @@ export interface PaletteEntry {
   job?: boolean;
   /** Words it matches that don't show: a run's kind, command and labels, besides its id and about line. */
   match?: string;
+  /** Found only once something is typed, never listed on the open palette. */
+  typed?: boolean;
+  /** The key that does what it does, where it has one. */
+  key?: string;
+  /** Why it can't start now, a job holding what it needs: its hint says so, dimmed, and so does picking it. */
+  wait?: string;
+}
+
+/** Run blame for the newest failures nobody has blamed, as their pages lead with it, at most this many. */
+export const BLAME_ENTRIES = 3;
+
+/**
+ * Run blame for the newest failures nobody has blamed but the run open: those whose next step it is,
+ * as a list's rows say it. Found once something is typed, by what they did too (`failed`, their about
+ * line).
+ */
+export function blameEntries<R extends { runId: string; startedAt: number; next?: { key: string; command?: string } | null; about?: { text: string } | null }>(runs: readonly R[], open: string | null): Array<{ run: R; entry: PaletteEntry }> {
+  return runs
+    .filter((r) => r.next?.key === 'blame' && r.runId !== open)
+    .sort((a, b) => b.startedAt - a.startedAt)
+    .slice(0, BLAME_ENTRIES)
+    .map((run) => ({ run, entry: { group: 'Actions', label: ACTIONS.runBlame.label, hint: run.next?.command ?? '', job: true, typed: true, match: `failed ${run.about?.text ?? ''}` } }));
+}
+
+/**
+ * A blame the palette started that first asks something (the check, or a yes to someone else's
+ * command), which the run's own page asks; a capture's first asks for your command, so it goes there
+ * before anything is started.
+ */
+export function blameAsksOnItsPage(err: unknown): boolean {
+  return (err as { status?: unknown } | null)?.status === 422 || consentAsked(err) !== null;
+}
+
+/** What picking an entry says instead of running it: paused while the server can't be reached, or why it waits. */
+export function pickRefusal(x: Pick<PaletteEntry, 'job' | 'wait'>, offline: boolean): string | null {
+  return offline && x.job ? 'Actions are paused until the dashboard server is back.' : (x.wait ?? null);
 }
 
 /** What a job's entry says in place of its hint while the server can't be reached. */
@@ -68,7 +105,7 @@ export function matchPalette<T extends PaletteEntry>(items: readonly T[], query:
   if (!w.length) {
     let runs = 0;
     return items
-      .filter((x) => x.group !== 'Fixes' && x.group !== 'Tests' && x.group !== 'In recorded data' && (x.group !== 'Runs' || runs++ < EMPTY_RUNS))
+      .filter((x) => !x.typed && x.group !== 'Fixes' && x.group !== 'Tests' && x.group !== 'In recorded data' && (x.group !== 'Runs' || runs++ < EMPTY_RUNS))
       .map((x, i) => ({ x, i }))
       .sort((a, b) => order(a.x.group) - order(b.x.group) || action(a.x) - action(b.x) || a.i - b.i)
       .map((m) => m.x);
