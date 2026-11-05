@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { deriveSetup, emptySetup, emptyStoreFacts, type FolderKind, type FolderSuggestions, type ProjectEntry, type RunFact, type SetupFindings, type StoreFacts } from '@shadowlap/engine';
-import { addProjectPage, addedMessage, nameMatches, projectEventText, projectSwitcher, removeDialog, setupView, shortPath, type SetupInput } from '../src/projects.js';
+import { addProjectPage, addedMessage, nameMatches, projectEventText, projectSwitcher, removeDialog, setupView, type SetupInput } from '../src/projects.js';
 
 const HOME = '/home/dana';
 const RUN = '01K5CQ7A3M00000000000000AB';
@@ -47,25 +47,25 @@ describe('projectSwitcher', () => {
     expect(v.heading).toBe('Projects on this machine');
     expect(v.current).toMatchObject({ id: 'support-agent', initial: 'S', path: '~/support-agent' });
     expect(v.items.map((i) => [i.name, i.detail, i.current, i.settingUp, i.removable])).toEqual([
-      ['support-agent', '~/support-agent · 1,200 runs', true, false, true],
-      ['triage-bot', '~/triage-bot · no runs yet · setting up', false, true, true],
+      ['support-agent', '1,200 runs', true, false, true],
+      ['triage-bot', 'setting up', false, true, true],
     ]);
     expect(v.items[1].removeLabel).toBe('Remove triage-bot from the dashboard');
-    expect(v.add).toEqual({ label: 'Add project…', hint: 'a folder with your agent’s code', href: '#/new' });
+    expect(v.add).toEqual({ label: 'Add project…', hint: 'A folder with your agent’s code', href: '#/new' });
     expect(v.note).toBe('Each project keeps its own store.');
   });
 
-  it('keeps a long folder to its last folders on the line, the whole path on hover', () => {
+  it('says a row’s runs on its line, its whole folder left to its hover card', () => {
     const deep = '/srv/build/workspaces/team-agents/2026/support/refund-agent';
     const v = projectSwitcher({ projects: [entry('refund-agent', { stage: 'done' }, deep)], current: 'refund-agent', stats: { 'refund-agent': { runs: 2, attempts: 0, goldens: 0 } }, home: HOME });
-    expect(v.items[0]).toMatchObject({ path: deep, detail: '…/2026/support/refund-agent · 2 runs' });
-    expect(shortPath('~/support-agent')).toBe('~/support-agent');
-    expect(shortPath('C:\\Users\\dana\\work\\clients\\northwind\\agents\\refund-agent')).toBe('…\\northwind\\agents\\refund-agent');
+    expect(v.items[0]).toMatchObject({ path: deep, detail: '2 runs' });
+    const none = projectSwitcher({ projects: [entry('refund-agent', { stage: 'done' }, deep)], current: 'refund-agent', stats: { 'refund-agent': { runs: 0, attempts: 0, goldens: 0 } }, home: HOME });
+    expect(none.items[0].detail).toBe('no runs yet');
   });
 
   it('offers no × for the only project, and says when a folder is gone', () => {
     const one = projectSwitcher({ projects: [entry('agent', { stage: 'done' })], current: 'agent', stats: { agent: { runs: 1, attempts: 0, goldens: 0, missing: true } }, home: HOME });
-    expect(one.items[0]).toMatchObject({ removable: false, missing: true, detail: '~/agent · folder not found' });
+    expect(one.items[0]).toMatchObject({ removable: false, missing: true, detail: 'folder not found' });
   });
 
   it('says setting up as the setup shows it, and when a store can’t be read', () => {
@@ -81,9 +81,9 @@ describe('projectSwitcher', () => {
       home: HOME,
     });
     expect(v.items.map((i) => [i.id, i.detail, i.settingUp, i.unreadable])).toEqual([
-      ['agent', '~/agent · no runs yet · setting up', true, false],
-      ['newer', '~/newer · store can’t be read', false, true],
-      ['Übung', '~/Übung · no runs yet · setting up', true, false],
+      ['agent', 'setting up', true, false],
+      ['newer', 'store can’t be read', false, true],
+      ['Übung', 'setting up', true, false],
     ]);
     expect(v.items[1].why).toBe('it was written by a newer Shadowlap');
     // A name macOS keeps decomposed gets its letter whole on the badge.

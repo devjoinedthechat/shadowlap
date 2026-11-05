@@ -38,7 +38,7 @@ function app(groups: FixAttemptGroups | null = null): AppState {
     attemptGroups: (id: string) => Promise.resolve(groups ?? { fixId: id, blame: null, verify: [], cut: false }),
     jobs: () => Promise.resolve([]),
   } as unknown as Client;
-  return { client, exported: false, meta: null, tick: 0, feeds: {}, jobs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined, registerLayer: () => () => undefined } as unknown as AppState;
+  return { client, exported: false, meta: null, tick: 0, feeds: {}, jobs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined } as unknown as AppState;
 }
 
 async function open(fixId: string, step: string, groups: FixAttemptGroups | null = null): Promise<Rendered> {

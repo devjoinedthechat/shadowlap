@@ -9,6 +9,7 @@ import { collectorUrl, copyRules, exportDatasetJob, exportHarJob, exportHtmlJob,
 import { blameOffer, goldenExpect, passingBisect, runOffers, sameCommit, testOffer } from '../src/run-offers.js';
 import { addRun, blameOf } from './read-model-store.js';
 import { RunBuilder } from '../../engine/test/run-fixtures.js';
+import { shareCommand, shareItems, type ShareKey } from '../ui/run/share.js';
 
 /**
  * The run page's Share menu and what it offers: the export jobs (each builds its command from checked
@@ -54,6 +55,17 @@ describe('the Share menu’s jobs', () => {
     expect(exportHtmlJob(store, proj(), {})).toMatchObject({ error: 'runId is required' });
     expect(exportHtmlJob(store, proj(), { runId: 'ZZZZZZ' })).toMatchObject({ error: 'no run ZZZZZZ', status: 404 });
     expect(exportHtmlJob(store, null, { runId: id })).toMatchObject({ status: 501 });
+  });
+
+  it('runs what each row of the menu says on its card', () => {
+    const id = addRun(store, { startedAt: T0 + 50, calls: 'l' });
+    const items = shareItems({ can: () => true, team: { store: 'bucket/team', state: 'only-here' } });
+    const card = (key: ShareKey) => shareCommand(items.find((i) => i.key === key)!, id).replace(id.slice(0, 10), id);
+    const runs = (job: unknown) => `$ shadowlap ${(job as { args: string[] }).args.join(' ')}`;
+    expect(card('html')).toBe(runs(exportHtmlJob(store, proj(), { runId: id })));
+    expect(card('har')).toBe(runs(exportHarJob(store, proj(), { runId: id })));
+    // A folder goes to the CLI as `./…`, so it can never be read as an option.
+    expect(card('pack')).toBe(runs(packJob(store, proj(), { runId: id })).replace(' ./', ' '));
   });
 
   it('packs into a folder inside the project, never outside it or into the store’s own folder', () => {

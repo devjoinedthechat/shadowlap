@@ -30,10 +30,8 @@ function app(over: Partial<AppState> = {}): AppState {
     toast: () => undefined,
     palette: true,
     setPalette: () => undefined,
+    setSideOpen: () => undefined,
     setHelp: () => undefined,
-    closeTopLayer: () => false,
-    blockingLayer: () => true,
-    registerLayer: () => () => undefined,
   };
   return { ...base, ...over } as unknown as AppState;
 }

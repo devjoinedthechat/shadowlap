@@ -52,7 +52,6 @@ function app(client: Partial<Client>, runs: RunListItem[] = []): AppState {
     guard: (fn: () => void) => fn(),
     watchJob: () => undefined,
     toast: () => undefined,
-    registerLayer: () => () => undefined,
   } as unknown as AppState;
 }
 
@@ -210,7 +209,7 @@ describe('picking another run', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it('keeps the focus on the picker used, as the page compares the new pair', async () => {
-    // The address bar as a browser has it: set, it tells the page (hashchange), which the router follows.
+    // The address bar as a browser has it: set, it tells the page (hashchange) in a task of its own, after what set it has drawn, and the router follows.
     let hash = `#/compare/${REC}/${FORK}`;
     const location = {
       pathname: '/',
@@ -220,7 +219,7 @@ describe('picking another run', () => {
       },
       set hash(to: string) {
         hash = to;
-        window.dispatchEvent(new Event('hashchange'));
+        setTimeout(() => window.dispatchEvent(new Event('hashchange')));
       },
     };
     Object.assign(g, { location, history: { state: null, replaceState: (_s: unknown, _t: string, url: string) => (hash = url.slice(url.indexOf('#'))) } });

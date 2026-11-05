@@ -5,6 +5,7 @@ import { Icon } from '../components/Icon.js';
 import { pastedLink } from '../connection.js';
 import { copyText } from '../dom.js';
 import { clock } from '../format.js';
+import { holdBehind } from '../overlays/modal-store.js';
 import { readTokenLink } from '../route.js';
 import { useApp } from '../state.js';
 
@@ -92,15 +93,12 @@ export function ExpiredCard() {
     const expired = conn === 'expired';
     document.body.classList.toggle('is-expired', expired);
     // The page behind the card can't be used: Tab and assistive technology keep to the card, whose
-    // way out (Paste the new link) has the focus.
-    const app = document.querySelector<HTMLElement>('#app');
-    if (expired) {
-      app?.setAttribute('inert', '');
-      card.current?.querySelector<HTMLElement>('.btn.lime')?.focus();
-    } else app?.removeAttribute('inert');
+    // way out (Paste the new link) has the focus. It is a modal's reason, counted with a modal's.
+    const release = expired ? holdBehind(true) : null;
+    if (expired) card.current?.querySelector<HTMLElement>('.btn.lime')?.focus();
     return () => {
       document.body.classList.remove('is-expired');
-      app?.removeAttribute('inert');
+      release?.();
     };
   }, [conn]);
   if (conn !== 'expired') return null;

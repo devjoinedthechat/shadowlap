@@ -179,8 +179,8 @@ describe('the switcher', () => {
     expect(list.status).toBe(200);
     expect(list.body.heading).toBe('Projects on this machine');
     expect(list.body.items.map((i) => [i.id, i.detail, i.current, i.removable])).toEqual([
-      ['support-agent', '~/support-agent · 2 runs', true, true],
-      ['triage-bot', '~/triage-bot · no runs yet · setting up', false, true],
+      ['support-agent', '2 runs', true, true],
+      ['triage-bot', 'setting up', false, true],
     ]);
     expect(list.body.add.label).toBe('Add project…');
 
@@ -308,7 +308,7 @@ describe('the switcher', () => {
     expect(existsSync(gone)).toBe(false);
     expect((await w.api<{ runs: unknown[] }>('runs')).body.runs).toEqual([]);
     const list = await w.api<{ items: Array<{ id: string; detail: string }> }>('projects');
-    expect(list.body.items.find((i) => i.id === 'old-agent')?.detail).toBe('~/old-agent · folder not found');
+    expect(list.body.items.find((i) => i.id === 'old-agent')?.detail).toBe('folder not found');
     expect(await w.api('jobs', { method: 'POST', body: { kind: 'init' } })).toMatchObject({ status: 409, body: { error: '~/old-agent doesn’t exist any more. Remove the project, or put the folder back.' } });
     // Switching back serves the real store again.
     await w.api('projects/support-agent/select', { method: 'POST' });

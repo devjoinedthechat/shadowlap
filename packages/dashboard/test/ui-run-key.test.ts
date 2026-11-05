@@ -114,7 +114,6 @@ function app(client: Client, toasts: Array<{ text: string; action?: ToastAction 
     watchJob: () => undefined,
     toast: (text: string, _kind?: string, action?: ToastAction) => void toasts.push({ text, ...(action ? { action } : {}) }),
     refresh: () => undefined,
-    registerLayer: () => () => undefined,
     setRunCommands: () => undefined,
     setPalette: () => undefined,
     runKeys: { current: null },
@@ -285,7 +284,7 @@ describe('a toast with an action', () => {
   it('hears the undo key from the page, and not while a field is being typed in', async () => {
     let ran = 0;
     const toastText = { id: 1, text: '01M5GRX8K4 is good', kind: 'notice', action: { label: 'Undo', run: () => void ran++ } };
-    const state = { toastText, conn: 'ok', exported: false, palette: false, help: false, sideOpen: false, setPalette: () => undefined, setHelp: () => undefined, setSideOpen: () => undefined, closeTopLayer: () => false, blockingLayer: () => false, runKeys: { current: null }, meta: null } as unknown as AppState;
+    const state = { toastText, conn: 'ok', exported: false, palette: false, help: false, sideOpen: false, setPalette: () => undefined, setHelp: () => undefined, setSideOpen: () => undefined, runKeys: { current: null }, meta: null } as unknown as AppState;
     r = await render(createElement(AppContext.Provider, { value: state }, createElement('input', { type: 'search' }), createElement(Keyboard), createElement(ToastHost)));
     await r.until('the toast', () => r!.all('.toast').length === 1);
     // Typed into a field, u is a letter.

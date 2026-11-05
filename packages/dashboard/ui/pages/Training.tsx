@@ -319,7 +319,7 @@ function TasksTab({ view }: { view: TrainingView }) {
             </thead>
             <tbody>
               {t.rows.map((r) => (
-                <tr key={r.golden} className={r.href ? undefined : 'static'} onClick={r.href ? rowOpen(() => navigate(r.href!)) : undefined}>
+                <tr key={r.golden} className={r.href ? undefined : 'static'} {...(r.href ? rowOpen(() => navigate(r.href!)) : {})}>
                   <td>
                     {r.href ? (
                       <a className="rlink" href={r.href} title={r.opens ?? undefined}>

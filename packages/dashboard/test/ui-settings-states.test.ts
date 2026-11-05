@@ -65,7 +65,6 @@ function app(o: { client: Partial<Client['settings']> & { startJob?: Client['sta
     guard: (fn: () => void) => fn(),
     watchJob: o.watchJob ?? (() => undefined),
     toast: () => undefined,
-    registerLayer: () => () => undefined,
   } as unknown as AppState;
 }
 

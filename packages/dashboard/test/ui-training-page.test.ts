@@ -84,7 +84,6 @@ function page(tab: 'pairs' | 'tasks', started: Array<{ kind: string; fields: Rec
     guard: (fn: () => void) => fn(),
     watchJob: () => undefined,
     toast: () => undefined,
-    registerLayer: () => () => undefined,
   };
   return createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(TrainingPage, { tab }));
 }

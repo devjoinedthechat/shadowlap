@@ -1,16 +1,18 @@
 /**
- * Which element of an overlay takes the focus when it opens. No DOM here: the tests import it, and
- * `components/Dialog.tsx` queries for it.
+ * Which element of an overlay takes the focus when it opens, and where Tab goes inside one. No DOM
+ * here: the tests import it, and `overlays/focus-back.ts` and `components/Dialog.tsx` query for it.
  */
 
 /**
- * What a dialog focuses when it opens: its first field, else its action, but Cancel when the action
- * is red (`danger`), so pressing Enter again doesn't do what can't be undone. `initialFocus: 'cancel'`
- * starts on Cancel whatever the dialog holds.
+ * What a dialog focuses when it opens, the first of these that shows and is enabled: Cancel in one
+ * that deletes or removes (`danger`), so pressing Enter again doesn't do what can't be undone, or when
+ * `initialFocus: 'cancel'` asks for it (a command someone else recorded); else its first field or its
+ * way on, whichever comes first. On a touch screen (`touch`) it skips the fields, whose keyboard would
+ * open over the dialog: its way on, else Cancel while the way on waits.
  */
-export function dialogFocus(tone: 'lime' | 'danger' | 'solid' | undefined, initialFocus?: 'cancel'): string {
-  if (initialFocus === 'cancel') return '.dlg-cancel';
-  return `textarea, input:not([type="checkbox"]):not([type="hidden"]), select, ${tone === 'danger' ? '.dlg-cancel' : '.dlg-ok'}`;
+export function dialogFocus(tone: 'lime' | 'danger' | 'solid' | undefined, initialFocus?: 'cancel', touch = false): readonly string[] {
+  if (initialFocus === 'cancel' || tone === 'danger') return ['.dlg-cancel'];
+  return touch ? ['.dlg-ok', '.dlg-cancel'] : ['textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]), select, .dlg-ok'];
 }
 
 /**

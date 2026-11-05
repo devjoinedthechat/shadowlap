@@ -282,9 +282,6 @@
     "packages/dashboard/ui/runspage/ImportDialog.tsx": {
       "ImportDialog": 45
     },
-    "packages/dashboard/ui/shell/Keyboard.tsx": {
-      "Keyboard > useEffect(…) > down": 34
-    },
     "packages/dashboard/ui/shell/StatusBar.tsx": {
       "StatusBar": 41
     },
@@ -487,7 +484,7 @@
       "createClient": 177
     },
     "packages/dashboard/ui/components/Drawer.tsx": {
-      "Drawer": 176
+      "Drawer": 173
     },
     "packages/dashboard/ui/fixes/BlameStep.tsx": {
       "BlameStepView": 198
@@ -529,13 +526,13 @@
       "Calendar": 208
     },
     "packages/dashboard/ui/runspage/ImportDialog.tsx": {
-      "ImportDialog": 163
+      "ImportDialog": 162
     },
     "packages/dashboard/ui/shell/Palette.tsx": {
-      "PaletteDialog": 266
+      "PaletteDialog": 253
     },
     "packages/dashboard/ui/state.tsx": {
-      "AppProvider": 363
+      "AppProvider": 341
     },
     "packages/engine/src/json-doc.ts": {
       "scan": 217

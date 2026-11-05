@@ -20,9 +20,7 @@ import { render, type FakeElement, type Rendered } from './ui-render.js';
  * (browser/a11y.spec.ts).
  */
 
-/** An app whose layers close as the shell's do: Esc closes the one opened last. */
 function app(over: Partial<AppState> = {}): AppState {
-  const layers: Array<() => void> = [];
   const base = {
     client: { search: async () => ({ hits: [] }), runsPage: async () => ({ runs: [], total: 0, next: null, chipCounts: {} }) } as unknown as Client,
     conn: 'ok',
@@ -43,20 +41,6 @@ function app(over: Partial<AppState> = {}): AppState {
     sideOpen: false,
     setSideOpen: () => undefined,
     runKeys: { current: null },
-    registerLayer: (_kind: string, close: () => void) => {
-      layers.push(close);
-      return () => {
-        const at = layers.indexOf(close);
-        if (at >= 0) layers.splice(at, 1);
-      };
-    },
-    closeTopLayer: () => {
-      const top = layers[layers.length - 1];
-      if (!top) return false;
-      top();
-      return true;
-    },
-    blockingLayer: () => layers.length > 0,
   };
   return { ...base, ...over } as unknown as AppState;
 }
@@ -226,12 +210,12 @@ describe('a menu', () => {
 
 /** A dialog opened from an item of a menu, which is gone by the time the dialog closes. */
 function DialogFromMenu({ children }: { children?: ReactNode }) {
-  const [asking, setAsking] = useState(false);
+  const [asked, setAsked] = useState<'no' | 'open' | 'closed'>('no');
   return createElement(
     'div',
     null,
-    createElement('main', { id: 'view', tabIndex: -1 }, children, asking ? null : createElement('button', { type: 'button', role: 'menuitem', onClick: () => setAsking(true) }, 'Delete…')),
-    asking ? createElement(Dialog, { title: 'Delete run', ok: 'Delete run', tone: 'danger', onOk: () => setAsking(false), onClose: () => setAsking(false) }) : null,
+    createElement('main', { id: 'view', tabIndex: -1 }, children, asked === 'no' ? createElement('button', { type: 'button', role: 'menuitem', onClick: () => setAsked('open') }, 'Delete…') : null),
+    asked === 'open' ? createElement(Dialog, { title: 'Delete run', ok: 'Delete run', tone: 'danger', onOk: () => setAsked('closed'), onClose: () => setAsked('closed') }) : null,
   );
 }
 

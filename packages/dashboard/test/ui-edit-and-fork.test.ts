@@ -35,7 +35,6 @@ function app(sent: Sent, over: Partial<AppState> = {}): AppState {
     hasKind: (k: string) => k === 'override',
     guard: (fn: () => void) => fn(),
     watchJob: (p: Promise<JobView>) => void p,
-    registerLayer: () => () => undefined,
     client: {
       upload: async (file: Blob, name: string) => {
         sent.uploads.push({ name, text: await file.text() });

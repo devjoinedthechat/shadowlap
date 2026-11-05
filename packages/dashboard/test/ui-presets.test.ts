@@ -149,7 +149,7 @@ function attemptRun(): RunDetail {
   } as unknown as RunDetail;
 }
 
-const appState = () => ({ client: {}, exported: false, meta: null, runs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined, refresh: () => undefined, registerLayer: () => () => undefined, jobs: [], live: [], feeds: {}, tick: 0, runsTick: 0 }) as unknown as AppState;
+const appState = () => ({ client: {}, exported: false, meta: null, runs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined, refresh: () => undefined, jobs: [], live: [], feeds: {}, tick: 0, runsTick: 0 }) as unknown as AppState;
 
 describe('a preset’s attempts in the Forks view', () => {
   let r: Rendered | null = null;
@@ -169,7 +169,7 @@ describe('a preset’s attempts in the Forks view', () => {
     ];
     // No matrix to read: the family's tree goes by the lineage alone.
     const client = { lineage: () => Promise.resolve(nodes), fixBundles: () => Promise.resolve([]), runChaos: () => Promise.reject(new Error('not asked')) } as unknown as Client;
-    const app = { client, exported: false, meta: null, runs: [], live: [], feeds: {}, tick: 0, runsTick: 0, jobs: [], hasKind: () => true, registerLayer: () => () => undefined };
+    const app = { client, exported: false, meta: null, runs: [], live: [], feeds: {}, tick: 0, runsTick: 0, jobs: [], hasKind: () => true };
     r = await render(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(ForksView, { runId: REC })));
     await r.until('the family to load', () => r!.all('.fnode .f2').length === 4);
     const [, failed, passed, unsure] = r.all('.fnode .f2');
@@ -210,7 +210,7 @@ describe('a golden’s presets on Tests', () => {
     const v = view();
     (globalThis as { location?: unknown }).location = { hash: '#/tests' };
     const client = { tests: () => Promise.resolve(v), jobs: () => Promise.resolve([]) } as unknown as Client;
-    const app = { client, exported: false, meta: null, tick: 0, feeds: {}, jobs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined, registerLayer: () => () => undefined };
+    const app = { client, exported: false, meta: null, tick: 0, feeds: {}, jobs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined };
     r = await render(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(TestsPage)));
     await r.until('the golden to load', () => r!.all('td.glast').length === 1);
     const last = r.one('td.glast');

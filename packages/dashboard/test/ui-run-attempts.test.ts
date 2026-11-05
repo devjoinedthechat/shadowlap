@@ -48,7 +48,6 @@ function app(client: Partial<Client> = {}): AppState {
     guard: (fn: () => void) => fn(),
     watchJob: () => undefined,
     toast: () => undefined,
-    registerLayer: () => () => undefined,
   } as unknown as AppState;
 }
 
