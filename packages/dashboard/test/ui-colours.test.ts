@@ -333,8 +333,8 @@ describe('amber', () => {
     '.set > .kvs dd small.warn': 'a setting that needs a look',
     '.egrp.mcp td small.mnote.warn': 'an MCP server that needs a look',
     '.trow.warn > span:last-child': 'a row that needs a look',
-    '.dialog.editfork .warnline': 'what an edit and fork asks you to look at',
-    '.dialog p.trbusy': 'why a model can’t be scored yet: a look',
+    '.dialog .dwarn': 'a dialog’s one line: where it can’t help yet, or what to look at before pressing',
+    '.dialog .dfacts .amber dt': 'a row of a dialog that runs someone else’s command: a look',
     '.connbar .cdot': 'the dashboard can’t be reached: a look',
     '.status .off': 'the dashboard can’t be reached: a look',
   };
@@ -343,7 +343,6 @@ describe('amber', () => {
     '.connbar': 'port/dock: the offline bar on the page’s ground, only its dot amber',
     '.badge.y': 'port/primitives, then each page’s slice: Status draws a status as a dot and a word, never a tinted badge',
     '.warnbox': 'port/setup-states: a warning in a step is a plain line, its first words in amber, never a tinted box',
-    '.dialog .dz.advise': 'port/dialogs: a dialog says what needs a look in its one amber line, never a tinted box',
     '.changes div.diff': 'port/compare: what changed is one quiet line, in place of Compare’s tiles',
   };
 
@@ -371,7 +370,6 @@ describe('grounds, tints and lines', () => {
   const MIX = /color-mix\((?:[^()]|\([^()]*\))*\)/g;
   /** The tints that remain outside the tokens, each with its reason: later slices shrink this list. */
   const TINTS: Record<string, string> = {
-    '.btn.solid:hover:not([disabled])': 'the ink button under the pointer, a step off ink',
     '.btn.danger:hover:not([disabled])': 'the red button under the pointer, a step darker',
     '.btn.lime:hover:not([disabled])': 'the lime button under the pointer, a step lighter',
     '.av.t1': 'an avatar’s colour on the raised ground',

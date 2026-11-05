@@ -226,7 +226,7 @@ describe('GET /api/models', () => {
     expect(view.notes).toEqual([{ group: 'OpenAI API', note: 'OPENAI_API_KEY is not set' }]);
     expect(asked.sort()).toEqual(['http://127.0.0.1:11434/api/tags', 'https://api.anthropic.com/v1/models?limit=100']);
     expect(view.dialog).toMatchObject({ title: 'Score model on 1 task', groups: ['Recorded with', 'Anthropic API', 'Ollama, on this machine'], selected: 'claude-haiku-4-5\n', attempts: [5, 10] });
-    expect(view.dialog!.options.find((o) => o.id === 'qwen2.5:7b')).toMatchObject({ request: { model: 'qwen2.5:7b', baseUrl: 'http://127.0.0.1:11434/v1' }, label: 'qwen2.5:7b · scored 0.75', note: 'Runs at http://127.0.0.1:11434/v1 · not a paid API · replaces its score of 0.75' });
+    expect(view.dialog!.options.find((o) => o.id === 'qwen2.5:7b')).toMatchObject({ request: { model: 'qwen2.5:7b', baseUrl: 'http://127.0.0.1:11434/v1' }, label: 'qwen2.5:7b · scored 0.75', local: true, lastScore: 0.75, note: '' });
   });
 
   it('keeps a listing for a few seconds, so opening the dialog again asks nobody', async () => {

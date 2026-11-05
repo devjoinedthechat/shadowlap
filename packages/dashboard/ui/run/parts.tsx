@@ -7,6 +7,7 @@ import { RunBlameButton } from '../fixes/RunBlame.js';
 import { TestsJobButton } from '../fixes/TestsJobButton.js';
 import { callName, clip, glued, GLUED_SEPARATOR, jsonText, num, shortId } from '../format.js';
 import { countOrigins, parseOrigins } from '../origins.js';
+import { UpdateGoldenDialog } from '../components/UpdateGolden.js';
 import { NormalizeUpdateDialog } from '../pages/TestsDialogs.js';
 import { ACTIONS } from '../labels.js';
 import { href } from '../route.js';
@@ -25,7 +26,6 @@ import { metricItems, outcomeFact, type MetricInput, type OutcomeFact } from './
 import { attemptLinks, attemptOf, originOf, pulledSpender, runLikeOf } from './model.js';
 import { fixStatusWords, nextStepOf, runBlameOffer } from './next-step.js';
 import { blameTitle, divergedActions, goldenName, updateGoldenCopy, updatesAfterRules } from './offers.js';
-import { UpdateGoldenDialog } from './RunDialogs.js';
 
 /** The run page while its run loads (a run of 50,000 calls takes seconds): it says so, and is busy for a screen reader. */
 export function RunLoading() {
@@ -378,17 +378,10 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
           </span>
           {dialog === 'update' && test ? (
             <UpdateGoldenDialog
-              golden={test.golden}
-              copy={updateGoldenCopy(test, b.callNo, add?.kind === 'job', checks.length)}
-              onAddNormalizer={() => {
-                setDialog(null);
-                addNormalizer();
-              }}
+              plan={updateGoldenCopy(test, b.callNo, add?.kind === 'job', checks.length)}
+              onInstead={addNormalizer}
               onClose={() => setDialog(null)}
-              onOk={() => {
-                setDialog(null);
-                job(JOB_KINDS.testUpdate, { golden: test.golden });
-              }}
+              onUpdate={() => job(JOB_KINDS.testUpdate, { golden: test.golden })}
             />
           ) : null}
           {dialog === 'normalize' && test && add?.kind === 'job' && add.asks ? (
@@ -396,10 +389,7 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
               name={goldenName(test.golden)}
               steps={add.asks}
               onClose={() => setDialog(null)}
-              onRun={() => {
-                setDialog(null);
-                addNormalizer();
-              }}
+              onRun={addNormalizer}
             />
           ) : null}
         </section>

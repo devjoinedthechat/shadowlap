@@ -196,21 +196,7 @@ function Drawer({ watched }: { watched: WatchedJob }) {
           </a>
         ) : null}
       </footer>
-      {asking && ask && running ? (
-        <Dialog
-          title={ask.title}
-          text={ask.text}
-          ok={ask.ok}
-          tone="solid"
-          initialFocus="cancel"
-          cancel="Keep it running"
-          onClose={() => setAsking(false)}
-          onOk={() => {
-            setAsking(false);
-            stop();
-          }}
-        />
-      ) : null}
+      {asking && ask && running ? <StopJobDialog ask={ask} onClose={() => setAsking(false)} onOk={stop} /> : null}
     </div>
   );
 }
@@ -238,4 +224,9 @@ function CalibrateButton({ runId }: { runId: string }) {
       Calibrate
     </button>
   );
+}
+
+/** What Stop asks first, for a job that holds the working tree: it starts on Keep it running, as the job goes on unless you say. */
+export function StopJobDialog({ ask, onOk, onClose }: { ask: NonNullable<ReturnType<typeof stopAsk>>; onOk: () => unknown; onClose: () => void }) {
+  return <Dialog title={ask.title} lead={ask.lead} doc="jobs" facts={ask.facts} ok={ask.ok} tone="plain" initialFocus="cancel" cancel="Keep it running" onClose={onClose} onOk={onOk} />;
 }

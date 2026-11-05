@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { jobStatus, lineTone } from '../ui/jobs.js';
-import { ENDPOINT, fileName, filterGroups, trainingJobStatus, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickedOption, pickNote, pipClass, pipTip, requestTrainingDialog, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type TrainingPaletteContext } from '../ui/training.js';
+import { ENDPOINT, fileName, filterGroups, trainingJobStatus, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickedOption, pickNote, pickReplaces, scoreCost, pipClass, pipTip, requestTrainingDialog, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type TrainingPaletteContext } from '../ui/training.js';
 import type { ModelOptionView, PairGroupView, ScoreDialogView, TrainingView } from '../ui/types.js';
 
 // Training's logic without a browser: what a filter shows, the words for times and files, what Score
@@ -97,10 +97,16 @@ describe('Score a model', () => {
   });
 
   it('says where the model runs, and the score an endpoint scored before would replace', () => {
-    expect(pickNote(DIALOG, '1', DIALOG.endpoint)).toBe('Anthropic API · about $0.004 an attempt');
-    expect(pickNote(DIALOG, ENDPOINT, { baseUrl: 'http://127.0.0.1:8000/v1/', model: 'my-finetune' })).toBe('Any OpenAI-compatible server, such as vLLM serving the model you’re training. Not a paid API. · replaces its score of 0.80');
-    expect(pickNote(DIALOG, ENDPOINT, { baseUrl: 'http://127.0.0.1:8000/v1', model: 'step-200' })).toBe(DIALOG.endpoint.note);
-    expect(pickNote(null, '1', DIALOG.endpoint)).toBe('');
+    // What it bills is its cost line's, by where it runs and whether it has a price.
+    expect(scoreCost(DIALOG, '1')).toEqual({ price: expect.stringMatching(/^≈\$0\.004\d* an attempt$/), parts: ['live from each takeover, writes stubbed'] });
+    expect(scoreCost(DIALOG, ENDPOINT)).toEqual({ price: 'Free', parts: ['runs at your endpoint, writes stubbed'] });
+    expect(scoreCost(null, '1')).toBeNull();
+    expect(pickNote(DIALOG, ENDPOINT)).toBe(DIALOG.endpoint.note);
+    expect(pickNote(null, '1')).toBe('');
+    // The score it replaces: an endpoint's only when that model was scored at that endpoint.
+    expect(pickReplaces(DIALOG, ENDPOINT, { baseUrl: 'http://127.0.0.1:8000/v1/', model: 'my-finetune' })).toBe(0.8);
+    expect(pickReplaces(DIALOG, ENDPOINT, { baseUrl: 'http://127.0.0.1:8000/v1', model: 'step-200' })).toBeNull();
+    expect(pickReplaces(null, '1', DIALOG.endpoint)).toBeNull();
     expect(leftOutLine([])).toBeNull();
     expect(leftOutLine(undefined)).toBeNull();
     expect(leftOutLine([{ group: 'Anthropic API', models: ['claude-haiku-4-5', 'claude-opus-5-5'], why: "refund-flow: it is an openai request (/v1/completions), which only another model of its own provider can answer" }, { group: 'Recorded with', models: ['gpt-prod'], why: 'refund-flow: its takeover call goes through Azure OpenAI' }])).toBe(

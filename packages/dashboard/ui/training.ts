@@ -1,3 +1,5 @@
+import type { CostWords } from './actions.js';
+import { approx } from './format.js';
 import { commandText } from './goldens.js';
 import { ACTIONS } from './labels.js';
 import { href } from './route.js';
@@ -95,15 +97,26 @@ export function scoreFields(dialog: ScoreDialogView | null, pick: string, endpoi
 
 const trimUrl = (u: string) => u.trim().replace(/\/+$/, '');
 
-/**
- * The note under the picker: where the model runs and what an attempt costs (the server's words), and
- * for "Your own endpoint…" the score it replaces when that model was scored at that endpoint before.
- */
-export function pickNote(dialog: ScoreDialogView | null, pick: string, endpoint: { baseUrl: string; model: string }): string {
+/** What a pick says beyond its cost: the tasks it leaves out, or what your own endpoint can be. */
+export function pickNote(dialog: ScoreDialogView | null, pick: string): string {
   if (!dialog) return '';
-  if (pick !== ENDPOINT) return pickedOption(dialog, pick)?.note ?? '';
-  const before = dialog.options.find((o) => o.baseUrl !== null && o.id === endpoint.model.trim() && trimUrl(o.baseUrl) === trimUrl(endpoint.baseUrl) && o.lastScore !== null);
-  return before ? `${dialog.endpoint.note} · replaces its score of ${before.lastScore!.toFixed(2)}` : dialog.endpoint.note;
+  return pick === ENDPOINT ? dialog.endpoint.note : (pickedOption(dialog, pick)?.note ?? '');
+}
+
+/** The score a run of this pick replaces, or null where it has none. */
+export function pickReplaces(dialog: ScoreDialogView | null, pick: string, endpoint: { baseUrl: string; model: string }): number | null {
+  if (!dialog) return null;
+  if (pick !== ENDPOINT) return pickedOption(dialog, pick)?.lastScore ?? null;
+  return dialog.options.find((o) => o.baseUrl !== null && o.id === endpoint.model.trim() && trimUrl(o.baseUrl) === trimUrl(endpoint.baseUrl) && o.lastScore !== null)?.lastScore ?? null;
+}
+
+/** What scoring bills: a model on this machine or your own endpoint nothing, a priced model about so much an attempt, one with no price by its provider. */
+export function scoreCost(dialog: ScoreDialogView | null, pick: string): CostWords | null {
+  if (pick === ENDPOINT) return { price: 'Free', parts: ['runs at your endpoint, writes stubbed'] };
+  const o = dialog ? pickedOption(dialog, pick) : null;
+  if (!o) return null;
+  if (o.local) return { price: 'Free', parts: [`runs at ${o.baseUrl ?? 'this machine'}, writes stubbed`] };
+  return { price: o.perAttempt === null ? 'Billed by your provider' : `${approx(o.perAttempt)} an attempt`, parts: ['live from each takeover, writes stubbed'] };
 }
 
 /**

@@ -1,12 +1,12 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { JOB_KINDS } from '../api.js';
-import { CmdLine } from '../components/bits.js';
 import { Dialog } from '../components/Dialog.js';
+import { COMMIT_NAME, GoodCommitField } from '../components/GoodCommit.js';
 import { shortId } from '../format.js';
 import { sentence } from '../normalize.js';
 import { useApp } from '../state.js';
 import type { BisectChoices } from '../types.js';
-import { bisectCommand, bisectCost, bisectRequest, bisectUpTo, revisionTally } from './find-commit.js';
+import { bisectBadFact, bisectCommand, bisectCost, bisectRequest, bisectUpTo, FLAKY_NOTE, revisionTally } from './find-commit.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 
 /**
@@ -18,62 +18,40 @@ import { ACTIONS, confirmWords } from '../labels.js';
  * that started later, and `earlier` says why the first was passed over.
  */
 export function FindCommitDialog({ runId, choices, earlier = null, onClose }: { runId: string; choices: BisectChoices; earlier?: { runId: string; why: string } | null; onClose: () => void }) {
-  const { client, watchJob } = useApp();
-  const listed = choices.revisions.map((r) => r.rev);
-  const [good, setGood] = useState(choices.good ?? listed[0] ?? '');
-  const [own, setOwn] = useState(listed.length === 0);
+  const { client, watchJob, guard } = useApp();
+  const id = useId();
+  const [picked, setPicked] = useState(choices.good ?? choices.revisions[0]?.rev ?? '');
+  const [typed, setTyped] = useState('');
   const what = choices.target.kind === 'golden' ? choices.target.golden : shortId(runId);
   const upTo = bisectUpTo(choices);
-  if (choices.unavailable)
-    return (
-      <Dialog title={`Find breaking commit for ${what}`} text={sentence(choices.unavailable)} onClose={onClose}>
-        {null}
-      </Dialog>
-    );
-  const rev = good.trim();
+  const title = `Find breaking commit for ${what}`;
+  const lead = `Finds the first commit that broke ${choices.target.kind === 'golden' ? what : 'the run'}, from one where it worked.`;
+  const bad = bisectBadFact(choices, 'the commit the run was recorded at');
+  if (choices.unavailable) return <Dialog title={title} lead={lead} doc="bisect" warn={{ text: choices.unavailable.replace(/\.$/, '') }} facts={[bad]} onClose={onClose} />;
+  const rev = typed.trim() || picked;
   return (
     <Dialog
-      title={`Find breaking commit for ${what}`}
-      text={`Replays it at commits between a good one and ${upTo}, halving each time, and names the first where it fails. ${bisectCost(choices)}`}
+      title={title}
+      lead={lead}
+      doc="bisect"
+      {...(earlier ? { warn: { text: `${sentence(earlier.why)} This finds the commit that broke ${what}, the first failure on those days that started later` } } : {})}
+      facts={[bad]}
+      command={bisectCommand(runId, choices, rev)}
+      cost={bisectCost(choices)}
       ok={confirmWords(ACTIONS.findBreakingCommit.label)}
-      okDisabled={!/^[A-Za-z0-9][A-Za-z0-9._/~^-]{0,199}$/.test(rev) || rev === upTo}
+      okDisabled={!COMMIT_NAME.test(rev) || rev === upTo}
       onClose={onClose}
-      onOk={() => {
-        onClose();
-        watchJob(client.startJob(JOB_KINDS.bisect, bisectRequest(runId, choices, rev)));
-      }}
+      onOk={() => guard(() => watchJob(client.startJob(JOB_KINDS.bisect, bisectRequest(runId, choices, rev))))}
     >
-      {earlier ? (
-        <p className="fxdlg fcearly">
-          {sentence(earlier.why)} This finds the commit that broke {what}, the first failure on those days that started later.
-        </p>
-      ) : null}
-      <div className="form one">
-        <label>
-          A commit where it still worked
-          {own ? (
-            <input spellCheck={false} placeholder="a commit, tag or branch" value={good} onChange={(e) => setGood(e.target.value)} />
-          ) : (
-            <select
-              value={good}
-              onChange={(e) => {
-                if (e.target.value === '\u0000') {
-                  setOwn(true);
-                  setGood('');
-                } else setGood(e.target.value);
-              }}
-            >
-              {choices.revisions.map((r) => (
-                <option key={r.rev} value={r.rev}>
-                  {r.rev.slice(0, 12)} · {new Date(r.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · {revisionTally(r)}
-                </option>
-              ))}
-              <option value={'\u0000'}>Another commit…</option>
-            </select>
-          )}
-        </label>
-      </div>
-      <CmdLine>{bisectCommand(runId, choices, rev)}</CmdLine>
+      <GoodCommitField
+        id={id}
+        choices={choices.revisions.map((r) => ({ value: r.rev, subject: new Date(r.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), how: revisionTally(r) }))}
+        picked={picked}
+        typed={typed}
+        onPick={setPicked}
+        onType={setTyped}
+      />
+      {choices.fork ? <p className="dlgnote fieldhint">{FLAKY_NOTE}</p> : null}
     </Dialog>
   );
 }

@@ -1,3 +1,4 @@
+import type { FactWords } from '../actions.js';
 import { num, shortId } from '../format.js';
 import { ACTIONS } from '../labels.js';
 import type { RunOffers } from '../types.js';
@@ -28,7 +29,22 @@ const ITEMS: Record<ShareKey, Omit<ShareItem, 'key'>> = {
 };
 
 /** Where the server's jobs write a copy, inside the project (src/run-exports.ts). */
-const EXPORTS = '.shadowlap/exports';
+export const EXPORTS = '.shadowlap/exports';
+
+/**
+ * What a copy's dialog says of its redaction rules: how many, and that the store never changes, or
+ * that the copy holds what was recorded. A trace holds no prompt text whatever they say. No row where
+ * the server doesn't say how many.
+ */
+export function redactsFact(rules: number | null, trace = false): FactWords | null {
+  if (rules === null) return null;
+  const by = `by ${num(rules)} ${rules === 1 ? 'rule' : 'rules'}`;
+  if (trace) return rules ? { label: 'Redacts', value: by, quiet: 'a trace holds no prompt, arguments or results' } : { label: 'Redacts', value: 'nothing', quiet: 'no redaction rules; a trace holds no prompt, arguments or results' };
+  return rules ? { label: 'Redacts', value: by, quiet: 'the store never changes' } : { label: 'Redacts', value: 'nothing', quiet: 'no redaction rules: the copy holds what was recorded' };
+}
+
+/** What a pack holds, its one fact besides that. */
+export const PACK_HOLDS: FactWords = { label: 'Holds', value: 'run.json, calls.jsonl and one file per blob' };
 
 /** A copy's name in a file or a folder: the run's id, as the server's jobs name it. */
 const fileId = (runId: string) => runId.slice(0, 10).toLowerCase();

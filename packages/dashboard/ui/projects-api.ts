@@ -35,7 +35,11 @@ export interface RemovedProject {
 /** The dialog that asks before a command's first run in a folder. */
 export interface RecordConfirmation {
   title: string;
-  text: string;
+  lead: string;
+  /** It ran here before with its model calls going somewhere else: why it asks again. */
+  moved: string | null;
+  /** Where its model calls go. */
+  calls: { value: string; quiet: string };
   command: string;
   button: string;
 }

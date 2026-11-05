@@ -56,11 +56,16 @@ export interface Action {
   hint?: string;
   /**
    * Set on an action with `args` that asks before it starts: a fork's Repeat 5 times runs the fork's
-   * change again five times, each attempt live from where it forks. Until Spending decides it by the
+   * change again five times, each attempt live from where it forks, and a write forced live acts on
+   * the user's systems. Until Spending decides it by the
    * job's estimate, the dashboard and the terminal UI ask first, saying what it runs. Without it, an
    * action with `args` starts at once, as a recording's Repeat 5 times does, replayed offline.
    */
   asksFirst?: true;
+  /** What it does for real, said in red where it asks first: a write forced live. */
+  warns?: string;
+  /** Inject's: the model at this call, where it takes no system message mid-conversation. */
+  noSystemMessage?: string;
   /**
    * Set on a replay of a run imported from a pack or pulled from the team store, which runs the
    * command someone else recorded, with --yes for the CLI: `confirm` when its prompt asks only for
@@ -401,6 +406,7 @@ function callActions(id: string, call: CallRecord, context: ActionContext): Acti
         flag: `--inject ${n}=… --inject-as user`,
         group: 'call',
         // Named when the call's model is one that rejects it outright, as the dialog the dashboard opens says.
+        ...(noLateSystemMessage(model) ? { noSystemMessage: noLateSystemMessage(model)! } : {}),
         hint: `${noLateSystemMessage(model) ? `${noLateSystemMessage(model)!} takes no` : 'Not every model takes a'} system message mid-conversation, so it goes in as part of the last user message (--inject-as user) and stays in place for every later request of the fork. Calls before it replay.`,
         prompt: { label: `Instruction to add at #${n}:`, placeholder: 'Prefer sources from 2026.', build: (v) => ['replay', id, '--inject', `${n}=${v}`, '--inject-as', 'user'] },
         opensRun: true,
@@ -523,7 +529,7 @@ function callActions(id: string, call: CallRecord, context: ActionContext): Acti
       opensRun: false,
     });
   }
-  actions.push({ key: 'l', label: forceLiveLabel(call.name), flag: `--live-tool ${call.name}`, group: 'call', hint: `Runs the first call of ${call.name} for real instead of serving its recorded result: what a fixed tool needs, since its call key did not change.`, args: ['replay', id, '--live-tool', call.name], opensRun: true });
+  actions.push({ key: 'l', label: forceLiveLabel(call.name), flag: `--live-tool ${call.name}`, group: 'call', hint: `Runs the first call of ${call.name} for real instead of serving its recorded result: what a fixed tool needs, since its call key did not change.`, args: ['replay', id, '--live-tool', call.name], opensRun: true, ...(call.effect === 'write' ? { asksFirst: true as const, warns: `${call.name} acts on your systems` } : {}) });
   actions.push(diverge);
   return actions;
 }

@@ -190,13 +190,13 @@ test('Fixes and each fix’s steps, Tests’ dialogs, the palette, the shortcuts
     await runTests.first().click();
     await settled(page, { shows: DIALOG });
   }], ['Tests · Run tests asks · closed', escape(page)]);
-  // Update goldens…'s dialog, when a golden diverged.
-  states.push(['Tests · Update goldens…', async () => {
+  // Update goldens's dialog, when a golden diverged.
+  states.push(['Tests · Update goldens', async () => {
     const update = page.locator('main#view button', { hasText: 'Update goldens' });
     if (!(await update.count())) return;
     await update.first().click();
     await settled(page, { shows: DIALOG });
-  }], ['Tests · Update goldens… closed', press(page, 'Escape')]);
+  }], ['Tests · Update goldens closed', press(page, 'Escape')]);
   states.push(['Runs', at(page, '/runs', 'main#view table.runst tbody tr')], ['Runs · Import capture…', click(page, 'main#view button', 'Import capture…', { shows: DIALOG })], ['Runs · import closed', escape(page)]);
   states.push(['Runs · a run ticked', click(page, 'main#view table.runst tbody tr input[type="checkbox"]')]);
   // The palette's hits in what was recorded come from the server: swept once they have come.

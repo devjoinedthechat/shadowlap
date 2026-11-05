@@ -1,3 +1,4 @@
+import type { FactWords } from './actions.js';
 import { fixJobStatus } from './fixes/model.js';
 import { ACTIONS, doneWords, type JobEnd } from './labels.js';
 import { trainingJobStatus } from './training.js';
@@ -322,15 +323,13 @@ export interface RunningJob {
  * from it, a patch being applied): stopped part way, the tree is what it says. Null for any other job, which
  * Stop stops at once, as Ctrl-C would: a run it was making ends as interrupted.
  */
-export function stopAsk(job: RunningJob): { title: string; text: string; ok: string } | null {
+export function stopAsk(job: RunningJob): { title: string; lead: string; facts: readonly FactWords[]; ok: string } | null {
   if (job.done || job.worktree?.use !== 'writes') return null;
   const [command, sub] = job.args ?? [];
-  if (command === 'repair')
-    return { title: 'Stop the repair?', text: 'It is verifying candidates in temporary worktrees, never in your working tree, which it leaves as it is. Stopped, it reports what it found so far, as Ctrl-C does.', ok: 'Stop the repair' };
-  if (command === 'fix' && sub === 'apply')
-    return { title: 'Stop applying the patch?', text: 'It is changing your working tree. Stopped part way, the patch may be in while the fix isn’t marked applied: Apply it again to finish.', ok: 'Stop applying' };
-  const doing = job.worktree.doing;
-  return { title: `Stop ${(job.title ?? 'this job').toLowerCase()}?`, text: `${doing.charAt(0).toUpperCase()}${doing.slice(1)}. Stopped part way, the tree is left as it is then.`, ok: 'Stop it' };
+  if (command === 'repair') return { title: 'Stop repair', lead: 'Stops the repair, which reports what it found so far.', facts: [{ label: 'Changes', value: 'nothing in your working tree' }], ok: 'Stop repair' };
+  if (command === 'fix' && sub === 'apply') return { title: 'Stop applying patch?', lead: 'Stops applying the patch, which may leave it in your working tree with the fix not marked applied.', facts: [{ label: 'Then', value: 'Apply fix again to finish' }], ok: 'Stop applying' };
+  const name = (job.title ?? 'this job').toLowerCase();
+  return { title: `Stop ${name}?`, lead: `Stops ${name}, which leaves the tree as it is then.`, facts: [], ok: 'Stop job' };
 }
 
 /**

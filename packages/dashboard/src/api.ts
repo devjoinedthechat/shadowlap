@@ -674,6 +674,9 @@ export function actionsFor(run: RunRecord, call: CallRecord | undefined, context
     group: a.group ?? null,
     hint: a.hint ?? null,
     ...(a.asksFirst ? { asksFirst: true as const } : {}),
+    ...(a.args ? { command: quoteArgv(['shadowlap', ...a.args]) } : {}),
+    ...(a.noSystemMessage ? { noSystemMessage: a.noSystemMessage } : {}),
+    ...(a.warns ? { warns: a.warns } : {}),
   }));
 }
 

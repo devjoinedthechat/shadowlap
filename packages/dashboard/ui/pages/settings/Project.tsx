@@ -65,7 +65,7 @@ export function ProjectTab() {
         </button>
         {/* A read-only dashboard's reason first: it changes nothing, whichever project it shows. */}
         <button className="btn quiet dz push" type="button" disabled={!!blocked || !!app.actionsOff} title={app.actionsOff ?? blocked ?? `Forget ${data.name} here; its folder, store and goldens stay on disk`} onClick={() => app.guard(() => setRemoving(true))}>
-          Remove from dashboard
+          Remove project…
         </button>
       </div>
       {removing && removal && current ? <removal.Dialog id={current.id} onClose={() => setRemoving(false)} /> : null}

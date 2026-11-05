@@ -1,3 +1,4 @@
+import type { FactWords } from '../actions.js';
 import { guessImportFormat, IMPORT_FILE_FORMATS, type ImportFileFormat } from '../../../engine/src/import-format.js';
 import { OTEL_SAMPLE, OTEL_SAMPLE_NAME, type OtlpSpan, type OtlpTrace } from './sample-otel.js';
 
@@ -52,43 +53,41 @@ export type TraceSource = 'langfuse' | 'langsmith' | 'phoenix' | 'logfire';
  * What each trace store keeps, its name, what its trace ids look like, and the keys it is read with:
  * the field's placeholder names the format rather than showing a made-up id. Langfuse's SDKs write
  * a UUID, or 32 hex characters since they moved onto OpenTelemetry; LangSmith's trace is its root
- * run's UUID; Phoenix and Logfire show OpenTelemetry's. `keys` names them until the dashboard says
- * which it reads; `key` says where they come from (a Phoenix without authentication needs none).
- * `note` is what the dialog can't do that the CLI can.
+ * run's UUID; Phoenix and Logfire show OpenTelemetry's. `holds` is what the source keeps beyond the
+ * messages and model settings; `keys` names them until the dashboard says which it reads; `keyQuiet`
+ * says where they matter (a Phoenix without authentication needs none); `looksBack` that it is
+ * searched back 30 days only, which the CLI can pass.
  */
-export const TRACE_COPY: Readonly<Record<TraceSource, { name: string; id: string; idRule: string; keeps: string; keys: string; key: string; note?: string }>> = {
+export const TRACE_COPY: Readonly<Record<TraceSource, { name: string; id: string; idRule: string; holds: string; keys: string; keyQuiet?: string; looksBack?: true }>> = {
   langfuse: {
     name: 'Langfuse',
     id: 'a UUID or 32 hex characters, from the trace’s page',
     idRule: 'letters, digits, dashes, dots and colons',
-    keeps: 'Generations keep the messages and model settings. Tool definitions often aren’t stored, so tools run live on replay unless their outputs are in the trace.',
+    holds: 'a tool’s output only where the trace has it; tool definitions often aren’t stored',
     keys: 'LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY',
-    key: 'The key comes from',
   },
   langsmith: {
     name: 'LangSmith',
     id: 'a UUID, from the trace’s page in LangSmith',
     idRule: 'letters, digits, dashes, dots and colons',
-    keeps: 'LLM runs keep the messages and model settings. Tool runs keep their outputs when you logged them; anything else runs live on replay.',
+    holds: 'a tool’s output where you logged it',
     keys: 'LANGSMITH_API_KEY',
-    key: 'The key comes from',
   },
   phoenix: {
     name: 'Phoenix',
     id: '32 hex characters, from the trace’s page in Phoenix',
     idRule: '32 hex characters',
-    keeps: 'LLM spans keep the messages, model settings and tool definitions; tool spans keep their outputs. Anything else runs live on replay.',
+    holds: 'tool definitions, and a tool’s output where its instrumentation logged it',
     keys: 'PHOENIX_API_KEY',
-    key: 'The key, if your Phoenix asks for one, comes from',
+    keyQuiet: 'where your Phoenix asks for one; nothing passes through Shadowlap',
   },
   logfire: {
     name: 'Logfire',
     id: '32 hex characters, from the trace’s details in Logfire',
     idRule: '32 hex characters',
-    keeps: 'Model spans keep the messages, model settings and tool definitions; a function traced with logfire.instrument keeps its result when record_return is on. Anything else runs live on replay.',
+    holds: 'tool definitions, a tool’s arguments, and its result with record_return=True',
     keys: 'LOGFIRE_READ_TOKEN',
-    key: 'The read token comes from',
-    note: 'Logfire is searched back 30 days: for an older trace, run shadowlap import logfire <id> --since <date> in a terminal.',
+    looksBack: true,
   },
 };
 
@@ -151,4 +150,41 @@ export function redateTrace(trace: OtlpTrace, endMs: number): OtlpTrace {
  */
 export function sampleTrace(now = Date.now()): { name: string; text: string } {
   return { name: OTEL_SAMPLE_NAME, text: `${JSON.stringify(redateTrace(OTEL_SAMPLE, now), null, 1)}\n` };
+}
+
+/** What Import capture says of the source picked: its amber line, its rows, and the command it runs. */
+export function importWords(o: {
+  source: 'file' | TraceSource;
+  picked: { file: { name: string }; format?: string | null } | null;
+  id: string;
+  host: string;
+  project: string;
+  /** What the server says of a trace store: the keys it reads, and whether they are set. */
+  keys: { keyNames: readonly string[]; keys: boolean } | null;
+  defaults: { host?: string | null; project?: string | null } | null;
+  uploads: boolean;
+}): { line: string | null; rows: FactWords[]; command: string } {
+  const onReplay = { label: 'On replay', value: 'what it doesn’t hold runs live, writes fenced' };
+  if (o.source === 'file') {
+    return {
+      line: o.uploads ? null : 'This dashboard takes no files: start it in your project with shadowlap dashboard, or import in a terminal with shadowlap import',
+      rows: [onReplay],
+      command: `shadowlap import ${o.picked?.format ?? '<format>'} ${o.picked?.file.name ?? '<file>'}`,
+    };
+  }
+  const copy = TRACE_COPY[o.source];
+  const names = o.keys ? keyList(o.keys.keyNames) : copy.keys;
+  const one = o.keys?.keyNames.length === 1;
+  const host = o.host && o.host !== o.defaults?.host ? ` --host ${o.host}` : '';
+  const project = o.source === 'phoenix' && o.project.trim() !== o.defaults?.project ? ` --project=${o.project.trim()}` : '';
+  return {
+    line: o.keys && !o.keys.keys ? `${names} ${one ? 'is' : 'are'} not set where this dashboard runs: set ${one ? 'it' : 'them'}, then start shadowlap dashboard again` : null,
+    rows: [
+      { label: 'Holds', value: 'messages and model settings', quiet: copy.holds },
+      ...(copy.looksBack ? [{ label: 'Looks back', value: '30 days', quiet: 'an older trace takes --since in a terminal' }] : []),
+      onReplay,
+      { label: 'Key', value: `${names} on this machine`, quiet: copy.keyQuiet ?? 'nothing passes through Shadowlap' },
+    ],
+    command: `shadowlap import ${o.source} ${o.id.trim() || '<trace id>'}${host}${project}`,
+  };
 }

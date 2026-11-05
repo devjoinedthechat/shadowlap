@@ -1,8 +1,7 @@
 import { useSyncExternalStore, type ReactNode } from 'react';
-import { CmdLine } from '../components/bits.js';
 import { Dialog } from '../components/Dialog.js';
 import { useApp } from '../state.js';
-import { answerTestsQuestion, onTestsQuestion, testsQuestion } from '../tests-ask.js';
+import { answerTestsQuestion, liveFacts, onTestsQuestion, testsQuestion } from '../tests-ask.js';
 import { useTestsWait } from './tree.js';
 
 /**
@@ -23,8 +22,8 @@ export function TestsJobButton({ verb, off, title, className, onClick, children 
 
 /**
  * The question a Tests job waits on before it runs anything live (tests-ask.ts), wherever it was
- * started: Tests' buttons, a test replay's banner, the palette. The server's words name the goldens
- * that go live and why, the commands the job runs follow, and only its button sends the yes. It
+ * started: Tests' buttons, a test replay's banner, the palette. The server lists the goldens that go
+ * live and why, the commands the job runs follow, and only its button sends the yes. It
  * opens on that button, as the other asks before a job that bills do (Run repair, Update
  * golden, Find breaking commit): Cancel takes the focus first only where a dialog deletes or stops
  * something, or runs a command someone else recorded (ConsentDialog). The shell draws it once, over
@@ -35,8 +34,17 @@ export function TestsAskHost() {
   const q = useSyncExternalStore(onTestsQuestion, testsQuestion);
   if (!q) return null;
   return (
-    <Dialog title={q.title} text={`${q.why}.`} ok={q.ok} onOk={() => answerTestsQuestion(app, true)} onClose={() => answerTestsQuestion(app, false)}>
-      {q.commands?.length ? q.commands.map((c, i) => <CmdLine key={`${i}:${c}`}>{c}</CmdLine>) : null}
-    </Dialog>
+    <Dialog
+      title={q.title}
+      lead={q.lead}
+      doc={q.doc}
+      // Without the server's list of goldens, its sentence says which and why.
+      facts={[...(q.live ? liveFacts(q.live) : [{ label: 'Runs live', value: q.why }]), ...(q.facts ?? [])]}
+      command={q.commands?.length ? { command: q.commands } : null}
+      cost={{ price: 'Billed by your provider', parts: q.parts ?? [] }}
+      ok={q.ok}
+      onOk={() => answerTestsQuestion(app, true)}
+      onClose={() => answerTestsQuestion(app, false)}
+    />
   );
 }

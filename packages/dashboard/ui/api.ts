@@ -97,6 +97,8 @@ export class ApiError extends Error {
     message: string,
     /** A question asking a yes to a command line (409): what saying yes to those lines sends back as `yes`. */
     readonly confirm?: string,
+    /** The goldens a Tests job's question would run live, and why. */
+    readonly live?: unknown,
   ) {
     super(message);
   }
@@ -369,8 +371,8 @@ export function createClient(token: string): Client {
     }
     if (!res.ok) {
       noteRefusal(res.status, body);
-      const said = body as { error?: string; confirm?: unknown } | null;
-      throw new ApiError(res.status, said?.error ?? `HTTP ${res.status}`, typeof said?.confirm === 'string' ? said.confirm : undefined);
+      const said = body as { error?: string; confirm?: unknown; live?: unknown } | null;
+      throw new ApiError(res.status, said?.error ?? `HTTP ${res.status}`, typeof said?.confirm === 'string' ? said.confirm : undefined, said?.live);
     }
     // Something the read named that the store doesn't hold, answered as the page asked: the 404 it is.
     const missing = method === 'GET' ? (body as { notFound?: unknown; error?: unknown } | null) : null;

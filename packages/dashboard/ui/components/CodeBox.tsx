@@ -27,6 +27,8 @@ export interface CodeBoxProps {
   /** A box that shows a change: read, not pasted, so it has no Copy. */
   change?: boolean;
   className?: string | undefined;
+  /** A command box's, for what folds it. */
+  id?: string | undefined;
 }
 
 /** What a box's Copy names and its toast says: what the box names itself, else the whole command, the commands, the command or the code. */
@@ -80,12 +82,12 @@ function BoxCopy({ text, what, words = false }: { text: string; what: string; wo
 
 /** One code box, with its one Copy: a command, code, or a file of code with its name in the header. */
 export function CodeBox(props: CodeBoxProps) {
-  const { command, code = '', file, full, change = false, className } = props;
+  const { command, code = '', file, full, change = false, className, id } = props;
   const what = boxWhat(props);
   if (command !== undefined) {
     const lines = typeof command === 'string' ? [command] : command;
     return (
-      <div className={`cmdline${className ? ` ${className}` : ''}`}>
+      <div id={id} className={`cmdline${className ? ` ${className}` : ''}`}>
         {change ? null : <BoxCopy text={full ?? lines.join('\n')} what={what} />}
         {lines.map((c, i) =>
           lines.length > 1 ? (

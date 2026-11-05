@@ -228,16 +228,18 @@ describe('Run repair', () => {
     expect(button.className).toBe('btn');
     expect(button.props.title).toBe('No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.');
     await r!.click(button);
-    await r!.until('the dialog to read the fix again', () => r!.all('.dialog .fxdlg').length > 0);
-    const notes = r!.all('.dialog .fxdlg').map(text);
-    expect(notes).toEqual(['No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.']);
+    await r!.until('the dialog to read the fix again', () => r!.all('.dialog .dwarn').length > 0);
+    expect(text(r!.one('.dialog .dwarn'))).toBe('No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.');
+    // Nothing of what a repair that runs would do, and what it bills says why: nothing runs.
+    expect(r!.all('.dialog .dfacts')).toEqual([]);
+    expect(text(r!.one('.dialog .dcost'))).toContain('nothing runs: the blame it reuses rescued no call');
     await r!.unmount();
     // Where claude can't be found the dialog says so, and still that the repair would end with no fix to try.
     await open(fix.fixId, null, null, { problem: 'This repair asks your own Claude Code, and claude was not found on this machine.' });
     await r!.click(r!.byText('.ph .actions button', 'Run repair'));
-    await r!.until('the dialog to read the fix again', () => r!.all('.dialog .fxdlg').length > 0);
-    expect(text(r!.one('.dialog header p'))).toBe('This repair asks your own Claude Code, and claude was not found on this machine.');
-    expect(r!.all('.dialog .fxdlg').map(text)).toEqual(['No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.']);
+    await r!.until('the dialog to read the fix again', () => r!.all('.dialog .dwarn').length > 0);
+    expect(text(r!.one('.dialog .dwarn'))).toBe('This repair asks your own Claude Code, and claude was not found on this machine.');
+    expect(text(r!.one('.dialog .dcost'))).toContain('nothing runs: the blame it reuses rescued no call');
   });
 
   it('says the agent runs live and is billed when the repair has a passing path to learn from', async () => {
@@ -247,12 +249,15 @@ describe('Run repair', () => {
     const button = r!.byText('.ph .actions button', 'Run repair');
     expect(button.className).toBe('btn lime');
     await r!.click(button);
-    await r!.until('the dialog to read the fix again', () => r!.all('.dialog .fxdlg').length > 0);
-    expect(r!.all('.dialog .fxdlg').map(text)).toEqual(['The agent runs live from where each run was lost, writes stubbed: its model calls are billed. A file you change meanwhile is in the candidates made after it.']);
+    await r!.until('the dialog to read the fix again', () => !r!.one('.dialog .dlg-ok').disabled);
+    expect(text(r!.one('.dialog header p'))).toContain('Asks your own Claude Code for prompt and tool rewrites and picks the smallest that fixes the failing runs.');
+    expect(text(r!.one('.dialog .dcost'))).toContain('live from each run’s first model call, writes stubbed');
+    expect(text(r!.one('.dialog .dcost'))).toContain('up to 3 candidates');
     // Candidates are verified in a worktree of their own: the dialog never says they are tried in the working tree.
-    const said = text(r!.one('.dialog header p'));
-    expect(said).toContain('Each candidate is verified in a temporary worktree made from your working tree as it is, never in the working tree itself');
-    expect(said).not.toMatch(/put back|tried in your working tree/);
+    const said = r!.all('.dialog .dfacts div').map(text);
+    expect(said).toContain('Changesnothing in your working treeeach candidate is tried in a worktree of its own');
+    expect(said).toContain('Hands overthe accepted one, as a patch for you to apply');
+    expect(said).toContain('While it runsleave the prompt and tools alone');
     // Its command wraps between words, each flag kept with its value: never "--" at a line's end and "repairer" at the next's start.
     const kept = r!.all('.dialog .cmdline span.nw').map((e) => e.textContent);
     expect(kept).toContain('--repairer ');
@@ -274,8 +279,8 @@ describe('Apply fix', () => {
     await open(verified(), null, null, { inTree: true });
     expect(buttons()).toEqual(['Mark applied']);
     await r!.click(r!.byText('.ph .actions button', 'Mark applied'));
-    expect(text(r!.one('.dialog h3'))).toBe('Mark this fix applied?');
-    expect(text(r!.one('.dialog header p'))).toBe('The patch is already in your working tree: this copies the goldens it is missing into goldens/, runs them with shadowlap test and marks the fix applied.');
+    expect(text(r!.one('.dialog h3'))).toBe('Mark fix applied?');
+    expect(text(r!.one('.dialog header p'))).toContain('Copies the goldens it is missing into goldens/, runs them and marks the fix applied.');
   });
 
   it('offers the patch and git apply to copy while the patch is still to apply', async () => {
@@ -290,10 +295,11 @@ describe('Apply fix', () => {
     const fixId = verified();
     markFixApplied(store, fixId, { patch: 'applied', repairId: 'repair-munzln2i', goldens: ['goldens/01M3RZ0001'], tests: 'passed', via: 'fix apply' });
     await open(fixId);
-    expect(buttons()).toEqual(['View the patch', 'Patch applied']);
-    await r!.click(r!.byText('.ph .actions button', 'View the patch'));
-    expect(text(r!.one('.dialog h3'))).toBe('fix.patch');
-    expect(text(r!.one('.dialog header p'))).toBe('In your working tree since the fix was applied: .shadowlap/repairs/repair-munzln2i/fix.patch');
+    expect(buttons()).toEqual(['Show patch', 'Patch applied']);
+    await r!.click(r!.byText('.ph .actions button', 'Show patch'));
+    expect(text(r!.one('.dialog h3'))).toBe('Show patch');
+    expect(text(r!.one('.dialog header p'))).toContain('The fix as repair handed it over, in your working tree since you applied it.');
+    expect(text(r!.one('.dialog .dfacts'))).toBe('Path.shadowlap/repairs/repair-munzln2i/fix.patch');
     expect(text(r!.one('.dialog pre.fxpatch'))).toContain('+You are a support agent. Follow the refund policy: escalate every refund above the limit it sets.');
     // To read only: Close, and nothing to run.
     expect(r!.all('.dialog footer button').map(text)).toEqual(['Close']);
@@ -410,7 +416,7 @@ describe('what settles a fix left unsettled', () => {
     // Titled with its button's name, without the ellipsis, and confirmed so.
     expect(text(r!.one('.dialog h3'))).toBe('Run blame with stronger model');
     expect(text(r!.one('.dialog .dlg-ok'))).toBe('Run blame with stronger model');
-    expect(text(r!.one('.dialog header p'))).toContain('the last blame took 4 attempts');
+    expect(text(r!.one('.dialog .dcost'))).toContain('the last blame took 4 attempts');
     expect(started).toEqual([]);
   });
 });
@@ -422,7 +428,7 @@ describe('Mark applied for a change of request fields', () => {
     recordVerdict(store, { report: { ...verifyReport([{ runId: run, role: 'target', pass: true }], { codeVersion: 'f353f41' }), fields: { temperature: 1 } }, expect: EXPECT, command: 'shadowlap verify --fixes label:double-email --set temperature=1', at: NOW + 1 });
     await open(fix.fixId);
     await r!.click(r!.byText('.ph .actions button', 'Mark applied'));
-    expect(text(r!.one('.dialog header p'))).toBe("It was verified with temperature=1 from each run's first model call, a change to the requests rather than to your files: once your agent makes it, this marks the fix applied.");
+    expect(text(r!.one('.dialog header p'))).toContain("Marks the fix applied once your agent sends temperature=1 from each run's first model call.");
   });
 
   it('reads Marked applied once marked, its hover naming the change, never a patch', async () => {

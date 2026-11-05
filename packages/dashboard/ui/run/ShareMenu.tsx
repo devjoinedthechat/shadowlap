@@ -11,7 +11,7 @@ import { errorText } from '../toast.js';
 import type { PendingAction } from './actions.js';
 import { DatasetDialog } from '../components/DatasetDialog.js';
 import { redactRuleCount } from './provenance.js';
-import { defaultPackFolder, htmlCopyVia, shareCommand, shareDialog, shareItemOff, shareItems, shareNote, shareWhy, type ShareKey } from './share.js';
+import { defaultPackFolder, EXPORTS, htmlCopyVia, PACK_HOLDS, redactsFact, shareCommand, shareDialog, shareItemOff, shareItems, shareNote, shareWhy, type ShareKey } from './share.js';
 // The share job's drawer offers the link it made.
 import './share-link.js';
 
@@ -74,15 +74,14 @@ export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: 
     return (
       <PromptDialog
         {...shareDialog('pack', [id])}
-        text="A folder to commit as a golden or send to someone: run.json, calls.jsonl and one file per blob. Redaction rules apply to the copy; the store is never changed."
+        lead="Packs the run into a folder to commit as a golden or send to someone."
+        doc="packs"
+        facts={[PACK_HOLDS, redactsFact(offers?.copies.formats.find((f) => f.id === 'pack')?.rules ?? null)]}
         label="Folder, inside the project"
         initial={defaultPackFolder(id)}
-        command={`shadowlap pack ${shortId(id)} …`}
+        command={(dir) => `shadowlap pack ${shortId(id)} ${dir || '…'}`}
         onClose={close}
-        onRun={(dir) => {
-          close();
-          job(JOB_KINDS.pack, { runId: id, dir });
-        }}
+        onRun={(dir) => job(JOB_KINDS.pack, { runId: id, dir })}
       />
     );
   if (dialog === 'dataset') return <DatasetDialog ids={[id]} rules={offers?.copies.formats.find((f) => f.id === 'dataset')?.rules ?? null} onClose={close} />;
@@ -113,19 +112,19 @@ export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: 
   );
 }
 
-function OtelDialog({ runId, rules, onClose, onRun }: { runId: string; rules: number | null; onClose: () => void; onRun: (fields: Record<string, unknown>) => void }) {
+export function OtelDialog({ runId, rules, onClose, onRun }: { runId: string; rules: number | null; onClose: () => void; onRun: (fields: Record<string, unknown>) => boolean }) {
   const [to, setTo] = useState<'collector' | 'file'>('collector');
   const [where, setWhere] = useState('http://localhost:4318');
   return (
     <Dialog
       {...shareDialog('otel', [runId])}
-      text={`One trace: a span for the run and one per call, with the GenAI attributes plus origin, effect, fingerprint and cost. Its ids come from the run id, so exporting again updates the same trace.${rules ? ` It carries no prompt text; ${rules === 1 ? 'the redaction rule without a path applies' : `the ${rules} redaction rules without a path apply`} to what it keeps.` : ''}${to === 'file' ? ' A file stays in the project: nothing is sent.' : ''}`}
+      lead="Exports the run as one trace: a span for the run and one per call."
+      doc="traces"
+      facts={[redactsFact(rules, true), { label: 'Re-export', value: 'updates the same trace', quiet: 'its ids come from the run’s' }]}
+      command={`shadowlap export otel ${shortId(runId)} ${to === 'file' ? `--out ${EXPORTS}/${where.trim() || '…'}` : `--endpoint ${where.trim() || '…'}`}`}
       okDisabled={!where.trim()}
       onClose={onClose}
-      onOk={() => {
-        onClose();
-        onRun({ runId, ...(to === 'file' ? { out: where.trim() } : { endpoint: where.trim() }) });
-      }}
+      onOk={() => onRun({ runId, ...(to === 'file' ? { out: where.trim() } : { endpoint: where.trim() }) })}
     >
       <div className="form">
         <label>

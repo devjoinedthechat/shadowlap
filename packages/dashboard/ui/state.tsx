@@ -79,7 +79,8 @@ export interface AppState {
   /** Whether the server runs a job kind (`meta.jobKinds`); a server that lists none runs none of them. */
   hasKind: (kind: string) => boolean;
   /** Runs `fn`, or says why it cannot while the server is unreachable. */
-  guard: (fn: () => void) => void;
+  /** Runs `fn` unless the server is out of reach, which it says in a toast; whether it ran, so a dialog that can't start stays open. */
+  guard: (fn: () => void) => boolean;
   /** A notice at the bottom of the window; `error` for a refusal or a failure, which stays until dismissed (`toast.ts`). */
   toast: (text: string, kind?: ToastKind, action?: ToastAction) => void;
   toastText: { id: number; text: string; kind: ToastKind; action?: ToastAction } | null;
@@ -211,6 +212,13 @@ export function useApp(): AppState {
 const POLL_MS = 2000;
 /** How soon the run list is asked again while some of its rows' totals are being added up. */
 export const RUNS_WARMING_MS = 1500;
+
+/** Runs `fn` unless the server is out of reach, which it says in a toast; whether it ran. */
+function guarded(paused: boolean, toast: (text: string) => void, fn: () => void): boolean {
+  if (paused) toast('Actions are paused until the dashboard server is back.');
+  else fn();
+  return !paused;
+}
 
 export function AppProvider({ client, children }: { client: Client; children: ReactNode }) {
   const preview = useMemo(() => previewState(), []);
@@ -470,13 +478,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
         ? 'This link’s session token isn’t this dashboard’s.'
         : null;
   const hasKind = useCallback((kind: string) => (meta?.jobKinds ? meta.jobKinds.includes(kind) : false), [meta]);
-  const guard = useCallback(
-    (fn: () => void) => {
-      if (connRef.current === 'offline') toast('Actions are paused until the dashboard server is back.');
-      else fn();
-    },
-    [connRef, toast],
-  );
+  const guard = useCallback((fn: () => void) => guarded(connRef.current === 'offline', toast, fn), [connRef, toast]);
 
   // ---- jobs: each is followed to its end, whether or not its drawer is open. While the server is
   // unreachable the polls wait, and pick up once it is back; a job the server no longer has is lost.

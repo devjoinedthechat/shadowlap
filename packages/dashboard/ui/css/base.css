@@ -77,8 +77,6 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .btn.quiet.dz:hover:not([disabled]) { color: var(--err); background: color-mix(in srgb, var(--err) 10%, transparent); }
 .btn.push { margin-left: auto; }
 .btn.danger { background: var(--err); border-color: var(--err); color: var(--tar); font-weight: 600; }
-.btn.solid { background: var(--ink); border-color: var(--ink); color: var(--bg); font-weight: 600; }
-.btn.solid:hover:not([disabled]) { background: color-mix(in srgb, var(--ink) 86%, var(--bg)); border-color: color-mix(in srgb, var(--ink) 86%, var(--bg)); }
 .btn.danger:hover:not([disabled]) { background: color-mix(in srgb, var(--err) 88%, #000); border-color: color-mix(in srgb, var(--err) 88%, #000); }
 .btn[disabled] { opacity: .5; cursor: not-allowed; }
 .btn.lime[disabled] { opacity: 1; background: var(--raise); border-color: var(--line2); color: var(--faint); box-shadow: none; }
@@ -304,8 +302,12 @@ pre.codebox .add { display: inline-block; min-width: calc(100% + 28px); margin: 
 .form.one { grid-template-columns: minmax(0, 1fr); }
 
 /* selects inside dialogs and forms: the same padded chevron as the pickers */
-.form select { -webkit-appearance: none; appearance: none; padding: 0 32px 0 10px; background: var(--panel) var(--chev) no-repeat right 11px center / 10px 10px; cursor: pointer; }
+.form select { -webkit-appearance: none; appearance: none; padding: 0 32px 0 10px; background: var(--panel) var(--chev) no-repeat right 11px center / 10px 10px; font: var(--fs-body) var(--body); cursor: pointer; }
 .form select:hover { border-color: var(--faint); }
+/* a select can't wrap: on a phone its words step down to 12.5 so the longest option a dialog offers fits a 360px screen, and a
+   narrower one ends it on an ellipsis, never a cut letter; the list it opens shows each option whole */
+@media (max-width: 400px) { .form select { font-size: 12.5px; text-overflow: ellipsis; } }
+@media (max-width: 480px) { .form { grid-template-columns: minmax(0, 1fr); } }
 
 /* code reads as typed: no joined != or == */
 code, pre, kbd, .mono, .kbd, .codebox, .cmdline { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }

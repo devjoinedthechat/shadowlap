@@ -1,3 +1,4 @@
+import type { FactWords } from '../../actions.js';
 import type { AgentOffer } from '../../../src/agent-skill.js';
 import { regexProblem } from '../../../../engine/src/safe-regex.js';
 import type { CiWorkflowOptions, CiWorkflowsView } from '../../types.js';
@@ -40,9 +41,10 @@ export function redactionNotes(teamStore: boolean): string {
   ].join(' ');
 }
 
-/** What Add redaction rule… says it does, with or without a team store. */
-export function redactRuleText(teamStore: boolean): string {
-  return `Masks stored content in every export, pack and share link of a run.${teamStore ? ' Push copies runs to your team store as recorded.' : ''} A redacted pack still replays: its rules apply as normalizers.`;
+/** What a rule does beyond the lead, as Add normalizer's and Add redaction rule's rows; with a team store, what Push leaves as it is. */
+export function ruleFacts(list: 'normalize' | 'redact', teamStore: boolean): FactWords[] {
+  if (list === 'normalize') return [{ label: 'Matches', value: 'older recordings too', quiet: 'their fingerprints are worked out again' }];
+  return [{ label: 'Packs', value: 'still replay', quiet: 'the rule applies to them as a normalizer' }, ...(teamStore ? [{ label: 'Push', value: 'copies runs as recorded', quiet: 'to your team store' }] : [])];
 }
 
 /**
@@ -421,16 +423,6 @@ export function sizeNote(free: number, recording: number): string {
 
 export function gcGivesBack(d: GcDryRun): number {
   return d.bytes + (d.free >= UNUSED_WORTH ? d.free : 0);
-}
-
-/**
- * What a clean-up deletes, for its dialog's title, in the words of Runs' Delete: "3 runs and the 12
- * attempts bundled under them", or the runs alone when none has attempts. A count keeps to its noun.
- */
-export function gcDeleteWhat(d: Pick<GcDryRun, 'count' | 'attempts'>): string {
-  const runs = `${d.count.toLocaleString('en-US')}\u00a0${d.count === 1 ? 'run' : 'runs'}`;
-  if (!d.attempts) return runs;
-  return `${runs} and the ${d.attempts === 1 ? 'attempt' : `${d.attempts.toLocaleString('en-US')}\u00a0attempts`} bundled under ${d.count === 1 ? 'it' : 'them'}`;
 }
 
 /** The command the confirm runs, as the server builds it from the dry run: exactly the runs it listed, or for none, a plain `gc`. */

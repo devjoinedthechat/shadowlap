@@ -34,7 +34,7 @@ export function FixJobButton({
   tip: string;
   command: string;
   className?: string;
-  ask?: (start: (more: Record<string, unknown>) => void, close: () => void) => ReactNode;
+  ask?: (start: (more: Record<string, unknown>) => boolean, close: () => void) => ReactNode;
 }) {
   const app = useApp();
   const busy = useTreeBusy('reads', verb);
@@ -66,23 +66,16 @@ export function FixJobButton({
       </button>
       {asking && ask
         ? ask(
-            (more) => {
-              setAsking(false);
-              app.guard(() => void start(more));
-            },
+            (more) => app.guard(() => void start(more)),
             () => setAsking(false),
           )
         : null}
       {consent ? (
         <ConsentDialog
           why={consent.why}
-          ok="Run"
+          ok="Run command"
           onClose={() => setConsent(null)}
-          onOk={() => {
-            const c = consent;
-            setConsent(null);
-            app.guard(() => void start({ ...c.fields, yes: c.confirm }));
-          }}
+          onOk={() => app.guard(() => void start({ ...consent.fields, yes: consent.confirm }))}
         />
       ) : null}
     </>

@@ -4,7 +4,7 @@ import { parseOtlpFile, readOtel } from '../../cli/src/import-otel.js';
 import { runsLinkQuery, runsQueryString } from '../ui/runspage/query.js';
 import { activityGlyph, activityLine, blameWords, chartScale, dayText, dotLine, kindGlyph, needsLookAction, needsLookShown, originCounts, originRows, outcomeWords, personName, reproducedNote, share, spentNote, testsKpi, tickText, todayBlameCount, todayTestsLine, verifiedNote } from '../ui/overview/model.js';
 import { authorTint, ciName } from '../ui/runspage/authors.js';
-import { bulkToast, deleteText, deleteWhat, localTitle, PACK_MAX, packCommand, packFolders, packOff, rmCommand } from '../ui/runspage/bulk.js';
+import { bulkToast, deleteFacts, deleteLead, localTitle, PACK_MAX, packCommand, packFolders, packOff, rmCommand } from '../ui/runspage/bulk.js';
 import { datasetCommand, datasetFile } from '../ui/run/share.js';
 import { packFolders as serverPackFolders } from '../src/run-exports.js';
 import { bisectCommand, bisectCost, bisectRequest, revisionTally } from '../ui/runspage/find-commit.js';
@@ -311,17 +311,19 @@ describe('the Runs page’s requests and words', () => {
 
   it('names the attempts a bulk Delete takes with the runs, as shadowlap rm deletes them', () => {
     const two = ['01K5CQ4N7G0000000000000000', '01K5CQ4N9A0000000000000000'];
-    // A count keeps to its noun where the title wraps.
-    expect(deleteWhat(two, 6)).toBe('2\u00a0runs and the 6\u00a0attempts bundled under them');
-    expect(deleteWhat(two.slice(0, 1), 1)).toBe('01K5CQ4N7G and the attempt bundled under it');
-    expect(deleteWhat(two, 0)).toBe('2\u00a0runs');
-    expect(deleteText(2, 6, [])).toBe('Removes the runs, the attempts bundled under them and the recorded data nothing else uses. Their forks keep their own data but lose the link.');
-    expect(deleteText(1, 0, ['01K5CQ6L0P0000000000000000'])).toBe('Removes the run and the recorded data nothing else uses. Its forks keep their own data but lose the link. 01K5CQ6L0P is still recording and is left alone.');
+    // The number stays before you press, as in the terminal UI's confirm.
+    expect(deleteLead(2, 6)).toBe('Deletes the runs, their 6 attempts and the recorded data nothing else uses.');
+    expect(deleteLead(2, 0)).toBe('Deletes the runs and the recorded data nothing else uses.');
+    expect(deleteLead(1, 1)).toBe('Deletes the run, its attempt and the recorded data nothing else uses.');
+    expect(deleteLead(1, 3)).toBe('Deletes the run, its 3 attempts and the recorded data nothing else uses.');
+    expect(deleteLead(1, 0)).toBe('Deletes the run and the recorded data nothing else uses.');
+    expect(deleteFacts(2, [])).toEqual([{ label: 'Forks, replays', value: 'keep their own data', quiet: 'they lose the link to them' }]);
+    expect(deleteFacts(1, ['01K5CQ6L0P0000000000000000'])).toEqual([
+      { label: 'Forks, replays', value: 'keep their own data', quiet: 'they lose the link to it' },
+      { label: 'Left alone', value: '01K5CQ6L0P', quiet: 'still recording' },
+    ]);
     // The command it shows deletes the same: rm takes a run's attempts with it.
     expect(rmCommand(two)).toEqual({ shown: 'shadowlap rm 01K5CQ4N7G 01K5CQ4N9A', full: 'shadowlap rm 01K5CQ4N7G 01K5CQ4N9A' });
-    // The run page's Delete says the same of its one run: a recording blame probed six times.
-    expect(deleteWhat(two.slice(0, 1), 6)).toBe('01K5CQ4N7G and the 6\u00a0attempts bundled under it');
-    expect(deleteText(1, 6, [])).toBe('Removes the run, the attempts bundled under it and the recorded data nothing else uses. Its forks keep their own data but lose the link.');
     expect(bulkToast({ verb: 'Deleted', done: two.slice(0, 1), of: 1, skipped: [], attempts: 6 })).toBe('Deleted 01K5CQ4N7G and 6 attempts');
   });
 
@@ -355,9 +357,9 @@ describe('the Runs page’s requests and words', () => {
   });
 
   it('says what the search costs: with --fork, one live replay decides each commit', () => {
-    expect(bisectCost({ fork: true, live: true })).toBe('One live replay decides each commit, from where its requests differ: it costs tokens, and a failure that doesn’t happen every time can pass at a commit that has it.');
-    expect(bisectCost({ fork: false, live: true })).toBe('Its replays run live from where they diverge, so this costs tokens.');
-    expect(bisectCost({ fork: false, live: false })).toBe('Replays are free, so this costs no tokens.');
+    expect(bisectCost({ fork: true, live: true })).toEqual({ price: 'Billed by your provider', parts: ['one live replay each, writes blocked'] });
+    expect(bisectCost({ fork: false, live: true })).toEqual({ price: 'Billed by your provider', parts: ['live at each commit, as a golden marked fork runs'] });
+    expect(bisectCost({ fork: false, live: false })).toEqual({ price: 'Free', parts: ['bisect replays offline'] });
   });
 
   it('names where Find the commit ends: the failure’s own commit, or HEAD when this checkout lacks it', () => {

@@ -131,14 +131,15 @@ describe('Stop in the job drawer', () => {
     const j = REPAIR();
     r = await render(createElement(AppContext.Provider, { value: app({ client: { stopJob } as unknown as Client, jobs: [watched(j)] }) }, createElement(JobDrawer)));
     await r.click(r.byText('.drawer header button', 'Stop'));
-    expect(r.one('.dialog h3').textContent).toBe('Stop the repair?');
-    expect(r.one('.dialog header p').textContent).toContain('never in your working tree, which it leaves as it is');
+    expect(r.one('.dialog h3').textContent).toBe('Stop repair');
+    expect(r.one('.dialog header p').textContent).toContain('Stops the repair, which reports what it found so far.');
+    expect(r.one('.dialog .dfacts').textContent).toBe('Changesnothing in your working tree');
     // Keep it running: the dialog goes, the repair goes on.
     await r.click(r.byText('.dialog button', 'Keep it running'));
     expect(r.all('.dialog')).toHaveLength(0);
     expect(stopJob).not.toHaveBeenCalled();
     await r.click(r.byText('.drawer header button', 'Stop'));
-    await r.click(r.byText('.dialog button', 'Stop the repair'));
+    await r.click(r.byText('.dialog button', 'Stop repair'));
     expect(stopJob).toHaveBeenCalledWith(j.id);
     expect(r.all('.dialog')).toHaveLength(0);
   });

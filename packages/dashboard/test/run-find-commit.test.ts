@@ -88,10 +88,11 @@ describe('Find the commit on a run blame found failing though it exited 0', () =
     expect(offer).toMatchObject({ target: { kind: 'run', runId: blamed }, failed: true, fork: true, bad: second, unavailable: null, expect: CHECK });
     expect(offer.revisions).toEqual([expect.objectContaining({ rev: first, subject: 'Add the refund limit' })]);
     const copy = bisectCopy(blamed, offer);
-    expect(copy.choices[0]).toEqual({ value: first, label: `${first} · Add the refund limit` });
+    expect(copy.choices[0]).toMatchObject({ value: first, subject: 'Add the refund limit' });
     expect(copy.command(first)).toBe(`shadowlap bisect ${blamed.slice(0, 10)} --good ${first} --bad ${second} --expect '${JSON.stringify(CHECK)}' --fork`);
     // Replayed with --fork, one live replay decides each commit, which a failure that comes and goes can pass.
-    expect(copy.text).toBe(`Replays the run at commits between a good one and ${second}, halving each time, and names the first where it fails. One live replay decides each commit, from where its requests differ: it costs tokens, and a failure that doesn’t happen every time can pass at a commit that has it.`);
+    expect(copy.cost).toEqual({ price: 'Billed by your provider', parts: ['one live replay each, writes blocked'] });
+    expect(copy.note).toMatch(/^One live replay decides a commit: a failure that doesn’t happen every time can pass at one that has it/);
   });
 });
 

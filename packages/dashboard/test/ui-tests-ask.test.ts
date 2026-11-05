@@ -131,10 +131,12 @@ async function tests(state: AppState): Promise<Rendered> {
 const dialog = (page: Rendered): FakeElement | null => page.all('.scrim .dialog')[0] ?? null;
 /** Whether the dialog showing is the one titled so: a job's own dialog comes first, then its question. */
 const titled = (page: Rendered, title: string) => () => dialog(page)?.querySelectorAll('h3')[0]?.textContent === title;
+const MORE_LEAD = 'Carries its gate on from attempt 21, for this session only.';
+
 const said = (d: FakeElement) => ({
   title: d.querySelectorAll('h3')[0].textContent,
-  text: d.querySelectorAll('header p')[0].textContent,
-  commands: d.querySelectorAll('.cmdline').map((c) => c.textContent),
+  lead: d.querySelectorAll('header p span')[0].textContent,
+  commands: d.querySelectorAll('.cmdline .cstep').length ? d.querySelectorAll('.cmdline .cstep').map((c) => c.textContent) : d.querySelectorAll('.cmdline').map((c) => c.textContent),
   ok: d.querySelectorAll('.dlg-ok')[0].textContent,
 });
 
@@ -145,7 +147,7 @@ describe('a Tests job that would run goldens live', () => {
     const page = await tests(app(sent, watched));
     await page.click(page.byText('button', 'Run tests'));
     await page.until('the question', () => dialog(page) !== null);
-    expect(said(dialog(page)!)).toEqual({ title: 'Run tests', text: `${WORDS}.`, commands: ['$shadowlap test goldens/*'], ok: 'Run tests' });
+    expect(said(dialog(page)!)).toEqual({ title: 'Run tests', lead: 'Replays every golden, as CI does.', commands: ['$shadowlap test goldens/*'], ok: 'Run tests' });
     // It opens on its button, as the other asks before a job that bills do: Cancel takes the focus
     // first only in a dialog that deletes, or runs a command someone else recorded.
     expect(page.focused()).toBe(page.one('.dialog .dlg-ok'));
@@ -191,7 +193,7 @@ describe('a Tests job that would run goldens live', () => {
     const page = await tests(app(sent, watched));
     await page.click(page.byText('button', 'Run more attempts'));
     await page.until('the question', () => dialog(page) !== null);
-    expect(said(dialog(page)!)).toEqual({ title: 'Run more attempts on flaky', text: `${WORDS}.`, commands: ['$shadowlap test goldens/flaky --max-attempts 40 --continue'], ok: 'Run more attempts' });
+    expect(said(dialog(page)!)).toEqual({ title: 'Run more attempts on flaky', lead: MORE_LEAD, commands: ['$shadowlap test goldens/flaky --max-attempts 40 --continue'], ok: 'Run more attempts' });
     await page.click(page.one('.dialog .dlg-ok'));
     await page.until('the job', () => watched.length === 1);
     expect(sent.map((s) => s.fields)).toEqual([
@@ -221,7 +223,7 @@ describe('the same question from Tests’ other buttons, on a golden that diverg
     const page = await tests(app(sent, watched, { live: true, tests: diverged({ rulesAdded: true }) }));
     await page.click(page.byText('button', 'Re-run'));
     await page.until('the question', () => dialog(page) !== null);
-    expect(said(dialog(page)!)).toEqual({ title: 'Re-run refund-in-limit', text: `${WORDS}.`, commands: ['$shadowlap test goldens/refund-in-limit'], ok: 'Re-run' });
+    expect(said(dialog(page)!)).toEqual({ title: 'Re-run refund-in-limit', lead: 'Replays refund-in-limit again, live from where it forks.', commands: ['$shadowlap test goldens/refund-in-limit'], ok: 'Re-run' });
     await page.click(page.one('.dialog .dlg-ok'));
     await page.until('the job', () => watched.length === 1);
     expect(sent).toEqual([
@@ -236,7 +238,7 @@ describe('the same question from Tests’ other buttons, on a golden that diverg
     const page = await tests(app(sent, watched, { live: true, tests: diverged() }));
     await page.click(page.byText('button', 'Add normalizer and re-run'));
     await page.until('the question', () => dialog(page) !== null);
-    expect(said(dialog(page)!)).toEqual({ title: 'Add normalizer and re-run', text: `${WORDS}.`, commands: [NORMALIZE, '$shadowlap test goldens/refund-in-limit'], ok: 'Add normalizer and re-run' });
+    expect(said(dialog(page)!)).toEqual({ title: 'Add normalizer and re-run', lead: 'Masks the value, then tests the golden again.', commands: [NORMALIZE, '$shadowlap test goldens/refund-in-limit'], ok: 'Add normalizer and re-run' });
     await page.click(page.one('.dialog .dlg-ok'));
     await page.until('the job', () => watched.length === 1);
     expect(sent.map((x) => x.fields)).toEqual([{ golden: 'goldens/refund-in-limit' }, { golden: 'goldens/refund-in-limit', yes: CONFIRM }]);
@@ -250,8 +252,8 @@ describe('the same question from Tests’ other buttons, on a golden that diverg
     await page.until('its own dialog', titled(page, 'Add normalizer and update refund-in-limit?'));
     expect(sent).toEqual([]);
     await page.click(page.one('.dialog .dlg-ok'));
-    await page.until('the question', titled(page, 'Add normalizer and update'));
-    expect(said(dialog(page)!)).toEqual({ title: 'Add normalizer and update', text: `${WORDS}.`, commands: [NORMALIZE, '$shadowlap test goldens/refund-in-limit --update'], ok: 'Add normalizer and update' });
+    await page.until('the question', (() => dialog(page)?.querySelectorAll('.dfacts').length === 1));
+    expect(said(dialog(page)!)).toEqual({ title: 'Add normalizer and update refund-in-limit?', lead: 'Masks the value, then re-records refund-in-limit, for a change you meant.', commands: [NORMALIZE, '$shadowlap test goldens/refund-in-limit --update'], ok: 'Add normalizer and update' });
     await page.click(page.one('.dialog .dlg-ok'));
     await page.until('the job', () => watched.length === 1);
     expect(sent).toEqual([
@@ -268,7 +270,7 @@ describe('the same question from Tests’ other buttons, on a golden that diverg
     await page.until('its own dialog', titled(page, 'Update refund-in-limit?'));
     await page.click(page.byText('.dialog button', 'Add normalizer and re-run'));
     await page.until('the question', titled(page, 'Add normalizer and re-run'));
-    expect(said(dialog(page)!)).toEqual({ title: 'Add normalizer and re-run', text: `${WORDS}.`, commands: [NORMALIZE, '$shadowlap test goldens/refund-in-limit'], ok: 'Add normalizer and re-run' });
+    expect(said(dialog(page)!)).toEqual({ title: 'Add normalizer and re-run', lead: 'Masks the value, then tests the golden again.', commands: [NORMALIZE, '$shadowlap test goldens/refund-in-limit'], ok: 'Add normalizer and re-run' });
     expect(sent).toEqual([{ kind: 'normalize-and-test', fields: { golden: 'goldens/refund-in-limit' } }]);
   });
 });
@@ -302,7 +304,7 @@ describe('the same question from elsewhere', () => {
     // The banner's button is named as its dialog is titled and confirmed: one name for the action.
     await page.click(page.byText('.banner button', 'Add normalizer and re-run'));
     await page.until('the question', () => dialog(page) !== null);
-    expect(said(dialog(page)!)).toEqual({ title: 'Add normalizer and re-run', text: `${WORDS}.`, commands: ["$shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", '$shadowlap test goldens/refund-in-limit'], ok: 'Add normalizer and re-run' });
+    expect(said(dialog(page)!)).toEqual({ title: 'Add normalizer and re-run', lead: 'Masks the value, then tests the golden again.', commands: ["$shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", '$shadowlap test goldens/refund-in-limit'], ok: 'Add normalizer and re-run' });
     await page.click(page.one('.dialog .dlg-ok'));
     await page.until('the job', () => watched.length === 1);
     expect(sent).toEqual([
@@ -318,8 +320,8 @@ describe('the same question from elsewhere', () => {
     await page.click(page.byText('.banner button', 'Add normalizer and update'));
     await page.until('its own dialog', titled(page, 'Add normalizer and update refund-in-limit?'));
     await page.click(page.one('.dialog .dlg-ok'));
-    await page.until('the question', titled(page, 'Add normalizer and update'));
-    expect(said(dialog(page)!)).toEqual({ title: 'Add normalizer and update', text: `${WORDS}.`, commands: [NORMALIZE, '$shadowlap test goldens/refund-in-limit --update'], ok: 'Add normalizer and update' });
+    await page.until('the question', (() => dialog(page)?.querySelectorAll('.dfacts').length === 1));
+    expect(said(dialog(page)!)).toEqual({ title: 'Add normalizer and update refund-in-limit?', lead: 'Masks the value, then re-records refund-in-limit, for a change you meant.', commands: [NORMALIZE, '$shadowlap test goldens/refund-in-limit --update'], ok: 'Add normalizer and update' });
     await page.click(page.one('.dialog .dlg-ok'));
     await page.until('the job', () => watched.length === 1);
     expect(sent.map((x) => x.fields)).toEqual([{ runId: RUN }, { runId: RUN, yes: CONFIRM }]);
@@ -331,7 +333,7 @@ describe('the same question from elsewhere', () => {
     const page = await shown(app(sent, watched), createElement(Palette, { route: { page: 'overview' } }));
     await page.click(page.all('.palit').find((el) => el.textContent.startsWith('Run tests'))!);
     await page.until('the question', () => dialog(page) !== null);
-    expect(said(dialog(page)!)).toEqual({ title: 'Run tests', text: `${WORDS}.`, commands: ['$shadowlap test goldens/*'], ok: 'Run tests' });
+    expect(said(dialog(page)!)).toEqual({ title: 'Run tests', lead: 'Replays every golden, as CI does.', commands: ['$shadowlap test goldens/*'], ok: 'Run tests' });
     await page.click(page.one('.dialog .dlg-ok'));
     await page.until('the job', () => watched.length === 1);
     expect(sent.map((s) => s.fields)).toEqual([{}, { yes: CONFIRM }]);

@@ -126,7 +126,7 @@ describe('a dialog when the dashboard switches project elsewhere', () => {
     expect(dialogFocus('lime', 'cancel')).toEqual(['.dlg-cancel']);
     expect(dialogFocus('danger', 'cancel')).toEqual(['.dlg-cancel']);
     expect(dialogFocus('danger')).toEqual(['.dlg-cancel']);
-    expect(dialogFocus('lime')).toEqual([expect.stringMatching(/^textarea, input.*, \.dlg-ok$/)]);
+    expect(dialogFocus('lime')).toEqual([expect.stringMatching(/^textarea, input.*select$/), '.dlg-alt', '.dlg-ok']);
   });
 });
 

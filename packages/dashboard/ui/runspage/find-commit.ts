@@ -1,3 +1,4 @@
+import type { CostWords } from '../actions.js';
 import { shortId } from '../format.js';
 import { commandText } from '../goldens.js';
 import type { BisectChoices } from '../types.js';
@@ -6,6 +7,15 @@ import type { BisectChoices } from '../types.js';
  * What Find breaking commit asks for: the bisect job's fields and the command the dialog shows. No DOM
  * here: the tests import it.
  */
+
+/** A commit to search from: its name and subject over how it did there. */
+export interface GoodChoice {
+  value: string;
+  /** The commit's subject, or when it was. */
+  subject?: string | null;
+  /** How the run or the golden did at it. */
+  how?: string | null;
+}
 
 /** Where the search ends: the failure's own commit, or HEAD when this checkout doesn't have it (another's, or uncommitted changes). */
 export function bisectUpTo(choices: Pick<BisectChoices, 'bad'>): string {
@@ -40,12 +50,18 @@ export function bisectCommand(runId: string, choices: Pick<BisectChoices, 'bad' 
 }
 
 /**
- * What the search costs, as Find breaking commit's dialogs say it. A run that failed on its own is
- * replayed with `--fork`: one live replay decides each commit, so a failure that doesn't happen
- * every time can pass at a commit that has it. A golden that may fork runs live from where it
- * diverges; any other replay is free.
+ * What the search bills. A run that failed on its own is replayed with `--fork`: one live replay
+ * decides each commit. A golden that may fork runs live at each commit; any other replay is free.
  */
-export function bisectCost(choices: Pick<BisectChoices, 'fork' | 'live'>): string {
-  if (choices.fork) return 'One live replay decides each commit, from where its requests differ: it costs tokens, and a failure that doesn’t happen every time can pass at a commit that has it.';
-  return choices.live ? 'Its replays run live from where they diverge, so this costs tokens.' : 'Replays are free, so this costs no tokens.';
+export function bisectCost(choices: Pick<BisectChoices, 'fork' | 'live'>): CostWords {
+  if (choices.fork) return { price: 'Billed by your provider', parts: ['one live replay each, writes blocked'] };
+  return choices.live ? { price: 'Billed by your provider', parts: ['live at each commit, as a golden marked fork runs'] } : { price: 'Free', parts: ['bisect replays offline'] };
+}
+
+/** What one live replay can't settle, under its field until the price's card says it. */
+export const FLAKY_NOTE = 'One live replay decides a commit: a failure that doesn’t happen every time can pass at one that has it.';
+
+/** Find breaking commit's Bad row: where the search ends, and what that commit is. */
+export function bisectBadFact(choices: Pick<BisectChoices, 'bad'>, what: string): { label: string; value: string; quiet: string } {
+  return { label: 'Bad', value: bisectUpTo(choices), quiet: choices.bad ? what : 'this checkout doesn’t have its own commit' };
 }

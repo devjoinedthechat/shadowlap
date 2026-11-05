@@ -15,7 +15,7 @@
  * buttons run, and exports the rest.
  */
 
-import { applyLeft, commitTitle, DEFAULT_REPAIRER, expectArgs, fixCost, type FixData, FixIdError, fixRecords, type FixRecords, gitApplyCommand, lostRange, noFixToTry, patchFiles, repairArgv, repairJobArgv, type RepairOutcome, repairPatchProblem, repairToApply, resolveFix, type RunRecord, shownBlame, type StoredBlame, type StoredFix, type StoredRepair, type StoreOf, unsettledFirst, verifyArgv } from '@shadowlap/engine';
+import { applyLeft, commitTitle, DEFAULT_REPAIRER, expectArgs, fixCost, type FixData, FixIdError, fixRecords, type FixRecords, gitApplyCommand, lostRange, noFixKind, noFixToTry, patchFiles, REPAIR_CANDIDATES, repairArgv, repairJobArgv, type RepairOutcome, repairPatchProblem, repairToApply, resolveFix, type RunRecord, shownBlame, type StoredBlame, type StoredFix, type StoredRepair, type StoreOf, unsettledFirst, verifyArgv } from '@shadowlap/engine';
 import { type FixRow, rowOf } from './fix-list.js';
 import { acceptedCandidate, commandLine, counting, fieldsSet, type FixActions, type PatchCheck, patchMerged, patchToCheck, type RewriteCheck, runHref, short, shownRepair, type StepKey, unrepairedVerdict } from './fix-shared.js';
 import { blameNext, blameStep, type BlameStep } from './fix-blame-step.js';
@@ -165,6 +165,7 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
   const p = shownRepair(rec);
   const done = row.steps.filter((x) => x.state === 'done');
   const repairArgs = repairArgv(store, rec);
+  const noFix = noFixToTry(store, rec, b?.scope ?? null);
   const verifyArgs = verifyArgv(store, rec);
   const expect = fix.check.expect;
   const blameRun = b?.runId ?? rec.failing[0] ?? null;
@@ -192,7 +193,7 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
     upstreamRequests: cost.upstreamRequests,
     defaultStep: done.at(-1)?.key ?? 'blame',
     actions: {
-      repair: fix.status === 'open' && repairArgs.length ? { argv: repairArgs, command: commandLine(repairJobArgv(repairArgs, configured)), noFix: noFixToTry(store, rec, b?.scope ?? null) } : null,
+      repair: fix.status === 'open' && repairArgs.length ? { argv: repairArgs, command: commandLine(repairJobArgv(repairArgs, configured)), noFix, noFixWhy: noFixKind(noFix), candidates: REPAIR_CANDIDATES } : null,
       apply:
         fix.status === 'open'
           ? null

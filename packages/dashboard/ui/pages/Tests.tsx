@@ -59,7 +59,7 @@ export function TestsPage() {
     if (view) keepTests(view);
   }, [view]);
 
-  // Update goldens…, asked for by the palette or a link (#/tests?update), on arriving here or while
+  // Update goldens, asked for by the palette or a link (#/tests?update), on arriving here or while
   // here: the address goes back to #/tests at once, so nothing is left to open the dialog later.
   const [asked, setAsked] = useState(false);
   useEffect(() => {
@@ -655,7 +655,7 @@ function InconclusivePanel({ v, off, canRun, onMore, updateOff, canUpdate, onUpd
     <ReportPanel name={v.name} runId={v.runId} lines={inconclusiveLines(v)} found={null} missed={null}>
       {more && canRun ? (
         <div className="actions">
-          <button className="btn lime" type="button" disabled={!!off} title={off ?? commandText(more.args)} onClick={() => onMore(more.job, moreAttemptsAsk(v.name, more.args))}>
+          <button className="btn lime" type="button" disabled={!!off} title={off ?? commandText(more.args)} onClick={() => onMore(more.job, moreAttemptsAsk(v.name, more))}>
             Run more attempts
           </button>
         </div>

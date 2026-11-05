@@ -108,7 +108,7 @@ type CoreJob =
    */
   | { kind: 'store-facts'; stores: Array<{ id: string; dbPath: string | null; keep: string | null }> }
   /** The Training screen (training.ts `trainingView`): the pairs every run makes, with the project's goldens as tasks and its normalizers, read on the server's thread. */
-  | { kind: 'training'; tasks: Task[]; tasksError: string | null; normalizers: Normalizer[]; filter: PairFilter }
+  | { kind: 'training'; tasks: Task[]; tasksError: string | null; normalizers: Normalizer[]; redactRules: number; filter: PairFilter }
   /**
    * A fix with its three steps (fixes.ts `fixDetail`), its blamed run's calls among them: the repairer
    * the config names, whether each patch the fix could apply is in the working tree, as git said on
@@ -299,7 +299,7 @@ const CORE_READS: ReadTable<CoreJob> = {
   'tool-trust': (store, job) => answer(toolTrust(store, job.tools), { tagged: true }),
   'tool-reads': (store) => answer(toolReads(store)),
   'store-facts': (store, job) => storeFactsOf(store, job.stores),
-  training: (store, job) => answer(trainingView(readTraining(store, { tasks: job.tasks, tasksError: job.tasksError, fixOf: sourceFixes(store), normalizers: job.normalizers }), { filter: job.filter }), { tagged: true }),
+  training: (store, job) => answer(trainingView(readTraining(store, { tasks: job.tasks, tasksError: job.tasksError, redactRules: job.redactRules, fixOf: sourceFixes(store), normalizers: job.normalizers }), { filter: job.filter }), { tagged: true }),
   fix: (store, job) => fixPage(store, job),
   search: (store, job) => {
     const index = loadRunIndex(store);

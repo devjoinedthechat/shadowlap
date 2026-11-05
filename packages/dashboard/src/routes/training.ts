@@ -90,7 +90,7 @@ export function register(router: Router, ctx: RouteContext): void {
     const filter = (r.query.get('filter') ?? 'all') as PairFilter;
     if (!FILTERS.includes(filter)) throw new HttpError(400, 'filter must be all, high or medium');
     const t = tasks();
-    sendAnswer(r, await ctx.reads.run({ kind: 'training', tasks: t.tasks, tasksError: t.error, normalizers: normalizers(), filter }));
+    sendAnswer(r, await ctx.reads.run({ kind: 'training', tasks: t.tasks, tasksError: t.error, normalizers: normalizers(), redactRules: (ctx.options.loadConfig ? ctx.config().redact : (ctx.options.redact ?? [])).length, filter }));
   });
 
   router.get('/models', async (r) => {

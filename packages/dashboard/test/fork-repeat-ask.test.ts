@@ -14,7 +14,7 @@ const run = (extra: Partial<RunRecord> = {}): RunRecord => ({ runId: ID, parentR
 describe('Repeat 5 times, as the page is sent it', () => {
   it('asks first on a fork, and starts at once on a recording', () => {
     const repeat = (r: RunRecord) => actionsFor(r, undefined).find((a) => a.key === 'e')!;
-    expect(repeat(run())).toEqual({ key: 'e', label: 'Repeat 5 times', opensRun: false, prompt: null, disabled: null, flag: '--repeat 5', group: 'run', hint: 'Replays this run five times: what replays is free, and the attempts show whether the path after a fork holds or was luck.' });
+    expect(repeat(run())).toEqual({ key: 'e', label: 'Repeat 5 times', opensRun: false, prompt: null, disabled: null, flag: '--repeat 5', group: 'run', command: `shadowlap replay ${ID} --repeat 5`, hint: 'Replays this run five times: what replays is free, and the attempts show whether the path after a fork holds or was luck.' });
     const fork = run({ mode: 'replay', parentRunId: '01K5CQ4N700000000000000000', meta: { interventions: [{ kind: 'diverge', at: 9, flag: '--diverge-at 9', args: ['--diverge-at', '9'] }] } });
     expect(repeat(fork)).toMatchObject({ label: 'Repeat 5 times', prompt: null, asksFirst: true, hint: expect.stringContaining('each attempt runs live from the fork') });
   });

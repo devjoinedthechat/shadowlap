@@ -1,3 +1,4 @@
+import type { NoFixToTry } from './estimates/repair.js';
 import { createHash } from 'node:crypto';
 import { accessSync, constants, statSync } from 'node:fs';
 import { posix, win32 } from 'node:path';
@@ -206,6 +207,12 @@ export function noFixToTry(store: StoreOf<'recording' | 'fixes'>, rec: FixRecord
   if (kept.every(noAnswerLost)) return `Blame found that no answer of the model's lost ${one ? 'this run' : 'these runs'}, so a rewrite of the prompt can't fix ${one ? 'it' : 'them'}: the repair ends “No fix to try”. Look at the tools, the harness or the command.`;
   if (kept.every((b, i) => runs[i]!.meta?.blame?.unsettled === true || (b.outcome === 'unrescuable' && unsettledFirst(b.report)))) return `Blame couldn't settle where ${one ? 'the run was' : 'the runs were'} lost, so a rewrite of the prompt has nothing to aim at yet: the repair ends “No fix to try”. Settle the blame first.`;
   return 'No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.';
+}
+
+/** Which of the estimate's two cases a `noFixToTry` sentence is: the blame it reuses didn't settle, or rescued no call. */
+export function noFixKind(sentence: string | null): NoFixToTry | null {
+  if (!sentence) return null;
+  return sentence.startsWith("Blame couldn't settle") ? 'unsettled' : 'unrescued';
 }
 
 /**

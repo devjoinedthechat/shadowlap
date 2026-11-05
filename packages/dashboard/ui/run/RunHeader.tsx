@@ -2,7 +2,6 @@ import { useRef, useState } from 'react';
 import { JOB_KINDS, type CallDetail, type RunDetail, type RunOffers } from '../api.js';
 import { AboutLine, useFitAbouts } from '../components/About.js';
 import { Eyebrow, Tag } from '../components/bits.js';
-import { ConfirmDialog } from '../components/Dialog.js';
 import { RunKey } from '../components/RunKey.js';
 import { MARKS, type RunMark } from '../runkey.js';
 import { tipCard } from '../components/HoverCard.js';
@@ -13,7 +12,8 @@ import { dur, shortId, stamp, wholeCounts } from '../format.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { compareTarget, headerStatus, isFailed, runType } from '../runs.js';
-import { bulkToast, deleteText, deleteWhat } from '../runspage/bulk.js';
+import { bulkToast } from '../runspage/bulk.js';
+import { DeleteRunDialog } from './RunDialogs.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
@@ -229,15 +229,11 @@ export function RunHeader({
       {deleting ? (
         // As Runs' Delete and `shadowlap rm` delete it: with the attempts bundled under it, named here
         // and counted when it is done.
-        <ConfirmDialog
-          title={`Delete ${deleteWhat([r.runId], run.attempts ?? 0)}?`}
-          text={deleteText(1, run.attempts ?? 0, [])}
-          command={`shadowlap rm ${shortId(r.runId)}`}
-          ok="Delete run"
-          danger
+        <DeleteRunDialog
+          runId={r.runId}
+          attempts={run.attempts ?? 0}
           onClose={() => setDeleting(false)}
           onOk={() => {
-            setDeleting(false);
             client.remove(r.runId).then(
               (out) => {
                 toast(bulkToast({ verb: 'Deleted', done: [r.runId], of: 1, skipped: [], attempts: out.attempts?.length ?? 0 }));

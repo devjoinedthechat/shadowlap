@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { inconclusiveTestNote, INCONCLUSIVE_TEST_NOTE, Store, type ModelListing, type Task, type TaskScoreRow } from '@shadowlap/engine';
-import { approx, exportPairsJob, money, PAIRS_EXPORT_FILE, readTraining, scoreDialogView, scoreModelJob, scoreNote, taskUpdate, taskUpdateJob, trainingView } from '../src/training.js';
+import { approx, exportPairsJob, money, PAIRS_EXPORT_FILE, readTraining, scoreDialogView, scoreModelJob, taskUpdate, taskUpdateJob, trainingView } from '../src/training.js';
 import { DONE, ESCALATE, ESCALATE_2, LOOKUP, POLICY, REFUND, recordRun, type Step } from '../../engine/test/training-fixtures.js';
 
 /**
@@ -149,8 +149,8 @@ describe('the Training read model', () => {
     ]);
     // Labels that fit the dialog's select, and the file the job writes, which the dialog names.
     expect(view.exportDialog.formats).toEqual([
-      { value: 'openai-preference', label: 'OpenAI preference' },
-      { value: 'trl', label: 'TRL preference' },
+      { value: 'openai-preference', label: 'OpenAI preference fine-tuning' },
+      { value: 'trl', label: 'prompt, chosen, rejected (TRL)' },
     ]);
     expect(view.exportDialog.out).toBe(PAIRS_EXPORT_FILE);
     s.close();
@@ -307,13 +307,14 @@ describe('the Training read model', () => {
     expect(dialog.leftOut).toEqual([]);
     // The first model not scored yet is preselected.
     expect(dialog.selected).toBe('claude-haiku-4-5\n');
-    expect(dialog.options.map((o) => o.note)).toEqual([
-      'Anthropic API · about $0.017 an attempt · replaces its score of 1.00',
-      'Anthropic API · about $0.0041 an attempt',
-      "OpenAI API · no price for this model, so the cost isn't estimated",
-      'Runs at http://127.0.0.1:11434/v1 · not a paid API · replaces its score of 0.80',
+    // What an option bills is its cost line's, from these; the score it replaces a row's; its note what it leaves out.
+    expect(dialog.options.map((o) => [o.perAttempt, o.local, o.lastScore, o.note])).toEqual([
+      [expect.closeTo(0.017, 2), false, 1, ''],
+      [expect.closeTo(0.0041, 3), false, null, ''],
+      [null, false, null, ''],
+      [0, true, 0.8, ''],
     ]);
-    expect(dialog.endpoint).toEqual({ key: '__endpoint', group: 'Other', label: 'Your own endpoint…', baseUrl: 'http://127.0.0.1:8000/v1', model: 'my-finetune', note: 'Any OpenAI-compatible server, such as vLLM serving the model you’re training. Not a paid API.' });
+    expect(dialog.endpoint).toEqual({ key: '__endpoint', group: 'Other', label: 'Your own endpoint…', baseUrl: 'http://127.0.0.1:8000/v1', model: 'my-finetune', note: 'Any OpenAI-compatible server, such as vLLM serving the model you’re training.' });
     expect(dialog.notes).toEqual([{ group: 'Ollama, on this machine', note: "isn't running" }]);
     expect(dialog.attempts).toEqual([5, 10]);
     s.close();
@@ -345,10 +346,10 @@ describe('the Training read model', () => {
       ['claude-haiku-4-5', ['goldens/refund', 'goldens/converse']],
       ['qwen2.5:7b', ['goldens/refund', 'goldens/converse']],
     ]);
-    expect(dialog.options[1].note).toBe("Amazon Bedrock · no price for this model, so the cost isn't estimated · scores 1 of 3 tasks, not refund: recorded on Anthropic's API, not Amazon Bedrock; llama: its takeover call goes through Amazon Bedrock, whose request signature covers the model in its URL");
-    expect(dialog.options[2].note).toBe("Anthropic API · about $0.0041 an attempt · scores 2 of 3 tasks, not llama: it asks meta.llama4-maverick-17b-instruct-v1:0 through Bedrock's InvokeModel, whose body only Claude's is known to be (use the Converse API for other models), which only another model of its own provider can answer");
+    expect(dialog.options[1].note).toBe("Scores 1 of 3 tasks, not refund: recorded on Anthropic's API, not Amazon Bedrock; llama: its takeover call goes through Amazon Bedrock, whose request signature covers the model in its URL");
+    expect(dialog.options[2].note).toBe("Scores 2 of 3 tasks, not llama: it asks meta.llama4-maverick-17b-instruct-v1:0 through Bedrock's InvokeModel, whose body only Claude's is known to be (use the Converse API for other models), which only another model of its own provider can answer");
     // Two tasks recorded on another provider are one reason, said once.
-    expect(dialog.options[0].note).toBe("Anthropic API · about $0.017 an attempt · scores 1 of 3 tasks, not llama, converse: recorded on Amazon Bedrock, not Anthropic's API");
+    expect(dialog.options[0].note).toBe("Scores 1 of 3 tasks, not llama, converse: recorded on Amazon Bedrock, not Anthropic's API");
     // The first model not scored yet that answers every ready task is preselected: none here answers all three, so the first not scored.
     expect(dialog.selected).toBe('claude-sonnet-5\n');
     // OpenAI's recorded model answers none of them: each was recorded on another provider.
@@ -372,7 +373,7 @@ describe('the Training read model', () => {
       ['claude-good', null],
     ]);
     expect(dialog.selected).toBe('claude-good\n');
-    expect(dialog.options[0].note).toBe('Gemini API · about $0.0003 an attempt · scores 1 of 2 tasks, not azure: recorded on Azure OpenAI, not the Gemini API');
+    expect(dialog.options[0].note).toBe('Scores 1 of 2 tasks, not azure: recorded on Azure OpenAI, not the Gemini API');
     // Once it is scored, the next one not scored yet comes first, whatever it answers.
     expect(scoreDialogView(tasks, [score('claude-good', null, 'goldens/azure', 1, 1, 100), score('claude-good', null, 'goldens/gemini', 1, 1, 100)], listing)!.selected).toBe('gemini-2.5-flash\n');
   });
@@ -476,6 +477,5 @@ describe('the Training read model', () => {
   it('writes amounts as the mock does', () => {
     expect([money(0), money(0.0041), money(0.0165), money(0.03), money(1.5)]).toEqual(['$0', '$0.0041', '$0.017', '$0.03', '$1.5']);
     expect([approx(0), approx(0.165), approx(2.5)]).toEqual(['$0', '≈$0.165', '≈$2.50']);
-    expect(scoreNote({ where: 'Anthropic API', baseUrl: null, perAttempt: null, local: false }, null)).toBe("Anthropic API · no price for this model, so the cost isn't estimated");
   });
 });

@@ -1,161 +1,57 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { BisectRevision, TestsView } from '../api.js';
-import { CmdLine } from '../components/bits.js';
 import { Dialog } from '../components/Dialog.js';
-import { Icon } from '../components/Icon.js';
-import { commandText, revisionChoices, updatePlan, type UpdatePlan } from '../goldens.js';
+import { DialogSteps } from '../components/DialogFacts.js';
+import { COMMIT_NAME, GoodCommitField } from '../components/GoodCommit.js';
+import { UpdateGoldenDialog } from '../components/UpdateGolden.js';
+import { commandText, revisionChoices } from '../goldens.js';
+import { updatePlan, type UpdatePlan } from '../update-plan.js';
 import { ACTIONS, confirmWords } from '../labels.js';
+import { bisectCost } from '../runspage/find-commit.js';
 
 /**
- * The Tests screen's dialogs: Update golden (one or several, in the style of Remove project), Find
- * the commit when it needs a good commit or costs tokens, and Add normalizer when the rule alone
- * can't make the replay match, so the golden is updated after it.
+ * The Tests screen's dialogs: Update golden (one or several), Find the commit when it needs a good
+ * commit or costs tokens, and Add normalizer when the rule alone can't make the replay match, so the
+ * golden is updated after it.
  */
 
 /**
- * Update golden, or Update goldens… for every diverged one: what happens, the amber note when the
- * divergence is a value that changes every run (a normalizer is the lasting fix, offered instead
- * when the server runs it) or when the rule already in the config makes a re-run pass, and the
- * command. A golden that only lacks a judge's verdict has no card: nothing diverged, and the title
- * names it. `has` says which jobs the server runs; `onInstead` runs the amber box's button.
+ * Update golden, or Update goldens for every diverged one. `has` says which jobs the server runs;
+ * `onInstead` runs the lime way on beside Update anyway, when there is one.
  */
 export function UpdateGoldensDialog({ view, paths, has, onUpdate, onInstead, onClose }: { view: TestsView; paths: string[]; has: (kind: string) => boolean; onUpdate: () => void; onInstead: (instead: NonNullable<UpdatePlan['instead']>) => void; onClose: () => void }) {
   const plan = updatePlan(view, paths, has);
-  const one = plan.goldens.length === 1 ? plan.goldens[0]! : null;
-  return (
-    <Dialog title={plan.title} text={plan.text} ok={plan.ok} onOk={onUpdate} onClose={onClose}>
-      {!plan.goldens.length ? null : one ? (
-        <div className="rmp">
-          <span className="pa">
-            <Icon name="tests" />
-          </span>
-          <span className="pn">
-            <b>{one.name}</b>
-            <small>{one.path}</small>
-          </span>
-          <span className="rs">{one.where}</span>
-        </div>
-      ) : (
-        <div className="ondisk first">
-          <span className="k">Diverged</span>
-          <ul>
-            {plan.goldens.map((g) => (
-              <li key={g.path} className="gone">
-                <i aria-hidden="true">✕</i>
-                <span>{g.name}</span>
-                <code>{g.where}</code>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      <div className="ondisk steps">
-        <span className="k">What happens</span>
-        <ul>
-          {plan.steps.map(([what, how], i) => (
-            <li key={what}>
-              <i aria-hidden="true">{i + 1}</i>
-              <span>{what}</span>
-              <code>{how}</code>
-            </li>
-          ))}
-        </ul>
-      </div>
-      {plan.advise ? (
-        <div className="dz advise">
-          <b>{plan.advise.title}</b>
-          <small>
-            {plan.advise.path ? (
-              <>
-                <code>{plan.advise.path}</code>{' '}
-              </>
-            ) : null}
-            {plan.advise.text}
-          </small>
-          {plan.instead ? (
-            <button className="btn sm" type="button" onClick={() => onInstead(plan.instead!)}>
-              {plan.instead.label}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-      {plan.note ? (
-        <p className="hintx unote">
-          {plan.note.map((part, i) => (typeof part === 'string' ? <span key={i}>{part}</span> : <code key={i}>{part.code}</code>))}
-        </p>
-      ) : null}
-      <div className="cmdline upd">
-        <b>$</b>
-        {plan.command}
-      </div>
-    </Dialog>
-  );
+  return <UpdateGoldenDialog plan={plan} onUpdate={onUpdate} {...(plan.instead ? { onInstead: () => onInstead(plan.instead!) } : {})} onClose={onClose} />;
 }
-
-/** The select's option that opens a field for any commit, tag or branch. */
-const ANOTHER = '\u0000another';
 
 /**
  * Find breaking commit for a golden when it can't just start: no revision where it passed under today's
  * checks is known, or a search from it (`tried`) named no first bad commit, so it asks for a commit
- * where it still worked, offering the commits the golden was tested at with their subjects (as the
- * mock's select does), starting on an older one than `tried`, or on Another commit… with its field
- * when none is older; or the golden may fork, so each replay runs live from where it forks and the
- * search costs tokens, which it says first. The select stays, so a commit typed can be traded back
- * for one listed.
+ * where it worked, offering the commits the golden was tested at, starting on an older one than
+ * `tried`; or the golden may fork, so each replay runs live from where it forks, which its cost line
+ * says first. With a `range` there is nothing to ask: it says the two commits.
  */
 export function FindCommitDialog({ name, golden, range, live, revisions, tried, onRun, onClose }: { name: string; golden: string; range: { good: string; bad: string | null } | null; live: boolean; revisions: readonly BisectRevision[]; tried: string | null; onRun: (good: string, bad: string | null) => void; onClose: () => void }) {
   const choices = revisionChoices(revisions, tried);
-  const listed = choices.options.length > 0;
-  const [picked, setPicked] = useState(choices.initial || ANOTHER);
+  const id = useId();
+  const [picked, setPicked] = useState(choices.initial);
   const [typed, setTyped] = useState('');
-  const own = !listed || picked === ANOTHER;
-  const rev = range ? range.good : own ? typed.trim() : picked;
-  const ok = /^[A-Za-z0-9][A-Za-z0-9._/~^-]{0,199}$/.test(rev);
+  const rev = range ? range.good : typed.trim() || picked;
   const args = ['bisect', golden, '--good', rev || '<commit>', ...(range?.bad ? ['--bad', range.bad] : [])];
-  const between = range ? `between ${range.good} and ${range.bad ?? 'HEAD'}` : 'between a good one and HEAD';
-  const cost = live ? 'It may fork, so each replay runs live from where it forks: this costs tokens.' : 'Replays are free, so this costs no tokens.';
-  const run = () => ok && onRun(rev, range?.bad ?? null);
-  const field = (
-    <input
-      type="text"
-      value={typed}
-      placeholder="a sha, a tag or a branch"
-      spellCheck={false}
-      aria-label={listed ? 'Another commit' : undefined}
-      autoFocus={listed}
-      onChange={(e) => setTyped(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          run();
-        }
-      }}
-    />
-  );
   return (
-    <Dialog title={`Find breaking commit for ${name}`} text={`Replays ${name} at commits ${between}, halving each time, and names the first where it fails. ${cost}`} ok={confirmWords(ACTIONS.findBreakingCommit.label)} okDisabled={!ok} onOk={run} onClose={onClose}>
-      {range ? null : (
-        <div className="form one">
-          <label>
-            A commit where it still worked
-            {listed ? (
-              <select value={picked} onChange={(e) => setPicked(e.target.value)}>
-                {choices.options.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-                <option value={ANOTHER}>Another commit…</option>
-              </select>
-            ) : (
-              field
-            )}
-          </label>
-          {listed && own ? field : null}
-        </div>
-      )}
-      <CmdLine>{commandText(args)}</CmdLine>
+    <Dialog
+      title={`Find breaking commit for ${name}`}
+      lead={`Finds the first commit that broke ${name}, from ${tried ? 'an older one' : 'one'} where it worked.`}
+      doc="bisect"
+      facts={[range ? { label: 'Good', value: <code>{range.good}</code>, wide: true } : null, { label: 'Bad', value: <code>{range?.bad ?? 'HEAD'}</code>, quiet: 'where the search ends' }]}
+      command={commandText(args)}
+      cost={bisectCost({ fork: false, live })}
+      ok={confirmWords(ACTIONS.findBreakingCommit.label)}
+      okDisabled={!COMMIT_NAME.test(rev)}
+      onOk={() => onRun(rev, range?.bad ?? null)}
+      onClose={onClose}
+    >
+      {range ? null : <GoodCommitField id={id} choices={choices.options} picked={picked} typed={typed} onPick={setPicked} onType={setTyped} />}
     </Dialog>
   );
 }
@@ -166,18 +62,25 @@ export function FindCommitDialog({ name, golden, range, live, revisions, tried, 
  * re-records it live. It asks first, as Update golden does, with each command.
  */
 export function NormalizeUpdateDialog({ name, steps, onRun, onClose }: { name: string; steps: string[][]; onRun: () => void; onClose: () => void }) {
-  const rules = steps.length - 1;
   return (
     <Dialog
       title={`${ACTIONS.addNormalizerAndUpdate.label} ${name}?`}
-      text={`The ${rules === 1 ? 'rule' : 'rules'} alone can’t make the replay match, so ${name} is re-recorded live after ${rules === 1 ? 'it' : 'them'}, with writes stubbed, and replaced only if its checks pass. Without ${rules === 1 ? 'the rule' : 'them'}, the next run diverges again.`}
+      lead={`Masks the value, then re-records ${name}, for a change you meant.`}
+      doc="goldenUpdates"
+      command={{ command: steps.map((s) => commandText(s)) }}
+      cost={{ price: 'Billed by your provider', parts: ['as its recording cost'] }}
       ok={ACTIONS.addNormalizerAndUpdate.label}
       onOk={onRun}
       onClose={onClose}
     >
-      {steps.map((s) => (
-        <CmdLine key={s.join(' ')}>{commandText(s)}</CmdLine>
-      ))}
+      <DialogSteps
+        steps={[
+          { what: 'Normalizer added', where: 'shadowlap.config.json' },
+          { what: 'Re-recorded live', where: 'writes stubbed' },
+          { what: 'Replaced only if its checks pass', where: 'in your working tree' },
+          { what: 'You review the change', where: 'in your pull request' },
+        ]}
+      />
     </Dialog>
   );
 }

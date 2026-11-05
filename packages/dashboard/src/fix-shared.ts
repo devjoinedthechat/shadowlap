@@ -1,3 +1,4 @@
+import type { NoFixToTry } from '@shadowlap/engine';
 import { BLAME_DEFAULTS, fieldValue, outcomeOf, repairPatchProblem, repairToApply, SPRT_DEFAULTS, verdictCounts, type AttemptVerdict, type FixRecords, type PulledFrom, type RepairCandidate, type RunRecord, type StoreOf, type StoredRepair, type SprtGate, type StoredVerdict, type VerifiedRun } from '@shadowlap/engine';
 import { type VerifyEvidence } from './evidence.js';
 import { links } from './links.js';
@@ -53,9 +54,10 @@ export interface FixActions {
    * An open fix: repair from here. Argv after `shadowlap`, without `--db` or `--repairer`, which the
    * caller adds (`repairJobArgv`); `command` is the whole command line, repairer included. `noFix`:
    * why the repair would end "No fix to try" without running the agent, in a sentence (`noFixToTry`),
-   * or null when it would run it.
+   * or null when it would run it; `noFixWhy`, which of the estimate's two cases that is; `candidates`,
+   * how many it asks the repairer for.
    */
-  repair: { argv: string[]; command: string; noFix: string | null } | null;
+  repair: { argv: string[]; command: string; noFix: string | null; noFixWhy: NoFixToTry | null; candidates: number } | null;
   /**
    * A verified or applied fix: apply its repair's patch (`patch`), or mark a change verified in the
    * working tree applied (`mark`). Once `applied`, the button is "Patch applied" ("Marked applied"

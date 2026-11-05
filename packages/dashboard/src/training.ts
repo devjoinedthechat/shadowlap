@@ -41,6 +41,8 @@ export interface TrainingInput {
   storedRuns?: Set<string>;
   /** The models to score (A7), or null while they are being listed. */
   models?: ModelListing | null;
+  /** How many redaction rules a copy applies. */
+  redactRules?: number;
   /** Which fix a source's pairs about a run belong to, when Fixes knows (sourceFixes). */
   fixOf?: FixOf;
   /** What makes each task blocked by an early fork ready, by golden (taskUpdate). */
@@ -88,7 +90,7 @@ export function taskUpdate(store: StoreOf<'recording'>, task: Task, normalizers:
 export type FixOf = (source: PairSource, runId: string) => SourceFix | null;
 
 /** What the store holds for Training; `tasks` and `models` come from the caller, and `normalizers` from the config as it is now. */
-export function readTraining(store: StoreOf<'recording' | 'readModels' | 'fixes' | 'training'>, extra: { tasks: Task[]; tasksError?: string | null; models?: ModelListing | null; fixOf?: FixOf; normalizers?: readonly Normalizer[] }): TrainingInput {
+export function readTraining(store: StoreOf<'recording' | 'readModels' | 'fixes' | 'training'>, extra: { tasks: Task[]; tasksError?: string | null; redactRules?: number; models?: ModelListing | null; fixOf?: FixOf; normalizers?: readonly Normalizer[] }): TrainingInput {
   const { pairs, sources } = findPairs(store);
   // The goldens' runs, and the test runs that forked before a takeover, that the store still holds.
   const storedRuns = new Set(extra.tasks.flatMap((t) => [t.runId, t.fork?.runId ?? null].filter((id): id is string => !!id && !!store.getRun(id))));
@@ -359,7 +361,7 @@ export interface TrainingView {
   scores: { sub: string; empty: string | null; cards: ModelCardView[]; rows: ScoreRowView[]; footnote: string };
   serve: { command: string; request: string; response: string } | null;
   /** Export pairs: the formats and confidences it offers, and the file the job writes (`out`, in the project folder). */
-  exportDialog: { title: string; text: string; high: number; all: number; out: string; formats: Array<{ value: PairFormat; label: string }>; levels: Array<{ value: 'high' | 'medium'; label: string }> };
+  exportDialog: { title: string; lead: string; /** How many redaction rules the copy applies, where the server knows. */ rules: number | null; high: number; all: number; out: string; formats: Array<{ value: PairFormat; label: string }>; levels: Array<{ value: 'high' | 'medium'; label: string }> };
   scoreDialog: ScoreDialogView | null;
 }
 
@@ -421,17 +423,8 @@ function modelMeans(scores: readonly TaskScoreRow[], ready: Set<string>): Map<st
   return new Map([...modelScores(scores, ready)].map(([k, m]) => [k, m.mean]));
 }
 
-/** The note under the model picker: where the model runs, what an attempt costs, and the score it replaces. */
-export function scoreNote(c: Pick<ModelChoice, 'where' | 'baseUrl' | 'perAttempt' | 'local'> | null, lastScore: number | null): string {
-  const where = !c
-    ? 'Any OpenAI-compatible server, such as vLLM serving the model you’re training. Not a paid API.'
-    : c.local
-      ? `Runs at ${c.baseUrl ?? 'this machine'} · not a paid API`
-      : c.perAttempt === null
-        ? `${c.where} · no price for this model, so the cost isn't estimated`
-        : `${c.where} · about ${money(c.perAttempt)} an attempt`;
-  return lastScore === null ? where : `${where} · replaces its score of ${lastScore.toFixed(2)}`;
-}
+/** What your own endpoint's row says beyond its cost line. */
+export const ENDPOINT_NOTE = 'Any OpenAI-compatible server, such as vLLM serving the model you’re training.';
 
 /** A refused task and why, as a note says it: `refund-flow: it uses the OpenAI Responses API, …`. */
 const refusal = (r: ModelReach['refused'][number]) => `${r.name}: ${r.why}`;
@@ -463,7 +456,7 @@ export function scoreDialogView(tasks: readonly Task[], scores: readonly TaskSco
     const flag = (name: string) => (c.flags.includes(name) ? (c.flags[c.flags.indexOf(name) + 1] ?? null) : null);
     const some = reach.refused.length > 0;
     // The tasks it leaves out, grouped by why: three tasks recorded on other clouds are one reason, not three.
-    const note = some ? `${scoreNote(c, last)} · scores ${reach.tasks.length} of ${plural(ready.length, 'task')}, not ${refusedLine(c, reach)!}` : scoreNote(c, last);
+    const note = some ? `Scores ${reach.tasks.length} of ${plural(ready.length, 'task')}, not ${refusedLine(c, reach)!}` : '';
     options.push({ ...c, key: modelKey(c.id, c.baseUrl), request: { model: flag('--model') ?? c.id, baseUrl: flag('--base-url'), goldens: some ? reach.tasks : null }, label: last === null ? c.id : `${c.id} · scored ${last.toFixed(2)}`, lastScore: last, note });
   }
   // The first model not scored yet that answers every ready task, else the first not scored yet.
@@ -474,7 +467,7 @@ export function scoreDialogView(tasks: readonly Task[], scores: readonly TaskSco
     groups: [...new Set(options.map((o) => o.group))],
     selected: first?.key ?? null,
     attempts: [...SCORE_ATTEMPTS],
-    endpoint: { key: '__endpoint', group: 'Other', label: 'Your own endpoint…', baseUrl: 'http://127.0.0.1:8000/v1', model: 'my-finetune', note: scoreNote(null, null) },
+    endpoint: { key: '__endpoint', group: 'Other', label: 'Your own endpoint…', baseUrl: 'http://127.0.0.1:8000/v1', model: 'my-finetune', note: ENDPOINT_NOTE },
     notes: listing.notes,
     leftOut,
   };
@@ -503,6 +496,26 @@ export function modelsView(tasks: readonly Task[], scores: readonly TaskScoreRow
     notes: listing.notes,
     tokens: listing.tokens,
     dialog: scoreDialogView(tasks, scores, listing),
+  };
+}
+
+/** Export pairs' dialog: its formats and levels, the file it writes, and how many redaction rules the copy applies. */
+function exportDialogView(counts: { high: number; all: number }, rules: number | undefined): TrainingView['exportDialog'] {
+  return {
+    title: confirmWords(ACTIONS.exportPairs.label),
+    lead: 'Exports each pair as one JSON line: its conversation, the answer to prefer and the one to avoid.',
+    rules: rules ?? null,
+    high: counts.high,
+    all: counts.all,
+    out: PAIRS_EXPORT_FILE,
+    formats: [
+      { value: 'openai-preference', label: 'OpenAI preference fine-tuning' },
+      { value: 'trl', label: 'prompt, chosen, rejected (TRL)' },
+    ],
+    levels: [
+      { value: 'high', label: `High confidence only (${counts.high})` },
+      { value: 'medium', label: `High and medium (${counts.all})` },
+    ],
   };
 }
 
@@ -717,21 +730,7 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
       footnote: 'Each attempt replays the calls before the takeover free, so only the model being scored is paid for. Every attempt is a run in the store, so an odd score opens like any fork.',
     },
     serve,
-    exportDialog: {
-      title: confirmWords(ACTIONS.exportPairs.label),
-      text: 'One JSON line per pair: the conversation as the model saw it at that call, the answer to prefer and the one to avoid. Redaction rules apply to the copy.',
-      high: counts.high,
-      all: counts.all,
-      out: PAIRS_EXPORT_FILE,
-      formats: [
-        { value: 'openai-preference', label: 'OpenAI preference' },
-        { value: 'trl', label: 'TRL preference' },
-      ],
-      levels: [
-        { value: 'high', label: `High confidence only (${counts.high})` },
-        { value: 'medium', label: `High and medium (${counts.all})` },
-      ],
-    },
+    exportDialog: exportDialogView(counts, input.redactRules),
     scoreDialog: input.models ? scoreDialogView(input.tasks, input.scores, input.models) : null,
   };
 }

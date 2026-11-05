@@ -1,0 +1,430 @@
+import { createElement, type ReactElement } from 'react';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { ActionItem, BisectChoices, CallDetail, FixDetail, ScoreDialogView, TrainingView } from '../ui/types.js';
+import { DatasetDialog } from '../ui/components/DatasetDialog.js';
+import { ConsentDialog } from '../ui/components/Dialog.js';
+import { StopJobDialog } from '../ui/components/Drawer.js';
+import { UpdateGoldenDialog } from '../ui/components/UpdateGolden.js';
+import { DOCS, docsHref, type DocKey } from '../ui/docs-links.js';
+import { ApplyDialog, PatchDialog, RenameFixDialog, RepairDialog, StrongerDialog } from '../ui/fixes/FixPage.js';
+import { CheckDialog } from '../ui/fixes/RunBlame.js';
+import { updateOutdatedAsk } from '../ui/fixes/dialog-words.js';
+import { stopAsk } from '../ui/jobs.js';
+import { RecordRunDialog } from '../ui/pages/Setup.js';
+import { ExportPairsDialog, ScoreDialog, TaskUpdateDialog } from '../ui/pages/Training.js';
+import { FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from '../ui/pages/TestsDialogs.js';
+import { ReplaceSkillsDialog } from '../ui/pages/settings/Agents.js';
+import { CleanupDialog } from '../ui/pages/settings/jobs.js';
+import { RuleDialog } from '../ui/pages/settings/RuleTable.js';
+import { AddServerDialog } from '../ui/pages/settings/Tools.js';
+import { ActionDialog } from '../ui/run/actions.js';
+import { EditDialog } from '../ui/run/EditAndFork.js';
+import { BisectDialog, DeleteRunDialog } from '../ui/run/RunDialogs.js';
+import { OtelDialog } from '../ui/run/ShareMenu.js';
+import { PackDialog } from '../ui/runspage/BulkBar.js';
+import { FindCommitDialog as RunsFindCommit } from '../ui/runspage/FindCommit.js';
+import { ImportDialog } from '../ui/runspage/ImportDialog.js';
+import { RemoveProjectDialog } from '../ui/shell/RemoveProject.js';
+import { AppContext, type AppState } from '../ui/state.js';
+import { TestsAskHost } from '../ui/fixes/TestsJobButton.js';
+import { answerTestsQuestion, startTestsJob, type TestsAsk } from '../ui/tests-ask.js';
+import { ApiError, type BisectOffer, type TestsView } from '../ui/api.js';
+import { render, type Rendered } from './ui-render.js';
+
+/**
+ * One dialog anatomy: every dialog and every ask before a job, drawn as the page draws it, read for
+ * what the anatomy promises. A title that is verb and object, ending in "?" only where it changes the
+ * working tree or deletes; a lead of one sentence ending on its docs; at most one amber or red line;
+ * the slots in their order; Cancel, then the way on; first focus by the rule; and a description that
+ * names the warning, then the lead, never the link.
+ */
+
+/** What opens a dialog's title: an action's verb, as every button starts. */
+const VERB = /^(Add|Apply|Delete|Edit and fork|Export|Fail|Find|Finish|Force|Free|Import|Inject|Mark|Override|Pack|Plant|Record|Remove|Rename|Repeat|Replace|Replay|Re-run|Run|Score|Show|Stop|Switch|Update|Use)\b/;
+
+interface Expect {
+  title: string | RegExp;
+  /** Its docs link, by key; null where it has none. */
+  doc: DocKey | null;
+  /** What takes the focus first: a selector inside the dialog. */
+  first: string;
+  /** Its way on's words; null for Close alone. */
+  ok: string | null;
+  /** Its colour. */
+  tone?: 'lime' | 'danger' | 'plain';
+  warn?: string | RegExp;
+  tick?: boolean;
+}
+
+let r: Rendered | null = null;
+afterEach(async () => {
+  await r?.unmount();
+  r = null;
+});
+beforeAll(() => {
+  Object.assign(globalThis, { innerWidth: 1440, innerHeight: 900 });
+});
+
+function appWith(over: Record<string, unknown> = {}): AppState {
+  return {
+    exported: false,
+    actionsOff: null,
+    conn: 'ok',
+    meta: { project: { id: 'p1', name: 'support-agent', path: '/repo' }, uploadLimit: 1024 },
+    hasKind: () => true,
+    guard: (fn: () => void) => {
+      fn();
+      return true;
+    },
+    toast: () => undefined,
+    watchJob: () => undefined,
+    reload: async () => undefined,
+    jobs: [],
+    client: {},
+    ...over,
+  } as unknown as AppState;
+}
+
+/** Reads a dialog as it is drawn, against what it promises. */
+function holds(page: Rendered, want: Expect): void {
+  const dialog = page.one('[role="dialog"]');
+  const title = page.one('[role="dialog"] h3').textContent;
+  if (typeof want.title === 'string') expect(title).toBe(want.title);
+  else expect(title).toMatch(want.title);
+  expect(title, 'verb and object').toMatch(VERB);
+  expect(title, 'no ellipsis').not.toMatch(/…$/);
+  // The lead: one sentence, in its own span, then its link.
+  const lead = page.all('[role="dialog"] header p span')[0].textContent;
+  expect(lead, 'a lead').toMatch(/^[A-Z].*[.…]$/);
+  expect(lead, 'one sentence').not.toMatch(/\.\s+[A-Z]/);
+  const links = page.all('[role="dialog"] header a');
+  if (want.doc) {
+    expect(links, `${title} ends on its docs`).toHaveLength(1);
+    expect(links[0].getAttribute('href')).toBe(docsHref(DOCS[want.doc]));
+    expect(links[0].getAttribute('target')).toBe('_blank');
+    expect(links[0].getAttribute('rel')).toBe('noopener');
+    expect(links[0].textContent).toBe(`${DOCS[want.doc].what} in the docs\u00a0→`);
+    expect(links[0].querySelectorAll('[aria-hidden="true"]')[0].textContent).toContain('→');
+  } else expect(links).toEqual([]);
+  // One line at most.
+  const lines = page.all('[role="dialog"] .dwarn');
+  expect(lines.length, 'one line at most').toBeLessThanOrEqual(1);
+  if (want.warn === undefined) expect(lines).toEqual([]);
+  else if (typeof want.warn === 'string') expect(lines[0].textContent).toBe(want.warn);
+  else expect(lines[0].textContent).toMatch(want.warn);
+  // What a screen reader hears: the line, then the lead, never the link.
+  const described = (dialog.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean);
+  expect(described.length, 'described').toBeGreaterThan(0);
+  expect(described.at(-1)).toMatch(/lead$/);
+  if (lines.length) expect(described[0]).toMatch(/warn$/);
+  // The footer: Cancel first, the way on after it.
+  const footer = page.all('[role="dialog"] footer button').filter((b) => !b.getAttribute('hidden') && !b.props.hidden);
+  expect(footer[0].className, 'Cancel or Close first').toContain('dlg-cancel');
+  if (want.ok === null) {
+    expect(footer.map((b) => b.textContent)).toEqual(['Close']);
+  } else {
+    const ok = page.one('[role="dialog"] .dlg-ok');
+    expect(ok.textContent).toBe(want.ok);
+    expect(ok.textContent, 'never a generic word').not.toMatch(/^(OK|Fork|Yes|Confirm|Run)$/);
+    const tone = want.tone ?? 'lime';
+    if (tone === 'plain') expect(ok.className).not.toMatch(/lime|danger|solid/);
+    else expect(ok.className).toContain(tone);
+  }
+  // First focus by rule.
+  expect(page.focused(), `${title} starts on ${want.first}`).toBe(page.all(`[role="dialog"] ${want.first}`)[0]);
+}
+
+async function open(element: ReactElement, app: AppState = appWith()): Promise<Rendered> {
+  r = await render(createElement(AppContext.Provider, { value: app }, element));
+  return r;
+}
+
+const closes = { onClose: () => undefined };
+const FIELD = 'textarea, input[type="text"], select';
+const CANCEL = '.dlg-cancel';
+const OK = '.dlg-ok';
+
+function action(key: string, label: string, extra: Partial<ActionItem> = {}): ActionItem {
+  return { key, label, opensRun: true, prompt: { label: 'Answer:' }, disabled: null, ...extra };
+}
+const fork = (a: ActionItem, callNo: number | null = 17, callName = 'lookup_order') => createElement(ActionDialog, { runId: '01K5CQ4N7G0000000000000000', capture: false, forkAt: 15, pending: { action: a, callNo, callName }, onRun: () => true, ...closes });
+
+describe('a fork’s ask', () => {
+  const choices = [{ value: 'timeout', label: 'timeout' }];
+  it.each<[string, ActionItem, Expect]>([
+    ['Inject instruction', action('i', 'Inject instruction…', { flag: '--inject 17=… --inject-as user' }), { title: 'Inject instruction at #17', doc: 'injectInstruction', first: FIELD, ok: 'Inject instruction' }],
+    ['Switch model', action('m', 'Switch model from here…', { flag: '--model 17:…' }), { title: 'Switch model from #17', doc: 'switchModel', first: FIELD, ok: 'Switch model from #17' }],
+    ['Fail with HTTP status', action('f', 'Fail with HTTP status…', { flag: '--fail-at 17=429', prompt: { label: 'Status:', initial: '429', choices: [{ value: '429', label: 'HTTP 429' }] } }), { title: 'Fail #17 with HTTP status', doc: 'failWithStatus', first: FIELD, ok: 'Fail with HTTP status' }],
+    ['Override result', action('o', 'Override result…', { flag: '--override 17=…' }), { title: 'Override #17 lookup_order', doc: 'overrideResult', first: FIELD, ok: 'Override result' }],
+    ['Fail with tool error', action('t', 'Fail with tool error…', { flag: '--fail-at 17=timeout', prompt: { label: 'How:', initial: 'timeout', choices } }), { title: 'Fail #17 lookup_order with tool error', doc: 'failWithToolError', first: FIELD, ok: 'Fail with tool error' }],
+    ['Override user reply', action('u', 'Override user reply…', { flag: '--override 17=…' }), { title: 'Override user reply at #17', doc: 'overrideResult', first: FIELD, ok: 'Override user reply' }],
+    ['Plant instruction', action('x', 'Plant instruction…', { flag: '--inject-result 17=… --repeat 3', prompt: { label: 'Text:', choices } }), { title: 'Plant instruction in #17 lookup_order', doc: 'plantInstruction', first: FIELD, ok: 'Plant instruction' }],
+    ['Repeat fork 5 times', action('e', 'Repeat 5 times', { flag: '--repeat 5', prompt: null, asksFirst: true, command: 'shadowlap replay 01K5CQ4N7G --repeat 5' }), { title: 'Repeat fork 5 times', doc: 'repeatFork', first: OK, ok: 'Repeat 5 times' }],
+    ['Force a write live', action('l', 'Force send_email live', { flag: '--live-tool send_email', prompt: null, asksFirst: true, warns: 'send_email acts on your systems' }), { title: 'Force lookup_order live', doc: 'forceLive', first: CANCEL, ok: 'Force lookup_order live', tone: 'danger', warn: 'send_email acts on your systems' }],
+    ['Replay with your command', action('r', 'Replay with your command…', { flag: 'replay', prompt: { label: 'What starts your agent?', placeholder: 'python agent.py' } }), { title: 'Replay with your command', doc: 'imports', first: FIELD, ok: 'Replay with your command' }],
+  ])('%s', async (_name, a, want) => {
+    const shown = a.key === 'r' ? fork(a, null) : a.key === 'l' ? createElement(ActionDialog, { runId: '01K5CQ4N7G0000000000000000', capture: false, forkAt: null, pending: { action: { ...a, label: 'Force lookup_order live' }, callNo: 17, callName: 'lookup_order' }, onRun: () => true, ...closes }) : fork(a);
+    holds(await open(shown), want);
+  });
+
+  it('names a red line first to a screen reader, then the lead, and a run’s field by name', async () => {
+    const page = await open(fork(action('i', 'Inject instruction…', { flag: '--inject 17=… --inject-as user', prompt: { label: 'This run came from an imported pack; replaying it runs: node a.js. Instruction to add at #17:' } })));
+    holds(page, { title: 'Inject instruction at #17', doc: 'injectInstruction', first: FIELD, ok: 'Inject instruction', warn: 'This run came from an imported pack; replaying it runs: node a.js' });
+    expect(page.one('[role="dialog"] textarea').getAttribute('aria-label')).toBe('The instruction');
+  });
+
+  it.each([
+    ['This run from an imported pack', '01M53N822K came from an imported pack: this runs the command it was recorded with (node t.mjs). Confirm it to run it', 'Run command from imported pack'],
+    ['A teammate’s', '01M53N7ZKV came from the team store: this runs the command it was recorded with (node s.mjs). Confirm it to run it', 'Run command from team store'],
+    ['A program’s', '01M53N7ZKW came from a program that sent the sidecar its command: this runs the command it was recorded with (node a.mjs). Confirm it to run it', 'Run command a program sent'],
+  ])('the consent question: %s', async (_name, why, title) => {
+    holds(await open(createElement(ConsentDialog, { why, ok: 'Run command', onOk: () => true, ...closes })), { title, doc: 'commandsFromSomeoneElse', first: CANCEL, ok: 'Run command', warn: why });
+  });
+});
+
+describe('a run’s dialogs', () => {
+  const RUN = '01K5CQ4N7G0000000000000000';
+  const CALL = { call: { callNo: 16, name: 'lookup_policy', kind: 'tool' }, result: { result: { a: 1 } }, actions: [] } as unknown as CallDetail;
+  const OVERRIDE = action('o', 'Override result…', { flag: '--override 16=…', prompt: { label: 'Result:' } });
+  const offer = { target: { kind: 'run', runId: RUN }, failed: true, good: 'c91d0f4', bad: 'd2e8a1f', revisions: [{ rev: 'c91d0f4', at: 1, runs: 3, failed: 0 }], fork: false, live: false } as unknown as BisectOffer;
+
+  it('Delete run', async () => {
+    holds(await open(createElement(DeleteRunDialog, { runId: RUN, attempts: 3, onOk: () => undefined, ...closes })), { title: 'Delete 01K5CQ4N7G?', doc: 'deletingRuns', first: CANCEL, ok: 'Delete run', tone: 'danger' });
+  });
+  it('Edit and fork', async () => {
+    holds(await open(createElement(EditDialog, { runId: RUN, detail: CALL, action: OVERRIDE, onFork: () => Promise.resolve(), ...closes })), { title: 'Edit and fork #16 lookup_policy', doc: 'overrideResult', first: FIELD, ok: 'Edit and fork' });
+  });
+  it('Pack, of several', async () => {
+    const client = { offers: () => new Promise(() => undefined) };
+    holds(await open(createElement(PackDialog, { ids: [RUN, '01K5CQ4N9A0000000000000000'], onRun: () => true, ...closes }), appWith({ client })), { title: 'Pack 2 runs', doc: 'packs', first: FIELD, ok: 'Pack 2 runs' });
+  });
+  it('Export eval dataset', async () => {
+    holds(await open(createElement(DatasetDialog, { ids: [RUN], rules: 2, ...closes })), { title: /^Export eval dataset of /, doc: 'datasets', first: FIELD, ok: 'Export dataset' });
+  });
+  it('Export OpenTelemetry trace', async () => {
+    holds(await open(createElement(OtelDialog, { runId: RUN, rules: 2, onRun: () => true, ...closes })), { title: 'Export OpenTelemetry trace', doc: 'traces', first: FIELD, ok: 'Export trace' });
+  });
+  it('Find breaking commit', async () => {
+    holds(await open(createElement(BisectDialog, { runId: RUN, offer, onRun: () => true, ...closes })), { title: 'Find breaking commit for 01K5CQ4N7G', doc: 'bisect', first: 'input[type="text"]', ok: 'Find breaking commit' });
+  });
+  it('Find commit that changed it', async () => {
+    holds(await open(createElement(BisectDialog, { runId: RUN, offer: { ...offer, failed: false }, onRun: () => true, ...closes })), { title: 'Find commit that changed 01K5CQ4N7G', doc: 'bisect', first: 'input[type="text"]', ok: 'Find commit that changed it' });
+  });
+  it('Find breaking commit, from Runs', async () => {
+    const choices = { good: 'c91d0f4', bad: 'd2e8a1f', target: { kind: 'run', runId: RUN }, revisions: [{ rev: 'c91d0f4', at: 1, runs: 3, failed: 0 }], unavailable: null, fork: true, live: true, expect: null } as unknown as BisectChoices;
+    holds(await open(createElement(RunsFindCommit, { runId: RUN, choices, ...closes })), { title: 'Find breaking commit for 01K5CQ4N7G', doc: 'bisect', first: 'input[type="text"]', ok: 'Find breaking commit' });
+  });
+  it('Find breaking commit that can’t search says why, with Close alone', async () => {
+    const choices = { good: null, bad: 'd2e8a1f', target: { kind: 'run', runId: RUN }, revisions: [], unavailable: 'Nothing before its commit to search.', fork: false, live: false, expect: null } as unknown as BisectChoices;
+    holds(await open(createElement(RunsFindCommit, { runId: RUN, choices, ...closes })), { title: 'Find breaking commit for 01K5CQ4N7G', doc: 'bisect', first: CANCEL, ok: null, warn: 'Nothing before its commit to search' });
+  });
+  it('Run blame, asking for its check', async () => {
+    holds(await open(createElement(CheckDialog, { runId: RUN, line: 'It failed “x”, a check shadowlap.config.json doesn’t give', onRun: () => Promise.resolve(null), ...closes })), { title: 'Run blame on 01K5CQ4N7G', doc: 'blame', first: FIELD, ok: 'Run blame', warn: 'It failed “x”, a check shadowlap.config.json doesn’t give' });
+  });
+  it('Import capture', async () => {
+    const client = { importSources: () => new Promise(() => undefined) };
+    const page = await open(createElement(ImportDialog, closes), appWith({ client }));
+    holds(page, { title: 'Import capture', doc: 'imports', first: '.drop', ok: 'Import capture' });
+  });
+});
+
+describe('a golden’s dialogs', () => {
+  const row = { path: 'goldens/a', name: 'a', mode: 'replay', checks: ['x'], last: { line: 'failed' } };
+  const UUID = { path: '$.metadata.user_id', looks: 'a UUID', op: 'changed', certain: true };
+  const div = { golden: 'goldens/a', name: 'a', callNo: 3, volatile: UUID, normalizerFixes: true, maybeReal: false, normalizeAndTest: [['normalize', 'add'], ['test', 'goldens/a']], rulesAdded: false, found: null, missed: null };
+  const view = { rows: [row], divergences: [div], diverged: ['goldens/a'], inconclusive: [] } as unknown as TestsView;
+
+  it('Update golden with its normalizer lime beside Update anyway, plain', async () => {
+    const page = await open(createElement(UpdateGoldensDialog, { view, paths: ['goldens/a'], has: () => true, onUpdate: () => undefined, onInstead: () => undefined, ...closes }));
+    holds(page, { title: 'Update a?', doc: 'goldenUpdates', first: '.dlg-alt', ok: 'Update anyway', tone: 'plain' });
+    const footer = page.all('[role="dialog"] footer button').map((b) => b.textContent);
+    expect(footer).toEqual(['Cancel', 'Update anyway', 'Add normalizer and re-run']);
+    expect(page.one('.dlg-alt').className).toContain('lime');
+    // Two commands, each named: on a phone each folds behind Show command, which says what it opens.
+    expect(page.all('.cmdlbl').map((c) => c.textContent)).toEqual(['Add normalizer and re-runShow command', 'Update anywayShow command']);
+    const show = page.all('.updshow')[0];
+    expect(show.getAttribute('aria-expanded')).toBe('false');
+    expect(page.all(`[id="${show.getAttribute('aria-controls')!}"]`)).toHaveLength(1);
+    // The body's last cost line holds its foot, and the lime's keeps its place under its own command.
+    expect(page.all('.dcost.flow')).toHaveLength(1);
+    expect(page.all('.dcost')).toHaveLength(2);
+  });
+  it('Update golden with no advice', async () => {
+    const quiet = { ...view, divergences: [{ ...div, volatile: null, normalizeAndTest: null }] } as unknown as TestsView;
+    holds(await open(createElement(UpdateGoldensDialog, { view: quiet, paths: ['goldens/a'], has: () => true, onUpdate: () => undefined, onInstead: () => undefined, ...closes })), { title: 'Update a?', doc: 'goldenUpdates', first: OK, ok: 'Update golden' });
+  });
+  it('Update goldens from the apply drawer', async () => {
+    const ask = updateOutdatedAsk([{ golden: 'goldens/a', callNo: 3, path: '$.x' }, { golden: 'goldens/b', callNo: 1, path: '$.y' }]);
+    holds(await open(createElement(UpdateGoldenDialog, { plan: ask, onUpdate: () => undefined, ...closes })), { title: 'Update 2 diverged goldens?', doc: 'goldenUpdates', first: OK, ok: 'Update 2 goldens' });
+  });
+  it('Add normalizer and update', async () => {
+    holds(await open(createElement(NormalizeUpdateDialog, { name: 'a', steps: [['normalize', 'add'], ['test', 'goldens/a', '--update']], onRun: () => undefined, ...closes })), { title: 'Add normalizer and update a?', doc: 'goldenUpdates', first: OK, ok: 'Add normalizer and update' });
+  });
+  it('Find breaking commit for a golden', async () => {
+    const revisions = [{ rev: 'c91d0f4', at: 1, subject: 'A change', result: 'pass', sameChecks: true }] as never;
+    holds(await open(createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: null, live: true, revisions, tried: null, onRun: () => undefined, ...closes })), { title: 'Find breaking commit for a', doc: 'bisect', first: 'input[type="text"]', ok: 'Find breaking commit' });
+  });
+  it('Find breaking commit over a range, with nothing to ask', async () => {
+    holds(await open(createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: { good: 'c91d0f4', bad: 'd2e8a1f' }, live: false, revisions: [], tried: null, onRun: () => undefined, ...closes })), { title: 'Find breaking commit for a', doc: 'bisect', first: OK, ok: 'Find breaking commit' });
+  });
+
+  it.each<[string, TestsAsk, Expect]>([
+    ['Run tests', { title: 'Run tests', lead: 'Replays every golden, as CI does.', doc: 'ciMode', ok: 'Run tests', commands: ['shadowlap test goldens/*'] }, { title: 'Run tests', doc: 'ciMode', first: OK, ok: 'Run tests' }],
+    ['Re-run', { title: 'Re-run a', lead: 'Replays a again, live from where it forks.', doc: 'goldensThatFork', ok: 'Re-run', commands: ['shadowlap test goldens/a'] }, { title: 'Re-run a', doc: 'goldensThatFork', first: OK, ok: 'Re-run' }],
+  ])('the Tests ask: %s', async (_name, say, want) => {
+    const client = { startJob: () => Promise.reject(new ApiError(409, 'goldens/a is marked fork. Confirm it to run it', 'c'.repeat(32), [{ path: 'goldens/a', why: [{ kind: 'fork' }] }])) };
+    const app = appWith({ client });
+    const page = await open(createElement(TestsAskHost), app);
+    startTestsJob(app, 'test', {}, say);
+    await page.until('the question', () => page.all('[role="dialog"]').length === 1);
+    holds(page, want);
+    expect(page.one('[role="dialog"] .dfacts').textContent).toBe('Runs live1 golden marked forkfrom where it forks, writes blocked');
+    answerTestsQuestion(app, false);
+    await page.until('it to go', () => page.all('[role="dialog"]').length === 0);
+  });
+});
+
+describe('a fix’s dialogs', () => {
+  const APPLY = { kind: 'patch', argv: [], gitApply: null, pending: null, pulled: null, files: ['agent.mjs'], diff: '--- a\n+++ b\n', patchFile: '.shadowlap/repairs/r/fix.patch', refused: null, inTree: false, goldens: 1, change: null };
+  const fix = (over: Record<string, unknown> = {}, actions: Record<string, unknown> = {}) =>
+    ({
+      fixId: 'fx-1',
+      title: 'A fix',
+      status: 'open',
+      repairer: { name: 'claude-code', configured: false, problem: null },
+      actions: { repair: { argv: ['repair', '--fixes', 'a', '--keeps', 'b', 'c'], command: 'shadowlap repair --fixes a --keeps b c', noFix: null, noFixWhy: null, candidates: 3 }, apply: null, applied: false, blameAgain: null, ...actions },
+      ...over,
+    }) as unknown as FixDetail;
+
+  it('Run repair, reading first, then on its way on', async () => {
+    let answer: (d: FixDetail) => void = () => undefined;
+    const client = { fix: () => new Promise<FixDetail>((yes) => (answer = yes)) };
+    const page = await open(createElement(RepairDialog, { fix: fix(), onRun: () => true, ...closes }), appWith({ client }));
+    // While it reads, what it is doing: no docs to land on, and Cancel has the focus as the way on waits.
+    expect(page.all('[role="dialog"] header p span')[0].textContent).toBe('Reading which repairer shadowlap.config.json names…');
+    expect(page.all('[role="dialog"] header a')).toEqual([]);
+    answer(fix());
+    await page.until('the fix to be read', () => !page.one('.dlg-ok').disabled);
+    holds(page, { title: 'Run repair', doc: 'repair', first: OK, ok: 'Run repair' });
+    expect(page.all('.dfacts div').map((d) => d.querySelectorAll('dt')[0].textContent)).toEqual(['Changes', 'Hands over', 'Keeps', 'While it runs']);
+    expect(page.all('.dfacts div')[2].textContent).toBe('Keeps2 runs passing');
+    expect(page.one('.dcost').textContent).toContain('up to 3 candidates');
+  });
+  it('Run repair that would end No fix to try', async () => {
+    const noFix = fix({}, { repair: { argv: [], command: 'c', noFix: 'Blame couldn’t settle', noFixWhy: 'unsettled', candidates: 3 } });
+    const page = await open(createElement(RepairDialog, { fix: noFix, onRun: () => true, ...closes }), appWith({ client: { fix: () => Promise.resolve(noFix) } }));
+    await page.until('the fix to be read', () => !page.one('.dlg-ok').disabled);
+    holds(page, { title: 'Run repair', doc: 'repair', first: OK, ok: 'Run repair', warn: 'Blame couldn’t settle' });
+    expect(page.all('.dfacts')).toEqual([]);
+    expect(page.one('.dcost').textContent).toContain('nothing runs: the blame it reuses didn’t settle');
+  });
+  it('Run blame with stronger model', async () => {
+    const f = fix({}, { blameStronger: { command: 'shadowlap blame x --model <model>', attempts: 4, spent: 0.1 } });
+    holds(await open(createElement(StrongerDialog, { fix: f, onRun: () => true, ...closes })), { title: 'Run blame with stronger model', doc: 'blame', first: FIELD, ok: 'Run blame with stronger model' });
+  });
+  it('Apply fix', async () => {
+    const page = await open(createElement(ApplyDialog, { fix: fix({}, { apply: APPLY }), label: 'Apply fix', onRun: () => true, ...closes }));
+    holds(page, { title: 'Apply fix?', doc: 'repairHandover', first: OK, ok: 'Apply fix' });
+    expect(page.all('.ondisk.steps li').map((l) => l.querySelectorAll('span')[0].textContent)).toEqual(['Patch applied', 'Recording copied', 'Golden replayed', 'Other goldens replayed']);
+  });
+  it('Mark fix applied, and Finish applying fix', async () => {
+    const page = await open(createElement(ApplyDialog, { fix: fix({}, { apply: { ...APPLY, kind: 'mark', goldens: 0 } }), label: 'Mark applied', onRun: () => true, ...closes }));
+    holds(page, { title: 'Mark fix applied', doc: 'repairHandover', first: OK, ok: 'Mark applied' });
+    await page.unmount();
+    const again = await open(createElement(ApplyDialog, { fix: fix({}, { apply: { ...APPLY, pending: 'goldens' }, applied: true }), label: 'Finish applying', onRun: () => true, ...closes }));
+    holds(again, { title: 'Finish applying fix?', doc: 'repairHandover', first: OK, ok: 'Finish applying' });
+  });
+  it('Show patch', async () => {
+    holds(await open(createElement(PatchDialog, { fix: fix({}, { apply: APPLY }), diff: '--- a\n', ...closes })), { title: 'Show patch', doc: 'repairHandover', first: CANCEL, ok: null });
+  });
+  it('Rename fix', async () => {
+    holds(await open(createElement(RenameFixDialog, { fix: fix(), onDone: () => undefined, ...closes })), { title: 'Rename fix', doc: 'fixTitles', first: FIELD, ok: 'Rename' });
+  });
+});
+
+describe('Training’s dialogs', () => {
+  const exportDialog = { title: 'Export pairs', lead: 'Exports each pair as one JSON line: its conversation, the answer to prefer and the one to avoid.', rules: 2, high: 2, all: 3, out: '.shadowlap/exports/pairs.jsonl', formats: [{ value: 'trl', label: 'TRL' }], levels: [{ value: 'high', label: 'High (2)' }] };
+  it('Export pairs', async () => {
+    holds(await open(createElement(ExportPairsDialog, { view: { exportDialog } as unknown as TrainingView, ...closes })), { title: 'Export pairs', doc: 'pairs', first: FIELD, ok: 'Export pairs' });
+  });
+  it('Score model', async () => {
+    const dialog = { title: 'Score model on 1 task', options: [{ key: 'm\n', id: 'm', group: 'Anthropic API', where: 'Anthropic API', baseUrl: null, perAttempt: 0.01, local: false, label: 'm', lastScore: null, note: '', request: { model: 'm', baseUrl: null, goldens: null } }], groups: ['Anthropic API'], selected: 'm\n', attempts: [5], endpoint: { key: '__endpoint', group: 'Other', label: 'Your own endpoint…', baseUrl: 'http://x/v1', model: 'm', note: '' }, notes: [], leftOut: [] } as unknown as ScoreDialogView;
+    const client = { models: () => Promise.resolve({ dialog, notes: [] }) };
+    const page = await open(createElement(ScoreDialog, { view: { tabs: { tasks: 1 }, tasks: { rows: [{ status: { key: 'ready' }, golden: 'goldens/a' }] } } as unknown as TrainingView, busy: null, ...closes }), appWith({ client }));
+    await page.until('the models to be listed', () => page.all('.dcost').length === 1);
+    holds(page, { title: 'Score model on 1 task', doc: 'scoring', first: 'select', ok: 'Score model' });
+  });
+  it('A task’s Update and Add normalizer', async () => {
+    const update = (rerecords: boolean) => ({ golden: 'goldens/a', forkedAt: 3, takeover: 5, rerecords, normalizers: ['uuid'], steps: [['test', 'goldens/a', '--update']] });
+    const page = await open(createElement(TaskUpdateDialog, { name: 'a', update: update(true), busy: null, ...closes }));
+    holds(page, { title: 'Update a?', doc: 'goldenUpdates', first: OK, ok: 'Add normalizer and update', warn: 'Its test forks at #3, before the takeover at #5, so no model can take over there' });
+    await page.unmount();
+    holds(await open(createElement(TaskUpdateDialog, { name: 'a', update: update(false), busy: null, ...closes })), { title: 'Add normalizer for a', doc: 'tasks', first: OK, ok: 'Add normalizer and re-run', warn: 'Its test forks at #3, before the takeover at #5, so no model can take over there' });
+  });
+});
+
+describe('Settings’ and the shell’s dialogs', () => {
+  it.each([
+    ['normalize', 'Add normalizer', 'normalizers'],
+    ['redact', 'Add redaction rule', 'redaction'],
+  ] as const)('%s', async (list, title, doc) => {
+    holds(await open(createElement(RuleDialog, { list, kinds: ['api', 'tool'], patterns: ['uuid'], version: 'v', onAdded: () => undefined, onStale: () => undefined, ...closes } as never)), { title, doc, first: FIELD, ok: title });
+  });
+  it('Add MCP server', async () => {
+    const client = { settings: { mcpLine: () => Promise.resolve(null) } };
+    const page = await open(createElement(AddServerDialog, { files: [], ...closes } as never), appWith({ client }));
+    holds(page, { title: 'Add MCP server', doc: 'mcp', first: 'input', ok: 'Copy entry' });
+    expect(page.focused().closest('label')!.textContent).toContain('Name');
+  });
+  it('Clean up: Delete runs, red, and Free space', async () => {
+    const dry = { count: 3, attempts: 12, cutoff: 1, olderThanDays: 30, keep: null, bytes: 2048, free: 0, expect: 'x' };
+    const page = await open(createElement(CleanupDialog, { dry: dry as never, label: 'Delete 3 runs', onOk: () => undefined, ...closes }));
+    holds(page, { title: 'Delete 3 runs?', doc: 'deletingRuns', first: CANCEL, ok: 'Delete 3 runs', tone: 'danger', warn: 'This can’t be undone' });
+    expect(page.all('[role="dialog"] header p span')[0].textContent).toBe('Deletes the runs older than 30 days, their 12 attempts and the recorded data nothing else uses.');
+    await page.unmount();
+    holds(await open(createElement(CleanupDialog, { dry: { ...dry, count: 0, attempts: 0 } as never, label: 'Free 2 KB', onOk: () => undefined, ...closes })), { title: 'Free 2 KB?', doc: 'deletingRuns', first: OK, ok: 'Free 2 KB' });
+  });
+  it('Replace skills', async () => {
+    holds(await open(createElement(ReplaceSkillsDialog, { title: 'Replace skills with 0.1.0’s copy?', lead: 'Puts 0.1.0’s copy in place of the skills edited here, and removes the files it doesn’t have.', path: '.agents/skills', others: true, command: 'c', onOk: () => undefined, ...closes })), { title: 'Replace skills with 0.1.0’s copy?', doc: 'agents', first: CANCEL, ok: 'Replace skills', tone: 'danger' });
+  });
+  it('Remove project, in ink, and its failed form', async () => {
+    const view = { title: 'Remove support-agent from the dashboard?', project: { id: 'p', name: 'support-agent', path: '~/s', initial: 'S', summary: '2 runs' }, onDisk: [{ key: 'code', label: 'The folder and its code', path: '~/s' }], keep: { text: 'Takes support-agent off the dashboard; nothing on disk changes.', note: null, button: { label: 'Remove project', style: 'plain' }, crossedOut: null, done: 'x' }, deleteZone: null, canRemove: true, why: null };
+    const page = await open(createElement(RemoveProjectDialog, { id: 'p', ...closes }), appWith({ client: { projects: { removal: () => Promise.resolve(view) } } }));
+    await page.until('the dialog', () => page.all('[role="dialog"]').length === 1);
+    holds(page, { title: 'Remove support-agent from the dashboard?', doc: 'removingProject', first: CANCEL, ok: 'Remove project', tone: 'plain' });
+    await page.unmount();
+    const failed = await open(createElement(RemoveProjectDialog, { id: 'p', ...closes }), appWith({ client: { projects: { removal: () => Promise.reject(new Error('No such project.')) } } }));
+    await failed.until('the dialog', () => failed.all('[role="dialog"]').length === 1);
+    holds(failed, { title: 'Remove project', doc: 'removingProject', first: CANCEL, ok: null, warn: 'No such project' });
+  });
+  it('Record run', async () => {
+    const confirm = { title: 'Record run in ~/a', lead: 'Records one run: every model and tool call.', moved: null, calls: { value: 'the real API, with your keys', quiet: 'never stored' }, command: 'shadowlap run -- a', button: 'Record run' };
+    holds(await open(createElement(RecordRunDialog, { confirm, onOk: () => undefined, ...closes })), { title: 'Record run in ~/a', doc: 'quickstart', first: OK, ok: 'Record run' });
+  });
+  it('Stop a job', async () => {
+    const ask = stopAsk({ id: 'j', done: false, args: ['repair'], worktree: { use: 'writes', doing: 'a repair' } } as never)!;
+    const page = await open(createElement(StopJobDialog, { ask, onOk: () => undefined, ...closes }));
+    holds(page, { title: 'Stop repair', doc: 'jobs', first: CANCEL, ok: 'Stop repair', tone: 'plain' });
+    expect(page.one('.dlg-cancel').textContent).toBe('Keep it running');
+  });
+});
+
+describe('a way on that can’t start', () => {
+  it('stays open with what was typed; a way on that starts closes', async () => {
+    const onClose = vi.fn();
+    const refusing = createElement(ConsentDialog, { why: 'x came from an imported pack: it runs y', ok: 'Run command', onOk: () => false, onClose });
+    const page = await open(refusing);
+    await page.click(page.one('.dlg-ok'));
+    expect(onClose).not.toHaveBeenCalled();
+    await page.unmount();
+    const waits = createElement(ConsentDialog, { why: 'x came from an imported pack: it runs y', ok: 'Run command', onOk: () => Promise.resolve(false), onClose });
+    const later = await open(waits);
+    await later.click(later.one('.dlg-ok'));
+    await later.until('its answer', () => true);
+    expect(onClose).not.toHaveBeenCalled();
+    await later.unmount();
+    const goes = await open(createElement(ConsentDialog, { why: 'x came from an imported pack: it runs y', ok: 'Run command', onOk: () => true, onClose }));
+    await goes.click(goes.one('.dlg-ok'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});

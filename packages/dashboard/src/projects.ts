@@ -119,7 +119,7 @@ export function projectSwitcher(input: { projects: readonly ProjectEntry[]; curr
       detail: missing ? 'folder not found' : unreadable ? 'store can’t be read' : settingUp ? 'setting up' : runsLabel(stats.runs),
       ...(unreadable ? { why: stats.unreadable! } : {}),
       removable,
-      removeLabel: `Remove ${p.name} from the dashboard`,
+      removeLabel: `Remove project ${p.name}`,
     };
   });
   const current = items.find((i) => i.current) ?? items[0];
@@ -529,7 +529,7 @@ function recordStep({ input, findings, inspected, run, live, finished, recorded,
     cli: recorded || live ? [] : commands.record,
     text: recorded || live ? null : recordText,
     command: recorded || live ? null : command,
-    button: recorded || live ? null : { label: 'Record a run', action: 'record', enabled: canRecord },
+    button: recorded || live ? null : { label: 'Record run', action: 'record', enabled: canRecord },
     live: live && run ? { runId: run.runId, calls: totals?.calls ?? 0, text: `Recording ${short(run.runId)} · ${plural(totals?.calls ?? 0, 'call')} so far`, watch: { label: 'Watch it live', href: links.run(run.runId) } } : null,
     recorded:
       recorded && run
@@ -637,8 +637,9 @@ const MADE_NAMES: Record<string, string> = { '.shadowlap/repairs': 'repair repor
 /** What the dialog says and does, with or without "Also delete its recordings" ticked. */
 export interface RemoveMode {
   text: string;
-  note: string;
-  button: { label: string; style: 'solid' | 'danger' };
+  /** What only a folder that is gone needs said: what stays on disk is the list. */
+  note: string | null;
+  button: { label: string; style: 'plain' | 'danger' };
   /** The on-disk row crossed out. */
   crossedOut: OnDiskRow['key'] | null;
   /** The toast once it is done. */
@@ -696,9 +697,9 @@ export function removeDialog(input: { project: ProjectEntry; stats: ProjectStats
     project: { id: project.id, name: project.name, path, initial: initial(project.name), summary: stats.runs ? `${runsLabel(stats.runs)}${stats.goldens ? ` · ${plural(stats.goldens, 'golden')}` : ''}` : 'no runs yet' },
     onDisk,
     keep: {
-      text: 'The dashboard stops listing it. Nothing on disk changes.',
-      note: stats.missing ? 'Put the folder back and add it again to bring it all back.' : 'Adding the folder again brings it all back.',
-      button: { label: 'Remove', style: 'solid' },
+      text: `Takes ${project.name} off the dashboard; nothing on disk changes.`,
+      note: stats.missing ? 'Put the folder back and add it again to bring it all back.' : null,
+      button: { label: 'Remove project', style: 'plain' },
       crossedOut: stats.missing ? 'code' : null,
       done: `Removed ${project.name} · its folder and recordings are untouched`,
     },
@@ -710,8 +711,8 @@ export function removeDialog(input: { project: ProjectEntry; stats: ProjectStats
           placeholder: project.name,
           name: project.name,
           mode: {
-            text: 'The dashboard stops listing it, and its recordings are deleted.',
-            note: 'Adding the folder again brings back everything but the recordings.',
+            text: `Takes ${project.name} off the dashboard and deletes its recordings.`,
+            note: null,
             button: { label: 'Remove and delete recordings', style: 'danger' },
             crossedOut: 'rec',
             done: `Removed ${project.name} and deleted its recordings`,
