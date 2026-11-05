@@ -11,7 +11,7 @@ import { copyText } from '../dom.js';
 import { dur, shortId, stamp, wholeCounts } from '../format.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
-import { compareTarget, headerStatus, isFailed, runType } from '../runs.js';
+import { headerStatus, isFailed, runType } from '../runs.js';
 import { bulkToast, deleteText, deleteWhat } from '../runspage/bulk.js';
 import { ACTIONS } from '../labels.js';
 import { useApp } from '../state.js';
@@ -19,7 +19,7 @@ import { errorText } from '../toast.js';
 import { ForkMenu, type PendingAction } from './actions.js';
 import { failureText, fixCheckText } from './banner.js';
 import { nextStepOf } from './next-step.js';
-import { BlameBesideButton, NextStepButton, ReplayButton } from './NextStepButton.js';
+import { BlameBesideButton, CompareButton, NextStepButton, ReplayButton } from './NextStepButton.js';
 import { exitWords, presetTag, type PresetAttempt } from './preset.js';
 import { checksOf, forkKindWords, recordingWords, runDuration, runLikeOf } from './model.js';
 import { canPush, pushTitle } from './share.js';
@@ -79,7 +79,6 @@ export function RunHeader({
   const tag = preset ? presetTag(preset) : headerStatus(like);
   const share = useMenu();
   const [deleting, setDeleting] = useState(false);
-  const pair = compareTarget(r, run.children);
   const next = nextStepOf(run);
   const lead = next ? <NextStepButton key={next.key} run={run} step={next} offers={offers} onAction={onAction} onFindCommit={onFindCommit} /> : null;
   // The lineage is in the crumbs; a phone, which has none, reads the parent here, after the kind.
@@ -168,11 +167,7 @@ export function RunHeader({
         </div>
       </div>
       <div className="actions">
-        {pair && next?.key !== 'compare' ? (
-          <a className="btn" href={href.compare(pair[0], pair[1])}>
-            {r.parentRunId ? ACTIONS.compareWithParent.label : 'Compare'}
-          </a>
-        ) : null}
+        {next?.key === 'compare' ? null : <CompareButton run={run} />}
         {exported ? lead : (
           <>
             <button className="btn" type="button" aria-haspopup="menu" aria-expanded={share.open} onClick={(e) => share.toggle(e.currentTarget)}>

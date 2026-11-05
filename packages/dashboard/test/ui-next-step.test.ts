@@ -215,6 +215,35 @@ describe('the run page’s next step', () => {
     expect(waiting.props.title).toBe('Replay once the recording finishes');
   });
 
+  it('keeps Compare plain beside a next step, in the mock’s words, with the diff it matches on hover', async () => {
+    const CHILD = '01M5JEQXRGBX1QXGW0X8A3ZB4D';
+    const about = 'A customer writes about order A-1131';
+    const compared = async (o: Parameters<typeof detail>[0], children: unknown[], a: Partial<AppState> = {}) => {
+      page = await render(createElement(AppContext.Provider, { value: app({ runs: [{ runId: PARENT, about: { text: about, from: 'user' } }, { runId: CHILD, about: { text: about, from: 'user' } }] as never, ...a }) }, createElement(RunHeader, header({ ...detail({ state: passedState, next: REPLAY, ...o }), children } as RunDetail))));
+      const shown = page.all('.rhead .actions .btn').find((b) => (b.textContent ?? '').startsWith('Compare'));
+      return shown;
+    };
+    const parent = await compared({ parent: PARENT, next: REPLAY }, []);
+    expect(parent?.textContent).toBe('Compare with parent');
+    expect(parent?.props.href).toBe(`#/compare/${PARENT}/${REC}`);
+    expect(tip(parent!)).toMatchObject({ t: `Against ${PARENT.slice(0, 10)}`, s: about, rows: [['$', `shadowlap diff ${PARENT.slice(0, 10)} ${REC.slice(0, 10)}`, '']] });
+    await page!.unmount();
+    const fork = await compared({}, [{ runId: CHILD, label: 'fork @3', kind: 'fork', startedAt: 2 }]);
+    expect(fork?.textContent).toBe('Compare with fork');
+    expect(fork?.props.href).toBe(`#/compare/${REC}/${CHILD}`);
+    expect(tip(fork!)).toMatchObject({ t: `Against ${CHILD.slice(0, 10)}`, rows: [['$', `shadowlap diff ${REC.slice(0, 10)} ${CHILD.slice(0, 10)}`, '']] });
+    await page!.unmount();
+    expect((await compared({}, [{ runId: CHILD, label: 'clean replay', kind: 'clean', startedAt: 2 }]))?.textContent).toBe('Compare with replay');
+    await page!.unmount();
+    // Nothing to compare yet: it stays, off, saying what would make something; an attempt is none, and a copy has none to make.
+    const none = await compared({}, [{ runId: CHILD, label: 'attempt', kind: 'fork', startedAt: 2, attempt: true }]);
+    expect(none?.textContent).toBe('Compare');
+    expect(none?.props.disabled).toBe(true);
+    expect(none?.props.title).toBe('Nothing to compare yet: replay it or fork it first');
+    await page!.unmount();
+    expect(await compared({}, [], { exported: true })).toBeUndefined();
+  });
+
   it('asks for your command before it replays the capture a replay came from, with the action its recording has', async () => {
     const asks = { key: 'r', label: 'Replay with your command…', prompt: { label: `${PARENT.slice(0, 10)} came from a capture and has no command. What starts your agent?`, placeholder: 'python agent.py' } };
     const next = { key: 'replay', label: 'Replay recording', runId: PARENT, action: asks, title: `Replays ${PARENT.slice(0, 10)}, the recording this replay came from`, command: `shadowlap replay ${PARENT.slice(0, 10)} -- <your command>` } as unknown as NextStep;

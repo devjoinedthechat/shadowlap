@@ -263,7 +263,7 @@
       "ProvenanceView": 95
     },
     "packages/dashboard/ui/run/RunHeader.tsx": {
-      "RunHeader": 78
+      "RunHeader": 76
     },
     "packages/dashboard/ui/run/banner.ts": {
       "attemptBanner": 52,
@@ -520,7 +520,7 @@
       "ProvenanceView": 267
     },
     "packages/dashboard/ui/run/RunHeader.tsx": {
-      "RunHeader": 188
+      "RunHeader": 183
     },
     "packages/dashboard/ui/run/parts.tsx": {
       "Banner": 194

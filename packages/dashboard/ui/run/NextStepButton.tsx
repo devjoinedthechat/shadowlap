@@ -9,7 +9,9 @@ import { useLoad } from '../hooks.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
 import { TestsJobButton } from '../fixes/TestsJobButton.js';
 import { useJobWait, useTreeBusy } from '../fixes/tree.js';
-import { confirmWords } from '../labels.js';
+import { ACTIONS, confirmWords } from '../labels.js';
+import { href } from '../route.js';
+import { compareTarget } from '../runs.js';
 import { useApp } from '../state.js';
 import { startTestsJob } from '../tests-ask.js';
 import type { NextStep } from '../types.js';
@@ -83,6 +85,33 @@ export function ReplayButton({ run, step, lime, onAction }: { run: RunDetail; st
       <Icon name="replay" />
       {step?.label ?? 'Replay'}
     </button>
+  );
+}
+
+/**
+ * Compare, plain beside a next step that isn't it: with its parent, else with the fork or the replay
+ * made from it, with the `shadowlap diff` it matches and what that run was about on hover; off, saying
+ * what would make something to compare, with nothing to compare yet. A copy holds what it holds.
+ */
+export function CompareButton({ run }: { run: RunDetail }) {
+  const { exported, runs } = useApp();
+  const r = run.run;
+  const pair = compareTarget(r, run.children);
+  if (!pair) {
+    if (exported) return null;
+    return (
+      <button className="btn" type="button" disabled title={r.status === 'running' ? 'Nothing to compare yet: replay or fork it once it finishes' : 'Nothing to compare yet: replay it or fork it first'}>
+        {ACTIONS.compare.label}
+      </button>
+    );
+  }
+  const other = pair[0] === r.runId ? pair[1] : pair[0];
+  const label = r.parentRunId ? ACTIONS.compareWithParent.label : run.children.find((c) => c.runId === other)?.kind === 'fork' ? ACTIONS.compareWithFork.label : ACTIONS.compareWithReplay.label;
+  const tip = tipCard(`Against ${shortId(other)}`, [{ label: '$', value: `shadowlap diff ${shortId(pair[0])} ${shortId(pair[1])}` }], runs?.find((x) => x.runId === other)?.about?.text);
+  return (
+    <a className="btn" href={href.compare(pair[0], pair[1])} data-tip={tip}>
+      {label}
+    </a>
   );
 }
 
