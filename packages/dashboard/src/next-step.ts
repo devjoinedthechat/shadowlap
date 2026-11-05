@@ -412,13 +412,18 @@ function testStep(f: Facts): Decided | null {
   }
   const lead = diverged ? divergedStep(f, t) : null;
   if (lead) return lead;
-  const r = t.result;
-  if (r && verdictOfResult(r) === 'inconclusive' && t.source.mode === 'replay' && unjudgedOffline(r)) {
-    // A verdict the pack lacks: one call of its judge, at what one has cost where the result kept it.
-    const judge = (r.data?.checks ?? []).find((c) => checkStatus(c) === 'inconclusive' && c.judge)?.judge?.cost ?? null;
-    return { ...updateStep(f, t.golden, t.source), sub: JUDGE_ONCE, reads: [], price: () => updateEstimate([{ calls: [], judge }]) };
-  }
-  return null;
+  const only = judgeOnly(t.source, t.result);
+  return only ? { ...updateStep(f, t.golden, t.source), sub: JUDGE_ONCE, reads: [], price: () => updateEstimate([{ calls: [], judge: only.judge }]) } : null;
+}
+
+/**
+ * Whether a replay golden's result `r` lacks only a verdict its pack doesn't keep, so Update golden
+ * asks the judge once rather than re-recording: with what one call of its judge cost where the result
+ * kept it (else null); null for a result that lacks no verdict.
+ */
+export function judgeOnly(source: Pick<GoldenSource, 'mode'>, r: TestResult | null): { judge: number | null } | null {
+  if (!r || verdictOfResult(r) !== 'inconclusive' || source.mode !== 'replay' || !unjudgedOffline(r)) return null;
+  return { judge: (r.data?.checks ?? []).find((c) => checkStatus(c) === 'inconclusive' && c.judge)?.judge?.cost ?? null };
 }
 
 /**
@@ -430,29 +435,46 @@ const commitName = (rev: string | null | undefined): string | null => (rev && HE
 const bisectCommand = (golden: string, good: string | null, bad: string | null): string => `${commandLine(['bisect', golden])} --good ${good ?? '<commit>'}${bad ? ` --bad ${bad}` : ''}`;
 
 /**
- * What Find breaking commit bills: nothing on a golden that replays, which it replays offline at
- * each commit; on one marked fork, its gate live at every commit it may test, each attempt as dear
- * as the costliest of its last session's. How many commits that is, git says, once the search has a
- * commit to start from, and only of two commits.
+ * How many commits Find breaking commit searches from `good` up to `to`, as git counts them in the
+ * project's folder `dir`; else, as an estimate, why that can't be said: no commit to start from yet,
+ * an end that is no commit, or git that can't count them.
+ */
+export async function searchedCommits(dir: string | null | undefined, good: string | null, to: string | null): Promise<number | Estimate> {
+  if (!good || !dir) return noEstimate('bisect', 'no estimate until it has a commit to start from');
+  if (!to) return noEstimate('bisect', 'no estimate: the revision it would search up to is no commit');
+  const count = await gitAsync(dir, ['rev-list', '--count', `${good}..${to}`]);
+  const commits = count.code === 0 ? Number(count.stdout.trim()) : NaN;
+  return Number.isInteger(commits) ? commits : noEstimate('bisect', 'git could not say how many commits it would search');
+}
+
+/** What each of a gate's attempts spent live, at `prices`: those the run index has. */
+export function attemptSpends(store: Store, index: RunIndex, attempts: readonly string[], prices: Record<string, Price> | undefined): number[] {
+  const runs = attempts.map((id) => index.byId.get(id)).filter((r): r is IndexedRun => !!r);
+  return [...callTotals(store, index, runs).values()].map((t) => pricedTotals(t, prices).spent);
+}
+
+/**
+ * What Find breaking commit bills on golden `source`, `commits` apart: nothing on one that replays,
+ * which it replays offline at each commit; on one marked fork, its gate live at every commit it may
+ * test, each attempt as dear as the costliest of `result`'s session's (its newest).
+ */
+export function goldenBisectEstimate(store: Store, index: RunIndex, source: GoldenSource, result: TestResult | null, commits: number, prices: Record<string, Price> | undefined): Estimate {
+  const gate = source.gate && 'max' in source.gate ? source.gate.max : null;
+  const spends = attemptSpends(store, index, result?.data?.attempts?.runs ?? [], prices);
+  return bisectEstimate(commits, { fork: source.mode === 'fork', attempts: gate ?? source.repeat, each: spends.length ? Math.max(...spends) : null, commit: result?.data?.spent ?? null, count: gate === null });
+}
+
+/**
+ * What Find breaking commit bills as a next step: on a golden marked fork, its estimate, once the
+ * search has a commit to start from, and only of two commits; nothing shown on one that replays.
  */
 function bisectPrice(f: Facts, source: GoldenSource, result: TestResult | null, good: string | null, bad: string | null): Priced {
   if (source.mode !== 'fork') return {};
-  const attempts = result?.data?.attempts?.runs ?? [];
   const price = async (p: Pricing): Promise<Estimate> => {
-    const dir = f.work?.dir;
-    const from = commitName(good);
-    const to = bad === null ? 'HEAD' : commitName(bad);
-    if (!from || !dir) return noEstimate('bisect', 'no estimate until it has a commit to start from');
-    if (!to) return noEstimate('bisect', 'no estimate: the revision it would search up to is no commit');
-    const count = await gitAsync(dir, ['rev-list', '--count', `${from}..${to}`]);
-    const commits = count.code === 0 ? Number(count.stdout.trim()) : NaN;
-    if (!Number.isInteger(commits)) return noEstimate('bisect', 'git could not say how many commits it would search');
-    const gate = source.gate && 'max' in source.gate ? source.gate.max : null;
-    const runs = attempts.map((id) => f.index.byId.get(id)).filter((r): r is IndexedRun => !!r);
-    const spends = [...callTotals(f.store, f.index, runs).values()].map((t) => pricedTotals(t, p.prices).spent);
-    return bisectEstimate(commits, { fork: true, attempts: gate ?? source.repeat, each: spends.length ? Math.max(...spends) : null, commit: result?.data?.spent ?? null, count: gate === null });
+    const commits = await searchedCommits(f.work?.dir, commitName(good), bad === null ? 'HEAD' : commitName(bad));
+    return typeof commits === 'number' ? goldenBisectEstimate(f.store, f.index, source, result, commits, p.prices) : commits;
   };
-  return { price, reads: attempts };
+  return { price, reads: result?.data?.attempts?.runs ?? [] };
 }
 
 /** A crash: its commit leads, found offline and free from the newest commit its golden passed at, with Run blame beside it, until the commit is named. */
