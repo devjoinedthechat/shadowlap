@@ -6,12 +6,17 @@ import { num } from '../format.js';
  * "Show 50 more" under a long list.
  */
 
+/**
+ * A column the table sorts by, most first: only the column it is sorted by says so to a screen reader
+ * (`aria-sort`), the arrow left to the eye, and its button a 24px target.
+ */
 export function SortTh<K extends string>({ by, sort, onSort, children, className = 'num' }: { by: K; sort: K; onSort: (k: K) => void; children: ReactNode; className?: string }) {
+  const on = sort === by;
   return (
-    <th className={className} aria-sort={sort === by ? 'descending' : 'none'}>
-      <button type="button" onClick={() => onSort(by)}>
+    <th className={className} aria-sort={on ? 'descending' : undefined}>
+      <button type="button" data-sort={by} onClick={() => onSort(by)}>
         {children}
-        {sort === by ? ' ↓' : ''}
+        {on ? <span aria-hidden="true"> ↓</span> : null}
       </button>
     </th>
   );

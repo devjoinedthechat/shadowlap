@@ -427,15 +427,11 @@ export function runOutcome(r: RunLike): RunOutcomeWords {
 }
 
 /**
- * The Runs table's Status: the outcome, and for a fork, what it did that its recording didn't: what
- * came of its writes (`forked · 2 writes blocked`), or the check it failed, named in its own words
- * under `check failed` (`check`), as the run's page names a check it can tell no more of.
+ * The Runs table's Status: the outcome, in one line. A fork says what came of its writes (`forked · 2
+ * writes blocked`); the check a run failed is on its hover (outcome-tip.ts), so a row keeps its height.
  */
-export function runStatus(r: RunLike): RunOutcomeWords & { check?: string } {
-  const out = runOutcome(r);
-  const check = r.outcome?.kind === 'check-failed' ? r.outcome.check : null;
-  if (out.tone === 'err' && check && runType(r) === 'fork') return { ...out, check };
-  return out;
+export function runStatus(r: RunLike): RunOutcomeWords {
+  return runOutcome(r);
 }
 
 /**

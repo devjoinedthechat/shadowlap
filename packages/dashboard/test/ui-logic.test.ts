@@ -465,9 +465,9 @@ describe('runs', () => {
     // Its checks passed, or it stopped before it ended: the outcome says so, as for any run.
     expect(runStatus({ ...fork, outcome: { kind: 'passed', checks: 1 }, failed: false })).toEqual({ tone: 'ok', text: '1 check passed' });
     expect(runStatus({ ...fork, ...none, status: 'crashed' })).toEqual({ tone: 'n', text: 'interrupted' });
-    // A fork that failed a check names it, in its own words.
+    // A fork that failed a check says so in one line: the check is on its hover.
     const failedFork = { ...fork, outcome: { kind: 'check-failed', check: 'send_email called 1 time' }, failed: true };
-    expect(runStatus(failedFork)).toEqual({ tone: 'err', text: 'check failed', check: 'send_email called 1 time' });
+    expect(runStatus(failedFork)).toEqual({ tone: 'err', text: 'check failed' });
     // The outcome stays in a word or two for the lists that say it beside other things; a recording names no check here.
     expect(runOutcome(failedFork)).toEqual({ tone: 'err', text: 'check failed' });
     expect(runStatus({ ...base, outcome: { kind: 'check-failed', check: 'issue_refund never called with {"amount":240}' }, failed: true })).toEqual({ tone: 'err', text: 'check failed' });

@@ -94,7 +94,7 @@ describe('the sidebar’s recent runs', () => {
     r = await render(createElement(RecentRuns, { runs: [LOST, REC, CLEAN, FORK, FORK2, FAILED_FORK, UNSURE], current: null, loading: false }));
     const line = (id: string) => text(byId(r!, id).querySelector('.r2')!);
     const red = (id: string) => byId(r!, id).querySelector('.r2 em:not(.inc)')?.textContent ?? null;
-    // Not "check failed": blame found where it was lost, and Runs says so.
+    // Not "check failed": blame found where it was lost, and the sidebar says so.
     expect([red(LOST.runId), line(LOST.runId)]).toEqual(['lost at #9', 'lost at #9 · 11 calls']);
     expect([red(FAILED_FORK.runId), line(FAILED_FORK.runId)]).toEqual(['check failed', 'check failed · fork @7']);
     expect([red(FORK2.runId), line(FORK2.runId)]).toEqual([null, 'fork @19 · 0 live · 2 stubbed']);
@@ -108,19 +108,25 @@ describe('the Runs table', () => {
   const table = (rows: RunListItem[]) => createElement(RunsTable, { rows, picked: new Set<string>(), selectable: false, byColumn: false, sort: 'when', onSort: () => undefined, onPick: () => undefined, onPickAll: () => undefined, now: T + 60_000 });
   const row = (r: Rendered, id: string) => r.all('table.runst tbody tr').find((tr) => tr.querySelector('.rid code')!.textContent === id.slice(0, 10))!;
 
-  it('gives a fork’s Status what came of its writes, or the check it failed', async () => {
+  it('gives a fork’s Status what came of its writes, its terms defined, and the check a run failed on hover', async () => {
     r = await render(table([FORK, FORK2, FAILED_FORK, LOST, REC]));
+    // What shows: a defined term's definition is read out from a hidden part beside it.
+    const shown = (el: FakeElement): string => (el.hasAttribute('hidden') ? '' : el.children.length ? el.childNodes.map((n) => ('tagName' in n ? shown(n) : n.textContent)).join('') : el.textContent);
     const status = (id: string) => {
       const st = row(r!, id).querySelector('.st')!;
-      return [st.className, text(st)];
+      return [st.className, shown(st).replace(/\s+/g, ' ').trim()];
     };
     expect(status(FORK.runId)).toEqual(['st fk', 'forked · 2 writes blocked']);
     expect(status(FORK2.runId)).toEqual(['st fk', 'forked · 2 writes stubbed']);
     // At every width it wraps after the dot only, onto the row's second line.
-    expect(row(r, FORK.runId).querySelector('.st')!.textContent).toBe('forked\u00a0· 2\u00a0writes\u00a0blocked');
-    // The check it failed, named under the words, and whole on hover.
-    expect(status(FAILED_FORK.runId)).toEqual(['st err named', 'check failed: “send_email called 1 time”']);
-    expect(row(r, FAILED_FORK.runId).querySelector('.stc')!.getAttribute('title')).toBe('check failed: “send_email called 1 time”');
+    expect(shown(row(r, FORK.runId).querySelector('.st')!)).toBe('forked\u00a0· 2\u00a0writes\u00a0blocked');
+    // A fork no check judges has no card of its own, so its first blocked and stubbed are the ones defined.
+    expect(row(r, FORK.runId).querySelector('.st')!.getAttribute('data-tip')).toBeNull();
+    expect(row(r, FORK.runId).querySelector('.st .term.on')!.getAttribute('data-term')).toBe('blocked');
+    expect(row(r, FORK2.runId).querySelector('.st .term.on')!.getAttribute('data-term')).toBe('stubbed');
+    // The check it failed is on hover, so the row keeps one line.
+    expect(status(FAILED_FORK.runId)).toEqual(['st err', 'check failed']);
+    expect(row(r, FAILED_FORK.runId).querySelector('.st')!.getAttribute('data-tip')).toContain('send_email called 1 time');
     // Blame found where it was lost, as the sidebar says; its Status says how it came out: the check it failed.
     expect(status(LOST.runId)).toEqual(['st err', 'check failed']);
     // A recording with nothing to report keeps its dash.
