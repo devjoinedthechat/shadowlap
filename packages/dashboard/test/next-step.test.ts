@@ -216,7 +216,7 @@ describe('a run’s next step', () => {
     passedTest(rec, T0 + MIN, 'aaaaaaa');
     const crash = crashedTest(rec, T0 + 2 * MIN);
     const s = step(crash, work([source(rec)]));
-    expect(s).toMatchObject({ key: 'bisect', label: 'Find breaking commit', starts: true, command: `shadowlap bisect ${GOLDEN} --good aaaaaaa --bad a7b3c2e`, blame: { from: 'exit' }, sub: expect.stringContaining('offline: no tokens') });
+    expect(s).toMatchObject({ key: 'bisect', label: 'Find breaking commit', starts: true, command: `shadowlap bisect ${GOLDEN} --good aaaaaaa --bad a7b3c2e`, blame: { offer: { from: 'exit' }, sub: 'Whether an answer of the model’s lost the run', command: `shadowlap blame ${crash.slice(0, 10)}` }, sub: expect.stringContaining('offline: no tokens') });
     // With no commit it passed at, it asks for one.
     const other = Store.open(':memory:');
     const held = store;
@@ -450,6 +450,26 @@ describe('what the next step of a run bills', () => {
     // The recording's model calls, at their model's price.
     const est = (await priced(t, work([source(rec)])))?.estimate;
     expect(est?.usd).toBeGreaterThan(0);
+  });
+
+  it('prices the Run blame beside a crash’s Find breaking commit, which itself bills nothing', async () => {
+    const rec = recording();
+    passedTest(rec, T0 + MIN);
+    const crash = crashedTest(rec, T0 + 2 * MIN);
+    const s = await priced(crash, work([source(rec)]));
+    expect(s).toMatchObject({ key: 'bisect', blame: { estimate: { kind: 'blame', ceiling: true } } });
+    expect(s?.estimate).toBeUndefined();
+    // On a long crash its first answer leaves it out, with the step.
+    const held = recording(T0 + MIN);
+    const session = store.startTestSession({ command: ['shadowlap', 'test', GOLDEN], startedAt: T0 + 3 * MIN, revision: 'bbbbbbb' }).sessionId;
+    const long = addRun(store, { parent: held, startedAt: T0 + 3 * MIN, status: 'failed', calls: LONG, meta: { test: { golden: GOLDEN, session } } });
+    store.addTestResult({ sessionId: session, golden: GOLDEN, ok: false, failure: 'exit', reason: 'the agent exited with code 1', runId: long, goldenRunId: held, revision: 'bbbbbbb', at: T0 + 3 * MIN });
+    const first = await priced(long, work([source(held)]), () => false);
+    expect(first).toMatchObject({ key: 'bisect', later: true });
+    expect(first?.key === 'bisect' && first.blame?.estimate).toBeUndefined();
+    // A fix that holds it leaves no Run blame beside it.
+    recordBlame(store, { runId: crash, report: blameReport(crash), expect: EXPECT, scope: null, command: 'shadowlap blame x', title: 'A crash', checkText: 'it exits 0', at: T0 });
+    expect(step(crash, work([source(rec)]))).toMatchObject({ key: 'bisect', blame: null });
   });
 
   it('leaves what bills nothing with no estimate: a golden’s bisect, its re-run, a pack, a replay', async () => {

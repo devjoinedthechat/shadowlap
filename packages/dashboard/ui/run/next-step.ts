@@ -1,6 +1,6 @@
 import { costLine, costWords } from '../../../engine/src/estimates/spending.js';
-import { confirmWords } from '../labels.js';
-import type { NextStep, RunDetail } from '../types.js';
+import { ACTIONS, confirmWords } from '../labels.js';
+import type { BlameBeside, NextStep, RunDetail } from '../types.js';
 import { blameTitle } from './offers.js';
 
 /**
@@ -32,15 +32,31 @@ const STEP_JOBS: Partial<Record<NextStep['key'], { verb: string; tests: boolean 
 /** The job a step runs, for what it waits for and how its button words that; none for a link, or a step that waits for no job. */
 export const stepJob = (step: NextStep | null): { verb: string; tests: boolean } | null => (step && !step.href ? (STEP_JOBS[step.key] ?? null) : null);
 
+/** A step's hover card: its title, its sentence, and its rows, what it bills and runs. */
+export interface StepCard {
+  title: string;
+  sub: string | null;
+  rows: Array<{ label: string; value: string }>;
+}
+
 /**
- * What a step's hover says: its title, its sentence, and what it bills and runs: the amount alone
- * until Spending says whether it asks first, none for what bills nothing. A job's dialog says the rest.
+ * What a job's hover says of what it bills and runs: the amount alone until Spending says whether it
+ * asks first, none for what bills nothing. A job's dialog says the rest.
  */
-export function stepCard(step: NextStep): { title: string; sub: string | null; rows: Array<{ label: string; value: string }> } {
+function cardRows(o: Pick<NextStep, 'estimate' | 'command'>): StepCard['rows'] {
+  const cost = o.estimate ? costWords(o.estimate, null, { form: true }) : null;
+  return [...(cost ? [{ label: 'Costs', value: cost }] : []), ...(o.command ? [{ label: '$', value: o.command }] : [])];
+}
+
+/** What a step's hover says: its title, its sentence, and what it bills and runs. */
+export function stepCard(step: NextStep): StepCard {
   const own = step.key === 'fix' ? fixStatusWords(step.status).why : step.key === 'blame' ? blameTitle(step.offer) : null;
-  const cost = step.estimate ? costWords(step.estimate, null, { form: true }) : null;
-  const rows = [...(cost ? [{ label: 'Costs', value: cost }] : []), ...(step.command ? [{ label: '$', value: step.command }] : [])];
-  return { title: step.title ?? confirmWords(step.label), sub: step.sub ?? own, rows };
+  return { title: step.title ?? confirmWords(step.label), sub: step.sub ?? own, rows: cardRows(step) };
+}
+
+/** What the Run blame beside a crash's Find breaking commit says on hover. */
+export function blameBesideCard(blame: BlameBeside): StepCard {
+  return { title: ACTIONS.runBlame.label, sub: blame.sub, rows: cardRows(blame) };
 }
 
 /** What a step's dialog says of what it bills, as an ask's cost line says it: `≈$3.11, as the last test’s 6 attempts · live from each read, writes stubbed`. */

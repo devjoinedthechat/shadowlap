@@ -19,7 +19,7 @@ import { errorText } from '../toast.js';
 import { ForkMenu, type PendingAction } from './actions.js';
 import { failureText, fixCheckText } from './banner.js';
 import { nextStepOf } from './next-step.js';
-import { NextStepButton, ReplayButton } from './NextStepButton.js';
+import { BlameBesideButton, NextStepButton, ReplayButton } from './NextStepButton.js';
 import { exitWords, presetTag, type PresetAttempt } from './preset.js';
 import { checksOf, forkKindWords, recordingWords, runDuration, runLikeOf } from './model.js';
 import { canPush, pushTitle } from './share.js';
@@ -192,6 +192,7 @@ export function RunHeader({
               </button>
             ) : null}
             {next?.key === 'replay' ? null : <ReplayButton run={run} step={run.replay ?? null} lime={false} onAction={onAction} />}
+            <BlameBesideButton runId={r.runId} step={next} />
             <button
               className="btn"
               type="button"

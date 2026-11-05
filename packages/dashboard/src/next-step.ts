@@ -53,7 +53,7 @@ import { loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
 import { QUICK_FROM } from './run-page.js';
 import { answer, failed, type ReadTable } from './read-registry.js';
 import { runJudged, type OutcomeWork, type RunJudged } from './run-outcome.js';
-import { callTotals, priced } from './run-stats.js';
+import { callTotals, priced as pricedTotals } from './run-stats.js';
 import { runStates, type RunRow, type RunState } from './runs-list.js';
 import { bisectAnswers, bisectChoices, standingAnswer, underChecks, unjudgedOffline, unreadable, verdictOfResult, type BisectAnswer, type BisectChoices, type GoldenSource } from './tests.js';
 
@@ -146,12 +146,20 @@ export type NextStep = StepWords &
     | { key: 'blame'; offer: BlameOffer }
     | { key: 'normalizer' | 'update-golden'; golden: string; test: TestOffer | null }
     | { key: 'rerun-test' | 'gate-again'; golden: string }
-    | { key: 'bisect'; golden: string; starts: boolean; blame: BlameOffer | null }
+    | { key: 'bisect'; golden: string; starts: boolean; blame: BlameBeside | null }
     | { key: 'rule' }
     | { key: 'injection-test'; runId: string }
     | { key: 'injection-again'; runId: string; job: InjectionAgain }
     | { key: 'pack-gate' | 'pack'; runId: string; folder: string }
   );
+
+/** Run blame, plain beside a crash's Find breaking commit: the check it would use, and what its hover says, runs and bills. */
+export interface BlameBeside {
+  offer: BlameOffer;
+  sub: string;
+  command: string;
+  estimate?: Estimate;
+}
 
 /** What the `injection` job takes to run a test again as the last one ran. */
 export interface InjectionAgain {
@@ -243,8 +251,8 @@ interface Priced {
   reads?: readonly string[];
 }
 
-/** A step as a rule decides it. */
-type Decided = NextStep & Priced;
+/** A step as a rule decides it, and what the Run blame beside it bills. */
+type Decided = NextStep & Priced & { beside?: Priced };
 
 /** What each rule below reads of a run. */
 interface Facts {
@@ -293,8 +301,11 @@ function blameCommand(runId: string, offer: BlameOffer, capture: boolean): strin
   return `${commandLine(['blame', short(runId), ...expect])}${capture ? ` ${YOUR_COMMAND}` : ''}`;
 }
 
+/** What a blame bills: at most its ceiling, from the run's model calls. */
+const blamePrice = (runId: string): Priced => ({ reads: [runId], price: (p) => blameEstimate(p.calls(runId), p.prices ? { prices: p.prices } : {}) });
+
 function blameStep(runId: string, offer: BlameOffer, capture = false): Decided {
-  return { key: 'blame', label: ACTIONS.runBlame.label, offer, ...(capture ? { capture: true as const } : {}), command: blameCommand(runId, offer, capture), reads: [runId], price: (p) => blameEstimate(p.calls(runId), p.prices ? { prices: p.prices } : {}) };
+  return { key: 'blame', label: ACTIONS.runBlame.label, offer, ...(capture ? { capture: true as const } : {}), command: blameCommand(runId, offer, capture), ...blamePrice(runId) };
 }
 
 /** Whether a golden is made from a run: one its family replays or was unpacked from, or whose pack holds a run of its family. */
@@ -436,7 +447,7 @@ function bisectPrice(f: Facts, source: GoldenSource, result: TestResult | null, 
     if (!Number.isInteger(commits)) return noEstimate('bisect', 'git could not say how many commits it would search');
     const gate = source.gate && 'max' in source.gate ? source.gate.max : null;
     const runs = attempts.map((id) => f.index.byId.get(id)).filter((r): r is IndexedRun => !!r);
-    const spends = [...callTotals(f.store, f.index, runs).values()].map((t) => priced(t, p.prices).spent);
+    const spends = [...callTotals(f.store, f.index, runs).values()].map((t) => pricedTotals(t, p.prices).spent);
     return bisectEstimate(commits, { fork: true, attempts: gate ?? source.repeat, each: spends.length ? Math.max(...spends) : null, commit: result?.data?.spent ?? null, count: gate === null });
   };
   return { price, reads: attempts };
@@ -451,12 +462,14 @@ function crashStep(f: Facts): Decided | null {
   if (!c || c.unavailable) return null;
   const good = commitName(c.good);
   const starts = !!good && !c.live;
+  const blame = f.fix()?.fix ? null : blameOffer(store, f.record, f.work?.tests, f.fix);
   return {
     key: 'bisect',
     label: starts ? confirmWords(ACTIONS.findBreakingCommit.label) : ACTIONS.findBreakingCommit.label,
     golden: t.golden,
     starts,
-    blame: f.fix()?.fix ? null : blameOffer(store, f.record, f.work?.tests, f.fix),
+    blame: blame ? { offer: blame, sub: 'Whether an answer of the model’s lost the run', command: blameCommand(row.runId, blame, false) } : null,
+    ...(blame ? { beside: blamePrice(row.runId) } : {}),
     command: bisectCommand(t.golden, good, commitName(c.bad)),
     sub: starts ? `Replays the golden at the commits since ${good!}, where it passed, offline: no tokens` : 'Asks for a commit where it still worked, then replays it at the commits between',
     ...bisectPrice(f, t.source, t.result, c.good, c.bad),
@@ -692,7 +705,7 @@ function decided(store: Store, runId: string, work: NextStepWork | null, o: { ju
 export function nextStepOf(store: Store, runId: string, work: NextStepWork | null, o: { judged?: RunJudged | null | undefined; reads?: StepReads } = {}): NextStep | null {
   const step = decided(store, runId, work, o);
   if (!step) return null;
-  const { price: _price, reads: _reads, ...plain } = step;
+  const { price: _price, reads: _reads, beside: _beside, ...plain } = step;
   return plain;
 }
 
@@ -718,13 +731,19 @@ export async function pricedNextStep(store: Store, runId: string, work: NextStep
   const reads = stepReads(store);
   const step = decided(store, runId, work, { judged: o.judged, reads });
   if (!step) return null;
-  const { price, reads: readsCalls, ...plain } = step;
-  if (!price) return plain;
-  if ((readsCalls ?? []).some((id) => !o.kept(id) && (reads.index.byId.get(id)?.calls ?? 0) >= QUICK_FROM)) return { ...plain, later: true };
+  const { price, reads: readsCalls, beside, ...plain } = step;
   const modelOf = modelResolver(store);
   const prices = work?.prices;
-  const estimate = await estimateOf(price, { raw: (id) => runCalls(store, id), calls: (id) => pricedCalls(runCalls(store, id), { modelOf, ...(prices ? { prices } : {}) }), prices });
-  return estimate ? { ...plain, estimate } : plain;
+  const pricing: Pricing = { raw: (id) => runCalls(store, id), calls: (id) => pricedCalls(runCalls(store, id), { modelOf, ...(prices ? { prices } : {}) }), prices };
+  const priced = async (p: Priced | undefined): Promise<{ estimate?: Estimate; later?: true }> => {
+    if (!p?.price) return {};
+    if ((p.reads ?? []).some((id) => !o.kept(id) && (reads.index.byId.get(id)?.calls ?? 0) >= QUICK_FROM)) return { later: true };
+    const estimate = await estimateOf(p.price, pricing);
+    return estimate ? { estimate } : {};
+  };
+  const own = await priced({ ...(price ? { price } : {}), ...(readsCalls ? { reads: readsCalls } : {}) });
+  const other = await priced(beside);
+  return { ...plain, ...own, ...(other.later ? { later: true as const } : {}), ...(plain.key === 'bisect' && plain.blame && other.estimate ? { blame: { ...plain.blame, estimate: other.estimate } } : {}) };
 }
 
 /** The Replay a run's header keeps beside its next step: on a clean or a test replay, its recording's. Null for a run the store doesn't have. */

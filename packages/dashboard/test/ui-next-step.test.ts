@@ -294,13 +294,20 @@ describe('the run page’s next step', () => {
   });
 
   it('finds a crash’s breaking commit on the click, free from where its golden passed, Run blame plain beside it', async () => {
-    const next: NextStep = { key: 'bisect', label: 'Find breaking commit', golden: GOLDEN, starts: true, blame: OFFER.offer, command: `shadowlap bisect ${GOLDEN} --good aaaaaaa --bad bbbbbbb` };
+    const estimate = { kind: 'blame', usd: 16.16, ceiling: true, parts: ['up to 7 probes'] };
+    const next: NextStep = { key: 'bisect', label: 'Find breaking commit', golden: GOLDEN, starts: true, blame: { offer: OFFER.offer, sub: 'Whether an answer of the model’s lost the run', command: `shadowlap blame ${REC.slice(0, 10)}`, estimate }, command: `shadowlap bisect ${GOLDEN} --good aaaaaaa --bad bbbbbbb` };
     const offers = { blame: OFFER.offer, test: null, bisect: { target: { kind: 'golden', golden: GOLDEN }, failed: true, good: 'aaaaaaa', bad: 'bbbbbbb', revisions: [], fork: false, live: false, unavailable: null, args: [] } } as unknown as RunOffers;
     const { a, started } = jobs();
     const found = vi.fn();
     page = await render(both(detail({ parent: PARENT, status: 'failed', state: { ...failedState, kind: 'test', outcome: { kind: 'check-failed', check: null } }, meta: { test: { golden: GOLDEN, session: 's1' } }, next }), offers, a, { onFindCommit: found }));
     expect(lime(page)).toEqual(['Find breaking commit']);
-    expect(page.byText('.rhead .actions button', 'Run blame').className).toBe('btn');
+    const beside = page.byText('.rhead .actions button', 'Run blame');
+    expect(beside.className).toBe('btn');
+    expect(tip(beside)).toMatchObject({ t: 'Run blame', s: 'Whether an answer of the model’s lost the run', rows: [['Costs', 'At most ≈$16.16', ''], ['$', `shadowlap blame ${REC.slice(0, 10)}`, '']] });
+    // Before Fork at #n, the lime one last.
+    const buttons = page.all('.rhead .actions button').map((b) => b.textContent);
+    expect(buttons.indexOf('Run blame')).toBeLessThan(buttons.findIndex((b) => b?.startsWith('Fork at')));
+    expect(buttons.findIndex((b) => b?.startsWith('Fork at'))).toBeLessThan(buttons.indexOf('Find breaking commit'));
     // Once, in the header: the banner leaves it there.
     expect(page.all('.banner button').some((b) => b.textContent === 'Run blame')).toBe(false);
     await page.click(page.byText('.rhead .actions button', 'Find breaking commit'));
