@@ -165,6 +165,11 @@ describe('a verify', () => {
     expect(e.card).toEqual({ title: 'If every run’s gate ran to its limit', lines: [`An attempt costs about ${amountWords(0.27 / 12)}, as one of the last verify’s 12 attempts did.`, `A gate stops once it decides: the last verify spent ${amountWords(0.27)}.`, 'Attempts the provider cuts short come on top, up to as many again.'] });
     expect(verifyEstimate([{ role: 'good', usd: 0.01 }], { live: 'first' }).parts).toEqual(['up to 200 pairs a run against its baseline', 'live from the first model call, writes stubbed']);
     expect(verifyEstimate([])).toMatchObject({ usd: null, none: 'there is no run to verify' });
+    // A budget under the ceiling stops it there (Verify again runs with the verdict's); one over it changes nothing.
+    const held = verifyEstimate([{ role: 'target', usd: 0.02 }], { budget: 0.5 });
+    expect(held.stops).toBe(0.5);
+    expect(held.usd).toBeCloseTo(1.6, 10);
+    expect(verifyEstimate([{ role: 'target', usd: 0.02 }], { budget: 5 })).not.toHaveProperty('stops');
     const unpriced = verifyEstimate([{ role: 'target', usd: null, none: 'no price for my-model' }]);
     expect(unpriced).toMatchObject({ usd: null, none: 'no price for my-model' });
     expect(costLine(unpriced)).toEqual(['Billed by your provider', 'up to 80 attempts a run', 'live where a replay forks, writes stubbed', 'no price for my-model']);
