@@ -38,6 +38,7 @@ import {
   type ToolTrust,
 } from '@shadowlap/engine';
 import { chaosMatrices, type ChaosMatrix } from './chaos.js';
+import { HEX } from './commits-here.js';
 import { commandLine } from './fix-shared.js';
 import { fixForRun } from './fix-for-run.js';
 import { injectionLine } from './injection.js';
@@ -49,7 +50,7 @@ import { loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
 import type { RunJudged } from './run-outcome.js';
 import { callTotals, priced } from './run-stats.js';
 import { runStates, type RunRow, type RunState } from './runs-list.js';
-import { bisectAnswers, bisectChoices, standingAnswer, unjudgedOffline, verdictOfResult, type AnswerEvent, type BisectAnswer, type GoldenSource } from './tests.js';
+import { bisectAnswers, bisectChoices, standingAnswer, unjudgedOffline, unreadable, verdictOfResult, type AnswerEvent, type BisectAnswer, type GoldenSource } from './tests.js';
 
 /**
  * The one next step of a run (A12): what its page's lime button leads with, worked out here from how
@@ -261,7 +262,7 @@ function packGateStep(f: Facts, runId: string, parent: boolean): Decided {
 
 // ---- a test replay ----
 
-/** A test replay of its own whose golden is on disk, and its golden's result in its session: what its steps run on. */
+/** A test replay of its own whose golden is on disk and can be read, and its golden's result in its session: what its steps run on. */
 interface TestedGolden {
   golden: string;
   source: GoldenSource;
@@ -273,7 +274,7 @@ function testedGolden(f: Facts): TestedGolden | null {
   // The index reads the record field by field, and a golden or a session that isn't text as empty: a run can come from someone else's pack.
   if (f.row.kind !== 'test' || f.row.attemptKind || !test?.golden || !test.session) return null;
   const source = f.work?.goldens.find((g) => g.path === test.golden);
-  if (!source) return null;
+  if (!source || unreadable(source)) return null;
   return { golden: test.golden, source, result: f.store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0] ?? null };
 }
 
@@ -321,7 +322,7 @@ function divergedStep(f: Facts, t: TestedGolden): Decided {
   const c = bisectChoices(f.store, f.row.runId, { goldens: f.work?.goldens ?? [] });
   if (c?.unavailable) return updateStep(f, golden, source);
   const price = bisectPrice(f, source, result, c?.good ?? null, c?.bad ?? null);
-  return { key: 'bisect', label: ACTIONS.findBreakingCommit.label, golden, starts: false, blame: null, command: `shadowlap bisect ${golden} --good <commit>${c?.bad ? ` --bad ${c.bad}` : ''}`, sub: 'Asks for a commit where it still worked, then replays it at the commits between', ...(price ? { price } : {}) };
+  return { key: 'bisect', label: ACTIONS.findBreakingCommit.label, golden, starts: false, blame: null, command: bisectCommand(golden, null, commitName(c?.bad)), sub: 'Asks for a commit where it still worked, then replays it at the commits between', ...(price ? { price } : {}) };
 }
 
 /** What a test replay of its own leads with while its golden is on disk: its passing run, or by how it diverged, or its judge's verdict. */
@@ -353,17 +354,28 @@ function bisectAnswer(f: Facts, golden: string): BisectAnswer | null {
 }
 
 /**
+ * A revision as a commit's hex name, or null for anything else: a revision comes from a run, which
+ * may have come from anyone, so nothing else is handed to git, or shown as a command to paste.
+ */
+const commitName = (rev: string | null | undefined): string | null => (rev && HEX.test(rev) ? rev : null);
+
+const bisectCommand = (golden: string, good: string | null, bad: string | null): string => `${commandLine(['bisect', golden])} --good ${good ?? '<commit>'}${bad ? ` --bad ${bad}` : ''}`;
+
+/**
  * What Find breaking commit bills: nothing on a golden that replays, which it replays offline at
  * each commit; on one marked fork, its gate live at every commit it may test, each attempt as dear
  * as the costliest of its last session's. How many commits that is, git says, once the search has a
- * commit to start from.
+ * commit to start from, and only of two commits.
  */
 function bisectPrice(f: Facts, source: GoldenSource, result: TestResult | null, good: string | null, bad: string | null): Decided['price'] {
   if (source.mode !== 'fork') return undefined;
   return async (p) => {
     const dir = f.work?.dir;
-    if (!good || !dir) return noEstimate('bisect', 'no estimate until it has a commit to start from');
-    const count = await gitAsync(dir, ['rev-list', '--count', `${good}..${bad ?? 'HEAD'}`]);
+    const from = commitName(good);
+    const to = bad === null ? 'HEAD' : commitName(bad);
+    if (!from || !dir) return noEstimate('bisect', 'no estimate until it has a commit to start from');
+    if (!to) return noEstimate('bisect', 'no estimate: the revision it would search up to is no commit');
+    const count = await gitAsync(dir, ['rev-list', '--count', `${from}..${to}`]);
     const commits = count.code === 0 ? Number(count.stdout.trim()) : NaN;
     if (!Number.isInteger(commits)) return noEstimate('bisect', 'git could not say how many commits it would search');
     const gate = source.gate && 'max' in source.gate ? source.gate.max : null;
@@ -380,7 +392,8 @@ function crashStep(f: Facts): Decided | null {
   if (!t || !row.failed || !crashed(row, t.result) || bisectAnswer(f, t.golden)?.found) return null;
   const c = bisectChoices(store, row.runId, { goldens: f.work?.goldens ?? [] });
   if (!c || c.unavailable) return null;
-  const starts = !!c.good && !c.live;
+  const good = commitName(c.good);
+  const starts = !!good && !c.live;
   const price = bisectPrice(f, t.source, t.result, c.good, c.bad);
   return {
     key: 'bisect',
@@ -388,8 +401,8 @@ function crashStep(f: Facts): Decided | null {
     golden: t.golden,
     starts,
     blame: fixForRun(store, row.runId)?.fix ? null : blameOffer(store, f.record, f.work?.tests),
-    command: `shadowlap bisect ${t.golden} --good ${c.good ?? '<commit>'}${c.bad ? ` --bad ${c.bad}` : ''}`,
-    sub: starts ? `Replays the golden at the commits since ${c.good!}, where it passed, offline: no tokens` : 'Asks for a commit where it still worked, then replays it at the commits between',
+    command: bisectCommand(t.golden, good, commitName(c.bad)),
+    sub: starts ? `Replays the golden at the commits since ${good!}, where it passed, offline: no tokens` : 'Asks for a commit where it still worked, then replays it at the commits between',
     ...(price ? { price } : {}),
   };
 }

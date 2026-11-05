@@ -503,7 +503,7 @@ export function testPatterns(goldens: readonly GoldenSource[], folder = 'goldens
 }
 
 /** Why a golden can't be read: a path that would read as an option (whatever is there), or its pack. */
-const unreadable = (g: GoldenSource): string | null => (optionLike(g.path) ? OPTION_LIKE : (g.error ?? null));
+export const unreadable = (g: GoldenSource): string | null => (optionLike(g.path) ? OPTION_LIKE : (g.error ?? null));
 
 /** A word as a shell reads it: a plain path stays as it is; a pattern (`goldens/*`), which the CLI expands itself, and a path with a space are quoted. */
 const ciWord = (s: string) => (/^[A-Za-z0-9_./:@%+=,-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -410,6 +410,78 @@ describe('what the next step of a run bills', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('a revision that came with a run', () => {
+  const priced = (id: string, w: NextStepWork) => pricedNextStep(store, id, w, { judged: undefined, whole: true });
+  /** A crash of a golden, with what its results and its run's own revision say. */
+  function crash(rec: string, o: { good: string; bad: string }): string {
+    const passing = store.startTestSession({ command: ['shadowlap', 'test', GOLDEN], startedAt: T0 + MIN, revision: o.good }).sessionId;
+    const passed = addRun(store, { parent: rec, startedAt: T0 + MIN, calls: 'r', meta: { test: { golden: GOLDEN, session: passing } } });
+    store.addTestResult({ sessionId: passing, golden: GOLDEN, ok: true, runId: passed, goldenRunId: rec, revision: o.good, at: T0 + MIN });
+    const failing = store.startTestSession({ command: ['shadowlap', 'test', GOLDEN], startedAt: T0 + 2 * MIN, revision: o.bad }).sessionId;
+    const run = store.createRun({ mode: 'replay', parentRunId: rec, command: { argv: ['node', 'agent.mjs'], cwd: '.' }, codeVersion: o.bad, startedAt: T0 + 2 * MIN, meta: { test: { golden: GOLDEN, session: failing } } });
+    store.endRun(run.runId, 'failed');
+    store.addTestResult({ sessionId: failing, golden: GOLDEN, ok: false, failure: 'exit', reason: 'the agent exited with code 1', runId: run.runId, goldenRunId: rec, revision: o.bad, at: T0 + 2 * MIN });
+    return run.runId;
+  }
+
+  it('reaches git only as a commit’s hex name, however it reads: a file it names as an option stays as it is', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-next-step-rev-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: dir });
+      const victim = join(dir, 'victim.txt');
+      writeFileSync(victim, 'keep me\n');
+      const rec = recording();
+      const run = crash(rec, { good: `--output=${victim}`, bad: 'bbbbbbb' });
+      const s = await priced(run, work([source(rec, { mode: 'fork' })], { dir }));
+      expect(s?.estimate).toMatchObject({ kind: 'bisect', usd: null, none: 'no estimate until it has a commit to start from' });
+      expect(readFileSync(victim, 'utf8')).toBe('keep me\n');
+      // Nor is it shown to paste, or started from: the step asks for a commit.
+      expect(s).toMatchObject({ key: 'bisect', label: 'Find breaking commit…', starts: false, command: `shadowlap bisect ${GOLDEN} --good <commit> --bad bbbbbbb` });
+      expect(s?.sub).not.toContain('--output');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves the end of the search out the same, where the run’s own revision is no commit', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-next-step-rev-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: dir });
+      const victim = join(dir, 'victim.txt');
+      writeFileSync(victim, 'keep me\n');
+      const rec = recording();
+      const run = crash(rec, { good: 'aaaaaaa', bad: `--output=${victim}` });
+      const s = await priced(run, work([source(rec, { mode: 'fork' })], { dir }));
+      expect(s?.estimate).toMatchObject({ kind: 'bisect', usd: null, none: 'no estimate: the revision it would search up to is no commit' });
+      expect(readFileSync(victim, 'utf8')).toBe('keep me\n');
+      expect(s?.command).toBe(`shadowlap bisect ${GOLDEN} --good aaaaaaa`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('says what git says of a search it can’t count', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-next-step-rev-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: dir });
+      const rec = recording();
+      const run = crash(rec, { good: 'aaaaaaa', bad: 'bbbbbbb' });
+      expect((await priced(run, work([source(rec, { mode: 'fork' })], { dir })))?.estimate).toMatchObject({ kind: 'bisect', usd: null, none: 'git could not say how many commits it would search' });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('leads as any failed run does where the golden’s pack can’t be read, or its path reads as an option', () => {
+    const rec = recording();
+    expect(step(crashedTest(rec), work([source(rec, { error: 'run.json is not JSON' })])).key).toBe('blame');
+    const option = source(rec, { path: '--output=x' });
+    const session = store.startTestSession({ command: ['shadowlap', 'test', option.path], startedAt: T0 + 3 * MIN }).sessionId;
+    const other = addRun(store, { parent: rec, startedAt: T0 + 3 * MIN, status: 'failed', calls: 'r', meta: { test: { golden: option.path, session } } });
+    expect(step(other, work([option])).key).toBe('blame');
   });
 });
 
