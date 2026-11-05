@@ -527,8 +527,8 @@ export function AppProvider({ client, children }: { client: Client; children: Re
         if (next.code === 0 && (next.kind === JOB_KINDS.har || next.kind === JOB_KINDS.exportHtml)) for (const f of next.files ?? []) if (!f.directory) void client.downloadFile(f).catch(() => undefined);
         // A job whose drawer was closed early still says how it ended.
         const shown = jobsNow.current.find((w) => w.job.id === first.id);
-        if (!shown?.open) toast(endToast(next, all), jobStatus(next, all).tone === 'err' ? 'error' : 'notice');
-        else handOnAtEnd(next.id);
+        if (shown?.open) handOnAtEnd(next.id);
+        else toast(endToast(next, all), jobStatus(next, all).tone === 'err' ? 'error' : 'notice');
       };
       setTimeout(() => void step(), 200);
     },

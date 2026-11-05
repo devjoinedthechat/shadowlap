@@ -114,6 +114,10 @@ The about line quotes what the run recorded. So a copy that leaves the store (an
 - **The goldens**, each with its last verdict: *passed*, *failed* or *inconclusive*, a gate's with its tally and bound. When any diverged, **Update goldens…** opens its dialog on Tests.
 - **What the runs recorded**, from three characters: prompts, responses, tool arguments and results, up to six matches, two per run.
 
+A row with a key of its own shows it at its right, while single-key shortcuts are on.
+
+**On a list's row**, ⌘K offers that row's actions under its name: on a run's, Open run, Compare, Copy ID and Select run. ⌫ in the empty field shows everything, and closing it hands the focus back to the row.
+
 Every typed word must match. Matches in recordings, forks, tests and captures come first, however many attempts match too. An attempt (`--repeat`, a blame probe, a verify attempt) replays its run's text, so it shows only for a run with no match of its own. The attempts of one run count as that run.
 
 ### How search stays current
@@ -538,7 +542,7 @@ The line beside the chips gives the `shadowlap blame --scope` command for the sc
 
 ### Views of the run
 
-Beside the inspector, six views show the run, and `v` cycles the first five:
+Beside the inspector, six views show the run, and `v` goes through them all:
 
 | View                           | Shows                                                                 |
 | ------------------------------ | --------------------------------------------------------------------- |
@@ -1576,7 +1580,7 @@ shadowlap export html <run> --lineage run.html
 The file has the same views as the dashboard, with the run's data built in and nothing to install or run. Attach it to a pull request, keep it as a CI artifact, or send it to whoever asks what the agent did.
 
 - **What it holds**: it opens on the run that was shared, and holds Runs (the runs in the file) and, when it holds two or more, Compare between them. Any other page opens Runs.
-- **What it leaves out**: there is nothing to run from it and no search across runs, so `/` filters a run's calls.
+- **What it leaves out**: there is nothing to run from it and no search across runs, so `/` filters a run's calls or Runs.
 - **Redaction**: it holds recorded prompts and tool data, so the project's redaction rules apply by default; see [`export html`](./cli.md#export-html).
 
 From the dashboard:
@@ -1586,24 +1590,59 @@ From the dashboard:
 
 ## Keyboard shortcuts
 
-The dashboard's keys:
+The dashboard's keys, by where they work. `?` lists them on a sheet, and each control a key presses says its key on its hover card and to a screen reader.
+
+**Single-key shortcuts** can be turned off at the sheet's foot, and the browser remembers it. Off, only ⌘K, Esc, Enter and the arrows work, and nothing advertises a single key.
+
+Anywhere:
 
 | Key | What it does |
 | --- | --- |
-| ⌘K or Ctrl K | Search or jump to anything |
-| `/` | Filter the calls on a run; search anywhere else |
-| `j` / `k`, `↓` / `↑` | Next or previous call |
-| `←` / `→` | In Calls, fold the selected call's group or go to the call it sits under; open it or go to its first call |
+| ⌘K or Ctrl K | Search or jump to anything; with the focus in a list's row, its actions |
+| `/` | Filter a run's calls, filter Runs, or search anywhere else |
+| `?` | Show the shortcuts |
+| `u` | Undo, while a toast offers it (a good or bad label) |
+| Esc | Close what is open, then go up a level |
+
+In a list (Runs, and the sidebar's runs while one has the focus):
+
+| Key | What it does |
+| --- | --- |
+| `j` / `k` | Next or previous row: from no row, the first or the last |
+| `↓` / `↑` | The same, on a row in focus |
+| Enter | Open the row |
+| ⌘K or Ctrl K | The row's actions |
+| `x` | Select the row, on Runs |
+| `+` / `-` | Label it good or bad, on Runs |
+| Esc | Clear the selection, then let go of the row |
+
+Go to:
+
+| Key | What it does |
+| --- | --- |
+| `g` then `o` `r` `c` `f` `t` `a` `s` | Overview, Runs, Compare, Fixes, Tests, Training, Settings |
+
+On a run:
+
+| Key | What it does |
+| --- | --- |
+| `j` / `k` | Next or previous call, from anywhere on the page; the selected call takes the focus |
+| `↓` / `↑` | The same, in the view's list |
+| `[` / `]` | The run before or after this one in the list you came from |
 | `1`–`4` | Conversation, response, request, details |
-| `v` | Next view: calls, turns, context, timeline, forks |
+| `←` / `→` | In a tab list, the next tab; else in Calls, fold the selected call's group or open it |
+| `v` | Next view, through all of them |
 | `n` | Jump to the call where the run forked, where blame found it lost, or where it first failed |
 | `p` | Open the parent run |
-| `f` | Fork at the selected call |
-| `+` / `-` | Label the run good or bad, again to take it off; on Runs, the row with the focus |
-| `u` | Undo, while a toast offers it (a good or bad label) |
-| `g` then `o` `r` `c` `f` `t` `a` `s` | Overview, Runs, Compare, Fixes, Tests, Training, Settings |
-| `?` | All shortcuts |
-| Esc | Close a menu, then a dialog, then a panel, then the sidebar on a phone, then hide a hover card |
+| `r` `c` `b` `f` | Press Replay, Compare, Run blame or Fork at the selected call, where the run has that button |
+| `+` / `-` | Label the run good or bad, again to take it off |
+| Esc | Back to where you came from |
+
+**Esc** does one thing a press: it closes a menu, a dialog, the palette or a job's drawer, then the sidebar on a phone, then leaves a field, then hides a hover card. Only then does it go up: a run's open diff closes, a run or a fix goes back the way you came, Runs' selection clears, and the row in focus lets go.
+
+**The way back** lands on the row or the link you left. A page opened cold goes up to its crumbs' parent: a fork or a replay to the run it came from, a run to Runs, a fix to Fixes. `[`, `]` and opening a run's parent add nothing to the way back, and a page it already passed through takes it back to there.
+
+**`[` and `]`** step through Runs as it was last shown, its filter and sort, reading its next page when they come to the last row read. A run Runs never showed steps through the sidebar's. At either end a toast says so.
 
 ### Menus, pickers and dialogs
 
@@ -1637,11 +1676,16 @@ Each row is one line: what it does, then what it runs. What it is for and the co
 
 ### Focus and accessibility
 
-- **Skip to the page** is Tab's first stop on every page. It takes the focus past the top bar and the sidebar to the page itself.
+- **Skip to content** is Tab's first stop on every page. It takes the focus past the top bar and the sidebar to the page's heading.
+- **A new page** takes the focus to its heading, so a screen reader says where you are and Tab goes on from there. A step within a page (a call, a view, a fix's step, a filter) leaves it where it was, and a first load moves nothing. No move scrolls the page.
+- **What the page draws anew** hands the focus to its counterpart, found by what it is, so Tab goes on from where you were. Focus you moved away yourself stays away.
+- **A job's end** that takes away the control you started it from hands the focus to the step that took its place, else to the job's drawer.
+- **Tabs** (a run's views, the inspector) are one Tab stop: `←` and `→` move along them round the ends, Home and End go to the first and last, and a count is read apart from its name. Settings and Training switch pages with links.
+- **A row that opens on a click** names what it opens with a real link, which the keyboard reaches, a screen reader reads and a browser opens in a new tab.
 - **Search or jump to** keeps the focus in its field while ↑ and ↓ move through what it offers, as a screen reader expects of a combobox.
 - **Closing** a menu, a dialog or the palette hands the focus back to what had it, or to the control drawn in its place when the page has drawn it anew. A click outside a menu that lands on another control leaves the focus there.
-- **Closing a job's drawer** from inside it hands the focus back to where it was, or else to the page. Closing the sidebar on a phone from inside it hands the focus to its button.
-- **A link that opens another page** (a fix from the list, another fix's verdict, a link in a menu or a dialog) hands the focus to the page it opened, and so does Back with a menu or a dialog open. A run picked in Compare leaves it on the picker.
+- **Closing a job's drawer** from inside it hands the focus back to where it was, or else to the page. On a phone the sidebar takes the focus to its first item as it opens, and closing it from inside it, or with a click beside it, hands the focus to its button.
+- **A link in a menu or a dialog** hands the focus to the page it opened, and so does Back with one open. A run picked in Compare leaves it on the picker.
 - **A focus ring** is drawn whole in every pane that scrolls. A pane that scrolls with no control in it (the Timeline, Turns and Context, a run's calls on Provenance, a code block, a command to copy, a job's output, a dialog's body) takes the focus itself, so the keyboard can scroll it.
 - **What has a hover card and no action of its own** takes the focus where it stands on its own (a run's outcome, a fact), so what a hover shows is never only a hover's. In a row or a chart it doesn't, and a mark with no words of its own is named by its card.
 - **Every target** is 24 px at least, as WCAG 2.5.8 asks, and text reaches WCAG AA's contrast on every surface it is drawn on.
