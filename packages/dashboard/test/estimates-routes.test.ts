@@ -8,19 +8,25 @@ import {
   blameEstimate,
   decideVerify,
   DEFAULT_REPAIRER,
+  fixRecords,
+  fixRunArgs,
   forkEstimate,
   gateResult,
   goldenTestEstimate,
+  injectionAgainEstimate,
   noEstimate,
   pricedCalls,
   recordBlame,
   recordVerdict,
   repairEstimate,
   repeatEstimate,
+  resolveFix,
   runBisectEstimate,
+  selectedRuns,
   Store,
   testsEstimate,
   updateEstimate,
+  verifyEstimate,
   verifyMoreEstimate,
   verifyRunCosts,
   type BlameReport,
@@ -29,17 +35,19 @@ import {
   type TestResultData,
 } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, ORACLE, verifyReport } from '../../engine/test/fix-fixtures.js';
+import type { ProjectConfig } from '../src/context.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
-import type { FixEstimates, RunEstimates, TestsEstimates } from '../src/estimates.js';
+import type { FixEstimates, FixVerifyRule, RunEstimates, TestsEstimates } from '../src/estimates.js';
 import { fixDetail } from '../src/fixes.js';
+import { pricingOf } from '../src/pricing.js';
 import type { GoldenSource } from '../src/tests.js';
-import { addRun } from './read-model-store.js';
+import { addRun, MODEL } from './read-model-store.js';
 
 /**
  * The estimates a page asks for over HTTP, each worked out beside the server: a run's Run blame and
  * its fork menu's rows, Tests' buttons and Find breaking commit's, the engine's figure for each as the
- * job runs, and none for a row that bills nothing or is turned off. The project is a repository of
- * three commits, `FIRST` to `LAST`.
+ * job runs, Free for one that runs nothing live, and none for a row with nothing to bill. The project
+ * is a repository of three commits, `FIRST` to `LAST`, and its config is `config`.
  */
 
 const T0 = Date.now() - 3_600_000;
@@ -50,6 +58,8 @@ let dir: string;
 let goldens: GoldenSource[] = [];
 let FIRST: string;
 let LAST: string;
+const NO_CONFIG: ProjectConfig = { normalize: [], redact: [] };
+let config = NO_CONFIG;
 
 const api = (path: string, headers: Record<string, string> = {}) => fetch(`${dash.url}/api/${path}`, { headers: { 'x-shadowlap-token': dash.token, ...headers } });
 const get = async <T = RunEstimates,>(path: string): Promise<T> => {
@@ -74,12 +84,33 @@ beforeAll(async () => {
   for (const m of ['one', 'two', 'three']) git('commit', '-q', '--allow-empty', '-m', m);
   [LAST, , FIRST] = git('log', '--format=%h').split('\n') as [string, string, string];
   store = Store.open(':memory:');
-  dash = await startDashboard({ store, readOnly: false, port: 0, project: { path: dir }, goldens: () => goldens });
+  dash = await startDashboard({ store, readOnly: false, port: 0, project: { path: dir }, goldens: () => goldens, loadConfig: () => config });
 });
 afterAll(async () => {
   await dash.close();
   store.close();
   rmSync(dir, { recursive: true, force: true });
+});
+
+describe('the estimates’ routes', () => {
+  it('answer only with the session token', async () => {
+    for (const path of ['runs/01ZZZZZZZZZZZZZZZZZZZZZZZZ/estimates', 'fixes/fx-nosuchfix/estimates', 'tests/estimates', 'estimates/bisect?golden=goldens/one']) expect((await fetch(`${dash.url}/api/${path}`)).status, path).toBe(401);
+  });
+});
+
+describe('what an answer reads', () => {
+  it('prices a run’s calls once, however many of its estimates read them, keeping only the last few runs', () => {
+    const rec = addRun(store, { startedAt: T0 + 90, calls: 'lll' });
+    const p = pricingOf(store, undefined);
+    const first = p.calls(rec);
+    expect(p.calls(rec)).toBe(first);
+    expect(p.raw(rec)).toBe(p.raw(rec));
+    // An answer over every golden of Tests holds no more than the last four it read.
+    for (let i = 0; i < 4; i++) p.calls(addRun(store, { startedAt: T0 + 91 + i, calls: 'l' }));
+    const again = p.calls(rec);
+    expect(again).not.toBe(first);
+    expect(again).toEqual(first);
+  });
 });
 
 describe('a run’s estimates', () => {
@@ -131,6 +162,23 @@ describe('a run’s estimates', () => {
     expect((await api(`runs/${rec}/estimates?at=2`, { 'if-none-match': etag })).status).toBe(200);
     expect((await api(`runs/${rec}/estimates?at=1&model=claude-opus-4-1`, { 'if-none-match': etag })).status).toBe(200);
   });
+
+  it('never answers a changed price with the last one’s figures', async () => {
+    const rec = addRun(store, { startedAt: T0 + 4, calls: 'll' });
+    const first = await api(`runs/${rec}/estimates?at=1`);
+    const etag = first.headers.get('etag')!;
+    const before = (await first.json()) as RunEstimates;
+    const dear = await startDashboard({ store, readOnly: false, port: 0, project: { path: dir }, goldens: () => goldens, prices: { [MODEL]: { input: 300, output: 1500 } } });
+    try {
+      const res = await fetch(`${dear.url}/api/runs/${rec}/estimates?at=1`, { headers: { 'x-shadowlap-token': dear.token, 'if-none-match': etag } });
+      expect(res.status).toBe(200);
+      const after = (await res.json()) as RunEstimates;
+      expect(after.actions.a.usd).toBeGreaterThan(before.actions.a.usd!);
+      expect(after.actions.a).toEqual(plain(forkEstimate(pricedCalls(store.getCalls(rec), { prices: { [MODEL]: { input: 300, output: 1500 } } }), { at: 1, prices: { [MODEL]: { input: 300, output: 1500 } } })));
+    } finally {
+      await dear.close();
+    }
+  });
 });
 
 describe('Tests’ estimates', () => {
@@ -146,11 +194,18 @@ describe('Tests’ estimates', () => {
     expect(before.goldens['goldens/replay'].rerun).toMatchObject({ kind: 'tests', usd: 0 });
     // A replay golden with an injection gate runs live from each read: no estimate before it has run, never Free.
     for (const path of ['goldens/fork', 'goldens/gated', 'goldens/both']) expect(before.goldens[path].rerun?.usd, path).toBeNull();
+    expect(before.goldens['goldens/gated'].rerun).toEqual(plain(injectionAgainEstimate(null)));
+    expect(before.goldens['goldens/gated'].rerun).toMatchObject({ kind: 'injection', none: 'no estimate until its injection test has run once' });
+    expect(before.goldens['goldens/both'].rerun).toMatchObject({ kind: 'tests', none: 'no estimate until it has run once' });
     expect(before.goldens['goldens/replay'].update).toEqual(plain(updateEstimate([{ calls: priced(replay) }])));
     expect(before.goldens['goldens/replay'].more).toBeUndefined();
 
     const session = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], startedAt: T0 + 20 }).sessionId;
     for (const [path, runId, spent] of [['goldens/replay', replay, 0], ['goldens/fork', fork, 0.02], ['goldens/gated', gated, 0], ['goldens/both', both, 0.03]] as const) store.addTestResult({ sessionId: session, golden: path, ok: true, runId, at: T0 + 21, data: { checks: [], spent } });
+    // Tested, but no injection gate has run yet: what each gate bills is unknown, so neither is Run tests'.
+    const tested = await get<TestsEstimates>('tests/estimates');
+    expect(tested.goldens['goldens/both'].rerun).toMatchObject({ kind: 'tests', usd: null, none: 'no estimate until its injection test has run once' });
+    expect(tested.run).toMatchObject({ kind: 'tests', usd: null, none: 'no estimate until every golden that runs live has run once' });
     gateSpent(gated, 'goldens/gated', 0.5, T0 + 22);
     gateSpent(both, 'goldens/both', 0.25, T0 + 23);
     const after = await get<TestsEstimates>('tests/estimates');
@@ -161,6 +216,14 @@ describe('Tests’ estimates', () => {
     expect(after.goldens['goldens/both'].rerun?.usd).toBeCloseTo(0.28, 10);
     // Run tests: what the last session spent live, with each live golden's gate at what it spent the last time.
     expect(after.run?.usd).toBeCloseTo(0.02 + 0.03 + 0.5 + 0.25, 10);
+
+    // A session that re-ran one golden says nothing of the others: each is priced at its own newest test.
+    const one = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/fork'], startedAt: T0 + 30 }).sessionId;
+    store.addTestResult({ sessionId: one, golden: 'goldens/fork', ok: true, runId: fork, at: T0 + 31, data: { checks: [], spent: 0.01 } });
+    expect((await get<TestsEstimates>('tests/estimates')).run?.usd).toBeCloseTo(0.01 + 0.03 + 0.5 + 0.25, 10);
+    // A golden marked fork that has never run leaves Run tests with no estimate, so it asks.
+    goldens = [...goldens, golden('goldens/new', addRun(store, { startedAt: T0 + 32, calls: 'l' }), { mode: 'fork' })];
+    expect((await get<TestsEstimates>('tests/estimates')).run).toMatchObject({ usd: null, none: 'no estimate until every golden that runs live has run once' });
   });
 
   it('prices more attempts at its gate’s ceiling, and an update that only lacks a verdict at one judge’s call', async () => {
@@ -265,23 +328,60 @@ describe('a fix’s estimates', () => {
     expect(haiku.blameStronger).toEqual(plain(blameEstimate(priced(unrescued), { attempts: 5, scope: null, model: 'claude-haiku-4-5', last: report })));
   });
 
-  it('prices a Verify step’s Run more attempts from the start up to its limit, at what its attempts cost', async () => {
-    const GATE: SprtGate = { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 };
-    const failing = makeRun(store, { labels: ['double-email'] });
+  const GATE: SprtGate = { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 };
+  /** A fix of a failing run whose verify stopped part way, with its budget of $0.012: by that budget, or at an attempt it couldn't judge (`undecided`). */
+  function incomplete(label: string, o: { undecided?: string } = {}) {
+    const failing = makeRun(store, { labels: [label] });
     const good = makeRun(store, { labels: ['good'], status: 'completed' });
     const fixId = recordBlame(store, { runId: failing, report: blameReport(failing), expect: { tools: { send_email: 1 } }, scope: null, command: 'shadowlap blame', title: 'send_email called twice', checkText: 'send_email called once' }).fix.fixId;
     const report = verifyReport([{ runId: failing, role: 'target', pass: true }, { runId: good, role: 'good', pass: true, deterministic: true }]);
     const outcomes = [true, true, true, true];
     const target = report.runs[0];
-    report.runs[0] = { ...target, attempts: outcomes.map((passed, i) => ({ ...target.attempts[0], runId: `${target.attempts[0].runId.slice(0, 20)}${String(i).padStart(6, '0')}`, passed })), passes: 4, verdict: 'open', decision: 'continue', gate: gateResult(GATE, outcomes, {}) };
+    report.runs[0] = { ...target, attempts: outcomes.map((passed, i) => ({ ...target.attempts[0], runId: `${target.attempts[0].runId.slice(0, 20)}${String(i).padStart(6, '0')}`, passed })), passes: 4, verdict: 'open', decision: 'continue', gate: gateResult(GATE, outcomes, {}), ...(o.undecided ? { undecided: o.undecided } : {}) };
     report.gate = GATE;
     report.attemptsPerRun = GATE.max;
-    Object.assign(report, decideVerify(report.runs, 'the budget of $0.01 is spent'), { stopReason: 'the budget of $0.01 is spent', attempts: 5, spent: 0.016 });
-    const { verdict } = recordVerdict(store, { report, expect: { tools: { send_email: 1 } }, command: 'shadowlap verify --fixes label:double-email --keeps label:good --budget 0.012', rerun: { flags: ['--budget', '0.012'], command: null } });
-    const more = fixDetail(store, fixId)!.verify[0].more!;
+    const stopReason = o.undecided ? null : 'the budget of $0.01 is spent';
+    Object.assign(report, decideVerify(report.runs, stopReason), { stopReason, attempts: 5, spent: 0.016 });
+    const { verdict } = recordVerdict(store, { report, expect: { tools: { send_email: 1 } }, command: `shadowlap verify --fixes label:${label} --keeps label:good --budget 0.012`, rerun: { flags: ['--budget', '0.012'], command: null } });
+    return { fixId, report, verifyId: verdict.verifyId, more: fixDetail(store, fixId)!.verify[0].more! };
+  }
+
+  it('prices a Verify step’s Run more attempts from the start up to its limit, at what its attempts cost', async () => {
+    const { fixId, report, verifyId, more } = incomplete('double-email');
     expect(more).toMatchObject({ kind: 'more', max: 80 });
     const est = await get<FixEstimates>(`fixes/${fixId}/estimates`);
-    expect(est.verify).toEqual({ [verdict.verifyId]: plain(verifyMoreEstimate(verifyRunCosts(report), { expected: more.expected, cost: more.cost }, { rule: { ...RULE, gate: GATE }, last: report })) });
-    expect(est.verify[verdict.verifyId]).toMatchObject({ kind: 'verify', ceiling: true });
+    expect(est.verify).toEqual({ [verifyId]: plain(verifyMoreEstimate(verifyRunCosts(report), { expected: more.expected, cost: more.cost }, { rule: { ...RULE, gate: GATE }, last: report })) });
+    expect(est.verify[verifyId]).toMatchObject({ kind: 'verify', ceiling: true });
+    expect(est.verify[verifyId].stops).toBeUndefined();
+  });
+
+  it('prices Verify again as it runs, stopping at the budget it ran with', async () => {
+    const { fixId, report, verifyId, more } = incomplete('unjudged-email', { undecided: 'judge "sent-once" could not answer: no key for anthropic' });
+    expect(more).toMatchObject({ kind: 'again', max: 80 });
+    expect(more.argv.slice(-2)).toEqual(['--budget', '0.012']);
+    const est = await get<FixEstimates>(`fixes/${fixId}/estimates`);
+    expect(est.verify[verifyId]).toEqual(plain(verifyEstimate(verifyRunCosts(report), { rule: { ...RULE, gate: GATE }, last: report, budget: 0.012 })));
+    expect(est.verify[verifyId]).toMatchObject({ kind: 'verify', ceiling: true, stops: 0.012 });
+    expect(est.verify[verifyId].usd).toBeGreaterThan(0.012);
+  });
+
+  it('verifies as the config says: the most pairs a good run takes, and what it is kept against', async () => {
+    const failing = addRun(store, { startedAt: T0 + 80, status: 'failed', calls: 'lllll', meta: { labels: ['config-bug'] } });
+    addRun(store, { startedAt: T0 + 81, calls: 'll', meta: { labels: ['good'] } });
+    const fixId = blame(failing, blameReport(failing));
+    // The good runs its command keeps passing, as the repair selects them.
+    const keeps = selectedRuns(store, ['--keeps', ...fixRunArgs(store, fixRecords(store, resolveFix(store, fixId)!))!.keeps]).map((r) => ({ calls: priced(r.runId) }));
+    const plan = (rule: FixVerifyRule) => plain(repairEstimate({ failing: [{ runId: failing, startedAt: store.getRun(failing)!.startedAt, calls: priced(failing), blame: null }], good: keeps, scope: null, rule, repairer: DEFAULT_REPAIRER, noFix: null, last: null }));
+    config = { ...NO_CONFIG, verify: { max: 40, baseline: 'history' } };
+    try {
+      const est = await get<FixEstimates>(`fixes/${fixId}/estimates`);
+      expect(est.repair).toEqual(plan({ keptMax: 40, baseline: 'history' }));
+      expect(est.repair).not.toEqual(plan(RULE));
+      const { fixId: verified, report, verifyId, more } = incomplete('config-email');
+      const v = (await get<FixEstimates>(`fixes/${verified}/estimates`)).verify[verifyId];
+      expect(v).toEqual(plain(verifyMoreEstimate(verifyRunCosts(report), { expected: more.expected, cost: more.cost }, { rule: { keptMax: 40, baseline: 'history', gate: GATE }, last: report })));
+    } finally {
+      config = NO_CONFIG;
+    }
   });
 });
