@@ -359,6 +359,7 @@ export function PromptDialog({
   placeholder = '',
   multiline = false,
   command,
+  after,
   maxLength,
   choices,
   onRun,
@@ -375,6 +376,8 @@ export function PromptDialog({
   multiline?: boolean;
   /** The command it will run, shown under the field: as it is, or worked out from the answer so far. */
   command?: string | ((answer: string) => string | CommandRowProps);
+  /** What follows the field, worked out from the answer so far: a gate's entry for the folder typed. */
+  after?: (answer: string) => ReactNode;
   maxLength?: number;
   /** Answers to pick from; any other answer is accepted too. */
   choices?: readonly PromptChoice[];
@@ -496,6 +499,7 @@ export function PromptDialog({
       ) : (
         field
       )}
+      {after?.(answer)}
     </Dialog>
   );
 }

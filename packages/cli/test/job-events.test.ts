@@ -13,7 +13,7 @@ describe('emitJobEvent', () => {
     const script = `
       import { emitJobEvent } from ${JSON.stringify(new URL('../src/job-events.ts', import.meta.url).pathname)};
       emitJobEvent({ type: 'run', runId: '01K5CQ4N7G0000000000000000', role: 'new' });
-      emitJobEvent({ type: 'link', label: 'Open the fix', href: '#/fixes/fx-1' });
+      emitJobEvent({ type: 'link', label: 'Open fix', href: '#/fixes/fx-1' });
       console.log('human output stays on stdout');
     `;
     const child = spawn(process.execPath, ['--experimental-strip-types', '--no-warnings', '--input-type=module', '-e', script], {
@@ -29,7 +29,7 @@ describe('emitJobEvent', () => {
     const lines = Buffer.concat(chunks).toString('utf8').trim().split('\n').map((l) => JSON.parse(l));
     expect(lines).toEqual([
       { type: 'run', runId: '01K5CQ4N7G0000000000000000', role: 'new' },
-      { type: 'link', label: 'Open the fix', href: '#/fixes/fx-1' },
+      { type: 'link', label: 'Open fix', href: '#/fixes/fx-1' },
     ]);
     expect(Buffer.concat(out).toString('utf8')).toContain('human output stays on stdout');
   });

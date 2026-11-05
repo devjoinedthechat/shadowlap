@@ -201,7 +201,7 @@ describe('a job hears what the command made on fd 3', () => {
     expect(job.newRunId).toBe('01K5CQ4P2S0000000000000000');
     // Only dashboard routes are links; one beside the primary action says so.
     expect(job.links).toEqual([
-      { label: 'Open the fix', href: '#/fixes/fx-1' },
+      { label: 'Open fix', href: '#/fixes/fx-1' },
       { label: 'Open the run', href: '#/run/01K5CQ4P2S0000000000000000', secondary: true },
     ]);
     expect(job.files.map((f) => [f.path, f.name, f.label, f.bytes, f.directory])).toEqual([

@@ -1,7 +1,7 @@
 import type { FactWords } from './actions.js';
+import { isObject } from '../../engine/src/is-object.js';
 import { fixJobStatus } from './fixes/model.js';
 import { ACTIONS, doneWords, type JobEnd } from './labels.js';
-import { trainingJobStatus } from './training.js';
 
 /**
  * What the job drawer says about a CLI run the dashboard started: its title, how each output line
@@ -206,6 +206,32 @@ export function unrecordedRefused(lines: readonly string[]): string | null {
   for (const l of lines) {
     const m = /holds model calls of (a tool|tools) Shadowlap never recorded, which (writes|write, or may|may write|write):/.exec(l);
     if (m) return `${m[1] === 'a tool' ? 'an unrecorded tool' : 'unrecorded tools'} ${m[2]!}`;
+  }
+  return null;
+}
+
+const count = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
+
+/**
+ * How a Training job ended, in the job drawer's status line, from the result it reports: Score a model
+ * by the tasks it scored (`scored · mean 0.87`; `3 of 4 tasks scored` when a golden no longer replays
+ * up to its takeover or was skipped; `nothing scored`), Export pairs by the pairs it wrote. Null for
+ * other jobs, or one that sent no result: the drawer then reads the CLI's words.
+ */
+export function trainingJobStatus(job: { kind?: string; code: number | null; result?: unknown }): { text: string; tone: 'ok' | 'warn' | 'err' } | null {
+  const r = job.result;
+  if (job.code === null || !isObject(r)) return null;
+  const exit = `exit ${job.code}`;
+  if (job.kind === 'score') {
+    const tasks = Array.isArray(r.tasks) ? r.tasks.filter(isObject) : [];
+    const total = tasks.length + (Array.isArray(r.skipped) ? r.skipped.length : 0);
+    const scored = tasks.filter((t) => Array.isArray(t.attempts) && t.attempts.length > 0).length;
+    if (typeof r.mean !== 'number' || !scored) return { text: `nothing scored · ${exit}`, tone: 'err' };
+    if (job.code === 0 && scored === total) return { text: `scored · mean ${r.mean.toFixed(2)} · ${exit}`, tone: 'ok' };
+    return { text: `${scored} of ${count(total, 'task')} scored · ${exit}`, tone: 'warn' };
+  }
+  if (job.kind === 'pairs' && typeof r.pairs === 'number') {
+    return r.pairs ? { text: `${count(r.pairs, 'pair')} written · ${exit}`, tone: job.code === 0 ? 'ok' : 'err' } : { text: `nothing exported · ${exit}`, tone: 'warn' };
   }
   return null;
 }

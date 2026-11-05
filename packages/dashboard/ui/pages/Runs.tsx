@@ -4,11 +4,14 @@ import { Chips, PageHeader } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
 import { ShowMore } from '../components/Table.js';
+import { pageUp } from '../focus-manager.js';
 import { compactPath, viewerTimeZone } from '../format.js';
 import { useLatest, useLoad } from '../hooks.js';
+import { shownRuns } from '../list-keys.js';
 import { sentence } from '../normalize.js';
 import { addPaletteSource } from '../palette-sources.js';
 import { href } from '../route.js';
+import { runRowScope } from '../run-row.js';
 import { BulkBar, type PickedRun } from '../runspage/BulkBar.js';
 import { Calendar } from '../runspage/Calendar.js';
 import { pickedOf, pickedRange, rangeTimes } from '../runspage/calendar-model.js';
@@ -20,9 +23,11 @@ import { isAllRuns, type RunsFilterRead } from '../../src/links.js';
 import { useMarkRun } from '../components/RunKey.js';
 import type { RunMark } from '../runkey.js';
 import { RunsTable, type TableRun } from '../runspage/RunsTable.js';
+import { noteShownRuns } from '../runspage/shown-runs.js';
 import { warmingLine, withFirstPage } from '../runspage/rows.js';
 import { bundlesAttempts, isAttempt, matchesChip, matchesText, RUN_CHIPS, sortRuns, type RunChip, type RunSort } from '../runs.js';
 import { projectOf } from '../shell/ProjectBlock.js';
+import { keyColumn } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import { useTeamStore } from '../teamstore.js';
 import { errorText } from '../toast.js';
@@ -259,8 +264,48 @@ function pickedRun(r: TableRun): PickedRun {
   return { runId: r.runId, status: r.status, startedAt: r.startedAt, attempts: r.attempts ?? 0, ...(r.local !== undefined ? { local: r.local } : {}) };
 }
 
+/** Asked from the palette: on this page already, or arriving on it. */
+function useImportAsked(open: () => void): void {
+  useEffect(() => {
+    importAsked = false;
+    const on = () => {
+      importAsked = false;
+      open();
+    };
+    window.addEventListener(IMPORT_ASKED, on);
+    return () => window.removeEventListener(IMPORT_ASKED, on);
+  }, [open]);
+}
+
+/**
+ * What the keys read from the table. Esc clears a selection before it lets go of a row. `[` and `]`
+ * on a run step through the rows as Runs last showed them, and past the last through the pages still
+ * to read, which Runs then reads as far as, so Esc finds its row.
+ */
+function useRunsKeyNotes(o: { client: Client; query: RunsQuery; rows: readonly TableRun[]; next: string | null; picked: number; clear: () => void }): void {
+  const now = useLatest(o);
+  useEffect(() => {
+    pageUp.current = () => {
+      if (!now.current.picked) return false;
+      now.current.clear();
+      return true;
+    };
+    return () => {
+      pageUp.current = null;
+    };
+  }, [now]);
+  const { rows, next } = o;
+  useEffect(() => {
+    const read = async (cursor: string) => {
+      const page = await now.current.client.runsPage({ ...now.current.query, cursor, limit: PAGE });
+      return { ids: page.runs.map((r) => r.runId), next: page.next };
+    };
+    noteShownRuns(rows.map((r) => r.runId), next, read, (n) => void (kept.limit = n));
+  }, [rows, next, now]);
+}
+
 function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
-  const { client, meta, tick, feeds, actionsOff, hasKind, guard, watchJob, toast, refresh } = useApp();
+  const { client, meta, tick, feeds, actionsOff, hasKind, guard, watchJob, toast, refresh, runs: appRuns } = useApp();
   const store = useTeamStore();
   const tz = useMemo(viewerTimeZone, []);
   const f = useRunsFilter(filter);
@@ -272,16 +317,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   const [picked, setPickedState] = useState(() => new Map(kept.picked));
   const [dialog, setDialog] = useState<null | 'import' | { runId: string; choices: BisectChoices; earlier: { runId: string; why: string } | null }>(() => (importAsked ? 'import' : null));
   const now = Date.now();
-  // Asked from the palette: on this page already, or arriving on it.
-  useEffect(() => {
-    importAsked = false;
-    const on = () => {
-      importAsked = false;
-      setDialog('import');
-    };
-    window.addEventListener(IMPORT_ASKED, on);
-    return () => window.removeEventListener(IMPORT_ASKED, on);
-  }, []);
+  useImportAsked(useCallback(() => setDialog('import'), []));
 
   const setLimit = (n: number) => {
     kept.limit = n;
@@ -316,7 +352,8 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   const pickDays = useCallback((r: [number, number] | null) => showRuns({ ...fNow.current, q: queryNow.current, days: calDays ? pickedOf(calDays, r) : null }), [calDays, fNow, queryNow]);
 
   // Its first page read again when runs change, and when a push or a pull changes what is only here (the local tags).
-  const table = useRunsTable(client, { types, q, sort, from: times?.from ?? null, to: times?.to ?? null }, rowsKey(f, q, times), `${tick}:${feeds.team ?? 0}`, limit);
+  const tableQuery: RunsQuery = { types, q, sort, from: times?.from ?? null, to: times?.to ?? null };
+  const table = useRunsTable(client, tableQuery, rowsKey(f, q, times), `${tick}:${feeds.team ?? 0}`, limit);
   // The good/bad key: a row shows the labels a press gave it until the table's own say otherwise.
   const [marks, setMarks] = useState<ReadonlyMap<string, { base: string; labels: string[] }>>(() => new Map());
   const byId = useLatest(new Map(table.rows.map((r) => [r.runId, r])));
@@ -333,6 +370,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   );
   const rowsNow = useLatest(new Map(rows.map((r) => [r.runId, r])));
   const onMark = useCallback((r: TableRun, m: RunMark, from?: HTMLElement) => markRun(r.runId, rowsNow.current.get(r.runId)?.labels ?? r.labels, m, from), [markRun, rowsNow]);
+  useRunsKeyNotes({ client, query: tableQuery, rows, next: table.next, picked: picked.size, clear: () => setPicked(new Map()) });
   const counts: ChipCounts | null = table.loaded ? table.chipCounts : null;
   const warming = warmingLine(table.warming, { filtered: !!q.trim(), bySpent: sort === 'spent' });
 
@@ -435,7 +473,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
         <Chips label="Kind of run" items={RUN_CHIPS.filter(([key]) => key !== 'local' || store || chip === 'local').map(([key, label]) => ({ key, label, ...(counts ? { count: counts[key] } : {}) }))} value={chip} onChange={setChip} />
         <label className="tin">
           <span className="sr">Filter runs</span>
-          <input type="search" placeholder="Filter by id, about or label" title="Every word must be in a run’s id, about line, labels, command or revision; label:good lists the runs labelled good" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input id="runsQuery" type="search" placeholder="Filter by id, about or label" title="Every word must be in a run’s id, about line, labels, command or revision; label:good lists the runs labelled good" value={query} onChange={(e) => setQuery(e.target.value)} />
         </label>
       </div>
       {warming ? (
@@ -444,7 +482,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
         </p>
       ) : null}
       <section className="panel tscroll">
-        <RunsTable rows={rows} picked={picked} selectable byColumn={!!store} you={store?.you ?? null} sort={sort} onSort={setSort} onPick={onPick} onPickAll={onPickAll} now={now} onMark={onMark} markOff={actionsOff ?? null} />
+        <RunsTable rows={rows} picked={picked} selectable byColumn={!!store} you={store?.you ?? null} sort={sort} onSort={setSort} onPick={onPick} onPickAll={onPickAll} now={now} onMark={onMark} markOff={actionsOff ?? null} rowActions={(r) => runRowScope(r, { runs: appRuns ?? [], toast, pick: () => onPick(r, !picked.has(r.runId)), picked: picked.has(r.runId), pickKey: keyColumn('rowPick') })} />
         {table.error && !rows.length ? (
           <div className="empty">The runs could not be read: {table.error.message}</div>
         ) : !table.loaded ? (
@@ -480,6 +518,9 @@ function ExportedRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   const counts = useMemo(() => Object.fromEntries(RUN_CHIPS.map(([k]) => [k, listed.filter((r) => matchesChip(r, k)).length])) as Record<RunChip, number>, [listed]);
   const matched = useMemo(() => sortRuns(listed.filter((r) => matchesChip(r, chip) && matchesText(r, query)), sort), [listed, chip, query, sort]);
   const shown = matched.slice(0, limit);
+  useEffect(() => {
+    shownRuns.current = { ids: matched.map((r) => r.runId), more: null };
+  }, [matched]);
   return (
     <Page>
       <PageHeader
@@ -491,7 +532,7 @@ function ExportedRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
         <Chips label="Kind of run" items={RUN_CHIPS.map(([key, label]) => ({ key, label, count: counts[key] }))} value={chip} onChange={setChip} hideEmpty />
         <label className="tin">
           <span className="sr">Filter runs</span>
-          <input type="search" placeholder="Filter by id, about or label" title="Every word must be in a run’s id, about line, labels, command or revision; label:good lists the runs labelled good" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input id="runsQuery" type="search" placeholder="Filter by id, about or label" title="Every word must be in a run’s id, about line, labels, command or revision; label:good lists the runs labelled good" value={query} onChange={(e) => setQuery(e.target.value)} />
         </label>
       </div>
       <section className="panel tscroll">

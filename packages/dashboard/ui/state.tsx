@@ -5,6 +5,7 @@ import { connStart, connStep, feedCursor, feedMoves, onTick, secondsLeft, withLi
 import { useLatest } from './hooks.js';
 import { afterPollError, endToast, jobStatus, jobTitle } from './jobs.js';
 import { endedRecordings, recordingToast } from './live.js';
+import { handOnAtEnd, notingJobFrom } from './focus-manager.js';
 import type { PaletteGroup } from './palette.js';
 import { previewState } from './router.js';
 import { errorText, type ToastAction, type ToastKind } from './toast.js';
@@ -28,6 +29,12 @@ export interface PaletteCommand {
   about?: { text: string; from: string } | null;
   /** Words it matches that don't show (a run's kind, command and labels). */
   match?: string;
+  /** Found only once something is typed, never listed on the open palette. */
+  typed?: boolean;
+  /** Its own key, one word per key (`g o`, `f`), set by what the row does: shown while single-key shortcuts are on. */
+  key?: string | undefined;
+  /** Why it can't start now, a job holding what it needs: its hint says so, dimmed, and so does picking it. */
+  wait?: string;
   run: () => void;
 }
 
@@ -538,7 +545,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
         if (next.code === 0 && (next.kind === JOB_KINDS.har || next.kind === JOB_KINDS.exportHtml)) for (const f of next.files ?? []) if (!f.directory) void client.downloadFile(f).catch(() => undefined);
         // A job whose drawer was closed early still says how it ended.
         const shown = jobsNow.current.find((w) => w.job.id === first.id);
-        if (!shown?.open) toast(endToast(next, all), jobStatus(next, all).tone === 'err' ? 'error' : 'notice');
+        void (shown?.open ? handOnAtEnd(next.id) : toast(endToast(next, all), jobStatus(next, all).tone === 'err' ? 'error' : 'notice'));
       };
       setTimeout(() => void step(), 200);
     },
@@ -547,7 +554,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
 
   const watchJob = useCallback(
     (p: Promise<JobView>) => {
-      p.then(
+      notingJobFrom(p).then(
         (job) => {
           setJobs((list) => [...list.filter((w) => w.job.id !== job.id && !((w.job.done || w.lost) && !w.open)).map((w) => ({ ...w, open: false })), { job, lines: job.lines, open: true }].slice(-8));
           follow(job);

@@ -146,6 +146,10 @@
 .filter-in input { height: 30px; width: 200px; border-radius: 8px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 12.5px var(--body); padding: 0 30px 0 10px; outline: none; }
 .filter-in input:focus { border-color: var(--accent-line); }
 .filter-in .kbd { position: absolute; right: 7px; top: 50%; transform: translateY(-50%); }
+/* with single-key shortcuts off, the filter's field says no / */
+.nosk .filter-in .kbd { display: none; }
+/* a selected call that has the focus (j and k, Esc from the filter) says so by its own ground and bar */
+table.calls tr:focus-visible { outline: none; }
 /* The list puts its rows itself (window-hook.ts), keeping the call asked for in view as rows above it change height: no anchoring of the browser's own moves it as well. */
 .vbody { flex: 1; overflow: auto; min-height: 0; overflow-anchor: none; }
 /* a view whose code couldn't be loaded: its line under the tabs, whose own hairline is above it */
@@ -363,7 +367,11 @@ table.calls .det.err { color: var(--err); }
 .rawsse .ev { color: var(--ink); }
 .kvs.hdrs dt { font-family: var(--mono); font-size: 11.5px; }
 
-@media (min-width: 1001px) { .rhead .actions { flex-wrap: nowrap; flex: none; } }
+/* Beside a run's id its buttons hold one row, and wrap rather than reach the id's column. */
+@media (min-width: 1001px) {
+  .rhead .rmain { flex: 1 1 0; min-width: 240px; }
+  .rhead .actions { flex: 0 1 auto; flex-wrap: wrap; }
+}
 
 /* scopes */
 .scopebar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 24px; border-bottom: 1px solid var(--line); }

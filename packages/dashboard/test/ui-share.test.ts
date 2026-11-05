@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { divergenceButtons } from '../ui/goldens.js';
 import { updatePlan } from '../ui/update-plan.js';
 import { askedTools, callDetail, resultLine, type CallLike } from '../ui/run/calls.js';
-import { bisectBlocked, bisectCopy, bisectLabel, blameOfferFor, blameSource, blameTitle, divergedActions, goldenName, updateGoldenCopy, updatesAfterRules, type BlameFacts } from '../ui/run/offers.js';
+import { bisectBlocked, bisectCopy, bisectLabel, blameSource, blameTitle, divergedActions, goldenName, updateGoldenCopy, updatesAfterRules } from '../ui/run/offers.js';
 import { canPush, defaultPackFolder, htmlCopyVia, pushTitle, shareCommand, shareDialog, sharedLink, shareItemOff, shareItems, shareNote, shareWhy, STILL_RECORDING } from '../ui/run/share.js';
 import type { BisectOffer, DivergenceView, RunOffers, TestBannerOffer, TestsView } from '../ui/types.js';
 
@@ -115,23 +115,6 @@ describe('Run blame and Find the commit', () => {
     expect(blameTitle({ from: 'exit', expect: null, failed: [] })).toBe('Find the model call where this run was lost, on its exit status: a passing run exits 0');
     expect(blameSource({ from: 'golden', expect: {}, failed: [] })).toBe('its golden’s checks in shadowlap.config.json');
     expect(blameSource({ from: 'exit', expect: null, failed: [] })).toBe('the exit status: a passing run exits 0');
-  });
-
-  it('works Run blame out from the run where the server offers nothing', () => {
-    const facts = (over: Partial<BlameFacts> = {}): BlameFacts => ({ blamed: false, capture: false, argv: ['node', 'agent.js'], status: 'failed', failed: [], fixExpect: undefined, ownExpect: undefined, modelCalls: 4, ...over });
-    // The server's offer, whatever the run says.
-    expect(blameOfferFor({ blame: null }, facts())).toBeNull();
-    expect(blameOfferFor({ blame: { from: 'ask', failed: ['x'] } }, facts({ blamed: true }))).toEqual({ from: 'ask', failed: ['x'] });
-    // An older server.
-    expect(blameOfferFor(null, facts())).toEqual({ from: 'exit', expect: null, failed: [] });
-    // Stopped: it never fails again as recorded, so there is nothing to blame, unless it failed a check.
-    expect(blameOfferFor(null, facts({ status: 'crashed' }))).toBeNull();
-    expect(blameOfferFor(null, facts({ status: 'crashed', failed: ['x'] }))).toEqual({ from: 'ask', failed: ['x'] });
-    expect(blameOfferFor(null, facts({ status: 'completed', failed: ['at most 3 model calls'] }))).toEqual({ from: 'ask', failed: ['at most 3 model calls'] });
-    expect(blameOfferFor(null, facts({ status: 'completed', failed: ['x'], ownExpect: { tools: { a: 1 } } }))).toEqual({ from: 'run', expect: { tools: { a: 1 } }, failed: ['x'] });
-    expect(blameOfferFor(null, facts({ fixExpect: { tools: { b: 0 } } }))).toEqual({ from: 'fix', expect: { tools: { b: 0 } }, failed: [] });
-    // Nothing to blame: blamed already, a capture, no command, still recording, no model call, or it passed.
-    for (const over of [{ blamed: true }, { capture: true }, { argv: [] }, { status: 'running' }, { modelCalls: 0 }, { status: 'completed' }]) expect(blameOfferFor(null, facts(over)), JSON.stringify(over)).toBeNull();
   });
 
   const offer = (over: Partial<BisectOffer> = {}): BisectOffer => ({ target: { kind: 'run', runId: RUN }, failed: true, good: 'c91d0f4', bad: 'd2e8a1f', revisions: [{ rev: 'c91d0f4', at: 1, runs: 3, failed: 0 }, { rev: 'a7b3c2e', at: 0, runs: 2, failed: 1 }], fork: false, live: false, unavailable: null, args: null, ...over });
@@ -289,16 +272,16 @@ describe('the diverged test’s actions', () => {
   it('adds the normalizer and re-runs the golden in one click when the rule alone makes the replay match, leading when a value made anew is all that changed', () => {
     expect(updatesAfterRules(test())).toBe(false);
     expect(divergedActions({ ...all, test: test() })).toEqual({
-      normalizer: { kind: 'job', label: 'Add normalizer and re-run', lead: true, off: null, title: "shadowlap normalize add --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", asks: null },
+      normalizer: { kind: 'job', label: 'Add normalizer and re-run', off: null, title: "shadowlap normalize add --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", asks: null },
       update: true,
     });
-    expect(divergedActions({ ...all, test: test({ maybeReal: true }) }).normalizer).toMatchObject({ kind: 'job', label: 'Add normalizer and re-run', lead: false, asks: null });
+    expect(divergedActions({ ...all, test: test({ maybeReal: true }) }).normalizer).toMatchObject({ kind: 'job', label: 'Add normalizer and re-run', asks: null });
   });
 
   it('asks first when the rule alone can’t make the replay match, with the commands the Tests screen’s dialog lists, since the golden is re-recorded live after it', () => {
     expect(updatesAfterRules(added())).toBe(true);
     expect(divergedActions({ ...all, test: added() })).toEqual({
-      normalizer: { kind: 'job', label: 'Add normalizer and update', lead: false, off: null, title: "shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", asks: [ADD, ['test', 'goldens/refund-in-limit', '--update']] },
+      normalizer: { kind: 'job', label: 'Add normalizer and update', off: null, title: "shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", asks: [ADD, ['test', 'goldens/refund-in-limit', '--update']] },
       update: true,
     });
     // The Tests screen's button for the same steps reads the same, and asks too.
@@ -324,7 +307,7 @@ describe('the diverged test’s actions', () => {
     // The run's own action adds the rule alone, records nothing: it needs no asking either way.
     expect(divergedActions({ ...all, hasNormalizeJob: false, hasUpdateJob: false, test: added() })).toEqual({ normalizer: { kind: 'action' }, update: false });
     const readOnly = 'This dashboard is read-only: it was started with --read-only.';
-    expect(divergedActions({ ...all, actionsOff: readOnly, test: test() }).normalizer).toEqual({ kind: 'job', label: 'Add normalizer and re-run', lead: true, off: readOnly, title: readOnly, asks: null });
+    expect(divergedActions({ ...all, actionsOff: readOnly, test: test() }).normalizer).toEqual({ kind: 'job', label: 'Add normalizer and re-run', off: readOnly, title: readOnly, asks: null });
     expect(divergedActions({ ...all, hasNormalizeJob: false, actionsOff: readOnly, test: test() }).normalizer).toBeNull();
     // A server that says nothing of the test.
     expect(divergedActions({ ...all, test: null })).toEqual({ normalizer: { kind: 'action' }, update: false });

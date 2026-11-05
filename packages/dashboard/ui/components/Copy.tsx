@@ -38,7 +38,7 @@ let canvas: CanvasRenderingContext2D | null | undefined;
 let canvasFont = '';
 
 /** A text's width on one line in a CSS font, or null where the page can't measure (no canvas: the tests' renderer). */
-function widthIn(font: string): ((s: string) => number) | null {
+export function widthIn(font: string): ((s: string) => number) | null {
   if (canvas === undefined) {
     const el = typeof document !== 'undefined' ? (document.createElement('canvas') as Partial<HTMLCanvasElement>) : null;
     canvas = typeof el?.getContext === 'function' ? el.getContext('2d') : null;
@@ -55,7 +55,7 @@ function widthIn(font: string): ((s: string) => number) | null {
 }
 
 /** A font as canvas takes it: the computed shorthand, or its parts where the browser gives none. */
-const fontOf = (cs: CSSStyleDeclaration) => cs.font || `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+export const fontOf = (cs: CSSStyleDeclaration) => cs.font || `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
 
 /** Whether the page can be measured: a browser's layout (not the tests' renderer). */
 const canMeasure = () => typeof getComputedStyle === 'function' && typeof ResizeObserver === 'function';

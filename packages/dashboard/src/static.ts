@@ -5,6 +5,7 @@ import { asTheyStand, carriesCredentials, redactRunWithDetails, Store, type Stor
 import { callDetailFrom, compare, lineage, listRuns, runDetail, type ConversationMemo } from './api.js';
 import { withExitCodes } from './exit-codes.js';
 import { forkDifferences } from './fork-differences.js';
+import { copyNextStep } from './next-step.js';
 import { runCalls } from './run-calls.js';
 import { loadRunIndex } from './run-index.js';
 import { judgedRows, runJudged } from './run-outcome.js';
@@ -129,8 +130,9 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
     if (!detail || !record) continue;
     const all = runCalls(store, runId);
     const judged = runJudged(store, loadRunIndex(store), runId, null, { calls: () => [...all], checks: true }) ?? null;
+    const next = copyNextStep(store, runId, runIds);
     // Only runs in the file are linked from it: a Compare or parent link to a run left out would dead-end.
-    responses[`runs/${runId}`] = { ...detail, judged, run: withoutFolder(keep ? detail.run : withoutAuthor(detail.run)), parent: detail.parent && runIds.includes(detail.parent.runId) ? detail.parent : null };
+    responses[`runs/${runId}`] = { ...detail, judged, ...(next ? { next } : {}), run: withoutFolder(keep ? detail.run : withoutAuthor(detail.run)), parent: detail.parent && runIds.includes(detail.parent.runId) ? detail.parent : null };
     responses[`runs/${runId}/lineage`] = { nodes: (lineage(store, runId, read) ?? []).filter((n) => runIds.includes(n.runId)).map((n) => (keep ? n : anonymous(n))) };
     // What a fork did differently, when the file holds its parent too: it quotes the parent's calls.
     if (record.parentRunId && runIds.includes(record.parentRunId)) responses[`runs/${runId}/differences`] = { differences: forkDifferences(store, runId) };

@@ -369,7 +369,7 @@ function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }
   return (
     <tr className={row.runId ? undefined : 'still'} {...(row.runId ? rowOpen(() => navigate(href.run(row.runId!))) : {})}>
       <td className="gg">
-        <code className="gn">{row.name}</code>
+        <code className="gn">{row.runId ? <a className="rowa" href={href.run(row.runId)}>{row.name}</a> : row.name}</code>
         <span className="gmeta">
           <span className="chip" data-tip={tipText(row.modeHint)}>
             {row.modeLabel}

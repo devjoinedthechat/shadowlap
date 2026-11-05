@@ -5,6 +5,7 @@ import { Eyebrow, PageHeader, StepList, type Step } from '../components/bits.js'
 import { Page } from '../components/Page.js';
 import { copyText } from '../dom.js';
 import { RECORD_PART } from '../../../engine/src/cost-words.js';
+import { headingRef } from '../focus-manager.js';
 import { messageOf } from '../../../engine/src/message-of.js';
 import type { CalibrateStep, InspectStep, RecordConfirmation, RecordStep, SetupView, TestStep } from '../projects-api.js';
 import { RECORD_PLACEHOLDER, aroundRunId, aroundWord, asksForSetup, codeParts, confirmedRecording, liveCalls, recordingLine, setupPageShows, stepClass, terminalLine } from '../projects.js';
@@ -338,7 +339,7 @@ function SetupHeader({ view, onSkip }: { view: SetupView; onSkip: (() => void) |
         <Eyebrow>
           {view.project.name} · <code>{view.project.path}</code>
         </Eyebrow>
-        <h1>{view.title}</h1>
+        <h1 ref={headingRef}>{view.title}</h1>
         <p>{view.intro}</p>
       </div>
       {view.skip ? (

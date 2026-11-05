@@ -287,7 +287,7 @@ export function migrateJob(req: JobRequest, store: StoreOf<'recording'>, goldens
 }
 
 /**
- * Verify the runs a session flagged, the page's primary action: `shadowlap decisions --verify
+ * Verify the runs a session could not clear, the page's primary action: `shadowlap decisions --verify
  * <session>` (with the one `runId` names), which verifies each run under its own checks (its
  * golden's, or for a run named by id those of the recording it comes from), one verify per set of
  * checks, in the role its recording plays under them, with the session's change, and keeps what it
@@ -297,13 +297,15 @@ export function verifyFlaggedJob(req: JobRequest, store: StoreOf<'recording' | '
   if (typeof req.sessionId !== 'string') return { error: 'sessionId is required' };
   const session = decisionSession(store, req.sessionId);
   if (!session) return { error: `no session ${req.sessionId.slice(0, 40)}`, status: 404 };
-  const report = (session.kind === 'migrate' ? session.decisions : session) as { flagged?: unknown };
-  let flagged = (Array.isArray(report.flagged) ? report.flagged : []).filter((id): id is string => typeof id === 'string');
+  const report = (session.kind === 'migrate' ? session.decisions : session) as { flagged?: unknown; toVerify?: unknown };
+  // The runs it could not clear; a session kept before it said which, the ones it flagged.
+  const listed = Array.isArray(report.toVerify) ? report.toVerify : report.flagged;
+  let flagged = (Array.isArray(listed) ? listed : []).filter((id): id is string => typeof id === 'string');
   if (req.runId !== undefined) {
     flagged = flagged.filter((id) => id === req.runId || (typeof req.runId === 'string' && req.runId.length >= 6 && id.startsWith(req.runId)));
-    if (!flagged.length) return { error: 'that run has no write, stop or judged change in this session', status: 404 };
+    if (!flagged.length) return { error: 'this session cleared that run: there is nothing to verify', status: 404 };
   }
-  if (!flagged.length) return { error: 'no run in this session has a write, stop or judged change: there is nothing to verify', status: 409 };
+  if (!flagged.length) return { error: 'this session cleared every run: there is nothing to verify', status: 409 };
   const runs = flagged.map((id) => store.getRun(id)).filter((r): r is NonNullable<typeof r> => r !== null);
   if (runs.length < flagged.length) return { error: 'a run this session flagged is no longer in the store', status: 409 };
   // A run from the store whose command came from someone's pack runs only with a yes, and so does a
@@ -318,7 +320,7 @@ export function verifyFlaggedJob(req: JobRequest, store: StoreOf<'recording' | '
   );
   if ('ask' in consent) return consent.ask;
   const args = ['decisions', '--verify', req.sessionId, ...(req.runId !== undefined ? [flagged[0]!] : []), ...consent.yes];
-  return { args, title: `Verifying ${runs.length} run${runs.length === 1 ? '' : 's'} with a write, stop or judged change`, ...(runs.length === 1 ? { runId: runs[0]!.runId } : {}) };
+  return { args, title: `Verifying ${runs.length} run${runs.length === 1 ? '' : 's'} end to end`, ...(runs.length === 1 ? { runId: runs[0]!.runId } : {}) };
 }
 
 /** The command a job runs, as its dialog shows it. */

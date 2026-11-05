@@ -151,6 +151,10 @@ describe('what each colour may mean', () => {
     // The shortcuts a page doesn't offer, and a CI feature turned off: faded, they fell to 2.2 and 4.0:1.
     expect(value('.hgroup.off dd', 'color')).toBe('var(--faint)');
     expect(value('.hgroup.off dd', 'opacity')).toBeNull();
+    // A line single-key shortcuts turned off dims the same way, its key too.
+    expect(value('.nosk .help .hgroup:not(.off) .sk', 'color')).toBe('var(--faint)');
+    expect(value('.nosk .help .hgroup:not(.off) .sk', 'opacity')).toBeNull();
+    expect(value('.nosk .help .hgroup:not(.off) .sk kbd', 'color')).toBe('var(--faint)');
     const faded = rules().filter((r) => r.selectors.some((x) => x.startsWith('.cip.off') || x.startsWith('.hgroup.off')) && /(^|;)\s*opacity\s*:/.test(r.body));
     expect(faded.map((r) => r.selectors.join(', '))).toEqual([]);
     // On the connection bar's amber wash the faint ink is 4.4:1: the dim one.

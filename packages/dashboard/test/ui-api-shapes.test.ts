@@ -137,12 +137,12 @@ describe('a run', () => {
     const both = normalizeRunDetail(detail({ blame: { outcome: 'blamed', callNo: 9, modelCall: { k: 3, m: 8 }, confidence: 'high', rescuedRunId: null, scope: 'agent', at: 1 }, fix: { role: 'failing', fix: null, blame: { lostAt: 9, short: 'asked again, it calls escalate instead' } } }));
     expect(both.blame).toMatchObject({ callNo: 9, modelCall: { k: 3, m: 8 }, scope: 'agent', short: 'asked again, it calls escalate instead' });
 
-    // A probe's blame is the blame of the run it came from, not this run's; a failure never blamed may come with a check.
+    // A probe's blame is the blame of the run it came from, not this run's.
     const probe = normalizeRunDetail(detail({ fix: { role: 'probe', fix: { fixId: 'fx-7', title: 'x', status: 'open' }, blame: { lostAt: 9 }, probe: { of: '01A', callNo: 9, passed: true, blamed: true } } }));
     expect(probe.blame).toBeUndefined();
     expect(probe.fix?.id).toBe('fx-7');
     const unblamed = normalizeRunDetail(detail({ fix: { role: 'unblamed', fix: null, blame: null, probe: null, verify: null, expect: { tools: { send_email: 1 } } } }));
-    expect(unblamed).toMatchObject({ fix: null, fixRole: 'unblamed', blameExpect: { tools: { send_email: 1 } } });
+    expect(unblamed).toMatchObject({ fix: null, fixRole: 'unblamed' });
     expect(normalizeRunDetail(detail({ fix: { role: 'something new' } })).fix).toBeNull();
   });
 

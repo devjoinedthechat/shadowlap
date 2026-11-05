@@ -1585,8 +1585,8 @@ AzureOpenAI SDKs do; without it, nothing is sent.
 | `--samples <n>` | Ask each model call *n* times under the change and, from 3 on, *n* times as recorded, the control (below) | 3: six requests a step |
 | `--concurrency <n>` | Requests in flight at once. A run whose requests carry cache breakpoints is asked one step at a time, in order | 4 |
 | `--scope <name>` | Ask only the model calls made in this [scope](./sdk.md#scopes); `none` for those made in no scope | — |
-| `--then-verify` | Then run [`verify`](#verify) on the runs with a rank 1 or 2 change, and only on those (below) | — |
-| `--verify <session>` | Ask nothing: verify the runs a kept session flagged (below) | — |
+| `--then-verify` | Then run [`verify`](#verify) on the runs a preview can't clear ([which](./decisions.md#then-verify)) | — |
+| `--verify <session>` | Ask nothing: verify the runs a kept session could not clear (below) | — |
 | `--expect <json\|@file>`, `--gate <json\|@file>`, `--attempts <n>`, `--passes <n>`, `--writes stub\|block`, `--guard` | With `--then-verify` or `--verify`: as for [`verify`](#verify) | Verify's |
 | `--budget <usd>` | Send no request, and start no verify attempt, once this much is spent | — |
 | `--timeout <seconds>` | Stop a model request, or a verify attempt, after this long | A model request waits ten minutes, as the official SDKs do |
@@ -1610,7 +1610,7 @@ More on some of them:
 - **`--then-verify`**: a run that passed as recorded must not get worse than its own baseline, and one
   that failed must pass. Each is judged under its checks (its golden's, or for a run named by id those
   of the recording it comes from) or `--expect`, one verify per set of checks.
-- **`--verify`**: it verifies the runs a kept session flagged (its `dc-…` or `mg-…` id, or a prefix of
+- **`--verify`**: it verifies the runs a kept session could not clear (its `dc-…` or `mg-…` id, or a prefix of
   it), or those of them named after it, as `--then-verify` verifies them, under the session's change.
   It keeps what verify finds in the session. The dashboard runs it as its `decisions-verify` job.
 - **`--gate` and the rest**: each run is decided by verify's gate, unless `--attempts` or `--passes`
@@ -1669,6 +1669,7 @@ the report holds, as in every export, pack and share link.
 | `runs` | Each run (below) |
 | `counts` | Steps by the rank they were given (below) |
 | `flagged` | The runs a rank 1 or 2 change flags: beyond the control's variation, or with no control by what most samples show |
+| `toVerify` | The runs a preview can't clear, those flagged among them: what `--then-verify` and `--verify` verify ([which](./decisions.md#then-verify)) |
 | `cost` | Per run, the mean `before` and `after` in USD; what asking `spent`; `upstreamRequests`; and `unknownModels` with no price |
 | `tokens` | `before` and `after`, each `input` (uncached), `output`, `cacheRead` and `cacheWrite` (cache creation) |
 | `retirements` | Each model the runs use, or switch to, that its provider retires (below) |
@@ -1806,6 +1807,8 @@ With `--then-verify`, `verify` holds what verify found:
 | `runs` | Each run verified (below) |
 | `rule` | The rule they were decided by, stated once (below) |
 | `commands` | The commands that verify them again |
+| `warnings` | Each good run judged by its gate alone, and why; absent when none was |
+| `footprint` | What the runs verified cost a run, `recorded` and `now`; absent when no attempt showed it |
 | `spent`, `upstreamRequests` | What it spent, and its upstream requests |
 | `reasons` | Its reasons |
 
@@ -1854,7 +1857,7 @@ shadowlap migrate --to claude-opus-5
 
 1. It runs [`decisions --model`](#decisions) on the goldens (`goldens/*` unless you name packs or
    runs), with the fields the model it switches to refuses changed to what it takes (below).
-2. It runs [`verify`](#verify) on the runs with a rank 1 or 2 change.
+2. It runs [`verify`](#verify) on [the runs a preview can't clear](./decisions.md#then-verify).
 3. It compares what a run costs.
 4. It ends in one report: what changes, what still passes, what it costs, and what to set.
 
@@ -1896,7 +1899,7 @@ from someone's pack without asking, and of a golden from a pack the repository d
 | `3`    | The report settles nothing (below), unless `--inconclusive warn` |
 | `0`    | Otherwise                                                        |
 
-The report settles nothing when it stopped early, a step got no answer, a flagged run went
+The report settles nothing when it stopped early, a step got no answer, a run that needed verify went
 unverified, or a run nothing else flags has a text-only change a judge check reads that could not be
 judged.
 
@@ -1953,7 +1956,7 @@ a longer string, or in `shadowlap.config.json`.
 | `decisions` | The [decisions report](#decisions-report-as-json), with its `remedies` (below) |
 | `changes` | `runs`, `flagged`, and each rank 1 or 2 change in `steps` (below) |
 | `passes` | What still passes: verify's `verdict`, and the `runs` (below) |
-| `costs` | `perRun` and `total`, `before` and `after` in USD, `tokensPerRun`, and what `checking` cost (below) |
+| `costs` | `perRun` and `total`, `before` and `after` in USD, `tokensPerRun`, `endToEnd` (below), and what `checking` cost (below) |
 | `set` | The `--set` `flags` verify took, the `fields` changed, and those `given` with `--set` |
 | `configChange` | The change to the project's files (below); `null` when no file names the model |
 | `pullRequest` | `title` and `body` |
@@ -1992,14 +1995,18 @@ A tally's `bound`, `rule` and `undecided` are as in the decisions report's
 `outcome` is in verify's own words when it was `verified` (`kept`, `fixed`, `broken`, `not-fixed`,
 `inconclusive`, `unsettled`). Else it is:
 
-- `unchanged`, when no write, stop or judged change was found, so its recording's own verdict stands
-  and it was not re-run;
-- `unsettled`, when a flagged run went unverified;
+- `unchanged`, when the preview cleared it, so its recording's own verdict stands and it was not run
+  end to end;
+- `unsettled`, when a run that needed verify went unverified;
 - `not-judged`, when a text-only change a judge check reads could not be judged;
 - or `not-asked`.
 
 `checking` is what checking cost: `decisions`, `judge` (judging the text-only changes a judge check
 reads) and `verify`.
+
+`endToEnd` is what the runs verified cost a run, `recorded` and `now`, each with `inputTokens`,
+`outputTokens` and `cost`, by what their attempts did. `perRun` counts only the recorded steps, so it
+can't see a run that takes more of them. It is `null` when no attempt showed it.
 
 `configChange` holds the `files` patched, with the `places` in each, the `patch`, and each mention left
 for `review`: its `path`, `line` and `text`.

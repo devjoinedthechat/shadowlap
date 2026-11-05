@@ -7,6 +7,8 @@
 
 .tip { position: fixed; z-index: 60; pointer-events: none; min-width: 150px; max-width: min(360px, calc(100vw - 16px)); padding: 9px 11px; border-radius: var(--r-box); font-size: 12px; color: var(--dim); font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
 .tip > b { display: block; margin-bottom: 4px; color: var(--ink); font-weight: 600; }
+/* the single key the card's control answers to, while single-key shortcuts are on */
+.tip b .kbd { margin-left: 8px; font-weight: 500; }
 .tip div { display: flex; align-items: center; gap: 8px; }
 .tip div i { width: 8px; height: 8px; border-radius: var(--r-mark); }
 .tip div em { margin-left: auto; padding-left: 14px; max-width: 300px; font-style: normal; font-family: var(--mono); color: var(--ink); text-align: right; white-space: normal; }
@@ -47,6 +49,7 @@
 @media (max-width: 370px) { .dialog .seg.impsrc { display: grid; grid-template-columns: repeat(3, max-content); } }
 /* the commits Find breaking commit offers */
 .checklist.bgood { margin-bottom: 12px; }
+.dialog pre.gateentry { margin: 10px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .dialog footer { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 20px 18px; }
 .dialog footer > [hidden], .help footer > [hidden] { display: none; }
 /* The dialog's anatomy: what decides whether to press as label and value rows between hairlines, a word or two a label, so
@@ -211,11 +214,11 @@
 .help > footer { flex: none; display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px 18px; }
 .help h3 { margin: 0; font: 600 var(--fs-heading) var(--body); letter-spacing: -.01em; }
 .hgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 28px; }
-.hgroup:last-child { grid-column: 1 / -1; }
+.hgrid > .hcol:last-child { grid-column: 1 / -1; }
 .hgroup h4 { display: flex; align-items: baseline; gap: 10px; margin: 14px 0 4px; font: 500 10.5px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }
 .hgroup h4 small { letter-spacing: 0; text-transform: none; font: 12px var(--body); }
 .hgroup dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0 16px; margin: 0; }
-.hgroup:last-child dl { grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr); }
+.hcol:last-child .hgroup dl { grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr); }
 .hgroup dt, .hgroup dd { margin: 0; padding: 7px 0; border-bottom: 1px solid var(--line); display: flex; align-items: center; }
 .hgroup dd { color: var(--dim); font-size: 13px; text-wrap: balance; }
 /* Keys that don't apply on this page: the faint ink, never faded, which fell under AA's contrast (2.2:1). */
@@ -223,7 +226,14 @@
 .hgroup.off kbd { border-color: var(--line); }
 .help kbd { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 6px; border: 1px solid var(--line2); border-bottom-width: 2px; background: var(--panel); color: var(--ink); font: 500 11.5px var(--mono); }
 .help .then { margin: 0 6px; color: var(--faint); font-size: 11.5px; }
-@media (max-width: 640px) { .hgrid { grid-template-columns: minmax(0, 1fr); } .hgroup:last-child dl { grid-template-columns: max-content minmax(0, 1fr); } }
+/* with single-key shortcuts off (.nosk on the root) the lines they make dim as a run's do away from a run: the faint ink, never faded */
+.nosk .help .hgroup:not(.off) .sk, .nosk .help .hgroup:not(.off) .sk kbd { color: var(--faint); }
+/* the switch for single-key shortcuts, under a hairline at the sheet's foot */
+/* the switch stays in view at the foot of the lines, however many a window has room for */
+.hkeys { position: sticky; bottom: -6px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; margin-top: 16px; padding: 12px 0 6px; border-top: 1px solid var(--line); background: var(--pop); color: var(--faint); font-size: var(--fs-quiet); }
+.hkeys .switch { color: var(--ink); font-weight: 500; }
+.help kbd + kbd { margin-left: 4px; }
+@media (max-width: 640px) { .hgrid { grid-template-columns: minmax(0, 1fr); } .hcol:last-child .hgroup dl { grid-template-columns: max-content minmax(0, 1fr); } }
 @media (hover: none) and (pointer: coarse) { #helpBtn { display: none; } }
 
 .dialog .check { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; color: var(--dim); line-height: 1.5; cursor: pointer; }
@@ -287,7 +297,11 @@ body:has(.bulkbar) .drawer { bottom: 100px; }
 .palnote { padding: 8px 10px 4px; color: var(--faint); font-size: 12px; }
 .palfoot { display: flex; gap: 16px; padding: 9px 16px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--faint); }
 .palfoot span { display: inline-flex; align-items: center; gap: 4px; }
-.palfoot kbd, .palit .kbd { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 5px; border: 1px solid var(--line2); background: var(--panel); font: 10.5px var(--mono); color: var(--dim); }
+.palit .palk { flex: none; display: inline-flex; gap: 3px; }
+.palg code.rnm { font: 500 var(--fs-label) var(--mono); letter-spacing: 0; text-transform: none; color: var(--dim); }
+.palfoot kbd, .palit .kbd, .palit .palk kbd { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 5px; border: 1px solid var(--line2); background: var(--panel); font: 10.5px var(--mono); color: var(--dim); }
+/* on a touch screen the palette shows no keys: no Esc, no g then a letter, no ↑ ↓ ↵ foot */
+@media (hover: none) and (pointer: coarse) { .palin .kbd, .palit .kbd, .palit .palk, .palfoot { display: none; } }
 
 
 /* Fork menu: its one note sits close under its head. */

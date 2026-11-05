@@ -123,12 +123,12 @@ const FIX_ROLES = ['failing', 'good', 'probe', 'rescued', 'verify', 'unblamed'];
 
 /**
  * The fix a run belongs to, in either shape: `{id, status, title}`, or how the run takes part in
- * Fixes as the fixes read model says it (`{role, fix: {fixId, title, status, href}, blame, expect}`).
+ * Fixes as the fixes read model says it (`{role, fix: {fixId, title, status, href}, blame}`).
  * For a failing run that one also carries its blame, with what asking again did in a few words; a
  * probe's or a rescued fork's blame is the blame of the run it came from, so it is not this run's.
  */
-export function normalizeFix(v: unknown): { fix: FixView | null; role: string | null; blame: BlameView | null; expect: unknown; probe?: { of: string; callNo: number }; verify?: { href: string } } {
-  const none = { fix: null, role: null, blame: null, expect: undefined };
+export function normalizeFix(v: unknown): { fix: FixView | null; role: string | null; blame: BlameView | null; probe?: { of: string; callNo: number }; verify?: { href: string } } {
+  const none = { fix: null, role: null, blame: null };
   if (!isObject(v)) return none;
   if (typeof v.id === 'string') return { ...none, fix: { id: v.id, status: str(v.status) ?? 'open', title: str(v.title) ?? v.id, href: str(v.href) } };
   const role = typeof v.role === 'string' && FIX_ROLES.includes(v.role) ? v.role : null;
@@ -148,7 +148,7 @@ export function normalizeFix(v: unknown): { fix: FixView | null; role: string | 
   const probe = isObject(p) && typeof p.of === 'string' && int(p.callNo) !== null ? { of: p.of, callNo: int(p.callNo)! } : null;
   const vf = v.verify;
   const verify = isObject(vf) && typeof vf.href === 'string' && vf.href.startsWith('#/') ? { href: vf.href } : null;
-  return { fix, role, blame, expect: role === 'unblamed' && v.expect !== undefined && v.expect !== null ? v.expect : undefined, ...(probe ? { probe } : {}), ...(verify ? { verify } : {}) };
+  return { fix, role, blame, ...(probe ? { probe } : {}), ...(verify ? { verify } : {}) };
 }
 
 function normalizeChecks(v: unknown): CheckView[] | null {
@@ -255,7 +255,6 @@ export function normalizeRunDetail(d: RunDetail): RunDetail {
     const f = normalizeFix(d.fix);
     out.fix = f.fix;
     if (f.role) out.fixRole = f.role;
-    if (f.expect !== undefined) out.blameExpect = f.expect;
     if (f.probe) out.probeOf = f.probe;
     if (f.verify) out.verifyOf = f.verify;
     // The run page's own blame wins; the fix adds what asking again did, or the blame when there is none.

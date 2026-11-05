@@ -6,8 +6,8 @@ import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { EXPORT_KINDS, exportDatasetJob, exportHarJob, exportHtmlJob, exportOtelJob, packJob } from '../run-exports.js';
 import { choicesInCheckout } from '../commits-here.js';
+import { goldensOf } from '../outcome-work.js';
 import { runOffers } from '../run-offers.js';
-import type { GoldenSource } from '../tests.js';
 
 /**
  * The run page beyond the run itself: `GET /api/runs/:id/offers` (what the page offers to do with a
@@ -15,21 +15,6 @@ import type { GoldenSource } from '../tests.js';
  * actions), `GET /api/runs/:id/show` (`shadowlap show --json`, for Provenance's Copy), and the Share
  * menu's job kinds: export-html, pack, export-dataset, export-otel and export-har.
  */
-
-/**
- * The goldens on disk, when the dashboard was started with them (`DashboardOptions.goldens`, which
- * the Tests screen's routes need too): Find breaking commit then bisects a test replay's golden.
- */
-function goldensOf(ctx: RouteContext): GoldenSource[] {
-  const fn = (ctx.options as { goldens?: (() => unknown) | undefined }).goldens;
-  if (typeof fn !== 'function') return [];
-  try {
-    const out: unknown = fn();
-    return Array.isArray(out) ? (out as GoldenSource[]) : [];
-  } catch {
-    return [];
-  }
-}
 
 const heads = new Map<string, { at: number; head: Promise<string | null> }>();
 
