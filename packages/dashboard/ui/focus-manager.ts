@@ -1,4 +1,4 @@
-import { isDetail, pageSig, samePage, trailAfter, type LinkNote, type TrailStop } from './focus.js';
+import { pageSig, samePage, trailAfter, type LinkNote, type TrailStop } from './focus.js';
 import { sameRun } from './format.js';
 import { controlKey, findControl, type ControlKey } from './overlays/focus-back.js';
 import { openerNow, overlayOpen } from './overlays/modal-store.js';
@@ -304,9 +304,6 @@ export function stepBack(up: string): string {
   return from ? from.hash : up;
 }
 
-/** Whether Esc leaves this route the way you came, rather than staying on it. */
-export const leavesBack = isDetail;
-
 /** The part of the page a job's control sat in: its row, a section with an id, or the page's head. */
 export type JobFrom = { row: string } | { section: string } | { head: true } | null;
 
@@ -354,13 +351,16 @@ function drawerFocus(): HTMLElement | null {
   return [...drawer.querySelectorAll<HTMLElement>('.btn.lime')].filter(pressable)[0] ?? [...drawer.querySelectorAll<HTMLElement>('pre')].find(shows) ?? [...drawer.querySelectorAll<HTMLElement>('button')].find(shows) ?? null;
 }
 
+/** Where the jobs being followed started; a closed drawer's job asks no hand-on, and goes when later ones come. */
 const jobsFrom = new Map<string, JobFrom>();
+const JOBS_NOTED = 32;
 
 /** Notes where a job is starting from, by its id once the server has answered. */
 export function notingJobFrom<T extends { id: string }>(p: Promise<T>): Promise<T> {
   const from = noteJobFrom();
   return p.then((job) => {
     jobsFrom.set(job.id, from);
+    if (jobsFrom.size > JOBS_NOTED) jobsFrom.delete(jobsFrom.keys().next().value!);
     return job;
   });
 }

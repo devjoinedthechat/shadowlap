@@ -29,8 +29,12 @@ export const TABS: readonly InspectorTab[] = ['conversation', 'response', 'reque
 const TAB_NAMES: Readonly<Record<InspectorTab, string>> = { conversation: 'Conversation', response: 'Response', request: 'Request', details: 'Details' };
 const PART_KEYS = ['part1', 'part2', 'part3', 'part4'] as const;
 
-/** The inspector's tabs, each with its key, 1 to 4, and a card that says it while single keys are on. */
-const TAB_ITEMS = () => TABS.map((key, i) => ({ key, label: TAB_NAMES[key], mark: shortcut(PART_KEYS[i]!), tip: tipText(TAB_NAMES[key]) }));
+/** The inspector's tabs, each with its key, 1 to 4, and a card that says it and goes with it. */
+const TAB_ITEMS = () =>
+  TABS.map((key, i) => {
+    const mark = shortcut(PART_KEYS[i]!);
+    return { key, label: TAB_NAMES[key], mark, tip: mark['aria-keyshortcuts'] ? tipText(TAB_NAMES[key]) : undefined };
+  });
 
 let formatJsonPref = true;
 

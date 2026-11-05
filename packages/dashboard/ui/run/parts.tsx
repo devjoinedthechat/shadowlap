@@ -230,8 +230,11 @@ function CallWords({ words, call }: { words: string; call: (n: number) => ReactN
 }
 
 /** The run's one banner: recording now, a preset's attempt, how it forked, where it was lost, what was not recorded, its checks, or that it failed. */
-/** What `n` jumps to says so on the banner's call that shows it. */
-const jumpMark = (n: number, jump: { n: number; card: string } | null | undefined) => (jump?.n === n ? { ...shortcut('jump'), 'data-tip': tipText(jump.card) } : undefined);
+/** What `n` jumps to says so on the banner's call that shows it: a card that says its key and goes with it. */
+function jumpMark(n: number, jump: { n: number; card: string } | null | undefined) {
+  const mark = jump?.n === n ? shortcut('jump') : {};
+  return mark['aria-keyshortcuts'] ? { ...mark, 'data-tip': tipText(jump!.card) } : undefined;
+}
 
 export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggleDiff, onSelect, onAction, preset = null, jump }: BannerProps) {
   const app = useApp();

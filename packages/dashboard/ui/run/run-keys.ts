@@ -4,10 +4,11 @@ import { claimCallFocus, focusQuiet, pageUp, stepsSideways, wantCallFocus } from
 import { useLatest } from '../hooks.js';
 import { shownRuns } from '../list-keys.js';
 import { href, nextView, type View } from '../route.js';
-import { navigate } from '../router.js';
+import { currentRoute, navigate } from '../router.js';
 import { markKey, type RunMark } from '../runkey.js';
 import { recentRunIds, type RunLike } from '../runs.js';
 import { pressShortcut, useSingleKeys, type ShortcutId } from '../shortcuts.js';
+import { errorText } from '../toast.js';
 import type { CallTree } from './groups.js';
 
 /**
@@ -75,6 +76,9 @@ async function stepRun(runId: string, d: 1 | -1, runs: readonly RunLike[] | null
   if (holds && d > 0 && i === ids.length - 1 && noted!.more) {
     ids = await noted!.more();
     i = ids.findIndex((id) => sameRun(runId, id));
+    // You went elsewhere while it read: the step is no longer asked for.
+    const here = currentRoute();
+    if (here.page !== 'run' || !sameRun(here.id, runId)) return;
   }
   const to = i < 0 ? undefined : ids[i + d];
   if (!to) return toast(`No run ${d > 0 ? 'after' : 'before'} ${shortId(runId)} in the list`);
@@ -110,7 +114,7 @@ export function useRunKeys<C extends { callNo: number }>(runKeys: RefObject<((e:
       if (e.key === 'n' && jumpTo !== null) return k.select(jumpTo), true;
       if (e.key === 'p' && k.parentId) return navigate(href.run(k.parentId)), true;
       if (e.key === 'v') return k.setView(nextView(k.v)), true;
-      if (e.key === '[' || e.key === ']') return void stepRun(k.runId, e.key === ']' ? 1 : -1, k.runs, k.toast), true;
+      if (e.key === '[' || e.key === ']') return void stepRun(k.runId, e.key === ']' ? 1 : -1, k.runs, k.toast).catch((err: unknown) => k.toast(errorText(err))), true;
       const m = markKey(e.key);
       if (m && k.canMark) return k.mark(m), true;
       if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && k.v === 'calls' && k.tree) return foldKey(k, e.key === 'ArrowRight');

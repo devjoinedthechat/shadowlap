@@ -3,7 +3,7 @@ import { shortId } from './format.js';
 import type { RowScope } from './list-keys.js';
 import { href } from './route.js';
 import { navigate } from './router.js';
-import { compareTarget, type RunLike } from './runs.js';
+import { compareTarget, isAttempt, type RunLike } from './runs.js';
 
 type ListedRun = RunLike & { about?: { text: string } | null };
 
@@ -13,7 +13,7 @@ type ListedRun = RunLike & { about?: { text: string } | null };
  * `pick`: where rows have a checkbox.
  */
 export function runRowScope(r: ListedRun, o: { runs: readonly (RunLike & { startedAt: number })[]; toast: (text: string) => void; pick?: (() => void) | null; picked?: boolean }): RowScope {
-  const pair = compareTarget(r, o.runs.filter((x) => x.parentRunId === r.runId));
+  const pair = compareTarget(r, o.runs.filter((x) => x.parentRunId === r.runId && !isAttempt(x)));
   return {
     name: shortId(r.runId),
     items: () => [

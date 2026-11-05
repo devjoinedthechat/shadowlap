@@ -149,7 +149,7 @@
 /* with single-key shortcuts off (.nosk on the root) the lines they make dim as a run's do away from a run: the faint ink, never faded */
 .nosk .help .hgroup:not(.off) .sk, .nosk .help .hgroup:not(.off) .sk kbd { color: var(--faint); }
 /* the switch for single-key shortcuts, under a hairline at the sheet's foot */
-.hkeys { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--faint); font-size: 12.5px; }
+.hkeys { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--faint); font-size: var(--fs-quiet); }
 .hkeys .switch { color: var(--ink); font-weight: 500; }
 .help kbd + kbd { margin-left: 4px; }
 @media (max-width: 640px) { .hgrid { grid-template-columns: minmax(0, 1fr); } .hcol:last-child .hgroup dl { grid-template-columns: max-content minmax(0, 1fr); } }
@@ -213,6 +213,8 @@ body:has(.bulkbar) .drawer { bottom: 100px; }
 .palfoot { display: flex; gap: 16px; padding: 9px 16px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--faint); }
 .palfoot span { display: inline-flex; align-items: center; gap: 4px; }
 .palit .palk { flex: none; display: inline-flex; gap: 3px; }
+/* on a touch screen the palette shows no keys: no Esc, no g then a letter, no ↑ ↓ ↵ foot */
+@media (hover: none) and (pointer: coarse) { .palin .kbd, .palit .kbd, .palit .palk, .palfoot { display: none; } }
 .palg code.rnm { font: 500 var(--fs-label) var(--mono); letter-spacing: 0; text-transform: none; color: var(--dim); }
 .palfoot kbd, .palit .kbd, .palit .palk kbd { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 5px; border: 1px solid var(--line2); background: var(--panel); font: 10.5px var(--mono); color: var(--dim); }
 

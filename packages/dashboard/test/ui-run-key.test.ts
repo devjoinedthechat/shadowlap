@@ -181,6 +181,17 @@ describe('a run’s keys', () => {
     shownRuns.current = null;
   });
 
+  it('says why when the next page can’t be read, and takes no step', async () => {
+    const toasts: Array<{ text: string; action?: ToastAction }> = [];
+    shownRuns.current = { ids: [RUN], more: () => Promise.reject(new Error('the server stopped')) };
+    const keys = await opened(toasts);
+    keys(']');
+    await r!.until('the toast', () => toasts.length > 0);
+    expect(toasts[0].text).toBe('The server stopped');
+    expect(location.hash).toBe(`#/run/${RUN}/1`);
+    shownRuns.current = null;
+  });
+
   it('reads the next page of the list before saying it has ended', async () => {
     const more = vi.fn(async () => [RUN, 'NEXTPAGE00000000000000']);
     shownRuns.current = { ids: [RUN], more };
