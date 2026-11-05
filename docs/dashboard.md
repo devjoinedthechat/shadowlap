@@ -2100,7 +2100,7 @@ A gate against history is figured at seven pass rates against the baseline `hist
 | --- | --- |
 | `GET /api/training?filter=all\|high\|medium` | Training: the strip, the pairs grouped per call with their sources and fixes, the goldens as tasks, and each model's scores |
 | `GET /api/models` | The models to score, each with its price per attempt and last score, and the picker made from them |
-| `GET /api/decisions?kind=decisions\|migrate`, `/api/decisions/:id`, `GET /api/runs/:id/decisions`, `GET /api/retirements` | The [decision diff](./decisions.md): its sessions, one session, a run's decisions, and the retirement notices |
+| `GET /api/decisions?kind=decisions\|migrate`, `/api/decisions/:id`, `/api/decisions/:id/estimates?runId=`, `GET /api/runs/:id/decisions`, `GET /api/retirements` | The [decision diff](./decisions.md): its sessions, one session, what its Verify bills, a run's decisions, and the retirement notices |
 | `GET /api/verdicts?kind=all\|sessions\|previews\|verifies&limit=`, `/api/verdicts/:rev` | Every change checked and its verdict, newest first; a revision's page |
 | `GET /api/injection?run=&golden=&limit=`, `/api/injection/:id`, `/api/injection/:id/report`, `/api/injection/needs-look`, `/api/injection/runs/:id`, `/api/injection/templates`, `/api/injection/tools` | [Injection tests](./injection.md): results, one result, its report, Needs a look, a run's untrusted reads, the templates and the tools |
 | `GET /api/chaos`, `/api/chaos/runs/:id` | [Error-path presets](./error-paths.md): the presets and their matrices; one run's matrix |
@@ -2112,6 +2112,7 @@ A gate against history is figured at seven pass rates against the baseline `hist
 
 - `/api/decisions`: the sessions kept, newest first, with the models the goldens use that retire.
 - `/api/decisions/:id`: one session as `decisions --json` or `migrate --json` printed it, with its `matrix`.
+- `/api/decisions/:id/estimates`: what its Verify bills, worked out beside the server. Each run it couldn't clear, or the one `runId` names, is priced in the role its checks give it as recorded, at what it costs under the change. `verify` is `null` when there is nothing to verify.
 - `/api/runs/:id/decisions`: a run's decisions under each session that asked it again.
 - `/api/retirements`: the retirement notices on their own, for the agent's models, Shadowlap's own judge calls left out.
 
