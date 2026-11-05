@@ -93,10 +93,8 @@ table.runst tr.picked td { background: var(--sel); }
 @media (max-width: 760px) { .cal { flex-direction: column; } .calside { padding-top: 0; } }
 
 .impsamples { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 10px; }
-.impnote { margin: 12px 0 6px; font-size: 12.5px; line-height: 1.55; }
 
 .impdlg .seg { flex-wrap: wrap; max-width: 100%; margin-bottom: 14px; }
-.impdlg .impnote { margin: 12px 0 4px; }
 .impdlg .capfile .pick { flex: none; }
 .calgrid button.cd:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
 

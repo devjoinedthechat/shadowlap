@@ -18,7 +18,7 @@ interface Props {
 }
 
 /**
- * Repair or verify the run's fix, shown before it runs as the dashboard's Repair from here dialog
+ * Repair or verify the run's fix, shown before it runs as the dashboard's Run repair dialog
  * shows it: the fix, who a repair asks for candidates (and so whose account pays), why it would end
  * with no fix to try, and the exact command line. A line that runs a command from someone else's
  * pack or the team store runs only once `yes` is typed to the question naming it; one the repairer

@@ -4,6 +4,7 @@ import { ConfirmDialog } from '../components/Dialog.js';
 import { Eyebrow, PageHeader, StepList, type Step } from '../components/bits.js';
 import { Page } from '../components/Page.js';
 import { copyText } from '../dom.js';
+import { RECORD_PART } from '../../../engine/src/cost-words.js';
 import { headingRef } from '../focus-manager.js';
 import { messageOf } from '../../../engine/src/message-of.js';
 import type { CalibrateStep, InspectStep, RecordConfirmation, RecordStep, SetupView, TestStep } from '../projects-api.js';
@@ -267,21 +268,29 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
           </button>
         </div>
       ) : null}
-      {asking ? (
-        <ConfirmDialog
-          title={asking.confirm.title}
-          text={asking.confirm.text}
-          ok={asking.confirm.button}
-          command={asking.confirm.command}
-          onClose={() => setAsking(null)}
-          onOk={() => {
-            const asked = asking;
-            setAsking(null);
-            guard(() => start(client.startJob(JOB_KINDS.record, confirmedRecording(asked))));
-          }}
-        />
-      ) : null}
+      {asking ? <RecordRunDialog confirm={asking.confirm} onClose={() => setAsking(null)} onOk={() => guard(() => start(client.startJob(JOB_KINDS.record, confirmedRecording(asking))))} /> : null}
     </Page>
+  );
+}
+
+/** What asks before a command's first run in a folder, or when its model calls moved. */
+export function RecordRunDialog({ confirm, onOk, onClose }: { confirm: RecordConfirmation; onOk: () => unknown; onClose: () => void }) {
+  return (
+    <ConfirmDialog
+      title={confirm.title}
+      lead={confirm.lead}
+      doc="quickstart"
+      warn={confirm.moved ? { text: confirm.moved } : null}
+      facts={[
+        { label: 'Command', value: 'yours, run once', quiet: 'through a local sidecar' },
+        { label: 'Calls', ...confirm.calls },
+      ]}
+      ok={confirm.button}
+      command={confirm.command}
+      cost={{ price: 'Billed by your provider', parts: [RECORD_PART] }}
+      onClose={onClose}
+      onOk={onOk}
+    />
   );
 }
 
@@ -300,7 +309,7 @@ function ProjectProblem({ id, name, problem }: { id: string; name: string; probl
 
 /**
  * Why a project can't be opened (its folder is gone, its store is a newer Shadowlap's), as the
- * page's header, with Remove from the dashboard: on its setup in place of every page, and on Settings
+ * page's header, with Remove project…: on its setup in place of every page, and on Settings
  * above its tabs, which it can still show.
  */
 export function ProblemHeader({ id, name, problem }: { id: string; name: string; problem: string }) {
@@ -314,7 +323,7 @@ export function ProblemHeader({ id, name, problem }: { id: string; name: string;
         text={problem}
         actions={
           <button className="btn" type="button" disabled={!!actionsOff} title={actionsOff ?? undefined} onClick={() => setRemoving(true)}>
-            Remove from the dashboard
+            Remove project…
           </button>
         }
       />

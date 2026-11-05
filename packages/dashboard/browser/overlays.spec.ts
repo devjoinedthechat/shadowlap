@@ -350,6 +350,8 @@ test('a dialog’s body that scrolls and holds no control takes the focus, so th
   const body = page.locator('.dialog > .db');
   await expect(body).toBeVisible();
   expect(await body.getAttribute('tabindex')).toBeNull();
+  // A body whose command's Copy can be reached needs no stop of its own: with none, as Stop's or a patch's body has, it takes one.
+  await page.locator('.dialog .boxcopy').evaluate((copy) => copy.remove());
   await page.setViewportSize({ width: 1440, height: 170 });
   await expect(body).toHaveAttribute('tabindex', '0');
   expect(await body.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);

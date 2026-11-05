@@ -308,11 +308,14 @@ export interface PromptChoice {
  * `group: null` is an action with a place of its own (Replay, Pack, a normalizer); `choices` are
  * answers a prompt offers as a list (any other answer is accepted too).
  */
-export type ActionItem = Omit<ServerAction, 'prompt' | 'flag' | 'group' | 'hint'> & {
+export type ActionItem = Omit<ServerAction, 'prompt' | 'flag' | 'group' | 'hint' | 'command' | 'noSystemMessage' | 'warns'> & {
   prompt: { label: string; placeholder?: string; initial?: string; choices?: readonly PromptChoice[] } | null;
   flag?: string;
   group?: 'call' | 'run' | null;
   hint?: string;
+  command?: string;
+  noSystemMessage?: string;
+  warns?: string;
 };
 
 export type CallDetail = Omit<ServerCallDetail, 'call' | 'actions'> & {

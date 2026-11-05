@@ -180,13 +180,13 @@ export function register(router: Router, ctx: RouteContext): void {
     r.tagged(toolsSettings(s, { reads: answerData<ToolReads>(await ctx.reads.run({ kind: 'tool-reads' })) }));
   });
 
-  // "Add a server…": the line and the client entry for what the dialog has so far. Nothing is written.
+  // Add MCP server…: the line and the client entry for what the dialog has so far. Nothing is written.
   router.get('/settings/tools/mcp', (r) => {
     const command = r.query.get('command');
     const url = r.query.get('url');
     if ((command ?? '').length > 4000 || (url ?? '').length > 2000) throw new HttpError(400, 'that is longer than a server command or URL can be');
     try {
-      // `copy` is the entry as typed, for Copy the entry; the rest hides credentials, as the table does.
+      // `copy` is the entry as typed, for its Copy; the rest hides credentials, as the table does.
       r.json({ ...mcpServerFor({ command, url }), copy: mcpEntryAsTyped({ command, url }) });
     } catch (err) {
       throw new HttpError(400, messageOf(err));

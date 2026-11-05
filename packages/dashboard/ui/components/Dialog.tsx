@@ -1,5 +1,6 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { choiceAnswer, consentTitle } from '../actions.js';
+import { DOCS, docsHref, type DocKey } from '../docs-links.js';
 import { coarsePointer } from '../dom.js';
 import { dialogFocus } from '../focus.js';
 import { useLatest, useScrollStop } from '../hooks.js';
@@ -8,7 +9,9 @@ import { modalOpened, openersNow } from '../overlays/modal-store.js';
 import { InSlot } from '../overlays/slots.js';
 import { dialogOnSwitch, noteDialogDropped, onShownProject, shownProject } from '../projects-api.js';
 import type { PromptChoice } from '../types.js';
-import { CmdLine } from './bits.js';
+import { CommandRow, type CommandRowProps } from './CommandRow.js';
+import { CostLine, useCostStick, type CostLineProps } from './CostLine.js';
+import { DialogFacts, factId, inCode, shownFacts, type DialogFactRows } from './DialogFacts.js';
 
 /**
  * What every modal stands on: a scrim in the layer slot, the app behind it inert, Tab kept inside it,
@@ -59,26 +62,62 @@ function formState(root: HTMLElement): string {
 }
 
 /**
- * A dialog over a dimmed page: a title, a line that says what will happen, a body, and Cancel beside
- * the action. Esc or a press on the dimmed page cancels; where its fields were changed they ask first
- * in the footer, "Discard what you changed?", with Keep editing focused and Discard. It always fits,
- * its header and footer in view and its body scrolling; on a phone it is a sheet. The focus starts by
- * rule (`dialogFocus`, `firstFocus`): on Cancel when the action is red or `initialFocus="cancel"`
- * asks for it, so Enter twice never does what can't be undone; else on the first field, not on a
- * touch screen; else on the way on; on a touch screen on Cancel while the way on waits.
+ * One dialog anatomy, every dialog and every ask before a job, its slots in this order so none writes
+ * its own: a title that is verb and object; a lead of one sentence, ending on the docs page that says
+ * how the job works; one amber or red line, where it can't help yet or acts for real; what decides
+ * whether to press, as label and value rows; its fields; a row that says what a field does; the runs
+ * it acts on; the `$` command, following the fields; what it bills in one quiet line; and Cancel, then
+ * the way on, lime, red where it deletes, plain beside a second way on. A screen reader hears the
+ * warning and any amber or red row, then the lead without its link, after the title.
+ *
+ * The way on closes it, unless it says it can't start, or closes it itself or opens what comes next:
+ * `onOk` returning false, or a promise of false, keeps it open with what was typed. Esc or a press on the dimmed page cancels; where its fields were
+ * changed they ask first in the footer, "Discard what you changed?", with Keep editing focused and
+ * Discard. It always fits, its header and footer in view and its body scrolling; on a phone it is a
+ * sheet. The focus starts by rule (`dialogFocus`, `firstFocus`): on Cancel when the action is red or
+ * `initialFocus="cancel"` asks for it, so Enter twice never does what can't be undone; else on the
+ * first field, not on a touch screen; else on the way on; on a touch screen on Cancel while the way on
+ * waits.
  */
+
+/** A way on: false, or a promise of false, when it can't start, which keeps the dialog open; anything else closes it. */
+export type WayOn = () => unknown;
+
+export interface DialogWarning {
+  text: ReactNode;
+  /** Red acts for real, and is answered as a delete is: the confirm red, the focus on Cancel. */
+  tone?: 'amber' | 'red' | undefined;
+}
 
 export interface DialogProps {
   /** Words, or words with code in them: a file's name, a run's id. */
   title: ReactNode;
-  text?: ReactNode;
+  /** One sentence: what it does to what. */
+  lead?: ReactNode;
+  /** The docs page the lead ends on. */
+  doc?: DocKey | undefined;
+  /** One line, before the facts. */
+  warn?: DialogWarning | null | undefined;
+  /** Rows above the fields. */
+  facts?: DialogFactRows | undefined;
+  /** The fields. */
   children?: ReactNode;
+  /** A row that says what a field does, sitting under the fields. */
+  factsUnder?: DialogFactRows | undefined;
+  /** The runs it acts on. */
+  runs?: ReactNode;
+  /** The `$` row. */
+  command?: CommandRowProps | string | readonly string[] | null | undefined;
+  /** What it bills. */
+  cost?: CostLineProps | null | undefined;
   /** The action's words; omit for a dialog with Close only. */
   ok?: string;
-  /** `danger` turns the action red; `solid` is the calm dark button. */
-  tone?: 'lime' | 'danger' | 'solid';
+  /** `danger` turns the action red; `plain` gives it no colour. */
+  tone?: 'lime' | 'danger' | 'plain';
   okDisabled?: boolean;
-  onOk?: () => void;
+  onOk?: WayOn;
+  /** A second way on: lime, the first reading plain beside it. */
+  alt?: { label: string; onClick: WayOn; disabled?: boolean } | null | undefined;
   onClose: () => void;
   cancel?: string;
   className?: string;
@@ -95,24 +134,83 @@ export interface DialogProps {
   keepOnSwitch?: boolean;
 }
 
-export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = false, onOk, onClose, cancel = 'Cancel', className = '', initialFocus, dirty = false, keepOnSwitch = false }: DialogProps) {
+/** Enter on a dialog's field presses its way on, which may refuse: as the button does. */
+export function pressWayOn(from: EventTarget): void {
+  const ok = (from as HTMLElement).closest('.dialog')?.querySelector<HTMLButtonElement>('.dlg-ok');
+  if (ok && !ok.disabled) ok.click();
+}
+
+/** The docs page a lead ends on, in a new tab; its arrow is drawn only, so a screen reader says the page's name alone. */
+function DocLink({ doc }: { doc: DocKey }) {
+  const link = DOCS[doc];
+  return (
+    <a className="more dlgdoc" href={docsHref(link)} target="_blank" rel="noopener">
+      {link.what} in the docs<span aria-hidden="true">{'\u00a0→'}</span>
+    </a>
+  );
+}
+
+/** The ids a dialog's description names, in the order it is read: the warning, any amber or red row, then the lead. */
+function describedBy(id: string, { warn, facts, factsUnder, lead }: Pick<DialogProps, 'warn' | 'facts' | 'factsUnder' | 'lead'>): string | undefined {
+  const toned = (rows: DialogFactRows | undefined, at: string) => shownFacts(rows).flatMap((f, i) => (f.tone ? [factId(at, i)] : []));
+  const ids = [...(warn ? [`${id}warn`] : []), ...toned(facts, `${id}a`), ...toned(factsUnder, `${id}b`), ...(lead ? [`${id}lead`] : [])];
+  return ids.length ? ids.join(' ') : undefined;
+}
+
+/** The body's slots, in order, after the header. */
+function DialogBody({ id, warn, facts, children, factsUnder, runs, command, cost, body }: Pick<DialogProps, 'warn' | 'facts' | 'children' | 'factsUnder' | 'runs' | 'command' | 'cost'> & { id: string; body: RefObject<HTMLDivElement | null> }) {
+  const row = typeof command === 'string' || Array.isArray(command) ? { command: command as string | readonly string[] } : (command as CommandRowProps | null | undefined);
+  return (
+    <div className="db" ref={body}>
+      {warn ? (
+        <p id={`${id}warn`} className={`dwarn${warn.tone === 'red' ? ' red' : ''}`}>
+          {inCode(warn.text)}
+        </p>
+      ) : null}
+      <DialogFacts rows={facts ?? []} id={`${id}a`} />
+      {children}
+      <DialogFacts rows={factsUnder ?? []} id={`${id}b`} />
+      {runs ? <div className="dvrows">{runs}</div> : null}
+      {row ? <CommandRow {...row} /> : null}
+      {cost ? <CostLine {...cost} /> : null}
+    </div>
+  );
+}
+
+export function Dialog({ title, lead, doc, warn, facts, children, factsUnder, runs, command, cost, ok, tone: asked = 'lime', okDisabled = false, onOk, alt, onClose, cancel = 'Cancel', className = '', initialFocus, dirty = false, keepOnSwitch = false }: DialogProps) {
   const ref = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   useScrollStop(body);
   const id = useId();
   const askId = `${id}ask`;
+  // A red line acts for real, and is answered as a delete is.
+  const tone = warn?.tone === 'red' ? 'danger' : asked;
+  const hasBody = !!(warn || shownFacts(facts).length || children || shownFacts(factsUnder).length || runs || command || cost);
+  useCostStick(body, hasBody);
   // Where it opens is chosen as it opens: nothing the dialog shows later moves the focus.
-  const [opensOn] = useState(() => dialogFocus(tone, initialFocus, coarsePointer()));
+  const [[opensOn, touch]] = useState(() => {
+    const coarse = coarsePointer();
+    return [dialogFocus(tone, initialFocus, coarse), coarse] as const;
+  });
+  const startedOn = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const root = ref.current;
     if (!root) return;
-    const first = firstFocus(root, opensOn);
+    const first = firstFocus(root, opensOn, touch);
     first.focus();
     // A line is selected, ready to type over; longer text to edit (a recorded result, a reply) keeps
     // it, with the cursor at its end, as the design's dialogs do.
     if (first instanceof HTMLInputElement) first.select();
     else if (first instanceof HTMLTextAreaElement) first.setSelectionRange(first.value.length, first.value.length);
-  }, [opensOn]);
+    startedOn.current = first;
+  }, [opensOn, touch]);
+  // A way on that waited for something (Run repair, reading its repairer) takes the focus from Cancel
+  // once it can, if no one has moved it; one that asked for a file leaves it where it is.
+  useEffect(() => {
+    const ok = ref.current?.querySelector<HTMLElement>('.dlg-ok');
+    const from = startedOn.current;
+    if (!okDisabled && ok && from && from === document.activeElement && from.matches('.dlg-cancel') && opensOn.includes('.dlg-ok')) ok.focus();
+  }, [okDisabled, opensOn]);
 
   // What the fields held before anything was changed: a value that arrives as the dialog loads is no edit.
   const opened = useRef<string | null>(null);
@@ -155,6 +253,31 @@ export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = 
       }),
     [keepOnSwitch, close],
   );
+  const pressing = useRef(false);
+  const shown = useRef(true);
+  useEffect(() => {
+    shown.current = true;
+    return () => {
+      shown.current = false;
+    };
+  }, []);
+  const press = (way?: WayOn) => {
+    if (pressing.current) return;
+    const out = way?.();
+    if (out === false) return;
+    if (!(out instanceof Promise)) return close.current();
+    // It waits for the answer once, however often it is pressed.
+    pressing.current = true;
+    void out.then(
+      (v) => {
+        pressing.current = false;
+        if (v !== false && shown.current) close.current();
+      },
+      () => {
+        pressing.current = false;
+      },
+    );
+  };
   return (
     <Modal requestClose={requestClose}>
       <div
@@ -162,6 +285,7 @@ export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = 
         role="dialog"
         aria-modal="true"
         aria-labelledby={id}
+        aria-describedby={describedBy(id, { warn, facts, factsUnder, lead })}
         tabIndex={-1}
         ref={ref}
         onChange={() => {
@@ -176,20 +300,27 @@ export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = 
       >
         <header>
           <h3 id={id}>{title}</h3>
-          {text ? <p>{text}</p> : null}
+          {lead || doc ? (
+            <p>
+              <span id={`${id}lead`}>{lead}</span>
+              {doc ? ' ' : null}
+              {doc ? <DocLink doc={doc} /> : null}
+            </p>
+          ) : null}
         </header>
-        {children ? (
-          <div className="db" ref={body}>
-            {children}
-          </div>
-        ) : null}
+        {hasBody ? <DialogBody {...{ id, warn, facts, factsUnder, runs, command, cost, body, children }} /> : null}
         <footer>
           <button type="button" className="btn dlg-cancel" hidden={asking} onClick={onClose}>
             {ok ? cancel : 'Close'}
           </button>
           {ok ? (
-            <button type="button" className={`btn ${tone} dlg-ok`} hidden={asking} disabled={okDisabled} onClick={() => onOk?.()}>
+            <button type="button" className={`btn${alt || tone === 'plain' ? '' : ` ${tone}`} dlg-ok`} hidden={asking} disabled={okDisabled} onClick={() => press(onOk)}>
               {ok}
+            </button>
+          ) : null}
+          {alt ? (
+            <button type="button" className="btn lime dlg-alt" hidden={asking} disabled={alt.disabled} onClick={() => press(alt.onClick)}>
+              {alt.label}
             </button>
           ) : null}
           {asking ? (
@@ -217,39 +348,40 @@ const OTHER = '\u0000other';
  * A dialog that asks one thing before an action runs: a line of text, a longer one, or one of a few
  * answers (`choices`, a select like the mock's, with "Something else…" for an answer of your own).
  * A choice with a field of its own (`text`, such as "error, with a message") shows that field and
- * sends the choice's value followed by what was typed.
+ * sends the choice's value followed by what was typed. Its field always has a name: its label, or
+ * `fieldName` where the title says what it is. Everything else of the anatomy passes through.
  */
 export function PromptDialog({
-  title,
-  text,
   label,
+  fieldName,
+  startFrom,
   initial = '',
   placeholder = '',
   multiline = false,
-  ok,
   command,
   after,
   maxLength,
   choices,
   onRun,
-  onClose,
-}: {
-  title: string;
-  text?: ReactNode;
+  ...slots
+}: Pick<DialogProps, 'title' | 'lead' | 'doc' | 'warn' | 'facts' | 'factsUnder' | 'cost' | 'onClose'> & {
+  ok: string;
   label?: string;
+  /** The field's name for a screen reader, where no label shows. */
+  fieldName?: string;
+  /** A list that fills the field, which can then be edited or replaced. */
+  startFrom?: { label: string; choices: readonly PromptChoice[]; note: string };
   initial?: string;
   placeholder?: string;
   multiline?: boolean;
-  ok: string;
   /** The command it will run, shown under the field: as it is, or worked out from the answer so far. */
-  command?: string | ((answer: string) => string);
-  /** Under the command, worked out from the answer so far: Copy for a command too long to show whole. */
+  command?: string | ((answer: string) => string | CommandRowProps);
+  /** What follows the field, worked out from the answer so far: a gate's entry for the folder typed. */
   after?: (answer: string) => ReactNode;
   maxLength?: number;
   /** Answers to pick from; any other answer is accepted too. */
   choices?: readonly PromptChoice[];
-  onRun: (value: string) => void;
-  onClose: () => void;
+  onRun: (value: string) => unknown;
 }) {
   const [value, setValue] = useState(initial);
   const listed = !!choices?.length;
@@ -259,17 +391,18 @@ export function PromptDialog({
   const picked = listed && !own ? choices.find((c) => c.value === value) : undefined;
   const answer = picked ? choiceAnswer(picked, words) : value.trim();
   const ready = answer.length > 0;
-  const submit = () => ready && onRun(answer);
+  const named = !label && !listed ? { 'aria-label': fieldName ?? (typeof slots.title === 'string' ? slots.title : 'Your answer') } : {};
   const field = multiline ? (
     <textarea
       value={value}
       placeholder={placeholder}
       autoFocus={listed}
+      {...named}
       onChange={(e) => setValue(e.target.value)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
           e.preventDefault();
-          submit();
+          pressWayOn(e.currentTarget);
         }
       }}
     />
@@ -280,12 +413,13 @@ export function PromptDialog({
       placeholder={placeholder}
       spellCheck={false}
       autoFocus={listed}
+      {...named}
       {...(maxLength ? { maxLength } : {})}
       onChange={(e) => setValue(e.target.value)}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
-          submit();
+          pressWayOn(e.currentTarget);
         }
       }}
     />
@@ -311,15 +445,38 @@ export function PromptDialog({
       <option value={OTHER}>Something else…</option>
     </select>
   ) : null;
+  const row = typeof command === 'function' ? command(answer) : command;
   return (
-    <Dialog title={title} text={text} ok={ok} okDisabled={!ready} onOk={submit} onClose={onClose}>
-      {label || select ? (
+    <Dialog {...slots} command={row} okDisabled={!ready} onOk={() => onRun(answer)}>
+      {startFrom ? (
+        <>
+          <div className="form one">
+            <label>
+              {startFrom.label}
+              <select onChange={(e) => setValue(e.target.value)}>
+                {startFrom.choices.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {field}
+          <p className="muted fieldhint">{startFrom.note}</p>
+        </>
+      ) : label || select ? (
         <div className="form one">
           <label>
             {label}
             {select ?? field}
           </label>
-          {select && own ? <label>{field}</label> : null}
+          {select && own ? (
+            <label>
+              {fieldName ?? 'Your answer'}
+              {field}
+            </label>
+          ) : null}
           {select && picked?.text ? (
             <label>
               {picked.text}
@@ -332,7 +489,7 @@ export function PromptDialog({
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
-                    submit();
+                    pressWayOn(e.currentTarget);
                   }
                 }}
               />
@@ -342,27 +499,22 @@ export function PromptDialog({
       ) : (
         field
       )}
-      {command ? <CmdLine>{typeof command === 'function' ? command(answer) : command}</CmdLine> : null}
       {after?.(answer)}
     </Dialog>
   );
 }
 
 /** A yes-or-no before something that cannot be undone, with the command it runs. */
-export function ConfirmDialog({ title, text, ok, danger = false, command, onOk, onClose }: { title: string; text: ReactNode; ok: string; danger?: boolean; command?: string; onOk: () => void; onClose: () => void }) {
-  return (
-    <Dialog title={title} text={text} ok={ok} tone={danger ? 'danger' : 'lime'} onOk={onOk} onClose={onClose}>
-      {command ? <CmdLine>{command}</CmdLine> : null}
-    </Dialog>
-  );
+export function ConfirmDialog({ danger = false, ...slots }: Pick<DialogProps, 'title' | 'lead' | 'doc' | 'warn' | 'facts' | 'command' | 'cost' | 'onOk' | 'onClose'> & { ok: string; danger?: boolean }) {
+  return <Dialog {...slots} tone={danger ? 'danger' : 'lime'} />;
 }
 
 /**
  * The yes a job waits for before it runs the command of a run from someone else's pack or the team
- * store (`consentAsked`): where it came from, the server's words naming the command, and the action.
- * It opens on Cancel, as it comes up after a click or an Enter of its own: an Enter pressed once too
- * often never runs someone else's command.
+ * store (`consentAsked`): where it came from, the server's words naming the command as its amber
+ * line, and the action. It opens on Cancel, as it comes up after a click or an Enter of its own: an
+ * Enter pressed once too often never runs someone else's command.
  */
-export function ConsentDialog({ why, ok, onOk, onClose }: { why: string; ok: string; onOk: () => void; onClose: () => void }) {
-  return <Dialog title={consentTitle(why)} text={`${why}.`} ok={ok} initialFocus="cancel" onOk={onOk} onClose={onClose} />;
+export function ConsentDialog({ why, ok, onOk, onClose }: { why: string; ok: string; onOk: WayOn; onClose: () => void }) {
+  return <Dialog title={consentTitle(why)} lead="Runs a command someone else recorded, on this machine." doc="commandsFromSomeoneElse" warn={{ text: why }} ok={ok} initialFocus="cancel" onOk={onOk} onClose={onClose} />;
 }

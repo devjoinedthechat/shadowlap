@@ -17,7 +17,6 @@ import {
   entryEnvFor,
   emptyRuleForm,
   gcDeleteCommand,
-  gcDeleteWhat,
   gcDryRun,
   gcGivesBack,
   maskedLine,
@@ -30,7 +29,7 @@ import {
   pasteWhere,
   previewChip,
   proposedCount,
-  redactRuleText,
+  ruleFacts,
   redactionNotes,
   regexLiteral,
   ruleCommand,
@@ -175,8 +174,9 @@ describe('what leaves the machine', () => {
     expect(redactionNotes(false)).toBe('The local store is never modified. A model call’s key and authorization headers, and a captured HTTP call’s credentials, are never stored at all.');
     expect(redactionNotes(true)).toContain('Push copies runs to your team store as recorded, so teammates can replay them.');
     expect(redactionNotes(true)).not.toMatch(/API keys .* never stored|whenever a run leaves/);
-    expect(redactRuleText(false)).toBe('Masks stored content in every export, pack and share link of a run. A redacted pack still replays: its rules apply as normalizers.');
-    expect(redactRuleText(true)).toContain('Push copies runs to your team store as recorded.');
+    expect(ruleFacts('redact', false)).toEqual([{ label: 'Packs', value: 'still replay', quiet: 'the rule applies to them as a normalizer' }]);
+    expect(ruleFacts('redact', true)[1]).toEqual({ label: 'Push', value: 'copies runs as recorded', quiet: 'to your team store' });
+    expect(ruleFacts('normalize', true)).toEqual([{ label: 'Matches', value: 'older recordings too', quiet: 'their fingerprints are worked out again' }]);
   });
 
   it('counts the rules a share link applies on Store, and warns when there are none or they can’t be read', () => {
@@ -306,10 +306,6 @@ describe('what the drawer offers', () => {
     const report = { dryRun: true, count: 3, cutoff: 1_757_000_000_000, keep: null, olderThanDays: 30, bytes: 2048, expect: '3-0123456789abcdef' };
     const dry = gcDryRun({ done: true, code: 0, result: report });
     expect(dry).toMatchObject({ count: 3, attempts: 0, olderThanDays: 30 });
-    // The attempts bundled under the runs go with them, as rm takes them, and the dialog names them.
-    expect(gcDeleteWhat(dry!)).toBe('3\u00a0runs');
-    expect(gcDeleteWhat(gcDryRun({ done: true, code: 0, result: { ...report, attempts: 12 } })!)).toBe('3\u00a0runs and the 12\u00a0attempts bundled under them');
-    expect(gcDeleteWhat({ count: 1, attempts: 1 })).toBe('1\u00a0run and the attempt bundled under it');
     expect(gcDeleteCommand(dry!)).toBe('shadowlap gc --before 1757000000000 --expect 3-0123456789abcdef');
     expect(gcDeleteCommand({ ...dry!, cutoff: null, keep: 200 })).toBe('shadowlap gc --keep 200 --expect 3-0123456789abcdef');
     // No run old enough: what deleted runs left (blobs nothing uses, unused space past 1 MB) by a plain gc, unless a run records.
@@ -374,7 +370,7 @@ describe('MCP servers', () => {
     expect(copiedLineText({ name: 'stripe', file: '.mcp.json', line: "shadowlap mcp --url https://mcp.stripe.com --header 'Authorization: Bearer ${STRIPE_TOKEN}'" })).toBe('Copied the line for stripe · put it in front of the server in .mcp.json, then set STRIPE_TOKEN in the environment Claude Code starts from');
   });
 
-  it('says what Add a server hid, what it copies as typed, and where a Basic header’s variable is set', () => {
+  it('says what Add MCP server hid, what it copies as typed, and where a Basic header’s variable is set', () => {
     const files = (...found: string[]) => ['.mcp.json', '.cursor/mcp.json', '.vscode/mcp.json'].map((path) => ({ path, found: found.includes(path) }));
     expect(pasteFile(files())).toBeNull();
     expect(pasteFile(files('.vscode/mcp.json', '.mcp.json'))).toBe('.mcp.json');
@@ -441,7 +437,7 @@ describe('the CI tab', () => {
   });
 });
 
-describe('Remove from dashboard', () => {
+describe('Remove project…', () => {
   /** What the Project tab reads: the current project the projects feature provides, and why it can't be removed. */
   function shown(): string {
     function Probe() {

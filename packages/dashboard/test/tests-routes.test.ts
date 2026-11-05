@@ -556,10 +556,15 @@ describe('a session that runs a golden live', () => {
     throw new Error(`job ${started.id} did not finish`);
   };
 
+  it('lists the goldens that go live and why, for its dialog’s rows', async () => {
+    const q = (await asked({ kind: 'test' })) as unknown as { live: Array<{ path: string; why: Array<{ kind: string }> }> };
+    expect(q.live.find((g) => g.path === 'evals/kept-elsewhere')?.why.map((w) => w.kind)).toEqual(['fork', 'judges']);
+  });
+
   it('asks first, naming the goldens that go live and why, and runs only once the request says yes to that question', async () => {
     spawned.length = 0;
     const q = await asked({ kind: 'test' });
-    expect(q).toEqual({ error: `${FORK}; ${INJECTION}. ${BILLED}`, confirm: expect.stringMatching(/^[0-9a-f]{32}$/) });
+    expect(q).toEqual({ error: `${FORK}; ${INJECTION}. ${BILLED}`, confirm: expect.stringMatching(/^[0-9a-f]{32}$/), live: expect.any(Array) });
     // A yes to another question is no yes to this one: asked again, the same.
     expect(await asked({ kind: 'test', yes: 'f'.repeat(32) })).toEqual(q);
     expect(spawned).toEqual([]);

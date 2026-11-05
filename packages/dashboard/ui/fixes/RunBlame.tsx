@@ -1,12 +1,14 @@
 import { useState } from 'react';
+import { probesPart } from '../../../engine/src/cost-words.js';
 import { consentAsked } from '../actions.js';
 import { ApiError, JOB_KINDS } from '../api.js';
-import { CmdLine } from '../components/bits.js';
-import { ConsentDialog, Dialog, PromptDialog } from '../components/Dialog.js';
+import { ConsentDialog, Dialog, PromptDialog, pressWayOn } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
+import { namedIn } from '../components/Id.js';
 import { shortId } from '../format.js';
 import type { ShortcutMark } from '../shortcuts.js';
-import { useApp } from '../state.js';
+import { guardedWayOn, useApp } from '../state.js';
+import { errorText } from '../toast.js';
 import { parseCheck } from './model.js';
 import { plainButton, useTreeBusy } from './tree.js';
 import { ACTIONS } from '../labels.js';
@@ -71,6 +73,8 @@ export function RunBlameButton({
           return 'expect' in fields ? err.message : null;
         }
         if (err instanceof ApiError && err.status === 400 && 'expect' in fields) return err.message;
+        // No answer came: the check dialog stays, with what was typed and why.
+        if (!(err instanceof ApiError) && 'expect' in fields) return errorText(err);
         const asked = fields.yes === undefined ? consentAsked(err) : null;
         if (asked) setAsking({ kind: 'consent', ...asked, fields });
         else {
@@ -80,7 +84,7 @@ export function RunBlameButton({
         return null;
       },
     );
-  const failedText = failed.length ? `It failed “${failed[0]!}”${failed.length > 1 ? ` and ${failed.length - 1} more` : ''}, a check shadowlap.config.json doesn’t give. ` : '';
+  const failedLine = failed.length ? `It failed “${failed[0]!}”${failed.length > 1 ? ` and ${failed.length - 1} more` : ''}, a check shadowlap.config.json doesn’t give` : null;
   return (
     <>
       <button
@@ -97,22 +101,25 @@ export function RunBlameButton({
       </button>
       {asking?.kind === 'command' ? (
         <PromptDialog
-          title={`${ACTIONS.runBlame.label} on ${shortId(runId)}`}
+          title={namedIn(`${ACTIONS.runBlame.label} on ${shortId(runId)}`, shortId(runId))}
+          lead="Finds the model call that lost the run."
+          doc="blame"
           label={`${shortId(runId)} came from a capture and has no command. What starts your agent?`}
           placeholder="python agent.py"
           command={(command) => (line ?? `shadowlap blame ${shortId(runId)} -- <your command>`).replace('<your command>', () => command || '<your command>')}
+          cost={{ price: 'Billed by your provider', parts: [probesPart()] }}
           ok={ACTIONS.runBlame.label}
           onClose={() => setAsking(null)}
-          onRun={(command) => void start({ command })}
+          onRun={(command) => app.guard(() => void start({ command }))}
         />
       ) : null}
       {asking?.kind === 'check' ? (
         <CheckDialog
           runId={runId}
-          text={`${failedText}Say what a passing run must do, as the expect object of an outcome check: blame asks the model calls again until the run does it.`}
+          line={failedLine}
           command={asking.command}
           onClose={() => setAsking(null)}
-          onRun={(expect) => start({ expect, ...(asking.command ? { command: asking.command } : {}) })}
+          onRun={(expect) => guardedWayOn(app.guard, () => start({ expect, ...(asking.command ? { command: asking.command } : {}) })) || Promise.resolve(null)}
         />
       ) : null}
       {asking?.kind === 'consent' ? (
@@ -120,11 +127,7 @@ export function RunBlameButton({
           why={asking.why}
           ok={ACTIONS.runBlame.label}
           onClose={() => setAsking(null)}
-          onOk={() => {
-            const { fields, confirm } = asking;
-            setAsking(null);
-            void start({ ...fields, yes: confirm });
-          }}
+          onOk={() => app.guard(() => void start({ ...asking.fields, yes: asking.confirm }))}
         />
       ) : null}
     </>
@@ -136,25 +139,34 @@ export function RunBlameButton({
  * open, with what was typed, until the job has started: a check that isn't an object, or one the
  * server refuses, says why under the field.
  */
-function CheckDialog({ runId, text, command, onClose, onRun }: { runId: string; text: string; command: string | null; onClose: () => void; onRun: (expect: Record<string, unknown>) => Promise<string | null> }) {
+export function CheckDialog({ runId, line, command = null, onClose, onRun }: { runId: string; line: string | null; /** A capture's, which it runs the blame with. */ command?: string | null; onClose: () => void; onRun: (expect: Record<string, unknown>) => Promise<string | null> }) {
   const [value, setValue] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [sending, setSending] = useState(false);
   const submit = () => {
-    if (sending || !value.trim()) return;
     const check = parseCheck(value);
     if ('error' in check) {
       setError(check.error);
-      return;
+      return false;
     }
-    setSending(true);
-    void onRun(check.expect).then((refused) => {
-      setSending(false);
+    // What it starts closes it, or asks in its place; it stays only for what it says here.
+    return onRun(check.expect).then((refused) => {
       if (refused) setError(refused);
+      return false;
     });
   };
   return (
-    <Dialog title={`${ACTIONS.runBlame.label} on ${shortId(runId)}`} text={text} ok={ACTIONS.runBlame.label} okDisabled={!value.trim() || sending} onOk={submit} onClose={onClose}>
+    <Dialog
+      title={namedIn(`${ACTIONS.runBlame.label} on ${shortId(runId)}`, shortId(runId))}
+      lead="Finds the model call that lost the run."
+      doc="blame"
+      warn={line ? { text: line } : null}
+      command={`shadowlap blame ${shortId(runId)} --expect ${value.trim() ? `'${value.trim().replace(/'/g, `'\\''`)}'` : `'<check>'`}${command ? ` -- ${command}` : ''}`}
+      cost={{ price: 'Billed by your provider', parts: [probesPart()] }}
+      ok={ACTIONS.runBlame.label}
+      okDisabled={!value.trim()}
+      onOk={submit}
+      onClose={onClose}
+    >
       <div className="form one">
         <label>
           Check (JSON)
@@ -170,18 +182,18 @@ function CheckDialog({ runId, text, command, onClose, onRun }: { runId: string; 
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
-                submit();
+                pressWayOn(e.currentTarget);
               }
             }}
           />
         </label>
       </div>
+      <p className="muted fieldhint">What a passing run must do, as an outcome check’s expect object</p>
       {error ? (
         <p className="fieldnote err" role="alert">
           {error}
         </p>
       ) : null}
-      <CmdLine>{`shadowlap blame ${shortId(runId)} --expect '<check>'${command ? ` -- ${command}` : ''}`}</CmdLine>
     </Dialog>
   );
 }

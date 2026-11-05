@@ -1,9 +1,8 @@
 import { approx } from '../format.js';
-import { commandText } from '../goldens.js';
 import type { BlameStep, CandidateVerdict, FixBundle, FixDetail, FixRow, RepairStep, StepKey, VerifyMore, VerifyRow, VerifyStep } from '../types.js';
 import { blameStateWord } from '../../../engine/src/blame-words.js';
 import { verdictWord } from '../../../engine/src/verdict-words.js';
-import { ACTIONS, confirmWords } from '../labels.js';
+import { ACTIONS } from '../labels.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { lostWords } from '../../../engine/src/run-verdicts.js';
 import { pluralS as s, shortFixId, twoDigits as pad } from '../../../engine/src/words.js';
@@ -172,19 +171,6 @@ export function fixAction(f: Pick<FixDetail, 'status' | 'actions'>): FixAction {
 }
 
 /**
- * What Mark applied says before it runs `fix apply`: for a patch already in the working tree, what
- * apply still does (copies the goldens it is missing and runs them, unless the repair's recordings
- * stayed on a teammate's machine); for a change of request fields, which ones, since no patch
- * carries them; for a change verified on the working tree as it is, that there is no patch to apply.
- */
-export function markText(apply: Pick<NonNullable<FixDetail['actions']['apply']>, 'inTree' | 'goldens' | 'pulled' | 'change'>): string {
-  if (apply.change) return `It was verified with ${apply.change}, a change to the requests rather than to your files: once your agent makes it, this marks the fix applied.`;
-  if (!apply.inTree) return 'It was verified on your working tree as it is, so there is no patch to apply: this marks it applied.';
-  if (apply.goldens) return 'The patch is already in your working tree: this copies the goldens it is missing into goldens/, runs them with shadowlap test and marks the fix applied.';
-  return `The patch is already in your working tree: this marks the fix applied.${apply.pulled ? ' The recordings the fixed code made stay on the machine that ran the repair.' : ''}`;
-}
-
-/**
  * The plain button an applied fix shows in place of its action, and its hover. A fix applied with a
  * patch reads "Patch applied"; one with no patch was only marked applied, so it reads "Marked
  * applied", and its hover names the change of request fields it was verified with, which the agent
@@ -193,19 +179,6 @@ export function markText(apply: Pick<NonNullable<FixDetail['actions']['apply']>,
 export function appliedButton(apply: Pick<NonNullable<FixDetail['actions']['apply']>, 'kind' | 'pulled' | 'change'> | null): { label: 'Patch applied' | 'Marked applied'; title: string } {
   if (apply?.kind === 'mark') return { label: 'Marked applied', title: apply.change ? `Verified with ${apply.change}, a change to the requests that your agent makes, not to your files` : 'Verified on your working tree as it was, and marked applied' };
   return { label: 'Patch applied', title: apply?.pulled ? 'The patch is in the working tree; its goldens are on the machine that ran the repair' : 'The patch is in the working tree and its goldens pass' };
-}
-
-/**
- * What Apply fix says before it changes the working tree: every file the patch changes, how
- * it goes in, and what runs after. A teammate's patch, from the team store, runs nothing here: no
- * replay of the goldens, until it has been read.
- */
-export function applyText(apply: Pick<NonNullable<FixDetail['actions']['apply']>, 'files' | 'pulled'>): string {
-  const files = apply.files;
-  const named = !files.length ? 'your files' : files.length === 1 ? files[0]! : `${files.slice(0, -1).join(', ')} and ${files.at(-1)!}`;
-  return apply.pulled
-    ? `This changes your working tree: the patch below goes into ${named} with git apply. It came from the team store, so nothing here runs it: the recordings the fixed code made stay on the machine that ran the repair, and your goldens aren't replayed against it. Read it first; once it is in and is what you meant, check your goldens with shadowlap test.`
-    : `This changes your working tree: the patch below goes into ${named} with git apply, the recordings the fixed code made are copied into goldens/, and shadowlap test replays them. Your other goldens are replayed offline, to name any the change makes diverge. Review the change before you commit it.`;
 }
 
 /** A patch's lines as the dialog shows them, each line a hunk adds or removes marked; the headers are neither. */
@@ -813,20 +786,3 @@ export function outdatedOf(result: unknown): OutdatedGolden[] {
   return list.filter((g): g is OutdatedGolden => isObject(g) && typeof g.golden === 'string' && g.golden !== '' && typeof g.callNo === 'number' && typeof g.path === 'string');
 }
 
-/**
- * What the apply drawer's Update goldens asks before it re-records them, in the words of the Tests
- * screen's Update goldens: which, where the patch made them diverge, what an update does, and the
- * command it runs.
- */
-export function updateOutdatedAsk(outdated: readonly OutdatedGolden[]): { title: string; text: string; ok: string; command: string; fields: Record<string, unknown> } {
-  const names = outdated.map((g) => g.golden);
-  const one = names.length === 1;
-  const where = [...new Set(outdated.map((g) => `#${g.callNo} ${g.path}`))];
-  return {
-    title: one ? `Update ${names[0]!.split('/').pop()!}?` : `Update ${names.length} goldens?`,
-    text: `${one ? 'It diverges' : 'They diverge'} on what the patch changed (${where.slice(0, 2).join(', ')}${where.length > 2 ? ', …' : ''}). Use this when the change was intended: ${one ? 'it is' : 'each is'} re-recorded live with writes stubbed, ${one ? 'its' : 'each one’s'} checks run, and the new recording replaces the old one in your working tree only if they pass. You review the change in your pull request.`,
-    ok: one ? confirmWords(ACTIONS.updateGolden.label) : `Update ${names.length} goldens`,
-    command: commandText(['test', ...names, '--update']),
-    fields: one ? { golden: names[0] } : { goldens: names },
-  };
-}

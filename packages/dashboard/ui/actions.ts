@@ -1,4 +1,4 @@
-import { ACTIONS, confirmWords, dialogName, forceLiveLabel } from './labels.js';
+import { ACTIONS, forceLiveLabel } from './labels.js';
 import type { PromptChoice } from './types.js';
 
 /**
@@ -22,6 +22,12 @@ export interface ActionLike {
   hint?: string;
   /** It asks before it starts, with nothing to fill in: a fork's Repeat 5 times, whose attempts run live. */
   asksFirst?: true;
+  /** The command it runs, from the server, for an action with nothing to fill in. */
+  command?: string;
+  /** The model at this call, where it takes no system message mid-conversation: an instruction's As row names it. */
+  noSystemMessage?: string;
+  /** What it does for real, as its dialog's red line: a write forced live. */
+  warns?: string;
 }
 
 /** Actions with a place of their own: Replay in the header, Pack in Share, the normalizer in the divergence banner. */
@@ -151,21 +157,6 @@ export function isUserAnswer(a: ActionLike): boolean {
   return a.key === 'u';
 }
 
-/**
- * The recorded result an override starts from, laid out to edit as the design shows it: an object
- * or a list indented, one value a line. Anything else (a string, a number) stays as the action gives
- * it, which is already the JSON the CLI reads.
- */
-function prettyJson(text: string | undefined): string | undefined {
-  if (text === undefined) return undefined;
-  try {
-    const v: unknown = JSON.parse(text);
-    return typeof v === 'object' && v !== null ? JSON.stringify(v, null, 2) : text;
-  } catch {
-    return text;
-  }
-}
-
 /** Whether an action replaces a tool result, so its prompt opens with the recorded one to edit. */
 export function isOverride(a: ActionLike): boolean {
   return !isUserAnswer(a) && (a.key === 'o' || /^--override\b/.test(a.flag ?? ''));
@@ -184,136 +175,39 @@ export function choiceAnswer(choice: PromptChoice, words: string): string {
   return choice.text ? `${choice.value}${words.trim()}` : choice.value;
 }
 
-/** What an action's dialog says, and what it asks. */
-export interface DialogCopy {
-  title: string;
-  text: string;
-  /** The field's label, when it needs one. */
-  label?: string;
-  initial: string;
-  placeholder: string;
-  multiline: boolean;
-  /** Its confirm: the opener's name without the ellipsis. */
-  ok: string;
-  /** The command it runs, under the field, with … for what is typed. */
-  command?: string;
-  /** Answers to pick from (any other answer is accepted too). */
-  choices?: readonly PromptChoice[];
+/** A row of a dialog's facts, in words. */
+export interface FactWords {
+  label: string;
+  /** Its words, a name in code between backticks. */
+  value: string;
+  quiet?: string;
 }
 
-export interface DialogContext {
-  /** The run's short id. */
-  id: string;
-  callNo: number | null;
-  /** The call's short name ("lookup_order"). */
-  callName?: string;
-  /** The call's recorded result, for an override that starts from it. */
-  recorded?: unknown;
-  /** A run imported from a capture, which has no command. */
-  capture?: boolean;
+/** What a dialog bills: until a price is known, who bills it, then what runs live. */
+export interface CostWords {
+  price: string;
+  parts?: readonly string[];
 }
 
-/**
- * A run from someone else's pack, or a teammate's pulled from the team store, asks first, and says
- * what replaying it runs: that question is the field's label.
- */
-const PACK_WARNING = /^This run came from (?:an imported pack|the team store|a program that sent the sidecar its command)/;
+/** A golden a Tests job would run live, and why, as its 409 lists them (src/tests-live.ts). */
+export interface LiveGolden {
+  path: string;
+  why: ReadonlyArray<{ kind: 'fork' } | { kind: 'judges'; models: readonly string[] } | { kind: 'injection' }>;
+}
 
 /**
  * The question a job's 409 asks before it runs someone else's command (a pack's, a pulled run's, one
  * a program sent the sidecar): its words, and the `confirm` that says yes to the lines it names,
  * sent back as the job's `yes`. Null for any other error, a 409 that asks nothing among them.
  */
-export function consentAsked(err: unknown): { why: string; confirm: string } | null {
-  const e = err as { status?: unknown; confirm?: unknown; message?: unknown } | null;
-  return e && e.status === 409 && typeof e.confirm === 'string' && typeof e.message === 'string' ? { why: e.message, confirm: e.confirm } : null;
+export function consentAsked(err: unknown): { why: string; confirm: string; live?: readonly LiveGolden[] } | null {
+  const e = err as { status?: unknown; confirm?: unknown; message?: unknown; live?: unknown } | null;
+  if (!e || e.status !== 409 || typeof e.confirm !== 'string' || typeof e.message !== 'string') return null;
+  return { why: e.message, confirm: e.confirm, ...(Array.isArray(e.live) ? { live: e.live as LiveGolden[] } : {}) };
 }
 
 /** The title of the question a job's consent asks, after where the command came from. */
 export function consentTitle(message: string): string {
-  if (/came from the team store:/.test(message)) return 'Run a command from the team store?';
-  return /came from a program that sent the sidecar its command:/.test(message) ? 'Run a command a program sent the sidecar?' : 'Run a command from an imported pack?';
-}
-
-/**
- * The words of the dialog an action asks its one thing in, each titled and confirmed with the name
- * its menu item has, as one action is named everywhere. The server's own hint, when it sends one,
- * says what the action does; the dialog says an instruction goes in as a user message only when the
- * server's flag says so (`--inject-as user`).
- */
-export function dialogCopy(a: ActionLike, ctx: DialogContext): DialogCopy {
-  const p = a.prompt ?? { label: '' };
-  const n = ctx.callNo;
-  const at = n === null ? '' : `#${n}`;
-  const named = ctx.callName ? ` ${ctx.callName}` : '';
-  const opener = dialogName(menuLabel(a, ctx.callName), n);
-  const base = { initial: p.initial ?? '', placeholder: p.placeholder ?? '', multiline: false, ok: opener };
-  let copy: DialogCopy;
-  if (isInject(a)) {
-    const asUser = injectsAsUser(a);
-    const flag = a.flag ? a.flag.replace(/=…/g, '="…"') : `--inject ${n ?? 'n'}="…"`;
-    copy = {
-      ...base,
-      title: `Inject instruction at ${at}`,
-      text:
-        a.hint ??
-        (asUser
-          ? 'Not every model takes a system message mid-conversation, so it goes in as part of the last user message (--inject-as user) and stays in place for every later request of the fork. Calls before it replay.'
-          : `The instruction is added at ${at} and stays in place for every later request of the fork. Calls before it replay.`),
-      placeholder: p.placeholder ?? 'Escalate refunds above the regional limit to tier 2.',
-      multiline: true,
-      ok: confirmWords(ACTIONS.injectInstruction.label),
-      command: `shadowlap replay ${ctx.id} ${flag}`,
-    };
-  } else if (isUserAnswer(a)) {
-    copy = { ...base, title: `Override user reply at ${at}`, text: a.hint ?? 'The agent gets this reply instead of the recorded one. Calls before it replay; from here the run goes on live, with writes fenced.', multiline: true, ok: confirmWords(ACTIONS.overrideUserReply.label) };
-  } else if (isOverride(a)) {
-    copy = {
-      ...base,
-      title: `Override ${at}${named}`,
-      text: a.hint ?? 'The agent gets this instead of the recorded result. Calls before it replay; from here the run goes on live, with writes fenced.',
-      initial: prettyJson(p.initial) ?? (ctx.recorded === undefined ? '' : JSON.stringify(ctx.recorded, null, 2)),
-      placeholder: p.placeholder ?? '{"ok": true}',
-      multiline: true,
-      ok: confirmWords(ACTIONS.overrideResult.label),
-    };
-  } else if (a.key === 't') {
-    copy = { ...base, title: `Fail ${at}${named} with tool error`, text: a.hint ?? 'The tool doesn’t run: the agent gets the error instead, and its error path runs live. Calls before it replay.', label: 'Error', initial: p.initial ?? 'timeout', ok: confirmWords(ACTIONS.failWithToolError.label) };
-  } else if (a.key === 'x') {
-    copy = {
-      ...base,
-      title: `Plant instruction in ${at}${named}`,
-      text: a.hint ?? 'The text is added to what the tool returned, as an attacker would. Calls before it replay free; from here the agent runs live, with writes fenced, and the run’s checks say whether it obeyed.',
-      label: 'Instruction',
-      multiline: true,
-      ok: confirmWords(ACTIONS.plantInstruction.label),
-    };
-  } else if (a.key === 'f') {
-    copy = {
-      ...base,
-      title: `Fail ${at} with HTTP status`,
-      text: a.hint ?? 'Nothing is sent. Every attempt fails, so the SDK’s retry policy runs and then gives up: the path worth testing.',
-      label: p.choices?.length ? 'Status' : 'Status (429 rate limit, 500 or 529 overloaded, 400 bad request)',
-      initial: p.initial ?? '429',
-      ok: confirmWords(ACTIONS.failWithStatus.label),
-    };
-  } else if (a.key === 'm') {
-    copy = { ...base, title: `Switch model from ${at}`, text: a.hint ?? `Calls before ${at} replay; from here the new model answers live.`, label: 'Model' };
-  } else if (a.key === 'e') {
-    // A fork's, asked before its five attempts run live from the fork: nothing to fill in.
-    copy = { ...base, title: ACTIONS.repeat.title, text: a.hint ?? p.label, ok: confirmWords(ACTIONS.repeat.label) };
-  } else if (a.key === 'p') {
-    copy = { ...base, title: `Pack ${ctx.id}`, text: 'A folder to commit as a golden or send to someone: run.json, calls.jsonl and one file per blob. Redaction rules apply to the copy; the store is never changed.', label: 'Folder', ok: 'Pack run' };
-  } else if (a.key === 'r') {
-    copy = { ...base, title: opener, text: p.label };
-  } else {
-    copy = { ...base, title: opener, text: a.hint ?? p.label };
-  }
-  if (p.choices?.length) copy.choices = p.choices;
-  // An imported pack's question (or a pulled run's) carries its warning: it is asked as it is.
-  if (PACK_WARNING.test(p.label)) {
-    copy.label = p.label;
-    if (copy.text === p.label) copy.text = '';
-  }
-  return copy;
+  if (/came from the team store:/.test(message)) return 'Run command from team store';
+  return /came from a program that sent the sidecar its command:/.test(message) ? 'Run command a program sent' : 'Run command from imported pack';
 }

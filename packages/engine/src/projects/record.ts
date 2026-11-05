@@ -152,7 +152,12 @@ export function parseAgentCommand(line: string): ParsedCommand {
 /** The dialog that asks before a command's first run in a folder. */
 export interface RecordConfirmation {
   title: string;
-  text: string;
+  /** One sentence: what it records. */
+  lead: string;
+  /** It ran here before with its model calls going somewhere else: why it asks again. */
+  moved: string | null;
+  /** Where its model calls go, as a row. */
+  calls: { value: string; quiet: string };
   /** `shadowlap run -- uv run agent.py` */
   command: string;
   button: string;
@@ -278,14 +283,16 @@ export function planRecording(
   const known = isConfirmedCommand(project.confirmed, argv, upstream);
   // Confirmed before, with its model calls going elsewhere (the project's .env changed since): ask again.
   const moved = !known && project.confirmed.some((c) => sameArgv(c.argv, argv));
-  const calls = server?.upstream ? `Model calls go to ${server.url}, the model server this project uses.` : 'Model calls go to the real API with your keys, which are never stored.';
+  const calls = server?.upstream ? { value: server.url, quiet: 'the model server this project uses' } : { value: 'the real API, with your keys', quiet: 'never stored' };
   const confirm: RecordConfirmation | null = known
     ? null
     : {
-        title: `Run this command in ${displayPath(project.path, options.home ?? homedir())}?`,
-        text: `${moved ? 'It ran here before with its model calls going somewhere else, so it asks again.' : 'The first command in a folder asks first.'} Shadowlap starts a local sidecar, runs it once, and records every model and tool call. ${calls}`,
+        title: `Record run in ${displayPath(project.path, options.home ?? homedir())}`,
+        lead: 'Records one run: every model and tool call.',
+        moved: moved ? 'It ran here before with its model calls going somewhere else, so it asks again' : null,
+        calls,
         command: display,
-        button: 'Run and record',
+        button: 'Record run',
       };
   return { ok: true, plan: { args: ['run', '--', ...argv], argv, cwd: project.path, env, display, upstream, confirm } };
 }

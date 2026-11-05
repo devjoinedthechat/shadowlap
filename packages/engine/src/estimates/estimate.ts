@@ -1,8 +1,8 @@
+import { RECORD_PART } from '../cost-words.js';
 import { isJudgeCall } from '../judge-scope.js';
 import { estimateCost, type Price } from '../prices.js';
 import type { ModelResolver } from '../report.js';
 import type { CallRecord, Usage } from '../types.js';
-import { pluralS } from '../words.js';
 
 /**
  * What a billed job costs before it starts (A15): the ground every estimate stands on, and the shape
@@ -103,14 +103,14 @@ export function noEstimate(kind: EstimateKind, none: string, parts: string[] = [
  * from. Its line says who bills what and no more: `Billed by your provider · the agent’s own model calls`.
  */
 export function recordEstimate(): Estimate {
-  return { kind: 'record', usd: null, ceiling: false, parts: ['the agent’s own model calls'], none: 'no estimate until it has run once' };
+  return { kind: 'record', usd: null, ceiling: false, parts: [RECORD_PART], none: 'no estimate until it has run once' };
 }
 
 /**
  * A count with its noun, as the cost lines say it: `1 attempt`, `3 attempts`, `1,224 requests`. The
  * noun takes its s as plural's does (words.ts); the count keeps its thousands apart, as the design's do.
  */
-export const counted = (n: number, noun: string): string => `${n.toLocaleString('en-US')} ${noun}${pluralS(n)}`;
+export { counted } from '../cost-words.js';
 
 /** The config's `prices`, over the engine's table; none for the table alone. */
 export type Prices = Record<string, Price> | undefined;

@@ -50,7 +50,7 @@ describe('projectSwitcher', () => {
       ['support-agent', '1,200 runs', true, false, true],
       ['triage-bot', 'setting up', false, true, true],
     ]);
-    expect(v.items[1].removeLabel).toBe('Remove triage-bot from the dashboard');
+    expect(v.items[1].removeLabel).toBe('Remove project triage-bot');
     expect(v.add).toEqual({ label: 'Add project…', hint: 'A folder with your agent’s code', href: '#/new' });
     expect(v.note).toBe('Each project keeps its own store.');
   });
@@ -165,7 +165,7 @@ describe('setupView', () => {
       ['Keep it as a test', 'todo', ['shadowlap pack <run> goldens/research-agent', 'shadowlap test goldens/research-agent']],
     ]);
     expect(v.inspect.button).toEqual({ label: 'Inspect the folder', action: 'init' });
-    expect(v.record.button).toEqual({ label: 'Record a run', action: 'record', enabled: false });
+    expect(v.record.button).toEqual({ label: 'Record run', action: 'record', enabled: false });
     expect(v.record.command).toEqual({ value: '', enabled: false });
   });
 
@@ -224,7 +224,7 @@ describe('setupView', () => {
       text: '.nvmrc pins it, and an agent on a Node before 18.18 never starts under Shadowlap: that Node refuses the guard Shadowlap loads into it. Pin 18.18 or later to record.',
       recheck: { label: 'I raised it, check again', action: 'recheck' },
     });
-    expect(old.record).toMatchObject({ text: 'Waits for a Node pin of 18.18 or later: .nvmrc pins 18.17, where the agent wouldn’t start under Shadowlap.', command: { enabled: false }, button: { label: 'Record a run', enabled: false } });
+    expect(old.record).toMatchObject({ text: 'Waits for a Node pin of 18.18 or later: .nvmrc pins 18.17, where the agent wouldn’t start under Shadowlap.', command: { enabled: false }, button: { label: 'Record run', enabled: false } });
     // Raised, or a major alone (its newest release), or none at all: nothing to flag, and Record is on.
     for (const pin of ['18.18', '18', '22']) {
       const ok = view(entry('triage-bot', { stage: 'inspected', findings: node(pin) }), facts());
@@ -384,7 +384,7 @@ describe('setupView', () => {
     const typo = { ...run('failed', { calls: 0, startedAt: 30 }), runId: '01M4ZKQKEF000000000000TYPO' };
     const v = view(entry('research-agent', { stage: 'inspected', findings: findings(), runId: typo.runId, command: ['nod', 'agent.mjs'] }), facts({ runs: 1, recordings: [typo] }));
     expect(v.title).toBe('Set up research-agent');
-    expect(v.record).toMatchObject({ state: 'current', recorded: null, command: { value: 'nod agent.mjs', enabled: true }, button: { label: 'Record a run', enabled: true } });
+    expect(v.record).toMatchObject({ state: 'current', recorded: null, command: { value: 'nod agent.mjs', enabled: true }, button: { label: 'Record run', enabled: true } });
     expect(v.record.empty).toEqual({ runId: typo.runId, href: `#/run/${typo.runId}`, text: '01M4ZKQKEF holds no calls, so nothing was recorded: the command didn’t start your agent, or no model call reached Shadowlap. Check the command and record again.' });
     expect(v.skip).toBeNull();
     // An earlier recording stays the setup's, and the empty one is still pointed out.
@@ -459,14 +459,14 @@ describe('removeDialog', () => {
       { key: 'cfg', label: 'Its settings', path: 'shadowlap.config.json' },
       { key: 'gold', label: 'Its 2 goldens', path: 'goldens/' },
     ]);
-    expect(v.keep).toEqual({ text: 'The dashboard stops listing it. Nothing on disk changes.', note: 'Adding the folder again brings it all back.', button: { label: 'Remove', style: 'solid' }, crossedOut: null, done: 'Removed support-agent · its folder and recordings are untouched' });
+    expect(v.keep).toEqual({ text: 'Takes support-agent off the dashboard; nothing on disk changes.', note: null, button: { label: 'Remove project', style: 'plain' }, crossedOut: null, done: 'Removed support-agent · its folder and recordings are untouched' });
     expect(v.deleteZone).toEqual({
       label: 'Also delete its recordings',
       detail: '12 runs and their attempts. The goldens are in your repository and stay.',
       confirm: 'Type support-agent to confirm. This can’t be undone.',
       placeholder: 'support-agent',
       name: 'support-agent',
-      mode: { text: 'The dashboard stops listing it, and its recordings are deleted.', note: 'Adding the folder again brings back everything but the recordings.', button: { label: 'Remove and delete recordings', style: 'danger' }, crossedOut: 'rec', done: 'Removed support-agent and deleted its recordings' },
+      mode: { text: 'Takes support-agent off the dashboard and deletes its recordings.', note: null, button: { label: 'Remove and delete recordings', style: 'danger' }, crossedOut: 'rec', done: 'Removed support-agent and deleted its recordings' },
     });
     expect(v).toMatchObject({ canRemove: true, why: null });
   });

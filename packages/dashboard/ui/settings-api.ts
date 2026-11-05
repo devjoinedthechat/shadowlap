@@ -30,7 +30,7 @@ export interface RuleInput {
   replace?: string;
 }
 
-/** What "Add a server…" shows for a command or a URL: the line, the client entry, and whether a credential was hidden. */
+/** What Add MCP server… shows for a command or a URL: the line, the client entry, and whether a credential was hidden. */
 export interface McpLine {
   transport: 'stdio' | 'http';
   target: string;
@@ -41,7 +41,7 @@ export interface McpLine {
   env?: Array<{ name: string; value: string }>;
   /** That variable, for an `Authorization: Basic` header; null without one. */
   basic?: string | null;
-  /** The entry as typed, except a URL's user and password, which are never copied: what Copy the entry copies. */
+  /** The entry as typed, except a URL's user and password, which are never copied: what Copy entry copies. */
   copy?: { command: string; args: string[] };
 }
 

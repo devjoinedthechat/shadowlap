@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type Client } from '../ui/api.js';
-import { fixStatusWords, nextStepOf, stepCard, stepCost } from '../ui/run/next-step.js';
+import { fixStatusWords, nextStepOf, stepCard, stepCostLine } from '../ui/run/next-step.js';
 import { Banner } from '../ui/run/parts.js';
 import { useWholeStep } from '../ui/run/NextStepButton.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
@@ -189,7 +189,7 @@ describe('the run page’s next step', () => {
     await page.type(page.one('.dialog input'), 'python agent.py');
     await page.click(page.one('.dialog .dlg-ok'));
     await page.wait(0);
-    expect(page.one('.dialog').textContent).toContain('Say what a passing run must do');
+    expect(page.one('.dialog').textContent).toContain('What a passing run must do, as an outcome check’s expect object');
     expect(page.one('.dialog .cmdline').textContent).toContain(`shadowlap blame ${REC.slice(0, 10)} --expect '<check>' -- python agent.py`);
   });
 
@@ -392,8 +392,10 @@ describe('the run page’s next step', () => {
     await page.click(page.byText('.rhead .actions button', 'Re-run injection test'));
     expect(started).toEqual([]);
     const dialog = page.one('.dialog');
-    // A sentence, then what it bills.
-    expect(dialog.textContent).toContain('It showed too little to say: no model read it. ≈$3.11, as the last test’s 6 attempts · live from each read, writes stubbed');
+    // Why the last test leads to it, in its one amber line, then what it bills, price first.
+    expect(dialog.querySelector('.dwarn')?.textContent).toBe('It showed too little to say: no model read it');
+    expect(dialog.querySelector('.dcost')?.textContent).toContain('≈$3.11, as the last test’s 6 attempts');
+    expect(dialog.querySelector('.dcost')?.textContent).toContain('live from each read, writes stubbed');
     expect(dialog.textContent).toContain(`shadowlap injection ${REC.slice(0, 10)} --templates system-notice --repeat 2`);
     await page.click(page.one('.dialog .dlg-ok'));
     expect(started).toEqual([['injection', { runId: REC, repeat: 2, templates: ['system-notice'], baselines: 3, liveReads: false }]]);
@@ -439,7 +441,7 @@ describe('the run page’s next step', () => {
     expect(dialog.textContent).toContain(`"${folder}": { "injection": { "obeyed": 0, "repeat": 3 } }`);
     expect(dialog.textContent).toContain('≈$1.95 every test session, in CI too');
     // It says the entry is yours to add, for the folder as you name it.
-    expect(dialog.textContent).toContain('Add the entry below to shadowlap.config.json');
+    expect(dialog.textContent).toContain('you add the entry below to shadowlap.config.json');
     await page.type(page.one('.dialog input'), 'goldens/refund');
     expect(page.one('.dialog').textContent).toContain('"goldens/refund": { "injection": { "obeyed": 0, "repeat": 3 } }');
     expect(page.one('.dialog').textContent).not.toContain(`"${folder}"`);
@@ -491,12 +493,12 @@ describe('the run page’s next step', () => {
   it('says what a step bills in the words an ask does', () => {
     const step: NextStep = { ...OFFER, estimate: { kind: 'blame', usd: null, ceiling: false, parts: ['a model has no price'], none: 'a model has no price' } };
     expect(stepCard(step).rows).toEqual([{ label: 'Costs', value: 'no estimate' }]);
-    expect(stepCost(step)).toBe('Billed by your provider · a model has no price');
+    expect(stepCostLine(step)).toEqual({ price: 'Billed by your provider', parts: ['a model has no price'] });
     // Nothing to say of what bills nothing, on its card; its title is its words without what its dialog asks.
     const free: NextStep = { key: 'rerun-test', label: 'Re-run test', golden: GOLDEN, estimate: { kind: 'tests', usd: 0, ceiling: false, parts: ['replays offline'] } };
     expect(stepCard(free).rows).toEqual([]);
     expect(stepCard({ key: 'injection-test', label: 'Run injection test…', runId: REC }).title).toBe('Run injection test');
-    expect(stepCost(OFFER)).toBeNull();
+    expect(stepCostLine(OFFER)).toBeNull();
     expect(nextStepOf({})).toBeNull();
   });
 });

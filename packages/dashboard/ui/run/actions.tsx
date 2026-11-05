@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { JOB_KINDS, type ActionItem, type BisectOffer, type CallDetail, type RunDetail, type RunOffers } from '../api.js';
-import { consentAsked, dialogCopy, forkMenu, forkMenuTitle, forkRowLine, menuLabel } from '../actions.js';
+import { consentAsked, forkMenu, forkMenuTitle, forkRowLine, menuLabel } from '../actions.js';
+import { dialogCopy } from './fork-dialog.js';
 import { ConfirmDialog, ConsentDialog, PromptDialog } from '../components/Dialog.js';
 import { tipCard } from '../components/HoverCard.js';
+import { namedIn } from '../components/Id.js';
 import { Popover } from '../components/Popover.js';
 import { callName, shortId } from '../format.js';
 import { confirmWords } from '../labels.js';
@@ -36,7 +38,7 @@ const UNKNOWN_BISECT = (runId: string): BisectOffer => ({ target: { kind: 'run',
  * pulled from the team store, runs their command: the server refuses it until it is confirmed, and
  * says the command, which a dialog shows, and only its Run sends the yes.
  */
-export function useActionRunner(runId: string, capture = false, offers: RunOffers | null = null) {
+export function useActionRunner(runId: string, capture = false, offers: RunOffers | null = null, forkAt?: number | null) {
   const app = useApp();
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [bisecting, setBisecting] = useState(false);
@@ -47,7 +49,7 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
     if (blocked) return app.toast(blocked);
     app.guard(() => setBisecting(true));
   };
-  const start = (p: PendingAction, value?: string, yes?: string) => {
+  const start = (p: PendingAction, value?: string, yes?: string) =>
     app.guard(
       () =>
         void app.client.action(p.runId ?? runId, p.action.key, p.callNo, value, yes).then(
@@ -59,7 +61,6 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
           },
         ),
     );
-  };
   const run = (p: PendingAction) => {
     if (p.action.disabled) return app.toast(p.action.disabled);
     if (app.actionsOff) return app.toast(app.actionsOff);
@@ -72,62 +73,55 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
     <ActionDialog
       runId={pending.runId ?? runId}
       capture={capture}
+      forkAt={forkAt}
       pending={pending}
       onClose={() => setPending(null)}
-      onRun={(v) => {
-        const p = pending;
-        setPending(null);
-        start(p, v);
-      }}
+      onRun={(v) => start(pending, v)}
     />
   ) : consent ? (
     <ConsentDialog
       why={consent.why}
-      ok="Run"
+      ok="Run command"
       onClose={() => setConsent(null)}
-      onOk={() => {
-        const c = consent;
-        setConsent(null);
-        start(c.p, c.value, c.confirm);
-      }}
+      onOk={() => start(consent.p, consent.value, consent.confirm)}
     />
   ) : bisecting ? (
     <BisectDialog
       runId={runId}
       offer={offers?.bisect ?? UNKNOWN_BISECT(runId)}
       onClose={() => setBisecting(false)}
-      onRun={(good) => {
-        setBisecting(false);
-        app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.bisect, { runId, good })));
-      }}
+      onRun={(good) => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.bisect, { runId, good })))}
     />
   ) : null;
   return { run, dialog, findCommit };
 }
 
-function ActionDialog({ runId, capture, pending, onRun, onClose }: { runId: string; capture: boolean; pending: PendingAction; onRun: (v?: string) => void; onClose: () => void }) {
+export function ActionDialog({ runId, capture, forkAt, pending, onRun, onClose }: { runId: string; capture: boolean; forkAt: number | null | undefined; pending: PendingAction; onRun: (v?: string) => boolean; onClose: () => void }) {
   const copy = dialogCopy(pending.action, {
     id: shortId(runId),
     callNo: pending.callNo,
     capture,
+    forkAt: forkAt ?? null,
     ...(pending.callName !== undefined ? { callName: pending.callName } : {}),
     ...(pending.recorded !== undefined ? { recorded: pending.recorded } : {}),
   });
+  const { title, lead, doc, warn, facts, factsUnder, cost, ok } = copy;
+  const slots = { title: copy.titleName ? namedIn(title, copy.titleName) : title, lead, ok, onClose, ...(doc ? { doc } : {}), ...(warn ? { warn } : {}), ...(facts ? { facts } : {}), ...(cost ? { cost } : {}) };
   // Nothing to fill in: it asks only whether to start, as it runs live.
-  if (!pending.action.prompt) return <ConfirmDialog title={copy.title} text={copy.text} ok={copy.ok} onOk={() => onRun()} onClose={onClose} />;
+  if (!pending.action.prompt) return <ConfirmDialog {...slots} {...(copy.command ? { command: copy.command('') } : {})} onOk={() => onRun()} />;
   return (
     <PromptDialog
-      title={copy.title}
-      text={copy.text || undefined}
+      {...slots}
+      {...(factsUnder ? { factsUnder } : {})}
       {...(copy.label ? { label: copy.label } : {})}
+      {...(copy.fieldName ? { fieldName: copy.fieldName } : {})}
       {...(copy.command ? { command: copy.command } : {})}
       {...(copy.choices ? { choices: copy.choices } : {})}
+      {...(copy.startFrom ? { startFrom: copy.startFrom } : {})}
       multiline={copy.multiline}
       initial={copy.initial}
       placeholder={copy.placeholder}
-      ok={copy.ok}
       onRun={onRun}
-      onClose={onClose}
     />
   );
 }

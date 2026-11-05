@@ -1,3 +1,4 @@
+import { BISECT_PARTS, moreAttemptsParts, updatePart } from '../cost-words.js';
 import type { CostReport } from '../injection.js';
 import type { TestResultData } from '../store.js';
 import { counted, CUT_SHORT_LINE, liveFrom, noEstimate, noPriceWords, type Estimate, type ExpectedFigure, type PricedCall } from './estimate.js';
@@ -91,7 +92,7 @@ export interface MoreFigure extends ExpectedFigure {
  * to take, and to cost, is the gate's own figure (`more`), on the price's card to the cent.
  */
 export function moreEstimate(more: MoreFigure, spends: readonly number[]): Estimate {
-  const parts = [`up to ${counted(more.most, 'more attempt')}`, 'live from where the golden forks, writes blocked'];
+  const parts = moreAttemptsParts(more.most);
   if (more.most <= 0) return noEstimate('more', `its gate has taken its ${counted(more.attempts, 'attempt')} already`);
   if (!spends.length) return noEstimate('more', 'what its attempts cost was not kept', parts);
   const each = spends.reduce((m, x) => Math.max(m, x), 0);
@@ -129,7 +130,7 @@ export function updateEstimate(goldens: ReadonlyArray<{ calls: readonly PricedCa
   }
   const one = goldens.length === 1;
   const judges = goldens.every((g) => g.judge !== undefined);
-  return { kind: 'update', usd, ceiling: false, always, parts: [judges ? (one ? 'its judge’s one call' : 'each judge’s one call') : one ? 'as its recording cost' : 'as their recordings cost'] };
+  return { kind: 'update', usd, ceiling: false, always, parts: [updatePart(one, judges)] };
 }
 
 /** The price's card line for a bisect's ceiling: a commit it can't decide at is skipped, and the nearest other tested (cli bisect), on top of what it counts. */
@@ -148,8 +149,8 @@ export const bisectCommits = (commits: number): number => 2 + Math.ceil(Math.log
  * price's card to the cent.
  */
 export function bisectEstimate(commits: number, golden: { fork: boolean; attempts: number; each: number | null; commit?: number | null; count?: boolean }): Estimate {
-  if (!golden.fork) return { kind: 'bisect', usd: 0, ceiling: false, parts: ['bisect replays offline'] };
-  const where = 'live at each commit, as a golden marked fork runs';
+  if (!golden.fork) return { kind: 'bisect', usd: 0, ceiling: false, parts: [BISECT_PARTS.offline] };
+  const where = BISECT_PARTS.fork;
   if (golden.each === null) return noEstimate('bisect', 'no estimate until it has run once', [where]);
   if (golden.each <= 0) return noEstimate('bisect', 'its last session’s attempts spent nothing live, so what one costs is unknown', [where]);
   const tested = bisectCommits(commits);
@@ -178,7 +179,7 @@ export function runBisectEstimate(calls: readonly PricedCall[], commits: number)
     kind: 'bisect',
     usd: (tested - 1) * cost.usd,
     ceiling: true,
-    parts: [`up to ${counted(tested, 'commit')}`, 'one live replay each, writes blocked'],
+    parts: [`up to ${counted(tested, 'commit')}`, BISECT_PARTS.run],
     card: { title: 'If every commit but its own ran live', lines: [`A replay costs at most ${amountWords(cost.usd)}, live from where it parts to its end, as the run did.`, 'One live replay decides a commit: a failure that doesn’t happen every time can pass at one that has it.'] },
     attempts: tested - 1,
     each: cost.usd,

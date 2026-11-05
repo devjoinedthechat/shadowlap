@@ -205,6 +205,31 @@ describe('GET /api/training', () => {
   it('shows every page on a read-only dashboard', async () => {
     expect((await api(readOnly, 'training')).status).toBe(200);
   });
+
+  it('says on Export pairs how many redaction rules the copy applies, and answers with none while the config can’t be read', async () => {
+    const rules = [{ pattern: 'email', replace: '<EMAIL>' }, { pattern: '/order A-\\d+/', replace: 'order <ORDER>' }];
+    const ruled = await startDashboard({ store, project: { path: project }, redact: rules });
+    const fromConfig = await startDashboard({ store, project: { path: project }, loadConfig: () => ({ normalize: [], redact: rules }) });
+    const unreadable = await startDashboard({
+      store,
+      project: { path: project },
+      loadConfig: () => {
+        throw new Error('Unexpected token } in JSON at position 12');
+      },
+    });
+    try {
+      const rulesOf = async (d: Dashboard) => ((await (await api(d, 'training')).json()) as TrainingView).exportDialog.rules;
+      expect(await rulesOf(ruled)).toBe(2);
+      expect(await rulesOf(fromConfig)).toBe(2);
+      expect(await rulesOf(dash)).toBe(0);
+      // A mistake in the config takes no page down: Training answers, and Export pairs draws no Redacts row.
+      const res = await api(unreadable, 'training');
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as TrainingView).exportDialog.rules).toBeNull();
+    } finally {
+      await Promise.all([ruled.close(), fromConfig.close(), unreadable.close()]);
+    }
+  });
 });
 
 describe('GET /api/models', () => {
@@ -226,7 +251,7 @@ describe('GET /api/models', () => {
     expect(view.notes).toEqual([{ group: 'OpenAI API', note: 'OPENAI_API_KEY is not set' }]);
     expect(asked.sort()).toEqual(['http://127.0.0.1:11434/api/tags', 'https://api.anthropic.com/v1/models?limit=100']);
     expect(view.dialog).toMatchObject({ title: 'Score model on 1 task', groups: ['Recorded with', 'Anthropic API', 'Ollama, on this machine'], selected: 'claude-haiku-4-5\n', attempts: [5, 10] });
-    expect(view.dialog!.options.find((o) => o.id === 'qwen2.5:7b')).toMatchObject({ request: { model: 'qwen2.5:7b', baseUrl: 'http://127.0.0.1:11434/v1' }, label: 'qwen2.5:7b · scored 0.75', note: 'Runs at http://127.0.0.1:11434/v1 · not a paid API · replaces its score of 0.75' });
+    expect(view.dialog!.options.find((o) => o.id === 'qwen2.5:7b')).toMatchObject({ request: { model: 'qwen2.5:7b', baseUrl: 'http://127.0.0.1:11434/v1' }, label: 'qwen2.5:7b · scored 0.75', local: true, lastScore: 0.75, note: '' });
   });
 
   it('keeps a listing for a few seconds, so opening the dialog again asks nobody', async () => {

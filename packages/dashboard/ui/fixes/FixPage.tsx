@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
+import { probesPart } from '../../../engine/src/cost-words.js';
 import { consentAsked } from '../actions.js';
 import { JOB_KINDS, ApiError, type JobView } from '../api.js';
-import { Badge, CmdLine } from '../components/bits.js';
+import { Badge } from '../components/bits.js';
 import { ConfirmDialog, ConsentDialog, Dialog, PromptDialog } from '../components/Dialog.js';
+import { DialogSteps, DialogTip } from '../components/DialogFacts.js';
+import { UpdateGoldenDialog } from '../components/UpdateGolden.js';
 import { headingRef } from '../focus-manager.js';
 import { Page } from '../components/Page.js';
 import { NotFoundPage } from '../pages/NotFound.js';
@@ -11,13 +14,14 @@ import { approx, GLUED_SEPARATOR } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { addJobFooter } from '../job-actions.js';
 import { href } from '../route.js';
-import { useApp } from '../state.js';
+import { guardedWayOn, useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import type { FixDetail } from '../types.js';
 import { BlameStepView } from './BlameStep.js';
 import { rememberFix } from './data.js';
+import { applySteps, keepsOf, markLead, PULLED_LINE, repairCost, updateOutdatedAsk } from './dialog-words.js';
 import { FixJobButton } from './FixJobButton.js';
-import { appliedButton, applyText, blameNextStep, fixAction, fixName, fixStamp, laterStamp, markText, outdatedOf, patchLines, repairAsk, repairAside, shortFixId, statusBadge, stepFor, stepLeads, updateOutdatedAsk } from './model.js';
+import { appliedButton, blameNextStep, fixAction, fixName, fixStamp, laterStamp, outdatedOf, patchLines, repairAsk, repairAside, shortFixId, statusBadge, stepFor, stepLeads } from './model.js';
 import { FailedMust, Flagged } from './parts.js';
 import { RepairStepView } from './RepairStep.js';
 import { useTreeBusy } from './tree.js';
@@ -129,29 +133,43 @@ function FixHeader({ fix, reload, leads }: { fix: FixDetail; reload: () => void;
         <FixActions fix={fix} leads={leads} />
       </div>
       {renaming ? (
-        <PromptDialog
-          title="Rename this fix"
-          text="A title of your own stays when later blames join the fix."
-          label="Title"
-          initial={fix.title}
-          maxLength={160}
-          ok="Rename"
-          command={`shadowlap fix title ${shortFixId(fix.fixId)} …`}
-          onClose={() => setRenaming(false)}
-          onRun={(title) => {
-            setRenaming(false);
-            app.client.renameFix(fix.fixId, title).then(
-              (d) => {
-                rememberFix(d);
-                app.toast(`Renamed: ${d.title}`);
-                reload();
-              },
-              (err: unknown) => app.toast(errorText(err), 'error'),
-            );
-          }}
-        />
+        <RenameFixDialog fix={fix} onClose={() => setRenaming(false)} onDone={reload} />
       ) : null}
     </div>
+  );
+}
+
+/** Rename fix: a title of its own, kept when later blames join the fix. */
+export function RenameFixDialog({ fix, onClose, onDone }: { fix: FixDetail; onClose: () => void; onDone: () => void }) {
+  const app = useApp();
+  return (
+    <PromptDialog
+      title="Rename fix"
+      lead="Gives the fix a title of your own, kept when later blames join it."
+      doc="fixTitles"
+      label="Title"
+      initial={fix.title}
+      maxLength={160}
+      ok="Rename"
+      command={(title) => `shadowlap fix title ${shortFixId(fix.fixId)} ${title ? `"${title.replace(/(["\\$`])/g, '\\$1')}"` : '…'}`}
+      onClose={onClose}
+      onRun={(title) =>
+        guardedWayOn(app.guard, () =>
+          app.client.renameFix(fix.fixId, title).then(
+            (d) => {
+              rememberFix(d);
+              app.toast(`Renamed: ${d.title}`);
+              onDone();
+              return true;
+            },
+            (err: unknown) => {
+              app.toast(errorText(err), 'error');
+              return false;
+            },
+          ),
+        )
+      }
+    />
   );
 }
 
@@ -192,7 +210,7 @@ export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boo
   ) : diff ? (
     <>
       <button className="btn" type="button" onClick={() => setAsking('patch')}>
-        View the patch
+        Show patch
       </button>
       {asking === 'patch' ? <PatchDialog fix={fix} diff={diff} onClose={() => setAsking(null)} /> : null}
     </>
@@ -247,7 +265,7 @@ export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boo
           lead={!leads}
           tip={blameNext.tip}
           command={blameNext.command}
-          {...(blameNext.kind === 'stronger' ? { ask: (start: (more: Record<string, unknown>) => void, close: () => void) => <StrongerDialog fix={fix} onRun={(model) => start({ model })} onClose={close} /> } : {})}
+          {...(blameNext.kind === 'stronger' ? { ask: (start: (more: Record<string, unknown>) => boolean, close: () => void) => <StrongerDialog fix={fix} onRun={(model) => start({ model })} onClose={close} /> } : {})}
         />
       ) : null}
       {asking === 'repair' ? <RepairDialog fix={fix} onClose={() => setAsking(null)} onRun={(repairer) => app.guard(() => void start(JOB_KINDS.repair, { fixId: fix.fixId, repairer }))} /> : null}
@@ -255,13 +273,9 @@ export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boo
       {consent ? (
         <ConsentDialog
           why={consent.why}
-          ok={consent.kind === JOB_KINDS.repair ? ACTIONS.runRepair.label : 'Run'}
+          ok={consent.kind === JOB_KINDS.repair ? ACTIONS.runRepair.label : 'Run command'}
           onClose={() => setConsent(null)}
-          onOk={() => {
-            const c = consent;
-            setConsent(null);
-            app.guard(() => void start(c.kind, { ...c.fields, yes: c.confirm }));
-          }}
+          onOk={() => app.guard(() => void start(consent.kind, { ...consent.fields, yes: consent.confirm }))}
         />
       ) : null}
     </>
@@ -274,7 +288,7 @@ export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boo
  * the job, which the server refuses if the config names another by then. One that can't be asked
  * from here (claude isn't on the PATH) is said instead, with what to do, and nothing can start.
  */
-function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose: () => void; onRun: (repairer: string) => void }) {
+export function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose: () => void; onRun: (repairer: string) => boolean }) {
   const { client } = useApp();
   const [fresh, setFresh] = useState<{ fix: FixDetail | null } | null>(null);
   useEffect(() => {
@@ -292,63 +306,71 @@ function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose: () => 
     };
   }, [client, fix.fixId]);
   const ask = repairAsk(fix, fresh);
-  const aside = repairAside(fresh?.fix ?? fix);
-  const text = ask.who
-    ? `Asks ${ask.who} for rewrites of the prompt and tool descriptions, and keeps the smallest one that fixes the failing runs without breaking the good ones. Each candidate is verified in a temporary worktree made from your working tree as it is, never in the working tree itself; the one accepted is kept as a patch for you to apply.`
-    : (ask.why ?? 'Reading which repairer shadowlap.config.json names…');
+  const now = fresh?.fix ?? fix;
+  const aside = repairAside(now);
+  const repair = now.actions.repair;
+  const stopped = now.actions.blameAgain?.kind === 'stopped';
+  const keeps = repair ? keepsOf(repair.argv) : [];
+  // A line is one sentence with no stop; the engine's own sentence keeps it where the terminal UI shows it.
+  const line = ask.why?.replace(/\.$/, '') ?? aside ?? (stopped ? 'Blame stopped part way: repair blames the run again first' : null);
+  // While it reads, what it is doing; then who it asks, or "the repairer" where it can't ask one from here.
+  const lead = fresh ? `Asks ${ask.who ?? 'the repairer'} for prompt and tool rewrites and picks the smallest that fixes the failing runs.` : 'Reading which repairer shadowlap.config.json names…';
   return (
     <Dialog
       title={ACTIONS.runRepair.label}
-      text={text}
+      lead={lead}
+      {...(fresh ? { doc: 'repair' as const } : {})}
+      warn={line ? { text: line } : null}
+      // A repair that ends "No fix to try" runs nothing, so none of what a repair does is said.
+      facts={
+        ask.why || aside
+          ? []
+          : [
+              { label: 'Changes', value: 'nothing in your working tree', quiet: 'each candidate is tried in a worktree of its own' },
+              { label: 'Hands over', value: 'the accepted one, as a patch for you to apply' },
+              keeps.length ? { label: <DialogTip title="Keeps" tip="A candidate that breaks a good run is rejected">Keeps</DialogTip>, value: `${keeps.map((k) => `\`${k}\``).join(', ')} passing` } : null,
+              { label: 'While it runs', value: 'leave the prompt and tools alone' },
+            ]
+      }
+      command={ask.command}
+      cost={repair && (!ask.why || repair.noFixWhy) ? repairCost(repair, stopped) : null}
       ok={ACTIONS.runRepair.label}
       okDisabled={!ask.ready}
       onClose={onClose}
-      onOk={() => {
-        if (!ask.ready || !ask.repairer) return;
-        onClose();
-        onRun(ask.repairer);
-      }}
-    >
-      {/* A repair that ends "No fix to try" runs nothing live, so it bills nothing: the dialog says why instead, whatever else it says. */}
-      {aside ? <p className="fxdlg">{aside}</p> : null}
-      {ask.why || aside ? null : <p className="fxdlg">The agent runs live from where each run was lost, writes stubbed: its model calls are billed. A file you change meanwhile is in the candidates made after it.</p>}
-      {ask.command ? <CmdLine>{ask.command}</CmdLine> : null}
-    </Dialog>
+      onOk={() => (ask.ready && ask.repairer ? onRun(ask.repairer) : false)}
+    />
   );
 }
 
 /**
  * Run blame with stronger model asks first, for the model: it answers from each probed call instead of
- * the recorded one, live, writes stubbed, at what that model costs a call. If it finds the call, the
- * model's capability is the problem; if it doesn't either, the code and the tools are.
+ * the recorded one, live, writes stubbed, at what that model costs a call. How to read what it finds
+ * is the drawer's and the docs'.
  */
-function StrongerDialog({ fix, onRun, onClose }: { fix: FixDetail; onRun: (model: string) => void; onClose: () => void }) {
+export function StrongerDialog({ fix, onRun, onClose }: { fix: FixDetail; onRun: (model: string) => boolean; onClose: () => void }) {
   const s = fix.actions.blameStronger;
   const base = s ? s.command.replace(/ --model <model>$/, '') : '';
   return (
     <PromptDialog
       title={confirmWords(ACTIONS.runBlameStronger.label)}
-      text={
-        <>
-          Probes the run again, with the model you name answering from each probed call instead of the recorded one asked again. If it finds a call, the model’s capability is the problem; if it doesn’t either, look at the code and the tools.
-          {s ? ` Every attempt runs live from its probe, writes stubbed, at that model’s price a call: the last blame took ${s.attempts} attempts, ${approx(s.spent)}.` : ''}
-        </>
-      }
+      lead="Probes the run again with the model you name answering from each probed call."
+      doc="blame"
       label="Model"
       placeholder="claude-opus-5-5"
       ok={confirmWords(ACTIONS.runBlameStronger.label)}
       command={(model) => `${base} --model ${model.trim() || '<model>'}`}
-      onRun={(model) => model.trim() && onRun(model.trim())}
+      cost={{ price: 'Billed by your provider', parts: [...(s ? [`the last blame took ${s.attempts} attempts, ${approx(s.spent)}`] : []), probesPart()] }}
+      onRun={(model) => (model.trim() ? onRun(model.trim()) : false)}
       onClose={onClose}
     />
   );
 }
 
 /** An applied fix's patch, to read: what went into the working tree, and where it is kept. */
-function PatchDialog({ fix, diff, onClose }: { fix: FixDetail; diff: string; onClose: () => void }) {
+export function PatchDialog({ fix, diff, onClose }: { fix: FixDetail; diff: string; onClose: () => void }) {
   const file = fix.actions.apply?.patchFile;
   return (
-    <Dialog title={<code>fix.patch</code>} text={`In your working tree since the fix was applied${file ? `: ${file}` : '.'}`} onClose={onClose}>
+    <Dialog title="Show patch" lead="The fix as repair handed it over, in your working tree since you applied it." doc="repairHandover" facts={file ? [{ label: 'Path', value: <code>{file}</code>, wide: true }] : []} onClose={onClose}>
       <pre className="fxcode fxpatch">
         {patchLines(diff).map((l, i) => (
           <span key={i} className={l.tone ?? undefined}>
@@ -361,20 +383,28 @@ function PatchDialog({ fix, diff, onClose }: { fix: FixDetail; diff: string; onC
   );
 }
 
-function ApplyDialog({ fix, label, onClose, onRun }: { fix: FixDetail; label: string; onClose: () => void; onRun: () => void }) {
+export function ApplyDialog({ fix, label, onClose, onRun }: { fix: FixDetail; label: string; onClose: () => void; onRun: () => boolean }) {
   const apply = fix.actions.apply!;
-  const run = () => {
-    onClose();
-    onRun();
-  };
   const command = `shadowlap fix apply ${shortFixId(fix.fixId)}`;
   // No patch to apply: verified on the working tree as it is, or its patch is there already.
-  if (apply.kind === 'mark' || (apply.inTree && !fix.actions.applied)) return <ConfirmDialog title="Mark this fix applied?" text={markText(apply)} ok={label} command={command} onOk={run} onClose={onClose} />;
-  if (fix.actions.applied)
-    return <ConfirmDialog title="Finish applying the fix?" text={`The patch is in your working tree. What is left: ${apply.pending ?? 'nothing'}.`} ok={label} command={command} onOk={run} onClose={onClose} />;
+  if (apply.kind === 'mark' || (apply.inTree && !fix.actions.applied))
+    return (
+      <ConfirmDialog
+        title={apply.inTree && apply.goldens ? 'Mark fix applied?' : 'Mark fix applied'}
+        lead={markLead(apply)}
+        doc="repairHandover"
+        facts={apply.pulled ? [{ label: 'Recordings', value: 'stay on the machine that ran the repair' }] : []}
+        ok={label}
+        command={command}
+        onOk={onRun}
+        onClose={onClose}
+      />
+    );
+  if (fix.actions.applied) return <ConfirmDialog title="Finish applying fix?" lead="Finishes what applying the fix left undone." doc="repairHandover" facts={[{ label: 'Left', value: apply.pending ?? 'nothing' }]} ok={label} command={command} onOk={onRun} onClose={onClose} />;
   // What goes in is what is shown: the patch itself, with every file it changes named.
   return (
-    <Dialog title={`${confirmWords(ACTIONS.applyFix.label)}?`} text={applyText(apply)} ok={label} onOk={run} onClose={onClose}>
+    <Dialog title={`${confirmWords(ACTIONS.applyFix.label)}?`} lead="Applies the fix to your working tree, for you to review before you commit." doc="repairHandover" warn={apply.pulled ? { text: PULLED_LINE } : null} command={command} ok={label} onOk={onRun} onClose={onClose}>
+      <DialogSteps steps={applySteps(apply)} />
       {apply.diff ? (
         <pre className="fxcode fxpatch">
           {patchLines(apply.diff).map((l, i) => (
@@ -385,7 +415,6 @@ function ApplyDialog({ fix, label, onClose, onRun }: { fix: FixDetail; label: st
           ))}
         </pre>
       ) : null}
-      <CmdLine>{command}</CmdLine>
     </Dialog>
   );
 }
@@ -407,16 +436,13 @@ function ApplyFooter({ job }: { job: JobView }) {
         Update goldens
       </button>
       {asking ? (
-        <ConfirmDialog
-          title={ask.title}
-          text={ask.text}
-          ok={ask.ok}
-          command={ask.command}
+        <UpdateGoldenDialog
+          plan={ask}
           onClose={() => setAsking(false)}
-          onOk={() => {
-            setAsking(false);
-            setStarted(true);
-            app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.testUpdate, ask.fields)));
+          onUpdate={() => {
+            const went = app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.testUpdate, ask.fields)));
+            if (went) setStarted(true);
+            return went;
           }}
         />
       ) : null}

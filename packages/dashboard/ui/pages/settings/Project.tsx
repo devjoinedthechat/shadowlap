@@ -9,7 +9,7 @@ import { bytesText, sizeNote } from './logic.js';
 /**
  * Project: its name, store, runs and attempts, the store's size and the dashboard's address; Clean
  * up old runs (a dry run first, then "Delete N runs" from the drawer, or with no run old enough
- * "Free X" for what deleted runs left unused); and Remove from dashboard, which opens the projects
+ * "Free X" for what deleted runs left unused); and Remove project…, which opens the projects
  * feature's own dialog, here in the page.
  */
 export function ProjectTab() {
@@ -65,7 +65,7 @@ export function ProjectTab() {
         </button>
         {/* A read-only dashboard's reason first: it changes nothing, whichever project it shows. */}
         <button className="btn quiet dz push" type="button" disabled={!!blocked || !!app.actionsOff} title={app.actionsOff ?? blocked ?? `Forget ${data.name} here; its folder, store and goldens stay on disk`} onClick={() => app.guard(() => setRemoving(true))}>
-          Remove from dashboard
+          Remove project…
         </button>
       </div>
       {removing && removal && current ? <removal.Dialog id={current.id} onClose={() => setRemoving(false)} /> : null}

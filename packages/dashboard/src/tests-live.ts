@@ -85,12 +85,12 @@ const reasonLine = (w: LiveReason): string => (w.kind === 'judges' ? `judges ${w
  * goldens with their reasons, so a yes to it runs no other session. Null when the job runs nothing
  * live, or the request said yes to this very question.
  */
-export function liveAsk(goldens: readonly GoldenSource[], job: TestsJob, yes: unknown): { error: string; status: 409; confirm: string } | null {
+export function liveAsk(goldens: readonly GoldenSource[], job: TestsJob, yes: unknown): { error: string; status: 409; confirm: string; live: SessionLiveGolden[] } | null {
   if ('error' in job) return null;
   const live = sessionLiveGoldens(goldens, job);
   if (!live.length) return null;
   const lines = [...commandsOf(job).map((c) => ['shadowlap', ...c]), ...live.map((g) => [g.path, ...g.why.map(reasonLine)])];
-  return saidYes(yes, lines) ? null : askConsent(liveWords(live), lines);
+  return saidYes(yes, lines) ? null : { ...askConsent(liveWords(live), lines), live };
 }
 
 /** Up to three of them by name, then how many more: `a`, `a and b`, `a, b and c`, `a, b, c and 4 more`. */

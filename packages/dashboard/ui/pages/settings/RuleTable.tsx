@@ -1,14 +1,14 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { ApiError } from '../../api.js';
 import { Seg } from '../../components/bits.js';
-import { Dialog } from '../../components/Dialog.js';
+import { Dialog, pressWayOn } from '../../components/Dialog.js';
 import { Icon } from '../../components/Icon.js';
 import { ACTIONS, confirmWords } from '../../labels.js';
 import { messageOf } from '../../../../engine/src/message-of.js';
 import type { RuleRow } from '../../settings-api.js';
 import { useApp } from '../../state.js';
-import { CONFIG_FILE, CommandLine, editErrorText } from './common.js';
-import { emptyRuleForm, redactRuleText, ruleCommand, ruleInput, ruleProblem, ruleWarning, suggestedReplace, type PatternMode, type RuleFormState, type RuleListName } from './logic.js';
+import { CONFIG_FILE, editErrorText } from './common.js';
+import { emptyRuleForm, ruleCommand, ruleFacts, ruleInput, ruleProblem, ruleWarning, suggestedReplace, type PatternMode, type RuleFormState, type RuleListName } from './logic.js';
 
 /**
  * The rules of one list, as Matching and Redaction show them (scope, path, pattern, what replaces
@@ -97,6 +97,9 @@ const MODES: ReadonlyArray<{ key: PatternMode; label: string }> = [
 /** A rule dialog's title and confirm: its button's name, `Add normalizer` or `Add redaction rule`. */
 const addName = (list: RuleListName): string => confirmWords((list === 'normalize' ? ACTIONS.addNormalizerRule : ACTIONS.addRedactionRule).label);
 
+/** What a redaction rule masks, and where: Push copies runs to a team store as recorded, so with one it is every export, pack and share link. */
+const redactsWhere = (teamStore: boolean) => (teamStore ? 'Masks stored content in every export, pack and share link.' : 'Masks stored content whenever a run leaves this machine.');
+
 /**
  * Add normalizer…, or Add redaction rule…: a scope, a path, a named pattern and the replacement, as
  * the mock has it, and under Advanced a regex, a tool or call name, or no pattern (the whole value at
@@ -147,29 +150,39 @@ export function RuleDialog({
   };
   const problem = ruleProblem(f);
   const warning = ruleWarning(f);
-  const add = async () => {
-    if (problem || busy) return;
+  // Stays open on a refusal, with what was typed and why under it.
+  const add = async (): Promise<boolean> => {
+    if (problem || busy) return false;
     setBusy(true);
     try {
       const r = await app.client.settings.addRule(list, ruleInput(f), version);
       onAdded(r.n, r.added, r.version);
+      return true;
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         onStale();
         setError(`${editErrorText(err)} Add it again to add it to the file as it is now.`);
       } else setError(messageOf(err));
+      return false;
     } finally {
       setBusy(false);
     }
   };
-  const nameLabel = f.kind === 'tool' ? 'Tool name' : 'Call name';
+  const line = problem ?? warning ?? moved;
+  const enter = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') pressWayOn(e.currentTarget);
+  };
   return (
     <Dialog
       title={addName(list)}
-      text={norm ? 'Masks a value before matching. Older recordings match too, because fingerprints are recomputed under the current rules.' : redactRuleText(teamStore)}
+      lead={norm ? 'Masks a value before a replay matches its calls.' : redactsWhere(teamStore)}
+      doc={norm ? 'normalizers' : 'redaction'}
+      warn={line ? { text: line.replace(/\.$/, '') } : null}
+      facts={ruleFacts(list, teamStore)}
+      command={ruleCommand(list, f)}
       ok={busy ? 'Adding…' : addName(list)}
       okDisabled={!!problem || busy}
-      onOk={() => void add()}
+      onOk={add}
       onClose={onClose}
       className="ruledlg"
       keepOnSwitch
@@ -188,7 +201,7 @@ export function RuleDialog({
         </label>
         <label>
           Path
-          <input value={f.path} placeholder="$.metadata.user_id" spellCheck={false} autoComplete="off" onChange={(e) => set({ path: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && void add()} />
+          <input value={f.path} placeholder="$.metadata.user_id" spellCheck={false} autoComplete="off" onChange={(e) => set({ path: e.target.value })} onKeyDown={enter} />
         </label>
         <label>
           Pattern
@@ -215,11 +228,26 @@ export function RuleDialog({
               setReplaceTyped(true);
               set({ replace: e.target.value });
             }}
-            onKeyDown={(e) => e.key === 'Enter' && void add()}
+            onKeyDown={enter}
           />
         </label>
       </div>
-      <button className="linkbtn advtoggle" type="button" aria-expanded={advanced} onClick={() => setAdvanced(!advanced)}>
+      <RuleAdvanced list={list} f={f} set={set} open={advanced} onToggle={() => setAdvanced(!advanced)} />
+      {error ? (
+        <p className="fieldnote err" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </Dialog>
+  );
+}
+
+/** A rule's Advanced part: a regex, a call's or a tool's name, or the whole value. */
+function RuleAdvanced({ list, f, set, open: advanced, onToggle }: { list: RuleListName; f: RuleFormState; set: (patch: Partial<RuleFormState>) => void; open: boolean; onToggle: () => void }) {
+  const nameLabel = f.kind === 'tool' ? 'Tool name' : 'Call name';
+  return (
+    <>
+      <button className="linkbtn advtoggle" type="button" aria-expanded={advanced} onClick={onToggle}>
         <Icon name="caret" className={advanced ? 'open' : 'shut'} />
         Advanced: a regex, a {f.kind === 'api' ? 'call' : 'tool'} name, or the whole value
       </button>
@@ -253,9 +281,7 @@ export function RuleDialog({
           </p>
         </div>
       ) : null}
-      <CommandLine command={ruleCommand(list, f)} />
-      {error || problem || warning || moved ? <p className={`fieldnote ${error ? 'err' : 'warn'}`}>{error ?? problem ?? warning ?? moved}</p> : null}
-    </Dialog>
+    </>
   );
 }
 
