@@ -105,6 +105,7 @@ export function RunBlameButton({
         <CheckDialog
           runId={runId}
           text={`${failedText}Say what a passing run must do, as the expect object of an outcome check: blame asks the model calls again until the run does it.`}
+          command={asking.command}
           onClose={() => setAsking(null)}
           onRun={(expect) => start({ expect, ...(asking.command ? { command: asking.command } : {}) })}
         />
@@ -130,7 +131,7 @@ export function RunBlameButton({
  * open, with what was typed, until the job has started: a check that isn't an object, or one the
  * server refuses, says why under the field.
  */
-function CheckDialog({ runId, text, onClose, onRun }: { runId: string; text: string; onClose: () => void; onRun: (expect: Record<string, unknown>) => Promise<string | null> }) {
+function CheckDialog({ runId, text, command, onClose, onRun }: { runId: string; text: string; command: string | null; onClose: () => void; onRun: (expect: Record<string, unknown>) => Promise<string | null> }) {
   const [value, setValue] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -175,7 +176,7 @@ function CheckDialog({ runId, text, onClose, onRun }: { runId: string; text: str
           {error}
         </p>
       ) : null}
-      <CmdLine>{`shadowlap blame ${shortId(runId)} --expect '<check>'`}</CmdLine>
+      <CmdLine>{`shadowlap blame ${shortId(runId)} --expect '<check>'${command ? ` -- ${command}` : ''}`}</CmdLine>
     </Dialog>
   );
 }

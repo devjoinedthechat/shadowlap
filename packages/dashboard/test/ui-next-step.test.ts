@@ -1,6 +1,6 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Client } from '../ui/api.js';
+import { ApiError, type Client } from '../ui/api.js';
 import { fixStatusWords, nextStepOf, stepCard, stepCost } from '../ui/run/next-step.js';
 import { Banner } from '../ui/run/parts.js';
 import { useWholeStep } from '../ui/run/NextStepButton.js';
@@ -180,6 +180,18 @@ describe('the run page’s next step', () => {
     expect(page.one('.dialog .cmdline').textContent).toContain(`shadowlap blame ${REC.slice(0, 10)} --expect '{"calls":[]}' -- python agent.py`);
     await page.click(page.one('.dialog .dlg-ok'));
     expect(started).toEqual([['blame', { runId: REC, command: 'python agent.py' }]]);
+  });
+
+  it('asks a capture whose failure names no check for it after your command, saying what it will run', async () => {
+    const run = detail({ state: failedState, source: 'cassette.json', next: { key: 'blame', label: 'Run blame', capture: true, offer: { from: 'ask', failed: [] }, command: `shadowlap blame ${REC.slice(0, 10)} --expect '<what it must do>' -- <your command>` } });
+    const a = app({}, { startJob: () => Promise.reject(new ApiError(422, 'say what a passing run must do')) } as never);
+    page = await render(both(run, null, a));
+    await page.click(page.byText('.rhead .actions button', 'Run blame'));
+    await page.type(page.one('.dialog input'), 'python agent.py');
+    await page.click(page.one('.dialog .dlg-ok'));
+    await page.wait(0);
+    expect(page.one('.dialog').textContent).toContain('Say what a passing run must do');
+    expect(page.one('.dialog .cmdline').textContent).toContain(`shadowlap blame ${REC.slice(0, 10)} --expect '<check>' -- python agent.py`);
   });
 
   it('replays only where the server says nothing else needs doing, and draws no lime button with no step', async () => {
