@@ -88,7 +88,7 @@ export interface PreviewVerdict extends VerdictRowBase {
   flagged: number;
   /** What flags them: 1 a write changed (red), 2 a stop, hand-over or judged change (amber); null when none is flagged. */
   flaggedRank: 1 | 2 | null;
-  /** Flagged runs no verify has taken yet: verify's verdict waits for them. */
+  /** Runs it could not clear that no verify has taken yet: verify's verdict waits for them. */
   toVerify: number;
 }
 
@@ -337,6 +337,8 @@ interface PreviewFacts {
   name: string;
   counts: DecisionCounts;
   flagged: string[];
+  /** The runs it could not clear; the flagged ones in a session kept before it said which. */
+  toVerify: string[];
   verify: DecisionsVerify | null;
   /** A migration's What still passes, which its verdict is read from; null for a preview. */
   passes: MigratePasses | null;
@@ -369,7 +371,7 @@ function passesOf(raw: unknown): MigratePasses | null {
 function previewFacts(store: Store, ids: readonly string[]): Map<string, PreviewFacts> {
   const rows = store.query(
     `SELECT s.session_id AS id, s.kind AS kind, s.at AS at, s.actor AS actor, s.revision AS revision,
-       ${part('change')} AS change, ${part('counts')} AS counts, ${part('flagged')} AS flagged, ${part('verify')} AS verify, ${part('judge.inconclusive')} AS judge_waits, ${part('stopReason')} AS stop_reason,
+       ${part('change')} AS change, ${part('counts')} AS counts, ${part('flagged')} AS flagged, ${part('toVerify')} AS to_verify, ${part('verify')} AS verify, ${part('judge.inconclusive')} AS judge_waits, ${part('stopReason')} AS stop_reason,
        json_extract(s.data, '$.from') AS from_models, json_extract(s.data, '$.to') AS to_model, CASE s.kind WHEN 'migrate' THEN json_extract(s.data, '$.passes') END AS passes,
        (SELECT COUNT(*) FROM decision_runs r WHERE r.session_id = s.session_id) AS runs,
        (SELECT COUNT(r.golden) FROM decision_runs r WHERE r.session_id = s.session_id) AS goldens,
@@ -386,17 +388,18 @@ function previewFacts(store: Store, ids: readonly string[]): Map<string, Preview
     const name = decisionsName({ kind: kind === 'migration' ? 'migrate' : 'decisions', change, from, to: str(r.to_model) });
     const flaggedRank = r.flag_rank === 1 || r.flag_rank === 2 ? r.flag_rank : null;
     const flagged = parsed<unknown[]>(r.flagged, []).filter((x): x is string => typeof x === 'string');
-    out.set(String(r.id), { id: String(r.id), kind, at: Number(r.at), actor: str(r.actor), revision: str(r.revision), name, counts, flagged, verify: verifyOf(r.verify), passes: kind === 'migration' ? passesOf(r.passes) : null, judgeWaits: count(r.judge_waits), stopReason: str(r.stop_reason), fromCode: !!change?.fromCode, runs: count(r.runs), goldens: count(r.goldens), flaggedRank });
+    const toVerify = parsed<unknown[] | null>(r.to_verify, null)?.filter((x): x is string => typeof x === 'string') ?? flagged;
+    out.set(String(r.id), { id: String(r.id), kind, at: Number(r.at), actor: str(r.actor), revision: str(r.revision), name, counts, flagged, toVerify, verify: verifyOf(r.verify), passes: kind === 'migration' ? passesOf(r.passes) : null, judgeWaits: count(r.judge_waits), stopReason: str(r.stop_reason), fromCode: !!change?.fromCode, runs: count(r.runs), goldens: count(r.goldens), flaggedRank });
   }
   return out;
 }
 
-/** What verify took of the runs a session flags: the runs it verified, its verdict on them, and how many of the flagged it has yet to take. */
+/** What verify took of the runs a session could not clear: the runs it verified, its verdict on them, and how many it has yet to take. */
 function verifiedOf(f: PreviewFacts): { ran: DecisionsVerify['runs']; verdict: DecisionsVerify['verdict'] | null; left: number } {
   const v = f.verify && f.verify.verdict !== 'not-run' ? f.verify : null;
   const ran = v?.runs ?? [];
   const taken = new Set(ran.map((x) => x.runId));
-  return { ran, verdict: v?.verdict ?? null, left: f.flagged.filter((id) => !taken.has(id)).length };
+  return { ran, verdict: v?.verdict ?? null, left: f.toVerify.filter((id) => !taken.has(id)).length };
 }
 
 /**
@@ -458,9 +461,9 @@ function previewVerdict(f: PreviewFacts, runs: readonly UnsettledRun[]): Pick<Pr
   const breaks = f.kind === 'migration' ? !!f.passes && migrateBreaks(f.passes) : verdict === 'rejected';
   if (verdict && breaks) return say('rejected', verifyHead('rejected', ran));
   if (verdict === 'incomplete') return say('inconclusive', verifyHead('incomplete', ran));
-  const why = f.kind === 'migration' ? f.passes && migrateUnsettled({ stopReason: f.stopReason, passes: f.passes }) : decisionsUnsettled({ stopReason: f.stopReason, flagged: f.flagged, runs, verify: f.verify });
+  const why = f.kind === 'migration' ? f.passes && migrateUnsettled({ stopReason: f.stopReason, passes: f.passes }) : decisionsUnsettled({ stopReason: f.stopReason, flagged: f.flagged, toVerify: f.toVerify, runs, verify: f.verify });
   if (why) return say('inconclusive', sentence(why));
-  if (verdict && f.flagged.length) return say('accepted', verifyHead('accepted', ran));
+  if (verdict && f.toVerify.length) return say('accepted', verifyHead('accepted', ran));
   const h = decisionsHeadline({ counts: f.counts, flagged: [], runs: [] });
   return say('nothing to verify', `${h.lead}${h.rest}`);
 }
