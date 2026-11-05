@@ -367,7 +367,7 @@ function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }
   const last = row.last;
   const n = row.history.length;
   return (
-    <tr className={row.runId ? undefined : 'still'} onClick={row.runId ? rowOpen(() => navigate(href.run(row.runId!))) : undefined}>
+    <tr className={row.runId ? undefined : 'still'} {...(row.runId ? rowOpen(() => navigate(href.run(row.runId!))) : {})}>
       <td className="gg">
         <code className="gn">{row.name}</code>
         <span className="gmeta">
@@ -410,6 +410,7 @@ function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }
                 key={`${String(h.revision)}:${i}`}
                 className={`${cellClass(h)} ${revClass(i, n)}${h.updated ? ' upd' : ''}${h.runId ? ' go' : ''}`}
                 data-tip={tipCard(t.title, [{ label: t.label, value: t.value, color: t.color }])}
+                data-acts={h.runId ? '' : undefined}
                 onClick={
                   h.runId
                     ? (e) => {

@@ -11,9 +11,9 @@ import { Command, Copy } from './Copy.js';
  * never over the menu its button opened or a dialog's footer. A pointer waits 400 ms for it, and the
  * next one shows at once while one was showing; the keyboard's focus shows one at once and keeps it
  * as Tab scrolls the page to its control; a tap on a touch screen toggles one on a fact that is no
- * link or button. While it shows, its element points at it with `aria-describedby`, and an element
- * with a card and no action of its own takes the focus (`markTipTargets`), so what a hover shows is
- * never only a hover's.
+ * link or button and in no row that acts on the tap. It goes when its element or its page does. While
+ * it shows, its element points at it with `aria-describedby`, and an element with a card and no action
+ * of its own takes the focus (`markTipTargets`), so what a hover shows is never only a hover's.
  */
 
 export interface TipRow {
@@ -303,6 +303,9 @@ function focusOut(e: FocusEvent): void {
   if (shown?.by === 'focus' && shown.el.contains(e.target as Node)) hideTip();
 }
 
+/** What a tap acts on, so a fact's card inside it stays away: a control, or a row that opens or selects on a click (`data-acts`). */
+const ACTS = 'a[href], button, input, select, textarea, label, summary, [role="button"], [role="switch"], [data-acts]';
+
 /** What a press found: a finger, and the card that showed, which its tap then hides. */
 let pressedBy: string | null = null;
 let hadCard: HTMLElement | null = null;
@@ -312,7 +315,11 @@ function pressed(e: PointerEvent): void {
   hadCard = shown?.el ?? null;
 }
 
-/** What a click does to a card, before the click itself acts: a click acts, and the card comes back on the next move; a tap on a fact, or any click on a term, is what the fact's card is for. */
+/**
+ * What a click does to a card, before the click itself acts: a click acts, and the card comes back on
+ * the next move. A tap on a fact, or any click on a term, is what the card is for, unless what holds
+ * the fact acts on the tap instead (`ACTS`): a term alone defines itself wherever it sits.
+ */
 function clicked(e: MouseEvent): void {
   const el = tipOf(e.target);
   const term = !!el?.matches('.term.on');
@@ -321,7 +328,7 @@ function clicked(e: MouseEvent): void {
     else hideTip();
     return;
   }
-  if (!el || (el.closest('a[href], button, input, select, textarea, label, [role="button"]') && !term)) return hideTip();
+  if (!el || (el.closest(ACTS) && !term)) return hideTip();
   if (el === hadCard) hideTip();
   else show(el, null, 'tap');
 }
@@ -364,6 +371,8 @@ export function HoverCardLayer() {
     document.addEventListener('keydown', escape, true);
     document.addEventListener('scroll', scrolled, true);
     window.addEventListener('blur', hideTip);
+    // A card belongs to the page it was shown on.
+    window.addEventListener('hashchange', hideTip);
     return () => {
       document.removeEventListener('pointerover', pointerOver);
       document.removeEventListener('pointerout', pointerOut);
@@ -374,11 +383,13 @@ export function HoverCardLayer() {
       document.removeEventListener('keydown', escape, true);
       document.removeEventListener('scroll', scrolled, true);
       window.removeEventListener('blur', hideTip);
+      window.removeEventListener('hashchange', hideTip);
       hideTip();
     };
   }, []);
 
-  // Every element with a card takes the focus or is named by it, however it came into the page.
+  // Every element with a card takes the focus or is named by it, however it came into the page, and a
+  // card whose element has left the page goes with it.
   useEffect(() => {
     if (typeof MutationObserver !== 'function') return;
     let frame = 0;
@@ -386,6 +397,7 @@ export function HoverCardLayer() {
       frame ||= requestAnimationFrame(() => {
         frame = 0;
         markTipTargets(document.body);
+        if (shown && !shown.el.isConnected) hideTip();
       });
     };
     soon();

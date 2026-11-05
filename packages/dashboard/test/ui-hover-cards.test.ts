@@ -1,7 +1,8 @@
-import { createElement, type ReactNode } from 'react';
+import { act, createElement, type ReactNode } from 'react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { HoverCardLayer, hideTip, markTipTargets, tipCard, tipClauses, tipCmd } from '../ui/components/HoverCard.js';
 import { useMenu } from '../ui/components/Popover.js';
+import { rowOpen } from '../ui/components/Table.js';
 import { placeTip } from '../ui/place.js';
 import { menuOf, noMedia, shell } from './ui-overlays-page.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
@@ -76,12 +77,13 @@ describe('a hover card', () => {
     expect(r.one('#link').hasAttribute('aria-describedby')).toBe(false);
   });
 
+  const tap = async (el: FakeElement) => {
+    await r!.fire(el, 'pointerdown', { pointerType: 'touch' });
+    await r!.fire(el, 'click');
+  };
+
   it('toggles on a tap on a fact, and no tap on a link or a button shows one', async () => {
     r = await render(page(createElement('div', { key: 'facts' }, fact(), createElement('button', { type: 'button', id: 'act', 'data-tip': tipCard('Replay', []) }, 'Replay'))));
-    const tap = async (el: FakeElement) => {
-      await r!.fire(el, 'pointerdown', { pointerType: 'touch' });
-      await r!.fire(el, 'click');
-    };
     await tap(r.one('#fact'));
     expect(card().textContent).toContain('Spent');
     await tap(r.one('#fact'));
@@ -94,12 +96,48 @@ describe('a hover card', () => {
     expect(card().hasAttribute('hidden')).toBe(true);
   });
 
+  it('shows on no tap in a row that opens or selects on a click, which acts on it instead; a term alone defines itself there', async () => {
+    const opened = vi.fn();
+    const term = createElement('span', { id: 'word', className: 'term on', tabIndex: 0, 'data-tip': JSON.stringify({ t: 'bound', s: 'A rate' }), onClick: (e: { stopPropagation(): void }) => e.stopPropagation() }, 'bound');
+    const row = createElement('tr', { ...rowOpen(opened) }, createElement('td', null, createElement('span', { id: 'status', 'data-tip': tipCard('No check applies', []) }, 'passed'), term));
+    const select = vi.fn();
+    r = await render(page(createElement('table', { key: 'list' }, createElement('tbody', null, row)), createElement('div', { key: 'lane', id: 'lane', 'data-acts': '', onClick: select }, createElement('i', { id: 'bar', 'data-tip': tipCard('#3', []) }))));
+    await tap(r.one('#status'));
+    expect(opened).toHaveBeenCalledTimes(1);
+    expect(card().hasAttribute('hidden')).toBe(true);
+    await tap(r.one('#bar'));
+    expect(select).toHaveBeenCalledTimes(1);
+    expect(card().hasAttribute('hidden')).toBe(true);
+    // One that showed goes: the row acts, and the card stays with no page it came from.
+    await r.focus(r.one('#word'));
+    expect(card().hasAttribute('hidden')).toBe(false);
+    await tap(r.one('#status'));
+    expect(card().hasAttribute('hidden')).toBe(true);
+    await tap(r.one('#word'));
+    expect(card().textContent).toContain('A rate');
+    expect(opened).toHaveBeenCalledTimes(2);
+    await tap(r.one('#word'));
+    expect(card().hasAttribute('hidden')).toBe(true);
+  });
+
   it('goes on a click, which acts, and comes back on the next move', async () => {
     r = await render(page(fact({ key: 'fact' })));
     await r.focus(r.one('#fact'));
     await r.fire(r.one('#fact'), 'pointerdown', { pointerType: 'mouse' });
     await r.fire(r.one('#fact'), 'click');
     expect(card().hasAttribute('hidden')).toBe(true);
+    await r.fire(r.one('#fact'), 'pointerover', { pointerType: 'mouse', clientX: 10 });
+    await r.wait(0);
+    expect(card().hasAttribute('hidden')).toBe(false);
+  });
+
+  it('goes as the address moves on to another page', async () => {
+    r = await render(page(fact({ key: 'fact' })));
+    await r.focus(r.one('#fact'));
+    expect(card().hasAttribute('hidden')).toBe(false);
+    await act(async () => void window.dispatchEvent(new Event('hashchange')));
+    expect(card().hasAttribute('hidden')).toBe(true);
+    expect(r.one('#fact').hasAttribute('aria-describedby')).toBe(false);
   });
 
   it('never shows over the menu its button opened: while a menu is open only its rows have cards', async () => {

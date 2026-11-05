@@ -265,7 +265,7 @@ function Spacer({ height, cols }: { height: number; cols: number }) {
 /** A call whose page isn't read yet: its number, its mark and its origin, and a word that it is on its way. */
 const PendingRow = memo(function PendingRow({ at, c, selected, scoped, mark, onSelect, grouped = false }: { at: number; c: PendingCall; selected: boolean; scoped: boolean; mark: 'fork' | 'lost' | null; onSelect: (n: number) => void; grouped?: boolean }) {
   return (
-    <tr data-wi={at} aria-rowindex={at + 2} aria-selected={selected} aria-busy="true" onClick={() => onSelect(c.callNo)}>
+    <tr data-wi={at} data-acts="" aria-rowindex={at + 2} aria-selected={selected} aria-busy="true" onClick={() => onSelect(c.callNo)}>
       <td className="n">
         {mark ? <span className={`fk${mark === 'lost' ? ' bl' : ''}`}>{mark === 'fork' ? 'FORK' : 'LOST'}</span> : null}
         {c.callNo}
@@ -316,7 +316,7 @@ const Row = memo(function Row({
   const res = resultLine(c);
   const t = timeOf(c, ancestors, live);
   return (
-    <tr data-wi={at} aria-rowindex={at + 2} aria-selected={selected} onClick={() => onSelect(c.callNo)}>
+    <tr data-wi={at} data-acts="" aria-rowindex={at + 2} aria-selected={selected} onClick={() => onSelect(c.callNo)}>
       <td className="n">
         {mark ? <span className={`fk${mark === 'lost' ? ' bl' : ''}`}>{mark === 'fork' ? 'FORK' : 'LOST'}</span> : null}
         {c.callNo}
