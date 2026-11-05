@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { GLOSSARY } from '../ui/glossary.js';
 import { demoId, focusedLabel, openPage, seriousViolations } from './dashboard.js';
 
 /**
@@ -14,6 +15,50 @@ const shareButton = (page: Page) => page.locator('.rhead .actions button', { has
 const box = async (l: Locator) => (await l.boundingBox())!;
 /** Add redaction rule's field a person fills first: it holds its own default, so a change is an edit. */
 const replaceWith = (dialog: Locator) => dialog.locator('label', { hasText: 'Replace with' }).locator('input');
+/** Whether the page has the focus, as a link followed leaves it. */
+const pageFocused = (page: Page) => page.evaluate(() => !!document.activeElement?.closest('#view'));
+
+/** The demo's one project and another: the switcher's × shows from two. */
+const twoProjects = (page: Page) =>
+  page.route(/\/api\/projects$/, async (route) => {
+    // The whole list each time, never a 304 of the one before it.
+    const headers = { ...route.request().headers() };
+    delete headers['if-none-match'];
+    const res = await route.fetch({ headers });
+    const view = (await res.json()) as { items: Array<Record<string, unknown>> };
+    const first = { ...view.items[0], removable: true };
+    await route.fulfill({ response: res, json: { ...view, items: [first, { ...first, id: 'research', name: 'research', current: false, detail: 'setting up' }] } });
+  });
+
+/** How far a project row's × is from the middle of its row, by the glyph itself. */
+const offCentre = (px: Locator) =>
+  px.evaluate((el) => {
+    const row = el.closest('.prow')!.getBoundingClientRect();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const glyph = range.getBoundingClientRect();
+    return Math.abs(glyph.top + glyph.height / 2 - (row.top + row.height / 2));
+  });
+
+/** The page's own clock around a hover card: from the pointer coming over a mark to the card showing, whatever the test's machine is doing meanwhile. */
+const hoverClock = {
+  start: (page: Page) =>
+    page.evaluate(() => {
+      const w = window as unknown as { hover: { over: number; shown: number } };
+      w.hover = { over: 0, shown: 0 };
+      document.addEventListener('pointerover', (e) => void ((e.target as Element).closest('[data-tip]') && (w.hover.over = performance.now())), true);
+      const tip = document.querySelector<HTMLElement>('#tip')!;
+      new MutationObserver(() => void (!tip.hidden && !w.hover.shown && (w.hover.shown = performance.now()))).observe(tip, { attributes: true, attributeFilter: ['hidden'] });
+    }),
+  /** How long it took, and starts again for the next. */
+  read: (page: Page) =>
+    page.evaluate(() => {
+      const w = window as unknown as { hover: { over: number; shown: number } };
+      const ms = w.hover.shown - w.hover.over;
+      w.hover = { over: 0, shown: 0 };
+      return ms;
+    }),
+};
 
 test('a menu sits under its button at the edge nearer the window’s middle, or over it where there is more room, never over the button', async ({ page }) => {
   await openPage(page, `/run/${demoId('ticket')}`, 'run');
@@ -80,6 +125,23 @@ test('a menu keeps its keys: ↓ opens it, a letter finds an item, Home and End 
   await expect(share).toBeFocused();
 });
 
+test('↓ on a row’s fork icon opens its menu at the first press, and leaves the call selected as it is', async ({ page }) => {
+  await openPage(page, `/run/${demoId('ticket')}`, 'run');
+  const row = page.locator('main#view table.calls tr[aria-selected="true"]');
+  const at = await row.getAttribute('data-wi');
+  const icon = row.locator('.rowact button');
+  await expect(icon).toHaveAttribute('aria-haspopup', 'menu');
+  await expect(icon).toHaveAttribute('aria-expanded', 'false');
+  await icon.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator(MENU)).toBeVisible();
+  await expect(icon).toHaveAttribute('aria-expanded', 'true');
+  expect(await row.getAttribute('data-wi')).toBe(at);
+  await page.keyboard.press('Escape');
+  await expect(icon).toBeFocused();
+  await expect(icon).toHaveAttribute('aria-expanded', 'false');
+});
+
 test('a menu’s link that opens another page hands the focus to that page', async ({ page }) => {
   await openPage(page, `/run/${demoId('ticket')}`, 'run');
   await shareButton(page).click();
@@ -128,6 +190,17 @@ test('the project switcher checks the current project, and → reaches a row’s
   await expect(page.locator('button.proj')).toBeFocused();
 });
 
+test('a project’s × sits in the middle of its row, with no room kept for a check', async ({ page }) => {
+  await twoProjects(page);
+  await openPage(page, '/runs', 'main#view table.runst tbody tr');
+  await page.locator('button.proj').click();
+  const px = page.locator(`${MENU} .px`).first();
+  await expect(px).toBeAttached();
+  expect(await offCentre(px)).toBeLessThanOrEqual(1.5);
+  expect(await px.evaluate((el) => getComputedStyle(el, '::before').content)).toBe('none');
+  expect(await seriousViolations(page)).toEqual([]);
+});
+
 test('a click outside a menu closes it: the focus stays on a control it landed on, and comes back from where nothing takes it', async ({ page }) => {
   await openPage(page, `/run/${demoId('ticket')}`, 'run');
   const share = shareButton(page);
@@ -147,6 +220,49 @@ test('a click outside a menu closes it: the focus stays on a control it landed o
   await expect(page.locator(MENU)).toBeVisible();
   await share.click();
   await expect(page.locator(MENU)).toHaveCount(0);
+});
+
+test('another page closes what is open over the last, without asking, and the page takes the focus', async ({ page }) => {
+  await openPage(page, '/settings/redaction', 'main#view .pvhead');
+  await page.locator('aside#side a', { hasText: 'Runs' }).click();
+  await page.waitForSelector('main#view table.runst tbody tr');
+  const back = async () => {
+    await page.goBack();
+    await page.waitForSelector('main#view .pvhead');
+    await expect.poll(() => pageFocused(page)).toBe(true);
+    await page.goForward();
+    await page.waitForSelector('main#view table.runst tbody tr');
+  };
+  // The switcher, its button still on the page.
+  await page.locator('button.proj').click();
+  await expect(page.locator(MENU)).toBeVisible();
+  await back();
+  await expect(page.locator(MENU)).toHaveCount(0);
+  await expect(page.locator('button.proj')).toHaveAttribute('aria-expanded', 'false');
+  // The palette and the shortcuts, and the app behind them back in reach.
+  await page.keyboard.press('Meta+k');
+  await expect(page.locator('.palette')).toBeVisible();
+  await back();
+  await expect(page.locator('.palette')).toHaveCount(0);
+  expect(await page.locator('#app').getAttribute('inert')).toBeNull();
+  await page.keyboard.press('?');
+  await expect(page.locator('.help')).toBeVisible();
+  await back();
+  await expect(page.locator('.help')).toHaveCount(0);
+  expect(await page.locator('#app').getAttribute('inert')).toBeNull();
+});
+
+test('a dialog the palette asks for along with its page stays as the address settles', async ({ page }) => {
+  await openPage(page, '/runs?q=refund', 'main#view .ph');
+  await page.keyboard.press('Meta+k');
+  await page.locator('.palette input').fill('Import capture');
+  await page.keyboard.press('Enter');
+  const dialog = page.locator(DIALOG);
+  await expect(dialog).toBeVisible();
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/runs');
+  await page.evaluate(() => new Promise((done) => setTimeout(done, 50)));
+  await expect(dialog).toBeVisible();
+  await expect(page.locator('.dialog .drop')).toBeFocused();
 });
 
 test('a picker is a combobox with a filter: it finds a run by its id or about line, says when nothing matches, and hands the focus back', async ({ page }) => {
@@ -216,10 +332,25 @@ test('a modal fits the window: its header and footer stay in view, its body scro
   expect(cancel.y + cancel.height).toBeLessThanOrEqual(320);
   const body = page.locator('.dialog > .db');
   expect(await body.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  // Its controls are its stops: the keyboard scrolls it to them.
+  expect(await body.getAttribute('tabindex')).toBeNull();
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   for (const sel of ['#app', '#conn', '#dock', 'a.skip']) expect(await page.locator(sel).getAttribute('inert'), sel).toBeNull();
+});
+
+test('a dialog’s body that scrolls and holds no control takes the focus, so the keyboard can scroll it, only while it scrolls', async ({ page }) => {
+  await openPage(page, `/run/${demoId('ticket')}`, 'run');
+  await page.locator('.rhead .actions button', { hasText: 'Delete' }).click();
+  const body = page.locator('.dialog > .db');
+  await expect(body).toBeVisible();
+  expect(await body.getAttribute('tabindex')).toBeNull();
+  await page.setViewportSize({ width: 1440, height: 170 });
+  await expect(body).toHaveAttribute('tabindex', '0');
+  expect(await body.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(body).not.toHaveAttribute('tabindex', '0');
 });
 
 test('a modal’s scrim closes it only on a press that starts and ends on it', async ({ page }) => {
@@ -323,12 +454,12 @@ test('a page drawn anew just after a modal closes hands the focus to the opener�
 test('a hover card waits 400 ms for a pointer, shows at once for the keyboard, and its element points at it', async ({ page }) => {
   await openPage(page, `/run/${demoId('ticket')}`, 'run');
   const tip = page.locator('#tip');
+  await hoverClock.start(page);
   const cell = page.locator('.cells button').nth(2);
   await cell.hover();
-  await expect(tip).toBeHidden();
-  await page.waitForTimeout(150);
-  await expect(tip).toBeHidden();
   await expect(tip).toBeVisible();
+  // By the page's clock, which a loaded machine can't outrun.
+  expect(await hoverClock.read(page)).toBeGreaterThanOrEqual(395);
   await expect(cell).toHaveAttribute('aria-describedby', 'tip');
   // Anchored to its element, not to the pointer: under it, at its left edge unless the window's edge says otherwise.
   const [c, t] = [await box(cell), await box(tip)];
@@ -338,7 +469,8 @@ test('a hover card waits 400 ms for a pointer, shows at once for the keyboard, a
   // The next one shows at once while one was showing.
   const next = page.locator('.cells button').nth(4);
   await next.hover();
-  await expect(next).toHaveAttribute('aria-describedby', 'tip', { timeout: 300 });
+  await expect(next).toHaveAttribute('aria-describedby', 'tip');
+  expect(await hoverClock.read(page)).toBeLessThan(395);
   expect(await cell.getAttribute('aria-describedby')).toBeNull();
   expect(await seriousViolations(page)).toEqual([]);
   await page.mouse.move(2, 2);
@@ -384,6 +516,70 @@ test('a hover card keeps clear of what it belongs to: never the menu its button 
   expect(t.x + t.width <= m.x || t.x >= m.x + m.width).toBe(true);
   await page.keyboard.press('Escape');
   await expect(menu).toHaveCount(0);
+  await expect(tip).toBeHidden();
+});
+
+test('a term’s card keeps each clause whole, with a space between two on a line', async ({ page }) => {
+  await openPage(page, '/runs', 'main#view table.runst tbody tr');
+  await page.evaluate((definition) => {
+    const word = document.createElement('span');
+    word.id = 'golden-word';
+    word.className = 'term on';
+    word.textContent = 'golden';
+    word.dataset.tip = JSON.stringify({ t: 'golden', s: definition });
+    document.querySelector('main#view')!.prepend(word);
+  }, GLOSSARY.golden);
+  await page.locator('#golden-word').hover();
+  await expect(page.locator('#tip')).toBeVisible();
+  const clauses = await page.locator('#tip .tcl').evaluateAll((els) => els.map((el) => el.getBoundingClientRect()).map((b) => ({ left: b.left, right: b.right, top: b.top })));
+  expect(clauses.length).toBeGreaterThan(2);
+  const sharing = clauses.slice(1).filter((c, i) => c.top === clauses[i]!.top).map((c) => c.left - clauses[clauses.findIndex((x) => x.top === c.top)]!.right);
+  expect(sharing.length).toBeGreaterThan(0);
+  for (const gap of sharing) expect(gap).toBeGreaterThan(2);
+});
+
+test('a hover card in a dialog goes over its element rather than over the dialog’s buttons', async ({ page }) => {
+  await openPage(page, `/run/${demoId('ticket')}`, 'run');
+  await page.locator('.rhead .actions button', { hasText: 'Delete' }).click();
+  await expect(page.locator(DIALOG)).toBeVisible();
+  await page.evaluate(() => {
+    const fact = document.createElement('p');
+    fact.id = 'fact';
+    fact.textContent = 'A fact at the foot of its body';
+    fact.dataset.tip = JSON.stringify({ t: 'A fact', s: 'What it means here, in a line of its own', rows: [['one', '1', ''], ['two', '2', ''], ['three', '3', '']] });
+    document.querySelector('.dialog > .db')!.append(fact);
+  });
+  const fact = page.locator('#fact');
+  await fact.hover();
+  const tip = page.locator('#tip');
+  await expect(tip).toBeVisible();
+  const [t, f, foot] = [await box(tip), await box(fact), await box(page.locator('.dialog > footer'))];
+  // It would have reached the footer under its element.
+  expect(f.y + f.height + 8 + t.height).toBeGreaterThan(foot.y);
+  expect(t.y + t.height).toBeLessThanOrEqual(foot.y);
+});
+
+test('a hover card goes when its element leaves the page, and when the page changes under one that stays', async ({ page }) => {
+  await openPage(page, '/runs', 'main#view table.runst tbody tr');
+  const tip = page.locator('#tip');
+  const mark = (where: string) =>
+    page.evaluate((w) => {
+      const el = document.createElement('span');
+      el.id = 'mark';
+      el.textContent = 'A fact';
+      el.dataset.tip = JSON.stringify({ t: 'A fact' });
+      document.querySelector(w)!.prepend(el);
+    }, where);
+  await mark('main#view');
+  await page.locator('#mark').hover();
+  await expect(tip).toBeVisible();
+  await page.evaluate(() => document.querySelector('#mark')!.remove());
+  await expect(tip).toBeHidden();
+  // In the top bar, which every page keeps.
+  await mark('header.top');
+  await page.locator('#mark').hover();
+  await expect(tip).toBeVisible();
+  await page.evaluate(() => void (location.hash = '#/settings/redaction'));
   await expect(tip).toBeHidden();
 });
 
@@ -456,6 +652,16 @@ test.describe('on a phone', () => {
     expect(await seriousViolations(page)).toEqual([]);
   });
 
+  test('a project’s × sits in the middle of its row in the sheet', async ({ page }) => {
+    await twoProjects(page);
+    await openPage(page, '/runs', 'main#view table.runst tbody tr');
+    await page.locator('button.menu-toggle').click();
+    await page.locator('button.proj').click();
+    const px = page.locator(`${MENU}.sheet .px`).first();
+    await expect(px).toBeVisible();
+    expect(await offCentre(px)).toBeLessThanOrEqual(1.5);
+  });
+
   test('the shortcuts are a sheet, and the palette stays centred, its opener in the closed sidebar handing the focus to the sidebar’s button', async ({ page }) => {
     await openPage(page, '/runs', 'main#view table.runst tbody tr');
     await page.keyboard.press('?');
@@ -496,6 +702,15 @@ test.describe('with a finger', () => {
     await expect(page.locator('.dialog .dlg-ok')).toBeFocused();
   });
 
+  test('a dialog whose way on waits starts on Cancel, never on its field, so the phone’s keyboard stays closed', async ({ page }) => {
+    await openPage(page, `/run/${demoId('ticket')}`, 'run');
+    await page.locator('#forkBtn').tap();
+    await page.locator(`${MENU} button`, { hasText: 'Inject instruction' }).tap();
+    await expect(page.locator(DIALOG)).toBeVisible();
+    await expect(page.locator('.dialog .dlg-ok')).toBeDisabled();
+    await expect(page.locator('.dialog .dlg-cancel')).toBeFocused();
+  });
+
   test('a tap toggles a fact’s hover card', async ({ page }) => {
     const tip = page.locator('#tip');
     await openPage(page, `/run/${demoId('override')}`, 'run');
@@ -504,5 +719,20 @@ test.describe('with a finger', () => {
     await expect(tip).toBeVisible();
     await fact.tap();
     await expect(tip).toBeHidden();
+  });
+});
+
+test.describe('with a finger on a wider screen', () => {
+  test.use({ viewport: { width: 820, height: 1000 }, hasTouch: true, isMobile: true });
+
+  test('a tap on a fact in a row that opens opens the row, and no card stays over the next page', async ({ page }) => {
+    await openPage(page, '/runs', 'main#view table.runst tbody tr');
+    const fact = page.locator('main#view table.runst tbody tr .st[data-tip]:visible').first();
+    await fact.scrollIntoViewIfNeeded();
+    await fact.tap();
+    await page.waitForSelector('main#view .rhead .rnm');
+    await expect(page.locator('#tip')).toBeHidden();
+    await page.evaluate(() => new Promise((done) => setTimeout(done, 500)));
+    await expect(page.locator('#tip')).toBeHidden();
   });
 });
