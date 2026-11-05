@@ -33,7 +33,7 @@ export type { BlameToRecord, FixCost, FixRecords, RecordedBlame, RecordedRepair,
 export { lookupRun } from './run-lookup.js';
 // The commands a repair from a fix and a verify of it run, and the yes they need first, as the
 // dashboard builds them, so the terminal UI runs the same lines and asks about the same runs.
-export { DEFAULT_REPAIRER, agentOfArgv, agentOfRun, askConsent, consentKey, expectArgs, findProgram, fixRunArgs, jobConsent, keepArgs, labelSelectsFix, leftWords, needsConsent, noAnswerLost, noFixToTry, repairArgv, repairJobArgv, repairerProblem, saidYes, scopeArg, selectedRuns, shownBlame, verifyArgv, type JobConsent } from './fix-jobs.js';
+export { DEFAULT_REPAIRER, agentOfArgv, agentOfRun, askConsent, consentKey, expectArgs, findProgram, fixRunArgs, jobConsent, keepArgs, labelSelectsFix, leftWords, needsConsent, noAnswerLost, noFixReason, noFixToTry, repairArgv, repairJobArgv, repairerProblem, saidYes, scopeArg, selectedRuns, shownBlame, verifyArgv, type JobConsent } from './fix-jobs.js';
 // The check a blame starts from when nobody names one, as the dashboard and the terminal UI pick it.
 export { blameCheckFor, checkSuggestion, configExpect, failedCheckLabels, labelledFixes, type BlameCheck } from './fix-jobs.js';
 // The tests entry a run is judged by when it was given no --expect (the CLI's replays, the dashboard's Run blame).
@@ -145,6 +145,8 @@ export { LABEL_MAX, NOTE_MAX, cleanLabel, withLabels, withNote } from './labels-
 export { formatRepeats, pathOf, summarizeRepeats } from './repeat.js';
 export { blameStateWord, describeBlocks, describeRescue, formatBlame, INCONCLUSIVE_FIRST, INCONCLUSIVE_FIRST_HEAD, lostWhere, maxProbes, notTheAnswer, probeBound, probeFinding, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedWhy, unrescuedWords, unsettledFirst } from './blame.js';
 export type { BlameAttempt, BlameContrast, BlameOutcome, BlameProbe, BlameReport, BlameSearchOptions, BlameSearchResult, Confidence, PinCheck, ProbeVerdict } from './blame.js';
+// The blame a repair reuses on a failing run rather than search again, as the CLI and Run repair's estimate read it.
+export { reusedBlame, type ReusedBlame } from './blame-reuse.js';
 export { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateShort, gateVerdict, keptTally, keptVerdict, outcomeOf, runVerdict, unsettledReason, verifyRule } from './verify.js';
 // What answered an attempt's tool calls after its fork: verify's line on it and its warnings.
 export { afterForkLines, afterForkOf, afterForkWarnings, type AfterFork } from './after-fork.js';
