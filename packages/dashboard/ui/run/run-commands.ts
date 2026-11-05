@@ -3,12 +3,11 @@ import { JOB_KINDS, type RunDetail, type RunOffers } from '../api.js';
 import { shortId } from '../format.js';
 import { useLatest } from '../hooks.js';
 import { ACTIONS } from '../labels.js';
-import { stepEntry } from '../palette.js';
 import { href, type View } from '../route.js';
 import { navigate } from '../router.js';
 import { MARKS, type RunMark } from '../runkey.js';
 import { useApp, type PaletteCommand } from '../state.js';
-import { nextStepOf, replayAction } from './next-step.js';
+import { nextStepOf, replayAction, stepEntry } from './next-step.js';
 import { useStepWait } from './NextStepButton.js';
 import { bisectLabel } from './offers.js';
 

@@ -1,6 +1,5 @@
 import { consentAsked } from './actions.js';
 import { ACTIONS } from './labels.js';
-import type { NextStep } from './types.js';
 
 /**
  * The command palette's matching: which items a query shows, in which order. No DOM here: the
@@ -25,15 +24,6 @@ export interface PaletteEntry {
   key?: string;
   /** Why it can't start now, a job holding what it needs: its hint says so, dimmed, and so does picking it. */
   wait?: string;
-}
-
-/** The key of the header button a step presses, by what the step does, never read from its label: Replay, Compare or Run blame. */
-const STEP_KEYS: Partial<Record<NextStep['key'], string>> = { replay: 'r', compare: 'c', blame: 'b' };
-
-/** A run's next step as This run's first entry: what the header's lime button says, what it runs or where it goes, and its key; while it waits, why (`wait`). */
-export function stepEntry(step: NextStep, wait: string | null = null): PaletteEntry {
-  const key = STEP_KEYS[step.key];
-  return { group: 'This run', label: step.label, hint: wait ?? step.command ?? step.title ?? '', ...(step.href ? {} : { job: true }), ...(key ? { key } : {}), ...(wait ? { wait } : {}) };
 }
 
 /** Run blame for the newest failures nobody has blamed, as their pages lead with it, at most this many. */

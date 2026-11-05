@@ -1,7 +1,8 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type Client } from '../ui/api.js';
-import { BLAME_ENTRIES, blameAsksOnItsPage, blameEntries, matchPalette, stepEntry } from '../ui/palette.js';
+import { BLAME_ENTRIES, blameAsksOnItsPage, blameEntries, matchPalette } from '../ui/palette.js';
+import { stepEntry } from '../ui/run/next-step.js';
 import { useRunCommands } from '../ui/run/run-commands.js';
 import type { Route } from '../ui/route.js';
 import { Palette } from '../ui/shell/Palette.js';

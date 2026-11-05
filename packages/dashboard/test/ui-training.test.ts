@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { jobStatus, lineTone } from '../ui/jobs.js';
-import { ENDPOINT, fileName, filterGroups, trainingJobStatus, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickedOption, pickNote, pipClass, pipTip, requestTrainingDialog, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type TrainingPaletteContext } from '../ui/training.js';
+import { jobStatus, lineTone, trainingJobStatus } from '../ui/jobs.js';
+import { ENDPOINT, fileName, filterGroups, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickedOption, pickNote, pipClass, pipTip, requestTrainingDialog, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type TrainingPaletteContext } from '../ui/training.js';
 import type { ModelOptionView, PairGroupView, ScoreDialogView, TrainingView } from '../ui/types.js';
 
 // Training's logic without a browser: what a filter shows, the words for times and files, what Score
