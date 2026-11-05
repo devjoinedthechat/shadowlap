@@ -310,7 +310,7 @@ What the table shows is in the address: the filter's words, the chip, the sort a
 | `.jsonl` | LiteLLM, unless its name or its first line says OpenTelemetry |
 | YAML | Refused, with the reason |
 
-**Use a sample: otel-traces.json** picks the trace the dashboard ships, dated to end as you pick it: one agent run as an OpenTelemetry collector exports it, with two model calls and the tool call between them. **Import** then brings it in as any file you pick.
+**Use sample: otel-traces.json** picks the trace the dashboard ships, dated to end as you pick it: one agent run as an OpenTelemetry collector exports it, with two model calls and the tool call between them. **Import capture** then brings it in as any file you pick.
 
 You can also give a Langfuse, LangSmith, Phoenix or Logfire host and trace id. The CLI reads the trace with the keys already in the environment the dashboard runs in, and they never pass through the browser.
 

@@ -90,6 +90,10 @@ describe('the fork menu at a call', () => {
   it('plants only in what a tool read', () => {
     expect(keys(buildActions(run(), tool('send_email', 'write')), 'call')).toEqual(['o', 't', 'l', 'a']);
     expect(keys(buildActions(run(), tool('add', 'pure')), 'call')).toEqual(['o', 't', 'l', 'a']);
+    // A write forced live acts on the user's systems: it asks first, saying so. Any other tool starts at once.
+    const live = (effect: 'write' | 'read' | 'pure') => buildActions(run(), tool('send_email', effect)).find((x) => x.key === 'l')!;
+    expect(live('write')).toMatchObject({ asksFirst: true, warns: 'send_email acts on your systems' });
+    for (const effect of ['read', 'pure'] as const) expect([live(effect).asksFirst, live(effect).warns]).toEqual([undefined, undefined]);
   });
 
   it('answers a recorded user input differently, starting from the recorded reply; no override or force live', () => {
