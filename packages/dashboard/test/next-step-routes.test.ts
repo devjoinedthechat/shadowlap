@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from '
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { NO_COMMAND, packRun, Store, unpackRun } from '@shadowlap/engine';
+import { NO_COMMAND, packRun, recordEvent, Store, unpackRun } from '@shadowlap/engine';
 import { makeRun } from '../../engine/test/fix-fixtures.js';
 import { startDashboard, type Dashboard, type JobView } from '../src/index.js';
 import type { NextStep, NextStepRow } from '../src/next-step.js';
@@ -93,6 +93,15 @@ describe('a run’s page', () => {
     const again = await api(`runs/${rec}`, { headers: { 'if-none-match': etag } });
     expect(again.status).toBe(200);
     expect(((await again.json()) as { next: NextStep }).next.key).toBe('pack-gate');
+  });
+
+  it('is answered as it was while a test runs on another run, or anything else happens', async () => {
+    const rec = addRun(store, { startedAt: T0 + 4, calls: 'll' });
+    const etag = (await api(`runs/${rec}`)).headers.get('etag')!;
+    const other = addRun(store, { startedAt: T0 + 5, calls: 'll' });
+    store.putInjectionResult({ resultId: 'inj-other', runId: other, golden: null, sessionId: null, mode: 'plant', at: T0, endedAt: null, attempts: 1, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 0, verdict: 'obeyed', actor: null, data: { mode: 'plant', gate: { verdict: 'passed' }, attempts: [] } });
+    recordEvent(store, { kind: 'normalize.added', ref: 'x', data: {} });
+    expect((await api(`runs/${rec}`, { headers: { 'if-none-match': etag } })).status).toBe(304);
   });
 });
 

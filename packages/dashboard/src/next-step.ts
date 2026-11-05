@@ -750,12 +750,37 @@ export function nextStepRows<R extends Pick<RunRow, 'runId'> & { judged?: RunJud
   });
 }
 
+/** What a test replay's step reads of its golden's results, and of what Find breaking commit said of them. */
+const RESULTS_STAMP_SQL = `SELECT COUNT(*) AS n, MAX(at) AS at FROM test_results WHERE golden = ?`;
+const ANSWERS_STAMP_SQL = `SELECT COUNT(*) AS n, MAX(at) AS at FROM events WHERE ref = ? AND kind IN ('bisect.found', 'bisect.none')`;
+/** A recording's: the injection tests run on it, each until it ends, and its presets. */
+const INJECTION_STAMP_SQL = `SELECT COUNT(*) AS n, COUNT(ended_at) AS ended, MAX(COALESCE(ended_at, at)) AS at FROM injection_results WHERE run_id = ?`;
+const PRESETS_STAMP_SQL = `SELECT COUNT(*) AS n, MAX(at) AS at FROM chaos_results WHERE run_id = ?`;
+
+/**
+ * Each golden's stamp while the store's tests and events stand as they did, so a page asked again
+ * while nothing moved pays no look through the events, which aren't kept by what they are about.
+ */
+const goldenStamps = new WeakMap<object, { at: string; stamps: Map<string, string> }>();
+
+function goldenStamp(store: StoreOf<'readModels'>, golden: string, at: string): string {
+  let kept = goldenStamps.get(store);
+  if (kept?.at !== at) goldenStamps.set(store, (kept = { at, stamps: new Map() }));
+  const known = kept.stamps.get(golden);
+  if (known !== undefined) return known;
+  const stamp = JSON.stringify([store.query(RESULTS_STAMP_SQL, golden)[0], store.query(ANSWERS_STAMP_SQL, golden)[0]]);
+  kept.stamps.set(golden, stamp);
+  return stamp;
+}
+
 /**
  * What a run's next step reads besides the run's own record, which the run's page answer is tagged by
  * (run-version.ts) so a page asks again once it moves: the tests its injection and presets ran, and a
- * test replay's golden's results and what Find breaking commit said of them.
+ * test replay's golden's results and what Find breaking commit said of them. Nothing about another
+ * run or another golden moves it: a long run's answer is megabytes.
  */
-export function nextStepStamp(store: StoreOf<'activity'>, run: Pick<RunRecord, 'meta'>): string {
+export function nextStepStamp(store: StoreOf<'readModels' | 'activity'>, run: Pick<RunRecord, 'runId' | 'meta'>): string {
+  const golden: unknown = run.meta?.test?.golden;
   const c = store.changeCounts();
-  return [c.injection ?? 0, c.chaos ?? 0, ...(run.meta?.test ? [c.tests ?? 0, c.events ?? 0] : [])].join(':');
+  return JSON.stringify([store.query(INJECTION_STAMP_SQL, run.runId)[0], store.query(PRESETS_STAMP_SQL, run.runId)[0], ...(typeof golden === 'string' ? [goldenStamp(store, golden, `${c.tests ?? 0}:${c.events ?? 0}`)] : [])]);
 }

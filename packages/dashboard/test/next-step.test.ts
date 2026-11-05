@@ -637,18 +637,54 @@ describe('an exported copy', () => {
 });
 
 describe('where a run’s page answer stands', () => {
-  it('moves with the tests run on it, and a test replay’s with its golden’s results', () => {
+  const stamp = (id: string) => nextStepStamp(store, store.getRun(id)!);
+
+  it('moves with the tests run on it', () => {
+    const rec = recording();
+    const was = stamp(rec);
+    plant(rec, { gate: { obeyed: 0, influenced: null, verdict: 'failed', reason: 'x' }, ended: false });
+    const started = stamp(rec);
+    expect(started).not.toBe(was);
+    // Once it ends, at any time.
+    plant(rec, { gate: { obeyed: 0, influenced: null, verdict: 'failed', reason: 'x' } });
+    expect(stamp(rec)).not.toBe(started);
+    const tested = stamp(rec);
+    preset(rec, 'failed');
+    expect(stamp(rec)).not.toBe(tested);
+  });
+
+  it('moves a test replay’s with its golden’s results, and what Find breaking commit said of them', () => {
     const rec = recording();
     const t = crashedTest(rec);
-    const stamp = (id: string) => nextStepStamp(store, store.getRun(id)!);
-    const was = [stamp(rec), stamp(t)];
-    plant(rec, { gate: { obeyed: 0, influenced: null, verdict: 'failed', reason: 'x' } });
-    expect(stamp(rec)).not.toBe(was[0]);
-    const before = stamp(t);
-    const recBefore = stamp(rec);
+    const was = stamp(t);
     passedTest(rec, T0 + 5 * MIN);
-    expect(stamp(t)).not.toBe(before);
-    // A recording's isn't moved by a test session of its golden.
-    expect(stamp(rec)).toBe(recBefore);
+    const passed = stamp(t);
+    expect(passed).not.toBe(was);
+    recordEvent(store, { kind: 'bisect.found', ref: GOLDEN, runId: t, data: { first: { rev: 'ccccccc', subject: 'Log the total', author: 'a', date: 'b' }, why: 'exit', answered: { at: T0 + 2 * MIN, ok: false } } });
+    expect(stamp(t)).not.toBe(passed);
+  });
+
+  it('stays while anything about another run or golden moves, as a long run’s answer is megabytes', () => {
+    const rec = recording();
+    const t = crashedTest(rec);
+    const other = recording(T0 + MIN);
+    const was = [stamp(rec), stamp(t)];
+    // Another run's injection test and presets, and its golden's result: none of them this run's.
+    plant(other, { gate: { obeyed: 0, influenced: null, verdict: 'failed', reason: 'x' } });
+    preset(other, 'failed');
+    const session = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/other'], startedAt: T0 + 3 * MIN }).sessionId;
+    store.addTestResult({ sessionId: session, golden: 'goldens/other', ok: true, runId: other, goldenRunId: other, at: T0 + 3 * MIN });
+    // Any other activity, and a bisect's answer about another golden.
+    recordEvent(store, { kind: 'normalize.added', ref: 'x', data: {} });
+    recordEvent(store, { kind: 'bisect.found', ref: 'goldens/other', runId: other, data: { first: { rev: 'ccccccc', subject: 's', author: 'a', date: 'b' }, why: 'exit', answered: { at: T0, ok: false } } });
+    expect([stamp(rec), stamp(t)]).toEqual(was);
+    // A recording's isn't moved by a test session of its golden, either.
+    passedTest(rec, T0 + 5 * MIN);
+    expect(stamp(rec)).toBe(was[0]);
+  });
+
+  it('reads a golden that isn’t text as none: a pack can carry anything', () => {
+    const odd = recording(T0, { meta: { test: { golden: 7 as never, session: 's' } } });
+    expect(typeof stamp(odd)).toBe('string');
   });
 });
