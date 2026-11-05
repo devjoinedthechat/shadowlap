@@ -180,7 +180,7 @@ export function register(router: Router, ctx: RouteContext): void {
     r.tagged(toolsSettings(s, { reads: answerData<ToolReads>(await ctx.reads.run({ kind: 'tool-reads' })) }));
   });
 
-  // "Add a server…": the line and the client entry for what the dialog has so far. Nothing is written.
+  // Add MCP server…: the line and the client entry for what the dialog has so far. Nothing is written.
   router.get('/settings/tools/mcp', (r) => {
     const command = r.query.get('command');
     const url = r.query.get('url');

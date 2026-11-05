@@ -370,7 +370,7 @@ describe('MCP servers', () => {
     expect(copiedLineText({ name: 'stripe', file: '.mcp.json', line: "shadowlap mcp --url https://mcp.stripe.com --header 'Authorization: Bearer ${STRIPE_TOKEN}'" })).toBe('Copied the line for stripe · put it in front of the server in .mcp.json, then set STRIPE_TOKEN in the environment Claude Code starts from');
   });
 
-  it('says what Add a server hid, what it copies as typed, and where a Basic header’s variable is set', () => {
+  it('says what Add MCP server hid, what it copies as typed, and where a Basic header’s variable is set', () => {
     const files = (...found: string[]) => ['.mcp.json', '.cursor/mcp.json', '.vscode/mcp.json'].map((path) => ({ path, found: found.includes(path) }));
     expect(pasteFile(files())).toBeNull();
     expect(pasteFile(files('.vscode/mcp.json', '.mcp.json'))).toBe('.mcp.json');
@@ -437,7 +437,7 @@ describe('the CI tab', () => {
   });
 });
 
-describe('Remove from dashboard', () => {
+describe('Remove project…', () => {
   /** What the Project tab reads: the current project the projects feature provides, and why it can't be removed. */
   function shown(): string {
     function Probe() {

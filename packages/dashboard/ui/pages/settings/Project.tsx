@@ -9,7 +9,7 @@ import { bytesText, sizeNote } from './logic.js';
 /**
  * Project: its name, store, runs and attempts, the store's size and the dashboard's address; Clean
  * up old runs (a dry run first, then "Delete N runs" from the drawer, or with no run old enough
- * "Free X" for what deleted runs left unused); and Remove from dashboard, which opens the projects
+ * "Free X" for what deleted runs left unused); and Remove project…, which opens the projects
  * feature's own dialog, here in the page.
  */
 export function ProjectTab() {

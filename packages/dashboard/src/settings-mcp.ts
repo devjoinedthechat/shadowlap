@@ -378,7 +378,7 @@ export function clientConfigs(servers: ReadonlyArray<Pick<McpServerRow, 'name' |
   return { clientConfigs: blocks, otherForms: (['stdio', 'http'] as const).filter((t) => !used.has(t)) };
 }
 
-/** What "Add a server…" shows for a URL with a user and password: the Basic header's variable, set in the entry's env. */
+/** What Add MCP server… shows for a URL with a user and password: the Basic header's variable, set in the entry's env. */
 export interface ServerFor extends ServerRecording {
   /** The entry's environment: the variable a URL's user and password became, to set (value `…`). */
   env: Array<{ name: string; value: string }>;
@@ -387,7 +387,7 @@ export interface ServerFor extends ServerRecording {
 }
 
 /**
- * "Add a server…": the `shadowlap mcp` line and client entry for a command or a URL typed into the
+ * Add MCP server…: the `shadowlap mcp` line and client entry for a command or a URL typed into the
  * dialog, with credentials hidden as the table hides them (`hidden` then asks the person to put
  * the real value back in their own entry). A URL's user and password become an `Authorization:
  * Basic` header whose value is a variable in the entry's env (`basic` names it), since `shadowlap
@@ -418,7 +418,7 @@ function checkServerUrl(url: string): void {
 }
 
 /**
- * The client entry for what "Add a server…" has, as the person typed it: what Copy the entry
+ * The client entry for what Add MCP server… has, as the person typed it: what Copy entry
  * copies. The line and entry the dialog shows hide credentials (mcpServerFor); the copy keeps what
  * was typed, since the person typed it and the dialog says so (a URL's query and path, a token in a
  * command), except a URL's user and password, which never go on the clipboard: a remote server's

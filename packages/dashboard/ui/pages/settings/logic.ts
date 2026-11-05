@@ -542,7 +542,7 @@ export function entryEnvFor(env: ReadonlyArray<{ name: string; value: string }>,
 }
 
 /**
- * What "Add a server…" says under the entry, by what it hid: `basic`, the variable a URL's user and
+ * What Add MCP server… says under the entry, by what it hid: `basic`, the variable a URL's user and
  * password became and where to set it (in .mcp.json's case, where Claude Code starts; for another
  * file, the entry's env; with no file yet, either); `inCopy`, a URL's user and password in a
  * command, which show as ••• in the copy too; `asTyped`, anything else that shows as ••• but is
@@ -567,7 +567,7 @@ export const MCP_FORMS: Readonly<Record<'stdio' | 'http', { label: string; line:
 const NAME_NOISE = new Set(['mcp', 'api', 'www', 'server', 'servers', 'app', 'com', 'net', 'org', 'io', 'dev', 'ai', 'co', 'cloud', 'node', 'python', 'python3', 'deno', 'bun', 'uv', 'docker']);
 
 /**
- * A name for a server "Add a server…" has no name for: `linear` for https://mcp.linear.app/mcp,
+ * A name for a server Add MCP server… has no name for: `linear` for https://mcp.linear.app/mcp,
  * `github` for npx -y @modelcontextprotocol/server-github, else `server`.
  */
 export function serverNameFor(transport: 'stdio' | 'http', target: string): string {
