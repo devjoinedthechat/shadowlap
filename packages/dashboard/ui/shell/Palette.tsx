@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { JOB_KINDS, type RecordedHit } from '../api.js';
 import { AboutLine, FitHint, useFitAbouts } from '../components/About.js';
 import { Modal } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { isMac } from '../dom.js';
+import { dropRowScope, rowScopeNow, type RowScope } from '../list-keys.js';
 import { ACTIONS } from '../labels.js';
 import { callName, shortId } from '../format.js';
 import { jobRunning } from '../jobs.js';
@@ -13,7 +14,8 @@ import { href, type Route } from '../route.js';
 import { navigate } from '../router.js';
 import { normalizeRuns } from '../normalize.js';
 import { isAttempt, kindWord, runSource, type RunLike } from '../runs.js';
-import { useApp, type PaletteCommand } from '../state.js';
+import { goKeyColumn, keyColumn, singleKeysOn } from '../shortcuts.js';
+import { useApp, type AppState, type PaletteCommand } from '../state.js';
 import { paletteTestsAsk, startTestsJob } from '../tests-ask.js';
 
 /**
@@ -22,7 +24,9 @@ import { paletteTestsAsk, startTestsJob } from '../tests-ask.js';
  *
  * It is a combobox, as ARIA's pattern has it: the field keeps the focus, ↑ and ↓ move the active
  * option (`aria-activedescendant`), each group of options is a group of the listbox, and closing it
- * (Esc, a click outside, or a pick) hands the focus back to where it was when it opened.
+ * (Esc, a click outside, or a pick) hands the focus back to where it was when it opened. A row with a
+ * key of its own shows it while single-key shortcuts are on. Opened on a row in focus (⌘K in a list),
+ * it offers that row's actions under its name, and ⌫ in its empty field goes back to everything.
  */
 
 /** The jobs that run the goldens: while one runs, the palette offers no second session. */
@@ -35,71 +39,16 @@ export function Palette({ route }: { route: Route }) {
   return <PaletteDialog route={route} close={() => setPalette(false)} />;
 }
 
-function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
-  const app = useApp();
-  const [q, setQ] = useState('');
-  const [i, setI] = useState(0);
-  // The ring on the row is the keyboard's: the pointer's place shows by the ground alone.
-  const [byKeys, setByKeys] = useState(false);
+const go = (to: string) => navigate(to);
+
+/** Past this, a row's name no longer fits the field's words: they say "this row". */
+const SCOPE_NAME_FITS = 32;
+
+/** What runs recorded, from three characters, through the server's search. It answers from what its index holds; while that is behind, the palette asks again, so matches arrive as it catches up. */
+function useRecordedHits(app: AppState, q: string): { hits: RecordedHit[]; note: string | null } {
   const [hits, setHits] = useState<RecordedHit[]>([]);
   // While the server's index is behind: how many runs it has yet to read.
   const [indexing, setIndexing] = useState<{ runs: number; of: number } | null>(null);
-  const list = useRef<HTMLDivElement>(null);
-  // Each hint fitted to the rest of its row, once laid out: an about line at whole words, a command at its end.
-  useFitAbouts(list);
-  const input = useRef<HTMLInputElement>(null);
-
-  // The field takes the focus; closing hands it back to what had it, as a dialog does (`Modal`). A
-  // phone's sidebar it was opened from closes behind it, so it opens centred on the page.
-  const { setSideOpen } = app;
-  useEffect(() => {
-    input.current?.focus();
-  }, []);
-  useEffect(() => setSideOpen(false), [setSideOpen]);
-  // A source whose answer lands while the palette is open (Tests, loaded from any page) is read again.
-  const [sourcesChanged, setSourcesChanged] = useState(0);
-  useEffect(() => onPaletteSourcesChanged(() => setSourcesChanged((n) => n + 1)), []);
-
-  const go = (to: string) => navigate(to);
-  const items = useMemo<PaletteCommand[]>(() => {
-    const out: PaletteCommand[] = [...app.runCommands];
-    const pages: Array<[string, string]> = app.exported
-      ? [
-          ['Runs', href.runs()],
-          ['Compare', href.compare()],
-        ]
-      : [
-          ['Overview', href.overview()],
-          ['Runs', href.runs()],
-          ['Compare', href.compare()],
-          ['Fixes', href.fixes()],
-          ['Tests', href.tests()],
-          ['Training', href.training()],
-          ['Settings', href.settings()],
-          [ACTIONS.addProject.label, href.newProject()],
-        ];
-    for (const [label, to] of pages) out.push({ group: 'Go to', label, hint: '', run: () => go(to) });
-    // Not a second session while one started here runs: Tests' own button says so meanwhile. One that
-    // would run goldens live asks first, over whatever page is open, as Tests' Run tests does, with
-    // the command read from Tests once the server asks (paletteTestsAsk).
-    if (!app.actionsOff && app.hasKind(JOB_KINDS.tests) && !jobRunning(app.jobs, TEST_KINDS))
-      out.push({ group: 'Actions', label: ACTIONS.runTests.label, hint: 'shadowlap test goldens/*', job: true, run: () => startTestsJob(app, JOB_KINDS.tests, {}, paletteTestsAsk(app)) });
-    out.push({ group: 'Actions', label: ACTIONS.keyboardShortcuts.label, hint: '?', run: () => app.setHelp(true) });
-    for (const source of paletteSources()) {
-      try {
-        out.push(...source({ app, route, go }).filter((x) => x.group !== 'Actions' || !app.actionsOff));
-      } catch {
-        // a source that fails leaves its group out
-      }
-    }
-    const runs = [...(app.runs ?? [])].filter((r) => !isAttempt(r)).sort((a, b) => b.startedAt - a.startedAt);
-    for (const r of runs) out.push(runCommand(r, go));
-    return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- built when the palette opens, and again only when a source says more arrived: the run list moving under it would move the selection
-  }, [sourcesChanged]);
-
-  // What runs recorded, from three characters, through the server's search. It answers from what its
-  // index holds; while that is behind, the palette asks again, so matches arrive as it catches up.
   useEffect(() => {
     const t = q.trim();
     if (t.length < RECORDED_MIN_CHARS || app.exported) {
@@ -129,10 +78,11 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
       clearTimeout(timer);
     };
   }, [q, app.client, app.exported]);
-  const note = q.trim().length >= RECORDED_MIN_CHARS ? indexingNote(indexing) : null;
+  return { hits, note: q.trim().length >= RECORDED_MIN_CHARS ? indexingNote(indexing) : null };
+}
 
-  // A run's id, typed in full or its start, that no run in the list (the newest 500) has: the server
-  // looks it up among every run, as Runs' filter does.
+/** A run's id, typed in full or its start, that no run in the list (the newest 500) has: the server looks it up among every run, as Runs' filter does. */
+function useRunsById(app: AppState, q: string): PaletteCommand[] {
   const [byId, setById] = useState<PaletteCommand[]>([]);
   useEffect(() => {
     const prefix = app.exported ? null : runsToAskFor(q, app.runs);
@@ -153,8 +103,134 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
       clearTimeout(timer);
     };
   }, [q, app.client, app.exported, app.runs]);
+  return byId;
+}
+
+/** A row's actions as the palette lists them: every typed word in the label or the hint. */
+function scopedRows(scope: RowScope, q: string): PaletteCommand[] {
+  const typed = words(q);
+  return scope
+    .items()
+    .filter((x) => typed.every((w) => `${x.label} ${x.hint}`.toLowerCase().includes(w)))
+    .map((x) => ({ ...x, group: 'Actions' }));
+}
+
+/** The row's keys, at its right: its own while single keys are on, else ↵ on the row Enter opens. */
+function RowKeys({ own, active }: { own: string | undefined; active: boolean }) {
+  if (own && singleKeysOn())
+    return (
+      <span className="palk" aria-hidden="true">
+        {own.split(' ').map((c) => (
+          <kbd key={c}>{c}</kbd>
+        ))}
+      </span>
+    );
+  return active ? (
+    <span className="kbd" aria-hidden="true">
+      ↵
+    </span>
+  ) : null;
+}
+
+/** One row of the listbox. */
+function PaletteRow({ x, n, q, at, paused, id, moved, pick }: { x: PaletteCommand & { snippet?: string }; n: number; q: string; at: number; paused: boolean; id: string; moved: Dispatch<SetStateAction<number>>; pick: (n: number) => void }) {
+  const mark = highlight(x.label, q);
+  return (
+    <div
+      id={id}
+      role="option"
+      aria-selected={n === at}
+      aria-disabled={paused || undefined}
+      className={`palit${n === at ? ' on' : ''}${paused ? ' waits' : ''}`}
+      // The field keeps the focus: a click picks without taking it.
+      onMouseDown={(e) => e.preventDefault()}
+      onMouseMove={() => moved(n)}
+      onClick={() => pick(n)}
+    >
+      <span className={`pl${x.mono ? ' mono' : ''}`}>
+        {mark ? (
+          <>
+            {mark[0]}
+            <mark>{mark[1]}</mark>
+            {mark[2]}
+          </>
+        ) : (
+          x.label
+        )}
+      </span>
+      <RowHint x={x} q={q} paused={paused} />
+      <RowKeys own={x.key} active={n === at} />
+    </div>
+  );
+}
+
+function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
+  const app = useApp();
+  const [q, setQ] = useState('');
+  // A row's actions, for as long as it opened on them.
+  const [scope, setScope] = useState(rowScopeNow);
+  useEffect(() => dropRowScope, []);
+  const [i, setI] = useState(0);
+  // The ring on the row is the keyboard's: the pointer's place shows by the ground alone.
+  const [byKeys, setByKeys] = useState(false);
+  const list = useRef<HTMLDivElement>(null);
+  // Each hint fitted to the rest of its row, once laid out: an about line at whole words, a command at its end.
+  useFitAbouts(list);
+  const input = useRef<HTMLInputElement>(null);
+
+  // The field takes the focus; closing hands it back to what had it, as a dialog does (`Modal`). A
+  // phone's sidebar it was opened from closes behind it, so it opens centred on the page.
+  const { setSideOpen } = app;
+  useEffect(() => {
+    input.current?.focus();
+  }, []);
+  useEffect(() => setSideOpen(false), [setSideOpen]);
+  // A source whose answer lands while the palette is open (Tests, loaded from any page) is read again.
+  const [sourcesChanged, setSourcesChanged] = useState(0);
+  useEffect(() => onPaletteSourcesChanged(() => setSourcesChanged((n) => n + 1)), []);
+
+  const items = useMemo<PaletteCommand[]>(() => {
+    const out: PaletteCommand[] = [...app.runCommands];
+    const pages: Array<[string, string]> = app.exported
+      ? [
+          ['Runs', href.runs()],
+          ['Compare', href.compare()],
+        ]
+      : [
+          ['Overview', href.overview()],
+          ['Runs', href.runs()],
+          ['Compare', href.compare()],
+          ['Fixes', href.fixes()],
+          ['Tests', href.tests()],
+          ['Training', href.training()],
+          ['Settings', href.settings()],
+          [ACTIONS.addProject.label, href.newProject()],
+        ];
+    for (const [label, to] of pages) out.push({ group: 'Go to', label, hint: '', key: goKeyColumn(to), run: () => go(to) });
+    // Not a second session while one started here runs: Tests' own button says so meanwhile. One that
+    // would run goldens live asks first, over whatever page is open, as Tests' Run tests does, with
+    // the command read from Tests once the server asks (paletteTestsAsk).
+    if (!app.actionsOff && app.hasKind(JOB_KINDS.tests) && !jobRunning(app.jobs, TEST_KINDS))
+      out.push({ group: 'Actions', label: ACTIONS.runTests.label, hint: 'shadowlap test goldens/*', job: true, run: () => startTestsJob(app, JOB_KINDS.tests, {}, paletteTestsAsk(app)) });
+    out.push({ group: 'Actions', label: ACTIONS.keyboardShortcuts.label, hint: 'every key, by where it works', key: keyColumn('help'), run: () => app.setHelp(true) });
+    for (const source of paletteSources()) {
+      try {
+        out.push(...source({ app, route, go }).filter((x) => x.group !== 'Actions' || !app.actionsOff));
+      } catch {
+        // a source that fails leaves its group out
+      }
+    }
+    const runs = [...(app.runs ?? [])].filter((r) => !isAttempt(r)).sort((a, b) => b.startedAt - a.startedAt);
+    for (const r of runs) out.push(runCommand(r, go));
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- built when the palette opens, and again only when a source says more arrived: the run list moving under it would move the selection
+  }, [sourcesChanged]);
+
+  const { hits, note } = useRecordedHits(app, scope ? '' : q);
+  const byId = useRunsById(app, scope ? '' : q);
 
   const shown = useMemo(() => {
+    if (scope) return scopedRows(scope, q);
     const matched = matchPalette(items, q);
     const recorded: Array<PaletteCommand & { snippet?: string }> = hits.map((h) => ({
       group: 'In recorded data',
@@ -165,7 +241,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
       run: () => go(href.run(h.runId, h.callNo)),
     }));
     return [...matched, ...byId, ...recorded] as Array<PaletteCommand & { snippet?: string }>;
-  }, [items, q, hits, byId]);
+  }, [items, q, hits, byId, scope]);
 
   const at = Math.min(i, Math.max(0, shown.length - 1));
   useEffect(() => {
@@ -199,7 +275,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
           <input
             ref={input}
             type="text"
-            placeholder={palettePlaceholder({ exported: app.exported, actions: !app.actionsOff, offline })}
+            placeholder={scope ? `Actions for ${scope.name.length > SCOPE_NAME_FITS ? 'this row' : scope.name}` : palettePlaceholder({ exported: app.exported, actions: !app.actionsOff, offline })}
             autoComplete="off"
             spellCheck={false}
             value={q}
@@ -230,6 +306,10 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
               } else if (e.key === 'Enter') {
                 e.preventDefault();
                 pick(at);
+              } else if (e.key === 'Backspace' && !q && scope) {
+                e.preventDefault();
+                dropRowScope();
+                setScope(null);
               }
             }}
           />
@@ -241,49 +321,16 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
           {shown.length ? (
             <div id="palList" role="listbox" aria-label="Results">
               {groups.map((g) => (
-                <div key={g.name} role="group" aria-label={g.name}>
+                <div key={g.name} role="group" aria-label={scope ? scope.name : g.name}>
                   <div className="palg" aria-hidden="true">
-                    {g.name}
+                    {scope ? <code className="rnm">{scope.name}</code> : g.name}
                   </div>
-                  {g.items.map(({ x, n }) => {
-                    const mark = highlight(x.label, q);
-                    const paused = offline && x.job === true;
-                    return (
-                      <div
-                        key={`${x.group}:${x.label}:${n}`}
-                        id={optionId(n)}
-                        role="option"
-                        aria-selected={n === at}
-                        aria-disabled={paused || undefined}
-                        className={`palit${n === at ? ' on' : ''}${paused ? ' waits' : ''}`}
-                        // The field keeps the focus: a click picks without taking it.
-                        onMouseDown={(e) => e.preventDefault()}
-                        onMouseMove={() => {
-                          setByKeys(false);
-                          if (n !== at) setI(n);
-                        }}
-                        onClick={() => pick(n)}
-                      >
-                        <span className={`pl${x.mono ? ' mono' : ''}`}>
-                          {mark ? (
-                            <>
-                              {mark[0]}
-                              <mark>{mark[1]}</mark>
-                              {mark[2]}
-                            </>
-                          ) : (
-                            x.label
-                          )}
-                        </span>
-                        <RowHint x={x} q={q} paused={paused} />
-                        {n === at ? (
-                          <span className="kbd" aria-hidden="true">
-                            ↵
-                          </span>
-                        ) : null}
-                      </div>
-                    );
-                  })}
+                  {g.items.map(({ x, n }) => (
+                    <PaletteRow key={`${x.group}:${x.label}:${n}`} x={x} n={n} q={q} at={at} paused={offline && x.job === true} id={optionId(n)} pick={pick} moved={(m) => {
+                      setByKeys(false);
+                      setI(m);
+                    }} />
+                  ))}
                 </div>
               ))}
             </div>
@@ -310,6 +357,11 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
             <kbd>{isMac() ? '⌘' : 'Ctrl'}</kbd>
             <kbd>K</kbd>close
           </span>
+          {scope ? (
+            <span>
+              <kbd>⌫</kbd>everything
+            </span>
+          ) : null}
         </div>
       </div>
     </Modal>

@@ -1,3 +1,4 @@
+import { useSingleKeys } from '../shortcuts.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from '../state.js';
 import { ACTION_TOAST_MS, TOAST_MS, toastKey, UNDO_KEY, type ToastAction } from '../toast.js';
@@ -53,6 +54,7 @@ export function ToastHost() {
   }, [shown, act]);
 
   const action = shown?.kind === 'notice' ? shown.action : undefined;
+  const singleKeys = useSingleKeys();
   return (
     <>
       <div className="toasts" role="status" aria-live="polite" aria-atomic="true">
@@ -62,12 +64,14 @@ export function ToastHost() {
             {shown.text}
             {action ? (
               <>
-                <button type="button" className="tact" aria-keyshortcuts={UNDO_KEY} title={`${action.label} (${UNDO_KEY})`} onClick={() => act(shown, action)}>
+                <button type="button" className="tact" aria-keyshortcuts={singleKeys ? UNDO_KEY : undefined} title={singleKeys ? `${action.label} (${UNDO_KEY})` : action.label} onClick={() => act(shown, action)}>
                   {action.label}
                 </button>
-                <kbd className="tkey" aria-hidden="true">
-                  {UNDO_KEY}
-                </kbd>
+                {singleKeys ? (
+                  <kbd className="tkey" aria-hidden="true">
+                    {UNDO_KEY}
+                  </kbd>
+                ) : null}
               </>
             ) : null}
           </div>

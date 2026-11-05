@@ -1,3 +1,4 @@
+import { useSingleKeys } from '../shortcuts.js';
 import { Fragment, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
 import { Spin } from '../components/bits.js';
 import { Brand, Icon } from '../components/Icon.js';
@@ -46,6 +47,7 @@ function crumbsFor(route: Route, lineageOf: (id: string) => Array<{ runId: strin
 
 export function TopBar({ route }: { route: Route }) {
   const { runs, live, sideOpen, setSideOpen, setHelp, conn, exported, meta, actionsOff, loadedAt, jobs, openJob } = useApp();
+  const singleKeys = useSingleKeys();
   const listed = (id: string) => runs?.find((r) => r.runId === id || (id.length >= 10 && r.runId.startsWith(id))) ?? null;
   const shown = route.page === 'run' ? listed(route.id) : null;
   // A run the list leaves out (an attempt bundled under its run, or one older than the newest 500)
@@ -146,7 +148,7 @@ export function TopBar({ route }: { route: Route }) {
           recording {shortId(chip.runId)}
         </a>
       ) : null}
-      <button className="ibtn" id="helpBtn" type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts  ?" onClick={() => conn !== 'expired' && setHelp(true)}>
+      <button className="ibtn" id="helpBtn" type="button" aria-label="Keyboard shortcuts" title={singleKeys ? 'Keyboard shortcuts  ?' : 'Keyboard shortcuts'} onClick={() => conn !== 'expired' && setHelp(true)}>
         <Icon name="keys" />
       </button>
     </header>

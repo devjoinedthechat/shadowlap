@@ -17,6 +17,8 @@ export interface PaletteEntry {
   job?: boolean;
   /** Words it matches that don't show: a run's kind, command and labels, besides its id and about line. */
   match?: string;
+  /** Its own key, one word per key: the row's key column, while single-key shortcuts are on. */
+  key?: string | undefined;
 }
 
 /** What a job's entry says in place of its hint while the server can't be reached. */
