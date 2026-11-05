@@ -67,7 +67,10 @@ export function planCopies(store: StoreOf<'recording' | 'fixes'>, fix: StoredFix
     resolve(o.cwd, o.goldens),
     all.flatMap((g) => (g.copied ? [] : [{ run: g.run, source: resolve(o.cwd, g.source) }])),
   );
-  const known = all.map((g) => g.copied ?? folder.there.flatMap((t) => (t.run === g.run ? [join(o.goldens, t.at)] : []))[0] ?? null);
+  const known = all.map((g) => {
+    const at = folder.there.find((t) => t.run === g.run)?.at;
+    return g.copied ?? (at ? join(o.goldens, at) : null);
+  });
   for (const [i, name] of named) {
     const at = known[i];
     // The same --name again, after an apply stopped part way, names where it went.
