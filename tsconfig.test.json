@@ -73,6 +73,7 @@
     // an exported copy's Provenance.
     "packages/dashboard/test/ui-job-stop.test.ts",
     "packages/dashboard/test/ui-dock.test.ts",
+    "packages/dashboard/test/ui-toast.test.ts",
     "packages/dashboard/test/ui-palette-modes.test.ts",
     "packages/dashboard/test/ui-token-card.test.ts",
     "packages/dashboard/test/ui-exported-provenance.test.ts",
