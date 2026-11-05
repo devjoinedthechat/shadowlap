@@ -100,8 +100,8 @@ export function Popover({ anchor, onClose, children, className = '', align, matc
       menuClosed(m);
       anchor?.setAttribute('aria-expanded', 'false');
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one menu, opened once at its button: a new button is a new menu
-  }, [anchor]);
+    // One menu, opened once at its button: a new button is a new menu, and the rest never change.
+  }, [anchor, role, keepFocus, closeRef, keysRef]);
 
   return (
     <InSlot name="menu">

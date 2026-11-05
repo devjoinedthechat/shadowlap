@@ -99,6 +99,7 @@ function app(sent: Sent[], watched: Array<Promise<JobView>>, o: { live: boolean;
     toast: () => undefined,
     palette: true,
     setPalette: () => undefined,
+    setSideOpen: () => undefined,
     setHelp: () => undefined,
   } as unknown as AppState;
 }

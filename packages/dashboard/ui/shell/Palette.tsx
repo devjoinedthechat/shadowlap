@@ -51,12 +51,11 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
 
   // The field takes the focus; closing hands it back to what had it, as a dialog does (`Modal`). A
   // phone's sidebar it was opened from closes behind it, so it opens centred on the page.
-  const { sideOpen, setSideOpen } = app;
+  const { setSideOpen } = app;
   useEffect(() => {
     input.current?.focus();
-    if (sideOpen) setSideOpen(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- as it opens only
   }, []);
+  useEffect(() => setSideOpen(false), [setSideOpen]);
   // A source whose answer lands while the palette is open (Tests, loaded from any page) is read again.
   const [sourcesChanged, setSourcesChanged] = useState(0);
   useEffect(() => onPaletteSourcesChanged(() => setSourcesChanged((n) => n + 1)), []);
