@@ -279,6 +279,16 @@ export function historyBounds(history: Tally, risk: number): { lo: number; hi: n
   return { ...b };
 }
 
+/**
+ * Whether a baseline passes too rarely to keep a run to. The test keeps a run that doesn't drop by the
+ * margin, and from a pass rate at or under the margin nothing can: against a baseline that passes
+ * nothing, a run that passes nothing is kept. So such a baseline is none, whatever the change did, and
+ * the run is judged by its gate on its own. A pair of arms that never pass is kept only once this holds.
+ */
+export function baselineSaysNothing(baseline: Tally, rule: Pick<BaselineRule, 'margin' | 'risk'>): boolean {
+  return baseline.attempts > 0 && historyBounds(baseline, rule.risk).hi <= rule.margin;
+}
+
 /** historyBounds' answers already worked out: it is pure, so they are the same every time. */
 const boundsKept = new Map<string, { lo: number; hi: number }>();
 

@@ -339,6 +339,8 @@ test.describe('on a touch screen', () => {
 test('a job’s end hands the focus to what took its control’s place, however long the page takes to draw it', async ({ page }) => {
   const run = demoId('digestFailed');
   const fix = { role: 'failing', fix: { fixId: 'fx-0000000000000000000000000A', href: '#/fixes/fx-0000000000000000000000000A', title: 'The agent exited with code 1', status: 'open', label: 'digest', check: 'the agent exits 0' }, blame: null, probe: null, verify: null };
+  // What the server leads with once the blame opened that fix.
+  const opens = { key: 'fix', label: 'Open fix', fixId: fix.fix.fixId, status: 'open', href: fix.fix.href, title: `“${fix.fix.title}”` };
   const job = (done: boolean) => ({ id: 'stubjob', kind: 'blame', title: 'Blaming', args: ['blame', run], worktree: { use: 'reads', doing: 'a blame is running your agent from your working tree', folder: '/x' }, runId: run, opensRun: false, startedAt: Date.now() - 1000, endedAt: done ? Date.now() : null, done, stopped: false, code: done ? 3 : null, newRunId: null, runs: [], links: [], files: [], total: 0, lines: [], project: { id: 'support-agent', name: 'support-agent' } });
   let polls = 0;
   let ended = false;
@@ -351,14 +353,14 @@ test('a job’s end hands the focus to what took its control’s place, however 
   await page.route(new RegExp(`/api/runs/${run}(\\?.*)?$`), async (route) => {
     const body = (await (await route.fetch()).json()) as Record<string, unknown>;
     if (ended) await new Promise((done) => setTimeout(done, 600));
-    await route.fulfill({ json: { ...body, fix: ended ? fix : { role: 'unblamed', fix: null, blame: null, probe: null, verify: null } } });
+    await route.fulfill({ json: { ...body, ...(ended ? { fix, next: opens } : { fix: { role: 'unblamed', fix: null, blame: null, probe: null, verify: null } }) } });
   });
   await openPage(page, `/run/${run}`, 'run');
   const lead = page.locator('.rhead .actions .btn.lime', { hasText: 'Run blame' });
   await lead.focus();
   await page.keyboard.press('Enter');
-  await expect(page.locator('.rhead .actions .btn.lime', { hasText: 'Open the fix' })).toBeVisible();
-  await expect.poll(() => page.evaluate(() => document.activeElement?.textContent?.trim())).toBe('Open the fix');
+  await expect(page.locator('.rhead .actions .btn.lime', { hasText: 'Open fix' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.activeElement?.textContent?.trim())).toBe('Open fix');
 });
 
 test('a menu opened while the page left still owes its focus keeps it: Esc up from a fork opened cold, then f', async ({ page }) => {

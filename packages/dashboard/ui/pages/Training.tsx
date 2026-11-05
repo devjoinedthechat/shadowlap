@@ -214,7 +214,7 @@ function PairGroup({ g }: { g: PairGroupView }) {
           </span>
         ) : null}
         {g.fix ? (
-          <a className="chip" href={g.fix.href} title={`Open the fix: ${g.fix.label}`}>
+          <a className="chip" href={g.fix.href} title={`Open fix: ${g.fix.label}`}>
             {g.fix.label}
           </a>
         ) : null}

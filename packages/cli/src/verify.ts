@@ -1,4 +1,4 @@
-import { addPair, afterForkOf, attemptsToPass, BASELINE_DEFAULTS, messageOf, unavailableStop, decideAgainstHistoryAround, decidePairedAround, decideVerify, dropEndsRisk, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptMaxOf, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, pairsOf, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, rateBound, type BaselineRule, type GateHistory, type PairCounts, type SprtGate, type StoreOf, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { addPair, afterForkOf, attemptsToPass, BASELINE_DEFAULTS, baselineSaysNothing, messageOf, unavailableStop, decideAgainstHistoryAround, decidePairedAround, decideVerify, dropEndsRisk, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptMaxOf, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, pairsOf, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, rateBound, type BaselineRule, type GateHistory, type PairCounts, type SprtGate, type StoreOf, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole, providerRefused, type BaselineDecision } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, formatBudget, type Attempt, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { describeAttempt } from './blame.js';
@@ -108,6 +108,39 @@ function unjudged(a: Attempt): string | null {
   if (a.verdict === 'inconclusive') return a.failures[0] ?? 'a check could not be decided';
   if (a.verdict !== 'passed' && a.verdict !== 'failed') return a.failures[0] ?? `the attempt came out ${String(a.verdict)}`;
   return null;
+}
+
+/**
+ * What an attempt of the baseline can't say of the change beside it, and why, or null when it counts. No
+ * verdict may rest on one that never reached its model through Shadowlap, which ran nothing the
+ * recording holds. With `none`, the provider turned its model away for good, as it does once a model
+ * retires: nothing this arm can show says what the change did, and its failing is no failure to keep
+ * up with. `where` says where the baseline ran, in words.
+ */
+function baselineOpen(b: Attempt, n: number, where: string): { none: boolean; why: string } | null {
+  if (b.bypassed) return { none: false, why: `the baseline${where} could not run the agent: ${b.failures[0] ?? 'it made no model calls through Shadowlap'}` };
+  const refused = !b.passed && !b.unavailable ? providerRefused(b.calls) : null;
+  if (refused) return { none: true, why: `the baseline could not ask its model: ${refused}` };
+  const why = unjudged(b);
+  if (!why) return null;
+  return { none: false, why: b.unavailable ? why : `the baseline's attempt ${n} could not be judged: ${why}` };
+}
+
+/** Why a run kept against its baseline is kept on nothing, or null: the baseline passes too rarely to drop from. */
+function hollowKept(decision: BaselineDecision, answered: PairCounts, rule: BaselineRule): string | null {
+  const baseline = { passes: answered.basePasses, attempts: pairsOf(answered) };
+  return decision === 'kept' && baselineSaysNothing(baseline, rule) ? `the baseline passed only ${baseline.passes} of ${baseline.attempts}, which no run can drop from` : null;
+}
+
+/**
+ * The baseline says nothing after all: it can't ask its model, or passes too rarely to keep a run to.
+ * The change's attempts so far stand, and its gate decides the run on its own.
+ */
+function withoutBaseline(result: VerifiedRun, why: string): false {
+  result.noBaseline = why;
+  for (const k of ['baseline', 'margin', 'drop', 'decision'] as const) delete result[k];
+  result.verdict = 'open';
+  return false;
 }
 
 export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
@@ -334,15 +367,10 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
               result.undecided = why;
               break;
             }
-            // An attempt of the baseline that never reached its model through Shadowlap ran nothing the
-            // recording holds: the base can't run the agent, and no verdict may rest on it.
-            if (b.bypassed) {
-              result.undecided = `the baseline${at ? ` at ${at}` : base ? ` on ${base.label}` : ''} could not run the agent: ${b.failures[0] ?? 'it made no model calls through Shadowlap'}`;
-              break;
-            }
-            const whyBase = unjudged(b);
-            if (whyBase) {
-              result.undecided = b.unavailable ? whyBase : `the baseline's attempt ${n} could not be judged: ${whyBase}`;
+            const open = baselineOpen(b, n, at ? ` at ${at}` : base ? ` on ${base.label}` : '');
+            if (open?.none) return withoutBaseline(result, open.why);
+            if (open) {
+              result.undecided = open.why;
               break;
             }
             // The baseline's attempt cut short: a pass toward keeping, a failure toward breaking.
@@ -351,6 +379,8 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
             if (!b.cutShort) answered = addPair(answered, changedNow.passed, b.passed);
           }
           const decision = decidePairedAround(keeping, breaking, rule);
+          const hollow = hollowKept(decision, answered, rule);
+          if (hollow) return withoutBaseline(result, hollow);
           Object.assign(result, keptVerdict(decision));
           result.baseline = { passes: answered.basePasses, attempts: baseRuns.filter((x) => !x.unavailable).length, source: 'paired', revision: at };
           result.margin = rule.margin;
@@ -376,6 +406,7 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
           result.noBaseline = golden ? `${golden} has no test history under these checks yet` : `${shortId(parent.runId)} is no golden's run, so it has no test history`;
           return false;
         }
+        if (baselineSaysNothing(history, rule)) return withoutBaseline(result, `${golden}'s test history passed only ${history.passes} of ${history.attempts}, which no run can drop from`);
         result.baseline = { passes: history.passes, attempts: history.attempts, source: 'history' };
         result.margin = rule.margin;
         for (let n = result.attempts.length; ; n++) {

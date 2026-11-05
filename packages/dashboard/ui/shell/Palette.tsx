@@ -9,8 +9,8 @@ import { dropRowScope, rowScopeNow, type RowScope } from '../list-keys.js';
 import { ACTIONS } from '../labels.js';
 import { callName, shortId } from '../format.js';
 import { jobRunning } from '../jobs.js';
-import { highlight, INDEXING_RETRY_MS, indexingNote, limitRecorded, matchPalette, palettePlaceholder, PAUSED_HINT, RECORDED_MIN_CHARS, runsById, runsToAskFor, snippetParts, words } from '../palette.js';
-import { onPaletteSourcesChanged, paletteSources } from '../palette-sources.js';
+import { blameAsksOnItsPage, blameEntries, highlight, INDEXING_RETRY_MS, indexingNote, limitRecorded, matchPalette, palettePlaceholder, PAUSED_HINT, pickRefusal, RECORDED_MIN_CHARS, runsById, runsToAskFor, snippetParts, words } from '../palette.js';
+import { addPaletteSource, onPaletteSourcesChanged, paletteSources } from '../palette-sources.js';
 import { href, type Route } from '../route.js';
 import { navigate } from '../router.js';
 import { normalizeRuns } from '../normalize.js';
@@ -40,8 +40,6 @@ export function Palette({ route }: { route: Route }) {
   if (!palette) return null;
   return <PaletteDialog route={route} close={() => setPalette(false)} />;
 }
-
-const go = (to: string) => navigate(to);
 
 /** Whether words fit a field whole, in its own type at the width it has; true where the page can't measure. */
 function fitsField(el: HTMLElement, text: string): boolean {
@@ -121,7 +119,7 @@ function useRunsById(app: AppState, q: string): PaletteCommand[] {
     const timer = setTimeout(() => {
       app.client.runsPage({ q: prefix, limit: 20 }).then(
         // An attempt whose run isn't in the page is listed like any run, as the run list lists it.
-        (page) => alive && setById(runsById(prefix, normalizeRuns(page.runs).filter((r) => !isAttempt(r))).map((r) => runCommand(r, go))),
+        (page) => alive && setById(runsById(prefix, normalizeRuns(page.runs).filter((r) => !isAttempt(r))).map((r) => runCommand(r))),
         () => alive && setById([]),
       );
     }, 150);
@@ -140,6 +138,17 @@ function scopedRows(scope: RowScope, q: string): PaletteCommand[] {
     .items()
     .filter((x) => typed.every((w) => `${x.label} ${x.hint}`.toLowerCase().includes(w)))
     .map((x) => ({ ...x, group: 'Actions' }));
+}
+
+/** Each group of options in its order, numbered as ↑ and ↓ count them. */
+function inGroups<T extends { group: string }>(shown: readonly T[]): Array<{ name: string; items: Array<{ x: T; n: number }> }> {
+  const groups: Array<{ name: string; items: Array<{ x: T; n: number }> }> = [];
+  shown.forEach((x, n) => {
+    const last = groups[groups.length - 1];
+    if (last && last.name === x.group) last.items.push({ x, n });
+    else groups.push({ name: x.group, items: [{ x, n }] });
+  });
+  return groups;
 }
 
 /** The row's keys, at its right: its own while single keys are on, else ↵ on the row Enter opens. */
@@ -167,8 +176,8 @@ function PaletteRow({ x, n, q, at, paused, id, moved, pick }: { x: PaletteComman
       id={id}
       role="option"
       aria-selected={n === at}
-      aria-disabled={paused || undefined}
-      className={`palit${n === at ? ' on' : ''}${paused ? ' waits' : ''}`}
+      aria-disabled={paused || !!x.wait || undefined}
+      className={`palit${n === at ? ' on' : ''}${paused || x.wait ? ' waits' : ''}`}
       // The field keeps the focus: a click picks without taking it.
       onMouseDown={(e) => e.preventDefault()}
       onMouseMove={() => moved(n)}
@@ -190,6 +199,21 @@ function PaletteRow({ x, n, q, at, paused, id, moved, pick }: { x: PaletteComman
     </div>
   );
 }
+
+// Run blame for the newest failures nobody blamed: the job, or what it asks first (your command on a capture, the check, a yes) on the run's own page.
+addPaletteSource(({ app, route, go }) => {
+  const refused = (runId: string, err: unknown) => (blameAsksOnItsPage(err) ? go(href.run(runId)) : app.watchJob(Promise.reject(err)));
+  return blameEntries(app.runs ?? [], route.page === 'run' ? route.id : null).map(({ run, entry }) => ({
+    ...entry,
+    run: () =>
+      run.next?.capture
+        ? go(href.run(run.runId))
+        : void app.client.startJob(JOB_KINDS.blame, { runId: run.runId }).then(
+            (job) => app.watchJob(Promise.resolve(job)),
+            (err: unknown) => refused(run.runId, err),
+          ),
+  }));
+});
 
 function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
   const app = useApp();
@@ -231,7 +255,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
           ['Settings', href.settings()],
           [ACTIONS.addProject.label, href.newProject()],
         ];
-    for (const [label, to] of pages) out.push({ group: 'Go to', label, hint: '', key: goKeyColumn(to), run: () => go(to) });
+    for (const [label, to] of pages) out.push({ group: 'Go to', label, hint: '', key: goKeyColumn(to), run: () => navigate(to) });
     // Not a second session while one started here runs: Tests' own button says so meanwhile. One that
     // would run goldens live asks first, over whatever page is open, as Tests' Run tests does, with
     // the command read from Tests once the server asks (paletteTestsAsk).
@@ -240,13 +264,13 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
     out.push({ group: 'Actions', label: ACTIONS.keyboardShortcuts.label, hint: 'every key, by where it works', key: keyColumn('help'), run: () => app.setHelp(true) });
     for (const source of paletteSources()) {
       try {
-        out.push(...source({ app, route, go }).filter((x) => x.group !== 'Actions' || !app.actionsOff));
+        out.push(...source({ app, route, go: navigate }).filter((x) => x.group !== 'Actions' || !app.actionsOff));
       } catch {
         // a source that fails leaves its group out
       }
     }
     const runs = [...(app.runs ?? [])].filter((r) => !isAttempt(r)).sort((a, b) => b.startedAt - a.startedAt);
-    for (const r of runs) out.push(runCommand(r, go));
+    for (const r of runs) out.push(runCommand(r));
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- built when the palette opens, and again only when a source says more arrived: the run list moving under it would move the selection
   }, [sourcesChanged]);
@@ -263,7 +287,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
       mono: true,
       hint: `${callName(h.kind, h.name)} · ${h.field}`,
       snippet: h.snippet,
-      run: () => go(href.run(h.runId, h.callNo)),
+      run: () => navigate(href.run(h.runId, h.callNo)),
     }));
     return [...matched, ...byId, ...recorded] as Array<PaletteCommand & { snippet?: string }>;
   }, [items, q, hits, byId, scope]);
@@ -278,18 +302,13 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
   const pick = (n: number) => {
     const x = shown[n];
     if (!x) return;
-    if (offline && x.job) return app.toast('Actions are paused until the dashboard server is back.');
+    const refused = pickRefusal(x, offline);
+    if (refused) return app.toast(refused);
     close();
     x.run();
   };
 
-  // Each group of options in its order, numbered as ↑ and ↓ count them.
-  const groups: Array<{ name: string; items: Array<{ x: (typeof shown)[number]; n: number }> }> = [];
-  shown.forEach((x, n) => {
-    const last = groups[groups.length - 1];
-    if (last && last.name === x.group) last.items.push({ x, n });
-    else groups.push({ name: x.group, items: [{ x, n }] });
-  });
+  const groups = inGroups(shown);
   const optionId = (n: number) => `palopt-${n}`;
   return (
     <Modal requestClose={close} scrimClass="palscrim">
@@ -419,13 +438,13 @@ function RowHint({ x, q, paused }: { x: PaletteCommand & { snippet?: string }; q
  * rest of the row. It matches its kind, command and labels too, which don't show. A server that sends
  * no about line gets the old hint: what it is and its command, and its labels.
  */
-function runCommand(r: RunLike & { runId: string; labels: readonly string[] }, go: (to: string) => void): PaletteCommand {
+function runCommand(r: RunLike & { runId: string; labels: readonly string[] }): PaletteCommand {
   const unseen = `${kindWord(r)} · ${runSource(r)}${r.labels.length ? ` · ${r.labels.join(', ')}` : ''}`;
   return {
     group: 'Runs',
     label: shortId(r.runId),
     mono: true,
     ...(r.about ? { hint: r.about.text, about: r.about, match: unseen } : { hint: unseen }),
-    run: () => go(href.run(r.runId)),
+    run: () => navigate(href.run(r.runId)),
   };
 }

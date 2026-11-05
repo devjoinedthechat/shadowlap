@@ -6,6 +6,7 @@ import { applyNormalizers, rewriteText } from './normalize.js';
 import { isReservedScope } from './judge-scope.js';
 import { aboutUsd, formatUsd } from './prices.js';
 import type { Palette } from './report.js';
+import type { Footprint } from './verify.js';
 import { plain } from './report.js';
 import { normalizeResponse } from './responses.js';
 import { safeLine, safeText } from './text.js';
@@ -388,6 +389,19 @@ export function decisionView(d: ModelDecision, effectOf: EffectOf): DecisionView
 }
 
 /**
+ * Whether only a run end to end can say what a change does to this run. A preview asks each step in
+ * the recorded run's state, so a changed read looks like nothing at the steps after it, which still
+ * see what it read; and a few samples miss what a model does only some of the time. So a preview clears
+ * a run only when it has nothing to lose: it doesn't act on the world, every sample decided as
+ * recorded, and no check reads more than one model call's words (`unreadChecks`) where those changed.
+ */
+export function needsVerify(run: { asked: number; majority: DecisionRank | null; decisions: ReadonlyArray<{ recorded: DecisionView; samples: { ranks: readonly number[] } }> }, unreadChecks: boolean): boolean {
+  if (!run.asked) return false;
+  if (run.majority !== null && run.majority <= 2) return true;
+  return run.decisions.some((s) => s.recorded.tools.some((t) => t.effect === 'write' || t.effect === 'unknown' || t.effect === 'handover') || s.samples.ranks.some((r) => r >= 1 && r <= 4) || (unreadChecks && s.samples.ranks.includes(5)));
+}
+
+/**
  * The rank more than half of a step's samples show, each sample's rank given (0: it decided as
  * recorded): the most consequential rank that more than half of them reach. Null when half or more
  * decided as recorded. With one sample, that sample's rank.
@@ -691,6 +705,10 @@ export interface DecisionsVerify {
   rule?: string | null;
   /** The command that verifies them again. */
   commands: string[];
+  /** What the reader must know of the verdicts: a good run judged by its gate alone, and why. Absent from sessions kept before it was. */
+  warnings?: string[];
+  /** What the runs it verified cost a run as recorded and end to end, by what the attempts did (footprintDelta): a preview counts only the recorded steps. Absent when no attempt showed it. */
+  footprint?: { recorded: Footprint; now: Footprint } | null;
   spent: number;
   upstreamRequests: number;
   reasons: string[];
@@ -743,8 +761,10 @@ export interface DecisionsReport {
   samples: number;
   runs: DecisionRun[];
   counts: DecisionCounts;
-  /** Runs with a rank 1 or 2 change: what `--then-verify` verifies. */
+  /** Runs with a rank 1 or 2 change: what `--strict` fails on. */
   flagged: string[];
+  /** The runs only a run end to end can settle (needsVerify), the flagged ones among them: what `--then-verify` verifies. Absent from sessions kept before it was. */
+  toVerify: string[];
   /** Per run (the mean over the runs asked), as recorded and asked again; and what asking cost. USD. */
   cost: { before: number | null; after: number | null; spent: number; upstreamRequests: number; unknownModels: string[] };
   tokens: { before: TokenCount; after: TokenCount };
@@ -893,11 +913,13 @@ export function unsettledRun(run: Pick<DecisionRun, 'runId' | 'refused' | 'steps
  * changed step the request as recorded got no answer for, for now); verify didn't settle the runs it
  * took, or did not run.
  */
-export function decisionsUnsettled(r: { stopReason: string | null; flagged: readonly string[]; runs: readonly UnsettledRun[]; verify: Pick<DecisionsVerify, 'verdict' | 'reasons'> | null }): string | null {
+export function decisionsUnsettled(r: { stopReason: string | null; flagged: readonly string[]; toVerify?: readonly string[] | null; runs: readonly UnsettledRun[]; verify: Pick<DecisionsVerify, 'verdict' | 'reasons'> | null }): string | null {
   if (r.stopReason) return `it stopped before every step was asked: ${r.stopReason}`;
   const unasked = r.runs.filter((x) => x.refused || (x.steps > 0 && x.asked === 0 && x.notAsked > 0)).length;
   if (unasked) return `${unasked} run${unasked === 1 ? '' : 's'} could not be asked`;
-  const open = r.runs.filter((x) => !r.flagged.includes(x.runId));
+  // What verify took, it settles; without verify, a flagged run is settled as flagged whatever a step waits on.
+  const taken = r.verify?.verdict && r.verify.verdict !== 'not-run' ? (r.toVerify ?? r.flagged) : r.flagged;
+  const open = r.runs.filter((x) => !taken.includes(x.runId));
   const unjudged = open.filter((x) => x.judgeOpen).length;
   if (unjudged) return `${unjudged} run${unjudged === 1 ? ' has' : 's have'} a text-only change a judge check reads that could not be judged`;
   const uncontrolled = open.filter((x) => x.controlOpen).length;

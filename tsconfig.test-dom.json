@@ -23,6 +23,7 @@
     "packages/dashboard/test/ui-route-helpers.ts",
     "packages/dashboard/test/ui-list-keys.test.ts",
     "packages/dashboard/test/ui-palette-ids.test.ts",
+    "packages/dashboard/test/ui-palette-step.test.ts",
     "packages/dashboard/test/ui-client-cache.test.ts",
     "packages/dashboard/test/ui-tests-chaos.test.ts",
     "packages/dashboard/test/ui-runs-bulk.test.ts",

@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { JOB_KINDS, type CallDetail, type RunDetail } from '../api.js';
+import type { CallDetail, RunDetail } from '../api.js';
 import { Legend, LoadFailed } from '../components/bits.js';
 import { Tabs } from '../components/Tabs.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { useMenu } from '../components/Popover.js';
 import { Page } from '../components/Page.js';
 import { Strip, stripDetail, type StripCall } from '../components/Strip.js';
-import { callName, sameRun, shortId } from '../format.js';
+import { callName, sameRun } from '../format.js';
 import { runRefresh } from '../connection.js';
 import { useActiveTabInView, useLatest, useLoad } from '../hooks.js';
 import { followNewest, mergeRun, settledThrough } from '../live.js';
@@ -16,7 +16,7 @@ import { href, nextView, VIEWS, type View } from '../route.js';
 import { setOpenRunAbout } from '../title.js';
 import { navigate } from '../router.js';
 import { inScope, scopeChips, scopesOf } from '../scopes.js';
-import { useApp, type PaletteCommand } from '../state.js';
+import { useApp } from '../state.js';
 import { useActionRunner } from '../run/actions.js';
 import { CallsTable, CallsToolbar, matchesFilter, pendingMatches, type OriginFilter } from '../run/CallsView.js';
 import { onShow } from '../components/OnShow.js';
@@ -24,22 +24,22 @@ import { ForkDifferences } from '../run/ForkDifferences.js';
 import { Inspector, TABS, type InspectorTab } from '../run/Inspector.js';
 import { flagText } from '../run/banner.js';
 import { askedTools } from '../run/calls.js';
-import { bisectLabel } from '../run/offers.js';
 import { presetAttempt } from '../run/preset.js';
 import { blameOf, checksOf, forkAtOf, forkMarkOf, originOf, withModelNames } from '../run/model.js';
 import { firstFailedCall, openingCall } from '../run/open-at.js';
 import { ancestorsOf, callTree, heads, unfolded } from '../run/groups.js';
 import { useMarkRun, useRunLabels } from '../components/RunKey.js';
-import { MARKS, type RunMark } from '../runkey.js';
+import type { RunMark } from '../runkey.js';
 import { Banner, DiffPanel, RunLoading, RunMetrics, ScopeBar } from '../run/parts.js';
 import { usePagedRun } from '../run/paged-run.js';
 import { followPages, isPending, listedCalls, type ListedCall } from '../run/paging.js';
 import { runNotes } from '../run/notes.js';
+import { useRunCommands } from '../run/run-commands.js';
+import { useWholeStep } from '../run/NextStepButton.js';
 import { RunNotes } from '../run/RunNotes.js';
 import { RunHeader } from '../run/RunHeader.js';
-import { ACTIONS } from '../labels.js';
 import { useRunKeys } from '../run/run-keys.js';
-import { keyColumn, shortcut } from '../shortcuts.js';
+import { shortcut } from '../shortcuts.js';
 
 /**
  * A run: its header and numbers, a banner for how it forked, where it was lost or that it is
@@ -223,15 +223,16 @@ function useChange(run: RunDetail, detail: CallDetail | null, forkAt: number | n
 
 function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: string; call: number | null; view: View | null }) {
   const app = useApp();
-  // A long run's calls come a page at a time (paging.ts): `run` holds those read so far.
-  const { run, paging } = usePagedRun(app.client, answered);
+  // A long run's calls come a page at a time (paging.ts): `run` holds those read so far, its next step whole once that is known.
+  const { run: paged, paging } = usePagedRun(app.client, answered);
+  const run = useWholeStep(paged);
   // The tab's title reads the run's about line from the run as this page read it: the run list has no attempts.
   // Told again when a page of calls brings the run anew: unchanged, it changes nothing.
   useEffect(() => {
     setOpenRunAbout(run.run.runId, run.about ?? null);
   }, [run.run.runId, run.about]);
   useEffect(() => () => setOpenRunAbout(null), []);
-  const { client, exported, actionsOff, setRunCommands, runKeys, runsTick } = app;
+  const { client, exported, actionsOff, runKeys, runsTick } = app;
   const runId = run.run.runId;
   const live = run.run.status === 'running';
   // Each model named as the page names it everywhere: claude-opus-5, not opus-5 here and the full id there.
@@ -393,47 +394,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   useRunKeys(runKeys, { runId, v, selected, step, setTab: (n) => setTab(TABS[n]!), select, setView, setFilterWanted, forkAt, lostAt, failedAt, parentId: run.run.parentRunId, canMark, mark: (m) => mark(m), tree, folded, listed, fold, showDiff, setShowDiff, runs: app.runs, toast: app.toast });
 
   // This run, in the palette.
-  const findCommit = useLatest(actions.findCommit);
-  useEffect(() => {
-    const items: PaletteCommand[] = [];
-    const replay = run.actions.find((a) => a.key === 'r');
-    if (!exported && !actionsOff && replay && !live) items.push({ group: 'This run', label: ACTIONS.replay.label, hint: `shadowlap replay ${shortId(runId)}`, key: keyColumn('replay'), job: true, run: () => actions.run({ action: replay, callNo: null }) });
-    if (canFork && selected !== null)
-      items.push({
-        group: 'This run',
-        label: `Fork at #${selected}…`,
-        hint: 'inject, override, fail, switch model',
-        key: keyColumn('fork'),
-        job: true,
-        run: () => {
-          const btn = document.getElementById('forkBtn');
-          if (btn) setTimeout(() => forkMenu.openAt(btn));
-        },
-      });
-    if (!exported)
-      items.push({
-        group: 'This run',
-        label: 'Share…',
-        hint: 'HTML, pack, dataset, OpenTelemetry, HAR',
-        job: true,
-        run: () => {
-          const btn = document.querySelector<HTMLElement>('.rhead .actions [aria-haspopup="menu"]');
-          if (btn) setTimeout(() => btn.click());
-        },
-      });
-    if (!exported && !actionsOff && !live && !run.source && app.hasKind(JOB_KINDS.bisect)) items.push({ group: 'This run', label: bisectLabel(offers?.bisect).label, hint: 'shadowlap bisect', job: true, run: () => findCommit.current() });
-    // The good/bad key: what repair keeps working, and what it fixes.
-    if (canMark)
-      for (const m of MARKS) {
-        const on = labels.includes(m);
-        items.push({ group: 'This run', label: on ? `Take off ${m}` : `Label it ${m}`, hint: m === 'good' ? 'repair --keeps label:good' : 'repair --fixes label:bad', key: keyColumn(m === 'good' ? 'markGood' : 'markBad'), run: () => mark(m) });
-      }
-    items.push({ group: 'This run', label: 'Provenance', hint: 'the run’s record, call by call', run: () => setView('provenance') });
-    if (run.parent) items.push({ group: 'This run', label: 'Compare with parent', hint: shortId(run.parent.runId), key: keyColumn('compare'), run: () => navigate(href.compare(run.parent!.runId, runId)) });
-    setRunCommands(items);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the commands change with what they show; the functions they call are new each render, and taking them in would register the commands again on every one
-  }, [runId, selected, live, exported, actionsOff, canFork, run.parent?.runId, offers?.bisect?.failed, canMark, labels.join('\n')]);
-  useEffect(() => () => setRunCommands([]), [setRunCommands]);
+  useRunCommands({ run, selected, canFork, canMark, labels, mark, offers, actions, forkMenu, setView });
 
   const stripCalls = useMemo<StripCall[]>(() => {
     const strip = (c: (typeof calls)[number]): StripCall => ({ n: c.callNo, origin: originOf(c), name: callName(c.kind, c.name), detail: stripDetail(c) });

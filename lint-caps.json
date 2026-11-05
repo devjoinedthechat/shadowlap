@@ -64,9 +64,8 @@
     },
     "packages/cli/src/decisions.ts": {
       "planRun": 58,
-      "runDecisions": 34,
-      "stepOf": 48,
-      "verifyFlagged": 37
+      "runDecisions": 32,
+      "stepOf": 48
     },
     "packages/cli/src/doctor.ts": {
       "rulesAgainst": 37,
@@ -93,7 +92,7 @@
       "formatPlant": 44
     },
     "packages/cli/src/migrate.ts": {
-      "formatMigrate": 40
+      "formatMigrate": 31
     },
     "packages/cli/src/otel.ts": {
       "runToOtlp": 59
@@ -197,7 +196,7 @@
       "sumCalls": 45
     },
     "packages/dashboard/src/tests.ts": {
-      "bisectChoices": 72,
+      "bisectChoices": 64,
       "resultLine": 38,
       "testsView": 62
     },
@@ -229,8 +228,7 @@
       "jobStatus": 35
     },
     "packages/dashboard/ui/normalize.ts": {
-      "normalizeFix": 33,
-      "normalizeRunDetail": 37
+      "normalizeRunDetail": 36
     },
     "packages/dashboard/ui/pages/Compare.tsx": {
       "Comparison": 51
@@ -239,7 +237,7 @@
       "NewProjectPage": 38
     },
     "packages/dashboard/ui/pages/Run.tsx": {
-      "Workspace": 82
+      "Workspace": 79
     },
     "packages/dashboard/ui/pages/Runs.tsx": {
       "ServerRuns": 37
@@ -264,7 +262,7 @@
       "ProvenanceView": 95
     },
     "packages/dashboard/ui/run/RunHeader.tsx": {
-      "RunHeader": 84
+      "RunHeader": 76
     },
     "packages/dashboard/ui/run/banner.ts": {
       "attemptBanner": 52,
@@ -277,7 +275,7 @@
       "usePagedRun": 31
     },
     "packages/dashboard/ui/run/parts.tsx": {
-      "Banner": 80,
+      "Banner": 60,
       "DiffPanel": 32
     },
     "packages/dashboard/ui/runspage/ImportDialog.tsx": {
@@ -494,7 +492,7 @@
       "NewProjectPage": 162
     },
     "packages/dashboard/ui/pages/Run.tsx": {
-      "Workspace": 232
+      "Workspace": 195
     },
     "packages/dashboard/ui/pages/Runs.tsx": {
       "ServerRuns": 179
@@ -518,10 +516,10 @@
       "ProvenanceView": 267
     },
     "packages/dashboard/ui/run/RunHeader.tsx": {
-      "RunHeader": 198
+      "RunHeader": 183
     },
     "packages/dashboard/ui/run/parts.tsx": {
-      "Banner": 263
+      "Banner": 194
     },
     "packages/dashboard/ui/runspage/Calendar.tsx": {
       "Calendar": 208
@@ -530,7 +528,7 @@
       "ImportDialog": 162
     },
     "packages/dashboard/ui/shell/Palette.tsx": {
-      "PaletteDialog": 182
+      "PaletteDialog": 178
     },
     "packages/dashboard/ui/state.tsx": {
       "AppProvider": 341
@@ -587,11 +585,11 @@
     }
   },
   "max-lines": {
-    "packages/cli/src/decisions.ts": 1128,
+    "packages/cli/src/decisions.ts": 1086,
     "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,
-    "packages/dashboard/src/tests.ts": 1103,
+    "packages/dashboard/src/tests.ts": 1088,
     "packages/dashboard/test/fixes.test.ts": 884,
     "packages/dashboard/test/tests.test.ts": 1111,
     "packages/dashboard/test/ui-logic.test.ts": 833,

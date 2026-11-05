@@ -249,7 +249,7 @@ describe('a text-only change a judge check reads', () => {
     expect(report.passes.runs).toMatchObject([{ verdict: 'failed', outcome: 'broken', verified: true }]);
     // What judging cost is checking's too, apart from asking and verifying.
     expect(report.costs.checking.judge).toBe(report.decisions.judge!.spent);
-    expect(report.pullRequest.body).toContain('and the 1 with a write, stop or judged change verified end to end');
+    expect(report.pullRequest.body).toContain('and 1 of 1 run verified end to end');
     const text = await shadowlap(p.dir, ['migrate', '--to', 'mock-terse', '-y', '--attempts', '1']);
     expect(text.stdout).toMatch(/rank 2 +goldens\/research #\d+ +judge "fences" fails what it says now, which passed as recorded/);
     expect(text.stdout).toMatch(/checking it {2}\S+ asking, \S+ judging, \S+ verifying/);
@@ -280,10 +280,10 @@ describe('a judge check that cannot be asked', () => {
     expect(warned.code, warned.out).toBe(0);
     expect(warned.out).toContain('! inconclusive, and --inconclusive warn lets it pass: 1 run has a text-only change a judge check reads that could not be judged');
     expect(warned.stdout).toContain(`judge "fences" inconclusive · ${why}`);
-    // migrate: the run is inconclusive, not unchanged, since the words it can't judge might read otherwise.
+    // migrate: the run writes, so it runs end to end, and is inconclusive there, since its judge can't be asked.
     const m = await shadowlap(p.dir, ['migrate', '--to', 'mock-terse', '-y', '--json']);
     expect(m.code, m.out).toBe(3);
-    expect(json<MigrateReport>(m).passes.runs).toMatchObject([{ verdict: 'inconclusive', outcome: 'not-judged', verified: false }]);
+    expect(json<MigrateReport>(m).passes.runs).toMatchObject([{ verdict: 'inconclusive', outcome: 'inconclusive', verified: true }]);
   }, 180_000);
 
   it('reads a run as inconclusive in migrate while a step of it waits on a judge, and as its recording when judged the same', () => {

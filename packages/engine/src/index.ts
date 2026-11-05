@@ -46,7 +46,7 @@ export { CHECK_STATUSES, STATUS_WORDS, checkOutcome, checkStatus, countStatuses,
 // Outcome checks (checks/): the grammar, its parser, and each check's label and a result's line, none
 // of which needs Node, so the dashboard's pages can bundle them; a run judged by them, a judge check
 // with no verdict inconclusive; and the tests entries in the config. The CLI's checks.ts re-exports them.
-export { EXPECT_KEYS, JUDGE_MODEL, OPERATORS, OPERATOR_ALIASES, aliasOf, hasChecks, judgeChecksOf, pathsNamed, readsOutput, toolsNamed, withoutOutput } from './checks/grammar.js';
+export { EXPECT_KEYS, JUDGE_MODEL, OPERATORS, OPERATOR_ALIASES, aliasOf, hasChecks, judgeChecksOf, pathsNamed, readsMoreThanAStep, readsOutput, toolsNamed, withoutOutput } from './checks/grammar.js';
 export type { CallCondition, CallRule, CheckResult, CountRange, ExpectSpec, JudgeCheck, Matcher, NamedPath, NamedTool, Operand, Operator, Reference, TestEntry, TestSpec, TextCheck, ToolCheck, WhenRule } from './checks/grammar.js';
 export { parseAmount, parseCallRule, parseCount, parseExpect, parseJudge, parsePredicate, parseWhen } from './checks/parse.js';
 export { CHECK_MARKS, RULES_ON_CALLS, callRuleLabel, checkLabels, checkLine, checkWords, conditionLabel, costLabel, countLabel, formatAmount, formatCount, judgeLabel, judgeSource, passedWords, showValue, textLabels, toolCheckLabel, whenLabel, type CountKey, type TextKey } from './checks/labels.js';
@@ -89,7 +89,7 @@ export type { CalibrationOutcome, EffectiveSetup, GoldenTestFact, Inspection, Pa
 export { bringRequest, loadApiRequest, manifestRefs, storeApiRequest } from './manifest.js';
 export { ACCOUNT_HEADERS } from './account-headers.js';
 export { compareRuns, formatComparison, runChanges, runsDiffer, toolDefinitions, type RunCourse } from './compare.js';
-export { requestPathLabel } from './request-paths.js';
+export { pathSetByCode, requestPathLabel } from './request-paths.js';
 export { describeChanges, type RunChanges } from './changes.js';
 export type { CallDifference, ComparedIntervention, RunComparison } from './compare.js';
 export type { RequestManifest } from './manifest.js';
@@ -152,10 +152,10 @@ export { afterForkLines, afterForkOf, afterForkWarnings, type AfterFork } from '
 // verify's test of a good run against its own baseline, and the isotonic fit both read rates with.
 export { blameSpan, confidenceOf, confidenceWhy, decidePin, pinRisk, pinRule, pinWords, pooledRates, probeClaim, probeGate, probeRisk, unrescuedHead } from './blame.js';
 export { antitonic, type Fitted } from './isotonic.js';
-export { addPair, baselineShort, clopperPearsonBound, decideAgainstHistory, decideAgainstHistoryAround, decidePaired, decidePairedAround, describeBaselineRule, dropBound, dropEndsRisk, historyBounds, historyDrop, historyOdds, KEPT_DEFAULTS, KEPT_MAX, NO_PAIRS, pairedBrokenLog, pairedDrop, pairedKeptLog, pairedOdds, pairedWorstCase, pairsOf } from './noninferiority.js';
+export { addPair, baselineSaysNothing, baselineShort, clopperPearsonBound, decideAgainstHistory, decideAgainstHistoryAround, decidePaired, decidePairedAround, describeBaselineRule, dropBound, dropEndsRisk, historyBounds, historyDrop, historyOdds, KEPT_DEFAULTS, KEPT_MAX, NO_PAIRS, pairedBrokenLog, pairedDrop, pairedKeptLog, pairedOdds, pairedWorstCase, pairsOf } from './noninferiority.js';
 export type { BaselineDecision, BaselineOdds, BaselineRule, BaselineSource, DropBound, PairCounts } from './noninferiority.js';
 // decisions' control arm: a change ranked only beyond the model's own variation, by exact tests.
-export { consequence, CONTROL_MIN_SAMPLES, CONTROL_RISK, rankBeyondNoise } from './control-arm.js';
+export { chanceRanked, consequence, CONTROL_MIN_SAMPLES, CONTROL_RISK, rankBeyondNoise } from './control-arm.js';
 export { fisherGreater, permutationGreater } from './exact-tests.js';
 // Statistical gating: verdicts with stated error rates on attempts that vary (test's gate, verify, blame).
 export { BASELINE_DEFAULTS, BASELINE_PASS_AT, BLAME_DEFAULTS, GATE_MAX_ATTEMPTS, PASS_K_SHOWN, RECORDING_BASELINE, SPRT_DEFAULTS, atLeast, atMost, attemptsToFail, attemptsToPass, baselineOf, betaCdf, betaPdf, binomialTail, countOdds, decide, decideCount, decideCountUnavailable, decideUnavailable, decisionWord, describeGate, dropProbability, formatPassK, formatTally, gateLimit, gateOdds, gateOddsAt, gateOf, gateResult, gateSentence, lnGamma, normalQuantile, parseGate, passesPerFailure, passHatK, percent, runsRed, sprtBounds, sprtScore, sprtStep, verdictLine, wilson } from './stats.js';
@@ -166,7 +166,7 @@ export type { BaselineEvidence, BaselineGate, Gate, GateDecision, GateHistory, G
 export { boundOf, clopperPearson, confidencePercent, confidenceSequence, countInterval, gateInterval, rateBound, riskPercent, stagewiseInterval, tallyInterval } from './stats.js';
 export type { BoundMethod, GateStop, RateBound, RateInterval, SprtFigures } from './stats.js';
 // A provider that can't answer says nothing about the agent: retried, never counted (rv-gates).
-export { UNAVAILABLE_RETRY, attemptsInARow, providerUnavailable, retryAfter, retryDelay, sessionInARow, sessionUnavailableReason, unavailableReason, unavailableStatus, unavailableStop, type Unavailable } from './unavailable.js';
+export { UNAVAILABLE_RETRY, attemptsInARow, providerRefused, providerUnavailable, retryAfter, retryDelay, sessionInARow, sessionUnavailableReason, unavailableReason, unavailableStatus, unavailableStop, type Unavailable } from './unavailable.js';
 // A golden's baseline for a gate against its history, pooled from the store's test history.
 export { attemptsOf, gateHistory, judgedUnder, notBaseline, recentAttempts, sessionAttempts, testResultVerdict, type HistoryFilter, type HistorySession, type PooledHistory } from './gate-history.js';
 // One risk for a test session, split across its gated goldens (rv-gates).
@@ -233,7 +233,7 @@ export { DECISIONS_ID, JUDGED_IN_RECORDED_STATE, MIGRATE_ID, NO_TOKENS, RANK_LAB
 export type { DecisionCall, DecisionChange, DecisionChangeKind, DecisionComparison, DecisionCounts, DecisionJudge, DecisionJudgeSide, DecisionOptions, DecisionRank, DecisionRemedy, DecisionRun, DecisionStep, DecisionStop, DecisionsChange, DecisionsJudged, DecisionsReport, DecisionsVerify, DecisionView, EffectOf, FromCodeChange, ModelDecision, TokenCount } from './decisions.js';
 // A session's headline, its name and what it moved, and why a preview or a migration settles nothing,
 // in the words and by the rules the CLI and the dashboard's Verdicts share.
-export { decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, migrateBreaks, migrateUnsettled, unsettledRun, type DecisionsHeadline, type MigratePasses, type UnsettledRun } from './decisions.js';
+export { decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, migrateBreaks, migrateUnsettled, needsVerify, unsettledRun, type DecisionsHeadline, type MigratePasses, type UnsettledRun } from './decisions.js';
 // What a test session and a verify came to, as the dashboard's pages say it beside the verdict: a
 // preview's verify by verify's head, a fix's as its Verify step heads it.
 export { fixVerifyHead, goldensPassed, runOutcomeWord, verdictWord, verifyHead } from './verdict-words.js';

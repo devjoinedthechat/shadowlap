@@ -1,8 +1,8 @@
-import { abandonedRuns, checkStatus, hasRecordedCommand, isObject, storeView, type Normalizer, type RunRecord, type Store, type StoreOf } from '@shadowlap/engine';
+import { abandonedRuns, checkStatus, hasRecordedCommand, isObject, storeView, type Normalizer, type RunRecord, type Store, type StoreOf, type TestResult } from '@shadowlap/engine';
 import { parseStoreUrl, shortStoreName, storeKey, teamRunInStore } from '@shadowlap/remote';
 import { lookupRun } from './api.js';
 import { loadRunIndex } from './run-index.js';
-import { fixForRun } from './fixes.js';
+import { fixForRun, type FixForRun } from './fixes.js';
 import { copyRules, recordingNow, type CopyRules } from './run-exports.js';
 import { bisectChoices, testRunBanner, type BisectChoices, type GoldenSource, type TestRunBanner } from './tests.js';
 import { runState } from './runs-list.js';
@@ -164,12 +164,14 @@ function madeModelCall(store: StoreOf<'readModels'>, run: RunRecord): boolean {
  * out) that failed no check: blame replays a run to see it fail as recorded first, and a stop is not
  * something the agent did, so it never does.
  */
-export function blameOffer(store: StoreOf<'recording' | 'readModels' | 'fixes'>, run: RunRecord, tests: unknown): BlameOffer | null {
+export function blameOffer(store: StoreOf<'recording' | 'readModels' | 'fixes'>, run: RunRecord, tests: unknown, fix: () => FixForRun | null = () => fixForRun(store, run.runId)): BlameOffer | null {
   if (run.status === 'running' || !hasRecordedCommand(run) || run.meta?.blame) return null;
   // A blame probe's or a verify attempt's outcome belongs to the fix it was made for, and a preset's
   // attempt failed on the failure the preset played in: its verdict is the preset's.
   if (run.meta?.probe || run.meta?.verify || run.meta?.chaos) return null;
-  const notPassed = (run.meta?.checks ?? []).filter((c) => isObject(c) && c.ok === false && typeof c.label === 'string');
+  // A pack can carry anything: only a list of checks is read as one.
+  const checks = Array.isArray(run.meta?.checks) ? run.meta.checks : [];
+  const notPassed = checks.filter((c) => isObject(c) && c.ok === false && typeof c.label === 'string');
   // A check that could not be decided can't be on a probe either, so no probe could pass: blame
   // refuses such a run, and it isn't offered.
   if (notPassed.some((c) => checkStatus(c) === 'inconclusive')) return null;
@@ -183,7 +185,7 @@ export function blameOffer(store: StoreOf<'recording' | 'readModels' | 'fixes'>,
     const fromConfig = typeof golden === 'string' ? goldenExpect(tests, golden) : undefined;
     if (fromConfig !== undefined) return { from: 'golden', expect: fromConfig, failed };
   }
-  const suggested = fixForRun(store, run.runId);
+  const suggested = fix();
   if (suggested?.role === 'unblamed' && suggested.expect !== undefined && suggested.expect !== null) return { from: 'fix', expect: suggested.expect, failed };
   return failed.length ? { from: 'ask', failed } : { from: 'exit', expect: null, failed };
 }
@@ -207,19 +209,21 @@ export function testOffer(store: StoreOf<'recording' | 'tests'>, run: RunRecord,
   const rules = Array.isArray(normalize) ? normalize : [];
   const wanted = banner.values.values.map((v) => v.normalizer);
   const normalized = wanted.length > 0 && wanted.every((w) => rules.some((r) => sameRule(r, w)));
-  let passingRun: string | null = null;
-  if (normalized) {
-    // Newest first: the first that passed, made after this run and still in the store.
-    for (const r of store.listTestResults({ golden: banner.golden, since: run.startedAt, limit: 50 })) {
-      if (!r.ok || !r.runId || r.runId === run.runId) continue;
-      const passed = store.getRun(r.runId);
-      if (passed && passed.startedAt >= run.startedAt) {
-        passingRun = passed.runId;
-        break;
-      }
-    }
+  return { ...banner, normalized, passingRun: normalized ? passedSince(store, run, banner.golden) : null, checks: goldens.find((g) => g.path === banner.golden)?.checks ?? null };
+}
+
+/**
+ * The newest replay of a golden that passed since this run, made after it and still in the store;
+ * null when none has. `results`: the golden's, newest first, where the caller has read them.
+ */
+export function passedSince(store: StoreOf<'recording' | 'tests'>, run: RunRecord, golden: string, results: readonly TestResult[] = store.listTestResults({ golden, since: run.startedAt, limit: 50 })): string | null {
+  for (const r of results) {
+    if (r.at < run.startedAt) break;
+    if (!r.ok || !r.runId || r.runId === run.runId) continue;
+    const passed = store.getRun(r.runId);
+    if (passed && passed.startedAt >= run.startedAt) return passed.runId;
   }
-  return { ...banner, normalized, passingRun, checks: goldens.find((g) => g.path === banner.golden)?.checks ?? null };
+  return null;
 }
 
 /**

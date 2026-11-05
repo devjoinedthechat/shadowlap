@@ -29,8 +29,12 @@ export interface PaletteCommand {
   about?: { text: string; from: string } | null;
   /** Words it matches that don't show (a run's kind, command and labels). */
   match?: string;
+  /** Found only once something is typed, never listed on the open palette. */
+  typed?: boolean;
   /** Its own key, one word per key (`g o`, `f`), set by what the row does: shown while single-key shortcuts are on. */
   key?: string | undefined;
+  /** Why it can't start now, a job holding what it needs: its hint says so, dimmed, and so does picking it. */
+  wait?: string;
   run: () => void;
 }
 

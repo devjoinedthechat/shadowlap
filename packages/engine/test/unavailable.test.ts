@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CallEndRow, CallMeta, CallRecord } from '../src/types.js';
-import { UNAVAILABLE_RETRY, providerUnavailable, retryAfter, retryDelay, unavailableReason, unavailableStatus, unavailableStop } from '../src/unavailable.js';
+import { UNAVAILABLE_RETRY, providerUnavailable, retryAfter, retryDelay, unavailableReason, unavailableStatus, unavailableStop, providerRefused } from '../src/unavailable.js';
 
 /**
  * An attempt the agent failed while its provider couldn't answer says nothing about the agent: what
@@ -106,5 +106,19 @@ describe('retryDelay', () => {
     // A stop for that reason reads as the provider's, never as a failure or another stop (contract: inconclusive).
     expect(unavailableStop(unavailableReason(3, u))).toBe(true);
     expect([unavailableStop('interrupted'), unavailableStop('the budget of $1.00 is spent'), unavailableStop(null), unavailableStop(undefined)]).toEqual([false, false, false, false]);
+  });
+});
+
+describe('providerRefused', () => {
+  it('names the first call the provider turned away for good', () => {
+    const first = call({ status: 404 });
+    expect(providerRefused([ok(), first, call({ status: 400 })])).toMatch(new RegExp(`^HTTP 404.* at call #${first.callNo}$`));
+  });
+
+  it('leaves out what coming back later could change, and what Shadowlap did itself', () => {
+    for (const status of [408, 409, 429, 500, 503]) expect(providerRefused([call({ status })])).toBeNull();
+    for (const said of [{ injected: true }, { offline: true }, { refused: true }]) expect(providerRefused([call({ status: 404, ...said })])).toBeNull();
+    expect(providerRefused([call({ status: 404 }, { origin: 'replayed' })])).toBeNull();
+    expect(providerRefused([ok()])).toBeNull();
   });
 });
