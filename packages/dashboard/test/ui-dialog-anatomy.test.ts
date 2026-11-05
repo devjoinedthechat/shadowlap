@@ -444,7 +444,7 @@ describe('a `$` row', () => {
 });
 
 describe('a fix’s dialogs', () => {
-  const APPLY = { kind: 'patch', argv: [], gitApply: null, pending: null, pulled: null, files: ['agent.mjs'], diff: '--- a\n+++ b\n', patchFile: '.shadowlap/repairs/r/fix.patch', refused: null, inTree: false, goldens: 1, change: null };
+  const APPLY = { kind: 'patch', argv: [], gitApply: null, pending: null, pulled: null, files: ['agent.mjs'], diff: '--- a\n+++ b\n', patchFile: '.shadowlap/repairs/r/fix.patch', refused: null, inTree: false, goldens: 1, names: [], held: null, change: null };
   const fix = (over: Record<string, unknown> = {}, actions: Record<string, unknown> = {}) =>
     ({
       fixId: 'fx-1',
