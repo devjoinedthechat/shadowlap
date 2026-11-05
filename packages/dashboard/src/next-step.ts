@@ -7,7 +7,7 @@ import {
   checkStatus,
   confirmWords,
   GATE_REPEAT,
-  goldenTestEstimate,
+  goldenRerunEstimate,
   hasRecordedCommand,
   injectionAgainEstimate,
   injectionEstimate,
@@ -54,6 +54,7 @@ import { answer, failed, type ReadTable } from './read-registry.js';
 import { runJudged, type OutcomeWork, type RunJudged } from './run-outcome.js';
 import { callTotals, priced as pricedTotals } from './run-stats.js';
 import { runStates, type RunRow, type RunState } from './runs-list.js';
+import { liveReasons } from './tests-live.js';
 import { bisectAnswers, bisectChoices, standingAnswer, underChecks, unjudgedOffline, unreadable, verdictOfResult, type BisectAnswer, type BisectChoices, type GoldenSource } from './tests.js';
 
 /**
@@ -361,6 +362,19 @@ function crashed(row: IndexedRun, result: TestResult | null): boolean {
 const REMADE = 'It re-records the golden under the change';
 const JUDGE_ONCE = 'Asks the judge once, live, and keeps its verdict in the pack: every test after judges from the recording, free';
 
+/** A golden's newest finished plant, as its report says it: what its injection gate spent the last time it ran; null before one has. */
+export function newestGate(store: Store, golden: string): PlantReport | null {
+  const data = store.listInjectionResults({ golden, limit: 50 }).find((x) => x.mode === 'plant' && x.endedAt !== null)?.data as Partial<PlantReport> | undefined;
+  return data?.cost ? (data as PlantReport) : null;
+}
+
+/** Run test on one golden, as its session runs it (`result` its newest test): Free only where nothing of it runs live, as tests-live.ts `liveReasons` says. */
+export function goldenRerunPrice(store: Store, source: GoldenSource, result: TestResult | null): Estimate {
+  const why = liveReasons(source).map((w) => w.kind);
+  const injection = why.includes('injection');
+  return goldenRerunEstimate({ live: why.length > 0, fork: why.includes('fork'), injection }, result, injection ? newestGate(store, source.path) : null);
+}
+
 /** What re-recording a golden bills: about what its recording cost. */
 export const updatePrice = (source: GoldenSource): Priced => ({ reads: source.runId ? [source.runId] : [], price: (p) => updateEstimate([{ calls: source.runId ? p.calls(source.runId) : [] }]) });
 
@@ -373,7 +387,7 @@ function updateStep(f: Facts, golden: string, source: GoldenSource): Decided {
 function valueStep(f: Facts, t: TestedGolden, offer: TestOffer): Decided | null {
   const { golden, source, result } = t;
   const all = offer.values.coversAll;
-  const test = () => goldenTestEstimate(source.mode === 'fork', result);
+  const test = () => goldenRerunPrice(f.store, source, result);
   if (offer.normalized) return all ? { key: 'rerun-test', label: ACTIONS.rerunTest.label, golden, command: commandLine(['test', golden]), sub: 'The rule is in shadowlap.config.json: it replays the golden again', price: test } : updateStep(f, golden, source);
   if (offer.maybeReal) return null;
   return {

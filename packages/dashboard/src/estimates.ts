@@ -9,7 +9,6 @@ import {
   fixRunArgs,
   forkArgs,
   forkEstimate,
-  goldenRerunEstimate,
   moreEstimate,
   noFixReason,
   plantEstimate,
@@ -35,24 +34,22 @@ import {
   type Estimate,
   type FixRecords,
   type ForkEstimateChange,
-  type PlantReport,
   type Price,
   type RunRecord,
   type Store,
   type StoredBlame,
-  type TestResult,
 } from '@shadowlap/engine';
 import { lookupRun, noSuchRun } from './api.js';
 import { decisionSession, runsToVerify, sessionReport } from './decisions.js';
 import { nextBlameRule } from './fix-blame-step.js';
 import { sprtGate } from './fix-shared.js';
 import { fixDetail } from './fixes.js';
-import { attemptSpends, blamePrice, goldenBisectEstimate, judgeOnly, updatePrice } from './next-step.js';
+import { attemptSpends, blamePrice, goldenBisectEstimate, goldenRerunPrice, judgeOnly, newestGate, updatePrice } from './next-step.js';
 import { estimateOf, pricingOf, type Pricing } from './pricing.js';
 import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { loadRunIndex, type RunIndex } from './run-index.js';
 import { parseWork, type OutcomeWork } from './run-outcome.js';
-import { liveReasons, sessionLiveGoldens, type LiveReason } from './tests-live.js';
+import { sessionLiveGoldens, type LiveReason } from './tests-live.js';
 import { gateResultView, normalizeAndTestJob, runTestsJob, unreadable, type GoldenSource } from './tests.js';
 
 /**
@@ -248,21 +245,9 @@ export interface TestsEstimates {
   goldens: Record<string, GoldenEstimates>;
 }
 
-/** A golden's newest finished plant: what its injection gate spent the last time it ran, as its report says. */
-function newestGate(store: Store, golden: string): Partial<PlantReport> | null {
-  const r = store.listInjectionResults({ golden, limit: 50 }).find((x) => x.mode === 'plant' && x.endedAt !== null);
-  return r ? r.data : null;
-}
-
-/** Run test on one golden, as its session runs it: Free only where nothing of it runs live, as tests-live.ts `liveReasons` says. */
-function rerunEstimate(source: GoldenSource, r: TestResult | null, gate: Partial<PlantReport> | null): Estimate {
-  const why = liveReasons(source).map((w) => w.kind);
-  return goldenRerunEstimate({ live: why.length > 0, fork: why.includes('fork'), injection: why.includes('injection') }, r, gate?.cost ? (gate as PlantReport) : null);
-}
-
 async function goldenEstimates(store: Store, index: RunIndex, source: GoldenSource, pricing: Pricing, job: TestsEstimatesJob): Promise<GoldenEstimates> {
   const r = store.listTestResults({ golden: source.path, limit: 1 })[0] ?? null;
-  const rerun = await estimateOf(() => rerunEstimate(source, r, source.injection ? newestGate(store, source.path) : null), pricing);
+  const rerun = await estimateOf(() => goldenRerunPrice(store, source, r), pricing);
   // A verdict the pack lacks is one call of its judge; anything else, the golden recorded again.
   const only = judgeOnly(source, r);
   const update = await estimateOf(only ? () => updateEstimate([{ calls: [], judge: only.judge }]) : updatePrice(source).price!, pricing);
