@@ -109,22 +109,24 @@ export interface NextStepWork {
 
 export type NextStepKey = 'replay' | 'passing' | 'normalizer' | 'rule' | 'rerun-test' | 'update-golden' | 'gate-again' | 'bisect' | 'pack-gate' | 'pack' | 'compare' | 'injection-proof' | 'injection-test' | 'injection-again' | 'preset-proof' | 'fix' | 'blame';
 
-/** A step as a list's row carries it: which one, its words, where it opens when it is a link, and why it can't start when it can't. */
+/** A step as a list's row carries it: which one, its words, where it opens when it is a link, why it can't start when it can't, and what it says it does: none of which reads a call. */
 export interface NextStepRow {
   key: NextStepKey;
   label: string;
   href?: string;
   off?: string;
-}
-
-/** A step on a run's page: the row's, and what its hover says, what it runs and bills. */
-interface StepWords extends NextStepRow {
   /** The hover's title, where it isn't the label: `Against 01K5CQ3W6H`, `Opens 01K5CQ4R1T`. */
   title?: string;
-  /** The hover's sentence under it. */
-  sub?: string;
   /** The command it runs, as a person would type it. */
   command?: string;
+  /** A capture's Run blame, which first asks for your command, as only its page can. */
+  capture?: true;
+}
+
+/** A step on a run's page: the row's, and the rest of what its hover says, what it bills. */
+interface StepWords extends NextStepRow {
+  /** The hover's sentence under its title. */
+  sub?: string;
   /** What it bills, where it runs something live; absent for a step that bills nothing. */
   estimate?: Estimate;
   /**
@@ -141,7 +143,7 @@ export type NextStep = StepWords &
     | { key: 'passing' | 'injection-proof' | 'preset-proof'; runId: string }
     | { key: 'compare'; parent: string }
     | { key: 'fix'; fixId: string; status: FixStatus }
-    | { key: 'blame'; offer: BlameOffer; capture?: true }
+    | { key: 'blame'; offer: BlameOffer }
     | { key: 'normalizer' | 'update-golden'; golden: string; test: TestOffer | null }
     | { key: 'rerun-test' | 'gate-again'; golden: string }
     | { key: 'bisect'; golden: string; starts: boolean; blame: BlameOffer | null }
@@ -783,9 +785,9 @@ export function copyNextStep(store: Store, runId: string, held: readonly string[
   return row && parent && held.includes(parent) && (row.attemptKind || row.kind === 'fork') ? compareStep(parent, runId) : null;
 }
 
-/** A step as a list's row carries it: which one, its words and its link. */
+/** A step as a list's row carries it. */
 export function stepRow(step: NextStep): NextStepRow {
-  return { key: step.key, label: step.label, ...(step.href ? { href: step.href } : {}), ...(step.off ? { off: step.off } : {}) };
+  return { key: step.key, label: step.label, ...(step.href ? { href: step.href } : {}), ...(step.off ? { off: step.off } : {}), ...(step.title ? { title: step.title } : {}), ...(step.command ? { command: step.command } : {}), ...(step.capture ? { capture: true as const } : {}) };
 }
 
 /**

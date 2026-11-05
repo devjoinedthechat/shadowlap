@@ -8,7 +8,7 @@ import { commandText } from '../goldens.js';
 import { useLoad } from '../hooks.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
 import { TestsJobButton } from '../fixes/TestsJobButton.js';
-import { useTreeBusy } from '../fixes/tree.js';
+import { useJobWait, useTreeBusy } from '../fixes/tree.js';
 import { confirmWords } from '../labels.js';
 import { useApp } from '../state.js';
 import { startTestsJob } from '../tests-ask.js';
@@ -16,7 +16,7 @@ import type { NextStep } from '../types.js';
 import type { PendingAction } from './actions.js';
 import { useDivergedJobs } from './diverged.js';
 import { checksOf } from './model.js';
-import { stepCard, stepCost } from './next-step.js';
+import { stepCard, stepCost, stepJob } from './next-step.js';
 import { blameTitle } from './offers.js';
 
 /**
@@ -37,6 +37,17 @@ export function useWholeStep(run: RunDetail): RunDetail {
   const asked = useLoad(() => (ask ? client.nextStep(run.run.runId) : null), ask ? run.run.runId : 'none', run.next);
   const whole = ask ? asked.data?.next : null;
   return useMemo(() => (whole ? { ...run, next: whole } : run), [run, whole]);
+}
+
+/**
+ * Why a run's next step can't start now, as its button says it, for what offers the step elsewhere:
+ * what it runs waiting for a job, or Replay's or the rule's own action saying why not.
+ */
+export function useStepWait(run: RunDetail, step: NextStep | null): string | null {
+  const wait = useJobWait(stepJob(step));
+  if (!step || step.href) return null;
+  const own = step.key === 'replay' ? 'r' : step.key === 'rule' ? 'n' : null;
+  return wait ?? (own ? (run.actions.find((a) => a.key === own)?.disabled ?? null) : null);
 }
 
 /** A step's hover card. */
@@ -83,10 +94,9 @@ function DivergedStep({ run, step, offers }: StepProps & { step: Extract<NextSte
   // The server's, until the page's offers come.
   const test = offers?.test ?? step.test;
   const jobs = useDivergedJobs(run, test, checksOf(run).length);
-  const verb = step.key === 'normalizer' ? 'add the normalizer' : 'update it';
   return (
     <>
-      <TestsJobButton className="btn lime" verb={verb} off={app.actionsOff} tip={tipOf(step)} lead={step.key} onClick={step.key === 'normalizer' ? jobs.normalize : jobs.update}>
+      <TestsJobButton className="btn lime" verb={stepJob(step)!.verb} off={app.actionsOff} tip={tipOf(step)} lead={step.key} onClick={step.key === 'normalizer' ? jobs.normalize : jobs.update}>
         {step.label}
       </TestsJobButton>
       {jobs.dialogs}
@@ -101,7 +111,7 @@ function UpdateStep({ step }: { step: Extract<NextStep, { key: 'normalizer' | 'u
   const cost = stepCost(step);
   return (
     <>
-      <TestsJobButton className="btn lime" verb="update it" off={app.actionsOff} tip={tipOf(step)} lead={step.key} onClick={() => app.guard(() => setAsking(true))}>
+      <TestsJobButton className="btn lime" verb={stepJob(step)!.verb} off={app.actionsOff} tip={tipOf(step)} lead={step.key} onClick={() => app.guard(() => setAsking(true))}>
         {step.label}
       </TestsJobButton>
       {asking ? (
@@ -126,7 +136,7 @@ function RerunStep({ step }: { step: Extract<NextStep, { key: 'rerun-test' | 'ga
   const app = useApp();
   const name = goldenName(step.golden);
   return (
-    <TestsJobButton className="btn lime" verb="run it again" off={app.actionsOff} tip={tipOf(step)} lead={step.key} onClick={() => startTestsJob(app, JOB_KINDS.tests, { golden: step.golden }, { title: `Re-run ${name}`, ok: 'Re-run', commands: [commandText(['test', step.golden])] })}>
+    <TestsJobButton className="btn lime" verb={stepJob(step)!.verb} off={app.actionsOff} tip={tipOf(step)} lead={step.key} onClick={() => startTestsJob(app, JOB_KINDS.tests, { golden: step.golden }, { title: `Re-run ${name}`, ok: 'Re-run', commands: [commandText(['test', step.golden])] })}>
       {step.label}
     </TestsJobButton>
   );
@@ -144,7 +154,7 @@ function BisectStep({ run, step, offers, onFindCommit }: StepProps & { step: Ext
   return (
     <>
       {step.blame ? <RunBlameButton runId={runId} failed={step.blame.failed} title={blameTitle(step.blame)} className="btn" /> : null}
-      <TestsJobButton className="btn lime" verb="find the breaking commit" off={app.actionsOff} tip={tipOf(step)} lead="bisect" onClick={() => (good ? app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.bisect, { runId, good }))) : onFindCommit())}>
+      <TestsJobButton className="btn lime" verb={stepJob(step)!.verb} off={app.actionsOff} tip={tipOf(step)} lead="bisect" onClick={() => (good ? app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.bisect, { runId, good }))) : onFindCommit())}>
         {step.label}
       </TestsJobButton>
     </>
@@ -158,7 +168,7 @@ function RuleStep({ run, step, onAction }: StepProps) {
   if (!action) return null;
   const off = actionsOff ?? action.disabled;
   return (
-    <button className="btn lime" type="button" disabled={!!off} data-next={step.key} {...(off ? { title: off } : { 'data-tip': tipOf(step) })} onClick={() => onAction({ action, callNo: null })}>
+    <button className={off ? 'btn' : 'btn lime'} type="button" disabled={!!off} data-next={step.key} {...(off ? { title: off } : { 'data-tip': tipOf(step) })} onClick={() => onAction({ action, callNo: null })}>
       {step.label}
     </button>
   );
@@ -168,14 +178,14 @@ function RuleStep({ run, step, onAction }: StepProps) {
 function InjectionStep({ step }: { step: Extract<NextStep, { key: 'injection-test' | 'injection-again' }> }) {
   const app = useApp();
   const [asking, setAsking] = useState(false);
-  const busy = useTreeBusy('reads', 'test it');
+  const busy = useTreeBusy('reads', stepJob(step)!.verb);
   const off = app.actionsOff ?? busy;
   const title = confirmWords(step.label);
   const fields = step.key === 'injection-again' ? { runId: step.runId, repeat: step.job.repeat, ...(step.job.templates.length ? { templates: step.job.templates } : {}), baselines: step.job.baselines, liveReads: step.job.liveReads } : { runId: step.runId };
   const cost = stepCost(step);
   return (
     <>
-      <button className="btn lime" type="button" disabled={!!off} data-next={step.key} {...(off ? { title: off } : { 'data-tip': tipOf(step) })} onClick={() => app.guard(() => setAsking(true))}>
+      <button className={off ? 'btn' : 'btn lime'} type="button" disabled={!!off} data-next={step.key} {...(off ? { title: off } : { 'data-tip': tipOf(step) })} onClick={() => app.guard(() => setAsking(true))}>
         {step.label}
       </button>
       {asking ? (
@@ -208,7 +218,7 @@ function PackStep({ step }: { step: Extract<NextStep, { key: 'pack' | 'pack-gate
   const cost = stepCost(step);
   return (
     <>
-      <button className="btn lime" type="button" disabled={!!off} data-next={step.key} {...(off ? { title: off } : { 'data-tip': tipOf(step) })} onClick={() => app.guard(() => setAsking(true))}>
+      <button className={off ? 'btn' : 'btn lime'} type="button" disabled={!!off} data-next={step.key} {...(off ? { title: off } : { 'data-tip': tipOf(step) })} onClick={() => app.guard(() => setAsking(true))}>
         {step.label}
       </button>
       {asking ? (

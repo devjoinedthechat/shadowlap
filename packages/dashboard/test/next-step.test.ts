@@ -334,6 +334,8 @@ describe('a run’s next step', () => {
     const blamed = step(capture, w, { judged: judged! });
     expect(blamed).toMatchObject({ key: 'blame', capture: true, offer: { from: 'golden', expect: { calls: [rule] }, failed: ['every issue_refund call: amount <= 100'] } });
     expect(blamed.command).toContain('-- <your command>');
+    // A list's row says so too: its palette entry sends it to its page, which asks.
+    expect(stepRow(blamed)).toEqual({ key: 'blame', label: 'Run blame', capture: true, command: blamed.command });
     // Not judged yet, as a list's row past its budget: Replay with your command…, its step until then.
     expect(step(capture, w).key).toBe('replay');
     // A fix that holds the same failure, whatever its call numbers and amounts: Open fix.
@@ -588,9 +590,9 @@ describe('a list’s rows', () => {
     const w = work([]);
     const rows = nextStepRows(store, judgedRows(store, listRuns(store), null, Infinity), w);
     const by = new Map(rows.map((r) => [r.runId, r.next]));
-    expect(by.get(rec)).toEqual({ key: 'blame', label: 'Run blame' });
-    expect(by.get(passed)).toEqual({ key: 'pack', label: 'Pack as golden…' });
-    expect(by.get(fork)).toEqual({ key: 'compare', label: 'Compare with parent', href: `#/compare/${rec}/${fork}` });
+    expect(by.get(rec)).toEqual({ key: 'blame', label: 'Run blame', command: `shadowlap blame ${rec.slice(0, 10)}` });
+    expect(by.get(passed)).toEqual({ key: 'pack', label: 'Pack as golden…', title: 'Pack as golden', command: `shadowlap pack ${passed.slice(0, 10)} ${goldenFolder(passed)}` });
+    expect(by.get(fork)).toEqual({ key: 'compare', label: 'Compare with parent', href: `#/compare/${rec}/${fork}`, title: `Against ${rec.slice(0, 10)}`, command: `shadowlap diff ${rec.slice(0, 10)} ${fork.slice(0, 10)}` });
     for (const id of [rec, passed, fork]) expect(by.get(id)).toEqual(stepRow(step(id, w)));
   });
 

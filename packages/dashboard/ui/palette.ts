@@ -23,15 +23,17 @@ export interface PaletteEntry {
   typed?: boolean;
   /** The key that does what it does, where it has one. */
   key?: string;
+  /** Why it can't start now, a job holding what it needs: its hint says so, dimmed, and so does picking it. */
+  wait?: string;
 }
 
 /** The key of the header button a step presses, by what the step does, never read from its label: Replay, Compare or Run blame. */
 const STEP_KEYS: Partial<Record<NextStep['key'], string>> = { replay: 'r', compare: 'c', blame: 'b' };
 
-/** A run's next step as This run's first entry: what the header's lime button says, what it runs or where it goes, and its key. */
-export function stepEntry(step: NextStep): PaletteEntry {
+/** A run's next step as This run's first entry: what the header's lime button says, what it runs or where it goes, and its key; while it waits, why (`wait`). */
+export function stepEntry(step: NextStep, wait: string | null = null): PaletteEntry {
   const key = STEP_KEYS[step.key];
-  return { group: 'This run', label: step.label, hint: step.command ?? step.title ?? '', ...(step.href ? {} : { job: true }), ...(key ? { key } : {}) };
+  return { group: 'This run', label: step.label, hint: wait ?? step.command ?? step.title ?? '', ...(step.href ? {} : { job: true }), ...(key ? { key } : {}), ...(wait ? { wait } : {}) };
 }
 
 /** Run blame for the newest failures nobody has blamed, as their pages lead with it, at most this many. */
@@ -42,17 +44,26 @@ export const BLAME_ENTRIES = 3;
  * as a list's rows say it. Found once something is typed, by what they did too (`failed`, their about
  * line).
  */
-export function blameEntries<R extends { runId: string; startedAt: number; next?: { key: string } | null; about?: { text: string } | null }>(runs: readonly R[], open: string | null): Array<{ run: R; entry: PaletteEntry }> {
+export function blameEntries<R extends { runId: string; startedAt: number; next?: { key: string; command?: string } | null; about?: { text: string } | null }>(runs: readonly R[], open: string | null): Array<{ run: R; entry: PaletteEntry }> {
   return runs
     .filter((r) => r.next?.key === 'blame' && r.runId !== open)
     .sort((a, b) => b.startedAt - a.startedAt)
     .slice(0, BLAME_ENTRIES)
-    .map((run) => ({ run, entry: { group: 'Actions', label: ACTIONS.runBlame.label, hint: `shadowlap blame ${run.runId.slice(0, 10)}`, job: true, typed: true, match: `failed ${run.about?.text ?? ''}` } }));
+    .map((run) => ({ run, entry: { group: 'Actions', label: ACTIONS.runBlame.label, hint: run.next?.command ?? '', job: true, typed: true, match: `failed ${run.about?.text ?? ''}` } }));
 }
 
-/** A blame the palette started that first asks something (the check, or a yes to someone else's command): the run's own page asks it. */
+/**
+ * A blame the palette started that first asks something (the check, or a yes to someone else's
+ * command), which the run's own page asks; a capture's first asks for your command, so it goes there
+ * before anything is started.
+ */
 export function blameAsksOnItsPage(err: unknown): boolean {
   return (err as { status?: unknown } | null)?.status === 422 || consentAsked(err) !== null;
+}
+
+/** What picking an entry says instead of running it: paused while the server can't be reached, or why it waits. */
+export function pickRefusal(x: Pick<PaletteEntry, 'job' | 'wait'>, offline: boolean): string | null {
+  return offline && x.job ? 'Actions are paused until the dashboard server is back.' : (x.wait ?? null);
 }
 
 /** What a job's entry says in place of its hint while the server can't be reached. */

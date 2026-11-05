@@ -144,8 +144,8 @@ describe('a list’s rows', () => {
     const page = await get<{ runs: Array<{ runId: string; next?: NextStepRow }> }>('runs/page?limit=500');
     const recent = await get<{ runs: Array<{ runId: string; next?: NextStepRow }> }>('runs');
     for (const list of [page.runs, recent.runs]) {
-      expect(list.find((r) => r.runId === failed)?.next).toEqual({ key: 'blame', label: 'Run blame' });
-      expect(list.find((r) => r.runId === fork)?.next).toEqual({ key: 'compare', label: 'Compare with parent', href: `#/compare/${failed}/${fork}` });
+      expect(list.find((r) => r.runId === failed)?.next).toEqual({ key: 'blame', label: 'Run blame', command: `shadowlap blame ${failed.slice(0, 10)}` });
+      expect(list.find((r) => r.runId === fork)?.next).toEqual({ key: 'compare', label: 'Compare with parent', href: `#/compare/${failed}/${fork}`, title: `Against ${failed.slice(0, 10)}`, command: `shadowlap diff ${failed.slice(0, 10)} ${fork.slice(0, 10)}` });
     }
   });
 });

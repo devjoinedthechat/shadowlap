@@ -398,6 +398,26 @@ describe('the run page’s next step', () => {
     }
   });
 
+  it('goes plain while a job holds what it needs, saying why, so the page never offers a lime button that can’t start', async () => {
+    const meta = { project: { id: 'p1', path: '/work/project' } };
+    const holding = [{ job: { id: 'j1', kind: 'repair', done: false, project: { id: 'p1' }, worktree: { folder: '/work/project', use: 'writes', doing: 'a repair is running' } } }];
+    for (const [next, why] of [
+      [OFFER, 'A repair is running: blame once it is done.'],
+      [{ key: 'rerun-test', label: 'Re-run test', golden: GOLDEN }, 'A repair is running: run it again once it is done.'],
+      [{ key: 'injection-test', label: 'Run injection test…', runId: REC }, 'A repair is running: test it once it is done.'],
+      [{ key: 'bisect', label: 'Find breaking commit…', golden: GOLDEN, starts: false, blame: null }, 'A repair is running: find the breaking commit once it is done.'],
+    ] as Array<[NextStep, string]>) {
+      page = await render(createElement(AppContext.Provider, { value: app({ meta, jobs: holding } as never) }, createElement(RunHeader, header(detail({ state: passedState, next })))));
+      const lead = page.byText('.rhead .actions button', next.label);
+      expect(lead.className, next.key).toBe('btn');
+      expect(lead.props.disabled, next.key).toBe(true);
+      expect(lead.props.title, next.key).toBe(why);
+      expect(lime(page), next.key).toEqual([]);
+      await page.unmount();
+      page = null;
+    }
+  });
+
   it('leaves an exported copy only a comparison it can make', async () => {
     const compare: NextStep = { key: 'compare', label: 'Compare with parent', parent: PARENT, href: `#/compare/${PARENT}/${REC}` };
     page = await render(createElement(AppContext.Provider, { value: app({ exported: true }) }, createElement(RunHeader, header(detail({ parent: PARENT, state: { ...passedState, kind: 'fork' }, next: compare })))));

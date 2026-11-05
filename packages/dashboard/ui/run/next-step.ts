@@ -15,6 +15,24 @@ export function nextStepOf(run: Pick<RunDetail, 'next'>): NextStep | null {
 }
 
 /**
+ * What a step that runs a job waits for, by the verb its button says it in: a Tests job for a job
+ * replaying or rewriting the goldens too, every one for what holds the working tree.
+ */
+const STEP_JOBS: Partial<Record<NextStep['key'], { verb: string; tests: boolean }>> = {
+  normalizer: { verb: 'add the normalizer', tests: true },
+  'update-golden': { verb: 'update it', tests: true },
+  'rerun-test': { verb: 'run it again', tests: true },
+  'gate-again': { verb: 'run it again', tests: true },
+  bisect: { verb: 'find the breaking commit', tests: true },
+  blame: { verb: 'blame', tests: false },
+  'injection-test': { verb: 'test it', tests: false },
+  'injection-again': { verb: 'test it', tests: false },
+};
+
+/** The job a step runs, for what it waits for and how its button words that; none for a link, or a step that waits for no job. */
+export const stepJob = (step: NextStep | null): { verb: string; tests: boolean } | null => (step && !step.href ? (STEP_JOBS[step.key] ?? null) : null);
+
+/**
  * What a step's hover says: its title, its sentence, and what it bills and runs: the amount alone
  * until Spending says whether it asks first, none for what bills nothing. A job's dialog says the rest.
  */

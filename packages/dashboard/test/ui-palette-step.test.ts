@@ -42,7 +42,7 @@ async function thisRun(run: RunDetail, app: Partial<AppState> = {}): Promise<Pal
     useRunCommands({ run, selected: 3, canFork: true, canMark: false, labels: [], mark: () => undefined, offers: null, actions: { run: () => undefined, findCommit: () => undefined }, forkMenu: { openAt: () => undefined }, setView: () => undefined });
     return null;
   };
-  const value = { exported: false, actionsOff: null, hasKind: () => true, setRunCommands: (x: PaletteCommand[]) => (x.length ? (items = x) : undefined), ...app } as unknown as AppState;
+  const value = { client: { jobs: () => Promise.resolve([]) }, feeds: {}, jobs: [], meta: null, exported: false, actionsOff: null, hasKind: () => true, toast: () => undefined, setRunCommands: (x: PaletteCommand[]) => (x.length ? (items = x) : undefined), ...app } as unknown as AppState;
   r = await render(createElement(AppContext.Provider, { value }, createElement(Page)));
   await r.unmount();
   r = null;
@@ -92,13 +92,81 @@ describe('This run', () => {
     expect(items.filter((x) => x.label.startsWith('Find breaking commit')).map((x) => x.label)).toEqual(['Find breaking commit']);
   });
 
+  describe('while a job holds what the step needs', () => {
+    const PROJECT = { project: { id: 'p1', path: '/work/project' } };
+    const holding = (over: Record<string, unknown> = {}) => [{ job: { id: 'j1', kind: 'repair', done: false, project: { id: 'p1' }, worktree: { folder: '/work/project', use: 'writes', doing: 'a repair is running' }, ...over } }];
+    const WAITS = 'A repair is running: blame once it is done.';
+    const blame: NextStep = { key: 'blame', label: 'Run blame', offer: { from: 'exit', expect: null, failed: [] }, command: `shadowlap blame ${RUN.slice(0, 10)}` };
+
+    it('says why as its hint, and on a pick, and presses nothing', async () => {
+      const items = await thisRun(detail(blame), { meta: PROJECT, jobs: holding() } as unknown as Partial<AppState>);
+      expect(items[0]).toMatchObject({ label: 'Run blame', hint: WAITS, wait: WAITS, job: true });
+      const toast = vi.fn();
+      const querySelector = vi.fn(() => null);
+      vi.stubGlobal('document', { querySelector });
+      const value = {
+        client: { search: async () => ({ hits: [] }), runsPage: async () => ({ runs: [], total: 0, next: null, chipCounts: {} }) },
+        exported: false,
+        meta: null,
+        conn: 'ok',
+        runs: [],
+        runCommands: items,
+        actionsOff: null,
+        hasKind: () => false,
+        jobs: [],
+        guard: (fn: () => void) => fn(),
+        watchJob: () => undefined,
+        toast,
+        palette: true,
+        setPalette: () => undefined,
+        setHelp: () => undefined,
+        closeTopLayer: () => false,
+        blockingLayer: () => true,
+        registerLayer: () => () => undefined,
+      } as unknown as AppState;
+      r = await render(createElement(AppContext.Provider, { value }, createElement(Palette, { route: { page: 'overview' } })));
+      const option = r.all('.palit').find((el) => el.querySelector('.pl')!.textContent === 'Run blame')!;
+      expect(option.className).toContain('waits');
+      expect(option.props['aria-disabled']).toBe(true);
+      expect(option.textContent).toContain(WAITS);
+      await r.click(option);
+      await r.wait(0);
+      vi.unstubAllGlobals();
+      expect(toast).toHaveBeenCalledWith(WAITS);
+      expect(querySelector).not.toHaveBeenCalled();
+    });
+
+    it('waits by what the step runs: a Tests job for a job on the goldens too, a link for nothing, and what bills nothing as its own action says', async () => {
+      const rerun: NextStep = { key: 'rerun-test', label: 'Re-run test', golden: 'goldens/x', command: 'shadowlap test goldens/x' };
+      expect((await thisRun(detail(rerun), { meta: PROJECT, jobs: [{ job: { id: 'j2', kind: 'test', done: false, project: { id: 'p1' } } }] } as unknown as Partial<AppState>))[0]?.wait).toMatch(/run it again once it is done/);
+      // The same job waits nothing for blame, which only a job holding the tree stops.
+      expect((await thisRun(detail(blame), { meta: PROJECT, jobs: [{ job: { id: 'j2', kind: 'test', done: false, project: { id: 'p1' } } }] } as unknown as Partial<AppState>))[0]?.wait).toBeUndefined();
+      const link: NextStep = { key: 'fix', label: 'Open fix', fixId: 'fx-1', status: 'open', href: '#/fixes/fx-1', title: '“Refunds”' };
+      expect((await thisRun(detail(link), { meta: PROJECT, jobs: holding() } as unknown as Partial<AppState>))[0]).not.toHaveProperty('wait');
+      const replay: NextStep = { key: 'replay', label: 'Replay', runId: RUN, command: 'shadowlap replay x' };
+      expect((await thisRun(detail(replay, { actions: [{ key: 'r', label: 'Replay', disabled: 'no agent to run' }] })))[0]).toMatchObject({ hint: 'no agent to run', wait: 'no agent to run' });
+    });
+
+    it('says why, where a job started after the palette opened', async () => {
+      const toast = vi.fn();
+      const items = await thisRun(detail(blame), { toast });
+      const click = vi.fn();
+      vi.stubGlobal('document', { querySelector: () => ({ disabled: true, title: WAITS, click }) });
+      items[0]!.run();
+      await new Promise((done) => setTimeout(done, 0));
+      vi.unstubAllGlobals();
+      expect(click).not.toHaveBeenCalled();
+      expect(toast).toHaveBeenCalledWith(WAITS);
+    });
+  });
+
   it('words an entry from the step alone', () => {
     expect(stepEntry({ key: 'fix', label: 'Open fix', fixId: 'fx-1', status: 'open', href: '#/fixes/fx-1', title: '“Refunds”' })).toEqual({ group: 'This run', label: 'Open fix', hint: '“Refunds”' });
     expect(stepEntry({ key: 'rule', label: 'Add normalizer' })).toEqual({ group: 'This run', label: 'Add normalizer', hint: '', job: true });
   });
 });
 
-const row = (runId: string, startedAt: number, key: string, about = 'Order A-1042 arrived damaged'): RunListItem => ({ runId, startedAt, labels: [], mode: 'record', status: 'failed', calls: 3, command: 'node agent.mjs', parentRunId: null, next: { key, label: key === 'blame' ? 'Run blame' : 'Replay' }, about: { text: about, from: 'user' } }) as unknown as RunListItem;
+const row = (runId: string, startedAt: number, key: string, about = 'Order A-1042 arrived damaged', next: Record<string, unknown> = {}): RunListItem => ({ runId, startedAt, labels: [], mode: 'record', status: 'failed', calls: 3, command: 'node agent.mjs', parentRunId: null, next: { key, label: key === 'blame' ? 'Run blame' : 'Replay', command: `shadowlap blame ${runId} --expect '{"tools":{"send_email":1}}'`, ...next }, about: { text: about, from: 'user' } }) as unknown as RunListItem;
 
 describe('Run blame in the palette', () => {
   const OVERVIEW: Route = { page: 'overview' };
@@ -133,7 +201,8 @@ describe('Run blame in the palette', () => {
     const runs = [row('A', 1, 'blame'), row('B', 4, 'blame'), row('C', 3, 'replay'), row('D', 2, 'blame'), row('E', 5, 'blame'), row('F', 6, 'blame')];
     expect(blameEntries(runs, 'F').map((x) => x.run.runId)).toEqual(['E', 'B', 'D']);
     expect(blameEntries(runs, null)).toHaveLength(BLAME_ENTRIES);
-    expect(blameEntries(runs, null)[0]?.entry).toEqual({ group: 'Actions', label: 'Run blame', hint: 'shadowlap blame F', job: true, typed: true, match: 'failed Order A-1042 arrived damaged' });
+    // Its hint is what its page's card says it runs, from the row.
+    expect(blameEntries(runs, null)[0]?.entry).toEqual({ group: 'Actions', label: 'Run blame', hint: `shadowlap blame F --expect '{"tools":{"send_email":1}}'`, job: true, typed: true, match: 'failed Order A-1042 arrived damaged' });
   });
 
   it('shows them only once something is typed, by what they did too, and starts the job', async () => {
@@ -155,6 +224,24 @@ describe('Run blame in the palette', () => {
     expect(blameAsksOnItsPage(new ApiError(409, 'A job is already running'))).toBe(false);
     expect(blameAsksOnItsPage(new ApiError(500, 'broke'))).toBe(false);
     expect(blameAsksOnItsPage(null)).toBe(false);
+  });
+
+  it('sends a capture to its page, which asks for your command, and says so in its hint, and starts nothing', async () => {
+    const location = { hash: '#/', search: '', pathname: '/' };
+    vi.stubGlobal('location', location);
+    try {
+      const command = `shadowlap blame ${RUN.slice(0, 10)} --expect '{"calls":[]}' -- <your command>`;
+      const startJob = vi.fn(() => Promise.reject(new ApiError(409, 'no command')));
+      r = await render(createElement(AppContext.Provider, { value: app({ runs: [row(RUN, 1, 'blame', 'Imported', { capture: true, command })] }, { startJob }) }, createElement(Palette, { route: OVERVIEW })));
+      await type(r, 'blame');
+      expect(r.all('.palit').find((el) => el.querySelector('.pl')!.textContent === 'Run blame')!.textContent).toContain('your command');
+      await r.click(r.byText('.palit .pl', 'Run blame'));
+      await r.wait(0);
+      expect(startJob).not.toHaveBeenCalled();
+      expect(location.hash).toBe(`#/run/${RUN}`);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('opens the run where what it asks first is its page’s to ask, and offers none where nothing runs', async () => {

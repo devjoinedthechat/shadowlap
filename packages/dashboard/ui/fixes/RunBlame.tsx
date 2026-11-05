@@ -7,7 +7,7 @@ import { Icon } from '../components/Icon.js';
 import { shortId } from '../format.js';
 import { useApp } from '../state.js';
 import { parseCheck } from './model.js';
-import { useTreeBusy } from './tree.js';
+import { plainButton, useTreeBusy } from './tree.js';
 import { ACTIONS } from '../labels.js';
 
 /**
@@ -80,7 +80,7 @@ export function RunBlameButton({
   return (
     <>
       <button
-        className={className}
+        className={why ? plainButton(className) : className}
         type="button"
         disabled={!!why}
         {...(why ? { title: why } : tip ? { 'data-tip': tip } : { title })}

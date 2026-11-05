@@ -5,6 +5,9 @@ import { useApp } from '../state.js';
 import type { JobListItem } from '../types.js';
 import { mergeTreeJobs, treeBusy } from './model.js';
 
+/** A lime button's class while it waits: the page never offers a lime button that can't start. */
+export const plainButton = (className: string): string => className.replace(' lime', '');
+
 /**
  * The jobs the server runs and has run, from every tab and the terminal's dashboard alike, with this
  * tab's own on top (`mergeTreeJobs`): what a button reads to wait for a job that would make the
@@ -34,7 +37,17 @@ export function useTreeBusy(use: 'reads' | 'writes', verb: string): string | nul
  * a repair holding the working tree (`treeBusy`).
  */
 export function useTestsWait(verb: string): string | null {
+  return useJobWait({ verb, tests: true });
+}
+
+/**
+ * Why a job can't start now, for one known only as the page renders (a run's next step): a Tests job
+ * waits as `useTestsWait` says (`tests`), any other as `useTreeBusy` does for what reads the tree, and
+ * no job (null) waits for nothing.
+ */
+export function useJobWait(job: { verb: string; tests: boolean } | null): string | null {
   const { meta } = useApp();
   const jobs = useServerJobs();
-  return testsBusy(jobs, verb, meta?.project?.id ?? null) ?? treeBusy(jobs, 'reads', verb, meta?.project?.path ?? null);
+  if (!job) return null;
+  return (job.tests ? testsBusy(jobs, job.verb, meta?.project?.id ?? null) : null) ?? treeBusy(jobs, 'reads', job.verb, meta?.project?.path ?? null);
 }
