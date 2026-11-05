@@ -196,12 +196,12 @@ const FORKS: Record<string, (c: ForkContext) => Partial<DialogCopy>> = {
     ...(a.command ? { command: () => a.command! } : {}),
     cost: billed(`5 attempts, live from ${typeof ctx.forkAt === 'number' ? `#${ctx.forkAt}` : 'the fork'}, writes fenced`),
   }),
-  l: ({ a, ctx, at, named }) => ({
+  l: ({ a, ctx, named }) => ({
     lead: `Runs${named} for real at its first call and at every call of it after.`,
     doc: 'forceLive',
     ...(a.warns ? { warn: { text: a.warns, tone: 'red' as const } } : {}),
     ...(a.flag ? { command: () => `shadowlap replay ${ctx.id} ${a.flag!}` } : {}),
-    cost: billed(`live from ${at || 'its first call'}, other writes fenced`),
+    cost: billed('live from its first call, other writes fenced'),
   }),
   p: ({ ctx }) => ({
     title: `Pack ${ctx.id}`,

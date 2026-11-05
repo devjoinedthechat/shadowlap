@@ -40,7 +40,6 @@
 .dialog textarea { min-height: 84px; resize: vertical; }
 .dialog textarea:focus, .dialog input:focus { border-color: var(--accent-line); }
 .dialog .cmdline { margin-top: 10px; }
-.dialog .cmdcopy { margin-top: 8px; }
 .dialog p.fieldhint { margin: 6px 0 0; }
 .dialog .form + textarea { margin-top: 10px; }
 /* Import capture's sources on one row where they fit, else three over two */
@@ -78,8 +77,6 @@
 .dialog .cmdline + .dcost { margin-top: 10px; }
 .dialog .dcost b { color: var(--ink); font-weight: 600; }
 .dialog .dcost .dcp { display: inline-block; max-width: 100%; }
-/* a phrase in a fact's quiet line kept whole where its line holds it, wrapping as prose only where it alone is wider */
-.dialog .dfacts .dph { display: inline-block; max-width: 100%; }
 .dialog .dtip { text-decoration: underline dotted var(--line2); text-decoration-thickness: 1px; text-underline-offset: 3px; cursor: help; }
 .dialog .dtip:focus-visible { outline-offset: 1px; border-radius: 2px; }
 .dialog header .dlgdoc { color: var(--ink); }
@@ -123,8 +120,8 @@
 @media (forced-colors: active) { .dialog > .db .dcost.stuck { box-shadow: none; border-top: 1px solid CanvasText; } }
 .dvrows p { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin: 0 0 8px; }
 .dvrows .dvr { color: var(--faint); font-size: 12.5px; }
-.dialog :is(.k, .cb-l, .cb-ua em, .cb-role) { font: 500 12px var(--body); letter-spacing: 0; text-transform: none; color: var(--faint); }
-.dialog :is(.k, .cb-l, .cb-ua em, .cb-role)::first-letter { text-transform: uppercase; }
+.dialog .k { font: 500 12px var(--body); letter-spacing: 0; text-transform: none; color: var(--faint); }
+.dialog .k::first-letter { text-transform: uppercase; }
 /* Esc or the scrim on a dialog with edits: the footer asks first */
 .dlgask { margin-right: auto; color: var(--dim); font-size: var(--fs-body); }
 /* On a phone a modal is a sheet from the foot of the screen: full width, rounded at the top, its footer above the home
@@ -339,7 +336,6 @@ body:has(.bulkbar) .drawer { bottom: 100px; }
 .dialog p.trnotes { margin: 6px 0 0; color: var(--faint); font-size: 12px; line-height: 1.5; }
 /* Score a model while a repair holds the working tree: why it can't start, in the warning colour */
 
-.dialog .trsteps .cmdline + .cmdline { margin-top: 6px; }
 
 /* a hover card can say what a run was about under its id, or what a mark means here, a line a sentence */
 .tip .ts { display: block; max-width: 320px; margin: -2px 0 6px; color: var(--dim); font-weight: 400; white-space: normal; }

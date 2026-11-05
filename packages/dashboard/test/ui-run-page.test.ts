@@ -108,7 +108,7 @@ describe('an action’s dialog', () => {
     const copy = dialogCopy(a('l', 'Force send_email live', { flag: '--live-tool send_email', prompt: null, asksFirst: true, warns: 'send_email acts on your systems' }), { ...ctx, callName: 'send_email' });
     expect(copy).toMatchObject({ title: 'Force send_email live', ok: 'Force send_email live', warn: { text: 'send_email acts on your systems', tone: 'red' }, doc: 'forceLive', lead: 'Runs send_email for real at its first call and at every call of it after.' });
     expect(copy.command!('')).toBe('shadowlap replay 01K5CQ4N7G --live-tool send_email');
-    expect(copy.cost!.parts).toEqual(['live from #17, other writes fenced']);
+    expect(copy.cost!.parts).toEqual(['live from its first call, other writes fenced']);
   });
 
   it('opens an override on the server’s starting value, else the recorded result', () => {

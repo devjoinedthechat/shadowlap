@@ -238,7 +238,7 @@ export function repairJobArgv(argv: readonly string[], configured: string | null
 }
 
 /**
- * Why the repairer can't be asked, as a sentence for the Repair from here dialog and `fix show`; null
+ * Why the repairer can't be asked, as a sentence for Run repair's dialog and `fix show`; null
  * when nothing stands in the way. `configured`: shadowlap.config.json names it (otherwise it is the
  * user's own Claude Code, the dashboard's default). Only what is certain is checked: the claude-code
  * repairer runs `claude`, or the program SHADOWLAP_CLAUDE names, and it must be found on the PATH of

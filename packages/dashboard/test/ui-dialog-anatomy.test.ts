@@ -2,7 +2,7 @@ import { createElement, type ReactElement } from 'react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { ActionItem, BisectChoices, CallDetail, FixDetail, ScoreDialogView, TrainingView } from '../ui/types.js';
 import { DatasetDialog } from '../ui/components/DatasetDialog.js';
-import { ConsentDialog } from '../ui/components/Dialog.js';
+import { ConsentDialog, PromptDialog } from '../ui/components/Dialog.js';
 import { StopJobDialog } from '../ui/components/Drawer.js';
 import { UpdateGoldenDialog } from '../ui/components/UpdateGolden.js';
 import { DOCS, docsHref, type DocKey } from '../ui/docs-links.js';
@@ -429,6 +429,19 @@ describe('the bulk bar’s dialogs', () => {
 });
 
 describe('a way on that can’t start', () => {
+  it('takes Enter on a line as a press of the way on, which waits while it can’t start, and refuses as the button does', async () => {
+    const onRun = vi.fn(() => false);
+    const onClose = vi.fn();
+    const page = await open(createElement(PromptDialog, { title: 'Rename fix', lead: 'Gives the fix a title.', label: 'Title', ok: 'Rename', onRun, onClose }));
+    await page.press('Enter', {}, page.one('[role="dialog"] input'));
+    expect(onRun).not.toHaveBeenCalled();
+    await page.type(page.one('[role="dialog"] input'), 'Escalate over the limit');
+    await page.press('Enter', {}, page.one('[role="dialog"] input'));
+    expect(onRun).toHaveBeenCalledWith('Escalate over the limit');
+    expect(onClose).not.toHaveBeenCalled();
+    expect(page.one('[role="dialog"] input').value).toBe('Escalate over the limit');
+  });
+
   it('stays open with what was typed; a way on that starts closes', async () => {
     const onClose = vi.fn();
     const refusing = createElement(ConsentDialog, { why: 'x came from an imported pack: it runs y', ok: 'Run command', onOk: () => false, onClose });
