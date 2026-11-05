@@ -153,7 +153,7 @@ describe('This run', () => {
       const items = await thisRun(detail(blame), { toast });
       const click = vi.fn();
       vi.stubGlobal('document', { querySelector: () => ({ disabled: true, title: WAITS, click }) });
-      items[0]!.run();
+      items[0].run();
       await new Promise((done) => setTimeout(done, 0));
       vi.unstubAllGlobals();
       expect(click).not.toHaveBeenCalled();

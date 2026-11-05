@@ -491,7 +491,7 @@ function crashStep(f: Facts): Decided | null {
     blame: blame ? { offer: blame, sub: 'Whether an answer of the model’s lost the run', command: blameCommand(row.runId, blame, false) } : null,
     ...(blame ? { beside: blamePrice(row.runId) } : {}),
     command: bisectCommand(t.golden, good, commitName(c.bad)),
-    sub: starts ? `Replays the golden at the commits since ${good!}, where it passed, offline: no tokens` : 'Asks for a commit where it still worked, then replays it at the commits between',
+    sub: starts ? `Replays the golden at the commits since ${good}, where it passed, offline: no tokens` : 'Asks for a commit where it still worked, then replays it at the commits between',
     ...bisectPrice(f, t.source, t.result, c.good, c.bad),
   };
 }

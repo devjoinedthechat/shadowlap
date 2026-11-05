@@ -507,7 +507,7 @@ describe('what the next step of a run bills', () => {
     const t = divergedTest(rec, [{ path: '$.system', op: 'changed', before: 'a', after: 'b' }]);
     let read = 0;
     const getCalls = store.getCalls.bind(store);
-    store.getCalls = ((...a: Parameters<typeof getCalls>) => (a[0] === rec && read++, getCalls(...a))) as typeof store.getCalls;
+    store.getCalls = ((...a: Parameters<typeof getCalls>) => (a[0] === rec && read++, getCalls(...a)));
     const first = await priced(t, work([source(rec)]), (id) => id === t);
     expect(read).toBe(0);
     store.getCalls = getCalls;
@@ -602,14 +602,14 @@ describe('what the next step of a run bills', () => {
       const calls = getCalls(...a);
       if (a[0] === long) read += calls.length;
       return calls;
-    }) as typeof store.getCalls;
+    });
     await priced(of, work([]), (id) => id === of);
     store.getCalls = getCalls;
     expect(read).toBeLessThan(100);
     // One that can't be read leaves its sentence out, never the step.
     store.getCalls = (() => {
       throw new Error('unreadable');
-    }) as typeof store.getCalls;
+    });
     const unread = await priced(of, work([]), (id) => id === of);
     store.getCalls = getCalls;
     expect(unread).toMatchObject({ key: 'compare' });
@@ -787,13 +787,13 @@ describe('what a list reads for its rows’ steps', () => {
       n.results += rows.length;
       if (o?.golden && !o.sessionId) n.histories++;
       return rows;
-    }) as typeof store.listTestResults;
-    store.getRun = ((id: string) => (n.getRun++, was.getRun(id))) as typeof store.getRun;
-    store.blamesOfRun = ((id: string) => (n.blames++, was.blamesOfRun(id))) as typeof store.blamesOfRun;
+    });
+    store.getRun = ((id: string) => (n.getRun++, was.getRun(id)));
+    store.blamesOfRun = ((id: string) => (n.blames++, was.blamesOfRun(id)));
     store.query = ((sql: string, ...params: never[]) => {
       if (sql.includes('change_counts')) n.index++;
       return was.query(sql, ...params);
-    }) as typeof store.query;
+    });
     read();
     Object.assign(store, was);
     return n;

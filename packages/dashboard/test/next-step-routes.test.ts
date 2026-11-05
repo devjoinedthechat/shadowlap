@@ -177,7 +177,7 @@ describe('a run with a record that can’t be read', () => {
       packRun(other, theirs, packDir);
       other.close();
       const manifest = JSON.parse(readFileSync(join(packDir, 'run.json'), 'utf8')) as { runs: Array<{ meta?: object }> };
-      manifest.runs[0]!.meta = { ...manifest.runs[0]!.meta, ...meta };
+      manifest.runs[0].meta = { ...manifest.runs[0].meta, ...meta };
       writeFileSync(join(packDir, 'run.json'), JSON.stringify(manifest));
       expect(unpackRun(store, packDir).imported.length).toBeGreaterThan(0);
       await lists();

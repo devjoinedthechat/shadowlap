@@ -146,24 +146,24 @@ describe('the run page’s next step', () => {
   });
 
   it('gains what a long run’s step bills once its read of its own answers, and asks only where its answer left it out', async () => {
-    const estimate = { kind: 'blame', usd: 10.88, ceiling: true, parts: ['up to 7 probes of 33 attempts and a check of the call found'] };
+    const estimate: NonNullable<NextStep['estimate']> = { kind: 'blame', usd: 10.88, ceiling: true, parts: ['up to 7 probes of 33 attempts and a check of the call found'] };
     const later: NextStep = { ...OFFER, later: true, command: `shadowlap blame ${REC.slice(0, 10)}` };
-    const nextStep = vi.fn(() => Promise.resolve({ next: { ...later, later: undefined, estimate } as NextStep }));
+    const nextStep = vi.fn(() => Promise.resolve({ next: { ...OFFER, command: later.command, estimate } as NextStep }));
     const Page = ({ run }: { run: RunDetail }) => createElement(RunHeader, header(useWholeStep(run)));
-    page = await render(createElement(AppContext.Provider, { value: app({}, { nextStep } as never) }, createElement(Page, { run: detail({ status: 'failed', state: failedState, next: later }) })));
+    page = await render(createElement(AppContext.Provider, { value: app({}, { nextStep }) }, createElement(Page, { run: detail({ status: 'failed', state: failedState, next: later }) })));
     await page.wait(0);
     expect(nextStep).toHaveBeenCalledOnce();
     expect(tip(page.byText('.rhead .actions button', 'Run blame')).rows).toEqual([['Costs', 'At most ≈$10.88', ''], ['$', `shadowlap blame ${REC.slice(0, 10)}`, '']]);
     await page.unmount();
     // A step its first answer holds whole asks for nothing.
     nextStep.mockClear();
-    page = await render(createElement(AppContext.Provider, { value: app({}, { nextStep } as never) }, createElement(Page, { run: detail({ status: 'failed', state: failedState, next: { ...OFFER, estimate } as NextStep }) })));
+    page = await render(createElement(AppContext.Provider, { value: app({}, { nextStep }) }, createElement(Page, { run: detail({ status: 'failed', state: failedState, next: { ...OFFER, estimate } as NextStep }) })));
     await page.wait(0);
     expect(nextStep).not.toHaveBeenCalled();
     await page.unmount();
     // One that can't be asked keeps what it has.
     const refused = vi.fn(() => Promise.reject(new Error('gone')));
-    page = await render(createElement(AppContext.Provider, { value: app({}, { nextStep: refused } as never) }, createElement(Page, { run: detail({ status: 'failed', state: failedState, next: later }) })));
+    page = await render(createElement(AppContext.Provider, { value: app({}, { nextStep: refused }) }, createElement(Page, { run: detail({ status: 'failed', state: failedState, next: later }) })));
     await page.wait(0);
     expect(tip(page.byText('.rhead .actions button', 'Run blame')).rows).toEqual([['$', `shadowlap blame ${REC.slice(0, 10)}`, '']]);
   });
@@ -332,7 +332,7 @@ describe('the run page’s next step', () => {
   });
 
   it('finds a crash’s breaking commit on the click, free from where its golden passed, Run blame plain beside it', async () => {
-    const estimate = { kind: 'blame', usd: 16.16, ceiling: true, parts: ['up to 7 probes'] };
+    const estimate: NonNullable<NextStep['estimate']> = { kind: 'blame', usd: 16.16, ceiling: true, parts: ['up to 7 probes'] };
     const next: NextStep = { key: 'bisect', label: 'Find breaking commit', golden: GOLDEN, starts: true, blame: { offer: OFFER.offer, sub: 'Whether an answer of the model’s lost the run', command: `shadowlap blame ${REC.slice(0, 10)}`, estimate }, command: `shadowlap bisect ${GOLDEN} --good aaaaaaa --bad bbbbbbb` };
     const offers = { blame: OFFER.offer, test: null, bisect: { target: { kind: 'golden', golden: GOLDEN }, failed: true, good: 'aaaaaaa', bad: 'bbbbbbb', revisions: [], fork: false, live: false, unavailable: null, args: [] } } as unknown as RunOffers;
     const { a, started } = jobs();

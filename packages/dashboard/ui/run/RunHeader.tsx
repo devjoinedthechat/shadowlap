@@ -13,7 +13,6 @@ import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { headerStatus, isFailed, runType } from '../runs.js';
 import { bulkToast, deleteText, deleteWhat } from '../runspage/bulk.js';
-import { ACTIONS } from '../labels.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { ForkMenu, type PendingAction } from './actions.js';
