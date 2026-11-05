@@ -1,28 +1,49 @@
-import { coarsePointer } from '../dom.js';
+import { addressNow, coarsePointer } from '../dom.js';
 import { trapTab } from '../focus.js';
 import { focusBack, openerOf, tabbables, type Opener } from './focus-back.js';
-import { closeMenu, menuKeys, menuOpen, shownMenu } from './menu-store.js';
+import { closeMenu, menuKeys, menuOpen, onMenuChange, shownMenu } from './menu-store.js';
 
 /**
  * The modals open (a dialog, the palette, the shortcuts), in the layer slot, the last on top. Opening
  * one closes a menu. While one is open the app behind it is inert (the job's dock and the connection
  * bar too), Tab and Shift-Tab go round its controls, and Esc asks it to close; the focus goes back
- * to what opened it however it closes. No React here: components/Dialog.tsx's `Modal` opens and
- * closes it as it mounts and unmounts.
+ * to what opened it however it closes, but when the page it opened on has gone (`closeLeftBehind`).
+ * No React here: components/Dialog.tsx's `Modal` opens and closes it as it mounts and unmounts.
  */
 
 export interface OpenModal {
   root: () => HTMLElement | null;
-  /** Esc, or a press on the scrim: it closes, or asks first about what was changed. */
+  /** Esc: it closes, or asks first about what was changed. */
   requestClose: () => void;
+  /** The page it opened on has gone: it closes without asking. */
+  close: () => void;
   /** What opened it, then what opened the modal it was opened from, which may go with it. */
   openers: readonly Opener[];
 }
 
-const stack: OpenModal[] = [];
+/** A modal on the stack: the address it opened on, and whether it closes because that page has gone. */
+type Stacked = OpenModal & { page: string; left: boolean };
+
+const stack: Stacked[] = [];
 
 export const modalOpen = (): boolean => stack.length > 0;
 const topModal = (): OpenModal | null => stack.at(-1) ?? null;
+
+const listeners = new Set<() => void>();
+
+function tell(): void {
+  for (const fn of [...listeners]) fn();
+}
+
+/** Calls `fn` whenever a menu or a modal opens or closes, until the function it returns is called: what sits at the window's foot places itself again. */
+export function onOverlayChange(fn: () => void): () => void {
+  listeners.add(fn);
+  const stop = onMenuChange(fn);
+  return () => {
+    listeners.delete(fn);
+    stop();
+  };
+}
 
 /**
  * What takes the focus back when a modal closes, read as it is about to open: a menu's item stands
@@ -81,17 +102,45 @@ function setUnder(m: OpenModal | null, on: boolean): void {
 export function modalOpened(m: OpenModal): () => void {
   closeMenu(false);
   setUnder(topModal(), true);
-  stack.push(m);
+  const stacked: Stacked = { ...m, page: addressNow(), left: false };
+  stack.push(stacked);
   const release = holdBehind();
+  tell();
   return () => {
-    const at = stack.indexOf(m);
+    const at = stack.indexOf(stacked);
     const wasTop = at === stack.length - 1;
     if (at >= 0) stack.splice(at, 1);
     release();
-    if (!wasTop) return;
-    setUnder(topModal(), false);
-    focusBack(...m.openers);
+    if (wasTop) {
+      setUnder(topModal(), false);
+      handBack(stacked);
+    }
+    tell();
   };
+}
+
+/** Where the focus goes as the top modal closes: to what opened it, or, with its page gone, to the page drawn in its place unless something there took it. */
+function handBack(m: Stacked): void {
+  if (!m.left) return focusBack(...m.openers);
+  const a = document.activeElement;
+  if (!a || a === document.body || !a.isConnected) focusBack();
+}
+
+/**
+ * The address has moved on (Back, a link, a key that goes to a page): what is open over the page it
+ * left closes with that page, without asking, and the focus goes to the page drawn in its place, not
+ * back to what opened it. What opened since the address was written stays: a dialog the palette asks
+ * for along with its page. A replace (a call or a view picked) is no new page: the router doesn't ask.
+ */
+export function closeLeftBehind(): void {
+  const page = addressNow();
+  const menu = shownMenu();
+  if (menu && menu.page !== page) closeMenu(false);
+  for (const m of [...stack].reverse()) {
+    if (m.page === page) continue;
+    m.left = true;
+    m.close();
+  }
 }
 
 /** The keys while a modal is open, before anything on the page hears them: Esc asks it to close, Tab stays in it. Its fields keep every other key. */

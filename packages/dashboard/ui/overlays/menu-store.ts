@@ -1,3 +1,4 @@
+import { addressNow } from '../dom.js';
 import { focusBack, openerOf, type Opener } from './focus-back.js';
 
 /**
@@ -16,6 +17,8 @@ export interface OpenMenu {
   /** Its own keys, before the menu's (a picker's arrows, a project's Delete): true when one handled the key. */
   keys?: (e: KeyboardEvent) => boolean;
   opener: Opener;
+  /** The address it opened on (`closeLeftBehind`). */
+  page: string;
   typed: string;
   typedAt: number;
 }
@@ -24,6 +27,27 @@ let open: OpenMenu | null = null;
 
 export const menuOpen = (): boolean => open !== null;
 export const shownMenu = (): OpenMenu | null => open;
+
+/**
+ * The open menu's rect where it is a phone's sheet, else null: what stays at the window's foot (a
+ * toast) sits over it.
+ */
+export function menuSheetRect(): DOMRect | null {
+  const root = open?.root;
+  return root?.classList.contains('sheet') && root.getClientRects().length ? root.getBoundingClientRect() : null;
+}
+
+const listeners = new Set<() => void>();
+
+/** Calls `fn` whenever a menu opens or closes, until the function it returns is called. `onOverlayChange` (the modal store) hears modals too. */
+export function onMenuChange(fn: () => void): () => void {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
+function tell(): void {
+  for (const fn of [...listeners]) fn();
+}
 
 /** The items the arrows move through: enabled, and shown. A row's second button (`.px`) is reached from its row, with →. */
 export function menuItems(root: HTMLElement): HTMLElement[] {
@@ -96,6 +120,7 @@ export function closeMenu(back: boolean): void {
   stopListening();
   if (back) focusBack(m.opener);
   m.close();
+  tell();
 }
 
 /**
@@ -148,11 +173,13 @@ function stopListening(): void {
 }
 
 /** A menu has opened: the one before it closes, handing nothing back, as the new one has the focus. */
-export function menuOpened(m: Omit<OpenMenu, 'opener' | 'typed' | 'typedAt'>): OpenMenu {
+export function menuOpened(m: Omit<OpenMenu, 'opener' | 'page' | 'typed' | 'typedAt'>): OpenMenu {
   closeMenu(false);
-  open = { ...m, opener: openerOf(m.anchor), typed: '', typedAt: 0 };
+  const opened: OpenMenu = { ...m, opener: openerOf(m.anchor), page: addressNow(), typed: '', typedAt: 0 };
+  open = opened;
   document.addEventListener('click', clicked, true);
-  return open;
+  tell();
+  return opened;
 }
 
 /**
@@ -165,4 +192,5 @@ export function menuClosed(m: OpenMenu): void {
   stopListening();
   const a = document.activeElement;
   if (!a || a === document.body || !a.isConnected || m.root.contains(a)) focusBack(m.opener);
+  tell();
 }

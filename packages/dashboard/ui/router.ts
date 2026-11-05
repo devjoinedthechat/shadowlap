@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { tokenInUse } from './api.js';
+import { closeLeftBehind } from './overlays/modal-store.js';
 import { parseRoute, routeHref, tokenLinkStep, type Route } from './route.js';
 
 /**
@@ -27,6 +28,8 @@ export function navigate(to: string, replace = false): void {
 
 export function useRoute(): Route {
   const [route, setRoute] = useState(currentRoute);
+  const shown = useRef(route);
+  shown.current = route;
   // What had the focus in the page as the route changed. A link that opens another page (a fix from
   // the list, another fix's verdict) goes with the page it was on, and the focus would fall to the
   // document, so the next Tab started again from the top bar: it goes to the page instead, where
@@ -39,7 +42,7 @@ export function useRoute(): Route {
     document.querySelector<HTMLElement>('#view')?.focus();
   }, [route]);
   useEffect(() => {
-    const on = () => {
+    const on = (e: Event) => {
       // The link a dashboard printed, opened over this page: its view, or a fresh start with its token.
       const step = tokenLinkStep(location.hash, tokenInUse());
       if (step?.kind === 'reload') return location.reload();
@@ -48,6 +51,8 @@ export function useRoute(): Route {
       const had = document.activeElement;
       // A menu or a dialog sits beside the page, and goes with it the same.
       leaving.current = had && had.closest('#view, #menu, #layer') ? had : null;
+      // A page of its own, not a call or a view picked in this one (a replace), takes what is open over this one with it.
+      if (e.type === 'hashchange' && routeHref(shown.current) !== routeHref(next)) closeLeftBehind();
       setRoute((prev) => (routeHref(prev) === routeHref(next) ? prev : next));
     };
     window.addEventListener('hashchange', on);

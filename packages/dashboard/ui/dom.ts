@@ -44,6 +44,11 @@ export function isTyping(e: KeyboardEvent): boolean {
   return tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable;
 }
 
+/** The address's hash as it stands, written or not yet heard of: what an overlay opened on. */
+export function addressNow(): string {
+  return typeof location === 'undefined' ? '' : location.hash;
+}
+
 /** Whether the page is used by a finger: what would open a phone's keyboard waits to be tapped. */
 export function coarsePointer(): boolean {
   return typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;

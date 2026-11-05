@@ -14,14 +14,15 @@ import { CmdLine } from './bits.js';
  * What every modal stands on: a scrim in the layer slot, the app behind it inert, Tab kept inside it,
  * and the focus back on what opened it however it closes (the modal store). A press on the scrim asks
  * it to close only when it both starts and ends there, so a selection dragged out of a command never
- * closes it. `requestClose` is what Esc (`key`) and the scrim ask of it: to close, or to ask first.
+ * closes it. `requestClose` is what Esc (`key`) and the scrim ask of it, to close or to ask first, and
+ * what the page it opened on going (`page`) tells it: to close.
  */
-export function Modal({ requestClose, scrimClass, children }: { requestClose: (by: 'key' | 'scrim') => void; scrimClass?: string; children: ReactNode }) {
+export function Modal({ requestClose, scrimClass, children }: { requestClose: (by: 'key' | 'scrim' | 'page') => void; scrimClass?: string; children: ReactNode }) {
   const scrim = useRef<HTMLDivElement>(null);
   const asks = useLatest(requestClose);
   // What opened it, read as it is drawn: a field it holds can take the focus as soon as it is in the page.
   const [openers] = useState(openersNow);
-  useEffect(() => modalOpened({ root: () => scrim.current, requestClose: () => asks.current('key'), openers }), [asks, openers]);
+  useEffect(() => modalOpened({ root: () => scrim.current, requestClose: () => asks.current('key'), close: () => asks.current('page'), openers }), [asks, openers]);
   const press = useRef({ down: false, up: false });
   return (
     <InSlot name="layer">
@@ -126,7 +127,9 @@ export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = 
     setAsking(false);
     if (refocus) askedFrom.current?.focus();
   };
-  const requestClose = (by: 'key' | 'scrim') => {
+  const requestClose = (by: 'key' | 'scrim' | 'page') => {
+    // The page it was asked on has gone: what it asked about went with it.
+    if (by === 'page') return onClose();
     // While it asks, a second Esc keeps editing, and the scrim does nothing.
     if (asking) return by === 'key' ? keepEditing(true) : undefined;
     const changed = dirty || (edited.current && !!ref.current && formState(ref.current) !== opened.current);
