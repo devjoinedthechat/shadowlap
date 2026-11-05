@@ -151,6 +151,22 @@ describe('a run’s next step', () => {
     expect(step(id, work([source(rec)])).key).toBe('bisect');
   });
 
+  it('leaves a test Find breaking commit can’t start from to the rules after, never to an update nothing asked for', () => {
+    const rec = recording();
+    const ELSE: DiffEntry = { path: '$.messages[3].content', op: 'changed', before: 'a', after: 'b' };
+    // A signal cut it short, with no test result: it says nothing about its golden, so it replays the recording.
+    const session = store.startTestSession({ command: ['shadowlap', 'test', GOLDEN], startedAt: T0 + MIN, revision: 'bbbbbbb' }).sessionId;
+    const cut = addRun(store, { parent: rec, startedAt: T0 + MIN, status: 'crashed', calls: 'r', meta: { test: { golden: GOLDEN, session } } });
+    store.setDivergence(cut, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, diff: [ELSE] });
+    expect(step(cut, work([source(rec)]))).toMatchObject({ key: 'replay', label: 'Replay recording', runId: rec });
+    // Its golden came out inconclusive there, neither passed nor failed: blame, as any failed run.
+    const again = store.startTestSession({ command: ['shadowlap', 'test', GOLDEN], startedAt: T0 + 2 * MIN, revision: 'ccccccc' }).sessionId;
+    const unsure = addRun(store, { parent: rec, startedAt: T0 + 2 * MIN, status: 'failed', calls: 'r', meta: { test: { golden: GOLDEN, session: again } } });
+    store.setDivergence(unsure, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, diff: [ELSE] });
+    store.addTestResult({ sessionId: again, golden: GOLDEN, ok: false, failure: 'inconclusive', reason: 'gate', runId: unsure, goldenRunId: rec, revision: 'ccccccc', at: T0 + 2 * MIN, data: { verdict: 'inconclusive', gate: { decision: 'inconclusive' }, divergence: {} } as never });
+    expect(step(unsure, work([source(rec)])).key).toBe('blame');
+  });
+
   it('updates the golden of a test whose judge check couldn’t be judged offline, which asks the judge once', () => {
     const rec = recording();
     const session = store.startTestSession({ command: ['shadowlap', 'test', GOLDEN], startedAt: T0 + MIN }).sessionId;

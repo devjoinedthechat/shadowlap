@@ -61,7 +61,8 @@ import { bisectAnswers, bisectChoices, standingAnswer, unjudgedOffline, unreadab
  * - a test replay whose golden passed when it ran again: Open passing run;
  * - a test that diverged: on a value that changes every run, Add normalizer and re-run (or Re-run test
  *   once the rule is in the config); on what a patch or a config change changed, Update golden; on
- *   anything else, Find breaking commit…;
+ *   anything else, Find breaking commit…, unless it can't start from this replay (one cut short, or an
+ *   inconclusive session, which say nothing of its golden), and then the rules below decide;
  * - a test whose judge check couldn't be judged offline: Update golden;
  * - an injection attempt that obeyed, while no golden is made from the recording it tested: Pack with
  *   injection gate…;
@@ -311,8 +312,8 @@ function valueStep(f: Facts, t: TestedGolden, offer: TestOffer): Decided | null 
   };
 }
 
-/** What a diverged test leads with: the rule for a value made anew on every run, an update for a change that was meant, else the commit that changed it. */
-function divergedStep(f: Facts, t: TestedGolden): Decided {
+/** What a diverged test leads with: the rule for a value made anew on every run, an update for a change that was meant, else the commit that changed it; null where Find breaking commit can't start from it, which says nothing of its golden: the rules after decide. */
+function divergedStep(f: Facts, t: TestedGolden): Decided | null {
   const { golden, source, result } = t;
   const offer = testOffer(f.store, f.record, f.work?.normalize, f.work?.goldens ?? []);
   const rule = offer?.values.values.length ? valueStep(f, t, offer) : null;
@@ -320,7 +321,7 @@ function divergedStep(f: Facts, t: TestedGolden): Decided {
   const d = f.record.divergence;
   if (d?.type === 'request_changed' && (d.diff ?? []).some((e) => pathSetByCode(e.path, d.name))) return updateStep(f, golden, source);
   const c = bisectChoices(f.store, f.row.runId, { goldens: f.work?.goldens ?? [] });
-  if (c?.unavailable) return updateStep(f, golden, source);
+  if (c?.unavailable) return null;
   const price = bisectPrice(f, source, result, c?.good ?? null, c?.bad ?? null);
   return { key: 'bisect', label: ACTIONS.findBreakingCommit.label, golden, starts: false, blame: null, command: bisectCommand(golden, null, commitName(c?.bad)), sub: 'Asks for a commit where it still worked, then replays it at the commits between', ...(price ? { price } : {}) };
 }
@@ -335,7 +336,8 @@ function testStep(f: Facts): Decided | null {
     const passing = passedSince(store, f.record, t.golden);
     if (passing) return { key: 'passing', label: ACTIONS.openPassingRun.label, runId: passing, href: links.run(passing), title: `Opens ${short(passing)}` };
   }
-  if (diverged) return divergedStep(f, t);
+  const lead = diverged ? divergedStep(f, t) : null;
+  if (lead) return lead;
   const r = t.result;
   if (r && verdictOfResult(r) === 'inconclusive' && t.source.mode === 'replay' && unjudgedOffline(r)) {
     // A verdict the pack lacks: one call of its judge, at what one has cost where the result kept it.
