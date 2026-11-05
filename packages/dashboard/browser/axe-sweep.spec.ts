@@ -276,6 +276,7 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
   const states = (): Array<[string, () => Promise<void>]> => [
     ...onRun('Delete run', 'ticket', 'Delete'),
     ...onRun('The consent question', 'packed', 'Replay'),
+    ...onRun('Pack as golden', 'digest', 'Pack as golden'),
     ...fork('Inject instruction', 'ticket', 'Inject instruction'),
     ...fork('Switch model', 'ticket', 'Switch model'),
     ...fork('Fail with HTTP status', 'ticket', 'Fail with HTTP status'),
