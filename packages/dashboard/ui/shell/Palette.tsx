@@ -5,7 +5,7 @@ import { fontOf, widthIn } from '../components/Copy.js';
 import { Modal } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { isMac } from '../dom.js';
-import { dropRowScope, rowScopeNow, type RowScope } from '../list-keys.js';
+import { dropRowScope, rowScopeNow, type RowScope, type RowStep } from '../list-keys.js';
 import { ACTIONS } from '../labels.js';
 import { callName, shortId } from '../format.js';
 import { jobRunning } from '../jobs.js';
@@ -15,6 +15,7 @@ import { href, type Route } from '../route.js';
 import { navigate } from '../router.js';
 import { normalizeRuns } from '../normalize.js';
 import { isAttempt, kindWord, runSource, type RunLike } from '../runs.js';
+import { rowStep } from '../run/row-step.js';
 import { goKeyColumn, keyColumn } from '../shortcuts.js';
 import { singleKeysOn } from '../single-keys.js';
 import { useApp, type AppState, type PaletteCommand } from '../state.js';
@@ -131,11 +132,11 @@ function useRunsById(app: AppState, q: string): PaletteCommand[] {
   return byId;
 }
 
-/** A row's actions as the palette lists them: every typed word in the label or the hint. */
-function scopedRows(scope: RowScope, q: string): PaletteCommand[] {
+/** A row's actions as the palette lists them, a run's next step among them (`step`): every typed word in the label or the hint. */
+function scopedRows(scope: RowScope, q: string, step: RowStep): PaletteCommand[] {
   const typed = words(q);
   return scope
-    .items()
+    .items(step)
     .filter((x) => typed.every((w) => `${x.label} ${x.hint}`.toLowerCase().includes(w)))
     .map((x) => ({ ...x, group: 'Actions' }));
 }
@@ -279,7 +280,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
   const byId = useRunsById(app, scope ? '' : q);
 
   const shown = useMemo(() => {
-    if (scope) return scopedRows(scope, q);
+    if (scope) return scopedRows(scope, q, rowStep(app.actionsOff, app.toast));
     const matched = matchPalette(items, q);
     const recorded: Array<PaletteCommand & { snippet?: string }> = hits.map((h) => ({
       group: 'In recorded data',
@@ -290,7 +291,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
       run: () => navigate(href.run(h.runId, h.callNo)),
     }));
     return [...matched, ...byId, ...recorded] as Array<PaletteCommand & { snippet?: string }>;
-  }, [items, q, hits, byId, scope]);
+  }, [items, q, hits, byId, scope, app.actionsOff, app.toast]);
 
   const at = Math.min(i, Math.max(0, shown.length - 1));
   useEffect(() => {

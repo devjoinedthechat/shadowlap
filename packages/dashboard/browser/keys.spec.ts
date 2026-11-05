@@ -283,6 +283,29 @@ test('⌘K on a run in the sidebar offers its actions, with nothing to select th
   await expect(run).toBeFocused();
 });
 
+test('⌘K on a failed run’s row offers its next step after Open run, with its key, and picking it presses that button on the run’s page', async ({ page }) => {
+  const run = demoId('digestFailed');
+  const job = { id: 'rowjob', kind: 'blame', title: 'Blaming', args: ['blame', run], worktree: { use: 'reads', doing: 'a blame is running your agent from your working tree', folder: '/x' }, runId: run, opensRun: false, startedAt: Date.now(), endedAt: Date.now(), done: true, stopped: false, code: 3, newRunId: null, runs: [], links: [], files: [], total: 0, lines: [], project: { id: 'support-agent', name: 'support-agent' } };
+  const asked: unknown[] = [];
+  await page.route('**/api/jobs', (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    asked.push(route.request().postDataJSON());
+    return route.fulfill({ status: 202, json: job });
+  });
+  await page.route('**/api/jobs/rowjob*', (route) => route.fulfill({ json: job }));
+  await openPage(page, `/runs?q=${run}`, RUNS);
+  await page.keyboard.press('j');
+  await expect(page.locator(`${RUNS}.krow`)).toHaveAttribute('data-rowkey', `#/run/${run}`);
+  await page.keyboard.press('ControlOrMeta+k');
+  await page.locator('.palette').waitFor();
+  expect((await page.locator('.palit .pl').allTextContents()).slice(0, 2)).toEqual(['Open run', 'Run blame']);
+  const step = page.locator('.palit', { has: page.locator('.pl', { hasText: /^Run blame$/ }) });
+  await expect(step.locator('.palk kbd')).toHaveText('b');
+  await step.click();
+  await expect.poll(() => hash(page)).toBe(`#/run/${run}`);
+  await expect.poll(() => asked).toEqual([expect.objectContaining({ kind: 'blame', runId: run })]);
+});
+
 test('the palette says “this row” where a row’s name doesn’t fit its field, measured again as the window changes', async ({ page }) => {
   await openRuns(page);
   await page.keyboard.press('j');

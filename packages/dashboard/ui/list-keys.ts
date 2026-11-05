@@ -3,6 +3,7 @@ import { backRowKey } from './focus.js';
 import { focusPage, focusQuiet, landRowsWith, settleFocus } from './focus-manager.js';
 import { useLatest } from './hooks.js';
 import type { PaletteCommand } from './state.js';
+import type { NextStepRow } from './types.js';
 
 /**
  * One list hook with a roving focus, for every list a page holds. j and k move through a page's lists
@@ -18,8 +19,12 @@ import type { PaletteCommand } from './state.js';
 /** A row's actions, for ⌘K on it: the palette shows them under the row's name, and ⌫ shows everything. */
 export interface RowScope {
   name: string;
-  items: () => Array<Omit<PaletteCommand, 'group'>>;
+  /** Its actions; on a run's row, its next step's too, which `step` builds in the palette's own script. */
+  items: (step?: RowStep) => Array<Omit<PaletteCommand, 'group'>>;
 }
+
+/** A run's next step, as its row carries it, as ⌘K on the row offers it: none where it can't start from there. */
+export type RowStep = (runId: string, next: NextStepRow) => Omit<PaletteCommand, 'group'> | null;
 
 export interface ListOptions<T> {
   rows: readonly T[];

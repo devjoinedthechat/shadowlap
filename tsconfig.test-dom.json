@@ -22,6 +22,7 @@
     "packages/dashboard/test/ui-job-end.test.ts",
     "packages/dashboard/test/ui-route-helpers.ts",
     "packages/dashboard/test/ui-list-keys.test.ts",
+    "packages/dashboard/test/ui-row-step.test.ts",
     "packages/dashboard/test/ui-palette-ids.test.ts",
     "packages/dashboard/test/ui-palette-step.test.ts",
     "packages/dashboard/test/ui-client-cache.test.ts",
