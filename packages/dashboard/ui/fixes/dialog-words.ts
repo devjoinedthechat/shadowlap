@@ -1,3 +1,4 @@
+import { repairParts, repairRunsNothing } from '../../../engine/src/cost-words.js';
 import { shortId } from '../format.js';
 import { commandText } from '../goldens.js';
 import { ACTIONS, confirmWords } from '../labels.js';
@@ -46,9 +47,8 @@ export function keepsOf(argv: readonly string[]): string[] {
 
 /** What Run repair bills, or that nothing runs where it would end "No fix to try". */
 export function repairCost(repair: NonNullable<FixDetail['actions']['repair']>, stopped: boolean): { price: string; parts: string[] } {
-  if (repair.noFixWhy) return { price: 'Free', parts: [`nothing runs: the blame it reuses ${repair.noFixWhy === 'unsettled' ? 'didn’t settle' : 'rescued no call'}`] };
-  const candidates = `up to ${repair.candidates} candidates`;
-  return { price: 'Billed by your provider', parts: [stopped ? `a new blame, then ${candidates}` : candidates, 'each verified up to twice', 'live from each run’s first model call, writes stubbed'] };
+  if (repair.noFixWhy) return { price: 'Free', parts: [repairRunsNothing(repair.noFixWhy)] };
+  return { price: 'Billed by your provider', parts: repairParts(repair.candidates, stopped) };
 }
 
 /**

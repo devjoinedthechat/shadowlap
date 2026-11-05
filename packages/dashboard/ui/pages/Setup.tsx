@@ -4,6 +4,7 @@ import { ConfirmDialog } from '../components/Dialog.js';
 import { Eyebrow, PageHeader, StepList, type Step } from '../components/bits.js';
 import { Page } from '../components/Page.js';
 import { copyText } from '../dom.js';
+import { RECORD_PART } from '../../../engine/src/cost-words.js';
 import { messageOf } from '../../../engine/src/message-of.js';
 import type { CalibrateStep, InspectStep, RecordConfirmation, RecordStep, SetupView, TestStep } from '../projects-api.js';
 import { RECORD_PLACEHOLDER, aroundRunId, aroundWord, asksForSetup, codeParts, confirmedRecording, liveCalls, recordingLine, setupPageShows, stepClass, terminalLine } from '../projects.js';
@@ -285,7 +286,7 @@ export function RecordRunDialog({ confirm, onOk, onClose }: { confirm: RecordCon
       ]}
       ok={confirm.button}
       command={confirm.command}
-      cost={{ price: 'Billed by your provider', parts: ['the agent’s own model calls'] }}
+      cost={{ price: 'Billed by your provider', parts: [RECORD_PART] }}
       onClose={onClose}
       onOk={onOk}
     />

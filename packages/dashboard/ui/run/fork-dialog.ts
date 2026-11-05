@@ -1,3 +1,4 @@
+import { attemptsPart, liveFromPart } from '../../../engine/src/cost-words.js';
 import { ACTIONS, confirmWords, dialogName } from '../labels.js';
 import type { DocKey } from '../docs-links.js';
 import { shortId } from '../format.js';
@@ -78,7 +79,7 @@ export interface DialogContext {
 
 /** Billed by your provider, until the estimates name a price: then what runs live. */
 const billed = (...parts: string[]): CostWords => ({ price: 'Billed by your provider', parts });
-const NEXT_CALL_LIVE = 'live from the next model call, writes fenced';
+const NEXT_CALL_LIVE = liveFromPart('the next model call');
 
 /** What a field's answer reads as in a command: whole, quoted where a shell would split it, `empty` (…) while it is empty. */
 function shellValue(answer: string, quote = false, empty = '…'): string {
@@ -138,7 +139,7 @@ const FORKS: Record<string, (c: ForkContext) => Partial<DialogCopy>> = {
     ok: confirmWords(ACTIONS.injectInstruction.label),
     ...(injectsAsUser(a) ? { factsUnder: [{ label: 'As', value: 'part of the last user turn', ...(a.noSystemMessage ? { quiet: `\`${a.noSystemMessage}\` · no system message mid-session` } : {}) }] } : {}),
     ...withCommand(forkLine(ctx.id, a.flag ?? (ctx.callNo === null ? undefined : `--inject ${ctx.callNo}=…`), true)),
-    cost: billed(`live from ${at}, writes fenced`),
+    cost: billed(liveFromPart(at)),
   }),
   u: ({ ctx, at, p }) => ({
     title: `Override user reply at ${at}`,
@@ -183,7 +184,7 @@ const FORKS: Record<string, (c: ForkContext) => Partial<DialogCopy>> = {
     ok: confirmWords(ACTIONS.plantInstruction.label),
     ...(p.choices?.length ? { startFrom: { label: 'Start from', choices: p.choices, note: 'Or paste your own, or a red-teaming tool’s payload.' }, initial: p.choices[0]!.value } : {}),
     ...withCommand(forkLine(ctx.id, a.flag, true)),
-    cost: billed('3 attempts, live from the next model call, writes fenced'),
+    cost: billed(attemptsPart(3, 'the next model call')),
   }),
   f: ({ a, ctx, at, p }) => ({
     title: `Fail ${at} with HTTP status`,
@@ -203,7 +204,7 @@ const FORKS: Record<string, (c: ForkContext) => Partial<DialogCopy>> = {
     doc: 'switchModel',
     label: 'Model',
     ...withCommand(forkLine(ctx.id, a.flag, false, '<model>')),
-    cost: billed(`live from ${at}, writes fenced`),
+    cost: billed(liveFromPart(at)),
   }),
   e: ({ a, ctx }) => ({
     title: ACTIONS.repeat.title,
@@ -212,14 +213,14 @@ const FORKS: Record<string, (c: ForkContext) => Partial<DialogCopy>> = {
     ok: confirmWords(ACTIONS.repeat.label),
     // The server's command names the run whole; the row shows it short, as every fork's does.
     ...(a.command ? { command: () => a.command!.replace(/\b[0-9A-HJKMNP-TV-Z]{26}\b/g, (id) => shortId(id)) } : {}),
-    cost: billed(`5 attempts, live from ${typeof ctx.forkAt === 'number' ? `#${ctx.forkAt}` : 'the fork'}, writes fenced`),
+    cost: billed(attemptsPart(5, typeof ctx.forkAt === 'number' ? `#${ctx.forkAt}` : 'the fork')),
   }),
   l: ({ a, ctx, named }) => ({
     lead: `Runs${named} for real at its first call and at every call of it after.`,
     doc: 'forceLive',
     ...(a.warns ? { warn: { text: toolInCode(a.warns, a.flag), tone: 'red' as const } } : {}),
     ...(a.flag ? { command: () => `shadowlap replay ${ctx.id} ${a.flag!}` } : {}),
-    cost: billed('live from its first call, other writes fenced'),
+    cost: billed(liveFromPart('its first call', true)),
   }),
   p: ({ ctx }) => ({
     title: `Pack ${ctx.id}`,

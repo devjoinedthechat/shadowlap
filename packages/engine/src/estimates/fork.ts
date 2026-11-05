@@ -1,3 +1,4 @@
+import { attemptsPart, liveFromPart } from '../cost-words.js';
 import { forkArgs } from '../run-actions.js';
 import type { CallRecord, RunRecord } from '../types.js';
 import { counted, liveFrom, modelFactor, noEstimate, noPriceWords, spentLive, timesWords, type Estimate, type PriceOptions, type PricedCall, type Prices } from './estimate.js';
@@ -60,7 +61,7 @@ function forkPrice(calls: readonly PricedCall[], change: ForkEstimateChange): Es
     usd: cost.usd,
     ceiling: false,
     ...(times ? { note: `${times} as recorded` } : {}),
-    parts: [`live from #${cost.first}, ${change.write ? 'other writes' : 'writes'} fenced`],
+    parts: [liveFromPart(`#${cost.first}`, Boolean(change.write))],
   };
 }
 
@@ -87,7 +88,7 @@ export function repeatEstimate(run: RunRecord, calls: readonly CallRecord[], tim
   if (!live?.calls) return { kind: 'repeat', usd: 0, ceiling: false, parts: [`${counted(times, 'attempt')}, each replayed from the recording`] };
   if (live.usd === null) return noEstimate('repeat', noPriceWords(live));
   const forkAt = run.divergence?.callNo ?? live.first!;
-  return { kind: 'repeat', usd: times * live.usd, ceiling: false, attempts: times, each: live.usd, parts: [`${counted(times, 'attempt')}, live from #${forkAt}, writes fenced`] };
+  return { kind: 'repeat', usd: times * live.usd, ceiling: false, attempts: times, each: live.usd, parts: [attemptsPart(times, `#${forkAt}`)] };
 }
 
 /**
@@ -99,5 +100,5 @@ export function plantEstimate(calls: readonly PricedCall[], at: number, repeat: 
   const cost = liveFrom(calls, at + 1);
   if (cost.usd === null) return noEstimate('plant', noPriceWords(cost));
   if (cost.first === null) return { kind: 'plant', usd: 0, ceiling: false, parts: [`no model call comes after #${at}`] };
-  return { kind: 'plant', usd: repeat * cost.usd, ceiling: false, attempts: repeat, each: cost.usd, parts: [`${counted(repeat, 'attempt')}, live from #${cost.first}, writes fenced`] };
+  return { kind: 'plant', usd: repeat * cost.usd, ceiling: false, attempts: repeat, each: cost.usd, parts: [attemptsPart(repeat, `#${cost.first}`)] };
 }
