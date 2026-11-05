@@ -203,6 +203,29 @@ test('a menu closes on Esc to its button; a dialog keeps Tab in it and hands the
   await expect(del).toBeFocused();
 });
 
+test('on a phone, a menu’s sheet closes on Esc to its button, a dialog’s sheet keeps Tab in it and hands the focus back', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openPage(page, `/run/${demoId('override')}`, 'run');
+  const share = page.locator('.rhead .actions button', { hasText: 'Share' });
+  await share.click();
+  const sheet = page.locator('.pop.sheet[role="menu"]');
+  await expect(sheet).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(sheet).toHaveCount(0);
+  await expect(share).toBeFocused();
+  const del = page.locator('.rhead .actions button', { hasText: 'Delete' });
+  await del.click();
+  const dialog = page.locator('[role="dialog"][aria-modal="true"]');
+  await expect(dialog).toBeVisible();
+  for (let i = 0; i < 4; i++) {
+    await page.keyboard.press('Tab');
+    expect(await page.evaluate(() => !!document.activeElement?.closest('[role="dialog"]'))).toBe(true);
+  }
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(del).toBeFocused();
+});
+
 test('on a phone, the sidebar hands the focus back to the menu button when Esc closes it', async ({ page }) => {
   await page.setViewportSize({ width: 800, height: 900 });
   await openPage(page, '/runs', 'main#view table.runst tbody tr');
