@@ -295,6 +295,20 @@ test('a page drawn anew just after a modal closes hands the focus to the openerâ
   });
   expect(same).toBe('drawn anew');
   await expect(page.locator('.rhead .actions button.anew')).toBeFocused();
+  // Focus let go on blank space stays away, whatever the page draws meanwhile.
+  await page.goto('about:blank');
+  await openPage(page, `/run/${demoId('ticket')}`, 'run');
+  await del.click();
+  await expect(page.locator(DIALOG)).toBeVisible();
+  const left = await page.evaluate(async () => {
+    document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await new Promise((done) => requestAnimationFrame(() => setTimeout(done)));
+    (document.activeElement as HTMLElement).blur();
+    document.body.append(document.createElement('i'));
+    await new Promise((done) => setTimeout(done, 50));
+    return document.activeElement === document.body;
+  });
+  expect(left).toBe(true);
 });
 
 test('a hover card waits 400 ms for a pointer, shows at once for the keyboard, and its element points at it', async ({ page }) => {

@@ -89,10 +89,11 @@ const REDRAWN_MS = 1000;
 let watching: (() => void) | null = null;
 
 /**
- * For a second after a close, a page drawn anew that took the focus with it (or that gave the opener
- * back only now) hands the focus to the opener's counterpart. Focus moved anywhere else stays there.
+ * For a second after a close, a page drawn anew hands the focus to the opener's counterpart: when the
+ * element given it (`given`) went with the redraw, or it is waiting on the page for the opener to come
+ * back (`onPage`). Focus moved anywhere else, or let go on blank space, stays where it is.
  */
-function watchRedraw(key: ControlKey, fallback: HTMLElement | null): void {
+function watchRedraw(key: ControlKey, given: HTMLElement, onPage: boolean): void {
   watching?.();
   watching = null;
   if (typeof MutationObserver !== 'function') return;
@@ -107,7 +108,8 @@ function watchRedraw(key: ControlKey, fallback: HTMLElement | null): void {
     // Another page drawn is no redraw: what it has is its own.
     if (Date.now() > until || location.hash !== page) return stop();
     const a = document.activeElement;
-    if (a && a !== document.body && a !== fallback && a.isConnected) return;
+    if (a && a !== document.body && a !== given && a.isConnected) return stop();
+    if (!onPage && given.isConnected) return;
     const el = findControl(key);
     if (!el) return;
     stop();
@@ -137,7 +139,7 @@ export function focusBack(...openers: readonly Opener[]): void {
     if (!el) continue;
     focusOn(el);
     if (document.activeElement !== el) continue;
-    if (o.key) watchRedraw(o.key, null);
+    if (o.key) watchRedraw(o.key, el, false);
     return;
   }
   const first = openers[0];
@@ -146,6 +148,7 @@ export function focusBack(...openers: readonly Opener[]): void {
     if (toggle && reachable(toggle)) return toggle.focus();
   }
   const page = document.querySelector<HTMLElement>('#view');
-  if (page) focusOn(page);
-  if (first?.key) watchRedraw(first.key, page);
+  if (!page) return;
+  focusOn(page);
+  if (first?.key) watchRedraw(first.key, page, true);
 }
