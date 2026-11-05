@@ -136,6 +136,8 @@ export function settleFocus(): void {
     pending = null;
     return;
   }
+  // A menu or a dialog opened over the page has the focus; closing it hands the focus back, and that decides.
+  if (overlayOpen()) return;
   const a = document.activeElement;
   const h = pageHeading();
   const free = !a || a === document.body || a === h || a === document.querySelector('#view') || !!a.closest('#menu, #layer');
@@ -167,6 +169,7 @@ function keepFocus(): void {
   if (el.matches('#view h1')) {
     if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '-1');
   } else if (kept.tab !== null && !el.hasAttribute('tabindex')) el.setAttribute('tabindex', kept.tab);
+  if (handOn?.had === kept.el) handOn.had = el;
   focusQuiet(el);
 }
 
@@ -206,6 +209,7 @@ let observer: MutationObserver | null = null;
 function pageChanged(): void {
   keepFocus();
   settleFocus();
+  lookToHandOn();
 }
 
 /**
@@ -228,6 +232,7 @@ export function startFocusManager(): () => void {
   }
   return () => {
     if (--mounted > 0) return;
+    dropHandOn();
     document.removeEventListener('focusin', focusIn);
     document.removeEventListener('focusout', focusOut);
     document.removeEventListener('click', noteClick, true);
@@ -267,6 +272,7 @@ export function routeHeard(type: string): void {
     const from: TrailStop = { sig: lastSig ?? '', hash: lastHash ?? '#/', row: rowLeft(), link: clickedLink?.sig === lastSig ? clickedLink.link : null };
     trail = trailAfter(trail, { to: route, how, above: runAbove(route, lastSig), from });
     pending = { sig, until: Date.now() + PENDING_MS, back: how === 'up' ? back : null };
+    dropHandOn();
     kept = null;
     leaving = null;
     const view = document.querySelector<HTMLElement>('#view');
@@ -307,7 +313,7 @@ export function stepBack(up: string): string {
 /** The part of the page a job's control sat in: its row, a section with an id, or the page's head. */
 export type JobFrom = { row: string } | { section: string } | { head: true } | null;
 
-const JOB_HEAD = '.ph, .rhead, .verdict';
+const JOB_HEAD = '.ph, .rhead, .page-in > .verdict';
 
 /** Where a job is starting from: what opened the dialog or menu it starts from, else what has the focus. Outside the page, nowhere. */
 export function noteJobFrom(): JobFrom {
@@ -365,21 +371,62 @@ export function notingJobFrom<T extends { id: string }>(p: Promise<T>): Promise<
   });
 }
 
-/** How long after a job's end the page is given to draw what took the control's place. */
-const HAND_ON_MS = 60;
+/** How long after a job's end the drawer is given to say how it ended, before the first look. */
+const HAND_ON_FIRST_MS = 60;
+/** How long the page then has to take the control away: it reads the run again first, and a busy read pool makes that slow. */
+const HAND_ON_MS = 3000;
+
+/** A job's end being followed. `had` is what has the focus meanwhile: the control, its counterpart, or a step the focus was handed to, which a later redraw may take too. */
+let handOn: { from: JobFrom; had: Element | null; looks: boolean } | null = null;
+let handOnTimer: ReturnType<typeof setTimeout> | undefined;
+
+function dropHandOn(): void {
+  clearTimeout(handOnTimer);
+  handOn = null;
+}
+
+/** Whether an element can still hold the focus: there, and not turned off. */
+const canHold = (el: Element | null) => !!el?.isConnected && !(el as HTMLButtonElement).disabled;
 
 /**
- * A job has ended with its drawer open. If the control that started it went with the page drawn anew,
- * the focus goes to the step that took its place, else to the drawer. Never from where you moved it,
- * nor from under a menu or a dialog.
+ * Looks at a job's end being followed: at the first look, as the page changes, and at the last look.
+ * The focus fallen from a control that went is handed on; on what had it, it waits. A menu or a
+ * dialog over the page, or a move of yours (the focus elsewhere, or let go of what is still there),
+ * ends the wait. The drawer takes it only when no part of the page is owed it, or at the last look.
+ */
+function lookToHandOn(last = false): void {
+  const h = handOn;
+  if (!h?.looks) return;
+  const a = document.activeElement;
+  const fell = !a || a === document.body;
+  if (overlayOpen() || (fell ? canHold(h.had) : a !== h.had)) return dropHandOn();
+  if (fell) {
+    const to = jobStep(h.from) ?? (h.from && !last ? null : drawerFocus());
+    if (to) {
+      h.had = to;
+      focusQuiet(to);
+    }
+  }
+  if (last) dropHandOn();
+}
+
+/**
+ * A job has ended with its drawer open. If the control that started it goes as the page is drawn
+ * anew, which may be well after the job's end, the focus goes to the step that took its place, else
+ * to the drawer. Never from where you moved it, nor from under a menu or a dialog; another page ends
+ * the wait.
  */
 export function handOnAtEnd(jobId: string): void {
   const from = jobsFrom.get(jobId) ?? null;
   jobsFrom.delete(jobId);
-  setTimeout(() => {
-    const a = document.activeElement;
-    if (overlayOpen() || (a && a !== document.body && a.isConnected)) return;
-    const to = jobStep(from) ?? drawerFocus();
-    if (to) focusQuiet(to);
-  }, HAND_ON_MS);
+  dropHandOn();
+  if (!mounted) return;
+  const a = document.activeElement;
+  const h = { from, had: a && a !== document.body ? a : null, looks: false };
+  handOn = h;
+  handOnTimer = setTimeout(() => {
+    h.looks = true;
+    handOnTimer = setTimeout(() => lookToHandOn(true), HAND_ON_MS);
+    lookToHandOn();
+  }, HAND_ON_FIRST_MS);
 }
