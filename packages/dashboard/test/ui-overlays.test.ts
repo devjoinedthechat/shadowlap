@@ -580,14 +580,17 @@ describe('a modal with edits', () => {
     expect(words(r!.focused())).toBe('button Open');
   });
 
-  it('asks before the scrim discards an edit, and a press in it goes back to editing', async () => {
+  it('asks before the scrim discards an edit, the scrim doing nothing more while it asks, and a press in it goes back to editing', async () => {
     await openDialog((close) => createElement(Edit, { close }));
     await r!.type(r!.one('#name'), 'second');
+    await r!.click(r!.one('.scrim'));
+    expect(r!.all('.dlgask')).toHaveLength(1);
     await r!.click(r!.one('.scrim'));
     expect(r!.all('.dlgask')).toHaveLength(1);
     await r!.click(r!.one('.dialog header'));
     expect(r!.all('.dlgask')).toEqual([]);
     expect(r!.all('.dialog')).toHaveLength(1);
+    expect(r!.one('#name').value).toBe('second');
   });
 
   it('never asks of Cancel, and not when the edit was taken back', async () => {

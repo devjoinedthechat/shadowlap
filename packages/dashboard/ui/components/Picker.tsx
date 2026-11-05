@@ -48,7 +48,9 @@ export function pickMove(key: string, at: number, count: number): number | null 
 export function Picker({ anchor, label, placeholder, items, onPick, onClose, className }: { anchor: HTMLElement; label: string; placeholder: string; items: readonly PickerItem[]; onPick: (id: string) => void; onClose: () => void; className?: string }) {
   const base = useId();
   const listId = `${base}list`;
-  const optionId = (id: string) => `${base}o${items.findIndex((x) => x.id === id)}`;
+  // An option's id stays as the filter narrows the list: the one the arrows light is named by it.
+  const places = useMemo(() => new Map(items.map((x, i) => [x.id, i])), [items]);
+  const optionId = (id: string) => `${base}o${places.get(id)}`;
   const [filter, setFilter] = useState('');
   const shown = useMemo(() => matchPicks(items, filter), [items, filter]);
   const [lit, setLit] = useState(() => Math.max(0, items.findIndex((x) => x.current)));
