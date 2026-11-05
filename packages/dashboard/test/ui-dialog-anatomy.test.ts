@@ -7,7 +7,7 @@ import { StopJobDialog } from '../ui/components/Drawer.js';
 import { UpdateGoldenDialog } from '../ui/components/UpdateGolden.js';
 import { DOCS, docsHref, type DocKey } from '../ui/docs-links.js';
 import { ApplyDialog, PatchDialog, RenameFixDialog, RepairDialog, StrongerDialog } from '../ui/fixes/FixPage.js';
-import { CheckDialog } from '../ui/fixes/RunBlame.js';
+import { CheckDialog, RunBlameButton } from '../ui/fixes/RunBlame.js';
 import { updateOutdatedAsk } from '../ui/fixes/dialog-words.js';
 import { stopAsk } from '../ui/jobs.js';
 import { RecordRunDialog } from '../ui/pages/Setup.js';
@@ -220,6 +220,30 @@ describe('a run’s dialogs', () => {
   });
   it('Run blame, asking for its check', async () => {
     holds(await open(createElement(CheckDialog, { runId: RUN, line: 'It failed “x”, a check shadowlap.config.json doesn’t give', onRun: () => Promise.resolve(null), ...closes })), { title: 'Run blame on 01K5CQ4N7G', doc: 'blame', first: FIELD, ok: 'Run blame', warn: 'It failed “x”, a check shadowlap.config.json doesn’t give' });
+  });
+  it('Run blame asks for its check, then someone else’s command in its place, sending both', async () => {
+    const sent: Array<Record<string, unknown>> = [];
+    const confirm = 'ab'.repeat(16);
+    const why = '01K5CQ4N7G came from an imported pack: this runs the command it was recorded with (node a.mjs). Confirm it to run it';
+    const client = {
+      startJob: (_kind: string, fields: Record<string, unknown>) => {
+        sent.push(fields);
+        if (fields.expect === undefined) return Promise.reject(new ApiError(422, 'no check'));
+        return fields.yes === confirm ? Promise.resolve({ id: 'j' }) : Promise.reject(new ApiError(409, why, confirm));
+      },
+    };
+    const app = appWith({ client: { ...client, jobs: () => Promise.resolve([]) }, feeds: {} });
+    const page = await open(createElement(RunBlameButton, { runId: RUN, failed: ['x'] }), app);
+    await page.click(page.byText('button', 'Run blame'));
+    await page.until('its check to be asked', () => page.all('[role="dialog"] textarea').length === 1);
+    await page.type(page.one('[role="dialog"] textarea'), '{"tools":{"a":1}}');
+    await page.click(page.one('[role="dialog"] .dlg-ok'));
+    await page.until('the question', () => page.all('[role="dialog"] .dwarn').some((w) => w.textContent === why));
+    holds(page, { title: 'Run command from imported pack', doc: 'commandsFromSomeoneElse', first: CANCEL, ok: 'Run blame', warn: why });
+    await page.click(page.one('[role="dialog"] .dlg-ok'));
+    await page.until('the job', () => sent.length === 3);
+    expect(sent.at(-1)).toMatchObject({ expect: { tools: { a: 1 } }, yes: confirm });
+    await page.until('it to go', () => page.all('[role="dialog"]').length === 0);
   });
   it('Import capture', async () => {
     const client = { importSources: () => new Promise(() => undefined) };

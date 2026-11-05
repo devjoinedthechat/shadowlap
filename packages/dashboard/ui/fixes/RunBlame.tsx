@@ -94,9 +94,10 @@ export function CheckDialog({ runId, line, onClose, onRun }: { runId: string; li
       setError(check.error);
       return false;
     }
+    // What it starts closes it, or asks in its place; it stays only for what it says here.
     return onRun(check.expect).then((refused) => {
       if (refused) setError(refused);
-      return !refused;
+      return false;
     });
   };
   return (

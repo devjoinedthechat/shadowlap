@@ -70,8 +70,8 @@ function formState(root: HTMLElement): string {
  * the way on, lime, red where it deletes, plain beside a second way on. A screen reader hears the
  * warning and any amber or red row, then the lead without its link, after the title.
  *
- * The way on closes it, unless it says it can't start: `onOk` returning false, or a promise of false,
- * keeps it open with what was typed. Esc or a press on the dimmed page cancels; where its fields were
+ * The way on closes it, unless it says it can't start, or closes it itself or opens what comes next:
+ * `onOk` returning false, or a promise of false, keeps it open with what was typed. Esc or a press on the dimmed page cancels; where its fields were
  * changed they ask first in the footer, "Discard what you changed?", with Keep editing focused and
  * Discard. It always fits, its header and footer in view and its body scrolling; on a phone it is a
  * sheet. The focus starts by rule (`dialogFocus`, `firstFocus`): on Cancel when the action is red or
@@ -250,6 +250,13 @@ export function Dialog({ title, lead, doc, warn, facts, children, factsUnder, ru
     [keepOnSwitch, close],
   );
   const pressing = useRef(false);
+  const shown = useRef(true);
+  useEffect(() => {
+    shown.current = true;
+    return () => {
+      shown.current = false;
+    };
+  }, []);
   const press = (way?: WayOn) => {
     if (pressing.current) return;
     const out = way?.();
@@ -260,7 +267,7 @@ export function Dialog({ title, lead, doc, warn, facts, children, factsUnder, ru
     void out.then(
       (v) => {
         pressing.current = false;
-        if (v !== false) close.current();
+        if (v !== false && shown.current) close.current();
       },
       () => {
         pressing.current = false;

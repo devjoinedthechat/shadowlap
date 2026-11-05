@@ -151,10 +151,12 @@ describe('planRecording', () => {
         display: "shadowlap run -- node triage.mjs --label 'billing & bugs'",
         upstream: null,
         confirm: {
-          title: 'Run this command in ~/triage-bot?',
-          text: 'The first command in a folder asks first. Shadowlap starts a local sidecar, runs it once, and records every model and tool call. Model calls go to the real API with your keys, which are never stored.',
+          title: 'Record run in ~/triage-bot',
+          lead: 'Records one run: every model and tool call.',
+          moved: null,
+          calls: { value: 'the real API, with your keys', quiet: 'never stored' },
           command: "shadowlap run -- node triage.mjs --label 'billing & bugs'",
-          button: 'Run and record',
+          button: 'Record run',
         },
       },
     });
@@ -183,13 +185,13 @@ describe('planRecording', () => {
     });
     // Confirmed while its calls went to the provider's API: through the model server it asks again.
     const moved = planRecording(project, 'node triage.mjs', { home: '/home/dana', modelServer });
-    expect(moved.ok && moved.plan.confirm).toMatchObject({ text: expect.stringMatching(/^It ran here before with its model calls going somewhere else, so it asks again\. .*Model calls go to http:\/\/127\.0\.0\.1:11434\/v1/) });
+    expect(moved.ok && moved.plan.confirm).toMatchObject({ moved: 'It ran here before with its model calls going somewhere else, so it asks again', calls: { value: 'http://127.0.0.1:11434/v1', quiet: 'the model server this project uses' } });
     // And a server other than the one confirmed asks again too.
     expect(planRecording(confirmedThere, 'node triage.mjs', { modelServer: { url: 'http://10.0.0.9:8000/v1', upstream: 'http://10.0.0.9:8000' } })).toMatchObject({ ok: true, plan: { confirm: { title: expect.any(String) } } });
     const first = planRecording(project, 'node triage.mjs --all', { home: '/home/dana', modelServer });
     expect(first.ok && first.plan.confirm).toMatchObject({
       command: 'SHADOWLAP_UPSTREAM_OPENAI=http://127.0.0.1:11434 shadowlap run -- node triage.mjs --all',
-      text: expect.stringContaining('Model calls go to http://127.0.0.1:11434/v1, the model server this project uses.'),
+      calls: { value: 'http://127.0.0.1:11434/v1', quiet: 'the model server this project uses' },
     });
     const query = planRecording(project, 'node triage.mjs', { modelServer: { url: 'http://llm.internal/v1', upstream: 'http://llm.internal/v1?team=a&x=1' } });
     expect(query.ok && query.plan.display).toBe("SHADOWLAP_UPSTREAM_OPENAI='http://llm.internal/v1?team=a&x=1' shadowlap run -- node triage.mjs");

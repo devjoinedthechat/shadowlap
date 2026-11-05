@@ -239,7 +239,7 @@ describe('ProjectHost', () => {
     const { registry, loadConfig, support } = world();
     const host = ProjectHost.open(support, { registry, loadConfig });
     const first = host.planRecording('support-agent', 'python agent.py');
-    expect(first.ok && first.plan).toMatchObject({ args: ['run', '--', 'python', 'agent.py'], cwd: support, env: {}, confirm: { title: 'Run this command in ~/support-agent?' } });
+    expect(first.ok && first.plan).toMatchObject({ args: ['run', '--', 'python', 'agent.py'], cwd: support, env: {}, confirm: { title: 'Record run in ~/support-agent' } });
     registry.confirmCommand('support-agent', ['python', 'agent.py']);
     expect(host.planRecording('support-agent', 'python agent.py')).toMatchObject({ ok: true, plan: { confirm: null } });
     registry.noteInspected('support-agent', {
@@ -439,7 +439,7 @@ describe('ProjectHost: what it reads and keeps', () => {
       modelServer: { url: 'http://10.0.0.9:8000/v1', upstream: 'http://10.0.0.9:8000', from: 'OPENAI_BASE_URL in .env' },
     });
     const moved = host.planRecording('support-agent', 'python agent.py');
-    expect(moved).toMatchObject({ ok: true, plan: { upstream: 'http://10.0.0.9:8000', confirm: { text: expect.stringMatching(/^It ran here before with its model calls going somewhere else, so it asks again\./) } } });
+    expect(moved).toMatchObject({ ok: true, plan: { upstream: 'http://10.0.0.9:8000', confirm: { moved: 'It ran here before with its model calls going somewhere else, so it asks again' } } });
     if (moved.ok) host.confirmCommand('support-agent', moved.plan);
     expect(host.planRecording('support-agent', 'python agent.py')).toMatchObject({ ok: true, plan: { confirm: null } });
     host.close();

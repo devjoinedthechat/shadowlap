@@ -726,7 +726,7 @@ describe('what opened an overlay', () => {
         null,
         createElement('input', { type: 'text', placeholder: 'A field of the page’s' }),
         createElement('button', { type: 'button', id: 'start', onClick: () => setOpen('first') }, 'Start'),
-        open === 'first' ? createElement(Dialog, { title: 'First', ok: 'Next', onOk: () => setOpen('second'), onClose: () => setOpen('no') }, createElement('input', { type: 'text', id: 'inner' })) : null,
+        open === 'first' ? createElement(Dialog, { title: 'First', ok: 'Next', onOk: () => (setOpen('second'), false), onClose: () => setOpen('no') }, createElement('input', { type: 'text', id: 'inner' })) : null,
         open === 'second' ? createElement(Dialog, { title: 'Second', onClose: () => setOpen('no') }) : null,
       );
     }
