@@ -535,12 +535,6 @@ export function runTree<R extends RunLike>(runs: readonly R[]): Array<{ run: R; 
  */
 export const TREE_DEPTH = 4;
 
-/**
- * The sidebar's tree as the rows shown draw it, one step in for each level: each row's depth, and
- * for its branch lines, level by level, whether a later sibling follows the run at that level of its
- * lineage (`on`, the run itself last: the line goes on through the row), and whether runs hang under
- * it (`kids`). Worked out from the rows as listed, so no line leads to a run left off the list.
- */
 /** How many of the newest runs (with their families) the sidebar lists; Runs has the rest. */
 export const RECENT_RUNS = 60;
 
@@ -551,6 +545,12 @@ export function recentRunIds(runs: readonly RunLike[]): string[] {
     .map((x) => x.run.runId);
 }
 
+/**
+ * The sidebar's tree as the rows shown draw it, one step in for each level: each row's depth, and
+ * for its branch lines, level by level, whether a later sibling follows the run at that level of its
+ * lineage (`on`, the run itself last: the line goes on through the row), and whether runs hang under
+ * it (`kids`). Worked out from the rows as listed, so no line leads to a run left off the list.
+ */
 export function treeLines<R>(rows: ReadonlyArray<{ run: R; depth: number }>): Array<{ run: R; depth: number; on: boolean[]; kids: boolean }> {
   const depth = (i: number) => Math.min(rows[i]!.depth, TREE_DEPTH);
   return rows.map((row, i) => {

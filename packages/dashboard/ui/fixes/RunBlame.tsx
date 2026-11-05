@@ -1,12 +1,12 @@
-import { tipCard } from '../components/HoverCard.js';
-import type { ShortcutMark } from '../shortcuts.js';
 import { useState } from 'react';
 import { consentAsked } from '../actions.js';
 import { ApiError, JOB_KINDS } from '../api.js';
 import { CmdLine } from '../components/bits.js';
 import { ConsentDialog, Dialog } from '../components/Dialog.js';
+import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { shortId } from '../format.js';
+import type { ShortcutMark } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import { parseCheck } from './model.js';
 import { useTreeBusy } from './tree.js';

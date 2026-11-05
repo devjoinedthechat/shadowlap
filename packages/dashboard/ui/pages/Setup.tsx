@@ -1,10 +1,10 @@
-import { headingRef } from '../focus-manager.js';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { JOB_KINDS, type JobView } from '../api.js';
 import { ConfirmDialog } from '../components/Dialog.js';
 import { Eyebrow, PageHeader, StepList, type Step } from '../components/bits.js';
 import { Page } from '../components/Page.js';
 import { copyText } from '../dom.js';
+import { headingRef } from '../focus-manager.js';
 import { messageOf } from '../../../engine/src/message-of.js';
 import type { CalibrateStep, InspectStep, RecordConfirmation, RecordStep, SetupView, TestStep } from '../projects-api.js';
 import { RECORD_PLACEHOLDER, aroundRunId, aroundWord, asksForSetup, codeParts, confirmedRecording, liveCalls, recordingLine, setupPageShows, stepClass, terminalLine } from '../projects.js';

@@ -46,8 +46,9 @@ function Drawer({ watched }: { watched: WatchedJob }) {
   };
   const there = elsewhere ? `Switches to ${elsewhere.name}, where this job ran` : undefined;
   usePanel(close);
-  // The drawer sits beside the page and never takes the focus; closed while the focus is in it (its
-  // Close, Esc), the focus goes back to where it was before it went into the drawer, or to the page.
+  // The drawer sits beside the page, and takes the focus only when a job's end leaves it nowhere else
+  // (`handOnAtEnd`); closed while the focus is in it (its Close, Esc), the focus goes back to where it
+  // was before it went into the drawer, or to the page.
   const panel = useRef<HTMLDivElement>(null);
   const cameFrom = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {

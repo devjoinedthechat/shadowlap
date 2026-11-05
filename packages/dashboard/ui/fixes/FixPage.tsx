@@ -1,9 +1,9 @@
-import { headingRef } from '../focus-manager.js';
 import { useEffect, useState } from 'react';
 import { consentAsked } from '../actions.js';
 import { JOB_KINDS, ApiError, type JobView } from '../api.js';
 import { Badge, CmdLine } from '../components/bits.js';
 import { ConfirmDialog, ConsentDialog, Dialog, PromptDialog } from '../components/Dialog.js';
+import { headingRef } from '../focus-manager.js';
 import { Page } from '../components/Page.js';
 import { NotFoundPage } from '../pages/NotFound.js';
 import { copyText } from '../dom.js';
