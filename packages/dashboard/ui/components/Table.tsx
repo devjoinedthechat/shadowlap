@@ -26,12 +26,18 @@ export function ShowMore({ shown, total, step = 50, onMore }: { shown: number; t
   );
 }
 
-/** A table row that opens a page, unless the click was on a control inside it. */
+/**
+ * What a table row spreads to open a page, unless the click was on a control inside it. `data-acts`
+ * says so to the hover cards: a tap on a fact in the row opens it, and shows no card over the next page.
+ */
 export function rowOpen(go: () => void) {
-  return (e: React.MouseEvent) => {
-    const t = e.target as HTMLElement;
-    if (t.closest('a, button, input, label, select')) return;
-    if (e.metaKey || e.ctrlKey) return;
-    go();
+  return {
+    'data-acts': '',
+    onClick: (e: React.MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.closest('a, button, input, label, select')) return;
+      if (e.metaKey || e.ctrlKey) return;
+      go();
+    },
   };
 }

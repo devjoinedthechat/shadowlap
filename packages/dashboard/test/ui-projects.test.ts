@@ -122,11 +122,11 @@ describe('a dialog when the dashboard switches project elsewhere', () => {
     expect(takeDialogDropped()).toBe(false);
   });
 
-  it('starts on Cancel when asked to, or when the action is red and there is no field', () => {
-    expect(dialogFocus('lime', 'cancel')).toBe('.dlg-cancel');
-    expect(dialogFocus('danger', 'cancel')).toBe('.dlg-cancel');
-    expect(dialogFocus('danger')).toMatch(/, \.dlg-cancel$/);
-    expect(dialogFocus('lime')).toMatch(/^textarea, input.*, \.dlg-ok$/);
+  it('starts on Cancel when asked to, or when the action is red', () => {
+    expect(dialogFocus('lime', 'cancel')).toEqual(['.dlg-cancel']);
+    expect(dialogFocus('danger', 'cancel')).toEqual(['.dlg-cancel']);
+    expect(dialogFocus('danger')).toEqual(['.dlg-cancel']);
+    expect(dialogFocus('lime')).toEqual([expect.stringMatching(/^textarea, input.*, \.dlg-ok$/)]);
   });
 });
 

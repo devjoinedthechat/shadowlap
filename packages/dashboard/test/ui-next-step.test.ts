@@ -40,7 +40,6 @@ function app(o: Partial<AppState> = {}): AppState {
     guard: (fn: () => void) => fn(),
     watchJob: () => undefined,
     toast: () => undefined,
-    registerLayer: () => () => undefined,
     ...o,
   } as unknown as AppState;
 }

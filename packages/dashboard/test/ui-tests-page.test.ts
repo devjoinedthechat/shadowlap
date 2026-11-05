@@ -64,7 +64,6 @@ function page(started: Array<{ kind: string; fields: Record<string, unknown> }>,
     guard: (fn: () => void) => fn(),
     watchJob: () => undefined,
     toast: () => undefined,
-    registerLayer: () => () => undefined,
   };
   return createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(TestsPage));
 }

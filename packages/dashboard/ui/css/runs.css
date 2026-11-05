@@ -39,7 +39,7 @@ table.runst .rsub { display: block; max-width: 100%; overflow: hidden; text-over
 table.runst tr.picked td { background: var(--sel); }
 
 /* bulk actions */
-.bulkbar { position: fixed; z-index: 15; left: calc(var(--side) + 50%); bottom: 44px; transform: translateX(calc(-50% - var(--side) / 2)); display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 16px; border-radius: 14px; background: var(--raise); box-shadow: var(--shadow-pop); border: 1px solid var(--line2); }
+.bulkbar { position: fixed; z-index: 15; left: calc(var(--side) + 50%); bottom: 44px; transform: translateX(calc(-50% - var(--side) / 2)); display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 16px; border-radius: var(--r-overlay); border: 1px solid transparent; }
 .bulkbar b { font-weight: 500; font-size: 13px; white-space: nowrap; }
 .bulkbar .sep { width: 1px; height: 18px; background: var(--line2); margin: 0 4px; }
 @media (max-width: 1000px) { .bulkbar { left: 50%; transform: translateX(-50%); bottom: 40px; max-width: calc(100vw - 24px); overflow-x: auto; } }

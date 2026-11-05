@@ -166,7 +166,15 @@ function Preview({ data, pick, onPick }: { data: RedactionSettings; pick: string
       <div className="pvhead">
         <b>Preview</b>
         {/* The run picker Compare uses: each run by its id, with its about line beside it (decision 10); a recording's as the run list has it. */}
-        <RunPicker label="Run to preview" value={pick} runs={data.runs.map((r) => ({ runId: r.runId, about: r.about ?? runs?.find((x) => x.runId === r.runId)?.about ?? null }))} onPick={onPick} />
+        <RunPicker
+          label="Run to preview"
+          value={pick}
+          runs={data.runs.map((r) => {
+            const listed = runs?.find((x) => x.runId === r.runId);
+            return { runId: r.runId, about: r.about ?? listed?.about ?? null, ...(listed ? { labels: listed.labels } : {}) };
+          })}
+          onPick={onPick}
+        />
         <span className="muted">{!data.rules.length ? 'no rules, so nothing would be masked' : !can ? '' : p.loading && !view ? 'reading the run…' : view ? maskedLine(view.preview.total, view.preview.unmasked, view.preview.returned) : ''}</span>
       </div>
       {data.config.error ? null : broken ? (

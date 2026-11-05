@@ -157,7 +157,7 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
                 </tr>
               ) : null}
               {ms.slice(win.start, win.end).map((c, j) => (
-                <tr key={c.callNo} data-wi={win.start + j} className={misses.has(c.callNo) ? 'miss' : undefined} onClick={() => onSelect(c.callNo)}>
+                <tr key={c.callNo} data-wi={win.start + j} data-acts="" className={misses.has(c.callNo) ? 'miss' : undefined} onClick={() => onSelect(c.callNo)}>
                   <td>#{c.callNo}</td>
                   <td>{num(c.usage!.cacheRead)}</td>
                   <td>{num(c.usage!.cacheWrite)}</td>
@@ -190,7 +190,7 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
                 // A range opens its miss, else the call picked in it, else its largest context.
                 const opens = b.miss?.callNo ?? (holds(b) ? selected! : c.callNo);
                 return (
-                  <div key={b.first} className={`cbar${holds(b) ? ' sel' : ''}`} data-tip={tip} onClick={() => onSelect(opens)}>
+                  <div key={b.first} className={`cbar${holds(b) ? ' sel' : ''}`} data-tip={tip} data-acts="" onClick={() => onSelect(opens)}>
                     {u.cacheRead ? <i className="seg-read" style={{ height: h(u.cacheRead) }} /> : null}
                     <i className="seg-write" style={{ height: h(u.cacheWrite) }} />
                     <i className="seg-unc" style={{ height: `max(2px, ${h(u.input)})` }} />

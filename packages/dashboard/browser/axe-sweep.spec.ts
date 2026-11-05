@@ -115,6 +115,68 @@ test('a run’s inspector tabs, menus and dialogs have no serious or critical ax
   expect(await sweep(page, states)).toEqual([]);
 });
 
+test('every overlay has no serious or critical axe violation: the switcher, a picker, a hover card, a dialog asking to discard, and each as a phone’s sheet', async ({ page }) => {
+  const ticket = dash().runs.ticket as string;
+  const overlays = (where: string): Array<[string, () => Promise<void>]> => [
+    [`Runs${where}`, at(page, '/runs', 'main#view table.runst tbody tr')],
+    ...(where
+      ? ([['the sidebar on a phone', click(page, 'button.menu-toggle', undefined, { shows: 'aside#side.open' })]] as Array<[string, () => Promise<void>]>)
+      : []),
+    [`the project switcher${where}`, click(page, 'button.proj', undefined, { shows: MENU })],
+    [`the project switcher closed${where}`, escape(page, MENU)],
+    [`Compare${where}`, at(page, '/compare', 'main#view .pickers .rpick')],
+    [`a run picker${where}`, click(page, '.rpick', undefined, { shows: '.pop.picker' })],
+    [`a run picker that finds nothing${where}`, async () => {
+      await page.locator('.pop.picker input.pfilter').fill('zzzz nothing like it');
+      await settled(page, { shows: '.pop.picker .pnone' });
+    }],
+    [`a run picker closed${where}`, escape(page, '.pop.picker')],
+    [`Redaction${where}`, at(page, '/settings/redaction', 'main#view .pvhead')],
+    [`Redaction's run picker${where}`, click(page, '.pvhead .rpick', undefined, { shows: '.pop.picker' })],
+    [`Redaction's run picker closed${where}`, escape(page, '.pop.picker')],
+    [`Add redaction rule${where}`, click(page, 'main#view button', 'Add redaction rule', { shows: DIALOG })],
+    [`Add redaction rule, edited${where}`, async () => {
+      await page.locator(`${DIALOG} label`, { hasText: 'Replace with' }).locator('input').fill('<GONE>');
+      await settled(page);
+    }],
+    [`Discard what you changed?${where}`, press(page, 'Escape', { shows: '.dlgask' })],
+    [`Discard what you changed? answered${where}`, press(page, 'Escape', { hides: '.dlgask' })],
+    [`a run${where}`, run(page, ticket)],
+    [`Share${where}`, click(page, '.rhead .actions button', 'Share', { shows: MENU })],
+    [`Share closed${where}`, escape(page, MENU)],
+    [`the fork menu${where}`, click(page, '#forkBtn', undefined, { shows: MENU })],
+    [`the fork menu closed${where}`, escape(page, MENU)],
+    [`Delete${where}`, click(page, '.rhead .actions button', 'Delete', { shows: DIALOG })],
+    [`Delete closed${where}`, escape(page)],
+    [`the shortcuts${where}`, press(page, '?', { shows: '.help' })],
+    [`the shortcuts closed${where}`, escape(page, '.help')],
+    [`the palette${where}`, press(page, 'Meta+k', { shows: '.palette' })],
+    [`the palette closed${where}`, escape(page, '.palette')],
+  ];
+  // The hover card for the keyboard's focus and the pointer's, with what it points at.
+  const cards: Array<[string, () => Promise<void>]> = [
+    ['a run', run(page, ticket)],
+    ['a cell’s hover card', async () => {
+      await page.locator('.cells button').first().hover();
+      await settled(page, { shows: '#tip' });
+    }],
+    ['a fact’s hover card', async () => {
+      await page.mouse.move(2, 2);
+      await page.locator('main#view .metric .st[data-tip] a').first().focus();
+      await settled(page);
+    }],
+    ['a menu row’s hover card', async () => {
+      await page.locator('.rhead .actions button', { hasText: 'Share' }).click();
+      await page.locator(`${MENU} [role="menuitem"]`).nth(1).hover();
+      await settled(page, { shows: '#tip' });
+    }],
+    ['a menu row’s hover card closed', escape(page, MENU)],
+  ];
+  const wide = await sweep(page, [...overlays(''), ...cards]);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect([...wide, ...(await sweep(page, overlays(' on a phone')))]).toEqual([]);
+});
+
 test('Fixes and each fix’s steps, Tests’ dialogs, the palette, the shortcuts and a toast have no serious or critical axe violation', async ({ page }) => {
   const states: Array<[string, () => Promise<void>]> = [];
   for (const fx of fixes()) for (const step of ['', '/blame', '/repair', '/verify']) states.push([`fix ${fx}${step}`, at(page, `/fixes/${fx}${step}`, 'fix')]);

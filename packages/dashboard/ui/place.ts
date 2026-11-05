@@ -1,20 +1,50 @@
 /**
- * Where a menu goes: under the button that opened it, kept inside the viewport with a 12px margin.
- * `align: 'right'` puts its right edge under the opener's. No DOM here: the tests import it, and
- * `components/Popover.tsx` measures the opener and the menu.
+ * Where a menu goes, and where a hover card goes. No DOM here: the tests import it, and
+ * `components/Popover.tsx` and `components/HoverCard.tsx` measure what they place.
  */
 
 export interface Box {
   left: number;
   right: number;
+  top: number;
   bottom: number;
 }
 
-export function placePop(anchor: Box, pop: { width: number; height: number }, view: { width: number; height: number }, align: 'right' | 'left' = 'right'): { top: number; left: number } {
-  const top = Math.max(12, Math.min(anchor.bottom + 6, view.height - pop.height - 12));
-  const want = align === 'right' ? anchor.right - pop.width : anchor.left;
-  const left = Math.max(12, Math.min(want, view.width - pop.width - 12));
-  return { top, left };
+/** A menu's edge to its button, and its least distance from the window's edges. */
+const GAP = 6;
+const EDGE = 12;
+/** A menu is never squeezed below this: it scrolls, at the height of about three rows. */
+const LEAST_ROOM = 120;
+/** A picker's or a project menu's least width, the narrower of a menu's two. */
+const NARROW = 280;
+
+/** What placing a menu says: its corner, and a height to scroll within where it doesn't fit. */
+export interface MenuPlace {
+  top: number;
+  left: number;
+  maxHeight: number | null;
+}
+
+/**
+ * Where a menu goes: under its button, else over it when there is more room there, else on the side
+ * with more room, as tall as that room and scrolling, so it never covers its own button; 6px from the
+ * button and 12px from the window's edges. Its edge lines up with the button's edge nearer the
+ * window's middle, or the one `align` names (`start`, a project switcher's, a picker's).
+ */
+export function placeMenu(anchor: Box, pop: { width: number; height: number }, view: { width: number; height: number }, align?: 'start' | 'end'): MenuPlace {
+  const below = view.height - anchor.bottom - GAP - EDGE;
+  const above = anchor.top - GAP - EDGE;
+  const up = pop.height > below && above > below;
+  const room = Math.max(LEAST_ROOM, up ? above : below);
+  const height = Math.min(pop.height, room);
+  const start = align ? align === 'start' : (anchor.left + anchor.right) / 2 < view.width / 2;
+  const left = Math.max(EDGE, Math.min(start ? anchor.left : anchor.right - pop.width, view.width - pop.width - EDGE));
+  return { top: up ? anchor.top - GAP - height : anchor.bottom + GAP, left, maxHeight: pop.height > room ? room : null };
+}
+
+/** A picker's width: its button's, at least the narrower of a menu's two, within the window's margins. */
+export function menuWidthAt(button: number, view: number): number {
+  return Math.min(view - 2 * EDGE, Math.max(button, NARROW));
 }
 
 /** What placing a menu reads: its opener, its own size and the window's. */
@@ -31,13 +61,41 @@ export interface PopMeasure {
  * and placed only at that height it ran off the bottom of the window under a low row. `watch`
  * returns what stops it, and so does this.
  */
-export function keepPlaced(measure: () => PopMeasure, align: 'right' | 'left', set: (place: { top: number; left: number }) => void, watch: (again: () => void) => () => void): () => void {
+export function keepPlaced(measure: () => PopMeasure, align: 'start' | 'end' | undefined, set: (place: MenuPlace) => void, watch: (again: () => void) => () => void): () => void {
   const place = () => {
     const m = measure();
-    set(placePop(m.anchor, m.pop, m.view, align));
+    set(placeMenu(m.anchor, m.pop, m.view, align));
   };
   place();
   return watch(place);
+}
+
+/** A card's edge to what it describes, and its least distance from the window's edges. */
+const TIP_GAP = 8;
+const TIP_EDGE = 8;
+/** Wider than this, a card starts near the pointer rather than at the far left of a wide row. */
+const WIDE = 240;
+
+/**
+ * Where a hover card goes, anchored to its element: under it, or over it where there is no room, at
+ * its left edge, a wide row's near the pointer (`x`). A menu row's goes beside the menu (`menu`), so
+ * it never covers the rows after it. In a dialog a card that would cover the footer (`foot`, its top)
+ * goes over its element instead. Kept 8px inside the window.
+ */
+export function placeTip(el: Box, card: { width: number; height: number }, view: { width: number; height: number }, o: { x?: number | null; menu?: { left: number; right: number } | null; foot?: number | null } = {}): { left: number; top: number } {
+  let left: number;
+  let top: number;
+  if (o.menu) {
+    left = o.menu.right + TIP_GAP;
+    if (left + card.width > view.width - TIP_EDGE) left = o.menu.left - TIP_GAP - card.width;
+    top = el.top;
+  } else {
+    const floor = Math.min(view.height - TIP_EDGE, o.foot ?? Infinity);
+    top = el.bottom + TIP_GAP;
+    if (top + card.height > floor && el.top - TIP_GAP - card.height >= TIP_EDGE) top = el.top - TIP_GAP - card.height;
+    left = o.x != null && el.right - el.left > WIDE ? o.x - 24 : el.left;
+  }
+  return { left: Math.max(TIP_EDGE, Math.min(left, view.width - card.width - TIP_EDGE)), top: Math.max(TIP_EDGE, Math.min(top, view.height - card.height - TIP_EDGE)) };
 }
 
 /**
@@ -52,19 +110,4 @@ export function stripScroll(strip: { scrollLeft: number; width: number }, item: 
   if (item.left >= strip.scrollLeft && item.left + item.width <= strip.scrollLeft + strip.width) return null;
   if (item.left < strip.scrollLeft || item.width + 2 * pad > strip.width) return Math.max(0, start);
   return Math.max(0, end - strip.width);
-}
-
-/**
- * Where a run picker's list goes: under its button, or over it when there is more room there, as
- * tall as that room allows (at most 420px); at least as wide as the button and 340px, within the
- * window's 12px margins.
- */
-export function placeList(anchor: { left: number; top: number; bottom: number; width: number }, height: number, view: { width: number; height: number }): { top: number; left: number; width: number; maxHeight: number } {
-  const below = view.height - anchor.bottom - 18;
-  const above = anchor.top - 18;
-  const up = height > below && above > below;
-  const width = Math.min(view.width - 24, Math.max(anchor.width, 340));
-  const maxHeight = Math.min(420, up ? above : below);
-  const shown = Math.min(height, maxHeight);
-  return { top: up ? anchor.top - 6 - shown : anchor.bottom + 6, left: Math.max(12, Math.min(anchor.left, view.width - width - 12)), width, maxHeight };
 }

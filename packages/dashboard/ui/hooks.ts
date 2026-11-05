@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { tabbables } from './overlays/focus-back.js';
 import { stripScroll } from './place.js';
 
 /** An error that says what was read is gone: the server answered 404 (api.ts `ApiError`). */
@@ -73,6 +74,27 @@ export function useMedia(query: string): boolean {
     return () => m.removeEventListener('change', change);
   }, [query]);
   return on;
+}
+
+/**
+ * A pane that scrolls and holds no control of its own takes the focus, so the keyboard can scroll it
+ * too (a dialog's body, the shortcuts on a phone), and only while it scrolls: one that fits is no
+ * stop. Measured after every render and as the window or the pane changes size.
+ */
+export function useScrollStop(ref: RefObject<HTMLElement | null>): void {
+  const set = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (el.scrollHeight > el.clientHeight + 1 && !tabbables(el).length) el.tabIndex = 0;
+    else if (el.getAttribute('tabindex') === '0') el.removeAttribute('tabindex');
+  }, [ref]);
+  useLayoutEffect(set);
+  useEffect(() => {
+    if (!ref.current || typeof ResizeObserver !== 'function') return;
+    const sized = new ResizeObserver(set);
+    sized.observe(ref.current);
+    return () => sized.disconnect();
+  }, [ref, set]);
 }
 
 /** A per-browser convenience kept in localStorage; it works without storage, for this page only. */

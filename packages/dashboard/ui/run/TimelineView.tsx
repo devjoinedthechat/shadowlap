@@ -58,7 +58,7 @@ export function TimelineView({ calls, selected, scoped, onSelect }: { calls: Cal
     const ms = r.end - r.start;
     const tip = tipCard(`#${c.callNo} ${callName(c.kind, c.name)}`, [{ label: ORIGIN_NAME[o], value: dur(ms), color: ORIGIN_COLOR[o] }, ...(r.firstToken !== null ? [{ label: 'first token', value: dur(r.firstToken), color: 'var(--dim)' }] : [])]);
     return (
-      <div key={c.callNo} data-wi={at} className={`tl-row${c.callNo === selected ? ' sel' : ''}`} onClick={() => onSelect(c.callNo)}>
+      <div key={c.callNo} data-wi={at} data-acts="" className={`tl-row${c.callNo === selected ? ' sel' : ''}`} onClick={() => onSelect(c.callNo)}>
         <span className="lab">
           #{c.callNo} {callName(c.kind, c.name)}
           {lanes.has(c.callNo) ? ' ∥' : ''}

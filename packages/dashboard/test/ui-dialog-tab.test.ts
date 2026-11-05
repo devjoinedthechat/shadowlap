@@ -1,6 +1,7 @@
 import { createElement } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Dialog } from '../ui/components/Dialog.js';
+import { MenuItem, Popover, useMenu } from '../ui/components/Popover.js';
 import { Keyboard } from '../ui/shell/Keyboard.js';
 import { Shortcuts } from '../ui/shell/Shortcuts.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -25,10 +26,7 @@ function app(over: Partial<AppState> = {}): AppState {
     setHelp: () => undefined,
     sideOpen: false,
     setSideOpen: () => undefined,
-    closeTopLayer: () => false,
-    blockingLayer: () => true,
     runKeys: { current: null },
-    registerLayer: () => () => undefined,
   };
   return { ...base, ...over } as unknown as AppState;
 }
@@ -49,6 +47,11 @@ let r: Rendered | null = null;
 afterEach(async () => {
   await r?.unmount();
   r = null;
+});
+
+beforeAll(() => {
+  // No layout here: a menu is placed against a window of this size.
+  Object.assign(globalThis, { innerWidth: 1440, innerHeight: 900 });
 });
 
 describe('Tab in a modal dialog', () => {
@@ -75,8 +78,8 @@ describe('Tab in a modal dialog', () => {
   });
 
   it('stays on the shortcuts’ Close, the panel’s only control, and Esc closes the panel', async () => {
-    const closeTopLayer = vi.fn(() => true);
-    r = await render(createElement(AppContext.Provider, { value: app({ help: true, closeTopLayer }) }, createElement(Keyboard), ...page(), createElement(Shortcuts, { key: 'help', onRun: false })));
+    const setHelp = vi.fn();
+    r = await render(createElement(AppContext.Provider, { value: app({ help: true, setHelp }) }, createElement(Keyboard), ...page(), createElement(Shortcuts, { key: 'help', onRun: false })));
     for (let i = 0; i < 3; i++) {
       await r.press('Tab');
       expect(focus(r)).toBe('button Close');
@@ -84,11 +87,50 @@ describe('Tab in a modal dialog', () => {
     await r.press('Tab', { shiftKey: true });
     expect(focus(r)).toBe('button Close');
     await r.press('Escape');
-    expect(closeTopLayer).toHaveBeenCalledTimes(1);
+    expect(setHelp).toHaveBeenCalledExactlyOnceWith(false);
+  });
+
+  it('goes round what shows while it asks before discarding an edit', async () => {
+    r = await render(
+      createElement(AppContext.Provider, { value: app() }, createElement(Keyboard), ...page(), createElement(Dialog, { key: 'dialog', title: 'Rename', ok: 'Rename', onOk: () => undefined, onClose: () => undefined, children: createElement('input', { type: 'text', onChange: () => undefined }) })),
+    );
+    await r.type(r.one('input'), 'edited');
+    await r.press('Escape');
+    expect(focus(r)).toBe('button Keep editing');
+    await r.press('Tab');
+    expect(focus(r)).toBe('button Discard');
+    // Round past Cancel and the action, which wait in the footer while it asks.
+    await r.press('Tab');
+    expect(r.focused().tagName).toBe('INPUT');
+    await r.press('Tab', { shiftKey: true });
+    expect(focus(r)).toBe('button Discard');
+  });
+
+  it('closes a menu in it on Tab, staying in the dialog', async () => {
+    function WithMenu() {
+      const menu = useMenu();
+      return createElement(
+        Dialog,
+        { title: 'Pack', ok: 'Pack run', onOk: () => undefined, onClose: () => undefined },
+        createElement('button', { type: 'button', id: 'more', onClick: (e: { currentTarget: HTMLElement }) => menu.toggle(e.currentTarget) }, 'More'),
+        menu.anchor ? createElement(Popover, { anchor: menu.anchor, onClose: menu.close, label: 'More', children: createElement(MenuItem, { label: 'One', onPick: menu.close }) }) : null,
+      );
+    }
+    r = await render(createElement(AppContext.Provider, { value: app() }, createElement(Keyboard), ...page(), createElement(WithMenu, { key: 'dialog' })));
+    await r.click(r.one('#more'));
+    expect(r.focused().textContent).toBe('One');
+    // Esc closes the menu first, and the dialog stays.
+    await r.press('Escape');
+    expect(focus(r)).toBe('button More');
+    expect(r.all('[role="dialog"]')).toHaveLength(1);
+    await r.click(r.one('#more'));
+    await r.press('Tab');
+    expect(r.all('[role="menu"]')).toEqual([]);
+    expect(focus(r)).toBe('button Cancel');
   });
 
   it('leaves Tab to the browser on a page with no dialog open', async () => {
-    r = await render(createElement(AppContext.Provider, { value: app({ blockingLayer: () => false }) }, createElement(Keyboard), ...page()));
+    r = await render(createElement(AppContext.Provider, { value: app() }, createElement(Keyboard), ...page()));
     r.byText('nav a', 'Runs').focus();
     await r.press('Tab');
     expect(focus(r)).toBe('button Call 1');

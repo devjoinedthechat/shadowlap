@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useRef, type ReactNode } from 'react';
-import { Icon } from '../components/Icon.js';
+import { Modal } from '../components/Dialog.js';
 import { isMac } from '../dom.js';
+import { useScrollStop } from '../hooks.js';
 import { copyCompares } from '../runs.js';
-import { useApp, useLayer } from '../state.js';
+import { useApp } from '../state.js';
 
 /** The shortcuts panel (?): Anywhere, Go to, and On a run, dimmed away from a run. */
 export function Shortcuts({ onRun }: { onRun: boolean }) {
@@ -32,13 +33,12 @@ const or = (a: string, b: string) => (
 
 function Panel({ onRun, close }: { onRun: boolean; close: () => void }) {
   const { exported, meta } = useApp();
-  useLayer('dialog', true, close);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const prev = document.activeElement as HTMLElement | null;
     ref.current?.focus();
-    return () => prev?.focus?.();
   }, []);
+  const body = useRef<HTMLDivElement>(null);
+  useScrollStop(body);
   const groups: Array<[string, boolean, Array<[ReactNode, string]>]> = [
     [
       'Anywhere',
@@ -96,33 +96,37 @@ function Panel({ onRun, close }: { onRun: boolean; close: () => void }) {
     ],
   ];
   return (
-    <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && close()}>
+    <Modal requestClose={close}>
       <div className="help" role="dialog" aria-modal="true" aria-labelledby="helpT" tabIndex={-1} ref={ref}>
         <header>
           <h3 id="helpT">Keyboard shortcuts</h3>
-          <button className="ibtn" type="button" aria-label="Close" onClick={close}>
-            <Icon name="x" />
-          </button>
         </header>
-        <div className="hgrid">
-          {groups.map(([title, on, rows]) => (
-            <section key={title} className={`hgroup${on ? '' : ' off'}`}>
-              <h4>
-                {title}
-                {on ? null : <small>open a run to use these</small>}
-              </h4>
-              <dl>
-                {rows.map(([keys, what], i) => (
-                  <Fragment key={i}>
-                    <dt>{keys}</dt>
-                    <dd>{what}</dd>
-                  </Fragment>
-                ))}
-              </dl>
-            </section>
-          ))}
+        <div className="hbody" ref={body}>
+          <div className="hgrid">
+            {groups.map(([title, on, rows]) => (
+              <section key={title} className={`hgroup${on ? '' : ' off'}`}>
+                <h4>
+                  {title}
+                  {on ? null : <small>open a run to use these</small>}
+                </h4>
+                <dl>
+                  {rows.map(([keys, what], i) => (
+                    <Fragment key={i}>
+                      <dt>{keys}</dt>
+                      <dd>{what}</dd>
+                    </Fragment>
+                  ))}
+                </dl>
+              </section>
+            ))}
+          </div>
         </div>
+        <footer>
+          <button className="btn" type="button" onClick={close}>
+            Close
+          </button>
+        </footer>
       </div>
-    </div>
+    </Modal>
   );
 }

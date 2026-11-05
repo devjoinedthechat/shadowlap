@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { divergenceButtons, updatePlan } from '../ui/goldens.js';
 import { askedTools, callDetail, resultLine, type CallLike } from '../ui/run/calls.js';
 import { bisectBlocked, bisectCopy, bisectLabel, blameOfferFor, blameSource, blameTitle, divergedActions, goldenName, updateGoldenCopy, updatesAfterRules, type BlameFacts } from '../ui/run/offers.js';
-import { canPush, defaultPackFolder, htmlCopyVia, pushTitle, shareDialog, sharedLink, shareItemOff, shareItems, shareNote, STILL_RECORDING } from '../ui/run/share.js';
+import { canPush, defaultPackFolder, htmlCopyVia, pushTitle, shareCommand, shareDialog, sharedLink, shareItemOff, shareItems, shareNote, shareWhy, STILL_RECORDING } from '../ui/run/share.js';
 import type { BisectOffer, DivergenceView, RunOffers, TestBannerOffer, TestsView } from '../ui/types.js';
 
 // The run page's Share menu, Run blame, Find the commit and the Calls view's detail, as the page words
@@ -19,7 +19,23 @@ describe('the Share menu', () => {
     expect(shareItems({ can: all, team: null }).map((i) => i.key)).toEqual(['html', 'pack', 'dataset', 'otel', 'har']);
     // A server without the jobs still downloads the HTML file, and packs through the run's own action.
     expect(shareItems({ can: (k) => k === 'pack', team }).map((i) => i.key)).toEqual(['html', 'pack']);
-    expect(shareItems({ can: all, team }).find((i) => i.key === 'otel')).toEqual({ key: 'otel', label: 'OpenTelemetry trace…', note: 'export otel · a span per call, for the tools you already use' });
+    // A row is one line: its words and what it runs; what it is for is on its hover card, with its command.
+    const items = shareItems({ can: all, team });
+    const otel = items.find((i) => i.key === 'otel')!;
+    expect(otel).toEqual({ key: 'otel', label: 'OpenTelemetry trace…', flag: 'export otel', why: 'A span per call, for the tools you already use' });
+    // Its whole command: what its job runs, with the file or folder the job writes; a row that asks first says the rest in its dialog.
+    expect(Object.fromEntries(items.map((i) => [i.key, shareCommand(i, RUN)]))).toEqual({
+      link: '$ shadowlap share 01M50J6C69 --lineage',
+      html: '$ shadowlap export html 01M50J6C69 .shadowlap/exports/shadowlap-01m50j6c69.html --lineage',
+      pack: '$ shadowlap pack 01M50J6C69 .shadowlap/exports/01m50j6c69',
+      dataset: '$ shadowlap export dataset 01M50J6C69',
+      otel: '$ shadowlap export otel 01M50J6C69',
+      har: '$ shadowlap export har 01M50J6C69 .shadowlap/exports/01m50j6c69.har',
+    });
+    // The bucket in a clause of its own: the days belong to the link.
+    expect(shareWhy(items[0], team)).toBe('A redacted report in your bucket, bucket/team; the link expires in 7 days');
+    expect(shareWhy(items[0], null)).toBe('A redacted report in your bucket; the link expires in 7 days');
+    expect(shareWhy(otel, team)).toBe(otel.why);
     // Parallel nouns, the copy each makes, an ellipsis on each that asks first.
     expect(shareItems({ can: all, team }).map((i) => i.label)).toEqual(['Share link', 'HTML report', 'Pack…', 'Eval dataset…', 'OpenTelemetry trace…', 'HAR file']);
   });
@@ -157,7 +173,7 @@ describe('Run blame and Find the commit', () => {
 
   it('looks for what changed a run that passed, not what broke it', () => {
     const passed = offer({ failed: false, good: 'a7b3c2e', bad: null, revisions: [{ rev: 'c91d0f4', at: 0, runs: 3, failed: 0 }] });
-    expect(bisectLabel(passed)).toEqual({ label: 'Find commit that changed it…', hint: 'Replays it at the commits after its own, halving each time, and names the first where it does something else' });
+    expect(bisectLabel(passed)).toEqual({ label: 'Find commit that changed it…', hint: 'Names the first commit after its own where it does something else' });
     const c = bisectCopy(RUN, passed);
     expect([c.title, c.ok]).toEqual(['Find commit that changed 01M50J6C69', 'Find commit that changed it']);
     expect(c.text).toBe('Replays the run at commits from a7b3c2e to HEAD, halving each time, and names the first where it does something else. Replays are free, so this costs no tokens.');

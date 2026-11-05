@@ -59,9 +59,6 @@ function app(over: Partial<AppState> & { client?: Partial<Client> } = {}): AppSt
     sideOpen: false,
     setSideOpen: () => undefined,
     setHelp: () => undefined,
-    closeTopLayer: () => false,
-    blockingLayer: () => true,
-    registerLayer: () => () => undefined,
   };
   return { ...base, ...over } as unknown as AppState;
 }

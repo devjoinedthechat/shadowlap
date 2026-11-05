@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Meta } from '../api.js';
+import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { Popover, useMenu } from '../components/Popover.js';
 import { compactPath, projectOfStore } from '../format.js';
+import { confirmWords } from '../labels.js';
 import { addPaletteSource } from '../palette-sources.js';
 import { ONLY_PROJECT, provideProjectRemoval } from '../project-actions.js';
 import { expectProject, onProjectSwitched, takeDialogDropped, takeLanding, type ProjectsView } from '../projects-api.js';
@@ -16,10 +18,10 @@ import { RemoveProjectDialog } from './RemoveProject.js';
 
 /**
  * The project at the top of the sidebar, and the switcher behind it: each project on this machine
- * with its folder and runs, the current one marked, those still being set up, Add project…, and ×
- * to remove one while there is more than one. Switching swaps the dashboard onto that project's
- * store and opens the Overview. A dashboard that serves one store (an exported copy, `--read-only`)
- * shows the project alone.
+ * with its runs and its folder on its hover card, the current one checked, those still being set up,
+ * Add project…, and × to remove one while there is more than one. Switching swaps the dashboard onto
+ * that project's store and opens the Overview. A dashboard that serves one store (an exported copy,
+ * `--read-only`) shows the project alone.
  */
 
 export function projectOf(meta: Meta | null): { name: string; path: string } | null {
@@ -169,39 +171,40 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
         <span className="pa">{initial(project.name)}</span>
         <span className="pn">
           <b>{project.name}</b>
-          {/* A long folder keeps its last folders, as the switcher's list shows it; the whole path is on hover. */}
+          {/* A long folder keeps its last folders; the whole path is on hover. */}
           <small>{compactPath(project.display ?? project.path, 30)}</small>
         </span>
         <Icon name="caret" className="caret" />
       </button>
       {menu.open ? (
-        <Popover anchor={menu.anchor} onClose={menu.close} align="left" matchWidth label="Projects" className="projmenu">
+        <Popover
+          anchor={menu.anchor}
+          onClose={menu.close}
+          align="start"
+          label="Projects"
+          className="projmenu curmark narrow"
+          onKeys={(e) => {
+            // → reaches a row's ×; Delete on the project removes it too.
+            if (e.key !== 'Delete' && e.key !== 'Backspace') return false;
+            const row = items.find((p) => p.id === (document.activeElement as HTMLElement | null)?.dataset?.project);
+            if (!row?.removable) return false;
+            e.preventDefault();
+            menu.close();
+            setRemoving(row.id);
+            return true;
+          }}
+        >
           <div className="pk">{list?.heading ?? 'Projects on this machine'}</div>
           {items.map((p) => (
             <div className="prow" key={p.id}>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => pick(p.id)}
-                title={p.why ?? p.path}
-                aria-keyshortcuts={p.removable ? 'Delete' : undefined}
-                onKeyDown={(e) => {
-                  // The × shows under the pointer only: from the keyboard, Delete on the project removes it.
-                  if (!p.removable || (e.key !== 'Delete' && e.key !== 'Backspace')) return;
-                  e.preventDefault();
-                  menu.close();
-                  setRemoving(p.id);
-                }}
-              >
-                <b>
-                  {p.name}
-                  {p.current ? <span className="cur">current</span> : null}
-                </b>
+              <button type="button" role="menuitemradio" aria-checked={!!p.current} data-project={p.id} onClick={() => pick(p.id)} data-tip={tipCard(p.name, [], p.why ?? `${p.path}${p.settingUp ? ' · setting up' : ''}`)} aria-keyshortcuts={p.removable ? 'Delete' : undefined}>
+                <b>{p.name}</b>
                 <small>{p.detail}</small>
               </button>
               {p.removable ? (
                 <button
                   type="button"
+                  role="menuitem"
                   className="px"
                   aria-label={p.removeLabel}
                   title="Remove from the dashboard"
@@ -219,13 +222,13 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
           <button
             type="button"
             role="menuitem"
+            data-tip={tipCard(confirmWords(list?.add.label ?? 'Add project…'), [], list?.add.hint ?? 'A folder with your agent’s code')}
             onClick={() => {
               menu.close();
               navigate(href.newProject());
             }}
           >
             <b>{list?.add.label ?? 'Add project…'}</b>
-            <small>{list?.add.hint ?? 'a folder with your agent’s code'}</small>
           </button>
           <div className="pnote">{list?.notice ?? project.notice ?? list?.note ?? 'Each project keeps its own store.'}</div>
         </Popover>

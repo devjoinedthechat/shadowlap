@@ -1,119 +1,129 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { useLatest } from '../hooks.js';
-import { keepPlaced } from '../place.js';
-import { useLayer } from '../state.js';
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useLatest, useMedia } from '../hooks.js';
+import { focusItem, menuClosed, menuItems, menuOpened } from '../overlays/menu-store.js';
+import { takeStartLast } from '../overlays/modal-store.js';
+import { InSlot } from '../overlays/slots.js';
+import { keepPlaced, menuWidthAt, type MenuPlace } from '../place.js';
 
 /**
- * A menu that hangs from the button that opened it (`.pop`, fixed to the viewport so no pane clips
- * it). It keeps to the screen, focuses its first item, moves with ↑ ↓, and closes on Esc, on a
- * click outside or on the opener again. `align: 'right'` puts its right edge under the opener's.
+ * A menu that hangs from the button that opened it (`.pop`), in the menu slot, fixed to the window so
+ * no pane clips it. Placed by the room there is (`placeMenu`), its first item takes the focus; on a
+ * phone it is a sheet from the foot of the screen, over a scrim that takes the tap that closes it.
+ * Its keys are the menu store's: arrows round the ends, Home, End, PageUp, PageDown, a typed letter,
+ * → to a row's second button, Tab and Esc to close. Closed, the focus goes back to the button that
+ * opened it, unless a click outside landed on another control. Its rows are one line each: the
+ * label left in the UI face, what the item runs right in mono, what it is for on its hover card.
  */
 
 export interface PopoverProps {
   anchor: HTMLElement | null;
   onClose: () => void;
   children: ReactNode;
+  /** `narrow` is the second of a menu's two widths; `curmark` keeps room for a check before each row. */
   className?: string;
-  align?: 'right' | 'left';
-  /** At least as wide as the opener. */
+  /** Which of the button's edges it lines up with: by default the one nearer the window's middle. */
+  align?: 'start' | 'end';
+  /** As wide as the opener, at least the narrower of a menu's two widths: a picker. */
   matchWidth?: boolean;
   label?: string;
+  /** A picker is a dialog holding a combobox and a list. */
+  role?: 'menu' | 'dialog';
+  /** Leaves the focus where it is, for a picker, whose field or list takes it. */
+  keepFocus?: boolean;
+  /** Its own keys, before the menu's: true when it handled one. */
+  onKeys?: (e: KeyboardEvent) => boolean;
 }
 
-export { placePop } from '../place.js';
+/** A phone's width: a menu and a picker are sheets from here down, as a dialog is (overlays.css). */
+const SHEET = '(max-width: 640px)';
 
-export function Popover({ anchor, onClose, children, className = '', align = 'right', matchWidth = false, label }: PopoverProps) {
+const placed = (el: HTMLElement, p: MenuPlace) => {
+  el.style.top = `${p.top}px`;
+  el.style.left = `${p.left}px`;
+  el.style.maxHeight = p.maxHeight === null ? '' : `${p.maxHeight}px`;
+};
+
+/** Places it again as the window or the menu itself changes size: a menu whose items arrive after it opens grows, and must still end inside the window. */
+const watchSize = (el: HTMLElement) => (again: () => void) => {
+  const sized = typeof ResizeObserver === 'function' ? new ResizeObserver(again) : null;
+  sized?.observe(el);
+  window.addEventListener('resize', again);
+  return () => {
+    sized?.disconnect();
+    window.removeEventListener('resize', again);
+  };
+};
+
+export function Popover({ anchor, onClose, children, className = '', align, matchWidth = false, label, role = 'menu', keepFocus = false, onKeys }: PopoverProps) {
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number; left: number; width?: number } | null>(null);
+  const sheet = useMedia(SHEET);
   const closeRef = useLatest(onClose);
-  useLayer('menu', true, onClose);
+  const keysRef = useLatest(onKeys);
 
-  // Placed again whenever the window or the menu itself changes size: a menu whose items arrive after
-  // it opens grows, and must still end inside the window.
+  // Tab closes a menu, so its rows take the focus from the arrows alone.
+  useLayoutEffect(() => {
+    for (const el of ref.current?.querySelectorAll<HTMLElement>('button, a[href]') ?? []) el.tabIndex = -1;
+  });
+
+  // Drawn in its place before the first paint, so it never shows anywhere else: a sheet by the stylesheet, a menu by its button.
   useLayoutEffect(() => {
     const el = ref.current;
-    if (!el || !anchor) return;
-    const widthOf = (r: DOMRect) => (matchWidth ? Math.max(r.width, 280) : undefined);
+    if (!el) return;
+    if (sheet || !anchor) {
+      for (const p of ['top', 'left', 'width', 'maxHeight'] as const) el.style[p] = '';
+      return;
+    }
     return keepPlaced(
       () => {
         const r = anchor.getBoundingClientRect();
-        return { anchor: r, pop: { width: widthOf(r) ?? el.offsetWidth, height: el.offsetHeight }, view: { width: innerWidth, height: innerHeight } };
+        if (matchWidth) el.style.width = `${menuWidthAt(r.width, innerWidth)}px`;
+        el.style.maxHeight = '';
+        return { anchor: r, pop: { width: el.offsetWidth, height: el.offsetHeight }, view: { width: innerWidth, height: innerHeight } };
       },
       align,
-      (p) => {
-        const width = widthOf(anchor.getBoundingClientRect());
-        setPos((cur) => (cur && cur.top === p.top && cur.left === p.left && cur.width === width ? cur : width ? { ...p, width } : p));
-      },
-      (again) => {
-        const sized = typeof ResizeObserver === 'function' ? new ResizeObserver(again) : null;
-        sized?.observe(el);
-        window.addEventListener('resize', again);
-        return () => {
-          sized?.disconnect();
-          window.removeEventListener('resize', again);
-        };
-      },
+      (p) => placed(el, p),
+      watchSize(el),
     );
-  }, [anchor, align, matchWidth]);
+  }, [anchor, align, matchWidth, sheet]);
 
-  // Its first item takes the focus once the menu shows: until it is placed it is hidden, and a hidden
-  // element can't take it.
-  const placed = pos !== null;
-  useEffect(() => {
-    if (placed) ref.current?.querySelector<HTMLElement>('button:not([disabled]), a[href]')?.focus();
-  }, [placed]);
-  // Closed while it has the focus (Esc, a pick), it hands the focus back to the button that opened it.
+  // Open from here to when its owner takes it away; the store hands the focus back as it goes.
   useLayoutEffect(() => {
     const el = ref.current;
-    return () => {
-      if (el?.contains(document.activeElement)) anchor?.focus();
-    };
-  }, [anchor]);
-
-  useEffect(() => {
+    if (!el) return;
+    const start = takeStartLast() ? -1 : 0;
+    const m = menuOpened({ root: el, anchor, close: () => closeRef.current(), keys: (e) => keysRef.current?.(e) === true });
+    // A button that never said so says what it opens, and ↓ opens it from then on.
+    if (anchor && !anchor.hasAttribute('aria-haspopup')) anchor.setAttribute('aria-haspopup', role === 'dialog' ? 'listbox' : 'menu');
     anchor?.setAttribute('aria-expanded', 'true');
-    const down = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (ref.current?.contains(t)) return;
-      // The opener toggles: its own click closes the menu.
-      if (anchor?.contains(t)) return;
-      closeRef.current();
-    };
-    document.addEventListener('mousedown', down);
+    if (!keepFocus && menuItems(el).length) focusItem(el, start);
     return () => {
-      document.removeEventListener('mousedown', down);
+      menuClosed(m);
       anchor?.setAttribute('aria-expanded', 'false');
     };
-  }, [anchor, closeRef]);
-
-  const keys = (e: React.KeyboardEvent) => {
-    // Tab leaves a menu, as ARIA's menu button pattern has it: the menu closes, its button gets the
-    // focus back, and Tab goes on from there.
-    if (e.key === 'Tab') {
-      closeRef.current();
-      return;
-    }
-    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-    e.preventDefault();
-    // Only what can take the focus: a button hidden until its row is hovered (the switcher's ×) is passed over.
-    const items = [...(ref.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href]') ?? [])].filter((el) => el === document.activeElement || (el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden'));
-    if (!items.length) return;
-    const i = items.indexOf(document.activeElement as HTMLElement);
-    const next = e.key === 'ArrowDown' ? (i + 1) % items.length : (i - 1 + items.length) % items.length;
-    items[next]?.focus();
-  };
+    // One menu, opened once at its button: a new button is a new menu, and the rest never change.
+  }, [anchor, role, keepFocus, closeRef, keysRef]);
 
   return (
-    <div ref={ref} className={`pop${className ? ` ${className}` : ''}`} role="menu" aria-label={label} onKeyDown={keys} style={pos ?? { visibility: 'hidden', top: 0, left: 0 }}>
-      {children}
-    </div>
+    <InSlot name="menu">
+      {sheet ? <div className="msheet" data-msheet="" /> : null}
+      <div
+        ref={ref}
+        className={`pop${className ? ` ${className}` : ''}${sheet ? ' sheet' : ''}`}
+        role={role}
+        aria-label={label}
+        // What opens over the page never acts on what drew it: a menu's clicks stay out of the row it hangs from.
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    </InSlot>
   );
 }
 
-/** A menu item: its words, and a second line or a flag on the right. */
-export function MenuItem({ label, note, onPick, disabled, title }: { label: ReactNode; note?: ReactNode; onPick: () => void; disabled?: boolean; title?: string }) {
+/** A menu item: its words, and what it runs at its right. `checked` makes it the picked one of a choice. */
+export function MenuItem({ label, note, onPick, disabled, title, checked }: { label: ReactNode; note?: ReactNode; onPick: () => void; disabled?: boolean; title?: string; checked?: boolean }) {
   return (
-    <button type="button" role="menuitem" disabled={disabled} title={title} onClick={onPick}>
+    <button type="button" role={checked === undefined ? 'menuitem' : 'menuitemradio'} aria-checked={checked} disabled={disabled} title={title} onClick={onPick}>
       <b>{label}</b>
       {note !== undefined && note !== null && note !== '' ? <small>{note}</small> : null}
     </button>

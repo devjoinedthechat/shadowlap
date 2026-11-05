@@ -77,7 +77,7 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
           </thead>
           <tbody>
             {v.rows.map((x) => (
-              <tr key={`${x.role}:${x.runId}`} onClick={rowOpen(() => navigate(x.href))}>
+              <tr key={`${x.role}:${x.runId}`} {...rowOpen(() => navigate(x.href))}>
                 <td>
                   <b className="fxrole">{x.role}</b>
                 </td>
