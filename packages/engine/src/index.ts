@@ -264,7 +264,7 @@ export { amountWords, askedOverThreshold, askWords, asksFirst, centsWords, costL
 export { forkEstimate, plantEstimate, PLANT_REPEAT, repeatEstimate, REPEAT_TIMES, type ForkEstimateChange } from './estimates/fork.js';
 export { BLAME_SCAN, blameBound, blameEstimate, blameRules, blameSteps, probedCalls, probedInScope, type BlameBound, type BlameEstimateOptions, type BlameRule, type BlameRules } from './estimates/blame.js';
 export { keptMaxOf, lastVerify, VERIFY_LIVE, verifyCeiling, verifyEstimate, verifyLimits, verifyMoreEstimate, verifyParts, verifyRunCosts, type LastVerify, type VerifyEstimateOptions, type VerifyLimits, type VerifyRule, type VerifyRunCost } from './estimates/verify.js';
-export { REPAIR_CANDIDATES, REPAIRER_LIMITS, repairerBound, repairEstimate, splitHoldout, type NoFixToTry, type RepairPlan, type RepairRun } from './estimates/repair.js';
+export { REPAIR_CANDIDATES, REPAIR_VERIFIES, REPAIRER_LIMITS, repairerBound, repairEstimate, splitHoldout, type NoFixToTry, type RepairPlan, type RepairRun } from './estimates/repair.js';
 export { bisectCommits, bisectEstimate, goldenTestEstimate, moreEstimate, runBisectEstimate, testsEstimate, updateEstimate, type GateSpend, type MoreFigure, type SessionResult } from './estimates/tests.js';
 export { CLEAN_GATE, causeEstimate, GATE_REPEAT, injectionAgainEstimate, injectionEstimate, injectionGateEstimate, presetsEstimate, type InjectionPlan } from './estimates/injection.js';
 export { decisionRunCost, MIGRATE_SAMPLES, migrateEstimate, PREVIEW_SAMPLES, previewEstimate, type MigratePlan, type PreviewChange, type PreviewOptions } from './estimates/changes.js';
