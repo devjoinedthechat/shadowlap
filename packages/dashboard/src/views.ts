@@ -1,8 +1,10 @@
 /**
  * The shapes the dashboard's API answers with, beyond the run and call views in `api.ts`. Types
- * only and no imports: the browser code type-checks against this file, and `api.ts` re-exports
- * everything here.
+ * only, importing nothing but the engine's types by their path: the browser code type-checks against
+ * this file, and `api.ts` re-exports everything here.
  */
+
+import type { Estimate } from '../../engine/src/estimates/estimate.js';
 
 /** A link a job or an activity entry offers: a label and a dashboard route such as `#/run/<id>`. */
 export interface JobLink {
@@ -88,15 +90,10 @@ export interface JobView {
   project?: { id: string; name: string };
 }
 
-/** A job in `GET /api/jobs` (`{ jobs }`, newest first): everything but its output and its result, which `GET /api/jobs/:id` has. */
 /** An estimate as a job keeps it (the engine's `Estimate`, in part): its price, and what Spending and the drawer hold it to. */
-export interface JobEstimate {
-  usd: number | null;
-  ceiling: boolean;
-  per?: string;
-  stops?: number;
-}
+export type JobEstimate = Pick<Estimate, 'usd' | 'ceiling' | 'per' | 'stops'>;
 
+/** A job in `GET /api/jobs` (`{ jobs }`, newest first): everything but its output and its result, which `GET /api/jobs/:id` has. */
 export type JobListItem = Omit<JobView, 'lines' | 'result'>;
 
 /** A run recording now, with its calls so far. */
