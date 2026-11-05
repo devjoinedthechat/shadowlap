@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { memo, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { opensOnField } from '../overlays/modal-store.js';
 import { Popover } from './Popover.js';
 import { useFitAbouts } from './About.js';
@@ -11,7 +11,8 @@ import { useFitAbouts } from './About.js';
  * the button or over it as the room allows; on a phone it is a sheet with 44px rows and a 44px
  * filter. Opened from a key it focuses its filter, a touch screen included; opened by a tap it
  * focuses its list, so a screen reader follows the option and the phone's keyboard stays closed until
- * the filter is tapped.
+ * the filter is tapped. A list of hundreds moves its lit row by a class alone: a key or the pointer
+ * draws no row again, and fits no about line again.
  */
 
 export interface PickerItem {
@@ -45,12 +46,26 @@ export function pickMove(key: string, at: number, count: number): number | null 
   return null;
 }
 
+/** The rows: drawn, and their about lines fitted, as the list or the room changes, never as the lit row moves (`Picker` sets its class). */
+const Rows = memo(function Rows({ shown, optionIds }: { shown: readonly PickerItem[]; optionIds: ReadonlyMap<string, string> }) {
+  const box = useRef<HTMLDivElement>(null);
+  useFitAbouts(box);
+  return (
+    <div ref={box} role="presentation">
+      {shown.map((x, i) => (
+        <div key={x.id} id={optionIds.get(x.id)} data-pick={i} role="option" aria-selected={x.current} className="opt">
+          {x.node}
+        </div>
+      ))}
+    </div>
+  );
+});
+
 export function Picker({ anchor, label, placeholder, items, onPick, onClose, className }: { anchor: HTMLElement; label: string; placeholder: string; items: readonly PickerItem[]; onPick: (id: string) => void; onClose: () => void; className?: string }) {
   const base = useId();
   const listId = `${base}list`;
   // An option's id stays as the filter narrows the list: the one the arrows light is named by it.
-  const ids = useMemo(() => new Map(items.map((x, i) => [x.id, `${base}o${i}`])), [items, base]);
-  const optionId = (id: string) => ids.get(id) ?? base;
+  const optionIds = useMemo(() => new Map(items.map((x, i) => [x.id, `${base}o${i}`])), [items, base]);
   const [filter, setFilter] = useState('');
   const shown = useMemo(() => matchPicks(items, filter), [items, filter]);
   const [lit, setLit] = useState(() => Math.max(0, items.findIndex((x) => x.current)));
@@ -59,17 +74,20 @@ export function Picker({ anchor, label, placeholder, items, onPick, onClose, cla
   const [byKeys, setByKeys] = useState(false);
   const field = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
-  useFitAbouts(list);
 
   // The field or the list takes the focus as it opens, before the first paint: the store's menu has its button to go back to.
   useLayoutEffect(() => {
     if (opensOnField()) field.current?.focus();
     else list.current?.focus({ preventScroll: true });
   }, []);
-  const litId = at >= 0 ? optionId(shown[at]!.id) : null;
+  const litId = at >= 0 ? optionIds.get(shown[at]!.id) : undefined;
+  // The lit row by its class alone, in view; the rows stay as they were drawn.
   useLayoutEffect(() => {
-    if (litId) list.current?.querySelector(`[data-pick="${at}"]`)?.scrollIntoView({ block: 'nearest' });
-  }, [litId, at]);
+    const row = list.current?.querySelector(`[data-pick="${at}"]`);
+    list.current?.querySelector('.opt.on')?.classList.remove('on');
+    row?.classList.add('on');
+    row?.scrollIntoView({ block: 'nearest' });
+  }, [at, shown]);
 
   const keys = (e: KeyboardEvent): boolean => {
     const to = pickMove(e.key, Math.max(at, 0), shown.length);
@@ -87,6 +105,8 @@ export function Picker({ anchor, label, placeholder, items, onPick, onClose, cla
     }
     return false;
   };
+  /** The row under the pointer, by its place in the list. */
+  const rowAt = (e: MouseEvent): number => Number((e.target as Element).closest?.('[data-pick]')?.getAttribute('data-pick') ?? -1);
 
   return (
     <Popover anchor={anchor} onClose={onClose} align="start" matchWidth role="dialog" label={label} keepFocus className={`picker curmark${className ? ` ${className}` : ''}`} onKeys={keys}>
@@ -98,7 +118,7 @@ export function Picker({ anchor, label, placeholder, items, onPick, onClose, cla
         aria-expanded={shown.length > 0}
         aria-controls={shown.length ? listId : undefined}
         aria-autocomplete="list"
-        aria-activedescendant={litId ?? undefined}
+        aria-activedescendant={litId}
         autoComplete="off"
         spellCheck={false}
         aria-label={`Filter the ${label.toLowerCase()}`}
@@ -110,26 +130,30 @@ export function Picker({ anchor, label, placeholder, items, onPick, onClose, cla
         }}
       />
       {shown.length ? (
-        <div ref={list} id={listId} className={`pklist${byKeys ? ' kb' : ''}`} role="listbox" aria-label={label} tabIndex={-1} aria-activedescendant={litId ?? undefined}>
-          {shown.map((x, i) => (
-            <div
-              key={x.id}
-              id={optionId(x.id)}
-              data-pick={i}
-              role="option"
-              aria-selected={x.current}
-              className={`opt${i === at ? ' on' : ''}`}
-              // The field keeps the focus: a click picks without taking it.
-              onMouseDown={(e) => e.preventDefault()}
-              onMouseMove={() => {
-                setByKeys(false);
-                if (i !== at) setLit(i);
-              }}
-              onClick={() => onPick(x.id)}
-            >
-              {x.node}
-            </div>
-          ))}
+        <div
+          ref={list}
+          id={listId}
+          className={`pklist${byKeys ? ' kb' : ''}`}
+          role="listbox"
+          aria-label={label}
+          tabIndex={-1}
+          aria-activedescendant={litId}
+          // The field keeps the focus: a click picks without taking it.
+          onMouseDown={(e) => {
+            if (rowAt(e) >= 0) e.preventDefault();
+          }}
+          onMouseMove={(e) => {
+            const i = rowAt(e);
+            if (i < 0) return;
+            setByKeys(false);
+            if (i !== at) setLit(i);
+          }}
+          onClick={(e) => {
+            const x = shown[rowAt(e)];
+            if (x) onPick(x.id);
+          }}
+        >
+          <Rows shown={shown} optionIds={optionIds} />
         </div>
       ) : (
         <p className="pnone" role="status">

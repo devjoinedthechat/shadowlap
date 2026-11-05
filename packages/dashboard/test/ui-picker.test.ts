@@ -89,6 +89,26 @@ describe('a picker', () => {
     expect(active().textContent).toBe('a01');
   });
 
+  it('moves its lit row by a class alone, from a key or the pointer: no row is drawn again, however long the list', async () => {
+    r = await render(shell({}, createElement(Opener, { key: 'picker', onPick: () => undefined })));
+    await r.click(r.one('#pick'));
+    const input = r.one('input.pfilter');
+    const rows = r.all('[role="option"]');
+    const drawn = rows.map((o) => o.props);
+    const lit = () => r!.all('.opt.on').map((o) => o.textContent);
+    expect(lit()).toEqual(['b02']);
+    await r.press('ArrowDown');
+    expect(lit()).toEqual(['c03']);
+    expect(r.one(`[id="${input.getAttribute('aria-activedescendant')}"]`).textContent).toBe('c03');
+    await r.fire(rows[0], 'mousemove');
+    expect(lit()).toEqual(['a01']);
+    expect(r.one('.pklist').className).not.toContain('kb');
+    for (const [i, o] of r.all('[role="option"]').entries()) expect(o.props, o.textContent).toBe(drawn[i]);
+    // Narrowed, it is drawn anew, the lit row its first.
+    await r.type(input, 'pushy');
+    expect(lit()).toEqual(['c03']);
+  });
+
   it('moves a page without going round, and the keys a field keeps are left to it', () => {
     expect(pickMove('PageDown', 2, 30)).toBe(10);
     expect(pickMove('PageDown', 28, 30)).toBe(29);

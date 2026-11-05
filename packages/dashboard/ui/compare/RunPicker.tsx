@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import { AboutLine, useFitAbouts } from '../components/About.js';
 import { Icon } from '../components/Icon.js';
 import { Id } from '../components/Id.js';
@@ -30,21 +30,11 @@ export function RunPicker({ label, value, runs, onPick }: { label: string; value
         <Icon name="caret" className="caret" />
       </button>
       {menu.anchor ? (
-        <Picker
+        <RunList
           anchor={menu.anchor}
           label={label}
-          placeholder="Filter by id, about line or label"
-          items={runs.map((r) => ({
-            id: r.runId,
-            text: `${r.runId} ${r.about?.text ?? ''} ${(r.labels ?? []).join(' ')}`,
-            current: r.runId === id,
-            node: (
-              <>
-                <Id id={shortId(r.runId)} list className="pid" />
-                <AboutLine about={r.about} className="pab" />
-              </>
-            ),
-          }))}
+          runs={runs}
+          picked={id}
           onClose={menu.close}
           onPick={(runId) => {
             menu.close();
@@ -54,4 +44,24 @@ export function RunPicker({ label, value, runs, onPick }: { label: string; value
       ) : null}
     </span>
   );
+}
+
+/** The open list: its rows made once for the runs and the one picked, however often the page around it draws. */
+function RunList({ anchor, label, runs, picked, onClose, onPick }: { anchor: HTMLElement; label: string; runs: readonly PickableRun[]; picked: string; onClose: () => void; onPick: (runId: string) => void }) {
+  const items = useMemo(
+    () =>
+      runs.map((r) => ({
+        id: r.runId,
+        text: `${r.runId} ${r.about?.text ?? ''} ${(r.labels ?? []).join(' ')}`,
+        current: r.runId === picked,
+        node: (
+          <>
+            <Id id={shortId(r.runId)} list className="pid" />
+            <AboutLine about={r.about} className="pab" />
+          </>
+        ),
+      })),
+    [runs, picked],
+  );
+  return <Picker anchor={anchor} label={label} placeholder="Filter by id, about line or label" items={items} onClose={onClose} onPick={onPick} />;
 }
