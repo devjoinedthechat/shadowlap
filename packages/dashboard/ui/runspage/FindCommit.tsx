@@ -27,7 +27,7 @@ export function FindCommitDialog({ runId, choices, earlier = null, onClose }: { 
   const upTo = bisectUpTo(choices);
   const title = namedIn(`Find breaking commit for ${what}`, what);
   const lead = `Finds the first commit that broke ${choices.target.kind === 'golden' ? what : 'the run'}, from one where it worked.`;
-  const bad = bisectBadFact(choices, 'the commit the run was recorded at');
+  const bad = bisectBadFact(choices);
   if (choices.unavailable) return <Dialog title={title} lead={lead} doc="bisect" warn={{ text: choices.unavailable.replace(/\.$/, '') }} facts={[bad]} onClose={onClose} />;
   const rev = typed.trim() || picked;
   return (

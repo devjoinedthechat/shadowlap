@@ -158,8 +158,10 @@ describe('Run blame and Find the commit', () => {
     expect(live.facts).toEqual([{ label: 'Bad', value: '`HEAD`', quiet: 'this checkout doesn’t have its own commit' }]);
     expect(live.choices).toEqual([{ value: 'c91d0f4', subject: null, how: 'where it last passed' }]);
     expect(live.command('…')).toBe('shadowlap bisect 01M50J6C69 --good … --fork');
-    // A golden's replay bisects the golden.
-    expect(bisectCopy(RUN, offer({ target: { kind: 'golden', golden: 'goldens/research' } })).command('x1')).toBe('shadowlap bisect goldens/research --good x1 --bad d2e8a1f');
+    // A golden's replay bisects the golden, up to the commit the replay was recorded at, as a run's is said.
+    const replay = bisectCopy(RUN, offer({ target: { kind: 'golden', golden: 'goldens/research' } }));
+    expect(replay.command('x1')).toBe('shadowlap bisect goldens/research --good x1 --bad d2e8a1f');
+    expect(replay.facts).toEqual([{ label: 'Bad', value: '`d2e8a1f`', quiet: 'the commit the run was recorded at' }]);
     // Its results at a commit are counted by verdict: one that was inconclusive there failed nothing.
     const counted = bisectCopy(RUN, offer({ target: { kind: 'golden', golden: 'goldens/research' }, revisions: [{ rev: 'c91d0f4', at: 1, runs: 3, failed: 0, inconclusive: 1 }, { rev: 'a7b3c2e', at: 0, runs: 2, failed: 1, inconclusive: 1 }] }));
     expect(counted.choices).toEqual([

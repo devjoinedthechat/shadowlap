@@ -219,7 +219,7 @@ export function bisectCopy(runId: string, offer: BisectOffer): BisectCopy {
     label: b.failed ? 'Good commit' : 'Start from',
     choices,
     initial: b.good ?? choices[0]?.value ?? '',
-    facts: b.failed ? [bisectBadFact(b, b.target.kind === 'golden' ? 'the commit this replay ran at' : 'the commit the run was recorded at')] : [],
+    facts: b.failed ? [bisectBadFact(b)] : [],
     cost: bisectCost(b),
     note: b.fork ? FLAKY_NOTE : null,
     command: (good) => bisectLine(b, !good || good === '…' ? '…' : quote(good)),
