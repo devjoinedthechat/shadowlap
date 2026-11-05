@@ -353,6 +353,8 @@ const Row = memo(function Row({
         {canFork ? (
           <button
             type="button"
+            aria-haspopup="menu"
+            aria-expanded="false"
             aria-label={`Fork at #${c.callNo}`}
             title={`Fork at #${c.callNo}`}
             onClick={(e) => {
