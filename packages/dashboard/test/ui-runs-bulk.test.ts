@@ -42,7 +42,6 @@ function setup() {
     guard: (fn: () => void) => fn(),
     toast,
     watchJob: (p: Promise<JobView>) => watched.push(p),
-    registerLayer: () => () => undefined,
   } as unknown as AppState;
   const clear = vi.fn();
   const onDone = vi.fn();

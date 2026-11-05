@@ -41,7 +41,6 @@ function app(o: { paused?: string[] } = {}): AppState {
     // Offline, an action says it waits rather than run.
     guard: (fn: () => void) => (o.paused ? void o.paused.push('Actions are paused until the dashboard server is back.') : fn()),
     toast: () => undefined,
-    registerLayer: () => () => undefined,
   } as unknown as AppState;
 }
 

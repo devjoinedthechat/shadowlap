@@ -11,7 +11,7 @@ import { render, type Rendered } from './ui-render.js';
  * where it leads, or Open where nothing runs.
  */
 
-const app = (actionsOff: string | null = null) => ({ actionsOff, exported: false, meta: null, registerLayer: () => () => undefined }) as unknown as AppState;
+const app = (actionsOff: string | null = null) => ({ actionsOff, exported: false, meta: null }) as unknown as AppState;
 const inApp = (el: ReactElement, actionsOff: string | null = null) => createElement(AppContext.Provider, { value: app(actionsOff) }, el);
 const text = (el: { textContent: string }) => el.textContent.replace(/\s+/g, ' ').trim();
 

@@ -1,18 +1,70 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { choiceAnswer, consentTitle } from '../actions.js';
+import { coarsePointer } from '../dom.js';
 import { dialogFocus } from '../focus.js';
+import { useLatest, useScrollStop } from '../hooks.js';
+import { firstFocus } from '../overlays/focus-back.js';
+import { modalOpened, openersNow } from '../overlays/modal-store.js';
+import { InSlot } from '../overlays/slots.js';
 import { dialogOnSwitch, noteDialogDropped, onShownProject, shownProject } from '../projects-api.js';
-import { useLayer } from '../state.js';
 import type { PromptChoice } from '../types.js';
 import { CmdLine } from './bits.js';
 
 /**
+ * What every modal stands on: a scrim in the layer slot, the app behind it inert, Tab kept inside it,
+ * and the focus back on what opened it however it closes (the modal store). A press on the scrim asks
+ * it to close only when it both starts and ends there, so a selection dragged out of a command never
+ * closes it. `requestClose` is what Esc and the scrim ask of it: to close, or to ask first.
+ */
+export function Modal({ requestClose, scrimClass, children }: { requestClose: () => void; scrimClass?: string; children: ReactNode }) {
+  const scrim = useRef<HTMLDivElement>(null);
+  const asks = useLatest(requestClose);
+  // What opened it, read as it is drawn: a field it holds can take the focus as soon as it is in the page.
+  const [openers] = useState(openersNow);
+  useEffect(() => modalOpened({ root: () => scrim.current, requestClose: () => asks.current(), openers }), [asks, openers]);
+  const press = useRef({ down: false, up: false });
+  return (
+    <InSlot name="layer">
+      <div
+        ref={scrim}
+        className={`scrim${scrimClass ? ` ${scrimClass}` : ''}`}
+        onMouseDown={(e) => {
+          press.current = { down: e.target === e.currentTarget, up: false };
+          // A press on the scrim leaves the focus where it was: it may stay open.
+          if (press.current.down) e.preventDefault();
+        }}
+        onMouseUp={(e) => {
+          press.current.up = e.target === e.currentTarget;
+        }}
+        onClick={(e) => {
+          // What opens over the page never acts on what drew it: a dialog's clicks stay out of the row it was asked from.
+          e.stopPropagation();
+          const { down, up } = press.current;
+          press.current = { down: false, up: false };
+          if (e.target === e.currentTarget && down && up) asks.current();
+        }}
+      >
+        {children}
+      </div>
+    </InSlot>
+  );
+}
+
+/** What a dialog's fields hold, to tell an edit from the dialog as it opened. */
+function formState(root: HTMLElement): string {
+  return [...root.querySelectorAll<HTMLInputElement>('input, textarea, select, [aria-pressed], [role="switch"]')]
+    .map((x) => (x.matches('[type="checkbox"], [type="radio"]') ? String(x.checked) : x.matches('input, textarea, select') ? x.value : (x.getAttribute('aria-pressed') ?? x.getAttribute('aria-checked'))))
+    .join('\u241f');
+}
+
+/**
  * A dialog over a dimmed page: a title, a line that says what will happen, a body, and Cancel beside
- * the action. Esc or a click on the dimmed page cancels. The first field, or the action, gets focus,
- * and focus goes back where it was when it closes. A red action that can't be undone (`danger`) with
- * no field starts on Cancel, so a second Enter doesn't delete what the first one only asked about,
- * and so does a dialog given `initialFocus="cancel"` (`dialogFocus` in focus.ts). A body taller than
- * the window scrolls, so the title and the buttons stay in view.
+ * the action. Esc or a press on the dimmed page cancels; where its fields were changed they ask first
+ * in the footer, "Discard what you changed?", with Keep editing focused and Discard. It always fits,
+ * its header and footer in view and its body scrolling; on a phone it is a sheet. The focus starts by
+ * rule (`dialogFocus`, `firstFocus`): on Cancel when the action is red or `initialFocus="cancel"`
+ * asks for it, so Enter twice never does what can't be undone; else on the first field, not on a
+ * touch screen; else on the way on.
  */
 
 export interface DialogProps {
@@ -42,27 +94,49 @@ export interface DialogProps {
 
 export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = false, onOk, onClose, cancel = 'Cancel', className = '', initialFocus, keepOnSwitch = false }: DialogProps) {
   const ref = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
+  useScrollStop(body);
   const id = useId();
-  useLayer('dialog', true, onClose);
+  const askId = `${id}ask`;
   // Where it opens is chosen as it opens: nothing the dialog shows later moves the focus.
-  const [opensOn] = useState(() => dialogFocus(tone, initialFocus));
+  const [opensOn] = useState(() => dialogFocus(tone, initialFocus, coarsePointer()));
   useEffect(() => {
-    const prev = document.activeElement as HTMLElement | null;
-    const first = ref.current?.querySelector<HTMLElement>(opensOn);
-    first?.focus();
+    const root = ref.current;
+    if (!root) return;
+    const first = firstFocus(root, opensOn);
+    first.focus();
     // A line is selected, ready to type over; longer text to edit (a recorded result, a reply) keeps
     // it, with the cursor at its end, as the design's dialogs do.
     if (first instanceof HTMLInputElement) first.select();
     else if (first instanceof HTMLTextAreaElement) first.setSelectionRange(first.value.length, first.value.length);
-    // Back where it was; when that is gone (a menu item that opened it) or was nothing, to the page.
-    return () => (prev && prev !== document.body && prev.isConnected ? prev : document.querySelector<HTMLElement>('#view'))?.focus?.();
   }, [opensOn]);
+
+  // What the fields held before anything was changed: a value that arrives as the dialog loads is no edit.
+  const opened = useRef<string | null>(null);
+  const edited = useRef(false);
+  useLayoutEffect(() => {
+    if (!edited.current && ref.current) opened.current = formState(ref.current);
+  });
+  const [asking, setAsking] = useState(false);
+  const askedFrom = useRef<HTMLElement | null>(null);
+  const keep = useRef<HTMLButtonElement>(null);
+  const keepEditing = (refocus: boolean) => {
+    setAsking(false);
+    if (refocus) askedFrom.current?.focus();
+  };
+  const requestClose = () => {
+    if (asking) return keepEditing(true);
+    if (!edited.current || !ref.current || formState(ref.current) === opened.current) return onClose();
+    askedFrom.current = document.activeElement as HTMLElement | null;
+    setAsking(true);
+  };
+  useEffect(() => {
+    if (asking) keep.current?.focus();
+  }, [asking]);
+
   // Asked in one project, never answered in another: the page turning to another project closes it.
   const openedIn = useRef(shownProject());
-  const close = useRef(onClose);
-  useEffect(() => {
-    close.current = onClose;
-  });
+  const close = useLatest(onClose);
   useEffect(
     () =>
       onShownProject((now) => {
@@ -72,28 +146,61 @@ export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = 
         noteDialogDropped();
         close.current();
       }),
-    [keepOnSwitch],
+    [keepOnSwitch, close],
   );
   return (
-    <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={`dialog${className ? ` ${className}` : ''}`} role="dialog" aria-modal="true" aria-labelledby={id} ref={ref}>
+    <Modal requestClose={requestClose}>
+      <div
+        className={`dialog${className ? ` ${className}` : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={id}
+        tabIndex={-1}
+        ref={ref}
+        onChange={() => {
+          edited.current = true;
+        }}
+        onClick={(e) => {
+          const t = e.target as HTMLElement;
+          if (t.closest('[aria-pressed], [role="switch"]')) edited.current = true;
+          // A click anywhere in it while it asks goes back to editing.
+          if (asking && !t.closest('.dlg-keep, .dlg-discard')) keepEditing(false);
+        }}
+      >
         <header>
           <h3 id={id}>{title}</h3>
           {text ? <p>{text}</p> : null}
         </header>
-        {children ? <div className="db">{children}</div> : null}
+        {children ? (
+          <div className="db" ref={body}>
+            {children}
+          </div>
+        ) : null}
         <footer>
-          <button type="button" className="btn dlg-cancel" onClick={onClose}>
+          <button type="button" className="btn dlg-cancel" hidden={asking} onClick={onClose}>
             {ok ? cancel : 'Close'}
           </button>
           {ok ? (
-            <button type="button" className={`btn ${tone} dlg-ok`} disabled={okDisabled} onClick={() => onOk?.()}>
+            <button type="button" className={`btn ${tone} dlg-ok`} hidden={asking} disabled={okDisabled} onClick={() => onOk?.()}>
               {ok}
             </button>
           ) : null}
+          {asking ? (
+            <>
+              <span className="dlgask" id={askId}>
+                Discard what you changed?
+              </span>
+              <button ref={keep} type="button" className="btn dlg-keep" aria-describedby={askId} onClick={() => keepEditing(true)}>
+                Keep editing
+              </button>
+              <button type="button" className="btn danger dlg-discard" onClick={onClose}>
+                Discard
+              </button>
+            </>
+          ) : null}
         </footer>
       </div>
-    </div>
+    </Modal>
   );
 }
 

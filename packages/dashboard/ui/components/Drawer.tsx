@@ -1,13 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { JOB_KINDS } from '../api.js';
 import { useTreeBusy } from '../fixes/tree.js';
 import { shortId } from '../format.js';
 import { jobFooter } from '../job-actions.js';
 import { calibrationTarget, forkDivergedEarly, jobCommand, jobStatus, jobTitle, lineTone, replayDivergence, stopAsk } from '../jobs.js';
+import { InSlot, usePanel } from '../overlays/slots.js';
 import { href } from '../route.js';
 import { switchProject } from '../shell/ProjectBlock.js';
-import { useApp, useLayer, type WatchedJob } from '../state.js';
+import { useApp, type WatchedJob } from '../state.js';
 import { errorText } from '../toast.js';
 import { Spin } from './bits.js';
 import { Dialog } from './Dialog.js';
@@ -23,7 +23,11 @@ import { Icon } from './Icon.js';
 export function JobDrawer() {
   const { jobs } = useApp();
   const open = [...jobs].reverse().find((w) => w.open);
-  return open ? <Drawer key={open.job.id} watched={open} /> : null;
+  return open ? (
+    <InSlot name="dock">
+      <Drawer key={open.job.id} watched={open} />
+    </InSlot>
+  ) : null;
 }
 
 function Drawer({ watched }: { watched: WatchedJob }) {
@@ -41,7 +45,7 @@ function Drawer({ watched }: { watched: WatchedJob }) {
     guard(() => void switchProject(app, elsewhere.id, to));
   };
   const there = elsewhere ? `Switches to ${elsewhere.name}, where this job ran` : undefined;
-  useLayer('panel', true, close);
+  usePanel(close);
   // The drawer sits beside the page and never takes the focus; closed while the focus is in it (its
   // Close, Esc), the focus goes back to where it was before it went into the drawer, or to the page.
   const panel = useRef<HTMLDivElement>(null);
@@ -192,24 +196,21 @@ function Drawer({ watched }: { watched: WatchedJob }) {
           </a>
         ) : null}
       </footer>
-      {asking && ask && running
-        ? createPortal(
-            <Dialog
-              title={ask.title}
-              text={ask.text}
-              ok={ask.ok}
-              tone="solid"
-              initialFocus="cancel"
-              cancel="Keep it running"
-              onClose={() => setAsking(false)}
-              onOk={() => {
-                setAsking(false);
-                stop();
-              }}
-            />,
-            document.body,
-          )
-        : null}
+      {asking && ask && running ? (
+        <Dialog
+          title={ask.title}
+          text={ask.text}
+          ok={ask.ok}
+          tone="solid"
+          initialFocus="cancel"
+          cancel="Keep it running"
+          onClose={() => setAsking(false)}
+          onOk={() => {
+            setAsking(false);
+            stop();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

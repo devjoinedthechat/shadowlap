@@ -5,7 +5,6 @@ import { RunPicker } from '../ui/compare/RunPicker.js';
 import { ResponseDifferences } from '../ui/pages/Compare.js';
 import { TodayCard, WeekGrid } from '../ui/overview/panels.js';
 import { matchPalette } from '../ui/palette.js';
-import { placeList } from '../ui/place.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { sideStatus } from '../ui/runs.js';
 import { fitRunsTable, RunsTable } from '../ui/runspage/RunsTable.js';
@@ -37,7 +36,6 @@ const app = (over: Partial<AppState> = {}): AppState =>
     watchJob: () => undefined,
     toast: () => undefined,
     refresh: () => undefined,
-    registerLayer: () => () => undefined,
     jobs: [],
     live: [],
     feeds: {},
@@ -200,9 +198,6 @@ describe('the lists name a run by its id, with its about line', () => {
     expect(html).toContain('<code class="pid">01M5GRX4VY</code>');
     expect(html).toContain('data-about="Ticket T-8812 from customer C-311: order A-1042 ($240) arrived damaged"');
     expect(html).not.toContain('<select');
-    // Its list goes under the button, or over it where there is more room, as tall as that room.
-    expect(placeList({ left: 100, top: 100, bottom: 134, width: 320 }, 900, { width: 1440, height: 900 })).toEqual({ top: 140, left: 100, width: 340, maxHeight: 420 });
-    expect(placeList({ left: 100, top: 800, bottom: 834, width: 320 }, 900, { width: 1440, height: 900 })).toEqual({ top: 800 - 6 - 420, left: 100, width: 340, maxHeight: 420 });
   });
 
   it('on the Overview: the grid’s hover card has the about line under the id, and a recording in progress shows it under its id', () => {

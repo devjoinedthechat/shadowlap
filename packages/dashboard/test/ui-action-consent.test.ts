@@ -33,7 +33,6 @@ function app(asked: Asked[], watched: Array<Promise<JobView>>, refuse: (a: Asked
     guard: (fn: () => void) => fn(),
     toast: () => undefined,
     watchJob: (p: Promise<JobView>) => void watched.push(p.catch(() => ({ id: 'failed' }) as JobView)),
-    registerLayer: () => () => undefined,
     client: {
       action: async (_run: string, key: string, _callNo: number | null, value?: string, yes?: string) => {
         const a: Asked = { key, ...(value !== undefined ? { value } : {}), yes: yes ?? null };

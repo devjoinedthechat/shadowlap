@@ -246,8 +246,8 @@ describe('lime', () => {
     '.badge.ok': 'port/primitives, then each page’s slice: Status draws a status as a dot and a word, never a tinted badge',
     '.setupdone': 'port/setup-states: a setup that is done says so as a verdict line, “set up” in the passed colour, never a tinted box',
   };
-  /** Where lime marks no meaning: the keyboard's focus, a focused field, the text you select. */
-  const FOCUS = /:focus(-visible|-within)?\b|^::selection$|^\.labelbar input$/;
+  /** Where lime marks no meaning: the keyboard's focus, a focused field, the text you select, and the row the keys light in a list whose field keeps the focus (`.kb`: a picker's, the palette's). */
+  const FOCUS = /:focus(-visible|-within)?\b|^::selection$|^\.labelbar input$|\.kb \.\w+\.on$/;
 
   it('means the primary action and passed, and nothing else but where the keyboard is', () => {
     const off: string[] = [];
@@ -385,6 +385,7 @@ describe('grounds, tints and lines', () => {
     '.banner.live': 'a live run’s banner, faintly in the live colour',
     '.connblock': 'the page behind the offline bar, veiled in its own ground',
     '.scrim': 'the page dimmed behind a dialog',
+    '.msheet': 'the page dimmed behind a phone’s menu sheet',
     '.prbody.clamp::after': 'report.md fading into its panel where it is cut',
     '.toast .tx:hover': 'on the toast’s ink ground, the page’s ground as its tint',
     '.toast .tx:focus-visible': 'on the toast’s ink ground, the page’s ground as its tint',
@@ -444,5 +445,23 @@ describe('forced colours', () => {
 
   it('outlines every overlay in the user’s text colour, since its edge is a shadow the theme drops', () => {
     for (const s of ['.pop', '.dialog', '.palette', '.help', '.tip', '.toast']) expect(forced.get(s)?.get('outline'), s).toBe('1px solid CanvasText');
+  });
+
+  it('stands every overlay on one surface: the page’s ground, one edge and its shadow, a clear border showing as the edge where the theme drops the shadow', () => {
+    const rule = (sel: string) => new Map(styleRules().filter((r) => !r.conditions.length && r.selectors.includes(sel)).flatMap((r) => r.decls));
+    for (const sel of ['.pop', '.dialog', '.palette', '.help', '.tip', '.bulkbar', '.connblock .cb', '.skip']) {
+      const decls = rule(sel);
+      expect(decls.get('background'), sel).toBe('var(--pop)');
+      expect(decls.get('box-shadow'), sel).toBe('var(--shadow-pop)');
+    }
+    for (const sel of ['.bulkbar', '.connblock .cb', '.skip']) expect(rule(sel).get('border'), sel).toBe('1px solid transparent');
+    // A row's own tint, as the page's rows: the pointer's, then where you are, with the keyboard's ring inside it.
+    expect(rule('.pop button:hover:not([disabled])').get('background')).toBe('var(--hover)');
+    expect(rule('.pop button:focus-visible').get('background')).toBe('var(--sel)');
+    expect(rule('.pop button:focus-visible').get('outline-offset')).toBe('-2px');
+    // Two menu widths only, and the figures on a card as the CLI prints them.
+    expect(rule('.pop').get('width')).toBe('340px');
+    expect(rule('.pop.narrow').get('width')).toBe('280px');
+    expect(rule('.tip').get('font-variant-ligatures')).toBe('none');
   });
 });

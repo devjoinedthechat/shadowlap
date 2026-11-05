@@ -10,8 +10,8 @@ import { previewState } from './router.js';
 import { errorText, type ToastAction, type ToastKind } from './toast.js';
 
 /**
- * The state every screen shares: the client, the server's meta and run list, the connection, the
- * layers on top of the page (menus, dialogs, panels), toasts and the jobs the dashboard started.
+ * The state every screen shares: the client, the server's meta and run list, the connection, toasts
+ * and the jobs the dashboard started. What opens over the page has stores of its own (ui/overlays/).
  */
 
 export type { Conn } from './connection.js';
@@ -38,9 +38,6 @@ export interface WatchedJob {
   /** The server no longer has it (it was restarted): its end is unknown. */
   lost?: boolean;
 }
-
-/** A menu hangs from a button; a dialog dims the page (dialogs, the palette, the shortcuts); a panel sits beside it (the job drawer). */
-export type LayerKind = 'menu' | 'dialog' | 'panel';
 
 export interface AppState {
   client: Client;
@@ -97,11 +94,6 @@ export interface AppState {
   closeJob: (id: string) => void;
   /** Closes every job's drawer, as leaving a page does; running jobs go on and say when they finish. */
   closeJobs: () => void;
-  registerLayer: (kind: LayerKind, close: () => void) => () => void;
-  /** Esc: closes a menu, else a dialog, else a panel. False when nothing was open. */
-  closeTopLayer: () => boolean;
-  /** Whether a menu or a dialog is open: single-key shortcuts wait until it closes. */
-  blockingLayer: () => boolean;
   /** The open run's keys (j, k, 1–4, v, n, p, f, /): true when it handled one. */
   runKeys: RefObject<((e: KeyboardEvent) => boolean) | null>;
   sideOpen: boolean;
@@ -214,16 +206,6 @@ export function useApp(): AppState {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new object when a field read changed (`version`): what depends on it runs again
     [store, t, version],
   );
-}
-
-/** Registers an open menu, dialog or panel, so Esc closes the topmost one. */
-export function useLayer(kind: LayerKind, open: boolean, close: () => void): void {
-  const { registerLayer } = useApp();
-  const closeRef = useLatest(close);
-  useEffect(() => {
-    if (!open) return;
-    return registerLayer(kind, () => closeRef.current());
-  }, [open, kind, registerLayer, closeRef]);
 }
 
 const POLL_MS = 2000;
@@ -577,27 +559,6 @@ export function AppProvider({ client, children }: { client: Client; children: Re
   const closeJob = useCallback((id: string) => setJobs((list) => list.map((w) => (w.job.id === id ? { ...w, open: false } : w)).filter((w) => w.open || (!w.job.done && !w.lost))), []);
   const closeJobs = useCallback(() => setJobs((list) => (list.some((w) => w.open) ? list.filter((w) => !w.job.done && !w.lost).map((w) => ({ ...w, open: false })) : list)), []);
 
-  // ---- layers: menus over dialogs over panels; Esc closes the topmost.
-  const layers = useRef<Array<{ id: number; kind: LayerKind; close: () => void }>>([]);
-  const registerLayer = useCallback((kind: LayerKind, close: () => void) => {
-    const id = Math.random();
-    layers.current.push({ id, kind, close });
-    return () => {
-      layers.current = layers.current.filter((l) => l.id !== id);
-    };
-  }, []);
-  const closeTopLayer = useCallback(() => {
-    for (const kind of ['menu', 'dialog', 'panel'] as const) {
-      const top = [...layers.current].reverse().find((l) => l.kind === kind);
-      if (top) {
-        top.close();
-        return true;
-      }
-    }
-    return false;
-  }, []);
-
-  const blockingLayer = useCallback(() => layers.current.some((l) => l.kind === 'menu' || l.kind === 'dialog'), []);
   const runKeys = useRef<((e: KeyboardEvent) => boolean) | null>(null);
 
   const value = useMemo<AppState>(
@@ -628,9 +589,6 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       openJob,
       closeJob,
       closeJobs,
-      registerLayer,
-      closeTopLayer,
-      blockingLayer,
       runKeys,
       sideOpen,
       setSideOpen,
@@ -641,7 +599,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       runCommands,
       setRunCommands,
     }),
-    [client, meta, runs, loadedAt, syncedAt, conn, retryIn, retrying, retryNow, tick, runsTick, feeds, live, refresh, reload, actionsOff, hasKind, guard, toast, toastText, watchJob, jobs, openJob, closeJob, closeJobs, registerLayer, closeTopLayer, blockingLayer, sideOpen, palette, help, runCommands],
+    [client, meta, runs, loadedAt, syncedAt, conn, retryIn, retrying, retryNow, tick, runsTick, feeds, live, refresh, reload, actionsOff, hasKind, guard, toast, toastText, watchJob, jobs, openJob, closeJob, closeJobs, sideOpen, palette, help, runCommands],
   );
   // The state goes to the store, which tells the components that read what changed: the page
   // below is given once, so the provider's own re-render redraws none of it.

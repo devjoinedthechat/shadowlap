@@ -25,10 +25,7 @@ function app(over: Partial<AppState> = {}): AppState {
     setHelp: () => undefined,
     sideOpen: false,
     setSideOpen: () => undefined,
-    closeTopLayer: () => false,
-    blockingLayer: () => true,
     runKeys: { current: null },
-    registerLayer: () => () => undefined,
   };
   return { ...base, ...over } as unknown as AppState;
 }
@@ -75,8 +72,8 @@ describe('Tab in a modal dialog', () => {
   });
 
   it('stays on the shortcuts’ Close, the panel’s only control, and Esc closes the panel', async () => {
-    const closeTopLayer = vi.fn(() => true);
-    r = await render(createElement(AppContext.Provider, { value: app({ help: true, closeTopLayer }) }, createElement(Keyboard), ...page(), createElement(Shortcuts, { key: 'help', onRun: false })));
+    const setHelp = vi.fn();
+    r = await render(createElement(AppContext.Provider, { value: app({ help: true, setHelp }) }, createElement(Keyboard), ...page(), createElement(Shortcuts, { key: 'help', onRun: false })));
     for (let i = 0; i < 3; i++) {
       await r.press('Tab');
       expect(focus(r)).toBe('button Close');
@@ -84,11 +81,11 @@ describe('Tab in a modal dialog', () => {
     await r.press('Tab', { shiftKey: true });
     expect(focus(r)).toBe('button Close');
     await r.press('Escape');
-    expect(closeTopLayer).toHaveBeenCalledTimes(1);
+    expect(setHelp).toHaveBeenCalledExactlyOnceWith(false);
   });
 
   it('leaves Tab to the browser on a page with no dialog open', async () => {
-    r = await render(createElement(AppContext.Provider, { value: app({ blockingLayer: () => false }) }, createElement(Keyboard), ...page()));
+    r = await render(createElement(AppContext.Provider, { value: app() }, createElement(Keyboard), ...page()));
     r.byText('nav a', 'Runs').focus();
     await r.press('Tab');
     expect(focus(r)).toBe('button Call 1');

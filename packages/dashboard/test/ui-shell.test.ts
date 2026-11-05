@@ -88,7 +88,10 @@ describe('dialogs', () => {
   it('start on the field, else on the action, but on Cancel when the action is red', () => {
     expect(dialogFocus('lime')).toMatch(/textarea, input.*select, \.dlg-ok$/);
     expect(dialogFocus(undefined)).toMatch(/\.dlg-ok$/);
-    expect(dialogFocus('danger')).toMatch(/textarea, input.*select, \.dlg-cancel$/);
+    expect(dialogFocus('danger')).toBe('.dlg-cancel');
+    // A finger's field would open the phone's keyboard over the dialog: it starts on the way on.
+    expect(dialogFocus('lime', undefined, true)).toBe('.dlg-ok');
+    expect(dialogFocus('danger', undefined, true)).toBe('.dlg-cancel');
   });
 
   it('start on Cancel whatever they hold when asked to', () => {

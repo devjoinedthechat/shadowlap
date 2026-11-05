@@ -31,9 +31,6 @@ function app(over: Partial<AppState> = {}): AppState {
     palette: true,
     setPalette: () => undefined,
     setHelp: () => undefined,
-    closeTopLayer: () => false,
-    blockingLayer: () => true,
-    registerLayer: () => () => undefined,
   };
   return { ...base, ...over } as unknown as AppState;
 }
