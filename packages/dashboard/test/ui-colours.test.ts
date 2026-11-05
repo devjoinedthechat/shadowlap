@@ -154,7 +154,7 @@ describe('what each colour may mean', () => {
     const faded = rules().filter((r) => r.selectors.some((x) => x.startsWith('.cip.off') || x.startsWith('.hgroup.off')) && /(^|;)\s*opacity\s*:/.test(r.body));
     expect(faded.map((r) => r.selectors.join(', '))).toEqual([]);
     // On the connection bar's amber wash the faint ink is 4.4:1: the dim one.
-    expect(value('.connbar .cr', 'color')).toBe('var(--dim)');
+    expect(value('.connbar .cr', 'color')).toBe('var(--faint)');
   });
 
   it('keeps a segment, a fix step’s switch and an attempt’s line 24 px tall at least, as WCAG 2.5.8 asks of a target', () => {
@@ -342,7 +342,6 @@ describe('amber', () => {
   };
   /** Amber the design rules out that only a later slice can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
-    '.connbar': 'port/dock: the offline bar on the page’s ground, only its dot amber',
     '.badge.y': 'port/primitives, then each page’s slice: Status draws a status as a dot and a word, never a tinted badge',
     '.warnbox': 'port/setup-states: a warning in a step is a plain line, its first words in amber, never a tinted box',
     '.dialog .dz.advise': 'port/dialogs: a dialog says what needs a look in its one amber line, never a tinted box',
@@ -401,7 +400,6 @@ describe('grounds, tints and lines', () => {
   };
   /** Tints the design drops with the part they draw, each with the slice that does. */
   const UNTIL: Record<string, string> = {
-    '.connbar': 'port/dock: the offline bar on the page’s ground',
     '.dp': 'port/overview: the delta pills go with the KPI tiles',
     '.dp.good': 'port/overview: the delta pills go with the KPI tiles',
     '.fstep .fb': 'port/overview: a fix step’s share goes with the Overview’s Fixes card',

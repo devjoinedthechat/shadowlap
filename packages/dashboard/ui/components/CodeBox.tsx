@@ -3,7 +3,7 @@ import { copyText } from '../dom.js';
 import { useApp } from '../state.js';
 import { Command } from './Copy.js';
 import { Icon } from './Icon.js';
-import { tipText } from './HoverCard.js';
+import { tipCard, tipText } from './HoverCard.js';
 
 /**
  * The code box: a command (`.cmdline`), a block of code (`pre.codebox`) or a file (`.codewrap`, its
@@ -42,14 +42,14 @@ export function boxWhat({ command, full, what }: Pick<CodeBoxProps, 'command' | 
  * button, its words beside the icon (`children`), or the icon alone, named by `name` for a screen
  * reader and on hover. Every Copy on a page is this one.
  */
-export function CopyButton({ text, label, children = 'Copy', className = 'linkbtn', name }: { text: string; label?: string; children?: ReactNode; className?: string; name?: string }) {
+export function CopyButton({ text, label, children = 'Copy', className = 'linkbtn', name, sub }: { text: string; label?: string; children?: ReactNode; className?: string; name?: string; /** A line under its name, on its card. */ sub?: string }) {
   const { toast } = useApp();
   return (
     <button
       type="button"
       className={className}
       aria-label={name}
-      data-tip={name ? tipText(name) : undefined}
+      data-tip={name ? (sub ? tipCard(name, [], sub) : tipText(name)) : undefined}
       onClick={() => {
         void copyText(text).then((ok) => toast(ok ? `Copied ${label ?? text}` : 'Copying was refused by the browser'));
       }}

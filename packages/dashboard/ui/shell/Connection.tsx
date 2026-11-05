@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { tokenInUse } from '../api.js';
 import { CmdLine } from '../components/bits.js';
+import { CodeBox, CopyButton } from '../components/CodeBox.js';
 import { Icon } from '../components/Icon.js';
 import { pastedLink } from '../connection.js';
 import { copyText } from '../dom.js';
@@ -10,25 +11,49 @@ import { readTokenLink } from '../route.js';
 import { useApp } from '../state.js';
 
 /**
- * What the page says when it cannot talk to its server. Offline: a bar under the top bar, what was
- * loaded and when, actions paused, and a retry that backs off 5, 10, 20, then 30 seconds. A session
- * token the server refuses: a full-screen card, since the dashboard was restarted (a restart issues
- * a new token) or the link is another dashboard's, with Paste the new link. A link with no token at
- * all gets the gate, which explains where the link comes from.
+ * What the page says when it cannot talk to its server. Offline: one hairline row under the top bar,
+ * in the app's grid so it never covers the page: what failed, what was loaded and when, actions
+ * paused, the command that starts it again, and a retry that backs off 5, 10, 20, then 30 seconds. On
+ * a phone it is one line, with why behind a button. A session token the server refuses: a full-screen
+ * card, since the dashboard was restarted (a restart issues a new token) or the link is another
+ * dashboard's, with a command box and Paste the new link. A link with no token at all gets the gate,
+ * which explains where the link comes from.
  */
+
+/** Where the docs are read from a dashboard, which holds no copy of its own. */
+const DOCS_AT = 'https://github.com/devjoinedthechat/shadowlap/blob/main/docs/';
 
 export function OfflineBar() {
   const { conn, loadedAt, retryIn, retrying, retryNow } = useApp();
+  const [why, setWhy] = useState(false);
   useEffect(() => {
     document.body.classList.toggle('is-offline', conn === 'offline');
     return () => document.body.classList.remove('is-offline');
   }, [conn]);
   if (conn !== 'offline') return null;
+  const when = loadedAt ? ` at ${clock(loadedAt)}` : '';
   return (
-    <div className="connbar" role="status">
+    <div className={`connbar${why ? ' open' : ''}`}>
       <span className="cdot" />
-      <span className="ct">
-        <b>Can’t reach the dashboard server.</b> It may have stopped; start it again with <code>shadowlap dashboard</code>. You’re seeing what was loaded{loadedAt ? ` at ${clock(loadedAt)}` : ''}, and actions are paused.
+      {/* Said once as it comes: the countdown and the buttons are outside what is read out. */}
+      <span className="csay" role="status">
+        <span className="cs">Offline · actions paused</span>
+        <span className="ct">
+          <b className="nw">Can’t reach the dashboard server</b> · <span className="nw">showing what loaded{when}</span> · <span className="nw">actions paused ·</span>
+        </span>
+        <span className="cw" id="connWhyText">
+          <span className="cwt">Can’t reach the dashboard server, so this shows what loaded{when}.</span> <span className="cwa">Start it again:</span>
+        </span>
+      </span>
+      <button className="linkbtn cwhy" type="button" aria-expanded={why} aria-controls="connWhyText" onClick={() => setWhy(!why)}>
+        Why
+      </button>
+      <span className="cc">
+        <span className="cwith">start it with </span>
+        <code>shadowlap dashboard</code>
+        <CopyButton text="shadowlap dashboard" label="the command" name="Copy command" sub="Starts the dashboard server again" className="linkbtn ccopy">
+          {null}
+        </CopyButton>
       </span>
       <span className="cr">{retrying ? 'Reconnecting…' : `Retrying in ${retryIn}s`}</span>
       <button className="btn sm" type="button" disabled={retrying} onClick={retryNow}>
@@ -38,7 +63,7 @@ export function OfflineBar() {
   );
 }
 
-/** The mock's plain Copy command; it says Copied on itself, since a toast would sit under the card. */
+/** The gate's Copy: it says Copied on itself, as the gate renders outside the app, where a toast can't come from. */
 function CopyCommand({ text }: { text: string }) {
   const [done, setDone] = useState<boolean | null>(null);
   useEffect(() => {
@@ -103,19 +128,20 @@ export function ExpiredCard() {
   }, [conn]);
   if (conn !== 'expired') return null;
   return (
-    <div className="connblock" role="alertdialog" aria-modal="true" aria-labelledby="connT" ref={card}>
+    <div className="connblock" role="alertdialog" aria-modal="true" aria-labelledby="connT" aria-describedby="connD" tabIndex={-1} ref={card}>
       <div className="cb">
         <span className="cbi">
           <Icon name="clock" />
         </span>
-        <h2 id="connT">This link’s session token isn’t this dashboard’s</h2>
-        <p>
-          It was restarted, or the link is from another one. Every link carries a session token after the <code>#</code>, and each start of the dashboard issues a new one.
+        <h1 id="connT">This link’s session token isn’t this dashboard’s</h1>
+        <p id="connD">It was restarted, or the link is from another one. Open the link it printed when it started, or start it again:</p>
+        <CodeBox command="shadowlap dashboard" />
+        <p className="cbdoc">
+          <a className="more dlgdoc" href={`${DOCS_AT}dashboard.md#security-and-consent`} target="_blank" rel="noopener">
+            Session tokens in the docs<span aria-hidden="true">{'\u00a0→'}</span>
+          </a>
         </p>
-        <p>Open the link it printed when it started, or start it again:</p>
-        <CmdLine>shadowlap dashboard</CmdLine>
         <div className="actions">
-          <CopyCommand text="shadowlap dashboard" />
           <PasteLink />
         </div>
       </div>
@@ -139,7 +165,7 @@ export function Gate() {
         <span className="cbi">
           <Icon name="keys" />
         </span>
-        <h2 id="gateT">Open the dashboard from its link</h2>
+        <h1 id="gateT">Open the dashboard from its link</h1>
         <p>
           Recordings hold prompts and tool data, so the dashboard serves them only to the link <code>shadowlap dashboard</code> prints. That link carries a session token for this run of the dashboard.
         </p>

@@ -109,24 +109,7 @@
 .cmdk:hover { color: var(--ink); border-color: var(--dim); }
 .cmdk svg { width: 13px; height: 13px; }
 
-/* connection */
-.connbar { position: fixed; z-index: 18; top: 52px; left: var(--side); right: 0; display: flex; align-items: center; gap: 12px; padding: 10px 24px; font-size: 13px; background: color-mix(in srgb, var(--warn) 12%, var(--bg)); border-bottom: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); }
-.connbar .cdot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); flex: none; }
-.connbar .ct { flex: 1; min-width: 0; color: var(--dim); }
-.connbar .ct b { color: var(--ink); font-weight: 500; }
-/* The dim ink: on the bar's amber wash the faint one is 4.4:1, under AA's 4.5. */
-.connbar .cr { font: 12px var(--mono); color: var(--dim); white-space: nowrap; }
-body.is-offline main.view { padding-top: 44px; }
 .status .off { color: var(--warn); font-weight: 500; }
-.connblock { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 24px; background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(6px); }
-.connblock .cb { width: min(480px, 100%); padding: 26px 26px 22px; border-radius: var(--r-overlay); border: 1px solid transparent; }
-.connblock .cbi { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 11px; background: color-mix(in srgb, var(--err) 14%, transparent); color: var(--err); margin-bottom: 14px; }
-.connblock .cbi svg { width: 16px; height: 16px; }
-.connblock h2 { margin: 0 0 8px; font: 600 20px var(--disp); letter-spacing: -.025em; }
-.connblock p { margin: 0 0 10px; color: var(--dim); font-size: 13.5px; line-height: 1.55; }
-.connblock .cmdline { margin: 6px 0 14px; }
-.connblock .actions .fieldnote { flex-basis: 100%; margin: 4px 0 0; }
-@media (max-width: 1000px) { .connbar { left: 0; padding: 10px 16px; flex-wrap: wrap; } }
 
 /* one search: the sidebar field opens the palette */
 .search.sbtn { display: flex; align-items: center; gap: 9px; width: 100%; height: 34px; padding: 0 8px 0 10px; border-radius: 9px; border: 1px solid var(--field); background: var(--panel); color: var(--faint); font: 13px var(--body); text-align: left; cursor: pointer; }
@@ -152,8 +135,6 @@ body.is-offline main.view { padding-top: 44px; }
 a.livechip { text-decoration: none; }
 a.livechip:hover { color: var(--ink); }
 
-/* the gate: a link with no session token */
-.connblock.gate { background: var(--bg); }
 /* the status bar gives way from the store path, so the version stays */
 .status > span:not(.sp) { flex: none; }
 .status > span:first-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -188,5 +169,4 @@ a.livechip:hover { color: var(--ink); }
   /* the current page's fill is lost: a bar in the highlight colour marks it, as the current run's does */
   .navlist a[aria-current="page"]::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 3px; border-radius: 0 2px 2px 0; background: Highlight; }
   .run[aria-current="true"]::before { background: Highlight; }
-  .connbar .cdot { forced-color-adjust: none; box-shadow: 0 0 0 1px CanvasText; }
 }

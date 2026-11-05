@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { demoId, openPage, seriousViolations } from './dashboard.js';
+import { dash, demoId, openPage, seriousViolations } from './dashboard.js';
 
 /**
  * The job's drawer docked across the content's foot, its chip and pill, and toasts over all of it, in
@@ -34,6 +34,13 @@ async function startJob(page: Page) {
 }
 
 const CLEAN = '✓ Replay clean: 30/30 calls replayed';
+
+/** A page in a connection state's preview, which stops no server. */
+async function openState(page: Page, state: 'offline' | 'expired', path: string, drawn: string) {
+  const { origin, token } = dash();
+  await page.goto(`${origin}/?state=${state}#token=${token}&open=${path}`);
+  await page.waitForSelector(drawn, { state: 'visible' });
+}
 
 test.describe('at 1440', () => {
   test('docks across the content, a hairline above it, and the content makes room', async ({ page }) => {
@@ -195,4 +202,77 @@ test.describe('on a phone', () => {
     await page.locator('.toast .tbtn', { hasText: 'Show' }).click();
     await expect(page.locator('section.drawer')).toBeVisible();
   });
+});
+
+test.describe('when the server can’t be reached', () => {
+  test('sits under the top bar in the app’s grid, covering nothing, with its command and its countdown', async ({ page }) => {
+    await openState(page, 'offline', '/tests', '.connbar');
+    const bar = page.locator('.connbar');
+    const b = (await bar.boundingBox())!;
+    const main = await box(page, 'main#view');
+    expect(Math.round(b.y)).toBe(52);
+    expect(Math.round(b.x)).toBe(Math.round(main.x));
+    expect(Math.round(b.y + b.height)).toBeLessThanOrEqual(Math.round(main.y));
+    await expect(bar).toHaveCSS('position', 'static');
+    await expect(bar.locator('.ct')).toContainText('Can’t reach the dashboard server');
+    await expect(bar.locator('.ct')).toContainText('actions paused');
+    await expect(bar.locator('.cc code')).toHaveText('shadowlap dashboard');
+    await expect(bar.locator('.cr')).toContainText(/Retrying in \d+s|Reconnecting…/);
+    await expect(bar.getByRole('button', { name: 'Retry now' })).toBeVisible();
+    await expect(bar.locator('.cs')).toBeHidden();
+    expect(await seriousViolations(page)).toEqual([]);
+  });
+
+  test('dims what needs the server, and says why on a press', async ({ page }) => {
+    await openState(page, 'offline', `/run/${demoId('ticket')}`, '.rhead .actions button');
+    const replay = page.locator('.rhead .actions button', { hasText: /^Replay$/ });
+    await expect(replay).toHaveAttribute('aria-disabled', 'true');
+    await expect(replay).toHaveAttribute('data-why', 'Paused until the dashboard server is back');
+    await expect(replay).not.toHaveClass(/lime/);
+    await expect(replay).toHaveCSS('opacity', '0.5');
+    // From the keyboard: it keeps the focus while it waits.
+    await replay.focus();
+    await page.keyboard.press('Enter');
+    await expect(replay).toBeFocused();
+    await expect(page.locator('.toast')).toContainText('Paused until the dashboard server is back');
+  });
+
+  test.describe('on a phone', () => {
+    test.use({ viewport: { width: 390, height: 844 } });
+
+    test('is one line, with why behind a button', async ({ page }) => {
+      await openState(page, 'offline', '/tests', '.connbar');
+      const bar = page.locator('.connbar');
+      await expect(bar.locator('.cs')).toHaveText('Offline · actions paused');
+      await expect(bar.locator('.ct')).toBeHidden();
+      await expect(bar.locator('.cc')).toBeHidden();
+      expect((await bar.boundingBox())!.height).toBeLessThan(60);
+      const why = bar.getByRole('button', { name: 'Why' });
+      await expect(why).toHaveAttribute('aria-expanded', 'false');
+      await why.click();
+      await expect(why).toHaveAttribute('aria-expanded', 'true');
+      await expect(why).toBeFocused();
+      await expect(bar.locator('.cw')).toContainText('Can’t reach the dashboard server, so this shows what loaded');
+      await expect(bar.locator('.cc code')).toBeVisible();
+      expect(await seriousViolations(page)).toEqual([]);
+    });
+  });
+});
+
+test('says a link the dashboard refuses in two sentences and one command box, its toast over the card', async ({ page }) => {
+  await openState(page, 'expired', '/tests', '.connblock');
+  const card = page.locator('.connblock');
+  await expect(card).toHaveAttribute('aria-describedby', 'connD');
+  await expect(card.locator('h1')).toHaveText('This link’s session token isn’t this dashboard’s');
+  await expect(card.locator('#connD')).toHaveText('It was restarted, or the link is from another one. Open the link it printed when it started, or start it again:');
+  await expect(card.locator('.cmdline')).toHaveCount(1);
+  await expect(card.locator('.btn.lime')).toHaveText('Paste the new link');
+  await expect(card.locator('.btn.lime')).toBeFocused();
+  await expect(card.locator('.cbdoc a')).toHaveAttribute('href', /docs\/dashboard\.md#security-and-consent$/);
+  expect(await seriousViolations(page)).toEqual([]);
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await card.locator('.cmdline button').click();
+  const toast = page.locator('.toast');
+  await expect(toast).toContainText('Copied the command');
+  await expect(toast).toHaveCSS('z-index', '61');
 });

@@ -73,7 +73,7 @@ describe('a command started by a dashboard job', () => {
     const result = r.events.find((e) => e.type === 'result') as { data: { exitCode: number; summary: { runId: string; total: number } } };
     expect(result.data.exitCode).toBe(0);
     expect(result.data.summary).toMatchObject({ runId: recordingId, total: 30 });
-    expect(r.events.at(-1)).toEqual({ type: 'link', label: `Open run ${recordingId.slice(0, 10)}`, href: `#/run/${recordingId}` });
+    expect(r.events.at(-1)).toEqual({ type: 'link', label: 'Open run', href: `#/run/${recordingId}` });
     expect(withStore((s) => s.getRun(recordingId)!.meta?.author)).toBe('maya@example.com');
   });
 

@@ -113,3 +113,66 @@ body.docked .bulkbar { bottom: calc(44px + var(--dock-h)); }
 
 /* what waits and is no button of its own style (a row's fork icon, a segment, a label's ×): half strength, its card saying why */
 [data-why][aria-disabled="true"]:not(.btn, .linkbtn, .rk, .switch, .pop button) { opacity: .5; cursor: not-allowed; }
+
+/* The offline bar is a plain row under the top bar, a hairline under it, its amber dot and its words saying what is paused. It
+   sits inside the app's grid (#conn adds no box of its own), in its flow at every width: over the page beside the sidebar on a
+   desktop, across the whole width below 1000px. However many lines it takes, it never covers the page. */
+#conn { display: contents; }
+.connbar { position: static; grid-column: -2 / -1; display: flex; align-items: center; gap: 12px; padding: 10px 24px; font-size: 13.5px; background: var(--bg); border-bottom: 1px solid var(--line); }
+body.is-offline .app { grid-template-rows: 52px auto minmax(0, 1fr) 28px; }
+body.is-offline .side { grid-row: 2 / span 2; }
+.connbar .cdot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); flex: none; }
+@media (forced-colors: active) { .connbar .cdot { forced-color-adjust: none; box-shadow: 0 0 0 1px CanvasText; } }
+.connbar .csay { display: contents; }
+.connbar .ct { flex: 0 1 auto; min-width: 0; color: var(--dim); }
+.connbar .ct b { color: var(--ink); font-weight: 500; }
+.connbar .cr { margin-left: auto; font: 12.5px var(--body); font-variant-numeric: tabular-nums; color: var(--faint); white-space: nowrap; }
+.connbar .cs, .connbar .cwhy, .connbar .cw { display: none; }
+.connbar .cs { flex: 1; min-width: 0; color: var(--ink); font-weight: 500; white-space: nowrap; }
+.connbar .cwhy { min-height: 32px; padding: 0 8px; }
+/* the command that starts it again, as code with its Copy; on a phone, under Why with the one sentence that says why */
+.connbar .cc { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.connbar .cc code { font-size: 12.5px; color: var(--ink); }
+.connbar .cwith { margin-right: 4px; color: var(--dim); }
+.connbar .ccopy { min-height: 28px; padding: 0 6px; color: var(--faint); }
+.connbar .ccopy:hover { color: var(--ink); }
+.connbar .ccopy svg { width: 13px; height: 13px; }
+/* where the line can't hold it all, what failed and what the page shows take a line of their own, breaking only after a dot,
+   and the command, the countdown and Retry now the next */
+@media (min-width: 641px) and (max-width: 1319px) {
+  .connbar { flex-wrap: wrap; row-gap: 6px; }
+  .connbar .ct { flex: 1 1 calc(100% - 24px); }
+  .connbar .cc { margin-left: 20px; }
+}
+/* on one line, the command follows the words' last dot after a space, as each part follows a dot, never the bar's own gap */
+@media (min-width: 1320px) { .connbar .cc { margin-left: calc(.28em - 12px); } }
+@media (max-width: 1000px) { .connbar { padding: 10px 16px; flex-wrap: wrap; } }
+/* on a phone it is one line, Offline and Retry now, its explanation behind Why */
+@media (max-width: 640px) {
+  .connbar .cwith { display: none; }
+  .connbar .cs { display: block; }
+  .connbar .cwhy { display: inline-flex; }
+  .connbar .ct, .connbar .cr, .connbar .cc { display: none; }
+  .connbar.open .cw { display: block; order: 5; flex: 1 1 100%; color: var(--dim); }
+  .connbar.open .cw .cwt, .connbar.open .cw .cwa { display: block; }
+  .connbar.open .cc { display: inline-flex; order: 6; }
+  .connbar.open .cr { display: inline; order: 7; margin-left: auto; }
+}
+
+/* A link the server refuses, or no link at all: a card over the veiled page, on the overlay surface, with one command box. */
+.connblock { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 24px; background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(6px); }
+.connblock .cb { width: min(480px, 100%); padding: 26px 26px 22px; border-radius: var(--r-overlay); border: 1px solid transparent; }
+.connblock .cbi { display: grid; place-items: center; width: 38px; height: 38px; border-radius: var(--r-box); background: var(--sel); color: var(--dim); margin-bottom: 14px; }
+.connblock .cbi svg { width: 16px; height: 16px; }
+.connblock h1 { margin: 0 0 8px; font: 600 17px var(--body); letter-spacing: -.01em; }
+.connblock p { margin: 0 0 10px; color: var(--dim); font-size: 13.5px; line-height: 1.55; }
+.connblock .cmdline { margin: 6px 0 14px; }
+.connblock .cbdoc { margin: -4px 0 14px; font-size: 12.5px; }
+.connblock .actions .fieldnote { flex-basis: 100%; margin: 4px 0 0; }
+.connblock.gate { background: var(--bg); }
+@media (max-width: 420px) {
+  .connblock { padding: 16px; }
+  .connblock .cb { padding: 22px 22px 20px; }
+}
+/* the box's Copy says what it copied over the card, which would otherwise cover it */
+body.is-expired .toast { z-index: 61; }

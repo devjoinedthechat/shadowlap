@@ -53,14 +53,14 @@ export function Shell({ pages: PageSlot }: { pages: Pages }) {
       {conn === 'expired' ? null : <SkipLink />}
       <div className="app" id="app">
         <TopBar route={route} />
+        <div id="conn">
+          <OfflineBar />
+        </div>
         <Sidebar route={route} />
         <main className="view" id="view" tabIndex={-1}>
           <PageSlot route={route} />
         </main>
         <StatusBar />
-      </div>
-      <div id="conn">
-        <OfflineBar />
       </div>
       <ExpiredCard />
       {/* Beside the app, so a modal can put the app out of reach: a menu, a modal and the job's drawer, each in a place of its own. */}

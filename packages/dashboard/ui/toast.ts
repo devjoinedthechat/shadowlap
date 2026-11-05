@@ -1,4 +1,5 @@
 import { messageOf } from '../../engine/src/message-of.js';
+import { isMac } from './dom.js';
 /**
  * Toasts, one at a time, centred on the content. A notice has the dim dot and goes after 5 seconds,
  * as the design's do, and is said in one polite region. An error (a job the server refused, a change
@@ -43,8 +44,8 @@ export const UNDO_SHORTCUTS = `Meta+Z Control+Z ${UNDO_KEY}`;
 export const toastKey: { current: (() => boolean) | null } = { current: null };
 
 /** What the live region says of a toast's button. */
-export function actionSaid(action: Pick<ToastAction, 'label' | 'undo'>, mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent)): string {
-  return action.undo ? `. Undo with ${mac ? 'Command' : 'Control'} Z` : ` · ${action.label} in the notice`;
+export function actionSaid(action: Pick<ToastAction, 'label' | 'undo'>): string {
+  return action.undo ? `. Undo with ${isMac() ? 'Command' : 'Control'} Z` : ` · ${action.label} in the notice`;
 }
 
 let announcer: ((text: string) => void) | null = null;

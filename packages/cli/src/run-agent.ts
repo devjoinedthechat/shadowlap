@@ -716,7 +716,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   await sidecar.close();
   store.close();
   emitJobEvent({ type: 'result', data: { exitCode: code, summary: result.summary } });
-  emitJobEvent({ type: 'link', label: `Open run ${run.runId.slice(0, 10)}`, href: links.run(run.runId) });
+  emitJobEvent({ type: 'link', label: 'Open run', href: links.run(run.runId) });
   // Team store: a run someone pushed while it was recording goes to the store now that it has ended.
   await pushIfQueued(teamEnv(opts.db));
   telemetry().record({ type: run.mode === 'record' ? 'run' : 'replay', ...usageOf(result, Date.now() - run.startedAt, code) });
