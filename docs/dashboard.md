@@ -241,7 +241,7 @@ Each row shows these columns:
 | Calls by origin | Its calls, colored by origin |
 | Calls | How many calls it made |
 | Spent | What it spent |
-| Status | Its outcome: what [its checks](#judged-by-checks) say (*check failed at #6*), what a fork's writes came to (*forked · 2 writes blocked*), or a dash |
+| Status | Its outcome in one line: what [its checks](#judged-by-checks) say (*check failed at #6*), what a fork's writes came to (*forked · 2 writes blocked*), or a dash |
 | When | When it ran |
 | *good · bad* | The [good/bad key](#labels-and-notes) |
 
@@ -251,7 +251,9 @@ Some runs are shown differently:
 
 - **Attempts** (`--repeat`, blame, verify and the [error-path presets](./error-paths.md)) are bundled under the run they came from rather than listed.
 - **A golden replayed more than once** in one test session (`repeat`) is one test run too: the attempt its result shows, whose checks count every attempt (*5 of 5*).
-- **A fork that failed a check** names the check under *check failed*.
+- **A run that failed a check** names the check on its status's hover, so the row keeps one line.
+- **A test replay that failed** reads *fixed by* and the run that passed, muted, once its golden passes when it runs again: *fixed by 01K5CQ7A3M*. It leaves Failed.
+- **A fork no check judges** defines its first *blocked*, *stubbed* or *fenced* on hover, as the glossary does.
 - **A run imported from a capture** shows the file it came from where a command would be, and its cost as captured rather than spent: that money was spent where the traffic ran.
 - **A run whose recorder stopped before it ended** (killed, or out of memory) reads *interrupted*. It is deleted, packed and pushed like a run that ended.
 
@@ -259,7 +261,7 @@ Some runs are shown differently:
 
 Above the table:
 
-- **Chips by kind**, with their counts: recordings, forks, clean replays, tests, captures, failed.
+- **Chips by kind**, with their counts: recordings, forks, clean replays, tests, captures, failed. Failed counts the runs that failed and the captures their import judged failed, but not a test replay [fixed since](#the-table). A run that fails only its family's checks says so in Status, but Failed and the calendar leave it out.
 - **A filter**: every word must be in the run's id, about line, kind, labels, command, source or revision. `label:good` is the runs labelled exactly that. A label with a space in it is quoted, `label:"needs review"`, as its chip writes it.
 - **Sorting** by calls, spend or time.
 
