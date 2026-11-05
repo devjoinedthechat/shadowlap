@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { liveFromPart } from '../../../engine/src/cost-words.js';
 import { consentAsked } from '../actions.js';
 import { JOB_KINDS, type ActionItem, type CallDetail } from '../api.js';
 import { Seg } from '../components/bits.js';
@@ -113,7 +114,7 @@ export function EditDialog({ runId, detail, action, onFork, onClose }: { runId: 
       doc="overrideResult"
       warn={warning ? { text: warning } : null}
       command={`shadowlap replay ${shortId(runId)} --override ${n}=${answer ? '…' : '<this result>'}`}
-      cost={{ price: 'Billed by your provider', parts: ['live from the next model call, writes fenced'] }}
+      cost={{ price: 'Billed by your provider', parts: [liveFromPart('the next model call')] }}
       ok="Edit and fork"
       okDisabled={'error' in out}
       onOk={fork}

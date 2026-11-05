@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { probesPart } from '../../../engine/src/cost-words.js';
 import { consentAsked } from '../actions.js';
 import { ApiError, JOB_KINDS } from '../api.js';
 import { ConsentDialog, Dialog, pressWayOn } from '../components/Dialog.js';
@@ -108,7 +109,7 @@ export function CheckDialog({ runId, line, onClose, onRun }: { runId: string; li
       doc="blame"
       warn={line ? { text: line } : null}
       command={`shadowlap blame ${shortId(runId)} --expect ${value.trim() ? `'${value.trim().replace(/'/g, `'\\''`)}'` : `'<check>'`}`}
-      cost={{ price: 'Billed by your provider', parts: ['live from each probe, writes stubbed'] }}
+      cost={{ price: 'Billed by your provider', parts: [probesPart()] }}
       ok={ACTIONS.runBlame.label}
       okDisabled={!value.trim()}
       onOk={submit}
