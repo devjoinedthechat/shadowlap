@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { useRetoast } from '../toast-place.js';
 import { errorText } from '../toast.js';
 import { letGoAfterPush, pushable, untilDone } from './push.js';
 import { JOB_KINDS } from '../api.js';
@@ -42,6 +43,8 @@ type Open = 'label' | 'delete' | 'pack' | 'dataset' | null;
 export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedRun[]; store: boolean; clear: () => void; onDone: () => void }) {
   const { actionsOff, client, toast, guard, hasKind, watchJob } = useApp();
   const [open, setOpen] = useState<Open>(null);
+  const bar = useRef<HTMLDivElement>(null);
+  useRetoast(bar);
   const ids = runs.map((r) => r.runId);
   const live = runs.filter(isLive);
   // Pack, Dataset and Delete take ended runs: a run still recording would be copied part way
@@ -71,7 +74,7 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
 
   return (
     <>
-      <div className="bulkbar" role="toolbar" aria-label="Selected runs">
+      <div className="bulkbar" role="toolbar" aria-label="Selected runs" ref={bar}>
         <b>{num(runs.length)} selected</b>
         <span className="sep" />
         <button className="btn sm" type="button" disabled={!!actionsOff} title={off} onClick={() => guard(() => setOpen('label'))}>

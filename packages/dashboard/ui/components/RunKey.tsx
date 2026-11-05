@@ -60,6 +60,7 @@ export function useMarkRun(onLabels: (runId: string, labels: string[]) => void):
             const undo = undoChange(before, change);
             toast(markToast(runId, m, change.add.includes(m)), 'notice', {
               label: 'Undo',
+              undo: true,
               returnTo,
               run: () =>
                 guard(() =>

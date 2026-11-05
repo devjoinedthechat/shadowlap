@@ -28,6 +28,8 @@ const stack: Stacked[] = [];
 
 export const modalOpen = (): boolean => stack.length > 0;
 const topModal = (): OpenModal | null => stack.at(-1) ?? null;
+/** The modal on top, what a toast keeps clear of. */
+export const topModalRoot = (): HTMLElement | null => topModal()?.root() ?? null;
 
 const listeners = new Set<() => void>();
 

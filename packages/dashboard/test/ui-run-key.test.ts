@@ -7,7 +7,7 @@ import { RunPage } from '../ui/pages/Run.js';
 import { markChange, markKey, markTitle, markToast, undoChange, withChange } from '../ui/runkey.js';
 import { RunsTable, type TableRun } from '../ui/runspage/RunsTable.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import { ACTION_TOAST_MS, toastKey, UNDO_KEY, type ToastAction } from '../ui/toast.js';
+import { ACTION_TOAST_MS, toastKey, UNDO_SHORTCUTS, type ToastAction } from '../ui/toast.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -255,12 +255,15 @@ describe('a toast with an action', () => {
     expect(status.textContent).toBe('');
     expect(r.one('[role="alert"]').textContent).toBe('');
     await act(async () => set.toast!({ id: 1, text: '01M5GRX8K4 is good', kind: 'notice' }));
-    // The same region, its text arrived in it: what a screen reader hears change.
+    // The same region, its text arrived in it: what a screen reader hears change. What shows is in no region.
+    await r.until('the words', () => status.textContent !== '');
     expect(r.one('[role="status"]')).toBe(status);
     expect(status.textContent).toBe('01M5GRX8K4 is good');
+    expect(r.one('.toast').textContent).toBe('01M5GRX8K4 is good');
+    expect(r.one('[role="alert"]').textContent).toBe('');
+    // An error alone keeps its alert, and the polite region says nothing new.
     await act(async () => set.toast!({ id: 2, text: 'The server refused it', kind: 'error' }));
     expect(r.one('[role="alert"]').textContent).toContain('The server refused it');
-    expect(status.textContent).toBe('');
   });
 
   it('does its action from the undo key anywhere, and hands the focus back to the key that made the change', async () => {
@@ -268,8 +271,8 @@ describe('a toast with an action', () => {
     r = await render(createElement(Host));
     const key = r.one('button.good');
     let ran = 0;
-    await act(async () => set.toast!({ id: 1, text: '01M5GRX8K4 is good', kind: 'notice', action: { label: 'Undo', run: () => void ran++, returnTo: key as unknown as HTMLElement } }));
-    expect(r.byText('.toast button', 'Undo').getAttribute('aria-keyshortcuts')).toBe(UNDO_KEY);
+    await act(async () => set.toast!({ id: 1, text: '01M5GRX8K4 is good', kind: 'notice', action: { label: 'Undo', undo: true, run: () => void ran++, returnTo: key as unknown as HTMLElement } }));
+    expect(r.byText('.toast button', 'Undo').getAttribute('aria-keyshortcuts')).toBe(UNDO_SHORTCUTS);
     // The focus elsewhere, as after a Tab or two.
     (r.one('main#view') as unknown as HTMLElement).focus();
     expect(toastKey.current).not.toBeNull();
@@ -283,7 +286,7 @@ describe('a toast with an action', () => {
 
   it('hears the undo key from the page, and not while a field is being typed in', async () => {
     let ran = 0;
-    const toastText = { id: 1, text: '01M5GRX8K4 is good', kind: 'notice', action: { label: 'Undo', run: () => void ran++ } };
+    const toastText = { id: 1, text: '01M5GRX8K4 is good', kind: 'notice', action: { label: 'Undo', undo: true, run: () => void ran++ } };
     const state = { toastText, conn: 'ok', exported: false, palette: false, help: false, sideOpen: false, setPalette: () => undefined, setHelp: () => undefined, setSideOpen: () => undefined, runKeys: { current: null }, meta: null } as unknown as AppState;
     r = await render(createElement(AppContext.Provider, { value: state }, createElement('input', { type: 'search' }), createElement(Keyboard), createElement(ToastHost)));
     await r.until('the toast', () => r!.all('.toast').length === 1);
@@ -304,7 +307,7 @@ describe('a toast with an action', () => {
       const { Host, set } = page();
       r = await render(createElement(Host));
       const key = r.one('button.good');
-      await act(async () => set.toast!({ id: 1, text: '01M5GRX8K4 is good', kind: 'notice', action: { label: 'Undo', run: () => undefined, returnTo: key as unknown as HTMLElement } }));
+      await act(async () => set.toast!({ id: 1, text: '01M5GRX8K4 is good', kind: 'notice', action: { label: 'Undo', undo: true, run: () => undefined, returnTo: key as unknown as HTMLElement } }));
       const undo = r.byText('.toast button', 'Undo');
       (undo as unknown as HTMLElement).focus();
       expect(r.focused()).toBe(undo);
@@ -319,7 +322,7 @@ describe('a toast with an action', () => {
 
   it('has its button, which closes the toast and does it', async () => {
     let ran = 0;
-    const state = { toastText: { id: 1, text: 'Labelled good', kind: 'notice', action: { label: 'Undo', run: () => void ran++ } } } as unknown as AppState;
+    const state = { toastText: { id: 1, text: 'Labelled good', kind: 'notice', action: { label: 'Undo', undo: true, run: () => void ran++ } } } as unknown as AppState;
     r = await render(createElement(AppContext.Provider, { value: state }, createElement(ToastHost)));
     await r.until('the toast', () => r!.all('.toast').length === 1);
     const undo = r.byText('.toast button', 'Undo');
