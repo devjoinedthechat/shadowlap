@@ -79,9 +79,9 @@ table.runst tr.picked td { background: var(--sel); }
 .calmain { flex: none; display: grid; grid-template-columns: auto auto; gap: 6px 8px; }
 .calmon { grid-column: 2; display: grid; grid-template-columns: repeat(12, var(--cs)); column-gap: var(--cg); height: 13px; font-size: 11px; line-height: 13px; color: var(--faint); }
 .calmon span { white-space: nowrap; }
-.calwd { grid-column: 1; display: grid; grid-template-rows: repeat(7, var(--cs)); row-gap: var(--cg); font-size: 10.5px; line-height: var(--cs); color: var(--faint); }
+.calwd { grid-column: 1; display: grid; grid-template-rows: repeat(7, var(--cs)); row-gap: var(--cg); font-size: 12px; line-height: var(--cs); color: var(--faint); }
 .calgrid { grid-column: 2; display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, var(--cs)); grid-auto-columns: var(--cs); gap: var(--cg); touch-action: none; user-select: none; -webkit-user-select: none; }
-.cal .cd { display: block; width: var(--cs); height: var(--cs); padding: 0; border: 0; border-radius: 4px; background: var(--line); }
+.cal .cd { display: block; width: var(--cs); height: var(--cs); padding: 0; border: 0; border-radius: 2px; background: var(--line); }
 .cal .cd.l1 { background: color-mix(in srgb, var(--heat) 26%, var(--line)); }
 .cal .cd.l2 { background: color-mix(in srgb, var(--heat) 50%, var(--line)); }
 .cal .cd.l3 { background: color-mix(in srgb, var(--heat) 75%, var(--line)); }
@@ -90,13 +90,19 @@ table.runst tr.picked td { background: var(--sel); }
 .cal button.cd { cursor: pointer; }
 .cal button.cd:hover { outline: 1.5px solid var(--ink); outline-offset: 1px; }
 .cal.has-sel button.cd:not(.on) { opacity: .25; }
-.calleg { grid-column: 2; display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 4px; font-size: 11px; color: var(--faint); }
-.calleg .cd { width: 11px; height: 11px; border-radius: 3px; }
+/* a day takes taps across half the gap on each side, so a tap or a drag between days lands on one. On a phone or any touch
+   screen the gap grows to 8px (5px under 360px), so each day's hit area is 24px while it is still drawn 16px. */
+.cal button.cd { position: relative; }
+.cal button.cd::after { content: ""; position: absolute; inset: calc(var(--cg) / -2); }
+@media (max-width: 640px), (pointer: coarse) { .cal { --cg: 8px; } }
+@media (max-width: 359px) { .cal { --cg: 5px; } }
+.calleg { grid-column: 2; display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 4px; font-size: 12px; color: var(--faint); }
+.calleg .cd { width: 11px; height: 11px; border-radius: 2px; }
 .calleg .cd:first-child { margin-left: 3px; }
 .calleg .cd:last-of-type { margin-right: 3px; }
 .calside { flex: 1; min-width: 0; padding-top: 19px; }
 .calside .ovbig .linkbtn { margin-left: 2px; color: var(--ink); }
-.calkv { display: grid; grid-template-columns: 74px 1fr; gap: 10px 12px; margin: 16px 0 0; font-size: 13px; }
+.calkv { display: grid; grid-template-columns: 74px 1fr; gap: 10px 12px; margin: 16px 0 0; font-size: 13.5px; }
 .calkv dt { color: var(--faint); line-height: 22px; }
 .calkv dd { margin: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; min-height: 22px; color: var(--ink); }
 .calkv small { margin-left: 8px; font-size: 12px; color: var(--faint); }
@@ -106,6 +112,31 @@ table.runst tr.picked td { background: var(--sel); }
 .calnone { color: var(--faint); }
 .calhint { margin: 16px 0 0; font-size: 12px; color: var(--faint); }
 @media (max-width: 760px) { .cal { flex-direction: column; } .calside { padding-top: 0; } }
+.calside > .linkbtn { margin-top: 10px; }
+/* the twelve weeks as one slim row of days, a bar each, its height the runs it had, its failures red at its foot; its
+   sentence at its end, and Calendar opens the grid in its place. Until they come, the space they take is kept. */
+.cal.wait { visibility: hidden; }
+.cal.hist { display: grid; grid-template-columns: minmax(0, 1fr) minmax(200px, 280px); gap: 6px 32px; align-items: start; margin: -2px 0 18px; padding-bottom: 16px; }
+.hmain { min-width: 0; }
+.cal .hbars { display: grid; grid-auto-flow: column; grid-template-rows: none; grid-auto-columns: minmax(0, 1fr); gap: 2px; height: 32px; }
+.cal .cd.hb { display: flex; flex-direction: column; justify-content: flex-end; width: auto; height: 32px; border-radius: 0; background: none; }
+/* a bar takes taps across half the 2px gap beside it, so neighbours never share a point */
+.cal button.cd.hb::after { inset: 0 -1px; }
+.cal .cd.hb i { display: block; flex: none; min-height: 2px; border-radius: 2px; }
+.cal .cd.hb .hn { background: color-mix(in srgb, var(--ink) 30%, transparent); }
+.cal .cd.hb .hf { background: var(--err); }
+.cal .cd.hb .hn + .hf { margin-top: 1px; }
+.cal button.cd.hb:hover { outline: 0; }
+.cal button.cd.hb:hover .hn { background: color-mix(in srgb, var(--ink) 62%, transparent); }
+.cal.hist.has-sel button.cd.hb:not(.on) { opacity: .3; }
+.hmon { position: relative; height: 13px; margin-top: 5px; font-size: 11px; line-height: 13px; color: var(--faint); }
+.hmon span { position: absolute; top: 0; white-space: nowrap; }
+.cal.hist .calside { padding-top: 0; }
+.hsum { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--faint); }
+.hsum b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.hsum .calerr { font: inherit; font-weight: 600; }
+.hact { display: flex; flex-wrap: wrap; gap: 4px 2px; margin: 4px 0 0 -7px; }
+@media (max-width: 760px) { .cal.hist { grid-template-columns: minmax(0, 1fr); } }
 
 .impsamples { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 10px; }
 .impnote { margin: 12px 0 6px; font-size: 12.5px; line-height: 1.55; }

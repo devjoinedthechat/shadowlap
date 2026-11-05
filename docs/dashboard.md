@@ -261,7 +261,7 @@ Some runs are shown differently:
 
 Above the table:
 
-- **Chips by kind**, with their counts: recordings, forks, clean replays, test replays, captures, failed. Failed counts the runs that failed and the captures their import judged failed, but not a test replay [fixed since](#the-table). A run that fails only its family's checks says so in Status, but Failed and the calendar leave it out.
+- **Chips by kind**, with their counts: recordings, forks, clean replays, test replays, captures, failed. Failed counts the runs that failed and the captures their import judged failed, but not a test replay [fixed since](#the-table). A run that fails only its family's checks says so in Status, but Failed and the days above the table leave it out.
 - **A filter**: every word must be in the run's id, about line, kind, labels, command, source or revision, or in what the run recorded. Beside it, how many runs match: *207 runs match*. Its terms below narrow it further.
 - **Sorting** by calls, spend or time.
 
@@ -277,12 +277,15 @@ A word of 3 characters or more also searches what runs recorded, as whole words.
 
 `status:` reads each run's verdict as its Status does. Where that takes more than the table can wait for, it says how far it got: *The verdicts of 60 of 200 runs are known so far: runs among the rest may match too.* The table fills in as they are worked out. The days above the table, and Find breaking commit, count the same runs.
 
-### The calendar and Find breaking commit
+### Twelve weeks and Find breaking commit
 
-Above the table, twelve weeks of days, a column per week, are shaded by how many runs each day had of what the chips and the filter match. So with **Failed** picked, it shows when something started failing.
+Above the table, the last twelve weeks are a row of bars, a day each. A bar is as tall as the runs that day had of what the chips and the filter match, its failures red at its foot. So with **Failed** picked, it shows when something started failing. On a phone or a touch screen, a bar is a week.
 
-- **Pick days**: click a day, drag across several, or Shift-click to extend. The table and the chip counts follow.
-- **From the keyboard**: the arrow keys move between days, Enter picks one, and Escape clears.
+One line beside the bars says what they count: *207 runs in 12 weeks, on this machine, 41 failed.* **Calendar** shows the same weeks as a grid, a column per week, until **Hide calendar**. The dashboard keeps the one you picked while it is open.
+
+- **Pick days**: click a day, drag across several, or Shift-click to extend. A week's bar picks its seven days. The table and the chip counts follow.
+- **From the keyboard**: the arrow keys move between days, Enter picks one, Shift+Enter extends, and Escape clears. In the row, ← and → move a bar.
+- **From a link**: days that run past the twelve weeks keep to the days inside, and the address says so.
 
 With **Failed** picked and days chosen, **Find breaking commit…** bisects from the first failure of those days, between a commit where it still worked and its own:
 
@@ -1756,7 +1759,7 @@ The dashboard's limits, in one place:
 | A row of This week's runs, on the Overview    | Past 60 calls, a cell stands for a range                          |
 | Lines of one kind in Needs a look             | Ten, then one line says how many more there are                   |
 | A lineage in the sidebar                      | Four steps deep                                                   |
-| The calendar on Runs                          | Twelve weeks                                                      |
+| The days above Runs' table                    | Twelve weeks                                                      |
 | Runs in one dataset                           | 500; past that, `shadowlap export dataset --label`                |
 | Runs packed in one job                        | 100                                                               |
 | A page of Runs, or of a run's calls           | 500 rows, or 500 calls                                            |
@@ -1961,7 +1964,7 @@ Every request needs the session token in `x-shadowlap-token`.
 | `GET /api/runs`, `/api/runs/:id[?after=<n>]`, `/calls/:n`, `/lineage`, `/export` | Runs; one run (with `after`, only its calls numbered after `n`, for a recording's page); one call; its family; the HTML download |
 | `GET /api/runs/:id/calls?from=&limit=&whole=` | A page of a run's calls from call `from` on, `limit` of them (500 at most): `calls`, `callsTotal`, `callsNext` |
 | `GET /api/runs/page?limit&cursor&from&to&types&q&sort` | A page of the Runs table (at most 500 rows), each row with its `about` line |
-| `GET /api/runs/days?weeks&tz&types&q` | Runs per day for the calendar, in the viewer's days |
+| `GET /api/runs/days?weeks&tz&types&q` | Runs per day for the twelve weeks above Runs' table, in the viewer's days |
 | `GET /api/runs/bisect?from&to&types&q` | Find breaking commit for the days picked: their first failure, and what bisect can start from |
 | `POST /api/runs/labels { ids, add, remove }`, `POST /api/runs/delete { ids }` | Label or delete several runs at once, by their full ids |
 | `POST /api/runs/known { ids }` | Which of these runs are still in the store (changes nothing, so a read-only dashboard answers it too) |

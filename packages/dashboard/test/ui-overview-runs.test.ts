@@ -138,7 +138,11 @@ describe('the Runs calendar', () => {
     expect(range).toEqual([66, 71]);
     expect(pickedOf(DAYS, [71, 66])).toEqual({ from: '2026-10-01', to: '2026-10-06' });
     expect(rangeTimes(DAYS, range)).toEqual({ from: 66_000, to: 72_000 });
-    expect(pickedRange(DAYS, { from: '2025-01-01', to: '2026-10-01' })).toBeNull();
+    // A range running past the twelve weeks keeps the days inside; one wholly outside them is none.
+    expect(pickedRange(DAYS, { from: '2025-01-01', to: '2026-10-01' })).toEqual([0, 66]);
+    expect(pickedRange(DAYS, { from: '2026-10-14', to: '2027-01-01' })).toEqual([79, 80]);
+    expect(pickedRange(DAYS, { from: '2025-01-01', to: '2025-02-01' })).toBeNull();
+    expect(pickedRange(DAYS, { from: '2026-10-16', to: '2026-10-20' })).toBeNull();
     expect(pickedRange(DAYS, null)).toBeNull();
   });
 
@@ -207,7 +211,8 @@ describe('the Runs calendar', () => {
     expect(dayTip(d, { today: true, noun: 'failed runs', byPerson: true, failedChip: true })).toEqual({
       title: 'Tue, Sep 29 (today) · 3 failed runs',
       rows: [
-        { label: 'maya', value: '2', color: 'var(--lime)' },
+        // A person in their avatar's tint, never lime; CI faint.
+        { label: 'maya', value: '2', color: 'var(--av1)' },
         { label: 'ci', value: '1', color: 'var(--faint)' },
       ],
     });

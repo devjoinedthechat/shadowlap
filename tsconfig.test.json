@@ -116,6 +116,7 @@
     "packages/dashboard/test/ui-runs-paging.test.ts",
     "packages/dashboard/test/ui-runs-head.test.ts",
     "packages/dashboard/test/ui-runs-table.test.ts",
+    "packages/dashboard/test/ui-runs-days.test.ts",
     "packages/dashboard/test/ui-run-paging.test.ts",
     // This renders the Overview while the runs' totals are added up.
     "packages/dashboard/test/ui-overview-warming.test.ts",

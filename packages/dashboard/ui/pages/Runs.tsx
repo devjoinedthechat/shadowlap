@@ -13,7 +13,7 @@ import { addPaletteSource } from '../palette-sources.js';
 import { href } from '../route.js';
 import { runRowScope } from '../run-row.js';
 import { BulkBar, type PickedRun } from '../runspage/BulkBar.js';
-import { Calendar } from '../runspage/Calendar.js';
+import { TwelveWeeks } from '../runspage/DaysRow.js';
 import { pickedOf, pickedRange, rangeTimes } from '../runspage/calendar-model.js';
 import { RunsActions } from '../runspage/RunsActions.js';
 import { RunsFilterField } from '../runspage/FilterField.js';
@@ -281,6 +281,33 @@ function useRunsDays(client: Client, q: { tz: string; types: readonly string[]; 
 
 const CHIP_TYPES: Readonly<Record<RunChip, readonly string[]>> = { all: [], recording: ['recording'], fork: ['fork'], clean: ['clean'], test: ['test'], capture: ['capture'], failed: ['failed'], local: ['local'] };
 
+/**
+ * The twelve weeks for the table's filter, the days picked kept to them, and the instants the table
+ * filters by: the calendar's own once it is in, else worked out from the address, so the table asks
+ * for them from a link before the calendar has come. Once it has, days in the address running past
+ * the twelve weeks are written back as the days inside, in place of the step, and days wholly
+ * outside them are let go (`pickedRange`). Picking days is a step of its own, with the words as
+ * typed so far.
+ */
+function useWeeks(client: Client, o: { f: RunsFilterRead; query: string; q: string; tz: string }, tick: number) {
+  const { f, q } = o;
+  const types = CHIP_TYPES[f.types];
+  const cal = useRunsDays(client, { tz: o.tz, types, q }, `${tick}|${f.types}|${q}`);
+  const calDays = cal.data?.days ?? null;
+  const range = calDays ? pickedRange(calDays, f.days) : null;
+  const times = calDays ? rangeTimes(calDays, range) : f.days ? dayTimes(f.days) : null;
+  const fNow = useLatest(f);
+  const queryNow = useLatest(o.query);
+  const pickDays = useCallback((r: [number, number] | null) => showRuns({ ...fNow.current, q: queryNow.current, days: calDays ? pickedOf(calDays, r) : null }), [calDays, fNow, queryNow]);
+  const inside = calDays ? pickedOf(calDays, range) : undefined;
+  const insideNow = useLatest(inside);
+  const past = inside !== undefined && (inside?.from !== f.days?.from || inside?.to !== f.days?.to);
+  useEffect(() => {
+    if (past) showRuns({ ...fNow.current, q: queryNow.current, days: insideNow.current ?? null }, true);
+  }, [past, fNow, queryNow, insideNow]);
+  return { cal, calDays, range, times, pickDays, types };
+}
+
 /** The table's rows for the filter, from the top: what makes it read them again. */
 const rowsKey = (f: RunsFilterRead, q: string, times: { from: number; to: number } | null) => `${f.types}|${q}|${f.sort}|${times?.from ?? ''}|${times?.to ?? ''}`;
 
@@ -369,17 +396,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
     setPickedState(m);
   }, []);
 
-  const types = CHIP_TYPES[chip];
-  const cal = useRunsDays(client, { tz, types, q }, `${tick}|${chip}|${q}`);
-  const calDays = cal.data?.days ?? null;
-  const range = calDays ? pickedRange(calDays, days) : null;
-  // The instants the days picked span: the calendar's own once it is in, else worked out here, so the
-  // table asks for them from a link before the calendar has come.
-  const times = (calDays && range ? rangeTimes(calDays, range) : null) ?? (days ? dayTimes(days) : null);
-
-  const fNow = useLatest(f);
-  const queryNow = useLatest(query);
-  const pickDays = useCallback((r: [number, number] | null) => showRuns({ ...fNow.current, q: queryNow.current, days: calDays ? pickedOf(calDays, r) : null }), [calDays, fNow, queryNow]);
+  const { cal, calDays, range, times, pickDays, types } = useWeeks(client, { f, query, q, tz }, tick);
 
   // Its first page read again when runs change, and when a push or a pull changes what is only here (the local tags).
   const tableQuery: RunsQuery = { types, q, sort, from: times?.from ?? null, to: times?.to ?? null };
@@ -483,7 +500,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
         text={RUNS_TEXT}
         actions={<RunsActions store={store} onImport={() => setDialog('import')} />}
       />
-      {cal.data ? <Calendar data={cal.data} chip={chip} range={range} onPick={pickDays} byPerson={!!store} onFindCommit={hasKind(JOB_KINDS.bisect) ? findCommit : null} actionsOff={actionsOff} /> : null}
+      <TwelveWeeks load={cal} chip={chip} range={range} onPick={pickDays} byPerson={!!store} onFindCommit={hasKind(JOB_KINDS.bisect) ? findCommit : null} actionsOff={actionsOff} />
       <div className="tbar">
         <Chips label="Kind of run" items={RUN_CHIPS.filter(([key]) => key !== 'local' || store || chip === 'local').map(([key, label]) => ({ key, label, ...(counts ? { count: counts[key] } : {}) }))} value={chip} onChange={setChip} />
         <RunsFilterField value={query} onChange={setQuery} settled={q} total={table.total} loaded={table.loaded} />

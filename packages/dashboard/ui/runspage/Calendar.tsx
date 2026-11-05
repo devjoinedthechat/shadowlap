@@ -1,29 +1,17 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import type { Ref } from 'react';
 import { tipCard } from '../components/HoverCard.js';
 import { personName } from '../overview/model.js';
 import type { RunChip } from '../runs.js';
 import type { DayCount, RunsByDay } from '../types.js';
 import { Avatar } from './people.js';
-import { CAL_CELLS, CAL_NOUN, calSummary, counted, dayTip, dragEnd, dragOver, dragStart, failedOf, keyPick, monthLabels, moveDay, shownRange, spanText, type Drag } from './calendar-model.js';
+import { CAL_CELLS, CAL_NOUN, calSummary, counted, dayTip, failedOf, GRID_STEPS, monthLabels, spanText } from './calendar-model.js';
+import { useDayPicks } from './day-picks.js';
 import { dayText } from '../overview/model.js';
-import { ACTIONS } from '../labels.js';
+import { ACTIONS, confirmWords } from '../labels.js';
 
-/**
- * Twelve weeks above the Runs table, a column per week, coloured by runs per day in four shades
- * split at the quartiles of the busy days. It counts what the chips and the filter field match, so
- * with Failed picked it shows failures per day, in red. Click a day, drag across several, or
- * Shift-click to extend; the table and the chip counts follow. Clicking the day again, Clear or
- * Escape undoes it; the arrow keys move between days, Enter picks one, Shift+Enter extends.
- */
-export function Calendar({
-  data,
-  chip,
-  range,
-  onPick,
-  byPerson,
-  onFindCommit,
-  actionsOff = null,
-}: {
+/** What the twelve weeks over Runs are drawn from, as the slim row of days or the grid alike. */
+export interface WeeksProps {
+  /** Null while it loads: the space it takes is kept, so the table doesn't jump when it comes. */
   data: RunsByDay | null;
   chip: RunChip;
   range: [number, number] | null;
@@ -34,95 +22,40 @@ export function Calendar({
   onFindCommit: ((range: [number, number]) => void) | null;
   /** Why actions can't run here (a read-only dashboard): Find breaking commit is off, saying why. */
   actionsOff?: string | null;
-}) {
-  const [drag, setDrag] = useState<Drag | null>(null);
-  const dragRef = useRef<Drag | null>(null);
-  const [focus, setFocus] = useState<number | null>(null);
-  const grid = useRef<HTMLDivElement>(null);
+}
+
+/** Find breaking commit for the days picked, its card saying where the search starts; off on a dashboard that changes nothing, saying why. */
+export function FindCommitLink({ days, range, onFindCommit, actionsOff }: { days: readonly DayCount[]; range: [number, number]; onFindCommit: (range: [number, number]) => void; actionsOff: string | null }) {
+  const label = ACTIONS.findBreakingCommit.label;
+  const tip = actionsOff ? undefined : tipCard(confirmWords(label), [], `From the first failure ${spanText(days, range)}, between a commit where it worked and its own`);
+  return (
+    <button className="linkbtn" type="button" disabled={!!actionsOff} title={actionsOff ?? undefined} data-tip={tip} onClick={() => onFindCommit(range)}>
+      {label}
+    </button>
+  );
+}
+
+/**
+ * Twelve weeks above the Runs table, a column per week, coloured by runs per day in four shades
+ * split at the quartiles of the busy days: what Calendar opens from the slim row of days, and Hide
+ * calendar closes. It counts what the chips and the filter field match, so with Failed picked it
+ * shows failures per day, in red. Click a day, drag across several, or Shift-click to extend; the
+ * table and the chip counts follow. Clicking the day again, Clear or Escape undoes it; the arrow
+ * keys move between days, Enter picks one, Shift+Enter extends (`useDayPicks`).
+ */
+export function Calendar({ data, chip, range, onPick, byPerson, onFindCommit, actionsOff = null, onToggle, toggleRef }: WeeksProps & { onToggle: () => void; toggleRef: Ref<HTMLButtonElement> }) {
   const days: DayCount[] = data?.days ?? [];
-  const shown = shownRange(drag, range);
+  const pick = useDayPicks({ count: days.length, range, onPick, steps: GRID_STEPS });
+  const { shown, focusDay } = pick;
   const noun = CAL_NOUN[chip];
   const todayIndex = days.length - 1;
-  const focusDay = focus ?? (range ? range[0] : todayIndex);
-
-  // A drag ends wherever the pointer is let go, on the calendar or not. The day it ended on takes the
-  // focus, so Escape undoes the pick and the arrow keys go on from there. The pointer focused the day
-  // it went down on, so the browser shows no ring for either (the grid can't be text-selected, so a
-  // drag selects nothing); an arrow key brings the ring back. A browser whose buttons take no focus
-  // from a click (Safari, Firefox on a Mac) is asked for no ring instead (`focusVisible`).
-  useEffect(() => {
-    if (!drag) return;
-    const up = () => {
-      const d = dragRef.current;
-      dragRef.current = null;
-      setDrag(null);
-      if (!d) return;
-      onPick(dragEnd(d));
-      setFocus(d.b);
-      grid.current?.querySelector<HTMLElement>(`[data-day="${d.b}"]`)?.focus({ preventScroll: true, focusVisible: false } as FocusOptions);
-    };
-    const cancel = () => {
-      dragRef.current = null;
-      setDrag(null);
-    };
-    window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', cancel);
-    return () => {
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', cancel);
-    };
-  }, [drag, onPick]);
-
-  const dayAt = (e: { clientX: number; clientY: number }): number | null => {
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    const cell = el instanceof Element ? el.closest('[data-day]') : null;
-    return cell && grid.current?.contains(cell) ? Number((cell as HTMLElement).dataset.day) : null;
-  };
-  const down = (e: PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-    const day = dayAt(e);
-    if (day === null) return;
-    const d = dragStart(day, range, e.shiftKey);
-    dragRef.current = d;
-    setDrag(d);
-    setFocus(day);
-  };
-  const move = (e: PointerEvent<HTMLDivElement>) => {
-    const cur = dragRef.current;
-    if (!cur) return;
-    const day = dayAt(e);
-    if (day === null) return;
-    const next = dragOver(cur, day);
-    if (next !== cur) {
-      dragRef.current = next;
-      setDrag(next);
-    }
-  };
-  const focusOn = (day: number) => {
-    setFocus(day);
-    grid.current?.querySelector<HTMLElement>(`[data-day="${day}"]`)?.focus();
-  };
-  const key = (e: KeyboardEvent<HTMLDivElement>) => {
-    const t = e.target instanceof HTMLElement ? e.target.closest<HTMLElement>('[data-day]') : null;
-    if (!t) return;
-    const day = Number(t.dataset.day);
-    const to = moveDay(day, e.key, days.length);
-    if (to !== null) focusOn(to);
-    else if (e.key === 'Enter' || e.key === ' ') onPick(keyPick(day, range, e.shiftKey));
-    else if (e.key === 'Escape' && range) onPick(null);
-    else if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
-      // At the edge: nothing further to move to, but the page does not scroll either.
-    } else return;
-    e.preventDefault();
-    e.stopPropagation();
-  };
 
   const sum = calSummary(days, shown);
   const one = !!shown && shown[0] === shown[1];
   const busiest = sum.busiest ? days[sum.busiest.index] : null;
   const failedNoun = chip === 'failed' ? 'runs' : noun;
   return (
-    <section className={`cal${shown ? ' has-sel' : ''}${chip === 'failed' ? ' fails' : ''}`} aria-label={`${noun.charAt(0).toUpperCase()}${noun.slice(1)} per day, last 12 weeks`}>
+    <section className={`cal${shown ? ' has-sel' : ''}${chip === 'failed' ? ' fails' : ''}${data ? '' : ' wait'}`} aria-hidden={data ? undefined : true} aria-label={`${noun.charAt(0).toUpperCase()}${noun.slice(1)} per day, last 12 weeks`}>
       <div className="calmain">
         <div className="calmon" aria-hidden="true">
           {monthLabels(days).map((m) => (
@@ -140,7 +73,7 @@ export function Calendar({
           <span />
           <span />
         </div>
-        <div className="calgrid" role="group" aria-label="Days, a column per week" ref={grid} onPointerDown={down} onPointerMove={move} onKeyDown={key}>
+        <div className="calgrid" role="group" aria-label="Days, a column per week" ref={pick.box} onPointerDown={pick.onPointerDown} onPointerMove={pick.onPointerMove} onKeyDown={pick.onKeyDown}>
           {Array.from({ length: CAL_CELLS }, (_, i) => {
             const d = days[i];
             if (!d) return <span key={i} className="cd fut" />;
@@ -156,7 +89,7 @@ export function Calendar({
                 aria-pressed={on}
                 aria-label={`${dayText(d.day, true)}: ${counted(d.runs, noun)}`}
                 data-tip={tipCard(tip.title, tip.rows)}
-                onFocus={() => setFocus(i)}
+                onFocus={() => pick.setFocus(i)}
               />
             );
           })}
@@ -182,11 +115,7 @@ export function Calendar({
               Clear
             </button>
           ) : null}
-          {range && onFindCommit && chip === 'failed' && sum.failed > 0 ? (
-            <button className="linkbtn" type="button" disabled={!!actionsOff} title={actionsOff ?? undefined} onClick={() => onFindCommit(range)}>
-              {ACTIONS.findBreakingCommit.label}
-            </button>
-          ) : null}
+          {range && onFindCommit && chip === 'failed' && sum.failed > 0 ? <FindCommitLink days={days} range={range} onFindCommit={onFindCommit} actionsOff={actionsOff} /> : null}
         </div>
         <dl className="calkv">
           {!one ? (
@@ -231,6 +160,9 @@ export function Calendar({
           </dd>
         </dl>
         <p className="calhint">Click a day or drag across several to filter the table. Shift-click extends.</p>
+        <button className="linkbtn" type="button" aria-expanded="true" ref={toggleRef} onClick={onToggle}>
+          Hide calendar
+        </button>
       </div>
     </section>
   );
