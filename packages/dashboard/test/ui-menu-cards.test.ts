@@ -119,7 +119,7 @@ describe('the project switcher’s rows', () => {
 });
 
 describe('Remove project', () => {
-  const view = { title: 'Remove support-agent from the dashboard?', project: { id: 'support-agent', name: 'support-agent', path: '~/support-agent', initial: 'S', summary: '3 runs' }, onDisk: [], keep: { text: 'The dashboard stops listing it.', note: 'Adding the folder again brings it all back.', button: { label: 'Remove', style: 'solid' }, crossedOut: null, done: 'Removed' }, deleteZone: null, canRemove: true, why: null };
+  const view = { title: 'Remove support-agent from the dashboard?', project: { id: 'support-agent', name: 'support-agent', path: '~/support-agent', initial: 'S', summary: '3 runs' }, onDisk: [], keep: { text: 'The dashboard stops listing it.', note: 'Adding the folder again brings it all back.', button: { label: 'Remove', style: 'plain' }, crossedOut: null, done: 'Removed' }, deleteZone: null, canRemove: true, why: null };
 
   it('starts on Cancel, its button calm as it is: a second Enter never removes the project', async () => {
     function Opened() {
@@ -128,7 +128,7 @@ describe('Remove project', () => {
     }
     r = await render(shell({ ...app(), client: { projects: { removal: async () => view } } as never, guard: (fn: () => void) => (fn(), true), actionsOff: null }, createElement(Opened, { key: 'remove' })));
     await r.until('the dialog', () => r!.all('.dialog').length === 1);
-    expect(r.one('.dlg-ok').className).toContain('solid');
+    expect(r.one('.dlg-ok').className).not.toMatch(/lime|danger|solid/);
     expect(words(r.focused())).toBe('button Cancel');
   });
 });

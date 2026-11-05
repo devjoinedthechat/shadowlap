@@ -289,7 +289,6 @@ body:has(.bulkbar) .drawer { bottom: 100px; }
 .palfoot span { display: inline-flex; align-items: center; gap: 4px; }
 .palfoot kbd, .palit .kbd { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 5px; border: 1px solid var(--line2); background: var(--panel); font: 10.5px var(--mono); color: var(--dim); }
 
-.dialog .rmp .pa svg { width: 16px; height: 16px; }
 
 /* Fork menu: its one note sits close under its head. */
 .pop.fkm .pnote { padding: 2px 10px 6px; }
@@ -335,7 +334,6 @@ body:has(.bulkbar) .drawer { bottom: 100px; }
 
 .dialog p.muted.trnote { margin: 10px 0 0; }
 .dialog p.trnotes { margin: 6px 0 0; color: var(--faint); font-size: 12px; line-height: 1.5; }
-/* Score a model while a repair holds the working tree: why it can't start, in the warning colour */
 
 
 /* a hover card can say what a run was about under its id, or what a mark means here, a line a sentence */

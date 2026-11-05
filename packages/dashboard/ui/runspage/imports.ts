@@ -145,7 +145,7 @@ export function redateTrace(trace: OtlpTrace, endMs: number): OtlpTrace {
 }
 
 /**
- * "Use a sample: otel-traces.json": the trace the dashboard ships (`sample-otel.ts`), as the file
+ * "Use sample: otel-traces.json": the trace the dashboard ships (`sample-otel.ts`), as the file
  * the dialog picks. It is dated to end now, so the run it makes is today's, as a capture just
  * exported would be; it goes up and is imported like any file picked.
  */

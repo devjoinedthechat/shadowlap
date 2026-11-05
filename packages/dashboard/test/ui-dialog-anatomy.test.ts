@@ -2,7 +2,7 @@ import { createElement, type ReactElement } from 'react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { ActionItem, BisectChoices, CallDetail, FixDetail, ScoreDialogView, TrainingView } from '../ui/types.js';
 import { DatasetDialog } from '../ui/components/DatasetDialog.js';
-import { ConsentDialog, PromptDialog } from '../ui/components/Dialog.js';
+import { ConsentDialog, Dialog, PromptDialog } from '../ui/components/Dialog.js';
 import { StopJobDialog } from '../ui/components/Drawer.js';
 import { UpdateGoldenDialog } from '../ui/components/UpdateGolden.js';
 import { DOCS, docsHref, type DocKey } from '../ui/docs-links.js';
@@ -306,6 +306,29 @@ describe('a run’s dialogs', () => {
     const client = { importSources: () => new Promise(() => undefined) };
     const page = await open(createElement(ImportDialog, closes), appWith({ client }));
     holds(page, { title: 'Import capture', doc: 'imports', first: '.drop', ok: 'Import capture' });
+    // The drop zone, what it does on replay, the sample, then the command, as the mock draws them.
+    expect(page.one('[role="dialog"] .impbody').children.map((c) => c.className)).toEqual(['drop', 'dfacts', 'impsamples']);
+    expect(page.all('[role="dialog"] .dfacts dt').map((d) => d.textContent)).toEqual(['On replay']);
+  });
+});
+
+describe('what a screen reader hears', () => {
+  it('names the warning, then each amber or red row in order, then the lead', async () => {
+    const page = await open(
+      createElement(Dialog, {
+        title: 'Run command from team store',
+        lead: 'Runs the command a teammate recorded.',
+        warn: { text: 'It runs on this machine', tone: 'red' },
+        facts: [{ label: 'Runs here', value: '`node a.mjs`', tone: 'amber' }, { label: 'Writes', value: 'nothing' }],
+        factsUnder: [{ label: 'As', value: 'you', tone: 'red' }],
+        ok: 'Run command',
+        onOk: () => true,
+        ...closes,
+      }),
+    );
+    const ids = (page.one('[role="dialog"]').getAttribute('aria-describedby') ?? '').split(' ');
+    const byId = (want: string) => page.all('[id]').find((el) => el.getAttribute('id') === want);
+    expect(ids.map((x) => byId(x)?.textContent)).toEqual(['It runs on this machine', 'Runs herenode a.mjs', 'Asyou', 'Runs the command a teammate recorded.']);
   });
 });
 
@@ -519,6 +542,16 @@ describe('Settings’ and the shell’s dialogs', () => {
     ['redact', 'Add redaction rule', 'redaction'],
   ] as const)('%s', async (list, title, doc) => {
     holds(await open(createElement(RuleDialog, { list, kinds: ['api', 'tool'], patterns: ['uuid'], version: 'v', onAdded: () => undefined, onStale: () => undefined, ...closes } as never)), { title, doc, first: FIELD, ok: title });
+  });
+  it('Add redaction rule says where it masks: with a team store, which Push copies as recorded, every export, pack and share link', async () => {
+    const lead = async (teamStore: boolean) => {
+      const page = await open(createElement(RuleDialog, { list: 'redact', teamStore, kinds: ['api', 'tool'], patterns: ['uuid'], version: 'v', onAdded: () => undefined, onStale: () => undefined, ...closes } as never));
+      const said = page.all('[role="dialog"] header p span')[0].textContent;
+      await page.unmount();
+      return said;
+    };
+    expect(await lead(true)).toBe('Masks stored content in every export, pack and share link.');
+    expect(await lead(false)).toBe('Masks stored content whenever a run leaves this machine.');
   });
   it('Add MCP server', async () => {
     const client = { settings: { mcpLine: () => Promise.resolve(null) } };

@@ -97,6 +97,9 @@ const MODES: ReadonlyArray<{ key: PatternMode; label: string }> = [
 /** A rule dialog's title and confirm: its button's name, `Add normalizer` or `Add redaction rule`. */
 const addName = (list: RuleListName): string => confirmWords((list === 'normalize' ? ACTIONS.addNormalizerRule : ACTIONS.addRedactionRule).label);
 
+/** What a redaction rule masks, and where: Push copies runs to a team store as recorded, so with one it is every export, pack and share link. */
+const redactsWhere = (teamStore: boolean) => (teamStore ? 'Masks stored content in every export, pack and share link.' : 'Masks stored content whenever a run leaves this machine.');
+
 /**
  * Add normalizer…, or Add redaction rule…: a scope, a path, a named pattern and the replacement, as
  * the mock has it, and under Advanced a regex, a tool or call name, or no pattern (the whole value at
@@ -172,7 +175,7 @@ export function RuleDialog({
   return (
     <Dialog
       title={addName(list)}
-      lead={norm ? 'Masks a value before a replay matches its calls.' : 'Masks stored content whenever a run leaves this machine.'}
+      lead={norm ? 'Masks a value before a replay matches its calls.' : redactsWhere(teamStore)}
       doc={norm ? 'normalizers' : 'redaction'}
       warn={line ? { text: line.replace(/\.$/, '') } : null}
       facts={ruleFacts(list, teamStore)}

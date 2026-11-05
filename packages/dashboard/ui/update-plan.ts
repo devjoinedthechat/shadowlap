@@ -167,7 +167,7 @@ function judgePlan(view: TestsView, path: string): UpdatePlan | null {
       ['Its verdict kept in the pack', material ? 'for what it reads now' : 'the next test judges from it, free'],
       ['You review the change', 'in your pull request'],
     ],
-advise: material ? { title: 'A value that changes every run needs a normalizer', text: `${j.changed ? `What the judge reads changed: ${j.changed}. ` : ''}If that is such a value (an id the agent prints, say), add a normalizer for it first: a verdict given on one run’s value answers no other, and the next test reads not judged again.`, path: null } : null,
+    advise: material ? { title: 'A value that changes every run needs a normalizer', text: `${j.changed ? `What the judge reads changed: ${j.changed}. ` : ''}If that is such a value (an id the agent prints, say), add a normalizer for it first: a verdict given on one run’s value answers no other, and the next test reads not judged again.`, path: null } : null,
     instead: null,
     note: null,
     command: commandText(j.update),

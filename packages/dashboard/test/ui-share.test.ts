@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { divergenceButtons, } from '../ui/goldens.js';
+import { divergenceButtons } from '../ui/goldens.js';
 import { updatePlan } from '../ui/update-plan.js';
 import { askedTools, callDetail, resultLine, type CallLike } from '../ui/run/calls.js';
 import { bisectBlocked, bisectCopy, bisectLabel, blameOfferFor, blameSource, blameTitle, divergedActions, goldenName, updateGoldenCopy, updatesAfterRules, type BlameFacts } from '../ui/run/offers.js';
