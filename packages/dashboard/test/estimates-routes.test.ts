@@ -249,6 +249,25 @@ describe('Tests’ estimates', () => {
     const update = (await get<TestsEstimates>('tests/estimates')).goldens[judged].update;
     expect(update).toEqual(plain(updateEstimate([{ calls: [], judge: 0.004 }])));
   });
+
+  it('prices Add normalizer as the re-run it ends in, or as the update where its rule alone can’t make the replay match', async () => {
+    const masked = addRun(store, { startedAt: T0 + 40, calls: 'll' });
+    const more = addRun(store, { startedAt: T0 + 41, calls: 'll' });
+    goldens = [golden('goldens/masked', masked), golden('goldens/more', more)];
+    const session = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], startedAt: T0 + 42 }).sessionId;
+    const diverged = (path: string, runId: string, diff: unknown[]) =>
+      store.addTestResult({ sessionId: session, golden: path, ok: false, failure: 'diverged', reason: 'diverged at call 1 (api POST /v1/messages)', runId, at: T0 + 43, data: { mode: 'replay', divergence: { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, diff, text: '✗ Diverged at call 1 (api POST /v1/messages)' } } as TestResultData });
+    // A value that changes every run, alone; and with a change of the prompt that no rule masks.
+    const id = { path: '$.metadata.user_id', op: 'changed', before: '1b4e28ba-2fa1-11d2-883f-0016d3cca427', after: '6fa459ea-ee8a-4ca4-894e-db77e160355e' };
+    diverged('goldens/masked', masked, [id]);
+    diverged('goldens/more', more, [id, { path: '$.messages[0].content', op: 'changed', before: 'Refund order A-1131.', after: 'Refund order A-1132.' }]);
+    const est = (await get<TestsEstimates>('tests/estimates')).goldens;
+    expect(est['goldens/masked'].normalize).toEqual(est['goldens/masked'].rerun);
+    expect(est['goldens/masked'].normalize).toMatchObject({ kind: 'tests', usd: 0 });
+    expect(est['goldens/more'].normalize).toEqual(est['goldens/more'].update);
+    expect(est['goldens/more'].normalize).not.toEqual(est['goldens/more'].rerun);
+    expect(est['goldens/more'].normalize).toEqual(plain(updateEstimate([{ calls: priced(more) }])));
+  });
 });
 
 describe('Find breaking commit’s estimate', () => {
