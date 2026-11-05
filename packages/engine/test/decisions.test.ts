@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { compareDecisions, controlOpen, decisionOf, decisionOfResponse, decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, decisionView, effectsOf, emptyCounts, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, judgeOpen, majorityRank, migrateBreaks, migrateUnsettled, modelFamily, NO_TOKENS, promoteByJudge, RANK_LABELS, sameModel, shownSample, unjudgedSample, unsettledRun, type DecisionJudge, type DecisionRun, type DecisionStep, type DecisionsReport, type EffectOf, type ModelDecision, type UnsettledRun } from '../src/decisions.js';
+import { compareDecisions, controlOpen, decisionOf, decisionOfResponse, decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, decisionView, effectsOf, emptyCounts, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, judgeOpen, majorityRank, migrateBreaks, migrateUnsettled, modelFamily, NO_TOKENS, promoteByJudge, RANK_LABELS, sameModel, shownSample, unjudgedSample, unsettledRun, type DecisionJudge, type DecisionRun, type DecisionStep, type DecisionsReport, type EffectOf, type ModelDecision, type UnsettledRun, needsVerify, type DecisionView } from '../src/decisions.js';
+import { chanceRanked } from '../src/control-arm.js';
 import type { Effect } from '../src/types.js';
 
 /**
@@ -274,7 +275,7 @@ describe('formatDecisions', () => {
       samples: 1,
       runs: [{ runId: '01K1AAAAAAAAAAAAAAAAAAAAAA', golden: null, steps: 2, asked: 2, rank: 1, majority: 1, counts: { 1: 1, 2: 0, 3: 0, 4: 0, 5: 0, same: 1, untouched: 0, notAsked: 0 }, cost: { before: 0.002, after: 0.0018, spent: 0.0018 }, tokens: { before: { input: 200, output: 20, cacheRead: 0, cacheWrite: 0 }, after: { input: 180, output: 20, cacheRead: 0, cacheWrite: 0 } }, thinkingStripped: 0, refused: null, decisions: [step(10, 1, 'send_email is no longer called'), step(3, null, '')], warnings: [] }],
       counts: { 1: 1, 2: 0, 3: 0, 4: 0, 5: 0, same: 1, untouched: 0, notAsked: 0 },
-      flagged: ['01K1AAAAAAAAAAAAAAAAAAAAAA'],
+      flagged: ['01K1AAAAAAAAAAAAAAAAAAAAAA'], toVerify: ['01K1AAAAAAAAAAAAAAAAAAAAAA'],
       cost: { before: 0.002, after: 0.0018, spent: 0.0018, upstreamRequests: 2, unknownModels: [] },
       tokens: { before: { input: 200, output: 20, cacheRead: 0, cacheWrite: 0 }, after: { input: 180, output: 20, cacheRead: 0, cacheWrite: 0 } },
       retirements: [],
@@ -338,7 +339,7 @@ describe('formatDecisions', () => {
   it('prints the headline it gives, its verb agreeing with one decision', () => {
     const counts = { 1: 0, 2: 0, 3: 1, 4: 0, 5: 0, same: 3, untouched: 0, notAsked: 0 };
     const run: DecisionRun = { runId: '01K1AAAAAAAAAAAAAAAAAAAAAA', golden: null, steps: 4, asked: 4, rank: 3, majority: 3, counts, cost: { before: null, after: null, spent: 0 }, tokens: { before: NO_TOKENS, after: NO_TOKENS }, thinkingStripped: 0, refused: null, decisions: [], warnings: [] };
-    const report: DecisionsReport = { decisionsId: null, kind: 'decisions', at: 0, change: { model: 'claude-haiku-4-5', fields: {}, from: null, fromCode: null, text: 'the model claude-haiku-4-5' }, command: 'shadowlap decisions 01K1 --model claude-haiku-4-5', samples: 1, runs: [run], counts, flagged: [], cost: { before: null, after: null, spent: 0, upstreamRequests: 4, unknownModels: [] }, tokens: { before: NO_TOKENS, after: NO_TOKENS }, retirements: [], notes: [], warnings: [], verify: null, judge: null, remedies: [], stopReason: null };
+    const report: DecisionsReport = { decisionsId: null, kind: 'decisions', at: 0, change: { model: 'claude-haiku-4-5', fields: {}, from: null, fromCode: null, text: 'the model claude-haiku-4-5' }, command: 'shadowlap decisions 01K1 --model claude-haiku-4-5', samples: 1, runs: [run], counts, flagged: [], toVerify: [], cost: { before: null, after: null, spent: 0, upstreamRequests: 4, unknownModels: [] }, tokens: { before: NO_TOKENS, after: NO_TOKENS }, retirements: [], notes: [], warnings: [], verify: null, judge: null, remedies: [], stopReason: null };
     expect(formatDecisions(report).split('\n')[0]).toBe('! No write and no stop changes: 1 decision differs in reads or text, under the model claude-haiku-4-5');
   });
 
@@ -508,7 +509,7 @@ describe('a text-only change a judge check reads', () => {
       samples: 1,
       runs: [run],
       counts,
-      flagged: [run.runId],
+      flagged: [run.runId], toVerify: [run.runId],
       cost: { before: null, after: null, spent: 0.01, upstreamRequests: 11, unknownModels: [] },
       tokens: { before: run.tokens.before, after: run.tokens.after },
       retirements: [],
@@ -539,12 +540,59 @@ describe('a text-only change a judge check reads', () => {
   });
 
   it('calls judging free only when no judge request went upstream: a judge with no price is no free call', () => {
-    const report = { decisionsId: null, kind: 'decisions', at: 0, change: { model: 'mock-terse', fields: {}, from: null, fromCode: null, text: 'the model mock-terse' }, command: 'shadowlap decisions goldens/refund --model mock-terse', samples: 1, runs: [], counts: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, same: 0, untouched: 0, notAsked: 0 }, flagged: [], cost: { before: null, after: null, spent: 0, upstreamRequests: 0, unknownModels: [] }, tokens: { before: NO_TOKENS, after: NO_TOKENS }, retirements: [], notes: [], warnings: [], verify: null, remedies: [], stopReason: null } satisfies Omit<DecisionsReport, 'judge'>;
+    const report = { decisionsId: null, kind: 'decisions', at: 0, change: { model: 'mock-terse', fields: {}, from: null, fromCode: null, text: 'the model mock-terse' }, command: 'shadowlap decisions goldens/refund --model mock-terse', samples: 1, runs: [], counts: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, same: 0, untouched: 0, notAsked: 0 }, flagged: [], toVerify: [], cost: { before: null, after: null, spent: 0, upstreamRequests: 0, unknownModels: [] }, tokens: { before: NO_TOKENS, after: NO_TOKENS }, retirements: [], notes: [], warnings: [], verify: null, remedies: [], stopReason: null } satisfies Omit<DecisionsReport, 'judge'>;
     const judging = (judge: DecisionsReport['judge']) => formatDecisions({ ...report, judge }).split('\n').find((l) => l.startsWith('  judging:'));
     expect(judging({ steps: 1, changed: 0, inconclusive: 0, spent: 0, upstreamRequests: 1, unknownModels: ['claude-mock-judge-9'] })).toBe('  judging: 1 upstream request · ≈$0 spent (no price for claude-mock-judge-9)');
     expect(judging({ steps: 1, changed: 0, inconclusive: 0, spent: 0.0012, upstreamRequests: 2, unknownModels: ['claude-mock-judge-9'] })).toBe('  judging: 2 upstream requests · ≈$0.0012 spent (no price for claude-mock-judge-9)');
     // Every verdict from the recording or kept: nothing went upstream.
     expect(judging({ steps: 1, changed: 0, inconclusive: 0, spent: 0, upstreamRequests: 0, unknownModels: [] })).toBe('  judging: 0 upstream requests · free');
     expect(judging(null)).toBeUndefined();
+  });
+});
+
+describe('needsVerify', () => {
+  const view = (...effects: string[]) => ({ tools: effects.map((effect, i) => ({ name: `t${i}`, args: {}, effect })) }) as unknown as DecisionView;
+  const step = (ranks: number[], ...effects: string[]) => ({ recorded: view(...effects), samples: { ranks } });
+  const run = (...decisions: ReturnType<typeof step>[]) => ({ asked: decisions.length, majority: null, decisions });
+
+  it('clears a run that acts on nothing and decided as recorded', () => {
+    expect(needsVerify(run(step([0], 'read'), step([0], 'pure'), step([0])), false)).toBe(false);
+    expect(needsVerify(run(step([5], 'read')), false)).toBe(false);
+  });
+
+  it('takes a run that acts on the world, however alike its steps look', () => {
+    for (const effect of ['write', 'unknown', 'handover']) expect(needsVerify(run(step([0], effect)), false)).toBe(true);
+  });
+
+  it('takes a run any sample of which decided otherwise, a read included, ranked or not', () => {
+    for (const rank of [1, 2, 3, 4]) expect(needsVerify(run(step([0, 0, rank], 'read')), false)).toBe(true);
+  });
+
+  it('takes changed words only when a check reads more than them', () => {
+    expect(needsVerify(run(step([5], 'read')), true)).toBe(true);
+    expect(needsVerify(run(step([0], 'read')), true)).toBe(false);
+  });
+
+  it('takes a run it flagged, and none it could not ask', () => {
+    expect(needsVerify({ ...run(step([0])), majority: 2 }, false)).toBe(true);
+    expect(needsVerify({ ...run(step([1], 'write')), asked: 0 }, false)).toBe(false);
+  });
+});
+
+describe('chanceRanked', () => {
+  const at = (samples: number, rate: number) => Number((chanceRanked(samples, rate) * 100).toFixed(1));
+
+  it('is what the docs table says, with no control under 3 samples', () => {
+    expect([0.1, 0.2, 0.3, 0.5].map((r) => at(1, r))).toEqual([10, 20, 30, 50]);
+    expect([0.1, 0.2, 0.3, 0.5].map((r) => at(3, r))).toEqual([0.1, 0.8, 2.7, 12.5]);
+    expect([0.1, 0.2, 0.3, 0.5].map((r) => at(10, r))).toEqual([1.3, 12.1, 35, 82.8]);
+    expect([0.1, 0.2, 0.3, 0.5].map((r) => at(20, r))).toEqual([4.3, 37, 76.2, 99.4]);
+  });
+
+  it('is the whole chance at a change every sample shows, and none at one no sample does', () => {
+    for (const n of [1, 3, 5, 10]) {
+      expect(chanceRanked(n, 1)).toBeCloseTo(1);
+      expect(chanceRanked(n, 0)).toBe(0);
+    }
   });
 });

@@ -70,7 +70,7 @@ The first release: record, replay and fork AI agent runs, find the call that los
 #### Model and prompt changes
 
 - **[The decision diff](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/decisions.md)**. `shadowlap decisions` asks each recorded model call again with only a change swapped in (a model, a request field, or the system prompt and tools the working tree sends), and ranks what the model decides differently, a changed write first. No tool runs, and a step ranks only beyond the model's own variation (`--samples`).
-- **[`shadowlap migrate --to <model>`](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/decisions.md#migrate)** does it for a model a provider retires: it verifies the runs whose writes change, compares the cost per run and says what to set. The providers' retirement dates ship with their sources, and nothing calls home.
+- **[`shadowlap migrate --to <model>`](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/decisions.md#migrate)** does it for a model a provider retires: it runs end to end every run a preview can't clear, compares the cost per run and says what to set. The providers' retirement dates ship with their sources, and nothing calls home.
 
 #### Checks and gates
 

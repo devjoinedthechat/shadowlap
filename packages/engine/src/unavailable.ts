@@ -104,6 +104,24 @@ export function providerUnavailable(calls: readonly CallRecord[]): Unavailable |
   return found;
 }
 
+/**
+ * The first live model call of the agent's the provider turned away for good, in words, or null when
+ * none was: a 4xx that coming back later won't change, as a model that retired answers. The caller
+ * decides what it means: one that passed with a call that failed (an agent that recovered) is a pass.
+ */
+export function providerRefused(calls: readonly CallRecord[]): string | null {
+  for (const c of calls) {
+    if (c.kind !== 'api' || c.origin !== 'live' || isJudgeCall(c) || !c.end || c.end.outcome !== 'error') continue;
+    const meta = c.end.meta;
+    if (meta.injected || meta.offline || meta.refused) continue;
+    const status = typeof meta.status === 'number' ? meta.status : null;
+    if (status === null || status < 400 || status >= 500 || unavailableStatus(status)) continue;
+    const provider = typeof meta.provider === 'string' ? meta.provider : typeof c.meta.provider === 'string' ? c.meta.provider : null;
+    return `HTTP ${status}${provider ? ` from ${provider}` : ''} at call #${c.callNo}`;
+  }
+  return null;
+}
+
 /** How unavailable attempts are retried: up to `inARow` in a row, then the result is inconclusive. */
 export const UNAVAILABLE_RETRY = Object.freeze({
   /** Unavailable attempts in a row that make a result inconclusive. */

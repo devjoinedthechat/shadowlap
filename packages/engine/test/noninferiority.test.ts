@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addPair, clopperPearsonBound, decideAgainstHistory, decidePaired, describeBaselineRule, dropBound, historyDrop, historyOdds, KEPT_DEFAULTS, NO_PAIRS, pairedDrop, pairedOdds, pairedWorstCase, type BaselineRule, type PairCounts } from '../src/noninferiority.js';
+import { addPair, clopperPearsonBound, decideAgainstHistory, decidePaired, describeBaselineRule, dropBound, historyDrop, historyOdds, KEPT_DEFAULTS, NO_PAIRS, pairedDrop, pairedOdds, pairedWorstCase, type BaselineRule, type PairCounts, baselineSaysNothing, pairsOf } from '../src/noninferiority.js';
 
 /**
  * verify keeps a good run when it is not worse than its own baseline by the margin or more. The
@@ -181,5 +181,31 @@ describe('against history', () => {
     expect(decideAgainstHistory({ passes: n, attempts: n }, history, RULE)).toBe('kept');
     expect(dropBound(historyDrop({ passes: n, attempts: n }, history, RULE.risk), 'kept')).toMatch(/^drop <= 0\.\d\d \(95%\)$/);
     expect(decideAgainstHistory({ passes: 0, attempts: 4 }, history, RULE)).toBe('broken');
+  });
+});
+
+describe('baselineSaysNothing', () => {
+  const rule = { margin: 0.1, risk: 0.05 };
+
+  it('holds once a baseline passes too rarely to drop by the margin', () => {
+    expect(baselineSaysNothing({ passes: 0, attempts: 38 }, rule)).toBe(true);
+    expect(baselineSaysNothing({ passes: 1, attempts: 80 }, rule)).toBe(true);
+  });
+
+  it('holds of no baseline that could still pass often enough to drop from, nor of one with no attempts', () => {
+    expect(baselineSaysNothing({ passes: 0, attempts: 5 }, rule)).toBe(false);
+    expect(baselineSaysNothing({ passes: 4, attempts: 38 }, rule)).toBe(false);
+    expect(baselineSaysNothing({ passes: 38, attempts: 38 }, rule)).toBe(false);
+    expect(baselineSaysNothing({ passes: 0, attempts: 0 }, rule)).toBe(false);
+  });
+
+  it('holds whenever the paired test keeps two arms that never pass, at every margin', () => {
+    for (const margin of [0.05, 0.1, 0.2, 0.3]) {
+      const r = { margin, risk: 0.05, max: 500 };
+      let c: PairCounts = NO_PAIRS;
+      while (decidePaired(c, r) === 'continue') c = addPair(c, false, false);
+      expect(decidePaired(c, r)).toBe('kept');
+      expect(baselineSaysNothing({ passes: c.basePasses, attempts: pairsOf(c) }, r)).toBe(true);
+    }
   });
 });
