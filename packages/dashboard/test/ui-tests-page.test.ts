@@ -160,6 +160,15 @@ describe('the Tests page', () => {
     expect(started).toEqual([{ kind: 'test-update', fields: { golden: 'goldens/judged' } }]);
   });
 
+  it('names what a row opens with a real link to the same place, and a row that opens nothing with none', async () => {
+    const page = await open();
+    const rows = page.all('table.gt tbody tr');
+    const opening = rows.filter((row) => row.className !== 'still');
+    expect(opening.length).toBeGreaterThan(0);
+    for (const row of rows) expect(all(row, 'code.gn a.rowa')).toHaveLength(row.className === 'still' ? 0 : 1);
+    expect(one(opening[0], 'code.gn a.rowa').getAttribute('href')).toMatch(/^#\/run\//);
+  });
+
   it('lays the table out as the mock does: mode and source under the name, a strip for phones, revisions that give way, Last result last', async () => {
     const page = await open();
     expect(page.one('section.panel.gtw .tscroll table.t.gt')).toBeTruthy();

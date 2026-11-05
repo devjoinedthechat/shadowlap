@@ -2,12 +2,15 @@ import { act, createElement, useRef, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Tabs } from '../ui/components/Tabs.js';
 import { backRowKey, isDetail, pageSig, samePage, trailAfter, type TrailStop } from '../ui/focus.js';
-import { handOnAtEnd, headingRef, notingJobFrom } from '../ui/focus-manager.js';
+import { handOnAtEnd, headingRef, notingJobFrom, stepsSideways } from '../ui/focus-manager.js';
 import { useListKeys } from '../ui/list-keys.js';
+import { noteParent } from '../ui/parents.js';
 import { parseRoute } from '../ui/route.js';
-import { useRoute } from '../ui/router.js';
+import { navigate, useRoute } from '../ui/router.js';
 import { Keyboard } from '../ui/shell/Keyboard.js';
 import { Palette } from '../ui/shell/Palette.js';
+import { RecentRuns } from '../ui/shell/Sidebar.js';
+import type { RunListItem } from '../ui/types.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
 
@@ -296,12 +299,115 @@ describe('a move between pages', () => {
     expect(r.focused().tagName).toBe('H1');
   });
 
+  it('counts a replace as no move, and the page it settles on as the page', async () => {
+    addressBar('#/run/ABC');
+    r = await render(createElement(Routed));
+    await r.focus(r.one('#other'));
+    await act(async () => navigate('#/run/ABCDEF', true));
+    expect(r.focused().getAttribute('id')).toBe('other');
+    // A link inside the run its short id settled on is a step within it.
+    await moved('#/run/ABCDEF/2');
+    expect(r.focused().getAttribute('id')).toBe('other');
+  });
+
+  it('goes up to a run’s parent where its detail named one, and on to Runs', async () => {
+    addressBar('#/run/KID');
+    noteParent(['KID'], 'PARENT');
+    r = await render(createElement(Routed));
+    await r.press('Escape');
+    expect(location.hash).toBe('#/run/PARENT');
+    await r.press('Escape');
+    expect(location.hash).toBe('#/runs');
+  });
+
+  it('adds nothing to the way back for a step along a list, so Esc lands on the run you stepped to', async () => {
+    r = await render(createElement(Routed));
+    await r.press('j');
+    await r.press('Enter');
+    expect(location.hash).toBe('#/run/A');
+    stepsSideways();
+    await moved('#/run/C');
+    await r.press('Escape');
+    expect(location.hash).toBe('#/runs');
+    expect(rowInFocus()).toBe('#/run/C');
+  });
+
+  it('adds nothing for opening a run above this one, and cuts back to a page it passed', async () => {
+    noteParent(['B'], 'A');
+    r = await render(createElement(Routed));
+    await r.press('j');
+    await r.press('j');
+    await r.press('Enter');
+    expect(location.hash).toBe('#/run/B');
+    await moved('#/run/A');
+    await r.press('Escape');
+    expect(location.hash).toBe('#/runs');
+    await r.press('j');
+    await r.press('Enter');
+    await moved('#/run/Q');
+    await moved('#/run/C');
+    await moved('#/run/Q');
+    // Q was on the way back: it is cut to there, and goes on from B, never round again.
+    await r.press('Escape');
+    expect(location.hash).toBe('#/run/B');
+    await r.press('Escape');
+    expect(location.hash).toBe('#/runs');
+  });
+
   it('leaves the focus where you moved it while the page comes', async () => {
     r = await render(createElement(Routed));
     await moved('#/run/A');
     await r.focus(r.one('#other'));
     await moved('#/run/B');
     expect(r.focused().textContent).toBe('B');
+  });
+});
+
+describe('the sidebar’s runs', () => {
+  const run = (id: string, startedAt: number) => ({ runId: id, parentRunId: null, mode: 'record', status: 'completed', label: 'recording', divergence: null, command: 'node a.mjs', codeVersion: null, startedAt, endedAt: startedAt + 1, calls: 1, spent: 0, saved: 0, captured: 0, imported: false, labels: [], about: { text: id, from: 'user' } }) as unknown as RunListItem;
+  const RUNS = [run('RUNONE', 3), run('RUNTWO', 2), run('RUNTHREE', 1)];
+  const keyed = (id: string) => `#/run/${id}`;
+
+  function Side({ keys, setPalette }: { keys: (e: unknown) => boolean; setPalette: (on: boolean) => void }) {
+    return createElement(
+      AppContext.Provider,
+      { value: app({ runKeys: { current: keys } as never, setPalette }) },
+      createElement('aside', { id: 'side' }, createElement(RecentRuns, { runs: RUNS, current: null, loading: false, rowActions: (x: RunListItem) => ({ name: x.runId, items: () => [] }) })),
+      createElement('main', { id: 'view', tabIndex: -1 }, createElement('h1', {}, 'A run')),
+      createElement(Keyboard),
+    );
+  }
+
+  it('owns j and k and the arrows with the focus on one, ahead of a run’s, each staying its own Tab stop', async () => {
+    const keys = vi.fn(() => true);
+    r = await render(createElement(Side, { keys, setPalette: () => undefined }));
+    const first = r.all('a.run')[0];
+    await r.focus(first);
+    await r.press('j');
+    expect(rowInFocus()).toBe(keyed('RUNTWO'));
+    await r.press('ArrowDown');
+    expect(rowInFocus()).toBe(keyed('RUNTHREE'));
+    await r.press('k');
+    expect(rowInFocus()).toBe(keyed('RUNTWO'));
+    expect(keys).not.toHaveBeenCalled();
+    expect(r.all('.krow')).toEqual([]);
+    expect(r.all('a.run').every((a) => a.getAttribute('tabindex') === null)).toBe(true);
+  });
+
+  it('leaves the keys to the page with the focus elsewhere', async () => {
+    const keys = vi.fn(() => true);
+    r = await render(createElement(Side, { keys, setPalette: () => undefined }));
+    await r.press('j');
+    expect(keys).toHaveBeenCalledOnce();
+  });
+
+  it('lets go to the heading on Esc, before it goes up', async () => {
+    addressBar('#/run/RUNONE');
+    r = await render(createElement(Side, { keys: () => false, setPalette: () => undefined }));
+    await r.focus(r.all('a.run')[1]);
+    await r.press('Escape');
+    expect(r.focused().tagName).toBe('H1');
+    expect(location.hash).toBe('#/run/RUNONE');
   });
 });
 

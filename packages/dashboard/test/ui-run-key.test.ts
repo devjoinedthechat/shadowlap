@@ -162,6 +162,19 @@ describe('a run’s keys', () => {
     await act(async () => setSingleKeys(true));
   });
 
+  it('gives This run’s rows in the palette the key of what each presses, a hint no longer saying it', async () => {
+    addressBar(`#/run/${RUN}/1`);
+    const { client } = server([]);
+    let commands: Array<{ label: string; hint: string; key?: string }> = [];
+    const state = { ...app(client, []), setRunCommands: (items: typeof commands) => void (items.length && (commands = items)) } as unknown as AppState;
+    r = await render(createElement(AppContext.Provider, { value: state }, createElement(RunPage, { id: RUN, call: 1, view: null })));
+    await r.until('This run’s rows', () => commands.length > 0);
+    const row = (start: string) => commands.find((c) => c.label.startsWith(start))!;
+    expect(row('Label it good')).toMatchObject({ hint: 'repair --keeps label:good', key: '+' });
+    expect(row('Label it bad')).toMatchObject({ hint: 'repair --fixes label:bad', key: '-' });
+    expect(row('Fork at').key).toBe('f');
+  });
+
   it('moves with the arrows only in the views, j and k from anywhere', async () => {
     const keys = await opened();
     expect(keys('ArrowDown')).toBe(false);
