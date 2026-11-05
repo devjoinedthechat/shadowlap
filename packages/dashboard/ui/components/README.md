@@ -45,6 +45,7 @@ that draws one has.
 |---|---|---|
 | `Page` | `Page.tsx` | Every scrolling page. Gives back the scrollbar's width (`--sbw`) so the content's right edge stays under the top bar's. |
 | `useActiveTabInView` | `hooks.ts` | A ref for a strip of tabs that scrolls sideways on a phone (Settings' tabs, a run's views): it shows the active tab on mount and when the tab shown changes, scrolling the strip alone (`stripScroll` in `place.ts`). |
+| `useScrollStop` | `hooks.ts` | A ref for a pane that scrolls and holds no control of its own (a dialog's body, the shortcuts on a phone): it takes the focus while it scrolls, so the keyboard can scroll it too. |
 | `StepList` | `bits.tsx` | Numbered setup steps, each with the CLI command that does it (`ol.setup`); a step is `done`, `cur` or `todo`. |
 
 ## Code that waits until it shows
