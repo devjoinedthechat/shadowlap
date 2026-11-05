@@ -35,8 +35,8 @@ export function Shell({ pages: PageSlot }: { pages: Pages }) {
   const { setSideOpen, closeJobs, conn } = useApp();
   useDocTitle(route);
 
-  // The phone sidebar closes on navigation; a job's drawer closes when the page changes (not when a
-  // call or a view is picked), and a toast says when the job finishes.
+  // The phone sidebar closes on navigation; a finished job's drawer closes when the page changes (not
+  // when a call or a view is picked). A running one stays across pages.
   useEffect(() => setSideOpen(false), [route, setSideOpen]);
   const pageKey = route.page === 'run' ? `run:${route.id}` : route.page;
   useEffect(() => closeJobs(), [pageKey, closeJobs]);

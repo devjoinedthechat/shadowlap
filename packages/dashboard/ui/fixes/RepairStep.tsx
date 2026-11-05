@@ -2,7 +2,8 @@ import { Badge, CmdLine, EmptyState } from '../components/bits.js';
 import { shortId } from '../format.js';
 import type { FixDetail, RepairStep } from '../types.js';
 import { candidateTone, changeParts, fixStamp, footWarnings, nothingAcceptedWhy, repairBy, repairReceipt, roleBadges } from './model.js';
-import { DotParts, Flagged, Markdown, StepHead } from './parts.js';
+import { DotParts } from '../components/bits.js';
+import { Flagged, Markdown, StepHead } from './parts.js';
 
 /**
  * The Repair step: the change a repair proposed and what it held on, why it was needed, every

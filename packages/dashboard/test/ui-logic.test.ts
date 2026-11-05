@@ -5,7 +5,7 @@ import { forkMenu, forkMenuTitle, menuFlag, menuLabel, type ActionLike } from '.
 import { backoffSeconds, isUnreachable } from '../ui/backoff.js';
 import { cacheMisses, cacheNote, cacheReadShare, missStat, type UsageCall } from '../ui/cache.js';
 import { approx, compactPath, dur, durLong, ktok, money, projectOfStore, shortFingerprint, shortHash, tildePath, whenShort } from '../ui/format.js';
-import { calibrationTarget, endToast, forkDivergedEarly, forkTarget, isPlainReplay, jobStatus, jobTitle, lastLine, lineTone, replayDivergence, runningChip, stopAsk, type RunLink } from '../ui/jobs.js';
+import { calibrationTarget, endToast, forkDivergedEarly, forkTarget, isPlainReplay, jobStatus, jobTitle, lastLine, lineTone, replayDivergence, stopAsk, type RunLink } from '../ui/jobs.js';
 import { displayOrigin, parseOrigins } from '../ui/origins.js';
 import { ACTION_ORDER, highlight, indexingNote, limitRecorded, matchPalette, runIdPrefix, runsById, runsToAskFor, snippetParts, type PaletteEntry } from '../ui/palette.js';
 import { callDetail, modelCallOf, resultLine, ticksFor, timelineOf, timeOf, tokensText, turnCalls, turnsOf, type CallLike } from '../ui/run/calls.js';
@@ -708,21 +708,6 @@ describe('job drawer', () => {
     expect(stopAsk({ id: 'j3', done: false, args: ['test', 'goldens/a'], worktree: tree('reads', 'a test is running your agent from your working tree') })).toBeNull();
     expect(stopAsk({ id: 'j4', done: false, args: ['gc', '--dry-run'], worktree: null })).toBeNull();
     expect(stopAsk({ id: 'j5', done: true, args: ['repair'], worktree: tree('writes', 'a repair is verifying candidates made from your working tree') })).toBeNull();
-  });
-
-  it('counts the jobs running in the top bar, and reopens the newest whose drawer is closed', () => {
-    const job = (id: string, args: string[], done = false, startedAt = 0) => ({ id, args, done, startedAt });
-    const list = [job('j3', ['test', 'goldens/a'], false, 3), job('j2', ['repair', '--fixes', 'X'], false, 2), job('j1', ['replay', 'X'], true, 1)];
-    expect(runningChip(list, null)).toEqual({ count: 2, label: '2 jobs running', opens: 'j3', title: 'Running tests, Repairing: open the newest one’s drawer' });
-    // The newest has its drawer open: the chip opens the other.
-    expect(runningChip(list, 'j3')?.opens).toBe('j2');
-    // A job this tab has just started comes after the server's list until it is read again: still the newest.
-    expect(runningChip([...list, job('j4', ['blame', 'X'], false, 4)], null)?.opens).toBe('j4');
-    // One job running, its drawer open: nothing to find again.
-    expect(runningChip([job('j2', ['repair'])], 'j2')).toBeNull();
-    expect(runningChip([job('j2', ['repair'])], null)).toMatchObject({ count: 1, label: '1 job running', opens: 'j2' });
-    expect(runningChip([job('j1', ['replay', 'X'], true)], null)).toBeNull();
-    expect(runningChip([], null)).toBeNull();
   });
 
   // What `shadowlap replay` printed for a recording made before the agent sent a per-run user id.

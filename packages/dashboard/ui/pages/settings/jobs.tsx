@@ -19,7 +19,7 @@ import { ACTIONS } from '../../labels.js';
  * palette's actions. Registered when the app loads, so they work from any page.
  */
 
-function CalibrateFooter({ job }: { job: JobView }) {
+function CalibrateFooter({ job, plain, done }: { job: JobView; plain?: boolean; done?: () => void }) {
   const app = useApp();
   const [state, setState] = useState<'idle' | 'busy' | 'done'>('idle');
   const n = proposedCount(job);
@@ -30,6 +30,7 @@ function CalibrateFooter({ job }: { job: JobView }) {
       const r = await app.client.settings.writeCalibration(job.id);
       setState('done');
       settingsChanged();
+      done?.();
       app.toast(r.added.length ? `Added to ${CONFIG_FILE} · normalizer${r.added.length === 1 ? '' : 's'} ${r.added.map((x) => `#${x}`).join(', ')}` : `Already in ${CONFIG_FILE} · ${r.already.map((x) => `#${x}`).join(', ')}`);
     } catch (err) {
       setState('idle');
@@ -37,8 +38,8 @@ function CalibrateFooter({ job }: { job: JobView }) {
     }
   };
   return (
-    <button className="btn lime" type="button" disabled={state !== 'idle' || !!app.actionsOff} title={app.actionsOff ?? `Adds ${n === 1 ? 'the normalizer' : `the ${n} normalizers`} it found to ${CONFIG_FILE}, as --write does`} onClick={() => app.guard(() => void add())}>
-      {state === 'done' ? 'Added' : n === 1 ? 'Add it (--write)' : 'Add them (--write)'}
+    <button className={plain ? 'btn' : 'btn lime'} type="button" disabled={state !== 'idle' || !!app.actionsOff} title={app.actionsOff ?? `Adds ${n === 1 ? 'the normalizer' : `the ${n} normalizers`} it found to ${CONFIG_FILE}, as --write does`} onClick={() => app.guard(() => void add())}>
+      {state === 'done' ? 'Added' : n === 1 ? 'Add normalizer' : `Add ${n} normalizers`}
     </button>
   );
 }

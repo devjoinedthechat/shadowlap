@@ -57,6 +57,13 @@ export function isView(s: unknown): s is View {
   return typeof s === 'string' && (VIEWS as readonly string[]).includes(s);
 }
 
+/** Whether two routes show one page: picking a call, a view or a fix's step stays on it. */
+export function samePage(a: Route, b: Route): boolean {
+  if (a.page !== b.page) return false;
+  if ((a.page === 'run' || a.page === 'fixes') && a.id !== (b as typeof a).id) return false;
+  return (a.page !== 'settings' && a.page !== 'training') || a.tab === (b as typeof a).tab;
+}
+
 export function parseRoute(hash: string): Route {
   const raw = hash.replace(/^#/, '').replace(/^\/+/, '').split(/[?&]/)[0] ?? '';
   const at = hash.indexOf('?');

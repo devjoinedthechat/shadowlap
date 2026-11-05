@@ -135,7 +135,7 @@ body.is-offline main.view { padding-top: 44px; }
 .search.sbtn .kbd { position: static; transform: none; flex: none; }
 .search.sbtn:hover { color: var(--dim); border-color: var(--faint); }
 
-@media (max-width: 640px) { .status .sp ~ * { display: none; } }
+@media (max-width: 640px) { .status .sp ~ *:not(.st-job) { display: none; } }
 
 .who { display: inline-flex; align-items: center; height: 32px; padding: 0 10px 0 7px; border: 1px solid var(--line2); border-radius: 9px; background: none; color: var(--ink); font: 500 12.5px var(--body); cursor: pointer; }
 .who .av { margin-right: 7px; width: 20px; height: 20px; font-size: 10px; }
@@ -151,12 +151,6 @@ body.is-offline main.view { padding-top: 44px; }
 .proj.is-static:hover { border-color: var(--line); }
 a.livechip { text-decoration: none; }
 a.livechip:hover { color: var(--ink); }
-/* the jobs running, from every tab: a click opens the newest one's drawer again; on a phone too, without "running" */
-button.jobchip { border: 0; background: none; padding: 0; cursor: pointer; flex: none; white-space: nowrap; }
-button.jobchip:hover { color: var(--ink); }
-.jobchip .spin { width: 10px; height: 10px; flex: none; }
-@media (max-width: 1000px) { .livechip.jobchip { display: inline-flex; } }
-@media (max-width: 640px) { .jobchip .jrun { display: none; } }
 
 /* the gate: a link with no session token */
 .connblock.gate { background: var(--bg); }

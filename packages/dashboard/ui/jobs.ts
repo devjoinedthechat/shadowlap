@@ -322,7 +322,7 @@ export function jobRunning(jobs: ReadonlyArray<{ job: Pick<JobLike, 'done' | 'ki
   return jobs.some((w) => !w.job.done && !w.lost && kinds.has(w.job.kind ?? ''));
 }
 
-/** A job as Stop and the top bar's chip read it: whether it runs, and how it uses its working tree. */
+/** A job as Stop and the status bar's chip read it: whether it runs, and how it uses its working tree. */
 export interface RunningJob {
   id: string;
   done: boolean;
@@ -351,17 +351,16 @@ export function stopAsk(job: RunningJob): { title: string; text: string; ok: str
   return { title: `Stop ${(job.title ?? 'this job').toLowerCase()}?`, text: `${doing.charAt(0).toUpperCase()}${doing.slice(1)}. Stopped part way, the tree is left as it is then.`, ok: 'Stop it' };
 }
 
-/**
- * The top bar's chip while jobs run (`1 job running`), and the job a click reopens: the newest one
- * running whose drawer isn't open. None while nothing runs, or while the only job running has its
- * drawer open already. A job stopping still runs. The server lists jobs newest first, but one this
- * tab has just started may not be in its list yet, so they go by when they started.
- */
-export function runningChip(jobs: readonly RunningJob[], open: string | null): { count: number; label: string; opens: string; title: string } | null {
-  const running = jobs.filter((j) => !j.done).sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
-  const opens = running.find((j) => j.id !== open);
-  if (!opens) return null;
-  const n = running.length;
-  const names = running.map((j) => jobTitle({ args: [...(j.args ?? [])], done: false, code: null, ...(j.title ? { title: j.title } : {}) }));
-  return { count: n, label: `${n} ${n === 1 ? 'job' : 'jobs'} running`, opens: opens.id, title: `${[...new Set(names)].join(', ')}: open ${n === 1 ? 'its' : 'the newest one’s'} drawer` };
+/** What a job's way on calls the run it made: the replay, the fork, or just the run. */
+export function openRunWords(job: Pick<JobLike, 'args'>): string {
+  if (job.args[0] !== 'replay') return 'Open run';
+  return isPlainReplay(job) ? 'Open replay' : 'Open fork';
+}
+
+/** A job's way on where it has no drawer drawn to take it from: its first primary link, or the run it made. */
+export function wayOnOf(job: JobLike & { links?: ReadonlyArray<{ label: string; href: string; secondary?: boolean }>; newRunId?: string | null }): { label: string; href: string } | null {
+  const links = job.links ?? [];
+  const first = links.find((l) => !l.secondary) ?? links[0];
+  if (first) return { label: first.label, href: first.href };
+  return job.newRunId ? { label: openRunWords(job), href: `#/run/${job.newRunId}` } : null;
 }

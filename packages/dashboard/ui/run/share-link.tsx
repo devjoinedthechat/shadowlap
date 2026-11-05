@@ -10,13 +10,16 @@ import { sharedLink } from './share.js';
  * link is a presigned URL in the team's bucket, so it is copied rather than opened from the drawer,
  * whose links only open pages of the dashboard. Registered when the app loads, as Settings' are.
  */
-function ShareLinkFooter({ job }: { job: JobView }) {
+function ShareLinkFooter({ job, plain, done }: { job: JobView; plain?: boolean; done?: () => void }) {
   const { toast } = useApp();
   const link = sharedLink(job);
   if (!link) return null;
   const until = link.expiresAt ? new Date(link.expiresAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : null;
   return (
-    <button className="btn lime" type="button" title={until ? `Anyone with the link can open the report until ${until}` : 'Anyone with the link can open the report'} onClick={() => void copyText(link.url).then((ok) => toast(ok ? `Copied the share link${until ? ` · it works until ${until}` : ''}` : 'Copying was refused by the browser'))}>
+    <button className={plain ? 'btn' : 'btn lime'} type="button" title={until ? `Anyone with the link can open the report until ${until}` : 'Anyone with the link can open the report'} onClick={() => void copyText(link.url).then((ok) => {
+        toast(ok ? `Copied the share link${until ? ` · it works until ${until}` : ''}` : 'Copying was refused by the browser');
+        if (ok) done?.();
+      })}>
       Copy link
     </button>
   );

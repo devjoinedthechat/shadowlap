@@ -213,9 +213,6 @@
     "packages/dashboard/ui/compare/model.ts": {
       "changeCards": 33
     },
-    "packages/dashboard/ui/components/Drawer.tsx": {
-      "Drawer": 43
-    },
     "packages/dashboard/ui/fixes/FixPage.tsx": {
       "FixActions": 37
     },
@@ -224,9 +221,6 @@
     },
     "packages/dashboard/ui/goldens.ts": {
       "updatePlan": 32
-    },
-    "packages/dashboard/ui/jobs.ts": {
-      "jobStatus": 35
     },
     "packages/dashboard/ui/normalize.ts": {
       "normalizeFix": 33,
@@ -484,9 +478,6 @@
     "packages/dashboard/ui/api.ts": {
       "createClient": 177
     },
-    "packages/dashboard/ui/components/Drawer.tsx": {
-      "Drawer": 173
-    },
     "packages/dashboard/ui/fixes/BlameStep.tsx": {
       "BlameStepView": 198
     },
@@ -533,7 +524,7 @@
       "PaletteDialog": 253
     },
     "packages/dashboard/ui/state.tsx": {
-      "AppProvider": 341
+      "AppProvider": 310
     },
     "packages/engine/src/json-doc.ts": {
       "scan": 217
@@ -594,7 +585,7 @@
     "packages/dashboard/src/tests.ts": 1103,
     "packages/dashboard/test/fixes.test.ts": 884,
     "packages/dashboard/test/tests.test.ts": 1111,
-    "packages/dashboard/test/ui-logic.test.ts": 833,
+    "packages/dashboard/test/ui-logic.test.ts": 822,
     "packages/engine/src/pairs.ts": 819,
     "packages/engine/src/redact.ts": 983,
     "packages/remote/test/sync.test.ts": 1059,

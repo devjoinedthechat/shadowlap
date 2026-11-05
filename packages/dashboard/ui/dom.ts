@@ -53,3 +53,8 @@ export function addressNow(): string {
 export function coarsePointer(): boolean {
   return typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 }
+
+/** Whether the page leads with a lime step of its own: one lime at a time. */
+export function pageLeads(): boolean {
+  return typeof document !== 'undefined' && !!document.querySelector('#view .btn.lime');
+}

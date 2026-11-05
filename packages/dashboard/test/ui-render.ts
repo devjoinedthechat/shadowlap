@@ -170,6 +170,7 @@ export class FakeInput extends FakeElement {}
 export class FakeTextArea extends FakeElement {}
 
 export class FakeDocument {
+  readonly documentElement: FakeElement;
   readonly body: FakeElement;
   activeElement: FakeElement;
   /** How an element sends an event of its own (`click()`), once it is in a page. */
@@ -179,6 +180,7 @@ export class FakeDocument {
   /** Those it adds for the capture phase, which hear an event before anything in the page does. */
   private readonly capturing: FakeElement;
   constructor() {
+    this.documentElement = new FakeElement('HTML', this);
     this.body = new FakeElement('BODY', this);
     this.activeElement = this.body;
     this.own = new FakeElement('#document', this);

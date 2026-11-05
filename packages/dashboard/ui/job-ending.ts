@@ -74,7 +74,7 @@ function verdictStatus(job: EndedJob, code: number): JobWords | null {
   if (job.kind !== 'verify' && job.kind !== 'decisions-verify' && job.kind !== 'migrate') return null;
   const verdict = asRecord(job.result)?.verdict;
   const tones: Readonly<Record<string, JobWords['tone']>> = { accepted: 'ok', rejected: 'err', inconclusive: 'warn' };
-  return typeof verdict === 'string' && tones[verdict] ? { text: `${verdict} · exit ${code}`, tone: tones[verdict]! } : null;
+  return typeof verdict === 'string' && tones[verdict] ? { text: `${verdict} · exit ${code}`, tone: tones[verdict] } : null;
 }
 
 /** Repeat: whether the attempts took one path. A repeat's failed check, or anything else non-zero, has the words of any replay. */

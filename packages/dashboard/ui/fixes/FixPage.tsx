@@ -393,7 +393,7 @@ function ApplyDialog({ fix, label, onClose, onRun }: { fix: FixDetail; label: st
  * The apply drawer's last word when the patch made other goldens diverge: Update goldens re-records
  * them (`shadowlap test <goldens> --update`), asking first, as the Tests screen's Update goldens does.
  */
-function ApplyFooter({ job }: { job: JobView }) {
+function ApplyFooter({ job, plain }: { job: JobView; plain?: boolean }) {
   const app = useApp();
   const [asking, setAsking] = useState(false);
   const [started, setStarted] = useState(false);
@@ -402,7 +402,7 @@ function ApplyFooter({ job }: { job: JobView }) {
   const ask = updateOutdatedAsk(outdated);
   return (
     <>
-      <button className="btn lime" type="button" disabled={started || !!app.actionsOff} title={app.actionsOff ?? ask.command} onClick={() => app.guard(() => setAsking(true))}>
+      <button className={plain ? 'btn' : 'btn lime'} type="button" disabled={started || !!app.actionsOff} title={app.actionsOff ?? ask.command} onClick={() => app.guard(() => setAsking(true))}>
         Update goldens
       </button>
       {asking ? (

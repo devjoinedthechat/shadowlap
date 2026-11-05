@@ -1,0 +1,112 @@
+/* The job drawer docks at the foot of the content, across it, a hairline above it: the content makes room for it. A moment
+   after it is done it folds to its header line (.folded), its height then the content's room (--dock-h, set from its own). */
+:root { --dock-h: 264px; }
+.drawer { position: fixed; z-index: 35; left: var(--side); right: 0; bottom: 28px; height: var(--dock-h); display: flex; flex-direction: column; background: var(--bg); border-top: 1px solid var(--line2); }
+/* a hidden job's drawer is gone from the screen, the status bar showing the job */
+.drawer[hidden] { display: none; }
+body.docked .view { padding-bottom: var(--dock-h); }
+/* below 1000px the window scrolls, so the room goes after the status bar, the page's last line, which then ends above it */
+@media (max-width: 1000px) {
+  body.docked .view { padding-bottom: 0; }
+  body.docked .app { padding-bottom: var(--dock-h); }
+  :root { --dock-h: min(300px, 52dvh); }
+  .drawer { left: 0; bottom: 0; padding-bottom: env(safe-area-inset-bottom); box-shadow: var(--shadow-pop); }
+  /* the phone's open sidebar sits over the drawer and a hidden job's pill, as it does over the page */
+  .side.open { z-index: 37; }
+}
+.drawer header { flex: none; display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 16px 6px 24px; border-bottom: 1px solid var(--line); }
+/* the header line: what it does or did and how it ended, then its way on, the log's button and the one that hides or closes it */
+.drawer .jhd { flex: 1 1 0; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; }
+.drawer .jfoot { flex: none; display: flex; align-items: center; gap: 8px; }
+.drawer .jfoot:empty { display: none; }
+.drawer .jfoot .btn { height: 32px; }
+.drawer .jkind { display: contents; }
+.drawer.folded { height: auto; }
+.drawer.folded header { border-bottom: 0; }
+.drawer.folded pre { display: none; }
+/* on a phone the way on takes a line of its own under the header's */
+@media (max-width: 640px) {
+  .drawer header { flex-wrap: wrap; row-gap: 6px; }
+  .drawer .jfoot { order: 1; flex-basis: 100%; flex-wrap: wrap; justify-content: flex-end; row-gap: 8px; }
+  .drawer .jfoot .btn { height: 34px; }
+}
+.drawer header .ibtn { width: 28px; height: 28px; border-color: transparent; }
+.drawer header .ibtn:hover { border-color: var(--line2); }
+/* on a touch screen its icon buttons (hide, the log, close) take a 38 by 40px tap, their drawn size kept */
+@media (pointer: coarse) {
+  .drawer header .ibtn { position: relative; }
+  .drawer header .ibtn::after { content: ''; position: absolute; inset: -7px -6px; }
+}
+.drawer header b { font: 600 13.5px var(--body); }
+.drawer .st2 { font: 11px var(--mono); color: var(--faint); }
+/* a job's outcome and the CLI's ✓ ✗ ! lines are verdicts: the consequence colours */
+.drawer .st2.ok { color: var(--cq-lime); }
+.drawer .st2.warn { color: var(--cq-amber); }
+.drawer .st2.err { color: var(--cq-red); }
+.drawer .st2.jin { color: var(--dim); }
+.drawer pre { flex: 1 1 auto; min-height: 0; margin: 0; padding: 12px 24px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.7 var(--mono); color: var(--dim); background: var(--code); }
+.drawer pre .p { color: var(--faint); }
+.drawer pre .ok { color: var(--cq-lime); }
+.drawer pre .y { color: var(--cq-amber); }
+.drawer pre .no { color: var(--cq-red); }
+.drawer pre .dim { color: var(--faint); }
+/* a word of the log never breaks where the line wraps, unless it alone is longer than the line */
+.drawer pre .tk { display: inline-block; max-width: 100%; overflow-wrap: anywhere; }
+/* the folders a job wrote: between its header and its log, a short list with its own scroll, gone when folded */
+.drawer .jfiles { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 8px 24px; font-size: 12.5px; color: var(--dim); max-height: 60px; overflow: auto; border-bottom: 1px solid var(--line); }
+.drawer .jfiles span { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.drawer .jfiles code { min-width: 0; overflow-wrap: anywhere; }
+.drawer .jfiles svg { width: 14px; height: 14px; flex: none; color: var(--faint); }
+/* the links above its way on (each failing golden's run), a golden's name kept whole as an id is */
+.drawer .jlinks { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-right: auto; align-self: center; font-size: 12.5px; }
+.drawer .jlinks a { white-space: nowrap; }
+
+/* a job off the screen leads the status bar's right-hand side: what it is doing, or what it did, its dot in the verdict's colour; a click opens it */
+.status .st-job { flex: 0 1 auto; min-width: 0; }
+.status .jobchip { display: inline-flex; align-items: center; gap: 7px; height: 22px; padding: 0 6px; margin: 0 -6px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: inherit; cursor: pointer; }
+.status .jobchip:hover { background: var(--hover); }
+.status .jobchip i { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--cq-muted); }
+.status .jobchip.ok i { background: var(--cq-lime); }
+.status .jobchip.err i { background: var(--cq-red); }
+.status .jobchip.warn i { background: var(--cq-amber); }
+.status .jobchip .spin { flex: none; width: 10px; height: 10px; border-width: 1.5px; }
+/* below 1000px the status bar ends the page, so the chip stays in view at the window's foot, a pill */
+@media (max-width: 1000px) {
+  .status { z-index: auto; }
+  .status .jobchip { position: fixed; z-index: 36; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); max-width: calc(100vw - 24px); height: 36px; margin: 0; padding: 0 14px; border-radius: 999px; background: var(--pop); box-shadow: var(--shadow-pop); font-size: 12px; }
+  /* over a drawer on the screen, when a second job runs */
+  body.docked .status .jobchip { bottom: calc(12px + var(--dock-h)); }
+  /* the pill floats under the status bar's words, never over them: the bar keeps room for it at the foot of the page */
+  body.jobmin .status { padding-bottom: calc(56px + env(safe-area-inset-bottom)); }
+  /* while its toast says how it ended, the pill steps aside, so the words show once */
+  body.jobtoast .status .jobchip { display: none; }
+}
+@media (forced-colors: active) and (max-width: 1000px) { .status .jobchip { outline: 1px solid CanvasText; } }
+
+/* the bottom stack: the bulk bar sits over a docked drawer, or over a hidden job's pill on a narrow screen */
+body.docked .bulkbar { bottom: calc(44px + var(--dock-h)); }
+@media (max-width: 1000px) {
+  body.docked .bulkbar { bottom: calc(12px + var(--dock-h)); }
+  body.jobmin:not(.docked) .bulkbar { bottom: 60px; }
+  body.jobmin.docked .bulkbar { bottom: calc(60px + var(--dock-h)); }
+}
+
+/* A toast is centred on the content, over the bottom stack (the drawer, the bulk bar), placed by placeToast(); it fades in and out. */
+.toast { pointer-events: none; position: fixed; z-index: 50; left: 50%; bottom: 44px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; width: max-content; max-width: calc(100vw - 32px); padding: 10px 14px; border-radius: var(--r-box); background: var(--ink); color: var(--bg); font-size: 13.5px; box-shadow: 0 18px 40px -16px rgba(0,0,0,.5); animation: toastin .18s ease-out; }
+@keyframes toastin { from { opacity: 0; } }
+.toast.out { opacity: 0; transition: opacity .16s ease-in; }
+.toast.out .tbtn, .toast.out .tx { pointer-events: none; }
+.toast i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
+.toast .tbtn { pointer-events: auto; flex: none; margin: -6px -6px -6px 4px; padding: 6px 8px; border: 0; border-radius: 6px; background: none; color: var(--bg); font: 600 13.5px var(--body); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.toast .tbtn:hover { background: color-mix(in srgb, var(--bg) 10%, transparent); }
+.toast .tbtn:focus-visible { outline: 2px solid var(--bg); outline-offset: 0; }
+/* a long way on goes under the words, its text at their left edge, where beside them it would leave them more than two lines */
+.toast.stack { flex-wrap: wrap; row-gap: 6px; }
+.toast.stack > span { flex: 1 1 calc(100% - 18px); }
+.toast.stack .tbtn { margin: -2px 0 -6px 10px; }
+/* a refusal or a failure: a red dot, its × to dismiss it, and a long reason kept to a measure */
+.toast.err { max-width: min(560px, calc(100vw - 32px)); align-items: flex-start; line-height: 1.45; }
+.toast.err i { margin-top: 5px; background: var(--err); }
+.toast .tx { pointer-events: auto; flex: none; width: 24px; height: 24px; margin: -3px -6px -3px 2px; border: 0; border-radius: 7px; background: none; color: inherit; opacity: .7; font: 400 16px/1 var(--body); cursor: pointer; }
+.toast .tx:hover, .toast .tx:focus-visible { opacity: 1; background: color-mix(in srgb, var(--bg) 12%, transparent); outline: none; }
+@media (prefers-reduced-motion: reduce) { .toast { animation: none; } .toast.out { transition: none; } }
