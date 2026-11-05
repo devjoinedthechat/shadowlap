@@ -74,8 +74,8 @@
 .pop button[disabled] { opacity: .4; cursor: not-allowed; }
 .pop hr { border: 0; border-top: 1px solid var(--line); margin: 6px 4px; }
 .pop .pnote { padding: 6px 10px 8px; color: var(--faint); font-size: var(--fs-small); }
-/* the one picked now (a project, a run) has a check mark before it, in ink; the others keep its room */
-.pop.curmark button[role^="menuitem"]::before, .pop.curmark [role="option"]::before { content: ''; flex: none; width: 12px; align-self: center; font: 600 var(--fs-small) var(--body); color: var(--ink); }
+/* the one picked now (a project, a run) has a check mark before it, in ink; the others keep its room. A row's second button (.px) is no row. */
+.pop.curmark button[role^="menuitem"]:where(:not(.px))::before, .pop.curmark [role="option"]::before { content: ''; flex: none; width: 12px; align-self: center; font: 600 var(--fs-small) var(--body); color: var(--ink); }
 .pop.curmark button[aria-checked="true"]::before, .pop.curmark [role="option"][aria-selected="true"]::before { content: '✓'; }
 /* On a phone a menu is a sheet from the foot of the screen, over a scrim that takes the tap that closes it, its rows 44px. */
 .msheet { position: fixed; inset: 0; z-index: 44; background: rgba(5,6,4,.55); }
