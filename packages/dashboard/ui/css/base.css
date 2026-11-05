@@ -13,6 +13,8 @@ code { font-size: min(1em, var(--fs-quiet)); }
 b, strong { font-weight: 600; }
 :focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
 /* Chrome makes a scrolling pane focusable on its own; the selected row already shows where you are, so the pane draws no ring */
+/* a page's heading takes the focus as -1, as a place for the keyboard to start from: no ring round it */
+#view h1[tabindex="-1"]:focus { outline: none; }
 main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visible, .ibody:focus-visible, .pallist:focus-visible, .pklist:focus-visible, .rawsse:focus-visible { outline: none; }
 /* A pane that takes the focus to be scrolled by keyboard (it holds no control of its own) says it has it. */
 .vbody[tabindex="0"]:focus-visible, .tscroll[tabindex="0"]:focus-visible, .hbody[tabindex="0"]:focus-visible, .dialog > .db[tabindex="0"]:focus-visible, .drawer pre:focus-visible, .codebox:focus-visible, pre.report:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
@@ -394,8 +396,8 @@ table.t tbody tr.wspace { cursor: default; }
 
 table.t tbody tr.wspace:hover td { background: none; }
 
-.rid a.rlink { text-decoration: none; color: inherit; }
-.rid a.rlink:hover code { text-decoration: underline; text-underline-offset: 3px; }
+/* a row's link names what the row opens, for the keyboard, a screen reader and a new tab: it looks as its words would */
+a.rowa { color: inherit; text-decoration: none; }
 
 .num.left, table.t td.num.left { text-align: left; }
 

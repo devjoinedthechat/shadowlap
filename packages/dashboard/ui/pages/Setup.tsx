@@ -1,3 +1,4 @@
+import { headingRef } from '../focus-manager.js';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { JOB_KINDS, type JobView } from '../api.js';
 import { ConfirmDialog } from '../components/Dialog.js';
@@ -329,7 +330,7 @@ function SetupHeader({ view, onSkip }: { view: SetupView; onSkip: (() => void) |
         <Eyebrow>
           {view.project.name} · <code>{view.project.path}</code>
         </Eyebrow>
-        <h1>{view.title}</h1>
+        <h1 ref={headingRef}>{view.title}</h1>
         <p>{view.intro}</p>
       </div>
       {view.skip ? (

@@ -84,7 +84,7 @@ describe('a focus ring in a pane that scrolls', () => {
 
 // ---- the skip link
 
-describe('Skip to the page', () => {
+describe('Skip to content', () => {
   it('is the first stop for Tab, and takes the focus past the top bar and the sidebar to the page', async () => {
     r = await render(
       createElement(
@@ -97,7 +97,7 @@ describe('Skip to the page', () => {
       ),
     );
     await r.press('Tab');
-    expect(focus(r)).toBe('a Skip to the page');
+    expect(focus(r)).toBe('a Skip to content');
     const skip = r.focused();
     expect(skip.getAttribute('href')).toBe('#view');
     await r.click(skip);

@@ -5,6 +5,7 @@ import { connStart, connStep, feedCursor, feedMoves, onTick, secondsLeft, withLi
 import { useLatest } from './hooks.js';
 import { afterPollError, endToast, jobStatus, jobTitle } from './jobs.js';
 import { endedRecordings, recordingToast } from './live.js';
+import { handOnAtEnd, notingJobFrom } from './focus-manager.js';
 import type { PaletteGroup } from './palette.js';
 import { previewState } from './router.js';
 import { errorText, type ToastAction, type ToastKind } from './toast.js';
@@ -28,6 +29,8 @@ export interface PaletteCommand {
   about?: { text: string; from: string } | null;
   /** Words it matches that don't show (a run's kind, command and labels). */
   match?: string;
+  /** Its own key, one word per key (`g o`, `f`), set by what the row does: shown while single-key shortcuts are on. */
+  key?: string | undefined;
   run: () => void;
 }
 
@@ -525,6 +528,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
         // A job whose drawer was closed early still says how it ended.
         const shown = jobsNow.current.find((w) => w.job.id === first.id);
         if (!shown?.open) toast(endToast(next, all), jobStatus(next, all).tone === 'err' ? 'error' : 'notice');
+        else handOnAtEnd(next.id);
       };
       setTimeout(() => void step(), 200);
     },
@@ -533,7 +537,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
 
   const watchJob = useCallback(
     (p: Promise<JobView>) => {
-      p.then(
+      notingJobFrom(p).then(
         (job) => {
           setJobs((list) => [...list.filter((w) => w.job.id !== job.id && !((w.job.done || w.lost) && !w.open)).map((w) => ({ ...w, open: false })), { job, lines: job.lines, open: true }].slice(-8));
           follow(job);
