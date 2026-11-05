@@ -195,7 +195,8 @@ describe('the lists name a run by its id, with its about line', () => {
     const html = renderToStaticMarkup(createElement(RunPicker, { label: 'Run A', value: REC, runs: [listed(REC), forkRun], onPick: () => undefined }));
     expect(html).toContain('class="rpick"');
     expect(html).toContain('aria-haspopup="listbox"');
-    expect(html).toContain('<code class="pid">01M5GRX4VY</code>');
+    // In the form of the list under it: its first six characters quieter.
+    expect(html).toContain('<code class="rnm rl pid">01M5GRX4VY</code>');
     expect(html).toContain('data-about="Ticket T-8812 from customer C-311: order A-1042 ($240) arrived damaged"');
     expect(html).not.toContain('<select');
   });

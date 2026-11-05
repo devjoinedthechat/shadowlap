@@ -25,7 +25,7 @@ export function RunPicker({ label, value, runs, onPick }: { label: string; value
   return (
     <span className="pick" ref={box}>
       <button className="rpick" type="button" aria-haspopup="listbox" aria-expanded={menu.open} aria-label={`${label}: ${shortId(id)}${shown?.about ? `, ${shown.about.text}` : ''}`} onClick={(e) => menu.toggle(e.currentTarget)}>
-        <code className="pid">{shortId(id)}</code>
+        <Id id={shortId(id)} list className="pid" />
         <AboutLine about={shown?.about} className="pab" />
         <Icon name="caret" className="caret" />
       </button>
