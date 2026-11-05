@@ -6,7 +6,7 @@ import { Page } from '../components/Page.js';
 import { ShowMore } from '../components/Table.js';
 import { pageUp } from '../focus-manager.js';
 import { compactPath, viewerTimeZone } from '../format.js';
-import { useLatest, useLoad } from '../hooks.js';
+import { useLatest, useLoad, type Loaded } from '../hooks.js';
 import { shownRuns } from '../list-keys.js';
 import { sentence } from '../normalize.js';
 import { addPaletteSource } from '../palette-sources.js';
@@ -24,14 +24,14 @@ import { useMarkRun } from '../components/RunKey.js';
 import type { RunMark } from '../runkey.js';
 import { RunsTable, type TableRun } from '../runspage/RunsTable.js';
 import { noteShownRuns } from '../runspage/shown-runs.js';
-import { warmingLine, withFirstPage } from '../runspage/rows.js';
+import { tableNote, withFirstPage } from '../runspage/rows.js';
 import { bundlesAttempts, isAttempt, matchesChip, matchesText, RUN_CHIPS, sortRuns, type RunChip, type RunSort } from '../runs.js';
 import { projectOf } from '../shell/ProjectBlock.js';
 import { keyColumn } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import { useTeamStore } from '../teamstore.js';
 import { errorText } from '../toast.js';
-import type { BisectChoices, ChipCounts, RunsPage as RunsPageView, RunsPageRow, RunsQuery } from '../types.js';
+import type { BisectChoices, ChipCounts, RunsByDay, RunsPage as RunsPageView, RunsPageRow, RunsQuery } from '../types.js';
 import { ACTIONS } from '../labels.js';
 
 /**
@@ -173,12 +173,14 @@ interface TableState {
   next: string | null;
   total: number;
   chipCounts: ChipCounts | null;
-  warming: { done: number; total: number } | null;
+  warming: NonNullable<RunsPageView['warming']> | null;
+  /** While the search index is behind for the filter's words: how many runs it has yet to read. */
+  indexing: NonNullable<RunsPageView['indexing']> | null;
   error: Error | null;
   loaded: boolean;
 }
 
-const emptyTable = (key: string): TableState => ({ key, rows: [], next: null, total: 0, chipCounts: null, warming: null, error: null, loaded: false });
+const emptyTable = (key: string): TableState => ({ key, rows: [], next: null, total: 0, chipCounts: null, warming: null, indexing: null, error: null, loaded: false });
 const asError = (err: unknown) => (err instanceof Error ? err : new Error(String(err)));
 
 /**
@@ -196,7 +198,7 @@ function useRunsTable(client: Client, query: RunsQuery, key: string, refresh: st
   useEffect(() => {
     let alive = true;
     loadRows(client, queryNow.current, limitNow.current).then(
-      (p) => alive && setState({ key, rows: p.runs, next: p.next, total: p.total, chipCounts: p.chipCounts, warming: p.warming ?? null, error: null, loaded: true }),
+      (p) => alive && setState({ key, rows: p.runs, next: p.next, total: p.total, chipCounts: p.chipCounts, warming: p.warming ?? null, indexing: p.indexing ?? null, error: null, loaded: true }),
       (err: unknown) => alive && setState((s) => ({ ...s, error: asError(err), loaded: true })),
     );
     return () => {
@@ -215,7 +217,7 @@ function useRunsTable(client: Client, query: RunsQuery, key: string, refresh: st
       (first) =>
         alive &&
         setState((s) => {
-          const fresh = { total: first.total, chipCounts: first.chipCounts, warming: first.warming ?? null, error: null, loaded: true };
+          const fresh = { total: first.total, chipCounts: first.chipCounts, warming: first.warming ?? null, indexing: first.indexing ?? null, error: null, loaded: true };
           // The rows held are another's (their own read failed, or is still on its way): the first page stands for them.
           if (s.key !== key) return { ...s, ...fresh, key, rows: first.runs, next: first.next };
           const merged = withFirstPage(s.rows, first.runs);
@@ -248,11 +250,31 @@ function useRunsTable(client: Client, query: RunsQuery, key: string, refresh: st
   }, [client, key, limit, state.loaded, state.key, state.next, state.rows.length, queryNow]);
 
   useEffect(() => {
-    if (!state.warming) return;
-    const t = setTimeout(() => setNudge((n) => n + 1), 1500);
+    if (!state.warming && !state.indexing) return;
+    const t = setTimeout(() => setNudge((n) => n + 1), ASK_AGAIN_MS);
     return () => clearTimeout(t);
-  }, [state.warming]);
+  }, [state.warming, state.indexing]);
   return state;
+}
+
+/** While the server is still working out what the filter reads, or the search index is behind: how often what is shown is asked for again. */
+const ASK_AGAIN_MS = 1500;
+
+/**
+ * The runs per day for the twelve weeks, read for the same filter as the table, and asked for again
+ * while what that filter reads is still being worked out, as the table is (`useRunsTable`): the two
+ * count the same runs once both are.
+ */
+function useRunsDays(client: Client, q: { tz: string; types: readonly string[]; q: string }, refresh: string): Loaded<RunsByDay> {
+  const load = useLoad(() => client.runsByDay({ ...q, weeks: 12 }), 'runs-days', refresh);
+  const behind = load.data?.warming ?? load.data?.indexing ?? null;
+  const { reload } = load;
+  useEffect(() => {
+    if (!behind) return;
+    const t = setTimeout(reload, ASK_AGAIN_MS);
+    return () => clearTimeout(t);
+  }, [behind, reload]);
+  return load;
 }
 
 const CHIP_TYPES: Readonly<Record<RunChip, readonly string[]>> = { all: [], recording: ['recording'], fork: ['fork'], clean: ['clean'], test: ['test'], capture: ['capture'], failed: ['failed'], local: ['local'] };
@@ -340,7 +362,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   }, []);
 
   const types = CHIP_TYPES[chip];
-  const cal = useLoad(() => client.runsByDay({ tz, weeks: 12, types, q }), 'runs-days', `${tick}|${chip}|${q}`);
+  const cal = useRunsDays(client, { tz, types, q }, `${tick}|${chip}|${q}`);
   const calDays = cal.data?.days ?? null;
   const range = calDays ? pickedRange(calDays, days) : null;
   // The instants the days picked span: the calendar's own once it is in, else worked out here, so the
@@ -372,7 +394,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   const onMark = useCallback((r: TableRun, m: RunMark, from?: HTMLElement) => markRun(r.runId, rowsNow.current.get(r.runId)?.labels ?? r.labels, m, from), [markRun, rowsNow]);
   useRunsKeyNotes({ client, query: tableQuery, rows, next: table.next, picked: picked.size, clear: () => setPicked(new Map()) });
   const counts: ChipCounts | null = table.loaded ? table.chipCounts : null;
-  const warming = warmingLine(table.warming, { filtered: !!q.trim(), bySpent: sort === 'spent' });
+  const warming = tableNote(table, { filtered: !!q.trim(), bySpent: sort === 'spent' });
 
   // What the bar knows of a run picked follows the table: a recording that ends can then be deleted,
   // and a delete names the attempts a blame added meanwhile.

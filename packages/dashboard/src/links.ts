@@ -59,6 +59,9 @@ const DAY = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 /** The most words a link's filter keeps, as the field takes them. */
 export const RUNS_QUERY_MAX = 200;
 
+/** A word this long or longer is looked for in what runs recorded too: the palette's "In recorded data" and the Runs filter alike. */
+export const RECORDED_MIN_CHARS = 3;
+
 /** The filter field's terms (`filterTerms`): its words, and what each of its keys asks for. */
 export interface FilterTerms {
   /** Lowercased: each must be in a run's id, about line, labels, command, source, revision or kind; a quoted run of words is one. */

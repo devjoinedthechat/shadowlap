@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { NO_COMMAND, Store } from '@shadowlap/engine';
 import { loadRunIndex } from '../src/run-index.js';
-import { fixedByOf } from '../src/runs-filter.js';
+import { judgeFor } from '../src/run-outcome.js';
+import { fixedByOf, termReads, type JudgeRun } from '../src/runs-filter.js';
 import { listRunsPage, recentRuns, runsByDay, type RunRow } from '../src/runs-list.js';
 import { addRun, DAY, HOUR } from './read-model-store.js';
 
@@ -21,7 +22,7 @@ const id: Record<string, string> = {};
 beforeAll(() => {
   store = Store.open(':memory:');
   const imported = (verdict: 'passed' | 'failed', at: number) =>
-    addRun(store, { startedAt: at, argv: ['shadowlap:capture'], calls: 'll', meta: { imported: { at, from: '/work/cap.jsonl' }, judged: { rules: 'r', at, verdict, why: null, checks: [verdict === 'failed' ? failedCheck : { ...failedCheck, status: 'passed', ok: true, detail: null }] } } as never });
+    addRun(store, { startedAt: at, argv: [NO_COMMAND], calls: 'll', meta: { imported: { at, from: '/work/cap.jsonl' }, covers: ['api'], judged: { rules: 'r', at, verdict, why: null, checks: [verdict === 'failed' ? failedCheck : { ...failedCheck, status: 'passed', ok: true, detail: null }] } } as never });
   id.capFailed = imported('failed', NOW - 2 * HOUR);
   id.capPassed = imported('passed', NOW - 3 * HOUR);
   id.pack = addRun(store, { startedAt: NOW - 5 * DAY, calls: 'llll', meta: { imported: { at: NOW - 5 * DAY, from: 'goldens/refund' } } });
@@ -100,5 +101,36 @@ describe('a failed test replay its golden passed since', () => {
     } finally {
       local.close();
     }
+  });
+});
+
+describe('the filter’s status:', () => {
+  const ids = (q: string) => listRunsPage(store, { limit: 500, q, judge: judgeFor(store, null) }).runs.map((r) => r.runId);
+
+  it('reads a capture’s kept verdict, and a failed test replay fixed since as no verdict, as Status says them', () => {
+    expect(ids('status:failed').sort()).toEqual([id.capFailed, id.still].sort());
+    expect(ids('status:passed')).toContain(id.capPassed);
+    expect(ids('status:passed')).not.toContain(id.diverged);
+    expect(runsByDay(store, { tz: 'UTC', now: NOW, q: 'status:failed', judge: judgeFor(store, null) }).totals.runs).toBe(2);
+  });
+
+  it('judges the runs whose calls it must read while they fit its budget, newest first, and says how many it knows', () => {
+    const index = loadRunIndex(store);
+    const read: string[] = [];
+    // Each run's calls must be read to judge it.
+    const judge: JudgeRun = (runId, quick) => {
+      if (quick) return undefined;
+      read.push(runId);
+      return { by: 'own', verdict: 'failed' };
+    };
+    const reads = termReads(store, index, { q: 'status:failed', judge }, 5);
+    const runs = index.runs.filter((r) => !r.bundled);
+    const matched = runs.filter((r) => reads.verdict!(r) === 'failed').map((r) => r.runId);
+    // 4 calls, then 1: the runs between are past what was left, and match nothing yet.
+    expect(read).toEqual([id.passing, id.still]);
+    expect(matched).toEqual([id.passing, id.still]);
+    expect(reads.warming()).toEqual({ done: 2, total: runs.length, what: 'verdicts' });
+    // Without a status: term nothing is judged.
+    expect(termReads(store, index, { q: 'refund', judge }, 5).verdict).toBeUndefined();
   });
 });

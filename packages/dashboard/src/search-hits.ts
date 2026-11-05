@@ -1,5 +1,6 @@
 import { indexSearch, searchExpression, searchIndexBehind, type CallKind, type SearchHit, type SearchIndexRun, type StoreOf } from '@shadowlap/engine';
 import { serverIdle } from './idle.js';
+import { RECORDED_MIN_CHARS } from './links.js';
 import { keepingIndex, loadRunIndex, type RunIndex } from './run-index.js';
 
 /**
@@ -108,6 +109,38 @@ export function searchRecorded(store: StoreOf<'readModels'>, query: string, limi
   const of = new Map(attempts.filter((r) => !found.has(r.attemptOf!)).map((r) => [r.runId, r.attemptOf!]));
   if (!of.size) return own;
   return [...own, ...hits(store, ATTEMPTS_SQL, match, [...of.keys()], limit - own.length, (id) => of.get(id) ?? null)];
+}
+
+const recordedKept = new WeakMap<object, Map<string, ReadonlySet<string>>>();
+/** The words a thread keeps the runs of, the last asked: the table and the row of days ask the same ones together. */
+const RECORDED_KEPT = 64;
+const NONE: ReadonlySet<string> = new Set();
+
+/**
+ * Every run whose recorded content holds `word` (a quoted run of words, in that order), as the
+ * palette's "In recorded data" finds it: whole words, from RECORDED_MIN_CHARS characters. A hit in an
+ * attempt counts for the run it is bundled under too, as the palette shows it. Kept on this thread by
+ * the word and where the index stands (`at`, with how far behind it is), so the Runs table and its
+ * row of days asking the same words read the index once.
+ */
+export function recordedRuns(store: StoreOf<'readModels'>, word: string, index: RunIndex, at = ''): ReadonlySet<string> {
+  const text = word.replace(/"/g, ' ').trim();
+  if (text.length < RECORDED_MIN_CHARS) return NONE;
+  const key = `${index.revision}|${at}|${text}`;
+  let kept = recordedKept.get(store);
+  if (!kept) recordedKept.set(store, (kept = new Map<string, ReadonlySet<string>>()));
+  const had = kept.get(key);
+  if (had) return had;
+  const runs = new Set<string>();
+  for (const row of store.query(`SELECT DISTINCT run_id AS run FROM search_docs WHERE search_docs MATCH ?`, `"${text}"`)) {
+    const runId = String(row.run);
+    runs.add(runId);
+    const r = index.byId.get(runId);
+    if (r?.bundled && r.attemptOf) runs.add(r.attemptOf);
+  }
+  if (kept.size >= RECORDED_KEPT) kept.delete(kept.keys().next().value!);
+  kept.set(key, runs);
+  return runs;
 }
 
 // ---- the index, brought up to date beside the requests ----

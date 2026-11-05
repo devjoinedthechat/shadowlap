@@ -6,6 +6,8 @@
  * shows). No DOM here: the tests import it.
  */
 
+import { indexingNote } from '../palette.js';
+
 /** The rows after the first page was read again: it, then those read before that come after it; `kept` counts those. */
 export function withFirstPage<R extends { runId: string }>(had: readonly R[], first: readonly R[]): { rows: R[]; kept: number } {
   const last = first.at(-1);
@@ -17,11 +19,20 @@ export function withFirstPage<R extends { runId: string }>(had: readonly R[], fi
   return { rows: [...first, ...rest], kept: rest.length };
 }
 
-/** What the table says while the server is still working out what its filter or its sort reads. */
-export function warmingLine(w: { done: number; total: number } | null | undefined, o: { filtered: boolean; bySpent: boolean }): string | null {
+/**
+ * What the table says while the server is still working out what its filter or its sort reads: the
+ * verdicts `status:` reads (`what`), the about lines the filter's words match, or what runs spent.
+ */
+export function warmingLine(w: { done: number; total: number; what?: 'verdicts' } | null | undefined, o: { filtered: boolean; bySpent: boolean }): string | null {
   if (!w || w.done >= w.total) return null;
   const of = `${w.done.toLocaleString('en-US')} of ${w.total.toLocaleString('en-US')}`;
+  if (w.what === 'verdicts') return `The verdicts of ${of} runs are known so far: runs among the rest may match too. The table fills in as they are worked out.`;
   if (o.filtered) return `The about lines of ${of} runs are known so far: runs among the rest may match too. The table fills in as they are worked out.`;
   if (o.bySpent) return `What ${of} runs spent is added up so far: the rest may sort higher. The table reorders as they are.`;
   return null;
+}
+
+/** The line under the table's head while what it shows is still coming: what is worked out (`warmingLine`), else what the search index has yet to read for the filter's words. */
+export function tableNote(t: { warming: Parameters<typeof warmingLine>[0]; indexing?: { runs: number; of: number } | null }, o: { filtered: boolean; bySpent: boolean }): string | null {
+  return warmingLine(t.warming, o) ?? indexingNote(t.indexing);
 }

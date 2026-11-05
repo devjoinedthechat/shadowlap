@@ -16,7 +16,8 @@ import { runCalls } from './run-calls.js';
 import { loadRunIndex } from './run-index.js';
 import { withExitCodes } from './exit-codes.js';
 import { NEXT_STEP_READS, nextStepRows, pageSteps, type NextStepWork } from './next-step.js';
-import { judgedRows, OUTCOME_READS, runJudged, type OutcomeWork } from './run-outcome.js';
+import { judgedRows, judgeFor, OUTCOME_READS, runJudged, type OutcomeWork } from './run-outcome.js';
+import { RUNS_FAILURES_READS } from './runs-failures.js';
 import { analyseRun } from './run-page.js';
 import { asksFor, asksOf, warmProgress, warmRunStats } from './run-stats.js';
 import type { RunsPageRow } from './routes/runs-list.js';
@@ -81,8 +82,8 @@ type CoreJob =
   | { kind: 'compare'; a: string; b: string; cwd: string | null }
   /** What Compare shows first while the whole comparison is worked out: the identical prefix and the first request that differs (compare.ts `compareHead`). */
   | { kind: 'compare-head'; a: string; b: string }
-  | { kind: 'runs-page'; options: Omit<RunsPageOptions, 'localRuns'>; team: TeamStoreInput | null; outcome?: OutcomeWork | null; next?: NextStepWork | null }
-  | { kind: 'runs-days'; options: Omit<RunsByDayOptions, 'localRuns'>; team: TeamStoreInput | null }
+  | { kind: 'runs-page'; options: Omit<RunsPageOptions, 'localRuns' | 'judge'>; team: TeamStoreInput | null; outcome?: OutcomeWork | null; next?: NextStepWork | null }
+  | { kind: 'runs-days'; options: Omit<RunsByDayOptions, 'localRuns' | 'judge'>; team: TeamStoreInput | null; outcome?: OutcomeWork | null }
   | { kind: 'recent'; read: ReadOptions; outcome?: OutcomeWork | null; next?: NextStepWork | null }
   /** What a fork did differently from its parent (fork-differences.ts), masked by the project's normalizers. */
   | { kind: 'differences'; runId: string; normalizers: Normalizer[] }
@@ -169,9 +170,10 @@ async function summary(store: Store, w: SummaryWork, whole: boolean): Promise<Re
   return answer(overviewSummary(store, { ...when, ...budget, ...(w.prices ? { prices: w.prices } : {}), goldens: w.goldens, teamStore: status ? { name: status.name, onlyLocal: status.onlyLocal, setup } : null, ...(patchInTree ? { patchInTree } : {}), ...(w.next ? { next: w.next } : {}) }));
 }
 
-function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns'>, team: TeamStoreInput | null, whole: boolean, outcome: OutcomeWork | null, next: NextStepWork | null): ReadAnswer {
+function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns' | 'judge'>, team: TeamStoreInput | null, whole: boolean, outcome: OutcomeWork | null, next: NextStepWork | null): ReadAnswer {
   const key = teamKey(store, team);
-  const page = listRunsPage(store, { ...options, known: !whole, localRuns: key ? localRunSet(store, key) : null });
+  // `status:` judges the runs it reaches by the same work as the rows.
+  const page = listRunsPage(store, { ...options, known: !whole, localRuns: key ? localRunSet(store, key) : null, judge: judgeFor(store, outcome) });
   // With a team store, each row says whether it, or an attempt bundled under it, is only here: the
   // `local` tag, and what Push in the bulk bar sends.
   let runs: RunsPageRow[] = page.runs;
@@ -273,7 +275,7 @@ const CORE_READS: ReadTable<CoreJob> = {
   'runs-page': (store, job, { whole }) => runsPage(store, job.options, job.team, whole, job.outcome ?? null, job.next ?? null),
   'runs-days': (store, job, { whole }) => {
     const key = job.options.types?.includes('local') ? teamKey(store, job.team) : null;
-    return answer(runsByDay(store, { ...job.options, known: !whole, localRuns: key ? localRunSet(store, key) : null }), { tagged: true });
+    return answer(runsByDay(store, { ...job.options, known: !whole, localRuns: key ? localRunSet(store, key) : null, judge: judgeFor(store, job.outcome ?? null) }), { tagged: true });
   },
   recent: (store, job, { whole }) => {
     // The rows' totals as far as they are known: the sidebar asks again while some are warming.
@@ -327,7 +329,7 @@ const CORE_READS: ReadTable<CoreJob> = {
  * says how one is written). A feature's table is one line here, and a kind two of them register stops
  * the dashboard as it loads.
  */
-const READ_TABLES = [CORE_READS, OUTCOME_READS, NEXT_STEP_READS] as const;
+const READ_TABLES = [CORE_READS, OUTCOME_READS, NEXT_STEP_READS, RUNS_FAILURES_READS] as const;
 
 /** A job a read-model thread answers: of a kind a table registers, as that table's handler takes it. */
 export type ReadJob = JobOf<(typeof READ_TABLES)[number]>;

@@ -6,7 +6,7 @@ import { aboutsOf, aboutsWithin, knownAbouts } from './run-about.js';
 import { classifiable, depthOf, fixedOutcome, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
 import type { NextStepRow } from './next-step.js';
 import type { RunJudged } from './run-outcome.js';
-import { fixedByOf, listFailed } from './runs-filter.js';
+import { fixedByOf, listFailed, termReads, type JudgeRun, type TermReads, type TermsWarming } from './runs-filter.js';
 import { callTotals, callTotalsWithin, knownSpent, priced, spentOf, totalsKnown, type StatsOptions } from './run-stats.js';
 
 /**
@@ -41,7 +41,11 @@ export interface RunFilter {
   /** Runs that started before this instant (epoch ms). */
   to?: number | null;
   types?: readonly RunType[];
-  /** The filter field: every word must appear in the run's id, about line, labels, command, source or revision; `label:<name>` is that label exactly. */
+  /**
+   * The filter field (links.ts `filterTerms`): every word must appear in the run's id, about line,
+   * labels, command, source or revision, or in what it recorded; `label:<name>` is that label
+   * exactly, `status:` its verdict as Status says it, `type:` its kind and `tool:` a tool it called.
+   */
   q?: string;
   /** List attempts as rows too. */
   includeAttempts?: boolean;
@@ -56,6 +60,8 @@ export interface RunFilter {
    * sorted by spent, the totals of runs it has yet to add up. What the dashboard asks for.
    */
   known?: boolean;
+  /** What `status:` judges a run by besides its index (run-outcome.ts `judgeFor`), read beside the server; without it, only what the index says. */
+  judge?: JudgeRun | null;
 }
 
 export interface RunsPageOptions extends RunFilter, StatsOptions {
@@ -132,10 +138,12 @@ export interface RunsPage {
   /**
    * Set while what the page is ordered or filtered by isn't all known yet, and is being worked out
    * beside the server: the about lines the filter field matches (`done` of `total` recordings), or
-   * what runs spent for the sort by spent. Matches among the rest may be missing, or out of place;
-   * asked again, the page has more of them.
+   * what runs spent for the sort by spent, or with `what`, the verdicts `status:` reads. Matches
+   * among the rest may be missing, or out of place; asked again, the page has more of them.
    */
-  warming?: { done: number; total: number };
+  warming?: { done: number; total: number; what?: TermsWarming['what'] };
+  /** While the search index is behind for the filter's words: the runs it has yet to cover, of how many. Matches among them may follow. */
+  indexing?: { runs: number; of: number };
 }
 
 interface Matcher {
@@ -172,24 +180,31 @@ function aboutTexts(store: Store, index: RunIndex, runs: readonly IndexedRun[], 
   return { text: (r) => abouts.get(r.runId)?.text ?? '', pending: pending.size, of: abouts.size + pending.size };
 }
 
-function matcher(filter: RunFilter, aboutText: (r: IndexedRun) => string = () => '', fixed: ReadonlyMap<string, string> = NOT_FIXED): Matcher {
+/** What a matcher reads besides the index: each run's about line, the failed test replays fixed since, and what the filter's terms read (runs-filter.ts). */
+type MatchReads = Partial<Omit<TermReads, 'warming' | 'indexing'>> & { about?: (r: IndexedRun) => string; fixed?: ReadonlyMap<string, string> };
+
+function matcher(filter: RunFilter, reads: MatchReads = {}): Matcher {
   const types = filter.types ?? [];
   const kinds = new Set(types.flatMap((t) => (t === 'failed' || t === 'local' ? [] : TYPE_KINDS[t])));
   const failedOnly = types.includes('failed');
   const localOnly = types.includes('local');
   const local = filter.localRuns ?? null;
   const { words, labels, types: typeTerms, statuses, tools } = filterTerms(filter.q);
-  // What the index alone can't tell matches no run: `status:` needs each run's verdict, `tool:` its tool calls.
-  const unread = statuses.length > 0 || tools.length > 0;
+  const { about = () => '', fixed = NOT_FIXED, verdict, recorded } = reads;
   // `type:` narrows as a chip does, by the kinds it names: with a chip too, each narrows the other.
   const typed = (r: IndexedRun) => typeTerms.every((t) => Object.hasOwn(TYPE_KINDS, t) && TYPE_KINDS[t as keyof typeof TYPE_KINDS].includes(r.kind));
+  // `status:` reads the verdict Status says, and a run not judged yet matches none until it is; `tool:`, a tool it called by its start.
+  const termsRead = (r: IndexedRun) => statuses.every((v) => !!v && verdict?.(r) === v) && tools.every((t) => !!reads.tools?.(r).some((n) => n.startsWith(t)));
   // A run's about line counts, and so does the kind Runs words it as (`clean replay`, `fork @17`), as
-  // an exported copy's filter reads them (ui/runs.ts `matchesText`); a `label:` term, the label alone.
+  // an exported copy's filter reads them (ui/runs.ts `matchesText`), and what it recorded, each word
+  // apart; a `label:` term, the label alone.
   const text = (r: IndexedRun) => {
-    if (unread || !labels.every((l) => r.meta.labels.includes(l))) return false;
-    if (!words.length) return true;
-    const hay = [r.runId, aboutText(r), ...r.meta.labels, r.argv.join(' '), r.source ?? '', r.codeVersion ?? '', r.label].join(' ').toLowerCase();
-    return words.every((w) => hay.includes(w));
+    if (!labels.every((l) => r.meta.labels.includes(l))) return false;
+    if (words.length) {
+      const hay = [r.runId, about(r), ...r.meta.labels, r.argv.join(' '), r.source ?? '', r.codeVersion ?? '', r.label].join(' ').toLowerCase();
+      if (!words.every((w) => hay.includes(w) || !!recorded?.(w, r))) return false;
+    }
+    return termsRead(r);
   };
   const scope = (r: IndexedRun) => (filter.includeAttempts || !r.bundled) && (filter.from == null || r.startedAt >= filter.from) && (filter.to == null || r.startedAt < filter.to);
   // Local narrows what failures are counted out of, as a kind does: the calendar's "8 of 12 local runs".
@@ -198,12 +213,23 @@ function matcher(filter: RunFilter, aboutText: (r: IndexedRun) => string = () =>
   return { scope, base, failed, matches: (r) => base(r) && (!failedOnly || failed(r)) };
 }
 
+/** What the filter reads for one read of these runs (`MatchReads`), with what is still being worked out. */
+function filterReads(store: Store, index: RunIndex, all: readonly IndexedRun[], filter: RunFilter): { reads: MatchReads; terms: TermReads; abouts: { pending: number; of: number } } {
+  const texts = aboutTexts(store, index, all.filter(matcher(filter).scope), filter);
+  const terms = termReads(store, index, filter, filter.known ? ROW_CALLS_BUDGET : Infinity);
+  return { reads: { ...terms, about: texts.text, fixed: fixedByOf(store, index) }, terms, abouts: texts };
+}
+
+/** What the filter waits for, the about lines first: the page says it and asks again (`RunsPage.warming`). */
+function filterWarming(f: ReturnType<typeof filterReads>): RunsPage['warming'] | null {
+  return f.abouts.pending ? { done: f.abouts.of - f.abouts.pending, total: f.abouts.of } : f.terms.warming();
+}
+
 /** Every run the filter matches, newest first, as the table lists them. */
 export function matchingRuns(store: Store, filter: RunFilter): IndexedRun[] {
   const index = loadRunIndex(store);
   const all = withLiveness(store, index);
-  const scoped = all.filter(matcher(filter).scope);
-  return all.filter(matcher(filter, aboutTexts(store, index, scoped, filter).text, fixedByOf(store, index)).matches);
+  return all.filter(matcher(filter, filterReads(store, index, all, filter).reads).matches);
 }
 
 /**
@@ -325,8 +351,8 @@ export function listRunsPage(store: Store, options: RunsPageOptions = {}): RunsP
   const all = withLiveness(store, index);
   const sort = options.sort ?? 'when';
   const limit = Math.max(1, Math.min(500, Math.floor(options.limit ?? 50) || 50));
-  const texts = aboutTexts(store, index, all.filter(matcher(options).scope), options);
-  const m = matcher(options, texts.text, fixedByOf(store, index));
+  const f = filterReads(store, index, all, options);
+  const m = matcher(options, f.reads);
   const matching = all.filter(m.matches);
   // By spent, from what is known: the runs whose totals aren't, the warm-up works out meanwhile.
   const finished = sort === 'spent' ? matching.filter((r) => r.status !== 'running') : [];
@@ -350,13 +376,14 @@ export function listRunsPage(store: Store, options: RunsPageOptions = {}): RunsP
   const page = keyed.slice(start, start + limit);
   const last = page[page.length - 1];
   const listed = rows(store, index, page.map((x) => x.r), options);
-  const warming = texts.pending ? { done: texts.of - texts.pending, total: texts.of } : totals && unknownSpent ? totals : rowsWarming(listed);
+  const warming = filterWarming(f) ?? (totals && unknownSpent ? totals : rowsWarming(listed));
   return {
     runs: listed,
     total: matching.length,
     next: last && start + limit < keyed.length ? encodeCursor(last.k) : null,
     chipCounts: chipCounts(all, m.scope, options.localRuns ?? null, m.failed),
     ...(warming ? { warming } : {}),
+    ...(f.terms.indexing ? { indexing: f.terms.indexing } : {}),
   };
 }
 
@@ -530,8 +557,10 @@ export interface RunsByDay {
   /** Where the shades split: runs per busy day at the 25th, 50th and 75th percentile, or null with no runs. */
   thresholds: [number, number, number] | null;
   totals: { runs: number; failed: number; all: number; busiest: { day: string; runs: number } | null };
-  /** Set while the about lines the filter field matches aren't all known yet (`RunsPage.warming`). */
-  warming?: { done: number; total: number };
+  /** Set while what the filter field matches isn't all known yet: the about lines, or the verdicts `status:` reads (`RunsPage.warming`). */
+  warming?: RunsPage['warming'];
+  /** While the search index is behind for the filter's words (`RunsPage.indexing`). */
+  indexing?: { runs: number; of: number };
 }
 
 /** Runs per day for the calendar above the table, in the viewer's days. Throws a RangeError for an unknown time zone. */
@@ -544,8 +573,8 @@ export function runsByDay(store: Store, options: RunsByDayOptions = {}): RunsByD
   const out: DayCount[] = days.map((d) => ({ day: d.key, start: d.start, end: d.end, weekday: d.weekday, runs: 0, failed: 0, all: 0, level: 0, byKind: {}, byAuthor: {} }));
   const index = loadRunIndex(store);
   const all = withLiveness(store, index);
-  const texts = aboutTexts(store, index, all.filter(matcher(options).scope), options);
-  const m = matcher(options, texts.text, fixedByOf(store, index));
+  const f = filterReads(store, index, all, options);
+  const m = matcher(options, f.reads);
   for (const r of all) {
     const i = dayIndex(days, r.startedAt);
     if (i < 0 || !m.base(r)) continue;
@@ -570,7 +599,8 @@ export function runsByDay(store: Store, options: RunsByDayOptions = {}): RunsByD
     totals.all += d.all;
     if (d.runs && (!busiest || d.runs > busiest.runs)) busiest = { day: d.day, runs: d.runs };
   }
-  return { tz, weeks, today: today.key, from: days[0]!.start, to: today.end, days: out, thresholds, totals: { ...totals, busiest }, ...(texts.pending ? { warming: { done: texts.of - texts.pending, total: texts.of } } : {}) };
+  const warming = filterWarming(f);
+  return { tz, weeks, today: today.key, from: days[0]!.start, to: today.end, days: out, thresholds, totals: { ...totals, busiest }, ...(warming ? { warming } : {}), ...(f.terms.indexing ? { indexing: f.terms.indexing } : {}) };
 }
 
 // ---- counts and bulk actions ----

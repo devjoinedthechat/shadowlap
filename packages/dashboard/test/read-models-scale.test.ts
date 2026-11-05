@@ -6,7 +6,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Store, type RunMeta } from '@shadowlap/engine';
 import { overviewSummary } from '../src/overview.js';
 import { asksRead, cachesRead, runsRead, warmRunStats } from '../src/run-stats.js';
+import { loadRunIndex } from '../src/run-index.js';
 import { listRunsPage, recentRuns, runsByDay } from '../src/runs-list.js';
+import { toolsCalled } from '../src/runs-filter.js';
+import { recordedRuns } from '../src/search-hits.js';
 
 /**
  * The read models at scale: 5,000 runs averaging 60 calls, one of them 1,200 calls long, every one
@@ -356,5 +359,29 @@ describe('read models at scale', () => {
 
     const summary = timed((s) => overviewSummary(s, { tz: 'Europe/Berlin', now: NOW }), 1);
     expect([summary.read, summary.caches]).toEqual([0, 0]);
+  }, TIMEOUT);
+
+  it('finds the runs a word every run recorded is in, and the tools each run called, each in less than a plain read of every call', () => {
+    const plain = plainRead();
+    // The search index as it holds what tool calls were given, a document a call: a word in every run, in half its calls.
+    const store = Store.open(path);
+    try {
+      for (const [runId, n] of lengths) store.replaceSearchDocs(runId, n, 'completed', Array.from({ length: Math.floor(n / 2) }, (_, i) => ({ callNo: 2 * i + 2, field: 'input', text: `lookup_order {"order":"A-${1000 + i}","why":"refund check"}` })));
+    } finally {
+      store.close();
+    }
+    const word = timed((s) => {
+      const index = loadRunIndex(s);
+      const c0 = process.cpuUsage();
+      const runs = recordedRuns(s, 'refund', index);
+      const c = process.cpuUsage(c0);
+      return { runs: runs.size, cpu: (c.user + c.system) / 1000 };
+    });
+    const tools = timed((s) => toolsCalled(s));
+    process.stdout.write(`over ${RUNS} runs: the ${word.out.runs} a word is recorded in ${Math.round(word.out.cpu)} ms CPU, the tools each called ${ms(tools)}\n`);
+    expect(word.out.runs).toBe([...lengths.values()].filter((n) => n >= 2).length);
+    expect(tools.out.size).toBe(word.out.runs);
+    expect(word.out.cpu, `the word took ${Math.round(word.out.cpu)} ms CPU, ${(word.out.cpu / plain).toFixed(2)} times a plain read of every call`).toBeLessThan(plain);
+    expect(tools.cpu, `the tools took ${ms(tools)}, ${(tools.cpu / plain).toFixed(2)} times a plain read of every call`).toBeLessThan(plain);
   }, TIMEOUT);
 });

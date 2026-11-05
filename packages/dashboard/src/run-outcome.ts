@@ -28,6 +28,7 @@ import { lookupRun, noSuchRun } from './api.js';
 import { answer, failed, type ReadTable } from './read-registry.js';
 import { runCalls } from './run-calls.js';
 import { loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
+import type { JudgeRun } from './runs-filter.js';
 
 /**
  * A run's outcome by checks, as its status says it everywhere (A13, E26): the run payload and every
@@ -354,6 +355,13 @@ export function judgedRows<R extends { runId: string; judged?: RunJudged | null 
     }
     return j === undefined ? row : { ...row, judged: j };
   });
+}
+
+/** What the run lists' `status:` judges a run by (runs-filter.ts `JudgeRun`): `judgeRun` with the work parsed once, `quick` reading no call. */
+export function judgeFor(store: Store, work: OutcomeWork | null): JudgeRun {
+  const index = loadRunIndex(store);
+  const w = parseWork(work);
+  return (runId, quick) => judgeRun(store, index, runId, w, { quick });
 }
 
 /** The job this module's table answers: one run's outcome by checks, whole, each check with it. */

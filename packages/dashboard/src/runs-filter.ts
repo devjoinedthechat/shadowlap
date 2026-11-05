@@ -1,11 +1,15 @@
-import type { RunRecord, StoreOf, TestResult } from '@shadowlap/engine';
+import type { RunRecord, Store, StoreOf, TestResult } from '@shadowlap/engine';
+import { filterTerms, RECORDED_MIN_CHARS } from './links.js';
 import type { IndexedRun, RunIndex } from './run-index.js';
+import { verdictOf, type RunVerdict, type VerdictJudged } from './run-verdict.js';
+import { recordedRuns, searchBehind } from './search-hits.js';
 
 /**
- * What the run lists read besides the index's own fields to say which runs failed: a test replay
+ * What the run lists read besides the index's own fields. To say which runs failed: a test replay
  * whose golden passed when it ran again since is fixed by that run (`fixed by <run>`), and a capture
  * failed by the verdict its import kept. The Failed chip, `types=failed`, the days' failures and each
- * row's `failed` read the same set (`listFailed`), so the chip, the bars and Status agree.
+ * row's `failed` read the same set (`listFailed`), so the chip, the bars and Status agree. And what
+ * the filter field's `status:`, `tool:` and words read (`termReads`), below.
  */
 
 /**
@@ -64,3 +68,99 @@ export function fixedByOf(store: StoreOf<'recording' | 'tests' | 'activity'>, in
  * reads the verdict it kept until its row is judged.
  */
 export const listFailed = (r: IndexedRun, fixed: ReadonlyMap<string, string>): boolean => (r.failed || r.meta.judged === 'failed') && !fixed.has(r.runId);
+
+// ---- what the filter field's terms read ----
+
+/**
+ * A run's outcome by checks, for `status:` (run-outcome.ts `judgeFor`): `quick` reads no call, and is
+ * undefined where judging the run would.
+ */
+export type JudgeRun = (runId: string, quick: boolean) => VerdictJudged | null | undefined;
+
+/** What the filter waits for besides the about lines (`RunsPage.warming`): `what` names it, for the words the page says. */
+export interface TermsWarming {
+  done: number;
+  total: number;
+  what: 'verdicts';
+}
+
+/** What the filter's terms read besides the index, for one read of the runs: each only when a term asks for it. */
+export interface TermReads {
+  /** A run's verdict as its Status says it (run-verdict.ts); undefined while it isn't worked out. */
+  verdict?: (r: IndexedRun) => RunVerdict | null | undefined;
+  /** The tools a run called, lowercased (`toolsCalled`). */
+  tools?: (r: IndexedRun) => readonly string[];
+  /** Whether what a run recorded holds the word (search-hits.ts `recordedRuns`). */
+  recorded?: (word: string, r: IndexedRun) => boolean;
+  /** Once the filter has gone over the runs: how many of the verdicts `status:` asked for are known, while some aren't. */
+  warming: () => TermsWarming | null;
+  /** While the search index is behind on some runs, for words it is asked: how many, of how many. */
+  indexing: { runs: number; of: number } | null;
+}
+
+/**
+ * Each run's verdict, worked out as the filter reaches it, so newest first: what needs no call read,
+ * then a run whose calls fit what is left of `budget`, as the rows are judged (run-outcome.ts
+ * `judgedRows`). A run past it is undefined, so it matches no `status:` yet: `warming` counts it, the
+ * page says so and asks again, and each read judges more of them, kept on its thread.
+ */
+function verdictsAsked(fixed: ReadonlyMap<string, string>, judge: JudgeRun | null, budget: number): Pick<TermReads, 'verdict' | 'warming'> {
+  const known = new Map<string, RunVerdict | null | undefined>();
+  let left = budget;
+  let pending = 0;
+  const verdict = (r: IndexedRun): RunVerdict | null | undefined => {
+    if (known.has(r.runId)) return known.get(r.runId);
+    let judged = judge ? judge(r.runId, true) : null;
+    if (judged === undefined && r.calls <= left) {
+      left -= r.calls;
+      judged = judge!(r.runId, false);
+    }
+    const v = judged === undefined ? undefined : verdictOf({ status: r.status, outcome: r.outcome, judged, fixedBy: fixed.get(r.runId) ?? null });
+    if (v === undefined) pending++;
+    known.set(r.runId, v);
+    return v;
+  };
+  return { verdict, warming: () => (pending ? { done: known.size - pending, total: known.size, what: 'verdicts' } : null) };
+}
+
+const toolsKept = new WeakMap<object, { key: string; tools: ReadonlyMap<string, readonly string[]> }>();
+
+/**
+ * The tools each run called, lowercased, as its recorded tool calls name them, for `tool:`: one pass
+ * over the calls' starts, kept on this thread until runs or calls change, as Settings → Tools' reads
+ * are (tool-reads.ts). A tool a model only asked for, or one its agent called unwrapped, isn't one.
+ */
+export function toolsCalled(store: StoreOf<'readModels' | 'activity'>): ReadonlyMap<string, readonly string[]> {
+  const c = store.changeCounts();
+  const key = `${c.runs ?? 0}:${c.calls ?? 0}`;
+  const kept = toolsKept.get(store);
+  if (kept?.key === key) return kept.tools;
+  const tools = new Map<string, string[]>();
+  for (const row of store.query(`SELECT DISTINCT name, run_id FROM call_events WHERE phase = 'start' AND kind = 'tool'`)) {
+    const name = String(row.name).toLowerCase();
+    const list = tools.get(String(row.run_id));
+    if (!list) tools.set(String(row.run_id), [name]);
+    else if (!list.includes(name)) list.push(name);
+  }
+  toolsKept.set(store, { key, tools });
+  return tools;
+}
+
+/**
+ * What the filter field's terms read for one read of the runs: `status:` each run's verdict, within
+ * `budget` calls (`verdictsAsked`), `tool:` the tools runs called, and a word from RECORDED_MIN_CHARS
+ * characters what runs recorded, through the search index, which answers from what it holds.
+ */
+export function termReads(store: Store, index: RunIndex, filter: { q?: string; judge?: JudgeRun | null }, budget: number): TermReads {
+  const terms = filterTerms(filter.q);
+  const asked = terms.statuses.length ? verdictsAsked(fixedByOf(store, index), filter.judge ?? null, budget) : null;
+  const tools = terms.tools.length ? toolsCalled(store) : null;
+  const behind = terms.words.some((w) => w.length >= RECORDED_MIN_CHARS) ? searchBehind(store, index) : null;
+  return {
+    ...asked,
+    ...(tools ? { tools: (r: IndexedRun) => tools.get(r.runId) ?? [] } : {}),
+    ...(behind === null ? {} : { recorded: (w: string, r: IndexedRun) => recordedRuns(store, w, index, String(behind)).has(r.runId) }),
+    warming: asked?.warming ?? (() => null),
+    indexing: behind ? { runs: behind, of: index.runs.length } : null,
+  };
+}
