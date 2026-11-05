@@ -1449,9 +1449,9 @@ goldens folder named for what a test reads it by, never the run's id:
 
 A name that won't do changes nothing: `fix apply` says why and how to give another, and exits 2. It
 prints where each golden went and the run it holds (`copied goldens/double-email from 01K5CQ2E8M`).
-A golden copied before keeps its name and takes no other: one `fix apply` copied, one
-`repair --goldens` copied under the run's id, and one an apply stopped part way left under the name
-it gives.
+A golden copied before keeps its name and takes no other, and a `--name` for it names only that: one
+`fix apply` copied, one `repair --goldens` copied under the run's id, and one an apply stopped part
+way left, the very recording under whatever name it gave it.
 
 **The project's other goldens.** Then `fix apply` replays the project's other goldens offline, in a
 store of their own that nothing keeps. A prompt or a tool description goes into every request, so they

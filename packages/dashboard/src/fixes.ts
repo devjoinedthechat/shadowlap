@@ -153,11 +153,12 @@ function refusedOf(store: StoreOf<'team'>, r: StoredRepair | null, here: Rewrite
 
 /**
  * What the project's goldens folder holds, for the goldens apply copies (the engine's
- * `goldensFolder`): the runs whose recording is in it already under the run's name, which keep it,
- * and every other name it holds, which none may take. Given each golden it offers by its run, with
- * the name it would take and the folder of its recording, as the repair's report gives it.
+ * `goldensFolder`): the runs whose recording is in it already, under the run's name or as the very
+ * recording under any, which keep it, and every name it holds, which none of the rest may take.
+ * Given each golden it offers by its run, with the folder of its recording, as the repair's report
+ * gives it.
  */
-export type GoldensFolder = (offered: ReadonlyArray<{ run: string; name: string; source: string }>) => { there: readonly string[]; held: readonly string[] };
+export type GoldensFolder = (offered: ReadonlyArray<{ run: string; source: string }>) => { there: ReadonlyArray<{ run: string; at: string }>; held: readonly string[] };
 
 /** The goldens folder the dashboard's apply job copies into: `fix apply`'s own, `goldens/` in the project. */
 export const APPLY_GOLDENS = 'goldens';
@@ -178,8 +179,8 @@ export const goldensFolderIn =
  * Apply fix, on a verified or applied fix (null on an open one): its repair's patch, or a change
  * verified on the working tree, to mark applied. Each recording of the fixed runs it copies now, by
  * its run, with the name it takes unless another is given (`names`, the engine's
- * `defaultGoldenNames`), but one the project's goldens folder holds already under its run's name,
- * and the names that folder holds (`held`; null where it isn't read), which none of them may take.
+ * `defaultGoldenNames`), but one the project's goldens folder holds already, and the names that
+ * folder holds (`held`; null where it isn't read), which none of them may take.
  */
 function applyOffer(store: StoreOf<'team'>, rec: FixRecords, row: FixRow, toApply: StoredRepair | null, o: { refused: string | null; inTree: boolean; folder: GoldensFolder | null }): FixActions['apply'] {
   const fix = rec.fix;
@@ -204,7 +205,7 @@ function applyOffer(store: StoreOf<'team'>, rec: FixRecords, row: FixRow, toAppl
     refused: o.refused,
     inTree: o.inTree,
     goldens: copies.length,
-    names: offered.filter((g) => !folder?.there.includes(g.run)).map((g) => ({ run: g.run, name: g.name })),
+    names: offered.filter((g) => !folder?.there.some((t) => t.run === g.run)).map((g) => ({ run: g.run, name: g.name })),
     held: folder ? [...folder.held] : null,
     change: toApply ? null : fieldChange(rec),
   };

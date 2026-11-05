@@ -79,7 +79,7 @@ describe('what the goldens folder holds', () => {
   let root = '';
   afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-  it('names every entry as held, but one that holds already the very recording it would be given under that name', () => {
+  it('finds the very recording an apply stopped part way copied, under any name, and names every entry as held', () => {
     root = mkdtempSync(join(tmpdir(), 'sl-goldens-held-'));
     const goldens = join(root, 'goldens');
     const pack = (at: string, text: string) => {
@@ -89,14 +89,16 @@ describe('what the goldens folder holds', () => {
     const source = join(root, 'repair', '01M3RZ0001');
     expect(goldensFolder(goldens, [])).toEqual({ there: [], held: [] });
     pack(source, '{"runs":[1]}\n');
-    pack(join(goldens, 'refund-bug'), '{"runs":[1]}\n');
+    pack(join(goldens, 'refund-twice'), '{"runs":[1]}\n');
     pack(join(goldens, 'Double-Email'), '{"runs":[2]}\n');
+    pack(join(goldens, 'same-size'), '{"runs":[3]}\n');
     writeFileSync(join(goldens, 'notes.md'), 'x');
-    const held = (offered: Parameters<typeof goldensFolder>[1]) => goldensFolder(goldens, offered).held.sort();
-    // An apply stopped part way copied refund-bug: the next finds it there, rather than taken.
-    expect(held([{ run: '01M3RZ0001', name: 'refund-bug', source }])).toEqual(['Double-Email', 'notes.md']);
-    expect(held([{ run: '01M3RZ0001', name: 'double-email', source }])).toEqual(['Double-Email', 'notes.md', 'refund-bug']);
-    expect(held([{ run: '01M3RZ0001', name: 'refund-bug', source: '' }])).toEqual(['Double-Email', 'notes.md', 'refund-bug']);
+    // Copied under a name the dialog gave it, not the label's: found there all the same, by its bytes.
+    expect(goldensFolder(goldens, [{ run: '01M3RZ0001', source }])).toEqual({ there: [{ run: '01M3RZ0001', at: 'refund-twice' }], held: ['Double-Email', 'notes.md', 'refund-twice', 'same-size'] });
+    // A recording no entry holds, or one whose folder isn't to be read, is in it nowhere.
+    pack(source, '{"runs":[4]}\n');
+    expect(goldensFolder(goldens, [{ run: '01M3RZ0001', source }]).there).toEqual([]);
+    expect(goldensFolder(goldens, [{ run: '01M3RZ0001', source: '' }]).there).toEqual([]);
   });
 
   it('says which recordings are in it already under their run’s name, as repair --goldens copies them', () => {
@@ -104,9 +106,9 @@ describe('what the goldens folder holds', () => {
     const goldens = join(root, 'goldens');
     mkdirSync(join(goldens, '01M3RZ0002'), { recursive: true });
     const offered = [
-      { run: '01M3RZ0001', name: 'refund-bug-1', source: '' },
-      { run: '01M3RZ0002', name: 'refund-bug-2', source: '' },
+      { run: '01M3RZ0001', source: '' },
+      { run: '01M3RZ0002', source: '' },
     ];
-    expect(goldensFolder(goldens, offered)).toEqual({ there: ['01M3RZ0002'], held: ['01M3RZ0002'] });
+    expect(goldensFolder(goldens, offered)).toEqual({ there: [{ run: '01M3RZ0002', at: '01M3RZ0002' }], held: ['01M3RZ0002'] });
   });
 });

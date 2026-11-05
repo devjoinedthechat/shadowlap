@@ -707,20 +707,22 @@ describe('the apply job', () => {
   it('names the goldens it copies as the page names them, and refuses a name the engine’s rule refuses, running nothing', async () => {
     const { fixId, failing } = story();
     const run = failing.slice(0, 10);
-    // What the project's goldens folder holds is a name none may take, but the recording an apply
-    // stopped part way left under the name it would take, which fix apply finds there.
-    const pack = (dir: string) => {
+    // What the project's goldens folder holds is a name none may take.
+    const pack = (dir: string, text = `{"from":"${run}"}\n`) => {
       mkdirSync(join(project, dir), { recursive: true });
-      writeFileSync(join(project, dir, 'run.json'), `{"from":"${run}"}\n`);
+      writeFileSync(join(project, dir, 'run.json'), text);
     };
-    pack('goldens/refund-in-limit');
+    pack('goldens/refund-in-limit', '{"from":"elsewhere"}\n');
     await start();
     expect((await json(await api(`fixes/${fixId}`))).actions.apply).toMatchObject({ goldens: 1, names: [{ run, name: 'refund-bug' }], held: ['refund-in-limit'] });
+    // The recording an apply stopped part way left, under the name the dialog gave it, is found
+    // there, as fix apply finds it, and keeps that name: it is asked none.
     pack(`.shadowlap/repairs/repair-munzln2i/goldens/${run}`);
-    pack('goldens/refund-bug');
-    expect((await json(await api(`fixes/${fixId}`))).actions.apply.held).toEqual(['refund-in-limit']);
-    // One repair --goldens copied under its run's name keeps it, and is asked none.
-    pack(`goldens/${run}`);
+    pack('goldens/refund-twice');
+    expect((await json(await api(`fixes/${fixId}`))).actions.apply).toMatchObject({ goldens: 1, names: [], held: ['refund-in-limit', 'refund-twice'] });
+    rmSync(join(project, 'goldens', 'refund-twice'), { recursive: true });
+    // So does one repair --goldens copied under its run's name.
+    pack(`goldens/${run}`, '{}\n');
     expect((await json(await api(`fixes/${fixId}`))).actions.apply).toMatchObject({ goldens: 1, names: [] });
     rmSync(join(project, 'goldens', run), { recursive: true });
     const j = await started({ kind: 'apply', fixId, names: { [run]: 'refund-over-limit' } });

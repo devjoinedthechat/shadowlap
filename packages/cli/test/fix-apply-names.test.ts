@@ -133,14 +133,34 @@ describe('fix apply --name', () => {
     expect(store.getFix(fix.fixId)!.data.applied).toMatchObject({ goldens: ['goldens/refund-in-limit', 'goldens/refund-over-limit-2'], from: { 'goldens/refund-in-limit': a, 'goldens/refund-over-limit-2': b } });
   });
 
-  it('finds the recording an apply stopped part way copied under its name there, rather than taken', async () => {
-    const { fix, runs } = verified();
-    mkdirSync(join(project, 'goldens', 'refund-over-limit'), { recursive: true });
-    writeFileSync(join(project, 'goldens', 'refund-over-limit', 'run.json'), readFileSync(join(project, DIR, 'goldens', runs[0], 'run.json')));
+  it('finds the recording an apply stopped part way copied, under whatever name it gave it, rather than taken', async () => {
+    const { fix, runs } = verified({ runs: 2 });
+    const [a, b] = runs as [string, string];
+    // Stopped after it copied the first under the name the dialog gave it, before it marked the fix applied.
+    mkdirSync(join(project, 'goldens', 'refund-twice'), { recursive: true });
+    writeFileSync(join(project, 'goldens', 'refund-twice', 'run.json'), readFileSync(join(project, DIR, 'goldens', a, 'run.json')));
+    // That copy keeps its name: another for it is refused, and none of the rest may take it.
+    expect(await refused(fix, [{ run: a, name: 'refund-again' }])).toBe(`the recording of ${a} was copied before, to goldens/refund-twice, and keeps that name: --name names one apply copies now`);
+    expect(await refused(fix, [{ run: b, name: 'refund-twice' }])).toBe(`goldens/refund-twice is taken: pick another name. Nothing was changed: name the recording of ${b} with --name ${b}=<name>`);
+    // The same command again names where it went; with no --name, it is found there all the same.
     const lines: string[] = [];
-    const result = await applyFix(store, fix, options(lines));
-    expect(result.goldens).toEqual([{ run: runs[0], from: `${DIR}/goldens/${runs[0]}`, to: 'goldens/refund-over-limit', copied: false }]);
-    expect(lines).toContain('  already there: goldens/refund-over-limit');
+    const again = await applyFix(store, fix, options(lines, [{ run: a, name: 'refund-twice' }, { run: b, name: 'refund-once' }]));
+    expect(again.goldens).toEqual([
+      { run: a, from: `${DIR}/goldens/${a}`, to: 'goldens/refund-twice', copied: false },
+      { run: b, from: `${DIR}/goldens/${b}`, to: 'goldens/refund-once', copied: true },
+    ]);
+    expect(lines).toContain('  already there: goldens/refund-twice');
+    expect(existsSync(join(project, 'goldens', 'refund-over-limit-1'))).toBe(false);
+    expect(store.getFix(fix.fixId)!.data.applied).toMatchObject({ from: { 'goldens/refund-twice': a, 'goldens/refund-once': b } });
+  });
+
+  it('finds it with no --name given, under the name the label gave it or any other', async () => {
+    const { fix, runs } = verified();
+    mkdirSync(join(project, 'goldens', 'email-twice'), { recursive: true });
+    writeFileSync(join(project, 'goldens', 'email-twice', 'run.json'), readFileSync(join(project, DIR, 'goldens', runs[0], 'run.json')));
+    const result = await applyFix(store, fix, options([]));
+    expect(result.goldens).toEqual([{ run: runs[0], from: `${DIR}/goldens/${runs[0]}`, to: 'goldens/email-twice', copied: false }]);
+    expect(existsSync(join(project, 'goldens', 'refund-over-limit'))).toBe(false);
   });
 
   it('keeps a recording repair --goldens copied under its run’s name where it is, and names it no other', async () => {
