@@ -21,11 +21,17 @@ export interface PaletteEntry {
   match?: string;
   /** Found only once something is typed, never listed on the open palette. */
   typed?: boolean;
+  /** The key that does what it does, where it has one. */
+  key?: string;
 }
 
-/** A run's next step as This run's first entry: what the header's lime button says, and what it runs or where it goes. */
+/** The key of the header button a step presses, by what the step does, never read from its label: Replay, Compare or Run blame. */
+const STEP_KEYS: Partial<Record<NextStep['key'], string>> = { replay: 'r', compare: 'c', blame: 'b' };
+
+/** A run's next step as This run's first entry: what the header's lime button says, what it runs or where it goes, and its key. */
 export function stepEntry(step: NextStep): PaletteEntry {
-  return { group: 'This run', label: step.label, hint: step.command ?? step.title ?? '', ...(step.href ? {} : { job: true }) };
+  const key = STEP_KEYS[step.key];
+  return { group: 'This run', label: step.label, hint: step.command ?? step.title ?? '', ...(step.href ? {} : { job: true }), ...(key ? { key } : {}) };
 }
 
 /** Run blame for the newest failures nobody has blamed, as their pages lead with it, at most this many. */

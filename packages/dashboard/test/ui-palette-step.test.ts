@@ -50,6 +50,17 @@ async function thisRun(run: RunDetail, app: Partial<AppState> = {}): Promise<Pal
 }
 
 describe('This run', () => {
+  it('sets the next step’s key by what it presses, never by what it says', () => {
+    const blame: NextStep = { key: 'blame', label: 'Run blame', offer: { from: 'exit', expect: null, failed: [] } };
+    expect(stepEntry(blame).key).toBe('b');
+    expect(stepEntry({ key: 'replay', label: 'Replay recording', runId: PARENT }).key).toBe('r');
+    expect(stepEntry({ key: 'replay', label: 'Replay with your command…', runId: RUN }).key).toBe('r');
+    expect(stepEntry({ key: 'compare', label: 'Compare with parent', parent: PARENT, href: `#/compare/${PARENT}/${RUN}` }).key).toBe('c');
+    // A step no key presses has none: its own button, or a link the header has no key for.
+    expect(stepEntry({ key: 'fix', label: 'Open fix', fixId: 'F1', status: 'open', href: '#/fixes/F1' })).not.toHaveProperty('key');
+    expect(stepEntry({ key: 'pack', label: 'Pack as golden…', runId: RUN, folder: 'goldens/x' })).not.toHaveProperty('key');
+  });
+
   it('leads with the run’s next step, its command as its hint, and offers it once', async () => {
     const blame: NextStep = { key: 'blame', label: 'Run blame', offer: { from: 'exit', expect: null, failed: [] }, command: `shadowlap blame ${RUN.slice(0, 10)}` };
     const items = await thisRun(detail(blame, { replay: { key: 'replay', label: 'Replay', runId: RUN, command: `shadowlap replay ${RUN.slice(0, 10)}` } }));

@@ -30,6 +30,8 @@ export interface PaletteCommand {
   match?: string;
   /** Found only once something is typed, never listed on the open palette. */
   typed?: boolean;
+  /** The key that does what it does, where it has one. */
+  key?: string;
   run: () => void;
 }
 
