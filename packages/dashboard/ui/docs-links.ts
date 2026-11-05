@@ -1,7 +1,8 @@
 /**
  * Where a dialog's lead ends: the docs page that says how the job works, at its section's anchor
  * where the page is long, and the words its link reads, the page's title or the subject of that
- * section. A dialog names a key; test/ui-docs-links.test.ts holds every anchor to a heading.
+ * section. A dialog names a key, as the connection's expired card does; test/ui-docs-links.test.ts
+ * holds every anchor to a heading.
  */
 export const DOCS_AT = 'https://github.com/devjoinedthechat/shadowlap/blob/main/docs/';
 
@@ -51,6 +52,7 @@ export const DOCS = {
   removingProject: { page: 'dashboard#removing-a-project', what: 'Projects' },
   quickstart: { page: 'quickstart', what: 'Quickstart' },
   jobs: { page: 'dashboard#jobs', what: 'Jobs' },
+  sessionTokens: { page: 'dashboard#security-and-consent', what: 'Session tokens' },
 } as const satisfies Record<string, DocsLink>;
 
 export type DocKey = keyof typeof DOCS;

@@ -5,6 +5,7 @@ import { CodeBox, CopyButton } from '../components/CodeBox.js';
 import { Icon } from '../components/Icon.js';
 import { pastedLink } from '../connection.js';
 import { copyText } from '../dom.js';
+import { DOCS, docsHref } from '../docs-links.js';
 import { clock } from '../format.js';
 import { holdBehind } from '../overlays/modal-store.js';
 import { readTokenLink } from '../route.js';
@@ -19,9 +20,6 @@ import { useApp } from '../state.js';
  * dashboard's, with a command box and Paste the new link. A link with no token at all gets the gate,
  * which explains where the link comes from.
  */
-
-/** Where the docs are read from a dashboard, which holds no copy of its own. */
-const DOCS_AT = 'https://github.com/devjoinedthechat/shadowlap/blob/main/docs/';
 
 export function OfflineBar() {
   const { conn, loadedAt, retryIn, retrying, retryNow } = useApp();
@@ -138,8 +136,8 @@ export function ExpiredCard() {
         <p id="connD">It was restarted, or the link is from another one. Open the link it printed when it started, or start it again:</p>
         <CodeBox command="shadowlap dashboard" />
         <p className="cbdoc">
-          <a className="more dlgdoc" href={`${DOCS_AT}dashboard.md#security-and-consent`} target="_blank" rel="noopener">
-            Session tokens in the docs<span aria-hidden="true">{'\u00a0→'}</span>
+          <a className="more dlgdoc" href={docsHref(DOCS.sessionTokens)} target="_blank" rel="noopener">
+            {DOCS.sessionTokens.what} in the docs<span aria-hidden="true">{'\u00a0→'}</span>
           </a>
         </p>
         <div className="actions">
