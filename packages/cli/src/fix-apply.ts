@@ -240,6 +240,11 @@ function putIn(at: { root: string; file: string; patch: string; text: string; by
   if (applied.status !== 0) throw new ApplyError(`git apply failed: ${(applied.stderr || applied.stdout).trim()}`);
 }
 
+/** A --name on an apply that copies no recording names none: refused before anything changes, as `planCopies` refuses one. */
+function namesNone(o: ApplyOptions, why: string): void {
+  if (o.names?.length) throw new ApplyError(`${why}: --name names none`, EXIT.usage);
+}
+
 export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): Promise<ApplyResult> {
   const repair = acceptedRepair(store, fix);
   const pulled = cameWithPull(store, repair);
@@ -247,6 +252,7 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
   const again = fix.status === 'applied';
   const left = applyLeft(fix, repair, { pulled });
   if (again && !(left && (left.goldens || (left.test && o.test)))) {
+    namesNone(o, 'the fix is applied already, and apply has no recording left to copy');
     return { fixId: fix.fixId, status: 'already-applied', again: false, patch: before?.patch ?? 'none', repairId: before?.repairId ?? null, goldens: [], tests: before?.tests ?? 'skipped', outdated: [], update: null };
   }
   const result: ApplyResult = { fixId: fix.fixId, status: 'applied', again, patch: 'none', repairId: repair?.repairId ?? null, goldens: [], tests: 'skipped', outdated: [], update: null };
@@ -310,6 +316,7 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
     }
     if (o.test && result.goldens.length) result.tests = (await runTests(result.goldens.map((x) => x.to), o)) ? 'passed' : 'failed';
   } else {
+    namesNone(o, 'the fix was verified with no repair behind it, so apply copies no recording');
     // A change of request fields (--set, --model) is in no file: making it in the agent is left to you.
     const change = fieldChange(fixRecords(store, fix));
     o.log(change ? `  verified with ${safeLine(change)}, a change to the requests no patch carries: make it in your agent` : '  verified on the working tree, with no repair behind it: there is no patch to apply');

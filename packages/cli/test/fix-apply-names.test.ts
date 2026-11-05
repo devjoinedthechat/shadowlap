@@ -3,8 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { markFixApplied, recordBlame, recordRepair, Store, type StoredFix } from '@shadowlap/engine';
-import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport } from '../../engine/test/fix-fixtures.js';
+import { markFixApplied, recordBlame, recordRepair, recordVerdict, Store, type StoredFix } from '@shadowlap/engine';
+import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { ApplyError, applyFix, type ApplyOptions } from '../src/fix-apply.js';
 import { parseNameFlag, type GivenName } from '../src/fix-apply-names.js';
 
@@ -161,6 +161,21 @@ describe('fix apply --name', () => {
     const result = await applyFix(store, fix, options([]));
     expect(result.goldens).toEqual([{ run: runs[0], from: `${DIR}/goldens/${runs[0]}`, to: 'goldens/email-twice', copied: false }]);
     expect(existsSync(join(project, 'goldens', 'refund-over-limit'))).toBe(false);
+  });
+
+  it('refuses a --name where apply copies no recording: a fix verified with no repair, or one applied with nothing left', async () => {
+    const run = makeRun(store, { labels: ['refund-over-limit'] });
+    recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'c', title: 'Refunds over the limit', checkText: 'x' });
+    const fix = recordVerdict(store, { report: verifyReport([{ runId: run, role: 'target', pass: true }]), expect: EXPECT, command: 'v' }).fixes[0].fix;
+    expect(fix.status).toBe('verified');
+    const name = [{ run: run.slice(0, 10), name: 'refund-bug' }];
+    expect(await refused(fix, name)).toBe('the fix was verified with no repair behind it, so apply copies no recording: --name names none');
+    const applied = await applyFix(store, fix, options([]));
+    expect(applied.status).toBe('applied');
+    const err = await applyFix(store, store.getFix(fix.fixId)!, options([], name)).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApplyError);
+    expect(err).toMatchObject({ exitCode: 2, message: 'the fix is applied already, and apply has no recording left to copy: --name names none' });
+    expect(existsSync(join(project, 'goldens'))).toBe(false);
   });
 
   it('keeps a recording repair --goldens copied under its run’s name where it is, and names it no other', async () => {
