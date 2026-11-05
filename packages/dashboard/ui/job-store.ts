@@ -3,6 +3,7 @@ import { isUnreachable } from './backoff.js';
 import type { Conn } from './connection.js';
 import { handOnAtEnd, notingJobFrom } from './focus-manager.js';
 import { afterPollError, jobTitle, type JobChipView, type RunningJob } from './job-title.js';
+import { modalOpen, openerNow } from './overlays/modal-store.js';
 
 export type { JobChipView } from './job-title.js';
 
@@ -23,8 +24,11 @@ export interface WatchedJob {
   hidden?: boolean;
   /** The server no longer has it (it was restarted): its end is unknown. */
   lost?: boolean;
-  /** Asked for from the chip or a toast's Show: its drawer takes the focus. */
-  focus?: boolean;
+  /**
+   * Asked for from the chip or a toast's Show: its drawer takes the focus. `log`: a dialog opened from
+   * the drawer's way on started it, and it took that drawer's place: its log takes the focus.
+   */
+  focus?: boolean | 'log';
 }
 
 /** Over, one way or the other. */
@@ -36,7 +40,7 @@ export function drawnJob(list: readonly WatchedJob[]): WatchedJob | null {
 }
 
 /** A newer job takes the drawer; what was in it and is over goes, and what still runs goes on behind it. */
-export function jobStarted(list: readonly WatchedJob[], job: JobView, focus = false): WatchedJob[] {
+export function jobStarted(list: readonly WatchedJob[], job: JobView, focus: boolean | 'log' = false): WatchedJob[] {
   const kept = list.filter((w) => w.job.id !== job.id && !(finished(w) && !w.open && !w.hidden)).map((w) => ({ ...w, open: false, hidden: false, focus: false }));
   return [...kept, { job, lines: job.lines, open: true, focus }].slice(-8);
 }
@@ -93,17 +97,19 @@ export class JobStore {
   }
 
   /** Shows a started job in the drawer and follows it to the end. */
-  started(job: JobView, watch: { readonly current: JobWatch }, focus = false): void {
+  started(job: JobView, watch: { readonly current: JobWatch }, focus: boolean | 'log' = false): void {
     this.set(jobStarted(this.list, job, focus));
     this.follow(job, watch);
   }
 
   /**
    * A job the server is starting: where it starts from is noted, for the focus at its end
-   * (`notingJobFrom`); started, it takes the drawer, and refused, `refused` says why.
+   * (`notingJobFrom`); started, it takes the drawer, and refused, `refused` says why. One a dialog
+   * opened from the drawer's way on starts takes that drawer with the focus on its log.
    */
   starting(p: Promise<JobView>, watch: { readonly current: JobWatch }, focus: boolean, refused: (err: unknown) => void): void {
-    notingJobFrom(p).then((job) => this.started(job, watch, focus), refused);
+    const fromDrawer = modalOpen() && !!openerNow()?.closest('.drawer');
+    notingJobFrom(p).then((job) => this.started(job, watch, focus || (fromDrawer ? 'log' : false)), refused);
   }
 
   /** Opens the drawer of a job on the list; false when it isn't on it. */

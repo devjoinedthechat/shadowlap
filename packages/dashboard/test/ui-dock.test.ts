@@ -4,9 +4,9 @@ import { ActionButton } from '../ui/components/ActionButton.js';
 import { Dialog, PromptDialog } from '../ui/components/Dialog.js';
 import { JobDrawer } from '../ui/components/Drawer.js';
 import { handOnAtEnd } from '../ui/focus-manager.js';
-import { chipJob, drawnJob, endedBehind, jobClosed, jobOpened, jobsLeftBehind, jobStarted, type WatchedJob } from '../ui/job-store.js';
+import { chipJob, drawnJob, endedBehind, jobClosed, jobOpened, jobsLeftBehind, jobStarted, JobStore, type WatchedJob } from '../ui/job-store.js';
 import { endChip, wayOnOf } from '../ui/jobs.js';
-import { closeTopPanel } from '../ui/overlays/slots.js';
+import { closeTopPanel, OverlaySlots } from '../ui/overlays/slots.js';
 import { parseRoute, samePage } from '../ui/route.js';
 import { useRoute } from '../ui/router.js';
 import { JobChip } from '../ui/shell/JobChip.js';
@@ -291,6 +291,37 @@ describe('the drawer', () => {
     await act(async () => void vi.advanceTimersByTime(61));
     expect(r.focused()).toBe(r.one('.drawer .jfoot a'));
     expect(r.one('.drawer .jfoot a').className).not.toContain('lime');
+  });
+
+  it('gives the focus to its log where a dialog from the drawer’s way on started it', async () => {
+    const { Host } = page([entry(job({ id: 'old', done: true, code: 0 }), { open: false }), entry(job(), { focus: 'log' })]);
+    r = await render(createElement(Host));
+    expect(r.focused()).toBe(r.one('#jout'));
+  });
+
+  it('asks for the log of a job a dialog from the drawer’s way on starts, and for nothing where the page’s did', async () => {
+    const store = new JobStore();
+    const watch = { current: { poll: async () => job({ id: 'b', done: true, code: 0 }), conn: () => 'ok' as const, failed: () => undefined, ended: () => undefined, lost: () => undefined } };
+    const value = { conn: 'ok', exported: false, actionsOff: null, toast: () => undefined } as unknown as AppState;
+    function Asks() {
+      const [asked, setAsked] = useState(false);
+      const ask = createElement('button', { type: 'button', onClick: () => setAsked(true) }, 'Update goldens…');
+      return createElement(
+        AppContext.Provider,
+        { value },
+        createElement('main', { id: 'view' }, createElement('span', { id: 'onpage' }, ask)),
+        createElement('section', { className: 'drawer' }, createElement('span', { id: 'way' }, ask)),
+        asked ? createElement(Dialog, { title: 'Update goldens', ok: 'Update goldens', onOk: () => store.starting(Promise.resolve(job({ id: 'b' })), watch, false, () => undefined), onClose: () => setAsked(false) }) : null,
+        createElement(OverlaySlots),
+      );
+    }
+    r = await render(createElement(Asks));
+    for (const [from, focus] of [['#way button', 'log'], ['#onpage button', false]] as const) {
+      await r.click(r.one(from));
+      await r.click(r.one('.dialog .dlg-ok'));
+      await act(async () => undefined);
+      expect(store.get().at(-1), from).toMatchObject({ job: { id: 'b' }, open: true, focus });
+    }
   });
 
   it('keeps a job’s folders out of a folded drawer', async () => {

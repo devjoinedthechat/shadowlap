@@ -1733,7 +1733,7 @@ One that can't start leaves the dialog open, with what you typed.
 - **Skip to content** is Tab's first stop on every page. It takes the focus past the top bar and the sidebar to the page's heading.
 - **Opening a page** takes the focus to its heading, so a screen reader says where you are and Tab goes on from there. A step within a page (a call, a view, a fix's step, a filter) leaves it where it was, and a first load moves nothing. No move scrolls the page.
 - **What the page draws anew** hands the focus to its counterpart, found by what it is, so Tab goes on from where you were. Focus you moved away yourself stays away.
-- **A job's end** that takes away the control you started it from hands the focus to the step that took its place, else to the job's drawer.
+- **A job's end** that takes away the control you started it from hands the focus to the step that took its place, else to the job's drawer: its way on, else its log. A job started from a dialog opened from the drawer's way on takes that drawer's place, with the focus on its log.
 - **Tabs** (a run's views, the inspector) are one Tab stop: `←` and `→` move along them round the ends, Home and End go to the first and last, and a count is read apart from its name. Settings and Training switch pages with links.
 - **A row that opens on a click** names what it opens with a real link, which the keyboard reaches, a screen reader reads and a browser opens in a tab of its own.
 - **Search or jump to** keeps the focus in its field while ↑ and ↓ move through what it offers, as a screen reader expects of a combobox.

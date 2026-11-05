@@ -297,8 +297,8 @@ function useDockFocus(watched: WatchedJob, panel: { readonly current: HTMLElemen
   useEffect(() => {
     if (hidden && hadFocus.current) document.querySelector<HTMLElement>('.status .jobchip')?.focus();
     hadFocus.current = false;
-    if (!hidden && watched.focus) hideOrClose.current?.focus();
-  }, [hidden, watched.focus, hideOrClose]);
+    if (!hidden && watched.focus) (watched.focus === 'log' ? panel.current?.querySelector<HTMLElement>('#jout') : hideOrClose.current)?.focus();
+  }, [hidden, watched.focus, hideOrClose, panel]);
   return {
     noteFocus: () => {
       hadFocus.current = !!panel.current?.contains(document.activeElement);
