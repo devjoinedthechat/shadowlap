@@ -169,7 +169,9 @@ export function blameOffer(store: StoreOf<'recording' | 'readModels' | 'fixes'>,
   // A blame probe's or a verify attempt's outcome belongs to the fix it was made for, and a preset's
   // attempt failed on the failure the preset played in: its verdict is the preset's.
   if (run.meta?.probe || run.meta?.verify || run.meta?.chaos) return null;
-  const notPassed = (run.meta?.checks ?? []).filter((c) => isObject(c) && c.ok === false && typeof c.label === 'string');
+  // A pack can carry anything: only a list of checks is read as one.
+  const checks = Array.isArray(run.meta?.checks) ? run.meta.checks : [];
+  const notPassed = checks.filter((c) => isObject(c) && c.ok === false && typeof c.label === 'string');
   // A check that could not be decided can't be on a probe either, so no probe could pass: blame
   // refuses such a run, and it isn't offered.
   if (notPassed.some((c) => checkStatus(c) === 'inconclusive')) return null;

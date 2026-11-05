@@ -270,7 +270,8 @@ interface TestedGolden {
 
 function testedGolden(f: Facts): TestedGolden | null {
   const test = f.row.meta.test;
-  if (f.row.kind !== 'test' || f.row.attemptKind || !test) return null;
+  // The index reads the record field by field, and a golden or a session that isn't text as empty: a run can come from someone else's pack.
+  if (f.row.kind !== 'test' || f.row.attemptKind || !test?.golden || !test.session) return null;
   const source = f.work?.goldens.find((g) => g.path === test.golden);
   if (!source) return null;
   return { golden: test.golden, source, result: f.store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0] ?? null };
@@ -636,6 +637,21 @@ export function replayStepOf(store: Store, runId: string): NextStep | null {
 }
 
 /**
+ * What a run's page answer says of its steps: its next step, and what its Replay replays. A record
+ * they can't be read from (a run can come from someone else's pack) leaves them out: the page still
+ * answers, with no lime button.
+ */
+export async function pageSteps(store: Store, runId: string, work: NextStepWork | null, o: { judged: RunJudged | null | undefined; whole: boolean }): Promise<{ next?: NextStep; replay?: NextStep }> {
+  try {
+    const next = await pricedNextStep(store, runId, work, o);
+    const replay = replayStepOf(store, runId);
+    return { ...(next ? { next } : {}), ...(replay ? { replay } : {}) };
+  } catch {
+    return {};
+  }
+}
+
+/**
  * What an exported copy's run leads with: a copy runs nothing and holds no fix, so only a comparison
  * of an attempt or a fork with the run it came from, when the copy holds that run.
  */
@@ -650,12 +666,25 @@ export function stepRow(step: NextStep): NextStepRow {
   return { key: step.key, label: step.label, ...(step.href ? { href: step.href } : {}), ...(step.off ? { off: step.off } : {}) };
 }
 
+/**
+ * A run's next step for a list: undefined for a record it can't be read from. A run can come from
+ * someone else's pack, which can carry anything, and one such record never fails the list it is in:
+ * its row stays as it was.
+ */
+export function listedStep(store: Store, runId: string, work: NextStepWork | null, o: { judged?: RunJudged | null | undefined; reads: StepReads }): NextStep | null | undefined {
+  try {
+    return nextStepOf(store, runId, work, o);
+  } catch {
+    return undefined;
+  }
+}
+
 /** Each row with its next step, its light form: what needs no run's calls read, so a list's cost stays what its rows' records cost. */
 export function nextStepRows<R extends Pick<RunRow, 'runId'> & { judged?: RunJudged | null }>(store: Store, rows: readonly R[], work: NextStepWork | null): Array<R & { next?: NextStepRow }> {
   const index = loadRunIndex(store);
   const reads = stepReads(store, index);
   return rows.map((row) => {
-    const step = nextStepOf(store, row.runId, work, { judged: row.judged, reads });
+    const step = listedStep(store, row.runId, work, { judged: row.judged, reads });
     return step ? { ...row, next: stepRow(step) } : row;
   });
 }

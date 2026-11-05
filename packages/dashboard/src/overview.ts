@@ -2,7 +2,7 @@ import { countOrigins, emptyOriginCounts, fixOfRun, importedRecording, lostAt, o
 import { fixesSummary, needsLookFixes, type PatchCheck } from './fixes.js';
 import { upgradeLooks } from './looks.js';
 import { links } from './links.js';
-import { nextStepOf, stepReads, type NextStepWork } from './next-step.js';
+import { listedStep, stepReads, type NextStepWork } from './next-step.js';
 import { aboutsOf, aboutsWithin } from './run-about.js';
 import { stepWords } from './store-steps.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay, type LocalDay } from './local-days.js';
@@ -631,7 +631,8 @@ function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | nul
     const reads = stepReads(store, index);
     for (const x of shownUnblamed) {
       // Run blame only where its page leads with it: blame can't take a run that made no model call, and a failed injection test's proof comes first.
-      if (nextStepOf(store, x.runId!, next, { reads })?.key !== 'blame') x.action = 'Open';
+      const step = listedStep(store, x.runId!, next, { reads });
+      if (step !== undefined && step?.key !== 'blame') x.action = 'Open';
       const about = abouts.get(x.runId!);
       if (!about?.text) continue;
       x.about = about;

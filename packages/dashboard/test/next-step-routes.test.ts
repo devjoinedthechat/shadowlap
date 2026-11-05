@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { NO_COMMAND, Store } from '@shadowlap/engine';
+import { NO_COMMAND, packRun, Store, unpackRun } from '@shadowlap/engine';
 import { makeRun } from '../../engine/test/fix-fixtures.js';
 import { startDashboard, type Dashboard, type JobView } from '../src/index.js';
 import type { NextStep, NextStepRow } from '../src/next-step.js';
@@ -116,6 +116,52 @@ describe('Needs a look', () => {
     const items = (await get<OverviewSummary>('summary?tz=UTC')).needsLook.items.filter((i) => i.kind === 'unblamed');
     expect(items.find((i) => i.runId === can)?.action).toBe('Run blame');
     expect(items.find((i) => i.runId === cannot)?.action).toBe('Open');
+  });
+});
+
+describe('a run with a record that can’t be read', () => {
+  const lists = async () => {
+    for (const path of ['runs', 'runs/page?limit=50', 'summary?tz=UTC']) {
+      const res = await api(path);
+      expect(res.status, `${path}: ${res.status === 200 ? '' : await res.text()}`).toBe(200);
+    }
+  };
+
+  it('fails neither a list nor its page, unpacked from a pack that carries anything', async () => {
+    goldens = [{ path: GOLDEN, runId: null, packedAt: T0, mode: 'replay', repeat: 1, passes: 1, checks: [] }];
+    for (const meta of [{ checks: 'x' }, { checks: [], test: { golden: GOLDEN, session: { a: 1 } } }]) {
+      const other = Store.open(':memory:');
+      const packDir = join(dir, 'sent', String(Math.random()).slice(2));
+      const theirs = addRun(other, { startedAt: T0 + 30, status: 'failed', calls: '' });
+      packRun(other, theirs, packDir);
+      other.close();
+      const manifest = JSON.parse(readFileSync(join(packDir, 'run.json'), 'utf8')) as { runs: Array<{ meta?: object }> };
+      manifest.runs[0]!.meta = { ...manifest.runs[0]!.meta, ...meta };
+      writeFileSync(join(packDir, 'run.json'), JSON.stringify(manifest));
+      expect(unpackRun(store, packDir).imported.length).toBeGreaterThan(0);
+      await lists();
+      expect((await api(`runs/${theirs}`)).status).toBe(200);
+      store.deleteRun(theirs);
+    }
+  });
+
+  it('leaves that row with no step and its old action, and every other row with its own', async () => {
+    const good = addRun(store, { startedAt: Date.now() - 1000, status: 'failed', calls: 'l' });
+    const rec = addRun(store, { startedAt: T0 + 40, calls: 'll' });
+    goldens = [{ path: GOLDEN, runId: rec, packedAt: T0, mode: 'replay', repeat: 1, passes: 1, checks: [] }];
+    const failing = () => addRun(store, { parent: rec, startedAt: Date.now() - 900, status: 'failed', calls: 'r', meta: { test: { golden: GOLDEN, session: 's1' } } });
+    const diff = failing();
+    store.setDivergence(diff, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, diff: 'x' as never });
+    const hints = addRun(store, { parent: rec, startedAt: Date.now() - 800, calls: 'rl' });
+    store.setDivergence(hints, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, hints: 'x' as never });
+    await lists();
+    const { runs } = await get<{ runs: Array<{ runId: string; next?: NextStepRow }> }>('runs');
+    expect(runs.find((r) => r.runId === hints)?.next).toBeUndefined();
+    expect(runs.find((r) => r.runId === good)?.next?.key).toBe('blame');
+    expect(runs.find((r) => r.runId === diff)?.next).toBeUndefined();
+    // Its page answers too, with no step to lead with.
+    expect((await get<{ next?: NextStep }>(`runs/${diff}`)).next).toBeUndefined();
+    for (const id of [good, rec, diff, hints]) store.deleteRun(id);
   });
 });
 

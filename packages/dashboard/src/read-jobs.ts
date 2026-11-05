@@ -15,7 +15,7 @@ import type { MaskCount } from './run-mask.js';
 import { runCalls } from './run-calls.js';
 import { loadRunIndex } from './run-index.js';
 import { withExitCodes } from './exit-codes.js';
-import { nextStepRows, pricedNextStep, replayStepOf, type NextStepWork } from './next-step.js';
+import { nextStepRows, pageSteps, type NextStepWork } from './next-step.js';
 import { judgedRows, OUTCOME_READS, runJudged, type OutcomeWork } from './run-outcome.js';
 import { analyseRun } from './run-page.js';
 import { asksFor, asksOf, warmProgress, warmRunStats } from './run-stats.js';
@@ -237,12 +237,11 @@ const CORE_READS: ReadTable<CoreJob> = {
     // what needs no call read or this thread judged before, and the rest with its analysis.
     const outcome = job.outcome ?? null;
     const judged = runJudged(store, loadRunIndex(store), runId, outcome, { calls: () => [...runCalls(store, runId)], checks: true, quick: !!d.warming });
-    // Its next step, what it bills with it once the run's calls are read (next-step.ts).
-    const next = await pricedNextStep(store, runId, job.next ?? null, { judged, whole: !d.warming });
-    const replay = replayStepOf(store, runId);
+    // Its next step, what it bills with it once the run's calls are read, and what its Replay replays (next-step.ts).
+    const steps = await pageSteps(store, runId, job.next ?? null, { judged, whole: !d.warming });
     // The route tags it by where the run stands (run-version.ts); a long run answered from its
     // first calls is analysed whole beside the server, for the page to ask again.
-    return { ...answer({ ...d, ...(judged === undefined ? {} : { judged }), ...(next ? { next } : {}), ...(replay ? { replay } : {}) }), ...(d.warming ? analyseAfter(runId, outcome) : {}) };
+    return { ...answer({ ...d, ...(judged === undefined ? {} : { judged }), ...steps }), ...(d.warming ? analyseAfter(runId, outcome) : {}) };
   },
   calls: (store, job) => {
     const page = runCallsPage(store, job.runId, { from: job.from, limit: job.limit }, job.read, job.whole ? { whole: true } : {});

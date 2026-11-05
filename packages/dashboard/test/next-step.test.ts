@@ -5,8 +5,9 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { judgeCapture, NO_COMMAND, parseTests, recordBlame, recordEvent, rulesOnCalls, Store, type CleanReport, type DiffEntry, type Normalizer, type PlantReport, type RunMeta } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun } from '../../engine/test/fix-fixtures.js';
-import { copyNextStep, failureKey, fixByFailure, goldenFolder, nextStepOf, nextStepRows, nextStepStamp, pricedNextStep, replayStepOf, stepRow, type NextStepWork } from '../src/next-step.js';
+import { copyNextStep, failureKey, fixByFailure, goldenFolder, nextStepOf, nextStepRows, nextStepStamp, pageSteps, pricedNextStep, replayStepOf, stepRow, type NextStepWork } from '../src/next-step.js';
 import { listRuns } from '../src/api.js';
+import { overviewSummary } from '../src/overview.js';
 import { judgedRows, runJudged, type OutcomeWork } from '../src/run-outcome.js';
 import { loadRunIndex } from '../src/run-index.js';
 import type { GoldenSource } from '../src/tests.js';
@@ -434,6 +435,47 @@ describe('a list’s rows', () => {
     store.getCalls = ((...a: Parameters<typeof getCalls>) => (read++, getCalls(...a)));
     expect(nextStepRows(store, rows, work([])).every((r) => r.next)).toBe(true);
     expect(read).toBe(0);
+  });
+});
+
+describe('a record a step can’t be read from', () => {
+  // What reads the project throwing stands for any record a rule can't read: a pack can carry anything.
+  const unreadable = { goldens: [], normalize: undefined, dir: '/work/project', get tests(): unknown { throw new Error('unreadable'); } } satisfies NextStepWork;
+
+  it('leaves a list’s row with no step, and the other rows theirs', () => {
+    const failed = recording(T0, { status: 'failed' });
+    const passed = recording(T0 + MIN);
+    const by = new Map(nextStepRows(store, listRuns(store), unreadable).map((r) => [r.runId, r.next]));
+    expect(by.get(failed)).toBeUndefined();
+    expect(by.get(passed)?.key).toBe('pack');
+  });
+
+  it('leaves its line in Needs a look as it was, where a run blame can’t take reads Open', () => {
+    const NOW = Date.now();
+    const noCall = recording(NOW - 2000, { status: 'failed', calls: 'b' });
+    const failed = recording(NOW - 1000, { status: 'failed' });
+    const action = (next: NextStepWork) => {
+      const items = overviewSummary(store, { tz: 'UTC', now: NOW, next }).needsLook.items;
+      return [noCall, failed].map((id) => items.find((i) => i.runId === id)?.action);
+    };
+    expect(action(work([]))).toEqual(['Open', 'Run blame']);
+    expect(action(unreadable)).toEqual(['Run blame', 'Run blame']);
+  });
+
+  it('leaves its page with no step, and the Replay beside it', async () => {
+    const failed = recording(T0, { status: 'failed' });
+    expect(await pageSteps(store, failed, unreadable, { judged: undefined, whole: true })).toEqual({});
+    expect(await pageSteps(store, failed, work([]), { judged: undefined, whole: true })).toMatchObject({ next: { key: 'blame' }, replay: { key: 'replay', runId: failed } });
+  });
+
+  it('reads checks that aren’t a list as none, and a test’s golden or session that isn’t text as no test', () => {
+    const notAList = recording(T0, { status: 'failed', meta: { checks: 'x' as never } });
+    expect(step(notAList)).toMatchObject({ key: 'blame', offer: { from: 'exit', failed: [] } });
+    const rec = recording(T0 + 1);
+    const session = addRun(store, { parent: rec, startedAt: T0 + MIN, status: 'failed', calls: 'r', meta: { test: { golden: GOLDEN, session: { a: 1 } as never } } });
+    expect(step(session, work([source(rec)])).key).toBe('blame');
+    const golden = addRun(store, { parent: rec, startedAt: T0 + 2 * MIN, status: 'failed', calls: 'r', meta: { test: { golden: 7 as never, session: 's1' } } });
+    expect(step(golden, work([source(rec)])).key).toBe('blame');
   });
 });
 
