@@ -277,6 +277,26 @@ test('Esc or the scrim on a dialog with edits asks first, and Cancel never does'
   await expect(dialog).toHaveCount(0);
 });
 
+test('a page drawn anew just after a modal closes hands the focus to the opener’s counterpart', async ({ page }) => {
+  await openPage(page, `/run/${demoId('ticket')}`, 'run');
+  const del = page.locator('.rhead .actions button', { hasText: 'Delete' });
+  await del.click();
+  await expect(page.locator(DIALOG)).toBeVisible();
+  // The close, then the button drawn anew straight after it, in the page, so a loaded machine can't outrun the second it has.
+  const same = await page.evaluate(async () => {
+    document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await new Promise((done) => requestAnimationFrame(() => setTimeout(done)));
+    const was = document.activeElement as HTMLElement;
+    if (!was.textContent?.includes('Delete')) return `the focus went to ${was.tagName}`;
+    const anew = was.cloneNode(true) as HTMLElement;
+    anew.classList.add('anew');
+    was.replaceWith(anew);
+    return 'drawn anew';
+  });
+  expect(same).toBe('drawn anew');
+  await expect(page.locator('.rhead .actions button.anew')).toBeFocused();
+});
+
 test('a hover card waits 400 ms for a pointer, shows at once for the keyboard, and its element points at it', async ({ page }) => {
   await openPage(page, `/run/${demoId('ticket')}`, 'run');
   const tip = page.locator('#tip');
