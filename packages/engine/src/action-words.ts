@@ -24,6 +24,9 @@ export interface ActionWords {
   doing?: string;
 }
 
+/** The model Run blame with stronger model's field suggests before one is typed, and so the model its price is worked out at until one is. */
+export const STRONGER_MODEL = 'claude-opus-5-5';
+
 export const ACTIONS = {
   // The fork menu at a call, in the CLI's verbs, as the terminal UI and the dashboard offer it
   // (run-actions.ts); Force <tool> live names its tool.

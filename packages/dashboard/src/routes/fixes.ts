@@ -13,7 +13,7 @@ import type { ReadAnswer } from '../read-jobs.js';
 import { recordingNow } from '../run-exports.js';
 import type { Router } from '../router.js';
 import { loadRunIndex } from '../run-index.js';
-import { modelParam } from './estimates.js';
+import { MODEL, modelParam } from './estimates.js';
 
 /**
  * Fixes: the list (`GET /api/fixes`), a fix with its three steps (`GET /api/fixes/:id`), what its
@@ -127,8 +127,6 @@ function importedCommand(runs: RunRecord[], yes: unknown, args: readonly string[
   return needsConsent({ runs, yes, args });
 }
 
-/** A model as `--model` takes it: a name, never a flag. */
-const MODEL = /^[A-Za-z0-9][\w.:/@-]{0,119}$/;
 
 /**
  * Run blame again, or Run blame with stronger model, for an open fix whose blame placed its failure on no

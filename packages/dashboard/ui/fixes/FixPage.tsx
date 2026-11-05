@@ -21,7 +21,7 @@ import { FailedMust, Flagged } from './parts.js';
 import { RepairStepView } from './RepairStep.js';
 import { useTreeBusy } from './tree.js';
 import { VerifyStepView } from './VerifyStep.js';
-import { ACTIONS, confirmWords } from '../labels.js';
+import { ACTIONS, confirmWords, STRONGER_MODEL } from '../labels.js';
 
 /**
  * A fix (#/fixes/<id>[/<step>[/<sub>]]): its title, check and runs; the stepper (Blame, Repair,
@@ -334,7 +334,7 @@ function StrongerDialog({ fix, onRun, onClose }: { fix: FixDetail; onRun: (model
         </>
       }
       label="Model"
-      placeholder="claude-opus-5-5"
+      placeholder={STRONGER_MODEL}
       ok={confirmWords(ACTIONS.runBlameStronger.label)}
       command={(model) => `${base} --model ${model.trim() || '<model>'}`}
       onRun={(model) => model.trim() && onRun(model.trim())}

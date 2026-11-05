@@ -6,8 +6,8 @@ import type { Router } from '../router.js';
 import { runAffinity } from '../run-index.js';
 import { runVersionTag } from '../run-version.js';
 
-/** A model as `--model` takes it: a name, never a flag (routes/fixes.ts checks a job's so). */
-const MODEL = /^[A-Za-z0-9][\w.:/@-]{0,119}$/;
+/** A model as `--model` takes it: a name, never a flag. A fix's Run blame with stronger model checks its job's so too (routes/fixes.ts). */
+export const MODEL = /^[A-Za-z0-9][\w.:/@-]{0,119}$/;
 
 /** A model a price is asked at, from the query string, as `--model` takes it; null when absent. */
 export function modelParam(raw: string | null): string | null {

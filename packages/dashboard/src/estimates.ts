@@ -21,6 +21,7 @@ import {
   resolveFix,
   reusedBlame,
   runBisectEstimate,
+  STRONGER_MODEL,
   selectedRuns,
   shownBlame,
   testsEstimate,
@@ -152,8 +153,6 @@ export interface FixEstimates {
   verify: Record<string, Estimate>;
 }
 
-/** The model Run blame with stronger model's field shows before one is typed (ui/fixes/FixPage.tsx), and so its estimate's. */
-const STRONGER_MODEL = 'claude-opus-5-5';
 
 /**
  * Run repair as its command selects the runs (engine fix-jobs.ts `repairArgv`): each failing run with
