@@ -4,6 +4,7 @@ import { Dialog } from '../components/Dialog.js';
 import { useApp } from '../state.js';
 import { answerTestsQuestion, onTestsQuestion, testsQuestion } from '../tests-ask.js';
 import { useTestsWait } from './tree.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * A button that starts a Tests job from another page (Add normalizer and Update golden on a test
@@ -15,9 +16,9 @@ export function TestsJobButton({ verb, off, title, className, onClick, children 
   const wait = useTestsWait(verb);
   const why = off ?? wait;
   return (
-    <button className={className} type="button" disabled={!!why} title={why ?? title ?? undefined} onClick={onClick}>
+    <ActionButton className={className} why={why} title={title ?? undefined} onClick={onClick}>
       {children}
-    </button>
+    </ActionButton>
   );
 }
 

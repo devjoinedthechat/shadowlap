@@ -214,7 +214,7 @@
       "changeCards": 33
     },
     "packages/dashboard/ui/fixes/FixPage.tsx": {
-      "FixActions": 37
+      "FixActions": 36
     },
     "packages/dashboard/ui/fixes/model.ts": {
       "fixJobStatus": 37
@@ -230,13 +230,13 @@
       "Comparison": 51
     },
     "packages/dashboard/ui/pages/NewProject.tsx": {
-      "NewProjectPage": 38
+      "NewProjectPage": 36
     },
     "packages/dashboard/ui/pages/Run.tsx": {
       "Workspace": 82
     },
     "packages/dashboard/ui/pages/Runs.tsx": {
-      "ServerRuns": 37
+      "ServerRuns": 35
     },
     "packages/dashboard/ui/pages/Training.tsx": {
       "ScoreDialog": 34
@@ -245,10 +245,10 @@
       "RuleDialog": 37
     },
     "packages/dashboard/ui/pages/settings/Store.tsx": {
-      "StoreTab": 34
+      "StoreTab": 32
     },
     "packages/dashboard/ui/pages/settings/StoreSetup.tsx": {
-      "StoreSetup": 73
+      "StoreSetup": 65
     },
     "packages/dashboard/ui/run/Inspector.tsx": {
       "ConversationTab": 33,
@@ -258,7 +258,7 @@
       "ProvenanceView": 95
     },
     "packages/dashboard/ui/run/RunHeader.tsx": {
-      "RunHeader": 85
+      "RunHeader": 77
     },
     "packages/dashboard/ui/run/banner.ts": {
       "attemptBanner": 52,
@@ -479,16 +479,16 @@
       "createClient": 177
     },
     "packages/dashboard/ui/fixes/BlameStep.tsx": {
-      "BlameStepView": 198
+      "BlameStepView": 193
     },
     "packages/dashboard/ui/pages/NewProject.tsx": {
       "NewProjectPage": 162
     },
     "packages/dashboard/ui/pages/Run.tsx": {
-      "Workspace": 287
+      "Workspace": 286
     },
     "packages/dashboard/ui/pages/Runs.tsx": {
-      "ServerRuns": 185
+      "ServerRuns": 184
     },
     "packages/dashboard/ui/pages/Setup.tsx": {
       "SetupPage": 162
@@ -500,7 +500,7 @@
       "TasksTab": 167
     },
     "packages/dashboard/ui/pages/settings/StoreSetup.tsx": {
-      "StoreSetup": 285
+      "StoreSetup": 284
     },
     "packages/dashboard/ui/run/ContextView.tsx": {
       "ContextView": 164
@@ -509,13 +509,13 @@
       "ProvenanceView": 267
     },
     "packages/dashboard/ui/run/RunHeader.tsx": {
-      "RunHeader": 198
+      "RunHeader": 176
     },
     "packages/dashboard/ui/run/parts.tsx": {
       "Banner": 263
     },
     "packages/dashboard/ui/runspage/Calendar.tsx": {
-      "Calendar": 208
+      "Calendar": 206
     },
     "packages/dashboard/ui/runspage/ImportDialog.tsx": {
       "ImportDialog": 162
@@ -524,7 +524,7 @@
       "PaletteDialog": 253
     },
     "packages/dashboard/ui/state.tsx": {
-      "AppProvider": 310
+      "AppProvider": 308
     },
     "packages/engine/src/json-doc.ts": {
       "scan": 217

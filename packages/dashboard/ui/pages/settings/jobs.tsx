@@ -11,6 +11,7 @@ import { CONFIG_FILE, CommandLine, editErrorText } from './common.js';
 import { UNUSED_WORTH, bytesText, gcDeleteCommand, gcDeleteWhat, gcDryRun, gcGivesBack, proposedCount } from './logic.js';
 import { settingsChanged } from './events.js';
 import { ACTIONS } from '../../labels.js';
+import { ActionButton } from '../../components/ActionButton.js';
 
 /**
  * What Settings' jobs offer once they end, in the job drawer's footer: calibrate's "Add it
@@ -38,9 +39,9 @@ function CalibrateFooter({ job, plain, done }: { job: JobView; plain?: boolean; 
     }
   };
   return (
-    <button className={plain ? 'btn' : 'btn lime'} type="button" disabled={state !== 'idle' || !!app.actionsOff} title={app.actionsOff ?? `Adds ${n === 1 ? 'the normalizer' : `the ${n} normalizers`} it found to ${CONFIG_FILE}, as --write does`} onClick={() => app.guard(() => void add())}>
+    <ActionButton className={plain ? 'btn' : 'btn lime'} disabled={state !== 'idle'} title={`Adds ${n === 1 ? 'the normalizer' : `the ${n} normalizers`} it found to ${CONFIG_FILE}, as --write does`} onClick={() => app.guard(() => void add())}>
       {state === 'done' ? 'Added' : n === 1 ? 'Add normalizer' : `Add ${n} normalizers`}
-    </button>
+    </ActionButton>
   );
 }
 
@@ -58,9 +59,9 @@ function CleanupFooter({ job }: { job: JobView }) {
   const label = freeOnly ? `Free ${bytesText(gcGivesBack(dry))}` : `Delete ${runs}`;
   return (
     <>
-      <button className="btn" type="button" disabled={started || !!app.actionsOff} title={app.actionsOff ?? undefined} onClick={() => app.guard(() => setAsking(true))}>
+      <ActionButton className="btn" disabled={started} onClick={() => app.guard(() => setAsking(true))}>
         {label}
-      </button>
+      </ActionButton>
       {asking ? (
         <Dialog
           title={freeOnly ? `${label}?` : `Delete ${gcDeleteWhat(dry)}?`}

@@ -4,6 +4,7 @@ import { hasMark, markChange, markTitle, markToast, MARKS, undoChange, withChang
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { Icon } from './Icon.js';
+import { ActionButton } from './ActionButton.js';
 
 /**
  * The good/bad key (runkey.ts): two buttons that label a run `good` or `bad` in one press, a press
@@ -16,13 +17,13 @@ export function RunKey({ runId, labels, onMark, off, compact = false }: { runId:
       {MARKS.map((m) => {
         const on = hasMark(labels, m);
         return (
-          <button
+          <ActionButton
             key={m}
-            type="button"
             className={`rk ${m}`}
             aria-pressed={on}
-            disabled={!!off}
-            title={off ?? markTitle(m, on)}
+            why={off}
+            tip={m}
+            title={markTitle(m, on)}
             onClick={(e) => {
               e.stopPropagation();
               onMark(m, e.currentTarget);
@@ -30,7 +31,7 @@ export function RunKey({ runId, labels, onMark, off, compact = false }: { runId:
           >
             <Icon name={m === 'good' ? 'check' : 'x'} />
             {compact ? <span className="sr">{m}</span> : m}
-          </button>
+          </ActionButton>
         );
       })}
     </span>

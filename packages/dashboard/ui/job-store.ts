@@ -1,7 +1,9 @@
 import { ApiError, type JobView } from './api.js';
 import { isUnreachable } from './backoff.js';
 import type { Conn } from './connection.js';
-import { afterPollError, jobTitle, type RunningJob } from './job-title.js';
+import { afterPollError, jobTitle, type JobChipView, type RunningJob } from './job-title.js';
+
+export type { JobChipView } from './job-title.js';
 
 /**
  * The jobs this page follows, one list that the job's drawer and the status bar's chip both read
@@ -151,19 +153,6 @@ export class JobStore {
     };
     setTimeout(() => void step(), 200);
   }
-}
-
-/** What the status bar's chip says and opens. */
-export interface JobChipView {
-  /** `Forking · running`, `Forked · exit 0`, `2 jobs running`. */
-  label: string;
-  /** Its name for a screen reader: `Show job: Forking, running`. */
-  name: string;
-  opens: string;
-  running: boolean;
-  tone: '' | 'ok' | 'warn' | 'err';
-  /** Several running: which, on hover. */
-  title?: string;
 }
 
 /**

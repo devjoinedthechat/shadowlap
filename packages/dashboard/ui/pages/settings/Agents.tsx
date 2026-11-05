@@ -6,6 +6,7 @@ import type { CodingAgentsSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import { CommandLine, FILES_GONE, LoadProblem, Loading, useFolderGone, useSettingsData } from './common.js';
 import { agentFileWords, orList, sharedSkillsWords, SKILL_INSTALL_KIND, skillWords, type AgentAction } from './logic.js';
+import { ActionButton } from '../../components/ActionButton.js';
 
 /**
  * Coding agents, as the design has it (codingAgentsPanel): coding agents need no MCP server, the CLI
@@ -154,9 +155,9 @@ function useInstallOff(command: string | null): string | null {
 function InstallButton({ action, command, sub, small = false, lime = false, onClick }: { action: AgentAction; command: string | null; sub: string; small?: boolean; lime?: boolean; onClick: () => void }) {
   const off = useInstallOff(command);
   return (
-    <button className={`btn${small ? ' sm' : ''}${lime && !off ? ' lime' : ''}`} type="button" disabled={!!off} title={off ?? `${command ?? 'shadowlap skill install'} · ${sub}`} onClick={onClick}>
+    <ActionButton className={`btn${small ? ' sm' : ''}${lime ? ' lime' : ''}`} why={off} title={`${command ?? 'shadowlap skill install'} · ${sub}`} onClick={onClick}>
       {action.label}
-    </button>
+    </ActionButton>
   );
 }
 

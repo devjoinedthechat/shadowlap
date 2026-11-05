@@ -13,6 +13,7 @@ import { refusedOffline } from './calls.js';
 import { EditAndFork } from './EditAndFork.js';
 import { viaWords } from './notes.js';
 import { conversationLink, modelLabel, originOf, tokensText, turnCalls } from './model.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * The inspector for the selected call: Conversation (as the model saw it, thinking included, with
@@ -606,9 +607,9 @@ function Notes({ runId, callNo, notes }: { runId: string; callNo: number; notes:
           }}
         >
           <textarea placeholder="Add a note on this call" aria-label={`A note on #${callNo}`} value={text} onChange={(e) => setText(e.target.value)} />
-          <button className="btn" type="submit" disabled={saving || !text.trim()}>
+          <ActionButton className="btn" type="submit" disabled={saving || !text.trim()}>
             Add
-          </button>
+          </ActionButton>
         </form>
       ) : null}
     </>

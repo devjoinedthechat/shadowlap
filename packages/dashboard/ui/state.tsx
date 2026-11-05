@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
 import { ApiError, JOB_KINDS, type Client, type JobView, type LiveRun, type Meta, type RunListItem } from './api.js';
 import { isUnreachable } from './backoff.js';
-import { connStart, connStep, feedCursor, feedMoves, onTick, secondsLeft, withLiveCalls, type Conn } from './connection.js';
+import { connStart, connStep, feedCursor, feedMoves, onTick, PAUSED, secondsLeft, withLiveCalls, type Conn } from './connection.js';
 import { useLatest } from './hooks.js';
 import { JobStore, type JobWatch, type WatchedJob } from './job-store.js';
 import { jobTitle } from './job-title.js';
@@ -209,6 +209,13 @@ export function useApp(): AppState {
 const POLL_MS = 2000;
 /** How soon the run list is asked again while some of its rows' totals are being added up. */
 export const RUNS_WARMING_MS = 1500;
+
+/** A job a newer one took the drawer from ended: its way on from what it reported, unless that is in another project, else Show. */
+async function sayReplacedEnd(job: JobView, lines: readonly string[], here: string | undefined, toast: AppState['toast'], show: (id: string) => void): Promise<void> {
+  const { endToast, jobStatus, wayOnOf } = await import('./jobs.js');
+  const way = job.project && job.project.id !== here ? null : wayOnOf(job);
+  toast(endToast(job, lines), jobStatus(job, lines).tone === 'err' ? 'error' : 'notice', way ? { label: way.label, run: () => navigate(way.href) } : { label: 'Show', run: () => show(job.id) });
+}
 
 export function AppProvider({ client, children }: { client: Client; children: ReactNode }) {
   const preview = useMemo(() => previewState(), []);
@@ -472,7 +479,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
   const hasKind = useCallback((kind: string) => (meta?.jobKinds ? meta.jobKinds.includes(kind) : false), [meta]);
   const guard = useCallback(
     (fn: () => void) => {
-      if (connRef.current === 'offline') toast('Actions are paused until the dashboard server is back.');
+      if (connRef.current === 'offline') toast(PAUSED);
       else fn();
     },
     [connRef, toast],
@@ -487,15 +494,9 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       refresh();
       // An HTML copy and a HAR download as well as being written into the project (decision 5).
       if (job.code === 0 && (job.kind === JOB_KINDS.har || job.kind === JOB_KINDS.exportHtml)) for (const f of job.files ?? []) if (!f.directory) void client.downloadFile(f).catch(() => undefined);
-      // On the screen, its drawer says how it ended; hidden, its drawer raises the toast, its way on
-      // there to take. One a newer job replaced has neither: its way on from what it reported, unless
-      // that is in another project, else Show.
+      // On the screen, its drawer says how it ended; hidden, its drawer raises the toast, its way on there to take.
       if (watched?.open || watched?.hidden) return;
-      void import('./jobs.js').then(({ endToast, jobStatus, wayOnOf }) => {
-        const way = job.project && job.project.id !== meta?.project?.id ? null : wayOnOf(job);
-        const action: ToastAction = way ? { label: way.label, run: () => navigate(way.href) } : { label: 'Show', run: () => openJobNow.current(job.id, true) };
-        toast(endToast(job, lines), jobStatus(job, lines).tone === 'err' ? 'error' : 'notice', action);
-      });
+      void sayReplacedEnd(job, lines, meta?.project?.id, toast, (id) => openJobNow.current(id, true));
     },
     lost: (job, watched) => {
       if (!watched?.open) toast(`${jobTitle(job)}: the dashboard server no longer has this job`, 'error');

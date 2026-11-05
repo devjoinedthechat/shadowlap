@@ -16,6 +16,7 @@ import { LoadProblem, Loading } from './common.js';
 import { stepWords } from '../../../src/store-steps.js';
 import { setupStates, type SetupStepState } from './store-logic.js';
 import { ACTIONS } from '../../labels.js';
+import { ActionButton } from '../../components/ActionButton.js';
 
 /**
  * The team store's setup, free like the rest of Shadowlap, on a page of its own (`#/setup/store`)
@@ -189,9 +190,9 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
                 </details>
               ) : null}
               <div className="actions">
-                <button className="btn lime" type="button" disabled={!!connectOff} title={connectOff ?? undefined} onClick={connect}>
+                <ActionButton className="btn lime" why={connectOff} onClick={connect}>
                   Check access and connect
-                </button>
+                </ActionButton>
               </div>
             </>
           ) : null}
@@ -215,9 +216,9 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
           )}
           {states.push === 'cur' ? (
             <div className="actions">
-              <button className="btn lime" type="button" disabled={!!pushOff} title={pushOff ?? undefined} onClick={() => guard(() => onChange(client.startJob(JOB_KINDS.push, { all: true })))}>
+              <ActionButton className="btn lime" why={pushOff} onClick={() => guard(() => onChange(client.startJob(JOB_KINDS.push, { all: true })))}>
                 Push {num(runs)} {runs === 1 ? 'run' : 'runs'}
-              </button>
+              </ActionButton>
             </div>
           ) : null}
         </Step>
@@ -279,12 +280,12 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
                     Copy
                   </button>
                 )}
-                <button className="btn lime" type="button" disabled={!!off || saving} title={off ?? undefined} onClick={() => save({ ci: 'added', ciProvider: ci }, 'Push from CI added')}>
+                <ActionButton className="btn lime" disabled={saving} why={off} onClick={() => save({ ci: 'added', ciProvider: ci }, 'Push from CI added')}>
                   I added it
-                </button>
-                <button className="btn quiet" type="button" disabled={!!off || saving} title={off ?? undefined} onClick={() => save({ ci: 'skipped', ciProvider: ci }, 'Skipped for now · the step stays in Settings → Store')}>
+                </ActionButton>
+                <ActionButton className="btn quiet" disabled={saving} why={off} onClick={() => save({ ci: 'skipped', ciProvider: ci }, 'Skipped for now · the step stays in Settings → Store')}>
                   Skip for now
-                </button>
+                </ActionButton>
               </div>
             </>
           ) : null}
@@ -303,11 +304,10 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
                   <button className="btn" type="button" onClick={() => copy(view.commit!.command, 'the commit command')}>
                     Copy the commit command
                   </button>
-                  <button
+                  <ActionButton
                     className="btn lime"
-                    type="button"
-                    disabled={!!off || saving}
-                    title={off ?? undefined}
+                    disabled={saving}
+                    why={off}
                     onClick={() =>
                       guard(() => {
                         setSaving(true);
@@ -326,7 +326,7 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
                     }
                   >
                     Finish
-                  </button>
+                  </ActionButton>
                 </div>
               ) : null}
             </>

@@ -26,6 +26,7 @@ import { attemptLinks, attemptOf, originOf, pulledSpender, runLikeOf } from './m
 import { fixStatusWords, nextStepOf, runBlameOffer } from './next-step.js';
 import { blameTitle, divergedActions, goldenName, updateGoldenCopy, updatesAfterRules } from './offers.js';
 import { UpdateGoldenDialog } from './RunDialogs.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /** The run page while its run loads (a run of 50,000 calls takes seconds): it says so, and is busy for a screen reader. */
 export function RunLoading() {
@@ -365,9 +366,9 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
                 {add.label}
               </TestsJobButton>
             ) : add?.kind === 'action' && normalizer ? (
-              <button className="btn sm lime" type="button" disabled={!!normalizer.disabled} onClick={() => onAction({ action: normalizer, callNo: null })}>
+              <ActionButton className="btn sm lime" why={normalizer.disabled} onClick={() => onAction({ action: normalizer, callNo: null })}>
                 {ACTIONS.addNormalizer.label}
-              </button>
+              </ActionButton>
             ) : null}
             {acts.update ? (
               <TestsJobButton className="btn sm" verb="update it" off={off} onClick={() => app.guard(() => setDialog('update'))}>
@@ -444,9 +445,9 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
           {b.path ? <span className="path">~ {b.path}</span> : null}
           <span className="end">
             {b.normalizer && normalizer && !off ? (
-              <button className="btn sm lime" type="button" disabled={!!normalizer.disabled} onClick={() => onAction({ action: normalizer, callNo: null })}>
+              <ActionButton className="btn sm lime" why={normalizer.disabled} onClick={() => onAction({ action: normalizer, callNo: null })}>
                 {ACTIONS.addNormalizer.label}
-              </button>
+              </ActionButton>
             ) : null}
             {b.diff ? diffToggle : null}
             {/* A fork that failed is blamed as any failed run is: its fix, or Run blame. */}

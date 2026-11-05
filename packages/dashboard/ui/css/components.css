@@ -164,8 +164,8 @@ table.t tbody tr.sel td, table.t tbody tr.sel:hover td { background: var(--sel);
 .switch i::after { content: ""; position: absolute; left: 2px; top: 2px; width: 12px; height: 12px; border-radius: var(--r-dot); background: var(--bg); transition: transform .15s; }
 .switch[aria-checked="true"] i { background: var(--ink); }
 .switch[aria-checked="true"] i::after { transform: translateX(12px); background: var(--tar); }
-.switch:disabled { cursor: not-allowed; }
-.switch:disabled i { opacity: .5; }
+.switch:disabled, .switch[aria-disabled="true"] { cursor: not-allowed; }
+.switch:disabled i, .switch[aria-disabled="true"] i { opacity: .5; }
 
 /* ---- the code box (CodeBox): one Copy, at its top right, the one way a box is copied ---- */
 /* A file's box names the file in its header and its Copy ends the header (.codewrap, base.css); any other box carries it in

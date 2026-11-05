@@ -97,7 +97,7 @@ body.docked .bulkbar { bottom: calc(44px + var(--dock-h)); }
 .toast.out { opacity: 0; transition: opacity .16s ease-in; }
 .toast.out .tbtn, .toast.out .tx { pointer-events: none; }
 .toast i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
-.toast .tbtn { pointer-events: auto; flex: none; margin: -6px -6px -6px 4px; padding: 6px 8px; border: 0; border-radius: 6px; background: none; color: var(--bg); font: 600 13.5px var(--body); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.toast .tbtn { pointer-events: auto; flex: none; margin: -6px -6px -6px 4px; padding: 6px 8px; border: 0; border-radius: 6px; background: none; color: inherit; font: 600 13.5px var(--body); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .toast .tbtn:hover { background: color-mix(in srgb, var(--bg) 10%, transparent); }
 .toast .tbtn:focus-visible { outline: 2px solid var(--bg); outline-offset: 0; }
 /* a long way on goes under the words, its text at their left edge, where beside them it would leave them more than two lines */
@@ -110,3 +110,6 @@ body.docked .bulkbar { bottom: calc(44px + var(--dock-h)); }
 .toast .tx { pointer-events: auto; flex: none; width: 24px; height: 24px; margin: -3px -6px -3px 2px; border: 0; border-radius: 7px; background: none; color: inherit; opacity: .7; font: 400 16px/1 var(--body); cursor: pointer; }
 .toast .tx:hover, .toast .tx:focus-visible { opacity: 1; background: color-mix(in srgb, var(--bg) 12%, transparent); outline: none; }
 @media (prefers-reduced-motion: reduce) { .toast { animation: none; } .toast.out { transition: none; } }
+
+/* what waits and is no button of its own style (a row's fork icon, a segment, a label's ×): half strength, its card saying why */
+[data-why][aria-disabled="true"]:not(.btn, .linkbtn, .rk, .switch, .pop button) { opacity: .5; cursor: not-allowed; }

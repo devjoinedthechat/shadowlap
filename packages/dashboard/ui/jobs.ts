@@ -1,7 +1,6 @@
 import { fixJobStatus } from './fixes/model.js';
 import { jobEnding, type JobWords } from './job-ending.js';
-import { forks, isPlainReplay, jobCommand, jobTitle, ownArgs, type JobLike, type RunningJob } from './job-title.js';
-import type { JobChipView, WatchedJob } from './job-store.js';
+import { isPlainReplay, jobTitle, ownArgs, type JobChipView, type JobLike, type RunningJob } from './job-title.js';
 import { doneWords, type JobEnd } from './labels.js';
 import { trainingJobStatus } from './training.js';
 
@@ -273,7 +272,7 @@ export function wayOnOf(job: JobLike & { links?: ReadonlyArray<{ label: string; 
 }
 
 /** The status bar's chip for a hidden job that ended: what it did and how, in its verdict's colour. */
-export function endChip(w: Pick<WatchedJob, 'job' | 'lines' | 'lost'>): JobChipView {
+export function endChip(w: { job: JobLike & { id: string }; lines: readonly string[]; lost?: boolean | undefined }): JobChipView {
   const end = jobHeader(w.job, w.lines, !!w.lost);
   return { label: `${end.title} · ${end.text}`, name: `Show job: ${end.title}, ${end.text.replace(/ · /g, ', ')}`, opens: w.job.id, running: false, tone: end.tone };
 }

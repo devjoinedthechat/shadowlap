@@ -25,6 +25,7 @@ import { exitWords, presetTag, type PresetAttempt } from './preset.js';
 import { checksOf, forkKindWords, recordingWords, runDuration, runLikeOf } from './model.js';
 import { canPush, pushTitle } from './share.js';
 import { ShareMenu } from './ShareMenu.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * The run's header: what kind of run it is, its id as its heading (decision 10: the id is the run's
@@ -64,7 +65,7 @@ export function RunHeader({
   onMark?: ((m: RunMark, from?: HTMLElement) => void) | null;
 }) {
   const app = useApp();
-  const { exported, actionsOff, toast, client, guard, refresh, hasKind } = app;
+  const { exported, toast, client, guard, refresh, hasKind } = app;
   const r = run.run;
   // The page's labels when it keeps them (the good/bad key changes them too), else the run's, kept here.
   const [own, setOwn] = useState<string[] | null>(null);
@@ -121,7 +122,6 @@ export function RunHeader({
   const ownAbout = !!about?.text && about.text.toLowerCase() !== kind.toLowerCase();
   const head = useRef<HTMLElement>(null);
   useFitAbouts(head);
-  const off = actionsOff ?? undefined;
   // Push: a run only on this machine goes to the team store the config names.
   const pushable = canPush({ exported, live, team: offers?.team, hasPush: hasKind(JOB_KINDS.push) });
   return (
@@ -175,52 +175,31 @@ export function RunHeader({
         ) : null}
         {exported ? (next.key === 'compare' ? <CompareLead from={next.parent} to={r.runId} /> : null) : (
           <>
-            <button className="btn" type="button" aria-haspopup="menu" aria-expanded={share.open} onClick={(e) => share.toggle(e.currentTarget)}>
+            <ActionButton className="btn" aria-haspopup="menu" aria-expanded={share.open} tip="Share" onClick={(e) => share.toggle(e.currentTarget)}>
               <Icon name="share" />
               Share
               <Icon name="caret" className="caret" />
-            </button>
+            </ActionButton>
             {pushable ? (
-              <button
-                className="btn"
-                type="button"
-                disabled={!!actionsOff}
-                title={off ?? pushTitle(offers!.team!)}
-                onClick={() => guard(() => app.watchJob(client.startJob(JOB_KINDS.push, { runIds: [r.runId] })))}
-              >
+              <ActionButton className="btn" title={pushTitle(offers!.team!)} onClick={() => guard(() => app.watchJob(client.startJob(JOB_KINDS.push, { runIds: [r.runId] })))}>
                 Push
-              </button>
+              </ActionButton>
             ) : null}
-            <button
-              className={next.key === 'replay' ? 'btn lime' : 'btn'}
-              type="button"
-              disabled={live || !!actionsOff || !replay || !!replay.disabled}
-              title={live ? 'Replay once the recording finishes' : (off ?? replay?.disabled ?? undefined)}
-              onClick={() => replay && onAction({ action: replay, callNo: null })}
-            >
+            <ActionButton className={next.key === 'replay' ? 'btn lime' : 'btn'} disabled={!replay} tip="Replay" why={live ? 'Replay once the recording finishes' : replay?.disabled} onClick={() => replay && onAction({ action: replay, callNo: null })}>
               <Icon name="replay" />
               Replay
-            </button>
+            </ActionButton>
             {next.key === 'blame' ? <RunBlameButton runId={r.runId} failed={next.offer.failed} title={blameTitle(next.offer)} className="btn lime" icon /> : null}
             {next.key === 'fix' ? <FixLead fix={next.fix} /> : null}
             {next.key === 'compare' ? <CompareLead from={next.parent} to={r.runId} /> : null}
-            <button
-              className="btn"
-              type="button"
-              id="forkBtn"
-              aria-haspopup="menu"
-              aria-expanded={forkMenu.open}
-              disabled={live || !!actionsOff || selected === null}
-              title={live ? 'Fork once the recording finishes' : off}
-              onClick={(e) => forkMenu.toggle(e.currentTarget)}
-            >
+            <ActionButton className="btn" id="forkBtn" aria-haspopup="menu" aria-expanded={forkMenu.open} disabled={live || selected === null} tip={`Fork at #${selected ?? '–'}`} title={live ? 'Fork once the recording finishes' : undefined} onClick={(e) => forkMenu.toggle(e.currentTarget)}>
               <Icon name="fork" />
               Fork at #{selected ?? '–'}
               <Icon name="caret" className="caret" />
-            </button>
-            <button className="btn quiet dz" type="button" disabled={live || !!actionsOff} title={live ? 'A run that is still recording can’t be deleted' : off} onClick={() => guard(() => setDeleting(true))}>
+            </ActionButton>
+            <ActionButton className="btn quiet dz" why={live ? 'A run that is still recording can’t be deleted' : null} onClick={() => guard(() => setDeleting(true))}>
               Delete
-            </button>
+            </ActionButton>
           </>
         )}
       </div>
@@ -305,9 +284,9 @@ function Labels({ run, labels: shown, setLabels, onMark }: { run: RunDetail; lab
         <span className="chip" key={l}>
           {l}
           {enabled ? (
-            <button type="button" aria-label={`Remove label ${l}`} onClick={() => change([], [l])}>
+            <ActionButton aria-label={`Remove label ${l}`} onClick={() => change([], [l])}>
               ×
-            </button>
+            </ActionButton>
           ) : null}
         </span>
       ))}
@@ -334,10 +313,10 @@ function Labels({ run, labels: shown, setLabels, onMark }: { run: RunDetail; lab
           }}
         />
       ) : enabled ? (
-        <button className="linkbtn" type="button" onClick={() => setAdding(true)}>
+        <ActionButton className="linkbtn" tip="Add label" onClick={() => setAdding(true)}>
           <Icon name="plus" />
           Label
-        </button>
+        </ActionButton>
       ) : null}
     </span>
   );

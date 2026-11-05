@@ -42,7 +42,7 @@ export function ownArgs(args: readonly string[]): readonly string[] {
 const FORK_FLAGS = ['--inject', '--override', '--fail-at', '--model', '--prompt-from', '--diverge-at', '--live-tool', '--inject-result', '--set', '--live-input'];
 
 /** Whether a replay's options fork it at a call (`--inject 17=…`, `--fail-at=19=529`). */
-export function forks(args: readonly string[]): boolean {
+function forks(args: readonly string[]): boolean {
   return ownArgs(args).some((a) => FORK_FLAGS.includes(a.split('=')[0]!));
 }
 
@@ -109,3 +109,15 @@ export interface RunningJob {
   worktree?: { use: 'reads' | 'writes'; doing: string } | null;
 }
 
+/** What the status bar's chip says and opens. */
+export interface JobChipView {
+  /** `Forking · running`, `Forked · exit 0`, `2 jobs running`. */
+  label: string;
+  /** Its name for a screen reader: `Show job: Forking, running`. */
+  name: string;
+  opens: string;
+  running: boolean;
+  tone: '' | 'ok' | 'warn' | 'err';
+  /** Several running: which, on hover. */
+  title?: string;
+}

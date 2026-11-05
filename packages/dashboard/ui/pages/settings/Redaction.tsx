@@ -11,6 +11,7 @@ import { useTeamStore } from '../../teamstore.js';
 import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, rulesUnreadable, SAVING, useEditor, useFolderGone, useSettingsData } from './common.js';
 import { maskedLine, partialLine, previewChip, redactionNotes, returnedLine, unmaskedLine } from './logic.js';
 import { RuleDialog, RuleTable, addedText, removedText } from './RuleTable.js';
+import { ActionButton } from '../../components/ActionButton.js';
 
 /**
  * Redaction: the rules applied to every export, pack and share link of a run, where each applies
@@ -48,9 +49,9 @@ export function RedactionTab() {
           <h2>Redaction</h2>
           <span className="sub">what leaves your machine</span>
           <span className="sp" />
-          <button className="btn sm" type="button" disabled={!!off} title={off ?? undefined} onClick={() => app.guard(() => setAdding(true))}>
+          <ActionButton className="btn sm" why={off} onClick={() => app.guard(() => setAdding(true))}>
             {ACTIONS.addRedactionRule.label}
-          </button>
+          </ActionButton>
         </header>
         <div className="pbody">
           <p className="muted">

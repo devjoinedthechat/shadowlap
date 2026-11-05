@@ -64,14 +64,14 @@
 .pop .pk { padding: 8px 10px 4px; font: 500 var(--fs-caps) var(--mono); letter-spacing: var(--caps); text-transform: uppercase; color: var(--faint); }
 .pop .pk code { font: 500 var(--fs-quiet) var(--mono); letter-spacing: 0; text-transform: none; color: var(--ink); }
 .pop button { display: flex; align-items: baseline; gap: 12px; width: 100%; min-height: 34px; text-align: left; border: 0; background: none; border-radius: var(--r-control); padding: 8px 10px; line-height: 20px; cursor: pointer; }
-.pop button:hover:not([disabled]) { background: var(--hover); }
+.pop button:hover:not([disabled], [aria-disabled="true"]) { background: var(--hover); }
 /* the keyboard's place in a menu is the app's focus ring, inset, on the selected ground, a step brighter than the hover's tint */
 .pop button:focus-visible { background: var(--sel); outline: 2px solid var(--accent-line); outline-offset: -2px; }
 .pop button b { flex: 1; min-width: 0; font-weight: 500; font-size: var(--fs-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pop button small { flex: none; max-width: 46%; font: var(--fs-label) var(--mono); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* a project's row says its runs in words, not what it runs */
 .pop.projmenu button small { font: var(--fs-small) var(--body); }
-.pop button[disabled] { opacity: .4; cursor: not-allowed; }
+.pop button[disabled], .pop button[aria-disabled="true"] { opacity: .4; cursor: not-allowed; }
 .pop hr { border: 0; border-top: 1px solid var(--line); margin: 6px 4px; }
 .pop .pnote { padding: 6px 10px 8px; color: var(--faint); font-size: var(--fs-small); }
 /* the one picked now (a project, a run) has a check mark before it, in ink; the others keep its room. A row's second button (.px) is no row. */

@@ -373,9 +373,9 @@ describe('grounds, tints and lines', () => {
   const MIX = /color-mix\((?:[^()]|\([^()]*\))*\)/g;
   /** The tints that remain outside the tokens, each with its reason: later slices shrink this list. */
   const TINTS: Record<string, string> = {
-    '.btn.solid:hover:not([disabled])': 'the ink button under the pointer, a step off ink',
-    '.btn.danger:hover:not([disabled])': 'the red button under the pointer, a step darker',
-    '.btn.lime:hover:not([disabled])': 'the lime button under the pointer, a step lighter',
+    '.btn.solid:hover:not([disabled], [aria-disabled="true"])': 'the ink button under the pointer, a step off ink',
+    '.btn.danger:hover:not([disabled], [aria-disabled="true"])': 'the red button under the pointer, a step darker',
+    '.btn.lime:hover:not([disabled], [aria-disabled="true"])': 'the lime button under the pointer, a step lighter',
     '.av.t1': 'an avatar’s colour on the raised ground',
     '.av.t2': 'an avatar’s colour on the raised ground',
     '.av.t3': 'an avatar’s colour on the raised ground',
@@ -457,7 +457,7 @@ describe('forced colours', () => {
     }
     for (const sel of ['.bulkbar', '.connblock .cb', '.skip']) expect(rule(sel).get('border'), sel).toBe('1px solid transparent');
     // A row's own tint, as the page's rows: the pointer's, then where you are, with the keyboard's ring inside it.
-    expect(rule('.pop button:hover:not([disabled])').get('background')).toBe('var(--hover)');
+    expect(rule('.pop button:hover:not([disabled], [aria-disabled="true"])').get('background')).toBe('var(--hover)');
     expect(rule('.pop button:focus-visible').get('background')).toBe('var(--sel)');
     expect(rule('.pop button:focus-visible').get('outline-offset')).toBe('-2px');
     // Two menu widths only, and the figures on a card as the CLI prints them.

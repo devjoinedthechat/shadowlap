@@ -16,6 +16,7 @@ import { useApp, type WatchedJob } from '../state.js';
 import { retoast } from '../toast-place.js';
 import { errorText, type ToastAction } from '../toast.js';
 import { ChipButton } from '../shell/JobChip.js';
+import { ActionButton } from './ActionButton.js';
 import { Spin } from './bits.js';
 import { DotParts } from './DotParts.js';
 import { Dialog } from './Dialog.js';
@@ -150,9 +151,9 @@ function StopButton({ job, title }: { job: WatchedJob['job']; title: string }) {
     });
   return (
     <>
-      <button className="btn" type="button" disabled={stopping} title={stopping ? 'Asked to stop: it ends once its command has' : `Stops ${jobCommand(job.args)} as Ctrl-C would`} onClick={() => (ask ? setAsking(true) : stop())}>
+      <ActionButton className="btn" disabled={stopping} title={stopping ? 'Asked to stop: it ends once its command has' : `Stops ${jobCommand(job.args)} as Ctrl-C would`} onClick={() => (ask ? setAsking(true) : stop())}>
         {stopping ? 'Stopping…' : 'Stop'}
-      </button>
+      </ActionButton>
       {asking && ask ? (
         <Dialog
           title={ask.title}
@@ -214,10 +215,9 @@ function WayOn({ watched, close, elsewhere }: { watched: WatchedJob; close: () =
         </span>
       ) : null}
       {files.map((f) => (
-        <button
+        <ActionButton
           key={f.fileId}
           className="btn jfile"
-          type="button"
           onClick={() =>
             void client.downloadFile(f).then(
               () => toast(`Saved ${f.name}`),
@@ -227,7 +227,7 @@ function WayOn({ watched, close, elsewhere }: { watched: WatchedJob; close: () =
         >
           <Icon name="import" />
           {f.label ?? f.name}
-        </button>
+        </ActionButton>
       ))}
       {Footer && !lost ? (
         <span className="jkind">
@@ -403,19 +403,12 @@ function Drawer({ watched }: { watched: WatchedJob }) {
  * Settings → Matching's Calibrate does.
  */
 function CalibrateButton({ runId }: { runId: string }) {
-  const { client, actionsOff, guard, watchJob } = useApp();
+  const { client, guard, watchJob } = useApp();
   const tree = useTreeBusy('reads', 'calibrate');
-  const off = actionsOff ?? tree;
   const id = shortId(runId);
   return (
-    <button
-      className="btn"
-      type="button"
-      disabled={!!off}
-      title={off ?? `Replays ${id} offline until it is clean and proposes a normalizer for each value that changes every run: shadowlap calibrate ${id}`}
-      onClick={() => guard(() => watchJob(client.startJob(JOB_KINDS.calibrate, { runId })))}
-    >
+    <ActionButton className="btn" why={tree} title={`Replays ${id} offline until it is clean and proposes a normalizer for each value that changes every run: shadowlap calibrate ${id}`} onClick={() => guard(() => watchJob(client.startJob(JOB_KINDS.calibrate, { runId })))}>
       Calibrate
-    </button>
+    </ActionButton>
   );
 }

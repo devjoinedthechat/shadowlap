@@ -9,6 +9,7 @@ import type { RuleRow } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import { CONFIG_FILE, CommandLine, editErrorText } from './common.js';
 import { emptyRuleForm, redactRuleText, ruleCommand, ruleInput, ruleProblem, ruleWarning, suggestedReplace, type PatternMode, type RuleFormState, type RuleListName } from './logic.js';
+import { ActionButton } from '../../components/ActionButton.js';
 
 /**
  * The rules of one list, as Matching and Redaction show them (scope, path, pattern, what replaces
@@ -82,9 +83,9 @@ export function RuleTable({ list, rows, off, onRemove, unreadable = null }: { li
 
 function RemoveButton({ list, row, off, onRemove }: { list: RuleListName; row: RuleRow; off: string | null; onRemove: (row: RuleRow) => void }) {
   return (
-    <button className="linkbtn" type="button" disabled={!!off} title={off ?? `shadowlap ${list} rm ${row.n}`} aria-label={`Remove ${NOUN[list]} #${row.n}`} onClick={() => onRemove(row)}>
+    <ActionButton className="linkbtn" why={off} title={`shadowlap ${list} rm ${row.n}`} aria-label={`Remove ${NOUN[list]} #${row.n}`} onClick={() => onRemove(row)}>
       Remove
-    </button>
+    </ActionButton>
   );
 }
 

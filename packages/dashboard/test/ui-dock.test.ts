@@ -1,5 +1,6 @@
 import { act, createElement, useEffect, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ActionButton } from '../ui/components/ActionButton.js';
 import { JobDrawer } from '../ui/components/Drawer.js';
 import { chipJob, drawnJob, endedBehind, jobClosed, jobOpened, jobsLeftBehind, jobStarted, type WatchedJob } from '../ui/job-store.js';
 import { endChip } from '../ui/jobs.js';
@@ -371,5 +372,77 @@ describe('the drawer', () => {
     expect(said()).toBe('Forking, stopping');
     await act(async () => on.set(end({}, '⑂ Forked at call 1')));
     expect(said()).toBe('Forking, stopped, exit 0');
+  });
+});
+
+describe('what waits', () => {
+  let r: Rendered | null = null;
+  afterEach(async () => {
+    await r?.unmount();
+    r = null;
+  });
+  const PAUSED = 'Paused until the dashboard server is back';
+
+  /** An `ActionButton` over the app as it stands. */
+  async function draw(state: Partial<AppState>, props: Record<string, unknown>, label = 'Run tests') {
+    const toasts: unknown[][] = [];
+    const value = { conn: 'ok', actionsOff: null, toast: (...a: unknown[]) => toasts.push(a), ...state } as unknown as AppState;
+    r = await render(createElement(AppContext.Provider, { value }, createElement(ActionButton, { className: 'btn lime', ...props }, label)));
+    return { button: r.one('.btn'), toasts };
+  }
+
+  it('reads plain, keeps its place and the focus, and says why on a press when offline', async () => {
+    const onClick = vi.fn();
+    const { button, toasts } = await draw({ conn: 'offline' }, { onClick, title: 'shadowlap test', command: '$ shadowlap test' });
+    expect(button.className).toBe('btn');
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(button.getAttribute('data-why')).toBe(PAUSED);
+    expect(button.hasAttribute('disabled')).toBe(false);
+    expect(button.hasAttribute('title')).toBe(false);
+    expect(JSON.parse(button.getAttribute('data-tip')!)).toEqual({ t: 'shadowlap test', s: PAUSED, rows: [], cmd: '$ shadowlap test' });
+    await r!.click(button);
+    expect(onClick).not.toHaveBeenCalled();
+    expect(toasts).toEqual([[PAUSED, 'notice', undefined]]);
+  });
+
+  it('takes the first reason there is: read-only, then offline, then the page’s', async () => {
+    expect((await draw({ conn: 'offline', actionsOff: 'Read-only' }, { why: 'Busy' })).button.getAttribute('data-why')).toBe('Read-only');
+    await r!.unmount();
+    expect((await draw({ conn: 'offline' }, { why: 'Busy' })).button.getAttribute('data-why')).toBe(PAUSED);
+    await r!.unmount();
+    expect((await draw({}, { why: 'Busy' })).button.getAttribute('data-why')).toBe('Busy');
+  });
+
+  it('runs when nothing waits, and a plain disabled wins over every reason', async () => {
+    const onClick = vi.fn();
+    const free = await draw({}, { onClick, title: 'shadowlap test' });
+    expect(free.button.className).toBe('btn lime');
+    expect(free.button.hasAttribute('aria-disabled')).toBe(false);
+    expect(free.button.getAttribute('title')).toBe('shadowlap test');
+    await r!.click(free.button);
+    expect(onClick).toHaveBeenCalledOnce();
+    await r!.unmount();
+    const off = await draw({ conn: 'offline' }, { disabled: true });
+    expect(off.button.hasAttribute('disabled')).toBe(true);
+    expect(off.button.hasAttribute('aria-disabled')).toBe(false);
+    expect(off.button.className).toBe('btn lime');
+  });
+
+  it('is a link while it can run and a button while it waits, and a red confirm loses its red', async () => {
+    const free = await draw({}, { href: '#/tests' });
+    expect(free.button.tagName).toBe('A');
+    await r!.unmount();
+    const held = await draw({ conn: 'offline' }, { href: '#/tests', className: 'btn danger' });
+    expect(held.button.tagName).toBe('BUTTON');
+    expect(held.button.className).toBe('btn');
+  });
+
+  it('offers a way out in the toast, and gives it the focus from the keyboard, with its reason in full on the card', async () => {
+    const run = vi.fn();
+    const { button, toasts } = await draw({}, { why: 'A check stands in the way', whyAct: { label: 'Open Tests', run }, whyTip: 'A check stands in the way of this, because of that.' });
+    expect(JSON.parse(button.getAttribute('data-tip')!).s).toBe('A check stands in the way of this, because of that.');
+    await r!.click(button);
+    expect(toasts[0][0]).toBe('A check stands in the way');
+    expect(toasts[0][2]).toMatchObject({ label: 'Open Tests', run });
   });
 });

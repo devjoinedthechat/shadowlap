@@ -5,6 +5,7 @@ import { ACTIONS } from '../../labels.js';
 import { useApp } from '../../state.js';
 import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, rulesUnreadable, SAVING, useEditor, useFolderGone, useSettingsData } from './common.js';
 import { RuleDialog, RuleTable, addedText, removedText } from './RuleTable.js';
+import { ActionButton } from '../../components/ActionButton.js';
 
 /**
  * Matching: the normalizers (what isn't part of a request's identity), the clock that lets dates
@@ -40,9 +41,9 @@ export function MatchingTab() {
           <h2>Matching</h2>
           <span className="sub">what is not part of a request’s identity</span>
           <span className="sp" />
-          <button className="btn sm" type="button" disabled={!!off} title={off ?? undefined} onClick={() => app.guard(() => setAdding(true))}>
+          <ActionButton className="btn sm" why={off} onClick={() => app.guard(() => setAdding(true))}>
             {ACTIONS.addNormalizerRule.label}
-          </button>
+          </ActionButton>
         </header>
         <div className="pbody">
           <p className="muted">A replay forks at the first request that differs. Normalizers mask values the agent makes anew on every run before matching, and never touch what is stored.</p>
@@ -61,13 +62,12 @@ export function MatchingTab() {
           </div>
           <div className="seg" role="group" aria-label="Clock">
             {(['auto', 'exact'] as const).map((k) => (
-              <button
+              <ActionButton
                 key={k}
-                type="button"
                 // Which the file says isn't known while it can't be read: neither is shown as chosen.
                 aria-pressed={!unreadable && data.clock.mode === k}
-                disabled={!!off}
-                title={off ?? (k === 'exact' ? 'Dates must match exactly' : 'Dates near each run’s start match across days')}
+                why={off}
+                title={k === 'exact' ? 'Dates must match exactly' : 'Dates near each run’s start match across days'}
                 onClick={() => {
                   // The mode it has already, written or not (auto is what a file without one means): nothing to write.
                   if (data.clock.mode === k) return;
@@ -75,7 +75,7 @@ export function MatchingTab() {
                 }}
               >
                 {k}
-              </button>
+              </ActionButton>
             ))}
           </div>
         </div>
@@ -85,9 +85,9 @@ export function MatchingTab() {
               <b>Calibrate</b>
               <span>Replays a recording offline with the same code until it is clean, and proposes a normalizer for every value that changed. No model calls; writes are blocked.</span>
             </div>
-            <button className="btn" type="button" disabled={!canCalibrate} title={calibrateTitle} onClick={() => app.guard(() => app.watchJob(client.startJob(JOB_KINDS.calibrate, { runId: cal.runId })))}>
+            <ActionButton className="btn" why={canCalibrate ? null : calibrateTitle} title={calibrateTitle} onClick={() => app.guard(() => app.watchJob(client.startJob(JOB_KINDS.calibrate, { runId: cal.runId })))}>
               {cal.label}
-            </button>
+            </ActionButton>
           </div>
         )}
       </section>

@@ -10,6 +10,7 @@ import { callDetail, originOf, resultLine, timeOf, tokensText } from './model.js
 import { foldLabel, itemWords, type CallTree } from './groups.js';
 import { isPending, type ListedCall, type PendingCall } from './paging.js';
 import { useWindow } from './window-hook.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * Calls: #, call, origin, tokens, time. A tool's result sits on a second line under it. A replayed
@@ -351,8 +352,7 @@ const Row = memo(function Row({
       </td>
       <td className="rowact">
         {canFork ? (
-          <button
-            type="button"
+          <ActionButton
             aria-haspopup="menu"
             aria-expanded="false"
             aria-label={`Fork at #${c.callNo}`}
@@ -363,7 +363,7 @@ const Row = memo(function Row({
             }}
           >
             <Icon name="fork" />
-          </button>
+          </ActionButton>
         ) : null}
       </td>
     </tr>

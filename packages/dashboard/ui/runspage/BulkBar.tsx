@@ -17,6 +17,7 @@ import { isLive } from '../runs.js';
 import { useApp } from '../state.js';
 import type { JobView } from '../types.js';
 import { bulkToast, datasetOff, deleteText, deleteWhat, inBatches, joinDeleted, joinLabelled, named, packCommand, packOff, rmCommand } from './bulk.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * The bar over the Runs table once runs are picked: Label, Push (with a team store), Pack, Dataset,
@@ -41,7 +42,7 @@ export interface PickedRun {
 type Open = 'label' | 'delete' | 'pack' | 'dataset' | null;
 
 export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedRun[]; store: boolean; clear: () => void; onDone: () => void }) {
-  const { actionsOff, client, toast, guard, hasKind, watchJob } = useApp();
+  const { client, toast, guard, hasKind, watchJob } = useApp();
   const [open, setOpen] = useState<Open>(null);
   const bar = useRef<HTMLDivElement>(null);
   useRetoast(bar);
@@ -52,7 +53,6 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
   const ended = runs.filter((r) => !isLive(r));
   const endedIds = ended.map((r) => r.runId);
   const attempts = ended.reduce((n, r) => n + (r.attempts ?? 0), 0);
-  const off = actionsOff ?? undefined;
   // The bar picks up to 1,000 runs; one dataset, and one pack job, take fewer.
   const tooMany = datasetOff(ended.length);
   const tooManyPacks = packOff(ended.length);
@@ -77,24 +77,24 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
       <div className="bulkbar" role="toolbar" aria-label="Selected runs" ref={bar}>
         <b>{num(runs.length)} selected</b>
         <span className="sep" />
-        <button className="btn sm" type="button" disabled={!!actionsOff} title={off} onClick={() => guard(() => setOpen('label'))}>
+        <ActionButton className="btn sm" onClick={() => guard(() => setOpen('label'))}>
           <Icon name="plus" />
           Label
-        </button>
+        </ActionButton>
         {store && hasKind(JOB_KINDS.push) ? (
-          <button className="btn sm" type="button" disabled={!!actionsOff} title={off} onClick={() => guard(() => void push())}>
+          <ActionButton className="btn sm" onClick={() => guard(() => void push())}>
             Push
-          </button>
+          </ActionButton>
         ) : null}
         {hasKind(JOB_KINDS.pack) ? (
-          <button className="btn sm" type="button" disabled={!!actionsOff || !!tooManyPacks} title={off ?? tooManyPacks ?? undefined} onClick={() => guard(() => (ended.length ? setOpen('pack') : toast('A run that is still recording can’t be packed until it ends.')))}>
+          <ActionButton className="btn sm" why={tooManyPacks} onClick={() => guard(() => (ended.length ? setOpen('pack') : toast('A run that is still recording can’t be packed until it ends.')))}>
             Pack
-          </button>
+          </ActionButton>
         ) : null}
         {hasKind(JOB_KINDS.dataset) ? (
-          <button className="btn sm" type="button" disabled={!!actionsOff || !!tooMany} title={off ?? tooMany ?? undefined} onClick={() => guard(() => (ended.length ? setOpen('dataset') : toast('A run that is still recording can’t be exported until it ends.')))}>
+          <ActionButton className="btn sm" why={tooMany} onClick={() => guard(() => (ended.length ? setOpen('dataset') : toast('A run that is still recording can’t be exported until it ends.')))}>
             Dataset
-          </button>
+          </ActionButton>
         ) : null}
         <button
           className="btn sm"
@@ -110,9 +110,9 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
         >
           Compare
         </button>
-        <button className="btn sm quiet dz" type="button" disabled={!!actionsOff} title={off} onClick={() => guard(() => (ended.length ? setOpen('delete') : toast('A run that is still recording can’t be deleted.')))}>
+        <ActionButton className="btn sm quiet dz" onClick={() => guard(() => (ended.length ? setOpen('delete') : toast('A run that is still recording can’t be deleted.')))}>
           Delete
-        </button>
+        </ActionButton>
         <button className="linkbtn" type="button" onClick={clear}>
           Clear
         </button>

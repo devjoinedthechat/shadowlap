@@ -189,8 +189,8 @@ describe('the key on a run’s header', () => {
     r = await render(createElement(AppContext.Provider, { value: state }, createElement(RunPage, { id: RUN, call: 1, view: null })));
     await r.until('the header', () => r!.all('.rhead .runkey button').length === 2);
     expect(keyButton('good').getAttribute('aria-pressed')).toBe('true');
-    expect(keyButton('good').hasAttribute('disabled')).toBe(true);
-    expect(keyButton('good').getAttribute('title')).toBe('Read-only: started with --read-only');
+    expect(keyButton('good').getAttribute('aria-disabled')).toBe('true');
+    expect(keyButton('good').getAttribute('data-why')).toBe('Read-only: started with --read-only');
   });
 });
 
@@ -200,7 +200,8 @@ describe('the key on a row of Runs', () => {
   it('is at the end of each row, marks that run from its buttons or + and - on the row, and good and bad are no chips there', async () => {
     const marked: Array<[string, string]> = [];
     const rows = [row(1, ['good', 'nightly']), row(2, [])];
-    r = await render(createElement(RunsTable, { rows, picked: new Set<string>(), selectable: true, byColumn: false, sort: 'when', onSort: () => undefined, onPick: () => undefined, onPickAll: () => undefined, now: T, onMark: (run: TableRun, m: string) => void marked.push([run.runId, m]) }));
+    const state = { actionsOff: null, conn: 'ok', toast: () => undefined } as unknown as AppState;
+    r = await render(createElement(AppContext.Provider, { value: state }, createElement(RunsTable, { rows, picked: new Set<string>(), selectable: true, byColumn: false, sort: 'when', onSort: () => undefined, onPick: () => undefined, onPickAll: () => undefined, now: T, onMark: (run: TableRun, m: string) => void marked.push([run.runId, m]) })));
     const groups = r.all('table.runst tbody td.keycell .runkey');
     expect(groups).toHaveLength(2);
     expect(groups[0].getAttribute('aria-label')).toBe('Good or bad: 01M5MXZ4Q3');

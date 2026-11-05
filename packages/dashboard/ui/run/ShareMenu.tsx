@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { JOB_KINDS, type RunDetail, type RunOffers } from '../api.js';
 import { Dialog, PromptDialog } from '../components/Dialog.js';
-import { tipCard } from '../components/HoverCard.js';
 import { Popover } from '../components/Popover.js';
 import { shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
@@ -14,6 +13,7 @@ import { redactRuleCount } from './provenance.js';
 import { defaultPackFolder, htmlCopyVia, shareCommand, shareDialog, shareItemOff, shareItems, shareNote, shareWhy, type ShareKey } from './share.js';
 // The share job's drawer offers the link it made.
 import './share-link.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * Share: the run as a share link (with a team store), an HTML file (with the runs it came from), a
@@ -95,10 +95,10 @@ export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: 
       {items.map((it) => {
         const off = shareItemOff(it.key, { actionsOff, live });
         return (
-          <button key={it.key} type="button" role="menuitem" disabled={!!off} title={off ?? undefined} data-tip={off ? undefined : tipCard(it.label, [], shareWhy(it, offers?.team), shareCommand(it, id))} onClick={() => pick(it.key)}>
+          <ActionButton key={it.key} role="menuitem" why={off} tip={it.label} sub={shareWhy(it, offers?.team)} command={shareCommand(it, id)} onClick={() => pick(it.key)}>
             <b>{it.label}</b>
             <small>{it.flag}</small>
-          </button>
+          </ActionButton>
         );
       })}
       <hr />

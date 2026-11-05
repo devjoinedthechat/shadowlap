@@ -15,6 +15,7 @@ import { navigate } from '../router.js';
 import { useApp, type AppState } from '../state.js';
 import { errorText } from '../toast.js';
 import { RemoveProjectDialog } from './RemoveProject.js';
+import { ActionButton, useActionWait } from '../components/ActionButton.js';
 
 /**
  * The project at the top of the sidebar, and the switcher behind it: each project on this machine
@@ -91,6 +92,7 @@ export function ProjectBlock({ meta }: { meta: Meta | null }) {
 
 function ProjectSwitcher({ meta }: { meta: Meta }) {
   const app = useApp();
+  const removeWait = useActionWait();
   const { client, guard } = app;
   const menu = useMenu();
   const [list, setList] = useState<ProjectsView | null>(lastList);
@@ -189,6 +191,10 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
             const row = items.find((p) => p.id === (document.activeElement as HTMLElement | null)?.dataset?.project);
             if (!row?.removable) return false;
             e.preventDefault();
+            if (removeWait) {
+              app.toast(removeWait);
+              return true;
+            }
             menu.close();
             setRemoving(row.id);
             return true;
@@ -202,8 +208,7 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
                 <small>{p.detail}</small>
               </button>
               {p.removable ? (
-                <button
-                  type="button"
+                <ActionButton
                   role="menuitem"
                   className="px"
                   aria-label={p.removeLabel}
@@ -214,7 +219,7 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
                   }}
                 >
                   ×
-                </button>
+                </ActionButton>
               ) : null}
             </div>
           ))}

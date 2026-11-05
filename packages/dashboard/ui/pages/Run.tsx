@@ -400,8 +400,8 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
       // In Calls, as in a tree: ← folds the selected call's group, or goes to the call it sits under; → opens it, or goes to its first call.
       if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && k.v === 'calls' && k.tree) return k.foldKey(e.key === 'ArrowRight');
       if (e.key === 'f' && k.canFork) {
-        const btn = document.getElementById('forkBtn');
-        if (btn) forkMenu.openAt(btn);
+        // As its button does: it waits as the button waits.
+        document.getElementById('forkBtn')?.click();
         return true;
       }
       if (e.key === '/') {

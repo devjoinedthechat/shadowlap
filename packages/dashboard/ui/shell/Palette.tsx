@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { JOB_KINDS, type RecordedHit } from '../api.js';
 import { AboutLine, FitHint, useFitAbouts } from '../components/About.js';
 import { Modal } from '../components/Dialog.js';
+import { PAUSED } from '../connection.js';
 import { Icon } from '../components/Icon.js';
 import { isMac } from '../dom.js';
 import { ACTIONS } from '../labels.js';
@@ -177,7 +178,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
   const pick = (n: number) => {
     const x = shown[n];
     if (!x) return;
-    if (offline && x.job) return app.toast('Actions are paused until the dashboard server is back.');
+    if (offline && x.job) return app.toast(PAUSED);
     close();
     x.run();
   };

@@ -98,8 +98,8 @@ table.runst tr.picked td { background: var(--sel); }
 .calgrid button.cd:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
 
 /* Find breaking commit on a dashboard that changes nothing: off, saying why on hover */
-.calside .linkbtn[disabled] { opacity: .5; cursor: not-allowed; }
-.calside .linkbtn[disabled]:hover { background: none; color: var(--ink); }
+.calside .linkbtn[disabled], .calside .linkbtn[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
+.calside .linkbtn[disabled]:hover, .calside .linkbtn[aria-disabled="true"]:hover { background: none; color: var(--ink); }
 
 /* on a phone the run cell is narrow: the local tag becomes a dot beside the id, saying the same on hover */
 @media (max-width: 640px) {

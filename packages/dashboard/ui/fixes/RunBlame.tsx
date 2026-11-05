@@ -9,6 +9,7 @@ import { useApp } from '../state.js';
 import { parseCheck } from './model.js';
 import { useTreeBusy } from './tree.js';
 import { ACTIONS } from '../labels.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * Run blame, for a failed run never blamed: a job that finds the model call where the run was lost
@@ -23,7 +24,6 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn', titl
   const app = useApp();
   const busy = useTreeBusy('reads', 'blame');
   const [asking, setAsking] = useState<null | { kind: 'check' } | { kind: 'consent'; why: string; confirm: string; fields: Record<string, unknown> }>(null);
-  const why = app.actionsOff ?? busy;
   /**
    * Starts the blame. What the check dialog should show instead comes back: why the server refused
    * the check it was given. Anything else closes the dialog: the job, the consent it needs, or its
@@ -54,10 +54,10 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn', titl
   const failedText = failed.length ? `It failed “${failed[0]!}”${failed.length > 1 ? ` and ${failed.length - 1} more` : ''}, a check shadowlap.config.json doesn’t give. ` : '';
   return (
     <>
-      <button className={className} type="button" disabled={!!why} title={why ?? title} onClick={() => app.guard(() => void start({}))}>
+      <ActionButton className={className} why={busy} title={title} onClick={() => app.guard(() => void start({}))}>
         {icon ? <Icon name="loop" /> : null}
         {ACTIONS.runBlame.label}
-      </button>
+      </ActionButton>
       {asking?.kind === 'check' ? (
         <CheckDialog
           runId={runId}
