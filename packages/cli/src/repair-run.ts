@@ -495,7 +495,7 @@ class RepairRun {
     report.diagnosis = answer.diagnosis || null;
     // As many as it was asked for, the first in its own order, before they are sorted smallest first: what Run repair's estimate prices.
     const tried = Math.max(s.candidates, 1);
-    if (answer.edits.length > tried) warnings.push(`the repairer gave ${answer.edits.length} candidates, and only its first ${tried} were tried: raise --candidates to try more`);
+    if (answer.edits.length > tried) warnings.push(`the repairer gave ${answer.edits.length} candidates, and only its first ${tried === 1 ? 'was' : `${tried} were`} tried: raise --candidates to try more`);
     const fresh = answer.edits.slice(0, tried).map((e) => this.proposed(e, w));
     this.candidates.push(...fresh);
     await this.tryAll(fresh);

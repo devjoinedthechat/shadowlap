@@ -141,4 +141,15 @@ describe('shadowlap repair, given more candidates than it asked for', { timeout:
     for (const rewrite of REWRITES.slice(REPAIR_CANDIDATES)) expect(sent.some((s) => s.includes(rewrite))).toBe(false);
     expect(sent.some((s) => s.includes(PROMPT))).toBe(true);
   });
+
+  it('says its first was tried when told to try one', async () => {
+    const recorded = await shadowlap(['run', '--', process.execPath, 'agent.mjs']);
+    expect(recorded.code, recorded.out).toBe(0);
+    const failed = /recording run (\w{26})/.exec(recorded.out)![1];
+    const r = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'anthropic', '--candidates', '1', '--json']);
+    expect(r.code, r.out).toBe(1);
+    const report = JSON.parse(r.stdout) as Report;
+    expect(report.candidates.map((c) => c.after)).toEqual(REWRITES.slice(0, 1));
+    expect(report.warnings).toContain(`the repairer gave ${REWRITES.length} candidates, and only its first was tried: raise --candidates to try more`);
+  });
 });
