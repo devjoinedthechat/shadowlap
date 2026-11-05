@@ -175,7 +175,7 @@ export function RunHeader({
         ) : null}
         {exported ? (next.key === 'compare' ? <CompareLead from={next.parent} to={r.runId} /> : null) : (
           <>
-            <ActionButton className="btn" aria-haspopup="menu" aria-expanded={share.open} tip="Share" onClick={(e) => share.toggle(e.currentTarget)}>
+            <ActionButton className="btn" aria-haspopup="menu" aria-expanded={share.open} onClick={(e) => share.toggle(e.currentTarget)}>
               <Icon name="share" />
               Share
               <Icon name="caret" className="caret" />
@@ -185,14 +185,14 @@ export function RunHeader({
                 Push
               </ActionButton>
             ) : null}
-            <ActionButton className={next.key === 'replay' ? 'btn lime' : 'btn'} disabled={!replay} tip="Replay" why={live ? 'Replay once the recording finishes' : replay?.disabled} onClick={() => replay && onAction({ action: replay, callNo: null })}>
+            <ActionButton className={next.key === 'replay' ? 'btn lime' : 'btn'} disabled={!replay} why={live ? 'Replay once the recording finishes' : replay?.disabled} onClick={() => replay && onAction({ action: replay, callNo: null })}>
               <Icon name="replay" />
               Replay
             </ActionButton>
             {next.key === 'blame' ? <RunBlameButton runId={r.runId} failed={next.offer.failed} title={blameTitle(next.offer)} className="btn lime" icon /> : null}
             {next.key === 'fix' ? <FixLead fix={next.fix} /> : null}
             {next.key === 'compare' ? <CompareLead from={next.parent} to={r.runId} /> : null}
-            <ActionButton className="btn" id="forkBtn" aria-haspopup="menu" aria-expanded={forkMenu.open} disabled={live || selected === null} tip={`Fork at #${selected ?? '–'}`} title={live ? 'Fork once the recording finishes' : undefined} onClick={(e) => forkMenu.toggle(e.currentTarget)}>
+            <ActionButton className="btn" id="forkBtn" aria-haspopup="menu" aria-expanded={forkMenu.open} disabled={live || selected === null} title={live ? 'Fork once the recording finishes' : undefined} onClick={(e) => forkMenu.toggle(e.currentTarget)}>
               <Icon name="fork" />
               Fork at #{selected ?? '–'}
               <Icon name="caret" className="caret" />
@@ -313,7 +313,7 @@ function Labels({ run, labels: shown, setLabels, onMark }: { run: RunDetail; lab
           }}
         />
       ) : enabled ? (
-        <ActionButton className="linkbtn" tip="Add label" onClick={() => setAdding(true)}>
+        <ActionButton className="linkbtn" onClick={() => setAdding(true)}>
           <Icon name="plus" />
           Label
         </ActionButton>

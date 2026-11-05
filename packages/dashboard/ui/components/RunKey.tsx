@@ -22,7 +22,6 @@ export function RunKey({ runId, labels, onMark, off, compact = false }: { runId:
             className={`rk ${m}`}
             aria-pressed={on}
             why={off}
-            tip={m}
             title={markTitle(m, on)}
             onClick={(e) => {
               e.stopPropagation();

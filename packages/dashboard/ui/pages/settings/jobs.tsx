@@ -14,8 +14,8 @@ import { ACTIONS } from '../../labels.js';
 import { ActionButton } from '../../components/ActionButton.js';
 
 /**
- * What Settings' jobs offer once they end, in the job drawer's footer: calibrate's "Add it
- * (--write)", which adds exactly the normalizers it proposed, and a clean-up's "Delete N runs",
+ * What Settings' jobs offer once they end, in the job drawer's way on: calibrate's "Add
+ * normalizer", which adds exactly the normalizers it proposed, and a clean-up's "Delete N runs",
  * which confirms its dry run and deletes exactly the runs it listed. Plus Calibrate in the
  * palette's actions. Registered when the app loads, so they work from any page.
  */

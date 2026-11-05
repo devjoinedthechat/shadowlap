@@ -160,6 +160,15 @@ describe('the drawer', () => {
     expect(body(r)).toContain('docked');
   });
 
+  it('says what a billed job costs beside running, and aloud in words', async () => {
+    const { Host, on } = page([entry(job({ title: 'Blaming', kind: 'blame', args: ['blame', 'X'], estimate: { usd: 10.88, ceiling: true } }))]);
+    r = await render(createElement(Host));
+    expect(r.one('.drawer .st2').textContent).toBe('running · at most ≈$10.88');
+    expect(r.one('.drawer .sr[role="status"]').textContent).toBe('Blaming, running, at most about $10.88');
+    await act(async () => on.set(end({ result: { outcome: 'blamed', blamed: { callNo: 5 } } })));
+    expect(r.one('.drawer .st2').textContent).toBe('lost at #5 · exit 0');
+  });
+
   it('keeps each word of the log whole, its spaces as printed', async () => {
     const line = '  ✓ wrote /a/very/long/path/that/goes/on/and/on/and/on/report.json --out file';
     const { Host } = page([entry(job({ lines: [line], total: 1 }))]);

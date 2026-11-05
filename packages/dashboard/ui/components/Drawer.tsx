@@ -6,6 +6,7 @@ import { shortId } from '../format.js';
 import { useLatest } from '../hooks.js';
 import { jobFooter } from '../job-actions.js';
 import { drawnJob } from '../job-store.js';
+import { drawerCost } from '../../../engine/src/estimates/spending.js';
 import { calibrationTarget, endChip, endToast, forkDivergedEarly, jobCommand, jobHeader, jobStatus, lineTone, openRunWords, replayDivergence, stopAsk } from '../jobs.js';
 import { overlayOpen } from '../overlays/modal-store.js';
 import { InSlot, usePanel } from '../overlays/slots.js';
@@ -349,6 +350,8 @@ function Drawer({ watched }: { watched: WatchedJob }) {
   useJobEnd(watched, panel, () => setFolded(true));
   const elsewhere = job.project && meta?.project?.id && job.project.id !== meta.project.id ? job.project : null;
   const head = jobHeader(job, lines, lost);
+  // A billed job says what it costs beside running, a ceiling as one.
+  const cost = running ? drawerCost(job.estimate) : null;
   const folders = (job.files ?? []).filter((f) => f.directory);
   const logWord = folded ? 'Show log' : 'Hide log';
   const xWord = running ? 'Hide while it runs' : 'Close';
@@ -359,7 +362,7 @@ function Drawer({ watched }: { watched: WatchedJob }) {
         <span className="jhd">
           <b id="jtitle">{head.title}</b> {elsewhere ? <span className="st2 jin">in {elsewhere.name}</span> : null}{' '}
           <span className={`st2${head.tone ? ` ${head.tone}` : ''}`}>
-            <DotParts parts={head.text.split(' · ')} />
+            <DotParts parts={[...head.text.split(' · '), ...(cost ? [cost] : [])]} />
           </span>
         </span>
         <span className="jfoot">
@@ -389,7 +392,7 @@ function Drawer({ watched }: { watched: WatchedJob }) {
       <JobLog job={job} lines={lines} running={running} />
       {/* What a screen reader hears of the job: how it stands, as that changes, never each line it prints. */}
       <span className="sr" role="status">
-        {`${head.title}, ${head.text.replace(/ · /g, ', ')}`}
+        {`${head.title}, ${head.text.replace(/ · /g, ', ')}${cost ? `, ${cost.replace('≈', 'about ').replace('<', 'under ')}` : ''}`}
       </span>
     </section>
   );

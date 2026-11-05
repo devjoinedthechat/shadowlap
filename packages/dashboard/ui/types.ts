@@ -1,3 +1,4 @@
+import type { Estimate } from '../../engine/src/estimates/estimate.js';
 import type { ActionItem as ServerAction, CallDetail as ServerCallDetail, CallRow as ServerCallRow, CallsPage as ServerCallsPage, LineageNode as ServerLineageNode, RunDetail as ServerRunDetail, RunListItem as ServerRunListItem } from '../src/api.js';
 import type { RunJudged } from '../src/run-outcome.js';
 import type { RunOffers as ServerRunOffers } from '../src/run-offers.js';
@@ -419,6 +420,8 @@ export interface JobView {
   result?: unknown;
   /** With several projects: the one the job runs in (its runs and links are that project's). */
   project?: { id: string; name: string };
+  /** What a billed job is estimated to cost, as its card and its ask say it: its drawer says it beside running. */
+  estimate?: Pick<Estimate, 'usd' | 'ceiling' | 'per' | 'stops'> | null;
 }
 
 /** A job in `GET /api/jobs`: everything but its output and its result. */

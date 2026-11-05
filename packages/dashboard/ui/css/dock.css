@@ -70,6 +70,7 @@ body.docked .view { padding-bottom: var(--dock-h); }
 .status .jobchip.err i { background: var(--cq-red); }
 .status .jobchip.warn i { background: var(--cq-amber); }
 .status .jobchip .spin { flex: none; width: 10px; height: 10px; border-width: 1.5px; }
+.status .jobchip span:not(.spin) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* below 1000px the status bar ends the page, so the chip stays in view at the window's foot, a pill */
 @media (max-width: 1000px) {
   .status { z-index: auto; }

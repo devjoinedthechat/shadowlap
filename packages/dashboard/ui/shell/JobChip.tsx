@@ -15,7 +15,7 @@ export function ChipButton({ view }: { view: JobChipView }) {
   return (
     <button type="button" className={`jobchip${view.tone ? ` ${view.tone}` : ''}`} aria-label={view.name} title={view.title} onClick={() => openJob(view.opens, true)}>
       {view.running ? <Spin /> : <i />}
-      {view.label}
+      <span>{view.label}</span>
     </button>
   );
 }
