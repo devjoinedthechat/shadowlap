@@ -1,11 +1,12 @@
 import { join, resolve } from 'node:path';
-import { applyGoldens, defaultGoldenNames, fixLabelInfo, goldenNamesProblem, goldensHeld, type StoreOf, type StoredFix, type StoredRepair } from '@shadowlap/engine';
+import { applyGoldens, defaultGoldenNames, fixLabelInfo, goldenNamesProblem, goldensFolder, type StoreOf, type StoredFix, type StoredRepair } from '@shadowlap/engine';
 
 /**
  * Where `fix apply` copies the recordings of the fixed runs: each into the goldens folder as a golden
  * of its own, under the name `--name <run>=<name>` gives it, else the one the fix's label makes
  * (`defaultGoldenNames`: `refund-bug`, or `refund-bug-1` and `refund-bug-2` for two). A copy made
- * before stays where it is, under the name it has. Every name is checked before anything changes,
+ * before stays where it is, under the name it has: one apply made, and one `repair --goldens` made
+ * under the run's name. Every name is checked before anything changes,
  * by the rule the dashboard's Apply fix checks its fields by (`goldenNamesProblem`): one that won't
  * do is said, and nothing is applied.
  */
@@ -41,8 +42,10 @@ function namedOne(all: ReadonlyArray<{ run: string }>, given: GivenName): number
 
 /**
  * Where each recording of the fixed runs goes (in the repair's order), or why a name given won't
- * do, nothing changed yet. `sources` are the repair's goldens as apply checked them; a repair a pull
- * brought copies none here, so a name given for one names nothing.
+ * do, nothing changed yet. One copied before keeps where it went: one the store says apply copied,
+ * and one in the goldens folder under its run's name (`goldensFolder`), as `repair --goldens` copies
+ * them. `sources` are the repair's goldens as apply checked them; a repair a pull brought copies
+ * none here, so a name given for one names nothing.
  */
 export function planCopies(store: StoreOf<'recording' | 'fixes'>, fix: StoredFix, repair: StoredRepair, o: { cwd: string; goldens: string; given: readonly GivenName[]; pulled: boolean; sources: readonly string[] }): { copies: GoldenCopy[] } | { problem: string } {
   const all = applyGoldens(fix, repair, { pulled: o.pulled }).map((g, i) => ({ ...g, source: o.sources[i] ?? g.source }));
@@ -54,23 +57,27 @@ export function planCopies(store: StoreOf<'recording' | 'fixes'>, fix: StoredFix
   for (const given of o.given) {
     const at = namedOne(all, given);
     if (typeof at === 'string') return { problem: `--name ${given.run}=${given.name}: ${at}` };
-    const g = all[at]!;
-    if (named.has(at)) return { problem: `the recording of ${g.run} is named twice: give it one --name` };
-    if (g.copied) return { problem: `the recording of ${g.run} was copied before, to ${g.copied}, and keeps that name: --name names one apply copies now` };
+    if (named.has(at)) return { problem: `the recording of ${all[at]!.run} is named twice: give it one --name` };
     named.set(at, given.name);
   }
   const made = defaultGoldenNames({ label: fixLabelInfo(store, fix).label, title: fix.title }, all.length);
-  const fresh = all.flatMap((g, i) => (g.copied ? [] : [{ run: g.run, source: g.source, name: named.get(i) ?? made[i]! }]));
-  const folder = o.goldens.split(/[\\/]+/).join('/').replace(/\/+$/, '') || '.';
-  // A name the folder holds is taken, but by the very recording it would hold: an apply stopped part way copied it.
-  const held = goldensHeld(resolve(o.cwd, o.goldens), fresh.map((c) => ({ name: c.name, source: resolve(o.cwd, c.source) })));
+  const nameOf = (i: number) => named.get(i) ?? made[i]!;
+  const folder = goldensFolder(
+    resolve(o.cwd, o.goldens),
+    all.flatMap((g, i) => (g.copied ? [] : [{ run: g.run, name: nameOf(i), source: resolve(o.cwd, g.source) }])),
+  );
+  const known = all.map((g) => g.copied ?? (folder.there.includes(g.run) ? join(o.goldens, g.run) : null));
+  for (const i of named.keys()) {
+    if (known[i]) return { problem: `the recording of ${all[i]!.run} was copied before, to ${known[i]}, and keeps that name: --name names one apply copies now` };
+  }
+  const fresh = all.flatMap((g, i) => (known[i] ? [] : [{ run: g.run, name: nameOf(i) }]));
   const problem = goldenNamesProblem(
     fresh.map((c) => c.name),
-    { folder, held },
+    { folder: o.goldens.split(/[\\/]+/).join('/').replace(/\/+$/, '') || '.', held: folder.held },
   );
   if (problem) {
     const c = fresh[problem.at]!;
     return { problem: `${problem.text} Nothing was changed: name the recording of ${c.run} with --name ${c.run}=<name>` };
   }
-  return { copies: all.map((g, i) => ({ run: g.run, source: g.source, to: g.copied ?? join(o.goldens, named.get(i) ?? made[i]!) })) };
+  return { copies: all.map((g, i) => ({ run: g.run, source: g.source, to: known[i] ?? join(o.goldens, nameOf(i)) })) };
 }

@@ -87,11 +87,14 @@ describe('fix apply --name', () => {
     expect((await applyFix(store, fix, options([]))).goldens.map((g) => g.to)).toEqual(['goldens/refunds-over-the-limit']);
   });
 
-  it('takes a run by its whole id, or the start of it', async () => {
+  it('takes a run by its whole id', async () => {
     const { fix, ids } = verified();
     expect((await applyFix(store, fix, options([], [{ run: ids[0]!, name: 'refund-twice' }]))).goldens.map((g) => g.to)).toEqual(['goldens/refund-twice']);
-    const other = verified({ label: 'double-email' });
-    expect((await applyFix(store, other.fix, options([], [{ run: other.ids[0]!.slice(0, 8), name: 'email-twice' }]))).goldens.map((g) => g.to)).toEqual(['goldens/email-twice']);
+  });
+
+  it('takes a run by the start of its id', async () => {
+    const { fix, ids } = verified({ label: 'double-email' });
+    expect((await applyFix(store, fix, options([], [{ run: ids[0]!.slice(0, 8), name: 'email-twice' }]))).goldens.map((g) => g.to)).toEqual(['goldens/email-twice']);
   });
 
   it('refuses a name that won’t do before anything changes, saying how to name it', async () => {
@@ -138,6 +141,20 @@ describe('fix apply --name', () => {
     const result = await applyFix(store, fix, options(lines));
     expect(result.goldens).toEqual([{ run: runs[0], from: `${DIR}/goldens/${runs[0]}`, to: 'goldens/refund-over-limit', copied: false }]);
     expect(lines).toContain('  already there: goldens/refund-over-limit');
+  });
+
+  it('keeps a recording repair --goldens copied under its run’s name where it is, and names it no other', async () => {
+    const { fix, runs } = verified({ runs: 2 });
+    const [a, b] = runs as [string, string];
+    mkdirSync(join(project, 'goldens', b), { recursive: true });
+    expect(await refused(fix, [{ run: b, name: 'refund-twice' }])).toBe(`the recording of ${b} was copied before, to goldens/${b}, and keeps that name: --name names one apply copies now`);
+    const lines: string[] = [];
+    const result = await applyFix(store, fix, options(lines));
+    expect(result.goldens).toEqual([
+      { run: a, from: `${DIR}/goldens/${a}`, to: 'goldens/refund-over-limit-1', copied: true },
+      { run: b, from: `${DIR}/goldens/${b}`, to: `goldens/${b}`, copied: false },
+    ]);
+    expect(lines).toContain(`  already there: goldens/${b}`);
   });
 
   it("names none of a teammate's repair's recordings, which stay on the machine that ran it", async () => {

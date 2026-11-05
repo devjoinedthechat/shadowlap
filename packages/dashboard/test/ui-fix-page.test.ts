@@ -37,7 +37,7 @@ afterEach(async () => {
  */
 function app(o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?: string; held?: string[] } = {}): AppState {
   const client = {
-    fix: (id: string) => Promise.resolve(fixDetail(store, id, { ...(o.inTree ? { patchInTree: () => true } : {}), ...(o.problem ? { checkRepairer: () => o.problem! } : {}), ...(o.held ? { goldensHeld: () => o.held! } : {}) })),
+    fix: (id: string) => Promise.resolve(fixDetail(store, id, { ...(o.inTree ? { patchInTree: () => true } : {}), ...(o.problem ? { checkRepairer: () => o.problem! } : {}), ...(o.held ? { goldensFolder: () => ({ there: [], held: o.held! }) } : {}) })),
     fixes: () => Promise.resolve(fixList(store)),
     attemptGroups: (id: string) => Promise.resolve(fixAttemptGroups(store, id)),
     jobs: () => Promise.resolve([]),

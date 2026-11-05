@@ -240,7 +240,7 @@ export { fixVerifyHead, goldensPassed, runOutcomeWord, verdictWord, verifyHead }
 export { ACTIONS, confirmWords, forceLiveLabel, type ActionWords } from './action-words.js';
 // The names the goldens a fix's apply copies go by, for `fix apply --name` and the dashboard's Apply fix.
 export { asGoldenName, defaultGoldenNames, GOLDEN_NAME_MAX, goldenNameArgs, goldenNamesProblem, type GoldenNameProblem } from './golden-names.js';
-export { goldensHeld } from './goldens-held.js';
+export { goldensFolder } from './goldens-folder.js';
 export { longDate, replacementModels, retiredFields, retirementOf, retirementPlatform, retirementsOf, retirementTable, retirementTableProblems, tableModel } from './model-retirements.js';
 export type { FieldRetirement, ModelRetirement, RetirementNotice, RetirementPlatform, RetirementSource, RetirementTable } from './model-retirements.js';
 export type { DecisionRunRow, DecisionSessionRow, MigrationApplied, NewDecisionSession } from './store.js';

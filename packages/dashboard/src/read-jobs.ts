@@ -3,7 +3,7 @@ import { activity } from './activity.js';
 import { callDetail, lineage, listRuns, lookupRun, noSuchRun, provenance, runCallsPage, runDetail, showRunJson, type ReadOptions } from './api.js';
 import { fixAttemptGroups } from './attempt-groups.js';
 import { codeChangeCache, compareHead, compareView } from './compare.js';
-import { fixDetail, goldensHeldIn, patchesToCheck } from './fixes.js';
+import { fixDetail, goldensFolderIn, patchesToCheck } from './fixes.js';
 import { forkDifferences } from './fork-differences.js';
 import { runInjection, toolTrust } from './injection.js';
 import { runUnrecorded } from './run-unrecorded.js';
@@ -189,7 +189,7 @@ function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns'>, tea
 function fixPage(store: Store, job: Extract<CoreJob, { kind: 'fix' }>): ReadAnswer {
   const inTree = job.inTree ? new Map(job.inTree) : null;
   const here = job.refusedHere ? new Map(job.refusedHere) : null;
-  const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}), ...(here ? { rewriteHere: (repairId: string) => here.get(repairId) ?? null } : {}), ...(job.project ? { goldensHeld: goldensHeldIn(job.project) } : {}) });
+  const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}), ...(here ? { rewriteHere: (repairId: string) => here.get(repairId) ?? null } : {}), ...(job.project ? { goldensFolder: goldensFolderIn(job.project) } : {}) });
   return d ? answer(d, { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
 }
 

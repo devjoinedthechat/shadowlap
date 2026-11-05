@@ -719,6 +719,10 @@ describe('the apply job', () => {
     pack(`.shadowlap/repairs/repair-munzln2i/goldens/${run}`);
     pack('goldens/refund-bug');
     expect((await json(await api(`fixes/${fixId}`))).actions.apply.held).toEqual(['refund-in-limit']);
+    // One repair --goldens copied under its run's name keeps it, and is asked none.
+    pack(`goldens/${run}`);
+    expect((await json(await api(`fixes/${fixId}`))).actions.apply).toMatchObject({ goldens: 1, names: [] });
+    rmSync(join(project, 'goldens', run), { recursive: true });
     const j = await started({ kind: 'apply', fixId, names: { [run]: 'refund-over-limit' } });
     expect(spawned.at(-1)).toEqual(['fix', 'apply', fixId, '--name', `${run}=refund-over-limit`]);
     await finished(j);

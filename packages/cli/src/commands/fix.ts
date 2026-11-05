@@ -1,6 +1,6 @@
 import { Command, Option } from 'commander';
 import { applyLeft, BLAME_DEFAULTS, describeBaselineRule, FIX_STATUSES, FixIdError, fixRecords, type FixStatus, KEPT_DEFAULTS, prNumber, type ReadPolicy, repairerProblem, resolveFix, setFixTitle, SPRT_DEFAULTS, type StoredFix, type StoreOf, verifyArgv } from '@shadowlap/engine';
-import { fieldChange, fixDetail, fixHref, fixList, ghReader, goldensHeldIn, patchesInTree, patchesToCheck, prHost, pulledPatchesToCheck, readableHosts, rewritesHere, type PrRead } from '@shadowlap/dashboard';
+import { fieldChange, fixDetail, fixHref, fixList, ghReader, goldensFolderIn, patchesInTree, patchesToCheck, prHost, pulledPatchesToCheck, readableHosts, rewritesHere, type PrRead } from '@shadowlap/dashboard';
 import { acceptedRepair, ApplyError, applyFix } from '../fix-apply.js';
 import { parseNameFlag } from '../fix-apply-names.js';
 import { formatFixDetail, formatFixList, repairLine, shortFixId } from '../fix-format.js';
@@ -191,7 +191,7 @@ function registerFixes(program: Command): void {
         const fix = requireFix(store, arg);
         const patchInTree = await patchesInTree(process.cwd(), patchesToCheck(store, [fix]));
         const rewriteHere = await rewritesHere(process.cwd(), pulledPatchesToCheck(store, [fix]));
-        const detail = fixDetail(store, fix.fixId, { repairer, checkRepairer: repairerProblem, patchInTree, rewriteHere, goldensHeld: goldensHeldIn(process.cwd()) })!;
+        const detail = fixDetail(store, fix.fixId, { repairer, checkRepairer: repairerProblem, patchInTree, rewriteHere, goldensFolder: goldensFolderIn(process.cwd()) })!;
         process.stdout.write((flags.json ? JSON.stringify(detail, null, 2) : formatFixDetail(detail, p, { repairer })) + '\n');
       } catch (err) {
         fixIdFailed(err, arg, flags.json);

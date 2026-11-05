@@ -16,7 +16,7 @@
  */
 
 import { isAbsolute, join, resolve } from 'node:path';
-import { applyGoldens, applyLeft, commitTitle, DEFAULT_REPAIRER, defaultGoldenNames, expectArgs, fixCost, type FixData, FixIdError, fixRecords, type FixRecords, gitApplyCommand, goldensHeld, lostRange, noFixReason, patchFiles, REPAIR_CANDIDATES, repairArgv, repairJobArgv, type RepairOutcome, repairPatchProblem, repairToApply, resolveFix, type RunRecord, shownBlame, type StoredBlame, type StoredFix, type StoredRepair, type StoreOf, unsettledFirst, verifyArgv } from '@shadowlap/engine';
+import { applyGoldens, applyLeft, commitTitle, DEFAULT_REPAIRER, defaultGoldenNames, expectArgs, fixCost, type FixData, FixIdError, fixRecords, type FixRecords, gitApplyCommand, goldensFolder, lostRange, noFixReason, patchFiles, REPAIR_CANDIDATES, repairArgv, repairJobArgv, type RepairOutcome, repairPatchProblem, repairToApply, resolveFix, type RunRecord, shownBlame, type StoredBlame, type StoredFix, type StoredRepair, type StoreOf, unsettledFirst, verifyArgv } from '@shadowlap/engine';
 import { type FixRow, rowOf } from './fix-list.js';
 import { acceptedCandidate, commandLine, counting, fieldsSet, type FixActions, type PatchCheck, patchMerged, patchToCheck, type RewriteCheck, runHref, short, shownRepair, type StepKey, unrepairedVerdict } from './fix-shared.js';
 import { blameNext, blameStep, type BlameStep } from './fix-blame-step.js';
@@ -152,11 +152,12 @@ function refusedOf(store: StoreOf<'team'>, r: StoredRepair | null, here: Rewrite
 }
 
 /**
- * What the project's goldens folder holds, by name, which none of the goldens apply copies may take:
- * read in the folder (the engine's `goldensHeld`), given the names it offers and the folder of the
- * recording each would hold, as the repair's report gives it.
+ * What the project's goldens folder holds, for the goldens apply copies (the engine's
+ * `goldensFolder`): the runs whose recording is in it already under the run's name, which keep it,
+ * and every other name it holds, which none may take. Given each golden it offers by its run, with
+ * the name it would take and the folder of its recording, as the repair's report gives it.
  */
-export type GoldensHeld = (offered: ReadonlyArray<{ name: string; source: string }>) => readonly string[];
+export type GoldensFolder = (offered: ReadonlyArray<{ run: string; name: string; source: string }>) => { there: readonly string[]; held: readonly string[] };
 
 /** The goldens folder the dashboard's apply job copies into: `fix apply`'s own, `goldens/` in the project. */
 export const APPLY_GOLDENS = 'goldens';
@@ -165,22 +166,22 @@ export const APPLY_GOLDENS = 'goldens';
  * What a project's goldens folder holds, as Apply fix reads it beside the server (read-jobs.ts).
  * A recording the store places outside the project is never read: `fix apply` refuses it anyway.
  */
-export const goldensHeldIn =
-  (project: string): GoldensHeld =>
+export const goldensFolderIn =
+  (project: string): GoldensFolder =>
   (offered) =>
-    goldensHeld(
+    goldensFolder(
       join(project, APPLY_GOLDENS),
-      offered.filter((g) => !isAbsolute(g.source) && !g.source.split('/').includes('..')).map((g) => ({ name: g.name, source: resolve(project, g.source) })),
+      offered.map((g) => ({ ...g, source: !isAbsolute(g.source) && !g.source.split('/').includes('..') ? resolve(project, g.source) : '' })),
     );
 
 /**
  * Apply fix, on a verified or applied fix (null on an open one): its repair's patch, or a change
  * verified on the working tree, to mark applied. Each recording of the fixed runs it copies now, by
  * its run, with the name it takes unless another is given (`names`, the engine's
- * `defaultGoldenNames`), and the names the project's goldens folder holds (`held`; null where it
- * isn't read), which none of them may take.
+ * `defaultGoldenNames`), but one the project's goldens folder holds already under its run's name,
+ * and the names that folder holds (`held`; null where it isn't read), which none of them may take.
  */
-function applyOffer(store: StoreOf<'team'>, rec: FixRecords, row: FixRow, toApply: StoredRepair | null, o: { refused: string | null; inTree: boolean; held: GoldensHeld | null }): FixActions['apply'] {
+function applyOffer(store: StoreOf<'team'>, rec: FixRecords, row: FixRow, toApply: StoredRepair | null, o: { refused: string | null; inTree: boolean; folder: GoldensFolder | null }): FixActions['apply'] {
   const fix = rec.fix;
   if (fix.status === 'open') return null;
   const pulled = !!toApply && store.repairPulled(toApply.repairId) !== null;
@@ -189,6 +190,7 @@ function applyOffer(store: StoreOf<'team'>, rec: FixRecords, row: FixRow, toAppl
   const copies = applyGoldens(fix, toApply, { pulled });
   const made = defaultGoldenNames({ label: row.label, title: fix.title }, copies.length);
   const offered = copies.flatMap((g, i) => (g.copied ? [] : [{ run: g.run, name: made[i]!, source: g.source }]));
+  const folder = o.folder ? o.folder(offered) : null;
   return {
     kind: toApply ? 'patch' : 'mark',
     argv: ['fix', 'apply', fix.fixId],
@@ -202,8 +204,8 @@ function applyOffer(store: StoreOf<'team'>, rec: FixRecords, row: FixRow, toAppl
     refused: o.refused,
     inTree: o.inTree,
     goldens: copies.length,
-    names: offered.map((g) => ({ run: g.run, name: g.name })),
-    held: o.held ? [...o.held(offered)] : null,
+    names: offered.filter((g) => !folder?.there.includes(g.run)).map((g) => ({ run: g.run, name: g.name })),
+    held: folder ? [...folder.held] : null,
     change: toApply ? null : fieldChange(rec),
   };
 }
@@ -214,10 +216,10 @@ function applyOffer(store: StoreOf<'team'>, rec: FixRecords, row: FixRow, toAppl
  * `checkRepairer` says why the repairer a repair would ask can't be asked from here, for an open fix
  * (`repairerProblem`, which looks for claude on the PATH), `patchInTree` whether a verified
  * fix's patch is in the working tree already, `rewriteHere` why `fix apply` refuses a pulled
- * repair's patch there, and `goldensHeld` the names the project's goldens folder holds, which the
- * goldens apply copies can't take: this stays a read of the store without them.
+ * repair's patch there, and `goldensFolder` what the project's goldens folder holds of the goldens
+ * apply copies and what else: this stays a read of the store without them.
  */
-export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, idOrPrefix: string, options: { repairer?: string | null; checkRepairer?: (repairer: string, configured: boolean) => string | null; patchInTree?: PatchCheck; rewriteHere?: RewriteCheck; goldensHeld?: GoldensHeld } = {}): FixDetail | null {
+export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, idOrPrefix: string, options: { repairer?: string | null; checkRepairer?: (repairer: string, configured: boolean) => string | null; patchInTree?: PatchCheck; rewriteHere?: RewriteCheck; goldensFolder?: GoldensFolder } = {}): FixDetail | null {
   let found: StoredFix | null;
   try {
     found = resolveFix(store, idOrPrefix);
@@ -262,7 +264,7 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
     defaultStep: done.at(-1)?.key ?? 'blame',
     actions: {
       repair: fix.status === 'open' && repairArgs.length ? repairOffer(store, rec, b?.scope ?? null, commandLine(repairJobArgv(repairArgs, configured)), repairArgs) : null,
-      apply: applyOffer(store, rec, row, toApply, { refused, inTree, held: options.goldensHeld ?? null }),
+      apply: applyOffer(store, rec, row, toApply, { refused, inTree, folder: options.goldensFolder ?? null }),
       applied: fix.status === 'applied',
       ...blameNext(store, rec, b),
     },
