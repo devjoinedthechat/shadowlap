@@ -1594,49 +1594,51 @@ The dashboard's keys, by where they work. `?` lists them on a sheet, and each co
 
 **Single-key shortcuts** can be turned off at the sheet's foot, and the browser remembers it. Off, only ⌘K, Esc, Enter and the arrows work, and nothing advertises a single key.
 
-Anywhere:
+These keys work on any page:
 
-| Key | What it does |
-| --- | --- |
+| Key          | What it does                                                            |
+| ------------ | ----------------------------------------------------------------------- |
 | ⌘K or Ctrl K | Search or jump to anything; with the focus in a list's row, its actions |
-| `/` | Filter a run's calls, filter Runs, or search anywhere else |
-| `?` | Show the shortcuts |
-| `u` | Undo, while a toast offers it (a good or bad label) |
-| Esc | Close what is open, then go up a level |
+| `/`          | Filter a run's calls, filter Runs, or search anywhere else              |
+| `?`          | Show the shortcuts                                                      |
+| `u`          | Undo, while a toast offers it (a good or bad label)                     |
+| Esc          | Close what is open, then go up a level                                  |
 
-In a list (Runs, and the sidebar's runs while one has the focus):
+These keys work in a list: Runs, and the sidebar's runs while one has the focus.
 
-| Key | What it does |
-| --- | --- |
-| `j` / `k` | Next or previous row: from no row, the first or the last |
-| `↓` / `↑` | The same, on a row in focus |
-| Enter | Open the row |
-| ⌘K or Ctrl K | The row's actions |
-| `x` | Select the row, on Runs |
-| `+` / `-` | Label it good or bad, on Runs |
-| Esc | Clear the selection, then let go of the row |
+| Key          | What it does                                             |
+| ------------ | -------------------------------------------------------- |
+| `j` / `k`    | Next or previous row: from no row, the first or the last |
+| `↓` / `↑`    | The same, on a row in focus                              |
+| Enter        | Open the row                                             |
+| ⌘K or Ctrl K | The row's actions                                        |
+| `x`          | Select the row, on Runs                                  |
+| `+` / `-`    | Label it good or bad, on Runs                            |
+| Esc          | Clear the selection, then let go of the row              |
 
-Go to:
+These keys go to a page, in the order they are listed:
 
-| Key | What it does |
-| --- | --- |
+| Key                                  | What it does                                              |
+| ------------------------------------ | --------------------------------------------------------- |
 | `g` then `o` `r` `c` `f` `t` `a` `s` | Overview, Runs, Compare, Fixes, Tests, Training, Settings |
 
-On a run:
+These keys work on a run's page:
 
-| Key | What it does |
-| --- | --- |
-| `j` / `k` | Next or previous call, from anywhere on the page; the selected call takes the focus |
-| `↓` / `↑` | The same, in the view's list |
-| `[` / `]` | The run before or after this one in the list you came from |
-| `1`–`4` | Conversation, response, request, details |
-| `←` / `→` | In a tab list, the next tab; else in Calls, fold the selected call's group or open it |
-| `v` | Next view, through all of them |
-| `n` | Jump to the call where the run forked, where blame found it lost, or where it first failed |
-| `p` | Open the parent run |
+| Key             | What it does                                                                                 |
+| --------------- | -------------------------------------------------------------------------------------------- |
+| `j` / `k`       | Next or previous call, from anywhere on the page; the selected call takes the focus          |
+| `↓` / `↑`       | The same, in the view's list                                                                 |
+| `[` / `]`       | The run before or after this one in the list you came from                                   |
+| `1`–`4`         | Conversation, response, request, details                                                     |
+| `←` / `→`       | In a tab list, the previous or next tab                                                      |
+| `←`             | In Calls, fold the selected call's group, or go to the call it sits under                    |
+| `→`             | In Calls, open the selected call's group, or go to its first call                            |
+| `v`             | Next view, through all of them                                                               |
+| `n`             | Jump to the call where the run forked, where blame found it lost, or where it first failed   |
+| `p`             | Open the parent run                                                                          |
 | `r` `c` `b` `f` | Press Replay, Compare, Run blame or Fork at the selected call, where the run has that button |
-| `+` / `-` | Label the run good or bad, again to take it off |
-| Esc | Back to where you came from |
+| `+` / `-`       | Label the run good or bad, again to take it off                                              |
+| Esc             | Back to where you came from                                                                  |
 
 **Esc** does one thing a press: it closes a menu, a dialog, the palette or a job's drawer, then the sidebar on a phone, then leaves a field, then hides a hover card. Only then does it go up: a run's open diff closes, a run or a fix goes back the way you came, Runs' selection clears, and the row in focus lets go.
 
