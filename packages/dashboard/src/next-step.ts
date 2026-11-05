@@ -15,22 +15,18 @@ import {
   injectionTemplates,
   isObject,
   keptCaptureVerdict,
-  modelResolver,
   noEstimate,
   normalizeAddArgs,
   parseTests,
   pathSetByCode,
-  pricedCalls,
   shortRunId as short,
   untrustedReads,
   updateEstimate,
-  type CallRecord,
   type CleanReport,
   type Estimate,
   type FixStatus,
   type PlantReport,
   type Price,
-  type PricedCall,
   type RunRecord,
   type Store,
   type StoreOf,
@@ -53,6 +49,7 @@ import { aboutsWithin } from './run-about.js';
 import { runCalls } from './run-calls.js';
 import { loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
 import { QUICK_FROM } from './run-page.js';
+import { estimateOf, pricingOf, type Priced, type Pricing } from './pricing.js';
 import { answer, failed, type ReadTable } from './read-registry.js';
 import { runJudged, type OutcomeWork, type RunJudged } from './run-outcome.js';
 import { callTotals, priced as pricedTotals } from './run-stats.js';
@@ -240,21 +237,6 @@ export function stepReads(store: Store, index: RunIndex = loadRunIndex(store)): 
   };
 }
 
-/** What a step's price reads, once the page's answer has the run's calls: pricing a list's rows would read every run's. */
-interface Pricing {
-  /** A run's calls, and its model calls priced as asked live. */
-  raw: (runId: string) => readonly CallRecord[];
-  calls: (runId: string) => PricedCall[];
-  prices: Record<string, Price> | undefined;
-}
-
-/** How to work out what a step bills, for a run's page. */
-interface Priced {
-  price?: (p: Pricing) => Estimate | null | Promise<Estimate | null>;
-  /** The runs whose calls its price reads: none for a price that reads none, which any answer can work out. */
-  reads?: readonly string[];
-}
-
 /** A step as a rule decides it, what the Run blame beside it bills, and the run whose about line its card's sentence is, for a run's page. */
 type Decided = NextStep & Priced & { beside?: Priced; about?: string };
 
@@ -313,7 +295,7 @@ function blameCommand(runId: string, offer: BlameOffer, capture: boolean): strin
 }
 
 /** What a blame bills: at most its ceiling, from the run's model calls. */
-const blamePrice = (runId: string): Priced => ({ reads: [runId], price: (p) => blameEstimate(p.calls(runId), p.prices ? { prices: p.prices } : {}) });
+export const blamePrice = (runId: string): Priced => ({ reads: [runId], price: (p) => blameEstimate(p.calls(runId), p.prices ? { prices: p.prices } : {}) });
 
 function blameStep(runId: string, offer: BlameOffer, capture = false): Decided {
   return { key: 'blame', label: ACTIONS.runBlame.label, offer, ...(capture ? { capture: true as const } : {}), command: blameCommand(runId, offer, capture), ...blamePrice(runId) };
@@ -380,7 +362,7 @@ const REMADE = 'It re-records the golden under the change';
 const JUDGE_ONCE = 'Asks the judge once, live, and keeps its verdict in the pack: every test after judges from the recording, free';
 
 /** What re-recording a golden bills: about what its recording cost. */
-const updatePrice = (source: GoldenSource): Priced => ({ reads: source.runId ? [source.runId] : [], price: (p) => updateEstimate([{ calls: source.runId ? p.calls(source.runId) : [] }]) });
+export const updatePrice = (source: GoldenSource): Priced => ({ reads: source.runId ? [source.runId] : [], price: (p) => updateEstimate([{ calls: source.runId ? p.calls(source.runId) : [] }]) });
 
 /** Update golden: re-recorded live. */
 function updateStep(f: Facts, golden: string, source: GoldenSource): Decided {
@@ -738,18 +720,6 @@ export function nextStepOf(store: Store, runId: string, work: NextStepWork | nul
   return plainStep(step);
 }
 
-/**
- * What a step bills. An estimate is a hover's extra line, and what it reads can come from someone
- * else's pack: one that can't be worked out leaves the line out, never the step.
- */
-async function estimateOf(price: NonNullable<Priced['price']>, pricing: Pricing): Promise<Estimate | null> {
-  try {
-    return await price(pricing);
-  } catch {
-    return null;
-  }
-}
-
 /** A run's about line, as a list quotes it: a long run's from its first calls until what its user asked is known. A hover's sentence, like an estimate: one that can't be worked out is left out. */
 function aboutLine(store: Store, index: RunIndex, runId: string): string | null {
   const row = index.byId.get(runId);
@@ -772,9 +742,7 @@ export async function pricedNextStep(store: Store, runId: string, work: NextStep
   const step = decided(store, runId, work, { judged: o.judged, reads });
   if (!step) return null;
   const plain = plainStep(step);
-  const modelOf = modelResolver(store);
-  const prices = work?.prices;
-  const pricing: Pricing = { raw: (id) => runCalls(store, id), calls: (id) => pricedCalls(runCalls(store, id), { modelOf, ...(prices ? { prices } : {}) }), prices };
+  const pricing = pricingOf(store, work?.prices);
   const priced = async (p: Priced | undefined): Promise<{ estimate?: Estimate; later?: true }> => {
     if (!p?.price) return {};
     if ((p.reads ?? []).some((id) => !o.kept(id) && (reads.index.byId.get(id)?.calls ?? 0) >= QUICK_FROM)) return { later: true };
