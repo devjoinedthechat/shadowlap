@@ -1,3 +1,4 @@
+import { updatePart } from '../../engine/src/cost-words.js';
 import type { CostWords, FactWords } from './actions.js';
 import type { DocKey } from './docs-links.js';
 import { commandText, divergenceButtons, n } from './goldens.js';
@@ -49,7 +50,7 @@ const updateOk = (goldens: number): string => (goldens === 1 ? confirmWords(ACTI
 const updatesAfterRules = (d: DivergenceView) => !!d.normalizeAndTest && (d.normalizeAndTest.at(-1) ?? []).includes('--update');
 
 /** What re-recording bills: until a price is known, who bills it. */
-export const recordingCost = (one: boolean): CostWords => ({ price: 'Billed by your provider', parts: [one ? 'as its recording cost' : 'as their recordings cost'] });
+export const recordingCost = (one: boolean): CostWords => ({ price: 'Billed by your provider', parts: [updatePart(one, false)] });
 
 /** Its checks, as the step that replaces it says them: an update is kept only if they pass, or with none, if it exits 0. */
 export const replacedIf = (checks: number) => (checks === 0 ? 'Replaced only if it exits 0' : checks === 1 ? 'Replaced only if its check passes' : `Replaced only if its ${n(checks, 'check')} pass`);
@@ -171,7 +172,7 @@ function judgePlan(view: TestsView, path: string): UpdatePlan | null {
     instead: null,
     note: null,
     command: commandText(j.update),
-    cost: { price: 'Billed by your provider', parts: ['its judge’s one call'] },
+    cost: { price: 'Billed by your provider', parts: [updatePart(true, true)] },
     ok: material ? 'Update anyway' : updateOk(1),
   };
 }

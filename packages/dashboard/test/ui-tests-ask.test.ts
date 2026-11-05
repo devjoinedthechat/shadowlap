@@ -8,7 +8,7 @@ import { TestsPage } from '../ui/pages/Tests.js';
 import { Banner } from '../ui/run/parts.js';
 import { Palette } from '../ui/shell/Palette.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import { testsQuestion } from '../ui/tests-ask.js';
+import { moreAttemptsAsk, testsQuestion } from '../ui/tests-ask.js';
 import type { RunDetail, RunOffers } from '../ui/types.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 
@@ -194,6 +194,8 @@ describe('a Tests job that would run goldens live', () => {
     await page.click(page.byText('button', 'Run more attempts'));
     await page.until('the question', () => dialog(page) !== null);
     expect(said(dialog(page)!)).toEqual({ title: 'Run more attempts on flaky', lead: MORE_LEAD, commands: ['$shadowlap test goldens/flaky --max-attempts 40 --continue'], ok: 'Run more attempts' });
+    // Its cost line in the estimate's words: one more is one attempt.
+    expect(moreAttemptsAsk('flaky', { args: [], attempts: 8, most: 1, expected: 1, settles: 0.5 }).parts).toEqual(['up to 1 more attempt', 'live from where the golden forks, writes blocked']);
     await page.click(page.one('.dialog .dlg-ok'));
     await page.until('the job', () => watched.length === 1);
     expect(sent.map((s) => s.fields)).toEqual([

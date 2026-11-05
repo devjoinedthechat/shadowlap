@@ -1,3 +1,4 @@
+import { moreAttemptsParts, updatePart } from '../../engine/src/cost-words.js';
 import { consentAsked, type FactWords, type LiveGolden } from './actions.js';
 import type { DocKey } from './docs-links.js';
 import type { JobView } from './api.js';
@@ -154,7 +155,7 @@ export function moreAttemptsAsk(name: string, more: Pick<MoreAttempts, 'args' | 
       { label: 'Limit', value: `${more.attempts} attempts`, quiet: `its first ${ran} count` },
       { label: 'Settles', value: `${Math.round(more.settles * 100)}% of the time`, quiet: `in about ${Math.round(more.expected)} more` },
     ],
-    parts: [`up to ${more.most} more attempts`, 'live from where the golden forks, writes blocked'],
+    parts: moreAttemptsParts(more.most),
   };
 }
 
@@ -171,7 +172,7 @@ function normalizerAsk(name: string, steps: readonly (readonly string[])[] | nul
     doc: 'goldenUpdates',
     ok: label,
     commands: (steps ?? []).map(commandText),
-    parts: [updates ? 'as its recording cost' : 'live from where it forks'],
+    parts: [updates ? updatePart(true, false) : 'live from where it forks'],
   };
 }
 

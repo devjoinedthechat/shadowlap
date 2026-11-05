@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { probesPart } from '../../../engine/src/cost-words.js';
 import { consentAsked } from '../actions.js';
 import { JOB_KINDS, ApiError, type JobView } from '../api.js';
 import { Badge } from '../components/bits.js';
@@ -357,7 +358,7 @@ export function StrongerDialog({ fix, onRun, onClose }: { fix: FixDetail; onRun:
       placeholder="claude-opus-5-5"
       ok={confirmWords(ACTIONS.runBlameStronger.label)}
       command={(model) => `${base} --model ${model.trim() || '<model>'}`}
-      cost={{ price: 'Billed by your provider', parts: [...(s ? [`the last blame took ${s.attempts} attempts, ${approx(s.spent)}`] : []), 'live from each probe, writes stubbed'] }}
+      cost={{ price: 'Billed by your provider', parts: [...(s ? [`the last blame took ${s.attempts} attempts, ${approx(s.spent)}`] : []), probesPart()] }}
       onRun={(model) => (model.trim() ? onRun(model.trim()) : false)}
       onClose={onClose}
     />

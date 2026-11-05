@@ -1,4 +1,5 @@
 import { maxProbes, pinRule, probeGate, type BlameReport } from '../blame.js';
+import { probesPart } from '../cost-words.js';
 import { isReservedScope } from '../judge-scope.js';
 import type { BaselineRule } from '../noninferiority.js';
 import { BLAME_DEFAULTS, type SprtGate } from '../stats.js';
@@ -141,7 +142,7 @@ export function blameEstimate(calls: readonly PricedCall[], o: BlameEstimateOpti
   const probed = probedCalls(calls, o.scope);
   if (!probed.length) return noEstimate('blame', `the run made no model calls${o.scope ? ` in scope ${o.scope}` : ''}, so blame has nothing to probe`);
   const bound = blameBound(probed.length, o);
-  const parts = [`up to ${counted(bound.probes, 'probe')} of ${counted(bound.each, 'attempt')}${bound.pin ? ' and a check of the call found' : ''}`, `live from each probe, writes ${o.writes === 'block' ? 'blocked' : 'stubbed'}`];
+  const parts = [`up to ${counted(bound.probes, 'probe')} of ${counted(bound.each, 'attempt')}${bound.pin ? ' and a check of the call found' : ''}`, probesPart(o.writes === 'block')];
   const price = attemptPrice(calls, probed[0]!.callNo, o);
   if ('none' in price) return noEstimate('blame', price.none, parts);
   return {

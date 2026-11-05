@@ -1,3 +1,4 @@
+import { BISECT_PARTS } from '../../../engine/src/cost-words.js';
 import type { CostWords } from '../actions.js';
 import { shortId } from '../format.js';
 import { commandText } from '../goldens.js';
@@ -54,8 +55,8 @@ export function bisectCommand(runId: string, choices: Pick<BisectChoices, 'bad' 
  * decides each commit. A golden that may fork runs live at each commit; any other replay is free.
  */
 export function bisectCost(choices: Pick<BisectChoices, 'fork' | 'live'>): CostWords {
-  if (choices.fork) return { price: 'Billed by your provider', parts: ['one live replay each, writes blocked'] };
-  return choices.live ? { price: 'Billed by your provider', parts: ['live at each commit, as a golden marked fork runs'] } : { price: 'Free', parts: ['bisect replays offline'] };
+  if (choices.fork) return { price: 'Billed by your provider', parts: [BISECT_PARTS.run] };
+  return choices.live ? { price: 'Billed by your provider', parts: [BISECT_PARTS.fork] } : { price: 'Free', parts: [BISECT_PARTS.offline] };
 }
 
 /** What one live replay can't settle, under its field until the price's card says it. */
