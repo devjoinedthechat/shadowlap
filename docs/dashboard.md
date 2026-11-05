@@ -1632,7 +1632,7 @@ From the dashboard:
 
 The dashboard's keys, by where they work. `?` lists them on a sheet, and each control a key presses says its key on its hover card and to a screen reader.
 
-**Single-key shortcuts** can be turned off at the sheet's foot, and the browser remembers it. Off, only ⌘K, Esc, Enter and the arrows work, and nothing advertises a single key.
+**Single-key shortcuts** can be turned off at the sheet's foot, and the browser remembers it. Off, only ⌘K, ⌘Z, Esc, Enter and the arrows work, and nothing advertises a single key.
 
 These keys work on any page:
 

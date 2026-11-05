@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type Client } from '../ui/api.js';
 import { ToastHost } from '../ui/components/Toast.js';
 import { OfflineBar } from '../ui/shell/Connection.js';
+import { setSingleKeys } from '../ui/shortcuts.js';
 import { AppContext, AppProvider, useApp, type AppState } from '../ui/state.js';
 import { ACTION_TOAST_MS, announce, TOAST_MS, toastKey, type ToastAction } from '../ui/toast.js';
 import type { JobView } from '../ui/types.js';
@@ -148,13 +149,17 @@ describe('what a screen reader hears', () => {
 });
 
 describe('the undo keys', () => {
-  it('answer an Undo: ⌘Z or Ctrl Z from anywhere but a field, and u through its key', async () => {
+  it('answer an Undo: ⌘Z or Ctrl Z from anywhere but a field, and u through its key while single keys are on', async () => {
     let ran = 0;
     const { Host, show } = page();
     r = await render(createElement(Host));
     const undo: ToastAction = { label: 'Undo', undo: true, run: () => void ran++ };
     await show({ id: 1, action: undo });
     expect(r.one('.toast .tbtn').getAttribute('aria-keyshortcuts')).toBe('Meta+Z Control+Z u');
+    // With single keys off it names ⌘Z alone, which still answers.
+    await act(async () => setSingleKeys(false));
+    expect(r.one('.toast .tbtn').getAttribute('aria-keyshortcuts')).toBe('Meta+Z Control+Z');
+    await act(async () => setSingleKeys(true));
     (r.one('input') as unknown as HTMLElement).focus();
     await r.press('z', { metaKey: true }, r.one('input'));
     expect(ran).toBe(0);

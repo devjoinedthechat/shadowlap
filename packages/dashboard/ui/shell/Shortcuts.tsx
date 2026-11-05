@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef } from 'react';
 import { Modal } from '../components/Dialog.js';
 import { Switch } from '../components/Switch.js';
-import { isMac, paletteKeyLabel } from '../dom.js';
+import { isMac, paletteKeyLabel, undoKeyLabel } from '../dom.js';
 import { useScrollStop } from '../hooks.js';
 import { copyCompares } from '../runs.js';
 import { ACTIONS } from '../labels.js';
@@ -27,7 +27,7 @@ function Line({ line }: { line: SheetLine }) {
   return (
     <>
       <dt className={sk}>
-        {line.chips.map((c, i) => (c.join ? <span key={i} className="then">{c.text}</span> : <kbd key={i}>{c.text}</kbd>))}
+        {line.chips.map((c, i) => (c.join ? <span key={i} className={c.single ? 'then sk' : 'then'}>{c.text}</span> : <kbd key={i} className={c.single ? 'sk' : undefined}>{c.text}</kbd>))}
       </dt>
       <dd className={sk}>{line.label}</dd>
     </>
@@ -82,7 +82,7 @@ function Panel({ onRun, close }: { onRun: boolean; close: () => void }) {
             <Switch on={singleKeys} onChange={setSingleKeys}>
               Single-key shortcuts
             </Switch>
-            <span>{switchSentence(exported, paletteKeyLabel())}</span>
+            <span>{switchSentence(exported, paletteKeyLabel(), undoKeyLabel())}</span>
           </div>
         </div>
         <footer>

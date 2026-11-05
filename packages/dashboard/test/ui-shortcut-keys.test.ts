@@ -62,9 +62,14 @@ describe('the table of keys', () => {
     expect(line('In a list', 'The same, on a row in focus').single).toBe(false);
     expect(line('In a list', 'Open row').single).toBe(false);
     expect(line('Anywhere', 'Search or jump to anything', false).chips[0].text).toBe('Ctrl');
-    expect(switchSentence(false, '⌘K')).toBe('Off, only ⌘K, Esc, Enter and the arrows work.');
-    expect(switchSentence(false, 'Ctrl K')).toBe('Off, only Ctrl K, Esc, Enter and the arrows work.');
-    expect(switchSentence(true, '⌘K')).toBe('Off, only Esc, Enter and the arrows work.');
+    // ⌘Z stays on with the switch, and `u` beside it goes faint as a single key's line does.
+    const undo = line('Anywhere', 'Undo, while a toast offers it');
+    expect(undo.single).toBe(false);
+    expect(undo.chips).toEqual([{ text: '⌘', join: false }, { text: 'Z', join: false }, { text: 'and', join: true, single: true }, { text: 'u', join: false, single: true }]);
+    expect(line('Anywhere', 'Undo, while a toast offers it', false).chips.map((c) => c.text)).toEqual(['Ctrl', 'Z', 'and', 'u']);
+    expect(switchSentence(false, '⌘K', '⌘Z')).toBe('Off, only ⌘K, ⌘Z, Esc, Enter and the arrows work.');
+    expect(switchSentence(false, 'Ctrl K', 'Ctrl Z')).toBe('Off, only Ctrl K, Ctrl Z, Esc, Enter and the arrows work.');
+    expect(switchSentence(true, '⌘K', '⌘Z')).toBe('Off, only Esc, Enter and the arrows work.');
   });
 
   it('marks a control while the switch is on, and writes a plus sign as ARIA spells it', () => {
@@ -124,6 +129,15 @@ describe('the table of keys', () => {
     expect(pressShortcut('fork', say)).toBe(true);
     expect(pressShortcut('compare', say)).toBe(true);
     expect(said).toEqual(['Fork once the recording finishes', 'Why not']);
+  });
+
+  it('presses a control that waits, which says why itself as a press does', async () => {
+    const pressed = vi.fn();
+    const say = vi.fn();
+    r = await render(createElement('button', { type: 'button', 'aria-disabled': 'true', 'data-why': 'Paused until the dashboard server is back', onClick: pressed, ...shortcut('replay') }, 'Replay'));
+    expect(pressShortcut('replay', say)).toBe(true);
+    expect(pressed).toHaveBeenCalledOnce();
+    expect(say).not.toHaveBeenCalled();
   });
 
   it('says nothing for a button off with no reason, whatever its card says', async () => {

@@ -27,6 +27,11 @@ export function paletteKeyLabel(): string {
   return isMac() ? '⌘K' : 'Ctrl K';
 }
 
+/** The undo key's chord, as the shortcuts sheet's foot names it. */
+export function undoKeyLabel(): string {
+  return isMac() ? '⌘Z' : 'Ctrl Z';
+}
+
 /** Inputs that take no key a shortcut uses: ticked or pressed with Space or Enter. */
 const KEYLESS_INPUTS = new Set(['checkbox', 'button', 'submit', 'reset', 'image']);
 

@@ -35,6 +35,8 @@ interface Shortcut {
   label?: string | ((p: SheetPlace) => string);
   /** A card's title where the control has no words of its own for it. */
   card?: string;
+  /** A single key that does the same, drawn after `and`: faint, as a single key's line is, while the switch is off. */
+  also?: string;
   when?: (p: SheetPlace) => boolean;
 }
 
@@ -44,7 +46,7 @@ const TABLE = {
   palette: { group: 'Anywhere', chips: '⌘ K', label: 'Search or jump to anything', when: notCopy },
   filter: { group: 'Anywhere', chips: '/', label: (p) => (p.onRun ? 'Filter calls' : p.onRuns ? 'Filter runs' : 'Search or jump to anything'), when: (p) => !p.exported || p.onRun || p.onRuns },
   help: { group: 'Anywhere', chips: '?', aria: '?', label: 'Show these shortcuts' },
-  undo: { group: 'Anywhere', chips: 'u', aria: 'u', label: 'Undo, while a toast offers it' },
+  undo: { group: 'Anywhere', chips: '⌘ Z', also: 'u', label: 'Undo, while a toast offers it' },
   up: { group: 'Anywhere', chips: 'Esc', label: 'Close menu or dialog, then go up a level' },
 
   rows: { group: 'In a list', chips: 'j k', label: 'Next or previous row' },
@@ -99,8 +101,8 @@ function isSingle(chips: string): boolean {
 
 export interface SheetLine {
   id: ShortcutId;
-  /** Each key and what goes between them, in the order drawn. */
-  chips: Array<{ text: string; join: boolean }>;
+  /** Each key and what goes between them, in the order drawn; `single`, a key the switch turns off on a line it leaves on. */
+  chips: Array<{ text: string; join: boolean; single?: boolean }>;
   label: string;
   single: boolean;
 }
@@ -111,15 +113,16 @@ export function sheetLines(group: SheetGroup, place: SheetPlace, mac: boolean): 
   for (const id of Object.keys(TABLE) as ShortcutId[]) {
     const s: Shortcut = TABLE[id];
     if (s.group !== group || (s.when && !s.when(place))) continue;
-    const chips = s.chips.split(' ').map((text) => ({ text: text === '⌘' && !mac ? 'Ctrl' : text, join: JOINS.has(text) }));
+    const chips: SheetLine['chips'] = s.chips.split(' ').map((text) => ({ text: text === '⌘' && !mac ? 'Ctrl' : text, join: JOINS.has(text) }));
+    if (s.also) chips.push({ text: 'and', join: true, single: true }, { text: s.also, join: false, single: true });
     lines.push({ id, chips, label: typeof s.label === 'function' ? s.label(place) : (s.label ?? ''), single: isSingle(s.chips) });
   }
   return lines;
 }
 
-/** What the switch's sentence says stays on: an exported copy has no palette. */
-export function switchSentence(exported: boolean, paletteKey: string): string {
-  return `Off, only ${exported ? '' : `${paletteKey}, `}Esc, Enter and the arrows work.`;
+/** What the switch's sentence says stays on: an exported copy has no palette, and nothing to undo. */
+export function switchSentence(exported: boolean, paletteKey: string, undoKey: string): string {
+  return `Off, only ${exported ? '' : `${paletteKey}, ${undoKey}, `}Esc, Enter and the arrows work.`;
 }
 
 export interface ShortcutMark {
@@ -157,12 +160,17 @@ export function goKeyColumn(to: string): string | undefined {
 
 /**
  * A key presses its control, so it does what the button does and waits as it waits: none on the page,
- * nothing; one that is off says why (its `title`, through `say`), or nothing where it gives no reason,
- * since its card says what it does; else a click. True when there was one to press.
+ * nothing; one that waits (an `ActionButton`) is pressed, and says why as a press does; one that is off
+ * says why (its `title`, through `say`), or nothing where it gives no reason, since its card says what
+ * it does; else a click. True when there was one to press.
  */
 export function pressShortcut(id: ShortcutId, say: (words: string) => void): boolean {
   const el = document.querySelector<HTMLElement>(`[data-shortcut="${id}"]`);
   if (!el) return false;
+  if (el.hasAttribute('data-why')) {
+    el.click();
+    return true;
+  }
   if ((el as HTMLButtonElement).disabled || el.getAttribute('aria-disabled') === 'true') {
     const why = el.getAttribute('title');
     if (why) say(why);
