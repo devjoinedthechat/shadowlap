@@ -147,6 +147,6 @@ describe('the Runs page', () => {
     await r.until('the filter asked for', () => filters.includes('slow'));
     await r.wait(50);
     expect(r.one('table.runst').getAttribute('aria-rowcount')).toBe('251');
-    expect(r.all('section.panel .empty')).toHaveLength(0);
+    expect(r.all('section.panel .empty, section.panel .emptyline')).toHaveLength(0);
   });
 });

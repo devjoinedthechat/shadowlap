@@ -32,7 +32,8 @@ export function ShowMore({ shown, total, step = 50, onMore }: { shown: number; t
 }
 
 /**
- * What a table row spreads to open a page, unless the click was on a control inside it. `data-acts`
+ * What a table row spreads to open a page, unless the click was on a control inside it, or in a
+ * checkbox's cell (`.selcell`, whose padding is part of its target). `data-acts`
  * says so to the hover cards: a tap on a fact in the row opens it, and shows no card over the next page.
  */
 export function rowOpen(go: () => void) {
@@ -40,7 +41,7 @@ export function rowOpen(go: () => void) {
     'data-acts': '',
     onClick: (e: React.MouseEvent) => {
       const t = e.target as HTMLElement;
-      if (t.closest('a, button, input, label, select')) return;
+      if (t.closest('a, button, input, label, select, .selcell')) return;
       if (e.metaKey || e.ctrlKey) return;
       go();
     },

@@ -22,6 +22,9 @@ table.runst .labs a.chip:hover { color: var(--ink); }
 /* runs table: fits without scrolling; long commands are cut, not pushed */
 table.runst .selcell { width: 34px; padding-right: 0; }
 .selcell input { width: 15px; height: 15px; margin: 0; accent-color: var(--ink); cursor: pointer; vertical-align: middle; }
+/* the checkbox's whole cell selects the row, a 44px target on a touch screen, and never opens the run (rowOpen) */
+.selhit { display: inline-grid; place-items: center; cursor: pointer; }
+@media (pointer: coarse) { table.runst td.selcell { padding: 0; } table.runst td.selcell .selhit { width: 44px; min-height: 44px; } }
 table.runst { width: 100%; }
 table.runst .runcell { max-width: 1px; width: 100%; overflow: hidden; }
 table.runst .rid { white-space: nowrap; }
@@ -31,6 +34,15 @@ table.runst .rsub { display: block; max-width: 100%; overflow: hidden; text-over
 .tscroll table.t td.labcell { white-space: normal; max-width: 170px; }
 .labcell .chip { margin: 1px 0; }
 table.runst tr.picked td { background: var(--sel); }
+/* a picked row's ground reaches into the section's gutter, as a hovered row's does, and keeps it under the pointer (a row in
+   focus draws its own, with the bar) */
+:where(.panel.sec table.runst tr.picked) > td:first-child { box-shadow: calc(-1 * var(--bleed)) 0 0 var(--sel); }
+:where(.panel.sec table.runst tr.picked) > td:last-child { box-shadow: var(--bleed) 0 0 var(--sel); }
+:where(.panel.sec table.runst) tr.picked:not(.krow):hover > td:first-child { box-shadow: calc(-1 * var(--bleed)) 0 0 var(--sel); }
+:where(.panel.sec table.runst) tr.picked:not(.krow):hover > td:last-child { box-shadow: var(--bleed) 0 0 var(--sel); }
+/* the table is a section with no card, close under the chips and the filter (a warming line may come between): their row
+   is its head, so no hairline above it */
+.tbar ~ .panel.sec.runsec { margin-top: 4px; border-top: 0; }
 
 /* bulk actions */
 /* while the selection bar shows, a row j or k brings into view stops above it: the page's scroller, or below 1000px the window's, at the bar's measured height (BulkBar's --bulk-h) */

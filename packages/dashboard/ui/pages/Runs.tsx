@@ -3,6 +3,7 @@ import { JOB_KINDS, type Client } from '../api.js';
 import { Chips, PageHeader } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
+import { EmptyLine } from '../components/States.js';
 import { ShowMore } from '../components/Table.js';
 import { pageUp } from '../focus-manager.js';
 import { viewerTimeZone } from '../format.js';
@@ -22,7 +23,7 @@ import { navigate } from '../router.js';
 import { isAllRuns, type RunsFilterRead } from '../../src/links.js';
 import { useMarkRun } from '../components/RunKey.js';
 import type { RunMark } from '../runkey.js';
-import { RunsTable, type TableRun } from '../runspage/RunsTable.js';
+import { RunsTable, RunsTableEmpty, type TableRun } from '../runspage/RunsTable.js';
 import { noteShownRuns } from '../runspage/shown-runs.js';
 import { tableNote, withFirstPage } from '../runspage/rows.js';
 import { bundlesAttempts, isAttempt, matchesChip, matchesText, RUN_CHIPS, sortRuns, type RunChip, type RunSort } from '../runs.js';
@@ -509,15 +510,9 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
           {warming}
         </p>
       ) : null}
-      <section className="panel tscroll">
+      <section className="panel sec tscroll runsec">
         <RunsTable rows={rows} picked={picked} selectable byColumn={!!store} you={store?.you ?? null} sort={sort} onSort={setSort} onPick={onPick} onPickAll={onPickAll} now={now} onMark={onMark} markOff={actionsOff ?? null} rowActions={(r) => runRowScope(r, { runs: appRuns ?? [], toast, pick: () => onPick(r, !picked.has(r.runId)), picked: picked.has(r.runId), pickKey: keyColumn('rowPick') })} />
-        {table.error && !rows.length ? (
-          <div className="empty">The runs could not be read: {table.error.message}</div>
-        ) : !table.loaded ? (
-          <div className="empty">Loading runs…</div>
-        ) : rows.length === 0 ? (
-          <div className="empty">{counts?.all ? 'No runs match.' : days ? 'No runs on the days picked.' : 'No runs yet. Record one with shadowlap run -- <command>.'}</div>
-        ) : null}
+        <RunsTableEmpty error={table.error} loaded={table.loaded} shown={rows.length} counts={counts} days={days} />
         <ShowMore shown={rows.length} total={table.total} onMore={() => setLimit(limit + PAGE)} />
       </section>
       {runs.length ? (
@@ -563,9 +558,9 @@ function ExportedRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
           <input id="runsQuery" type="search" placeholder="Filter by id, about or label" title="Every word must be in a run’s id, about line, labels, command or revision; label:good lists the runs labelled good" value={query} onChange={(e) => setQuery(e.target.value)} />
         </label>
       </div>
-      <section className="panel tscroll">
+      <section className="panel sec tscroll runsec">
         <RunsTable rows={shown} picked={new Set()} selectable={false} byColumn={false} sort={sort} onSort={setSort} onPick={() => undefined} onPickAll={() => undefined} now={Date.now()} />
-        {runs === null ? <div className="empty">Loading runs…</div> : shown.length === 0 ? <div className="empty">No runs match.</div> : null}
+        {runs === null ? <div className="empty">Loading runs…</div> : shown.length === 0 ? <EmptyLine>No runs match.</EmptyLine> : null}
         <ShowMore shown={shown.length} total={matched.length} onMore={() => setLimit(limit + PAGE)} />
       </section>
     </Page>

@@ -64,6 +64,7 @@
     "packages/dashboard/test/ui-render-counts.test.ts",
     "packages/dashboard/test/ui-runs-paging.test.ts",
     "packages/dashboard/test/ui-runs-head.test.ts",
+    "packages/dashboard/test/ui-runs-table.test.ts",
     "packages/dashboard/test/ui-run-paging.test.ts",
     "packages/dashboard/test/ui-overview-warming.test.ts",
     "packages/dashboard/test/ui-run-open.test.ts",

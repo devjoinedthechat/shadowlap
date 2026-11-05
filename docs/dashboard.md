@@ -261,7 +261,7 @@ Some runs are shown differently:
 
 Above the table:
 
-- **Chips by kind**, with their counts: recordings, forks, clean replays, tests, captures, failed. Failed counts the runs that failed and the captures their import judged failed, but not a test replay [fixed since](#the-table). A run that fails only its family's checks says so in Status, but Failed and the calendar leave it out.
+- **Chips by kind**, with their counts: recordings, forks, clean replays, test replays, captures, failed. Failed counts the runs that failed and the captures their import judged failed, but not a test replay [fixed since](#the-table). A run that fails only its family's checks says so in Status, but Failed and the calendar leave it out.
 - **A filter**: every word must be in the run's id, about line, kind, labels, command, source or revision. `label:good` is the runs labelled exactly that. A label with a space in it is quoted, `label:"needs review"`, as its chip writes it.
 - **Sorting** by calls, spend or time.
 

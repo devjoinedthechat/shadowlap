@@ -54,6 +54,9 @@ a.metric::after { content: ""; position: absolute; inset: -4px 0; }
 /* a link among a section's header actions is set with the header's sub, as a quiet line's is */
 .panel.sec > header > .actions > a:not(.btn) { font-size: var(--fs-quiet); }
 .panel.sec > .pbody { padding: 0 0 4px; }
+/* a list's Show 50 more in a section starts at its text's edge, and says it is pressable by its underline */
+.panel.sec .attn-more { padding-left: 0; padding-right: 0; }
+.panel.sec .attn-more:hover { background: none; text-decoration: underline; text-underline-offset: 3px; }
 .grid2 > .panel.sec, .grid2.secs > .panel.sec + .panel.sec { margin-top: 0; }
 .grid2.secs { margin-top: var(--gap-section); column-gap: 40px; }
 /* under tabs, the tabs' own hairline heads the first section: one line, never two */
