@@ -111,7 +111,7 @@ The about line quotes what the run recorded. So a copy that leaves the store (an
 
 - **Every page**, and **This run's actions**.
 - **The runs**: the newest 500, each by its id with its about line as the hint. Any other run is found by its id, typed in full or its first characters.
-- **The goldens**, each with its last verdict: *passed*, *failed* or *inconclusive*, a gate's with its tally and bound. When any diverged, **Update goldens…** opens its dialog on Tests.
+- **The goldens**, each with its last verdict: *passed*, *failed* or *inconclusive*, a gate's with its tally and bound. When any diverged, **Update goldens** opens its dialog on Tests.
 - **What the runs recorded**, from three characters: prompts, responses, tool arguments and results, up to six matches, two per run.
 
 Every typed word must match. Matches in recordings, forks, tests and captures come first, however many attempts match too. An attempt (`--repeat`, a blame probe, a verify attempt) replays its run's text, so it shows only for a run with no match of its own. The attempts of one run count as that run.
@@ -274,7 +274,7 @@ With **Failed** picked and days chosen, **Find breaking commit…** bisects from
 
 Tick runs to label, pack, export, compare or delete them together. A run ticked and then deleted elsewhere leaves the selection.
 
-- **Delete** names the attempts bundled under the runs ticked, which go with them as `shadowlap rm` takes them, and counts them when it is done. It leaves alone a run still recording, one a replay in progress reads from, and one with an attempt still running. Its dialog shows the `shadowlap rm` command: for a long pick, the first ids and how many more, with **Copy the whole command**.
+- **Delete** names the attempts bundled under the runs ticked, which go with them as `shadowlap rm` takes them, and counts them when it is done. It leaves alone a run still recording, one a replay in progress reads from, and one with an attempt still running. Its dialog shows the `shadowlap rm` command: for a long pick, the first ids and how many more, its Copy taking the whole command.
 - **Pack** asks for a folder first. One run goes into `.shadowlap/exports/<id>` unless you name another folder inside the project. Several go into a folder each, named by its id, inside `.shadowlap/exports` or the folder you name, in one job whose drawer lists every folder (at most 100 runs at once).
 - **Dataset** says how many redaction rules its copy applies, and shows the `shadowlap export dataset` command it runs, with the file it writes. One dataset takes at most 500 runs.
 
@@ -1101,7 +1101,7 @@ The `.agents/skills` row offers [the skills for Codex, Cursor, Copilot and the o
 
 - **After adding them**, the row reads *found · shadowlap-setup-agent, shadowlap-debug-agent* and its version. The files of the agents that read them say the skills give them the section.
 - **Over another version's copy**, **Update to** moves them to the CLI's own.
-- **Over one edited here**, **Replace with** puts the CLI's own copy in its place. It asks first, since that replaces it.
+- **Over one edited here**, **Replace with** puts the CLI's own copy in its place. It asks first, confirmed with **Replace skills**, since that replaces it.
 - **Where the skills can't go in**, the row says why.
 
 The tab also gives the section to paste.
@@ -1116,11 +1116,11 @@ Credentials in a copied config:
 - **A URL's user and password** are never shown or copied. A remote server's become an `Authorization: Basic` header from a variable, or are left out when it sends its own Authorization header. One in a command shows as `•••@`, to put back.
 - **Every value the copy leaves out** is named on the page. In `.mcp.json`, whose `${NAME}` Claude Code fills in from the environment it starts from, the page says to set each variable there.
 
-**Add a server…** shows the line and entry for a command or URL you type, credentials hidden as the table hides them. It copies the entry as you typed it, a URL's query and path included, less a URL's user and password.
+**Add MCP server…** shows the line and entry for a command or URL you type, credentials hidden as the table hides them. **Copy entry** copies it as you typed it, a URL's query and path included, less a URL's user and password.
 
 ### Project
 
-*Project* shows the project's store, runs and attempts, size and address, with **Clean up old runs** and **Remove from dashboard**. Beside the store's size, it shows any unused space that runs deleted since left in the store.
+*Project* shows the project's store, runs and attempts, size and address, with **Clean up old runs** and **Remove project…**. Beside the store's size, it shows any unused space that runs deleted since left in the store.
 
 ### Store
 
@@ -1143,7 +1143,7 @@ While `shadowlap.config.json` can't be read:
 - *CI* says so too, and each step says in its `env` what it leaves out until the file is fixed, as an amber row of what it needs does;
 - no clock mode shows as chosen.
 
-When the project's folder is gone, Settings says so in its header, with **Remove from the dashboard**. It says its rules, store, instruction files, recorded tool calls and MCP configs can't be read, and shows no clock mode as chosen. It changes nothing until the folder is back.
+When the project's folder is gone, Settings says so in its header, with **Remove project…**. It says its rules, store, instruction files, recorded tool calls and MCP configs can't be read, and shows no clock mode as chosen. It changes nothing until the folder is back.
 
 ## The team store's setup
 
@@ -1177,7 +1177,7 @@ The project at the top of the sidebar opens the switcher. It lists every project
 
 - **Picking one** switches to it and opens its Overview.
 - **A job already running** keeps to the project it started in. Once the page shows another, its drawer says which (*in support-agent*), and its links switch back before they open.
-- **While there is more than one project**, each has a × that opens **Remove from dashboard**. From the keyboard: ↓ to the project, then → to its × or Delete.
+- **While there is more than one project**, each has a × that opens **Remove project…**. From the keyboard: ↓ to the project, then → to its × or Delete.
 
 **A project whose folder is gone** (deleted, or moved, even while the dashboard shows it) stays listed as *folder not found*. Its pages say so and offer to remove it, and its actions are refused with the reason. They come back once the folder does.
 
@@ -1256,7 +1256,7 @@ The setup has four steps. Each runs the command beside it in the project's folde
 **1. Inspect the folder.** Inspecting finds the SDKs, the start command, and every tool with its effect. Tools that aren't wrapped are flagged, with the code to wrap them. The dashboard reads what [`init --json`](./cli.md#init) prints, from the job, and the job's drawer shows what `init` found, a line each.
 
 - Inspecting is done once `init` has run in the folder. A project recorded in a terminal first shows it as skipped, and can still be inspected.
-- A Node the project pins before 18.18 (`.nvmrc` or `.node-version`) is flagged there: an agent on it never starts under Shadowlap. So **Record a run** stays off until the pin is raised and the folder checked again.
+- A Node the project pins before 18.18 (`.nvmrc` or `.node-version`) is flagged there: an agent on it never starts under Shadowlap. So **Record run** stays off until the pin is raised and the folder checked again.
 
 **2. Record a first run.** A recording counts once it holds calls. One whose command didn't start (a typo), or whose agent stopped before its first model call, recorded nothing, and the step says so.
 
@@ -1303,7 +1303,7 @@ The first time a command runs in a folder, the dashboard asks before running it.
 
 ### Removing a project
 
-**Remove from dashboard** takes the project off the list. Nothing on disk changes: the folder and its code, its store, `shadowlap.config.json` and the goldens stay. The list remembers how far its setup got and the commands you confirmed, so adding the folder again undoes it.
+**Remove project…** takes the project off the list. Nothing on disk changes: the folder and its code, its store, `shadowlap.config.json` and the goldens stay. The list remembers how far its setup got and the commands you confirmed, so adding the folder again undoes it.
 
 **Also delete its recordings** deletes the store as well (`.shadowlap/shadowlap.db` and the files SQLite keeps beside it), once you type the project's name. The dashboard closes every connection it has to the store before deleting it, and opens none again. The list forgets the project: added again, its setup starts afresh.
 
@@ -1338,7 +1338,8 @@ The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An 
 
 - **Repeat 5 times** runs five attempts. On a recording they replay offline, and it starts at once. On a fork they run live from where it forks, so it asks first, in *Repeat fork 5 times*, confirmed with **Repeat 5 times**.
 - **A fork is made again** from its parent, with the flags, command and checks that made it.
-- **An action that needs something from you** (the instruction to inject, the status to fail with, the model to switch to) asks for it in a dialog first. The inject dialog shows the command it runs.
+- **Force a tool live** on a tool that writes asks first, in red and starting on Cancel, since it acts on your systems. On any other tool it starts at once.
+- **An action that needs something from you** (the instruction to inject, the status to fail with, the model to switch to) asks for it in a dialog first. The dialog shows the command it runs, following what you type.
 - **What you type** is passed as text, never read as a file. See [Interventions](./interventions.md).
 - **Plant instruction…** starts from a few sample instructions, or takes your own or a red-teaming tool's payload as text.
 
@@ -1374,7 +1375,7 @@ Where jobs can't run (a read-only dashboard), **Share → HTML report** comes st
 
 With a [team store](./team.md), a share link comes first, its drawer ending on **Copy link**. The report opens for anyone with the link until it expires, 7 days at most. A run only on this machine has **Push** in its header, as does a run in the store whose attempts aren't (Push sends them).
 
-**Delete** removes a run, with the attempts bundled under it, which its dialog names and its toast counts, as `shadowlap rm` does. It also removes the recorded data nothing else uses.
+**Delete** removes a run, with the attempts bundled under it, which its dialog and its toast count, as `shadowlap rm` does. It also removes the recorded data nothing else uses.
 
 **Run blame** is on the page of a failed run that was never blamed. It blames the run with the check it failed, found the way a replay is judged, the first that applies:
 
@@ -1393,7 +1394,7 @@ When the run failed a check none of those give, or nothing says what a passing r
 - **Keeping** the fix's own good runs (those a repair or a verify of it kept), else the runs labelled `good` that run the same agent, else none. A good run of another agent checks nothing a change to this one touches.
 - **With** the repairer `repair.repairer` in `shadowlap.config.json` names, or else your own Claude Code (`--repairer claude-code`).
 
-It asks first, since it runs your agent live. It says that each candidate is verified in a temporary worktree made from your working tree as it is, never in the working tree itself. So a file you change meanwhile is in the candidates made after it.
+It asks first, since it runs your agent live. It says that nothing in your working tree changes: each candidate is tried in a worktree of its own, made from your working tree as it is. So a file you change meanwhile is in the candidates made after it.
 
 **The repairer.** The dialog reads the config again as it opens and names the repairer it will ask, whose account pays. If the config names another by the time you confirm, nothing runs, and the job says which one the config names instead.
 
@@ -1406,7 +1407,7 @@ It asks first, since it runs your agent live. It says that each candidate is ver
 - blame couldn't settle where it was lost;
 - or no probe rescued it.
 
-The dialog then leaves out the line about billed model calls, and the blame's own next step leads instead:
+The dialog's cost line then reads *Free*, nothing runs, and the blame's own next step leads instead:
 
 - **Run blame again**, for a blame that couldn't settle (more attempts and a lower bar, as blame's report says), or that stopped part way (to the end, without its budget), under the fix's check.
 - **Run blame with stronger model…**, which asks for the model first, for one that asked the recorded model again and rescued the run from no call, unless blame found the model's answer isn't what lost the run.
@@ -1415,7 +1416,7 @@ Each is built from the blame's report and the flags kept beside it, as Run more 
 
 **Copy git apply**, on a verified fix, copies the command that applies its patch by hand, `git -c core.autocrlf=false apply <patch>`. The flag keeps Git for Windows' `core.autocrlf` from writing a file with LF back with CRLF on every line. A teammate's patch with LF, for a checkout where the file has CRLF, applies only through that conversion, with plain `git apply`.
 
-**Apply fix** runs [`shadowlap fix apply`](./cli.md#fix) once you confirm, since it changes your working tree. The confirm dialog names every file the patch changes, and shows the patch itself. The patch goes in with `git apply`, the recordings the fixed code made are copied into `goldens/`, and `shadowlap test` replays them. The button then reads *Patch applied*, and **View the patch** takes the place of Copy git apply.
+**Apply fix** runs [`shadowlap fix apply`](./cli.md#fix) once you confirm, since it changes your working tree. The confirm dialog names every file the patch changes, and shows the patch itself. The patch goes in with `git apply`, the recordings the fixed code made are copied into `goldens/`, and `shadowlap test` replays them. The button then reads *Patch applied*, and **Show patch** takes the place of Copy git apply.
 
 - **A fix with no patch** (verified on the working tree, or with a change of request fields) reads *Marked applied* once applying marks it. Its hover names the change its agent makes, or says it was verified on the working tree, and the activity feed says *Marked applied* too.
 - **A patch already in your working tree** (a pull request merged it, or you applied it by hand), which `git apply --reverse --check` recognises as `fix apply` does, needs no applying. The button reads **Mark applied**, which copies the goldens it is missing, runs them and marks the fix applied; Copy git apply is gone, and the Overview no longer counts the fix as ready to apply.
@@ -1458,15 +1459,15 @@ The server refuses another such job with the same words, from any tab, the palet
 - **A golden marked `fork`** runs live from where it forks, writes blocked, and asks its judge checks live.
 - **An [injection gate](./injection.md#gate-ci-on-it)** runs live from each payload it plants, writes stubbed.
 
-The dialog names the goldens that go live and why, and shows the commands. It opens on its button, the only way to start the session. A session that only replays starts at once.
+The dialog says how many goldens go live and why, and shows the commands. It opens on its button, the only way to start the session. A session that only replays starts at once.
 
-**Update golden** (or **Update goldens…** for every one that diverged) asks first, in a dialog that says what happens. It warns when a normalizer is the lasting fix, or, once the rule is in the config, that a re-run passes without an update. Then it runs `shadowlap test <golden> --update`, which re-records it live with writes stubbed.
+**Update golden** (or **Update goldens** for every one that diverged) asks first, in a dialog that says what happens. It says when a normalizer is the lasting fix, or, once the rule is in the config, that a re-run passes without an update, and offers that as its way on, beside **Update anyway**. Then it runs `shadowlap test <golden> --update`, which re-records it live with writes stubbed.
 
 **Add normalizer and re-run** is two commands in one job: `shadowlap normalize add …` for each value that changes every run, then `shadowlap test <golden>`, the second only when the first succeeded. The drawer links to the replay that passed. When the rule alone can't make the replay match, it asks first, and updates the golden after it.
 
 **Find breaking commit** runs `shadowlap bisect` from the newest revision where the golden passed under its checks as they stand. A pass from before a check was added may be a commit where it already fails that check.
 
-- **It asks first**, as **Find breaking commit…**, when there is no such revision, after a search from it named no first bad commit, or for a golden marked `fork` (its replays cost tokens). It offers the commits the golden was tested at, each with its subject and how it did there (*c91d0f4 · Escalate refunds above the limit*), or any other.
+- **It asks first**, as **Find breaking commit…**, when there is no such revision, after a search from it named no first bad commit, or for a golden marked `fork` (its replays cost tokens). It lists the commits the golden was tested at, each with its subject and how it did there, and takes any other.
 - **Another commit…** is a field beside the list, which stays to pick one from again.
 - **Only commits this checkout has**, as on Runs and a run's page. A golden that last passed at a commit it lacks (a pull request's merge commit in CI, say) asks for one, and one that failed at such a commit is searched up to HEAD.
 
@@ -1520,7 +1521,7 @@ Stopping the dashboard (Ctrl-C, a kill, or closing the terminal it runs in) stop
 An action that replays a run from someone else's pack, a teammate's pulled from the [team store](./team.md), or one whose command a program sent the sidecar, runs the command recorded. So it asks before it runs:
 
 1. Whatever the action asks first: how many attempts, an instruction, an edited result.
-2. Then a dialog shows that command and what runs it, and only its **Run** starts it. It opens on Cancel, so an Enter pressed once too often runs nothing.
+2. Then a dialog shows that command and what runs it, and only its way on (**Run command**, **Run blame** or **Run repair**) starts it. It opens on Cancel, so an Enter pressed once too often runs nothing.
 
 The server asks that question itself: a 409 naming the exact command lines, with a `confirm` for them. It takes as a yes only that `confirm` sent back as `yes` (`confirmed` for the error-path presets). So a yes is to the lines the dialog showed: a command a pull has changed since is asked again.
 
@@ -1623,6 +1624,8 @@ A menu's keys:
 Each row is one line: what it does, then what it runs. What it is for and the command it runs are on its hover card, a long command up to its first arguments.
 
 **A run picker** filters by id, about line or label, and says *Nothing matches.* when the filter leaves none. The arrows, Home, End, PageUp and PageDown move through the list, a check marks the run picked, and Enter picks another.
+
+**Every dialog reads in one order:** a title that is verb and object; one sentence, ending on the page of these docs that says how the job works; one amber or red line where it can't help yet or acts for real; what decides whether to press, as label and value rows; its fields; the `$` command, following them; what it bills, in one quiet line; then Cancel and the way on. The way on is lime, red where it deletes, plain beside a second way on. One that can't start leaves the dialog open, with what you typed.
 
 **A dialog** always fits the window: its title and buttons stay in view, and its body scrolls.
 
