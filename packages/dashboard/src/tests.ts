@@ -1520,6 +1520,9 @@ export interface TestRunBanner {
   cause: string | null;
 }
 
+/** The test a run says it was made by, read only as text: a pack can carry anything. */
+const testOf = (run: RunRecord) => (typeof run.meta?.test?.golden === 'string' && typeof run.meta.test.session === 'string' ? run.meta.test : null);
+
 /**
  * For a run made by `shadowlap test` whose golden failed because it diverged: its golden and the
  * actions on it. Null for any other run, a replay of a golden that may fork (it diverges by design)
@@ -1527,7 +1530,7 @@ export interface TestRunBanner {
  */
 export function testRunBanner(store: StoreOf<'recording' | 'tests'>, runId: string, options: { normalizers?: readonly Normalizer[] } = {}): TestRunBanner | null {
   const run = store.getRun(runId);
-  const test = run?.meta?.test;
+  const test = run && testOf(run);
   if (!run || !test || !run.divergence) return null;
   const result = store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0];
   if (result?.failure !== 'diverged') return null;
@@ -1605,7 +1608,7 @@ export interface BisectChoices {
 const exitFailed = (run: RunRecord) => run.status === 'failed' || run.status === 'crashed';
 
 /** A check of the run's own that failed: one that could not be decided (inconclusive) is no failure. */
-const checkFailed = (run: RunRecord) => !!run.meta?.checks?.some((c) => checkStatus(c) === 'failed');
+const checkFailed = (run: RunRecord) => Array.isArray(run.meta?.checks) && run.meta.checks.some((c) => checkStatus(c) === 'failed');
 
 function runFailed(run: RunRecord): boolean {
   return exitFailed(run) || checkFailed(run);
@@ -1620,7 +1623,7 @@ function runFailed(run: RunRecord): boolean {
 export function bisectChoices(store: StoreOf<'recording' | 'fixes' | 'tests'>, runId: string, options: { goldens: readonly GoldenSource[]; before?: number; known?: KnownResults }): BisectChoices | null {
   const run = store.getRun(runId);
   if (!run) return null;
-  const golden = run.meta?.test?.golden ?? null;
+  const golden = testOf(run)?.golden ?? null;
   // As listed: a pack in the goldens folder, or one the config names under `tests` (its checks too).
   const source = golden !== null ? (options.goldens.find((g) => g.path === golden) ?? null) : null;
   // Only a golden whose pack can be read, by a path that reads as no option, is bisected as one.
@@ -1637,7 +1640,7 @@ export function bisectChoices(store: StoreOf<'recording' | 'fixes' | 'tests'>, r
   const failed = result ? verdictOfResult(result) === 'failed' : runFailed(run) || (ofGolden && !!run.divergence) || blamed !== null;
   // A run that failed nothing, with a check of its own that could not be decided: neither passed nor
   // failed, as a golden that came out inconclusive is, so there is no failure to find either.
-  const undecided = !result && !failed ? (run.meta?.checks ?? []).find((c) => checkStatus(c) === 'inconclusive') : undefined;
+  const undecided = !result && !failed && Array.isArray(run.meta?.checks) ? run.meta.checks.find((c) => checkStatus(c) === 'inconclusive') : undefined;
   const between = { before, own, recording: result?.goldenRunId ?? null };
   const history = ofGolden && !options.known ? store.listTestResults({ golden: golden!, limit: GOLDEN_HISTORY }) : [];
   const goodOfGolden = !ofGolden ? null : startFromPasses(options.known?.passes ?? history.filter((r) => r.ok && underChecks(r, source.checks)), between);

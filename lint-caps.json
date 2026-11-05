@@ -197,7 +197,7 @@
       "sumCalls": 45
     },
     "packages/dashboard/src/tests.ts": {
-      "bisectChoices": 65,
+      "bisectChoices": 64,
       "resultLine": 38,
       "testsView": 62
     },
@@ -593,7 +593,7 @@
     "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,
-    "packages/dashboard/src/tests.ts": 1087,
+    "packages/dashboard/src/tests.ts": 1088,
     "packages/dashboard/test/fixes.test.ts": 884,
     "packages/dashboard/test/tests.test.ts": 1111,
     "packages/dashboard/test/ui-logic.test.ts": 833,

@@ -181,7 +181,11 @@ describe('a run with a record that can’t be read', () => {
       writeFileSync(join(packDir, 'run.json'), JSON.stringify(manifest));
       expect(unpackRun(store, packDir).imported.length).toBeGreaterThan(0);
       await lists();
-      expect((await api(`runs/${theirs}`)).status).toBe(200);
+      // Its page, and what its page offers beyond the run's record.
+      for (const path of [`runs/${theirs}`, `runs/${theirs}/offers`]) {
+        const res = await api(path);
+        expect(res.status, `${path}: ${res.status === 200 ? '' : await res.text()}`).toBe(200);
+      }
       store.deleteRun(theirs);
     }
   });
