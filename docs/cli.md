@@ -1450,8 +1450,11 @@ goldens folder named for what a test reads it by, never the run's id:
   one of its own, and not one the goldens folder holds already, read without case as macOS and
   Windows read a folder's name.
 
-A name that won't do changes nothing: `fix apply` says why and how to give another, and exits 2. It
-prints where each golden went and the run it holds (`copied goldens/double-email from 01K5CQ2E8M`).
+A name that won't do changes nothing: `fix apply` says why and how to give another, and exits 2. So
+does a `--name` where it copies no recording: a fix with no repair behind it, one applied with none
+left to copy, or a teammate's repair, whose recordings stay on their machine. It prints where each
+golden went and the run it holds (`copied goldens/double-email from 01K5CQ2E8M`).
+
 A golden copied before keeps its name and takes no other: one `fix apply` copied, one
 `repair --goldens` copied under the run's id, and one an apply stopped part way left, the very
 recording under whatever name it gave it. A `--name` for one of them can give it only that name.
