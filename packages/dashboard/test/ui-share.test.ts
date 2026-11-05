@@ -173,7 +173,7 @@ describe('Run blame and Find the commit', () => {
 
   it('looks for what changed a run that passed, not what broke it', () => {
     const passed = offer({ failed: false, good: 'a7b3c2e', bad: null, revisions: [{ rev: 'c91d0f4', at: 0, runs: 3, failed: 0 }] });
-    expect(bisectLabel(passed)).toEqual({ label: 'Find commit that changed it…', hint: 'Replays it at the commits after its own, halving each time, and names the first where it does something else' });
+    expect(bisectLabel(passed)).toEqual({ label: 'Find commit that changed it…', hint: 'Names the first commit after its own where it does something else' });
     const c = bisectCopy(RUN, passed);
     expect([c.title, c.ok]).toEqual(['Find commit that changed 01M50J6C69', 'Find commit that changed it']);
     expect(c.text).toBe('Replays the run at commits from a7b3c2e to HEAD, halving each time, and names the first where it does something else. Replays are free, so this costs no tokens.');

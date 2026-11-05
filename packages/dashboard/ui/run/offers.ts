@@ -245,7 +245,7 @@ export function bisectCopy(runId: string, offer: BisectOffer): BisectCopy {
  */
 export function bisectLabel(b: Pick<BisectOffer, 'failed'> | null | undefined): { label: string; hint: string } {
   return b && !b.failed
-    ? { label: ACTIONS.findChangingCommit.label, hint: 'Replays it at the commits after its own, halving each time, and names the first where it does something else' }
+    ? { label: ACTIONS.findChangingCommit.label, hint: 'Names the first commit after its own where it does something else' }
     : { label: ACTIONS.findBreakingCommit.label, hint: 'Replays it at commits between a good one and its own, halving each time' };
 }
 
