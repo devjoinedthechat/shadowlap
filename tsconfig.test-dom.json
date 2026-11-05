@@ -30,6 +30,7 @@
     "packages/dashboard/test/ui-runs-bulk.test.ts",
     "packages/dashboard/test/ui-overview-lists.test.ts",
     "packages/dashboard/test/ui-sidebar-runs.test.ts",
+    "packages/dashboard/test/ui-runs-status.test.ts",
     "packages/dashboard/test/ui-fix-page.test.ts",
     "packages/dashboard/test/ui-action-consent.test.ts",
     "packages/dashboard/test/ui-load.test.ts",

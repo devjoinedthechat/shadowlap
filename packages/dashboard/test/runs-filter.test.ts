@@ -42,7 +42,7 @@ const rowsOf = (rows: RunRow[]) => new Map(rows.map((r) => [r.runId, r]));
 
 describe('a capture its import judged failed', () => {
   it('is failed in the table, the chip, the Failed filter and the days, and one it judged passing is not', () => {
-    const page = listRunsPage(store, { limit: 500, now: NOW });
+    const page = listRunsPage(store, { limit: 500 });
     const rows = rowsOf(page.runs);
     expect(rows.get(id.capFailed)).toMatchObject({ failed: true });
     expect(rows.get(id.capPassed)).toMatchObject({ failed: false });
@@ -69,7 +69,7 @@ describe('a failed test replay its golden passed since', () => {
   });
 
   it('leaves Failed, the chip and the days, and its row names the run that passed', () => {
-    const page = listRunsPage(store, { limit: 500, now: NOW });
+    const page = listRunsPage(store, { limit: 500 });
     const rows = rowsOf(page.runs);
     expect(rows.get(id.diverged)).toMatchObject({ failed: false, fixedBy: id.passing });
     expect(rows.get(id.still)).toMatchObject({ failed: true });

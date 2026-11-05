@@ -62,6 +62,7 @@
     "packages/dashboard/test/ui-runs-bulk.test.ts",
     "packages/dashboard/test/ui-overview-lists.test.ts",
     "packages/dashboard/test/ui-sidebar-runs.test.ts",
+    "packages/dashboard/test/ui-runs-status.test.ts",
     // This renders a fix's page.
     "packages/dashboard/test/ui-fix-page.test.ts",
     // This drives the fork menu's actions, with their confirmation of someone else's command.
