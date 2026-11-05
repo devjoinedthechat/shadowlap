@@ -62,6 +62,15 @@ export function register(router: Router, ctx: RouteContext): void {
     }
   };
 
+  /** How many redaction rules a copy applies, or null while the config can't be read (the page says why its tasks can't be). */
+  const redactRules = (): number | null => {
+    try {
+      return ctx.config().redact.length;
+    } catch {
+      return null;
+    }
+  };
+
   /** Prices from the config as it is now, else the ones the dashboard started with. */
   const prices = (): Record<string, Price> | undefined => {
     try {
@@ -90,7 +99,7 @@ export function register(router: Router, ctx: RouteContext): void {
     const filter = (r.query.get('filter') ?? 'all') as PairFilter;
     if (!FILTERS.includes(filter)) throw new HttpError(400, 'filter must be all, high or medium');
     const t = tasks();
-    sendAnswer(r, await ctx.reads.run({ kind: 'training', tasks: t.tasks, tasksError: t.error, normalizers: normalizers(), filter }));
+    sendAnswer(r, await ctx.reads.run({ kind: 'training', tasks: t.tasks, tasksError: t.error, normalizers: normalizers(), redactRules: redactRules(), filter }));
   });
 
   router.get('/models', async (r) => {

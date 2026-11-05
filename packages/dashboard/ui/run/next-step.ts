@@ -1,87 +1,96 @@
-import { isAttempt } from '../../../engine/src/run-roles.js';
-import type { BlameOffer, BlameView, CheckView, FixView, RunDetail, RunOffers } from '../types.js';
-import { isFailed, runType } from '../runs.js';
-import { blameOf, checksOf, runLikeOf } from './model.js';
-import { blameOfferFor } from './offers.js';
-import type { PresetAttempt } from './preset.js';
+import { costLine, costWords } from '../../../engine/src/estimates/spending.js';
+import { ACTIONS, confirmWords } from '../labels.js';
+import { normalizeAction } from '../normalize.js';
+import type { PaletteEntry } from '../palette.js';
+import { keyColumn, type ShortcutId } from '../shortcuts.js';
+import type { ActionItem, BlameBeside, GateEntry, NextStep, NextStepRow, RunDetail } from '../types.js';
+import { blameTitle } from './offers.js';
 
 /**
- * The step the run page leads with, worked out once from how the run stands, as the design's
- * nextStep() orders it: an attempt is read against the run it came from; a failure a fix covers
- * opens that fix; a failure nobody blamed is blamed, a fork's too; a fork is compared with its
- * parent; and a run where nothing needs doing is replayed. It is the header's one lime button, and
- * the banner doesn't offer it again. A test replay that diverged, or a replay that left its recording
- * on a value a normalizer masks, leads from its banner (Add normalizer, Update golden), so the header
- * leads with nothing of its own. No DOM here: the tests import it.
+ * The step the run page leads with, as the server works it out (src/next-step.ts): the header's one
+ * lime button, the palette's first entry, and what the banner doesn't offer again. No DOM here: the
+ * tests import it.
  */
-export type NextStep =
-  | { key: 'replay' }
-  | { key: 'fix'; fix: FixView }
-  | { key: 'blame'; offer: BlameOffer }
-  | { key: 'compare'; parent: string }
-  | { key: 'banner' }
-  | { key: 'none' };
 
-export interface NextStepContext {
-  offers: Pick<RunOffers, 'blame'> | null;
-  /** An exported copy: nothing runs, and its Fixes aren't part of it. */
-  exported: boolean;
-  /** An error-path preset's attempt, which its record alone doesn't say. */
-  preset?: PresetAttempt | null;
-  /** The run is the fork blame rescued a run with: a fork of its own, though blame made it as a probe. */
-  rescued?: boolean;
-  /** What the page read of the run already (`blameOf`, `checksOf`), when it has. */
-  blame?: BlameView | null;
-  checks?: readonly CheckView[];
+/** A run's next step: null for an answer that has none, as an exported copy's that holds no comparison to make. */
+export function nextStepOf(run: Pick<RunDetail, 'next'>): NextStep | null {
+  return run.next ?? null;
+}
+
+/** The action a Replay brings for a recording with no command of its own, which asks for yours, as a page's actions are read. */
+export function replayAction(step: NextStep | null): ActionItem | null {
+  return step?.key === 'replay' && step.action ? normalizeAction(step.action as unknown as ActionItem) : null;
 }
 
 /**
- * Run blame for a failed run never blamed, as the page offers it: what the server offers, or, from a
- * server that offers nothing, the same worked out from the run. Null where it doesn't apply: a run
- * blamed already, or an exported copy.
+ * What a step that runs a job waits for, by the verb its button says it in: a Tests job for a job
+ * replaying or rewriting the goldens too, every one for what holds the working tree.
  */
-export function runBlameOffer(run: RunDetail, c: Pick<NextStepContext, 'offers' | 'exported' | 'blame' | 'checks'>): BlameOffer | null {
-  const blamed = !!(c.blame === undefined ? blameOf(run) : c.blame);
-  if (blamed || c.exported) return null;
-  const r = run.run;
-  return blameOfferFor(c.offers, {
-    blamed,
-    capture: !!run.source,
-    argv: r.command.argv,
-    status: r.status,
-    failed: (c.checks ?? checksOf(run)).filter((x) => !x.ok).map((x) => x.label),
-    fixExpect: run.blameExpect,
-    ownExpect: r.meta?.expect,
-    modelCalls: run.summary.byKind.api,
-  });
+const STEP_JOBS: Partial<Record<NextStep['key'], { verb: string; tests: boolean }>> = {
+  normalizer: { verb: 'add the normalizer', tests: true },
+  'update-golden': { verb: 'update it', tests: true },
+  'rerun-test': { verb: 'run it again', tests: true },
+  'gate-again': { verb: 'run it again', tests: true },
+  bisect: { verb: 'find the breaking commit', tests: true },
+  blame: { verb: 'blame', tests: false },
+  'injection-test': { verb: 'test it', tests: false },
+  'injection-again': { verb: 'test it', tests: false },
+};
+
+/** The job a step runs, for what it waits for and how its button words that; none for a link, or a step that waits for no job. */
+export const stepJob = (step: NextStep | null): { verb: string; tests: boolean } | null => (step && !step.href ? (STEP_JOBS[step.key] ?? null) : null);
+
+/** The key of the header button a step presses, by what the step does, never read from its label: Replay, Compare or Run blame, as the table of keys has them. */
+const STEP_KEYS: Partial<Record<NextStep['key'], ShortcutId>> = { replay: 'replay', compare: 'compare', blame: 'blame' };
+
+/** A run's next step as This run's first entry, or a list's row carries it: what the header's lime button says, what it runs or where it goes, and its key; while it waits, why (`wait`). */
+export function stepEntry(step: NextStep | NextStepRow, wait: string | null = null): PaletteEntry {
+  const id = STEP_KEYS[step.key];
+  const key = id ? keyColumn(id) : null;
+  return { group: 'This run', label: step.label, hint: wait ?? step.command ?? step.title ?? '', ...(step.href ? {} : { job: true }), ...(key ? { key } : {}), ...(wait ? { wait } : {}) };
 }
 
-export function nextStepOf(run: RunDetail, c: NextStepContext): NextStep {
-  const r = run.run;
-  if (r.status === 'running') return { key: 'replay' };
-  const like = runLikeOf(run);
-  const type = runType(like);
-  const failed = isFailed(like);
-  // A test whose golden diverged: its banner's Add normalizer or Update golden is the step.
-  if (type === 'test' && failed && r.divergence && (!like.outcome || like.outcome.kind === 'diverged')) return { key: 'banner' };
-  // An attempt is read against the run it came from, by the engine's one rule (run-roles.ts): a blame
-  // probe's, a verify's, a `--repeat`'s (an injection test's and a model's scoring among them), an
-  // error-path preset's, a golden's repeated test replay. Its failure counts towards what made it.
-  if (r.parentRunId && isAttempt(r, { rescued: c.rescued === true })) return { key: 'compare', parent: r.parentRunId };
-  if (failed && run.fix && !c.exported) return { key: 'fix', fix: run.fix };
-  if (failed) {
-    const offer = runBlameOffer(run, c);
-    if (offer) return { key: 'blame', offer };
-  }
-  // A replay that left its recording on a value made anew on every run: the banner's Add normalizer is the step.
-  if (type === 'fork' && !c.exported && r.divergence?.hints?.some((h) => h.normalizer) && run.actions.some((a) => a.key === 'n')) return { key: 'banner' };
-  if (type === 'fork' && r.parentRunId) return { key: 'compare', parent: r.parentRunId };
-  return c.exported ? { key: 'none' } : { key: 'replay' };
+/** A step's hover card: its title, its sentence, its rows, what it bills, and what it runs, up to its first arguments as every card has a command. */
+export interface StepCard {
+  title: string;
+  sub: string | null;
+  rows: Array<{ label: string; value: string }>;
+  cmd: string | null;
 }
 
 /**
- * A fix's status as the run page's Open the fix says it on hover and its banner beside it: open
- * until a change is verified, then verified, then applied.
+ * What a job's hover says of what it bills and runs: the amount alone until Spending says whether it
+ * asks first, none for what bills nothing. A job's dialog says the rest.
+ */
+function billsAndRuns(o: Pick<NextStep, 'estimate' | 'command'>): Pick<StepCard, 'rows' | 'cmd'> {
+  const cost = o.estimate ? costWords(o.estimate, null, { form: true }) : null;
+  return { rows: cost ? [{ label: 'Costs', value: cost }] : [], cmd: o.command ? `$ ${o.command}` : null };
+}
+
+/** What a step's hover says: its title, its sentence, and what it bills and runs. */
+export function stepCard(step: NextStep): StepCard {
+  const own = step.key === 'fix' ? fixStatusWords(step.status).why : step.key === 'blame' ? blameTitle(step.offer) : null;
+  return { title: step.title ?? confirmWords(step.label), sub: step.sub ?? own, ...billsAndRuns(step) };
+}
+
+/** What the Run blame beside a crash's Find breaking commit says on hover. */
+export function blameBesideCard(blame: BlameBeside): StepCard {
+  return { title: ACTIONS.runBlame.label, sub: blame.sub, ...billsAndRuns(blame) };
+}
+
+/** What a step's dialog bills, as an ask's cost line says it, the price first: `≈$3.11, as the last test’s 6 attempts · live from each read, writes stubbed`; none for a step that bills nothing. */
+export function stepCostLine(step: NextStep): { price: string; parts: string[] } | null {
+  if (!step.estimate) return null;
+  const [price = '', ...parts] = costLine(step.estimate);
+  return { price, parts };
+}
+
+/** The entry under `tests` that gives a golden its injection gate, for its folder as it stands in the dialog. */
+export const gateEntry = (folder: string, gate: GateEntry): string => `"tests": { ${JSON.stringify(folder)}: { "injection": { "obeyed": ${gate.obeyed}, "repeat": ${gate.repeat} } } }`;
+
+/**
+ * A fix's status as the run page's Open fix says it on hover and its banner beside it: open until a
+ * change is verified, then verified, then applied.
  */
 export function fixStatusWords(status: string): { tone: 'warn' | 'ok'; text: string; why: string } {
   if (status === 'open') return { tone: 'warn', text: 'fix open', why: 'open: no change has been verified for it yet' };

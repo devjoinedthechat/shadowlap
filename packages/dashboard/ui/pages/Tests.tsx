@@ -60,7 +60,7 @@ export function TestsPage() {
     if (view) keepTests(view);
   }, [view]);
 
-  // Update goldens…, asked for by the palette or a link (#/tests?update), on arriving here or while
+  // Update goldens, asked for by the palette or a link (#/tests?update), on arriving here or while
   // here: the address goes back to #/tests at once, so nothing is left to open the dialog later.
   const [asked, setAsked] = useState(false);
   useEffect(() => {
@@ -86,8 +86,9 @@ export function TestsPage() {
   // A job that would run goldens live asks first, in the shell's dialog, saying `ask`'s words around
   // the server's; one that only replays starts on the click (tests-ask.ts).
   const start = (kind: string, fields: Record<string, unknown>, ask?: TestsAsk) => {
-    setOpen(null);
-    startTestsJob(app, kind, fields, ask);
+    const went = startTestsJob(app, kind, fields, ask);
+    if (went !== false) setOpen(null);
+    return went;
   };
   const header = (actions?: ReactNode) => <PageHeader eyebrow="goldens · shadowlap test" title="Tests" text="Every golden CI runs, and how it did at each revision." actions={actions} />;
 
@@ -274,8 +275,7 @@ export function TestsPage() {
         </section>
       </div>
       <p className="hintx tfoot">{view.note}</p>
-      {/* The dialog already says what an update does, so what it offers instead opens no dialog of
-          its own, though a session that runs a golden live still asks first (tests-ask.ts). */}
+      {/* What it offers instead opens no dialog of its own, though a session that runs a golden live still asks first (tests-ask.ts). */}
       {open?.kind === 'update' ? (
         <UpdateGoldensDialog
           view={view}
@@ -370,7 +370,7 @@ function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }
   return (
     <tr className={row.runId ? undefined : 'still'} {...(row.runId ? rowOpen(() => navigate(href.run(row.runId!))) : {})}>
       <td className="gg">
-        <code className="gn">{row.name}</code>
+        <code className="gn">{row.runId ? <a className="rowa" href={href.run(row.runId)}>{row.name}</a> : row.name}</code>
         <span className="gmeta">
           <span className="chip" data-tip={tipText(row.modeHint)}>
             {row.modeLabel}
@@ -656,7 +656,7 @@ function InconclusivePanel({ v, off, canRun, onMore, updateOff, canUpdate, onUpd
     <ReportPanel name={v.name} runId={v.runId} lines={inconclusiveLines(v)} found={null} missed={null}>
       {more && canRun ? (
         <div className="actions">
-          <ActionButton className="btn lime" why={off} title={commandText(more.args)} onClick={() => onMore(more.job, moreAttemptsAsk(v.name, more.args))}>
+          <ActionButton className="btn lime" why={off} title={commandText(more.args)} onClick={() => onMore(more.job, moreAttemptsAsk(v.name, more))}>
             Run more attempts
           </ActionButton>
         </div>

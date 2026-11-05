@@ -21,3 +21,16 @@ export function Id({ id, list = false, href, about, className }: { id: string; l
     code
   );
 }
+
+/** A title that names a run or a golden: its name in mono, whole, in ink. */
+export function namedIn(title: string, name: string) {
+  const at = title.indexOf(name);
+  if (at < 0) return title;
+  return (
+    <>
+      {title.slice(0, at)}
+      <Id id={name} />
+      {title.slice(at + name.length)}
+    </>
+  );
+}

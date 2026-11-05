@@ -85,12 +85,12 @@ describe('the bulk bar', () => {
 });
 
 describe('dialogs', () => {
-  it('start on the field, else on the action, but on Cancel when the action is red', () => {
-    expect(dialogFocus('lime')).toEqual([expect.stringMatching(/textarea, input.*select, \.dlg-ok$/)]);
-    expect(dialogFocus(undefined)).toEqual([expect.stringMatching(/\.dlg-ok$/)]);
+  it('start on the field, else on the action, else on Cancel while the action waits, but on Cancel when the action is red', () => {
+    expect(dialogFocus('lime')).toEqual([expect.stringMatching(/^textarea, input.*select$/), '.dlg-alt', '.dlg-ok', '.dlg-cancel']);
+    expect(dialogFocus(undefined)).toEqual([expect.stringMatching(/^textarea/), '.dlg-alt', '.dlg-ok', '.dlg-cancel']);
     expect(dialogFocus('danger')).toEqual(['.dlg-cancel']);
     // A finger's field would open the phone's keyboard over the dialog: it starts on the way on, else on Cancel.
-    expect(dialogFocus('lime', undefined, true)).toEqual(['.dlg-ok', '.dlg-cancel']);
+    expect(dialogFocus('lime', undefined, true)).toEqual(['.dlg-alt', '.dlg-ok', '.dlg-cancel']);
     expect(dialogFocus('danger', undefined, true)).toEqual(['.dlg-cancel']);
   });
 

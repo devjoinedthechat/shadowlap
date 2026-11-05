@@ -1,9 +1,11 @@
 import type { Estimate } from '../../engine/src/estimates/estimate.js';
 import type { ActionItem as ServerAction, CallDetail as ServerCallDetail, CallRow as ServerCallRow, CallsPage as ServerCallsPage, LineageNode as ServerLineageNode, RunDetail as ServerRunDetail, RunListItem as ServerRunListItem } from '../src/api.js';
+import type { NextStep, NextStepRow } from '../src/next-step.js';
 import type { RunJudged } from '../src/run-outcome.js';
 import type { RunOffers as ServerRunOffers } from '../src/run-offers.js';
 import type { RunAbout } from '../../engine/src/about.js';
 export type { AboutFrom, RunAbout } from '../../engine/src/about.js';
+export type { BlameBeside, GateEntry, NextStep, NextStepRow } from '../src/next-step.js';
 
 // Fixes (`/api/fixes`): the read model's own shapes, as the server sends them.
 export type { BlameStep, CandidateVerdict, FixActions, FixBundle, FixBundleAttempt, FixDetail, FixList, FixRow, FixRunRef, FixStep, RepairStep, StepKey, StepState, VerifyMore, VerifyRow, VerifyStep } from '../src/fixes.js';
@@ -79,6 +81,8 @@ export interface RunListExtras {
   judged?: RunJudged | null;
   /** For a test replay its agent's exit failed: the code, as its test result keeps it. */
   exitCode?: number;
+  /** What its page leads with, in the light form a list carries; absent from an exported copy. */
+  next?: NextStepRow | null;
 }
 export type RunListItem = Omit<ServerRunListItem, 'about'> & RunListExtras;
 
@@ -243,8 +247,6 @@ export interface RunDetailExtras {
    * `verify`, or `unblamed` (a failed run never blamed).
    */
   fixRole?: string | null;
-  /** A failed run never blamed: the check a fix's labels suggest, for Run blame to use (`--expect`). */
-  blameExpect?: unknown;
   /** A blame probe's attempt: the run it probed and the model call it asked again, which its banner links back to. */
   probeOf?: { of: string; callNo: number } | null;
   /** A verify attempt: where the verdict it counted towards opens. */
@@ -258,6 +260,10 @@ export interface RunDetailExtras {
   models?: Record<string, string>;
   /** What the run was about, as the lists say it; absent from an older server. */
   about?: RunAbout | null;
+  /** Its next step, the header's lime button (src/next-step.ts); in an exported copy only a comparison it can make. */
+  next?: NextStep;
+  /** Replay as the header keeps it beside the next step: on a clean or a test replay, its recording's. */
+  replay?: NextStep;
 }
 
 /** A fix as the run page links to it: `#/fixes/<id>`, its status (`open`, `verified`, `applied`) and title. */
@@ -303,11 +309,14 @@ export interface PromptChoice {
  * `group: null` is an action with a place of its own (Replay, Pack, a normalizer); `choices` are
  * answers a prompt offers as a list (any other answer is accepted too).
  */
-export type ActionItem = Omit<ServerAction, 'prompt' | 'flag' | 'group' | 'hint'> & {
+export type ActionItem = Omit<ServerAction, 'prompt' | 'flag' | 'group' | 'hint' | 'command' | 'noSystemMessage' | 'warns'> & {
   prompt: { label: string; placeholder?: string; initial?: string; choices?: readonly PromptChoice[] } | null;
   flag?: string;
   group?: 'call' | 'run' | null;
   hint?: string;
+  command?: string;
+  noSystemMessage?: string;
+  warns?: string;
 };
 
 export type CallDetail = Omit<ServerCallDetail, 'call' | 'actions'> & {

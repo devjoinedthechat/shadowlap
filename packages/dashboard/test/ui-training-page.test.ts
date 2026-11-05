@@ -55,7 +55,8 @@ const LISTING: ModelListing = {
  */
 function views() {
   const s = Store.open(':memory:');
-  const read = trainingView(readTraining(s, { tasks: TASKS }));
+  // Three redaction rules, as the route reads them from the config.
+  const read = trainingView(readTraining(s, { tasks: TASKS, redactRules: 3 }));
   s.close();
   const training = { ...read, actions: { ...read.actions, exportPairs: true }, exportDialog: { ...read.exportDialog, high: 2, all: 3 } };
   return { training, models: modelsView(TASKS, [], LISTING) };
@@ -130,12 +131,9 @@ describe('the Training page', () => {
     r = await render(page('pairs', started));
     await r.until('the page to load', () => r!.all('button').some((b) => b.textContent.trim() === 'Export pairs…'));
     await r.click(r.byText('button', 'Export pairs…'));
-    const dialog = () => r!.one('.dialog');
-    expect(dialog().textContent).toContain('It writes .shadowlap/exports/pairs.jsonl in the project folder');
+    expect(r.one('.dialog .dfacts').textContent).toBe('Redactsby 3 rulesthe store never changesWrites.shadowlap/exports/pairs.jsonlthe job’s drawer offers it for download');
     expect(r.one('.dialog .cmdline').textContent).toBe('$shadowlap export pairs --min-confidence high --format openai-preference --out .shadowlap/exports/pairs.jsonl');
-    // Word by word, so it wraps between them and never inside openai-preference.
-    expect(r.all('.dialog .cmdline.words span').map((w) => w.textContent)).toEqual(['shadowlap', 'export', 'pairs', '--min-confidence', 'high', '--format', 'openai-preference', '--out', '.shadowlap/exports/pairs.jsonl']);
-    expect(r.all('.dialog select')[0].children.map((o) => o.textContent)).toEqual(['OpenAI preference', 'TRL preference']);
+    expect(r.all('.dialog select')[0].children.map((o) => o.textContent)).toEqual(['OpenAI preference fine-tuning', 'prompt, chosen, rejected (TRL)']);
     await r.type(r.all('.dialog select')[0], 'trl');
     await r.type(r.all('.dialog select')[1], 'medium');
     expect(r.one('.dialog .cmdline').textContent).toBe('$shadowlap export pairs --min-confidence medium --format trl --out .shadowlap/exports/pairs.jsonl');
@@ -151,8 +149,6 @@ describe('the Training page', () => {
     await r.click(r.byText('button', 'Score model…'));
     await r.until('the models to be listed', () => r!.all('.dialog .cmdline').length === 1);
     expect(r.one('.dialog .cmdline').textContent).toBe('$shadowlap tasks score goldens/01M5GS0TFN goldens/01M5GS0VWV --model claude-haiku-4-5 --attempts 5');
-    // Word by word, so --model never breaks between its dashes.
-    expect(r.all('.dialog .cmdline.words span').map((w) => w.textContent)).toEqual(['shadowlap', 'tasks', 'score', 'goldens/01M5GS0TFN', 'goldens/01M5GS0VWV', '--model', 'claude-haiku-4-5', '--attempts', '5']);
     expect(r.one('.dialog p.trnotes').textContent).toBe("Not listed: Ollama, on this machine (isn't running)");
   });
 });

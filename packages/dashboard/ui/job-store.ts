@@ -1,6 +1,7 @@
 import { ApiError, type JobView } from './api.js';
 import { isUnreachable } from './backoff.js';
 import type { Conn } from './connection.js';
+import { handOnAtEnd, notingJobFrom } from './focus-manager.js';
 import { afterPollError, jobTitle, type JobChipView, type RunningJob } from './job-title.js';
 
 export type { JobChipView } from './job-title.js';
@@ -97,6 +98,14 @@ export class JobStore {
     this.follow(job, watch);
   }
 
+  /**
+   * A job the server is starting: where it starts from is noted, for the focus at its end
+   * (`notingJobFrom`); started, it takes the drawer, and refused, `refused` says why.
+   */
+  starting(p: Promise<JobView>, watch: { readonly current: JobWatch }, focus: boolean, refused: (err: unknown) => void): void {
+    notingJobFrom(p).then((job) => this.started(job, watch, focus), refused);
+  }
+
   /** Opens the drawer of a job on the list; false when it isn't on it. */
   open(id: string, focus = false): boolean {
     if (!this.entry(id)) return false;
@@ -149,6 +158,8 @@ export class JobStore {
         return;
       }
       this.following.delete(first.id);
+      // On the screen, its drawer says how it ended, and the focus a redraw drops is handed on.
+      if (this.entry(first.id)?.open) handOnAtEnd(first.id);
       on.ended(next, all, this.entry(first.id));
     };
     setTimeout(() => void step(), 200);

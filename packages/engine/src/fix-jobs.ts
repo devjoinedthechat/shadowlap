@@ -1,3 +1,4 @@
+import type { NoFixToTry } from './estimates/repair.js';
 import { createHash } from 'node:crypto';
 import { accessSync, constants, statSync } from 'node:fs';
 import { posix, win32 } from 'node:path';
@@ -188,9 +189,10 @@ export function repairArgv(store: StoreOf<'recording' | 'fixes'>, rec: FixRecord
  * the same check, rescue and scope, rather than search again (as `shadowlap repair` does): when that
  * blame of every failing run left rescued it from no call, there is no passing path to learn from.
  * Said as the CLI says why: no answer of the model's lost the runs, blame couldn't settle where they
- * were lost, or nothing rescued them.
+ * were lost, or nothing rescued them; with which of the estimate's two cases it is (`kind`), told
+ * apart where it is worded.
  */
-export function noFixToTry(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords, scope: string | null): string | null {
+export function noFixReason(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords, scope: string | null): { sentence: string; kind: NoFixToTry } | null {
   const runs = rec.failing.map((id) => store.getRun(id)).filter((r): r is RunRecord => r !== null);
   if (!runs.length) return null;
   const oracle = JSON.stringify(rec.fix.check.oracle);
@@ -203,9 +205,14 @@ export function noFixToTry(store: StoreOf<'recording' | 'fixes'>, rec: FixRecord
     kept.push(last);
   }
   const one = runs.length === 1;
-  if (kept.every(noAnswerLost)) return `Blame found that no answer of the model's lost ${one ? 'this run' : 'these runs'}, so a rewrite of the prompt can't fix ${one ? 'it' : 'them'}: the repair ends “No fix to try”. Look at the tools, the harness or the command.`;
-  if (kept.every((b, i) => runs[i]!.meta?.blame?.unsettled === true || (b.outcome === 'unrescuable' && unsettledFirst(b.report)))) return `Blame couldn't settle where ${one ? 'the run was' : 'the runs were'} lost, so a rewrite of the prompt has nothing to aim at yet: the repair ends “No fix to try”. Settle the blame first.`;
-  return 'No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.';
+  if (kept.every(noAnswerLost)) return { kind: 'unrescued', sentence: `Blame found that no answer of the model's lost ${one ? 'this run' : 'these runs'}, so a rewrite of the prompt can't fix ${one ? 'it' : 'them'}: the repair ends “No fix to try”. Look at the tools, the harness or the command.` };
+  if (kept.every((b, i) => runs[i]!.meta?.blame?.unsettled === true || (b.outcome === 'unrescuable' && unsettledFirst(b.report)))) return { kind: 'unsettled', sentence: `Blame couldn't settle where ${one ? 'the run was' : 'the runs were'} lost, so a rewrite of the prompt has nothing to aim at yet: the repair ends “No fix to try”. Settle the blame first.` };
+  return { kind: 'unrescued', sentence: 'No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.' };
+}
+
+/** `noFixReason`'s sentence alone, as the terminal UI and the CLI say it. */
+export function noFixToTry(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords, scope: string | null): string | null {
+  return noFixReason(store, rec, scope)?.sentence ?? null;
 }
 
 /**
@@ -231,7 +238,7 @@ export function repairJobArgv(argv: readonly string[], configured: string | null
 }
 
 /**
- * Why the repairer can't be asked, as a sentence for the Repair from here dialog and `fix show`; null
+ * Why the repairer can't be asked, as a sentence for Run repair's dialog and `fix show`; null
  * when nothing stands in the way. `configured`: shadowlap.config.json names it (otherwise it is the
  * user's own Claude Code, the dashboard's default). Only what is certain is checked: the claude-code
  * repairer runs `claude`, or the program SHADOWLAP_CLAUDE names, and it must be found on the PATH of

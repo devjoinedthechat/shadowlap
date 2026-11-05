@@ -15,7 +15,7 @@ import { bisectArgs, type BisectChoices, type BisectRange, type BisectRevision }
  */
 
 /** Only a commit's hex name is ever handed to git: a revision comes from a run, which may have come from anyone. */
-const HEX = /^[0-9a-f]{4,64}$/i;
+export const HEX = /^[0-9a-f]{4,64}$/i;
 /** How long git's "no such commit" stands before it is asked again. */
 const MISSING_FOR_MS = 60_000;
 

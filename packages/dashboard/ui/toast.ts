@@ -36,8 +36,9 @@ export const ACTION_TOAST_MS = 8000;
 /** The key that does what an Undo on the screen offers, from anywhere but a field being typed in, while single keys are on. */
 export const UNDO_KEY = 'u';
 
-/** What the Undo button names as its keys. */
-export const UNDO_SHORTCUTS = `Meta+Z Control+Z ${UNDO_KEY}`;
+/** What the Undo button names as its keys: ⌘Z or Ctrl+Z, and the undo key while single keys are on. */
+export const UNDO_CHORDS = 'Meta+Z Control+Z';
+export const UNDO_SHORTCUTS = `${UNDO_CHORDS} ${UNDO_KEY}`;
 
 /** What the undo key does now (components/Toast.tsx sets it while a toast with an Undo shows): true when it did something. */
 export const toastKey: { current: (() => boolean) | null } = { current: null };

@@ -97,7 +97,7 @@ function inconclusiveExit(mode: 'fail' | 'warn', why: string | null): number {
  * flag has a step that waits on a judge or on its control, verify didn't settle the runs it took.
  */
 export function decisionsInconclusive(r: DecisionsReport): string | null {
-  return decisionsUnsettled({ stopReason: r.stopReason, flagged: r.flagged, runs: r.runs.map(unsettledRun), verify: r.verify });
+  return decisionsUnsettled({ stopReason: r.stopReason, flagged: r.flagged, toVerify: r.toVerify, runs: r.runs.map(unsettledRun), verify: r.verify });
 }
 
 export function register(program: Command): void {
@@ -114,8 +114,8 @@ export function register(program: Command): void {
     .option('--samples <n>', "ask each model call this many times under the change and, from 3 on, as many times as recorded, and rank a change only when it decides otherwise beyond the model's own variation: at 3, six requests a step", parseIntArg, DECISIONS_SAMPLES)
     .option('--concurrency <n>', 'requests in flight at once', parseIntArg, 4)
     .option('--scope <name>', "ask only the model calls made in this scope, such as the agent's and not a simulated user's; none for those made in no scope")
-    .option('--then-verify', 'then run shadowlap verify on the runs with a rank 1 or 2 change (a write, when the agent stops, or words a judge check reads otherwise), and only on those')
-    .option('--verify <session>', "ask nothing: verify the runs a kept session flagged (its dc-… or mg-… id), or the runs named, each under its checks (its golden's, or for a run named by id those of the recording it comes from), and keep what verify finds in the session")
+    .option('--then-verify', 'then run shadowlap verify on the runs a preview can\'t clear, rank 1 or 2 changes among them (a write, when the agent stops, or words a judge check reads otherwise), and only on those')
+    .option('--verify <session>', "ask nothing: verify the runs a kept session could not clear (its dc-… or mg-… id), or the runs named, each under its checks (its golden's, or for a run named by id those of the recording it comes from), and keep what verify finds in the session")
     .option('--expect <json|@file>', "with --then-verify or --verify: what a passing run must do besides exiting 0 (default: each run's checks from shadowlap.config.json, its golden's, or for a run named by id those of the recording it comes from)")
     .option('--gate <json|@file>', `with --then-verify or --verify: the gate each run is decided by, as for verify (default '{"good":${SPRT_DEFAULTS.good},"bad":${SPRT_DEFAULTS.bad},"risk":${SPRT_DEFAULTS.risk},"max":${SPRT_DEFAULTS.max}}', verify's)`)
     .option('--attempts <n>', 'with --then-verify or --verify: a fixed count instead of the gate: attempts per run (5 with --passes alone)', parseIntArg)
@@ -139,7 +139,7 @@ export function register(program: Command): void {
       const thenVerify = { attempts: rule.attempts, needed: rule.needed, gate: rule.gate, writes: flags.writes, expect };
 
       if (flags.verify !== undefined) {
-        // A kept session's flagged runs, verified: nothing is asked again.
+        // The runs a kept session could not clear, verified: nothing is asked again.
         if (flags.model || flags.fromCode || flags.set?.length || flags.from?.length || flags.thenVerify) throw new InvalidArgumentError('--verify verifies the change a kept session asked: give no other change with it');
         try {
           const out = await verifySession({ opts, sessionId: flags.verify, runs: specs, settings: { thenVerify, argv, timeoutMs, guard: flags.guard }, budget: flags.budget ?? null, yes: !!flags.yes, log });
@@ -206,7 +206,7 @@ export function register(program: Command): void {
 
   program
     .command('migrate')
-    .description("Switch models with the evidence: ask your goldens' model calls again under the new model (with the fields it refuses changed to what it takes), verify the runs with a write, stop or judged change, and compare what a run costs. Ends in one report, what changes, what still passes, what it costs and what to set, with the change to your files and a pull request body.")
+    .description("Switch models with the evidence: ask your goldens' model calls again under the new model (with the fields it refuses changed to what it takes), run end to end every run that can't clear, and compare what a run costs. Ends in one report, what changes, what still passes, what it costs and what to set, with the change to your files and a pull request body.")
     .argument('[goldens...]', 'goldens (pack folders) or runs to migrate (default: goldens/*); after "--", the command to verify with')
     .requiredOption('--to <model>', 'the model to switch to')
     .option('--from <model>', 'the recorded model to switch from (repeatable; default: the models the runs use that retire, else the one they use most)', collect)
@@ -271,7 +271,7 @@ export function register(program: Command): void {
           ...(flags.guard !== 'warn' ? ['--guard', flags.guard] : []),
           ...(split.argv ? ['--', ...split.argv] : []),
         ]);
-        log(`${p.yellow('⑂')} Migrating ${targets.length} run${targets.length === 1 ? '' : 's'} to ${flags.to}: the agent's model calls asked again, then the runs with a write, stop or judged change verified`);
+        log(`${p.yellow('⑂')} Migrating ${targets.length} run${targets.length === 1 ? '' : 's'} to ${flags.to}: the agent's model calls asked again, then the runs that can't clear verified end to end`);
         const report = await runMigrate({
           opts,
           targets,
@@ -308,7 +308,7 @@ export function migrateExit(r: MigrateReport, inconclusive: 'fail' | 'warn' = 'f
 function verifyLines(v: DecisionsVerify, what: string | null): string {
   if (v.verdict === 'not-run') return v.reasons.length ? `${p.yellow('!')} Not verified: ${v.reasons.join('; ')}\n${v.commands.map((c) => p.dim(`  ${c}`)).join('\n')}\n` : '';
   const head = v.verdict === 'accepted' ? `${p.green('✓')} Verified` : v.verdict === 'rejected' ? `${p.red('✗')} Verify rejected the change` : `${p.yellow('!')} Verify did not finish`;
-  const lines = [``, `${head}: ${v.runs.length} run${v.runs.length === 1 ? '' : 's'} with a write, stop or judged change${what ? ` (${what})` : ''}`];
+  const lines = [``, `${head}: ${v.runs.length} run${v.runs.length === 1 ? '' : 's'} end to end${what ? ` (${what})` : ''}`];
   // The last attempt of a run it could not judge stopped it: neither passed nor failed, so said apart.
   const tally = (x: DecisionsVerify['runs'][number]) => (x.undecided ? `${x.attempts > 1 ? `${x.passes} of ${x.attempts - 1} passed, ` : ''}attempt ${x.attempts} not judged` : `${x.passes} of ${x.attempts} passed${x.baseline ? `, baseline ${x.baseline.passes} of ${x.baseline.attempts}` : ''}`);
   // Each rule once, then the outcome of each run it decided, its tally and under a gate the Wilson bound.
@@ -318,6 +318,7 @@ function verifyLines(v: DecisionsVerify, what: string | null): string {
   }
   // What the change failed in red; a run verify could not settle, inconclusive or not settled, in amber.
   for (const reason of v.reasons) lines.push(`  ${unsettledReason(reason) ? p.yellow('·') : p.red('·')} ${reason}`);
+  for (const w of v.warnings ?? []) lines.push(`  ${p.yellow('!')} ${w}`);
   for (const c of v.commands) lines.push(p.dim(`  ${c}`));
   return lines.join('\n') + '\n';
 }

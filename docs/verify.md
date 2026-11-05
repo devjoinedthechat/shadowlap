@@ -216,9 +216,11 @@ Where none can be had, a good run is judged by its gate on its own, as a target 
 
 - the working directory is in no git repository;
 - the working tree has no change against HEAD, and no `--base` names the commit before it;
-- there is no history.
+- there is no history;
+- the baseline can't ask its model: the provider turned it away for good, as it does once a model retires ([migrate](./decisions.md#once-the-old-model-is-gone));
+- the baseline, or the history, passes so rarely that its pass rate is at or under the margin, at the gate's risk. No run can drop that far, so keeping a run to it would say nothing.
 
-`--attempts` and `--passes` judge every run by a fixed count on its own.
+The attempts already run stand, and the gate decides on them. `--attempts` and `--passes` judge every run by a fixed count on its own.
 
 ## Reading the report
 

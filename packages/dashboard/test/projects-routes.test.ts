@@ -632,10 +632,10 @@ describe('the setup', () => {
 
     // The first command in the folder asks first; the browser's line is split without a shell.
     const plan = await w.api<{ display: string; confirm: { title: string; button: string } }>('setup/record', { method: 'POST', body: { command: 'node agent.mjs "a b"' } });
-    expect(plan.body).toMatchObject({ display: 'shadowlap run -- node agent.mjs \'a b\'', confirm: { title: 'Run this command in ~/research-agent?', button: 'Run and record' } });
+    expect(plan.body).toMatchObject({ display: 'shadowlap run -- node agent.mjs \'a b\'', confirm: { title: 'Record run in ~/research-agent', button: 'Record run' } });
     expect(await w.api('setup/record', { method: 'POST', body: { command: 'node agent.mjs | tee log' } })).toMatchObject({ status: 400, body: { error: expect.stringContaining('pipe') } });
     const unconfirmed = await w.api('jobs', { method: 'POST', body: { kind: 'record', command: 'node agent.mjs "a b"' } });
-    expect(unconfirmed).toMatchObject({ status: 409, body: { error: expect.stringContaining('Run this command in ~/research-agent?') } });
+    expect(unconfirmed).toMatchObject({ status: 409, body: { error: expect.stringContaining('Record run in ~/research-agent') } });
     const started = await w.api<{ id: string; title: string; args: string[] }>('jobs', { method: 'POST', body: { kind: 'record', command: 'node agent.mjs "a b"', confirmed: true, project: 'research-agent' } });
     expect(started.status).toBe(202);
     expect(started.body).toMatchObject({ title: 'Recording', args: ['run', '--', 'node', 'agent.mjs', 'a b'] });

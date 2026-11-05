@@ -158,7 +158,7 @@ describe('reading the tabs', () => {
     const byCommand = await get<{ line: string; hidden: boolean; copy: { command: string; args: string[] } }>(`settings/tools/mcp?command=${encodeURIComponent('npx -y @modelcontextprotocol/server-github --token ghp_abcdef1234567890')}`);
     expect(byCommand.line).toBe('shadowlap mcp -- npx -y @modelcontextprotocol/server-github --token •••');
     expect(byCommand.hidden).toBe(true);
-    // What Copy the entry copies is what was typed: the person typed the token in it.
+    // What its Copy copies is what was typed: the person typed the token in it.
     expect(byCommand.copy).toEqual({ command: 'shadowlap', args: ['mcp', '--', 'npx', '-y', '@modelcontextprotocol/server-github', '--token', 'ghp_abcdef1234567890'] });
     const proxied = await get<{ copy: { command: string; args: string[] } }>(`settings/tools/mcp?command=${encodeURIComponent('shadowlap mcp --url https://mcp.stripe.com')}`);
     expect(proxied.copy).toEqual({ command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.stripe.com'] });

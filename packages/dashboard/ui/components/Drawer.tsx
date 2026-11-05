@@ -154,21 +154,7 @@ function StopButton({ job, title }: { job: WatchedJob['job']; title: string }) {
       <ActionButton className="btn" disabled={stopping} title={stopping ? 'Asked to stop: it ends once its command has' : `Stops ${jobCommand(job.args)} as Ctrl-C would`} onClick={() => (ask ? setAsking(true) : stop())}>
         {stopping ? 'Stopping…' : 'Stop'}
       </ActionButton>
-      {asking && ask ? (
-        <Dialog
-          title={ask.title}
-          text={ask.text}
-          ok={ask.ok}
-          tone="solid"
-          initialFocus="cancel"
-          cancel="Keep it running"
-          onClose={() => setAsking(false)}
-          onOk={() => {
-            setAsking(false);
-            stop();
-          }}
-        />
-      ) : null}
+      {asking && ask ? <StopJobDialog ask={ask} onClose={() => setAsking(false)} onOk={stop} /> : null}
     </>
   );
 }
@@ -305,10 +291,11 @@ function useJobEnd(watched: WatchedJob, panel: { readonly current: HTMLElement |
 }
 
 /**
- * Where the focus goes. The drawer sits beside the page and never takes it. Hidden with the focus in
- * it, the chip that opens it again takes it; asked for from the chip or a toast's Show, the button
- * that hides or closes it does. Closed with the focus in it, it goes back to where it was before it
- * went into the drawer, or to the page. Returns what `close` calls first and the panel's own handler.
+ * Where the focus goes. The drawer sits beside the page, and takes it only when a job's end leaves it
+ * nowhere else (`handOnAtEnd`). Hidden with the focus in it, the chip that opens it again takes it;
+ * asked for from the chip or a toast's Show, the button that hides or closes it does. Closed with the
+ * focus in it, it goes back to where it was before it went into the drawer, or to the page. Returns
+ * what `close` calls first and the panel's own handler.
  */
 function useDockFocus(watched: WatchedJob, panel: { readonly current: HTMLElement | null }, hideOrClose: { readonly current: HTMLElement | null }): { noteFocus: () => void; onFocus: (e: { relatedTarget: EventTarget | null }) => void } {
   const hidden = !watched.open;
@@ -422,4 +409,9 @@ function CalibrateButton({ runId }: { runId: string }) {
       Calibrate
     </ActionButton>
   );
+}
+
+/** What Stop asks first, for a job that holds the working tree: it starts on Keep it running, as the job goes on unless you say. */
+export function StopJobDialog({ ask, onOk, onClose }: { ask: NonNullable<ReturnType<typeof stopAsk>>; onOk: () => unknown; onClose: () => void }) {
+  return <Dialog title={ask.title} lead={ask.lead} doc="jobs" facts={ask.facts} ok={ask.ok} tone="plain" initialFocus="cancel" cancel="Keep it running" onClose={onClose} onOk={onOk} />;
 }

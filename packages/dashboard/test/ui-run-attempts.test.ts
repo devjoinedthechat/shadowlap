@@ -5,7 +5,6 @@ import type { Client } from '../ui/api.js';
 import { attemptOutcome, bannerFor, type BannerInput } from '../ui/run/banner.js';
 import { ForksView } from '../ui/run/ForksView.js';
 import { attemptLinks, attemptOf, forkKindWords } from '../ui/run/model.js';
-import { nextStepOf } from '../ui/run/next-step.js';
 import { Banner, DiffPanel, type BannerProps } from '../ui/run/parts.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { familyLine, kindTag, runTag, type RunLike } from '../ui/runs.js';
@@ -52,7 +51,7 @@ function app(client: Partial<Client> = {}): AppState {
 }
 
 /** A run's page as the server sends it: a replay of `parent`, with the fields the banner reads. */
-function detail(o: { runId: string; parent: string; divergence: unknown; meta?: Record<string, unknown>; status?: string; state?: unknown; interventions?: unknown[]; fix?: unknown; probeOf?: unknown; verifyOf?: unknown; attemptPlace?: unknown }): RunDetail {
+function detail(o: { next?: unknown; runId: string; parent: string; divergence: unknown; meta?: Record<string, unknown>; status?: string; state?: unknown; interventions?: unknown[]; fix?: unknown; probeOf?: unknown; verifyOf?: unknown; attemptPlace?: unknown }): RunDetail {
   const interventions = o.interventions ?? [];
   return {
     run: { runId: o.runId, parentRunId: o.parent, mode: 'replay', status: o.status ?? 'completed', divergence: o.divergence, command: { argv: ['node', 'refund_agent.mjs', 'T-8812'], cwd: '.' }, codeVersion: '728a4d3', startedAt: 1, endedAt: 2, meta: o.meta ?? {} },
@@ -65,6 +64,7 @@ function detail(o: { runId: string; parent: string; divergence: unknown; meta?: 
     intervention: interventions[0] ?? null,
     interventions,
     state: o.state ?? null,
+    ...(o.next ? { next: o.next } : {}),
     ...(o.probeOf ? { probeOf: o.probeOf } : {}),
     ...(o.verifyOf ? { verifyOf: o.verifyOf } : {}),
     ...(o.attemptPlace ? { attemptPlace: o.attemptPlace } : {}),
@@ -113,20 +113,19 @@ describe('a fork that failed', () => {
 
   it('leads with Run blame in its header, with the check the server picked, and its banner doesn’t offer it again; one that passed is compared with its parent', async () => {
     const failed = { status: 'completed', kind: 'fork', outcome: { kind: 'check-failed', check: 'send_email called 1 time' }, failed: true, interrupted: false, label: 'fork @7' };
-    const run = detail({ runId: PLANTED, parent: TICKET, divergence: { ...at7, kind: 'api' }, meta: { checks: [check] }, interventions: [plant], state: failed });
-    const offers = { blame: { from: 'run', expect: { tools: { send_email: 1 } }, failed: ['send_email called 1 time'] }, test: null } as unknown as RunOffers;
-    expect(nextStepOf(run, { offers, exported: false })).toMatchObject({ key: 'blame', offer: { from: 'run' } });
+    const blame = { from: 'run', expect: { tools: { send_email: 1 } }, failed: ['send_email called 1 time'] };
+    const run = detail({ runId: PLANTED, parent: TICKET, divergence: { ...at7, kind: 'api' }, meta: { checks: [check] }, interventions: [plant], state: failed, next: { key: 'blame', label: 'Run blame', offer: blame } });
+    const offers = { blame, test: null } as unknown as RunOffers;
     page = await render(createElement(AppContext.Provider, { value: app() }, createElement('div', null, createElement(RunHeader, header(run, offers)), createElement(Banner, props(run, { checks: [check], offers })))));
     expect(page.one('.banner.fork .bk').textContent).toBe('forked at');
     expect(page.all('.banner.fork button').some((b) => b.textContent === 'Run blame')).toBe(false);
     const lead = page.byText('.rhead .actions button', 'Run blame');
     expect(lead.className).toBe('btn lime');
-    expect(lead.props.title).toBe('Find the model call where this run was lost, with the checks it was replayed with');
+    expect(JSON.parse(String(lead.props['data-tip']))).toMatchObject({ t: 'Run blame', s: 'Find the model call where this run was lost, with the checks it was replayed with' });
     // Replay is there, plain: the one lime button is the next step.
     expect(page.byText('.rhead .actions button', 'Replay').className).toBe('btn');
     await page.unmount();
-    const passed = { ...run, state: { ...failed, outcome: { kind: 'none' }, failed: false } } as RunDetail;
-    expect(nextStepOf(passed, { offers: { blame: null }, exported: false })).toEqual({ key: 'compare', parent: TICKET });
+    const passed = { ...run, state: { ...failed, outcome: { kind: 'none' }, failed: false }, next: { key: 'compare', label: 'Compare with parent', parent: TICKET, href: `#/compare/${TICKET}/${PLANTED}` } } as unknown as RunDetail;
     page = await render(createElement(AppContext.Provider, { value: app() }, createElement('div', null, createElement(RunHeader, header(passed, offers)), createElement(Banner, props(passed, { offers })))));
     expect(page.all('button').some((b) => b.textContent === 'Run blame')).toBe(false);
     expect(page.byText('.rhead .actions a', 'Compare with parent').className).toBe('btn lime');

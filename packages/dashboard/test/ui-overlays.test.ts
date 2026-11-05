@@ -544,15 +544,17 @@ describe('a modal’s first focus', () => {
     expect(words(r!.focused())).toBe('button Close');
   });
 
-  it('starts on the first thing that takes it where the way on waits, on Close where it only shows something, on a drop zone where it asks for a file, on itself with nothing', async () => {
+  it('starts on Cancel where the way on waits, on Close where it only shows something, on a drop zone where it asks for a file but on the dialog itself on a touch screen, on itself with nothing', async () => {
     await openDialog((close) => createElement(Dialog, { title: 'Replace', ok: 'Replace', okDisabled: true, onOk: close, onClose: close }, createElement('a', { href: '#/docs' }, 'In the docs')));
-    expect(words(r!.focused())).toBe('a In the docs');
+    expect(words(r!.focused())).toBe('button Cancel');
     await r!.unmount();
     await openDialog((close) => createElement(Dialog, { title: 'Show patch', onClose: close }, createElement('a', { href: '#/docs' }, 'In the docs')));
     expect(words(r!.focused())).toBe('button Close');
     await r!.unmount();
     await openDialog((close) => createElement(Dialog, { title: 'Import capture', ok: 'Import capture', okDisabled: true, onOk: close, onClose: close }, createElement('button', { type: 'button' }, 'Langfuse'), createElement('label', { className: 'drop', tabIndex: 0 }, 'Drop a file')));
     expect(r!.focused().className).toBe('drop');
+    const dialog = r!.one('[role="dialog"]') as unknown as HTMLElement;
+    expect(firstFocus(dialog, ['.dlg-alt', '.dlg-ok', '.dlg-cancel'], true)).toBe(dialog);
     const lone = { querySelector: () => null, querySelectorAll: () => [] } as unknown as HTMLElement;
     expect(firstFocus(lone, ['.dlg-ok'])).toBe(lone);
     await r!.unmount();
@@ -729,7 +731,7 @@ describe('what opened an overlay', () => {
         null,
         createElement('input', { type: 'text', placeholder: 'A field of the page’s' }),
         createElement('button', { type: 'button', id: 'start', onClick: () => setOpen('first') }, 'Start'),
-        open === 'first' ? createElement(Dialog, { title: 'First', ok: 'Next', onOk: () => setOpen('second'), onClose: () => setOpen('no') }, createElement('input', { type: 'text', id: 'inner' })) : null,
+        open === 'first' ? createElement(Dialog, { title: 'First', ok: 'Next', onOk: () => (setOpen('second'), false), onClose: () => setOpen('no') }, createElement('input', { type: 'text', id: 'inner' })) : null,
         open === 'second' ? createElement(Dialog, { title: 'Second', onClose: () => setOpen('no') }) : null,
       );
     }

@@ -98,7 +98,7 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
                 {b.probes.map((p) => (
                   <tr key={p.callNo} className={p.blamed ? 'hot' : undefined} {...rowOpen(() => navigate(p.href))}>
                     <td>
-                      <a className="fxcall" href={p.href}>
+                      <a className="rowa" href={p.href}>
                         <code>#{p.callNo}</code>
                       </a>
                     </td>

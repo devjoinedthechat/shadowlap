@@ -677,7 +677,7 @@ run never got there (the change verified added a step before the call), the grou
 attempt at its own call, *attempt of* the run it replayed. Every source is listed, the ones that made
 none with why.
 
-**Export pairs…** asks for the format (*OpenAI preference* or *TRL preference*) and the confidence, and
+**Export pairs…** asks for the format (*OpenAI preference fine-tuning* or *prompt, chosen, rejected (TRL)*) and the confidence, and
 shows the file it writes and the command. It then runs `export pairs` into
 `.shadowlap/exports/pairs.jsonl` in the project folder. The job's drawer offers the file for download,
 and Activity logs it.

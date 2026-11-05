@@ -632,7 +632,7 @@ describe('mcpServers', () => {
 });
 
 describe('mcpServerFor', () => {
-  it('gives the shadowlap mcp line and entry for a command or URL typed into Add a server', () => {
+  it('gives the shadowlap mcp line and entry for a command or URL typed into Add MCP server', () => {
     expect(mcpServerFor({ command: 'npx -y @modelcontextprotocol/server-filesystem "/srv/my notes"' })).toEqual({
       transport: 'stdio', target: "npx -y @modelcontextprotocol/server-filesystem '/srv/my notes'", viaShadowlap: false,
       line: "shadowlap mcp -- npx -y @modelcontextprotocol/server-filesystem '/srv/my notes'", entry: { command: 'shadowlap', args: ['mcp', '--', 'npx', '-y', '@modelcontextprotocol/server-filesystem', '/srv/my notes'] }, hidden: false,

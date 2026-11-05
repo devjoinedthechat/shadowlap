@@ -2,6 +2,7 @@ import { countOrigins, emptyOriginCounts, fixOfRun, importedRecording, lostAt, o
 import { fixesSummary, needsLookFixes, type PatchCheck } from './fixes.js';
 import { upgradeLooks } from './looks.js';
 import { links } from './links.js';
+import { listedStep, stepReads, type NextStepWork } from './next-step.js';
 import { aboutsOf, aboutsWithin } from './run-about.js';
 import { stepWords } from './store-steps.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay, type LocalDay } from './local-days.js';
@@ -277,6 +278,8 @@ export interface OverviewOptions extends StatsOptions {
    * progress's prompt cache, what a long recording's user asked), the rest left to the warm-up.
    */
   budget?: number;
+  /** What a run's next step reads of the project: a line about a run says what its page leads with. */
+  next?: NextStepWork | null;
 }
 
 export interface OverviewSummary {
@@ -405,7 +408,7 @@ export function overviewSummary(store: Store, options: OverviewOptions = {}): Ov
     },
     cache: weekCache(store, index, week.from, options.budget),
     fixes: { ...fixes.funnel, open: fixes.open, readyToApply: fixes.readyToApply, broken: fixes.broken, attempts: fixes.attempts, spent: fixes.spent },
-    needsLook: needsLook(store, goldens, options.teamStore ?? null, options.patchInTree, options.budget),
+    needsLook: needsLook(store, goldens, options.teamStore ?? null, options.patchInTree, options.budget, options.next ?? null),
   };
 }
 
@@ -613,7 +616,7 @@ const aboutsUpTo = (store: Store, index: RunIndex, runs: readonly IndexedRun[], 
  * behaviours seen in production that no golden covers, then runs only on this machine. A recording in
  * progress shows under Today instead.
  */
-function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | null, patchInTree?: PatchCheck, budget?: number): NeedsLook {
+function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | null, patchInTree: PatchCheck | undefined, budget: number | undefined, next: NextStepWork | null): NeedsLook {
   const fixes = needsLookFixes(store, patchInTree ? { patchInTree } : {});
   const of = (kind: string) => fixes.filter((f) => f.kind === kind);
   const fixRow = (f: (typeof fixes)[number]): NeedsLookRow => ({ kind: f.kind, icon: f.icon, title: f.title, detail: f.detail, action: f.action, href: f.href, runId: f.runId, fixId: f.fixId, at: f.at });
@@ -625,7 +628,11 @@ function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | nul
   if (shownUnblamed.length) {
     const index = loadRunIndex(store);
     const abouts = aboutsUpTo(store, index, shownUnblamed.map((x) => index.byId.get(x.runId!)).filter((r): r is IndexedRun => r !== undefined), budget);
+    const reads = stepReads(store, index);
     for (const x of shownUnblamed) {
+      // Run blame only where its page leads with it: blame can't take a run that made no model call, and a failed injection test's proof comes first.
+      const step = listedStep(store, x.runId!, next, { reads });
+      if (step !== undefined && step?.key !== 'blame') x.action = 'Open';
       const about = abouts.get(x.runId!);
       if (!about?.text) continue;
       x.about = about;

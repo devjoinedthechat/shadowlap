@@ -114,7 +114,7 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
   // Loaded once, and again whenever the project changes; the menu loads it afresh as it opens.
   useEffect(() => load(), [load, id]);
 
-  // Settings → Project's "Remove from dashboard" opens this same dialog for the current project.
+  // Settings → Project's Remove project… opens this same dialog for the current project.
   const several = list ? list.items.length > 1 : true;
   useEffect(() => provideProjectRemoval({ current: () => ({ id, blocked: several ? null : ONLY_PROJECT }), Dialog: RemoveProjectDialog }), [id, several]);
 
@@ -212,7 +212,7 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
                   role="menuitem"
                   className="px"
                   aria-label={p.removeLabel}
-                  title="Remove from the dashboard"
+                  title="Remove project…"
                   onClick={() => {
                     menu.close();
                     setRemoving(p.id);

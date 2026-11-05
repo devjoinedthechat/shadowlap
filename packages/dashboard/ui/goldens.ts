@@ -28,7 +28,7 @@ export function shortDate(date: string | number): string {
   return `${MONTHS[d.getMonth()]!} ${d.getDate()}`;
 }
 
-const n = (count: number, word: string) => `${count.toLocaleString('en-US')} ${word}${count === 1 ? '' : 's'}`;
+export const n = (count: number, word: string) => `${count.toLocaleString('en-US')} ${word}${count === 1 ? '' : 's'}`;
 
 /**
  * The line under the verdict, all of it one session's: the newest that ran every golden (or runs
@@ -105,16 +105,12 @@ export function runningTests<T extends { kind?: string | undefined; done: boolea
 
 /**
  * The commits Find breaking commit's dialog offers as good ones, newest first, as the mock words them:
- * `c91d0f4 · Escalate refunds above the limit`, with how the golden did there when it didn't pass
- * under today's checks: failed, inconclusive (neither passed nor failed), or passed under others. `initial` is the one to start on: the newest that passed under them, older
+ * each with its subject, and how the golden did there when it didn't pass under today's checks: failed, inconclusive (neither passed nor failed), or passed under others. `initial` is the one to start on: the newest that passed under them, older
  * than `tried` when a search from that one named no first bad commit (it already failed there); ''
  * when none is known, for the dialog to ask for any commit.
  */
-export function revisionChoices(revisions: readonly BisectRevision[], tried: string | null = null): { options: Array<{ value: string; label: string }>; initial: string } {
-  const options = revisions.map((r) => {
-    const how = r.verdict === 'inconclusive' ? ' · inconclusive here' : r.result === 'fail' ? ' · failed here' : r.sameChecks ? '' : ' · passed under other checks';
-    return { value: r.rev, label: `${revLabel(r.rev)} · ${r.subject || shortDate(r.at)}${how}` };
-  });
+export function revisionChoices(revisions: readonly BisectRevision[], tried: string | null = null): { options: Array<{ value: string; subject: string; how: string | null }>; initial: string } {
+  const options = revisions.map((r) => ({ value: r.rev, subject: r.subject || shortDate(r.at), how: r.verdict === 'inconclusive' ? 'inconclusive here' : r.result === 'fail' ? 'failed here' : r.sameChecks ? null : 'passed under other checks' }));
   const at = tried ? revisions.findIndex((r) => r.rev === tried || r.rev.startsWith(tried) || tried.startsWith(r.rev)) : -1;
   // Nothing older than the one tried is known: the dialog starts on a field for any commit ('').
   const older = at >= 0 ? revisions.slice(at + 1) : revisions;
@@ -433,145 +429,7 @@ export function missedLine(m: BisectMiss): string {
   return `No first bad commit${between}: ${m.why}`;
 }
 
-export interface UpdatePlan {
-  title: string;
-  text: string;
-  /** The golden as a card, or the diverged goldens as a list; none when the title names the one golden and nothing diverged. */
-  goldens: Array<{ path: string; name: string; where: string }>;
-  steps: Array<[string, string]>;
-  /**
-   * The amber box: a value that changes every run diverged and no rule masks it yet, so a normalizer
-   * is the lasting fix; or, for one golden, the rule for it is in the config now and alone makes the
-   * replay match, so a re-run passes without an update; or a judge's verdict in the pack was given on
-   * other material, which a value that changes every run would make again, so its normalizer comes first.
-   */
-  advise: { title: string; text: string; path: string | null } | null;
-  /** The amber box's button, named for what it runs: null for several goldens, or when the server runs none of it. */
-  instead: { label: string; golden: string; run: 'normalize' | 'normalize-update' | 'rerun' } | null;
-  /** A plain line above the command, a path set in code: the rules are in the config already, so an update is the fix, or a re-run is. */
-  note: Array<string | { code: string }> | null;
-  command: string;
-  ok: string;
-}
-
-/** The amber box's button, by what it runs in place of the update. */
-const INSTEAD: Record<'normalize' | 'normalize-update' | 'rerun', string> = {
-  normalize: ACTIONS.addNormalizerAndRerun.label,
-  // The rule alone can't make the replay match: it is added, and the golden updated after it.
-  'normalize-update': ACTIONS.addNormalizerAndUpdate.label,
-  rerun: 'Re-run instead',
-};
-
-/** An update's confirm, by how many goldens it re-records: `Update golden`, `Update 2 goldens`. */
-const updateOk = (goldens: number): string => (goldens === 1 ? confirmWords(ACTIONS.updateGolden.label) : `Update ${goldens} goldens`);
-
-/** Whether the rules alone can't make the replay match, so the golden is updated after them. */
-const updatesAfterRules = (d: DivergenceView) => !!d.normalizeAndTest && (d.normalizeAndTest.at(-1) ?? []).includes('--update');
-
-/**
- * The Update golden dialog, in the style of Remove project: the golden as a card (or the diverged
- * goldens as a list), What happens as numbered rows, the amber note when what diverged is a value
- * that changes every run, and the command. `paths` are the goldens to update; `has` says which jobs
- * the server runs, for the amber box's button. A divergence whose rules are in the config already
- * (added since, for this golden or another) gets no amber note that a normalizer would fix it: an
- * update is the fix then, or, when the rules alone make it match, a re-run.
- */
-export function updatePlan(view: TestsView, paths: readonly string[], has: (kind: string) => boolean = () => true): UpdatePlan {
-  // A golden whose replay is clean and only lacks a judge's verdict: the update asks the judge once and re-records nothing.
-  const judged = paths.length === 1 ? judgePlan(view, paths[0]!) : null;
-  if (judged) return judged;
-  const ds = paths.map((p) => view.divergences.find((d) => d.golden === p)).filter((d): d is DivergenceView => !!d);
-  const rows = paths.map((p) => view.rows.find((r) => r.path === p));
-  const goldens = paths.map((p, i) => {
-    const d = ds.find((x) => x.golden === p);
-    return { path: p, name: rows[i]?.name ?? p, where: d ? `diverged at call ${d.callNo}` : (rows[i]?.last.line ?? '') };
-  });
-  const one = goldens.length === 1;
-  const checks = one ? (rows[0]?.checks.length ?? 0) : 0;
-  // A value that changes every run, with no rule for it yet: updating alone diverges again next run.
-  const perRun = ds.filter((d) => d.volatile?.certain && !d.rulesAdded);
-  // Its rules are in the config now: alone they make the replay match, or an update is what is left.
-  const rerun = ds.filter((d) => d.rulesAdded && !!d.normalizeAndTest && !updatesAfterRules(d));
-  const updateLeft = ds.filter((d) => d.rulesAdded && updatesAfterRules(d));
-  let advise: UpdatePlan['advise'] = null;
-  let instead: UpdatePlan['instead'] = null;
-  let note: UpdatePlan['note'] = null;
-  const d0 = one ? (ds[0] ?? null) : null;
-  if (d0) {
-    const v = d0.volatile;
-    if (perRun.includes(d0) && v) advise = { title: 'A normalizer fixes this for good', text: `${v.op === 'added' ? 'is new in every request and ' : ''}looks like ${v.looks}, which changes every run. Updating re-records it, and the next run diverges again.`, path: v.path };
-    else if (rerun.includes(d0)) advise = { title: 'Its normalizer is in the config now', text: 'is masked by a rule added since this replay, so a re-run passes without an update.', path: v?.path ?? null };
-    else if (updateLeft.includes(d0)) note = [v ? 'The normalizer for ' : 'The normalizer is in shadowlap.config.json already', ...(v ? [{ code: v.path }, ' is in shadowlap.config.json already'] : []), ', so the run after this update matches.'];
-    const run = advise ? divergenceButtons(d0, has).normalize?.run : undefined;
-    if (run) instead = { label: INSTEAD[run], golden: d0.golden, run };
-  } else if (!one) {
-    if (perRun.length) {
-      const names = perRun.map((d) => d.name).join(', ');
-      advise = { title: 'A normalizer fixes this for good', text: `${names} diverged on values that change every run. Updating re-records ${perRun.length === 1 ? 'it' : 'them'}, and the next run diverges again.`, path: null };
-    }
-    if (rerun.length) note = [`The normalizers for ${rerun.map((d) => d.name).join(', ')} are in shadowlap.config.json now: a re-run passes without updating ${rerun.length === 1 ? 'it' : 'them'}.`];
-  }
-  return {
-    title: one ? `Update ${goldens[0]!.name}?` : `Update ${goldens.length} diverged goldens?`,
-    text: 'Use this when the change was intended. The new recording replaces the old one, and you review it in your pull request.',
-    goldens,
-    steps: [
-      ['Re-recorded live', 'writes stubbed'],
-      [one ? 'Its checks run' : 'Each one’s checks run', one ? (checks ? n(checks, 'check') : 'exit status') : 'per golden'],
-      ['Replaced only if they pass', 'in your working tree'],
-      ['You review the change', 'in your pull request'],
-    ],
-    advise,
-    instead,
-    note,
-    command: commandText(['test', ...paths, '--update']),
-    ok: advise ? 'Update anyway' : updateOk(goldens.length),
-  };
-}
-
-/**
- * Update golden for a golden that replays offline and is inconclusive only for want of a judge's
- * verdict it could use, as the mock's dialog has it: no card (nothing diverged, and the title names
- * the golden), its replay is clean, so nothing is re-recorded; the judge is asked once, live, with its
- * provider's key where the dashboard runs, and its verdict is kept in the pack, which you review. What
- * the pack holds says the rest: no verdict, one given to an older form of the judge's request, or one
- * given on other material, where the amber box says that a value that changes every run needs its
- * normalizer first, or the next test reads not judged again. Null for any other golden.
- */
-function judgePlan(view: TestsView, path: string): UpdatePlan | null {
-  const v = view.inconclusive.find((x) => x.golden === path);
-  const j = v?.judge;
-  if (!v || !j?.update) return null;
-  const key = j.provider ? `the ${PROVIDER_KEY[j.provider] ?? j.provider} key` : 'the key';
-  const asks = `Updating asks the judge once, live, with ${key} in the dashboard’s environment, and keeps ${j.held === 'none' ? 'the' : 'its new'} verdict; nothing is re-recorded.`;
-  const material = j.held === 'material';
-  return {
-    title: `Update ${v.name}?`,
-    text:
-      j.held === 'older'
-        ? `Its replay is clean: only its judge check’s verdict in the pack was given to an older form of the judge’s request, which a replay no longer sends. ${asks}`
-        : material
-          ? `Its replay is clean, but its judge check’s verdict in the pack was given on other material than the replay reads now. ${asks}`
-          : `Its replay is clean: only its judge check has no verdict in the pack. ${asks}`,
-    goldens: [],
-    steps: [
-      ['Replayed offline, as recorded', 'clean'],
-      ['Its judge asked once, live', j.model],
-      ['Its verdict kept in the pack', material ? 'for what it reads now' : 'the next test judges from it, free'],
-      ['You review the change', 'in your pull request'],
-    ],
-    advise: material ? { title: 'A value that changes every run needs a normalizer', text: `${j.changed ? `What the judge reads changed: ${j.changed}. ` : ''}If that is such a value (an id the agent prints, say), add a normalizer for it first: a verdict given on one run’s value answers no other, and the next test reads not judged again.`, path: null } : null,
-    instead: null,
-    note: null,
-    command: commandText(j.update),
-    ok: material ? 'Update anyway' : updateOk(1),
-  };
-}
-
-/** Whose key a judge's provider is asked with. */
-const PROVIDER_KEY: Record<string, string> = { anthropic: 'Anthropic', openai: 'OpenAI', gemini: 'Gemini' };
-
-/** Update goldens…, asked for from the palette or by a link: Tests opens its dialog, then drops `?update` from the address. */
+/** Update goldens, asked for from the palette or by a link: Tests opens its dialog, then drops `?update` from the address. */
 export const TESTS_UPDATE_HASH = '#/tests?update';
 
 export function asksUpdate(hash: string): boolean {
@@ -583,9 +441,9 @@ export interface TestsPaletteEntry {
   label: string;
   hint: string;
   mono: boolean;
-  /** Update goldens…: it opens what starts a job, paused while the server can't be reached. */
+  /** Update goldens: it opens what starts a job, paused while the server can't be reached. */
   job?: boolean;
-  /** Where it goes: Tests, or Tests with its Update goldens… dialog open. */
+  /** Where it goes: Tests, or Tests with its Update goldens dialog open. */
   to: string;
 }
 
@@ -607,7 +465,7 @@ export function goldenHint(r: Pick<GoldenRow, 'last' | 'error' | 'presets'>): st
 /**
  * The palette's entries from the Tests screen's answer, from any page: each golden with how it did
  * last, opening Tests, and, when any diverged and `update` (the server updates goldens and actions
- * can run here), Update goldens…, which opens its dialog on Tests.
+ * can run here), Update goldens, which opens its dialog on Tests.
  */
 export function testsPalette(view: TestsView | null, o: { update: boolean }): TestsPaletteEntry[] {
   if (!view || view.empty) return [];

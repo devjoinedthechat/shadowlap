@@ -1,4 +1,4 @@
-import { ACTIONS, blameCheckFor, DEFAULT_REPAIRER, failedCheckLabels, FIX_STATUSES, FixIdError, type FixStatus, hasRecordedCommand, type JobConsent, needsConsent, readConfigFile, repairerProblem, repairJobArgv, resolveFix, type RunRecord, selectedRuns, setFixTitle, type StoredFix, type StoreOf } from '@shadowlap/engine';
+import { ACTIONS, blameCheckFor, DEFAULT_REPAIRER, failedCheckLabels, FIX_STATUSES, FixIdError, type FixStatus, hasRecordedCommand, type JobConsent, needsConsent, readConfigFile, repairerProblem, repairJobArgv, resolveFix, type RunRecord, selectedRuns, setFixTitle, splitCommand, type StoredFix, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { fixBundles, fixDetail, fixList, patchesToCheck, pulledPatchesToCheck } from '../fixes.js';
@@ -6,6 +6,7 @@ import { HttpError } from '../http.js';
 import type { JobBuildResult, JobRequest } from '../jobs.js';
 import { patchesInTree, rewritesHere } from '../patch-in-tree.js';
 import { storePrStates } from '../pr-state.js';
+import { captureExpect } from '../next-step.js';
 import { sendAnswer } from '../read-pool.js';
 import type { ReadAnswer } from '../read-jobs.js';
 import { recordingNow } from '../run-exports.js';
@@ -168,14 +169,19 @@ function blameJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | '
   const id = run.runId.slice(0, 10);
   // A run its recorder left marked running was interrupted, as every page reads it: nothing failed to blame.
   if (run.status === 'running') return { error: recordingNow(store, run) ? `${id} is still recording: blame it once it has ended` : `${id} was interrupted: its recorder stopped before it ended, so it has no failure to blame`, status: 409 };
-  if (!hasRecordedCommand(run)) return { error: `${id} was imported from a capture and has no command to re-run: blame it in a terminal with yours, shadowlap blame ${id} -- <command>`, status: 409 };
+  // A capture has no command of its own: it takes yours, which becomes what follows `--`, and needs no yes.
+  const own = typeof req.command === 'string' ? splitCommand(req.command) : [];
+  const capture = !hasRecordedCommand(run);
+  if (req.command !== undefined && !capture) return { error: `${id} has a command of its own to run again`, status: 409 };
+  if (capture && !own.length) return { error: `${id} was imported from a capture and has no command to re-run: give yours (command), as shadowlap blame ${id} -- <command> takes it`, status: 409 };
   let expect: unknown;
   if ('expect' in req) {
     const asked = requestedCheck(req.expect);
     if ('error' in asked) return { error: asked.error };
     expect = asked.expect;
   } else {
-    const found = blameCheckFor(store, run, { tests: configTests(configDir), configDir });
+    const tests = configTests(configDir);
+    const found = blameCheckFor(store, run, { tests, configDir }) ?? (capture ? capturedCheck(run, tests) : null);
     if (!found) {
       const failed = failedCheckLabels(run);
       const what = failed.length ? `${id} failed “${failed[0]!}”, and neither the run nor shadowlap.config.json gives that check` : `blame needs the check ${id} failed`;
@@ -184,9 +190,16 @@ function blameJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | '
     expect = found.expect;
   }
   const args = ['blame', run.runId, ...(expect !== null && expect !== undefined ? ['--expect', JSON.stringify(expect)] : [])];
+  if (capture) return { args: [...args, '--', ...own], runId: run.runId };
   const consent = importedCommand([run], req.yes, args);
   if ('ask' in consent) return consent.ask;
   return { args: [...args, ...consent.yes], runId: run.runId };
+}
+
+/** What a capture's import failed it on, as a check a blame takes (next-step.ts): the rules on calls it broke. */
+function capturedCheck(run: RunRecord, tests: unknown): { expect: unknown } | null {
+  const expect = captureExpect(run, tests);
+  return expect ? { expect } : null;
 }
 
 /**

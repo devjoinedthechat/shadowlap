@@ -7,7 +7,7 @@ import type { GateResultView, GoldenRow, TestsView } from '../ui/types.js';
 /**
  * The palette's Tests group from any page, without a browser: the source answers with what it has,
  * loads the goldens when the palette opens, and says when they arrived so an open palette reads it
- * again; Update goldens… goes to Tests with its dialog, through the app's guard.
+ * again; Update goldens goes to Tests with its dialog, through the app's guard.
  */
 const row = (name: string, result: 'pass' | 'fail' | null): GoldenRow => ({
   path: `goldens/${name}`,
@@ -71,16 +71,16 @@ describe('the palette\'s Tests group', () => {
     expect(changed).toBe(1);
     const entries = testsPaletteCommands(s.app, s.go, { update: true });
     expect(entries.map((e) => [e.group, e.label, e.hint])).toEqual([
-      ['Actions', 'Update goldens…', 'shadowlap test --update'],
+      ['Actions', 'Update goldens', 'shadowlap test --update'],
       ['Tests', 'refund-flow', 'passed'],
       ['Tests', 'limit-two', 'failed'],
     ]);
-    // Update goldens… opens what starts a job: offline, the palette shows it paused.
+    // Update goldens opens what starts a job: offline, the palette shows it paused.
     expect(entries.map((e) => e.job === true)).toEqual([true, false, false]);
     // The same answer again changes nothing an open palette shows.
     await loadTests(s.client);
     expect(changed).toBe(1);
-    // Update goldens… asks Tests for its dialog by the address, through the guard; a golden opens Tests.
+    // Update goldens asks Tests for its dialog by the address, through the guard; a golden opens Tests.
     entries[0].run();
     entries[2].run();
     expect(s.went).toEqual(['#/tests?update', '#/tests']);
@@ -88,7 +88,7 @@ describe('the palette\'s Tests group', () => {
     off();
   });
 
-  it('leaves out Update goldens… where actions can\'t run or the server doesn\'t update goldens', () => {
+  it('leaves out Update goldens where actions can\'t run or the server doesn\'t update goldens', () => {
     keepTests(view(['goldens/limit-two']));
     const readOnly = stand({ answer: view(['goldens/limit-two']), actionsOff: 'this dashboard is read-only' });
     expect(testsPaletteCommands(readOnly.app, readOnly.go, { update: true }).map((e) => e.label)).toEqual(['refund-flow', 'limit-two']);

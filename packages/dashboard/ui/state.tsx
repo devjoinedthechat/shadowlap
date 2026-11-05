@@ -30,6 +30,12 @@ export interface PaletteCommand {
   about?: { text: string; from: string } | null;
   /** Words it matches that don't show (a run's kind, command and labels). */
   match?: string;
+  /** Found only once something is typed, never listed on the open palette. */
+  typed?: boolean;
+  /** Its own key, one word per key (`g o`, `f`), set by what the row does: shown while single-key shortcuts are on. */
+  key?: string | undefined;
+  /** Why it can't start now, a job holding what it needs: its hint says so, dimmed, and so does picking it. */
+  wait?: string;
   run: () => void;
 }
 
@@ -74,8 +80,8 @@ export interface AppState {
   actionsOff: string | null;
   /** Whether the server runs a job kind (`meta.jobKinds`); a server that lists none runs none of them. */
   hasKind: (kind: string) => boolean;
-  /** Runs `fn`, or says why it cannot while the server is unreachable. */
-  guard: (fn: () => void) => void;
+  /** Runs `fn` unless the server is out of reach, which it says in a toast; whether it ran, so a dialog that can't start stays open. */
+  guard: (fn: () => void) => boolean;
   /** A notice at the bottom of the window; `error` for a refusal or a failure, which stays until dismissed (`toast.ts`). */
   toast: (text: string, kind?: ToastKind, action?: ToastAction) => void;
   /** Takes away the toast that offers `action`, if it still shows: its job's drawer says the same now. */
@@ -136,6 +142,19 @@ const AppStoreContext = createContext<AppStore | null>(null);
 
 /** The app's state as a plain value, for a test that renders a component with an app of its own. AppProvider gives a store instead. */
 export const AppContext = createContext<AppState | null>(null);
+
+/**
+ * A dialog's way on that waits for the server's answer: `run`'s promise, which resolves false on a
+ * refusal so the dialog stays with what was typed, or false at once where `guard` keeps it from
+ * starting (offline).
+ */
+export function guardedWayOn<T>(guard: AppState['guard'], run: () => Promise<T>): Promise<T> | false {
+  let out: Promise<T> | false = false;
+  guard(() => {
+    out = run();
+  });
+  return out;
+}
 
 /** The store a component reads: AppProvider's, or one holding a test's plain value. */
 function useAppStore(): AppStore {
@@ -216,6 +235,13 @@ async function sayReplacedEnd(job: JobView, lines: readonly string[], here: stri
   const { endToast, jobStatus, wayOnOf } = await import('./jobs.js');
   const way = job.project && job.project.id !== here ? null : wayOnOf(job, (to) => samePage(parseRoute(to), currentRoute()));
   toast(endToast(job, lines), jobStatus(job, lines).tone === 'err' ? 'error' : 'notice', way ? { label: way.label, run: () => navigate(way.href) } : { label: 'Show', run: () => show(job.id) });
+}
+
+/** Runs `fn` unless the server is out of reach, which it says in a toast; whether it ran. */
+function guarded(paused: boolean, toast: (text: string) => void, fn: () => void): boolean {
+  if (paused) toast(PAUSED);
+  else fn();
+  return !paused;
 }
 
 export function AppProvider({ client, children }: { client: Client; children: ReactNode }) {
@@ -478,13 +504,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
         ? 'This link’s session token isn’t this dashboard’s.'
         : null;
   const hasKind = useCallback((kind: string) => (meta?.jobKinds ? meta.jobKinds.includes(kind) : false), [meta]);
-  const guard = useCallback(
-    (fn: () => void) => {
-      if (connRef.current === 'offline') toast(PAUSED);
-      else fn();
-    },
-    [connRef, toast],
-  );
+  const guard = useCallback((fn: () => void) => guarded(connRef.current === 'offline', toast, fn), [connRef, toast]);
 
   // ---- jobs: each is followed to its end (job-store.ts), whatever its drawer does.
   const jobEvents = useLatest<JobWatch>({
@@ -506,8 +526,10 @@ export function AppProvider({ client, children }: { client: Client; children: Re
 
   const watch = useCallback(
     (p: Promise<JobView>, focus = false) => {
-      p.then(
-        (job) => jobStore.started(job, jobEvents, focus),
+      jobStore.starting(
+        p,
+        jobEvents,
+        focus,
         // The server refused to start it (the repairer changed, a fix moved on, a bad request): its
         // reason stays on screen, as an error.
         (err: unknown) => {

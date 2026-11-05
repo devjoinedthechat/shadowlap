@@ -1,48 +1,131 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 import { hideTip, tipShowing } from '../components/HoverCard.js';
 import { isTyping } from '../dom.js';
+import { isDetail } from '../focus.js';
+import { focusCall, focusQuiet, pageUp, stepBack } from '../focus-manager.js';
 import { useLatest } from '../hooks.js';
+import { besideKeys, inBesideList, letGoOfRow, listKeys, takeRowScope } from '../list-keys.js';
 import { modalOpen, overlayKeys, overlayOpen } from '../overlays/modal-store.js';
 import { closeTopPanel } from '../overlays/slots.js';
-import { GO_KEYS, GO_WINDOW_MS } from '../route.js';
+import { knownParent } from '../parents.js';
+import { GO_KEYS, GO_WINDOW_MS, href } from '../route.js';
 import { copyCompares } from '../runs.js';
-import { navigate } from '../router.js';
+import { currentRoute, navigate } from '../router.js';
+import { singleKeysOn, useSingleKeys } from '../single-keys.js';
 import { useApp, type AppState } from '../state.js';
 import { toastKey, UNDO_KEY } from '../toast.js';
+import { crumbParent } from './top.js';
 
 /**
- * The keys that work anywhere: ⌘K (Ctrl K) for the palette, / to search (on a run it filters the
- * calls), ? for the shortcuts, g then a letter to go to a page, u for what the toast on screen offers
- * (its Undo), and Esc. A menu and a modal have the keys first, in the capture phase, so while one is
- * open the page's never fire (`overlayKeys`): Esc closes it there, and only reaches this handler to
- * close a panel, then the phone sidebar, then a hover card. A run's own keys are its page's
- * (`runKeys`). No shortcut works while the link has expired.
+ * The keys that work anywhere, in this order. No shortcut works while the link has expired. ⌘K (Ctrl
+ * K) opens the palette, on a row's actions with the focus in that row, or closes it. A menu and a
+ * modal have the keys first, in the capture phase (`overlayKeys`), so while one is open the page's
+ * never fire. Esc does the first that applies (`escapeKey`). Typing in a field or holding ⌘, Ctrl or
+ * Alt stops the rest. With single-key shortcuts off (shortcuts.ts) a one-character key stops here,
+ * which leaves Enter and the arrows. Then g and its letter, u for what the toast on screen offers,
+ * the sidebar's runs while the focus is on one, a run's keys (its page's `runKeys`), / and ?, and a
+ * page's list keys (list-keys.ts).
  */
 
 /** ⌘K: it closes the palette; over a dialog it opens nothing, and a menu has already gone. */
 function paletteKey(a: AppState, e: KeyboardEvent): void {
   if (a.exported) return;
   e.preventDefault();
-  if (a.palette) a.setPalette(false);
-  else if (!modalOpen()) a.setPalette(true);
+  if (a.palette) return a.setPalette(false);
+  if (modalOpen()) return;
+  takeRowScope();
+  a.setPalette(true);
 }
 
-/** Esc that no menu or modal took: a panel, then the phone's sidebar, then a hover card. */
+/** Esc in a field leaves it, what is typed staying: the focus goes to the run's selected call, else the row in focus. */
+function leaveField(e: KeyboardEvent): void {
+  e.preventDefault();
+  (e.target as HTMLElement).blur();
+  if (focusCall()) return;
+  const row = document.querySelector<HTMLElement>('#view .krow');
+  if (row) focusQuiet(row);
+}
+
+/** Where Esc goes up to from a page opened cold: the crumbs' parent, a fork or a replay's run, else its list. */
+function upFrom(a: AppState, id: string): string {
+  const listed = a.runs?.find((r) => r.runId === id) ?? null;
+  const parent = crumbParent({ listed, loaded: knownParent(id), exported: a.exported, holds: (x) => !!a.runs?.some((r) => r.runId === x) });
+  return parent ? href.run(parent) : href.runs();
+}
+
+/** Esc with nothing open: a run's panel or Runs' selection (`pageUp`), then back the way you came, then the row in focus lets go. */
+function goUp(a: AppState): boolean {
+  if (inBesideList()) return letGoOfRow();
+  if (pageUp.current?.()) return true;
+  const route = currentRoute();
+  if (!isDetail(route)) return letGoOfRow();
+  navigate(stepBack(route.page === 'run' ? upFrom(a, route.id) : href.fixes()));
+  return true;
+}
+
+/** Esc that no menu or modal took: a panel, then the phone's sidebar, then a field, then a hover card, and the next press goes up. */
 function escapeKey(a: AppState, e: KeyboardEvent): void {
   if (closeTopPanel()) e.preventDefault();
   else if (a.sideOpen) {
     a.setSideOpen(false);
     e.preventDefault();
-  } else if (tipShowing()) {
+  } else if (isTyping(e)) leaveField(e);
+  else if (tipShowing()) {
     hideTip();
     e.preventDefault();
+  } else if (!overlayOpen() && goUp(a)) e.preventDefault();
+}
+
+/** A pending g takes this key, whatever it is, within its window; a g starts one. True when the key was theirs. */
+function goKey(a: AppState, e: KeyboardEvent, gAt: RefObject<number>): boolean {
+  if (gAt.current) {
+    const fresh = Date.now() - gAt.current <= GO_WINDOW_MS;
+    gAt.current = 0;
+    if (fresh) {
+      const to = GO_KEYS[e.key];
+      // An exported copy has Runs, and Compare when it holds two runs or more.
+      if (to && (!a.exported || to === '#/runs' || (to === '#/compare' && copyCompares(a.meta?.runIds)))) {
+        e.preventDefault();
+        navigate(to);
+      }
+      return true;
+    }
   }
+  if (e.key !== 'g') return false;
+  gAt.current = Date.now();
+  return true;
+}
+
+/** `/`: on a run its calls' filter (the run's keys), on Runs its filter, else the palette, which a copy doesn't have. */
+function slashKey(a: AppState, e: KeyboardEvent): void {
+  const field = document.querySelector<HTMLElement>('#runsQuery');
+  if (field) {
+    e.preventDefault();
+    field.focus();
+  } else if (!a.exported) {
+    e.preventDefault();
+    a.setPalette(true);
+  }
+}
+
+/** The keys below the switch and g: each stops at the first that takes it. */
+function pageKeys(a: AppState, e: KeyboardEvent): void {
+  if (besideKeys(e) || (e.key === UNDO_KEY && toastKey.current?.()) || a.runKeys.current?.(e)) e.preventDefault();
+  else if (e.key === '/') slashKey(a, e);
+  else if (e.key === '?') {
+    e.preventDefault();
+    a.setHelp(!a.help);
+  } else if (listKeys(e, () => a.setPalette(true))) e.preventDefault();
 }
 
 export function Keyboard() {
   const app = useApp();
   const latest = useLatest(app);
   const gAt = useRef(0);
+  const singleKeys = useSingleKeys();
+  useEffect(() => {
+    document.documentElement?.classList.toggle('nosk', !singleKeys);
+  }, [singleKeys]);
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       const a = latest.current;
@@ -50,39 +133,8 @@ export function Keyboard() {
       if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === 'k' || e.key === 'K')) return paletteKey(a, e);
       if (e.key === 'Escape') return escapeKey(a, e);
       if (e.metaKey || e.ctrlKey || e.altKey || isTyping(e) || overlayOpen()) return;
-      if (gAt.current) {
-        const fresh = Date.now() - gAt.current <= GO_WINDOW_MS;
-        gAt.current = 0;
-        const to = GO_KEYS[e.key];
-        if (fresh && to) {
-          // An exported copy has Runs, and Compare when it holds two runs or more.
-          if (a.exported && to !== '#/runs' && !(to === '#/compare' && copyCompares(a.meta?.runIds))) return;
-          e.preventDefault();
-          navigate(to);
-          return;
-        }
-      }
-      if (e.key === 'g') {
-        gAt.current = Date.now();
-        return;
-      }
-      // The undo key: what the toast on screen offers (its Undo), before a page's own keys.
-      if (e.key === UNDO_KEY && toastKey.current?.()) {
-        e.preventDefault();
-        return;
-      }
-      if (a.runKeys.current?.(e)) {
-        e.preventDefault();
-        return;
-      }
-      if (e.key === '/') {
-        if (a.exported) return;
-        e.preventDefault();
-        a.setPalette(true);
-      } else if (e.key === '?') {
-        e.preventDefault();
-        a.setHelp(!a.help);
-      }
+      if (!singleKeysOn() && e.key.length === 1) return;
+      if (!goKey(a, e, gAt)) pageKeys(a, e);
     };
     const first = (e: KeyboardEvent) => {
       if (latest.current.conn !== 'expired') overlayKeys(e);

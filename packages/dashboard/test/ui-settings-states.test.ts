@@ -135,7 +135,7 @@ describe('Settings for a project whose folder is gone', () => {
     r = await page(app({ missing: true, client: { matching: async () => matching(null) } }), 'matching');
     await r.until('the tab', () => r!.all('.ruletable').length > 0);
     expect(r.one('.ph h1').textContent).toBe('Can’t open research-agent');
-    expect(r.byText('.ph button', 'Remove from the dashboard').disabled).toBe(false);
+    expect(r.byText('.ph button', 'Remove project…').disabled).toBe(false);
     const why = 'research-agent’s folder is gone: put it back or remove the project';
     const add = r.byText('.settab header button', 'Add normalizer…');
     expect(add.getAttribute('aria-disabled')).toBe('true');
@@ -220,8 +220,8 @@ describe('Coding agents, as the design has it', () => {
     expect(rows(r)[2]).toBe('.agents/skillsfound · Shadowlap’s skills, edited hereReplace with 0.1.0’s copy…');
     await r.click(r.byText('.agentfiles button', 'Replace with 0.1.0’s copy…'));
     expect(startJob).not.toHaveBeenCalled();
-    expect(r.one('.dialog h3').textContent).toBe('Replace Shadowlap’s skills with 0.1.0’s copy?');
-    await r.click(r.byText('.dialog button', 'Replace'));
+    expect(r.one('.dialog h3').textContent).toBe('Replace skills with 0.1.0’s copy?');
+    await r.click(r.byText('.dialog button', 'Replace skills'));
     expect(startJob).toHaveBeenCalledWith('skill-install', { agent: 'agents', replace: true });
 
     await r.unmount();

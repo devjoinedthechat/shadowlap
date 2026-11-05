@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { divergenceButtons, updatePlan } from '../ui/goldens.js';
+import { divergenceButtons } from '../ui/goldens.js';
+import { updatePlan } from '../ui/update-plan.js';
 import { askedTools, callDetail, resultLine, type CallLike } from '../ui/run/calls.js';
-import { bisectBlocked, bisectCopy, bisectLabel, blameOfferFor, blameSource, blameTitle, divergedActions, goldenName, updateGoldenCopy, updatesAfterRules, type BlameFacts } from '../ui/run/offers.js';
+import { bisectBlocked, bisectCopy, bisectLabel, blameSource, blameTitle, divergedActions, goldenName, updateGoldenCopy, updatesAfterRules } from '../ui/run/offers.js';
 import { canPush, defaultPackFolder, htmlCopyVia, pushTitle, shareCommand, shareDialog, sharedLink, shareItemOff, shareItems, shareNote, shareWhy, STILL_RECORDING } from '../ui/run/share.js';
 import type { BisectOffer, DivergenceView, RunOffers, TestBannerOffer, TestsView } from '../ui/types.js';
 
@@ -116,48 +117,39 @@ describe('Run blame and Find the commit', () => {
     expect(blameSource({ from: 'exit', expect: null, failed: [] })).toBe('the exit status: a passing run exits 0');
   });
 
-  it('works Run blame out from the run where the server offers nothing', () => {
-    const facts = (over: Partial<BlameFacts> = {}): BlameFacts => ({ blamed: false, capture: false, argv: ['node', 'agent.js'], status: 'failed', failed: [], fixExpect: undefined, ownExpect: undefined, modelCalls: 4, ...over });
-    // The server's offer, whatever the run says.
-    expect(blameOfferFor({ blame: null }, facts())).toBeNull();
-    expect(blameOfferFor({ blame: { from: 'ask', failed: ['x'] } }, facts({ blamed: true }))).toEqual({ from: 'ask', failed: ['x'] });
-    // An older server.
-    expect(blameOfferFor(null, facts())).toEqual({ from: 'exit', expect: null, failed: [] });
-    // Stopped: it never fails again as recorded, so there is nothing to blame, unless it failed a check.
-    expect(blameOfferFor(null, facts({ status: 'crashed' }))).toBeNull();
-    expect(blameOfferFor(null, facts({ status: 'crashed', failed: ['x'] }))).toEqual({ from: 'ask', failed: ['x'] });
-    expect(blameOfferFor(null, facts({ status: 'completed', failed: ['at most 3 model calls'] }))).toEqual({ from: 'ask', failed: ['at most 3 model calls'] });
-    expect(blameOfferFor(null, facts({ status: 'completed', failed: ['x'], ownExpect: { tools: { a: 1 } } }))).toEqual({ from: 'run', expect: { tools: { a: 1 } }, failed: ['x'] });
-    expect(blameOfferFor(null, facts({ fixExpect: { tools: { b: 0 } } }))).toEqual({ from: 'fix', expect: { tools: { b: 0 } }, failed: [] });
-    // Nothing to blame: blamed already, a capture, no command, still recording, no model call, or it passed.
-    for (const over of [{ blamed: true }, { capture: true }, { argv: [] }, { status: 'running' }, { modelCalls: 0 }, { status: 'completed' }]) expect(blameOfferFor(null, facts(over)), JSON.stringify(over)).toBeNull();
-  });
-
   const offer = (over: Partial<BisectOffer> = {}): BisectOffer => ({ target: { kind: 'run', runId: RUN }, failed: true, good: 'c91d0f4', bad: 'd2e8a1f', revisions: [{ rev: 'c91d0f4', at: 1, runs: 3, failed: 0 }, { rev: 'a7b3c2e', at: 0, runs: 2, failed: 1 }], fork: false, live: false, unavailable: null, args: null, ...over });
 
   it('asks for a commit where it still worked, from the revisions its runs were made at', () => {
     const c = bisectCopy(RUN, offer());
     expect([c.title, c.ok]).toEqual(['Find breaking commit for 01M50J6C69', 'Find breaking commit']);
-    expect(c.text).toBe('Replays the run at commits between a good one and d2e8a1f, halving each time, and names the first where it fails. Replays are free, so this costs no tokens.');
+    expect(c.lead).toBe('Finds the first commit that broke the run, from one where it worked.');
+    expect(c.facts).toEqual([{ label: 'Bad', value: '`d2e8a1f`', quiet: 'the commit the run was recorded at' }]);
+    expect(c.cost).toEqual({ price: 'Free', parts: ['bisect replays offline'] });
+    expect(c.label).toBe('Good commit');
     expect(c.choices).toEqual([
-      { value: 'c91d0f4', label: 'c91d0f4 · 3 runs' },
-      { value: 'a7b3c2e', label: 'a7b3c2e · 2 runs, 1 failed' },
+      { value: 'c91d0f4', subject: null, how: '3 runs of its command · 3 passed' },
+      { value: 'a7b3c2e', subject: null, how: '2 runs of its command · 1 of 2 failed' },
     ]);
     expect(c.initial).toBe('c91d0f4');
     expect(c.command('a7b3c2e')).toBe('shadowlap bisect 01M50J6C69 --good a7b3c2e --bad d2e8a1f');
     // A run that failed on its own replays live past where it differs, and forks: one live replay
     // decides each commit, which it says, with what that means for a failure that comes and goes.
     const live = bisectCopy(RUN, offer({ fork: true, live: true, bad: null, revisions: [] }));
-    expect(live.text).toBe('Replays the run at commits between a good one and HEAD, halving each time, and names the first where it fails. One live replay decides each commit, from where its requests differ: it costs tokens, and a failure that doesn’t happen every time can pass at a commit that has it.');
-    expect(live.choices).toEqual([{ value: 'c91d0f4', label: 'c91d0f4 · where it last passed' }]);
+    expect(live.cost).toEqual({ price: 'Billed by your provider', parts: ['one live replay each, writes blocked'] });
+    expect(live.note).toMatch(/^One live replay decides a commit: a failure that doesn’t happen every time can pass at one that has it/);
+    // Where this checkout lacks the run's own commit, the search ends at HEAD.
+    expect(live.facts).toEqual([{ label: 'Bad', value: '`HEAD`', quiet: 'this checkout doesn’t have its own commit' }]);
+    expect(live.choices).toEqual([{ value: 'c91d0f4', subject: null, how: 'where it last passed' }]);
     expect(live.command('…')).toBe('shadowlap bisect 01M50J6C69 --good … --fork');
-    // A golden's replay bisects the golden.
-    expect(bisectCopy(RUN, offer({ target: { kind: 'golden', golden: 'goldens/research' } })).command('x1')).toBe('shadowlap bisect goldens/research --good x1 --bad d2e8a1f');
+    // A golden's replay bisects the golden, up to the commit the replay was recorded at, as a run's is said.
+    const replay = bisectCopy(RUN, offer({ target: { kind: 'golden', golden: 'goldens/research' } }));
+    expect(replay.command('x1')).toBe('shadowlap bisect goldens/research --good x1 --bad d2e8a1f');
+    expect(replay.facts).toEqual([{ label: 'Bad', value: '`d2e8a1f`', quiet: 'the commit the run was recorded at' }]);
     // Its results at a commit are counted by verdict: one that was inconclusive there failed nothing.
     const counted = bisectCopy(RUN, offer({ target: { kind: 'golden', golden: 'goldens/research' }, revisions: [{ rev: 'c91d0f4', at: 1, runs: 3, failed: 0, inconclusive: 1 }, { rev: 'a7b3c2e', at: 0, runs: 2, failed: 1, inconclusive: 1 }] }));
     expect(counted.choices).toEqual([
-      { value: 'c91d0f4', label: 'c91d0f4 · 3 runs, 1 inconclusive' },
-      { value: 'a7b3c2e', label: 'a7b3c2e · 2 runs, 1 failed, 1 inconclusive' },
+      { value: 'c91d0f4', subject: null, how: '3 runs of its command · 1 of 3 inconclusive' },
+      { value: 'a7b3c2e', subject: null, how: '2 runs of its command · 1 of 2 failed, 1 inconclusive' },
     ]);
   });
 
@@ -165,8 +157,8 @@ describe('Run blame and Find the commit', () => {
     const revisions = [{ rev: 'c91d0f4', at: 1, runs: 3, failed: 0, subject: 'Escalate refunds above the limit' }, { rev: 'a7b3c2e', at: 0, runs: 2, failed: 1 }];
     const c = bisectCopy(RUN, { ...offer({ fork: true, live: true, good: null }), revisions, expect: { tools: { send_email: 1 } } });
     expect(c.choices).toEqual([
-      { value: 'c91d0f4', label: 'c91d0f4 · Escalate refunds above the limit' },
-      { value: 'a7b3c2e', label: 'a7b3c2e · 2 runs, 1 failed' },
+      { value: 'c91d0f4', subject: 'Escalate refunds above the limit', how: '3 runs of its command · 3 passed' },
+      { value: 'a7b3c2e', subject: null, how: '2 runs of its command · 1 of 2 failed' },
     ]);
     expect(c.command('c91d0f4')).toBe(`shadowlap bisect 01M50J6C69 --good c91d0f4 --bad d2e8a1f --expect '{"tools":{"send_email":1}}' --fork`);
   });
@@ -176,7 +168,8 @@ describe('Run blame and Find the commit', () => {
     expect(bisectLabel(passed)).toEqual({ label: 'Find commit that changed it…', hint: 'Names the first commit after its own where it does something else' });
     const c = bisectCopy(RUN, passed);
     expect([c.title, c.ok]).toEqual(['Find commit that changed 01M50J6C69', 'Find commit that changed it']);
-    expect(c.text).toBe('Replays the run at commits from a7b3c2e to HEAD, halving each time, and names the first where it does something else. Replays are free, so this costs no tokens.');
+    expect(c.lead).toBe('Finds the first commit after its own that changed what the run does.');
+    expect(c.facts).toEqual([]);
     expect(c.label).toBe('Start from');
     expect(c.initial).toBe('a7b3c2e');
     // A run that failed, or one nothing is known of, looks for what broke it.
@@ -279,16 +272,16 @@ describe('the diverged test’s actions', () => {
   it('adds the normalizer and re-runs the golden in one click when the rule alone makes the replay match, leading when a value made anew is all that changed', () => {
     expect(updatesAfterRules(test())).toBe(false);
     expect(divergedActions({ ...all, test: test() })).toEqual({
-      normalizer: { kind: 'job', label: 'Add normalizer and re-run', lead: true, off: null, title: "shadowlap normalize add --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", asks: null },
+      normalizer: { kind: 'job', label: 'Add normalizer and re-run', off: null, title: "shadowlap normalize add --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", asks: null },
       update: true,
     });
-    expect(divergedActions({ ...all, test: test({ maybeReal: true }) }).normalizer).toMatchObject({ kind: 'job', label: 'Add normalizer and re-run', lead: false, asks: null });
+    expect(divergedActions({ ...all, test: test({ maybeReal: true }) }).normalizer).toMatchObject({ kind: 'job', label: 'Add normalizer and re-run', asks: null });
   });
 
   it('asks first when the rule alone can’t make the replay match, with the commands the Tests screen’s dialog lists, since the golden is re-recorded live after it', () => {
     expect(updatesAfterRules(added())).toBe(true);
     expect(divergedActions({ ...all, test: added() })).toEqual({
-      normalizer: { kind: 'job', label: 'Add normalizer and update', lead: false, off: null, title: "shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", asks: [ADD, ['test', 'goldens/refund-in-limit', '--update']] },
+      normalizer: { kind: 'job', label: 'Add normalizer and update', off: null, title: "shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", asks: [ADD, ['test', 'goldens/refund-in-limit', '--update']] },
       update: true,
     });
     // The Tests screen's button for the same steps reads the same, and asks too.
@@ -314,7 +307,7 @@ describe('the diverged test’s actions', () => {
     // The run's own action adds the rule alone, records nothing: it needs no asking either way.
     expect(divergedActions({ ...all, hasNormalizeJob: false, hasUpdateJob: false, test: added() })).toEqual({ normalizer: { kind: 'action' }, update: false });
     const readOnly = 'This dashboard is read-only: it was started with --read-only.';
-    expect(divergedActions({ ...all, actionsOff: readOnly, test: test() }).normalizer).toEqual({ kind: 'job', label: 'Add normalizer and re-run', lead: true, off: readOnly, title: readOnly, asks: null });
+    expect(divergedActions({ ...all, actionsOff: readOnly, test: test() }).normalizer).toEqual({ kind: 'job', label: 'Add normalizer and re-run', off: readOnly, title: readOnly, asks: null });
     expect(divergedActions({ ...all, hasNormalizeJob: false, actionsOff: readOnly, test: test() }).normalizer).toBeNull();
     // A server that says nothing of the test.
     expect(divergedActions({ ...all, test: null })).toEqual({ normalizer: { kind: 'action' }, update: false });
@@ -332,30 +325,31 @@ describe('the diverged test’s actions', () => {
     for (const t of each) {
       const copy = updateGoldenCopy(t, 3, true);
       const plan = updatePlan(tests(t), [t.golden], () => true);
-      expect(copy.name).toBe(plan.goldens[0].name);
-      expect(copy.at).toBe(plan.goldens[0].where);
-      expect(copy.checks).toBe(plan.steps[1][1]);
+      expect(copy.title).toBe(plan.title);
+      expect(copy.lead).toBe(plan.lead);
+      expect(copy.goldens).toEqual(plan.goldens);
+      expect(copy.steps).toEqual(plan.steps);
       expect(copy.ok).toBe(plan.ok);
-      expect(copy.advise ? `${copy.advise.path} ${copy.advise.text}` : null).toBe(plan.advise ? `${plan.advise.path} ${plan.advise.text}` : null);
-      expect(copy.advise?.instead ?? null).toBe(plan.instead?.label ?? null);
-      expect(copy.note ? `The normalizer for ${copy.note.path} is in shadowlap.config.json already, so the run after this update matches.` : null).toBe(plan.note ? plan.note.map((p) => (typeof p === 'string' ? p : p.code)).join('') : null);
+      expect(copy.advise).toEqual(plan.advise);
+      expect(copy.instead?.label ?? null).toBe(plan.instead?.label ?? null);
+      expect(copy.note).toBe(null);
     }
     // A field the recording never had: the amber box's button adds the rule and updates.
-    expect(updateGoldenCopy(added({ checks: CHECKS }), 3, true)).toEqual({
-      name: 'refund-in-limit',
-      at: 'diverged at call 3',
-      checks: '2 checks',
-      advise: { path: '$.metadata.user_id', text: 'is new in every request and looks like a UUID, which changes every run. Updating re-records it, and the next run diverges again.', instead: 'Add normalizer and update' },
+    expect(updateGoldenCopy(added({ checks: CHECKS }), 3, true)).toMatchObject({
+      title: 'Update refund-in-limit?',
+      goldens: [{ name: 'refund-in-limit', where: '#3 ~ $.metadata.user_id' }],
+      advise: { path: '$.metadata.user_id', text: 'is a UUID, new every run. Add normalizer and update masks it first.' },
+      instead: { label: 'Add normalizer and update' },
       note: null,
       ok: 'Update anyway',
     });
-    expect(updateGoldenCopy(test(), 3, true).advise?.instead).toBe('Add normalizer and re-run');
-    // Where the server can't add it, the box says so without a button.
-    expect(updateGoldenCopy(added(), 3, false).advise?.instead).toBeNull();
+    expect(updateGoldenCopy(test(), 3, true).instead?.label).toBe('Add normalizer and re-run');
+    // Where the server can't add it, the advice says so with no way on.
+    expect(updateGoldenCopy(added(), 3, false).instead).toBeNull();
     // A golden with no checks is judged on its exit status; a server that doesn't send them, by what the replay ran.
-    expect(updateGoldenCopy(added({ checks: [] }), 3, true).checks).toBe('exit status');
-    expect(updateGoldenCopy(added(), 3, true, 1).checks).toBe('1 check');
-    expect(updateGoldenCopy(added(), 3, true).checks).toBe('from shadowlap.config.json');
+    expect(updateGoldenCopy(added({ checks: [] }), 3, true).steps[1][0]).toBe('Replaced only if it exits 0');
+    expect(updateGoldenCopy(added(), 3, true, 1).steps[1][0]).toBe('Replaced only if its check passes');
+    expect(updateGoldenCopy(added(), 3, true).steps[1][0]).toBe('Replaced only if its checks pass');
   });
 });
 

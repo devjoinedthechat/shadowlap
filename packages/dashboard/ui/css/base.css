@@ -12,6 +12,8 @@ code, pre, .mono { font-family: var(--mono); }
 code { font-size: min(1em, var(--fs-quiet)); }
 b, strong { font-weight: 600; }
 :focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+/* a page's heading takes the focus as -1, as a place for the keyboard to start from: no ring round it */
+#view h1[tabindex="-1"]:focus { outline: none; }
 /* Chrome makes a scrolling pane focusable on its own; the selected row already shows where you are, so the pane draws no ring */
 main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visible, .ibody:focus-visible, .pallist:focus-visible, .pklist:focus-visible, .rawsse:focus-visible { outline: none; }
 /* A pane that takes the focus to be scrolled by keyboard (it holds no control of its own) says it has it. */
@@ -19,7 +21,7 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 /* A pane that scrolls cuts off what is drawn past its edge, a control's ring among them: inside one, the ring is drawn
    inside the control, so it shows whole wherever the control sits. The page itself keeps its padding clear of rings. */
 :is(.runs, .vbody, .ibody, .pallist, .pallist > [role="listbox"], .pop, .help, .help .hbody, .pklist, .dialog .db, .dialog > .db, .dialog pre.fxpatch, .drawer pre, .drawer .jfiles, .tscroll, .fxtable, .stabs, .views .tabs, .bulkbar, .rawsse, .codebox, .cmdline, pre.report, .diffpanel pre) :focus-visible { outline-offset: -2px; }
-/* Skip to the page: the first stop for Tab, out of sight until it has the focus; it shows as an overlay does, the page's
+/* Skip to content: the first stop for Tab, out of sight until it has the focus; it shows as an overlay does, the page's
    own ground set apart by an edge and a shadow, never lime, which means the primary action and passed. */
 .skip { position: fixed; z-index: 70; left: 12px; top: 10px; padding: 7px 12px; border: 1px solid transparent; border-radius: var(--r-control); color: var(--ink); font-weight: 600; text-decoration: none; transform: translateY(-200%); }
 .skip:focus { transform: none; }
@@ -77,8 +79,6 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .btn.quiet.dz:hover:not([disabled], [aria-disabled="true"]) { color: var(--err); background: color-mix(in srgb, var(--err) 10%, transparent); }
 .btn.push { margin-left: auto; }
 .btn.danger { background: var(--err); border-color: var(--err); color: var(--tar); font-weight: 600; }
-.btn.solid { background: var(--ink); border-color: var(--ink); color: var(--bg); font-weight: 600; }
-.btn.solid:hover:not([disabled], [aria-disabled="true"]) { background: color-mix(in srgb, var(--ink) 86%, var(--bg)); border-color: color-mix(in srgb, var(--ink) 86%, var(--bg)); }
 .btn.danger:hover:not([disabled], [aria-disabled="true"]) { background: color-mix(in srgb, var(--err) 88%, #000); border-color: color-mix(in srgb, var(--err) 88%, #000); }
 .btn[disabled], .btn[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
 .btn.lime[disabled] { opacity: 1; background: var(--raise); border-color: var(--line2); color: var(--faint); box-shadow: none; }
@@ -304,8 +304,12 @@ pre.codebox .add { display: inline-block; min-width: calc(100% + 28px); margin: 
 .form.one { grid-template-columns: minmax(0, 1fr); }
 
 /* selects inside dialogs and forms: the same padded chevron as the pickers */
-.form select { -webkit-appearance: none; appearance: none; padding: 0 32px 0 10px; background: var(--panel) var(--chev) no-repeat right 11px center / 10px 10px; cursor: pointer; }
+.form select { -webkit-appearance: none; appearance: none; padding: 0 32px 0 10px; background: var(--panel) var(--chev) no-repeat right 11px center / 10px 10px; font: var(--fs-body) var(--body); cursor: pointer; }
 .form select:hover { border-color: var(--faint); }
+/* a select can't wrap: on a phone its words step down to 12.5 so the longest option a dialog offers fits a 360px screen, and a
+   narrower one ends it on an ellipsis, never a cut letter; the list it opens shows each option whole */
+@media (max-width: 400px) { .form select { font-size: 12.5px; text-overflow: ellipsis; } }
+@media (max-width: 480px) { .form { grid-template-columns: minmax(0, 1fr); } }
 
 /* code reads as typed: no joined != or == */
 code, pre, kbd, .mono, .kbd, .codebox, .cmdline { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
@@ -394,8 +398,8 @@ table.t tbody tr.wspace { cursor: default; }
 
 table.t tbody tr.wspace:hover td { background: none; }
 
-.rid a.rlink { text-decoration: none; color: inherit; }
-.rid a.rlink:hover code { text-decoration: underline; text-underline-offset: 3px; }
+/* a row's link names what the row opens, for the keyboard, a screen reader and a new tab: it looks as its words would */
+a.rowa { color: inherit; text-decoration: none; }
 
 .num.left, table.t td.num.left { text-align: left; }
 
@@ -463,7 +467,7 @@ code.rnm { white-space: nowrap; }
     .eyebrow, .side-k, .k, .sec-k, .banner .bk, .rnote .bk, .hgroup h4, .pop .pk, .palg, .pill, .eff, .tag, .tag-local, .badge,
     .tchip em, .bmk, .cells button .flag, .cbar .miss, table.t th:not(.mh), table.calls th, table.calls .n .fk, th.hist span,
     .fxtable th, .msg .role, .msg .role small, .msg .chg, .think .tlab, .callrow .pl, .diffpanel h4,
-    .paths h4, .fdiff h2, .prov h3, .slackmsg .sh .sapp, .kbd, .palfoot kbd, .clabels, .tl-axis, .yaxis, .xlabels, .calwd
+    .paths h4, .fdiff h2, .prov h3, .slackmsg .sh .sapp, .kbd, .palfoot kbd, .palit .palk kbd, .clabels, .tl-axis, .yaxis, .xlabels, .calwd
   ) { font-size: var(--fs-label); }
   /* a pseudo-element can't sit in :is(): report.md's labels over its values on a narrow panel */
   :is(#root, body) .fxtable td::before { font-size: var(--fs-label); }

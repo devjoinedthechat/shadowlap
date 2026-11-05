@@ -2,9 +2,10 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { isMac, isTyping } from '../dom.js';
 import { focusBack, openerOf, type Opener } from '../overlays/focus-back.js';
 import { onOverlayChange } from '../overlays/modal-store.js';
+import { useSingleKeys } from '../single-keys.js';
 import { useApp } from '../state.js';
 import { placeToast, retoast } from '../toast-place.js';
-import { ACTION_TOAST_MS, actionSaid, announce, setAnnouncer, TOAST_MS, toastKey, UNDO_SHORTCUTS, type ToastAction } from '../toast.js';
+import { ACTION_TOAST_MS, actionSaid, announce, setAnnouncer, TOAST_MS, toastKey, UNDO_CHORDS, UNDO_SHORTCUTS, type ToastAction } from '../toast.js';
 
 type Shown = NonNullable<ReturnType<typeof useApp>['toastText']>;
 
@@ -153,6 +154,7 @@ export function ToastHost() {
 
   useUndoKeys(shown, out, conn, act);
 
+  const singleKeys = useSingleKeys();
   const body = shown ? (
     <div className={`toast${shown.kind === 'error' ? ' err' : ''}${out ? ' out' : ''}`} key={shown.id} ref={box}>
       <i />
@@ -162,7 +164,7 @@ export function ToastHost() {
           type="button"
           className="tbtn"
           ref={button}
-          aria-keyshortcuts={shown.action.undo ? UNDO_SHORTCUTS : undefined}
+          aria-keyshortcuts={shown.action.undo ? (singleKeys ? UNDO_SHORTCUTS : UNDO_CHORDS) : undefined}
           onClick={() => act(shown, shown.action!)}
           onPointerEnter={() => clearTimeout(timer.current)}
           onPointerLeave={() => {

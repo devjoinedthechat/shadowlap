@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { compareRuns } from '../src/compare.js';
 import { storeApiRequest } from '../src/manifest.js';
-import { requestPathLabel } from '../src/request-paths.js';
+import { pathSetByCode, requestPathLabel } from '../src/request-paths.js';
 import { Store } from '../src/store.js';
 import type { RunRecord } from '../src/types.js';
 
@@ -160,5 +160,18 @@ describe('compareRuns names what differs', () => {
     const t = compareRuns(store, x, store.getCalls(x.runId), y, store.getCalls(y.runId));
     expect(t.firstRequestDifference?.diff?.[0]).toMatchObject({ path: '$.amount', what: 'issue_refund · amount' });
     store.close();
+  });
+});
+
+describe('pathSetByCode', () => {
+  it('tells what a patch or a config change changes from what a run came to, by the path alone', () => {
+    for (const path of ['$.system', '$.system[0].text', '$.model', '$.tools[1].description', '$.instructions', '$.systemInstruction.parts[0].text', '$.system_instruction', '$.toolConfig.tools[0]', '$.tool_choice']) expect(pathSetByCode(path), path).toBe(true);
+    for (const path of ['$', '$.metadata.user_id', '$.messages[0].content', '$.messages[3].content[0].text', '$.temperature', '$.systems', '$.input[0]']) expect(pathSetByCode(path), path).toBe(false);
+  });
+
+  it('takes Chat Completions’ first message for its system prompt, as Anthropic’s is the user’s', () => {
+    expect(pathSetByCode('$.messages[0].content', 'POST /v1/chat/completions')).toBe(true);
+    expect(pathSetByCode('$.messages[10].content', 'POST /v1/chat/completions')).toBe(false);
+    expect(pathSetByCode('$.messages[0].content', 'POST /v1/messages')).toBe(false);
   });
 });

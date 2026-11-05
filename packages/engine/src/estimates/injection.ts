@@ -1,6 +1,7 @@
 import { CHAOS_PRESETS, presetHits, type ChaosPreset, type ChaosTargets } from '../chaos.js';
 import { DEFAULT_BASELINES, type PlantReport, type UntrustedRead } from '../injection.js';
 import type { SprtGate } from '../stats.js';
+import { INJECTION_PART } from '../cost-words.js';
 import { counted, liveSums, noEstimate, noPriceWords, type Estimate, type PricedCall } from './estimate.js';
 import { amountWords } from './spending.js';
 
@@ -79,7 +80,7 @@ function plantedPrice(calls: readonly PricedCall[], reads: ReadonlyArray<Pick<Un
   }
   const attempts = planted.length * plan.payloads * repeat;
   const clean = planted.length * baselines;
-  return { kind: 'injection', usd, ceiling: false, parts: [attemptsWords(attempts, clean), 'live from each read, writes stubbed'], attempts: attempts + clean };
+  return { kind: 'injection', usd, ceiling: false, parts: [attemptsWords(attempts, clean), INJECTION_PART], attempts: attempts + clean };
 }
 
 /**
@@ -111,7 +112,7 @@ export function causeEstimate(calls: readonly PricedCall[], read: Pick<Untrusted
  * says what planting again bills.
  */
 export function injectionAgainEstimate(last: Pick<PlantReport, 'totals' | 'baselines' | 'cost'>): Estimate {
-  const parts = ['live from each read, writes stubbed'];
+  const parts = [INJECTION_PART];
   if (last.cost.unknownModels.length) return noEstimate('injection', noPriceWords({ unpriced: last.cost.unknownModels }), parts);
   if (last.cost.spent <= 0) return noEstimate('injection', 'the last test spent nothing live, so what this one bills is unknown', parts);
   const attempts = last.totals.attempts;

@@ -151,6 +151,10 @@ describe('what each colour may mean', () => {
     // The shortcuts a page doesn't offer, and a CI feature turned off: faded, they fell to 2.2 and 4.0:1.
     expect(value('.hgroup.off dd', 'color')).toBe('var(--faint)');
     expect(value('.hgroup.off dd', 'opacity')).toBeNull();
+    // A line single-key shortcuts turned off dims the same way, its key too.
+    expect(value('.nosk .help .hgroup:not(.off) .sk', 'color')).toBe('var(--faint)');
+    expect(value('.nosk .help .hgroup:not(.off) .sk', 'opacity')).toBeNull();
+    expect(value('.nosk .help .hgroup:not(.off) .sk kbd', 'color')).toBe('var(--faint)');
     const faded = rules().filter((r) => r.selectors.some((x) => x.startsWith('.cip.off') || x.startsWith('.hgroup.off')) && /(^|;)\s*opacity\s*:/.test(r.body));
     expect(faded.map((r) => r.selectors.join(', '))).toEqual([]);
     // On the connection bar's amber wash the faint ink is 4.4:1: the dim one.
@@ -335,8 +339,8 @@ describe('amber', () => {
     '.set > .kvs dd small.warn': 'a setting that needs a look',
     '.egrp.mcp td small.mnote.warn': 'an MCP server that needs a look',
     '.trow.warn > span:last-child': 'a row that needs a look',
-    '.dialog.editfork .warnline': 'what an edit and fork asks you to look at',
-    '.dialog p.trbusy': 'why a model can’t be scored yet: a look',
+    '.dialog .dwarn': 'a dialog’s one line: where it can’t help yet, or what to look at before pressing',
+    '.dialog .dfacts .amber dt': 'a row of a dialog that runs someone else’s command: a look',
     '.connbar .cdot': 'the dashboard can’t be reached: a look',
     '.status .off': 'the dashboard can’t be reached: a look',
   };
@@ -344,7 +348,6 @@ describe('amber', () => {
   const UNTIL: Record<string, string> = {
     '.badge.y': 'port/primitives, then each page’s slice: Status draws a status as a dot and a word, never a tinted badge',
     '.warnbox': 'port/setup-states: a warning in a step is a plain line, its first words in amber, never a tinted box',
-    '.dialog .dz.advise': 'port/dialogs: a dialog says what needs a look in its one amber line, never a tinted box',
     '.changes div.diff': 'port/compare: what changed is one quiet line, in place of Compare’s tiles',
   };
 
@@ -372,7 +375,6 @@ describe('grounds, tints and lines', () => {
   const MIX = /color-mix\((?:[^()]|\([^()]*\))*\)/g;
   /** The tints that remain outside the tokens, each with its reason: later slices shrink this list. */
   const TINTS: Record<string, string> = {
-    '.btn.solid:hover:not([disabled], [aria-disabled="true"])': 'the ink button under the pointer, a step off ink',
     '.btn.danger:hover:not([disabled], [aria-disabled="true"])': 'the red button under the pointer, a step darker',
     '.btn.lime:hover:not([disabled], [aria-disabled="true"])': 'the lime button under the pointer, a step lighter',
     '.av.t1': 'an avatar’s colour on the raised ground',

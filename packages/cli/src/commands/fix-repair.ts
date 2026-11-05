@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
 import { InvalidArgumentError } from 'commander';
-import { describeGate, dimLines, formatRepair, messageOf, splitHoldout, SPRT_DEFAULTS, type ReadPolicy, type RepairReport, type RunRecord, type StoredFix, type VerdictStanding } from '@shadowlap/engine';
+import { ACTIONS, describeGate, dimLines, formatRepair, messageOf, splitHoldout, SPRT_DEFAULTS, type ReadPolicy, type RepairReport, type RunRecord, type StoredFix, type VerdictStanding } from '@shadowlap/engine';
 import { fixHref } from '@shadowlap/dashboard';
 import { formatAttemptsUnrecorded } from '../attempt-unrecorded.js';
 import { formatBudget, undecidableRefusal } from '../attempts.js';
@@ -228,7 +228,7 @@ function reportRepair(opts: GlobalOpts, report: RepairReport, handOverFailed: Ha
   // Each candidate's verify: what its attempts ran that nothing recorded (the blame's attempts named theirs as they ran).
   const ranRepair = formatAttemptsUnrecorded(report.candidates.flatMap((c) => (c.verify ? verifyAttempts(c.verify) : [])).map((a) => a.unrecordedTools));
   if (ranRepair) process.stderr.write('\n' + ranRepair);
-  for (const { fix: f } of kept?.fixes ?? []) emitJobEvent({ type: 'link', label: 'Open fix', href: fixHref(f.fixId, 'repair') });
+  for (const { fix: f } of kept?.fixes ?? []) emitJobEvent({ type: 'link', label: ACTIONS.openFix.label, href: fixHref(f.fixId, 'repair') });
   if (report.output.patch) emitJobEvent({ type: 'file', path: report.output.patch, label: 'fix.patch' });
   emitJobEvent({ type: 'result', data: json });
   // Fixed and handed over, 0; stopped before a verdict, by its reason; no fix, or a hand-over that failed, 1.

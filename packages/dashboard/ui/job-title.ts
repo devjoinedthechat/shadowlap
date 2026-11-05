@@ -83,9 +83,17 @@ export function jobTitle(job: JobLike): string {
   return DOING[cmd ?? ''] ?? 'Running';
 }
 
+/** A word of a command as a shell reads it: as it is where it is plain, else in single quotes. */
+export const quoteArg = (a: string): string => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`);
+
 /** The command as typed, for the drawer's first line. */
 export function jobCommand(args: readonly string[]): string {
-  return `shadowlap ${args.map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`)).join(' ')}`;
+  return `shadowlap ${args.map(quoteArg).join(' ')}`;
+}
+
+/** The command a dialog's job will run as its fields stand, each word quoted as the job's is: a field still empty reads `…`. */
+export function draftCommand(args: readonly string[]): string {
+  return `shadowlap ${args.map((a) => (a ? quoteArg(a) : '…')).join(' ')}`;
 }
 
 /**

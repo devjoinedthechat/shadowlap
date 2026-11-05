@@ -1,8 +1,10 @@
+import type { CostWords, FactWords } from '../actions.js';
 import { goldenName, num, shortId } from '../format.js';
+import { commandText } from '../goldens.js';
+import { divergedWhere, insteadOf, recordingCost, replacedIf, updateSteps, type UpdatePlan } from '../update-plan.js';
 import { ACTIONS, confirmWords } from '../labels.js';
-import { isObject } from '../../../engine/src/is-object.js';
-import { bisectCost } from '../runspage/find-commit.js';
-import type { BisectOffer, BlameOffer, RunOffers, TestBannerOffer } from '../types.js';
+import { bisectBadFact, bisectCost, FLAKY_NOTE, revisionTally, type GoodChoice } from '../runspage/find-commit.js';
+import type { BisectOffer, BlameOffer, TestBannerOffer } from '../types.js';
 
 /**
  * What the run page offers beyond the run's record, in words and choices, without the DOM: Run blame
@@ -12,41 +14,6 @@ import type { BisectOffer, BlameOffer, RunOffers, TestBannerOffer } from '../typ
 
 /** A shell-quoted value, as the command lines the page shows have it. */
 const quote = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
-
-/** What the page knows of a run for Run blame when the server sends no offers (an older server). */
-export interface BlameFacts {
-  /** Blame has been run on it already. */
-  blamed: boolean;
-  /** It came from a capture, with no command to run again. */
-  capture: boolean;
-  argv: readonly string[];
-  status: string;
-  /** The labels of the checks it failed. */
-  failed: string[];
-  /** The check of the fix its labels point to (`blameExpect`). */
-  fixExpect: unknown;
-  /** Its own `--expect`. */
-  ownExpect: unknown;
-  /** How many model calls it made: blame asks them again, so a run with none has nothing to blame. */
-  modelCalls: number;
-}
-
-/**
- * Run blame for a failed run: what the server offers, or, from a server that offers nothing, the
- * same worked out from the run: the check the fix's labels suggest, the run's own --expect, a check
- * to ask for, or the exit status. Null where blame doesn't apply, as on an interrupted run that
- * failed no check (blame needs a run that fails again as recorded).
- */
-export function blameOfferFor(offers: Pick<RunOffers, 'blame'> | null, f: BlameFacts): BlameOffer | null {
-  if (offers) return offers.blame;
-  if (f.blamed || f.capture || !f.argv.length || f.status === 'running' || !f.modelCalls) return null;
-  const failed = f.failed;
-  if (!failed.length && f.status !== 'failed') return null;
-  if (f.fixExpect !== undefined && f.fixExpect !== null) return { from: 'fix', expect: f.fixExpect, failed };
-  if (failed.length && isObject(f.ownExpect)) return { from: 'run', expect: f.ownExpect, failed };
-  if (failed.length) return { from: 'ask', failed };
-  return { from: 'exit', expect: null, failed };
-}
 
 const BLAME_HOVER: Record<BlameOffer['from'], string> = {
   run: 'with the checks it was replayed with',
@@ -90,7 +57,7 @@ export { goldenName };
  */
 export type NormalizerChoice =
   | { kind: 'added'; passingRun: string | null }
-  | { kind: 'job'; label: string; lead: boolean; off: string | null; title: string | null; asks: string[][] | null }
+  | { kind: 'job'; label: string; off: string | null; title: string | null; asks: string[][] | null }
   | { kind: 'action' }
   | null;
 
@@ -105,11 +72,9 @@ export function divergedActions(o: {
   const t = o.test;
   const updates = !!t && updatesAfterRules(t);
   if (t?.normalized) return { normalizer: { kind: 'added', passingRun: t.passingRun }, update: o.hasUpdateJob && updates && !t.passingRun };
-  // An id that may be a real change: neither button leads.
-  const lead = t ? t.normalizerFixes && !t.maybeReal : true;
   const normalizer: NormalizerChoice =
     t?.normalizeAndTest && o.hasNormalizeJob
-      ? { kind: 'job', label: updates ? ACTIONS.addNormalizerAndUpdate.label : ACTIONS.addNormalizerAndRerun.label, lead, off: o.actionsOff, title: o.actionsOff ?? t.volatile?.command ?? null, asks: updates ? t.normalizeAndTest : null }
+      ? { kind: 'job', label: updates ? ACTIONS.addNormalizerAndUpdate.label : ACTIONS.addNormalizerAndRerun.label, off: o.actionsOff, title: o.actionsOff ?? t.volatile?.command ?? null, asks: updates ? t.normalizeAndTest : null }
       : o.action && !o.actionsOff
         ? { kind: 'action' }
         : null;
@@ -117,50 +82,31 @@ export function divergedActions(o: {
 }
 
 /**
- * The run page's Update golden dialog in the Tests screen's words for one golden: where it diverged;
- * the checks the update runs (the golden's now, or its exit status when it has none); when what
- * diverged is a value that changes every run and no rule masks it yet, the amber note that a
- * normalizer is the lasting fix, with its button named for what it runs (`instead`: the rule and a
- * re-run, or the rule and this update when the rule alone can't make the replay match; null where
- * the server can't add it); or, once the rule is in the config, the line saying the run after this
- * update matches.
+ * Update golden on a test replay's page, as the Tests screen words it. `replayChecks`, how many checks
+ * this replay was judged by, stands in for the golden's own from a server that doesn't send them (or
+ * for a golden no longer on disk, which an update refuses).
  */
-export interface UpdateGoldenCopy {
-  name: string;
-  at: string;
-  /** What "Its checks run" says: `2 checks`, `exit status`. */
-  checks: string;
-  advise: { path: string; text: string; instead: string | null } | null;
-  /** The plain line above the command, its path set in code. */
-  note: { path: string | null } | null;
-  ok: string;
-}
-
-const checkCount = (n: number) => `${num(n)} ${n === 1 ? 'check' : 'checks'}`;
-
-/**
- * `replayChecks`, how many checks this replay was judged by, stands in for the golden's own from a
- * server that doesn't send them (or for a golden no longer on disk, which an update refuses).
- */
-export function updateGoldenCopy(t: TestBannerOffer, callNo: number, canNormalize: boolean, replayChecks = 0): UpdateGoldenCopy {
+export function updateGoldenCopy(t: TestBannerOffer, callNo: number, canNormalize: boolean, replayChecks = 0): UpdatePlan {
   const v = t.volatile;
   const own = Array.isArray(t.checks) ? t.checks.length : null;
-  const checks = own !== null ? (own ? checkCount(own) : 'exit status') : replayChecks ? checkCount(replayChecks) : 'from shadowlap.config.json';
-  const advise =
-    v?.certain && !t.normalized
-      ? {
-          path: v.path,
-          text: `${v.op === 'added' ? 'is new in every request and ' : ''}looks like ${v.looks}, which changes every run. Updating re-records it, and the next run diverges again.`,
-          instead: canNormalize ? (updatesAfterRules(t) ? ACTIONS.addNormalizerAndUpdate.label : ACTIONS.addNormalizerAndRerun.label) : null,
-        }
-      : null;
+  const name = goldenName(t.golden);
+  const perRun = !!v?.certain && !t.normalized;
+  const run = perRun && canNormalize ? (updatesAfterRules(t) ? 'normalize-update' : 'normalize') : null;
+  const instead = run ? insteadOf(run, t.normalizeAndTest ?? [], t.golden, false) : null;
+  const replaced = own === null && !replayChecks ? 'Replaced only if its checks pass' : replacedIf(own ?? replayChecks);
   return {
-    name: goldenName(t.golden),
-    at: `diverged at call ${callNo}`,
-    checks,
-    advise,
-    note: t.normalized && updatesAfterRules(t) ? { path: v?.path ?? null } : null,
-    ok: advise ? 'Update anyway' : confirmWords(ACTIONS.updateGolden.label),
+    title: `Update ${name}?`,
+    lead: `Re-records ${name}, for a change you meant.`,
+    doc: 'goldenUpdates',
+    facts: [],
+    goldens: [{ path: t.golden, name, where: divergedWhere({ callNo, volatile: v ?? null }) }],
+    steps: updateSteps(replaced, perRun ? (v?.looks ?? 'value') : null),
+    advise: perRun && v ? { title: 'A normalizer fixes this for good', text: `is ${v.looks}, new every run. ${instead ? `${instead.label} masks it first.` : 'Updating re-records it, and the next run diverges again.'}`, path: v.path } : null,
+    instead,
+    note: null,
+    command: commandText(['test', t.golden, '--update']),
+    cost: recordingCost(true),
+    ok: perRun ? 'Update anyway' : confirmWords(ACTIONS.updateGolden.label),
   };
 }
 
@@ -184,11 +130,16 @@ export interface BisectCopy {
   title: string;
   /** Its confirm: the menu item's name without the ellipsis. */
   ok: string;
-  text: string;
+  lead: string;
+  /** Good commit, or Start from for a run that passed. */
   label: string;
   /** The revisions to pick from, newest first, each with how its runs went; any other is accepted too. */
-  choices: Array<{ value: string; label: string }>;
+  choices: GoodChoice[];
   initial: string;
+  facts: FactWords[];
+  cost: CostWords;
+  /** What one live replay can't settle, for a fork. */
+  note: string | null;
   /** The command with a good commit filled in. */
   command: (good: string) => string;
 }
@@ -219,20 +170,20 @@ export const bisectCardCommand = (offer: BisectOffer): string => `$ ${bisectLine
 export function bisectCopy(runId: string, offer: BisectOffer): BisectCopy {
   const b = offer as BisectFrom;
   const target = b.target.kind === 'golden' ? b.target.golden : shortId(b.target.runId);
-  const upTo = b.bad ?? 'HEAD';
-  // A run that failed on its own: one live replay decides each commit, which a failure that comes and goes can pass.
-  const cost = bisectCost(b);
-  const choices = b.revisions.map((r) => ({ value: r.rev, label: `${r.rev} · ${r.subject ? r.subject : `${r.runs === 1 ? '1 run' : `${num(r.runs)} runs`}${r.failed ? `, ${num(r.failed)} failed` : ''}${r.inconclusive ? `, ${num(r.inconclusive)} inconclusive` : ''}`}` }));
-  if (b.good && !choices.some((c) => c.value === b.good)) choices.unshift({ value: b.good, label: b.failed ? `${b.good} · where it last passed` : `${b.good} · this run` });
+  const whose = b.target.kind === 'golden' ? target : 'the run';
+  const runs = (r: { runs: number }) => `${r.runs === 1 ? '1 run' : `${num(r.runs)} runs`} of its command`;
+  const choices: GoodChoice[] = b.revisions.map((r) => ({ value: r.rev, subject: r.subject ?? null, how: `${runs(r)} · ${revisionTally(r)}` }));
+  if (b.good && !choices.some((c) => c.value === b.good)) choices.unshift({ value: b.good, subject: null, how: b.failed ? 'where it last passed' : 'this run' });
   return {
     title: b.failed ? `Find breaking commit for ${shortId(runId)}` : `Find commit that changed ${shortId(runId)}`,
     ok: confirmWords(bisectLabel(b).label),
-    text: b.failed
-      ? `Replays ${b.target.kind === 'golden' ? target : 'the run'} at commits between a good one and ${upTo}, halving each time, and names the first where it fails. ${cost}`
-      : `Replays ${b.target.kind === 'golden' ? target : 'the run'} at commits from ${b.good ?? 'its own'} to HEAD, halving each time, and names the first where it does something else. ${cost}`,
-    label: b.failed ? 'A commit where it still worked' : 'Start from',
+    lead: b.failed ? `Finds the first commit that broke ${whose}, from one where it worked.` : `Finds the first commit after its own that changed what ${whose === 'the run' ? 'the run does' : `${whose} does`}.`,
+    label: b.failed ? 'Good commit' : 'Start from',
     choices,
     initial: b.good ?? choices[0]?.value ?? '',
+    facts: b.failed ? [bisectBadFact(b)] : [],
+    cost: bisectCost(b),
+    note: b.fork ? FLAKY_NOTE : null,
     command: (good) => bisectLine(b, !good || good === '…' ? '…' : quote(good)),
   };
 }

@@ -515,7 +515,7 @@ describe('what waits', () => {
     const onOk = vi.fn();
     const toasts: unknown[][] = [];
     const value = { conn: 'offline', actionsOff: null, toast: (...x: unknown[]) => toasts.push(x) } as unknown as AppState;
-    r = await render(createElement(AppContext.Provider, { value }, createElement(Dialog, { title: 'Delete it?', text: 'It goes.', ok: 'Delete it', tone: 'danger', onOk, onClose: () => undefined })));
+    r = await render(createElement(AppContext.Provider, { value }, createElement(Dialog, { title: 'Delete it?', lead: 'It goes.', ok: 'Delete it', tone: 'danger', onOk, onClose: () => undefined })));
     const ok = r.one('.dialog .dlg-ok');
     expect(ok.getAttribute('aria-disabled')).toBe('true');
     expect(ok.className).not.toContain('danger');
@@ -558,7 +558,7 @@ describe('what waits', () => {
     const field = r.one('.dialog input');
     await r.press('Enter', {}, field);
     expect(onRun).not.toHaveBeenCalled();
-    expect(toasts).toEqual([[PAUSED, 'notice']]);
+    expect(toasts).toEqual([[PAUSED, 'notice', undefined]]);
     expect(r.all('.dialog')).toHaveLength(1);
     expect(r.one('.dialog input').value).toBe('good');
   });

@@ -1,5 +1,6 @@
+import type { FactWords } from '../actions.js';
 import { num, plural, shortId } from '../format.js';
-import { jobCommand } from '../job-title.js';
+import { jobCommand, quoteArg } from '../job-title.js';
 import type { BulkSkip, DeleteResult, LabelRunsResult } from '../types.js';
 
 /** What the bulk bar says once it has acted on the runs picked, and what Push sends. No DOM here: the tests import it. */
@@ -18,22 +19,24 @@ export function bulkToast(o: { verb: string; done: readonly string[]; of: number
 }
 
 /**
- * What a bulk Delete takes, for its title: "2 runs and the 6 attempts bundled under them",
- * "01K5CQ4N7G and the attempt bundled under it", or the runs alone when none has attempts. A count
- * keeps to its noun when the title wraps.
+ * What a Delete says it takes: the run or the runs, how many attempts go with them, and the recorded
+ * data nothing else uses. The number stays before you press, as in the terminal UI's confirm.
  */
-export function deleteWhat(ids: readonly string[], attempts: number): string {
-  const runs = named(ids).replace(' ', '\u00a0');
-  if (!attempts) return runs;
-  return `${runs} and the ${attempts === 1 ? 'attempt' : `${num(attempts)}\u00a0attempts`} bundled under ${ids.length === 1 ? 'it' : 'them'}`;
+export function deleteLead(runs: number, attempts: number): string {
+  const one = runs === 1;
+  const with_ = attempts ? `, ${one ? 'its' : 'their'} ${attempts === 1 && one ? 'attempt' : plural(attempts, 'attempt')} and` : ' and';
+  return `Deletes ${one ? 'the run' : 'the runs'}${with_} the recorded data nothing else uses.`;
 }
 
-/** The line under a bulk Delete's title: what goes with the runs, what keeps its data, and the runs still recording it leaves alone. */
-export function deleteText(runs: number, attempts: number, live: readonly string[]): string {
-  const them = runs === 1 ? 'it' : 'them';
-  const gone = attempts ? `${runs === 1 ? 'the run' : 'the runs'}, ${attempts === 1 ? 'the attempt' : 'the attempts'} bundled under ${them}` : runs === 1 ? 'the run' : 'the runs';
-  const left = live.length ? ` ${live.map((id) => shortId(id)).join(', ')} ${live.length === 1 ? 'is' : 'are'} still recording and ${live.length === 1 ? 'is' : 'are'} left alone.` : '';
-  return `Removes ${gone} and the recorded data nothing else uses. ${runs === 1 ? 'Its' : 'Their'} forks keep their own data but lose the link.${left}`;
+/** What keeps its data and what is left alone, as a Delete's rows. */
+export function deleteFacts(runs: number, live: readonly string[]): FactWords[] {
+  return [{ label: 'Forks, replays', value: 'keep their own data', quiet: `they lose the link to ${runs === 1 ? 'it' : 'them'}` }, ...(live.length ? [{ label: 'Left alone', value: live.map((id) => `\`${shortId(id)}\``).join(', '), quiet: 'still recording' }] : [])];
+}
+
+/** Add label's command, a line a run, the label as it is typed: the first few and how many more, for a long pick. */
+export function labelCommands(ids: readonly string[], label: string): { shown: readonly string[]; full: string } {
+  const lines = ids.map((id) => `shadowlap label ${shortId(id)} ${label ? quoteArg(label) : '<label>'}`);
+  return lines.length <= RM_SHOWN ? { shown: lines, full: lines.join('\n') } : { shown: [...lines.slice(0, RM_SHOWN), `… and ${num(lines.length - RM_SHOWN)} more`], full: lines.join('\n') };
 }
 
 /**

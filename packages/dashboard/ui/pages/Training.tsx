@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { JOB_KINDS, type ModelsView, type PairGroupView, type PipView, type TaskUpdate, type TrainingView } from '../api.js';
-import { Badge, CmdLine, CommandLine, EmptyState, Kpi, PageHeader, Seg } from '../components/bits.js';
+import { Badge, CmdLine, EmptyState, Kpi, PageHeader, Seg } from '../components/bits.js';
 import { Dialog } from '../components/Dialog.js';
 import { tipText } from '../components/HoverCard.js';
 import { Page } from '../components/Page.js';
@@ -12,8 +12,9 @@ import { useLoad } from '../hooks.js';
 import { addPaletteSource, paletteSourcesChanged } from '../palette-sources.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
+import { redactsFact } from '../run/share.js';
 import { useApp } from '../state.js';
-import { ENDPOINT, exportCommand, filterGroups, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickNote, pipClass, pipTip, scoreCommand, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type PairChip, type TrainingDialog } from '../training.js';
+import { ENDPOINT, exportCommand, filterGroups, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickNote, pickReplaces, pipClass, pipTip, scoreCommand, scoreCost, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type PairChip, type TrainingDialog } from '../training.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { ActionButton } from '../components/ActionButton.js';
 
@@ -215,7 +216,7 @@ function PairGroup({ g }: { g: PairGroupView }) {
           </span>
         ) : null}
         {g.fix ? (
-          <a className="chip" href={g.fix.href} title={`Open the fix: ${g.fix.label}`}>
+          <a className="chip" href={g.fix.href} title={`Open fix: ${g.fix.label}`}>
             {g.fix.label}
           </a>
         ) : null}
@@ -323,7 +324,7 @@ function TasksTab({ view }: { view: TrainingView }) {
                 <tr key={r.golden} className={r.href ? undefined : 'static'} {...(r.href ? rowOpen(() => navigate(r.href!)) : {})}>
                   <td>
                     {r.href ? (
-                      <a className="rlink" href={r.href} title={r.opens ?? undefined}>
+                      <a className="rowa" href={r.href} title={r.opens ?? undefined}>
                         <code>{r.name}</code>
                       </a>
                     ) : (
@@ -365,7 +366,7 @@ function TasksTab({ view }: { view: TrainingView }) {
           </table>
         </div>
       </section>
-      {updating ? <UpdateGoldenDialog name={updating.name} update={updating.update} busy={updateOff} onClose={() => setUpdating(null)} /> : null}
+      {updating ? <TaskUpdateDialog name={updating.name} update={updating.update} busy={updateOff} onClose={() => setUpdating(null)} /> : null}
       <Scores view={view} />
       <div className="grid2 trgap">
         <section className="panel">
@@ -530,7 +531,7 @@ function ScorePips({ pips }: { pips: PipView[] }) {
 // ---------------------------------------------------------------------------------------------- the dialogs
 
 /** Export pairs: a format and a confidence, then `shadowlap export pairs` as a job. */
-function ExportPairsDialog({ view, onClose }: { view: TrainingView; onClose: () => void }) {
+export function ExportPairsDialog({ view, onClose }: { view: TrainingView; onClose: () => void }) {
   const { client, watchJob, guard } = useApp();
   const d = view.exportDialog;
   const [format, setFormat] = useState<string>(d.formats[0]?.value ?? 'openai-preference');
@@ -538,17 +539,15 @@ function ExportPairsDialog({ view, onClose }: { view: TrainingView; onClose: () 
   return (
     <Dialog
       title={d.title}
-      text={d.text}
+      lead={d.lead}
+      doc="pairs"
+      facts={[redactsFact(d.rules), { label: 'Writes', value: <code>{d.out}</code>, quiet: 'the job’s drawer offers it for download', wide: true }]}
+      command={exportCommand(format, min, d.out)}
       ok={confirmWords(ACTIONS.exportPairs.label)}
-      onOk={() =>
-        guard(() => {
-          watchJob(client.startJob(JOB_KINDS.pairs, { format, minConfidence: min }));
-          onClose();
-        })
-      }
+      onOk={() => guard(() => watchJob(client.startJob(JOB_KINDS.pairs, { format, minConfidence: min })))}
       onClose={onClose}
     >
-      <div className="form">
+      <div className="form one">
         <label>
           Format
           <select value={format} onChange={(e) => setFormat(e.target.value)}>
@@ -570,10 +569,6 @@ function ExportPairsDialog({ view, onClose }: { view: TrainingView; onClose: () 
           </select>
         </label>
       </div>
-      <p className="muted trnote">
-        It writes <code>{d.out}</code> in the project folder, and the job’s drawer offers it for download.
-      </p>
-      <CommandLine command={exportCommand(format, min, d.out)} />
     </Dialog>
   );
 }
@@ -583,27 +578,22 @@ function ExportPairsDialog({ view, onClose }: { view: TrainingView; onClose: () 
  * job. The server builds the commands again from the store and the config; these are shown so the
  * change to the config and the working tree is plain before it is made.
  */
-function UpdateGoldenDialog({ name, update, busy, onClose }: { name: string; update: TaskUpdate; /** Why nothing can run now, or null. */ busy: string | null; onClose: () => void }) {
+export function TaskUpdateDialog({ name, update, busy, onClose }: { name: string; update: TaskUpdate; /** Why nothing can run now, or null. */ busy: string | null; onClose: () => void }) {
   const { client, watchJob, guard } = useApp();
   const rules = update.normalizers.length;
   const values = update.normalizers.join(', ');
-  const fork = `Its test forks at #${update.forkedAt}, before the takeover at #${update.takeover}, so no model can take over there.`;
-  const text = update.rerecords
-    ? `${fork} Updating re-records it live from its first call, with every write tool stubbed, and replaces it in your working tree only if its checks pass. It calls your providers.`
-    : `${fork} Only ${rules === 1 ? 'a value that changes' : 'values that change'} every run differ there: the ${rules === 1 ? 'normalizer is' : 'normalizers are'} the whole fix, and the golden is tested again.`;
+  const fork = `Its test forks at #${update.forkedAt}, before the takeover at #${update.takeover}, so no model can take over there`;
   return (
     <Dialog
-      title={update.rerecords ? `Update ${name}?` : `Add ${rules === 1 ? 'normalizer' : 'normalizers'} for ${name}?`}
-      text={text}
+      title={update.rerecords ? `Update ${name}?` : `Add ${rules === 1 ? 'normalizer' : 'normalizers'} for ${name}`}
+      lead={update.rerecords ? `Re-records ${name}, for a change you meant.` : `Adds the ${rules === 1 ? 'normalizer' : 'normalizers'}, the whole fix, and tests the golden again.`}
+      doc={update.rerecords ? 'goldenUpdates' : 'tasks'}
+      warn={{ text: busy ? busy.replace(/\.$/, '') : fork }}
+      command={{ command: update.steps.map((step) => commandText(step)) }}
+      cost={update.rerecords ? { price: 'Billed by your provider', parts: ['as its recording cost'] } : null}
       ok={update.rerecords ? (rules ? ACTIONS.addNormalizerAndUpdate.label : confirmWords(ACTIONS.updateGolden.label)) : ACTIONS.addNormalizerAndRerun.label}
       okDisabled={!!busy}
-      onOk={() => {
-        if (busy) return;
-        guard(() => {
-          watchJob(client.startJob(JOB_KINDS.taskUpdate, { golden: update.golden }));
-          onClose();
-        });
-      }}
+      onOk={() => (busy ? false : guard(() => watchJob(client.startJob(JOB_KINDS.taskUpdate, { golden: update.golden }))))}
       onClose={onClose}
     >
       {rules && update.rerecords ? (
@@ -611,18 +601,12 @@ function UpdateGoldenDialog({ name, update, busy, onClose }: { name: string; upd
           First {rules === 1 ? 'a normalizer for' : 'normalizers for'} <code>{values}</code>, which {rules === 1 ? 'changes' : 'change'} on every run: without {rules === 1 ? 'it' : 'them'}, the next test forks there again.
         </p>
       ) : null}
-      <div className="trsteps">
-        {update.steps.map((step) => (
-          <CmdLine key={step.join(' ')}>{commandText(step)}</CmdLine>
-        ))}
-      </div>
-      {busy ? <p className="trbusy">{busy}</p> : null}
     </Dialog>
   );
 }
 
 /** Score a model: a model the server listed, or your own endpoint, and the attempts; then `shadowlap tasks score` as a job. */
-function ScoreDialog({ view, busy, onClose }: { view: TrainingView; /** Why scoring can't start now (a repair holds the working tree), or null. */ busy: string | null; onClose: () => void }) {
+export function ScoreDialog({ view, busy, onClose }: { view: TrainingView; /** Why scoring can't start now (a repair holds the working tree), or null. */ busy: string | null; onClose: () => void }) {
   const { client, watchJob, guard } = useApp();
   const models = useLoad<ModelsView>(() => client.models(), 'models');
   const d = models.data?.dialog ?? null;
@@ -632,14 +616,15 @@ function ScoreDialog({ view, busy, onClose }: { view: TrainingView; /** Why scor
   const [endpoint, setEndpoint] = useState({ baseUrl: 'http://127.0.0.1:8000/v1', model: 'my-finetune' });
   const nameRef = useRef<HTMLInputElement>(null);
   const modelRef = useRef<HTMLSelectElement>(null);
+  const attemptsRef = useRef<HTMLSelectElement>(null);
   // The first model not scored yet, once the list is in; your own endpoint when it can't be listed.
-  // The picker opens disabled while the list comes in, so the dialog couldn't focus it: it takes the
-  // focus once it can, unless it was moved to another field of the dialog meanwhile.
+  // The picker opens disabled while the list comes in, so the dialog starts on the next field: it
+  // takes the focus once it can, unless the focus was moved on from there meanwhile.
   useEffect(() => {
     if (pick !== null || !listed) return;
     setPick(firstPick(d));
     const select = modelRef.current;
-    if (select && !select.closest('.dialog')?.contains(document.activeElement)) select.focus();
+    if (select && (document.activeElement === attemptsRef.current || !select.closest('.dialog')?.contains(document.activeElement))) select.focus();
   }, [pick, listed, d]);
   useEffect(() => {
     if (pick === ENDPOINT) nameRef.current?.focus();
@@ -650,20 +635,20 @@ function ScoreDialog({ view, busy, onClose }: { view: TrainingView; /** Why scor
   const command = scoreCommand(fields, view.tasks.rows.filter((r) => r.status.key === 'ready').map((r) => r.golden));
   const notes = models.data ? notesLine(models.data.notes) : null;
   const leftOut = d ? leftOutLine(d.leftOut) : null;
-  const note = models.error ? `The models couldn’t be listed (${models.error.message}). Your own endpoint still works.` : !listed ? 'Asking each provider for its models…' : pickNote(d, current, endpoint);
+  const note = models.error ? `The models couldn’t be listed (${models.error.message}). Your own endpoint still works.` : !listed ? 'Asking each provider for its models…' : pickNote(d, current);
+  const replaces = pickReplaces(d, current, endpoint);
   return (
     <Dialog
       title={d?.title ?? `${confirmWords(ACTIONS.scoreModel.label)} on ${plural(view.tabs.tasks, 'task')}`}
-      text="Each attempt replays the calls before the takeover from the recording, then runs the rest against this model with writes stubbed. The checks score it."
+      lead="Runs the model you pick from each task’s takeover, and the task’s checks score it."
+      doc="scoring"
+      warn={busy ? { text: busy.replace(/\.$/, '') } : null}
+      factsUnder={replaces !== null ? [{ label: 'Replaces', value: `its score of ${replaces.toFixed(2)}` }] : []}
+      command={command}
+      cost={scoreCost(d, current)}
       ok={confirmWords(ACTIONS.scoreModel.label)}
       okDisabled={!fields || !!busy}
-      onOk={() => {
-        if (!fields || busy) return;
-        guard(() => {
-          watchJob(client.startJob(JOB_KINDS.score, { model: fields.model, baseUrl: fields.baseUrl, attempts: fields.attempts, ...(fields.goldens ? { goldens: fields.goldens } : {}) }));
-          onClose();
-        });
-      }}
+      onOk={() => (!fields || busy ? false : guard(() => watchJob(client.startJob(JOB_KINDS.score, { model: fields.model, baseUrl: fields.baseUrl, attempts: fields.attempts, ...(fields.goldens ? { goldens: fields.goldens } : {}) }))))}
       onClose={onClose}
     >
       <div className="form">
@@ -691,7 +676,7 @@ function ScoreDialog({ view, busy, onClose }: { view: TrainingView; /** Why scor
         </label>
         <label>
           Attempts per task
-          <select value={attempts} onChange={(e) => setAttempts(Number(e.target.value))}>
+          <select ref={attemptsRef} value={attempts} onChange={(e) => setAttempts(Number(e.target.value))}>
             {(d?.attempts ?? [5, 10]).map((n) => (
               <option key={n} value={n}>
                 {n}
@@ -713,8 +698,6 @@ function ScoreDialog({ view, busy, onClose }: { view: TrainingView; /** Why scor
         </div>
       ) : null}
       {note ? <p className="muted trnote">{note}</p> : null}
-      {command ? <CommandLine command={command} /> : null}
-      {busy ? <p className="trbusy">{busy}</p> : null}
       {/* Why a provider's models aren't in the list: beside the list, not beside your own endpoint, unless the endpoint is all there is. */}
       {notes && (pick !== ENDPOINT || !d?.options.length) ? <p className="trnotes">{notes}</p> : null}
       {/* Models that can't answer any ready task, and why: what `tasks score` would refuse. */}

@@ -72,10 +72,10 @@ describe('routes', () => {
     expect(tokenLinkStep('#/runs', 'same')).toBeNull();
   });
 
-  it('has a g-key for every page and cycles the five views without Provenance', () => {
+  it('has a g-key for every page and cycles every view', () => {
     expect(Object.keys(GO_KEYS).sort()).toEqual(['a', 'c', 'f', 'o', 'r', 's', 't']);
     expect(nextView('calls')).toBe('turns');
-    expect(nextView('forks')).toBe('calls');
+    expect(nextView('forks')).toBe('provenance');
     expect(nextView('provenance')).toBe('calls');
     expect(nextView(null)).toBe('turns');
   });
@@ -165,10 +165,10 @@ describe('palette', () => {
   });
 
   it('orders Actions as the design does, whichever page added them, with Keyboard shortcuts last', () => {
-    const actions: PaletteEntry[] = ['Keyboard shortcuts', 'Run tests', 'Calibrate', 'Import capture…', 'Something new…', 'Score model…', 'Export pairs…', 'Update goldens…'].map((label) => ({ group: 'Actions', label, hint: '' }));
+    const actions: PaletteEntry[] = ['Keyboard shortcuts', 'Run tests', 'Calibrate', 'Import capture…', 'Something new…', 'Score model…', 'Export pairs…', 'Update goldens'].map((label) => ({ group: 'Actions', label, hint: '' }));
     expect(matchPalette(actions, '').map((x) => x.label)).toEqual([...ACTION_ORDER, 'Something new…', 'Keyboard shortcuts']);
     // Typed, a better match still leads.
-    expect(matchPalette(actions, 'e').map((x) => x.label).slice(0, 2)).toEqual(['Export pairs…', 'Update goldens…']);
+    expect(matchPalette(actions, 'e').map((x) => x.label).slice(0, 2)).toEqual(['Export pairs…', 'Update goldens']);
   });
 
   it('marks the first typed word and the server’s matches', () => {
@@ -700,10 +700,10 @@ describe('job drawer', () => {
 
   it('asks before stopping a job that changes the working tree, and stops any other at once', () => {
     const tree = (use: 'reads' | 'writes', doing: string) => ({ use, doing });
-    expect(stopAsk({ id: 'j1', done: false, args: ['repair', '--fixes', 'X'], worktree: tree('writes', 'a repair is verifying candidates made from your working tree') })).toMatchObject({ title: 'Stop the repair?', ok: 'Stop the repair' });
+    expect(stopAsk({ id: 'j1', done: false, args: ['repair', '--fixes', 'X'], worktree: tree('writes', 'a repair is verifying candidates made from your working tree') })).toMatchObject({ title: 'Stop repair', ok: 'Stop repair' });
     // Its candidates are in temporary worktrees: stopped, it has nothing to put back.
-    expect(stopAsk({ id: 'j1', done: false, args: ['repair', '--fixes', 'X'], worktree: tree('writes', 'a repair is verifying candidates made from your working tree') })?.text).toBe('It is verifying candidates in temporary worktrees, never in your working tree, which it leaves as it is. Stopped, it reports what it found so far, as Ctrl-C does.');
-    expect(stopAsk({ id: 'j2', done: false, args: ['fix', 'apply', 'fx-1'], worktree: tree('writes', 'a patch is being applied to your working tree') })?.text).toContain('Apply it again to finish');
+    expect(stopAsk({ id: 'j1', done: false, args: ['repair', '--fixes', 'X'], worktree: tree('writes', 'a repair is verifying candidates made from your working tree') })?.facts).toEqual([{ label: 'Changes', value: 'nothing in your working tree' }]);
+    expect(stopAsk({ id: 'j2', done: false, args: ['fix', 'apply', 'fx-1'], worktree: tree('writes', 'a patch is being applied to your working tree') })?.facts).toEqual([{ label: 'Then', value: 'Apply fix again to finish' }]);
     // Running the agent from the tree changes nothing in it.
     expect(stopAsk({ id: 'j3', done: false, args: ['test', 'goldens/a'], worktree: tree('reads', 'a test is running your agent from your working tree') })).toBeNull();
     expect(stopAsk({ id: 'j4', done: false, args: ['gc', '--dry-run'], worktree: null })).toBeNull();

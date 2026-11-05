@@ -1,15 +1,18 @@
 import { useState } from 'react';
+import { probesPart } from '../../../engine/src/cost-words.js';
 import { consentAsked } from '../actions.js';
 import { ApiError, JOB_KINDS } from '../api.js';
-import { CmdLine } from '../components/bits.js';
-import { ConsentDialog, Dialog } from '../components/Dialog.js';
+import { ConsentDialog, Dialog, PromptDialog, pressWayOn } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
+import { namedIn } from '../components/Id.js';
 import { shortId } from '../format.js';
-import { useApp } from '../state.js';
+import type { ShortcutMark } from '../shortcuts.js';
+import { guardedWayOn, useApp } from '../state.js';
+import { errorText } from '../toast.js';
 import { parseCheck } from './model.js';
 import { useTreeBusy } from './tree.js';
 import { ACTIONS } from '../labels.js';
-import { ActionButton, useWhenFree } from '../components/ActionButton.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * Run blame, for a failed run never blamed: a job that finds the model call where the run was lost
@@ -17,13 +20,41 @@ import { ActionButton, useWhenFree } from '../components/ActionButton.js';
  * config's tests for the recording it replays, the fix it fails in or its labels point to, or the
  * agent's exit); when nothing says what a passing run must do, this asks for it, naming the checks
  * the run failed (`failed`). A run whose command came from someone else's pack runs only once
- * confirmed. Disabled, with the reason, where nothing runs or while a repair or an apply changes the
- * working tree the agent would run from.
+ * confirmed; a capture, which has none, asks for yours first (`capture`). Disabled, with the reason,
+ * where nothing runs or while a repair or an apply changes the working tree the agent would run from.
  */
-export function RunBlameButton({ runId, failed = [], className = 'linkbtn', title = 'Find the model call where this run was lost', icon = false }: { runId: string; failed?: readonly string[]; className?: string; /** The hover when nothing stops it. */ title?: string; /** With the fix loop's icon, as the run page's lead button. */ icon?: boolean }) {
+export function RunBlameButton({
+  runId,
+  failed = [],
+  className = 'linkbtn',
+  title = 'Find the model call where this run was lost',
+  tip,
+  icon = false,
+  lead = false,
+  capture = false,
+  line,
+  mark,
+}: {
+  runId: string;
+  failed?: readonly string[];
+  className?: string;
+  /** The hover when nothing stops it. */
+  title?: string;
+  /** Or a hover card. */
+  tip?: string;
+  /** With the fix loop's icon, as the run page's lead button. */
+  icon?: boolean;
+  /** It is the run's next step, which the palette presses. */
+  lead?: boolean;
+  capture?: boolean;
+  /** The command it runs, where it knows it: a capture's asks for what fills in its `<your command>`. */
+  line?: string;
+  /** Its key, where it is the run's next step. */
+  mark?: ShortcutMark;
+}) {
   const app = useApp();
   const busy = useTreeBusy('reads', 'blame');
-  const [asking, setAsking] = useState<null | { kind: 'check' } | { kind: 'consent'; why: string; confirm: string; fields: Record<string, unknown> }>(null);
+  const [asking, setAsking] = useState<null | { kind: 'command' } | { kind: 'check'; command: string | null } | { kind: 'consent'; why: string; confirm: string; fields: Record<string, unknown> }>(null);
   /**
    * Starts the blame. What the check dialog should show instead comes back: why the server refused
    * the check it was given. Anything else closes the dialog: the job, the consent it needs, or its
@@ -38,10 +69,12 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn', titl
       },
       (err: unknown) => {
         if (err instanceof ApiError && err.status === 422) {
-          setAsking({ kind: 'check' });
+          setAsking({ kind: 'check', command: typeof fields.command === 'string' ? fields.command : null });
           return 'expect' in fields ? err.message : null;
         }
         if (err instanceof ApiError && err.status === 400 && 'expect' in fields) return err.message;
+        // No answer came: the check dialog stays, with what was typed and why.
+        if (!(err instanceof ApiError) && 'expect' in fields) return errorText(err);
         const asked = fields.yes === undefined ? consentAsked(err) : null;
         if (asked) setAsking({ kind: 'consent', ...asked, fields });
         else {
@@ -51,19 +84,41 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn', titl
         return null;
       },
     );
-  const failedText = failed.length ? `It failed “${failed[0]!}”${failed.length > 1 ? ` and ${failed.length - 1} more` : ''}, a check shadowlap.config.json doesn’t give. ` : '';
+  const failedLine = failed.length ? `It failed “${failed[0]!}”${failed.length > 1 ? ` and ${failed.length - 1} more` : ''}, a check shadowlap.config.json doesn’t give` : null;
   return (
     <>
-      <ActionButton className={className} why={busy} title={title} onClick={() => app.guard(() => void start({}))}>
+      <ActionButton
+        className={className}
+        why={busy}
+        {...(tip ? { 'data-tip': tip } : { title })}
+        {...(lead ? { 'data-next': 'blame' } : {})}
+        onClick={() => app.guard(() => (capture ? setAsking({ kind: 'command' }) : void start({})))}
+        {...mark}
+      >
         {icon ? <Icon name="loop" /> : null}
         {ACTIONS.runBlame.label}
       </ActionButton>
+      {asking?.kind === 'command' ? (
+        <PromptDialog
+          title={namedIn(`${ACTIONS.runBlame.label} on ${shortId(runId)}`, shortId(runId))}
+          lead="Finds the model call that lost the run."
+          doc="blame"
+          label={`${shortId(runId)} came from a capture and has no command. What starts your agent?`}
+          placeholder="python agent.py"
+          command={(command) => (line ?? `shadowlap blame ${shortId(runId)} -- <your command>`).replace('<your command>', () => command || '<your command>')}
+          cost={{ price: 'Billed by your provider', parts: [probesPart()] }}
+          ok={ACTIONS.runBlame.label}
+          onClose={() => setAsking(null)}
+          onRun={(command) => app.guard(() => void start({ command }))}
+        />
+      ) : null}
       {asking?.kind === 'check' ? (
         <CheckDialog
           runId={runId}
-          text={`${failedText}Say what a passing run must do, as the expect object of an outcome check: blame asks the model calls again until the run does it.`}
+          line={failedLine}
+          command={asking.command}
           onClose={() => setAsking(null)}
-          onRun={(expect) => start({ expect })}
+          onRun={(expect) => guardedWayOn(app.guard, () => start({ expect, ...(asking.command ? { command: asking.command } : {}) })) || Promise.resolve(null)}
         />
       ) : null}
       {asking?.kind === 'consent' ? (
@@ -71,11 +126,7 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn', titl
           why={asking.why}
           ok={ACTIONS.runBlame.label}
           onClose={() => setAsking(null)}
-          onOk={() => {
-            const { fields, confirm } = asking;
-            setAsking(null);
-            void start({ ...fields, yes: confirm });
-          }}
+          onOk={() => app.guard(() => void start({ ...asking.fields, yes: asking.confirm }))}
         />
       ) : null}
     </>
@@ -87,27 +138,34 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn', titl
  * open, with what was typed, until the job has started: a check that isn't an object, or one the
  * server refuses, says why under the field.
  */
-function CheckDialog({ runId, text, onClose, onRun }: { runId: string; text: string; onClose: () => void; onRun: (expect: Record<string, unknown>) => Promise<string | null> }) {
+export function CheckDialog({ runId, line, command = null, onClose, onRun }: { runId: string; line: string | null; /** A capture's, which it runs the blame with. */ command?: string | null; onClose: () => void; onRun: (expect: Record<string, unknown>) => Promise<string | null> }) {
   const [value, setValue] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [sending, setSending] = useState(false);
-  // ⌘Enter as the confirm: while it waits, why in a toast, the dialog and the check kept.
-  const whenFree = useWhenFree();
   const submit = () => {
-    if (sending || !value.trim()) return;
     const check = parseCheck(value);
     if ('error' in check) {
       setError(check.error);
-      return;
+      return false;
     }
-    setSending(true);
-    void onRun(check.expect).then((refused) => {
-      setSending(false);
+    // What it starts closes it, or asks in its place; it stays only for what it says here.
+    return onRun(check.expect).then((refused) => {
       if (refused) setError(refused);
+      return false;
     });
   };
   return (
-    <Dialog title={`${ACTIONS.runBlame.label} on ${shortId(runId)}`} text={text} ok={ACTIONS.runBlame.label} okDisabled={!value.trim() || sending} onOk={submit} onClose={onClose}>
+    <Dialog
+      title={namedIn(`${ACTIONS.runBlame.label} on ${shortId(runId)}`, shortId(runId))}
+      lead="Finds the model call that lost the run."
+      doc="blame"
+      warn={line ? { text: line } : null}
+      command={`shadowlap blame ${shortId(runId)} --expect ${value.trim() ? `'${value.trim().replace(/'/g, `'\\''`)}'` : `'<check>'`}${command ? ` -- ${command}` : ''}`}
+      cost={{ price: 'Billed by your provider', parts: [probesPart()] }}
+      ok={ACTIONS.runBlame.label}
+      okDisabled={!value.trim()}
+      onOk={submit}
+      onClose={onClose}
+    >
       <div className="form one">
         <label>
           Check (JSON)
@@ -123,18 +181,18 @@ function CheckDialog({ runId, text, onClose, onRun }: { runId: string; text: str
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
-                whenFree(submit);
+                pressWayOn(e.currentTarget);
               }
             }}
           />
         </label>
       </div>
+      <p className="muted fieldhint">What a passing run must do, as an outcome check’s expect object</p>
       {error ? (
         <p className="fieldnote err" role="alert">
           {error}
         </p>
       ) : null}
-      <CmdLine>{`shadowlap blame ${shortId(runId)} --expect '<check>'`}</CmdLine>
     </Dialog>
   );
 }

@@ -65,7 +65,7 @@ describe('Search or jump to, as the dashboard stands', () => {
     expect(placeholder(r)).toBe('Search runs, pages, actions and what runs recorded');
     expect(actions(r)).toEqual([
       ['Run tests', 'shadowlap test goldens/*', false],
-      ['Keyboard shortcuts', '?', false],
+      ['Keyboard shortcuts', 'every key, by where it works', false],
     ]);
   });
 
@@ -78,7 +78,7 @@ describe('Search or jump to, as the dashboard stands', () => {
     // The job waits, dimmed, its reason as its hint; what isn't a job stays as it was.
     expect(actions(r)).toEqual([
       ['Run tests', PAUSED_HINT, true],
-      ['Keyboard shortcuts', '?', false],
+      ['Keyboard shortcuts', 'every key, by where it works', false],
     ]);
     const tests = r.all('.palit').find((el) => el.textContent.startsWith('Run tests'))!;
     expect(tests.getAttribute('aria-disabled')).toBe('true');

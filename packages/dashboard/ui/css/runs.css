@@ -39,6 +39,9 @@ table.runst .rsub { display: block; max-width: 100%; overflow: hidden; text-over
 table.runst tr.picked td { background: var(--sel); }
 
 /* bulk actions */
+/* while the selection bar shows, a row j or k brings into view stops above it: the page's scroller, or below 1000px the window's, at the bar's measured height (BulkBar's --bulk-h) */
+.page:has(.bulkbar) { scroll-padding-bottom: 70px; }
+@media (max-width: 1000px) { html:has(.bulkbar) { scroll-padding-bottom: calc(var(--bulk-h, 46px) + 52px); } }
 .bulkbar { position: fixed; z-index: 15; left: calc(var(--side) + 50%); bottom: 44px; transform: translateX(calc(-50% - var(--side) / 2)); display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 16px; border-radius: var(--r-overlay); border: 1px solid transparent; }
 .bulkbar b { font-weight: 500; font-size: 13px; white-space: nowrap; }
 .bulkbar .sep { width: 1px; height: 18px; background: var(--line2); margin: 0 4px; }
@@ -90,10 +93,8 @@ table.runst tr.picked td { background: var(--sel); }
 @media (max-width: 760px) { .cal { flex-direction: column; } .calside { padding-top: 0; } }
 
 .impsamples { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 10px; }
-.impnote { margin: 12px 0 6px; font-size: 12.5px; line-height: 1.55; }
 
 .impdlg .seg { flex-wrap: wrap; max-width: 100%; margin-bottom: 14px; }
-.impdlg .impnote { margin: 12px 0 4px; }
 .impdlg .capfile .pick { flex: none; }
 .calgrid button.cd:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
 

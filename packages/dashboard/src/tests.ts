@@ -1,4 +1,5 @@
 import { ACTIONS, attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, isObject, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, plural, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResults } from './bisect-start.js';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { gateLine, gateRuleOf } from './verdict.js';
 import { links } from './links.js';
@@ -453,7 +454,7 @@ export interface TestsView {
   failures: FailureView[];
   /** Goldens whose last result is inconclusive, apart from the failures: Run more attempts settles a gate's. */
   inconclusive: InconclusiveView[];
-  /** Goldens whose last result diverged: Update goldens… lists them. */
+  /** Goldens whose last result diverged: Update goldens lists them. */
   diverged: string[];
   /**
    * A test session running now, wherever it was started: a terminal, another dashboard, or a job of
@@ -475,7 +476,7 @@ export interface TestsView {
     pack: string;
     /** Run tests, as arguments: the CLI expands the pattern itself. */
     run: string[];
-    /** Update goldens…, or null when none diverged. */
+    /** Update goldens, or null when none diverged. */
     updateAll: string[] | null;
   };
   /** Recordings in `__recordings__/` belong to the pytest and Vitest plugins. */
@@ -503,7 +504,7 @@ export function testPatterns(goldens: readonly GoldenSource[], folder = 'goldens
 }
 
 /** Why a golden can't be read: a path that would read as an option (whatever is there), or its pack. */
-const unreadable = (g: GoldenSource): string | null => (optionLike(g.path) ? OPTION_LIKE : (g.error ?? null));
+export const unreadable = (g: GoldenSource): string | null => (optionLike(g.path) ? OPTION_LIKE : (g.error ?? null));
 
 /** A word as a shell reads it: a plain path stays as it is; a pattern (`goldens/*`), which the CLI expands itself, and a path with a space are quoted. */
 const ciWord = (s: string) => (/^[A-Za-z0-9_./:@%+=,-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
@@ -1014,13 +1015,13 @@ function bisectRevisions(history: readonly TestResult[], failed: TestResult, che
 }
 
 /** What Find breaking commit said about a golden: a first bad commit, or none and why (the `bisect.found` and `bisect.none` activity events). */
-type BisectAnswer = { found: FoundCommit; missed: null } | { found: null; missed: BisectMiss };
+export type BisectAnswer = { found: FoundCommit; missed: null } | { found: null; missed: BisectMiss };
 
 /**
  * One answer, with the failure it answered: the golden's newest result when the search started, as
  * `shadowlap bisect` records it (`answered`), or null for an answer kept before it did.
  */
-interface AnswerEvent {
+export interface AnswerEvent {
   answer: BisectAnswer;
   at: number;
   answered: { at: number; ok: boolean } | null;
@@ -1029,7 +1030,7 @@ interface AnswerEvent {
 const MISS_OUTCOMES = new Set(['fails-at-good', 'passes-at-bad', 'untestable']);
 
 /** Every answer Find breaking commit gave, by golden, newest first. */
-function bisectAnswers(store: StoreOf<'activity'>): Map<string, AnswerEvent[]> {
+export function bisectAnswers(store: StoreOf<'activity'>): Map<string, AnswerEvent[]> {
   const out = new Map<string, AnswerEvent[]>();
   for (const e of store.listEvents({ kinds: ['bisect.found', 'bisect.none'], limit: 500 })) {
     if (!e.ref) continue;
@@ -1064,7 +1065,7 @@ const sameCommit = (a: string, b: string) => a.startsWith(b) || b.startsWith(a);
  * at the commit it fails at (`passes-at-bad`) stands only while it fails at that commit: once the
  * failure is committed, there is a commit to find again.
  */
-function standingAnswer(answers: readonly AnswerEvent[] | undefined, history: readonly TestResult[], latest: TestResult): BisectAnswer | null {
+export function standingAnswer(answers: readonly AnswerEvent[] | undefined, history: readonly TestResult[], latest: TestResult): BisectAnswer | null {
   if (!answers?.length) return null;
   // Newest first: the failures since the newest pass, the oldest of them where this streak began.
   const pass = history.findIndex((r) => r.ok);
@@ -1460,7 +1461,7 @@ function failingNext(r: TestResult, o: { fixId: string | null; mode: GoldenSourc
  * verdict in the pack. Not an injection test that showed too little to say, which an update doesn't
  * settle, nor a golden whose path the CLI would read as an option.
  */
-function unjudgedOffline(r: TestResult): boolean {
+export function unjudgedOffline(r: TestResult): boolean {
   if (r.failure !== 'inconclusive' || r.data?.gate?.decision === 'inconclusive' || r.data?.divergence || optionLike(r.golden)) return false;
   return (r.data?.checks ?? []).some((c) => checkStatus(c) === 'inconclusive' && !!c.judge);
 }
@@ -1519,6 +1520,9 @@ export interface TestRunBanner {
   cause: string | null;
 }
 
+/** The test a run says it was made by, read only as text: a pack can carry anything. */
+const testOf = (run: RunRecord) => (typeof run.meta?.test?.golden === 'string' && typeof run.meta.test.session === 'string' ? run.meta.test : null);
+
 /**
  * For a run made by `shadowlap test` whose golden failed because it diverged: its golden and the
  * actions on it. Null for any other run, a replay of a golden that may fork (it diverges by design)
@@ -1526,7 +1530,7 @@ export interface TestRunBanner {
  */
 export function testRunBanner(store: StoreOf<'recording' | 'tests'>, runId: string, options: { normalizers?: readonly Normalizer[] } = {}): TestRunBanner | null {
   const run = store.getRun(runId);
-  const test = run?.meta?.test;
+  const test = run && testOf(run);
   if (!run || !test || !run.divergence) return null;
   const result = store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0];
   if (result?.failure !== 'diverged') return null;
@@ -1600,12 +1604,11 @@ export interface BisectChoices {
   args: string[] | null;
 }
 
-const clean = (rev: string | null): rev is string => !!rev && !rev.endsWith('+dirty');
 
 const exitFailed = (run: RunRecord) => run.status === 'failed' || run.status === 'crashed';
 
 /** A check of the run's own that failed: one that could not be decided (inconclusive) is no failure. */
-const checkFailed = (run: RunRecord) => !!run.meta?.checks?.some((c) => checkStatus(c) === 'failed');
+const checkFailed = (run: RunRecord) => Array.isArray(run.meta?.checks) && run.meta.checks.some((c) => checkStatus(c) === 'failed');
 
 function runFailed(run: RunRecord): boolean {
   return exitFailed(run) || checkFailed(run);
@@ -1617,10 +1620,10 @@ function runFailed(run: RunRecord): boolean {
  * (`projectGoldens`), with the checks the config gives each; `before` limits the good commits to runs
  * started before it (the calendar passes the first day picked).
  */
-export function bisectChoices(store: StoreOf<'recording' | 'fixes' | 'tests'>, runId: string, options: { goldens: readonly GoldenSource[]; before?: number }): BisectChoices | null {
+export function bisectChoices(store: StoreOf<'recording' | 'fixes' | 'tests'>, runId: string, options: { goldens: readonly GoldenSource[]; before?: number; known?: KnownResults }): BisectChoices | null {
   const run = store.getRun(runId);
   if (!run) return null;
-  const golden = run.meta?.test?.golden ?? null;
+  const golden = testOf(run)?.golden ?? null;
   // As listed: a pack in the goldens folder, or one the config names under `tests` (its checks too).
   const source = golden !== null ? (options.goldens.find((g) => g.path === golden) ?? null) : null;
   // Only a golden whose pack can be read, by a path that reads as no option, is bisected as one.
@@ -1628,7 +1631,7 @@ export function bisectChoices(store: StoreOf<'recording' | 'fixes' | 'tests'>, r
   const before = options.before ?? run.startedAt;
   const own = committed(run.codeVersion);
   // A test replay failed when its golden did in that session (a golden that may fork diverges by design).
-  const result = ofGolden ? store.listTestResults({ sessionId: run.meta!.test!.session, golden: golden!, limit: 1 })[0] : undefined;
+  const result = !ofGolden ? undefined : options.known ? (options.known.result ?? undefined) : store.listTestResults({ sessionId: run.meta!.test!.session, golden: golden!, limit: 1 })[0];
   // Its golden came out inconclusive there: neither passed nor failed, so no failure to find.
   const unsure = result !== undefined && verdictOfResult(result) === 'inconclusive';
   // A run in a fix as failing its check (blame found it so, or a repair or verify did), though it
@@ -1637,35 +1640,16 @@ export function bisectChoices(store: StoreOf<'recording' | 'fixes' | 'tests'>, r
   const failed = result ? verdictOfResult(result) === 'failed' : runFailed(run) || (ofGolden && !!run.divergence) || blamed !== null;
   // A run that failed nothing, with a check of its own that could not be decided: neither passed nor
   // failed, as a golden that came out inconclusive is, so there is no failure to find either.
-  const undecided = !result && !failed ? (run.meta?.checks ?? []).find((c) => checkStatus(c) === 'inconclusive') : undefined;
-  let revisions: BisectChoices['revisions'];
-  let sameRecording: string | null = null;
-  let passedHere: string | null = null;
-  if (ofGolden) {
-    const at = new Map<string, { rev: string; at: number; runs: number; failed: number; inconclusive: number }>();
-    for (const r of store.listTestResults({ golden: golden!, limit: 10_000 })) {
-      if (r.at >= before || !clean(r.revision) || r.revision === own) continue;
-      // Newest first: the first pass of the recording this replay failed on, under the checks the
-      // golden has now, is the one to offer: an earlier recording of the golden (before an update), or
-      // a pass under other checks, may be a commit where it already fails.
-      const counts = r.ok && underChecks(r, source.checks);
-      if (!sameRecording && counts && result?.goldenRunId && r.goldenRunId === result.goldenRunId) sameRecording = r.revision;
-      if (!passedHere && counts) passedHere = r.revision;
-      const row = at.get(r.revision) ?? { rev: r.revision, at: r.at, runs: 0, failed: 0, inconclusive: 0 };
-      row.runs++;
-      const verdict = verdictOfResult(r);
-      if (verdict === 'failed') row.failed++;
-      else if (verdict === 'inconclusive') row.inconclusive++;
-      row.at = Math.max(row.at, r.at);
-      at.set(r.revision, row);
-    }
-    revisions = [...at.values()].sort((a, b) => b.at - a.at);
-  } else {
-    revisions = store
-      .runRevisions({ argv: run.command.argv, before, limit: 100 })
-      .filter((r) => clean(r.revision) && r.revision !== own)
-      .map((r) => ({ rev: r.revision, at: r.lastAt, runs: r.runs, failed: r.failed }));
-  }
+  const undecided = !result && !failed && Array.isArray(run.meta?.checks) ? run.meta.checks.find((c) => checkStatus(c) === 'inconclusive') : undefined;
+  const between = { before, own, recording: result?.goldenRunId ?? null };
+  const history = ofGolden && !options.known ? store.listTestResults({ golden: golden!, limit: GOLDEN_HISTORY }) : [];
+  const goodOfGolden = !ofGolden ? null : startFromPasses(options.known?.passes ?? history.filter((r) => r.ok && underChecks(r, source.checks)), between);
+  const revisions: BisectChoices['revisions'] = ofGolden
+    ? revisionsBefore(history, between, verdictOfResult)
+    : store
+        .runRevisions({ argv: run.command.argv, before, limit: 100 })
+        .filter((r) => clean(r.revision) && r.revision !== own)
+        .map((r) => ({ rev: r.revision, at: r.lastAt, runs: r.runs, failed: r.failed }));
   const target: BisectChoices['target'] = ofGolden ? { kind: 'golden', golden: golden! } : { kind: 'run', runId: run.runId };
   const fork = !ofGolden && failed;
   // The check a forked replay is judged by: the run's own `--expect` when a check of it failed, else
@@ -1673,7 +1657,7 @@ export function bisectChoices(store: StoreOf<'recording' | 'fixes' | 'tests'>, r
   const expect = fork ? (checkFailed(run) && isObject(run.meta?.expect) ? run.meta.expect : blamed) : null;
   // A run that passed is the good end itself; bisect then looks up to HEAD. One that failed only
   // blame's check leaves the good one to be chosen: how other runs exited says nothing about it.
-  const good = !failed ? (clean(run.codeVersion) ? run.codeVersion : null) : ofGolden ? (sameRecording ?? passedHere) : blamed !== null ? null : (revisions.find((r) => r.failed < r.runs)?.rev ?? null);
+  const good = !failed ? (clean(run.codeVersion) ? run.codeVersion : null) : ofGolden ? goodOfGolden : blamed !== null ? null : (revisions.find((r) => r.failed < r.runs)?.rev ?? null);
   const bad = failed && clean(run.codeVersion) ? run.codeVersion : null;
   let unavailable: string | null = null;
   if (run.status === 'running') unavailable = 'this run is still recording';
@@ -1764,7 +1748,7 @@ export function runTestsJob(goldens: readonly GoldenSource[], req: Record<string
   return { title: ACTIONS.runTests.doing, args: ['test', ...testPatterns(goldens, options.folder), ...more] };
 }
 
-/** Update golden, or Update goldens… for several: each re-recorded live with writes stubbed, and replaced only when its checks pass. */
+/** Update golden, or Update goldens for several: each re-recorded live with writes stubbed, and replaced only when its checks pass. */
 export function updateGoldensJob(goldens: readonly GoldenSource[], req: Record<string, unknown>): TestsJob {
   const raw = Array.isArray(req.goldens) ? req.goldens : req.golden !== undefined ? [req.golden] : [];
   if (!raw.length || raw.length > 500) return { error: 'name the goldens to update' };

@@ -47,7 +47,7 @@ export type { AgentFile, CodingAgentsSettings, ConfigInfo, HttpHostRow, Matching
 export { AGENTS_FOLDER_READERS, CLAUDE_CODE_PLUGIN, CODING_AGENTS, SKILLS, SKILL_PLUGIN, SKILL_PUBLISHED, SKILL_REPOSITORY, TARGETS, claudeConfigDir, codingAgent, installCodingAgent, installedCopy, marketplaceEnabled, sharedSkill, shippedCodingAgents, shippedFiles, shippedVersion, skillOffer } from './agent-skill.js';
 export type { AgentInstall, AgentOffer, CodingAgent, InstallResult, InstallState, InstalledCopy, SkillOffer } from './agent-skill.js';
 // Training: pairs, tasks and the model picker.
-export { approx, exportPairsJob, modelsView, money, PAIRS_EXPORT_FILE, readTraining, scoreDialogView, scoreModelJob, scoreNote, sourceFixes, trainingView } from './training.js';
+export { approx, exportPairsJob, modelsView, money, PAIRS_EXPORT_FILE, readTraining, scoreDialogView, scoreModelJob, sourceFixes, trainingView } from './training.js';
 export type { ModelOptionView, ModelsView, PairFilter, ScoreDialogView, SourceFix, TrainingInput, TrainingOptions, TrainingView } from './training.js';
 // The team store's status: the bucket, the last push and pull, runs in the store and only here, the last check.
 export { readTeamStoreInput, teamStoreStatus } from './team-store.js';

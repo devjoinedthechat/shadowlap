@@ -1,5 +1,5 @@
 import { Command, Option } from 'commander';
-import { applyLeft, BLAME_DEFAULTS, describeBaselineRule, FIX_STATUSES, FixIdError, fixRecords, type FixStatus, KEPT_DEFAULTS, prNumber, type ReadPolicy, repairerProblem, resolveFix, setFixTitle, SPRT_DEFAULTS, type StoredFix, type StoreOf, verifyArgv } from '@shadowlap/engine';
+import { ACTIONS, applyLeft, BLAME_DEFAULTS, describeBaselineRule, FIX_STATUSES, FixIdError, fixRecords, type FixStatus, KEPT_DEFAULTS, prNumber, type ReadPolicy, repairerProblem, resolveFix, setFixTitle, SPRT_DEFAULTS, type StoredFix, type StoreOf, verifyArgv } from '@shadowlap/engine';
 import { fieldChange, fixDetail, fixHref, fixList, ghReader, patchesInTree, patchesToCheck, prHost, pulledPatchesToCheck, readableHosts, rewritesHere, type PrRead } from '@shadowlap/dashboard';
 import { acceptedRepair, ApplyError, applyFix } from '../fix-apply.js';
 import { formatFixDetail, formatFixList, repairLine, shortFixId } from '../fix-format.js';
@@ -336,7 +336,7 @@ function reportApplied(store: StoreOf<'fixes' | 'team'>, found: StoredFix, resul
     }
   }
   // Goldens to re-record are the next thing to do: the drawer offers Update goldens, and the fix beside it.
-  emitJobEvent({ type: 'link', label: 'Open fix', href: fixHref(found.fixId), ...(result.update ? { secondary: true } : {}) });
+  emitJobEvent({ type: 'link', label: ACTIONS.openFix.label, href: fixHref(found.fixId), ...(result.update ? { secondary: true } : {}) });
   emitJobEvent({ type: 'result', data: result });
   process.exitCode = result.tests === 'failed' ? EXIT.failed : EXIT.ok;
 }
