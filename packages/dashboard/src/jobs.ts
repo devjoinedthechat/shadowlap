@@ -31,7 +31,7 @@ import { jobCommands, treeClash, treeFolder, treeUse, type JobTree } from './wor
  *                                                    marks an attempt, which is listed but not opened;
  *                                                    any other ("new", "passing", "failing", "imported")
  *                                                    is a run to open, and the last becomes newRunId
- *   {"type":"link","label":"Open the fix","href":"#/fixes/fx-…"}   where to go next (dashboard routes only)
+ *   {"type":"link","label":"Open fix","href":"#/fixes/fx-…"}   where to go next (dashboard routes only)
  *   {"type":"file","path":".shadowlap/exports/x.jsonl","label":"Dataset"}   a file or folder it wrote
  *   {"type":"result","data":{…}}                     its outcome (what --json prints); the last one is kept
  *
