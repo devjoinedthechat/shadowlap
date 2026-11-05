@@ -164,7 +164,7 @@ function reportVerify(opts: GlobalOpts, report: VerifyReport, { rule, expect, fi
   else process.stdout.write('\n' + formatVerify(report, p, columnsOf(process.stdout)) + '\n' + (kept?.fixes ?? []).map(({ fix: f, standing }) => fixLine(f, standingWords(report.verdict, standing, f.status), columnsOf(process.stdout))).join(''));
   const ranVerify = formatAttemptsUnrecorded(verifyAttempts(report).map((a) => a.unrecordedTools));
   if (ranVerify) process.stderr.write('\n' + ranVerify);
-  for (const { fix: f } of kept?.fixes ?? []) emitJobEvent({ type: 'link', label: 'Open the fix', href: fixHref(f.fixId, 'verify', kept!.verdict.verifyId) });
+  for (const { fix: f } of kept?.fixes ?? []) emitJobEvent({ type: 'link', label: 'Open fix', href: fixHref(f.fixId, 'verify', kept!.verdict.verifyId) });
   emitJobEvent({ type: 'result', data: json });
   // Accepted, 0; rejected, 1; not finished (a run's gate undecided, the budget spent), 3.
   // A stop signal ends it with its own status whenever it came, the verdict reached or not.

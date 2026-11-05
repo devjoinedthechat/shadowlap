@@ -196,7 +196,7 @@ export function register(program: Command): void {
         else process.stdout.write(formatBisect(report, p) + '\n');
         emitJobEvent({ type: 'result', data: report });
         // Where the answer shows: above a golden's buttons on Tests, or on the run's page.
-        emitJobEvent(report.target.kind === 'golden' ? { type: 'link', label: 'Open Tests', href: links.tests() } : { type: 'link', label: 'Open the run', href: links.run(report.target.runId) });
+        emitJobEvent(report.target.kind === 'golden' ? { type: 'link', label: 'Open Tests', href: links.tests() } : { type: 'link', label: 'Open run', href: links.run(report.target.runId) });
         // Found, 0; no first bad commit between the two, 1; a commit at either end that couldn't be tested, 3; cut short by a signal, its status.
         process.exitCode = report.outcome === 'found' ? EXIT.ok : report.outcome === 'untestable' ? EXIT.inconclusive : report.outcome === 'stopped' ? interruptedStatus() : EXIT.failed;
       } catch (err) {

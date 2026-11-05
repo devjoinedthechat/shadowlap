@@ -120,7 +120,7 @@ export function register(router: Router, ctx: RouteContext): void {
   // Check access and connect: `store set <url> --provider <p> --check`, which checks the bucket with
   // this machine's credentials and writes the store to the config only when that works.
   ctx.jobs.registerJobKind('store-set', {
-    title: () => 'Connecting the store',
+    title: () => 'Connecting store',
     build: (req) => {
       if (!ctx.project) return { error: 'the team store needs a project folder: start the dashboard in your project with shadowlap dashboard', status: 501 };
       if (!isProvider(req.provider)) return { error: 'provider is s3, gcs, azure or r2' };
@@ -150,7 +150,7 @@ export function register(router: Router, ctx: RouteContext): void {
   // and goes when it ends; one its recorder left is ended as interrupted by the CLI's push, as gc
   // would, so it goes now. Building the job only names them: nothing changes before it runs.
   ctx.jobs.registerJobKind('push', {
-    title: (req) => (req.all === true ? 'Pushing local runs' : 'Pushing'),
+    title: (req) => (req.all === true ? 'Pushing local runs' : 'Pushing to store'),
     build: (req, { store }) => {
       if (!ctx.project) return { error: 'the team store needs a project folder: start the dashboard in your project with shadowlap dashboard', status: 501 };
       const team = teamStoreFor(ctx);
@@ -173,7 +173,7 @@ export function register(router: Router, ctx: RouteContext): void {
 
   // Pull: the team's runs and the labels and notes they changed. Runs pulled open from the drawer.
   ctx.jobs.registerJobKind('pull', {
-    title: () => 'Pulling',
+    title: () => 'Pulling from store',
     build: () => {
       if (!ctx.project) return { error: 'the team store needs a project folder: start the dashboard in your project with shadowlap dashboard', status: 501 };
       if (!teamStoreFor(ctx)) return { error: 'no team store yet: set one with shadowlap store set s3://<bucket>/<folder>', status: 409 };

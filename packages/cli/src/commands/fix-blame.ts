@@ -143,7 +143,7 @@ function reportBlame(report: BlameRun, flags: BlameFlags): void {
   const ranBlame = formatAttemptsUnrecorded(report.probes.flatMap((x) => x.attempts.map((a) => a.unrecordedTools)));
   if (ranBlame) process.stderr.write('\n' + ranBlame);
   if (report.contrast) emitJobEvent({ type: 'run', runId: report.contrast.rescuedRunId, role: 'passing' });
-  if (report.fix) emitJobEvent({ type: 'link', label: 'Open the fix', href: fixHref(report.fix.fixId, 'blame') });
+  if (report.fix) emitJobEvent({ type: 'link', label: 'Open fix', href: fixHref(report.fix.fixId, 'blame') });
   emitJobEvent({ type: 'result', data: blameJson(report) });
   // A verdict (a blamed call, or none that rescues the run), 0; stopped before one, by its reason;
   // inconclusive at the first model call, which is no verdict, 3.

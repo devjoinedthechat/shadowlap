@@ -98,7 +98,7 @@ describe('a command started by a dashboard job', () => {
     expect(runs.every((e) => e.role === 'attempt')).toBe(true);
     const result = r.events.find((e) => e.type === 'result') as { data: { attempts: Array<{ runId: string; exitCode: number }>; report: unknown } };
     expect(result.data.attempts.map((a) => a.runId)).toEqual(runs.map((e) => e.runId));
-    expect(r.events.at(-1)).toEqual({ type: 'link', label: 'Open the attempts', href: `#/run/${recordingId}/1/forks` });
+    expect(r.events.at(-1)).toEqual({ type: 'link', label: 'Open attempts', href: `#/run/${recordingId}/1/forks` });
     withStore((s) => {
       for (const e of runs) expect(s.getRun(String(e.runId))!.meta).toMatchObject({ author: 'maya@example.com', repeat: { of: 2 } });
     });

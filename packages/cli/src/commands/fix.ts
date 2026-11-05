@@ -336,7 +336,7 @@ function reportApplied(store: StoreOf<'fixes' | 'team'>, found: StoredFix, resul
     }
   }
   // Goldens to re-record are the next thing to do: the drawer offers Update goldens, and the fix beside it.
-  emitJobEvent({ type: 'link', label: 'Open the fix', href: fixHref(found.fixId), ...(result.update ? { secondary: true } : {}) });
+  emitJobEvent({ type: 'link', label: 'Open fix', href: fixHref(found.fixId), ...(result.update ? { secondary: true } : {}) });
   emitJobEvent({ type: 'result', data: result });
   process.exitCode = result.tests === 'failed' ? EXIT.failed : EXIT.ok;
 }
