@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { statSync } from 'node:fs';
+import { readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { configFilePath, isObject, parseTests, readConfigFile, testsEntryFor, type TestEntry } from '@shadowlap/engine';
 import { keepSeenChecks, seenChecks, type SeenChecks } from './checks-seen.js';
@@ -16,8 +16,9 @@ import { goldensOf } from './routes/overview.js';
  *
  * Listing the goldens reads every pack's head, so the work is kept per project and read again only
  * once a file it was read from changes, as stat tells: the config, the goldens folder, the folders
- * its tests entries name, and each pack's run.json. A request pays a stat of each; the same work,
- * and so its key, answers until then.
+ * its tests entries name, and the run.json of each pack, and of each folder under goldens/ whether it
+ * has one yet or not: a pack copied in by hand or by git checkout makes its folder first. A request
+ * pays a stat of each; the same work, and so its key, answers until then.
  */
 
 /** The folder the CLI lists goldens in (its GOLDENS_FOLDER): a pack added there or taken out changes it. */
@@ -45,6 +46,17 @@ function statOf(path: string): string {
 
 const statsOf = (paths: readonly string[]): string => paths.map(statOf).join('|');
 
+/** The run.json each folder under the goldens folder holds or will hold: a missing one stats as `-` until it arrives. */
+function packFiles(folder: string): string[] {
+  try {
+    return readdirSync(folder, { withFileTypes: true })
+      .filter((e) => e.isDirectory() || e.isSymbolicLink())
+      .map((e) => join(folder, e.name, 'run.json'));
+  } catch {
+    return [];
+  }
+}
+
 /** When the config was last written (ms), or null without one. */
 function writtenAt(path: string): number | null {
   try {
@@ -67,13 +79,15 @@ function checksKey(tests: unknown, entries: readonly TestEntry[], golden: string
 function readWork(ctx: RouteContext, dir: string): Omit<Kept, 'prices'> {
   const config = configFilePath(dir);
   const folder = join(dir, GOLDENS);
+  const packs = packFiles(folder);
+  const watched = [config, folder, ...packs];
   // Stat before reading: a write while it is read shows on the next request.
-  const before = [statOf(config), statOf(folder)];
+  const before = watched.map(statOf);
   let file: ReturnType<typeof readConfigFile>;
   try {
     file = readConfigFile(dir);
   } catch {
-    return { watched: [config, folder], stats: before.join('|'), work: null };
+    return { watched, stats: before.join('|'), work: null };
   }
   const tests = isObject(file.data) ? file.data.tests : undefined;
   let entries: TestEntry[] = [];
@@ -94,9 +108,9 @@ function readWork(ctx: RouteContext, dir: string): Omit<Kept, 'prices'> {
     return { path: g.path, runId: g.runId, packedAt: g.packedAt, checksAt: at };
   });
   if (now.size !== seen.size || [...now].some(([path, v]) => seen.get(path)?.key !== v.key)) keepSeenChecks(dir, now);
-  const others = [...new Set([...entries.map((e) => dirname(resolve(dir, e.recording))), ...goldens.map((g) => join(resolve(dir, g.path), 'run.json'))])];
+  const others = [...new Set([...entries.map((e) => dirname(resolve(dir, e.recording))), ...goldens.map((g) => join(resolve(dir, g.path), 'run.json'))])].filter((p) => !packs.includes(p));
   return {
-    watched: [config, folder, ...others],
+    watched: [...watched, ...others],
     stats: [...before, ...others.map(statOf)].join('|'),
     work: { version: file.version, tests, dir, goldens, ...(ctx.read.prices ? { prices: ctx.read.prices } : {}) },
   };
