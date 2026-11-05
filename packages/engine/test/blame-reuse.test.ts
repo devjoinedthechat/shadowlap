@@ -8,7 +8,7 @@ import { blameReport, EXPECT, makeRun, ORACLE } from './fix-fixtures.js';
  * and scope, with one kept with its fix, that found the run unrescued or where it was lost.
  */
 
-const stored = (o: Partial<BlameRecord> = {}): BlameRecord => ({ at: 1, outcome: 'blamed', callNo: 5, confidence: 'high', rescuedRunId: null, fields: {}, oracle: ORACLE, ...o });
+const stored = (o: Partial<BlameRecord> = {}): BlameRecord => ({ at: 1, outcome: 'blamed', callNo: 5, confidence: 'high', rescuedRunId: null, fields: {}, oracle: ORACLE, probes: [], spent: 0.03, ...o });
 
 describe('the blame a repair reuses', () => {
   it('is the one stored under the same check, rescue and scope that found something to build on', () => {
