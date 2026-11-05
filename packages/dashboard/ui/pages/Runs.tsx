@@ -26,7 +26,8 @@ import { useMarkRun } from '../components/RunKey.js';
 import type { RunMark } from '../runkey.js';
 import { RunsTable, RunsTableEmpty, type TableRun } from '../runspage/RunsTable.js';
 import { noteShownRuns } from '../runspage/shown-runs.js';
-import { tableNote, withFirstPage } from '../runspage/rows.js';
+import { lessChips, tableNote, withFirstPage } from '../runspage/rows.js';
+import { lessPending, usePendingHidden, useStillCounted, withoutPending } from '../pending-delete.js';
 import { bundlesAttempts, isAttempt, matchesChip, matchesText, RUN_CHIPS, sortRuns, type RunChip, type RunSort } from '../runs.js';
 import { projectOf } from '../shell/ProjectBlock.js';
 import { keyColumn } from '../shortcuts.js';
@@ -312,7 +313,29 @@ function useWeeks(client: Client, o: { f: RunsFilterRead; query: string; q: stri
 const rowsKey = (f: RunsFilterRead, q: string, times: { from: number; to: number } | null) => `${f.types}|${q}|${f.sort}|${times?.from ?? ''}|${times?.to ?? ''}`;
 
 function pickedRun(r: TableRun): PickedRun {
-  return { runId: r.runId, status: r.status, startedAt: r.startedAt, attempts: r.attempts ?? 0, ...(r.local !== undefined ? { local: r.local } : {}) };
+  const chips = RUN_CHIPS.flatMap(([k]) => (k !== 'all' && (k === 'local' ? r.local === true : matchesChip(r, k)) ? [k] : []));
+  return { runId: r.runId, status: r.status, startedAt: r.startedAt, attempts: r.attempts ?? 0, chips, ...(r.local !== undefined ? { local: r.local } : {}) };
+}
+
+/**
+ * The table as it shows while a delete waits out its toast (`pending-delete.ts`): without the runs it
+ * takes, its total and its chips' counts less them until the table is read again after the delete
+ * lands. A run the table holds is in its counts; another only when no words narrow them and it is
+ * inside the days picked. The days above aren't adjusted: they catch up once the delete lands.
+ */
+function useShownTable(table: TableState, o: { chip: RunChip; q: string; times: { from: number; to: number } | null }): TableState {
+  const hidden = usePendingHidden();
+  const counted = useStillCounted(table.chipCounts);
+  const { chip, q } = o;
+  const from = o.times?.from ?? -Infinity;
+  const to = o.times?.to ?? Infinity;
+  return useMemo(() => {
+    if (!hidden.size) return table;
+    const held = new Set(table.rows.map((r) => r.runId));
+    const gone = counted.filter((r) => held.has(r.runId) || (!q.trim() && r.startedAt >= from && r.startedAt < to));
+    const shown = gone.filter((r) => held.has(r.runId) || chip === 'all' || r.chips.includes(chip));
+    return { ...table, rows: withoutPending(table.rows, hidden), total: lessPending(table.total, shown) ?? 0, chipCounts: lessChips(table.chipCounts, gone) };
+  }, [table, hidden, counted, chip, q, from, to]);
 }
 
 /** Asked from the palette: on this page already, or arriving on it. */
@@ -400,7 +423,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
 
   // Its first page read again when runs change, and when a push or a pull changes what is only here (the local tags).
   const tableQuery: RunsQuery = { types, q, sort, from: times?.from ?? null, to: times?.to ?? null };
-  const table = useRunsTable(client, tableQuery, rowsKey(f, q, times), `${tick}:${feeds.team ?? 0}`, limit);
+  const table = useShownTable(useRunsTable(client, tableQuery, rowsKey(f, q, times), `${tick}:${feeds.team ?? 0}`, limit), { chip, q, times });
   // The good/bad key: a row shows the labels a press gave it until the table's own say otherwise.
   const [marks, setMarks] = useState<ReadonlyMap<string, { base: string; labels: string[] }>>(() => new Map());
   const byId = useLatest(new Map(table.rows.map((r) => [r.runId, r])));

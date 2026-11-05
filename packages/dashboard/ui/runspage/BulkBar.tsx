@@ -1,29 +1,34 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { errorText } from '../toast.js';
 import { letGoAfterPush, pushable, untilDone } from './push.js';
 import { JOB_KINDS } from '../api.js';
 import { DatasetDialog } from '../components/DatasetDialog.js';
 import { CmdLine, CopyButton } from '../components/bits.js';
 import { Dialog, PromptDialog } from '../components/Dialog.js';
+import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { num, plural, shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { jobCommand } from '../jobs.js';
+import { BULK, confirmWords } from '../labels.js';
+import type { PendingRun } from '../pending-delete.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { defaultPackFolder } from '../run/share.js';
 import { isLive } from '../runs.js';
 import { useApp } from '../state.js';
 import type { JobView } from '../types.js';
-import { bulkToast, datasetOff, labelSuggestions, deleteText, deleteWhat, inBatches, joinDeleted, joinLabelled, named, packCommand, packOff, rmCommand } from './bulk.js';
+import { bulkToast, datasetOff, labelSuggestions, deleteText, deleteWhat, inBatches, joinLabelled, named, packCommand, packOff, rmCommand } from './bulk.js';
+import { useDeleteRuns } from './delete-runs.js';
 
 /**
- * The bar over the Runs table once runs are picked: Label, Push (with a team store), Pack, Dataset,
- * Compare (exactly two) and Delete, then Clear. Label and Delete act on every run picked by its full
- * id, a thousand to a request; Delete takes the attempts bundled under each run, as `shadowlap rm`
- * does, and says how many. Pack asks for a folder first, as the run page's does, then packs every run
- * in one job, a folder each; Dataset (at most 500 runs) starts the run page's export job, and Push
- * the team store's.
+ * The bar over the Runs table once runs are picked: Add label…, Push (with a team store), Pack,
+ * Export dataset…, Compare (exactly two) and Delete, then Clear selection. Label and Delete act on
+ * every run picked by its full id, a thousand to a request; Delete takes the attempts bundled under
+ * each run, as `shadowlap rm` does, and says how many, with Undo while its toast shows
+ * (`delete-runs.ts`). Pack asks for a folder first, as the run page's does, then packs every run in
+ * one job, a folder each; Export dataset… (at most 500 runs) starts the run page's export job, and
+ * Push the team store's. Pack and Export dataset… wait while every run picked is still recording.
  */
 
 /** What the bar needs of a run picked: it may no longer be on the page shown. */
@@ -35,6 +40,31 @@ export interface PickedRun {
   local?: boolean;
   /** Attempts bundled under it, which a delete takes with it, as the table counted them. */
   attempts?: number;
+  /** The chips it counts under, `all` aside: what it takes from their counts while its delete waits. */
+  chips?: readonly string[];
+}
+
+/** What a run picked takes from the lists and their counts while its delete waits. */
+const pendingOf = (r: PickedRun): PendingRun => ({ runId: r.runId, chips: r.chips ?? [], attempts: r.attempts ?? 0, startedAt: r.startedAt });
+
+/**
+ * One of the bar's buttons: off on a dashboard that changes nothing, saying why on hover. While
+ * `why` holds (every run picked still recording, too many for one job) it waits: `aria-disabled`,
+ * its card saying why in full (`whyTip`), and a press says why.
+ */
+function BulkButton({ why = null, whyTip, tip, className = 'btn sm', onClick, children }: { why?: string | null; whyTip?: string | undefined; tip: string; className?: string; onClick: () => void; children: ReactNode }) {
+  const { actionsOff, toast } = useApp();
+  if (why && !actionsOff)
+    return (
+      <button className={className} type="button" aria-disabled="true" data-why={why} data-tip={tipCard(tip, [], whyTip ?? why)} onClick={() => toast(why)}>
+        {children}
+      </button>
+    );
+  return (
+    <button className={className} type="button" disabled={!!actionsOff} title={actionsOff ?? undefined} onClick={onClick}>
+      {children}
+    </button>
+  );
 }
 
 type Open = 'label' | 'delete' | 'pack' | 'dataset' | null;
@@ -57,8 +87,9 @@ function useBulkHeight(): RefObject<HTMLDivElement | null> {
 }
 
 export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedRun[]; store: boolean; clear: () => void; onDone: () => void }) {
-  const { actionsOff, client, toast, guard, hasKind, watchJob, runs: inMemory } = useApp();
+  const { client, toast, guard, hasKind, watchJob, runs: inMemory } = useApp();
   const bar = useBulkHeight();
+  const startDelete = useDeleteRuns();
   const [open, setOpen] = useState<Open>(null);
   const ids = runs.map((r) => r.runId);
   const live = runs.filter(isLive);
@@ -67,10 +98,9 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
   const ended = runs.filter((r) => !isLive(r));
   const endedIds = ended.map((r) => r.runId);
   const attempts = ended.reduce((n, r) => n + (r.attempts ?? 0), 0);
-  const off = actionsOff ?? undefined;
-  // The bar picks up to 1,000 runs; one dataset, and one pack job, take fewer.
-  const tooMany = datasetOff(ended.length);
-  const tooManyPacks = packOff(ended.length);
+  // The bar picks up to 1,000 runs; one dataset, and one pack job, take fewer. A copy of runs still recording would be cut off.
+  const waits = ended.length ? null : BULK.waits(runs.length);
+  const waitsTip = waits ? BULK.waitsTip(runs.length) : undefined;
 
   // A run still recording goes too: the CLI queues it, and pushes it when it ends. Once the push has
   // worked the selection is let go, as the runs it picked are in the store (push.ts).
@@ -92,24 +122,24 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
       <div className="bulkbar" role="toolbar" aria-label="Selected runs" ref={bar}>
         <b>{num(runs.length)} selected</b>
         <span className="sep" />
-        <button className="btn sm" type="button" disabled={!!actionsOff} title={off} onClick={() => guard(() => setOpen('label'))}>
+        <BulkButton tip={BULK.label} onClick={() => guard(() => setOpen('label'))}>
           <Icon name="plus" />
-          Label
-        </button>
+          {BULK.label}
+        </BulkButton>
         {store && hasKind(JOB_KINDS.push) ? (
-          <button className="btn sm" type="button" disabled={!!actionsOff} title={off} onClick={() => guard(() => void push())}>
+          <BulkButton tip="Push" onClick={() => guard(() => void push())}>
             Push
-          </button>
+          </BulkButton>
         ) : null}
         {hasKind(JOB_KINDS.pack) ? (
-          <button className="btn sm" type="button" disabled={!!actionsOff || !!tooManyPacks} title={off ?? tooManyPacks ?? undefined} onClick={() => guard(() => (ended.length ? setOpen('pack') : toast('A run that is still recording can’t be packed until it ends.')))}>
+          <BulkButton tip="Pack" why={waits ?? packOff(ended.length)} whyTip={waitsTip} onClick={() => guard(() => setOpen('pack'))}>
             Pack
-          </button>
+          </BulkButton>
         ) : null}
         {hasKind(JOB_KINDS.dataset) ? (
-          <button className="btn sm" type="button" disabled={!!actionsOff || !!tooMany} title={off ?? tooMany ?? undefined} onClick={() => guard(() => (ended.length ? setOpen('dataset') : toast('A run that is still recording can’t be exported until it ends.')))}>
-            Dataset
-          </button>
+          <BulkButton tip={confirmWords(BULK.dataset)} why={waits ?? datasetOff(ended.length)} whyTip={waitsTip} onClick={() => guard(() => setOpen('dataset'))}>
+            {BULK.dataset}
+          </BulkButton>
         ) : null}
         <button
           className="btn sm"
@@ -125,11 +155,11 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
         >
           Compare
         </button>
-        <button className="btn sm quiet dz" type="button" disabled={!!actionsOff} title={off} onClick={() => guard(() => (ended.length ? setOpen('delete') : toast('A run that is still recording can’t be deleted.')))}>
-          Delete
-        </button>
+        <BulkButton className="btn sm quiet dz" tip={BULK.delete(runs.length)} onClick={() => guard(() => (ended.length ? setOpen('delete') : toast('A run that is still recording can’t be deleted.')))}>
+          {BULK.delete(runs.length)}
+        </BulkButton>
         <button className="linkbtn" type="button" onClick={clear}>
-          Clear
+          {BULK.clear}
         </button>
       </div>
       {open === 'label' ? (
@@ -163,14 +193,8 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
           onClose={() => setOpen(null)}
           onOk={() => {
             setOpen(null);
-            inBatches(endedIds, (part) => client.deleteRuns(part)).then(joinDeleted).then(
-              (out) => {
-                toast(bulkToast({ verb: 'Deleted', done: out.done, of: endedIds.length, skipped: out.skipped, attempts: out.attempts.length }));
-                clear();
-                onDone();
-              },
-              (err: unknown) => toast(errorText(err), 'error'),
-            );
+            startDelete(ended.map(pendingOf));
+            clear();
           }}
         >
           <DeleteCommand ids={endedIds} />

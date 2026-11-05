@@ -11,6 +11,7 @@ import { runRowScope } from '../run-row.js';
 import { href, navSection, type Route } from '../route.js';
 import { copyCompares, isAttempt, RECENT_RUNS, runTree, sideLine, sideStatus, treeLines } from '../runs.js';
 import { useApp } from '../state.js';
+import { lessPending, usePendingHidden, useStillCounted, withoutPending } from '../pending-delete.js';
 import { ProjectBlock } from './ProjectBlock.js';
 
 /** How long the drawer takes to show: it slides in hidden from the focus, and a hidden element can't take it. */
@@ -33,7 +34,10 @@ function drawerOpened(aside: RefObject<HTMLElement | null>, close: () => void): 
 
 export function Sidebar({ route }: { route: Route }) {
   const { meta, runs, exported, sideOpen, setPalette, setSideOpen, conn, toast } = useApp();
-  const listed = useMemo(() => (runs ?? []).filter((r) => !isAttempt(r)), [runs]);
+  // A run a delete waits to take is gone from here as from Runs' table, and from the count (pending-delete.ts).
+  const hidden = usePendingHidden();
+  const gone = useStillCounted(meta);
+  const listed = useMemo(() => withoutPending(runs ?? [], hidden).filter((r) => !isAttempt(r)), [runs, hidden]);
   // On a phone the sidebar is a drawer: closed while the focus was in it (Esc, a pick), the focus goes
   // back to the menu button that opened it, rather than to nothing once the drawer is hidden.
   const aside = useRef<HTMLElement>(null);
@@ -48,7 +52,7 @@ export function Sidebar({ route }: { route: Route }) {
   const runsNow = useLatest(runs);
   const rowActions = useCallback((r: RunListItem) => (exported ? null : runRowScope(r, { runs: runsNow.current ?? [], toast })), [exported, runsNow, toast]);
   const section = navSection(route);
-  const count = meta?.counts?.runs ?? listed.length;
+  const count = lessPending(meta?.counts?.runs, gone) ?? listed.length;
   const items: Array<[string, IconName, string, string, number | null]> = exported
     ? [['runs', 'runs', 'Runs', href.runs(), count], ...(copyCompares(meta?.runIds) ? [['compare', 'compare', 'Compare', href.compare(), null] as [string, IconName, string, string, number | null]] : [])]
     : [

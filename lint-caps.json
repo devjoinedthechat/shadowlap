@@ -279,7 +279,7 @@
       "ImportDialog": 45
     },
     "packages/dashboard/ui/shell/StatusBar.tsx": {
-      "StatusBar": 41
+      "StatusBar": 33
     },
     "packages/engine/src/about.ts": {
       "changeWords": 31

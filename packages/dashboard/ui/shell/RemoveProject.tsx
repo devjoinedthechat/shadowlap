@@ -7,6 +7,7 @@ import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
+import { flush } from '../pending-delete.js';
 
 /**
  * Remove a project, from the switcher's × or Settings → Project (`<RemoveProjectDialog id=… />`).
@@ -58,7 +59,8 @@ export function RemoveProjectDialog({ id, onClose, onRemoved }: { id: string; on
     }
     guard(() => {
       setBusy(true);
-      client.projects.remove(id, { deleteRecordings: deleting, name: typed }).then(
+      // A delete waiting out its toast goes to this project's store first: removing it switches to another.
+      void flush().then(() => client.projects.remove(id, { deleteRecordings: deleting, name: typed })).then(
         async (out) => {
           toast(out.message);
           onRemoved?.(out.current);

@@ -58,13 +58,15 @@ table.runst tr.picked td { background: var(--sel); }
 .page:has(.bulkbar) { scroll-padding-bottom: 70px; }
 @media (max-width: 1000px) { html:has(.bulkbar) { scroll-padding-bottom: calc(var(--bulk-h, 46px) + 52px); } }
 .bulkbar { position: fixed; z-index: 15; left: calc(var(--side) + 50%); bottom: 44px; transform: translateX(calc(-50% - var(--side) / 2)); display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 16px; border-radius: var(--r-overlay); border: 1px solid transparent; }
-.bulkbar b { font-weight: 500; font-size: 13px; white-space: nowrap; }
+.bulkbar b { font-weight: 500; font-size: 13.5px; white-space: nowrap; }
 .bulkbar .sep { width: 1px; height: 18px; background: var(--line2); margin: 0 4px; }
 @media (max-width: 1000px) { .bulkbar { left: 50%; transform: translateX(-50%); bottom: 40px; max-width: calc(100vw - 24px); overflow-x: auto; } }
 
 /* below 720px (a phone, or a narrow tablet where a store adds Push: 668px) the bar wraps onto lines rather than cut a
    button: every action stays in view, none scrolls away */
-@media (max-width: 720px) { .bulkbar { flex-wrap: wrap; justify-content: center; row-gap: 6px; width: calc(100vw - 24px); overflow: visible; padding: 8px 10px; } .bulkbar .sep { display: none; } .bulkbar b { flex-basis: 100%; text-align: center; } .bulkspace { height: 120px; } }
+@media (max-width: 720px) { .bulkbar { flex-wrap: wrap; justify-content: center; row-gap: 6px; width: calc(100vw - 24px); overflow: visible; padding: 8px 10px; } .bulkbar .sep { display: none; } .bulkbar b { flex-basis: 100%; text-align: center; } }
+/* the room under the list follows the bar's height once it floats over the list's foot (BulkBar's --bulk-h) */
+@media (max-width: 1000px) { .bulkspace { height: calc(var(--bulk-h, 46px) + 52px); } }
 
 .capfile { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--bg2); border: 1px solid var(--line); }
 .capfile svg { width: 15px; height: 15px; color: var(--faint); }

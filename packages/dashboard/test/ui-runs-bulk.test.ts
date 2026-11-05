@@ -1,20 +1,24 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Client } from '../ui/api.js';
+import { pendingHidden } from '../ui/pending-delete.js';
 import { BulkBar, type PickedRun } from '../ui/runspage/BulkBar.js';
 import { labelSuggestions } from '../ui/runspage/bulk.js';
+import { KEEPALIVE_BYTES, sendDelete, type UndoAction } from '../ui/runspage/delete-runs.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { DeleteResult, JobView } from '../ui/types.js';
 import { sheet } from './css-sheet.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
- * The Runs page's bulk bar does what it shows. Delete names the attempts bundled under the runs
- * picked, which go with them, shows the `shadowlap rm` that deletes the same, and counts them once
- * done. Pack asks for a folder first, as the run page's Pack does, then packs every run in one job,
- * into a folder each inside the one its dialog names. Dataset says how many redaction rules its copy
- * applies and shows the command its job runs. On a phone the bar wraps onto lines, so no action
- * scrolls out of view, and a job's drawer opens above it.
+ * The Runs page's bulk bar does what it shows, in the design's words. Delete names the attempts
+ * bundled under the runs picked, which go with them, shows the `shadowlap rm` that deletes the same,
+ * and waits out its toast, with Undo: the runs leave the lists at once, and go from the store only
+ * when the toast goes, however it goes, or as the page goes. Pack asks for a folder first, as the run
+ * page's Pack does, then packs every run in one job, into a folder each inside the one its dialog
+ * names; it and Export dataset… wait while every run picked is still recording. Export dataset… says
+ * how many redaction rules its copy applies and shows the command its job runs. On a phone the bar
+ * wraps onto lines, so no action scrolls out of view, and a job's drawer opens above it.
  */
 
 const A = '01M5H2DJ1WDXDJVF85FRE4DWH5';
@@ -26,11 +30,14 @@ const RUNS: PickedRun[] = [
 
 const job = (kind: string): JobView => ({ id: 'j1', kind, title: 'Packing 2 runs', args: ['pack', A, './.shadowlap/exports/01m5h2dj1w'], runId: null, startedAt: 0, endedAt: null, done: false, code: null, newRunId: null, runs: [], lines: [], total: 0 }) as unknown as JobView;
 
-function setup(inMemory: Array<{ labels?: string[] }> = []) {
-  const toast = vi.fn();
+const deleted = (ids: string[], skipped: DeleteResult['skipped'] = []): DeleteResult => ({ done: ids.filter((id) => !skipped.some((s) => s.runId === id)), attempts: Array.from({ length: 44 }, (_, i) => `ATTEMPT${i}`), skipped, blobs: 3, bytes: 1000 });
+
+function setup(inMemory: Array<{ labels?: string[] }> = [], runs: PickedRun[] = RUNS, deleteRuns = (ids: string[]): Promise<DeleteResult> => Promise.resolve(deleted(ids))) {
+  const toast = vi.fn<(text: string, kind?: string, action?: UndoAction) => void>();
+  const refresh = vi.fn();
   const watched: Array<Promise<JobView>> = [];
   const client = {
-    deleteRuns: vi.fn((ids: string[]): Promise<DeleteResult> => Promise.resolve({ done: ids, attempts: Array.from({ length: 44 }, (_, i) => `ATTEMPT${i}`), skipped: [], blobs: 3, bytes: 1000 })),
+    deleteRuns: vi.fn(deleteRuns),
     startJob: vi.fn((kind: string) => Promise.resolve(job(kind))),
     offers: vi.fn(() => Promise.resolve({ copies: { total: 3, pathless: 1, formats: [{ id: 'dataset', applies: 'messages', rules: 3 }] } })),
   };
@@ -42,12 +49,28 @@ function setup(inMemory: Array<{ labels?: string[] }> = []) {
     hasKind: () => true,
     guard: (fn: () => void) => fn(),
     toast,
+    refresh,
     watchJob: (p: Promise<JobView>) => watched.push(p),
     runs: inMemory,
   } as unknown as AppState;
   const clear = vi.fn();
   const onDone = vi.fn();
-  return { client, toast, watched, clear, onDone, element: createElement(AppContext.Provider, { value: app }, createElement(BulkBar, { runs: RUNS, store: false, clear, onDone })) };
+  return { client, toast, refresh, watched, clear, onDone, element: createElement(AppContext.Provider, { value: app }, createElement(BulkBar, { runs, store: false, clear, onDone })) };
+}
+
+/** Runs picked of their own, so a delete one test leaves landed hides nothing another reads. */
+const picked = (tag: string, n = 2): PickedRun[] => Array.from({ length: n }, (_, i) => ({ runId: `01M5H2DJ${tag}${String(i).padStart(16, '0')}`, status: 'completed', startedAt: i, attempts: i ? 16 : 28, chips: ['recording'] }));
+
+/** The toast the bar raised last: its words, its kind and its Undo. */
+const lastToast = (s: ReturnType<typeof setup>) => s.toast.mock.calls.at(-1)!;
+
+/** Confirms a Delete of the runs `s` picked, and hands back the toast it raised. */
+async function confirmDelete(s: ReturnType<typeof setup>, runs: number) {
+  r = await render(s.element);
+  await r.click(r.byText('.bulkbar button', `Delete ${runs} runs`));
+  await r.click(r.byText('.dialog button', `Delete ${runs} runs`));
+  const [said, kind, undo] = lastToast(s);
+  return { said, kind, undo: undo! };
 }
 
 const text = (r: Rendered, selector: string) => r.one(selector).textContent.replace(/\s+/g, ' ').trim();
@@ -59,18 +82,146 @@ afterEach(async () => {
 });
 
 describe('the bulk bar’s Delete', () => {
-  it('names the attempts that go with the runs, shows the rm that deletes the same, and counts them once done', async () => {
+  it('names the attempts that go with the runs, shows the rm that deletes the same, and deletes once its toast goes', async () => {
     const s = setup();
     r = await render(s.element);
-    await r.click(r.byText('.bulkbar button', 'Delete'));
+    await r.click(r.byText('.bulkbar button', 'Delete 2 runs'));
     expect(text(r, '.dialog h3')).toBe('Delete 2 runs and the 44 attempts bundled under them?');
     expect(text(r, '.dialog header p')).toBe('Removes the runs, the attempts bundled under them and the recorded data nothing else uses. Their forks keep their own data but lose the link.');
     expect(text(r, '.dialog .cmdline')).toBe('$shadowlap rm 01M5H2DJ1W 01M5H2DJR4');
     await r.click(r.byText('.dialog button', 'Delete 2 runs'));
-    await r.until('the delete to answer', () => s.toast.mock.calls.length > 0);
-    expect(s.client.deleteRuns).toHaveBeenCalledWith([A, B]);
-    expect(s.toast).toHaveBeenCalledWith('Deleted 2 runs and 44 attempts');
+    // Gone from the lists at once, the toast saying so with Undo: nothing is deleted yet.
     expect(s.clear).toHaveBeenCalled();
+    expect([A, B].every((id) => pendingHidden().has(id))).toBe(true);
+    const [said, kind, undo] = lastToast(s);
+    expect([said, kind, undo?.label, undo?.undo]).toEqual(['Deleted 2 runs and 44 attempts', 'notice', 'Undo', true]);
+    expect(s.client.deleteRuns).not.toHaveBeenCalled();
+    // Its time out, or a newer toast, sends it, once.
+    undo!.onGone!(false);
+    undo!.onGone!(false);
+    await r.until('the delete to answer', () => s.refresh.mock.calls.length > 0);
+    expect(s.client.deleteRuns).toHaveBeenCalledTimes(1);
+    expect(s.client.deleteRuns).toHaveBeenCalledWith([A, B]);
+    // It did what the toast said: no second toast, and the runs stay off the lists until they are read again.
+    expect(s.toast).toHaveBeenCalledTimes(1);
+    expect(pendingHidden().has(A)).toBe(true);
+  });
+
+  it('takes the runs back on Undo, the toast gone first as a press takes it, and deletes nothing', async () => {
+    const runs = picked('UNDO');
+    const s = setup([], runs);
+    const { undo } = await confirmDelete(s, 2);
+    expect(runs.every((x) => pendingHidden().has(x.runId))).toBe(true);
+    undo.onGone!(true);
+    undo.run();
+    await r!.until('a tick', () => true);
+    await Promise.resolve();
+    expect(s.client.deleteRuns).not.toHaveBeenCalled();
+    expect(lastToast(s)[0]).toBe('Restored 2 runs');
+    expect(runs.some((x) => pendingHidden().has(x.runId))).toBe(false);
+    // Undo again does nothing more.
+    undo.run();
+    expect(s.toast.mock.calls.filter((c) => c[0] === 'Restored 2 runs')).toHaveLength(1);
+  });
+
+  it('deletes when the toast is closed with its ×', async () => {
+    const runs = picked('XOUT');
+    const s = setup([], runs);
+    const { undo } = await confirmDelete(s, 2);
+    undo.onGone!(true);
+    await r!.until('the delete to answer', () => s.refresh.mock.calls.length > 0);
+    expect(s.client.deleteRuns).toHaveBeenCalledWith(runs.map((x) => x.runId));
+  });
+
+  it('says what it left alone in a second toast, the run left alone back on the lists', async () => {
+    const runs = picked('PART');
+    const [kept, gone] = [runs[1].runId, runs[0].runId];
+    const s = setup([], runs, (ids) => Promise.resolve(deleted(ids, [{ runId: kept, reason: 'a replay of it is still running' }])));
+    const { undo } = await confirmDelete(s, 2);
+    undo.onGone!(false);
+    await r!.until('the delete to answer', () => s.refresh.mock.calls.length > 0);
+    expect(lastToast(s)[0]).toBe(`Deleted 1 of 2 runs and 44 attempts · ${kept.slice(0, 10)} was left alone: a replay of it is still running`);
+    expect([pendingHidden().has(gone), pendingHidden().has(kept)]).toEqual([true, false]);
+  });
+
+  it('says why a delete failed, and brings its runs back', async () => {
+    const runs = picked('FAIL');
+    const s = setup([], runs, () => Promise.reject(new Error('the store is locked by another process')));
+    const { undo } = await confirmDelete(s, 2);
+    undo.onGone!(false);
+    await r!.until('the delete to fail', () => s.refresh.mock.calls.length > 0);
+    expect(lastToast(s).slice(0, 2)).toEqual(['The store is locked by another process', 'error']);
+    expect(runs.some((x) => pendingHidden().has(x.runId))).toBe(false);
+  });
+
+  it('sends what waits as the page goes, with keepalive, its toast gone with it, so a page brought back deletes nothing twice', async () => {
+    const runs = picked('HIDE');
+    const s = setup([], runs);
+    const { said, undo } = await confirmDelete(s, 2);
+    for (const fn of (window as unknown as { heard: (t: string) => Array<(e: unknown) => void> }).heard('pagehide')) fn({ type: 'pagehide', persisted: true });
+    expect(s.client.deleteRuns).toHaveBeenCalledTimes(1);
+    expect(s.client.deleteRuns).toHaveBeenCalledWith(runs.map((x) => x.runId), { keepalive: true });
+    // The toast with Undo is replaced by one without: on a page brought back, nothing waits to undo.
+    expect(lastToast(s)).toEqual([said]);
+    await r!.until('the delete to answer', () => s.refresh.mock.calls.length > 0);
+    // The toast that waited, gone later, sends nothing; its Undo takes nothing back.
+    undo.onGone!(false);
+    undo.run();
+    await Promise.resolve();
+    expect(s.client.deleteRuns).toHaveBeenCalledTimes(1);
+    expect(s.toast.mock.calls.some((c) => c[0].startsWith('Restored'))).toBe(false);
+  });
+
+  it('keeps a page’s last requests within the browser’s keepalive room, and fails cleanly past it', async () => {
+    const ids = Array.from({ length: 2500 }, (_, i) => `01M5H2DJKA${String(i).padStart(16, '0')}`);
+    const asked: Array<{ n: number; keepalive: boolean }> = [];
+    const client = {
+      deleteRuns: (part: readonly string[], o?: { keepalive?: boolean }) => {
+        asked.push({ n: part.length, keepalive: !!o?.keepalive });
+        return o?.keepalive ? Promise.resolve(deleted([...part])) : Promise.reject(new TypeError('Failed to fetch'));
+      },
+    };
+    expect(JSON.stringify({ ids: ids.slice(0, 1000) }).length * 2).toBeLessThanOrEqual(KEEPALIVE_BYTES);
+    const { out, failed } = await sendDelete(client, ids, true);
+    expect(asked).toEqual([
+      { n: 1000, keepalive: true },
+      { n: 1000, keepalive: true },
+      { n: 500, keepalive: false },
+    ]);
+    // What came is kept; what failed fails alone, as an answer, never thrown.
+    expect(out.done).toHaveLength(2000);
+    expect(failed).toBeInstanceOf(TypeError);
+  });
+});
+
+describe('the bulk bar’s words', () => {
+  it('says the design’s words, Delete counting every run picked', async () => {
+    r = await render(setup().element);
+    expect(r.all('.bulkbar button').map((b) => b.textContent.trim())).toEqual(['Add label…', 'Pack', 'Export dataset…', 'Compare', 'Delete 2 runs', 'Clear selection']);
+    await r.unmount();
+    r = await render(setup([], RUNS.slice(0, 1)).element);
+    expect(r.byText('.bulkbar button', 'Delete 1 run').getAttribute('aria-disabled')).toBeNull();
+  });
+
+  it('holds Pack and Export dataset… while every run picked is still recording, saying why', async () => {
+    const live: PickedRun[] = [{ runId: A, status: 'running', startedAt: 1 }];
+    const s = setup([], live);
+    r = await render(s.element);
+    for (const [label, title] of [
+      ['Pack', 'Pack'],
+      ['Export dataset…', 'Export dataset'],
+    ] as const) {
+      const b = r.byText('.bulkbar button', label);
+      expect(b.getAttribute('aria-disabled')).toBe('true');
+      expect(b.getAttribute('data-why')).toBe('Still recording: try when it ends');
+      expect(JSON.parse(b.getAttribute('data-tip')!)).toEqual({ t: title, s: 'Waits until the recording ends: a copy now would be cut off', rows: [] });
+      await r.click(b);
+      expect(lastToast(s)[0]).toBe('Still recording: try when it ends');
+    }
+    expect(r.all('.dialog')).toHaveLength(0);
+    await r.unmount();
+    r = await render(setup([], [live[0], { ...live[0], runId: B }]).element);
+    expect(r.byText('.bulkbar button', 'Pack').getAttribute('data-why')).toBe('Still recording: try when they end');
   });
 });
 
@@ -97,7 +248,7 @@ describe('the bulk bar’s Label', () => {
     expect(labelSuggestions(null)).toEqual([]);
     const s = setup([{ labels: ['refund-bug'] }, { labels: ['good', 'refund-bug'] }]);
     r = await render(s.element);
-    await r.click(r.byText('.bulkbar button', 'Label'));
+    await r.click(r.byText('.bulkbar button', 'Add label…'));
     const field = r.one('.dialog input[type="text"]');
     const list = r.all('datalist').find((d) => d.getAttribute('id') === field.getAttribute('list'));
     expect(list?.children.map((o) => o.value)).toEqual(['refund-bug', 'good']);
@@ -105,7 +256,7 @@ describe('the bulk bar’s Label', () => {
 
   it('offers none where no run carries a label', async () => {
     r = await render(setup().element);
-    await r.click(r.byText('.bulkbar button', 'Label'));
+    await r.click(r.byText('.bulkbar button', 'Add label…'));
     expect(r.one('.dialog input[type="text"]').getAttribute('list')).toBeNull();
     expect(r.all('datalist')).toHaveLength(0);
   });
@@ -115,7 +266,7 @@ describe('the bulk bar’s Dataset', () => {
   it('says how many redaction rules apply and shows the command its job runs, with the file it writes', async () => {
     const s = setup();
     r = await render(s.element);
-    await r.click(r.byText('.bulkbar button', 'Dataset'));
+    await r.click(r.byText('.bulkbar button', 'Export dataset…'));
     await r.until('the rules to load', () => text(r!, '.dialog header p').includes('redaction rules'));
     expect(s.client.offers).toHaveBeenCalledWith(A);
     expect(text(r, '.dialog header p')).toContain('The 3 redaction rules apply to the conversations and answers it keeps.');

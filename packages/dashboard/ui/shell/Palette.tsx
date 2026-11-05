@@ -16,6 +16,7 @@ import { href, type Route } from '../route.js';
 import { navigate } from '../router.js';
 import { normalizeRuns } from '../normalize.js';
 import { isAttempt, kindWord, runSource, type RunLike } from '../runs.js';
+import { pendingHidden, withoutPending } from '../pending-delete.js';
 import { rowStep } from '../run/row-step.js';
 import { goKeyColumn, keyColumn } from '../shortcuts.js';
 import { singleKeysOn } from '../single-keys.js';
@@ -205,7 +206,7 @@ function PaletteRow({ x, n, q, at, paused, id, moved, pick }: { x: PaletteComman
 // Run blame for the newest failures nobody blamed: the job, or what it asks first (your command on a capture, the check, a yes) on the run's own page.
 addPaletteSource(({ app, route, go }) => {
   const refused = (runId: string, err: unknown) => (blameAsksOnItsPage(err) ? go(href.run(runId)) : app.watchJob(Promise.reject(err)));
-  return blameEntries(app.runs ?? [], route.page === 'run' ? route.id : null).map(({ run, entry }) => ({
+  return blameEntries(withoutPending(app.runs ?? [], pendingHidden()), route.page === 'run' ? route.id : null).map(({ run, entry }) => ({
     ...entry,
     run: () =>
       run.next?.capture
@@ -271,7 +272,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
         // a source that fails leaves its group out
       }
     }
-    const runs = [...(app.runs ?? [])].filter((r) => !isAttempt(r)).sort((a, b) => b.startedAt - a.startedAt);
+    const runs = withoutPending(app.runs ?? [], pendingHidden()).filter((r) => !isAttempt(r)).sort((a, b) => b.startedAt - a.startedAt);
     for (const r of runs) out.push(runCommand(r));
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- built when the palette opens, and again only when a source says more arrived: the run list moving under it would move the selection

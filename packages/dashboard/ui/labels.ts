@@ -1,4 +1,5 @@
 import { ACTIONS, confirmWords, forceLiveLabel } from '../../engine/src/action-words.js';
+import { plural } from './format.js';
 
 /**
  * The dashboard's words for its actions, read by every place that offers one: its buttons, menu
@@ -102,3 +103,17 @@ export function dialogName(label: string, callNo: number | null): string {
   const name = confirmWords(label);
   return callNo === null ? name : name.replace(/ from here$/, ` from #${callNo}`);
 }
+
+/**
+ * The bulk bar's words over the runs picked. Delete counts every run picked, one still recording
+ * among them, as its dialog says what it takes; Pack and Export dataset… wait while every run picked
+ * is still recording, as a copy made now would be cut off.
+ */
+export const BULK = {
+  label: 'Add label…',
+  dataset: `${ACTIONS.exportDataset.confirm}…`,
+  clear: 'Clear selection',
+  delete: (runs: number): string => `Delete ${plural(runs, 'run')}`,
+  waits: (runs: number): string => `Still recording: try when ${runs === 1 ? 'it ends' : 'they end'}`,
+  waitsTip: (runs: number): string => `Waits until ${runs === 1 ? 'the recording ends' : 'the recordings end'}: a copy now would be cut off`,
+} as const;

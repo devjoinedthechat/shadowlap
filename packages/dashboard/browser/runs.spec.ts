@@ -55,6 +55,29 @@ test('days in a link that run past the twelve weeks keep to the days inside, and
   await expect(page.locator('main#view section.cal.hist .hbars button[aria-pressed="true"]')).toHaveCount(0);
 });
 
+test('x picks a row and the bar comes; Delete takes the run off every list at once, and Undo puts it back', async ({ page }) => {
+  await openPage(page, '/runs', 'main#view table.runst tbody tr');
+  const nav = page.locator('nav.navlist a[href="#/runs"]');
+  const before = await nav.textContent();
+  const row = page.locator('main#view table.runst tbody tr:not(.wspace)').first();
+  const link = (await row.locator('a.rowa').getAttribute('href'))!;
+  await row.locator('a.rowa').focus();
+  await page.keyboard.press('x');
+  const bar = page.locator('.bulkbar');
+  await expect(bar.locator('b')).toHaveText('1 selected');
+  expect(await bar.locator('button').allTextContents()).toEqual(expect.arrayContaining(['Add label…', 'Export dataset…', 'Compare', 'Delete 1 run', 'Clear selection']));
+  await bar.locator('button', { hasText: 'Delete 1 run' }).click();
+  await page.locator('.dialog button', { hasText: /^Delete run$/ }).click();
+  await expect(page.locator(`main#view table.runst a.rowa[href="${link}"]`)).toHaveCount(0);
+  await expect(nav).not.toHaveText(before!);
+  const toast = page.locator('.toasts .toast');
+  await expect(toast).toContainText('Deleted');
+  await toast.locator('button', { hasText: 'Undo' }).click();
+  await expect(page.locator(`main#view table.runst a.rowa[href="${link}"]`)).toHaveCount(1);
+  await expect(nav).toHaveText(before!);
+  await expect(page.locator('.toasts .toast')).toContainText('Restored');
+});
+
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
