@@ -11,7 +11,12 @@ import type { TeamStoreView } from './types.js';
  * `team`): a push or a pull changes what it says.
  */
 export function useTeamStore(): TeamStoreView | null {
+  return useTeamStoreState().store;
+}
+
+/** The team store as `useTeamStore` reads it, and whether it has answered yet (`known`): until then, a page holds what it says of the store. */
+export function useTeamStoreState(): { store: TeamStoreView | null; known: boolean } {
   const { client, runsTick, feeds, exported } = useApp();
-  const { data } = useLoad(() => (exported ? null : client.teamStore()), 'team-store', `${runsTick}:${feeds.team ?? 0}`);
-  return data ?? null;
+  const { data, loading } = useLoad(() => (exported ? null : client.teamStore()), 'team-store', `${runsTick}:${feeds.team ?? 0}`);
+  return { store: data ?? null, known: data !== null || !loading };
 }

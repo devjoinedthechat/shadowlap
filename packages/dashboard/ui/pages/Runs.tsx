@@ -5,7 +5,7 @@ import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
 import { ShowMore } from '../components/Table.js';
 import { pageUp } from '../focus-manager.js';
-import { compactPath, viewerTimeZone } from '../format.js';
+import { viewerTimeZone } from '../format.js';
 import { useLatest, useLoad, type Loaded } from '../hooks.js';
 import { shownRuns } from '../list-keys.js';
 import { sentence } from '../normalize.js';
@@ -29,9 +29,9 @@ import { bundlesAttempts, isAttempt, matchesChip, matchesText, RUN_CHIPS, sortRu
 import { projectOf } from '../shell/ProjectBlock.js';
 import { keyColumn } from '../shortcuts.js';
 import { useApp } from '../state.js';
-import { useTeamStore } from '../teamstore.js';
+import { useTeamStoreState } from '../teamstore.js';
 import { errorText } from '../toast.js';
-import type { BisectChoices, ChipCounts, RunsByDay, RunsPage as RunsPageView, RunsPageRow, RunsQuery } from '../types.js';
+import type { BisectChoices, ChipCounts, RunsByDay, RunsPage as RunsPageView, RunsPageRow, RunsQuery, TeamStoreView } from '../types.js';
 import { ACTIONS } from '../labels.js';
 
 /**
@@ -326,9 +326,15 @@ function useRunsKeyNotes(o: { client: Client; query: RunsQuery; rows: readonly T
   }, [rows, next, now]);
 }
 
+/** The page's eyebrow: the project, and which store its runs are kept in once that is known (a team's never reads `local store` first); `runs` without a project. */
+function runsEyebrow(p: { name: string } | null, store: TeamStoreView | null, known: boolean): string {
+  if (!p) return 'runs';
+  return known ? `${p.name} · ${store ? 'team store' : 'local store'}` : p.name;
+}
+
 function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   const { client, meta, tick, feeds, actionsOff, hasKind, guard, watchJob, toast, refresh, runs: appRuns } = useApp();
-  const store = useTeamStore();
+  const { store, known: storeKnown } = useTeamStoreState();
   const tz = useMemo(viewerTimeZone, []);
   const f = useRunsFilter(filter);
   const chip = f.types;
@@ -471,7 +477,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   return (
     <Page>
       <PageHeader
-        eyebrow={p ? compactPath(p.path) : 'runs'}
+        eyebrow={runsEyebrow(p, store, storeKnown)}
         title="Runs"
         text={RUNS_TEXT}
         actions={
