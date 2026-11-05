@@ -30,7 +30,7 @@ function tipOf(step: NextStep): string {
   return tipCard(c.title, c.rows, c.sub);
 }
 
-const ICONS: Partial<Record<NextStep['key'], IconName>> = { compare: 'compare', fix: 'loop', replay: 'replay' };
+const ICONS: Partial<Record<NextStep['key'], IconName>> = { compare: 'compare', fix: 'loop' };
 
 interface StepProps {
   run: RunDetail;

@@ -1,4 +1,5 @@
-import { costLine, priceWords } from '../../../engine/src/estimates/spending.js';
+import { costLine, costWords } from '../../../engine/src/estimates/spending.js';
+import { confirmWords } from '../labels.js';
 import type { NextStep, RunDetail } from '../types.js';
 import { blameTitle } from './offers.js';
 
@@ -14,13 +15,14 @@ export function nextStepOf(run: Pick<RunDetail, 'next'>): NextStep | null {
 }
 
 /**
- * What a step's hover says: its title, its sentence, and what it bills and runs. The amount alone
- * until Spending says whether it asks first: a job's dialog says the rest.
+ * What a step's hover says: its title, its sentence, and what it bills and runs: the amount alone
+ * until Spending says whether it asks first, none for what bills nothing. A job's dialog says the rest.
  */
 export function stepCard(step: NextStep): { title: string; sub: string | null; rows: Array<{ label: string; value: string }> } {
   const own = step.key === 'fix' ? fixStatusWords(step.status).why : step.key === 'blame' ? blameTitle(step.offer) : null;
-  const rows = [...(step.estimate ? [{ label: 'Costs', value: priceWords(step.estimate) }] : []), ...(step.command ? [{ label: '$', value: step.command }] : [])];
-  return { title: step.title ?? step.label, sub: step.sub ?? own, rows };
+  const cost = step.estimate ? costWords(step.estimate, null, { form: true }) : null;
+  const rows = [...(cost ? [{ label: 'Costs', value: cost }] : []), ...(step.command ? [{ label: '$', value: step.command }] : [])];
+  return { title: step.title ?? confirmWords(step.label), sub: step.sub ?? own, rows };
 }
 
 /** What a step's dialog says of what it bills, as an ask's cost line says it: `≈$3.11, as the last test’s 6 attempts · live from each read, writes stubbed`. */

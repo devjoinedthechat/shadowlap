@@ -386,6 +386,10 @@ describe('the run page’s next step', () => {
     const step: NextStep = { ...OFFER, estimate: { kind: 'blame', usd: null, ceiling: false, parts: ['a model has no price'], none: 'a model has no price' } };
     expect(stepCard(step).rows).toEqual([{ label: 'Costs', value: 'no estimate' }]);
     expect(stepCost(step)).toBe('Billed by your provider · a model has no price');
+    // Nothing to say of what bills nothing, on its card; its title is its words without what its dialog asks.
+    const free: NextStep = { key: 'rerun-test', label: 'Re-run test', golden: GOLDEN, estimate: { kind: 'tests', usd: 0, ceiling: false, parts: ['replays offline'] } };
+    expect(stepCard(free).rows).toEqual([]);
+    expect(stepCard({ key: 'injection-test', label: 'Run injection test…', runId: REC }).title).toBe('Run injection test');
     expect(stepCost(OFFER)).toBeNull();
     expect(nextStepOf({})).toBeNull();
   });
