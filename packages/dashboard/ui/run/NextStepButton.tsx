@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { JOB_KINDS, type RunDetail, type RunOffers } from '../api.js';
 import { ConfirmDialog, PromptDialog } from '../components/Dialog.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Icon, type IconName } from '../components/Icon.js';
 import { goldenName, shortId } from '../format.js';
 import { commandText } from '../goldens.js';
+import { useLoad } from '../hooks.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
 import { TestsJobButton } from '../fixes/TestsJobButton.js';
 import { useTreeBusy } from '../fixes/tree.js';
@@ -23,6 +24,20 @@ import { blameTitle } from './offers.js';
  * to what it opens, or the job it runs, each waiting as that job's own button waits. Its hover says
  * what it does, what it bills and what it runs. `data-next` names the step, for the palette to press.
  */
+
+/**
+ * The run with its next step whole: what a page's answer leaves out where it would read a long run's
+ * calls (`later`), what it bills or a verdict that changes what leads, is asked for alone, as its
+ * outcome is (useJudged), and again whenever the page's answer moves. Nothing else asks again: on a
+ * run nothing moves, no page loads.
+ */
+export function useWholeStep(run: RunDetail): RunDetail {
+  const { client } = useApp();
+  const ask = !!run.next?.later && run.run.status !== 'running';
+  const asked = useLoad(() => (ask ? client.nextStep(run.run.runId) : null), ask ? run.run.runId : 'none', run.next);
+  const whole = ask ? asked.data?.next : null;
+  return useMemo(() => (whole ? { ...run, next: whole } : run), [run, whole]);
+}
 
 /** A step's hover card. */
 function tipOf(step: NextStep): string {

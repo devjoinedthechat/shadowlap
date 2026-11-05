@@ -37,6 +37,7 @@ import {
   type TestResult,
   type ToolTrust,
 } from '@shadowlap/engine';
+import { lookupRun, noSuchRun } from './api.js';
 import { chaosMatrices, type ChaosMatrix } from './chaos.js';
 import { GOLDEN_HISTORY } from './bisect-start.js';
 import { HEX } from './commits-here.js';
@@ -48,7 +49,9 @@ import { gitAsync } from './patch-in-tree.js';
 import { blameOffer, passedSince, testOffer, type BlameOffer, type TestOffer } from './run-offers.js';
 import { runCalls } from './run-calls.js';
 import { loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
-import type { RunJudged } from './run-outcome.js';
+import { QUICK_FROM } from './run-page.js';
+import { answer, failed, type ReadTable } from './read-registry.js';
+import { runJudged, type OutcomeWork, type RunJudged } from './run-outcome.js';
 import { callTotals, priced } from './run-stats.js';
 import { runStates, type RunRow, type RunState } from './runs-list.js';
 import { bisectAnswers, bisectChoices, standingAnswer, underChecks, unjudgedOffline, unreadable, verdictOfResult, type BisectAnswer, type BisectChoices, type GoldenSource } from './tests.js';
@@ -121,8 +124,13 @@ interface StepWords extends NextStepRow {
   sub?: string;
   /** The command it runs, as a person would type it. */
   command?: string;
-  /** What it bills, where it runs something live; absent on a long run's first answer, and for a step that bills nothing. */
+  /** What it bills, where it runs something live; absent for a step that bills nothing. */
   estimate?: Estimate;
+  /**
+   * This answer leaves part of it out, as it would have read a long run's calls: what it bills, or a
+   * verdict that may change what leads. `GET /api/runs/:id/next` answers with it whole.
+   */
+  later?: true;
 }
 
 /** The fields each kind of step adds for what it does. */
@@ -225,8 +233,15 @@ interface Pricing {
   prices: Record<string, Price> | undefined;
 }
 
-/** A step as a rule decides it: with how to work out what it bills, for a run's page. */
-type Decided = NextStep & { price?: (p: Pricing) => Estimate | null | Promise<Estimate | null> };
+/** How to work out what a step bills, for a run's page. */
+interface Priced {
+  price?: (p: Pricing) => Estimate | null | Promise<Estimate | null>;
+  /** The runs whose calls its price reads: none for a price that reads none, which any answer can work out. */
+  reads?: readonly string[];
+}
+
+/** A step as a rule decides it. */
+type Decided = NextStep & Priced;
 
 /** What each rule below reads of a run. */
 interface Facts {
@@ -273,7 +288,7 @@ function blameCommand(runId: string, offer: BlameOffer, capture: boolean): strin
 }
 
 function blameStep(runId: string, offer: BlameOffer, capture = false): Decided {
-  return { key: 'blame', label: ACTIONS.runBlame.label, offer, ...(capture ? { capture: true as const } : {}), command: blameCommand(runId, offer, capture), price: (p) => blameEstimate(p.calls(runId), p.prices ? { prices: p.prices } : {}) };
+  return { key: 'blame', label: ACTIONS.runBlame.label, offer, ...(capture ? { capture: true as const } : {}), command: blameCommand(runId, offer, capture), reads: [runId], price: (p) => blameEstimate(p.calls(runId), p.prices ? { prices: p.prices } : {}) };
 }
 
 /** Whether a golden is made from a run: one its family replays or was unpacked from, or whose pack holds a run of its family. */
@@ -295,6 +310,7 @@ function packGateStep(f: Facts, runId: string, parent: boolean): Decided {
     title: `Pack ${short(runId)} with injection gate`,
     sub: parent ? 'A golden with an injection gate: it fails while the agent obeys a planted instruction' : 'A golden with an injection gate: it fails while the agent obeys a planted instruction, and passes once it is fixed',
     command: `shadowlap pack ${short(runId)} ${folder}`,
+    reads: [runId],
     price: (p) => injectionGateEstimate(p.calls(runId), untrustedReads(p.raw(runId), f.work?.tools).reads, { payloads: allTemplates() }),
   };
 }
@@ -326,16 +342,18 @@ function crashed(row: IndexedRun, result: TestResult | null): boolean {
 const REMADE = 'It re-records the golden under the change';
 const JUDGE_ONCE = 'Asks the judge once, live, and keeps its verdict in the pack: every test after judges from the recording, free';
 
-/** Update golden: re-recorded live, about what its recording cost. */
+/** What re-recording a golden bills: about what its recording cost. */
+const updatePrice = (source: GoldenSource): Priced => ({ reads: source.runId ? [source.runId] : [], price: (p) => updateEstimate([{ calls: source.runId ? p.calls(source.runId) : [] }]) });
+
+/** Update golden: re-recorded live. */
 function updateStep(f: Facts, golden: string, source: GoldenSource): Decided {
-  return { key: 'update-golden', label: ACTIONS.updateGolden.label, golden, test: f.offer(), sub: REMADE, command: `shadowlap test ${golden} --update`, price: (p) => updateEstimate([{ calls: source.runId ? p.calls(source.runId) : [] }]) };
+  return { key: 'update-golden', label: ACTIONS.updateGolden.label, golden, test: f.offer(), sub: REMADE, command: `shadowlap test ${golden} --update`, ...updatePrice(source) };
 }
 
 /** What the values made anew on every run lead a diverged test to: the rule, then the test again or an update; null for an id that may be a real change, which only the person can tell, so neither leads. */
 function valueStep(f: Facts, t: TestedGolden, offer: TestOffer): Decided | null {
   const { golden, source, result } = t;
   const all = offer.values.coversAll;
-  const update = (p: Pricing) => updateEstimate([{ calls: source.runId ? p.calls(source.runId) : [] }]);
   const test = () => goldenTestEstimate(source.mode === 'fork', result);
   if (offer.normalized) return all ? { key: 'rerun-test', label: ACTIONS.rerunTest.label, golden, command: `shadowlap test ${golden}`, sub: 'The rule is in shadowlap.config.json: it replays the golden again', price: test } : updateStep(f, golden, source);
   if (offer.maybeReal) return null;
@@ -346,7 +364,7 @@ function valueStep(f: Facts, t: TestedGolden, offer: TestOffer): Decided | null 
     test: offer,
     command: (offer.normalizeAndTest ?? []).map((a) => commandLine(a)).join(' && '),
     sub: all ? 'Masks the value at match time, then replays the golden offline' : 'Masks the value at match time, then re-records the golden',
-    price: all ? test : update,
+    ...(all ? { price: test } : updatePrice(source)),
   };
 }
 
@@ -360,8 +378,7 @@ function divergedStep(f: Facts, t: TestedGolden): Decided | null {
   if (d?.type === 'request_changed' && (d.diff ?? []).some((e) => pathSetByCode(e.path, d.name))) return updateStep(f, golden, source);
   const c = f.choices();
   if (c?.unavailable) return null;
-  const price = bisectPrice(f, source, result, c?.good ?? null, c?.bad ?? null);
-  return { key: 'bisect', label: ACTIONS.findBreakingCommit.label, golden, starts: false, blame: null, command: bisectCommand(golden, null, commitName(c?.bad)), sub: 'Asks for a commit where it still worked, then replays it at the commits between', ...(price ? { price } : {}) };
+  return { key: 'bisect', label: ACTIONS.findBreakingCommit.label, golden, starts: false, blame: null, command: bisectCommand(golden, null, commitName(c?.bad)), sub: 'Asks for a commit where it still worked, then replays it at the commits between', ...bisectPrice(f, source, result, c?.good ?? null, c?.bad ?? null) };
 }
 
 /** What a test replay of its own leads with while its golden is on disk: its passing run, or by how it diverged, or its judge's verdict. */
@@ -380,7 +397,7 @@ function testStep(f: Facts): Decided | null {
   if (r && verdictOfResult(r) === 'inconclusive' && t.source.mode === 'replay' && unjudgedOffline(r)) {
     // A verdict the pack lacks: one call of its judge, at what one has cost where the result kept it.
     const judge = (r.data?.checks ?? []).find((c) => checkStatus(c) === 'inconclusive' && c.judge)?.judge?.cost ?? null;
-    return { ...updateStep(f, t.golden, t.source), sub: JUDGE_ONCE, price: () => updateEstimate([{ calls: [], judge }]) };
+    return { ...updateStep(f, t.golden, t.source), sub: JUDGE_ONCE, reads: [], price: () => updateEstimate([{ calls: [], judge }]) };
   }
   return null;
 }
@@ -399,9 +416,10 @@ const bisectCommand = (golden: string, good: string | null, bad: string | null):
  * as the costliest of its last session's. How many commits that is, git says, once the search has a
  * commit to start from, and only of two commits.
  */
-function bisectPrice(f: Facts, source: GoldenSource, result: TestResult | null, good: string | null, bad: string | null): Decided['price'] {
-  if (source.mode !== 'fork') return undefined;
-  return async (p) => {
+function bisectPrice(f: Facts, source: GoldenSource, result: TestResult | null, good: string | null, bad: string | null): Priced {
+  if (source.mode !== 'fork') return {};
+  const attempts = result?.data?.attempts?.runs ?? [];
+  const price = async (p: Pricing): Promise<Estimate> => {
     const dir = f.work?.dir;
     const from = commitName(good);
     const to = bad === null ? 'HEAD' : commitName(bad);
@@ -411,10 +429,11 @@ function bisectPrice(f: Facts, source: GoldenSource, result: TestResult | null, 
     const commits = count.code === 0 ? Number(count.stdout.trim()) : NaN;
     if (!Number.isInteger(commits)) return noEstimate('bisect', 'git could not say how many commits it would search');
     const gate = source.gate && 'max' in source.gate ? source.gate.max : null;
-    const runs = (result?.data?.attempts?.runs ?? []).map((id) => f.index.byId.get(id)).filter((r): r is IndexedRun => !!r);
+    const runs = attempts.map((id) => f.index.byId.get(id)).filter((r): r is IndexedRun => !!r);
     const spends = [...callTotals(f.store, f.index, runs).values()].map((t) => priced(t, p.prices).spent);
     return bisectEstimate(commits, { fork: true, attempts: gate ?? source.repeat, each: spends.length ? Math.max(...spends) : null, commit: result?.data?.spent ?? null, count: gate === null });
   };
+  return { price, reads: attempts };
 }
 
 /** A crash: its commit leads, found offline and free from the newest commit its golden passed at, with Run blame beside it, until the commit is named. */
@@ -426,7 +445,6 @@ function crashStep(f: Facts): Decided | null {
   if (!c || c.unavailable) return null;
   const good = commitName(c.good);
   const starts = !!good && !c.live;
-  const price = bisectPrice(f, t.source, t.result, c.good, c.bad);
   return {
     key: 'bisect',
     label: starts ? confirmWords(ACTIONS.findBreakingCommit.label) : ACTIONS.findBreakingCommit.label,
@@ -435,7 +453,7 @@ function crashStep(f: Facts): Decided | null {
     blame: f.fix()?.fix ? null : blameOffer(store, f.record, f.work?.tests, f.fix),
     command: bisectCommand(t.golden, good, commitName(c.bad)),
     sub: starts ? `Replays the golden at the commits since ${good!}, where it passed, offline: no tokens` : 'Asks for a commit where it still worked, then replays it at the commits between',
-    ...(price ? { price } : {}),
+    ...bisectPrice(f, t.source, t.result, c.good, c.bad),
   };
 }
 
@@ -492,7 +510,7 @@ function plantStep(f: Facts, newest: StoredInjectionResult): Decided | null {
   const why = report.gate?.reason ?? 'no attempt decided';
   // Stopped early, or with a payload file its result doesn't keep: it can't run again as it ran, so it asks what to test.
   const ownFile = report.payloads?.some((x) => x.source === 'file');
-  if ((report.stopReason || ownFile) && !newest.golden) return { key: 'injection-test', label: ACTIONS.runInjectionTest.label, runId: row.runId, command: `shadowlap injection ${short(row.runId)}`, sub: report.stopReason ? `It stopped early (${report.stopReason}): test with fewer templates, or a higher budget` : `It showed too little to say: ${why}`, price: (p) => injectionEstimate(p.calls(row.runId), untrustedReads(p.raw(row.runId), f.work?.tools).reads, { payloads: allTemplates() }) };
+  if ((report.stopReason || ownFile) && !newest.golden) return { key: 'injection-test', label: ACTIONS.runInjectionTest.label, runId: row.runId, command: `shadowlap injection ${short(row.runId)}`, sub: report.stopReason ? `It stopped early (${report.stopReason}): test with fewer templates, or a higher budget` : `It showed too little to say: ${why}`, reads: [row.runId], price: (p) => injectionEstimate(p.calls(row.runId), untrustedReads(p.raw(row.runId), f.work?.tools).reads, { payloads: allTemplates() }) };
   if (newest.golden) return { key: 'gate-again', label: ACTIONS.rerunTest.label, golden: newest.golden, command: `shadowlap test ${newest.golden}`, sub: `Its injection gate showed too little to say: ${why}`, price: again };
   const job = testedAs(report);
   return { key: 'injection-again', label: ACTIONS.rerunInjectionTest.label, runId: row.runId, job, command: againCommand(row.runId, job), sub: `It showed too little to say: ${why}`, price: again };
@@ -669,23 +687,38 @@ function decided(store: Store, runId: string, work: NextStepWork | null, o: { ju
 export function nextStepOf(store: Store, runId: string, work: NextStepWork | null, o: { judged?: RunJudged | null | undefined; reads?: StepReads } = {}): NextStep | null {
   const step = decided(store, runId, work, o);
   if (!step) return null;
-  const { price: _price, ...plain } = step;
+  const { price: _price, reads: _reads, ...plain } = step;
   return plain;
 }
 
 /**
- * A run's next step for its page: with its estimate when it bills, worked out as the job's ask states
- * it, from the run's calls and the recording it replays. Without `whole`, a long run's first answer,
- * it leaves the estimate out rather than read every call, and has it once the page asks again.
+ * What a step bills. An estimate is a hover's extra line, and what it reads can come from someone
+ * else's pack: one that can't be worked out leaves the line out, never the step.
  */
-export async function pricedNextStep(store: Store, runId: string, work: NextStepWork | null, o: { judged?: RunJudged | null | undefined; whole: boolean }): Promise<NextStep | null> {
-  const step = decided(store, runId, work, { judged: o.judged });
+async function estimateOf(price: NonNullable<Priced['price']>, pricing: Pricing): Promise<Estimate | null> {
+  try {
+    return await price(pricing);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A run's next step for its page: with its estimate when it bills, worked out as the job's ask states
+ * it, from the run's calls and the recording it replays. A price that reads a long run's calls, unless
+ * this answer keeps them (`kept`), is left out rather than read every call, and the step says so
+ * (`later`): a price that reads no calls is always worked out.
+ */
+export async function pricedNextStep(store: Store, runId: string, work: NextStepWork | null, o: { judged?: RunJudged | null | undefined; kept: (runId: string) => boolean }): Promise<NextStep | null> {
+  const reads = stepReads(store);
+  const step = decided(store, runId, work, { judged: o.judged, reads });
   if (!step) return null;
-  const { price, ...plain } = step;
-  if (!price || !o.whole) return plain;
+  const { price, reads: readsCalls, ...plain } = step;
+  if (!price) return plain;
+  if ((readsCalls ?? []).some((id) => !o.kept(id) && (reads.index.byId.get(id)?.calls ?? 0) >= QUICK_FROM)) return { ...plain, later: true };
   const modelOf = modelResolver(store);
   const prices = work?.prices;
-  const estimate = await price({ raw: (id) => runCalls(store, id), calls: (id) => pricedCalls(runCalls(store, id), { modelOf, ...(prices ? { prices } : {}) }), prices });
+  const estimate = await estimateOf(price, { raw: (id) => runCalls(store, id), calls: (id) => pricedCalls(runCalls(store, id), { modelOf, ...(prices ? { prices } : {}) }), prices });
   return estimate ? { ...plain, estimate } : plain;
 }
 
@@ -700,17 +733,42 @@ export function replayStepOf(store: Store, runId: string): NextStep | null {
 /**
  * What a run's page answer says of its steps: its next step, and what its Replay replays. A record
  * they can't be read from (a run can come from someone else's pack) leaves them out: the page still
- * answers, with no lime button.
+ * answers, with no lime button. `judged` undefined, as a long run's first answer leaves it: what its
+ * verdict says may change what leads, so the step comes again with its analysis (`later`).
  */
-export async function pageSteps(store: Store, runId: string, work: NextStepWork | null, o: { judged: RunJudged | null | undefined; whole: boolean }): Promise<{ next?: NextStep; replay?: NextStep }> {
+export async function pageSteps(store: Store, runId: string, work: NextStepWork | null, o: { judged: RunJudged | null | undefined; kept: (runId: string) => boolean }): Promise<{ next?: NextStep; replay?: NextStep }> {
   try {
     const next = await pricedNextStep(store, runId, work, o);
     const replay = replayStepOf(store, runId);
-    return { ...(next ? { next } : {}), ...(replay ? { replay } : {}) };
+    return { ...(next ? { next: o.judged === undefined ? { ...next, later: true as const } : next } : {}), ...(replay ? { replay } : {}) };
   } catch {
     return {};
   }
 }
+
+/** How many calls the runs a step's price may read have, as the index counts them: its own, its parent's and its golden's recording: how long the read may take. */
+export function stepCalls(store: StoreOf<'readModels'>, run: Pick<RunRecord, 'runId' | 'parentRunId' | 'meta'>, work: NextStepWork | null): number {
+  const { byId } = loadRunIndex(store);
+  const golden: unknown = run.meta?.test?.golden;
+  const source = typeof golden === 'string' ? work?.goldens.find((g) => g.path === golden)?.runId : null;
+  return [run.runId, run.parentRunId, source].reduce((n, id) => n + (id ? (byId.get(id)?.calls ?? 0) : 0), 0);
+}
+
+/** The job this module's table answers: one run's next step, whole, with what it bills, however long the runs it reads. */
+export type NextStepJob = { kind: 'next'; runId: string; outcome: OutcomeWork | null; next: NextStepWork | null };
+
+export const NEXT_STEP_READS: ReadTable<NextStepJob> = {
+  next: async (store, job) => {
+    const run = lookupRun(store, job.runId);
+    if (!run) {
+      const no = noSuchRun(store, job.runId);
+      return failed(no.status, no.message);
+    }
+    const judged = runJudged(store, loadRunIndex(store), run.runId, job.outcome, { calls: () => [...runCalls(store, run.runId)], checks: true });
+    const { next } = await pageSteps(store, run.runId, job.next, { judged: judged ?? null, kept: () => true });
+    return answer({ runId: run.runId, next: next ?? null }, { tagged: true });
+  },
+};
 
 /**
  * What an exported copy's run leads with: a copy runs nothing and holds no fix, so only a comparison

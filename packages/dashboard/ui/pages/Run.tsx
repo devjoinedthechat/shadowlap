@@ -33,6 +33,7 @@ import { usePagedRun } from '../run/paged-run.js';
 import { followPages, isPending, listedCalls, type ListedCall } from '../run/paging.js';
 import { runNotes } from '../run/notes.js';
 import { useRunCommands } from '../run/run-commands.js';
+import { useWholeStep } from '../run/NextStepButton.js';
 import { RunNotes } from '../run/RunNotes.js';
 import { RunHeader } from '../run/RunHeader.js';
 
@@ -200,8 +201,9 @@ function useChange(run: RunDetail, detail: CallDetail | null, forkAt: number | n
 
 function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: string; call: number | null; view: View | null }) {
   const app = useApp();
-  // A long run's calls come a page at a time (paging.ts): `run` holds those read so far.
-  const { run, paging } = usePagedRun(app.client, answered);
+  // A long run's calls come a page at a time (paging.ts): `run` holds those read so far, its next step whole once that is known.
+  const { run: paged, paging } = usePagedRun(app.client, answered);
+  const run = useWholeStep(paged);
   // The tab's title reads the run's about line from the run as this page read it: the run list has no attempts.
   // Told again when a page of calls brings the run anew: unchanged, it changes nothing.
   useEffect(() => {

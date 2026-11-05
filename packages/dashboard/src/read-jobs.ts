@@ -15,7 +15,7 @@ import type { MaskCount } from './run-mask.js';
 import { runCalls } from './run-calls.js';
 import { loadRunIndex } from './run-index.js';
 import { withExitCodes } from './exit-codes.js';
-import { nextStepRows, pageSteps, type NextStepWork } from './next-step.js';
+import { NEXT_STEP_READS, nextStepRows, pageSteps, type NextStepWork } from './next-step.js';
 import { judgedRows, OUTCOME_READS, runJudged, type OutcomeWork } from './run-outcome.js';
 import { analyseRun } from './run-page.js';
 import { asksFor, asksOf, warmProgress, warmRunStats } from './run-stats.js';
@@ -237,8 +237,9 @@ const CORE_READS: ReadTable<CoreJob> = {
     // what needs no call read or this thread judged before, and the rest with its analysis.
     const outcome = job.outcome ?? null;
     const judged = runJudged(store, loadRunIndex(store), runId, outcome, { calls: () => [...runCalls(store, runId)], checks: true, quick: !!d.warming });
-    // Its next step, what it bills with it once the run's calls are read, and what its Replay replays (next-step.ts).
-    const steps = await pageSteps(store, runId, job.next ?? null, { judged, whole: !d.warming });
+    // Its next step, what it bills with it where that reads no other long run and no calls this answer
+    // left out, and what its Replay replays (next-step.ts).
+    const steps = await pageSteps(store, runId, job.next ?? null, { judged, kept: (id) => id === runId && !d.warming });
     // The route tags it by where the run stands (run-version.ts); a long run answered from its
     // first calls is analysed whole beside the server, for the page to ask again.
     return { ...answer({ ...d, ...(judged === undefined ? {} : { judged }), ...steps }), ...(d.warming ? analyseAfter(runId, outcome) : {}) };
@@ -323,7 +324,7 @@ const CORE_READS: ReadTable<CoreJob> = {
  * says how one is written). A feature's table is one line here, and a kind two of them register stops
  * the dashboard as it loads.
  */
-const READ_TABLES = [CORE_READS, OUTCOME_READS] as const;
+const READ_TABLES = [CORE_READS, OUTCOME_READS, NEXT_STEP_READS] as const;
 
 /** A job a read-model thread answers: of a kind a table registers, as that table's handler takes it. */
 export type ReadJob = JobOf<(typeof READ_TABLES)[number]>;

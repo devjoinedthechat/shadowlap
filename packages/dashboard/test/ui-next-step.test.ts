@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Client } from '../ui/api.js';
 import { fixStatusWords, nextStepOf, stepCard, stepCost } from '../ui/run/next-step.js';
 import { Banner } from '../ui/run/parts.js';
+import { useWholeStep } from '../ui/run/NextStepButton.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { TestsAskHost } from '../ui/fixes/TestsJobButton.js';
@@ -142,6 +143,29 @@ describe('the run page’s next step', () => {
     expect(tip(lead)).toMatchObject({ t: 'Run blame', s: 'Find the model call where this run was lost, on its exit status: a passing run exits 0', rows: [['Costs', 'At most ≈$10.88', ''], ['$', `shadowlap blame ${REC.slice(0, 10)}`, '']] });
     await page.click(lead);
     expect(started).toEqual([['blame', { runId: REC }]]);
+  });
+
+  it('gains what a long run’s step bills once its read of its own answers, and asks only where its answer left it out', async () => {
+    const estimate = { kind: 'blame', usd: 10.88, ceiling: true, parts: ['up to 7 probes of 33 attempts and a check of the call found'] };
+    const later: NextStep = { ...OFFER, later: true, command: `shadowlap blame ${REC.slice(0, 10)}` };
+    const nextStep = vi.fn(() => Promise.resolve({ next: { ...later, later: undefined, estimate } as NextStep }));
+    const Page = ({ run }: { run: RunDetail }) => createElement(RunHeader, header(useWholeStep(run)));
+    page = await render(createElement(AppContext.Provider, { value: app({}, { nextStep } as never) }, createElement(Page, { run: detail({ status: 'failed', state: failedState, next: later }) })));
+    await page.wait(0);
+    expect(nextStep).toHaveBeenCalledOnce();
+    expect(tip(page.byText('.rhead .actions button', 'Run blame')).rows).toEqual([['Costs', 'At most ≈$10.88', ''], ['$', `shadowlap blame ${REC.slice(0, 10)}`, '']]);
+    await page.unmount();
+    // A step its first answer holds whole asks for nothing.
+    nextStep.mockClear();
+    page = await render(createElement(AppContext.Provider, { value: app({}, { nextStep } as never) }, createElement(Page, { run: detail({ status: 'failed', state: failedState, next: { ...OFFER, estimate } as NextStep }) })));
+    await page.wait(0);
+    expect(nextStep).not.toHaveBeenCalled();
+    await page.unmount();
+    // One that can't be asked keeps what it has.
+    const refused = vi.fn(() => Promise.reject(new Error('gone')));
+    page = await render(createElement(AppContext.Provider, { value: app({}, { nextStep: refused } as never) }, createElement(Page, { run: detail({ status: 'failed', state: failedState, next: later }) })));
+    await page.wait(0);
+    expect(tip(page.byText('.rhead .actions button', 'Run blame')).rows).toEqual([['$', `shadowlap blame ${REC.slice(0, 10)}`, '']]);
   });
 
   it('asks a capture for your command before it blames it, and offers no check to a job that finds its own', async () => {

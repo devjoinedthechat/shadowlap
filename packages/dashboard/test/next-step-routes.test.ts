@@ -105,6 +105,38 @@ describe('a run’s page', () => {
   });
 });
 
+describe('a long run', () => {
+  const LONG = 'l'.repeat(1000);
+  type Answer = { next: NextStep; warming?: unknown };
+
+  it('leaves what its step bills to a read of its own, which answers with it whole', async () => {
+    const long = addRun(store, { startedAt: T0 + 50, status: 'failed', calls: LONG });
+    const first = await get<Answer>(`runs/${long}`);
+    expect(first.warming).toBeDefined();
+    expect(first.next).toMatchObject({ key: 'blame', later: true });
+    expect(first.next.estimate).toBeUndefined();
+    const whole = await get<{ next: NextStep }>(`runs/${long}/next`);
+    expect(whole.next).toMatchObject({ key: 'blame', estimate: { kind: 'blame', ceiling: true } });
+    expect(whole.next).not.toHaveProperty('later');
+    expect((await api('runs/01M5JEQWA2QMJ3NYD1C687WP00/next')).status).toBe(404);
+  });
+
+  it('reads no other long run for a short run’s first answer, and says what it bills from its own read', async () => {
+    const rec = addRun(store, { startedAt: T0 + 60, calls: LONG });
+    goldens = [{ path: GOLDEN, runId: rec, packedAt: T0, mode: 'replay', repeat: 1, passes: 1, checks: [] }];
+    config({ tests: { [GOLDEN]: {} } });
+    const session = store.startTestSession({ command: ['shadowlap', 'test', GOLDEN], startedAt: T0 + 61, revision: 'bbbbbbb' }).sessionId;
+    const t = addRun(store, { parent: rec, startedAt: T0 + 61, status: 'failed', calls: 'r', meta: { test: { golden: GOLDEN, session } } });
+    store.setDivergence(t, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, diff: [{ path: '$.system', op: 'changed', before: 'a', after: 'b' }] });
+    store.addTestResult({ sessionId: session, golden: GOLDEN, ok: false, failure: 'diverged', reason: 'diverged at call 1', runId: t, goldenRunId: rec, revision: 'bbbbbbb', at: T0 + 61 });
+    const first = await get<Answer>(`runs/${t}`);
+    expect(first.warming).toBeUndefined();
+    expect(first.next).toMatchObject({ key: 'update-golden', later: true });
+    expect(first.next.estimate).toBeUndefined();
+    expect((await get<{ next: NextStep }>(`runs/${t}/next`)).next).toMatchObject({ key: 'update-golden', estimate: { kind: 'update' } });
+  });
+});
+
 describe('a list’s rows', () => {
   it('carry each run’s step in its light form, in Runs and the sidebar alike', async () => {
     const failed = addRun(store, { startedAt: T0 + 10, status: 'failed', calls: 'lll' });

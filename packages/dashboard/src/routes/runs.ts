@@ -7,7 +7,7 @@ import type { Router } from '../router.js';
 import { recordingNow, stillRecording } from '../run-exports.js';
 import { runAffinity } from '../run-index.js';
 import { maskCount } from '../run-mask.js';
-import { nextStepStamp } from '../next-step.js';
+import { nextStepStamp, stepCalls } from '../next-step.js';
 import { outcomeWork, projectWork } from '../outcome-work.js';
 import { outcomeKey } from '../run-outcome.js';
 import { runVersionTag } from '../run-version.js';
@@ -77,6 +77,19 @@ export function register(router: Router, ctx: RouteContext): void {
       throw new HttpError(no.status, no.message);
     }
     sendAnswer(r, await ctx.reads.run({ kind: 'outcome', runId: run.runId, work: outcomeWork(ctx) }, runAffinity(ctx.store, run.runId)));
+  });
+
+  // A run's next step alone, whole, with what it bills (next-step.ts): what a page's answer leaves out
+  // where it would read a long run's calls (`later`). It may read other runs than this one, and so
+  // has as long as those take.
+  router.get('/runs/:id/next', async (r) => {
+    const run = lookupRun(ctx.store, r.params.id!);
+    if (!run) {
+      const no = noSuchRun(ctx.store, r.params.id!);
+      throw new HttpError(no.status, no.message);
+    }
+    const { outcome, next } = projectWork(ctx);
+    sendAnswer(r, await ctx.reads.run({ kind: 'next', runId: run.runId, outcome, next }, { affinity: run.runId, calls: stepCalls(ctx.store, run, next) }));
   });
 
   // The next page of a run's calls (contract 8): those from call `from` on, `limit` of them (500 at

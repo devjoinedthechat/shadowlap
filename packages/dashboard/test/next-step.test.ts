@@ -351,15 +351,74 @@ describe('a run’s next step', () => {
 });
 
 describe('what the next step of a run bills', () => {
-  const priced = (id: string, w: NextStepWork | null = work([]), whole = true) => pricedNextStep(store, id, w, { judged: undefined, whole });
+  const priced = (id: string, w: NextStepWork | null = work([]), kept: (runId: string) => boolean = () => true) => pricedNextStep(store, id, w, { judged: undefined, kept });
+  const LONG = 'l'.repeat(1000);
 
-  it('prices Run blame at its ceiling, from the run’s model calls, and only once the calls are read', async () => {
+  it('prices Run blame at its ceiling, from the run’s model calls', async () => {
     const rec = recording(T0, { status: 'failed' });
     expect((await priced(rec))?.estimate).toMatchObject({ kind: 'blame', ceiling: true, usd: expect.any(Number) });
     expect((await priced(rec))?.estimate?.usd).toBeGreaterThan(0);
-    // A long run's first answer leaves it out: the page asks again once it is read.
-    expect((await priced(rec, work([]), false))?.estimate).toBeUndefined();
     expect(step(rec).estimate).toBeUndefined();
+  });
+
+  it('leaves it to later on a long run’s first answer, as it would read every call, and works it out once those are kept', async () => {
+    const rec = recording(T0, { status: 'failed', calls: LONG });
+    const first = await priced(rec, work([]), () => false);
+    expect(first).toMatchObject({ key: 'blame', later: true });
+    expect(first?.estimate).toBeUndefined();
+    const whole = await priced(rec);
+    expect(whole?.estimate).toMatchObject({ kind: 'blame', ceiling: true });
+    expect(whole).not.toHaveProperty('later');
+    // A short one reads its calls on any answer.
+    expect((await priced(recording(T0 + 1, { status: 'failed' }), work([]), () => false))?.estimate?.kind).toBe('blame');
+  });
+
+  it('reads no other long run for a short run’s first answer: an update priced from the golden’s long recording', async () => {
+    const rec = recording(T0, { calls: LONG });
+    const t = divergedTest(rec, [{ path: '$.system', op: 'changed', before: 'a', after: 'b' }]);
+    let read = 0;
+    const getCalls = store.getCalls.bind(store);
+    store.getCalls = ((...a: Parameters<typeof getCalls>) => (a[0] === rec && read++, getCalls(...a))) as typeof store.getCalls;
+    const first = await priced(t, work([source(rec)]), (id) => id === t);
+    expect(read).toBe(0);
+    store.getCalls = getCalls;
+    expect(first).toMatchObject({ key: 'update-golden', later: true });
+    expect(first?.estimate).toBeUndefined();
+    expect((await priced(t, work([source(rec)])))?.estimate).toMatchObject({ kind: 'update' });
+    // Nor the recording an attempt that obeyed proves, for its gate.
+    const obeyed = addRun(store, { parent: rec, startedAt: T0 + 2 * MIN, calls: 'rl', meta: { injection: { result: 'inj-1', role: 'attempt', read: 1, attempt: 1, of: 1, verdict: 'obeyed' }, repeat: { group: 'inj-1', attempt: 1, of: 1 } } });
+    expect(await priced(obeyed, work([]), (id) => id === obeyed)).toMatchObject({ key: 'pack-gate', later: true });
+  });
+
+  it('works out on any answer a price that reads no calls: a test again, a judge’s one call', async () => {
+    const rec = recording(T0, { calls: LONG });
+    plant(rec, { gate: { obeyed: 0, influenced: null, verdict: 'inconclusive', reason: 'x' }, at: T0 + 1 });
+    const again = await priced(rec, work([]), () => false);
+    expect(again).toMatchObject({ key: 'injection-again', estimate: { kind: 'injection', usd: 3.11 } });
+    expect(again).not.toHaveProperty('later');
+    const other = recording(T0 + MIN, { calls: LONG });
+    const session = store.startTestSession({ command: ['shadowlap', 'test', GOLDEN], startedAt: T0 + 2 * MIN }).sessionId;
+    const t = addRun(store, { parent: other, startedAt: T0 + 2 * MIN, calls: 'r', meta: { test: { golden: GOLDEN, session } } });
+    const judge = { name: 'polite', model: 'claude-haiku-4-5', answer: null, cost: 0.0005 };
+    store.addTestResult({ sessionId: session, golden: GOLDEN, ok: false, failure: 'inconclusive', runId: t, goldenRunId: other, at: T0 + 2 * MIN, data: { verdict: 'inconclusive', checks: [{ ok: false, status: 'inconclusive', label: 'judge: polite', detail: 'not judged', judge } as never] } });
+    const update = await priced(t, work([source(other)]), () => false);
+    expect(update).toMatchObject({ key: 'update-golden', sub: expect.stringContaining('Asks the judge once'), estimate: { kind: 'update', parts: expect.arrayContaining([expect.stringContaining('judge')]) } });
+    expect(update?.estimate?.usd).toBeCloseTo(0.0005, 5);
+    expect(update).not.toHaveProperty('later');
+  });
+
+  it('leaves out an estimate it can’t work out, never the step', async () => {
+    const rec = recording();
+    plant(rec, { gate: { obeyed: 0, influenced: null, verdict: 'inconclusive', reason: 'x' }, at: T0 + 1, cost: { unknownModels: undefined as never } });
+    const s = await priced(rec);
+    expect(s).toMatchObject({ key: 'injection-again' });
+    expect(s?.estimate).toBeUndefined();
+  });
+
+  it('says a long run’s step may change with its verdict, while its first answer has none', async () => {
+    const rec = recording(T0, { calls: LONG });
+    expect((await pageSteps(store, rec, work([]), { judged: undefined, kept: () => false })).next).toMatchObject({ key: 'pack', later: true });
+    expect((await pageSteps(store, rec, work([]), { judged: null, kept: () => false })).next).not.toHaveProperty('later');
   });
 
   it('prices an update of a golden at what its recording cost, and asks first for what it does', async () => {
@@ -430,7 +489,7 @@ describe('what the next step of a run bills', () => {
 });
 
 describe('a revision that came with a run', () => {
-  const priced = (id: string, w: NextStepWork) => pricedNextStep(store, id, w, { judged: undefined, whole: true });
+  const priced = (id: string, w: NextStepWork) => pricedNextStep(store, id, w, { judged: undefined, kept: () => true });
   /** A crash of a golden, with what its results and its run's own revision say. */
   function crash(rec: string, o: { good: string; bad: string }): string {
     const passing = store.startTestSession({ command: ['shadowlap', 'test', GOLDEN], startedAt: T0 + MIN, revision: o.good }).sessionId;
@@ -611,8 +670,8 @@ describe('a record a step can’t be read from', () => {
 
   it('leaves its page with no step, and the Replay beside it', async () => {
     const failed = recording(T0, { status: 'failed' });
-    expect(await pageSteps(store, failed, unreadable, { judged: undefined, whole: true })).toEqual({});
-    expect(await pageSteps(store, failed, work([]), { judged: undefined, whole: true })).toMatchObject({ next: { key: 'blame' }, replay: { key: 'replay', runId: failed } });
+    expect(await pageSteps(store, failed, unreadable, { judged: null, kept: () => true })).toEqual({});
+    expect(await pageSteps(store, failed, work([]), { judged: null, kept: () => true })).toMatchObject({ next: { key: 'blame' }, replay: { key: 'replay', runId: failed } });
   });
 
   it('reads checks that aren’t a list as none, and a test’s golden or session that isn’t text as no test', () => {

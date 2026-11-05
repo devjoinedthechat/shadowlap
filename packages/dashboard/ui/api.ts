@@ -9,11 +9,11 @@ import { noteParent } from './parents.js';
 import { noProjects, noteRefusal, projectHeader, projectsApi, showProject, type ProjectsApi } from './projects-api.js';
 import { readTokenLink } from './route.js';
 import { holdWhile, Revalidation } from './revalidate.js';
-import { noSettings, settingsApi, type SettingsApi } from './settings-api.js';
+import { noSettings, settingsApi, type Request, type SettingsApi } from './settings-api.js';
 import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js';
 import type { CallDetail, CallsPage, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView, TrainingView } from './types.js';
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, OverviewWarming, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
-import type { DecisionSessionDetail, DecisionsListView, RetirementsView, RunDecisionsView } from './types.js';
+import type { DecisionSessionDetail, DecisionsListView, NextStep, RetirementsView, RunDecisionsView } from './types.js';
 import type { ChaosMatrix, ChaosView, CoverageView } from './types.js';
 import type { FixAttemptGroups } from '../src/attempt-groups.js';
 import type { ForkDifferences } from '../src/fork-differences.js';
@@ -278,6 +278,8 @@ export interface Client {
   attemptGroups(fixId: string): Promise<FixAttemptGroups>;
   /** A run's outcome by checks alone, each check with it (`GET /api/runs/:id/outcome`): what a long run's first answer leaves to its analysis. */
   outcome(id: string): Promise<{ judged: RunJudged | null }>;
+  /** A run's next step alone, whole, with what it bills (`GET /api/runs/:id/next`): what a page's answer leaves out where it would read a long run's calls (`later`). */
+  nextStep(id: string): Promise<{ next: NextStep | null }>;
 }
 
 
@@ -514,7 +516,16 @@ export function createClient(token: string): Client {
     forkDifferences: (runId) => request<{ differences: ForkDifferences | null }>(`runs/${id(runId)}/differences`).then((r) => r.differences),
     unrecorded: (runId) => request<{ unrecorded: UnrecordedView | null }>(`runs/${id(runId)}/unrecorded`).then((r) => r.unrecorded),
     attemptGroups: (fixId) => request<FixAttemptGroups>(`fixes/${id(fixId)}/groups`),
+    ...longRunReads(request),
+  };
+}
+
+/** What a long run's first answer leaves to reads of their own, as its analysis has them. */
+function longRunReads(request: Request): Pick<Client, 'outcome' | 'nextStep'> {
+  const id = encodeURIComponent;
+  return {
     outcome: (runId) => request<{ judged: unknown }>(`runs/${id(runId)}/outcome`).then((r) => ({ judged: normalizeJudged(r.judged) })),
+    nextStep: (runId) => request<{ next: NextStep | null }>(`runs/${id(runId)}/next`),
   };
 }
 
@@ -615,5 +626,7 @@ export function createExportedClient(data: StaticPayload): Client {
     attemptGroups: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Fixes are not part of it')),
     // A copy's page holds its run's outcome as it was judged when the copy was made.
     outcome: (runId) => get<RunDetail>(`runs/${full(runId)}`).then((d) => ({ judged: normalizeJudged(d.judged ?? null) })),
+    // As its page holds it: a copy runs nothing, so it bills nothing.
+    nextStep: (runId) => get<RunDetail>(`runs/${full(runId)}`).then((d) => ({ next: d.next ?? null })),
   };
 }
