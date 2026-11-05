@@ -36,6 +36,8 @@ import * as forks from './forks.js';
 import * as attemptGroups from './attempt-groups.js';
 // Changes › Verdicts: every change checked, and the verdict it got.
 import * as verdicts from './verdicts.js';
+// The person's own settings on this machine, on every project: Spending.
+import * as userSettings from './user-settings.js';
 
 /** A feature's routes (and job kinds): `routes/<feature>.ts` exports `register(router, ctx)`. */
 export interface RouteModule {
@@ -82,6 +84,7 @@ export const ROUTE_MODULES: RouteModule[] = [
   forks,
   attemptGroups,
   verdicts,
+  userSettings,
 ];
 
 export function registerRoutes(router: Router, ctx: RouteContext): void {
