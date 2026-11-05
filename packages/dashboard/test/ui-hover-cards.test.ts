@@ -261,4 +261,28 @@ describe('what takes the focus for its card', () => {
     // A control in it is the stop.
     expect(r.one('#holds').hasAttribute('tabindex')).toBe(false);
   });
+
+  it('names a mark anew as its card changes, lets go of one whose card has gone, and leaves a component’s own image as it is', async () => {
+    r = await render(
+      createElement(
+        'div',
+        { id: 'root', className: 'groups' },
+        createElement('div', { id: 'day', 'data-tip': tipCard('Oct 3', [{ label: 'spent', value: '$1' }]) }),
+        createElement('div', { id: 'own', role: 'img', 'aria-label': 'Attempts', 'data-tip': tipCard('Attempts', [{ label: 'passed', value: '3' }]) }),
+      ),
+    );
+    const root = r.one('#root') as unknown as ParentNode;
+    markTipTargets(root);
+    expect(r.one('#day').getAttribute('aria-label')).toBe('Oct 3, spent $1');
+    // A live update changes today's bar in place.
+    r.one('#day').setAttribute('data-tip', tipCard('Oct 3', [{ label: 'spent', value: '$2' }]));
+    r.one('#own').setAttribute('data-tip', tipCard('Attempts', [{ label: 'passed', value: '4' }]));
+    markTipTargets(root);
+    expect(r.one('#day').getAttribute('aria-label')).toBe('Oct 3, spent $2');
+    expect(r.one('#own').getAttribute('aria-label')).toBe('Attempts');
+    r.one('#day').removeAttribute('data-tip');
+    markTipTargets(root);
+    expect(r.one('#day').hasAttribute('role')).toBe(false);
+    expect(r.one('#day').hasAttribute('aria-label')).toBe(false);
+  });
 });

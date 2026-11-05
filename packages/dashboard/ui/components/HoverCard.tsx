@@ -211,24 +211,40 @@ function tipWords(d: Tip): string {
   return [d.t, d.s, ...(d.rows ?? []).map(([label, value]) => `${label} ${value}`.trim())].filter(Boolean).join(', ');
 }
 
+/** On a mark named here, as a component's own `role="img"` is not: its name follows its card. */
+const NAMED = 'data-tip-named';
+
+/** Names a mark by its card's words as they stand; one whose card has gone is no image any more. */
+function nameMark(el: HTMLElement): void {
+  const d = read(el);
+  if (d) {
+    el.setAttribute(NAMED, '');
+    el.setAttribute('role', 'img');
+    el.setAttribute('aria-label', tipWords(d));
+    return;
+  }
+  for (const a of [NAMED, 'role', 'aria-label']) el.removeAttribute(a);
+}
+
 /**
  * An element with a card and no action of its own takes the focus where it stands on its own (a
  * page's facts, a lead line), unless a control in it does (a link in a line), whose focus shows the
  * card; in a row or a chart it doesn't, and one with no words of its own (an avatar, a history cell,
- * a chart's day) is an image named by its card's words, so a screen reader has them.
+ * a chart's day) is an image named by its card's words, so a screen reader has them, and has them
+ * anew each time this runs, as a live page changes a card in place.
  */
 export function markTipTargets(root: Pick<ParentNode, 'querySelectorAll'>): void {
-  for (const el of root.querySelectorAll<HTMLElement>('[data-tip]')) {
+  for (const el of root.querySelectorAll<HTMLElement>(`[data-tip], [${NAMED}]`)) {
+    if (el.hasAttribute(NAMED)) {
+      nameMark(el);
+      continue;
+    }
     if (el.tabIndex >= 0 || el.matches('a[href], button, input, select, textarea, [tabindex], .glyph') || el.closest('a[href], button, [role="button"], [role="img"], [aria-hidden="true"]')) continue;
     if (!el.closest(NO_STOP)) {
       if (!el.querySelector('a[href], button')) el.tabIndex = 0;
       continue;
     }
-    if (el.textContent?.trim()) continue;
-    const d = read(el);
-    if (!d) continue;
-    el.setAttribute('role', 'img');
-    el.setAttribute('aria-label', tipWords(d));
+    if (!el.textContent?.trim()) nameMark(el);
   }
 }
 
