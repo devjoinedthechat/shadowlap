@@ -4,9 +4,10 @@ import { currentRoute, navigate } from '../router.js';
 import { stepEntry } from './next-step.js';
 
 /**
- * A run's next step on its row, for ⌘K on it in a list: what the run's lime button says, what it
- * runs or where it goes, and its key by what it presses (`r`, `c` or `b`), as This run's first entry
- * has them. The palette's own script builds it, so the first look holds none of a step's words.
+ * A run's next step on its row, for ⌘K on it in a list: what the run's lime button says and what it
+ * runs or where it goes, as This run's first entry has them, but no key: `b`, `r` and `c` press it on
+ * its page only, and a key shows only where pressing it does what it says. The palette's own script
+ * builds it, so the first look holds none of a step's words.
  */
 
 /** How long a step picked on a row waits for its run's page to draw the button it presses. */
@@ -48,7 +49,7 @@ export function openAndPress(runId: string, key: string, toast: (text: string) =
 export function rowStep(actionsOff: string | null, toast: (text: string) => void): RowStep {
   return (runId, next) => {
     if (next.off || (!next.href && actionsOff)) return null;
-    const { group, ...entry } = stepEntry(next);
+    const { group, key, ...entry } = stepEntry(next);
     return { ...entry, run: () => (next.href ? navigate(next.href) : openAndPress(runId, next.key, toast)) };
   };
 }
