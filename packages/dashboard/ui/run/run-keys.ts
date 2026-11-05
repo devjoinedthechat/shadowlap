@@ -8,7 +8,7 @@ import { currentRoute, navigate } from '../router.js';
 import { markKey, type RunMark } from '../runkey.js';
 import { recentRunIds, type RunLike } from '../runs.js';
 import { pressShortcut, useSingleKeys, type ShortcutId } from '../shortcuts.js';
-import { errorText } from '../toast.js';
+import { errorText, type ToastKind } from '../toast.js';
 import type { CallTree } from './groups.js';
 
 /**
@@ -43,7 +43,7 @@ export interface RunKeyState<C extends { callNo: number }> {
   showDiff: boolean;
   setShowDiff: (on: boolean) => void;
   runs: readonly RunLike[] | null;
-  toast: (text: string) => void;
+  toast: (text: string, kind?: ToastKind) => void;
 }
 
 /** The keys that press a button in the run's header. */
@@ -114,7 +114,7 @@ export function useRunKeys<C extends { callNo: number }>(runKeys: RefObject<((e:
       if (e.key === 'n' && jumpTo !== null) return k.select(jumpTo), true;
       if (e.key === 'p' && k.parentId) return navigate(href.run(k.parentId)), true;
       if (e.key === 'v') return k.setView(nextView(k.v)), true;
-      if (e.key === '[' || e.key === ']') return void stepRun(k.runId, e.key === ']' ? 1 : -1, k.runs, k.toast).catch((err: unknown) => k.toast(errorText(err))), true;
+      if (e.key === '[' || e.key === ']') return void stepRun(k.runId, e.key === ']' ? 1 : -1, k.runs, k.toast).catch((err: unknown) => k.toast(errorText(err), 'error')), true;
       const m = markKey(e.key);
       if (m && k.canMark) return k.mark(m), true;
       if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && k.v === 'calls' && k.tree) return foldKey(k, e.key === 'ArrowRight');

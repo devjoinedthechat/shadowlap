@@ -1,17 +1,17 @@
-import { pageUp } from '../focus-manager.js';
-import { shownRuns } from '../list-keys.js';
-import { runRowScope } from '../run-row.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { JOB_KINDS, type Client } from '../api.js';
 import { Chips, PageHeader } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
 import { ShowMore } from '../components/Table.js';
+import { pageUp } from '../focus-manager.js';
 import { compactPath, viewerTimeZone } from '../format.js';
 import { useLatest, useLoad } from '../hooks.js';
+import { noteShownRuns, shownRuns } from '../list-keys.js';
 import { sentence } from '../normalize.js';
 import { addPaletteSource } from '../palette-sources.js';
 import { href } from '../route.js';
+import { runRowScope } from '../run-row.js';
 import { BulkBar, type PickedRun } from '../runspage/BulkBar.js';
 import { Calendar } from '../runspage/Calendar.js';
 import { pickedOf, pickedRange, rangeTimes } from '../runspage/calendar-model.js';
@@ -26,6 +26,7 @@ import { RunsTable, type TableRun } from '../runspage/RunsTable.js';
 import { warmingLine, withFirstPage } from '../runspage/rows.js';
 import { bundlesAttempts, isAttempt, matchesChip, matchesText, RUN_CHIPS, sortRuns, type RunChip, type RunSort } from '../runs.js';
 import { projectOf } from '../shell/ProjectBlock.js';
+import { keyColumn } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import { useTeamStore } from '../teamstore.js';
 import { errorText } from '../toast.js';
@@ -294,18 +295,11 @@ function useRunsKeyNotes(o: { client: Client; query: RunsQuery; rows: readonly T
   }, [now]);
   const { rows, next } = o;
   useEffect(() => {
-    let ids: readonly string[] = rows.map((r) => r.runId);
-    let cursor = next;
-    const more = async () => {
-      if (!cursor) return ids;
+    const read = async (cursor: string) => {
       const page = await now.current.client.runsPage({ ...now.current.query, cursor, limit: PAGE });
-      ids = [...ids, ...page.runs.map((r) => r.runId)];
-      cursor = page.next;
-      kept.limit = ids.length;
-      shownRuns.current = { ids, more: cursor ? more : null };
-      return ids;
+      return { ids: page.runs.map((r) => r.runId), next: page.next };
     };
-    shownRuns.current = { ids, more: cursor ? more : null };
+    noteShownRuns(rows.map((r) => r.runId), next, read, (n) => void (kept.limit = n));
   }, [rows, next, now]);
 }
 
@@ -487,7 +481,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
         </p>
       ) : null}
       <section className="panel tscroll">
-        <RunsTable rows={rows} picked={picked} selectable byColumn={!!store} you={store?.you ?? null} sort={sort} onSort={setSort} onPick={onPick} onPickAll={onPickAll} now={now} onMark={onMark} markOff={actionsOff ?? null} rowActions={(r) => runRowScope(r, { runs: appRuns ?? [], toast, pick: () => onPick(r, !picked.has(r.runId)), picked: picked.has(r.runId) })} />
+        <RunsTable rows={rows} picked={picked} selectable byColumn={!!store} you={store?.you ?? null} sort={sort} onSort={setSort} onPick={onPick} onPickAll={onPickAll} now={now} onMark={onMark} markOff={actionsOff ?? null} rowActions={(r) => runRowScope(r, { runs: appRuns ?? [], toast, pick: () => onPick(r, !picked.has(r.runId)), picked: picked.has(r.runId), pickKey: keyColumn('rowPick') })} />
         {table.error && !rows.length ? (
           <div className="empty">The runs could not be read: {table.error.message}</div>
         ) : !table.loaded ? (

@@ -198,7 +198,7 @@ export function RunHeader({
               className={next.key === 'replay' ? 'btn lime' : 'btn'}
               type="button"
               disabled={live || !!actionsOff || !replay || !!replay.disabled}
-              {...offOrCard(live ? 'Replay once the recording finishes' : (off ?? replay?.disabled), ACTIONS.replay.label)}
+              {...offOrCard(live ? 'Replay once the recording finishes' : (off ?? replay?.disabled), !replay, ACTIONS.replay.label)}
               onClick={() => replay && onAction({ action: replay, callNo: null })} {...shortcut('replay')}
             >
               <Icon name="replay" />
@@ -214,7 +214,7 @@ export function RunHeader({
               aria-haspopup="menu"
               aria-expanded={forkMenu.open}
               disabled={live || !!actionsOff || selected === null}
-              {...offOrCard(live ? 'Fork once the recording finishes' : off, 'Each change in the menu shows the flag it runs')}
+              {...offOrCard(live ? 'Fork once the recording finishes' : off, selected === null, 'Each change in the menu shows the flag it runs')}
               onClick={(e) => forkMenu.toggle(e.currentTarget)} {...shortcut('fork')}
             >
               <Icon name="fork" />
@@ -270,8 +270,8 @@ function FixLead({ fix }: { fix: NonNullable<RunDetail['fix']> }) {
   );
 }
 
-/** A button's hover, as every disabled button's: why it is off, which a browser shows on one, else its card, which says its key. */
-const offOrCard = (off: string | null | undefined, card: string) => (off ? { title: off } : { 'data-tip': tipText(card) });
+/** A button's hover, as every disabled button's: why it is off, which a browser shows on one; nothing where it is off with no words for why (`idle`); else its card, which says its key. */
+const offOrCard = (off: string | null | undefined, idle: boolean, card: string) => (off ? { title: off } : idle ? {} : { 'data-tip': tipText(card) });
 
 /** Compare's card: which run it is read against, and the command that does the same. */
 const compareTip = (from: string, to: string) => tipCard(`Against ${shortId(from)}`, [], `shadowlap diff ${shortId(from)} ${shortId(to)}`);

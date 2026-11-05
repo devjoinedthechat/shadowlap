@@ -74,13 +74,13 @@ const TABLE = {
   part3: { chips: '3', aria: '3' },
   part4: { chips: '4', aria: '4' },
   tabArrows: { group: 'On a run', chips: '← →', label: 'Previous or next tab, in a tab list' },
-  fold: { group: 'On a run', chips: '← →', label: 'In Calls, fold or open a call’s group' },
+  fold: { group: 'On a run', chips: '← →', label: 'In Calls, fold or open the selected call’s group' },
   view: { group: 'On a run', chips: 'v', aria: 'v', label: 'Next view' },
   jump: { group: 'On a run', chips: 'n', aria: 'n', label: 'Jump to fork, lost call or first failure' },
   parent: { group: 'On a run', chips: 'p', aria: 'p', label: 'Open parent run' },
-  replay: { group: 'On a run', chips: 'r', aria: 'r', label: ACTIONS.replay.label, card: ACTIONS.replay.label, when: notCopy },
+  replay: { group: 'On a run', chips: 'r', aria: 'r', label: ACTIONS.replay.label, when: notCopy },
   compare: { group: 'On a run', chips: 'c', aria: 'c', label: (p) => (p.exported ? 'Compare with parent' : 'Compare'), when: (p) => !p.exported || p.compares },
-  blame: { group: 'On a run', chips: 'b', aria: 'b', label: `${ACTIONS.runBlame.label}, where it is the next step`, card: ACTIONS.runBlame.label, when: notCopy },
+  blame: { group: 'On a run', chips: 'b', aria: 'b', label: `${ACTIONS.runBlame.label}, where it is the next step`, when: notCopy },
   fork: { group: 'On a run', chips: 'f', aria: 'f', label: 'Fork at selected call', when: notCopy },
   marks: { group: 'On a run', chips: '+ -', label: 'Label it good or bad; again to take it off', when: notCopy },
   markGood: { chips: '+', aria: 'Plus' },
@@ -144,38 +144,27 @@ export function shortcutCard(id: ShortcutId): string | null {
   return s.card ?? null;
 }
 
-/** A key as the palette's column draws it, one kbd per word (`g o`); nothing while the switch is off. */
-export function keyColumn(id: ShortcutId): string | undefined {
-  return singleKeysOn() ? TABLE[id].chips.replaceAll(' then ', ' ') : undefined;
+/** A key as the palette's column draws it, one kbd per word (`g o`). The column reads the switch as it draws, so a row built with it off has its key once it comes on. */
+export function keyColumn(id: ShortcutId): string {
+  return TABLE[id].chips.replaceAll(' then ', ' ');
 }
 
 /** The `g` chord that leads to a page, by where it leads: a renamed page keeps its key. */
 export function goKeyColumn(to: string): string | undefined {
   const key = Object.keys(GO_KEYS).find((k) => GO_KEYS[k] === to);
-  return key && singleKeysOn() ? `g ${key}` : undefined;
-}
-
-/** A card's words, from its `data-tip`: its title and the line under it. */
-function cardWords(el: Element): string | null {
-  const raw = el.getAttribute('data-tip');
-  if (!raw) return el.getAttribute('title');
-  try {
-    const v = JSON.parse(raw) as { t?: string; s?: string };
-    return v.s ?? v.t ?? null;
-  } catch {
-    return raw;
-  }
+  return key ? `g ${key}` : undefined;
 }
 
 /**
  * A key presses its control, so it does what the button does and waits as it waits: none on the page,
- * nothing; one that is off says why it is off (`say`); else a click. True when there was one to press.
+ * nothing; one that is off says why (its `title`, through `say`), or nothing where it gives no reason,
+ * since its card says what it does; else a click. True when there was one to press.
  */
 export function pressShortcut(id: ShortcutId, say: (words: string) => void): boolean {
   const el = document.querySelector<HTMLElement>(`[data-shortcut="${id}"]`);
   if (!el) return false;
   if ((el as HTMLButtonElement).disabled || el.getAttribute('aria-disabled') === 'true') {
-    const why = cardWords(el);
+    const why = el.getAttribute('title');
     if (why) say(why);
     return true;
   }

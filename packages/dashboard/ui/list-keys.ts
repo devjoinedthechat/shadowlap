@@ -147,13 +147,17 @@ export function listKeys(e: KeyboardEvent, openScope: () => void): boolean {
   return !!scope;
 }
 
-/** Esc: the row in focus lets go, and the page's heading takes the focus. A list beside the page keeps nothing to let go of. */
+/**
+ * Esc: the row in focus lets go, wherever the focus has gone since, and the page's heading takes the
+ * focus. With none in focus nothing moves, the focus on a row's link or checkbox included: Tab keeps
+ * its place. A list beside the page keeps no row in focus: Esc in it goes to the heading.
+ */
 export function letGoOfRow(): boolean {
-  const at = rowNow();
-  if (!at) return false;
-  if (!at.l.o.current.beside) {
-    at.l.key = null;
-    at.l.draw(null);
+  if (!inBesideList()) {
+    const held = pageLists().find((l) => l.key !== null);
+    if (!held) return false;
+    held.key = null;
+    held.draw(null);
   }
   focusPage();
   return true;
@@ -220,15 +224,15 @@ export function useListKeys<T>(o: ListOptions<T>): string | null {
     l.wanted = null;
     focusRow(l, el);
   });
+  // keyOf is new on every render, so it comes through `latest`: only the rows ask for this.
   useLayoutEffect(() => {
-    if (l.key !== null && !o.rows.some((r) => o.keyOf(r) === l.key)) {
+    if (l.key !== null && !o.rows.some((r) => latest.current.keyOf(r) === l.key)) {
       l.key = null;
       l.wanted = null;
       setAt(null);
     }
     settleFocus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- what the rows are is all that asks for this; keyOf is new on every render
-  }, [o.rows, l]);
+  }, [o.rows, l, latest]);
   return at;
 }
 
@@ -240,3 +244,32 @@ export interface ShownRuns {
 }
 
 export const shownRuns: { current: ShownRuns | null } = { current: null };
+
+/**
+ * Notes the runs a list shows and how to read on. One read at a time: a second press while a page
+ * comes waits for that page, so no page is listed twice, and one that failed can be asked for again.
+ * Noted anew, the list before it stays as it was. `grew` hears how many it holds after each page.
+ */
+export function noteShownRuns(first: readonly string[], next: string | null, read: (cursor: string) => Promise<{ ids: readonly string[]; next: string | null }>, grew?: (n: number) => void): void {
+  let ids = first;
+  let cursor = next;
+  let reading: Promise<readonly string[]> | null = null;
+  const more = (): Promise<readonly string[]> => {
+    if (!cursor) return Promise.resolve(ids);
+    reading ??= read(cursor)
+      .then((page) => {
+        ids = [...ids, ...page.ids];
+        cursor = page.next;
+        if (shownRuns.current?.more === more) {
+          grew?.(ids.length);
+          shownRuns.current = { ids, more: cursor ? more : null };
+        }
+        return ids;
+      })
+      .finally(() => {
+        reading = null;
+      });
+    return reading;
+  };
+  shownRuns.current = { ids, more: cursor ? more : null };
+}
