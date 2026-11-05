@@ -15,7 +15,7 @@
  * buttons run, and exports the rest.
  */
 
-import { applyLeft, commitTitle, DEFAULT_REPAIRER, expectArgs, fixCost, type FixData, FixIdError, fixRecords, type FixRecords, gitApplyCommand, lostRange, noFixKind, noFixToTry, patchFiles, REPAIR_CANDIDATES, repairArgv, repairJobArgv, type RepairOutcome, repairPatchProblem, repairToApply, resolveFix, type RunRecord, shownBlame, type StoredBlame, type StoredFix, type StoredRepair, type StoreOf, unsettledFirst, verifyArgv } from '@shadowlap/engine';
+import { applyLeft, commitTitle, DEFAULT_REPAIRER, expectArgs, fixCost, type FixData, FixIdError, fixRecords, type FixRecords, gitApplyCommand, lostRange, noFixReason, patchFiles, REPAIR_CANDIDATES, repairArgv, repairJobArgv, type RepairOutcome, repairPatchProblem, repairToApply, resolveFix, type RunRecord, shownBlame, type StoredBlame, type StoredFix, type StoredRepair, type StoreOf, unsettledFirst, verifyArgv } from '@shadowlap/engine';
 import { type FixRow, rowOf } from './fix-list.js';
 import { acceptedCandidate, commandLine, counting, fieldsSet, type FixActions, type PatchCheck, patchMerged, patchToCheck, type RewriteCheck, runHref, short, shownRepair, type StepKey, unrepairedVerdict } from './fix-shared.js';
 import { blameNext, blameStep, type BlameStep } from './fix-blame-step.js';
@@ -131,6 +131,16 @@ export function pulledPatchesToCheck(store: StoreOf<'fixes' | 'team'>, fixes: re
 }
 
 /**
+ * A repair from here as the fix's page offers it: its command, and why it would end "No fix to try"
+ * without running the agent, with which of the estimate's cases that is, as the engine words it. Read
+ * only for an open fix a repair can start from.
+ */
+function repairOffer(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords, scope: string | null, command: string, argv: string[]): NonNullable<FixDetail['actions']['repair']> {
+  const noFix = noFixReason(store, rec, scope);
+  return { argv, command, noFix: noFix?.sentence ?? null, noFixWhy: noFix?.kind ?? null, candidates: REPAIR_CANDIDATES };
+}
+
+/**
  * Why `fix apply` refuses the patch of `r`, the repair it would apply: more than its accepted
  * candidate's one rewrite (`repairPatchProblem`), or, for one a pull brought, a rewrite repair itself
  * doesn't make in this working tree, as `here` read it (`rewriteHere`).
@@ -165,7 +175,6 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
   const p = shownRepair(rec);
   const done = row.steps.filter((x) => x.state === 'done');
   const repairArgs = repairArgv(store, rec);
-  const noFix = noFixToTry(store, rec, b?.scope ?? null);
   const verifyArgs = verifyArgv(store, rec);
   const expect = fix.check.expect;
   const blameRun = b?.runId ?? rec.failing[0] ?? null;
@@ -193,7 +202,7 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
     upstreamRequests: cost.upstreamRequests,
     defaultStep: done.at(-1)?.key ?? 'blame',
     actions: {
-      repair: fix.status === 'open' && repairArgs.length ? { argv: repairArgs, command: commandLine(repairJobArgv(repairArgs, configured)), noFix, noFixWhy: noFixKind(noFix), candidates: REPAIR_CANDIDATES } : null,
+      repair: fix.status === 'open' && repairArgs.length ? repairOffer(store, rec, b?.scope ?? null, commandLine(repairJobArgv(repairArgs, configured)), repairArgs) : null,
       apply:
         fix.status === 'open'
           ? null

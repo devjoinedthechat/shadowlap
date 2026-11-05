@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { noFixKind, type CallRecord, type RunRecord } from '@shadowlap/engine';
+import type { CallRecord, RunRecord } from '@shadowlap/engine';
 import { actionsFor } from '../src/api.js';
 
 /**
@@ -35,14 +35,5 @@ describe('what a call’s actions tell the dialog that asks', () => {
     const inject = (model: string) => actionsFor(run(), call({ kind: 'api', name: 'POST /v1/messages', effect: null, meta: { model } }), {}).find((a) => a.key === 'i')!;
     expect(inject('claude-sonnet-5').noSystemMessage).toBe('claude-sonnet-5');
     expect(inject('claude-haiku-4-5').noSystemMessage).toBeUndefined();
-  });
-});
-
-describe('why a repair would end with no fix to try', () => {
-  it('tells the estimate’s two cases apart by the engine’s own sentence', () => {
-    expect(noFixKind(null)).toBeNull();
-    expect(noFixKind('Blame couldn\'t settle where the run was lost, so a rewrite of the prompt has nothing to aim at yet: the repair ends “No fix to try”. Settle the blame first.')).toBe('unsettled');
-    expect(noFixKind('No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.')).toBe('unrescued');
-    expect(noFixKind('Blame found that no answer of the model\'s lost this run, so a rewrite of the prompt can\'t fix it: the repair ends “No fix to try”.')).toBe('unrescued');
   });
 });
