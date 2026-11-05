@@ -108,7 +108,7 @@ type CoreJob =
    */
   | { kind: 'store-facts'; stores: Array<{ id: string; dbPath: string | null; keep: string | null }> }
   /** The Training screen (training.ts `trainingView`): the pairs every run makes, with the project's goldens as tasks and its normalizers, read on the server's thread. */
-  | { kind: 'training'; tasks: Task[]; tasksError: string | null; normalizers: Normalizer[]; redactRules: number; filter: PairFilter }
+  | { kind: 'training'; tasks: Task[]; tasksError: string | null; normalizers: Normalizer[]; redactRules: number | null; filter: PairFilter }
   /**
    * A fix with its three steps (fixes.ts `fixDetail`), its blamed run's calls among them: the repairer
    * the config names, whether each patch the fix could apply is in the working tree, as git said on

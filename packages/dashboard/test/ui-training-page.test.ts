@@ -55,7 +55,8 @@ const LISTING: ModelListing = {
  */
 function views() {
   const s = Store.open(':memory:');
-  const read = trainingView(readTraining(s, { tasks: TASKS }));
+  // Three redaction rules, as the route reads them from the config.
+  const read = trainingView(readTraining(s, { tasks: TASKS, redactRules: 3 }));
   s.close();
   const training = { ...read, actions: { ...read.actions, exportPairs: true }, exportDialog: { ...read.exportDialog, high: 2, all: 3 } };
   return { training, models: modelsView(TASKS, [], LISTING) };
@@ -130,7 +131,7 @@ describe('the Training page', () => {
     r = await render(page('pairs', started));
     await r.until('the page to load', () => r!.all('button').some((b) => b.textContent.trim() === 'Export pairs…'));
     await r.click(r.byText('button', 'Export pairs…'));
-    expect(r.one('.dialog .dfacts').textContent).toContain('Writes.shadowlap/exports/pairs.jsonlthe job’s drawer offers it for download');
+    expect(r.one('.dialog .dfacts').textContent).toBe('Redactsby 3 rulesthe store never changesWrites.shadowlap/exports/pairs.jsonlthe job’s drawer offers it for download');
     expect(r.one('.dialog .cmdline').textContent).toBe('$shadowlap export pairs --min-confidence high --format openai-preference --out .shadowlap/exports/pairs.jsonl');
     expect(r.all('.dialog select')[0].children.map((o) => o.textContent)).toEqual(['OpenAI preference fine-tuning', 'prompt, chosen, rejected (TRL)']);
     await r.type(r.all('.dialog select')[0], 'trl');

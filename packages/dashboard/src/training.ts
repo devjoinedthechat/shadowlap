@@ -41,8 +41,8 @@ export interface TrainingInput {
   storedRuns?: Set<string>;
   /** The models to score (A7), or null while they are being listed. */
   models?: ModelListing | null;
-  /** How many redaction rules a copy applies. */
-  redactRules?: number;
+  /** How many redaction rules a copy applies; null while the config can't be read. */
+  redactRules?: number | null;
   /** Which fix a source's pairs about a run belong to, when Fixes knows (sourceFixes). */
   fixOf?: FixOf;
   /** What makes each task blocked by an early fork ready, by golden (taskUpdate). */
@@ -90,7 +90,7 @@ export function taskUpdate(store: StoreOf<'recording'>, task: Task, normalizers:
 export type FixOf = (source: PairSource, runId: string) => SourceFix | null;
 
 /** What the store holds for Training; `tasks` and `models` come from the caller, and `normalizers` from the config as it is now. */
-export function readTraining(store: StoreOf<'recording' | 'readModels' | 'fixes' | 'training'>, extra: { tasks: Task[]; tasksError?: string | null; redactRules?: number; models?: ModelListing | null; fixOf?: FixOf; normalizers?: readonly Normalizer[] }): TrainingInput {
+export function readTraining(store: StoreOf<'recording' | 'readModels' | 'fixes' | 'training'>, extra: { tasks: Task[]; tasksError?: string | null; redactRules?: number | null; models?: ModelListing | null; fixOf?: FixOf; normalizers?: readonly Normalizer[] }): TrainingInput {
   const { pairs, sources } = findPairs(store);
   // The goldens' runs, and the test runs that forked before a takeover, that the store still holds.
   const storedRuns = new Set(extra.tasks.flatMap((t) => [t.runId, t.fork?.runId ?? null].filter((id): id is string => !!id && !!store.getRun(id))));
@@ -108,6 +108,7 @@ export function readTraining(store: StoreOf<'recording' | 'readModels' | 'fixes'
     exports: store.listPairsExports(5),
     storedRuns,
     ...(extra.models !== undefined ? { models: extra.models } : {}),
+    ...(extra.redactRules !== undefined ? { redactRules: extra.redactRules } : {}),
     ...(extra.fixOf ? { fixOf: extra.fixOf } : {}),
     ...(Object.keys(updates).length ? { updates } : {}),
   };
@@ -500,7 +501,7 @@ export function modelsView(tasks: readonly Task[], scores: readonly TaskScoreRow
 }
 
 /** Export pairs' dialog: its formats and levels, the file it writes, and how many redaction rules the copy applies. */
-function exportDialogView(counts: { high: number; all: number }, rules: number | undefined): TrainingView['exportDialog'] {
+function exportDialogView(counts: { high: number; all: number }, rules: number | null | undefined): TrainingView['exportDialog'] {
   return {
     title: confirmWords(ACTIONS.exportPairs.label),
     lead: 'Exports each pair as one JSON line: its conversation, the answer to prefer and the one to avoid.',
