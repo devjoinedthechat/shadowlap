@@ -15,7 +15,7 @@ import { defaultPackFolder } from '../run/share.js';
 import { isLive } from '../runs.js';
 import { useApp } from '../state.js';
 import type { JobView } from '../types.js';
-import { bulkToast, datasetOff, deleteText, deleteWhat, inBatches, joinDeleted, joinLabelled, named, packCommand, packOff, rmCommand } from './bulk.js';
+import { bulkToast, datasetOff, labelSuggestions, deleteText, deleteWhat, inBatches, joinDeleted, joinLabelled, named, packCommand, packOff, rmCommand } from './bulk.js';
 
 /**
  * The bar over the Runs table once runs are picked: Label, Push (with a team store), Pack, Dataset,
@@ -57,7 +57,7 @@ function useBulkHeight(): RefObject<HTMLDivElement | null> {
 }
 
 export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedRun[]; store: boolean; clear: () => void; onDone: () => void }) {
-  const { actionsOff, client, toast, guard, hasKind, watchJob } = useApp();
+  const { actionsOff, client, toast, guard, hasKind, watchJob, runs: inMemory } = useApp();
   const bar = useBulkHeight();
   const [open, setOpen] = useState<Open>(null);
   const ids = runs.map((r) => r.runId);
@@ -139,6 +139,7 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
           label="Label"
           placeholder="good"
           maxLength={40}
+          suggestions={labelSuggestions(inMemory)}
           ok="Add label"
           onClose={() => setOpen(null)}
           onRun={(label) => {

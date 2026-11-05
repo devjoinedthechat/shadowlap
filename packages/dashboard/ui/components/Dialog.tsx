@@ -213,6 +213,21 @@ export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = 
 
 const OTHER = '\u0000other';
 
+/** A field's `list`, naming its suggestions, where it has any. */
+const suggestedList = (id: string, values: readonly string[] | undefined) => (values?.length ? { list: id } : {});
+
+/** What a field offers as you type, for its `list`: none drawn where it has none. */
+function Suggestions({ id, values }: { id: string; values: readonly string[] | undefined }) {
+  if (!values?.length) return null;
+  return (
+    <datalist id={id}>
+      {values.map((v) => (
+        <option key={v} value={v} />
+      ))}
+    </datalist>
+  );
+}
+
 /**
  * A dialog that asks one thing before an action runs: a line of text, a longer one, or one of a few
  * answers (`choices`, a select like the mock's, with "Something else…" for an answer of your own).
@@ -231,6 +246,7 @@ export function PromptDialog({
   after,
   maxLength,
   choices,
+  suggestions,
   onRun,
   onClose,
 }: {
@@ -248,10 +264,13 @@ export function PromptDialog({
   maxLength?: number;
   /** Answers to pick from; any other answer is accepted too. */
   choices?: readonly PromptChoice[];
+  /** Answers the field offers as you type (a datalist): the labels runs carry. Any other is typed. */
+  suggestions?: readonly string[];
   onRun: (value: string) => void;
   onClose: () => void;
 }) {
   const [value, setValue] = useState(initial);
+  const suggested = useId();
   const listed = !!choices?.length;
   const [own, setOwn] = useState(listed && !choices.some((c) => c.value === initial));
   // The few words a picked choice asks for: the message of "error, with a message".
@@ -280,6 +299,7 @@ export function PromptDialog({
       placeholder={placeholder}
       spellCheck={false}
       autoFocus={listed}
+      {...suggestedList(suggested, suggestions)}
       {...(maxLength ? { maxLength } : {})}
       onChange={(e) => setValue(e.target.value)}
       onKeyDown={(e) => {
@@ -313,6 +333,7 @@ export function PromptDialog({
   ) : null;
   return (
     <Dialog title={title} text={text} ok={ok} okDisabled={!ready} onOk={submit} onClose={onClose}>
+      <Suggestions id={suggested} values={suggestions} />
       {label || select ? (
         <div className="form one">
           <label>

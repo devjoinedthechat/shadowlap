@@ -2,6 +2,7 @@ import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Client } from '../ui/api.js';
 import { BulkBar, type PickedRun } from '../ui/runspage/BulkBar.js';
+import { labelSuggestions } from '../ui/runspage/bulk.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { DeleteResult, JobView } from '../ui/types.js';
 import { sheet } from './css-sheet.js';
@@ -25,7 +26,7 @@ const RUNS: PickedRun[] = [
 
 const job = (kind: string): JobView => ({ id: 'j1', kind, title: 'Packing 2 runs', args: ['pack', A, './.shadowlap/exports/01m5h2dj1w'], runId: null, startedAt: 0, endedAt: null, done: false, code: null, newRunId: null, runs: [], lines: [], total: 0 }) as unknown as JobView;
 
-function setup() {
+function setup(inMemory: Array<{ labels?: string[] }> = []) {
   const toast = vi.fn();
   const watched: Array<Promise<JobView>> = [];
   const client = {
@@ -42,6 +43,7 @@ function setup() {
     guard: (fn: () => void) => fn(),
     toast,
     watchJob: (p: Promise<JobView>) => watched.push(p),
+    runs: inMemory,
   } as unknown as AppState;
   const clear = vi.fn();
   const onDone = vi.fn();
@@ -86,6 +88,26 @@ describe('the bulk bar’s Pack', () => {
     expect(s.client.startJob).toHaveBeenCalledWith('pack', { runIds: [A, B], dir: '.shadowlap/exports' });
     expect(s.watched).toHaveLength(1);
     expect(r.all('.dialog')).toHaveLength(0);
+  });
+});
+
+describe('the bulk bar’s Label', () => {
+  it('offers the labels runs carry as you type, most used first, ties in alphabetical order', async () => {
+    expect(labelSuggestions([{ labels: ['refund', 'good'] }, { labels: ['good'] }, { labels: ['bad', 'refund'] }, { labels: [] }, {}])).toEqual(['good', 'refund', 'bad']);
+    expect(labelSuggestions(null)).toEqual([]);
+    const s = setup([{ labels: ['refund-bug'] }, { labels: ['good', 'refund-bug'] }]);
+    r = await render(s.element);
+    await r.click(r.byText('.bulkbar button', 'Label'));
+    const field = r.one('.dialog input[type="text"]');
+    const list = r.all('datalist').find((d) => d.getAttribute('id') === field.getAttribute('list'));
+    expect(list?.children.map((o) => o.value)).toEqual(['refund-bug', 'good']);
+  });
+
+  it('offers none where no run carries a label', async () => {
+    r = await render(setup().element);
+    await r.click(r.byText('.bulkbar button', 'Label'));
+    expect(r.one('.dialog input[type="text"]').getAttribute('list')).toBeNull();
+    expect(r.all('datalist')).toHaveLength(0);
   });
 });
 

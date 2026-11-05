@@ -294,6 +294,7 @@ With **Failed** picked and days chosen, **Find breaking commit…** bisects from
 Tick runs to label, pack, export, compare or delete them together. A run ticked and then deleted elsewhere leaves the selection.
 
 - **Delete** names the attempts bundled under the runs ticked, which go with them as `shadowlap rm` takes them, and counts them when it is done. It leaves alone a run still recording, one a replay in progress reads from, and one with an attempt still running. Its dialog shows the `shadowlap rm` command: for a long pick, the first ids and how many more, with **Copy the whole command**.
+- **Label** suggests the labels runs carry as you type, most used first. It reads the newest 500 runs, so an older label is typed.
 - **Pack** asks for a folder first. One run goes into `.shadowlap/exports/<id>` unless you name another folder inside the project. Several go into a folder each, named by its id, inside `.shadowlap/exports` or the folder you name, in one job whose drawer lists every folder (at most 100 runs at once).
 - **Dataset** says how many redaction rules its copy applies, and shows the `shadowlap export dataset` command it runs, with the file it writes. One dataset takes at most 500 runs.
 
