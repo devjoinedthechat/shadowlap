@@ -9,7 +9,7 @@ import type { RuleRow } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import { CONFIG_FILE, CommandLine, editErrorText } from './common.js';
 import { emptyRuleForm, redactRuleText, ruleCommand, ruleInput, ruleProblem, ruleWarning, suggestedReplace, type PatternMode, type RuleFormState, type RuleListName } from './logic.js';
-import { ActionButton } from '../../components/ActionButton.js';
+import { ActionButton, useWhenFree } from '../../components/ActionButton.js';
 
 /**
  * The rules of one list, as Matching and Redaction show them (scope, path, pattern, what replaces
@@ -148,6 +148,8 @@ export function RuleDialog({
   };
   const problem = ruleProblem(f);
   const warning = ruleWarning(f);
+  // Enter as the confirm: while it waits, why in a toast, the dialog and the rule kept.
+  const whenFree = useWhenFree();
   const add = async () => {
     if (problem || busy) return;
     setBusy(true);
@@ -189,7 +191,7 @@ export function RuleDialog({
         </label>
         <label>
           Path
-          <input value={f.path} placeholder="$.metadata.user_id" spellCheck={false} autoComplete="off" onChange={(e) => set({ path: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && void add()} />
+          <input value={f.path} placeholder="$.metadata.user_id" spellCheck={false} autoComplete="off" onChange={(e) => set({ path: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && whenFree(() => void add())} />
         </label>
         <label>
           Pattern
@@ -216,7 +218,7 @@ export function RuleDialog({
               setReplaceTyped(true);
               set({ replace: e.target.value });
             }}
-            onKeyDown={(e) => e.key === 'Enter' && void add()}
+            onKeyDown={(e) => e.key === 'Enter' && whenFree(() => void add())}
           />
         </label>
       </div>

@@ -1,7 +1,7 @@
 import { act, createElement, useEffect, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ActionButton } from '../ui/components/ActionButton.js';
-import { Dialog } from '../ui/components/Dialog.js';
+import { Dialog, PromptDialog } from '../ui/components/Dialog.js';
 import { JobDrawer } from '../ui/components/Drawer.js';
 import { chipJob, drawnJob, endedBehind, jobClosed, jobOpened, jobsLeftBehind, jobStarted, type WatchedJob } from '../ui/job-store.js';
 import { endChip } from '../ui/jobs.js';
@@ -460,6 +460,44 @@ describe('what waits', () => {
     expect(onOk).not.toHaveBeenCalled();
     expect(r.all('.dialog')).toHaveLength(1);
     expect(toasts).toEqual([[PAUSED, 'notice', undefined]]);
+  });
+
+  it('lets what only reads run on a read-only dashboard, and holds it while the server is out of reach or in an exported copy', async () => {
+    const onClick = vi.fn();
+    const ro = await draw({ actionsOff: 'This dashboard is read-only', exported: false }, { reads: true, onClick }, 'HTML report');
+    expect(ro.button.hasAttribute('aria-disabled')).toBe(false);
+    await r!.click(ro.button);
+    expect(onClick).toHaveBeenCalledOnce();
+    await r!.unmount();
+    expect((await draw({ actionsOff: 'This dashboard is read-only', conn: 'offline' }, { reads: true })).button.getAttribute('data-why')).toBe(PAUSED);
+    await r!.unmount();
+    expect((await draw({ actionsOff: 'An exported copy', exported: true }, { reads: true })).button.getAttribute('data-why')).toBe('An exported copy');
+    await r!.unmount();
+    // Every other server action still waits on a read-only dashboard.
+    expect((await draw({ actionsOff: 'This dashboard is read-only' }, {})).button.getAttribute('data-why')).toBe('This dashboard is read-only');
+  });
+
+  it('never holds a confirm that changes nothing on the server, read-only or offline', async () => {
+    const onOk = vi.fn();
+    const value = { conn: 'offline', actionsOff: 'This dashboard is read-only', toast: () => undefined } as unknown as AppState;
+    r = await render(createElement(AppContext.Provider, { value }, createElement(Dialog, { title: 'Add an MCP server', ok: 'Copy the entry', local: true, onOk, onClose: () => undefined })));
+    const ok = r.one('.dialog .dlg-ok');
+    expect(ok.hasAttribute('aria-disabled')).toBe(false);
+    await r.click(ok);
+    expect(onOk).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a prompt open on Enter while its action waits, with what was typed, as its confirm does', async () => {
+    const onRun = vi.fn();
+    const toasts: unknown[][] = [];
+    const value = { conn: 'offline', actionsOff: null, toast: (...x: unknown[]) => toasts.push(x) } as unknown as AppState;
+    r = await render(createElement(AppContext.Provider, { value }, createElement(PromptDialog, { title: 'Label 2 runs', label: 'Label', initial: 'good', ok: 'Add label', onRun, onClose: () => undefined })));
+    const field = r.one('.dialog input');
+    await r.press('Enter', {}, field);
+    expect(onRun).not.toHaveBeenCalled();
+    expect(toasts).toEqual([[PAUSED, 'notice']]);
+    expect(r.all('.dialog')).toHaveLength(1);
+    expect(r.one('.dialog input').value).toBe('good');
   });
 
   it('offers a way out in the toast, and gives it the focus from the keyboard, with its reason in full on the card', async () => {

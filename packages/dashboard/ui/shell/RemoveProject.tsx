@@ -6,6 +6,7 @@ import { nameMatches } from '../projects.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
+import { useWhenFree } from '../components/ActionButton.js';
 import { errorText } from '../toast.js';
 
 /**
@@ -19,6 +20,8 @@ export function RemoveProjectDialog({ id, onClose, onRemoved }: { id: string; on
   const app = useApp();
   const { client, toast, guard, actionsOff } = app;
   const [view, setView] = useState<RemoveDialogView | null>(null);
+  // Enter as the confirm: while it waits, why in a toast, the dialog and the typed name kept.
+  const whenFree = useWhenFree();
   const [failed, setFailed] = useState<string | null>(null);
   const [del, setDel] = useState(false);
   const [typed, setTyped] = useState('');
@@ -137,7 +140,7 @@ export function RemoveProjectDialog({ id, onClose, onRemoved }: { id: string; on
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
-                    if (match && !blocked && !busy) remove();
+                    if (match && !blocked && !busy) whenFree(remove);
                     else setTried(true);
                   }
                 }}

@@ -25,7 +25,7 @@ import { exitWords, presetTag, type PresetAttempt } from './preset.js';
 import { checksOf, forkKindWords, recordingWords, runDuration, runLikeOf } from './model.js';
 import { canPush, pushTitle } from './share.js';
 import { ShareMenu } from './ShareMenu.js';
-import { ActionButton } from '../components/ActionButton.js';
+import { ActionButton, useWhenFree } from '../components/ActionButton.js';
 
 /**
  * The run's header: what kind of run it is, its id as its heading (decision 10: the id is the run's
@@ -175,7 +175,8 @@ export function RunHeader({
         ) : null}
         {exported ? (next.key === 'compare' ? <CompareLead from={next.parent} to={r.runId} /> : null) : (
           <>
-            <ActionButton className="btn" aria-haspopup="menu" aria-expanded={share.open} onClick={(e) => share.toggle(e.currentTarget)}>
+            {/* Its menu says what waits: on a read-only dashboard the HTML report still downloads. */}
+            <ActionButton className="btn" reads aria-haspopup="menu" aria-expanded={share.open} onClick={(e) => share.toggle(e.currentTarget)}>
               <Icon name="share" />
               Share
               <Icon name="caret" className="caret" />
@@ -265,6 +266,8 @@ function Labels({ run, labels: shown, setLabels, onMark }: { run: RunDetail; lab
   const [adding, setAdding] = useState(false);
   const [value, setValue] = useState('');
   const enabled = !exported && !actionsOff;
+  // Enter while the server is out of reach says why, the field kept open with what was typed.
+  const whenFree = useWhenFree();
   const change = (add: string[], remove: string[]) =>
     guard(() =>
       void client.labels(run.run.runId, add, remove).then(
@@ -302,9 +305,11 @@ function Labels({ run, labels: shown, setLabels, onMark }: { run: RunDetail; lab
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               const v = value.trim();
-              if (v && !shown.includes(v)) change([v], []);
-              setValue('');
-              setAdding(false);
+              whenFree(() => {
+                if (v && !shown.includes(v)) change([v], []);
+                setValue('');
+                setAdding(false);
+              });
             } else if (e.key === 'Escape') {
               e.stopPropagation();
               setValue('');

@@ -95,7 +95,7 @@ export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: 
       {items.map((it) => {
         const off = shareItemOff(it.key, { actionsOff, live });
         return (
-          <ActionButton key={it.key} role="menuitem" why={off} tip={it.label} sub={shareWhy(it, offers?.team)} command={shareCommand(it, id)} onClick={() => pick(it.key)}>
+          <ActionButton key={it.key} role="menuitem" why={off} reads={it.key === 'html'} tip={it.label} sub={shareWhy(it, offers?.team)} command={shareCommand(it, id)} onClick={() => pick(it.key)}>
             <b>{it.label}</b>
             <small>{it.flag}</small>
           </ActionButton>

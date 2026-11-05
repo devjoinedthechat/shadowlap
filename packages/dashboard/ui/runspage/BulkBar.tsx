@@ -126,16 +126,18 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
           maxLength={40}
           ok="Add label"
           onClose={() => setOpen(null)}
-          onRun={(label) => {
-            setOpen(null);
-            inBatches(ids, (part) => client.labelRuns(part, [label])).then(joinLabelled).then(
-              (out) => {
-                toast(bulkToast({ verb: 'Labelled', done: out.done.map((d) => d.runId), of: ids.length, skipped: out.skipped, suffix: ` “${label}”` }));
-                onDone();
-              },
-              (err: unknown) => toast(errorText(err), 'error'),
-            );
-          }}
+          onRun={(label) =>
+            guard(() => {
+              setOpen(null);
+              inBatches(ids, (part) => client.labelRuns(part, [label])).then(joinLabelled).then(
+                (out) => {
+                  toast(bulkToast({ verb: 'Labelled', done: out.done.map((d) => d.runId), of: ids.length, skipped: out.skipped, suffix: ` “${label}”` }));
+                  onDone();
+                },
+                (err: unknown) => toast(errorText(err), 'error'),
+              );
+            })
+          }
         />
       ) : null}
       {open === 'delete' ? (

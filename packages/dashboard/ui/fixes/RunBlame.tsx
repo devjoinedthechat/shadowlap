@@ -9,7 +9,7 @@ import { useApp } from '../state.js';
 import { parseCheck } from './model.js';
 import { useTreeBusy } from './tree.js';
 import { ACTIONS } from '../labels.js';
-import { ActionButton } from '../components/ActionButton.js';
+import { ActionButton, useWhenFree } from '../components/ActionButton.js';
 
 /**
  * Run blame, for a failed run never blamed: a job that finds the model call where the run was lost
@@ -91,6 +91,8 @@ function CheckDialog({ runId, text, onClose, onRun }: { runId: string; text: str
   const [value, setValue] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  // ⌘Enter as the confirm: while it waits, why in a toast, the dialog and the check kept.
+  const whenFree = useWhenFree();
   const submit = () => {
     if (sending || !value.trim()) return;
     const check = parseCheck(value);
@@ -121,7 +123,7 @@ function CheckDialog({ runId, text, onClose, onRun }: { runId: string; text: str
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
-                submit();
+                whenFree(submit);
               }
             }}
           />

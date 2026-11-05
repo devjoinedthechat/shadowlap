@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useWhenFree } from '../components/ActionButton.js';
 import type { BisectRevision, TestsView } from '../api.js';
 import { CmdLine } from '../components/bits.js';
 import { Dialog } from '../components/Dialog.js';
@@ -116,6 +117,8 @@ export function FindCommitDialog({ name, golden, range, live, revisions, tried, 
   const between = range ? `between ${range.good} and ${range.bad ?? 'HEAD'}` : 'between a good one and HEAD';
   const cost = live ? 'It may fork, so each replay runs live from where it forks: this costs tokens.' : 'Replays are free, so this costs no tokens.';
   const run = () => ok && onRun(rev, range?.bad ?? null);
+  // Enter as the confirm: while it waits, why in a toast, the dialog and the commit kept.
+  const whenFree = useWhenFree();
   const field = (
     <input
       type="text"
@@ -128,7 +131,7 @@ export function FindCommitDialog({ name, golden, range, live, revisions, tried, 
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
-          run();
+          if (ok) whenFree(run);
         }
       }}
     />

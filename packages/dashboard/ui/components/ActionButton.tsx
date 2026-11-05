@@ -13,10 +13,23 @@ import { tipCard } from './HoverCard.js';
  * focus. A plain `disabled` is for what isn't waiting on anything, and wins over every reason.
  */
 
-/** Why an action can't run now, or null: for what isn't a button (a form's submit, a palette's row, a dialog's confirm). */
-export function useActionWait(why?: string | null): string | null {
-  const { actionsOff, conn } = useApp();
-  return actionsOff ?? (conn === 'offline' ? PAUSED : null) ?? why ?? null;
+/**
+ * Why an action can't run now, or null: for what isn't a button (a form's submit, a palette's row, a
+ * dialog's confirm). One that only `reads` from the server (the HTML report's download) still runs on
+ * a read-only dashboard: only an exported copy, a session token the server refused or the server out
+ * of reach holds it.
+ */
+export function useActionWait(why?: string | null, reads = false): string | null {
+  const { actionsOff, conn, exported } = useApp();
+  const off = reads && !exported && conn !== 'expired' ? null : actionsOff;
+  return off ?? (conn === 'offline' ? PAUSED : null) ?? why ?? null;
+}
+
+/** What a field's Enter runs: the action, else, while it waits, why in a toast, the field and what it holds kept. */
+export function useWhenFree(why?: string | null): (run: () => void) => void {
+  const { toast } = useApp();
+  const reason = useActionWait(why);
+  return (run) => (reason ? toast(reason, 'notice') : run());
 }
 
 /**
@@ -44,6 +57,8 @@ type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick'>;
 export interface ActionButtonProps extends ButtonProps {
   /** The page's own reason it can't run. */
   why?: string | null | undefined;
+  /** It only reads from the server, so a read-only dashboard still runs it (`useActionWait`). */
+  reads?: boolean | undefined;
   whyAct?: WhyAct | undefined;
   /** More than the toast's line, for its card. */
   whyTip?: string | undefined;
@@ -63,9 +78,9 @@ function wordsOf(node: ReactNode): string {
   return Array.isArray(node) ? node.map(wordsOf).join('') : '';
 }
 
-export function ActionButton({ why, whyAct, whyTip, tip, sub, command, href, onClick, className = '', title, disabled, children, ref, type = 'button', ...rest }: ActionButtonProps) {
+export function ActionButton({ why, reads = false, whyAct, whyTip, tip, sub, command, href, onClick, className = '', title, disabled, children, ref, type = 'button', ...rest }: ActionButtonProps) {
   const { toast } = useApp();
-  const reason = useActionWait(why);
+  const reason = useActionWait(why, reads);
   if (reason && !disabled) {
     const press = (e: MouseEvent<HTMLButtonElement>) => {
       e.preventDefault();

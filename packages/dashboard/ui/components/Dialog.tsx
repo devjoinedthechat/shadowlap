@@ -9,7 +9,7 @@ import { InSlot } from '../overlays/slots.js';
 import { dialogOnSwitch, noteDialogDropped, onShownProject, shownProject } from '../projects-api.js';
 import type { PromptChoice } from '../types.js';
 import { CmdLine } from './bits.js';
-import { ActionButton } from './ActionButton.js';
+import { ActionButton, useWhenFree } from './ActionButton.js';
 
 /**
  * What every modal stands on: a scrim in the layer slot, the app behind it inert, Tab kept inside it,
@@ -94,9 +94,14 @@ export interface DialogProps {
    * which then acts on the project the page shows (`dialogOnSwitch`).
    */
   keepOnSwitch?: boolean;
+  /**
+   * Its action changes nothing on the server (a Copy): it never waits. Every other confirm is a
+   * server action, which waits as an `ActionButton` does, the dialog staying open with what was typed.
+   */
+  local?: boolean;
 }
 
-export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = false, onOk, onClose, cancel = 'Cancel', className = '', initialFocus, dirty = false, keepOnSwitch = false }: DialogProps) {
+export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = false, onOk, onClose, cancel = 'Cancel', className = '', initialFocus, dirty = false, keepOnSwitch = false, local = false }: DialogProps) {
   const ref = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   useScrollStop(body);
@@ -188,7 +193,11 @@ export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = 
           <button type="button" className="btn dlg-cancel" hidden={asking} onClick={onClose}>
             {ok ? cancel : 'Close'}
           </button>
-          {ok ? (
+          {ok && local ? (
+            <button type="button" className={`btn ${tone} dlg-ok`} hidden={asking} disabled={okDisabled} onClick={() => onOk?.()}>
+              {ok}
+            </button>
+          ) : ok ? (
             <ActionButton className={`btn ${tone} dlg-ok`} hidden={asking} disabled={okDisabled} onClick={() => onOk?.()}>
               {ok}
             </ActionButton>
@@ -260,7 +269,9 @@ export function PromptDialog({
   const picked = listed && !own ? choices.find((c) => c.value === value) : undefined;
   const answer = picked ? choiceAnswer(picked, words) : value.trim();
   const ready = answer.length > 0;
-  const submit = () => ready && onRun(answer);
+  // Enter as the confirm: while the action waits, why in a toast, the dialog and what was typed kept.
+  const whenFree = useWhenFree();
+  const submit = () => ready && whenFree(() => onRun(answer));
   const field = multiline ? (
     <textarea
       value={value}
