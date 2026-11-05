@@ -541,6 +541,16 @@ export const TREE_DEPTH = 4;
  * lineage (`on`, the run itself last: the line goes on through the row), and whether runs hang under
  * it (`kids`). Worked out from the rows as listed, so no line leads to a run left off the list.
  */
+/** How many of the newest runs (with their families) the sidebar lists; Runs has the rest. */
+export const RECENT_RUNS = 60;
+
+/** The runs the sidebar lists, in its order: `[` and `]` step through them when Runs never showed this one. */
+export function recentRunIds(runs: readonly RunLike[]): string[] {
+  return runTree(runs.filter((r) => !isAttempt(r)))
+    .slice(0, RECENT_RUNS)
+    .map((x) => x.run.runId);
+}
+
 export function treeLines<R>(rows: ReadonlyArray<{ run: R; depth: number }>): Array<{ run: R; depth: number; on: boolean[]; kids: boolean }> {
   const depth = (i: number) => Math.min(rows[i]!.depth, TREE_DEPTH);
   return rows.map((row, i) => {

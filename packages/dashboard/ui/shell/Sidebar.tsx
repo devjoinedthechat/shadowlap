@@ -1,20 +1,38 @@
-import { memo, useEffect, useMemo, useRef } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, type RefObject } from 'react';
 import type { RunListItem } from '../api.js';
 import { AboutLine, useFitAbouts } from '../components/About.js';
 import { RunIcon } from '../components/RunIcon.js';
 import { Icon, type IconName } from '../components/Icon.js';
 import { cssVars, paletteKeyLabel } from '../dom.js';
 import { num, shortId, whenShort } from '../format.js';
+import { useLatest } from '../hooks.js';
+import { useListKeys, type RowScope } from '../list-keys.js';
+import { runRowScope } from '../run-row.js';
 import { href, navSection, type Route } from '../route.js';
-import { copyCompares, isAttempt, runTree, sideLine, sideStatus, treeLines } from '../runs.js';
+import { copyCompares, isAttempt, RECENT_RUNS, runTree, sideLine, sideStatus, treeLines } from '../runs.js';
 import { useApp } from '../state.js';
 import { ProjectBlock } from './ProjectBlock.js';
 
-/** How many of the newest runs (with their families) the sidebar lists; Runs has the rest. */
-const RECENT = 60;
+/** How long the drawer takes to show: it slides in hidden from the focus, and a hidden element can't take it. */
+const DRAWER_SHOWS_MS = 40;
+
+/** The phone's drawer has opened: its first item takes the focus once it shows, and a click beside it closes it, its button taking the focus. Hands back what undoes that. */
+function drawerOpened(aside: RefObject<HTMLElement | null>, close: () => void): () => void {
+  const timer = setTimeout(() => aside.current?.querySelector<HTMLElement>('a[href], button')?.focus({ preventScroll: true }), DRAWER_SHOWS_MS);
+  const beside = (e: Event) => {
+    if ((e.target as Element | null)?.closest?.('#side, .menu-toggle, #menu, #layer')) return;
+    close();
+    document.querySelector<HTMLElement>('.menu-toggle')?.focus({ preventScroll: true });
+  };
+  document.addEventListener('click', beside, true);
+  return () => {
+    clearTimeout(timer);
+    document.removeEventListener('click', beside, true);
+  };
+}
 
 export function Sidebar({ route }: { route: Route }) {
-  const { meta, runs, exported, sideOpen, setPalette, conn } = useApp();
+  const { meta, runs, exported, sideOpen, setPalette, setSideOpen, conn, toast } = useApp();
   const listed = useMemo(() => (runs ?? []).filter((r) => !isAttempt(r)), [runs]);
   // On a phone the sidebar is a drawer: closed while the focus was in it (Esc, a pick), the focus goes
   // back to the menu button that opened it, rather than to nothing once the drawer is hidden.
@@ -23,7 +41,12 @@ export function Sidebar({ route }: { route: Route }) {
   useEffect(() => {
     if (wasOpen.current && !sideOpen && aside.current?.contains(document.activeElement)) document.querySelector<HTMLElement>('.menu-toggle')?.focus();
     wasOpen.current = sideOpen;
-  }, [sideOpen]);
+    if (!sideOpen) return;
+    return drawerOpened(aside, () => setSideOpen(false));
+  }, [sideOpen, setSideOpen]);
+  // ⌘K on a run here offers its actions, as on a row of Runs, with nothing to select.
+  const runsNow = useLatest(runs);
+  const rowActions = useCallback((r: RunListItem) => (exported ? null : runRowScope(r, { runs: runsNow.current ?? [], toast })), [exported, runsNow, toast]);
   const section = navSection(route);
   const count = meta?.counts?.runs ?? listed.length;
   const items: Array<[string, IconName, string, string, number | null]> = exported
@@ -60,7 +83,7 @@ export function Sidebar({ route }: { route: Route }) {
       <div className="side-k">
         Recent runs<a href={href.runs()}>all</a>
       </div>
-      <RecentRuns runs={listed} current={route.page === 'run' ? route.id : null} loading={runs === null} />
+      <RecentRuns runs={listed} current={route.page === 'run' ? route.id : null} loading={runs === null} rowActions={rowActions} />
       {exported ? null : (
         <div className="side-foot">
           <nav className="navlist" aria-label="Project settings">
@@ -99,11 +122,13 @@ function TreeLines({ depth, on, kids }: { depth: number; on: readonly boolean[];
  * room it gets, followed only by what needs a look or how far a recording has got. Under a parent,
  * a run's about line is what it changed. A server that sends no about line gets the old line.
  */
-export const RecentRuns = memo(function RecentRuns({ runs, current, loading }: { runs: RunListItem[]; current: string | null; loading: boolean }) {
-  const tree = useMemo(() => treeLines(runTree(runs).slice(0, RECENT)), [runs]);
+export const RecentRuns = memo(function RecentRuns({ runs, current, loading, rowActions }: { runs: RunListItem[]; current: string | null; loading: boolean; rowActions?: (r: RunListItem) => RowScope | null }) {
+  const tree = useMemo(() => treeLines(runTree(runs).slice(0, RECENT_RUNS)), [runs]);
   const now = Date.now();
   const box = useRef<HTMLDivElement>(null);
   useFitAbouts(box);
+  // The arrows and j and k walk these with the focus on one; each stays its own Tab stop, Enter its link's.
+  useListKeys({ rows: tree, keyOf: (x) => href.run(x.run.runId), root: box, actions: rowActions ? (x) => rowActions(x.run) : null, beside: true });
   if (loading) return <div className="runs" />;
   if (!runs.length)
     return (
@@ -118,7 +143,7 @@ export const RecentRuns = memo(function RecentRuns({ runs, current, loading }: {
         const st = r.about ? sideStatus(r) : null;
         const line = r.about ? null : sideLine(r);
         return (
-          <a key={r.runId} className="run" style={cssVars({ '--d': depth })} href={href.run(r.runId)} aria-current={here ? 'true' : 'false'} title={r.source ? `from ${r.source}` : r.command}>
+          <a key={r.runId} className="run" data-rowkey={href.run(r.runId)} style={cssVars({ '--d': depth })} href={href.run(r.runId)} aria-current={here ? 'true' : 'false'} title={r.source ? `from ${r.source}` : r.command}>
             <TreeLines depth={depth} on={on} kids={kids} />
             <RunIcon run={r} />
             <span className="r1">
