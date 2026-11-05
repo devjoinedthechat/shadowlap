@@ -1,4 +1,5 @@
 import { ACTIONS } from './labels.js';
+import type { NextStep } from './types.js';
 
 /**
  * The command palette's matching: which items a query shows, in which order. No DOM here: the
@@ -17,6 +18,29 @@ export interface PaletteEntry {
   job?: boolean;
   /** Words it matches that don't show: a run's kind, command and labels, besides its id and about line. */
   match?: string;
+  /** Found only once something is typed, never listed on the open palette. */
+  typed?: boolean;
+}
+
+/** A run's next step as This run's first entry: what the header's lime button says, and what it runs or where it goes. */
+export function stepEntry(step: NextStep): PaletteEntry {
+  return { group: 'This run', label: step.label, hint: step.command ?? step.title ?? '', ...(step.href ? {} : { job: true }) };
+}
+
+/** Run blame for the newest failures nobody has blamed, as their pages lead with it, at most this many. */
+export const BLAME_ENTRIES = 3;
+
+/**
+ * Run blame for the newest failures nobody has blamed but the run open: those whose next step it is,
+ * as a list's rows say it. Found once something is typed, by what they did too (`failed`, their about
+ * line).
+ */
+export function blameEntries<R extends { runId: string; startedAt: number; next?: { key: string } | null; about?: { text: string } | null }>(runs: readonly R[], open: string | null): Array<{ run: R; entry: PaletteEntry }> {
+  return runs
+    .filter((r) => r.next?.key === 'blame' && r.runId !== open)
+    .sort((a, b) => b.startedAt - a.startedAt)
+    .slice(0, BLAME_ENTRIES)
+    .map((run) => ({ run, entry: { group: 'Actions', label: ACTIONS.runBlame.label, hint: `shadowlap blame ${run.runId.slice(0, 10)}`, job: true, typed: true, match: `failed ${run.about?.text ?? ''}` } }));
 }
 
 /** What a job's entry says in place of its hint while the server can't be reached. */
@@ -68,7 +92,7 @@ export function matchPalette<T extends PaletteEntry>(items: readonly T[], query:
   if (!w.length) {
     let runs = 0;
     return items
-      .filter((x) => x.group !== 'Fixes' && x.group !== 'Tests' && x.group !== 'In recorded data' && (x.group !== 'Runs' || runs++ < EMPTY_RUNS))
+      .filter((x) => !x.typed && x.group !== 'Fixes' && x.group !== 'Tests' && x.group !== 'In recorded data' && (x.group !== 'Runs' || runs++ < EMPTY_RUNS))
       .map((x, i) => ({ x, i }))
       .sort((a, b) => order(a.x.group) - order(b.x.group) || action(a.x) - action(b.x) || a.i - b.i)
       .map((m) => m.x);

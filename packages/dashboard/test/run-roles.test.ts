@@ -3,16 +3,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, type RunMeta } from '@shadowlap/engine';
-import { listRuns, runDetail } from '../src/api.js';
+import { listRuns } from '../src/api.js';
 import { exportHtml, type StaticPayload } from '../src/index.js';
+import { nextStepOf } from '../src/next-step.js';
 import { cachedRuns } from '../src/run-cache.js';
 import { loadRunIndex } from '../src/run-index.js';
 import { countRuns } from '../src/runs-list.js';
-import { normalizeRunDetail, normalizeRuns } from '../ui/normalize.js';
-import { nextStepOf } from '../ui/run/next-step.js';
+import { normalizeRuns } from '../ui/normalize.js';
 import { isAttempt } from '../ui/runs.js';
 import type { MetaView } from '../src/views.js';
-import type { RunDetail } from '../ui/types.js';
 import { addRun, blameOf, DAY, HOUR } from './read-model-store.js';
 
 // Which runs are attempts is one rule (the engine's run-roles.ts): the server's counts, the cached
@@ -82,11 +81,10 @@ describe('which runs are attempts, everywhere', () => {
   });
 
   it('reads every attempt against the run it came from on its page, never offering Run blame for it', () => {
-    const page = (runId: string) => normalizeRunDetail(runDetail(store, runId) as unknown as RunDetail);
-    for (const k of ATTEMPTS) expect(nextStepOf(page(id[k]), { offers: null, exported: false }), k).toEqual({ key: 'compare', parent: id.rec });
+    for (const k of ATTEMPTS) expect(nextStepOf(store, id[k], null), k).toMatchObject({ key: 'compare', parent: id.rec });
     // The golden's result itself failed: it is blamed like any failed run.
-    expect(nextStepOf(page(id.head), { offers: null, exported: false }).key).toBe('blame');
+    expect(nextStepOf(store, id.head, null)?.key).toBe('blame');
     // The fork blame rescued the run with is a fork, compared with its parent.
-    expect(nextStepOf(page(id.rescued), { offers: null, exported: false, rescued: true })).toEqual({ key: 'compare', parent: id.rec });
+    expect(nextStepOf(store, id.rescued, null)).toMatchObject({ key: 'compare', parent: id.rec });
   });
 });

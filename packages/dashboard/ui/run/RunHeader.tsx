@@ -5,7 +5,6 @@ import { Eyebrow, Tag } from '../components/bits.js';
 import { ConfirmDialog } from '../components/Dialog.js';
 import { RunKey } from '../components/RunKey.js';
 import { MARKS, type RunMark } from '../runkey.js';
-import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { useMenu } from '../components/Popover.js';
 import { copyText } from '../dom.js';
@@ -14,13 +13,13 @@ import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { compareTarget, headerStatus, isFailed, runType } from '../runs.js';
 import { bulkToast, deleteText, deleteWhat } from '../runspage/bulk.js';
-import { RunBlameButton } from '../fixes/RunBlame.js';
+import { ACTIONS } from '../labels.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { ForkMenu, type PendingAction } from './actions.js';
 import { failureText, fixCheckText } from './banner.js';
-import { fixStatusWords, nextStepOf } from './next-step.js';
-import { blameTitle } from './offers.js';
+import { nextStepOf } from './next-step.js';
+import { NextStepButton, ReplayButton } from './NextStepButton.js';
 import { exitWords, presetTag, type PresetAttempt } from './preset.js';
 import { checksOf, forkKindWords, recordingWords, runDuration, runLikeOf } from './model.js';
 import { canPush, pushTitle } from './share.js';
@@ -31,8 +30,8 @@ import { ShareMenu } from './ShareMenu.js';
  * name), the one quiet line that says what it was about with its labels after it, its command and
  * timing, and what can be done with it: compare, share, replay, fork at the selected call, delete.
  * Its lineage is in the crumbs; a phone, which has no crumbs, names the parent in the eyebrow. The
- * one lime button is the run's next step (`nextStepOf`): Open the fix, Run blame, Compare with
- * parent, or Replay where nothing needs doing; every other action stays, plain.
+ * one lime button is the run's next step, as the server works it out (src/next-step.ts); every other
+ * action stays, plain.
  */
 export function RunHeader({
   run,
@@ -51,6 +50,7 @@ export function RunHeader({
   run: RunDetail;
   call: CallDetail | null;
   selected: number | null;
+  /** The fork blame rescued a run with: a fork of its own, as its eyebrow says, though blame made it as a probe. */
   rescued: boolean;
   offers: RunOffers | null;
   forkMenu: ReturnType<typeof useMenu>;
@@ -79,9 +79,9 @@ export function RunHeader({
   const tag = preset ? presetTag(preset) : headerStatus(like);
   const share = useMenu();
   const [deleting, setDeleting] = useState(false);
-  const replay = run.actions.find((a) => a.key === 'r');
   const pair = compareTarget(r, run.children);
-  const next = nextStepOf(run, { offers, exported, preset, rescued });
+  const next = nextStepOf(run);
+  const lead = next ? <NextStepButton key={next.key} run={run} step={next} offers={offers} onAction={onAction} onFindCommit={onFindCommit} /> : null;
   // The lineage is in the crumbs; a phone, which has none, reads the parent here, after the kind.
   const parent = run.parent ? (
     <span className="ebp">
@@ -168,12 +168,12 @@ export function RunHeader({
         </div>
       </div>
       <div className="actions">
-        {pair && next.key !== 'compare' ? (
+        {pair && next?.key !== 'compare' ? (
           <a className="btn" href={href.compare(pair[0], pair[1])}>
-            {r.parentRunId ? 'Compare with parent' : 'Compare'}
+            {r.parentRunId ? ACTIONS.compareWithParent.label : 'Compare'}
           </a>
         ) : null}
-        {exported ? (next.key === 'compare' ? <CompareLead from={next.parent} to={r.runId} /> : null) : (
+        {exported ? lead : (
           <>
             <button className="btn" type="button" aria-haspopup="menu" aria-expanded={share.open} onClick={(e) => share.toggle(e.currentTarget)}>
               <Icon name="share" />
@@ -191,19 +191,7 @@ export function RunHeader({
                 Push
               </button>
             ) : null}
-            <button
-              className={next.key === 'replay' ? 'btn lime' : 'btn'}
-              type="button"
-              disabled={live || !!actionsOff || !replay || !!replay.disabled}
-              title={live ? 'Replay once the recording finishes' : (off ?? replay?.disabled ?? undefined)}
-              onClick={() => replay && onAction({ action: replay, callNo: null })}
-            >
-              <Icon name="replay" />
-              Replay
-            </button>
-            {next.key === 'blame' ? <RunBlameButton runId={r.runId} failed={next.offer.failed} title={blameTitle(next.offer)} className="btn lime" icon /> : null}
-            {next.key === 'fix' ? <FixLead fix={next.fix} /> : null}
-            {next.key === 'compare' ? <CompareLead from={next.parent} to={r.runId} /> : null}
+            {next?.key === 'replay' ? null : <ReplayButton run={run} step={run.replay ?? null} lime={false} onAction={onAction} />}
             <button
               className="btn"
               type="button"
@@ -218,6 +206,7 @@ export function RunHeader({
               Fork at #{selected ?? '–'}
               <Icon name="caret" className="caret" />
             </button>
+            {lead}
             <button className="btn quiet dz" type="button" disabled={live || !!actionsOff} title={live ? 'A run that is still recording can’t be deleted' : off} onClick={() => guard(() => setDeleting(true))}>
               Delete
             </button>
@@ -250,30 +239,6 @@ export function RunHeader({
         />
       ) : null}
     </section>
-  );
-}
-
-/**
- * Open the fix, as the step a failure a fix covers leads with: its hover names the fix and says how
- * it stands (open, verified, applied), which the banner shows beside it too.
- */
-function FixLead({ fix }: { fix: NonNullable<RunDetail['fix']> }) {
-  const st = fixStatusWords(fix.status);
-  return (
-    <a className="btn lime" href={fix.href ?? href.fixes(fix.id)} data-tip={tipCard(`“${fix.title}”`, [], st.why)}>
-      <Icon name="loop" />
-      Open the fix
-    </a>
-  );
-}
-
-/** Compare with parent, as the step a fork or an attempt leads with: it is read against the run it came from. */
-function CompareLead({ from, to }: { from: string; to: string }) {
-  return (
-    <a className="btn lime" href={href.compare(from, to)} data-tip={tipCard(`Against ${shortId(from)}`, [], `shadowlap diff ${shortId(from)} ${shortId(to)}`)}>
-      <Icon name="compare" />
-      Compare with parent
-    </a>
   );
 }
 

@@ -229,8 +229,7 @@
       "jobStatus": 35
     },
     "packages/dashboard/ui/normalize.ts": {
-      "normalizeFix": 33,
-      "normalizeRunDetail": 37
+      "normalizeRunDetail": 36
     },
     "packages/dashboard/ui/pages/Compare.tsx": {
       "Comparison": 51
@@ -239,7 +238,7 @@
       "NewProjectPage": 38
     },
     "packages/dashboard/ui/pages/Run.tsx": {
-      "Workspace": 82
+      "Workspace": 79
     },
     "packages/dashboard/ui/pages/Runs.tsx": {
       "ServerRuns": 37
@@ -264,7 +263,7 @@
       "ProvenanceView": 95
     },
     "packages/dashboard/ui/run/RunHeader.tsx": {
-      "RunHeader": 85
+      "RunHeader": 78
     },
     "packages/dashboard/ui/run/banner.ts": {
       "attemptBanner": 52,
@@ -277,7 +276,7 @@
       "usePagedRun": 31
     },
     "packages/dashboard/ui/run/parts.tsx": {
-      "Banner": 80,
+      "Banner": 60,
       "DiffPanel": 32
     },
     "packages/dashboard/ui/runspage/ImportDialog.tsx": {
@@ -497,7 +496,7 @@
       "NewProjectPage": 162
     },
     "packages/dashboard/ui/pages/Run.tsx": {
-      "Workspace": 287
+      "Workspace": 250
     },
     "packages/dashboard/ui/pages/Runs.tsx": {
       "ServerRuns": 185
@@ -521,10 +520,10 @@
       "ProvenanceView": 267
     },
     "packages/dashboard/ui/run/RunHeader.tsx": {
-      "RunHeader": 198
+      "RunHeader": 187
     },
     "packages/dashboard/ui/run/parts.tsx": {
-      "Banner": 263
+      "Banner": 194
     },
     "packages/dashboard/ui/runspage/Calendar.tsx": {
       "Calendar": 208

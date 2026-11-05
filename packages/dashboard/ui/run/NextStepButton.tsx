@@ -1,0 +1,225 @@
+import { useState } from 'react';
+import { JOB_KINDS, type RunDetail, type RunOffers } from '../api.js';
+import { ConfirmDialog, PromptDialog } from '../components/Dialog.js';
+import { tipCard } from '../components/HoverCard.js';
+import { Icon, type IconName } from '../components/Icon.js';
+import { goldenName, shortId } from '../format.js';
+import { commandText } from '../goldens.js';
+import { RunBlameButton } from '../fixes/RunBlame.js';
+import { TestsJobButton } from '../fixes/TestsJobButton.js';
+import { useTreeBusy } from '../fixes/tree.js';
+import { confirmWords } from '../labels.js';
+import { useApp } from '../state.js';
+import { startTestsJob } from '../tests-ask.js';
+import type { NextStep } from '../types.js';
+import type { PendingAction } from './actions.js';
+import { useDivergedJobs } from './diverged.js';
+import { stepCard, stepCost } from './next-step.js';
+import { blameTitle } from './offers.js';
+
+/**
+ * The header's one lime button, drawn from the step the server worked out (src/next-step.ts): a link
+ * to what it opens, or the job it runs, each waiting as that job's own button waits. Its hover says
+ * what it does, what it bills and what it runs. `data-next` names the step, for the palette to press.
+ */
+
+/** A step's hover card. */
+function tipOf(step: NextStep): string {
+  const c = stepCard(step);
+  return tipCard(c.title, c.rows, c.sub);
+}
+
+const ICONS: Partial<Record<NextStep['key'], IconName>> = { compare: 'compare', fix: 'loop', replay: 'replay' };
+
+interface StepProps {
+  run: RunDetail;
+  step: NextStep;
+  offers: RunOffers | null;
+  onAction: (p: PendingAction) => void;
+  onFindCommit: () => void;
+}
+
+/** Replay, as the header keeps it: the lime one where nothing else needs doing, else plain. On a clean or a test replay it replays the recording that replay came from. */
+export function ReplayButton({ run, step, lime, onAction }: { run: RunDetail; step: NextStep | null; lime: boolean; onAction: (p: PendingAction) => void }) {
+  const { actionsOff } = useApp();
+  const action = run.actions.find((a) => a.key === 'r');
+  const live = run.run.status === 'running';
+  const off = (live ? 'Replay once the recording finishes' : null) ?? actionsOff ?? action?.disabled ?? null;
+  const target = step?.key === 'replay' && step.runId !== run.run.runId ? { runId: step.runId } : {};
+  return (
+    <button
+      className={lime ? 'btn lime' : 'btn'}
+      type="button"
+      disabled={!!off || !action}
+      {...(lime ? { 'data-next': 'replay' } : {})}
+      {...(off ? { title: off } : step ? { 'data-tip': tipOf(step) } : {})}
+      onClick={() => action && onAction({ action, callNo: null, ...target })}
+    >
+      <Icon name="replay" />
+      {step?.label ?? 'Replay'}
+    </button>
+  );
+}
+
+/** Add normalizer and re-run, and Update golden: the jobs of a test that diverged. */
+function DivergedStep({ run, step, offers }: StepProps & { step: Extract<NextStep, { key: 'normalizer' | 'update-golden' }> }) {
+  const app = useApp();
+  // The server's, until the page's offers come.
+  const test = offers?.test ?? step.test;
+  const jobs = useDivergedJobs(run, test, 0);
+  const verb = step.key === 'normalizer' ? 'add the normalizer' : 'update it';
+  return (
+    <>
+      <TestsJobButton className="btn lime" verb={verb} off={app.actionsOff} tip={tipOf(step)} lead={step.key} onClick={step.key === 'normalizer' ? jobs.normalize : jobs.update}>
+        {step.label}
+      </TestsJobButton>
+      {jobs.dialogs}
+    </>
+  );
+}
+
+/** Re-run test: the golden's test again, a gate's too, asking first where it runs live (tests-ask.ts). */
+function RerunStep({ step }: { step: Extract<NextStep, { key: 'rerun-test' | 'gate-again' }> }) {
+  const app = useApp();
+  const name = goldenName(step.golden);
+  return (
+    <TestsJobButton className="btn lime" verb="run it again" off={app.actionsOff} tip={tipOf(step)} lead={step.key} onClick={() => startTestsJob(app, JOB_KINDS.tests, { golden: step.golden }, { title: `Re-run ${name}`, ok: 'Re-run', commands: [commandText(['test', step.golden])] })}>
+      {step.label}
+    </TestsJobButton>
+  );
+}
+
+/**
+ * Find breaking commit, for a test replay: from where its golden last passed, it starts on the click,
+ * offline and free; else its dialog asks for a commit. A crash keeps Run blame plain beside it.
+ */
+function BisectStep({ run, step, offers, onFindCommit }: StepProps & { step: Extract<NextStep, { key: 'bisect' }> }) {
+  const app = useApp();
+  const runId = run.run.runId;
+  const b = offers?.bisect ?? null;
+  const good = step.starts && !b?.unavailable ? (b?.good ?? null) : null;
+  return (
+    <>
+      {step.blame ? <RunBlameButton runId={runId} failed={step.blame.failed} title={blameTitle(step.blame)} className="btn" /> : null}
+      <TestsJobButton className="btn lime" verb="find the breaking commit" off={app.actionsOff} tip={tipOf(step)} lead="bisect" onClick={() => (good ? app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.bisect, { runId, good }))) : onFindCommit())}>
+        {step.label}
+      </TestsJobButton>
+    </>
+  );
+}
+
+/** Add normalizer on a replay: the run's own action, the rule its divergence proposes. */
+function RuleStep({ run, step, onAction }: StepProps) {
+  const { actionsOff } = useApp();
+  const action = run.actions.find((a) => a.key === 'n');
+  if (!action) return null;
+  const off = actionsOff ?? action.disabled;
+  return (
+    <button className="btn lime" type="button" disabled={!!off} data-next={step.key} {...(off ? { title: off } : { 'data-tip': tipOf(step) })} onClick={() => onAction({ action, callNo: null })}>
+      {step.label}
+    </button>
+  );
+}
+
+/** Run injection test… and Re-run injection test: what it runs and bills, then the `injection` job, which asks again for a command someone else recorded. */
+function InjectionStep({ step }: { step: Extract<NextStep, { key: 'injection-test' | 'injection-again' }> }) {
+  const app = useApp();
+  const [asking, setAsking] = useState(false);
+  const busy = useTreeBusy('reads', 'test it');
+  const off = app.actionsOff ?? busy;
+  const title = confirmWords(step.label);
+  const fields = step.key === 'injection-again' ? { runId: step.runId, repeat: step.job.repeat, templates: step.job.templates, baselines: step.job.baselines, liveReads: step.job.liveReads } : { runId: step.runId };
+  const cost = stepCost(step);
+  return (
+    <>
+      <button className="btn lime" type="button" disabled={!!off} data-next={step.key} {...(off ? { title: off } : { 'data-tip': tipOf(step) })} onClick={() => app.guard(() => setAsking(true))}>
+        {step.label}
+      </button>
+      {asking ? (
+        <ConfirmDialog
+          title={`${title} on ${shortId(step.runId)}?`}
+          text={[step.sub, cost].filter(Boolean).join(' ')}
+          ok={title}
+          {...(step.command ? { command: step.command } : {})}
+          onClose={() => setAsking(false)}
+          onOk={() => {
+            setAsking(false);
+            startTestsJob(app, JOB_KINDS.injection, fields, { title, ok: title, ...(step.command ? { commands: [step.command] } : {}) });
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/** The entry that gives a golden its injection gate, for the dialog to name. */
+const gateEntry = (folder: string) => `"tests": { "${folder}": { "injection": { "obeyed": 0, "repeat": 3 } } }`;
+
+/** Pack as golden… and Pack with injection gate…: the run packed into a folder of the goldens, named for the run; a gate's entry goes under `tests` in the config. */
+function PackStep({ step }: { step: Extract<NextStep, { key: 'pack' | 'pack-gate' }> }) {
+  const app = useApp();
+  const [asking, setAsking] = useState(false);
+  const off = app.actionsOff;
+  const id = shortId(step.runId);
+  const gate = step.key === 'pack-gate';
+  const cost = stepCost(step);
+  return (
+    <>
+      <button className="btn lime" type="button" disabled={!!off} data-next={step.key} {...(off ? { title: off } : { 'data-tip': tipOf(step) })} onClick={() => app.guard(() => setAsking(true))}>
+        {step.label}
+      </button>
+      {asking ? (
+        <PromptDialog
+          title={gate ? `Pack ${id} with injection gate?` : `Pack ${id} as golden?`}
+          text={gate ? `It packs the run; the gate is an entry in shadowlap.config.json: ${gateEntry(step.folder)}.${cost ? ` Each test of it costs ${cost}.` : ''}` : 'A golden is a recording CI replays on every commit. Redaction rules apply to the copy; the store is never changed.'}
+          label="Folder, inside the project"
+          initial={step.folder}
+          command={(dir) => `shadowlap pack ${id} ${dir || '…'}`}
+          ok={confirmWords(step.label)}
+          onClose={() => setAsking(false)}
+          onRun={(dir) => {
+            setAsking(false);
+            app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.pack, { runId: step.runId, dir })));
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+export function NextStepButton(props: StepProps) {
+  const { run, step, onAction } = props;
+  if (step.href) {
+    const icon = ICONS[step.key];
+    return (
+      <a className="btn lime" href={step.href} data-next={step.key} data-tip={tipOf(step)}>
+        {icon ? <Icon name={icon} /> : null}
+        {step.label}
+      </a>
+    );
+  }
+  switch (step.key) {
+    case 'replay':
+      return <ReplayButton run={run} step={step} lime onAction={onAction} />;
+    case 'blame':
+      return <RunBlameButton runId={run.run.runId} failed={step.offer.failed} title={blameTitle(step.offer)} tip={tipOf(step)} className="btn lime" icon lead {...(step.capture ? { capture: true } : {})} />;
+    case 'normalizer':
+    case 'update-golden':
+      return <DivergedStep {...props} step={step} />;
+    case 'rerun-test':
+    case 'gate-again':
+      return <RerunStep step={step} />;
+    case 'bisect':
+      return <BisectStep {...props} step={step} />;
+    case 'rule':
+      return <RuleStep {...props} />;
+    case 'injection-test':
+    case 'injection-again':
+      return <InjectionStep step={step} />;
+    case 'pack':
+    case 'pack-gate':
+      return <PackStep step={step} />;
+    default:
+      return null;
+  }
+}

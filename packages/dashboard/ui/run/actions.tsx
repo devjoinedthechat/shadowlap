@@ -19,6 +19,8 @@ export interface PendingAction {
   /** The call's recorded result, to start an override from. */
   recorded?: unknown;
   callName?: string;
+  /** The run it acts on, where it isn't the page's: Replay recording replays the recording a replay came from. */
+  runId?: string;
 }
 
 /** A Find breaking commit with nothing known about the run's revisions: the dialog asks for a commit. */
@@ -46,7 +48,7 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
   const start = (p: PendingAction, value?: string, yes?: string) => {
     app.guard(
       () =>
-        void app.client.action(runId, p.action.key, p.callNo, value, yes).then(
+        void app.client.action(p.runId ?? runId, p.action.key, p.callNo, value, yes).then(
           (job) => app.watchJob(Promise.resolve(job)),
           (err: unknown) => {
             const asked = yes === undefined ? consentAsked(err) : null;
@@ -66,7 +68,7 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
   };
   const dialog = pending ? (
     <ActionDialog
-      runId={runId}
+      runId={pending.runId ?? runId}
       capture={capture}
       pending={pending}
       onClose={() => setPending(null)}

@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { JOB_KINDS, type RecordedHit } from '../api.js';
+import { ApiError, JOB_KINDS, type RecordedHit } from '../api.js';
 import { AboutLine, FitHint, useFitAbouts } from '../components/About.js';
 import { Icon } from '../components/Icon.js';
 import { isMac } from '../dom.js';
 import { ACTIONS } from '../labels.js';
 import { callName, shortId } from '../format.js';
 import { jobRunning } from '../jobs.js';
-import { highlight, INDEXING_RETRY_MS, indexingNote, limitRecorded, matchPalette, palettePlaceholder, PAUSED_HINT, RECORDED_MIN_CHARS, runsById, runsToAskFor, snippetParts, words } from '../palette.js';
-import { onPaletteSourcesChanged, paletteSources } from '../palette-sources.js';
+import { blameEntries, highlight, INDEXING_RETRY_MS, indexingNote, limitRecorded, matchPalette, palettePlaceholder, PAUSED_HINT, RECORDED_MIN_CHARS, runsById, runsToAskFor, snippetParts, words } from '../palette.js';
+import { addPaletteSource, onPaletteSourcesChanged, paletteSources } from '../palette-sources.js';
 import { href, type Route } from '../route.js';
 import { navigate } from '../router.js';
 import { normalizeRuns } from '../normalize.js';
@@ -33,6 +33,19 @@ export function Palette({ route }: { route: Route }) {
   if (!palette) return null;
   return <PaletteDialog route={route} close={() => setPalette(false)} />;
 }
+
+// Run blame for the newest failures nobody blamed: the job, or what it asks first (the check, a yes) on the run's own page.
+addPaletteSource(({ app, route, go }) => {
+  const refused = (runId: string, err: unknown) => (err instanceof ApiError && (err.status === 422 || err.status === 409) ? go(href.run(runId)) : app.watchJob(Promise.reject(err)));
+  return blameEntries(app.runs ?? [], route.page === 'run' ? route.id : null).map(({ run, entry }) => ({
+    ...entry,
+    run: () =>
+      void app.client.startJob(JOB_KINDS.blame, { runId: run.runId }).then(
+        (job) => app.watchJob(Promise.resolve(job)),
+        (err: unknown) => refused(run.runId, err),
+      ),
+  }));
+});
 
 function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
   const app = useApp();
