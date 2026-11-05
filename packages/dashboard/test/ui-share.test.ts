@@ -140,7 +140,7 @@ describe('Run blame and Find the commit', () => {
     const c = bisectCopy(RUN, offer());
     expect([c.title, c.ok]).toEqual(['Find breaking commit for 01M50J6C69', 'Find breaking commit']);
     expect(c.lead).toBe('Finds the first commit that broke the run, from one where it worked.');
-    expect(c.facts).toEqual([{ label: 'Bad', value: 'd2e8a1f', quiet: 'the commit the run was recorded at', code: true }]);
+    expect(c.facts).toEqual([{ label: 'Bad', value: '`d2e8a1f`', quiet: 'the commit the run was recorded at' }]);
     expect(c.cost).toEqual({ price: 'Free', parts: ['bisect replays offline'] });
     expect(c.label).toBe('Good commit');
     expect(c.choices).toEqual([
@@ -155,7 +155,7 @@ describe('Run blame and Find the commit', () => {
     expect(live.cost).toEqual({ price: 'Billed by your provider', parts: ['one live replay each, writes blocked'] });
     expect(live.note).toMatch(/^One live replay decides a commit: a failure that doesn’t happen every time can pass at one that has it/);
     // Where this checkout lacks the run's own commit, the search ends at HEAD.
-    expect(live.facts).toEqual([{ label: 'Bad', value: 'HEAD', quiet: 'this checkout doesn’t have its own commit', code: true }]);
+    expect(live.facts).toEqual([{ label: 'Bad', value: '`HEAD`', quiet: 'this checkout doesn’t have its own commit' }]);
     expect(live.choices).toEqual([{ value: 'c91d0f4', subject: null, how: 'where it last passed' }]);
     expect(live.command('…')).toBe('shadowlap bisect 01M50J6C69 --good … --fork');
     // A golden's replay bisects the golden.

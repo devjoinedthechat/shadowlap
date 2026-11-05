@@ -44,7 +44,7 @@ export function FindCommitDialog({ name, golden, range, live, revisions, tried, 
       title={namedIn(`Find breaking commit for ${name}`, name)}
       lead={`Finds the first commit that broke ${name}, from ${tried ? 'an older one' : 'one'} where it worked.`}
       doc="bisect"
-      facts={[range ? { label: 'Good', value: range.good, code: true, wide: true } : null, { label: 'Bad', value: range?.bad ?? 'HEAD', code: true, quiet: 'where the search ends' }]}
+      facts={[range ? { label: 'Good', value: `\`${range.good}\``, wide: true } : null, { label: 'Bad', value: `\`${range?.bad ?? 'HEAD'}\``, quiet: range?.bad ? 'the commit the last test session ran at' : 'this checkout as it stands' }]}
       command={commandText(args)}
       cost={bisectCost({ fork: false, live })}
       ok={confirmWords(ACTIONS.findBreakingCommit.label)}

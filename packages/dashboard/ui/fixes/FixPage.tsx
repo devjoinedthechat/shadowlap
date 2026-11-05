@@ -8,7 +8,7 @@ import { UpdateGoldenDialog } from '../components/UpdateGolden.js';
 import { Page } from '../components/Page.js';
 import { NotFoundPage } from '../pages/NotFound.js';
 import { copyText } from '../dom.js';
-import { approx, GLUED_SEPARATOR, plural } from '../format.js';
+import { approx, GLUED_SEPARATOR } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { addJobFooter } from '../job-actions.js';
 import { href } from '../route.js';
@@ -302,7 +302,7 @@ export function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose:
   const aside = repairAside(now);
   const repair = now.actions.repair;
   const stopped = now.actions.blameAgain?.kind === 'stopped';
-  const keeps = repair ? keepsOf(repair.argv) : 0;
+  const keeps = repair ? keepsOf(repair.argv) : [];
   const line = ask.why ?? aside ?? (stopped ? 'Blame stopped part way: repair blames the run again first' : null);
   // While it reads, what it is doing; then who it asks, or "the repairer" where it can't ask one from here.
   const lead = fresh ? `Asks ${ask.who ?? 'the repairer'} for prompt and tool rewrites and picks the smallest that fixes the failing runs.` : 'Reading which repairer shadowlap.config.json names…';
@@ -319,7 +319,7 @@ export function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose:
           : [
               { label: 'Changes', value: 'nothing in your working tree', quiet: 'each candidate is tried in a worktree of its own' },
               { label: 'Hands over', value: 'the accepted one, as a patch for you to apply' },
-              keeps ? { label: <DialogTip tip="A candidate that breaks a good run is rejected">Keeps</DialogTip>, value: `${plural(keeps, 'run')} passing` } : null,
+              keeps.length ? { label: <DialogTip tip="A candidate that breaks a good run is rejected">Keeps</DialogTip>, value: `${keeps.map((k) => `\`${k}\``).join(', ')} passing` } : null,
               { label: 'While it runs', value: 'leave the prompt and tools alone' },
             ]
       }

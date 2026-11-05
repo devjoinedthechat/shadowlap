@@ -119,7 +119,7 @@ const FORKS: Record<string, (c: ForkContext) => Partial<DialogCopy>> = {
     placeholder: p.placeholder ?? '',
     multiline: true,
     ok: confirmWords(ACTIONS.injectInstruction.label),
-    ...(injectsAsUser(a) ? { factsUnder: [{ label: 'As', value: 'part of the last user turn', ...(a.noSystemMessage ? { quiet: `${a.noSystemMessage} · no system message mid-session` } : {}) }] } : {}),
+    ...(injectsAsUser(a) ? { factsUnder: [{ label: 'As', value: 'part of the last user turn', ...(a.noSystemMessage ? { quiet: `\`${a.noSystemMessage}\` · no system message mid-session` } : {}) }] } : {}),
     ...withCommand(forkLine(ctx.id, a.flag ?? (ctx.callNo === null ? undefined : `--inject ${ctx.callNo}=…`), true)),
     cost: billed(`live from ${at}, writes fenced`),
   }),
@@ -209,7 +209,7 @@ const FORKS: Record<string, (c: ForkContext) => Partial<DialogCopy>> = {
     doc: 'packs',
     label: 'Folder',
     ok: 'Pack run',
-    facts: [{ label: 'Holds', value: 'run.json, calls.jsonl and one file per blob' }],
+    facts: [{ label: 'Holds', value: '`run.json`, `calls.jsonl` and one file per blob' }],
     command: (dir) => `shadowlap pack ${ctx.id} ${shellValue(dir)}`,
   }),
   r: ({ ctx }) => ({

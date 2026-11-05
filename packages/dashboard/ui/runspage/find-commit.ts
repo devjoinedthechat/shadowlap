@@ -62,6 +62,6 @@ export function bisectCost(choices: Pick<BisectChoices, 'fork' | 'live'>): CostW
 export const FLAKY_NOTE = 'One live replay decides a commit: a failure that doesn’t happen every time can pass at one that has it.';
 
 /** Find breaking commit's Bad row: where the search ends, and what that commit is. */
-export function bisectBadFact(choices: Pick<BisectChoices, 'bad'>, what: string): { label: string; value: string; quiet: string; code: true } {
-  return { label: 'Bad', value: bisectUpTo(choices), quiet: choices.bad ? what : 'this checkout doesn’t have its own commit', code: true };
+export function bisectBadFact(choices: Pick<BisectChoices, 'bad'>, what: string): { label: string; value: string; quiet: string } {
+  return { label: 'Bad', value: `\`${bisectUpTo(choices)}\``, quiet: choices.bad ? what : 'this checkout doesn’t have its own commit' };
 }

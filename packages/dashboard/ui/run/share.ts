@@ -44,7 +44,7 @@ export function redactsFact(rules: number | null, trace = false): FactWords | nu
 }
 
 /** What a pack holds, its one fact besides that. */
-export const PACK_HOLDS: FactWords = { label: 'Holds', value: 'run.json, calls.jsonl and one file per blob' };
+export const PACK_HOLDS: FactWords = { label: 'Holds', value: '`run.json`, `calls.jsonl` and one file per blob' };
 
 /** A copy's name in a file or a folder: the run's id, as the server's jobs name it. */
 const fileId = (runId: string) => runId.slice(0, 10).toLowerCase();

@@ -178,10 +178,9 @@ export function choiceAnswer(choice: PromptChoice, words: string): string {
 /** A row of a dialog's facts, in words. */
 export interface FactWords {
   label: string;
+  /** Its words, a name in code between backticks. */
   value: string;
   quiet?: string;
-  /** A value that is a name in code. */
-  code?: boolean;
 }
 
 /** What a dialog bills: until a price is known, who bills it, then what runs live. */

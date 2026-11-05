@@ -79,7 +79,7 @@ describe('an action’s dialog', () => {
     // The hint stays on the menu's hover: the dialog keeps its one sentence, and the model that refuses a system message says so in its row.
     const named = dialogCopy(a('i', 'Inject instruction…', { flag: '--inject 17=… --inject-as user', hint: 'Goes in as part of the user turn.', noSystemMessage: 'claude-sonnet-5' }), ctx);
     expect(named.lead).toBe('Adds the instruction at #17, kept for every later request of the fork.');
-    expect(named.factsUnder).toEqual([{ label: 'As', value: 'part of the last user turn', quiet: 'claude-sonnet-5 · no system message mid-session' }]);
+    expect(named.factsUnder).toEqual([{ label: 'As', value: 'part of the last user turn', quiet: '`claude-sonnet-5` · no system message mid-session' }]);
   });
 
   it('says what each fork does in one sentence, ending on its docs, and what runs live', () => {

@@ -4,6 +4,7 @@ import { tipText } from './HoverCard.js';
 /** What decides whether to press, as a row: a label of a word or two, its value and the value's quiet part under it. */
 export interface DialogFact {
   label: ReactNode;
+  /** Its words, a name in code between backticks. */
   value: ReactNode;
   /** Under the value, quieter: what it means, or for whom. */
   quiet?: ReactNode;
@@ -11,8 +12,6 @@ export interface DialogFact {
   tone?: 'amber' | 'red' | undefined;
   /** A value that is one long token: its label over it on the narrowest phones. */
   wide?: boolean;
-  /** A value that is a name in code: a commit, a path. */
-  code?: boolean;
 }
 
 /** Rows a dialog may leave out as it decides: null and false draw nothing. */
@@ -22,6 +21,12 @@ export const shownFacts = (rows: DialogFactRows | undefined): DialogFact[] => (r
 
 /** A toned row's id, to name it in the dialog's description. */
 export const factId = (id: string, at: number) => `${id}f${at}`;
+
+/** Words that name something in code say it between backticks, as a dialog's words kept apart from its markup do. */
+function inCode(words: ReactNode): ReactNode {
+  if (typeof words !== 'string' || !words.includes('`')) return words;
+  return words.split('`').map((part, i) => (i % 2 ? <code key={i}>{part}</code> : part));
+}
 
 /**
  * Label and value rows between hairlines, in a dialog: each fact said once, never the lead's or the
@@ -36,8 +41,8 @@ export function DialogFacts({ rows, id }: { rows: DialogFactRows; id?: string | 
         <div key={i} id={f.tone && id ? factId(id, i) : undefined} className={[f.tone, f.wide ? 'wide' : ''].filter(Boolean).join(' ') || undefined}>
           <dt>{f.label}</dt>
           <dd>
-            {f.code ? <code>{f.value}</code> : f.value}
-            {f.quiet ? <small>{f.quiet}</small> : null}
+            {inCode(f.value)}
+            {f.quiet ? <small>{inCode(f.quiet)}</small> : null}
           </dd>
         </div>
       ))}

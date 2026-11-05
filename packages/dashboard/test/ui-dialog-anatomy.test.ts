@@ -265,7 +265,10 @@ describe('a golden’s dialogs', () => {
     holds(await open(createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: null, live: true, revisions, tried: null, onRun: () => undefined, ...closes })), { title: 'Find breaking commit for a', doc: 'bisect', first: 'input[type="text"]', ok: 'Find breaking commit' });
   });
   it('Find breaking commit over a range, with nothing to ask', async () => {
-    holds(await open(createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: { good: 'c91d0f4', bad: 'd2e8a1f' }, live: false, revisions: [], tried: null, onRun: () => undefined, ...closes })), { title: 'Find breaking commit for a', doc: 'bisect', first: OK, ok: 'Find breaking commit' });
+    const page = await open(createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: { good: 'c91d0f4', bad: 'd2e8a1f' }, live: false, revisions: [], tried: null, onRun: () => undefined, ...closes }));
+    holds(page, { title: 'Find breaking commit for a', doc: 'bisect', first: OK, ok: 'Find breaking commit' });
+    expect(page.all('.dfacts div').map((d) => d.textContent)).toEqual(['Goodc91d0f4', 'Badd2e8a1fthe commit the last test session ran at']);
+    expect(page.one('.dcost').textContent).toContain('bisect replays offline');
   });
 
   it.each<[string, TestsAsk, Expect]>([
@@ -307,7 +310,7 @@ describe('a fix’s dialogs', () => {
     await page.until('the fix to be read', () => !page.one('.dlg-ok').disabled);
     holds(page, { title: 'Run repair', doc: 'repair', first: OK, ok: 'Run repair' });
     expect(page.all('.dfacts div').map((d) => d.querySelectorAll('dt')[0].textContent)).toEqual(['Changes', 'Hands over', 'Keeps', 'While it runs']);
-    expect(page.all('.dfacts div')[2].textContent).toBe('Keeps2 runs passing');
+    expect(page.all('.dfacts div')[2].textContent).toBe('Keepsb, c passing');
     expect(page.one('.dcost').textContent).toContain('up to 3 candidates');
   });
   it('Run repair that would end No fix to try', async () => {

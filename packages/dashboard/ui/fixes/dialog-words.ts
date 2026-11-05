@@ -1,3 +1,4 @@
+import { shortId } from '../format.js';
 import { commandText } from '../goldens.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import type { FixDetail } from '../types.js';
@@ -35,12 +36,12 @@ export function applySteps(apply: Pick<NonNullable<FixDetail['actions']['apply']
   return [patch, { what: copied, where: 'into goldens/' }, { what: apply.goldens === 1 ? 'Golden replayed' : 'Goldens replayed', where: 'shadowlap test, offline' }, { what: 'Other goldens replayed', where: 'any that diverge are named' }];
 }
 
-/** How many good runs a repair must keep passing, as its command line gives them (`--keeps a b`). */
-export function keepsOf(argv: readonly string[]): number {
+/** The good runs a repair must keep passing, as its command line gives them (`--keeps a b`), a run by its short id. */
+export function keepsOf(argv: readonly string[]): string[] {
   const at = argv.indexOf('--keeps');
-  if (at < 0) return 0;
+  if (at < 0) return [];
   const next = argv.findIndex((a, i) => i > at && a.startsWith('--'));
-  return (next < 0 ? argv.length : next) - at - 1;
+  return argv.slice(at + 1, next < 0 ? argv.length : next).map((a) => (/^[0-9A-Z]{26}$/.test(a) ? shortId(a) : a));
 }
 
 /** What Run repair bills, or that nothing runs where it would end "No fix to try". */
