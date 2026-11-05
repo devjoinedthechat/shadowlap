@@ -25,7 +25,8 @@ export function stackTop(h = 0): number {
       const el = document.querySelector<HTMLElement>(selector);
       if (!el || !el.getClientRects().length || getComputedStyle(el).position !== 'fixed') continue;
       const r = el.getBoundingClientRect();
-      if (r.bottom > high - 200) top = Math.max(top, high - r.top);
+      // Near the foot of the stack so far: the bulk bar rides over a docked drawer, the pill over both.
+      if (r.bottom > high - top - 200) top = Math.max(top, high - r.top);
     }
   }
   const sheet = menuSheetRect();
@@ -72,8 +73,12 @@ export function placeToast(el: HTMLElement): void {
   if (window.innerWidth === undefined) return;
   toastFit(el);
   const view = document.querySelector('#view')?.getBoundingClientRect();
-  const centre = window.innerWidth > WIDE && view ? view.left + view.width / 2 : window.innerWidth / 2;
+  const wide = window.innerWidth > WIDE && !!view;
+  const centre = wide ? view.left + view.width / 2 : window.innerWidth / 2;
   el.style.setProperty('left', `${Math.round(centre)}px`);
+  // Centred on the content, it keeps within it: a long notice wraps there rather than past the window's edge.
+  if (wide) el.style.setProperty('--toast-room', `${Math.max(0, Math.round(view.width) - 32)}px`);
+  else el.style.removeProperty('--toast-room');
   el.style.setProperty('bottom', `${stackTop(el.offsetHeight) + GAP}px`);
 }
 

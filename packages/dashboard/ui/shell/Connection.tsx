@@ -41,13 +41,14 @@ export function OfflineBar() {
         <span className="ct">
           <b className="nw">Can’t reach the dashboard server</b> · <span className="nw">showing what loaded{when}</span> · <span className="nw">actions paused ·</span>
         </span>
-        <span className="cw" id="connWhyText">
-          <span className="cwt">Can’t reach the dashboard server, so this shows what loaded{when}.</span> <span className="cwa">Start it again:</span>
-        </span>
       </span>
       <button className="linkbtn cwhy" type="button" aria-expanded={why} aria-controls="connWhyText" onClick={() => setWhy(!why)}>
         Why
       </button>
+      {/* What Why discloses, next after it as a screen reader moves on: it shows only when asked for. */}
+      <span className="cw" id="connWhyText">
+        <span className="cwt">Can’t reach the dashboard server, so this shows what loaded{when}.</span> <span className="cwa">Start it again:</span>
+      </span>
       <span className="cc">
         <span className="cwith">start it with </span>
         <code>shadowlap dashboard</code>

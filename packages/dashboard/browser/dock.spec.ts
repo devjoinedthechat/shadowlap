@@ -11,9 +11,9 @@ const ID = 'feedfacefeedface';
 const box = async (page: Page, selector: string) => (await page.locator(selector).boundingBox())!;
 
 /** Starts a replay from the run's page, its routes answering for the job. */
-async function startJob(page: Page) {
+async function startJob(page: Page, title = 'Replaying') {
   const run = demoId('ticket');
-  const job = { id: ID, kind: 'action', title: 'Replaying', args: ['replay', run], worktree: null, runId: run, opensRun: true, startedAt: Date.now(), done: false, stopped: false, code: null as number | null, newRunId: null as string | null, lines: [] as string[], total: 0 };
+  const job = { id: ID, kind: 'action', title, args: ['replay', run], worktree: null, runId: run, opensRun: true, startedAt: Date.now(), done: false, stopped: false, code: null as number | null, newRunId: null as string | null, lines: [] as string[], total: 0 };
   const now = { job, started: false };
   await page.route(/\/api\/jobs(\?.*)?$/, (route) => route.fulfill({ json: { jobs: now.started ? [{ ...now.job, lines: undefined }] : [] } }));
   await page.route(/\/api\/runs\/[^/]+\/actions$/, (route) => {
@@ -151,7 +151,7 @@ test.describe('at 1440', () => {
     await expect.poll(async () => Math.round(900 - ((await toast.boundingBox())!.y + (await toast.boundingBox())!.height))).toBe(28 + 14);
   });
 
-  test('undoes with ⌘Z or u, only an Undo, and not from a field', async ({ page }) => {
+  test('undoes a mark with ⌘Z, or u while single keys are on', async ({ page }) => {
     await openPage(page, `/run/${demoId('eval')}`, 'run');
     const good = page.locator('.rhead .runkey button', { hasText: 'good' });
     await good.click();
@@ -168,10 +168,93 @@ test.describe('at 1440', () => {
     await page.keyboard.press('u');
     await expect(good).toHaveAttribute('aria-pressed', 'false');
   });
+
+  test('places a toast over the bulk bar that rides over a docked drawer', async ({ page }) => {
+    await startJob(page);
+    await page.evaluate(() => {
+      location.hash = '#/runs';
+    });
+    await page.locator('input[type="checkbox"][aria-label^="Select "]:not([aria-label^="Select every"])').first().check();
+    await page.locator('.bulkbar').waitFor();
+    await page.locator('section.drawer .btn', { hasText: 'Stop' }).click();
+    const toast = page.locator('.toast');
+    await expect(toast).toContainText('Replaying had ended already');
+    const bar = await box(page, '.bulkbar');
+    const d = await box(page, 'section.drawer');
+    expect(bar.y + bar.height).toBeLessThan(d.y);
+    const t = (await toast.boundingBox())!;
+    expect(Math.round(bar.y - (t.y + t.height))).toBe(14);
+  });
+
+  test('keeps a long notice within the content it is centred on', async ({ page }) => {
+    await startJob(page, `Replaying ${'with a title that goes on and on '.repeat(6).trim()}`);
+    await page.locator('section.drawer .btn', { hasText: 'Stop' }).click();
+    const toast = page.locator('.toast');
+    await expect(toast).toContainText('had ended already');
+    const main = await box(page, 'main#view');
+    const t = (await toast.boundingBox())!;
+    expect(t.x).toBeGreaterThanOrEqual(main.x + 15);
+    expect(t.x + t.width).toBeLessThanOrEqual(main.x + main.width - 15);
+  });
+
+  test('shows the log’s end when a job that ended hidden is shown again', async ({ page }) => {
+    const { end } = await startJob(page);
+    await page.locator('#jx').click();
+    await expect(page.locator('section.drawer')).toBeHidden();
+    end(Array.from({ length: 400 }, (_, i) => `line ${i}`));
+    const chip = page.locator('.status .jobchip');
+    await expect(chip).toHaveClass(/ok/);
+    await chip.click();
+    await expect(page.locator('section.drawer')).toBeVisible();
+    await expect.poll(() => page.locator('#jout').evaluate((el) => Math.round(el.scrollHeight - el.scrollTop - el.clientHeight))).toBeLessThanOrEqual(1);
+  });
+
+  test('downloads the HTML report from Share on a read-only dashboard, every other copy waiting', async ({ page }) => {
+    await page.route(/\/api\/meta(\?.*)?$/, async (route) => {
+      const res = await route.fetch();
+      await route.fulfill({ response: res, json: { ...(await res.json()), readOnly: true } });
+    });
+    await openPage(page, `/run/${demoId('ticket')}`, 'run');
+    const share = page.locator('.rhead .actions button', { hasText: 'Share' });
+    await expect(share).not.toHaveAttribute('aria-disabled', 'true');
+    await share.click();
+    await expect(page.getByRole('menuitem', { name: /^Pack/ })).toHaveAttribute('aria-disabled', 'true');
+    const html = page.getByRole('menuitem', { name: /^HTML report/ });
+    await expect(html).not.toHaveAttribute('aria-disabled', 'true');
+    const download = page.waitForEvent('download');
+    await html.click();
+    expect((await download).suggestedFilename()).toMatch(/\.html$/);
+  });
+});
+
+test.describe('at 1050', () => {
+  test.use({ viewport: { width: 1050, height: 800 } });
+
+  test('lets a long chip give way in the status bar, which keeps its version', async ({ page }) => {
+    await startJob(page, 'Adding normalizer and updating golden');
+    await page.locator('#jx').click();
+    await expect(page.locator('.status .jobchip')).toBeVisible();
+    expect(await page.locator('.status').evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+  });
 });
 
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 } });
+
+  test('places a toast over the bulk bar that rides over a docked drawer', async ({ page }) => {
+    await startJob(page);
+    await page.evaluate(() => {
+      location.hash = '#/runs';
+    });
+    await page.locator('input[type="checkbox"][aria-label^="Select "]:not([aria-label^="Select every"])').first().check();
+    await page.locator('.bulkbar').waitFor();
+    await page.locator('section.drawer .btn', { hasText: 'Stop' }).click();
+    const toast = page.locator('.toast');
+    await expect(toast).toContainText('Replaying had ended already');
+    const bar = await box(page, '.bulkbar');
+    const t = (await toast.boundingBox())!;
+    expect(Math.round(bar.y - (t.y + t.height))).toBe(14);
+  });
 
   test('docks at the window’s foot and hides into a pill the bar keeps room for', async ({ page }) => {
     const { end } = await startJob(page);

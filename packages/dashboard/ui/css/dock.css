@@ -62,15 +62,15 @@ body.docked .view { padding-bottom: var(--dock-h); }
 .drawer .jlinks a { white-space: nowrap; }
 
 /* a job off the screen leads the status bar's right-hand side: what it is doing, or what it did, its dot in the verdict's colour; a click opens it */
-.status .st-job { flex: 0 1 auto; min-width: 0; }
-.status .jobchip { display: inline-flex; align-items: center; gap: 7px; height: 22px; padding: 0 6px; margin: 0 -6px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: inherit; cursor: pointer; }
+.status > span.st-job { flex: 0 1 auto; min-width: 0; display: flex; }
+.status .jobchip { display: inline-flex; align-items: center; gap: 7px; min-width: 0; max-width: 100%; height: 22px; padding: 0 6px; margin: 0 -6px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: inherit; cursor: pointer; }
 .status .jobchip:hover { background: var(--hover); }
 .status .jobchip i { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--cq-muted); }
 .status .jobchip.ok i { background: var(--cq-lime); }
 .status .jobchip.err i { background: var(--cq-red); }
 .status .jobchip.warn i { background: var(--cq-amber); }
 .status .jobchip .spin { flex: none; width: 10px; height: 10px; border-width: 1.5px; }
-.status .jobchip span:not(.spin) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.status .jobchip span:not(.spin) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* below 1000px the status bar ends the page, so the chip stays in view at the window's foot, a pill */
 @media (max-width: 1000px) {
   .status { z-index: auto; }
@@ -93,7 +93,7 @@ body.docked .bulkbar { bottom: calc(44px + var(--dock-h)); }
 }
 
 /* A toast is centred on the content, over the bottom stack (the drawer, the bulk bar), placed by placeToast(); it fades in and out. */
-.toast { pointer-events: none; position: fixed; z-index: 50; left: 50%; bottom: 44px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; width: max-content; max-width: calc(100vw - 32px); padding: 10px 14px; border-radius: var(--r-box); background: var(--ink); color: var(--bg); font-size: 13.5px; box-shadow: 0 18px 40px -16px rgba(0,0,0,.5); animation: toastin .18s ease-out; }
+.toast { pointer-events: none; position: fixed; z-index: 50; left: 50%; bottom: 44px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; width: max-content; max-width: min(var(--toast-room, 100vw), calc(100vw - 32px)); padding: 10px 14px; border-radius: var(--r-box); background: var(--ink); color: var(--bg); font-size: 13.5px; box-shadow: 0 18px 40px -16px rgba(0,0,0,.5); animation: toastin .18s ease-out; }
 @keyframes toastin { from { opacity: 0; } }
 .toast.out { opacity: 0; transition: opacity .16s ease-in; }
 .toast.out .tbtn, .toast.out .tx { pointer-events: none; }
@@ -106,7 +106,7 @@ body.docked .bulkbar { bottom: calc(44px + var(--dock-h)); }
 .toast.stack > span { flex: 1 1 calc(100% - 18px); }
 .toast.stack .tbtn { margin: -2px 0 -6px 10px; }
 /* a refusal or a failure: a red dot, its × to dismiss it, and a long reason kept to a measure */
-.toast.err { max-width: min(560px, calc(100vw - 32px)); align-items: flex-start; line-height: 1.45; }
+.toast.err { max-width: min(560px, var(--toast-room, 100vw), calc(100vw - 32px)); align-items: flex-start; line-height: 1.45; }
 .toast.err i { margin-top: 5px; background: var(--err); }
 .toast .tx { pointer-events: auto; flex: none; width: 24px; height: 24px; margin: -3px -6px -3px 2px; border: 0; border-radius: 7px; background: none; color: inherit; opacity: .7; font: 400 16px/1 var(--body); cursor: pointer; }
 .toast .tx:hover, .toast .tx:focus-visible { opacity: 1; background: color-mix(in srgb, var(--bg) 12%, transparent); outline: none; }
