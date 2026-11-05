@@ -64,12 +64,13 @@ export function normalizeJudged(v: unknown): RunJudged | null {
 }
 
 /**
- * A run's or a row's `judged`, normalized where it has one, and its agent's exit code where a test
- * result kept it: a whole number, or none.
+ * A run's or a row's `judged`, normalized where it has one, its agent's exit code where a test result
+ * kept it, a whole number, or none, and the run that fixed a failed test replay, an id, or none.
  */
-function judgedOf(v: { judged?: unknown; exitCode?: unknown }): { judged?: RunJudged | null; exitCode?: number } {
+function judgedOf(v: { judged?: unknown; exitCode?: unknown; fixedBy?: unknown }): { judged?: RunJudged | null; exitCode?: number; fixedBy?: string } {
   const code = int(v.exitCode);
-  return { ...(v.judged === undefined ? {} : { judged: normalizeJudged(v.judged) }), ...(code !== null ? { exitCode: code } : {}) };
+  const fixedBy = str(v.fixedBy);
+  return { ...(v.judged === undefined ? {} : { judged: normalizeJudged(v.judged) }), ...(code !== null ? { exitCode: code } : {}), ...(fixedBy ? { fixedBy } : {}) };
 }
 
 /**
@@ -81,7 +82,7 @@ function judgedOf(v: { judged?: unknown; exitCode?: unknown }): { judged?: RunJu
 export function normalizeRuns(list: readonly RunListItem[]): RunListItem[] {
   const ids = new Set(list.map((r) => r.runId));
   return list.map((r) => {
-    const { exitCode: _code, ...row } = r;
+    const { exitCode: _code, fixedBy: _fixed, ...row } = r;
     const out: RunListItem = { ...row, ...judgedOf(r) };
     const lost = int(r.lostAt);
     if (!(isObject(r.blame) && int(r.blame.callNo) !== null) && lost !== null) out.blame = { callNo: lost };
@@ -219,7 +220,7 @@ export function normalizeState(v: unknown): RunStateView | null {
 }
 
 export function normalizeRunDetail(d: RunDetail): RunDetail {
-  const { exitCode: _code, ...run } = d;
+  const { exitCode: _code, fixedBy: _fixed, ...run } = d;
   const out: RunDetail = { ...run, actions: normalizeActions(d.actions), ...judgedOf(d) };
   if (d.state !== undefined) out.state = normalizeState(d.state);
   // The attempts deleting it takes with it: a count, or, unsaid, none named.

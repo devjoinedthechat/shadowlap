@@ -80,6 +80,8 @@ export interface RunListExtras {
   judged?: RunJudged | null;
   /** For a test replay its agent's exit failed: the code, as its test result keeps it. */
   exitCode?: number;
+  /** For a failed test replay whose golden passed when it ran again since: the run that passed, which its status names. */
+  fixedBy?: string;
   /** What its page leads with, in the light form a list carries; absent from an exported copy. */
   next?: NextStepRow | null;
 }

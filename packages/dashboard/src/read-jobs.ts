@@ -20,6 +20,7 @@ import { judgedRows, OUTCOME_READS, runJudged, type OutcomeWork } from './run-ou
 import { analyseRun } from './run-page.js';
 import { asksFor, asksOf, warmProgress, warmRunStats } from './run-stats.js';
 import type { RunsPageRow } from './routes/runs-list.js';
+import { fixedByOf } from './runs-filter.js';
 import { listRunsPage, ROW_CALLS_BUDGET, rowsWarming, runsByDay, type RunsByDayOptions, type RunsPageOptions } from './runs-list.js';
 import { searchBehind, searchRecorded, type SearchAnswer } from './search-hits.js';
 import { setupUnderWay } from './store-setup.js';
@@ -242,7 +243,9 @@ const CORE_READS: ReadTable<CoreJob> = {
     const steps = await pageSteps(store, runId, job.next ?? null, { judged, kept: (id) => id === runId && !d.warming });
     // The route tags it by where the run stands (run-version.ts); a long run answered from its
     // first calls is analysed whole beside the server, for the page to ask again.
-    return { ...answer({ ...d, ...(judged === undefined ? {} : { judged }), ...steps }), ...(d.warming ? analyseAfter(runId, outcome) : {}) };
+    // A failed test replay its golden's next replay passed: the run that passed, as the lists name it.
+    const fixedBy = fixedByOf(store, loadRunIndex(store)).get(runId);
+    return { ...answer({ ...d, ...(judged === undefined ? {} : { judged }), ...(fixedBy ? { fixedBy } : {}), ...steps }), ...(d.warming ? analyseAfter(runId, outcome) : {}) };
   },
   calls: (store, job) => {
     const page = runCallsPage(store, job.runId, { from: job.from, limit: job.limit }, job.read, job.whole ? { whole: true } : {});

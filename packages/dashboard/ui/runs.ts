@@ -2,6 +2,7 @@ import { passedWords } from '../../engine/src/checks/labels.js';
 import { isAttempt as isAttemptRun } from '../../engine/src/run-roles.js';
 import { FAILURE_WORDS, lostWords } from '../../engine/src/run-verdicts.js';
 import { filterTerms } from '../src/links.js';
+import { judgedDecides } from '../src/run-verdict.js';
 import type { RunJudged } from '../src/run-outcome.js';
 import { approx, money, num, plural, shortId } from './format.js';
 import { countOrigins, parseOrigins, type Origin7, type OriginCounts } from './origins.js';
@@ -60,6 +61,8 @@ export interface RunLike {
   judged?: JudgedLike | null;
   /** For a test replay whose agent exited with an error: the code, as its test result says it; absent where nothing kept it. */
   exitCode?: number | null;
+  /** For a failed test replay whose golden passed when it ran again since: the run that passed (runs-filter.ts), which its status names. */
+  fixedBy?: string | null;
 }
 
 /**
@@ -350,7 +353,7 @@ export interface RunOutcomeWords {
  * divergence, the checks that judged it, a check that failed or the agent's exit, a check that could
  * not be decided, checks that passed, an interruption, a fork's writes, or nothing.
  */
-export type OutcomeOf = 'live' | 'diverged' | 'judged' | 'check' | 'exit' | 'inconclusive' | 'passed' | 'interrupted' | 'fork' | 'none';
+export type OutcomeOf = 'live' | 'fixed' | 'diverged' | 'judged' | 'check' | 'exit' | 'inconclusive' | 'passed' | 'interrupted' | 'fork' | 'none';
 
 /** How the agent's exit reads in a status: `exited 1` where its code was kept, else as the engine says it. */
 export const exitWords = (r: Pick<RunLike, 'exitCode'>): string => (typeof r.exitCode === 'number' && r.exitCode !== 0 ? `exited ${r.exitCode}` : FAILURE_WORDS.exit.replace(/^the agent /, ''));
@@ -359,24 +362,13 @@ export const exitWords = (r: Pick<RunLike, 'exitCode'>): string => (typeof r.exi
 const atCall = (tone: RunOutcomeWords['tone'], words: string, callNo: number): RunOutcomeWords => ({ tone, text: `${words} #${callNo}`, at: { words, callNo } });
 
 /**
- * Whether the checks that judged a run say how it came out: not while it records or where a test
- * diverged, nor where the agent's exit failed it with no check of its own failing. A run blame found
- * lost failed its own check, which it names; a family's verdict never stands for a run's own failure.
- */
-function judgedDecides(r: RunLike, j: JudgedLike): boolean {
-  const o = r.outcome;
-  if (!o || o.kind === 'none' || o.kind === 'clean' || o.kind === 'passed' || o.kind === 'inconclusive') return true;
-  return j.by === 'own' && j.verdict === 'failed' && (o.kind === 'lost' || (o.kind === 'check-failed' && !!o.check));
-}
-
-/**
  * The status the checks that judged a run give it (`judged`), where they decide it (judgedDecides):
  * `check failed at #6` (`2 checks failed` with more), `inconclusive`, `2 checks passed`, `not
  * applicable`; null without a verdict to say.
  */
 export function judgedOutcome(r: RunLike): RunOutcomeWords | null {
   const j = r.judged;
-  if (!j || !judgedDecides(r, j)) return null;
+  if (!j || !judgedDecides(r.outcome, j)) return null;
   const today = j.today ? { today: true as const } : {};
   if (j.verdict === 'failed') {
     const words = j.counts.failed > 1 ? `${plural(j.counts.failed, 'check')} failed` : 'check failed';
@@ -389,7 +381,8 @@ export function judgedOutcome(r: RunLike): RunOutcomeWords | null {
 
 /**
  * How a run came out, and what decided it, in the words the Runs table's Status and a run's first
- * fact say: in progress; a test replay that diverged, at its call; the verdict of the checks that
+ * fact say: in progress; a failed test replay its golden's next replay passed, muted, by the run that
+ * passed (`fixed by 01K5CQ7A3M`); a test replay that diverged, at its call; the verdict of the checks that
  * judged it (judgedOutcome); a check that failed, or the agent's exit (`exited 1`); a check that
  * could not be decided, `inconclusive`; checks that passed; `interrupted`. A run no check judges says
  * nothing, a dash, a clean replay too (how faithful it was is no verdict), and a fork what came of
@@ -400,6 +393,7 @@ export function outcomeOf(r: RunLike): RunOutcomeWords & { of: OutcomeOf } {
   if (isLive(r)) return { of: 'live', tone: 'live', text: 'in progress' };
   const o = r.outcome;
   if (o?.kind === 'running') return { of: 'live', tone: 'live', text: 'in progress' };
+  if (r.fixedBy) return { of: 'fixed', tone: 'mu', text: `fixed by ${shortId(r.fixedBy)}` };
   const diverged = o ? (o.kind === 'diverged' && typeof o.callNo === 'number' ? o.callNo : null) : r.test && r.divergence ? r.divergence.callNo : null;
   if (diverged !== null) return { of: 'diverged', ...atCall('err', 'diverged at', diverged) };
   const judged = judgedOutcome(r);

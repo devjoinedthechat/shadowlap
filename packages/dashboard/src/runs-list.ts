@@ -6,6 +6,7 @@ import { aboutsOf, aboutsWithin, knownAbouts } from './run-about.js';
 import { classifiable, depthOf, fixedOutcome, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
 import type { NextStepRow } from './next-step.js';
 import type { RunJudged } from './run-outcome.js';
+import { fixedByOf, listFailed } from './runs-filter.js';
 import { callTotals, callTotalsWithin, knownSpent, priced, spentOf, totalsKnown, type StatsOptions } from './run-stats.js';
 
 /**
@@ -78,7 +79,10 @@ export interface RunRow extends RunListItem {
   /** The fork blame rescued a run with: the run it rescued. */
   rescues: string | null;
   outcome: RunOutcome;
+  /** It counts as failed in the lists (runs-filter.ts `listFailed`): Failed, the days' failures and Status read the same. */
   failed: boolean;
+  /** For a failed test replay whose golden passed when it ran again since: the run that passed, which Status names. */
+  fixedBy?: string;
   /** One character per call: r replayed, l live, o overridden, i injected, f failed, b blocked, s stubbed. */
   origins: string;
   /** Attempts bundled under this run, those bundled under them in turn included: what deleting it takes with it. */
@@ -139,9 +143,13 @@ interface Matcher {
   scope: (r: IndexedRun) => boolean;
   /** The chips' kinds, Local and the filter field, without Failed: what failures are counted out of. */
   base: (r: IndexedRun) => boolean;
+  /** Counted as failed (runs-filter.ts `listFailed`): what Failed narrows to. */
+  failed: (r: IndexedRun) => boolean;
   /** Everything the filter asks for. */
   matches: (r: IndexedRun) => boolean;
 }
+
+const NOT_FIXED: ReadonlyMap<string, string> = new Map();
 
 /** The filter field's words and its `label:<name>` terms (links.ts, which the page reads them with too). */
 export { filterTerms };
@@ -164,7 +172,7 @@ function aboutTexts(store: Store, index: RunIndex, runs: readonly IndexedRun[], 
   return { text: (r) => abouts.get(r.runId)?.text ?? '', pending: pending.size, of: abouts.size + pending.size };
 }
 
-function matcher(filter: RunFilter, aboutText: (r: IndexedRun) => string = () => ''): Matcher {
+function matcher(filter: RunFilter, aboutText: (r: IndexedRun) => string = () => '', fixed: ReadonlyMap<string, string> = NOT_FIXED): Matcher {
   const types = filter.types ?? [];
   const kinds = new Set(types.flatMap((t) => (t === 'failed' || t === 'local' ? [] : TYPE_KINDS[t])));
   const failedOnly = types.includes('failed');
@@ -182,7 +190,8 @@ function matcher(filter: RunFilter, aboutText: (r: IndexedRun) => string = () =>
   const scope = (r: IndexedRun) => (filter.includeAttempts || !r.bundled) && (filter.from == null || r.startedAt >= filter.from) && (filter.to == null || r.startedAt < filter.to);
   // Local narrows what failures are counted out of, as a kind does: the calendar's "8 of 12 local runs".
   const base = (r: IndexedRun) => scope(r) && (!kinds.size || kinds.has(r.kind)) && (!localOnly || !!local?.has(r.runId)) && text(r);
-  return { scope, base, matches: (r) => base(r) && (!failedOnly || r.failed) };
+  const failed = (r: IndexedRun) => listFailed(r, fixed);
+  return { scope, base, failed, matches: (r) => base(r) && (!failedOnly || failed(r)) };
 }
 
 /** Every run the filter matches, newest first, as the table lists them. */
@@ -190,7 +199,7 @@ export function matchingRuns(store: Store, filter: RunFilter): IndexedRun[] {
   const index = loadRunIndex(store);
   const all = withLiveness(store, index);
   const scoped = all.filter(matcher(filter).scope);
-  return all.filter(matcher(filter, aboutTexts(store, index, scoped, filter).text).matches);
+  return all.filter(matcher(filter, aboutTexts(store, index, scoped, filter).text, fixedByOf(store, index)).matches);
 }
 
 /**
@@ -264,12 +273,12 @@ export function runStates(store: StoreOf<'recording' | 'readModels'>): (runId: s
   };
 }
 
-export function chipCounts(runs: Iterable<IndexedRun>, inScope: (r: IndexedRun) => boolean, localRuns: ReadonlySet<string> | null = null): ChipCounts {
+export function chipCounts(runs: Iterable<IndexedRun>, inScope: (r: IndexedRun) => boolean, localRuns: ReadonlySet<string> | null = null, failed: (r: IndexedRun) => boolean = (r) => r.failed): ChipCounts {
   const c: ChipCounts = { all: 0, recording: 0, fork: 0, clean: 0, test: 0, capture: 0, failed: 0, local: 0 };
   for (const r of runs) {
     if (!inScope(r)) continue;
     c.all++;
-    if (r.failed) c.failed++;
+    if (failed(r)) c.failed++;
     if (localRuns?.has(r.runId)) c.local++;
     for (const t of ['recording', 'fork', 'clean', 'test', 'capture'] as const) if (TYPE_KINDS[t].includes(r.kind)) c[t]++;
   }
@@ -313,7 +322,7 @@ export function listRunsPage(store: Store, options: RunsPageOptions = {}): RunsP
   const sort = options.sort ?? 'when';
   const limit = Math.max(1, Math.min(500, Math.floor(options.limit ?? 50) || 50));
   const texts = aboutTexts(store, index, all.filter(matcher(options).scope), options);
-  const m = matcher(options, texts.text);
+  const m = matcher(options, texts.text, fixedByOf(store, index));
   const matching = all.filter(m.matches);
   // By spent, from what is known: the runs whose totals aren't, the warm-up works out meanwhile.
   const finished = sort === 'spent' ? matching.filter((r) => r.status !== 'running') : [];
@@ -342,7 +351,7 @@ export function listRunsPage(store: Store, options: RunsPageOptions = {}): RunsP
     runs: listed,
     total: matching.length,
     next: last && start + limit < keyed.length ? encodeCursor(last.k) : null,
-    chipCounts: chipCounts(all, m.scope, options.localRuns ?? null),
+    chipCounts: chipCounts(all, m.scope, options.localRuns ?? null, m.failed),
     ...(warming ? { warming } : {}),
   };
 }
@@ -359,6 +368,7 @@ export function rows(store: Store, index: RunIndex, runs: readonly IndexedRun[],
   const { totals, later } = options.known ? callTotalsWithin(store, index, [...runs].sort((a, b) => b.startedAt - a.startedAt), { budget: ROW_CALLS_BUDGET }) : { totals: callTotals(store, index, runs), later: [] };
   const waiting = new Set(later.map((r) => r.runId));
   const abouts = options.known ? aboutsWithin(store, index, runs, { budget: ROW_CALLS_BUDGET, quick: waiting }) : aboutsOf(store, index, runs);
+  const fixed = fixedByOf(store, index);
   return runs.map((r) => {
     const t = totals.get(r.runId);
     const s = t ? priced(t, options.prices) : null;
@@ -390,7 +400,8 @@ export function rows(store: Store, index: RunIndex, runs: readonly IndexedRun[],
       attemptKind: r.attemptKind,
       rescues: r.rescues,
       outcome: r.outcome,
-      failed: r.failed,
+      failed: listFailed(r, fixed),
+      ...(fixed.has(r.runId) ? { fixedBy: fixed.get(r.runId)! } : {}),
       origins: t?.codes ?? '',
       attempts: bundleOf(index, r.runId).length,
       lostAt: lostAt(c),
@@ -530,13 +541,13 @@ export function runsByDay(store: Store, options: RunsByDayOptions = {}): RunsByD
   const index = loadRunIndex(store);
   const all = withLiveness(store, index);
   const texts = aboutTexts(store, index, all.filter(matcher(options).scope), options);
-  const m = matcher(options, texts.text);
+  const m = matcher(options, texts.text, fixedByOf(store, index));
   for (const r of all) {
     const i = dayIndex(days, r.startedAt);
     if (i < 0 || !m.base(r)) continue;
     const d = out[i]!;
     d.all++;
-    if (r.failed) d.failed++;
+    if (m.failed(r)) d.failed++;
     if (!m.matches(r)) continue;
     d.runs++;
     d.byKind[r.kind] = (d.byKind[r.kind] ?? 0) + 1;

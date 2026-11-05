@@ -191,6 +191,8 @@ export interface RunDetail extends RunPageFacts {
   judged?: RunJudged | null;
   /** For a test replay its agent's exit failed: the code, as its test result keeps it (run-outcome.ts `exitCodes`). */
   exitCode?: number;
+  /** For a failed test replay whose golden passed when it ran again since: the run that passed, which its status names (runs-filter.ts `fixedByOf`). */
+  fixedBy?: string;
   /**
    * Its next step, what its header's lime button leads with (next-step.ts), with what it bills; a long
    * run's first answer leaves that out, until its calls are read. An exported copy holds only a
