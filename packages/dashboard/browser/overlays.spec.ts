@@ -24,10 +24,14 @@ const twoProjects = (page: Page) =>
     // The whole list each time, never a 304 of the one before it.
     const headers = { ...route.request().headers() };
     delete headers['if-none-match'];
-    const res = await route.fetch({ headers });
-    const view = (await res.json()) as { items: Array<Record<string, unknown>> };
-    const first = { ...view.items[0], removable: true };
-    await route.fulfill({ response: res, json: { ...view, items: [first, { ...first, id: 'research', name: 'research', current: false, detail: 'setting up' }] } });
+    try {
+      const res = await route.fetch({ headers });
+      const view = (await res.json()) as { items: Array<Record<string, unknown>> };
+      const first = { ...view.items[0], removable: true };
+      await route.fulfill({ response: res, json: { ...view, items: [first, { ...first, id: 'research', name: 'research', current: false, detail: 'setting up' }] } });
+    } catch {
+      // The test ended with the request in flight: the switcher loads its list again as it opens.
+    }
   });
 
 /** How far a project row's × is from the middle of its row, by the glyph itself. */
