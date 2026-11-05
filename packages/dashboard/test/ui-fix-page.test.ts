@@ -31,10 +31,13 @@ afterEach(async () => {
   store.close();
 });
 
-/** The app as the shell gives it, its server answering from the store; `inTree` stands for git saying a patch is in the working tree. */
-function app(o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?: string } = {}): AppState {
+/**
+ * The app as the shell gives it, its server answering from the store; `inTree` stands for git saying
+ * a patch is in the working tree, `held` for what the project's goldens folder holds.
+ */
+function app(o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?: string; held?: string[] } = {}): AppState {
   const client = {
-    fix: (id: string) => Promise.resolve(fixDetail(store, id, { ...(o.inTree ? { patchInTree: () => true } : {}), ...(o.problem ? { checkRepairer: () => o.problem! } : {}) })),
+    fix: (id: string) => Promise.resolve(fixDetail(store, id, { ...(o.inTree ? { patchInTree: () => true } : {}), ...(o.problem ? { checkRepairer: () => o.problem! } : {}), ...(o.held ? { goldensHeld: () => o.held! } : {}) })),
     fixes: () => Promise.resolve(fixList(store)),
     attemptGroups: (id: string) => Promise.resolve(fixAttemptGroups(store, id)),
     jobs: () => Promise.resolve([]),
@@ -59,7 +62,7 @@ function app(o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?
 }
 
 /** The fix's page, opened at a step, once it has loaded. */
-async function open(fixId: string, step: string | null = null, sub: string | null = null, o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?: string } = {}): Promise<Rendered> {
+async function open(fixId: string, step: string | null = null, sub: string | null = null, o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?: string; held?: string[] } = {}): Promise<Rendered> {
   r = await render(createElement(AppContext.Provider, { value: app(o) }, createElement(FixPage, { id: fixId, step, sub })));
   await r.until('the fix to load', () => r!.all('h1').length === 1);
   return r;
@@ -289,6 +292,43 @@ describe('Apply fix', () => {
     // Its dialog asks with its name, as one that changes your working tree, and confirms with it.
     await r!.click(r!.byText('.ph .actions button', 'Apply fix'));
     expect([text(r!.one('.dialog h3')), text(r!.one('.dialog .dlg-ok'))]).toEqual(['Apply fix?', 'Apply fix']);
+  });
+
+  it('asks a name for each golden it copies, checks it as it is typed, and sends it with the job', async () => {
+    const started: Array<[string, unknown]> = [];
+    const fixId = verified();
+    const run = fixDetail(store, fixId)!.actions.apply!.names[0]!.run;
+    await open(fixId, null, null, { started, held: ['refund-in-limit'] });
+    await r!.click(r!.byText('.ph .actions button', 'Apply fix'));
+    const field = () => r!.one('.dialog .gnames input');
+    const said = () => r!.all('.dialog .fieldnote.err').map(text);
+    const ok = () => r!.one('.dialog .dlg-ok');
+    const command = () => text(r!.one('.dialog .cmdline'));
+    const copied = () => text(r!.all('.dialog .ondisk.steps li small')[1]!);
+    // Under the patch, prefilled from the fix's label, never the run's id; its command and its step follow it.
+    expect(text(r!.one('.dialog .gnames label'))).toBe(`The golden from ${run}goldens/`);
+    expect([field().value, field().getAttribute('aria-label')]).toEqual(['refund-bug', `Name of the golden from ${run}`]);
+    expect(command()).toContain(`shadowlap fix apply ${fixId.slice(0, 13)} --name ${run}=refund-bug`);
+    expect(copied()).toBe('goldens/refund-bug');
+    expect([said(), ok().disabled]).toEqual([[], false]);
+    // Each name that won't do says why under the field, and Apply fix waits until it will.
+    for (const [typed, why] of [
+      ['Refund Bug', 'A golden’s name takes lower-case letters, digits and hyphens.'],
+      ['', 'Give the golden a name.'],
+      ['refund-in-limit', 'goldens/refund-in-limit is taken: pick another name.'],
+    ]) {
+      await r!.type(field(), typed!);
+      expect([said(), ok().disabled, field().getAttribute('aria-invalid')]).toEqual([[why], true, 'true']);
+      expect(field().getAttribute('aria-describedby')).toBe(r!.one('.dialog .fieldnote.err').getAttribute('id'));
+    }
+    await r!.type(field(), '');
+    expect(command()).toContain(`--name ${run}=<name>`);
+    expect(copied()).toBe('goldens/<name>');
+    await r!.type(field(), ' refund-over-limit ');
+    expect([said(), ok().disabled, field().getAttribute('aria-invalid')]).toEqual([[], false, null]);
+    expect(command()).toContain(`--name ${run}=refund-over-limit`);
+    await r!.click(ok());
+    expect(started).toEqual([['apply', { fixId, names: { [run]: 'refund-over-limit' } }]]);
   });
 
   it('offers the patch to read on an applied fix, never a git apply that would fail', async () => {

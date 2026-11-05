@@ -103,6 +103,15 @@
 .dialog .ondisk.steps + .fxpatch { margin-top: 12px; }
 @media (max-width: 640px) { .dialog .rmp .pn small.gpath { display: none; } }
 .form.one label + label { margin-top: 10px; }
+/* Apply fix names each golden it copies: goldens/ before the name, as the path it becomes; the field's edge is its frame's */
+.dialog .gnames { margin: 14px 0 0; }
+.dialog .gnames label code { font-size: 11px; color: var(--dim); }
+.gnin { display: flex; align-items: center; border-radius: var(--r-control); border: 1px solid var(--field); background: var(--panel); }
+.gnin:focus-within { border-color: var(--accent-line); }
+.gnin:has(input[aria-invalid="true"]) { border-color: var(--err); }
+.gnin > span { padding-left: 10px; font: 12.5px var(--mono); color: var(--faint); }
+.form .gnin input { flex: 1; min-width: 0; height: 32px; border: 0; background: none; padding: 0 10px 0 0; }
+.dialog .gnames + .fieldnote { margin: 8px 0 0; }
 .dialog .ondisk.steps li i { color: var(--faint); }
 .dialog .ondisk.steps li > span { color: var(--ink); }
 .dialog .ondisk.steps li small { max-width: 220px; font-size: 12.5px; color: var(--faint); text-align: right; }

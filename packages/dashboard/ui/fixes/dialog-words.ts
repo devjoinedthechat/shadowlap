@@ -25,16 +25,17 @@ export const PULLED_LINE = 'It came from the team store, so nothing here runs it
 
 /**
  * Apply fix's steps, in the order they change the working tree: every file the patch changes, the
- * recordings the fixed code made, and the replays after them. A teammate's patch, from the team
+ * recordings the fixed code made, under the names its fields give them (`to`, the one golden's path
+ * or each as named below, as typed), and the replays after them. A teammate's patch, from the team
  * store, runs nothing here: the patch alone.
  */
-export function applySteps(apply: Pick<NonNullable<FixDetail['actions']['apply']>, 'files' | 'pulled' | 'goldens'>): Array<{ what: string; where: string }> {
+export function applySteps(apply: Pick<NonNullable<FixDetail['actions']['apply']>, 'files' | 'pulled' | 'goldens'>, to: string | null = null): Array<{ what: string; where: string }> {
   const files = apply.files;
   const named = !files.length ? 'your files' : files.length === 1 ? files[0]! : `${files.slice(0, -1).join(', ')} and ${files.at(-1)!}`;
   const patch = { what: 'Patch applied', where: `${named}, with git apply` };
   if (apply.pulled) return [patch];
   const copied = apply.goldens === 1 ? 'Recording copied' : apply.goldens ? `${apply.goldens} recordings copied` : 'Recordings copied';
-  return [patch, { what: copied, where: 'into goldens/' }, { what: apply.goldens === 1 ? 'Golden replayed' : 'Goldens replayed', where: 'shadowlap test, offline' }, { what: 'Other goldens replayed', where: 'any that diverge are named' }];
+  return [patch, { what: copied, where: to ?? 'into goldens/' }, { what: apply.goldens === 1 ? 'Golden replayed' : 'Goldens replayed', where: 'shadowlap test, offline' }, { what: 'Other goldens replayed', where: 'any that diverge are named' }];
 }
 
 /** The good runs a repair must keep passing, as its command line gives them (`--keeps a b`), a run by its short id. */
