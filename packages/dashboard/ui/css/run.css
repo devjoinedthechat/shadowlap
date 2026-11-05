@@ -363,7 +363,11 @@ table.calls .det.err { color: var(--err); }
 .rawsse .ev { color: var(--ink); }
 .kvs.hdrs dt { font-family: var(--mono); font-size: 11.5px; }
 
-@media (min-width: 1001px) { .rhead .actions { flex-wrap: nowrap; flex: none; } }
+/* Beside a run's id its buttons hold one row, and wrap rather than reach the id's column. */
+@media (min-width: 1001px) {
+  .rhead .rmain { flex: 1 1 0; min-width: 240px; }
+  .rhead .actions { flex: 0 1 auto; flex-wrap: wrap; }
+}
 
 /* scopes */
 .scopebar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 24px; border-bottom: 1px solid var(--line); }
