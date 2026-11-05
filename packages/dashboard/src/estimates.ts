@@ -3,6 +3,7 @@ import {
   bisectEstimate,
   blameEstimate,
   buildActions,
+  decisionRunCost,
   DEFAULT_REPAIRER,
   fixRecords,
   fixRunArgs,
@@ -12,6 +13,8 @@ import {
   moreEstimate,
   noFixReason,
   plantEstimate,
+  recordedChecks,
+  recordedRole,
   REPEAT_TIMES,
   repairEstimate,
   repairerProblem,
@@ -40,6 +43,7 @@ import {
   type TestResult,
 } from '@shadowlap/engine';
 import { lookupRun, noSuchRun } from './api.js';
+import { decisionSession, runsToVerify, sessionReport } from './decisions.js';
 import { nextBlameRule } from './fix-blame-step.js';
 import { sprtGate } from './fix-shared.js';
 import { fixDetail } from './fixes.js';
@@ -47,6 +51,7 @@ import { attemptSpends, blamePrice, goldenBisectEstimate, judgeOnly, updatePrice
 import { estimateOf, pricingOf, type Pricing } from './pricing.js';
 import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { loadRunIndex, type RunIndex } from './run-index.js';
+import { parseWork, type OutcomeWork } from './run-outcome.js';
 import { liveReasons, sessionLiveGoldens, type LiveReason } from './tests-live.js';
 import { gateResultView, normalizeAndTestJob, runTestsJob, unreadable, type GoldenSource } from './tests.js';
 
@@ -81,7 +86,7 @@ export type TestsEstimatesJob = { kind: 'tests-estimates'; goldens: GoldenSource
 export type BisectEstimateJob = { kind: 'bisect-estimate'; commits: number; target: { golden: GoldenSource } | { runId: string; fork: boolean }; prices?: Record<string, Price> };
 
 /** The config's `verify`, as a repair's candidates and Run more attempts are verified: the most pairs a good run takes, and what it is kept against. */
-export interface FixVerifyRule {
+export interface ConfigVerifyRule {
   keptMax: number | null;
   baseline: 'paired' | 'history';
 }
@@ -92,9 +97,16 @@ export interface FixVerifyRule {
  * first), and each Verify step's Run more attempts or Verify again. The repairer
  * shadowlap.config.json names, and its `verify` (`rule`), are read on the server's thread.
  */
-export type FixEstimatesJob = { kind: 'fix-estimates'; fixId: string; repairer: string | null; rule: FixVerifyRule; model: string | null; prices?: Record<string, Price> };
+export type FixEstimatesJob = { kind: 'fix-estimates'; fixId: string; repairer: string | null; rule: ConfigVerifyRule; model: string | null; prices?: Record<string, Price> };
 
-export type EstimateJob = RunEstimatesJob | FixEstimatesJob | TestsEstimatesJob | BisectEstimateJob;
+/**
+ * A kept preview's Verify (`GET /api/decisions/:id/estimates`): the runs it could not clear, or the
+ * one `runId` names, as `decisions --verify` takes them. `work` is the config's tests, as the
+ * outcome's reads take it, which give each run's checks; `rule` the config's `verify`.
+ */
+export type DecisionEstimatesJob = { kind: 'decision-estimates'; sessionId: string; runId: string | null; work: OutcomeWork | null; rule: ConfigVerifyRule; prices?: Record<string, Price> };
+
+export type EstimateJob = RunEstimatesJob | FixEstimatesJob | TestsEstimatesJob | BisectEstimateJob | DecisionEstimatesJob;
 
 /** A run's answer: Run blame's estimate, and each row's by its key. */
 export interface RunEstimates {
@@ -298,9 +310,38 @@ async function bisectEstimates(store: Store, job: BisectEstimateJob): Promise<Re
   return answer({ estimate: await estimateOf(price, pricingOf(store, job.prices)) }, { tagged: true });
 }
 
+/** A kept preview's: what its Verify bills, null when it leaves nothing to verify there, or a run it names is gone. */
+export interface DecisionEstimates {
+  verify: Estimate | null;
+}
+
+/**
+ * What `decisions --verify` bills on a kept session, as it runs: each run in the role its recording
+ * plays under its checks (a golden's from the config, else those of the recording it comes from),
+ * priced at what a run costs under the change (decisionRunCost), up to verify's own gate and the
+ * config's `verify`. Live from the first model call for a switch; where a replay forks for the
+ * prompt and tools in the working tree, which verify replays from the code.
+ */
+async function decisionEstimates(store: Store, job: DecisionEstimatesJob): Promise<ReadAnswer> {
+  const session = decisionSession(store, job.sessionId);
+  if (!session) return failed(404, `no session ${job.sessionId.slice(0, 40)}`);
+  const report = sessionReport(session);
+  const ids = runsToVerify(session, job.runId ?? undefined);
+  const picked = (Array.isArray(ids) ? ids : []).map((id) => ({ row: report.runs?.find((r) => r.runId === id), run: store.getRun(id) }));
+  if (!picked.length || picked.some((p) => !p.row || !p.run)) return answer({ verify: null } satisfies DecisionEstimates, { tagged: true });
+  const entries = parseWork(job.work)?.entries ?? [];
+  const price = () =>
+    verifyEstimate(
+      picked.map(({ row, run }) => decisionRunCost(row!, recordedRole(store, run!, recordedChecks(entries, store, run!, job.work?.dir ?? process.cwd(), row!.golden)?.spec ?? null, job.prices) === 'target')),
+      { rule: job.rule, live: report.change?.fromCode ? 'fork' : 'first', writes: 'stub' },
+    );
+  return answer({ verify: await estimateOf(price, pricingOf(store, job.prices)) } satisfies DecisionEstimates, { tagged: true });
+}
+
 export const ESTIMATE_READS: ReadTable<EstimateJob> = {
   'run-estimates': (store, job) => runEstimates(store, job),
   'fix-estimates': (store, job) => fixEstimates(store, job),
   'tests-estimates': (store, job) => testsEstimates(store, job),
   'bisect-estimate': (store, job) => bisectEstimates(store, job),
+  'decision-estimates': (store, job) => decisionEstimates(store, job),
 };

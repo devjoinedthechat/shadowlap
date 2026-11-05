@@ -1,5 +1,6 @@
 import { lookupRun, noSuchRun } from '../api.js';
 import type { RouteContext } from '../context.js';
+import type { ConfigVerifyRule } from '../estimates.js';
 import { HttpError } from '../http.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
@@ -14,6 +15,16 @@ export function modelParam(raw: string | null): string | null {
   const model = raw?.trim() || null;
   if (model !== null && !MODEL.test(model)) throw new HttpError(400, 'model is a model’s name, such as claude-opus-5-5');
   return model;
+}
+
+/** The config's `verify`, as every verify a job runs reads it (a repair's candidates, Run more attempts, a kept preview's Verify); a config that can't be read gives the CLI's defaults. */
+export function verifyRule(ctx: RouteContext): ConfigVerifyRule {
+  try {
+    const v = ctx.options.loadConfig ? ctx.config().verify : undefined;
+    return { keptMax: v?.max ?? null, baseline: v?.baseline ?? 'paired' };
+  } catch {
+    return { keptMax: null, baseline: 'paired' };
+  }
 }
 
 /** A call's number from the query string, 1 or more; null when absent. */

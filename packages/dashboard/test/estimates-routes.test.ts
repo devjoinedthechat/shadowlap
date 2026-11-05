@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -7,6 +7,7 @@ import {
   bisectCommits,
   blameEstimate,
   decideVerify,
+  decisionRunCost,
   DEFAULT_REPAIRER,
   fixRecords,
   fixRunArgs,
@@ -30,6 +31,7 @@ import {
   verifyMoreEstimate,
   verifyRunCosts,
   type BlameReport,
+  type DecisionRun,
   type RunMeta,
   type SprtGate,
   type TestResultData,
@@ -37,7 +39,7 @@ import {
 import { blameReport, EXPECT, makeRun, ORACLE, verifyReport } from '../../engine/test/fix-fixtures.js';
 import type { ProjectConfig } from '../src/context.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
-import type { FixEstimates, FixVerifyRule, RunEstimates, TestsEstimates } from '../src/estimates.js';
+import type { ConfigVerifyRule, DecisionEstimates, FixEstimates, RunEstimates, TestsEstimates } from '../src/estimates.js';
 import { fixDetail } from '../src/fixes.js';
 import { pricingOf } from '../src/pricing.js';
 import type { GoldenSource } from '../src/tests.js';
@@ -94,7 +96,7 @@ afterAll(async () => {
 
 describe('the estimates’ routes', () => {
   it('answer only with the session token', async () => {
-    for (const path of ['runs/01ZZZZZZZZZZZZZZZZZZZZZZZZ/estimates', 'fixes/fx-nosuchfix/estimates', 'tests/estimates', 'estimates/bisect?golden=goldens/one']) expect((await fetch(`${dash.url}/api/${path}`)).status, path).toBe(401);
+    for (const path of ['runs/01ZZZZZZZZZZZZZZZZZZZZZZZZ/estimates', 'fixes/fx-nosuchfix/estimates', 'tests/estimates', 'estimates/bisect?golden=goldens/one', 'decisions/dc-01ZZZZZZZZZZZZZZZZZZZZZZZZ/estimates']) expect((await fetch(`${dash.url}/api/${path}`)).status, path).toBe(401);
   });
 });
 
@@ -371,7 +373,7 @@ describe('a fix’s estimates', () => {
     const fixId = blame(failing, blameReport(failing));
     // The good runs its command keeps passing, as the repair selects them.
     const keeps = selectedRuns(store, ['--keeps', ...fixRunArgs(store, fixRecords(store, resolveFix(store, fixId)!))!.keeps]).map((r) => ({ calls: priced(r.runId) }));
-    const plan = (rule: FixVerifyRule) => plain(repairEstimate({ failing: [{ runId: failing, startedAt: store.getRun(failing)!.startedAt, calls: priced(failing), blame: null }], good: keeps, scope: null, rule, repairer: DEFAULT_REPAIRER, noFix: null, last: null }));
+    const plan = (rule: ConfigVerifyRule) => plain(repairEstimate({ failing: [{ runId: failing, startedAt: store.getRun(failing)!.startedAt, calls: priced(failing), blame: null }], good: keeps, scope: null, rule, repairer: DEFAULT_REPAIRER, noFix: null, last: null }));
     config = { ...NO_CONFIG, verify: { max: 40, baseline: 'history' } };
     try {
       const est = await get<FixEstimates>(`fixes/${fixId}/estimates`);
@@ -383,5 +385,54 @@ describe('a fix’s estimates', () => {
     } finally {
       config = NO_CONFIG;
     }
+  });
+});
+
+describe('a kept preview’s Verify', () => {
+  const RULE: ConfigVerifyRule = { keptMax: null, baseline: 'paired' };
+  /** A run of a session, as decisions keeps it: what it costs as recorded and under the change. */
+  const decided = (runId: string, golden: string | null, before: number | null, after: number | null) =>
+    ({ runId, golden, steps: 2, asked: 2, rank: 1, majority: 1, counts: {}, cost: { before, after, spent: 0.001 }, tokens: {}, thinkingStripped: 0, refused: null, decisions: [], warnings: [] }) as unknown as DecisionRun;
+  /** A session of `rows`, whose report leaves `toVerify` to verify of the runs it `flagged`. */
+  function session(id: string, rows: DecisionRun[], o: { toVerify?: string[]; flagged?: string[]; fromCode?: boolean } = {}): void {
+    const change = { model: o.fromCode ? null : 'claude-haiku-4-5', fields: {}, from: null, fromCode: o.fromCode ? { calls: 1, instructions: null, tools: { added: [], removed: [], changed: [] }, codeVersion: null } : null, text: 'the model claude-haiku-4-5' };
+    const flagged = o.flagged ?? rows.map((r) => r.runId);
+    const data = { change, flagged, ...(o.toVerify ? { toVerify: o.toVerify } : {}), verify: null };
+    store.putDecisionSession({ sessionId: id, kind: 'decisions', at: T0, change: change.text, actor: null, revision: null, data, runs: rows.map((r) => ({ runId: r.runId, golden: r.golden, rank: 1, changed: 1, data: r as unknown as Record<string, unknown> })) });
+  }
+
+  it('verifies each run it couldn’t clear in the role its recording plays under its checks, at what it costs under the change', async () => {
+    // A golden that exits 0 but fails its tests entry as recorded, a run that passes (it has no checks), one that exited 1, and one
+    // the preview flagged but cleared.
+    const checked = makeRun(store, { status: 'completed', calls: ['api', 'tool'] });
+    const passing = makeRun(store, { status: 'completed', calls: ['api'], meta: { imported: { from: 'goldens/unlisted' } } });
+    const broken = makeRun(store, { status: 'failed', calls: ['api'] });
+    const cleared = makeRun(store, { status: 'completed', calls: ['api'] });
+    const rows = [decided(checked, 'goldens/refund', 0.004, 0.002), decided(passing, null, 0.004, 0.002), decided(broken, null, 0.004, 0.003), decided(cleared, null, 0.004, 0.002)];
+    session('dc-01M5000000000000000000000V', rows, { toVerify: [checked, passing, broken] });
+    const expected = (picked: Array<[DecisionRun, boolean]>, live: 'first' | 'fork' = 'first') => plain(verifyEstimate(picked.map(([r, failed]) => decisionRunCost(r, failed)), { rule: RULE, live, writes: 'stub' }));
+    const configFile = join(dir, 'shadowlap.config.json');
+    writeFileSync(configFile, JSON.stringify({ tests: { 'goldens/refund': { expect: { tools: { lookup_order: { count: 0 } } } } } }));
+    try {
+      const all = await get<DecisionEstimates>('decisions/dc-01M5000000000000000000000V/estimates');
+      expect(all.verify).toEqual(expected([[rows[0], true], [rows[1], false], [rows[2], true]]));
+      expect(all.verify!.parts).toEqual(['up to 80 attempts a failing run, 200 pairs a good one', 'live from the first model call, writes stubbed']);
+      // One run, named by a prefix; one the preview cleared has nothing to verify.
+      expect((await get<DecisionEstimates>(`decisions/dc-01M5000000000000000000000V/estimates?runId=${passing.slice(0, 22)}`)).verify).toEqual(expected([[rows[1], false]]));
+      expect((await get<DecisionEstimates>(`decisions/dc-01M5000000000000000000000V/estimates?runId=${cleared}`)).verify).toBeNull();
+    } finally {
+      rmSync(configFile, { force: true });
+    }
+    // With no entry for it, the golden passes as recorded, so it must keep passing.
+    expect((await get<DecisionEstimates>(`decisions/dc-01M5000000000000000000000V/estimates?runId=${checked}`)).verify).toEqual(expected([[rows[0], false]]));
+    // A session kept before it said which runs it couldn't clear verifies those it flagged; one from the code forks where a request differs.
+    session('dc-01M5000000000000000000000W', rows.slice(1, 3), { fromCode: true });
+    expect((await get<DecisionEstimates>('decisions/dc-01M5000000000000000000000W/estimates')).verify).toEqual(expected([[rows[1], false], [rows[2], true]], 'fork'));
+    // A run with no price under the change has none; a session cleared of every run, or one that isn't there, has nothing to verify.
+    session('dc-01M5000000000000000000000X', [decided(passing, null, 0.004, null)]);
+    expect((await get<DecisionEstimates>('decisions/dc-01M5000000000000000000000X/estimates')).verify).toMatchObject({ usd: null, parts: ['up to 200 pairs a run against its baseline', 'live from the first model call, writes stubbed', 'a model of the run has no price'] });
+    session('dc-01M5000000000000000000000Y', rows.slice(3), { flagged: [] });
+    expect((await get<DecisionEstimates>('decisions/dc-01M5000000000000000000000Y/estimates')).verify).toBeNull();
+    expect((await api('decisions/dc-01M5000000000000000000000Z/estimates')).status).toBe(404);
   });
 });

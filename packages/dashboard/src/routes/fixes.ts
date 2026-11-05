@@ -8,12 +8,11 @@ import { patchesInTree, rewritesHere } from '../patch-in-tree.js';
 import { storePrStates } from '../pr-state.js';
 import { captureExpect } from '../next-step.js';
 import { sendAnswer } from '../read-pool.js';
-import type { FixVerifyRule } from '../estimates.js';
 import type { ReadAnswer } from '../read-jobs.js';
 import { recordingNow } from '../run-exports.js';
 import type { Router } from '../router.js';
 import { loadRunIndex } from '../run-index.js';
-import { MODEL, modelParam } from './estimates.js';
+import { MODEL, modelParam, verifyRule } from './estimates.js';
 
 /**
  * Fixes: the list (`GET /api/fixes`), a fix with its three steps (`GET /api/fixes/:id`), what its
@@ -61,16 +60,6 @@ function configuredRepairer(ctx: RouteContext): string | null {
     return ctx.config().repair?.repairer ?? null;
   } catch {
     return null;
-  }
-}
-
-/** The config's `verify`, as a repair's candidates and Run more attempts are verified; a config that can't be read gives the CLI's defaults. */
-function verifyRule(ctx: RouteContext): FixVerifyRule {
-  try {
-    const v = ctx.options.loadConfig ? ctx.config().verify : undefined;
-    return { keptMax: v?.max ?? null, baseline: v?.baseline ?? 'paired' };
-  } catch {
-    return { keptMax: null, baseline: 'paired' };
   }
 }
 
