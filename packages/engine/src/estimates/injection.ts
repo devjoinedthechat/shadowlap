@@ -37,6 +37,9 @@ export interface InjectionPlan {
 export const GATE_REPEAT = 3;
 
 /** A test's attempts and clean replays, in a cost line's words: `36 attempts and 9 clean replays`. */
+/** How an injection test runs, as its estimate's part says it. */
+export const INJECTION_LIVE = 'live from each read, writes stubbed';
+
 const attemptsWords = (attempts: number, clean: number): string => `${counted(attempts, 'attempt')}${clean ? ` and ${counted(clean, 'clean replay')}` : ''}`;
 
 /**
@@ -79,7 +82,7 @@ function plantedPrice(calls: readonly PricedCall[], reads: ReadonlyArray<Pick<Un
   }
   const attempts = planted.length * plan.payloads * repeat;
   const clean = planted.length * baselines;
-  return { kind: 'injection', usd, ceiling: false, parts: [attemptsWords(attempts, clean), 'live from each read, writes stubbed'], attempts: attempts + clean };
+  return { kind: 'injection', usd, ceiling: false, parts: [attemptsWords(attempts, clean), INJECTION_LIVE], attempts: attempts + clean };
 }
 
 /**
@@ -108,10 +111,11 @@ export function causeEstimate(calls: readonly PricedCall[], read: Pick<Untrusted
  * Re-run injection test, and a gate's Re-run test: what the test spent the last time, saying whose
  * attempts it counts (`≈$3.11, as the last test’s 72 attempts and 6 clean replays · live from each
  * read, writes stubbed`). None when that met a model with no price, or spent nothing live: neither
- * says what planting again bills.
+ * says what planting again bills; nor before the test has run once (`last` null).
  */
-export function injectionAgainEstimate(last: Pick<PlantReport, 'totals' | 'baselines' | 'cost'>): Estimate {
-  const parts = ['live from each read, writes stubbed'];
+export function injectionAgainEstimate(last: Pick<PlantReport, 'totals' | 'baselines' | 'cost'> | null): Estimate {
+  const parts = [INJECTION_LIVE];
+  if (!last) return noEstimate('injection', 'no estimate until its injection test has run once', parts);
   if (last.cost.unknownModels.length) return noEstimate('injection', noPriceWords({ unpriced: last.cost.unknownModels }), parts);
   if (last.cost.spent <= 0) return noEstimate('injection', 'the last test spent nothing live, so what this one bills is unknown', parts);
   const attempts = last.totals.attempts;

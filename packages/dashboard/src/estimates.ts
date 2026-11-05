@@ -8,10 +8,8 @@ import {
   fixRunArgs,
   forkArgs,
   forkEstimate,
-  goldenTestEstimate,
-  injectionAgainEstimate,
+  goldenRerunEstimate,
   moreEstimate,
-  noEstimate,
   noFixReason,
   plantEstimate,
   REPEAT_TIMES,
@@ -21,9 +19,9 @@ import {
   resolveFix,
   reusedBlame,
   runBisectEstimate,
-  STRONGER_MODEL,
   selectedRuns,
   shownBlame,
+  STRONGER_MODEL,
   testsEstimate,
   unsettledFirst,
   updateEstimate,
@@ -49,7 +47,7 @@ import { attemptSpends, blamePrice, goldenBisectEstimate, judgeOnly, updatePrice
 import { estimateOf, pricingOf, type Pricing } from './pricing.js';
 import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { loadRunIndex, type RunIndex } from './run-index.js';
-import { sessionLiveGoldens } from './tests-live.js';
+import { liveReasons, sessionLiveGoldens, type LiveReason } from './tests-live.js';
 import { gateResultView, normalizeAndTestJob, runTestsJob, unreadable, type GoldenSource } from './tests.js';
 
 /**
@@ -235,16 +233,10 @@ function newestGate(store: Store, golden: string): Partial<PlantReport> | null {
   return r ? r.data : null;
 }
 
-/**
- * Run test on one golden, as its session runs it: Free only where nothing of it runs live
- * (tests-live.ts `liveReasons`). One marked fork runs live from where it parts; an injection gate
- * runs live from each read, at what it spent the last time; both, at what the two spent.
- */
+/** Run test on one golden, as its session runs it: Free only where nothing of it runs live, as tests-live.ts `liveReasons` says. */
 function rerunEstimate(source: GoldenSource, r: TestResult | null, gate: Partial<PlantReport> | null): Estimate {
-  const fork = source.mode === 'fork';
-  if (!source.injection) return goldenTestEstimate(fork, r);
-  if (!fork) return gate?.cost ? injectionAgainEstimate(gate as PlantReport) : noEstimate('injection', 'no estimate until its injection test has run once', ['live from each read, writes stubbed']);
-  return testsEstimate(1, r && gate?.cost ? { results: [r], injection: [gate.cost] } : null);
+  const why = liveReasons(source).map((w) => w.kind);
+  return goldenRerunEstimate({ live: why.length > 0, fork: why.includes('fork'), injection: why.includes('injection') }, r, gate?.cost ? (gate as PlantReport) : null);
 }
 
 async function goldenEstimates(store: Store, index: RunIndex, source: GoldenSource, pricing: Pricing, job: TestsEstimatesJob): Promise<GoldenEstimates> {
@@ -262,14 +254,17 @@ async function goldenEstimates(store: Store, index: RunIndex, source: GoldenSour
 }
 
 /**
- * Run tests: what the newest session with results spent live, with each live golden's injection gate
- * at what it spent the last time it ran; Free when every golden replays offline.
+ * Run tests: what each golden it runs live spent the last time it ran, as the mock adds them up (a
+ * session that re-ran one golden says nothing of the others): the newest test of each that forks,
+ * and each injection gate's newest; none until each has run once, and Free when every golden replays
+ * offline.
  */
 function runTestsEstimate(store: Store, job: TestsEstimatesJob): Estimate {
   const live = sessionLiveGoldens(job.goldens, runTestsJob(job.goldens, {}, { folder: job.folder }));
-  const session = store.listTestSessions({ limit: 1, withResults: true })[0];
-  const gates = live.filter((g) => g.why.some((w) => w.kind === 'injection')).flatMap((g) => newestGate(store, g.path)?.cost ?? []);
-  return testsEstimate(live.length, session ? { results: store.listTestResults({ sessionId: session.sessionId, limit: 100_000 }), injection: gates } : null);
+  const by = (kind: LiveReason['kind']) => live.filter((g) => g.why.some((w) => w.kind === kind));
+  const results = by('fork').map((g) => store.listTestResults({ golden: g.path, limit: 1 })[0] ?? null);
+  const gates = by('injection').map((g) => newestGate(store, g.path)?.cost ?? null);
+  return testsEstimate(live.length, { results, injection: gates });
 }
 
 async function testsEstimates(store: Store, job: TestsEstimatesJob): Promise<ReadAnswer> {
