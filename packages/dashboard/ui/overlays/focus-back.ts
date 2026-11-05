@@ -19,16 +19,19 @@ export function tabbables(root: HTMLElement): HTMLElement[] {
 
 /**
  * The element a dialog's focus starts on: its drop zone, where it asks for a file (Import capture),
- * else the first that `selector` (`dialogFocus`) finds that shows and is enabled: a field a choice
- * hides never takes it. A dialog that only shows something starts on its Close; one whose way on
- * waits for something, on the first thing in it that takes it; with nothing, on itself.
+ * else the first that `selectors` (`dialogFocus`) find that shows and is enabled, the first selector
+ * first: a field a choice hides never takes it. A dialog that only shows something starts on its
+ * Close; one whose way on waits for something, on the first thing in it that takes it; with nothing,
+ * on itself.
  */
-export function firstFocus(root: HTMLElement, selector: string): HTMLElement {
+export function firstFocus(root: HTMLElement, selectors: readonly string[]): HTMLElement {
   const takes = (el: HTMLElement) => !(el as HTMLButtonElement).disabled && reachable(el);
-  const drop = selector === '.dlg-cancel' ? null : root.querySelector<HTMLElement>('.drop[tabindex]');
+  const drop = selectors[0] === '.dlg-cancel' ? null : root.querySelector<HTMLElement>('.drop[tabindex]');
   if (drop && takes(drop)) return drop;
-  const found = [...root.querySelectorAll<HTMLElement>(selector)].find(takes);
-  if (found) return found;
+  for (const selector of selectors) {
+    const found = [...root.querySelectorAll<HTMLElement>(selector)].find(takes);
+    if (found) return found;
+  }
   const close = root.querySelector('.dlg-ok') ? null : root.querySelector<HTMLElement>('.dlg-cancel');
   return (close && takes(close) ? close : tabbables(root)[0]) ?? root;
 }

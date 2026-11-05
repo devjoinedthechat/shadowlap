@@ -4,14 +4,15 @@
  */
 
 /**
- * What a dialog focuses when it opens: Cancel in one that deletes or removes (`danger`), so pressing
- * Enter again doesn't do what can't be undone, or when `initialFocus: 'cancel'` asks for it (a
- * command someone else recorded); else its first field; else its way on. On a touch screen
- * (`touch`) it skips the fields, whose keyboard would open over the dialog.
+ * What a dialog focuses when it opens, the first of these that shows and is enabled: Cancel in one
+ * that deletes or removes (`danger`), so pressing Enter again doesn't do what can't be undone, or when
+ * `initialFocus: 'cancel'` asks for it (a command someone else recorded); else its first field or its
+ * way on, whichever comes first. On a touch screen (`touch`) it skips the fields, whose keyboard would
+ * open over the dialog: its way on, else Cancel while the way on waits.
  */
-export function dialogFocus(tone: 'lime' | 'danger' | 'solid' | undefined, initialFocus?: 'cancel', touch = false): string {
-  if (initialFocus === 'cancel' || tone === 'danger') return '.dlg-cancel';
-  return touch ? '.dlg-ok' : 'textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]), select, .dlg-ok';
+export function dialogFocus(tone: 'lime' | 'danger' | 'solid' | undefined, initialFocus?: 'cancel', touch = false): readonly string[] {
+  if (initialFocus === 'cancel' || tone === 'danger') return ['.dlg-cancel'];
+  return touch ? ['.dlg-ok', '.dlg-cancel'] : ['textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]), select, .dlg-ok'];
 }
 
 /**

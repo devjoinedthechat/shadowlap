@@ -64,7 +64,7 @@ function formState(root: HTMLElement): string {
  * its header and footer in view and its body scrolling; on a phone it is a sheet. The focus starts by
  * rule (`dialogFocus`, `firstFocus`): on Cancel when the action is red or `initialFocus="cancel"`
  * asks for it, so Enter twice never does what can't be undone; else on the first field, not on a
- * touch screen; else on the way on.
+ * touch screen; else on the way on; on a touch screen on Cancel while the way on waits.
  */
 
 export interface DialogProps {

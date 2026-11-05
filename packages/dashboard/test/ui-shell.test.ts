@@ -86,17 +86,17 @@ describe('the bulk bar', () => {
 
 describe('dialogs', () => {
   it('start on the field, else on the action, but on Cancel when the action is red', () => {
-    expect(dialogFocus('lime')).toMatch(/textarea, input.*select, \.dlg-ok$/);
-    expect(dialogFocus(undefined)).toMatch(/\.dlg-ok$/);
-    expect(dialogFocus('danger')).toBe('.dlg-cancel');
-    // A finger's field would open the phone's keyboard over the dialog: it starts on the way on.
-    expect(dialogFocus('lime', undefined, true)).toBe('.dlg-ok');
-    expect(dialogFocus('danger', undefined, true)).toBe('.dlg-cancel');
+    expect(dialogFocus('lime')).toEqual([expect.stringMatching(/textarea, input.*select, \.dlg-ok$/)]);
+    expect(dialogFocus(undefined)).toEqual([expect.stringMatching(/\.dlg-ok$/)]);
+    expect(dialogFocus('danger')).toEqual(['.dlg-cancel']);
+    // A finger's field would open the phone's keyboard over the dialog: it starts on the way on, else on Cancel.
+    expect(dialogFocus('lime', undefined, true)).toEqual(['.dlg-ok', '.dlg-cancel']);
+    expect(dialogFocus('danger', undefined, true)).toEqual(['.dlg-cancel']);
   });
 
   it('start on Cancel whatever they hold when asked to', () => {
-    expect(dialogFocus('lime', 'cancel')).toBe('.dlg-cancel');
-    expect(dialogFocus('danger', 'cancel')).toBe('.dlg-cancel');
+    expect(dialogFocus('lime', 'cancel')).toEqual(['.dlg-cancel']);
+    expect(dialogFocus('danger', 'cancel')).toEqual(['.dlg-cancel']);
   });
 
   // aria-modal says the page behind can't be reached: Tab from Delete run went on to the strip's

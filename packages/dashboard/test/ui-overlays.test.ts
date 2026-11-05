@@ -514,6 +514,16 @@ describe('a modal’s first focus', () => {
     expect(words(r!.focused())).toBe('button Rename');
   });
 
+  it('starts on Cancel on a touch screen while the way on waits, never on a field or what comes before it', async () => {
+    media({ touch: true });
+    await openDialog((close) => createElement(Dialog, { title: 'Inject instruction', ok: 'Inject instruction', okDisabled: true, onOk: close, onClose: close }, createElement('a', { href: '#/docs' }, 'In the docs'), field()));
+    expect(words(r!.focused())).toBe('button Cancel');
+    await r!.unmount();
+    // Only something to show: its Close.
+    await openDialog((close) => createElement(Dialog, { title: 'Show patch', onClose: close }, field()));
+    expect(words(r!.focused())).toBe('button Close');
+  });
+
   it('starts on the first thing that takes it where the way on waits, on Close where it only shows something, on a drop zone where it asks for a file, on itself with nothing', async () => {
     await openDialog((close) => createElement(Dialog, { title: 'Replace', ok: 'Replace', okDisabled: true, onOk: close, onClose: close }, createElement('a', { href: '#/docs' }, 'In the docs')));
     expect(words(r!.focused())).toBe('a In the docs');
@@ -524,7 +534,7 @@ describe('a modal’s first focus', () => {
     await openDialog((close) => createElement(Dialog, { title: 'Import capture', ok: 'Import capture', okDisabled: true, onOk: close, onClose: close }, createElement('button', { type: 'button' }, 'Langfuse'), createElement('label', { className: 'drop', tabIndex: 0 }, 'Drop a file')));
     expect(r!.focused().className).toBe('drop');
     const lone = { querySelector: () => null, querySelectorAll: () => [] } as unknown as HTMLElement;
-    expect(firstFocus(lone, '.dlg-ok')).toBe(lone);
+    expect(firstFocus(lone, ['.dlg-ok'])).toBe(lone);
     await r!.unmount();
     // A press on the scrim that goes on to ask leaves the focus where it was.
     await openDialog((close) => createElement(Dialog, { title: 'Rename', ok: 'Rename', onOk: close, onClose: close }, field()));
