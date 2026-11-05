@@ -156,6 +156,8 @@ async function runs(...labels: string[]): Promise<{ failed: [string, string]; go
 }
 
 const agentText = () => readFileSync(join(project, 'agent.mjs'), 'utf8');
+/** The name a fix's goldens go by when its runs carry no label: its title's, as blame titles it. */
+const TITLED = 'issue-refund-called-with-amount-240';
 const json = <T = Record<string, any>>(r: Result): T => {
   expect(r.stdout.trim(), r.out).not.toBe('');
   return JSON.parse(r.stdout) as T;
@@ -269,7 +271,7 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     expect(shown.blame.command).toBe(`shadowlap blame ${failed[1].slice(0, 10)} --expect '${ORACLE}'`);
     expect(shown.blame.callRow.filter((c: { kind: string }) => c.kind === 'api')).toHaveLength(4);
     // Verified on the working tree, with no repair behind it: applying it only marks it.
-    expect(shown.actions).toEqual({ repair: null, apply: { kind: 'mark', argv: ['fix', 'apply', fixId], gitApply: null, pending: null, pulled: false, files: [], diff: null, patchFile: null, refused: null, inTree: false, goldens: 0, change: null }, applied: false, blameAgain: null, blameStronger: null });
+    expect(shown.actions).toEqual({ repair: null, apply: { kind: 'mark', argv: ['fix', 'apply', fixId], gitApply: null, pending: null, pulled: false, files: [], diff: null, patchFile: null, refused: null, inTree: false, goldens: 0, names: [], held: [], change: null }, applied: false, blameAgain: null, blameStronger: null });
 
     const human = (await shadowlap(['fix', 'show', fixId])).stdout;
     expect(human).toContain(`${fixId}  Refunds above the limit issued without approval`);
@@ -360,7 +362,7 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     expect(shown.repair.lost).toEqual([{ runId: report.targets[0].runId, at: `model call #${decision} (3 of 4)`, href: `#/fixes/${fixId}/blame` }]);
     expect(shown.verify).toHaveLength(1);
     expect(shown.verify[0]).toMatchObject({ verifyId: report.verifyId, verdict: 'accepted', code: 'repair candidate 3', label: 'repair candidate 3 · accepted', candidate: 3, repairId: report.repairId });
-    expect(shown.actions.apply).toEqual({ kind: 'patch', argv: ['fix', 'apply', fixId], gitApply: `git -c core.autocrlf=false apply ${report.output.dir}/fix.patch`, pending: null, pulled: false, files: ['agent.mjs'], diff: readFileSync(join(project, report.output.patch), 'utf8'), patchFile: `${report.output.dir}/fix.patch`, refused: null, inTree: false, goldens: 2, change: null });
+    expect(shown.actions.apply).toEqual({ kind: 'patch', argv: ['fix', 'apply', fixId], gitApply: `git -c core.autocrlf=false apply ${report.output.dir}/fix.patch`, pending: null, pulled: false, files: ['agent.mjs'], diff: readFileSync(join(project, report.output.patch), 'utf8'), patchFile: `${report.output.dir}/fix.patch`, refused: null, inTree: false, goldens: 2, names: report.output.goldens.map((g: string, i: number) => ({ run: basename(g), name: `${TITLED}-${i + 1}` })), held: [], change: null });
 
     // A golden recorded before the fix: the prompt the patch changes goes into its every request.
     expect((await shadowlap(['pack', good, 'goldens/good-refund'])).code).toBe(0);
@@ -376,8 +378,9 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     expect(applied.out).toContain('! 1 golden diverges on what the patch changed (#1 $.system): goldens/good-refund');
     // The drawer's next step is updating it: the fix is a link beside it.
     expect(applied.events).toContainEqual({ type: 'link', label: 'Open the fix', href: `#/fixes/${fixId}`, secondary: true });
-    // Paths as apply reports them, with forward slashes on every system.
-    expect(result.goldens).toEqual(report.output.goldens.map((g: string) => ({ from: g, to: `goldens/${basename(g)}`, copied: true })));
+    // Paths as apply reports them, with forward slashes on every system; each golden named after the
+    // fix's title, as its runs carry no label, and numbered.
+    expect(result.goldens).toEqual(report.output.goldens.map((g: string, i: number) => ({ run: basename(g), from: g, to: `goldens/${TITLED}-${i + 1}`, copied: true })));
     expect(agentText()).toContain(FIX);
     for (const g of result.goldens) expect(existsSync(join(project, g.to, 'run.json'))).toBe(true);
     expect(applied.out).toContain('2 passed, 0 failed');
@@ -548,10 +551,22 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
 
     sh(project, 'git', ['reset', '-q', '--hard', 'HEAD~1']);
     sh(project, 'git', ['apply', repaired.output.patch]);
-    const applied = await shadowlap(['fix', 'apply', fixId, '--no-test', '--goldens', 'tests/goldens', '--json']);
+    // A golden's name is checked before anything is read or changed: one not <run>=<name>, one the rule refuses.
+    const unnamed = await shadowlap(['fix', 'apply', fixId, '--name', 'refund-twice']);
+    expect([unnamed.code, unnamed.out]).toEqual([2, expect.stringContaining('--name refund-twice is not <run>=<name>')]);
+    const run = failed[0].slice(0, 10);
+    const bad = await shadowlap(['fix', 'apply', fixId, '--goldens', 'tests/goldens', '--name', `${run}=Refund_Twice`, '--json']);
+    expect(bad.code).toBe(2);
+    expect(json(bad).error.message).toBe(`A golden’s name takes lower-case letters, digits and hyphens. Nothing was changed: name the recording of ${run} with --name ${run}=<name>`);
+    expect(json(await shadowlap(['fix', 'show', fixId, '--json'])).status).toBe('verified');
+    const applied = await shadowlap(['fix', 'apply', fixId, '--no-test', '--goldens', 'tests/goldens', '--name', `${failed[0]}=refund-twice`, '--json']);
     expect(applied.code, applied.out).toBe(0);
     expect(json(applied)).toMatchObject({ status: 'applied', patch: 'already', tests: 'skipped' });
-    expect(existsSync(join(project, 'tests', 'goldens', failed[0].slice(0, 10), 'run.json'))).toBe(true);
+    const to = new Map(json(applied).goldens.map((g: { run: string; to: string }) => [g.run, g.to]));
+    expect(to.get(run)).toBe('tests/goldens/refund-twice');
+    expect([...to.values()].filter((t) => t !== 'tests/goldens/refund-twice')).toEqual([expect.stringMatching(new RegExp(`^tests/goldens/${TITLED}-[12]$`))]);
+    expect(applied.out).toContain(`copied tests/goldens/refund-twice from ${run}`);
+    expect(existsSync(join(project, 'tests', 'goldens', 'refund-twice', 'run.json'))).toBe(true);
     expect(agentText().split(FIX)).toHaveLength(2);
   });
 
