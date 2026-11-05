@@ -219,11 +219,9 @@ export function blameNext(store: StoreOf<'recording'>, rec: FixRecords, b: Store
   const unsettled = unsettledFirst(b.report);
   const stopped = b.outcome === 'stopped';
   const pulled = b.pulled ?? null;
-  const g = pulledGate(sprtGate(b.report.gate), !!pulled, PULLED_CAP.blame);
+  const g = nextBlameGate(b, false);
   if (stopped || unsettled) {
-    // Inconclusive: more attempts and a lower bar, as blame's report words it; stopped: the same gate, to the end.
-    const lower = g ? Math.max(0.05, +(g.good - 0.2).toFixed(2)) : null;
-    const gate: SprtGate | null = g && unsettled ? { ...g, good: lower !== null && lower > g.bad ? lower : g.good, max: Math.min(pulled ? PULLED_CAP.blame : GATE_MAX_ATTEMPTS, g.max * 2) } : g;
+    const gate = nextBlameGate(b, unsettled);
     const made = blameArgs(b, rec.fix.check.expect, gate ? gateArg(gate, BLAME_DEFAULTS) : blameCount(b.report, !!pulled));
     if (!made) return none;
     return { blameAgain: { kind: stopped ? 'stopped' : 'unsettled', argv: made.argv, command: commandLine(made.argv), gate: unsettled ? gate : null, pulled, left: made.rerun.left }, blameStronger: null };
@@ -233,6 +231,31 @@ export function blameNext(store: StoreOf<'recording'>, rec: FixRecords, b: Store
   const made = blameArgs(b, rec.fix.check.expect, g ? gateArg(g, BLAME_DEFAULTS) : blameCount(b.report, !!pulled));
   if (!made) return none;
   return { blameAgain: null, blameStronger: { argv: made.argv, command: `${commandLine(made.argv)} --model <model>`, attempts: b.report.attempts, spent: b.report.spent, pulled, left: made.rerun.left } };
+}
+
+/**
+ * The gate Run blame again or with a stronger model probes by: the shown blame's, held to the cap
+ * for a pulled one; with `unsettled` (one inconclusive at its first probe), more attempts and a
+ * lower bar, as blame's report words it. Null for a blame of a fixed count.
+ */
+export function nextBlameGate(b: StoredBlame, unsettled: boolean): SprtGate | null {
+  const pulled = !!b.pulled;
+  const g = pulledGate(sprtGate(b.report.gate), pulled, PULLED_CAP.blame);
+  if (!g || !unsettled) return g;
+  const lower = Math.max(0.05, +(g.good - 0.2).toFixed(2));
+  return { ...g, good: lower > g.bad ? lower : g.good, max: Math.min(pulled ? PULLED_CAP.blame : GATE_MAX_ATTEMPTS, g.max * 2) };
+}
+
+/**
+ * How Run blame again or with a stronger model decides each probe, as its command carries it
+ * (`blameNext`): by its gate, or by the shown blame's fixed count of attempts. Null when it carries
+ * neither, and so has no command.
+ */
+export function nextBlameRule(b: StoredBlame, unsettled: boolean): { gate: SprtGate } | { attempts: number } | null {
+  const gate = nextBlameGate(b, unsettled);
+  if (gate) return { gate };
+  const count = blameCount(b.report, !!b.pulled);
+  return count ? { attempts: Number(count[1]) } : null;
 }
 
 /** A pulled blame as this machine would run it again under its own check, from its checked fields; `fallback` when they make none. */

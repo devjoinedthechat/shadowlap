@@ -1,4 +1,4 @@
-import { ACTIONS, blameCheckFor, DEFAULT_REPAIRER, failedCheckLabels, FIX_STATUSES, FixIdError, type FixStatus, hasRecordedCommand, type JobConsent, needsConsent, readConfigFile, repairerProblem, repairJobArgv, resolveFix, type RunRecord, selectedRuns, setFixTitle, splitCommand, type StoredFix, type StoreOf } from '@shadowlap/engine';
+import { ACTIONS, blameCheckFor, DEFAULT_REPAIRER, failedCheckLabels, FIX_STATUSES, FixIdError, fixRecords, type FixStatus, hasRecordedCommand, type JobConsent, needsConsent, readConfigFile, repairerProblem, repairJobArgv, resolveFix, type RunRecord, selectedRuns, setFixTitle, splitCommand, type StoredFix, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { fixBundles, fixDetail, fixList, patchesToCheck, pulledPatchesToCheck } from '../fixes.js';
@@ -8,14 +8,18 @@ import { patchesInTree, rewritesHere } from '../patch-in-tree.js';
 import { storePrStates } from '../pr-state.js';
 import { captureExpect } from '../next-step.js';
 import { sendAnswer } from '../read-pool.js';
+import type { FixVerifyRule } from '../estimates.js';
 import type { ReadAnswer } from '../read-jobs.js';
 import { recordingNow } from '../run-exports.js';
 import type { Router } from '../router.js';
+import { loadRunIndex } from '../run-index.js';
+import { modelParam } from './estimates.js';
 
 /**
- * Fixes: the list (`GET /api/fixes`), a fix with its three steps (`GET /api/fixes/:id`), its title
- * (`PUT /api/fixes/:id/title`), and the attempts blame and verify made in a run's family, bundled
- * for the Forks view (`GET /api/fixes/family/:runId`). Four job kinds act on them: `blame` (a
+ * Fixes: the list (`GET /api/fixes`), a fix with its three steps (`GET /api/fixes/:id`), what its
+ * billed buttons would cost (`GET /api/fixes/:id/estimates`), its title (`PUT /api/fixes/:id/title`),
+ * and the attempts blame and verify made in a run's family, bundled for the Forks view
+ * (`GET /api/fixes/family/:runId`). Four job kinds act on them: `blame` (a
  * failed run, with the check it failed; or an open fix's blame again, or with a stronger model),
  * `repair` (an open fix, from its failing and good runs), `verify` (more attempts for a verdict left
  * incomplete) and `apply` (a verified fix's patch, into the working tree). Each builder checks what it is asked and
@@ -57,6 +61,16 @@ function configuredRepairer(ctx: RouteContext): string | null {
     return ctx.config().repair?.repairer ?? null;
   } catch {
     return null;
+  }
+}
+
+/** The config's `verify`, as a repair's candidates and Run more attempts are verified; a config that can't be read gives the CLI's defaults. */
+function verifyRule(ctx: RouteContext): FixVerifyRule {
+  try {
+    const v = ctx.options.loadConfig ? ctx.config().verify : undefined;
+    return { keptMax: v?.max ?? null, baseline: v?.baseline ?? 'paired' };
+  } catch {
+    return { keptMax: null, baseline: 'paired' };
   }
 }
 
@@ -272,6 +286,19 @@ export function register(router: Router, ctx: RouteContext): void {
     const fix = findFix(store, r.params.id);
     prs?.refresh([fix]);
     sendAnswer(r, await fixAnswer(ctx, store, fix));
+  });
+
+  // What Run repair, Run blame again or with a stronger model (at `model`), and each Verify step's
+  // more attempts would bill, beside the server: they read the fix's runs' calls, every one. Asked
+  // apart from the fix's page, so the page stays quick.
+  router.get('/fixes/:id/estimates', async (r) => {
+    const fix = findFix(store, r.params.id);
+    const model = modelParam(r.query.get('model'));
+    const rec = fixRecords(store, fix);
+    const { byId } = loadRunIndex(store);
+    const calls = [...new Set([...rec.failing, ...rec.good])].reduce((n, id) => n + (byId.get(id)?.calls ?? 0), 0);
+    const job = { kind: 'fix-estimates' as const, fixId: fix.fixId, repairer: configuredRepairer(ctx), rule: verifyRule(ctx), model, ...(ctx.read.prices ? { prices: ctx.read.prices } : {}) };
+    sendAnswer(r, await ctx.reads.run(job, { calls }));
   });
 
   router.put('/fixes/:id/title', async (r) => {

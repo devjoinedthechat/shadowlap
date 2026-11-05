@@ -9,6 +9,13 @@ import { runVersionTag } from '../run-version.js';
 /** A model as `--model` takes it: a name, never a flag (routes/fixes.ts checks a job's so). */
 const MODEL = /^[A-Za-z0-9][\w.:/@-]{0,119}$/;
 
+/** A model a price is asked at, from the query string, as `--model` takes it; null when absent. */
+export function modelParam(raw: string | null): string | null {
+  const model = raw?.trim() || null;
+  if (model !== null && !MODEL.test(model)) throw new HttpError(400, 'model is a model’s name, such as claude-opus-5-5');
+  return model;
+}
+
 /** A call's number from the query string, 1 or more; null when absent. */
 function callNumber(raw: string | null): number | null {
   if (raw === null) return null;
@@ -33,8 +40,7 @@ export function register(router: Router, ctx: RouteContext): void {
       throw new HttpError(no.status, no.message);
     }
     const at = callNumber(r.query.get('at'));
-    const model = r.query.get('model')?.trim() || null;
-    if (model !== null && !MODEL.test(model)) throw new HttpError(400, 'model is a model’s name, such as claude-opus-5-5');
+    const model = modelParam(r.query.get('model'));
     const etag = runVersionTag(store, run, JSON.stringify([ctx.read, at, model]));
     if (r.req.headers['if-none-match'] === etag) {
       r.res.writeHead(304, { etag, 'cache-control': 'no-cache' });

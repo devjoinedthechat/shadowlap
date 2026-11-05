@@ -1,29 +1,49 @@
 import {
   actionContext,
   bisectEstimate,
+  blameEstimate,
   buildActions,
+  DEFAULT_REPAIRER,
+  fixRecords,
+  fixRunArgs,
   forkArgs,
   forkEstimate,
   goldenTestEstimate,
   injectionAgainEstimate,
   moreEstimate,
   noEstimate,
+  noFixReason,
   plantEstimate,
   REPEAT_TIMES,
+  repairEstimate,
+  repairerProblem,
   repeatEstimate,
+  resolveFix,
+  reusedBlame,
   runBisectEstimate,
+  selectedRuns,
+  shownBlame,
   testsEstimate,
+  unsettledFirst,
   updateEstimate,
+  verifyEstimate,
+  verifyMoreEstimate,
+  verifyRunCosts,
   type CallRecord,
   type Estimate,
+  type FixRecords,
   type ForkEstimateChange,
   type PlantReport,
   type Price,
   type RunRecord,
   type Store,
+  type StoredBlame,
   type TestResult,
 } from '@shadowlap/engine';
 import { lookupRun, noSuchRun } from './api.js';
+import { nextBlameRule } from './fix-blame-step.js';
+import { sprtGate } from './fix-shared.js';
+import { fixDetail } from './fixes.js';
 import { attemptSpends, blamePrice, goldenBisectEstimate, judgeOnly, updatePrice } from './next-step.js';
 import { estimateOf, pricingOf, type Pricing } from './pricing.js';
 import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
@@ -61,7 +81,21 @@ export type TestsEstimatesJob = { kind: 'tests-estimates'; goldens: GoldenSource
  */
 export type BisectEstimateJob = { kind: 'bisect-estimate'; commits: number; target: { golden: GoldenSource } | { runId: string; fork: boolean }; prices?: Record<string, Price> };
 
-export type EstimateJob = RunEstimatesJob | TestsEstimatesJob | BisectEstimateJob;
+/** The config's `verify`, as a repair's candidates and Run more attempts are verified: the most pairs a good run takes, and what it is kept against. */
+export interface FixVerifyRule {
+  keptMax: number | null;
+  baseline: 'paired' | 'history';
+}
+
+/**
+ * A fix's estimates (`GET /api/fixes/:id/estimates`), for what its page offers: Run repair, Run blame
+ * again, Run blame with stronger model at `model` (as typed; without it, the model its field offers
+ * first), and each Verify step's Run more attempts or Verify again. The repairer
+ * shadowlap.config.json names, and its `verify` (`rule`), are read on the server's thread.
+ */
+export type FixEstimatesJob = { kind: 'fix-estimates'; fixId: string; repairer: string | null; rule: FixVerifyRule; model: string | null; prices?: Record<string, Price> };
+
+export type EstimateJob = RunEstimatesJob | FixEstimatesJob | TestsEstimatesJob | BisectEstimateJob;
 
 /** A run's answer: Run blame's estimate, and each row's by its key. */
 export interface RunEstimates {
@@ -107,6 +141,78 @@ async function runEstimates(store: Store, job: RunEstimatesJob): Promise<ReadAns
     if (e) actions[a.key] = e;
   }
   const body: RunEstimates = { blame: await estimateOf(blamePrice(run.runId).price!, pricing), actions };
+  return answer(body, { tagged: true });
+}
+
+/** A fix's answer: each of its page's billed buttons, and each Verify step's by its verdict's id. */
+export interface FixEstimates {
+  repair: Estimate | null;
+  blameAgain: Estimate | null;
+  blameStronger: Estimate | null;
+  verify: Record<string, Estimate>;
+}
+
+/** The model Run blame with stronger model's field shows before one is typed (ui/fixes/FixPage.tsx), and so its estimate's. */
+const STRONGER_MODEL = 'claude-opus-5-5';
+
+/**
+ * Run repair as its command selects the runs (engine fix-jobs.ts `repairArgv`): each failing run with
+ * the blame the repair would reuse on it under the fix's check and its blame's scope, so a blame is
+ * priced only where it runs one; the good runs each candidate must keep passing; and Free where it
+ * ends "No fix to try" before it runs anything.
+ */
+function repairPrice(store: Store, rec: FixRecords, job: FixEstimatesJob, p: Pricing): Estimate {
+  const runs = fixRunArgs(store, rec);
+  const scope = shownBlame(rec)?.scope ?? null;
+  const oracle = rec.fix.check.oracle;
+  const failing = selectedRuns(store, ['--fixes', ...(runs?.fixes ?? [])]).map((r) => {
+    const reused = reusedBlame(store, r.runId, { oracle, fields: {}, scope });
+    return { runId: r.runId, startedAt: r.startedAt, calls: p.calls(r.runId), blame: reused ? { outcome: reused.stored.outcome } : null };
+  });
+  const good = selectedRuns(store, ['--keeps', ...(runs?.keeps ?? [])]).map((r) => ({ calls: p.calls(r.runId) }));
+  const noFix = noFixReason(store, rec, scope)?.kind ?? null;
+  return repairEstimate({ failing, good, scope, rule: job.rule, repairer: job.repairer ?? DEFAULT_REPAIRER, noFix, last: rec.verdicts.at(-1)?.report ?? null, ...(p.prices ? { prices: p.prices } : {}) });
+}
+
+/**
+ * Run blame again (`again`), or with a stronger model at `model`, as its command runs: the shown
+ * blame's run under its scope, by the gate or count the command carries; again, at the model the
+ * blame asked, a search under a check the fix has changed since starting over (`fresh`).
+ */
+function blameNextPrice(rec: FixRecords, b: StoredBlame, o: { again: boolean; model: string | null }, p: Pricing): Estimate | null {
+  const rule = nextBlameRule(b, o.again && unsettledFirst(b.report));
+  if (!rule) return null;
+  const asked = b.report.rescue.fields.model;
+  const model = o.again ? (typeof asked === 'string' ? asked : null) : o.model;
+  const fresh = o.again && JSON.stringify(b.report.oracle) !== JSON.stringify(rec.fix.check.oracle);
+  return blameEstimate(p.calls(b.runId), { ...rule, scope: b.scope, model, last: b.report, fresh, ...(p.prices ? { prices: p.prices } : {}) });
+}
+
+async function fixEstimates(store: Store, job: FixEstimatesJob): Promise<ReadAnswer> {
+  const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem });
+  const fix = d ? resolveFix(store, job.fixId) : null;
+  if (!d || !fix) return failed(404, `no fix ${job.fixId.slice(0, 40)}`);
+  const rec = fixRecords(store, fix);
+  const pricing = pricingOf(store, job.prices);
+  const b = shownBlame(rec);
+  const next = (again: boolean) => (b ? estimateOf((p) => blameNextPrice(rec, b, { again, model: job.model ?? STRONGER_MODEL }, p), pricing) : null);
+  const verify: Record<string, Estimate> = {};
+  for (const step of d.verify) {
+    const more = step.more;
+    const v = more ? rec.verdicts.find((x) => x.verifyId === step.verifyId) : undefined;
+    if (!more || !v) continue;
+    // Each run verified again from its first attempt, up to the step's limit, by the verdict's gate or count.
+    const g = sprtGate(v.report.gate);
+    const rule = { ...job.rule, ...(g ? { gate: { ...g, max: more.max } } : { attempts: more.max }) };
+    const e = await estimateOf(() => (more.kind === 'more' ? verifyMoreEstimate(verifyRunCosts(v.report), { expected: more.expected, cost: more.cost }, { rule, last: v.report }) : verifyEstimate(verifyRunCosts(v.report), { rule, last: v.report })), pricing);
+    if (e) verify[step.verifyId] = e;
+  }
+  const body: FixEstimates = {
+    repair: d.actions.repair ? await estimateOf((p) => repairPrice(store, rec, job, p), pricing) : null,
+    blameAgain: d.actions.blameAgain ? await next(true) : null,
+    blameStronger: d.actions.blameStronger ? await next(false) : null,
+    verify,
+  };
   return answer(body, { tagged: true });
 }
 
@@ -191,6 +297,7 @@ async function bisectEstimates(store: Store, job: BisectEstimateJob): Promise<Re
 
 export const ESTIMATE_READS: ReadTable<EstimateJob> = {
   'run-estimates': (store, job) => runEstimates(store, job),
+  'fix-estimates': (store, job) => fixEstimates(store, job),
   'tests-estimates': (store, job) => testsEstimates(store, job),
   'bisect-estimate': (store, job) => bisectEstimates(store, job),
 };

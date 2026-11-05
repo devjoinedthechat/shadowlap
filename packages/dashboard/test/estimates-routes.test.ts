@@ -3,9 +3,35 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { bisectCommits, blameEstimate, forkEstimate, gateResult, goldenTestEstimate, noEstimate, pricedCalls, repeatEstimate, runBisectEstimate, Store, testsEstimate, updateEstimate, type RunMeta, type TestResultData } from '@shadowlap/engine';
+import {
+  bisectCommits,
+  blameEstimate,
+  decideVerify,
+  DEFAULT_REPAIRER,
+  forkEstimate,
+  gateResult,
+  goldenTestEstimate,
+  noEstimate,
+  pricedCalls,
+  recordBlame,
+  recordVerdict,
+  repairEstimate,
+  repeatEstimate,
+  runBisectEstimate,
+  Store,
+  testsEstimate,
+  updateEstimate,
+  verifyMoreEstimate,
+  verifyRunCosts,
+  type BlameReport,
+  type RunMeta,
+  type SprtGate,
+  type TestResultData,
+} from '@shadowlap/engine';
+import { blameReport, EXPECT, makeRun, ORACLE, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
-import type { RunEstimates, TestsEstimates } from '../src/estimates.js';
+import type { FixEstimates, RunEstimates, TestsEstimates } from '../src/estimates.js';
+import { fixDetail } from '../src/fixes.js';
 import type { GoldenSource } from '../src/tests.js';
 import { addRun } from './read-model-store.js';
 
@@ -189,5 +215,73 @@ describe('Find breaking commit’s estimate', () => {
     const running = addRun(store, { startedAt: T0 + 61, status: 'running', calls: 'l' });
     expect((await get<{ estimate: unknown }>(`estimates/bisect?runId=${running}&good=${FIRST}`)).estimate).toMatchObject({ kind: 'bisect', usd: null, none: 'this run is still recording' });
     expect((await get<{ estimate: unknown }>(`estimates/bisect?golden=goldens/one&good=nosuchcommit`)).estimate).toMatchObject({ usd: null, none: 'git could not say how many commits it would search' });
+  });
+});
+
+describe('a fix’s estimates', () => {
+  /** A blame of `runId` kept with its fix, as the CLI records one. */
+  const blame = (runId: string, report: BlameReport) => recordBlame(store, { runId, report, expect: EXPECT, scope: null, command: `shadowlap blame ${runId.slice(0, 10)}`, rerun: { flags: [], command: null }, title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}' }).fix.fixId;
+  const RULE = { keptMax: null, baseline: 'paired' as const };
+
+  it('prices Run repair as its command runs: a blame of each failing run only where the repair can’t reuse one', async () => {
+    const failing = addRun(store, { startedAt: T0 + 70, status: 'failed', calls: 'lllll', meta: { labels: ['refund-bug'] } });
+    const good = addRun(store, { startedAt: T0 + 71, calls: 'll', meta: { labels: ['good'] } });
+    const fixId = blame(failing, blameReport(failing));
+    const plan = (reused: { outcome: 'blamed' } | null) => repairEstimate({ failing: [{ runId: failing, startedAt: store.getRun(failing)!.startedAt, calls: priced(failing), blame: reused }], good: [{ calls: priced(good) }], scope: null, rule: RULE, repairer: DEFAULT_REPAIRER, noFix: null, last: null });
+    const fresh = await get<FixEstimates>(`fixes/${fixId}/estimates`);
+    expect(fresh).toEqual({ repair: plain(plan(null)), blameAgain: null, blameStronger: null, verify: {} });
+    expect(fresh.repair).toMatchObject({ kind: 'repair', ceiling: true, parts: ['a new blame, then up to 3 candidates', 'each verified up to twice', 'live from each run’s first model call, writes stubbed'] });
+    // The blame stored on the run, under the fix's check, with the fork that rescued it: reused, not priced again.
+    const rescue = addRun(store, { parent: failing, startedAt: T0 + 72, calls: 'rl' });
+    store.updateRunMeta(failing, { blame: { at: 2, outcome: 'blamed', callNo: 5, confidence: 'high', rescuedRunId: rescue, fields: {}, oracle: ORACLE, probes: [], spent: 0.03 } });
+    const reused = await get<FixEstimates>(`fixes/${fixId}/estimates`);
+    expect(reused.repair).toEqual(plain(plan({ outcome: 'blamed' })));
+    expect(reused.repair!.parts[0]).toBe('up to 3 candidates');
+    expect(reused.repair!.usd).toBeLessThan(fresh.repair!.usd!);
+    // Every failing run's reused blame rescued it from no call: the repair ends "No fix to try" before it runs anything.
+    const lost = addRun(store, { startedAt: T0 + 73, status: 'failed', calls: 'll', meta: { labels: ['lost-bug'] } });
+    const lostFix = blame(lost, blameReport(lost, 'unrescuable'));
+    store.updateRunMeta(lost, { blame: { at: 2, outcome: 'unrescuable', callNo: null, confidence: 'high', rescuedRunId: null, fields: {}, oracle: ORACLE, probes: [], spent: 0.03 } });
+    expect((await get<FixEstimates>(`fixes/${lostFix}/estimates`)).repair).toMatchObject({ kind: 'repair', usd: 0, parts: [expect.stringMatching(/^nothing runs: the blame it reuses/)] });
+    expect((await api('fixes/fx-nosuchfix/estimates')).status).toBe(404);
+    expect((await api(`fixes/${fixId}/estimates?model=--help`)).status).toBe(400);
+  });
+
+  it('prices Run blame again by the gate or count its command carries, and with a stronger model at the model typed', async () => {
+    const stopped = makeRun(store, { labels: ['stopped-bug'], calls: ['api', 'tool', 'api'] });
+    const again = blameReport(stopped, 'stopped');
+    const est = await get<FixEstimates>(`fixes/${blame(stopped, again)}/estimates`);
+    expect(est.blameStronger).toBeNull();
+    expect(est.blameAgain).toEqual(plain(blameEstimate(priced(stopped), { attempts: 5, scope: null, model: null, last: again })));
+
+    const unrescued = makeRun(store, { labels: ['unrescued-bug'], calls: ['api', 'tool', 'api'] });
+    const report = blameReport(unrescued, 'unrescuable');
+    const fixId = blame(unrescued, report);
+    expect(fixDetail(store, fixId)!.actions.blameStronger).not.toBeNull();
+    const stronger = await get<FixEstimates>(`fixes/${fixId}/estimates`);
+    expect(stronger.blameAgain).toBeNull();
+    expect(stronger.blameStronger).toEqual(plain(blameEstimate(priced(unrescued), { attempts: 5, scope: null, model: 'claude-opus-5-5', last: report })));
+    const haiku = await get<FixEstimates>(`fixes/${fixId}/estimates?model=claude-haiku-4-5`);
+    expect(haiku.blameStronger).toEqual(plain(blameEstimate(priced(unrescued), { attempts: 5, scope: null, model: 'claude-haiku-4-5', last: report })));
+  });
+
+  it('prices a Verify step’s Run more attempts from the start up to its limit, at what its attempts cost', async () => {
+    const GATE: SprtGate = { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 };
+    const failing = makeRun(store, { labels: ['double-email'] });
+    const good = makeRun(store, { labels: ['good'], status: 'completed' });
+    const fixId = recordBlame(store, { runId: failing, report: blameReport(failing), expect: { tools: { send_email: 1 } }, scope: null, command: 'shadowlap blame', title: 'send_email called twice', checkText: 'send_email called once' }).fix.fixId;
+    const report = verifyReport([{ runId: failing, role: 'target', pass: true }, { runId: good, role: 'good', pass: true, deterministic: true }]);
+    const outcomes = [true, true, true, true];
+    const target = report.runs[0];
+    report.runs[0] = { ...target, attempts: outcomes.map((passed, i) => ({ ...target.attempts[0], runId: `${target.attempts[0].runId.slice(0, 20)}${String(i).padStart(6, '0')}`, passed })), passes: 4, verdict: 'open', decision: 'continue', gate: gateResult(GATE, outcomes, {}) };
+    report.gate = GATE;
+    report.attemptsPerRun = GATE.max;
+    Object.assign(report, decideVerify(report.runs, 'the budget of $0.01 is spent'), { stopReason: 'the budget of $0.01 is spent', attempts: 5, spent: 0.016 });
+    const { verdict } = recordVerdict(store, { report, expect: { tools: { send_email: 1 } }, command: 'shadowlap verify --fixes label:double-email --keeps label:good --budget 0.012', rerun: { flags: ['--budget', '0.012'], command: null } });
+    const more = fixDetail(store, fixId)!.verify[0].more!;
+    expect(more).toMatchObject({ kind: 'more', max: 80 });
+    const est = await get<FixEstimates>(`fixes/${fixId}/estimates`);
+    expect(est.verify).toEqual({ [verdict.verifyId]: plain(verifyMoreEstimate(verifyRunCosts(report), { expected: more.expected, cost: more.cost }, { rule: { ...RULE, gate: GATE }, last: report })) });
+    expect(est.verify[verdict.verifyId]).toMatchObject({ kind: 'verify', ceiling: true });
   });
 });
