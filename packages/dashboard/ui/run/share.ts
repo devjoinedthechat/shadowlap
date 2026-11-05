@@ -10,7 +10,7 @@ import type { RunOffers } from '../types.js';
 
 export type ShareKey = 'link' | 'html' | 'pack' | 'dataset' | 'otel' | 'har';
 
-/** A row of the menu: its words, the command it runs without `shadowlap` before it, and what it is for, on its hover card. */
+/** A row of the menu: its words, what it runs (a command without `shadowlap` before it), and what it is for, on its hover card. */
 export interface ShareItem {
   key: ShareKey;
   label: string;
@@ -27,8 +27,35 @@ const ITEMS: Record<ShareKey, Omit<ShareItem, 'key'>> = {
   har: { label: ACTIONS.exportHar.label, flag: 'export har', why: 'The model calls, for anything that reads HTTP archives' },
 };
 
-/** A row's hover card's command: what it runs on this run, its options left to the dialog or the drawer. */
-export const shareCommand = (item: Pick<ShareItem, 'flag'>, runId: string): string => `$ shadowlap ${item.flag} ${shortId(runId)}`;
+/** Where the server's jobs write a copy, inside the project (src/run-exports.ts). */
+const EXPORTS = '.shadowlap/exports';
+
+/** A copy's name in a file or a folder: the run's id, as the server's jobs name it. */
+const fileId = (runId: string) => runId.slice(0, 10).toLowerCase();
+
+/**
+ * A row's whole command, for its hover card: what its job runs on this run, with the file or folder
+ * the job writes (src/run-exports.ts, `share` in src/routes/store.ts). A row that asks first in a
+ * dialog (a dataset, a trace) names the run, and the dialog's command row says the rest. A card shows
+ * a long one up to its first arguments (`tipCmd`).
+ */
+export function shareCommand(item: Pick<ShareItem, 'key' | 'flag'>, runId: string): string {
+  const id = fileId(runId);
+  const rest: Record<ShareKey, string> = {
+    link: ' --lineage',
+    html: ` ${EXPORTS}/shadowlap-${id}.html --lineage`,
+    pack: ` ${defaultPackFolder(runId)}`,
+    dataset: '',
+    otel: '',
+    har: ` ${EXPORTS}/${id}.har`,
+  };
+  return `$ shadowlap ${item.flag} ${shortId(runId)}${rest[item.key]}`;
+}
+
+/** What a row is for, on its hover card: the share link's says which bucket it goes to, where the server names it. */
+export function shareWhy(item: Pick<ShareItem, 'key' | 'why'>, team: RunOffers['team'] | null | undefined): string {
+  return item.key === 'link' && team ? `A redacted report in your bucket, ${team.store}; the link expires in 7 days` : item.why;
+}
 
 /**
  * The copies the menu lists: the share link first when the project has a team store and the server
@@ -125,7 +152,7 @@ export function datasetCommand(ids: readonly string[], o: { format: string; call
 
 /** The folder a pack goes into unless another is typed: inside the project's exports folder (decision 5). */
 export function defaultPackFolder(runId: string): string {
-  return `.shadowlap/exports/${runId.slice(0, 10).toLowerCase()}`;
+  return `${EXPORTS}/${fileId(runId)}`;
 }
 
 /** Why a run can't be copied yet, on each copy's hover. */

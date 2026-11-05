@@ -4,6 +4,7 @@ import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { Popover, useMenu } from '../components/Popover.js';
 import { compactPath, projectOfStore } from '../format.js';
+import { confirmWords } from '../labels.js';
 import { addPaletteSource } from '../palette-sources.js';
 import { ONLY_PROJECT, provideProjectRemoval } from '../project-actions.js';
 import { expectProject, onProjectSwitched, takeDialogDropped, takeLanding, type ProjectsView } from '../projects-api.js';
@@ -196,7 +197,7 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
           <div className="pk">{list?.heading ?? 'Projects on this machine'}</div>
           {items.map((p) => (
             <div className="prow" key={p.id}>
-              <button type="button" role="menuitemradio" aria-checked={!!p.current} data-project={p.id} onClick={() => pick(p.id)} data-tip={tipCard(p.name, [], p.why ?? p.path)} aria-keyshortcuts={p.removable ? 'Delete' : undefined}>
+              <button type="button" role="menuitemradio" aria-checked={!!p.current} data-project={p.id} onClick={() => pick(p.id)} data-tip={tipCard(p.name, [], p.why ?? `${p.path}${p.settingUp ? ' · setting up' : ''}`)} aria-keyshortcuts={p.removable ? 'Delete' : undefined}>
                 <b>{p.name}</b>
                 <small>{p.detail}</small>
               </button>
@@ -221,7 +222,7 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
           <button
             type="button"
             role="menuitem"
-            data-tip={tipCard(list?.add.label ?? 'Add project…', [], list?.add.hint ?? 'A folder with your agent’s code')}
+            data-tip={tipCard(confirmWords(list?.add.label ?? 'Add project…'), [], list?.add.hint ?? 'A folder with your agent’s code')}
             onClick={() => {
               menu.close();
               navigate(href.newProject());

@@ -47,6 +47,7 @@
     "packages/dashboard/test/run-roles.test.ts",
     "packages/dashboard/test/ui-focus.test.ts",
     "packages/dashboard/test/ui-overlays.test.ts",
+    "packages/dashboard/test/ui-menu-cards.test.ts",
     "packages/dashboard/test/ui-overlays-page.ts",
     "packages/dashboard/test/ui-picker.test.ts",
     "packages/dashboard/test/ui-hover-cards.test.ts",
