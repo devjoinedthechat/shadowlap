@@ -10,8 +10,12 @@ import { render, type FakeElement, type Rendered } from './ui-render.js';
 /**
  * Hover cards: when one shows for a pointer, the keyboard and a finger, what points at it, what it
  * never covers, what it says, and what takes the focus for its card. The real browser checks the same
- * on the pages (browser/overlays.spec.ts).
+ * on the pages (browser/overlays.spec.ts). Its waits are the page's timers on a clock the test moves,
+ * so a loaded machine can't outrun them.
  */
+
+/** The page's timers and its clock, moved by `r.wait`. */
+const testClock = () => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
 
 let r: Rendered | null = null;
 afterEach(async () => {
@@ -33,12 +37,13 @@ describe('a hover card', () => {
   const page = (...parts: ReactNode[]) => shell({}, createElement(HoverCardLayer, { key: 'cards' }), ...parts);
 
   it('waits 400 ms for a pointer, and the next shows at once while one was showing', async () => {
+    testClock();
     r = await render(page(createElement('div', { key: 'facts' }, fact(), createElement('span', { id: 'next', 'data-tip': tipCard('Saved', []) }, 'Saved'))));
     expect(card().hasAttribute('hidden')).toBe(true);
     await r.fire(r.one('#fact'), 'pointerover', { pointerType: 'mouse', clientX: 10 });
-    await r.wait(300);
+    await r.wait(399);
     expect(card().hasAttribute('hidden')).toBe(true);
-    await r.wait(150);
+    await r.wait(1);
     expect(card().hasAttribute('hidden')).toBe(false);
     expect(card().textContent).toContain('Spent');
     expect(r.one('#fact').getAttribute('aria-describedby')).toBe('tip');
@@ -50,6 +55,7 @@ describe('a hover card', () => {
   });
 
   it('never shows for a pointer that moved off before its wait', async () => {
+    testClock();
     r = await render(page(createElement('div', { key: 'facts', id: 'around' }, fact())));
     await r.fire(r.one('#fact'), 'pointerover', { pointerType: 'mouse', clientX: 10 });
     await r.fire(r.one('#around'), 'pointerover', { pointerType: 'mouse', clientX: 10 });
@@ -83,6 +89,7 @@ describe('a hover card', () => {
   };
 
   it('toggles on a tap on a fact, and no tap on a link or a button shows one', async () => {
+    testClock();
     r = await render(page(createElement('div', { key: 'facts' }, fact(), createElement('button', { type: 'button', id: 'act', 'data-tip': tipCard('Replay', []) }, 'Replay'))));
     await tap(r.one('#fact'));
     expect(card().textContent).toContain('Spent');
@@ -121,6 +128,7 @@ describe('a hover card', () => {
   });
 
   it('goes on a click, which acts, and comes back on the next move', async () => {
+    testClock();
     r = await render(page(fact({ key: 'fact' })));
     await r.focus(r.one('#fact'));
     await r.fire(r.one('#fact'), 'pointerdown', { pointerType: 'mouse' });
@@ -150,6 +158,7 @@ describe('a hover card', () => {
         menu.anchor ? menuOf({ anchor: menu.anchor, onClose: menu.close, label: 'Share' }, createElement('button', { type: 'button', id: 'row', role: 'menuitem', 'data-tip': tipCard('HTML report', [], 'These views in one file') }, createElement('b', null, 'HTML report'))) : null,
       );
     }
+    testClock();
     r = await render(page(createElement(WithMenu, { key: 'menu' })));
     await r.click(r.one('#share'));
     await r.fire(r.one('#share'), 'pointerover', { pointerType: 'mouse', clientX: 1 });
@@ -164,13 +173,15 @@ describe('a hover card', () => {
     expect(r.all('[role="menu"]')).toEqual([]);
   });
 
-  it('hides on the page’s Esc first, and only the next one goes on', async () => {
+  it('hides on the shell’s Esc with no panel or sidebar open, and then Esc has nothing left to do', async () => {
     const setSideOpen = vi.fn();
     r = await render(shell({ sideOpen: false, setSideOpen }, createElement(HoverCardLayer, { key: 'cards' }), fact({ key: 'fact' })));
     await r.focus(r.one('#fact'));
     expect(card().hasAttribute('hidden')).toBe(false);
-    await r.press('Escape');
+    expect((await r.press('Escape')).defaultPrevented).toBe(true);
     expect(card().hasAttribute('hidden')).toBe(true);
+    expect((await r.press('Escape')).defaultPrevented).toBe(false);
+    expect(setSideOpen).not.toHaveBeenCalled();
   });
 
   it('draws a command up to its first arguments, a row too long stacked, and a line a sentence', async () => {

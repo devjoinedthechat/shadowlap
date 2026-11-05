@@ -298,10 +298,27 @@ describe('a menu', () => {
     expect(words(r!.focused())).toBe('button Share');
   });
 
-  it('toggles from its button, even with a control that stops its click', async () => {
-    await openShare();
-    await r!.click(r!.one('#share'));
-    expect(r!.all('[role="menu"]')).toEqual([]);
+  it('toggles from its button, even one that stops its click as a row’s fork icon does, and a control that stops its click still closes it', async () => {
+    function Stopper() {
+      const menu = useMenu();
+      return createElement(
+        'div',
+        { onClick: () => menu.close() },
+        createElement('button', { type: 'button', id: 'icon', 'aria-haspopup': 'menu', onClick: (e: { stopPropagation(): void; currentTarget: HTMLElement }) => (e.stopPropagation(), menu.toggle(e.currentTarget)) }, 'Fork'),
+        createElement('button', { type: 'button', id: 'other', onClick: (e: { stopPropagation(): void }) => e.stopPropagation() }, 'Other'),
+        menu.anchor ? menuOf({ anchor: menu.anchor, onClose: menu.close, label: 'Fork' }, createElement(MenuItem, { label: 'Replay', onPick: menu.close })) : null,
+      );
+    }
+    r = await render(shell({}, createElement(Stopper, { key: 'menu' })));
+    await r.click(r.one('#icon'));
+    expect(r.all('[role="menu"]')).toHaveLength(1);
+    await r.click(r.one('#icon'));
+    expect(r.all('[role="menu"]')).toEqual([]);
+    await r.click(r.one('#icon'));
+    expect(r.all('[role="menu"]')).toHaveLength(1);
+    await r.click(r.one('#other'));
+    expect(r.all('[role="menu"]')).toEqual([]);
+    expect(words(r.focused())).toBe('button Other');
   });
 
   it('keeps every key from the page while it is open, ⌘K going on to the palette', async () => {
@@ -742,5 +759,24 @@ describe('what opened an overlay', () => {
     Object.assign(search, { getClientRects: () => [] });
     await r.press('Escape');
     expect(words(r.focused())).toBe('button Menu');
+    // Opened from a field with nothing to find it by, which has gone: the page.
+    await r.unmount();
+    function Gone() {
+      const [open, setOpen] = useState(false);
+      return createElement(
+        'div',
+        null,
+        open ? null : createElement('input', { type: 'text', onChange: () => undefined, onKeyDown: () => setOpen(true) }),
+        createElement('main', { id: 'view', tabIndex: -1 }),
+        open ? createElement(Dialog, { title: 'Search', onClose: () => setOpen(false) }) : null,
+      );
+    }
+    r = await render(shell({}, createElement(Gone, { key: 'gone' })));
+    r.one('input').focus();
+    await r.press('Enter');
+    expect(r.all('.dialog')).toHaveLength(1);
+    await r.press('Escape');
+    expect(r.all('.dialog')).toEqual([]);
+    expect(r.focused()).toBe(r.one('#view'));
   });
 });
