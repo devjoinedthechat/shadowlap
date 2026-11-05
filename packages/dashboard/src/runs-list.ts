@@ -178,18 +178,22 @@ function matcher(filter: RunFilter, aboutText: (r: IndexedRun) => string = () =>
   const failedOnly = types.includes('failed');
   const localOnly = types.includes('local');
   const local = filter.localRuns ?? null;
-  const { words, labels } = filterTerms(filter.q);
+  const { words, labels, types: typeTerms, statuses, tools } = filterTerms(filter.q);
+  // What the index alone can't tell matches no run: `status:` needs each run's verdict, `tool:` its tool calls.
+  const unread = statuses.length > 0 || tools.length > 0;
+  // `type:` narrows as a chip does, by the kinds it names: with a chip too, each narrows the other.
+  const typed = (r: IndexedRun) => typeTerms.every((t) => Object.hasOwn(TYPE_KINDS, t) && TYPE_KINDS[t as keyof typeof TYPE_KINDS].includes(r.kind));
   // A run's about line counts, and so does the kind Runs words it as (`clean replay`, `fork @17`), as
   // an exported copy's filter reads them (ui/runs.ts `matchesText`); a `label:` term, the label alone.
   const text = (r: IndexedRun) => {
-    if (!labels.every((l) => r.meta.labels.includes(l))) return false;
+    if (unread || !labels.every((l) => r.meta.labels.includes(l))) return false;
     if (!words.length) return true;
     const hay = [r.runId, aboutText(r), ...r.meta.labels, r.argv.join(' '), r.source ?? '', r.codeVersion ?? '', r.label].join(' ').toLowerCase();
     return words.every((w) => hay.includes(w));
   };
   const scope = (r: IndexedRun) => (filter.includeAttempts || !r.bundled) && (filter.from == null || r.startedAt >= filter.from) && (filter.to == null || r.startedAt < filter.to);
   // Local narrows what failures are counted out of, as a kind does: the calendar's "8 of 12 local runs".
-  const base = (r: IndexedRun) => scope(r) && (!kinds.size || kinds.has(r.kind)) && (!localOnly || !!local?.has(r.runId)) && text(r);
+  const base = (r: IndexedRun) => scope(r) && (!kinds.size || kinds.has(r.kind)) && typed(r) && (!localOnly || !!local?.has(r.runId)) && text(r);
   const failed = (r: IndexedRun) => listFailed(r, fixed);
   return { scope, base, failed, matches: (r) => base(r) && (!failedOnly || failed(r)) };
 }

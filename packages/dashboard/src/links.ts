@@ -59,25 +59,55 @@ const DAY = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 /** The most words a link's filter keeps, as the field takes them. */
 export const RUNS_QUERY_MAX = 200;
 
+/** The filter field's terms (`filterTerms`): its words, and what each of its keys asks for. */
+export interface FilterTerms {
+  /** Lowercased: each must be in a run's id, about line, labels, command, source, revision or kind; a quoted run of words is one. */
+  words: string[];
+  /** `label:<name>`, as typed: the runs with that label exactly. */
+  labels: string[];
+  /** `status:<verdict>`: `passed`, `failed`, `inconclusive`, `not-applicable` or `live`, as Status says it; empty for a word it doesn't know, which matches no run. */
+  statuses: string[];
+  /** `type:<kind>`: `recording`, `fork`, `clean`, `test` or `capture`; empty for a word it doesn't know, which matches no run. */
+  types: string[];
+  /** `tool:<name>`, lowercased: the runs that called a tool whose name starts so. */
+  tools: string[];
+}
+
+/** What `status:` takes, the short forms the field accepts too, each as the verdict Status says. */
+const STATUS_WORDS: Readonly<Record<string, string>> = { passed: 'passed', pass: 'passed', failed: 'failed', fail: 'failed', inconclusive: 'inconclusive', inc: 'inconclusive', 'not-applicable': 'not-applicable', 'not applicable': 'not-applicable', na: 'not-applicable', 'n/a': 'not-applicable', live: 'live' };
+/** What `type:` takes, a plural too: each kind as the chips name it, a replay the clean one. */
+const TYPE_WORDS: Readonly<Record<string, string>> = { recording: 'recording', fork: 'fork', replay: 'clean', clean: 'clean', test: 'test', capture: 'capture' };
+
 /**
- * The filter field's words, lowercased, and its `label:<name>` terms, kept as typed: a run matches
- * one only with that label exactly, as `repair --keeps label:good` and `ls --label` take it, where a
- * word matches anywhere in its id, about line, labels, command, source or revision. A label with a
- * space in it is quoted, `label:"needs review"`, as a label's chip writes it (`labelTerm`); a label
- * holds no quote. The server's filter and an exported copy's read it alike.
+ * The filter field's terms: its words, lowercased, and its `label:`, `status:`, `type:` and `tool:`
+ * terms, keys in any case. A label is kept as typed: a run matches one only with that label exactly,
+ * as `repair --keeps label:good` and `ls --label` take it. A value with a space in it is quoted,
+ * `label:"needs review"`, as a label's chip writes it (`labelTerm`); a label holds no quote. A key with
+ * nothing after it is left out, and one the field doesn't know is a word. At most 20 terms. The
+ * server's filter and an exported copy's read it alike.
  */
-export function filterTerms(q: string | null | undefined): { words: string[]; labels: string[] } {
-  const words: string[] = [];
-  const labels: string[] = [];
-  for (const m of (q ?? '').matchAll(/label:"([^"]*)"?|\S+/gi)) {
-    if (words.length + labels.length === 20) break;
-    const quoted = m[1]?.trim().replace(/\s+/g, ' ');
-    if (quoted !== undefined) {
-      if (quoted) labels.push(quoted);
-    } else if (/^label:./i.test(m[0])) labels.push(m[0].slice('label:'.length));
-    else words.push(m[0].toLowerCase());
+export function filterTerms(q: string | null | undefined): FilterTerms {
+  const t: FilterTerms = { words: [], labels: [], statuses: [], types: [], tools: [] };
+  let n = 0;
+  for (const m of (q ?? '').matchAll(/(?<![^\s])(label|status|type|tool):(?:"([^"]*)"?|(\S*))|"([^"]*)"?|\S+/gi)) {
+    if (n === 20) break;
+    const key = m[1]?.toLowerCase();
+    if (key) {
+      const v = (m[2] ?? m[3] ?? '').trim().replace(/\s+/g, ' ');
+      if (!v) continue;
+      n++;
+      if (key === 'label') t.labels.push(v);
+      else if (key === 'status') t.statuses.push(STATUS_WORDS[v.toLowerCase()] ?? '');
+      else if (key === 'type') t.types.push(TYPE_WORDS[v.toLowerCase().replace(/s$/, '')] ?? '');
+      else t.tools.push(v.toLowerCase());
+      continue;
+    }
+    const w = (m[4] ?? m[0]).trim().replace(/\s+/g, ' ').toLowerCase();
+    if (!w) continue;
+    n++;
+    t.words.push(w);
   }
-  return { words, labels };
+  return t;
 }
 
 /** The filter's term for the runs labelled `name` exactly: quoted when it holds a space. */

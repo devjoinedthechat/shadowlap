@@ -158,6 +158,17 @@ describe('the Runs table', () => {
     expect(all({ q: 'injection' }).chipCounts.all).toBe(14);
   });
 
+  it('narrows by type: as a chip does, plural too, each narrowing the other, and a kind it doesn’t know to none', () => {
+    const ids = (q: string, types?: RunType[]) => all({ q, ...(types ? { types } : {}) }).runs.map((r) => r.runId);
+    expect(ids('type:capture')).toEqual([id.cap]);
+    expect(ids('type:forks').sort()).toEqual(ids('', ['fork']).sort());
+    expect(ids('type:replay')).toEqual(ids('', ['clean']));
+    expect(ids('type:fork', ['clean'])).toEqual([]);
+    expect(ids('type:fork injection')).toEqual([id.inj]);
+    expect(ids('type:test injection')).toEqual([]);
+    expect(ids('type:failed')).toEqual([]);
+  });
+
   it('lists the runs with a label exactly, from label:<name>, as --keeps label:good takes them', () => {
     const ids = (q: string) => all({ q }).runs.map((r) => r.runId);
     // A word matches anywhere: `refund` finds both labels and more; label:refund finds no run, none being labelled just that.
@@ -169,12 +180,12 @@ describe('the Runs table', () => {
     expect(ids('label:Refund-Bug')).toEqual([]);
     expect(ids('agent.mjs label:refund-bug')).toEqual([id.failed]);
     expect(ids('refund_agent.py label:refund-bug')).toEqual([]);
-    expect(filterTerms('Refund label:good  label:Bad x')).toEqual({ words: ['refund', 'x'], labels: ['good', 'Bad'] });
+    expect(filterTerms('Refund label:good  label:Bad x')).toEqual({ words: ['refund', 'x'], labels: ['good', 'Bad'], statuses: [], types: [], tools: [] });
   });
 
   it('lists the runs with a label that has a space in it, quoted as its chip writes it', () => {
     const ids = (q: string) => all({ q }).runs.map((r) => r.runId);
-    expect(filterTerms('label:"needs  review" Refund label:good')).toEqual({ words: ['refund'], labels: ['needs review', 'good'] });
+    expect(filterTerms('label:"needs  review" Refund label:good')).toEqual({ words: ['refund'], labels: ['needs review', 'good'], statuses: [], types: [], tools: [] });
     labelRuns(store, [id.clean], ['needs review'], []);
     try {
       expect(ids('label:"needs review"')).toEqual([id.clean]);

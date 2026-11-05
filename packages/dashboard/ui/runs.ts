@@ -2,7 +2,7 @@ import { passedWords } from '../../engine/src/checks/labels.js';
 import { isAttempt as isAttemptRun } from '../../engine/src/run-roles.js';
 import { FAILURE_WORDS, lostWords } from '../../engine/src/run-verdicts.js';
 import { filterTerms } from '../src/links.js';
-import { judgedDecides } from '../src/run-verdict.js';
+import { judgedDecides, verdictOf } from '../src/run-verdict.js';
 import type { RunJudged } from '../src/run-outcome.js';
 import { approx, money, num, plural, shortId } from './format.js';
 import { countOrigins, parseOrigins, type Origin7, type OriginCounts } from './origins.js';
@@ -467,11 +467,17 @@ export function matchesChip(r: RunLike, chip: RunChip): boolean {
   return runType(r) === chip;
 }
 
-/** The filter field: every word must appear in the id, about line, command, labels or revision, as the server matches it. */
+/**
+ * The filter field, in an exported copy: every word must appear in the id, about line, command,
+ * labels or revision, as the server matches it; `status:` is the verdict Status says (verdictOf) and
+ * `type:` the kind its chip lists. A copy keeps no index of what runs recorded, so a `tool:` term
+ * matches no run, and a word only what the row says.
+ */
 export function matchesText(r: RunLike, query: string): boolean {
   // As the server's filter reads it (links.ts `filterTerms`): a `label:<name>` term is that label exactly, as typed.
-  const { words, labels } = filterTerms(query);
+  const { words, labels, statuses, types, tools } = filterTerms(query);
   if (!labels.every((l) => r.labels.includes(l))) return false;
+  if (tools.length || !types.every((t) => runType(r) === t) || !statuses.every((s) => verdictOf(r) === s)) return false;
   if (!words.length) return true;
   const hay = `${r.runId} ${r.about?.text ?? ''} ${runSource(r)} ${r.labels.join(' ')} ${r.codeVersion ?? ''} ${kindWord(r)}`.toLowerCase();
   return words.every((w) => hay.includes(w));
