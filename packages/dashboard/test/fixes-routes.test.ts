@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
@@ -702,6 +702,40 @@ describe('the apply job', () => {
     markFixApplied(store, fixId, { patch: 'applied', repairId: 'repair-munzln2i', goldens: [], tests: 'skipped', by: 'dana', via: 'fix apply' });
     const again = await started({ kind: 'apply', fixId });
     expect(again.title).toBe('Finishing the apply');
+  });
+
+  it('names the goldens it copies as the page names them, and refuses a name the engine’s rule refuses, running nothing', async () => {
+    const { fixId, failing } = story();
+    const run = failing.slice(0, 10);
+    // What the project's goldens folder holds is a name none may take, but the recording an apply
+    // stopped part way left under the name it would take, which fix apply finds there.
+    const pack = (dir: string) => {
+      mkdirSync(join(project, dir), { recursive: true });
+      writeFileSync(join(project, dir, 'run.json'), `{"from":"${run}"}\n`);
+    };
+    pack('goldens/refund-in-limit');
+    await start();
+    expect((await json(await api(`fixes/${fixId}`))).actions.apply).toMatchObject({ goldens: 1, names: [{ run, name: 'refund-bug' }], held: ['refund-in-limit'] });
+    pack(`.shadowlap/repairs/repair-munzln2i/goldens/${run}`);
+    pack('goldens/refund-bug');
+    expect((await json(await api(`fixes/${fixId}`))).actions.apply.held).toEqual(['refund-in-limit']);
+    const j = await started({ kind: 'apply', fixId, names: { [run]: 'refund-over-limit' } });
+    expect(spawned.at(-1)).toEqual(['fix', 'apply', fixId, '--name', `${run}=refund-over-limit`]);
+    await finished(j);
+    const before = spawned.length;
+    const refusals: Array<[unknown, string]> = [
+      [['refund-over-limit'], 'names gives each golden its name by its run, such as {"01K5CQ2E8M":"refund-bug"}'],
+      [{ '01ZZZZZZZZ': 'x' }, '01ZZZZZZZZ is not a run whose recording applying the fix copies now'],
+      [{ [run]: 7 }, `the name of the golden from ${run} is text`],
+      [{ [run]: 'Refund Bug' }, 'A golden’s name takes lower-case letters, digits and hyphens.'],
+      [{ [run]: '' }, 'Give the golden a name.'],
+    ];
+    for (const [names, error] of refusals) {
+      const res = await job({ kind: 'apply', fixId, names });
+      expect(res.status).toBe(400);
+      expect((await json(res)).error).toBe(error);
+    }
+    expect(spawned.length).toBe(before);
   });
 
   it('marks applied a fix verified on the working tree as it is, which has no patch', async () => {
