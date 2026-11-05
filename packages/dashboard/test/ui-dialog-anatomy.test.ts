@@ -242,6 +242,35 @@ describe('a run’s dialogs', () => {
     const choices = { good: 'c91d0f4', bad: 'd2e8a1f', target: { kind: 'run', runId: RUN }, revisions: [{ rev: 'c91d0f4', at: 1, runs: 3, failed: 0 }], unavailable: null, fork: true, live: true, expect: null } as unknown as BisectChoices;
     holds(await open(createElement(RunsFindCommit, { runId: RUN, choices, ...closes })), { title: 'Find breaking commit for 01K5CQ4N7G', doc: 'bisect', first: 'input[type="text"]', ok: 'Find breaking commit' });
   });
+  it.each([
+    ['a run’s', 'run'],
+    ['Runs’', 'runs'],
+    ['a golden’s', 'golden'],
+  ])('Find breaking commit, %s: a commit picked from the list clears the one typed, and the one shown is the one sent', async (_name, where) => {
+    const sent: unknown[] = [];
+    const revisions = [{ rev: 'c91d0f4', at: 1, subject: 'A change', result: 'pass', sameChecks: true }] as never;
+    const choices = { good: 'c91d0f4', bad: 'd2e8a1f', target: { kind: 'run', runId: RUN }, revisions: [{ rev: 'c91d0f4', at: 1, runs: 3, failed: 0 }], unavailable: null, fork: true, live: true, expect: null } as unknown as BisectChoices;
+    const shown =
+      where === 'run'
+        ? createElement(BisectDialog, { runId: RUN, offer, onRun: (good: string) => (sent.push(good), true), ...closes })
+        : where === 'runs'
+          ? createElement(RunsFindCommit, { runId: RUN, choices, ...closes })
+          : createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: null, live: true, revisions, tried: null, onRun: (good: string) => void sent.push(good), ...closes });
+    const startJob = (_kind: string, fields: { good?: string }) => (sent.push(fields.good), new Promise(() => undefined));
+    const page = await open(shown, appWith({ client: { startJob } }));
+    const good = () => /--good (\S+)/.exec(page.one('[role="dialog"] .cmdline').textContent)?.[1];
+    const field = page.one('[role="dialog"] input[type="text"]');
+    await page.type(field, 'abc1234');
+    expect(good()).toBe('abc1234');
+    expect(page.one('[role="dialog"] input[type="radio"]').checked).toBe(false);
+    // A pick, as a radio's change.
+    await page.fire(page.one('[role="dialog"] input[type="radio"]'), 'change');
+    expect(field.value).toBe('');
+    expect(page.one('[role="dialog"] input[type="radio"]').checked).toBe(true);
+    expect(good()).toBe('c91d0f4');
+    await page.click(page.one('[role="dialog"] .dlg-ok'));
+    expect(sent).toEqual(['c91d0f4']);
+  });
   it('Find breaking commit that can’t search says why, with Close alone', async () => {
     const choices = { good: null, bad: 'd2e8a1f', target: { kind: 'run', runId: RUN }, revisions: [], unavailable: 'Nothing before its commit to search.', fork: false, live: false, expect: null } as unknown as BisectChoices;
     holds(await open(createElement(RunsFindCommit, { runId: RUN, choices, ...closes })), { title: 'Find breaking commit for 01K5CQ4N7G', doc: 'bisect', first: CANCEL, ok: null, warn: 'Nothing before its commit to search' });
@@ -544,7 +573,7 @@ describe('the bulk bar’s dialogs', () => {
     const writes: string[] = [];
     vi.stubGlobal('navigator', { clipboard: { writeText: (t: string) => (writes.push(t), Promise.resolve()) } });
     try {
-      const six = [...'ABCDEF'].map((c) => ({ runId: `01M5H2DJ${c}${'0'.repeat(17)}`, status: 'completed', attempts: 0 }));
+      const six = ['A', 'B', 'C', 'D', 'E', 'F'].map((c) => ({ runId: `01M5H2DJ${c}${'0'.repeat(17)}`, status: 'completed', attempts: 0 }));
       const labelled = async (runs: typeof six) => {
         const page = await open(createElement(BulkBar, { runs: runs as never, store: false, clear: () => undefined, onDone: () => undefined }), appWith({ client: { offers: () => new Promise(() => undefined) } }));
         await page.click(page.byText('.bulkbar button', 'Label'));
