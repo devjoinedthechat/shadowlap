@@ -60,7 +60,7 @@ function Panel({ onRun, close }: { onRun: boolean; close: () => void }) {
   }, []);
   const body = useRef<HTMLDivElement>(null);
   useScrollStop(body);
-  const place: SheetPlace = { exported, onRun, onRuns: !!document.getElementById('runsQuery'), compares: copyCompares(meta?.runIds) };
+  const place: SheetPlace = { exported, onRun, onRuns: !!document.querySelector('#runsQuery'), compares: copyCompares(meta?.runIds) };
   return (
     <Modal requestClose={close}>
       <div className="help" role="dialog" aria-modal="true" aria-labelledby="helpT" tabIndex={-1} ref={ref}>

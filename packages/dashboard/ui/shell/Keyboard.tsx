@@ -98,7 +98,7 @@ function goKey(a: AppState, e: KeyboardEvent, gAt: RefObject<number>): boolean {
 
 /** `/`: on a run its calls' filter (the run's keys), on Runs its filter, else the palette, which a copy doesn't have. */
 function slashKey(a: AppState, e: KeyboardEvent): void {
-  const field = document.getElementById('runsQuery');
+  const field = document.querySelector<HTMLElement>('#runsQuery');
   if (field) {
     e.preventDefault();
     field.focus();

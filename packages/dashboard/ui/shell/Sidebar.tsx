@@ -7,6 +7,7 @@ import { cssVars, paletteKeyLabel } from '../dom.js';
 import { num, shortId, whenShort } from '../format.js';
 import { useLatest } from '../hooks.js';
 import { useListKeys, type RowScope } from '../list-keys.js';
+import { shortcut } from '../shortcuts.js';
 import { runRowScope } from '../run-row.js';
 import { href, navSection, type Route } from '../route.js';
 import { copyCompares, isAttempt, RECENT_RUNS, runTree, sideLine, sideStatus, treeLines } from '../runs.js';
@@ -64,7 +65,7 @@ export function Sidebar({ route }: { route: Route }) {
       <div className="side-top">
         <ProjectBlock meta={meta} />
         {exported ? null : (
-          <button className="search sbtn" type="button" aria-label={`Search or jump to (${paletteKeyLabel()})`} onClick={() => conn !== 'expired' && setPalette(true)}>
+          <button className="search sbtn" type="button" aria-label={`Search or jump to (${paletteKeyLabel()})`} {...shortcut('palette')} onClick={() => conn !== 'expired' && setPalette(true)}>
             <Icon name="search" />
             <span className="st">Search or jump to…</span>
             <span className="kbd">{paletteKeyLabel()}</span>

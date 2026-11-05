@@ -8,6 +8,8 @@ import { markChange, markKey, markTitle, markToast, undoChange, withChange } fro
 import { RunsTable, type TableRun } from '../ui/runspage/RunsTable.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { ACTION_TOAST_MS, toastKey, UNDO_KEY, type ToastAction } from '../ui/toast.js';
+import { shownRuns } from '../ui/list-keys.js';
+import { setSingleKeys } from '../ui/shortcuts.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -134,6 +136,61 @@ function addressBar(hash: string) {
 }
 
 const keyButton = (label: string) => r!.all('.rhead .runkey button').find((b) => b.textContent === label)!;
+
+describe('a run’s keys', () => {
+  const opened = async (toast: Array<{ text: string; action?: ToastAction }> = []) => {
+    addressBar(`#/run/${RUN}/1`);
+    const { client } = server([]);
+    const state = app(client, toast);
+    r = await render(createElement(AppContext.Provider, { value: state }, createElement(RunPage, { id: RUN, call: 1, view: null })));
+    await r.until('the run’s keys', () => !!(state.runKeys as { current: unknown }).current);
+    await r.until('the header', () => r!.all('.rhead .runkey button').length === 2);
+    return (key: string, target?: unknown) => (state.runKeys as { current: (e: { key: string; target?: unknown }) => boolean }).current({ key, target });
+  };
+
+  it('marks the header’s buttons, and takes the marks away with the switch', async () => {
+    await opened();
+    const replay = r!.byText('.rhead .actions button', 'Replay');
+    expect(replay.getAttribute('aria-keyshortcuts')).toBe('r');
+    expect(replay.getAttribute('data-shortcut')).toBe('replay');
+    expect(keyButton('good').getAttribute('aria-keyshortcuts')).toBe('Plus');
+    expect(keyButton('bad').getAttribute('aria-keyshortcuts')).toBe('-');
+    expect(r!.one('#forkBtn').getAttribute('aria-keyshortcuts')).toBe('f');
+    await act(async () => setSingleKeys(false));
+    expect(r!.byText('.rhead .actions button', 'Replay').getAttribute('aria-keyshortcuts')).toBeNull();
+    expect(r!.one('#forkBtn').getAttribute('data-shortcut')).toBeNull();
+    await act(async () => setSingleKeys(true));
+  });
+
+  it('moves with the arrows only in the views, j and k from anywhere', async () => {
+    const keys = await opened();
+    expect(keys('ArrowDown')).toBe(false);
+    expect(keys('ArrowDown', r!.one('.vbody'))).toBe(true);
+    expect(keys('j')).toBe(true);
+  });
+
+  it('says when a list has no run before or after this one, a step adding nothing to the way back', async () => {
+    const toasts: Array<{ text: string; action?: ToastAction }> = [];
+    shownRuns.current = { ids: [RUN, 'OTHERRUN00000000000000'], more: null };
+    const keys = await opened(toasts);
+    expect(keys('[')).toBe(true);
+    await r!.until('the toast', () => toasts.length > 0);
+    expect(toasts[0]!.text).toBe('No run before 01M5GRX8K4 in the list');
+    expect(keys(']')).toBe(true);
+    await r!.until('the step', () => location.hash === '#/run/OTHERRUN00000000000000');
+    shownRuns.current = null;
+  });
+
+  it('reads the next page of the list before saying it has ended', async () => {
+    const more = vi.fn(async () => [RUN, 'NEXTPAGE00000000000000']);
+    shownRuns.current = { ids: [RUN], more };
+    const keys = await opened();
+    expect(keys(']')).toBe(true);
+    await r!.until('the step', () => location.hash === '#/run/NEXTPAGE00000000000000');
+    expect(more).toHaveBeenCalledOnce();
+    shownRuns.current = null;
+  });
+});
 
 describe('the key on a run’s header', () => {
   it('labels the run in one press, says so with Undo, and Undo puts it back', async () => {

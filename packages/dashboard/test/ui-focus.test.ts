@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { createElement, useState, type ReactNode } from 'react';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { Client } from '../ui/api.js';
@@ -8,6 +9,7 @@ import { ExpiredCard } from '../ui/shell/Connection.js';
 import { Keyboard } from '../ui/shell/Keyboard.js';
 import { Palette } from '../ui/shell/Palette.js';
 import { SkipLink } from '../ui/shell/SkipLink.js';
+import { setSingleKeys } from '../ui/shortcuts.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { sheet } from './css-sheet.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
@@ -105,6 +107,26 @@ describe('Skip to content', () => {
     await r.press('Tab');
     expect(focus(r)).toBe('button Replay');
   });
+
+  it('takes it to the page’s heading where it has one, as a target Tab never stops at', async () => {
+    r = await render(createElement('div', {}, createElement(SkipLink), createElement('main', { id: 'view', tabIndex: -1 }, createElement('h1', {}, 'Runs'), createElement('button', { type: 'button' }, 'Replay'))));
+    await r.click(r.one('a.skip'));
+    expect(r.focused().tagName).toBe('H1');
+    expect(r.focused().getAttribute('tabindex')).toBe('-1');
+    await r.press('Tab');
+    expect(focus(r)).toBe('button Replay');
+  });
+
+  it('never scrolls for a move: the manager focuses quietly, but for a row or a link asked for', () => {
+    const source = readFileSync(new URL('../ui/focus-manager.ts', import.meta.url), 'utf8');
+    expect(source.match(/\.focus\(/g)).toEqual(['.focus(']);
+    expect(source).toContain('el.focus({ preventScroll: true })');
+  });
+
+  it('keeps no ring round a heading that took the focus as -1', () => {
+    const css = readFileSync(new URL('../ui/css/base.css', import.meta.url), 'utf8');
+    expect(css).toContain('#view h1[tabindex="-1"]:focus { outline: none; }');
+  });
 });
 
 // ---- the palette
@@ -122,6 +144,25 @@ function PaletteOpener({ base }: { base: AppState }) {
 }
 
 describe('Search or jump to', () => {
+  it('shows a row’s own key while single keys are on, else ↵ on the row Enter opens', async () => {
+    r = await render(createElement(PaletteOpener, { base: app() }));
+    await r.click(r.one('#opener'));
+    await r.until('the palette', () => r!.all('.palit').length > 0);
+    const keys = (label: string) => r!.all('.palit').find((el) => el.querySelector('.pl')!.textContent === label)!.querySelectorAll('.palk kbd').map((k) => k.textContent);
+    expect(keys('Runs')).toEqual(['g', 'r']);
+    expect(keys('Keyboard shortcuts')).toEqual(['?']);
+    expect(keys('Add project…')).toEqual([]);
+    expect(r.one('.palit.on .palk kbd').textContent).toBeTruthy();
+    await r.unmount();
+    setSingleKeys(false);
+    r = await render(createElement(PaletteOpener, { base: app() }));
+    await r.click(r.one('#opener'));
+    await r.until('the palette', () => r!.all('.palit').length > 0);
+    expect(r.all('.palk')).toEqual([]);
+    expect(r.one('.palit.on .kbd').textContent).toContain('↵');
+    setSingleKeys(true);
+  });
+
   it('is a combobox: the field keeps the focus and names the active option, which ↓ and ↑ move', async () => {
     r = await render(createElement(PaletteOpener, { base: app() }));
     await r.click(r.one('#opener'));

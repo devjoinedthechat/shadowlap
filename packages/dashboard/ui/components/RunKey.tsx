@@ -1,3 +1,4 @@
+import { shortcut } from '../shortcuts.js';
 import { useCallback, useState } from 'react';
 import { shortId } from '../format.js';
 import { hasMark, markChange, markTitle, markToast, MARKS, undoChange, withChange, type RunMark } from '../runkey.js';
@@ -23,6 +24,8 @@ export function RunKey({ runId, labels, onMark, off, compact = false }: { runId:
             aria-pressed={on}
             disabled={!!off}
             title={off ?? markTitle(m, on)}
+            // The key answers on a run's header; on Runs' rows only with the focus in that row, so those say nothing of it.
+            {...(compact ? {} : shortcut(m === 'good' ? 'markGood' : 'markBad'))}
             onClick={(e) => {
               e.stopPropagation();
               onMark(m, e.currentTarget);
