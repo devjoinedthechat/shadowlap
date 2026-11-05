@@ -33,9 +33,9 @@ export function Tabs<K extends string>({
   const strip = listRef ?? own;
   const reached = useRef<K | null>(null);
   useLayoutEffect(() => {
-    if (reached.current !== value) return;
+    const was = reached.current;
     reached.current = null;
-    strip.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.focus();
+    if (was === value) strip.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.focus();
   }, [value, strip]);
   const keys = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.metaKey || e.ctrlKey || e.altKey || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
@@ -44,7 +44,7 @@ export function Tabs<K extends string>({
     const to = items[e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : (at + (e.key === 'ArrowRight' ? 1 : n - 1)) % n];
     e.preventDefault();
     e.stopPropagation();
-    if (!to) return;
+    if (!to || to.key === value) return;
     reached.current = to.key;
     onChange(to.key);
   };

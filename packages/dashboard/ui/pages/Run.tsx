@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { JOB_KINDS, type CallDetail, type RunDetail } from '../api.js';
 import { Legend, LoadFailed } from '../components/bits.js';
 import { Tabs } from '../components/Tabs.js';
-import { tipText } from '../components/HoverCard.js';
+import { tipCard, tipText } from '../components/HoverCard.js';
 import { useMenu } from '../components/Popover.js';
 import { Page } from '../components/Page.js';
 import { Strip, stripDetail, type StripCall } from '../components/Strip.js';
@@ -81,13 +81,13 @@ function jumpOf(forkAt: number | null, lostAt: number | null): { n: number; card
   return lostAt !== null ? { n: lostAt, card: 'Jump to lost call' } : null;
 }
 
-/** The Views tabs: `v`'s key on the tab it shows next, whose card names it, and Provenance's card. */
+/** The Views tabs: `v`'s key on the tab it shows next, whose card names it, and Provenance's card, its name over what it holds. */
 function viewTabs(v: View, calls: number, turns: number | undefined) {
   const next = nextView(v);
   return VIEWS.map((key) => {
     const mark = key === next ? shortcut('view') : undefined;
-    const card = key === 'provenance' ? 'The run’s record: what made it, where it came from, what a copy would mask, and each call’s fingerprint.' : mark?.['aria-keyshortcuts'] ? VIEW_NAMES[key] : undefined;
-    return { key, label: VIEW_NAMES[key], count: key === 'calls' ? calls : key === 'turns' ? turns : undefined, tip: card ? tipText(card) : undefined, mark };
+    const tip = key === 'provenance' ? tipCard(VIEW_NAMES[key], [], 'The run’s record: what made it, where it came from, what a copy would mask, and each call’s fingerprint.') : mark?.['aria-keyshortcuts'] ? tipText(VIEW_NAMES[key]) : undefined;
+    return { key, label: VIEW_NAMES[key], count: key === 'calls' ? calls : key === 'turns' ? turns : undefined, tip, mark };
   });
 }
 
