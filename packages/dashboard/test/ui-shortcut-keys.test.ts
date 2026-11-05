@@ -61,7 +61,7 @@ describe('the table of keys', () => {
     expect(line('Anywhere', 'Close menu or dialog, then go up a level').single).toBe(false);
     expect(line('In a list', 'The same, on a row in focus').single).toBe(false);
     expect(line('In a list', 'Open row').single).toBe(false);
-    expect(line('Anywhere', 'Search or jump to anything', false).chips[0]!.text).toBe('Ctrl');
+    expect(line('Anywhere', 'Search or jump to anything', false).chips[0].text).toBe('Ctrl');
     expect(switchSentence(false, '⌘K')).toBe('Off, only ⌘K, Esc, Enter and the arrows work.');
     expect(switchSentence(false, 'Ctrl K')).toBe('Off, only Ctrl K, Esc, Enter and the arrows work.');
     expect(switchSentence(true, '⌘K')).toBe('Off, only Esc, Enter and the arrows work.');
