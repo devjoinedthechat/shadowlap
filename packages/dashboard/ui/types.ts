@@ -4,7 +4,7 @@ import type { RunJudged } from '../src/run-outcome.js';
 import type { RunOffers as ServerRunOffers } from '../src/run-offers.js';
 import type { RunAbout } from '../../engine/src/about.js';
 export type { AboutFrom, RunAbout } from '../../engine/src/about.js';
-export type { BlameBeside, NextStep, NextStepRow } from '../src/next-step.js';
+export type { BlameBeside, GateEntry, NextStep, NextStepRow } from '../src/next-step.js';
 
 // Fixes (`/api/fixes`): the read model's own shapes, as the server sends them.
 export type { BlameStep, CandidateVerdict, FixActions, FixBundle, FixBundleAttempt, FixDetail, FixList, FixRow, FixRunRef, FixStep, RepairStep, StepKey, StepState, VerifyMore, VerifyRow, VerifyStep } from '../src/fixes.js';

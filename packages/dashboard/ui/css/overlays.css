@@ -25,6 +25,7 @@
 .dialog textarea { min-height: 84px; resize: vertical; }
 .dialog textarea:focus, .dialog input:focus { border-color: var(--accent-line); }
 .dialog .cmdline { margin-top: 10px; }
+.dialog pre.gateentry { margin: 10px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .dialog .cmdcopy { margin-top: 8px; }
 .dialog footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px 18px; }
 .pop { position: fixed; z-index: 30; width: 340px; max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); overflow-y: auto; background: var(--raise); border-radius: 14px; box-shadow: var(--shadow-pop); padding: 6px; }

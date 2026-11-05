@@ -187,7 +187,7 @@ describe('a run’s next step', () => {
   it('packs the recording an attempt that obeyed proves, with its gate, until a golden is made from it', () => {
     const rec = recording();
     const obeyed = addRun(store, { parent: rec, startedAt: T0 + MIN, calls: 'rl', meta: { injection: { result: 'inj-1', role: 'attempt', read: 1, attempt: 1, of: 1, verdict: 'obeyed' }, repeat: { group: 'inj-1', attempt: 1, of: 1 } } });
-    expect(step(obeyed)).toMatchObject({ key: 'pack-gate', label: 'Pack with injection gate…', runId: rec, folder: goldenFolder(rec), title: `Pack ${rec.slice(0, 10)} with injection gate`, command: `shadowlap pack ${rec.slice(0, 10)} ${goldenFolder(rec)}` });
+    expect(step(obeyed)).toMatchObject({ key: 'pack-gate', label: 'Pack with injection gate…', runId: rec, folder: goldenFolder(rec), gate: { obeyed: 0, repeat: 3 }, title: `Pack ${rec.slice(0, 10)} with injection gate`, command: `shadowlap pack ${rec.slice(0, 10)} ${goldenFolder(rec)}` });
     // A golden made from the recording: it reads against its parent, as any attempt.
     expect(step(obeyed, work([source(rec)]))).toMatchObject({ key: 'compare', parent: rec });
   });
@@ -238,7 +238,10 @@ describe('a run’s next step', () => {
     expect(step(rec)).toMatchObject({ key: 'injection-proof', label: 'Open proof', runId: attempt, href: `#/run/${attempt}/6`, title: `Opens ${attempt.slice(0, 10)}`, sub: expect.stringContaining('system-notice at #4') });
     // A newer test decides, and one still running says nothing yet.
     plant(rec, { gate: { obeyed: 0, influenced: null, verdict: 'inconclusive', reason: '3 of the 6 planned attempts ran' }, at: T0 + 2, stopReason: 'the budget of $2.00 is spent' });
-    expect(step(rec)).toMatchObject({ key: 'injection-test', label: 'Run injection test…', runId: rec, command: `shadowlap injection ${rec.slice(0, 10)}`, sub: expect.stringContaining('the budget of $2.00 is spent') });
+    expect(step(rec)).toMatchObject({ key: 'injection-test', label: 'Run injection test…', runId: rec, command: `shadowlap injection ${rec.slice(0, 10)}`, sub: 'It stopped at its budget: test with fewer templates, or a higher budget' });
+    // Any other stop says its own, not advice about a budget that wasn't spent.
+    plant(rec, { gate: { obeyed: 0, influenced: null, verdict: 'inconclusive', reason: '1 of the 6 planned attempts ran' }, at: T0 + 2.5, stopReason: 'interrupted' });
+    expect(step(rec)).toMatchObject({ key: 'injection-test', sub: 'It stopped early (interrupted): test it again' });
     plant(rec, { gate: { obeyed: 0, influenced: null, verdict: 'inconclusive', reason: 'no model read it' }, at: T0 + 3 });
     plant(rec, { gate: failed, at: T0 + 10, ended: false });
     expect(step(rec)).toMatchObject({ key: 'injection-again', label: 'Re-run injection test', runId: rec, job: { repeat: 2, templates: ['system-notice'], baselines: 2, liveReads: false }, command: `shadowlap injection ${rec.slice(0, 10)} --templates system-notice --baselines 2 --repeat 2`, sub: 'It showed too little to say: no model read it' });
@@ -258,7 +261,9 @@ describe('a run’s next step', () => {
     clean(rec, 'not caused', T0 + 1);
     expect(step(rec).key).toBe('pack');
     clean(rec, 'caused', T0 + 2);
-    expect(step(rec)).toMatchObject({ key: 'pack-gate', label: 'Pack with injection gate…', runId: rec });
+    // Its own card needs no id: the page is the run's.
+    expect(step(rec)).toMatchObject({ key: 'pack-gate', label: 'Pack with injection gate…', runId: rec, gate: { obeyed: 0, repeat: 3 } });
+    expect(step(rec)).not.toHaveProperty('title');
     expect(step(rec, work([source(rec)])).key).toBe('replay');
     // Nor does a golden of a fork of it count, as it doesn't test this one; one it was unpacked from does.
     const fork = addRun(store, { parent: rec, startedAt: T0 + MIN, divergence: 2, calls: 'rl' });

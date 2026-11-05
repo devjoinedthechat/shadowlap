@@ -352,8 +352,8 @@ describe('the run page’s next step', () => {
     await page.click(page.byText('.rhead .actions button', 'Re-run injection test'));
     expect(started).toEqual([]);
     const dialog = page.one('.dialog');
-    expect(dialog.textContent).toContain('It showed too little to say: no model read it');
-    expect(dialog.textContent).toContain('≈$3.11, as the last test’s 6 attempts · live from each read, writes stubbed');
+    // A sentence, then what it bills.
+    expect(dialog.textContent).toContain('It showed too little to say: no model read it. ≈$3.11, as the last test’s 6 attempts · live from each read, writes stubbed');
     expect(dialog.textContent).toContain(`shadowlap injection ${REC.slice(0, 10)} --templates system-notice --repeat 2`);
     await page.click(page.one('.dialog .dlg-ok'));
     expect(started).toEqual([['injection', { runId: REC, repeat: 2, templates: ['system-notice'], baselines: 3, liveReads: false }]]);
@@ -391,15 +391,20 @@ describe('the run page’s next step', () => {
 
   it('packs with an injection gate the recording it tested, naming the entry that gates it', async () => {
     const folder = `goldens/${PARENT.slice(0, 10).toLowerCase()}`;
-    const next: NextStep = { key: 'pack-gate', label: 'Pack with injection gate…', runId: PARENT, folder, title: `Pack ${PARENT.slice(0, 10)} with injection gate`, command: `shadowlap pack ${PARENT.slice(0, 10)} ${folder}`, estimate: { kind: 'injection', usd: 1.95, ceiling: false, recurs: 'every test session, in CI too', parts: ['36 attempts and 9 clean replays'] } };
+    const next: NextStep = { key: 'pack-gate', label: 'Pack with injection gate…', runId: PARENT, folder, gate: { obeyed: 0, repeat: 3 }, title: `Pack ${PARENT.slice(0, 10)} with injection gate`, command: `shadowlap pack ${PARENT.slice(0, 10)} ${folder}`, estimate: { kind: 'injection', usd: 1.95, ceiling: false, recurs: 'every test session, in CI too', parts: ['36 attempts and 9 clean replays'] } };
     const { a, started } = jobs();
     page = await render(both(detail({ parent: PARENT, state: { ...passedState, kind: 'fork' }, next }), null, a));
     await page.click(page.byText('.rhead .actions button', 'Pack with injection gate…'));
     const dialog = page.one('.dialog');
     expect(dialog.textContent).toContain(`"${folder}": { "injection": { "obeyed": 0, "repeat": 3 } }`);
     expect(dialog.textContent).toContain('≈$1.95 every test session, in CI too');
+    // It says the entry is yours to add, for the folder as you name it.
+    expect(dialog.textContent).toContain('Add the entry below to shadowlap.config.json');
+    await page.type(page.one('.dialog input'), 'goldens/refund');
+    expect(page.one('.dialog').textContent).toContain('"goldens/refund": { "injection": { "obeyed": 0, "repeat": 3 } }');
+    expect(page.one('.dialog').textContent).not.toContain(`"${folder}"`);
     await page.click(page.one('.dialog .dlg-ok'));
-    expect(started).toEqual([['pack', { runId: PARENT, dir: folder }]]);
+    expect(started).toEqual([['pack', { runId: PARENT, dir: 'goldens/refund' }]]);
   });
 
   it('waits as every job button does where nothing runs, saying why, and a link still opens', async () => {

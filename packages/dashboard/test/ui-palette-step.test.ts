@@ -75,7 +75,8 @@ describe('This run', () => {
     const recording: NextStep = { key: 'replay', label: 'Replay recording', runId: PARENT, command: `shadowlap replay ${PARENT.slice(0, 10)}` };
     const compare: NextStep = { key: 'compare', label: 'Compare with parent', parent: PARENT, href: `#/compare/${PARENT}/${RUN}`, title: 'Against it', command: 'shadowlap diff a b' };
     const items = await thisRun(detail(compare, { replay: recording, parent: PARENT }));
-    expect(items.map((x) => x.label).slice(0, 2)).toEqual(['Compare with parent', 'Replay recording']);
+    expect(items.map((x) => x.label).slice(0, 2)).toEqual(['Compare with parent', 'Replay']);
+    expect(items[1]?.hint).toBe(`shadowlap replay ${PARENT.slice(0, 10)}`);
     expect(items.filter((x) => x.label === 'Compare with parent')).toHaveLength(1);
     // A link is no job: it goes on while the server can't be reached, and on a read-only dashboard.
     expect(items[0]?.job).toBeUndefined();

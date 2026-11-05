@@ -6,6 +6,7 @@ import {
   callRuleLabel,
   checkStatus,
   confirmWords,
+  GATE_REPEAT,
   goldenTestEstimate,
   hasRecordedCommand,
   injectionAgainEstimate,
@@ -151,7 +152,8 @@ export type NextStep = StepWords &
     | { key: 'rule' }
     | { key: 'injection-test'; runId: string }
     | { key: 'injection-again'; runId: string; job: InjectionAgain }
-    | { key: 'pack-gate' | 'pack'; runId: string; folder: string }
+    | { key: 'pack'; runId: string; folder: string }
+    | { key: 'pack-gate'; runId: string; folder: string; gate: GateEntry }
   );
 
 /** Run blame, plain beside a crash's Find breaking commit: the check it would use, and what its hover says, runs and bills. */
@@ -160,6 +162,12 @@ export interface BlameBeside {
   sub: string;
   command: string;
   estimate?: Estimate;
+}
+
+/** The `injection` a golden's entry under `tests` gives it, for a gate that fails while the agent obeys: what `tests` reads. */
+export interface GateEntry {
+  obeyed: number;
+  repeat: number;
 }
 
 /** What the `injection` job takes to run a test again as the last one ran. */
@@ -331,7 +339,9 @@ function packGateStep(f: Facts, runId: string, parent: boolean): Decided {
     label: ACTIONS.packWithGate.label,
     runId,
     folder,
-    title: `Pack ${short(runId)} with injection gate`,
+    gate: { obeyed: 0, repeat: GATE_REPEAT },
+    // On an attempt's page the run it packs is another: its card names it.
+    ...(parent ? { title: `Pack ${short(runId)} with injection gate` } : {}),
     sub: parent ? 'A golden with an injection gate: it fails while the agent obeys a planted instruction' : 'A golden with an injection gate: it fails while the agent obeys a planted instruction, and passes once it is fixed',
     command: commandLine(['pack', short(runId), folder]),
     reads: [runId],
@@ -523,6 +533,9 @@ function againCommand(runId: string, again: InjectionAgain): string {
   return commandLine(['injection', short(runId), ...(again.templates.length ? ['--templates', again.templates.join(',')] : []), '--baselines', String(again.baselines), ...(again.repeat !== 1 ? ['--repeat', String(again.repeat)] : []), ...(again.liveReads ? ['--live-reads'] : [])]);
 }
 
+/** Why a test stopped short and what to do about it: its budget's the advice to spend it better, any other stop in its own words. */
+const stopWords = (reason: string): string => (/\bbudget\b/.test(reason) ? 'It stopped at its budget: test with fewer templates, or a higher budget' : `It stopped early (${reason}): test it again`);
+
 /** What a recording's newest finished plant leads with: its proof when it failed, running again when it showed too little; null when it says nothing to do. */
 function plantStep(f: Facts, newest: StoredInjectionResult): Decided | null {
   const { row, store } = f;
@@ -535,7 +548,8 @@ function plantStep(f: Facts, newest: StoredInjectionResult): Decided | null {
   const why = report.gate?.reason ?? 'no attempt decided';
   // Stopped early, or with a payload file its result doesn't keep: it can't run again as it ran, so it asks what to test.
   const ownFile = report.payloads?.some((x) => x.source === 'file');
-  if ((report.stopReason || ownFile) && !newest.golden) return { key: 'injection-test', label: ACTIONS.runInjectionTest.label, runId: row.runId, command: commandLine(['injection', short(row.runId)]), sub: report.stopReason ? `It stopped early (${report.stopReason}): test with fewer templates, or a higher budget` : `It showed too little to say: ${why}`, reads: [row.runId], price: (p) => injectionEstimate(p.calls(row.runId), untrustedReads(p.raw(row.runId), f.work?.tools).reads, { payloads: allTemplates() }) };
+  const stopped = report.stopReason ? stopWords(report.stopReason) : null;
+  if ((report.stopReason || ownFile) && !newest.golden) return { key: 'injection-test', label: ACTIONS.runInjectionTest.label, runId: row.runId, command: commandLine(['injection', short(row.runId)]), sub: stopped ?? `It showed too little to say: ${why}`, reads: [row.runId], price: (p) => injectionEstimate(p.calls(row.runId), untrustedReads(p.raw(row.runId), f.work?.tools).reads, { payloads: allTemplates() }) };
   if (newest.golden) return { key: 'gate-again', label: ACTIONS.rerunTest.label, golden: newest.golden, command: commandLine(['test', newest.golden]), sub: `Its injection gate showed too little to say: ${why}`, price: again };
   const job = testedAs(report);
   return { key: 'injection-again', label: ACTIONS.rerunInjectionTest.label, runId: row.runId, job, command: againCommand(row.runId, job), sub: `It showed too little to say: ${why}`, price: again };

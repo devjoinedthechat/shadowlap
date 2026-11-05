@@ -16,7 +16,7 @@ import type { NextStep } from '../types.js';
 import type { PendingAction } from './actions.js';
 import { useDivergedJobs } from './diverged.js';
 import { checksOf } from './model.js';
-import { blameBesideCard, replayAction, stepCard, stepCost, stepJob, type StepCard } from './next-step.js';
+import { blameBesideCard, gateEntry, replayAction, stepAsk, stepCard, stepCost, stepJob, type StepCard } from './next-step.js';
 import { blameTitle } from './offers.js';
 
 /**
@@ -106,7 +106,6 @@ function DivergedStep({ run, step, offers }: StepProps & { step: Extract<NextSte
 function UpdateStep({ step }: { step: Extract<NextStep, { key: 'normalizer' | 'update-golden' }> }) {
   const app = useApp();
   const [asking, setAsking] = useState(false);
-  const cost = stepCost(step);
   return (
     <>
       <TestsJobButton className="btn lime" verb={stepJob(step)!.verb} off={app.actionsOff} tip={tipOf(stepCard(step))} lead={step.key} onClick={() => app.guard(() => setAsking(true))}>
@@ -115,7 +114,7 @@ function UpdateStep({ step }: { step: Extract<NextStep, { key: 'normalizer' | 'u
       {asking ? (
         <ConfirmDialog
           title={`Update ${goldenName(step.golden)}?`}
-          text={[step.sub, cost].filter(Boolean).join(' ')}
+          text={stepAsk(step)}
           ok={step.label}
           {...(step.command ? { command: step.command } : {})}
           onClose={() => setAsking(false)}
@@ -183,7 +182,6 @@ function InjectionStep({ step }: { step: Extract<NextStep, { key: 'injection-tes
   const off = app.actionsOff ?? busy;
   const title = confirmWords(step.label);
   const fields = step.key === 'injection-again' ? { runId: step.runId, repeat: step.job.repeat, ...(step.job.templates.length ? { templates: step.job.templates } : {}), baselines: step.job.baselines, liveReads: step.job.liveReads } : { runId: step.runId };
-  const cost = stepCost(step);
   return (
     <>
       <button className={off ? 'btn' : 'btn lime'} type="button" disabled={!!off} data-next={step.key} {...(off ? { title: off } : { 'data-tip': tipOf(stepCard(step)) })} onClick={() => app.guard(() => setAsking(true))}>
@@ -192,7 +190,7 @@ function InjectionStep({ step }: { step: Extract<NextStep, { key: 'injection-tes
       {asking ? (
         <ConfirmDialog
           title={`${title} on ${shortId(step.runId)}?`}
-          text={[step.sub, cost].filter(Boolean).join(' ')}
+          text={stepAsk(step)}
           ok={title}
           {...(step.command ? { command: step.command } : {})}
           onClose={() => setAsking(false)}
@@ -206,16 +204,13 @@ function InjectionStep({ step }: { step: Extract<NextStep, { key: 'injection-tes
   );
 }
 
-/** The entry that gives a golden its injection gate, for the dialog to name. */
-const gateEntry = (folder: string) => `"tests": { "${folder}": { "injection": { "obeyed": 0, "repeat": 3 } } }`;
-
-/** Pack as golden… and Pack with injection gate…: the run packed into a folder of the goldens, named for the run; a gate's entry goes under `tests` in the config. */
+/** Pack as golden… and Pack with injection gate…: the run packed into a folder of the goldens, named for the run; a gate's entry, which this leaves to you, goes under `tests` in the config, for the folder as you name it. */
 function PackStep({ step }: { step: Extract<NextStep, { key: 'pack' | 'pack-gate' }> }) {
   const app = useApp();
   const [asking, setAsking] = useState(false);
   const off = app.actionsOff;
   const id = shortId(step.runId);
-  const gate = step.key === 'pack-gate';
+  const gate = step.key === 'pack-gate' ? step.gate : null;
   const cost = stepCost(step);
   return (
     <>
@@ -225,10 +220,11 @@ function PackStep({ step }: { step: Extract<NextStep, { key: 'pack' | 'pack-gate
       {asking ? (
         <PromptDialog
           title={gate ? `Pack ${id} with injection gate?` : `Pack ${id} as golden?`}
-          text={gate ? `It packs the run; the gate is an entry in shadowlap.config.json: ${gateEntry(step.folder)}.${cost ? ` Each test of it costs ${cost}.` : ''}` : 'A golden is a recording CI replays on every commit. Redaction rules apply to the copy; the store is never changed.'}
+          text={gate ? `It packs the run. Add the entry below to shadowlap.config.json, which gives it its gate.${cost ? ` Each test of it costs ${cost}.` : ''}` : 'A golden is a recording CI replays on every commit. Redaction rules apply to the copy; the store is never changed.'}
           label="Folder, inside the project"
           initial={step.folder}
           command={(dir) => `shadowlap pack ${id} ${dir || '…'}`}
+          {...(gate ? { after: (dir: string) => <pre className="codebox gateentry">{gateEntry(dir || '…', gate)}</pre> } : {})}
           ok={confirmWords(step.label)}
           onClose={() => setAsking(false)}
           onRun={(dir) => {

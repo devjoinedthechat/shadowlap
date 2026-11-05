@@ -1,7 +1,7 @@
 import { costLine, costWords } from '../../../engine/src/estimates/spending.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { normalizeAction } from '../normalize.js';
-import type { ActionItem, BlameBeside, NextStep, RunDetail } from '../types.js';
+import type { ActionItem, BlameBeside, GateEntry, NextStep, RunDetail } from '../types.js';
 import { blameTitle } from './offers.js';
 
 /**
@@ -69,6 +69,15 @@ export function blameBesideCard(blame: BlameBeside): StepCard {
 export function stepCost(step: NextStep): string | null {
   return step.estimate ? costLine(step.estimate).join(' · ') : null;
 }
+
+/** What a step's dialog says: its sentence, then what it bills. */
+export function stepAsk(step: NextStep): string {
+  const cost = stepCost(step);
+  return step.sub && cost ? `${step.sub}. ${cost}` : (step.sub ?? cost ?? '');
+}
+
+/** The entry under `tests` that gives a golden its injection gate, for its folder as it stands in the dialog. */
+export const gateEntry = (folder: string, gate: GateEntry): string => `"tests": { ${JSON.stringify(folder)}: { "injection": { "obeyed": ${gate.obeyed}, "repeat": ${gate.repeat} } } }`;
 
 /**
  * A fix's status as the run page's Open fix says it on hover and its banner beside it: open until a
