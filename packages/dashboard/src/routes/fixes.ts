@@ -1,4 +1,4 @@
-import { ACTIONS, blameCheckFor, DEFAULT_REPAIRER, failedCheckLabels, FIX_STATUSES, FixIdError, fixRecords, type FixStatus, hasRecordedCommand, type JobConsent, needsConsent, readConfigFile, repairerProblem, repairJobArgv, resolveFix, type RunRecord, selectedRuns, setFixTitle, splitCommand, type StoredFix, type StoreOf } from '@shadowlap/engine';
+import { ACTIONS, blameCheckFor, DEFAULT_REPAIRER, failedCheckLabels, FIX_STATUSES, FixIdError, type FixStatus, hasRecordedCommand, type JobConsent, needsConsent, readConfigFile, repairerProblem, repairJobArgv, resolveFix, type RunRecord, selectedRuns, setFixTitle, splitCommand, type StoredFix, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { fixBundles, fixDetail, fixList, patchesToCheck, pulledPatchesToCheck } from '../fixes.js';
@@ -292,9 +292,10 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/fixes/:id/estimates', async (r) => {
     const fix = findFix(store, r.params.id);
     const model = modelParam(r.query.get('model'));
-    const rec = fixRecords(store, fix);
+    // The calls of the runs it reads, by the fix's links alone: its blames, repairs and verdicts are read beside the server.
+    const runs = new Set(store.fixLinks(fix.fixId).flatMap((l) => (l.kind === 'failing' || l.kind === 'good' ? [l.ref] : [])));
     const { byId } = loadRunIndex(store);
-    const calls = [...new Set([...rec.failing, ...rec.good])].reduce((n, id) => n + (byId.get(id)?.calls ?? 0), 0);
+    const calls = [...runs].reduce((n, id) => n + (byId.get(id)?.calls ?? 0), 0);
     const job = { kind: 'fix-estimates' as const, fixId: fix.fixId, repairer: configuredRepairer(ctx), rule: verifyRule(ctx), model, ...(ctx.read.prices ? { prices: ctx.read.prices } : {}) };
     sendAnswer(r, await ctx.reads.run(job, { calls }));
   });
