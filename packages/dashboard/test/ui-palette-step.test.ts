@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type Client } from '../ui/api.js';
-import { BLAME_ENTRIES, blameEntries, matchPalette, stepEntry } from '../ui/palette.js';
+import { BLAME_ENTRIES, blameAsksOnItsPage, blameEntries, matchPalette, stepEntry } from '../ui/palette.js';
 import { useRunCommands } from '../ui/run/run-commands.js';
 import type { Route } from '../ui/route.js';
 import { Palette } from '../ui/shell/Palette.js';
@@ -136,6 +136,14 @@ describe('Run blame in the palette', () => {
     await r.wait(0);
     expect(started).toEqual([['blame', { runId: RUN }]]);
     expect(watched).toHaveBeenCalledOnce();
+  });
+
+  it('leaves to the run’s page the check and the yes it asks first, and nothing else', () => {
+    expect(blameAsksOnItsPage(new ApiError(422, 'say what a passing run must do'))).toBe(true);
+    expect(blameAsksOnItsPage(new ApiError(409, 'This run came from an imported pack: node agent.mjs', 'node agent.mjs'))).toBe(true);
+    expect(blameAsksOnItsPage(new ApiError(409, 'A job is already running'))).toBe(false);
+    expect(blameAsksOnItsPage(new ApiError(500, 'broke'))).toBe(false);
+    expect(blameAsksOnItsPage(null)).toBe(false);
   });
 
   it('opens the run where what it asks first is its page’s to ask, and offers none where nothing runs', async () => {

@@ -1,3 +1,4 @@
+import { consentAsked } from './actions.js';
 import { ACTIONS } from './labels.js';
 import type { NextStep } from './types.js';
 
@@ -41,6 +42,11 @@ export function blameEntries<R extends { runId: string; startedAt: number; next?
     .sort((a, b) => b.startedAt - a.startedAt)
     .slice(0, BLAME_ENTRIES)
     .map((run) => ({ run, entry: { group: 'Actions', label: ACTIONS.runBlame.label, hint: `shadowlap blame ${run.runId.slice(0, 10)}`, job: true, typed: true, match: `failed ${run.about?.text ?? ''}` } }));
+}
+
+/** A blame the palette started that first asks something (the check, or a yes to someone else's command): the run's own page asks it. */
+export function blameAsksOnItsPage(err: unknown): boolean {
+  return (err as { status?: unknown } | null)?.status === 422 || consentAsked(err) !== null;
 }
 
 /** What a job's entry says in place of its hint while the server can't be reached. */
