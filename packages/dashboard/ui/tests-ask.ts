@@ -83,9 +83,9 @@ function ask(q: TestsQuestion | null): void {
  * and a second one to a job that already sent a yes (a session that changed under it: asked again
  * in its own words, never in a loop).
  */
-export function startTestsJob(app: TestsJobApp, kind: string, fields: Record<string, unknown>, say?: TestsAskSource): void {
+export function startTestsJob(app: TestsJobApp, kind: string, fields: Record<string, unknown>, say?: TestsAskSource): boolean {
   const refused = (err: unknown) => app.watchJob(Promise.reject(err));
-  app.guard(() => {
+  return app.guard(() => {
     void app.client.startJob(kind, fields).then(
       (job) => app.watchJob(Promise.resolve(job)),
       (err: unknown) => {

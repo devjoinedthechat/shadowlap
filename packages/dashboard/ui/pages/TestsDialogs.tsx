@@ -20,7 +20,7 @@ import { bisectCost } from '../runspage/find-commit.js';
  * Update golden, or Update goldens for every diverged one. `has` says which jobs the server runs;
  * `onInstead` runs the lime way on beside Update anyway, when there is one.
  */
-export function UpdateGoldensDialog({ view, paths, has, onUpdate, onInstead, onClose }: { view: TestsView; paths: string[]; has: (kind: string) => boolean; onUpdate: () => void; onInstead: (instead: NonNullable<UpdatePlan['instead']>) => void; onClose: () => void }) {
+export function UpdateGoldensDialog({ view, paths, has, onUpdate, onInstead, onClose }: { view: TestsView; paths: string[]; has: (kind: string) => boolean; onUpdate: () => unknown; onInstead: (instead: NonNullable<UpdatePlan['instead']>) => unknown; onClose: () => void }) {
   const plan = updatePlan(view, paths, has);
   return <UpdateGoldenDialog plan={plan} onUpdate={onUpdate} {...(plan.instead ? { onInstead: () => onInstead(plan.instead!) } : {})} onClose={onClose} />;
 }
@@ -32,7 +32,7 @@ export function UpdateGoldensDialog({ view, paths, has, onUpdate, onInstead, onC
  * `tried`; or the golden may fork, so each replay runs live from where it forks, which its cost line
  * says first. With a `range` there is nothing to ask: it says the two commits.
  */
-export function FindCommitDialog({ name, golden, range, live, revisions, tried, onRun, onClose }: { name: string; golden: string; range: { good: string; bad: string | null } | null; live: boolean; revisions: readonly BisectRevision[]; tried: string | null; onRun: (good: string, bad: string | null) => void; onClose: () => void }) {
+export function FindCommitDialog({ name, golden, range, live, revisions, tried, onRun, onClose }: { name: string; golden: string; range: { good: string; bad: string | null } | null; live: boolean; revisions: readonly BisectRevision[]; tried: string | null; onRun: (good: string, bad: string | null) => unknown; onClose: () => void }) {
   const choices = revisionChoices(revisions, tried);
   const id = useId();
   const [picked, setPicked] = useState(choices.initial);
@@ -44,7 +44,7 @@ export function FindCommitDialog({ name, golden, range, live, revisions, tried, 
       title={namedIn(`Find breaking commit for ${name}`, name)}
       lead={`Finds the first commit that broke ${name}, from ${tried ? 'an older one' : 'one'} where it worked.`}
       doc="bisect"
-      facts={[range ? { label: 'Good', value: <code>{range.good}</code>, wide: true } : null, { label: 'Bad', value: <code>{range?.bad ?? 'HEAD'}</code>, quiet: 'where the search ends' }]}
+      facts={[range ? { label: 'Good', value: range.good, code: true, wide: true } : null, { label: 'Bad', value: range?.bad ?? 'HEAD', code: true, quiet: 'where the search ends' }]}
       command={commandText(args)}
       cost={bisectCost({ fork: false, live })}
       ok={confirmWords(ACTIONS.findBreakingCommit.label)}
@@ -62,7 +62,7 @@ export function FindCommitDialog({ name, golden, range, live, revisions, tried, 
  * recording never had, or more changed): the rules are added, then the golden is updated, which
  * re-records it live. It asks first, as Update golden does, with each command.
  */
-export function NormalizeUpdateDialog({ name, steps, onRun, onClose }: { name: string; steps: string[][]; onRun: () => void; onClose: () => void }) {
+export function NormalizeUpdateDialog({ name, steps, onRun, onClose }: { name: string; steps: string[][]; onRun: () => unknown; onClose: () => void }) {
   return (
     <Dialog
       title={`${ACTIONS.addNormalizerAndUpdate.label} ${name}?`}

@@ -1625,7 +1625,7 @@ Each row is one line: what it does, then what it runs. What it is for and the co
 
 **A run picker** filters by id, about line or label, and says *Nothing matches.* when the filter leaves none. The arrows, Home, End, PageUp and PageDown move through the list, a check marks the run picked, and Enter picks another.
 
-**Every dialog reads in one order:** a title that is verb and object; one sentence, ending on the page of these docs that says how the job works; one amber or red line where it can't help yet or acts for real; what decides whether to press, as label and value rows; its fields; the `$` command, following them; what it bills, in one quiet line; then Cancel and the way on. The way on is lime, red where it deletes, plain beside a second way on. One that can't start leaves the dialog open, with what you typed.
+**Every dialog reads in one order.** A title that is verb and object comes first, then one sentence ending on the page of these docs that says how the job works. One amber or red line follows where it can't help yet or acts for real, then what decides whether to press, as label and value rows. Its fields come next, with the `$` command following them and what it bills in one quiet line. Cancel and the way on end it: lime, red where it deletes, plain beside a second way on. One that can't start leaves the dialog open, with what you typed.
 
 **A dialog** always fits the window: its title and buttons stay in view, and its body scrolls.
 

@@ -21,7 +21,7 @@ import { ActionDialog } from '../ui/run/actions.js';
 import { EditDialog } from '../ui/run/EditAndFork.js';
 import { BisectDialog, DeleteRunDialog } from '../ui/run/RunDialogs.js';
 import { OtelDialog } from '../ui/run/ShareMenu.js';
-import { PackDialog } from '../ui/runspage/BulkBar.js';
+import { BulkBar, PackDialog } from '../ui/runspage/BulkBar.js';
 import { FindCommitDialog as RunsFindCommit } from '../ui/runspage/FindCommit.js';
 import { ImportDialog } from '../ui/runspage/ImportDialog.js';
 import { RemoveProjectDialog } from '../ui/shell/RemoveProject.js';
@@ -406,6 +406,25 @@ describe('Settings’ and the shell’s dialogs', () => {
     const page = await open(createElement(StopJobDialog, { ask, onOk: () => undefined, ...closes }));
     holds(page, { title: 'Stop repair', doc: 'jobs', first: CANCEL, ok: 'Stop repair', tone: 'plain' });
     expect(page.one('.dlg-cancel').textContent).toBe('Keep it running');
+  });
+});
+
+describe('the bulk bar’s dialogs', () => {
+  const RUNS = [{ runId: '01M5H2DJ1W0000000000000000', status: 'completed', attempts: 2 }, { runId: '01M5H2DJR40000000000000000', status: 'running', attempts: 0 }, { runId: '01M5H2DJZ90000000000000000', status: 'completed', attempts: 1 }] as never;
+  const bar = () => open(createElement(BulkBar, { runs: RUNS, store: false, clear: () => undefined, onDone: () => undefined }), appWith({ client: { offers: () => new Promise(() => undefined) } }));
+
+  it('Add label', async () => {
+    const page = await bar();
+    await page.click(page.byText('.bulkbar button', 'Label'));
+    holds(page, { title: 'Add label to 3 runs', doc: 'labels', first: 'input[type="text"]', ok: 'Add label' });
+    expect(page.all('[role="dialog"] .cstep')).toHaveLength(3);
+  });
+  it('Delete runs, leaving alone the one still recording', async () => {
+    const page = await bar();
+    await page.click(page.byText('.bulkbar button', 'Delete'));
+    holds(page, { title: 'Delete 2 runs?', doc: 'deletingRuns', first: CANCEL, ok: 'Delete 2 runs', tone: 'danger' });
+    expect(page.all('[role="dialog"] header p span')[0].textContent).toBe('Deletes the runs, their 3 attempts and the recorded data nothing else uses.');
+    expect(page.all('.dfacts div').map((d) => d.textContent)).toEqual(['Forks, replayskeep their own datathey lose the link to them', 'Left alone01M5H2DJR4still recording']);
   });
 });
 

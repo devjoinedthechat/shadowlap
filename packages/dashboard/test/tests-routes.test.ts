@@ -564,7 +564,7 @@ describe('a session that runs a golden live', () => {
   it('asks first, naming the goldens that go live and why, and runs only once the request says yes to that question', async () => {
     spawned.length = 0;
     const q = await asked({ kind: 'test' });
-    expect(q).toEqual({ error: `${FORK}; ${INJECTION}. ${BILLED}`, confirm: expect.stringMatching(/^[0-9a-f]{32}$/) });
+    expect(q).toEqual({ error: `${FORK}; ${INJECTION}. ${BILLED}`, confirm: expect.stringMatching(/^[0-9a-f]{32}$/), live: expect.any(Array) });
     // A yes to another question is no yes to this one: asked again, the same.
     expect(await asked({ kind: 'test', yes: 'f'.repeat(32) })).toEqual(q);
     expect(spawned).toEqual([]);

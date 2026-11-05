@@ -63,10 +63,12 @@ function CleanupFooter({ job }: { job: JobView }) {
           dry={dry}
           label={label}
           onClose={() => setAsking(false)}
-          onOk={() => {
-            setStarted(true);
-            app.watchJob(app.client.startJob(JOB_KINDS.gc, { confirm: job.id }));
-          }}
+          onOk={() =>
+            app.guard(() => {
+              setStarted(true);
+              app.watchJob(app.client.startJob(JOB_KINDS.gc, { confirm: job.id }));
+            })
+          }
         />
       ) : null}
     </>

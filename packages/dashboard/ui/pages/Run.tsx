@@ -313,7 +313,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   // What the page offers beyond the run's record: Share's counts, Push, Run blame, Find breaking commit.
   // None of it applies while the run records, so it is asked for once it has ended, and again as runs change.
   const offers = useLoad(() => (exported || live ? null : client.offers(runId)), `${runId}:offers:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data ?? null;
-  const actions = useActionRunner(runId, !!run.source, offers);
+  const actions = useActionRunner(runId, !!run.source, offers, run.forkAt);
   // The run's labels, and the good/bad key's press (+ and - from the keyboard too).
   const [labels, setLabels] = useRunLabels(runId, run.run.meta?.labels);
   const markRun = useMarkRun(useCallback((_id: string, next: string[]) => setLabels(next), [setLabels]));

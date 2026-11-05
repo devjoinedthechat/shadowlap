@@ -11,6 +11,8 @@ export interface DialogFact {
   tone?: 'amber' | 'red' | undefined;
   /** A value that is one long token: its label over it on the narrowest phones. */
   wide?: boolean;
+  /** A value that is a name in code: a commit, a path. */
+  code?: boolean;
 }
 
 /** Rows a dialog may leave out as it decides: null and false draw nothing. */
@@ -34,7 +36,7 @@ export function DialogFacts({ rows, id }: { rows: DialogFactRows; id?: string | 
         <div key={i} id={f.tone && id ? factId(id, i) : undefined} className={[f.tone, f.wide ? 'wide' : ''].filter(Boolean).join(' ') || undefined}>
           <dt>{f.label}</dt>
           <dd>
-            {f.value}
+            {f.code ? <code>{f.value}</code> : f.value}
             {f.quiet ? <small>{f.quiet}</small> : null}
           </dd>
         </div>

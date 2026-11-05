@@ -35,7 +35,7 @@ const UNKNOWN_BISECT = (runId: string): BisectOffer => ({ target: { kind: 'run',
  * pulled from the team store, runs their command: the server refuses it until it is confirmed, and
  * says the command, which a dialog shows, and only its Run sends the yes.
  */
-export function useActionRunner(runId: string, capture = false, offers: RunOffers | null = null, forkAt: number | null = null) {
+export function useActionRunner(runId: string, capture = false, offers: RunOffers | null = null, forkAt?: number | null) {
   const app = useApp();
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [bisecting, setBisecting] = useState(false);
@@ -93,12 +93,12 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
   return { run, dialog, findCommit };
 }
 
-export function ActionDialog({ runId, capture, forkAt, pending, onRun, onClose }: { runId: string; capture: boolean; forkAt: number | null; pending: PendingAction; onRun: (v?: string) => boolean; onClose: () => void }) {
+export function ActionDialog({ runId, capture, forkAt, pending, onRun, onClose }: { runId: string; capture: boolean; forkAt: number | null | undefined; pending: PendingAction; onRun: (v?: string) => boolean; onClose: () => void }) {
   const copy = dialogCopy(pending.action, {
     id: shortId(runId),
     callNo: pending.callNo,
     capture,
-    forkAt,
+    forkAt: forkAt ?? null,
     ...(pending.callName !== undefined ? { callName: pending.callName } : {}),
     ...(pending.recorded !== undefined ? { recorded: pending.recorded } : {}),
   });

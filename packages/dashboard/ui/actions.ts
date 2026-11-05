@@ -180,6 +180,8 @@ export interface FactWords {
   label: string;
   value: string;
   quiet?: string;
+  /** A value that is a name in code. */
+  code?: boolean;
 }
 
 /** What a dialog bills: until a price is known, who bills it, then what runs live. */

@@ -42,6 +42,7 @@
 .dialog .cmdline { margin-top: 10px; }
 .dialog .cmdcopy { margin-top: 8px; }
 .dialog p.fieldhint { margin: 6px 0 0; }
+.dialog .form + textarea { margin-top: 10px; }
 /* Import capture's sources on one row where they fit, else three over two */
 .dialog .seg.impsrc { display: flex; flex-wrap: wrap; width: fit-content; max-width: 100%; margin-bottom: 14px; }
 @media (max-width: 370px) { .dialog .seg.impsrc { display: grid; grid-template-columns: repeat(3, max-content); } }
@@ -102,7 +103,7 @@
 @media (min-width: 641px) { .dialog .cmdlbl .updshow { display: none; } }
 @media (max-width: 640px) { .dialog .cmdline.updany:not(.open) { display: none; } }
 .dialog .ondisk.steps + .fxpatch { margin-top: 12px; }
-@media (max-width: 640px) { .dialog .rmp small.gpath { display: none; } }
+@media (max-width: 640px) { .dialog .rmp .pn small.gpath { display: none; } }
 .form.one label + label { margin-top: 10px; }
 .dialog .ondisk.steps li i { color: var(--faint); }
 .dialog .ondisk.steps li > span { color: var(--ink); }

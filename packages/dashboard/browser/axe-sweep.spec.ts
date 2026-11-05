@@ -240,3 +240,72 @@ test('on a phone, every page, Settings tab, fix step and dialog has no serious o
   states.push(['Runs on a phone', at(page, '/runs', 'main#view table.runst tbody tr')], ['Runs · Import capture… on a phone', click(page, 'main#view button', 'Import capture…', { shows: DIALOG })], ['Runs · import closed on a phone', escape(page)]);
   expect(await sweep(page, states)).toEqual([]);
 });
+
+/**
+ * The dialogs the demo can show, each opened as its page opens it, at 1440 and as a phone's sheet. What
+ * the demo can't hold or would run for real (Force live on a write, a repair that would end No fix to
+ * try, Show patch, Stop on a running repair, Run blame's check, Record run, Replace skills, Clean up) is
+ * drawn in test/ui-dialog-anatomy.test.ts instead.
+ */
+test('every dialog has no serious or critical axe violation, wide and as a phone’s sheet', async ({ page }) => {
+  test.setTimeout(600_000);
+  const ids = dash().runs;
+  const id = (name: string) => ids[name] as string;
+  // A row or a button that isn't there says so soon: there is no waiting it out.
+  const button = (where: string, text: string) => async () => {
+    apiRequests(page);
+    await page.locator(where, { hasText: text }).first().click({ timeout: 20_000 });
+    await settled(page, { shows: DIALOG });
+  };
+  // Its page again is the page as it was: what is ticked stays ticked.
+  const tick = async () => {
+    await page.locator('main#view table.runst tbody tr input[type="checkbox"]').first().check({ timeout: 20_000 });
+    await settled(page, { shows: '.bulkbar' });
+  };
+  const opened = (name: string, where: () => Promise<void>, ...open: Array<() => Promise<void>>): Array<[string, () => Promise<void>]> => [[`${name}: its page`, where], ...open.map((o, i): [string, () => Promise<void>] => [i === open.length - 1 ? name : `${name}: step ${i + 1}`, o]), [`${name}: closed`, press(page, 'Escape', { hides: DIALOG })]];
+  const onRun = (name: string, of: string, text: string) => opened(name, run(page, id(of)), button('.rhead .actions button', text));
+  const fork = (name: string, of: string, row: string) => opened(name, run(page, id(of)), click(page, '#forkBtn', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, row));
+  const share = (name: string, row: string) => opened(name, run(page, id('ticket')), click(page, '.rhead .actions button', 'Share', { shows: MENU }), button(`${MENU} [role="menuitem"]`, row));
+  const onPage = (name: string, path: string, text: string) => opened(name, at(page, path), button('main#view button', text));
+  const bulk = (name: string, text: string) => opened(name, at(page, '/runs', 'main#view table.runst tbody tr'), tick, button('.bulkbar button', text));
+  const onFix = (name: string, of: string, text: string) => opened(name, at(page, `/fixes/${id(of)}`, 'fix'), button('.ph .actions button', text));
+  const states = (): Array<[string, () => Promise<void>]> => [
+    ...onRun('Delete run', 'ticket', 'Delete'),
+    ...onRun('The consent question', 'packed', 'Replay'),
+    ...fork('Inject instruction', 'ticket', 'Inject instruction'),
+    ...fork('Switch model', 'ticket', 'Switch model'),
+    ...fork('Fail with HTTP status', 'ticket', 'Fail with HTTP status'),
+    ...fork('Override result', 'failTool', 'Override result'),
+    ...fork('Fail with tool error', 'failTool', 'Fail with tool error'),
+    ...fork('Plant instruction', 'failTool', 'Plant instruction'),
+    ...fork('Override user reply', 'chat', 'Override user reply'),
+    ...fork('Repeat fork 5 times', 'override', 'Repeat 5 times'),
+    ...fork('Replay with your command', 'har', 'Replay with your command'),
+    ...fork('Find commit that changed it', 'ticket', 'Find commit that changed it'),
+    ...fork('Find breaking commit', 'planted', 'Find breaking commit'),
+    ...opened('Edit and fork', run(page, id('failTool')), button('.insp button', 'Edit and fork')),
+    ...share('Pack', 'Pack'),
+    ...share('Export eval dataset', 'Eval dataset'),
+    ...share('Export OpenTelemetry trace', 'OpenTelemetry trace'),
+    ...bulk('Add label', 'Label'),
+    ...bulk('Delete runs', 'Delete'),
+    ...bulk('Pack runs', 'Pack'),
+    ...bulk('Export the dataset of runs', 'Dataset'),
+    ...onPage('Update goldens', '/tests', 'Update goldens'),
+    ...onPage('Update golden', '/tests', 'Update golden'),
+    ...onPage('Add normalizer and update', '/tests', 'Add normalizer and update'),
+    ...onPage('Run tests’ question', '/tests', 'Run tests'),
+    ...onPage('Export pairs', '/training', 'Export pairs'),
+    ...onPage('Score model', '/training/tasks', 'Score model'),
+    ...onPage('A task’s Update golden', '/training/tasks', 'Update golden'),
+    ...onPage('Add normalizer', '/settings/matching', 'Add normalizer'),
+    ...onPage('Add redaction rule', '/settings/redaction', 'Add redaction rule'),
+    ...onPage('Add MCP server', '/settings/tools', 'Add MCP server'),
+    ...onPage('Remove project', '/settings/project', 'Remove project'),
+    ...onFix('Run repair', 'emailFix', 'Run repair'),
+    ...onFix('Mark fix applied', 'refundFix', 'Mark applied'),
+  ];
+  const wide = await sweep(page, states());
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect([...wide, ...(await sweep(page, states()))]).toEqual([]);
+});
