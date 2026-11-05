@@ -11,7 +11,7 @@ import { links } from '../links.js';
 import { searchedCommits } from '../next-step.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
-import { loadRunIndex, runAffinity } from '../run-index.js';
+import { loadRunIndex, runAffinity, type RunIndex } from '../run-index.js';
 import { configFileError } from '../settings.js';
 import { readTeamStoreInput } from '../team-store.js';
 import { liveAsk } from '../tests-live.js';
@@ -155,6 +155,13 @@ async function bisectHere(store: StoreOf<'recording' | 'fixes' | 'tests'>, golde
   return bisectJob(store, goldens, req, here ? { here } : {});
 }
 
+/** The calls of the attempts of each golden's newest test, as the run index counts them: what Tests' estimates price an attempt from. */
+function attemptCalls(store: StoreOf<'tests'>, byId: RunIndex['byId'], goldens: readonly GoldenSource[]): number {
+  let n = 0;
+  for (const g of goldens) for (const id of store.listTestResults({ golden: g.path, limit: 1 })[0]?.data?.attempts?.runs ?? []) n += byId.get(id)?.calls ?? 0;
+  return n;
+}
+
 /** What a Find breaking commit job searches, as its arguments say (tests.ts `bisectArgs`): what it replays, from and up to which revision, and whether live. */
 function searched(args: readonly string[]): { ref: string; good: string | null; bad: string | null; fork: boolean } {
   const after = (flag: string): string | null => {
@@ -200,7 +207,7 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/tests/estimates', async (r) => {
     const list = goldens();
     const { byId } = loadRunIndex(ctx.store);
-    const calls = list.reduce((n, g) => n + (g.runId ? (byId.get(g.runId)?.calls ?? 0) : 0), 0);
+    const calls = list.reduce((n, g) => n + (g.runId ? (byId.get(g.runId)?.calls ?? 0) : 0), 0) + attemptCalls(ctx.store, byId, list);
     sendAnswer(r, await ctx.reads.run({ kind: 'tests-estimates', goldens: list, folder: FOLDER, ...prices() }, { calls }));
   });
 
@@ -226,7 +233,9 @@ export function register(router: Router, ctx: RouteContext): void {
     if (!plan || typeof commits !== 'number') return r.json({ estimate: commits });
     const source = list.find((g) => g.path === plan.ref);
     const target = source ? { golden: source } : { runId: plan.ref, fork: plan.fork };
-    sendAnswer(r, await ctx.reads.run({ kind: 'bisect-estimate', commits, target, ...prices() }, source ? {} : runAffinity(ctx.store, plan.ref)));
+    // A golden's search is priced from its newest test's attempts, each as dear as the costliest.
+    const reads = source ? { calls: attemptCalls(ctx.store, loadRunIndex(ctx.store).byId, [source]) } : runAffinity(ctx.store, plan.ref);
+    sendAnswer(r, await ctx.reads.run({ kind: 'bisect-estimate', commits, target, ...prices() }, reads));
   });
 
   // A gate's figures, previewed before they are saved: what it means, what it costs, and its odds.
