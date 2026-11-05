@@ -6,7 +6,7 @@
 .pop, .dialog, .palette, .help, .tip, .bulkbar, .connblock .cb, .skip { background: var(--pop); box-shadow: var(--shadow-pop); }
 
 .tip { position: fixed; z-index: 60; pointer-events: none; min-width: 150px; max-width: min(360px, calc(100vw - 16px)); padding: 9px 11px; border-radius: var(--r-box); font-size: 12px; color: var(--dim); font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
-.tip b { display: block; margin-bottom: 4px; color: var(--ink); font-weight: 600; }
+.tip > b { display: block; margin-bottom: 4px; color: var(--ink); font-weight: 600; }
 .tip div { display: flex; align-items: center; gap: 8px; }
 .tip div i { width: 8px; height: 8px; border-radius: var(--r-mark); }
 .tip div em { margin-left: auto; padding-left: 14px; max-width: 300px; font-style: normal; font-family: var(--mono); color: var(--ink); text-align: right; white-space: normal; }
@@ -14,8 +14,10 @@
 .tip div.stk { display: grid; grid-template-columns: 8px minmax(0, 1fr); column-gap: 8px; row-gap: 1px; align-items: baseline; }
 .tip div.stk i { align-self: center; }
 .tip div.stk em { grid-column: 2; margin-left: 0; padding-left: 0; text-align: left; max-width: none; }
-/* what a command runs, up to its first arguments */
-.tip code { display: block; max-width: 440px; margin-top: 2px; font-size: var(--fs-label); color: var(--dim); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* what it runs, up to its first arguments, breaking only between them; what it quotes, as it is */
+.tip code { display: block; margin-top: 2px; font-size: var(--fs-label); color: var(--dim); white-space: pre-wrap; overflow-wrap: anywhere; }
+.tip code.ts-cmd { white-space: normal; overflow-wrap: normal; text-wrap: wrap; }
+.tip code.ts-cmd .cmdp > b { margin-right: 6px; font-weight: 400; color: var(--faint); }
 
 /* A modal always fits: at most the window less 16px each side, its header and footer kept, its body scrolling. */
 .scrim { position: fixed; inset: 0; z-index: 40; background: rgba(5,6,4,.55); backdrop-filter: blur(2px); display: grid; place-items: center; padding: 16px; }

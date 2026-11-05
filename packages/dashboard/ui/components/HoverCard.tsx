@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react'
 import { shownMenu } from '../overlays/menu-store.js';
 import { overlayOpen } from '../overlays/modal-store.js';
 import { placeTip } from '../place.js';
-import { Copy } from './Copy.js';
+import { Command, Copy } from './Copy.js';
 
 /**
  * Hover cards: one style everywhere, a title, a line or two, coloured rows and a command. An element
@@ -128,7 +128,7 @@ function Body({ d, term }: { d: Tip; term: boolean }) {
           <em>{value}</em>
         </div>
       ))}
-      {cmd ? <code>{tipCmd(cmd)}</code> : null}
+      {cmd?.startsWith('$ ') ? <Command cmd={tipCmd(cmd).slice(2)} inline prompt /> : cmd ? <code>{cmd}</code> : null}
     </>
   );
 }

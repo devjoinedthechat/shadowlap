@@ -140,7 +140,16 @@ describe('a hover card', () => {
     await r.focus(r.one('#long'));
     expect(r.all('#tip .ts')).toHaveLength(2);
     expect(r.one('#tip div').className).toBe('stk');
-    expect(r.one('#tip code').textContent).toBe('$ shadowlap repair --fixes label:pushy-customer …');
+    // The $ is drawn apart, so a command's breaks stay between its arguments.
+    expect(r.one('#tip code.ts-cmd').textContent).toBe('$shadowlap repair --fixes label:pushy-customer …');
+    expect(r.one('#tip code.ts-cmd .cmdp b').textContent).toBe('$');
+  });
+
+  it('quotes what has no $ whole, as it is', async () => {
+    r = await render(page(createElement('span', { key: 'q', id: 'q', tabIndex: 0, 'data-tip': tipCard('The rule', [], null, 'shadowlap.config.json: "tools"') }, 'The rule')));
+    await r.focus(r.one('#q'));
+    expect(r.one('#tip code').textContent).toBe('shadowlap.config.json: "tools"');
+    expect(r.one('#tip code').className).toBe('');
   });
 
   it('keeps a definition’s clauses whole on a term’s card, and lets one with a longer clause flow', async () => {
