@@ -2,8 +2,17 @@
 .tbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
 
 .tin { position: relative; margin-left: auto; }
-.tin input { height: 32px; width: 240px; border-radius: 9px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 13px var(--body); padding: 0 10px; outline: none; }
+.tin input { height: 32px; width: 240px; border-radius: 8px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 13.5px var(--body); padding: 0 10px; outline: none; }
 .tin input:focus { border-color: var(--accent-line); }
+/* Runs' filter takes terms: room for them, and how many runs match beside it, the two one piece at the toolbar's end that
+   gives way to the chips before it wraps; a phone's whole width */
+.rqw { display: flex; align-items: center; gap: 10px; flex: 1 1 220px; max-width: 450px; margin-left: auto; }
+.rqw .tin.rq { flex: 1 1 auto; max-width: 340px; margin-left: auto; }
+.tin.rq input { width: 100%; }
+@media (max-width: 640px) { .rqw { flex-basis: 100%; max-width: none; } .rqw .tin.rq { max-width: none; } }
+.tbar .qn { font-size: 12.5px; color: var(--faint); white-space: nowrap; }
+/* while no term counts, its live region stays, out of the row, so the count is read out once it comes */
+.tbar .qn:empty { position: absolute; }
 
 table.runst .rsub { padding-left: 22px; }
 

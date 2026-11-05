@@ -16,6 +16,7 @@ import { runRowScope } from '../run-row.js';
 import { BulkBar, type PickedRun } from '../runspage/BulkBar.js';
 import { Calendar } from '../runspage/Calendar.js';
 import { pickedOf, pickedRange, rangeTimes } from '../runspage/calendar-model.js';
+import { RunsFilterField } from '../runspage/FilterField.js';
 import { FindCommitDialog } from '../runspage/FindCommit.js';
 import { ImportDialog } from '../runspage/ImportDialog.js';
 import { ALL_RUNS, dayTimes, runsHref } from '../runspage/query.js';
@@ -500,10 +501,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
       {cal.data ? <Calendar data={cal.data} chip={chip} range={range} onPick={pickDays} byPerson={!!store} onFindCommit={hasKind(JOB_KINDS.bisect) ? findCommit : null} actionsOff={actionsOff} /> : null}
       <div className="tbar">
         <Chips label="Kind of run" items={RUN_CHIPS.filter(([key]) => key !== 'local' || store || chip === 'local').map(([key, label]) => ({ key, label, ...(counts ? { count: counts[key] } : {}) }))} value={chip} onChange={setChip} />
-        <label className="tin">
-          <span className="sr">Filter runs</span>
-          <input id="runsQuery" type="search" placeholder="Filter by id, about or label" title="Every word must be in a run’s id, about line, labels, command or revision; label:good lists the runs labelled good" value={query} onChange={(e) => setQuery(e.target.value)} />
-        </label>
+        <RunsFilterField value={query} onChange={setQuery} settled={q} total={table.total} loaded={table.loaded} />
       </div>
       {warming ? (
         <p className="muted" role="status">
@@ -553,10 +551,7 @@ function ExportedRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
       />
       <div className="tbar">
         <Chips label="Kind of run" items={RUN_CHIPS.map(([key, label]) => ({ key, label, count: counts[key] }))} value={chip} onChange={setChip} hideEmpty />
-        <label className="tin">
-          <span className="sr">Filter runs</span>
-          <input id="runsQuery" type="search" placeholder="Filter by id, about or label" title="Every word must be in a run’s id, about line, labels, command or revision; label:good lists the runs labelled good" value={query} onChange={(e) => setQuery(e.target.value)} />
-        </label>
+        <RunsFilterField value={query} onChange={setQuery} settled={query} total={matched.length} loaded={runs !== null} copy />
       </div>
       <section className="panel sec tscroll runsec">
         <RunsTable rows={shown} picked={new Set()} selectable={false} byColumn={false} sort={sort} onSort={setSort} onPick={() => undefined} onPickAll={() => undefined} now={Date.now()} />

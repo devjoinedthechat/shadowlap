@@ -1,6 +1,7 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Chips } from '../ui/components/bits.js';
+import { COPY_FILTER_PLACEHOLDER, FILTER_PLACEHOLDER, matchWords, RunsFilterField } from '../ui/runspage/FilterField.js';
 import { RunsTable, RunsTableEmpty, type TableRun } from '../ui/runspage/RunsTable.js';
 import { RUN_CHIPS, type RunChip } from '../ui/runs.js';
 import type { ChipCounts } from '../ui/types.js';
@@ -116,5 +117,44 @@ describe('the table’s section', () => {
     expect(decl('table.runst td.selcell .selhit', 'width', 'pointer: coarse')).toBe('44px');
     expect(decl('table.runst td.selcell .selhit', 'min-height', 'pointer: coarse')).toBe('44px');
     expect(decl('.panel.sec .attn-more', 'padding-left')).toBe('0');
+  });
+});
+
+describe('the filter', () => {
+  const field = async (props: Partial<Parameters<typeof RunsFilterField>[0]>) => {
+    r = await render(createElement(RunsFilterField, { value: '', onChange: () => undefined, settled: '', total: 207, loaded: true, ...props }));
+    return r;
+  };
+
+  it('says what it takes, and on hover what each term does', async () => {
+    const f = await field({});
+    const input = f.one('.rqw label.tin.rq input#runsQuery');
+    expect(input.getAttribute('type')).toBe('search');
+    expect(input.getAttribute('placeholder')).toBe('Filter: words, label:, status:, type: or tool:');
+    expect(input.getAttribute('title')).toBeNull();
+    expect(JSON.parse(input.getAttribute('data-tip')!)).toMatchObject({ t: 'Filter runs', s: 'label:refund-bug · status:failed · type:fork · tool:issue_refund · words, which also search what runs recorded. Each narrows the others.' });
+    expect(f.one('.rqw label .sr').textContent).toBe('Filter runs');
+  });
+
+  it('counts the runs that match while its words hold a term, its live region kept while it says nothing', async () => {
+    let f = await field({});
+    expect(f.one('.rqw .qn[role="status"]').textContent).toBe('');
+    await f.unmount();
+    f = await field({ value: 'status:failed refund', settled: 'status:failed refund' });
+    expect(f.one('.rqw .qn[role="status"]').textContent).toBe('207 runs match');
+    await f.unmount();
+    // Still reading the table: no count until it is in.
+    f = await field({ value: 'label:good', settled: 'label:good', loaded: false });
+    expect(f.one('.rqw .qn').textContent).toBe('');
+    expect([matchWords(1), matchWords(1200), matchWords(0)]).toEqual(['1 run matches', '1,200 runs match', '0 runs match']);
+  });
+
+  it('in an exported copy takes no tool:, and its card says no recorded text', async () => {
+    const f = await field({ copy: true });
+    const input = f.one('input#runsQuery');
+    expect(input.getAttribute('placeholder')).toBe(COPY_FILTER_PLACEHOLDER);
+    expect(COPY_FILTER_PLACEHOLDER).toBe('Filter: words, label:, status: or type:');
+    expect(FILTER_PLACEHOLDER).toContain('tool:');
+    expect(JSON.parse(input.getAttribute('data-tip')!).s).not.toMatch(/tool:|recorded/);
   });
 });

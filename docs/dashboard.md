@@ -241,7 +241,7 @@ Each row shows these columns:
 | Calls by origin | Its calls, colored by origin |
 | Calls | How many calls it made |
 | Spent | What it spent |
-| Status | Its outcome in one line: what [its checks](#judged-by-checks) say (*check failed at #6*), what a fork's writes came to (*forked · 2 writes blocked*), or a dash |
+| Status | Its outcome in one line: what [its checks](#judged-by-checks) say (*check failed at #6*), a fork's writes (*forked · 2 writes blocked*), or a dash |
 | When | When it ran |
 | *good · bad* | The [good/bad key](#labels-and-notes) |
 
@@ -262,8 +262,20 @@ Some runs are shown differently:
 Above the table:
 
 - **Chips by kind**, with their counts: recordings, forks, clean replays, test replays, captures, failed. Failed counts the runs that failed and the captures their import judged failed, but not a test replay [fixed since](#the-table). A run that fails only its family's checks says so in Status, but Failed and the calendar leave it out.
-- **A filter**: every word must be in the run's id, about line, kind, labels, command, source or revision. `label:good` is the runs labelled exactly that. A label with a space in it is quoted, `label:"needs review"`, as its chip writes it.
+- **A filter**: every word must be in the run's id, about line, kind, labels, command, source or revision, or in what the run recorded. Beside it, how many runs match: *207 runs match*. Its terms below narrow it further.
 - **Sorting** by calls, spend or time.
+
+| Term | Lists |
+| --- | --- |
+| `label:good` | The runs labelled exactly that. A label with a space in it is quoted, `label:"needs review"`, as its chip writes it |
+| `status:failed` | The runs whose Status says so: `passed`, `failed`, `inconclusive`, `not-applicable` or `live`, or a short form (`fail`, `inc`, `na`) |
+| `type:fork` | The runs of one kind: `recording`, `fork`, `clean` (or `replay`), `test` or `capture` |
+| `tool:issue_refund` | The runs that recorded a call to a tool whose name starts so. Only recorded tool calls count |
+| `"refund over limit"` | Quoted words, as a phrase in that order |
+
+A word of 3 characters or more also searches what runs recorded, as whole words. While the index of what they recorded is behind, the table says so: *Still reading what 3 of 200 runs recorded: more matches may follow.*
+
+`status:` reads each run's verdict as its Status does. Where that takes more than the table can wait for, it says how far it got: *The verdicts of 60 of 200 runs are known so far: runs among the rest may match too.* The table fills in as they are worked out. The days above the table, and Find breaking commit, count the same runs.
 
 ### The calendar and Find breaking commit
 
