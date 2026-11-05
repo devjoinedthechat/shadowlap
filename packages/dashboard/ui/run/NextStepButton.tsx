@@ -245,7 +245,7 @@ export function NextStepButton(props: StepProps) {
     case 'replay':
       return <ReplayButton run={run} step={step} lime onAction={onAction} />;
     case 'blame':
-      return <RunBlameButton runId={run.run.runId} failed={step.offer.failed} title={blameTitle(step.offer)} tip={tipOf(step)} className="btn lime" icon lead {...(step.capture ? { capture: true } : {})} />;
+      return <RunBlameButton runId={run.run.runId} failed={step.offer.failed} title={blameTitle(step.offer)} tip={tipOf(step)} className="btn lime" icon lead {...(step.capture ? { capture: true } : {})} {...(step.command ? { line: step.command } : {})} />;
     case 'normalizer':
     case 'update-golden':
       return step.key === 'update-golden' && !(props.offers?.test ?? step.test) ? <UpdateStep step={step} /> : <DivergedStep {...props} step={step} />;

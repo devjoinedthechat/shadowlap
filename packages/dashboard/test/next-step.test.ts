@@ -241,7 +241,7 @@ describe('a run’s next step', () => {
     expect(step(rec)).toMatchObject({ key: 'injection-test', label: 'Run injection test…', runId: rec, command: `shadowlap injection ${rec.slice(0, 10)}`, sub: expect.stringContaining('the budget of $2.00 is spent') });
     plant(rec, { gate: { obeyed: 0, influenced: null, verdict: 'inconclusive', reason: 'no model read it' }, at: T0 + 3 });
     plant(rec, { gate: failed, at: T0 + 10, ended: false });
-    expect(step(rec)).toMatchObject({ key: 'injection-again', label: 'Re-run injection test', runId: rec, job: { repeat: 2, templates: ['system-notice'], baselines: 2, liveReads: false }, command: `shadowlap injection ${rec.slice(0, 10)} --templates system-notice --repeat 2`, sub: 'It showed too little to say: no model read it' });
+    expect(step(rec)).toMatchObject({ key: 'injection-again', label: 'Re-run injection test', runId: rec, job: { repeat: 2, templates: ['system-notice'], baselines: 2, liveReads: false }, command: `shadowlap injection ${rec.slice(0, 10)} --templates system-notice --baselines 2 --repeat 2`, sub: 'It showed too little to say: no model read it' });
     // With a payload file its result doesn't keep, it can't run again as it ran: it asks what to test.
     plant(rec, { gate: { obeyed: 0, influenced: null, verdict: 'inconclusive', reason: 'no model read it' }, at: T0 + 4, payloads: [{ id: 'mine', source: 'file' }] });
     expect(step(rec)).toMatchObject({ key: 'injection-test', sub: 'It showed too little to say: no model read it' });
@@ -293,7 +293,7 @@ describe('a run’s next step', () => {
     const rec = recording();
     const fork = addRun(store, { parent: rec, startedAt: T0 + MIN, divergence: 1, calls: 'l' });
     store.setDivergence(fork, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, hints: [{ message: 'looks like a UUID', normalizer: RULE }] });
-    expect(step(fork)).toMatchObject({ key: 'rule', label: 'Add normalizer' });
+    expect(step(fork)).toMatchObject({ key: 'rule', label: 'Add normalizer', command: `shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'` });
   });
 
   it('packs a recording that passed, with no golden made from it, and replays anything else', () => {
@@ -340,6 +340,26 @@ describe('a run’s next step', () => {
     const held = makeRun(store, { labels: ['refund-bug'], calls: ['api'] });
     const { fix } = recordBlame(store, { runId: held, report: { ...blameReport(held), oracle: ['every issue_refund call: amount <= 250'] }, expect: EXPECT, scope: null, command: 'shadowlap blame x', title: 'Refunds above the limit', checkText: 'send_email called once', at: T0 });
     expect(step(capture, w, { judged: { ...judged!, first: { label: 'every issue_refund call: amount <= 100', detail: null } } })).toMatchObject({ key: 'fix', fixId: fix.fixId });
+  });
+
+  it('shows commands that paste: every word quoted where it needs it, and only what you fill in left as it is', () => {
+    const typed = (command: string): string[] => execFileSync('sh', ['-c', command.replace(/^shadowlap/, `printf '%s\\n'`)], { encoding: 'utf8' }).trim().split('\n');
+    const expect1 = { calls: [{ tool: 'send_email', args: { subject: { contains: 'it’s' } } }], tools: { "o'brien": 1 } };
+    const rec = recording(T0, { status: 'failed', meta: { expect: expect1, checks: [{ ok: false, label: 'x', detail: 'y' }] } });
+    const s = step(rec);
+    expect(typed(s.command!)).toEqual(['blame', rec.slice(0, 10), '--expect', JSON.stringify(expect1)]);
+    // A golden's folder with a space, as a tests entry may name it.
+    const spaced = 'goldens/refund in limit';
+    const held = recording(T0 + 1);
+    const session = store.startTestSession({ command: ['shadowlap', 'test', spaced], startedAt: T0 + MIN }).sessionId;
+    const t = addRun(store, { parent: held, startedAt: T0 + MIN, status: 'failed', calls: 'r', meta: { test: { golden: spaced, session } } });
+    store.setDivergence(t, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, diff: [{ path: '$.system', op: 'changed', before: 'a', after: 'b' }] });
+    store.addTestResult({ sessionId: session, golden: spaced, ok: false, failure: 'diverged', reason: 'diverged', runId: t, goldenRunId: held, at: T0 + MIN });
+    const update = step(t, work([source(held, { path: spaced })]));
+    expect(update.key).toBe('update-golden');
+    expect(typed(update.command!)).toEqual(['test', spaced, '--update']);
+    // What you fill in stays a placeholder.
+    expect(step(addRun(store, { startedAt: T0 + 2, argv: [NO_COMMAND], meta: { imported: { at: T0, from: '/work/cap.jsonl' }, covers: ['api'] }, calls: 'l' })).command).toMatch(/^shadowlap replay \S+ -- <your command>$/);
   });
 
   it('tells failures apart without their call numbers and amounts', () => {

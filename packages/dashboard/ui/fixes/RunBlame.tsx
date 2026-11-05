@@ -28,6 +28,7 @@ export function RunBlameButton({
   icon = false,
   lead = false,
   capture = false,
+  line,
 }: {
   runId: string;
   failed?: readonly string[];
@@ -41,6 +42,8 @@ export function RunBlameButton({
   /** It is the run's next step, which the palette presses. */
   lead?: boolean;
   capture?: boolean;
+  /** The command it runs, where it knows it: a capture's asks for what fills in its `<your command>`. */
+  line?: string;
 }) {
   const app = useApp();
   const busy = useTreeBusy('reads', 'blame');
@@ -92,7 +95,7 @@ export function RunBlameButton({
           title={`${ACTIONS.runBlame.label} on ${shortId(runId)}`}
           label={`${shortId(runId)} came from a capture and has no command. What starts your agent?`}
           placeholder="python agent.py"
-          command={(command) => `shadowlap blame ${shortId(runId)} -- ${command || '<your command>'}`}
+          command={(command) => (line ?? `shadowlap blame ${shortId(runId)} -- <your command>`).replace('<your command>', () => command || '<your command>')}
           ok={ACTIONS.runBlame.label}
           onClose={() => setAsking(null)}
           onRun={(command) => void start({ command })}

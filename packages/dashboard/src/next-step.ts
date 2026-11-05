@@ -16,6 +16,7 @@ import {
   keptCaptureVerdict,
   modelResolver,
   noEstimate,
+  normalizeAddArgs,
   parseTests,
   pathSetByCode,
   pricedCalls,
@@ -265,17 +266,20 @@ interface Facts {
 
 // ---- the steps ----
 
+/** What a command takes from you where a run has none of its own, left for you to fill in: the one word of a command line that isn't quoted. */
+const YOUR_COMMAND = '-- <your command>';
+
 /** Replay: a clean or a test replay is the recording it came from served again, so it replays that recording, and says so. */
 export function replayStep(row: Pick<IndexedRun, 'runId' | 'kind' | 'parentRunId'>, record: RunRecord, index: RunIndex): NextStep {
   // Not a capture's, which has no command of its own to replay it with: the replay of it has one.
   const parent = row.parentRunId && index.byId.get(row.parentRunId)?.source === null ? row.parentRunId : null;
-  if ((row.kind === 'clean' || row.kind === 'test') && parent) return { key: 'replay', label: ACTIONS.replayRecording.label, runId: parent, title: `Replays ${short(parent)}, the recording this replay came from`, command: `shadowlap replay ${short(parent)}` };
-  if (!hasRecordedCommand(record)) return { key: 'replay', label: ACTIONS.replayWithCommand.label, runId: row.runId, command: `shadowlap replay ${short(row.runId)} -- <your command>` };
-  return { key: 'replay', label: ACTIONS.replay.label, runId: row.runId, command: `shadowlap replay ${short(row.runId)}` };
+  if ((row.kind === 'clean' || row.kind === 'test') && parent) return { key: 'replay', label: ACTIONS.replayRecording.label, runId: parent, title: `Replays ${short(parent)}, the recording this replay came from`, command: commandLine(['replay', short(parent)]) };
+  if (!hasRecordedCommand(record)) return { key: 'replay', label: ACTIONS.replayWithCommand.label, runId: row.runId, command: `${commandLine(['replay', short(row.runId)])} ${YOUR_COMMAND}` };
+  return { key: 'replay', label: ACTIONS.replay.label, runId: row.runId, command: commandLine(['replay', short(row.runId)]) };
 }
 
 function compareStep(parent: string, runId: string): Decided {
-  return { key: 'compare', label: ACTIONS.compareWithParent.label, parent, href: links.compare(parent, runId), title: `Against ${short(parent)}`, command: `shadowlap diff ${short(parent)} ${short(runId)}` };
+  return { key: 'compare', label: ACTIONS.compareWithParent.label, parent, href: links.compare(parent, runId), title: `Against ${short(parent)}`, command: commandLine(['diff', short(parent), short(runId)]) };
 }
 
 function fixStep(fix: { fixId: string; title: string; status: FixStatus }, href = links.fixes(fix.fixId)): Decided {
@@ -283,8 +287,8 @@ function fixStep(fix: { fixId: string; title: string; status: FixStatus }, href 
 }
 
 function blameCommand(runId: string, offer: BlameOffer, capture: boolean): string {
-  const expect = offer.from === 'ask' ? ` --expect '<what it must do>'` : offer.expect !== null && offer.expect !== undefined ? ` --expect '${JSON.stringify(offer.expect)}'` : '';
-  return `shadowlap blame ${short(runId)}${expect}${capture ? ' -- <your command>' : ''}`;
+  const expect = offer.from === 'ask' ? ['--expect', '<what it must do>'] : offer.expect !== null && offer.expect !== undefined ? ['--expect', JSON.stringify(offer.expect)] : [];
+  return `${commandLine(['blame', short(runId), ...expect])}${capture ? ` ${YOUR_COMMAND}` : ''}`;
 }
 
 function blameStep(runId: string, offer: BlameOffer, capture = false): Decided {
@@ -309,7 +313,7 @@ function packGateStep(f: Facts, runId: string, parent: boolean): Decided {
     folder,
     title: `Pack ${short(runId)} with injection gate`,
     sub: parent ? 'A golden with an injection gate: it fails while the agent obeys a planted instruction' : 'A golden with an injection gate: it fails while the agent obeys a planted instruction, and passes once it is fixed',
-    command: `shadowlap pack ${short(runId)} ${folder}`,
+    command: commandLine(['pack', short(runId), folder]),
     reads: [runId],
     price: (p) => injectionGateEstimate(p.calls(runId), untrustedReads(p.raw(runId), f.work?.tools).reads, { payloads: allTemplates() }),
   };
@@ -347,7 +351,7 @@ const updatePrice = (source: GoldenSource): Priced => ({ reads: source.runId ? [
 
 /** Update golden: re-recorded live. */
 function updateStep(f: Facts, golden: string, source: GoldenSource): Decided {
-  return { key: 'update-golden', label: ACTIONS.updateGolden.label, golden, test: f.offer(), sub: REMADE, command: `shadowlap test ${golden} --update`, ...updatePrice(source) };
+  return { key: 'update-golden', label: ACTIONS.updateGolden.label, golden, test: f.offer(), sub: REMADE, command: commandLine(['test', golden, '--update']), ...updatePrice(source) };
 }
 
 /** What the values made anew on every run lead a diverged test to: the rule, then the test again or an update; null for an id that may be a real change, which only the person can tell, so neither leads. */
@@ -355,7 +359,7 @@ function valueStep(f: Facts, t: TestedGolden, offer: TestOffer): Decided | null 
   const { golden, source, result } = t;
   const all = offer.values.coversAll;
   const test = () => goldenTestEstimate(source.mode === 'fork', result);
-  if (offer.normalized) return all ? { key: 'rerun-test', label: ACTIONS.rerunTest.label, golden, command: `shadowlap test ${golden}`, sub: 'The rule is in shadowlap.config.json: it replays the golden again', price: test } : updateStep(f, golden, source);
+  if (offer.normalized) return all ? { key: 'rerun-test', label: ACTIONS.rerunTest.label, golden, command: commandLine(['test', golden]), sub: 'The rule is in shadowlap.config.json: it replays the golden again', price: test } : updateStep(f, golden, source);
   if (offer.maybeReal) return null;
   return {
     key: 'normalizer',
@@ -494,8 +498,7 @@ function testedAs(report: Partial<PlantReport>): InjectionAgain {
 }
 
 function againCommand(runId: string, again: InjectionAgain): string {
-  const args = ['injection', short(runId), ...(again.templates.length ? ['--templates', again.templates.join(',')] : []), ...(again.repeat !== 1 ? ['--repeat', String(again.repeat)] : []), ...(again.liveReads ? ['--live-reads'] : [])];
-  return commandLine(args);
+  return commandLine(['injection', short(runId), ...(again.templates.length ? ['--templates', again.templates.join(',')] : []), '--baselines', String(again.baselines), ...(again.repeat !== 1 ? ['--repeat', String(again.repeat)] : []), ...(again.liveReads ? ['--live-reads'] : [])]);
 }
 
 /** What a recording's newest finished plant leads with: its proof when it failed, running again when it showed too little; null when it says nothing to do. */
@@ -510,8 +513,8 @@ function plantStep(f: Facts, newest: StoredInjectionResult): Decided | null {
   const why = report.gate?.reason ?? 'no attempt decided';
   // Stopped early, or with a payload file its result doesn't keep: it can't run again as it ran, so it asks what to test.
   const ownFile = report.payloads?.some((x) => x.source === 'file');
-  if ((report.stopReason || ownFile) && !newest.golden) return { key: 'injection-test', label: ACTIONS.runInjectionTest.label, runId: row.runId, command: `shadowlap injection ${short(row.runId)}`, sub: report.stopReason ? `It stopped early (${report.stopReason}): test with fewer templates, or a higher budget` : `It showed too little to say: ${why}`, reads: [row.runId], price: (p) => injectionEstimate(p.calls(row.runId), untrustedReads(p.raw(row.runId), f.work?.tools).reads, { payloads: allTemplates() }) };
-  if (newest.golden) return { key: 'gate-again', label: ACTIONS.rerunTest.label, golden: newest.golden, command: `shadowlap test ${newest.golden}`, sub: `Its injection gate showed too little to say: ${why}`, price: again };
+  if ((report.stopReason || ownFile) && !newest.golden) return { key: 'injection-test', label: ACTIONS.runInjectionTest.label, runId: row.runId, command: commandLine(['injection', short(row.runId)]), sub: report.stopReason ? `It stopped early (${report.stopReason}): test with fewer templates, or a higher budget` : `It showed too little to say: ${why}`, reads: [row.runId], price: (p) => injectionEstimate(p.calls(row.runId), untrustedReads(p.raw(row.runId), f.work?.tools).reads, { payloads: allTemplates() }) };
+  if (newest.golden) return { key: 'gate-again', label: ACTIONS.rerunTest.label, golden: newest.golden, command: commandLine(['test', newest.golden]), sub: `Its injection gate showed too little to say: ${why}`, price: again };
   const job = testedAs(report);
   return { key: 'injection-again', label: ACTIONS.rerunInjectionTest.label, runId: row.runId, job, command: againCommand(row.runId, job), sub: `It showed too little to say: ${why}`, price: again };
 }
@@ -621,8 +624,8 @@ function unblamedStep(f: Facts): Decided | null {
 
 /** A replay left on a value made anew on every run: the rule its divergence proposes (a test's is its golden's, above). */
 function ruleStep(f: Facts): Decided | null {
-  if (f.row.kind !== 'fork' || !f.record.divergence?.hints?.some((h) => h.normalizer)) return null;
-  return { key: 'rule', label: ACTIONS.addNormalizer.label, command: 'shadowlap normalize add', sub: 'Masks the value made anew on every run, at match time' };
+  const rule = f.row.kind === 'fork' ? f.record.divergence?.hints?.find((h) => h.normalizer)?.normalizer : null;
+  return rule ? { key: 'rule', label: ACTIONS.addNormalizer.label, command: commandLine(normalizeAddArgs(rule)), sub: 'Masks the value made anew on every run, at match time' } : null;
 }
 
 /** A recording that didn't fail, no golden made from it yet: a golden from a failed run would pass on the failure and diverge once the fix ships. */
@@ -631,7 +634,7 @@ function packStep(f: Facts): Decided | null {
   if (row.kind !== 'recording' || row.status !== 'completed' || row.failed || !row.calls || !work?.dir) return null;
   if (f.judged?.verdict === 'failed' || !hasRecordedCommand(f.record) || madeIntoGolden(f, f.record)) return null;
   const folder = goldenFolder(row.runId);
-  return { key: 'pack', label: ACTIONS.packAsGolden.label, runId: row.runId, folder, title: 'Pack as golden', sub: 'A golden that CI replays on every commit', command: `shadowlap pack ${short(row.runId)} ${folder}` };
+  return { key: 'pack', label: ACTIONS.packAsGolden.label, runId: row.runId, folder, title: 'Pack as golden', sub: 'A golden that CI replays on every commit', command: commandLine(['pack', short(row.runId), folder]) };
 }
 
 function decide(f: Facts): Decided {

@@ -169,14 +169,15 @@ describe('the run page’s next step', () => {
   });
 
   it('asks a capture for your command before it blames it, and offers no check to a job that finds its own', async () => {
-    const run = detail({ state: failedState, source: 'cassette.json', next: { key: 'blame', label: 'Run blame', capture: true, offer: { from: 'golden', expect: { calls: [] }, failed: ['every issue_refund call: amount <= 100'] } } });
+    const run = detail({ state: failedState, source: 'cassette.json', next: { key: 'blame', label: 'Run blame', capture: true, offer: { from: 'golden', expect: { calls: [] }, failed: ['every issue_refund call: amount <= 100'] }, command: `shadowlap blame ${REC.slice(0, 10)} --expect '{"calls":[]}' -- <your command>` } });
     const { a, started } = jobs();
     page = await render(both(run, null, a));
     await page.click(page.byText('.rhead .actions button', 'Run blame'));
     expect(started).toEqual([]);
     expect(page.one('.dialog').textContent).toContain('What starts your agent?');
     await page.type(page.one('.dialog input'), 'python agent.py');
-    expect(page.one('.dialog .cmdline').textContent).toContain(`shadowlap blame ${REC.slice(0, 10)} -- python agent.py`);
+    // What runs, its check with it, as its card says.
+    expect(page.one('.dialog .cmdline').textContent).toContain(`shadowlap blame ${REC.slice(0, 10)} --expect '{"calls":[]}' -- python agent.py`);
     await page.click(page.one('.dialog .dlg-ok'));
     expect(started).toEqual([['blame', { runId: REC, command: 'python agent.py' }]]);
   });
