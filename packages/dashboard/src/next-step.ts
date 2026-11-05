@@ -48,6 +48,7 @@ import { injectionLine } from './injection.js';
 import { links } from './links.js';
 import { gitAsync } from './patch-in-tree.js';
 import { blameOffer, passedSince, testOffer, type BlameOffer, type TestOffer } from './run-offers.js';
+import { aboutsWithin } from './run-about.js';
 import { runCalls } from './run-calls.js';
 import { loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
 import { QUICK_FROM } from './run-page.js';
@@ -251,8 +252,8 @@ interface Priced {
   reads?: readonly string[];
 }
 
-/** A step as a rule decides it, and what the Run blame beside it bills. */
-type Decided = NextStep & Priced & { beside?: Priced };
+/** A step as a rule decides it, what the Run blame beside it bills, and the run whose about line its card's sentence is, for a run's page. */
+type Decided = NextStep & Priced & { beside?: Priced; about?: string };
 
 /** What each rule below reads of a run. */
 interface Facts {
@@ -289,7 +290,7 @@ export function replayStep(row: Pick<IndexedRun, 'runId' | 'kind' | 'parentRunId
 }
 
 function compareStep(parent: string, runId: string): Decided {
-  return { key: 'compare', label: ACTIONS.compareWithParent.label, parent, href: links.compare(parent, runId), title: `Against ${short(parent)}`, command: commandLine(['diff', short(parent), short(runId)]) };
+  return { key: 'compare', label: ACTIONS.compareWithParent.label, parent, href: links.compare(parent, runId), title: `Against ${short(parent)}`, about: parent, command: commandLine(['diff', short(parent), short(runId)]) };
 }
 
 function fixStep(fix: { fixId: string; title: string; status: FixStatus }, href = links.fixes(fix.fixId)): Decided {
@@ -406,7 +407,7 @@ function testStep(f: Facts): Decided | null {
   const diverged = row.failed && row.outcome.kind === 'diverged';
   if (diverged || (row.failed && crashed(row, t.result))) {
     const passing = passedSince(store, f.record, t.golden, f.reads.results(t.golden));
-    if (passing) return { key: 'passing', label: ACTIONS.openPassingRun.label, runId: passing, href: links.run(passing), title: `Opens ${short(passing)}` };
+    if (passing) return { key: 'passing', label: ACTIONS.openPassingRun.label, runId: passing, href: links.run(passing), title: `Opens ${short(passing)}`, about: passing };
   }
   const lead = diverged ? divergedStep(f, t) : null;
   if (lead) return lead;
@@ -701,12 +702,17 @@ function decided(store: Store, runId: string, work: NextStepWork | null, o: { ju
   });
 }
 
+/** A step as it is answered: what a rule decides it from left out. */
+function plainStep(step: Decided): NextStep {
+  const { price: _price, reads: _reads, beside: _beside, about: _about, ...plain } = step;
+  return plain;
+}
+
 /** A run's next step, without what it bills, or null for a run the store doesn't have. */
 export function nextStepOf(store: Store, runId: string, work: NextStepWork | null, o: { judged?: RunJudged | null | undefined; reads?: StepReads } = {}): NextStep | null {
   const step = decided(store, runId, work, o);
   if (!step) return null;
-  const { price: _price, reads: _reads, beside: _beside, ...plain } = step;
-  return plain;
+  return plainStep(step);
 }
 
 /**
@@ -721,17 +727,28 @@ async function estimateOf(price: NonNullable<Priced['price']>, pricing: Pricing)
   }
 }
 
+/** A run's about line, as a list quotes it: a long run's from its first calls until what its user asked is known. A hover's sentence, like an estimate: one that can't be worked out is left out. */
+function aboutLine(store: Store, index: RunIndex, runId: string): string | null {
+  const row = index.byId.get(runId);
+  try {
+    return row ? (aboutsWithin(store, index, [row], { budget: QUICK_FROM - 1 }).get(runId)?.text ?? null) : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * A run's next step for its page: with its estimate when it bills, worked out as the job's ask states
- * it, from the run's calls and the recording it replays. A price that reads a long run's calls, unless
- * this answer keeps them (`kept`), is left out rather than read every call, and the step says so
- * (`later`): a price that reads no calls is always worked out.
+ * it, from the run's calls and the recording it replays, and on a card that names another run, that
+ * run's about line. A price that reads a long run's calls, unless this answer keeps them (`kept`), is
+ * left out rather than read every call, and the step says so (`later`): a price that reads no calls
+ * is always worked out.
  */
 export async function pricedNextStep(store: Store, runId: string, work: NextStepWork | null, o: { judged?: RunJudged | null | undefined; kept: (runId: string) => boolean }): Promise<NextStep | null> {
   const reads = stepReads(store);
   const step = decided(store, runId, work, { judged: o.judged, reads });
   if (!step) return null;
-  const { price, reads: readsCalls, beside, ...plain } = step;
+  const plain = plainStep(step);
   const modelOf = modelResolver(store);
   const prices = work?.prices;
   const pricing: Pricing = { raw: (id) => runCalls(store, id), calls: (id) => pricedCalls(runCalls(store, id), { modelOf, ...(prices ? { prices } : {}) }), prices };
@@ -741,9 +758,10 @@ export async function pricedNextStep(store: Store, runId: string, work: NextStep
     const estimate = await estimateOf(p.price, pricing);
     return estimate ? { estimate } : {};
   };
-  const own = await priced({ ...(price ? { price } : {}), ...(readsCalls ? { reads: readsCalls } : {}) });
-  const other = await priced(beside);
-  return { ...plain, ...own, ...(other.later ? { later: true as const } : {}), ...(plain.key === 'bisect' && plain.blame && other.estimate ? { blame: { ...plain.blame, estimate: other.estimate } } : {}) };
+  const own = await priced(step);
+  const other = await priced(step.beside);
+  const about = step.about ? aboutLine(store, reads.index, step.about) : null;
+  return { ...plain, ...(about ? { sub: about } : {}), ...own, ...(other.later ? { later: true as const } : {}), ...(plain.key === 'bisect' && plain.blame && other.estimate ? { blame: { ...plain.blame, estimate: other.estimate } } : {}) };
 }
 
 /** The Replay a run's header keeps beside its next step: on a clean or a test replay, its recording's. Null for a run the store doesn't have. */
@@ -801,7 +819,7 @@ export const NEXT_STEP_READS: ReadTable<NextStepJob> = {
 export function copyNextStep(store: Store, runId: string, held: readonly string[]): NextStep | null {
   const row = loadRunIndex(store).byId.get(runId);
   const parent = row?.parentRunId;
-  return row && parent && held.includes(parent) && (row.attemptKind || row.kind === 'fork') ? compareStep(parent, runId) : null;
+  return row && parent && held.includes(parent) && (row.attemptKind || row.kind === 'fork') ? plainStep(compareStep(parent, runId)) : null;
 }
 
 /** A step as a list's row carries it. */

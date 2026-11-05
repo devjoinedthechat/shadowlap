@@ -472,6 +472,35 @@ describe('what the next step of a run bills', () => {
     expect(step(crash, work([source(rec)]))).toMatchObject({ key: 'bisect', blame: null });
   });
 
+  it('says on a card that names another run what that run was about, on its page alone', async () => {
+    const ASK = 'Order A-1103 arrived damaged';
+    const rec = addRun(store, { startedAt: T0, calls: [{ code: 'l', request: { model: 'claude-sonnet-4-5', messages: [{ role: 'user', content: ASK }] } }] });
+    const fork = addRun(store, { parent: rec, startedAt: T0 + MIN, divergence: 1, calls: 'l' });
+    expect(await priced(fork)).toMatchObject({ key: 'compare', title: `Against ${rec.slice(0, 10)}`, sub: ASK });
+    expect(step(fork).sub).toBeUndefined();
+    expect(stepRow(step(fork))).not.toHaveProperty('sub');
+    expect(step(fork)).not.toHaveProperty('about');
+    // Open passing run, of the run it opens.
+    const t = crashedTest(rec, T0 + 2 * MIN);
+    const passed = passedTest(rec, T0 + 3 * MIN);
+    const s = await priced(t, work([source(rec)]));
+    expect(s).toMatchObject({ key: 'passing', runId: passed, title: `Opens ${passed.slice(0, 10)}` });
+    expect(typeof s?.sub).toBe('string');
+    // A long recording's reads no more of it than a list does.
+    const long = addRun(store, { startedAt: T0 + 4 * MIN, calls: LONG });
+    const of = addRun(store, { parent: long, startedAt: T0 + 5 * MIN, divergence: 1, calls: 'l' });
+    let read = 0;
+    const getCalls = store.getCalls.bind(store);
+    store.getCalls = ((...a: Parameters<typeof getCalls>) => {
+      const calls = getCalls(...a);
+      if (a[0] === long) read += calls.length;
+      return calls;
+    }) as typeof store.getCalls;
+    await priced(of, work([]), (id) => id === of);
+    store.getCalls = getCalls;
+    expect(read).toBeLessThan(100);
+  });
+
   it('leaves what bills nothing with no estimate: a golden’s bisect, its re-run, a pack, a replay', async () => {
     const rec = recording();
     passedTest(rec, T0 + MIN);
