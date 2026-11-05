@@ -54,7 +54,7 @@ export function useStepWait(run: RunDetail, step: NextStep | null): string | nul
 
 /** A step's hover card. */
 function tipOf(card: StepCard): string {
-  return tipCard(card.title, card.rows, card.sub);
+  return tipCard(card.title, card.rows, card.sub, card.cmd);
 }
 
 const ICONS: Partial<Record<NextStep['key'], IconName>> = { compare: 'compare', fix: 'loop' };
@@ -107,7 +107,7 @@ export function CompareButton({ run }: { run: RunDetail }) {
   }
   const other = pair[0] === r.runId ? pair[1] : pair[0];
   const label = r.parentRunId ? ACTIONS.compareWithParent.label : run.children.find((c) => c.runId === other)?.kind === 'fork' ? ACTIONS.compareWithFork.label : ACTIONS.compareWithReplay.label;
-  const tip = tipCard(`Against ${shortId(other)}`, [{ label: '$', value: `shadowlap diff ${shortId(pair[0])} ${shortId(pair[1])}` }], runs?.find((x) => x.runId === other)?.about?.text);
+  const tip = tipCard(`Against ${shortId(other)}`, [], runs?.find((x) => x.runId === other)?.about?.text, `$ shadowlap diff ${shortId(pair[0])} ${shortId(pair[1])}`);
   return (
     <a className="btn" href={href.compare(pair[0], pair[1])} data-tip={tip}>
       {label}

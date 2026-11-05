@@ -70,7 +70,7 @@ function detail(o: { next?: NextStep | null; replay?: NextStep | null; parent?: 
 const header = (run: RunDetail, offers: RunOffers | null = null, more: { onAction?: (p: unknown) => void; onFindCommit?: () => void } = {}) => ({ run, call: null, selected: 5, rescued: false, offers, forkMenu: { open: false, anchor: null, toggle: () => undefined, close: () => undefined } as never, onAction: more.onAction ?? (() => undefined), onFindCommit: more.onFindCommit ?? (() => undefined) });
 const bannerProps = (run: RunDetail, offers: RunOffers | null = null) => ({ run, blame: (run as unknown as { blame: never }).blame ?? null, rescued: null, checks: [], offers, showDiff: false, onToggleDiff: () => undefined, onSelect: () => undefined, onAction: () => undefined });
 const lime = (p: Rendered) => p.all('.rhead .actions .lime').map((b) => b.textContent);
-const tip = (el: { props: Record<string, unknown> }) => JSON.parse(String(el.props['data-tip'])) as { t: string; s?: string; rows?: string[][] };
+const tip = (el: { props: Record<string, unknown> }) => JSON.parse(String(el.props['data-tip'])) as { t: string; s?: string; rows?: string[][]; cmd?: string };
 
 /** The header and the banner, as the page draws them, with the question a Tests job waits on. */
 const both = (run: RunDetail, offers: RunOffers | null = null, a: AppState = app(), more: Parameters<typeof header>[2] = {}) => createElement(AppContext.Provider, { value: a }, createElement('div', null, createElement(RunHeader, header(run, offers, more)), createElement(Banner, bannerProps(run, offers)), createElement(TestsAskHost)));
@@ -139,7 +139,7 @@ describe('the run page’s next step', () => {
     expect(page.one('.banner .bk').textContent).toBe('failed');
     expect(page.all('.banner button').some((b) => b.textContent === 'Run blame')).toBe(false);
     const lead = page.byText('.rhead .actions button', 'Run blame');
-    expect(tip(lead)).toMatchObject({ t: 'Run blame', s: 'Find the model call where this run was lost, on its exit status: a passing run exits 0', rows: [['Costs', 'At most ≈$10.88', ''], ['$', `shadowlap blame ${REC.slice(0, 10)}`, '']] });
+    expect(tip(lead)).toMatchObject({ t: 'Run blame', s: 'Find the model call where this run was lost, on its exit status: a passing run exits 0', rows: [['Costs', 'At most ≈$10.88', '']], cmd: `$ shadowlap blame ${REC.slice(0, 10)}` });
     await page.click(lead);
     expect(started).toEqual([['blame', { runId: REC }]]);
   });
@@ -152,7 +152,7 @@ describe('the run page’s next step', () => {
     page = await render(createElement(AppContext.Provider, { value: app({}, { nextStep }) }, createElement(Page, { run: detail({ status: 'failed', state: failedState, next: later }) })));
     await page.wait(0);
     expect(nextStep).toHaveBeenCalledOnce();
-    expect(tip(page.byText('.rhead .actions button', 'Run blame')).rows).toEqual([['Costs', 'At most ≈$10.88', ''], ['$', `shadowlap blame ${REC.slice(0, 10)}`, '']]);
+    expect(tip(page.byText('.rhead .actions button', 'Run blame'))).toMatchObject({ rows: [['Costs', 'At most ≈$10.88', '']], cmd: `$ shadowlap blame ${REC.slice(0, 10)}` });
     await page.unmount();
     // A step its first answer holds whole asks for nothing.
     nextStep.mockClear();
@@ -164,7 +164,7 @@ describe('the run page’s next step', () => {
     const refused = vi.fn(() => Promise.reject(new Error('gone')));
     page = await render(createElement(AppContext.Provider, { value: app({}, { nextStep: refused }) }, createElement(Page, { run: detail({ status: 'failed', state: failedState, next: later }) })));
     await page.wait(0);
-    expect(tip(page.byText('.rhead .actions button', 'Run blame')).rows).toEqual([['$', `shadowlap blame ${REC.slice(0, 10)}`, '']]);
+    expect(tip(page.byText('.rhead .actions button', 'Run blame'))).toMatchObject({ rows: [], cmd: `$ shadowlap blame ${REC.slice(0, 10)}` });
   });
 
   it('asks a capture for your command before it blames it, and offers no check to a job that finds its own', async () => {
@@ -237,12 +237,12 @@ describe('the run page’s next step', () => {
     const parent = await compared({ parent: PARENT, next: REPLAY }, []);
     expect(parent?.textContent).toBe('Compare with parent');
     expect(parent?.props.href).toBe(`#/compare/${PARENT}/${REC}`);
-    expect(tip(parent!)).toMatchObject({ t: `Against ${PARENT.slice(0, 10)}`, s: about, rows: [['$', `shadowlap diff ${PARENT.slice(0, 10)} ${REC.slice(0, 10)}`, '']] });
+    expect(tip(parent!)).toMatchObject({ t: `Against ${PARENT.slice(0, 10)}`, s: about, cmd: `$ shadowlap diff ${PARENT.slice(0, 10)} ${REC.slice(0, 10)}` });
     await page!.unmount();
     const fork = await compared({}, [{ runId: CHILD, label: 'fork @3', kind: 'fork', startedAt: 2 }]);
     expect(fork?.textContent).toBe('Compare with fork');
     expect(fork?.props.href).toBe(`#/compare/${REC}/${CHILD}`);
-    expect(tip(fork!)).toMatchObject({ t: `Against ${CHILD.slice(0, 10)}`, rows: [['$', `shadowlap diff ${REC.slice(0, 10)} ${CHILD.slice(0, 10)}`, '']] });
+    expect(tip(fork!)).toMatchObject({ t: `Against ${CHILD.slice(0, 10)}`, cmd: `$ shadowlap diff ${REC.slice(0, 10)} ${CHILD.slice(0, 10)}` });
     await page!.unmount();
     expect((await compared({}, [{ runId: CHILD, label: 'clean replay', kind: 'clean', startedAt: 2 }]))?.textContent).toBe('Compare with replay');
     await page!.unmount();
@@ -270,7 +270,7 @@ describe('the run page’s next step', () => {
     const lead = page.byText('.rhead .actions a', 'Compare with parent');
     expect(lead.className).toBe('btn lime');
     expect(lead.props.href).toBe(compare.href);
-    expect(tip(lead)).toMatchObject({ t: `Against ${PARENT.slice(0, 10)}`, rows: [['$', compare.command, '']] });
+    expect(tip(lead)).toMatchObject({ t: `Against ${PARENT.slice(0, 10)}`, cmd: `$ ${compare.command}` });
     // It stays one button, not a plain one beside it.
     expect(page.all('.rhead .actions a').filter((a) => a.textContent === 'Compare with parent')).toHaveLength(1);
   });
@@ -352,7 +352,7 @@ describe('the run page’s next step', () => {
     expect(lime(page)).toEqual(['Find breaking commit']);
     const beside = page.byText('.rhead .actions button', 'Run blame');
     expect(beside.className).toBe('btn');
-    expect(tip(beside)).toMatchObject({ t: 'Run blame', s: 'Whether an answer of the model’s lost the run', rows: [['Costs', 'At most ≈$16.16', ''], ['$', `shadowlap blame ${REC.slice(0, 10)}`, '']] });
+    expect(tip(beside)).toMatchObject({ t: 'Run blame', s: 'Whether an answer of the model’s lost the run', rows: [['Costs', 'At most ≈$16.16', '']], cmd: `$ shadowlap blame ${REC.slice(0, 10)}` });
     // Before Fork at #n, the lime one last.
     const buttons = page.all('.rhead .actions button').map((b) => b.textContent);
     expect(buttons.indexOf('Run blame')).toBeLessThan(buttons.findIndex((b) => b?.startsWith('Fork at')));

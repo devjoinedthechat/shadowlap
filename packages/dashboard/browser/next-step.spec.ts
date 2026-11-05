@@ -53,13 +53,30 @@ test('pressed from the palette, a step does what its button does: it asks, or op
 
 test('a step’s hover says what it does and runs, and what it bills where it does', async ({ page }) => {
   await openPage(page, `/run/${demoId('digestFailed')}`, 'run');
-  const tip = JSON.parse((await lime(page).getAttribute('data-tip'))!) as { t: string; rows: string[][] };
+  const tip = JSON.parse((await lime(page).getAttribute('data-tip'))!) as { t: string; rows: string[][]; cmd: string };
   expect(tip.t).toBe('Run blame');
-  expect(tip.rows.map((r) => r[0])).toEqual(['Costs', '$']);
+  expect(tip.rows.map((r) => r[0])).toEqual(['Costs']);
   expect(tip.rows[0]![1]).toMatch(/^At most ≈\$/);
-  expect(tip.rows[1]![1]).toBe(`shadowlap blame ${demoId('digestFailed').slice(0, 10)}`);
+  expect(tip.cmd).toBe(`$ shadowlap blame ${demoId('digestFailed').slice(0, 10)}`);
   await lime(page).hover();
   await expect(page.locator('.tip')).toContainText('At most');
+  await expect(page.locator('.tip')).toContainText(`shadowlap blame ${demoId('digestFailed').slice(0, 10)}`);
+});
+
+test('a step’s card goes as its dialog opens with the pointer on the button, and a move under the dialog brings none back', async ({ page }) => {
+  await openPage(page, `/run/${demoId('digest')}`, 'run');
+  await lime(page).hover();
+  const tip = page.locator('#tip');
+  await expect(tip).toBeVisible();
+  await page.mouse.down();
+  await page.mouse.up();
+  await page.waitForSelector('.dialog');
+  await expect(tip).toBeHidden();
+  const at = (await lime(page).boundingBox())!;
+  await page.mouse.move(at.x + 2, at.y + 2);
+  // Longer than a pointer waits for a card.
+  await page.waitForTimeout(500);
+  await expect(tip).toBeHidden();
 });
 
 test('while a job holds the working tree, a step goes plain and says why, in the palette too, and a press starts nothing', async ({ page }) => {

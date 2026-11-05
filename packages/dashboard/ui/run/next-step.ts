@@ -48,31 +48,32 @@ export function stepEntry(step: NextStep, wait: string | null = null): PaletteEn
   return { group: 'This run', label: step.label, hint: wait ?? step.command ?? step.title ?? '', ...(step.href ? {} : { job: true }), ...(key ? { key } : {}), ...(wait ? { wait } : {}) };
 }
 
-/** A step's hover card: its title, its sentence, and its rows, what it bills and runs. */
+/** A step's hover card: its title, its sentence, its rows, what it bills, and what it runs, up to its first arguments as every card has a command. */
 export interface StepCard {
   title: string;
   sub: string | null;
   rows: Array<{ label: string; value: string }>;
+  cmd: string | null;
 }
 
 /**
  * What a job's hover says of what it bills and runs: the amount alone until Spending says whether it
  * asks first, none for what bills nothing. A job's dialog says the rest.
  */
-function cardRows(o: Pick<NextStep, 'estimate' | 'command'>): StepCard['rows'] {
+function billsAndRuns(o: Pick<NextStep, 'estimate' | 'command'>): Pick<StepCard, 'rows' | 'cmd'> {
   const cost = o.estimate ? costWords(o.estimate, null, { form: true }) : null;
-  return [...(cost ? [{ label: 'Costs', value: cost }] : []), ...(o.command ? [{ label: '$', value: o.command }] : [])];
+  return { rows: cost ? [{ label: 'Costs', value: cost }] : [], cmd: o.command ? `$ ${o.command}` : null };
 }
 
 /** What a step's hover says: its title, its sentence, and what it bills and runs. */
 export function stepCard(step: NextStep): StepCard {
   const own = step.key === 'fix' ? fixStatusWords(step.status).why : step.key === 'blame' ? blameTitle(step.offer) : null;
-  return { title: step.title ?? confirmWords(step.label), sub: step.sub ?? own, rows: cardRows(step) };
+  return { title: step.title ?? confirmWords(step.label), sub: step.sub ?? own, ...billsAndRuns(step) };
 }
 
 /** What the Run blame beside a crash's Find breaking commit says on hover. */
 export function blameBesideCard(blame: BlameBeside): StepCard {
-  return { title: ACTIONS.runBlame.label, sub: blame.sub, rows: cardRows(blame) };
+  return { title: ACTIONS.runBlame.label, sub: blame.sub, ...billsAndRuns(blame) };
 }
 
 /** What a step's dialog says of what it bills, as an ask's cost line says it: `≈$3.11, as the last test’s 6 attempts · live from each read, writes stubbed`. */
