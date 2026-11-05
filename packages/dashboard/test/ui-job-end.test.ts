@@ -151,7 +151,7 @@ describe('a job’s end', () => {
         'div',
         { id: 'app' },
         createElement('main', { id: 'view' }, createElement('section', { id: 'part' }, after ? createElement('button', { type: 'button', key: 'step', className: 'btn lime', id: 'step' }, 'Revert') : control)),
-        createElement('div', { className: 'drawer' }, createElement('pre', { id: 'log', tabIndex: 0 }, 'output')),
+        createElement('div', { className: 'drawer' }, createElement('pre', { id: 'jout', tabIndex: 0 }, 'output')),
       ),
       asked ? createElement(Dialog, { title: 'Find it', ok: 'Find it', onOk: () => setAsked(false), onClose: () => setAsked(false) }) : null,
       m.open && m.anchor ? createElement(Popover, { anchor: m.anchor, onClose: m.close, label: 'Find it', children: [createElement(MenuItem, { key: 'go', label: 'Go', onPick: m.close })] }) : null,
@@ -209,7 +209,7 @@ describe('a job’s end', () => {
         'main',
         { id: 'view' },
         createElement('div', { className: 'page-in' }, createElement('div', { className: 'verdict', id: 'head' }, createElement('button', { type: 'button', className: 'btn', id: 'top' }, 'Top')), createElement('div', {}, createElement('div', { className: 'verdict gv' }, createElement('button', { type: 'button', className: 'btn', id: 'low' }, 'Low'), createElement('button', { type: 'button', className: 'btn lime', id: 'lime' }, 'A lime lower down')))),
-        createElement('div', { className: 'drawer' }, createElement('pre', { id: 'log', tabIndex: 0 }, 'output')),
+        createElement('div', { className: 'drawer' }, createElement('pre', { id: 'jout', tabIndex: 0 }, 'output')),
       );
     }
     r = await render(createElement(Head));
@@ -218,7 +218,7 @@ describe('a job’s end', () => {
     r.focused().blur();
     handOnAtEnd('job-10');
     await tick();
-    expect(r.focused().getAttribute('id')).toBe('log');
+    expect(r.focused().getAttribute('id')).toBe('jout');
   });
 
   it('hands it to the drawer where nothing took the control’s place, at the last look: its way on, else its log', async () => {
@@ -231,7 +231,7 @@ describe('a job’s end', () => {
         'div',
         {},
         createElement('main', { id: 'view' }, createElement('section', { id: 'part' }, after ? null : createElement('button', { type: 'button', className: 'btn', id: 'start' }, 'Verify'))),
-        createElement('div', { className: 'drawer' }, createElement('pre', { id: 'log', tabIndex: 0 }, 'output'), lime ? createElement('button', { type: 'button', className: 'btn lime', id: 'on' }, 'Run test') : null),
+        createElement('div', { className: 'drawer' }, createElement('pre', { id: 'jout', tabIndex: 0 }, 'output'), lime ? createElement('div', { className: 'jfoot' }, createElement('span', { className: 'jkind' }, createElement('button', { type: 'button', className: 'btn lime', id: 'on' }, 'Run test'))) : null),
       );
     }
     r = await render(createElement(Gone, { lime: true }));
@@ -251,19 +251,19 @@ describe('a job’s end', () => {
     handOnAtEnd('job-4');
     await act(async () => ended(true));
     await r.wait(3100);
-    expect(r.focused().getAttribute('id')).toBe('log');
+    expect(r.focused().getAttribute('id')).toBe('jout');
   });
 
   it('hands it to the drawer at once where the job started from no part of the page', async () => {
     function Beside() {
       useRoute();
-      return createElement('div', {}, createElement('main', { id: 'view' }, createElement('section', { id: 'part' }, createElement('button', { type: 'button', className: 'btn', id: 'start' }, 'Find it'))), createElement('div', { className: 'drawer' }, createElement('pre', { id: 'log', tabIndex: 0 }, 'output')));
+      return createElement('div', {}, createElement('main', { id: 'view' }, createElement('section', { id: 'part' }, createElement('button', { type: 'button', className: 'btn', id: 'start' }, 'Find it'))), createElement('div', { className: 'drawer' }, createElement('pre', { id: 'jout', tabIndex: 0 }, 'output')));
     }
     r = await render(createElement(Beside));
     await notingJobFrom(Promise.resolve({ id: 'job-11' }));
     handOnAtEnd('job-11');
     await tick();
-    expect(r.focused().getAttribute('id')).toBe('log');
+    expect(r.focused().getAttribute('id')).toBe('jout');
   });
 
   it('leaves the focus where you moved it, before the job’s end', async () => {

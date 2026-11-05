@@ -3,10 +3,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ActionButton } from '../ui/components/ActionButton.js';
 import { Dialog, PromptDialog } from '../ui/components/Dialog.js';
 import { JobDrawer } from '../ui/components/Drawer.js';
+import { handOnAtEnd } from '../ui/focus-manager.js';
 import { chipJob, drawnJob, endedBehind, jobClosed, jobOpened, jobsLeftBehind, jobStarted, type WatchedJob } from '../ui/job-store.js';
 import { endChip, wayOnOf } from '../ui/jobs.js';
 import { closeTopPanel } from '../ui/overlays/slots.js';
 import { parseRoute, samePage } from '../ui/route.js';
+import { useRoute } from '../ui/router.js';
 import { JobChip } from '../ui/shell/JobChip.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { ToastAction } from '../ui/toast.js';
@@ -262,22 +264,33 @@ describe('the drawer', () => {
     expect(r.one('section.drawer').className).not.toContain('folded');
   });
 
-  it('gives the focus to its way on, else its log, when the page drawn anew took it, and then stays open', async () => {
+  it('gives the focus to its way on, lime or plain, else its log, as a job from no part of the page ends, and then stays open', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    g.location = { hash: '#/runs' };
+    // The page's router is mounted, as the focus manager hands the focus on only while it is.
+    const routed = (Host: () => ReturnType<typeof createElement>) => createElement(() => (useRoute(), createElement(Host)));
     const { Host, on } = page([entry(job())]);
-    r = await render(createElement(Host));
-    await act(async () => on.set(end()));
+    r = await render(routed(Host));
+    // In the job store's order at a job's end: the hand-on, then the redraw.
+    await act(async () => {
+      handOnAtEnd('a1');
+      on.set(end());
+    });
     await act(async () => void vi.advanceTimersByTime(61));
     expect(r.focused()).toBe(r.one('#jout'));
     await act(async () => void vi.advanceTimersByTime(3000));
     expect(r.one('section.drawer').className).not.toContain('folded');
     await r.unmount();
     g.location = { hash: '#/tests' };
-    const led = page([entry(job())]);
-    r = await render(createElement(led.Host));
-    await act(async () => led.on.set(end({ links: [{ label: 'Open run', href: '#/run/R' }] })));
+    const led = page([entry(job())], {}, true);
+    r = await render(routed(led.Host));
+    await act(async () => {
+      handOnAtEnd('a1');
+      led.on.set(end({ links: [{ label: 'Open run', href: '#/run/R' }] }));
+    });
     await act(async () => void vi.advanceTimersByTime(61));
     expect(r.focused()).toBe(r.one('.drawer .jfoot a'));
+    expect(r.one('.drawer .jfoot a').className).not.toContain('lime');
   });
 
   it('keeps a job’s folders out of a folded drawer', async () => {

@@ -1,6 +1,6 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { JOB_KINDS } from '../api.js';
-import { dockFocus, pageLeads } from '../dom.js';
+import { pageLeads, wayOnControl } from '../dom.js';
 import { useTreeBusy } from '../fixes/tree.js';
 import { shortId } from '../format.js';
 import { useLatest } from '../hooks.js';
@@ -8,7 +8,6 @@ import { jobFooter } from '../job-actions.js';
 import { drawnJob } from '../job-store.js';
 import { drawerCost } from '../../../engine/src/estimates/spending.js';
 import { calibrationTarget, endToast, forkDivergedEarly, jobCommand, jobHeader, jobStatus, lineTone, openRunWords, replayDivergence, stopAsk } from '../jobs.js';
-import { overlayOpen } from '../overlays/modal-store.js';
 import { InSlot, usePanel } from '../overlays/slots.js';
 import { href, parseRoute, samePage } from '../route.js';
 import { currentRoute } from '../router.js';
@@ -40,12 +39,6 @@ export function JobDrawer() {
       <Drawer key={current.job.id} watched={current} />
     </InSlot>
   ) : null;
-}
-
-/** The way on a job's end offers, where several show: its primary link, then what its kind adds, then a file. */
-function wayOnControl(root: HTMLElement | null): HTMLElement | null {
-  if (!root) return null;
-  return root.querySelector<HTMLElement>('.jfoot a.btn') ?? root.querySelector<HTMLElement>('.jfoot .jkind .btn') ?? root.querySelector<HTMLElement>('.jfoot .jfile') ?? root.querySelector<HTMLElement>('.jfoot .jlinks a');
 }
 
 /** What the drawer takes at the content's foot: `--dock-h`, or, folded, its own height, kept as it wraps. On the root, so what reads it there follows. */
@@ -271,19 +264,11 @@ function useJobEnd(watched: WatchedJob, panel: { readonly current: HTMLElement |
       now.current.toast(endToast(ended, lines), jobStatus(ended, lines).tone === 'err' ? 'error' : 'notice', action);
       return;
     }
-    const focus = setTimeout(() => {
-      const a = document.activeElement;
-      if (overlayOpen() || (a && a !== document.body && a.isConnected)) return;
-      if (next?.isConnected && next.getClientRects().length) next.focus({ preventScroll: true });
-      else dockFocus();
-    }, 60);
+    // Where the focus goes as it ends is the job store's (`handOnAtEnd`): the page's step first.
     const folds = setTimeout(() => {
       if (!now.current.hidden && !panel.current?.contains(document.activeElement)) now.current.fold();
     }, 2000);
-    return () => {
-      clearTimeout(focus);
-      clearTimeout(folds);
-    };
+    return () => clearTimeout(folds);
   }, [job.done, job.id, panel, now]);
   useEffect(() => {
     if (!hidden && offered.current) now.current.dropToast(offered.current);

@@ -1,3 +1,4 @@
+import { dockFocusTarget, wayOnControl } from './dom.js';
 import { pageSig, samePage, trailAfter, type LinkNote, type TrailStop } from './focus.js';
 import { sameRun } from './format.js';
 import { controlKey, findControl, type ControlKey } from './overlays/focus-back.js';
@@ -345,12 +346,12 @@ function jobStep(from: JobFrom): HTMLElement | null {
   return all.find((b) => b.classList.contains('lime')) ?? ('head' in from ? null : (all[0] ?? null));
 }
 
-/** The drawer's way on, else its log, else its first button. */
+/** The drawer's way on, lime or plain, else its own place: its log, the button that shows it, or Close. */
 function drawerFocus(): HTMLElement | null {
-  const shows = (el: HTMLElement) => el.getClientRects().length > 0 && !el.closest('[inert]');
   const drawer = document.querySelector<HTMLElement>('.drawer');
   if (!drawer) return null;
-  return [...drawer.querySelectorAll<HTMLElement>('.btn.lime')].filter(pressable)[0] ?? [...drawer.querySelectorAll<HTMLElement>('pre')].find(shows) ?? [...drawer.querySelectorAll<HTMLElement>('button')].find(shows) ?? null;
+  const way = wayOnControl(drawer);
+  return way && pressable(way) ? way : dockFocusTarget();
 }
 
 /** Where the jobs being followed started; a closed drawer's job asks no hand-on, and goes when later ones come. */
