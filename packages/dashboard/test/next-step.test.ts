@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { judgeCapture, NO_COMMAND, parseTests, recordBlame, recordEvent, rulesOnCalls, Store, type CleanReport, type DiffEntry, type Normalizer, type PlantReport, type RunMeta } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun } from '../../engine/test/fix-fixtures.js';
-import { copyNextStep, failureKey, fixByFailure, goldenFolder, nextStepOf, nextStepRows, nextStepStamp, pageSteps, pricedNextStep, replayStepOf, stepRow, type NextStepWork } from '../src/next-step.js';
+import { copyNextStep, failureKey, fixByFailure, goldenFolder, nextStepOf, nextStepRows, nextStepStamp, pageSteps, pricedNextStep, replayStepOf, stepCalls, stepRow, type NextStepWork } from '../src/next-step.js';
 import { listRuns } from '../src/api.js';
 import { overviewSummary } from '../src/overview.js';
 import { judgedRows, runJudged, type OutcomeWork } from '../src/run-outcome.js';
@@ -386,6 +386,99 @@ describe('a run’s next step', () => {
   });
 });
 
+describe('a run’s next step, at its edges', () => {
+  it('has none for a run the store doesn’t have', async () => {
+    const NONE = '01M5JEQWA2QMJ3NYD1C687WP00';
+    expect(nextStepOf(store, NONE, work([]))).toBeNull();
+    expect(await pricedNextStep(store, NONE, work([]), { judged: null, kept: () => true })).toBeNull();
+    expect(replayStepOf(store, NONE)).toBeNull();
+    expect(await pageSteps(store, NONE, work([]), { judged: null, kept: () => true })).toEqual({});
+  });
+
+  it('reads a run its recorder left marked running as interrupted, as every list does: nothing to wait for', () => {
+    const left = '01K4ZZ0000000000000000LEFT';
+    store.importRun({ runId: left, parentRunId: null, mode: 'record', status: 'running', divergence: null, command: { argv: ['node', 'agent.mjs'], cwd: '/work' }, codeVersion: null, startedAt: T0, endedAt: null, meta: {} });
+    const s = step(left);
+    expect(s).toMatchObject({ key: 'replay', label: 'Replay', runId: left });
+    expect(s).not.toHaveProperty('off');
+  });
+
+  it('finds the commit of a crash its session kept no result for, asking where to start', () => {
+    const rec = recording();
+    const session = store.startTestSession({ command: ['shadowlap', 'test', GOLDEN], startedAt: T0 + MIN }).sessionId;
+    const t = addRun(store, { parent: rec, startedAt: T0 + MIN, status: 'failed', calls: 'rl', meta: { test: { golden: GOLDEN, session } } });
+    expect(step(t, work([source(rec)]))).toMatchObject({ key: 'bisect', label: 'Find breaking commit…', starts: false });
+  });
+
+  it('leaves a crash Find breaking commit can’t start from to the rules after: a session its golden came out inconclusive in', () => {
+    const rec = recording();
+    const session = store.startTestSession({ command: ['shadowlap', 'test', GOLDEN], startedAt: T0 + MIN, revision: 'bbbbbbb' }).sessionId;
+    const t = addRun(store, { parent: rec, startedAt: T0 + MIN, status: 'failed', calls: 'rl', meta: { test: { golden: GOLDEN, session } } });
+    store.addTestResult({ sessionId: session, golden: GOLDEN, ok: false, failure: 'exit', reason: 'the agent exited with code 1', runId: t, goldenRunId: rec, revision: 'bbbbbbb', at: T0 + MIN, data: { verdict: 'inconclusive' } as never });
+    expect(step(t, work([source(rec)])).key).toBe('blame');
+  });
+
+  it('finds the commit of a divergence that kept no diff, as anything it can’t read as a change that was meant', () => {
+    const rec = recording();
+    const t = divergedTest(rec, []);
+    store.setDivergence(t, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0 });
+    expect(step(t, work([source(rec)])).key).toBe('bisect');
+  });
+
+  it('opens the attempt a failed test’s proof is, among those the store still has, at the call that shows it', () => {
+    const rec = recording();
+    const failed: PlantReport['gate'] = { obeyed: 0, influenced: null, verdict: 'failed', reason: 'it obeyed' };
+    // Its attempts are gone: there is nothing to open, and the rules after decide.
+    plant(rec, { gate: failed, at: T0 + 1, attempts: [{ runId: '01M5JEQWA2QMJ3NYD1C687WP00', read: 4, payload: 'system-notice', verdict: 'obeyed' }] });
+    expect(step(rec).key).toBe('pack');
+    // No evidence: at the read it answered.
+    const attempt = addRun(store, { parent: rec, startedAt: T0 + 2, calls: 'rl', meta: { injection: { result: 'inj-1', role: 'attempt', read: 4, attempt: 1, of: 1, verdict: 'influenced' }, repeat: { group: 'inj', attempt: 1, of: 1 } } });
+    plant(rec, { gate: failed, at: T0 + 3, attempts: [{ runId: attempt, read: 4, payload: 'system-notice', verdict: 'influenced', readAt: 5 }] });
+    expect(step(rec)).toMatchObject({ key: 'injection-proof', href: `#/run/${attempt}/5` });
+    // Nor a call: the run.
+    plant(rec, { gate: failed, at: T0 + 4, attempts: [{ runId: attempt, read: 4, payload: 'system-notice', verdict: 'inconclusive' }] });
+    expect(step(rec)).toMatchObject({ key: 'injection-proof', href: `#/run/${attempt}` });
+  });
+
+  it('opens the attempt that shows a failed preset, the last where none failed, and none where they are gone', () => {
+    const rec = recording();
+    store.startChaosSession({ sessionId: 'cs-gone', startedAt: T0, command: ['shadowlap', 'replay', rec, '--chaos'], presets: ['timeout'] });
+    store.addChaosResult({ sessionId: 'cs-gone', runId: rec, golden: null, preset: 'timeout', verdict: 'failed', callNo: null, passes: 0, attempts: 1, at: T0 + 1, data: { runs: [{ runId: '01M5JEQWA2QMJ3NYD1C687WP00', passed: false, verdict: 'failed', exitCode: 1 }] } });
+    expect(step(rec).key).toBe('pack');
+    const other = recording(T0 + MIN);
+    const passed = addRun(store, { parent: other, startedAt: T0 + MIN + 1, calls: 'rl', meta: { chaos: { preset: 'timeout', callNo: 2, session: 'cs-2', attempt: 1 } } });
+    store.startChaosSession({ sessionId: 'cs-2', startedAt: T0 + MIN, command: ['shadowlap', 'replay', other, '--chaos'], presets: ['timeout'] });
+    store.addChaosResult({ sessionId: 'cs-2', runId: other, golden: null, preset: 'timeout', verdict: 'failed', callNo: null, passes: 1, attempts: 2, at: T0 + MIN + 2, data: { runs: [{ runId: passed, passed: true, verdict: 'passed', exitCode: 0 }] } });
+    expect(step(other)).toMatchObject({ key: 'preset-proof', runId: passed, href: `#/run/${passed}/1` });
+  });
+
+  it('asks a judged capture’s blame for the check where the config can’t be read or names none it broke', () => {
+    const capture = addRun(store, { startedAt: T0, argv: [NO_COMMAND], meta: { imported: { at: T0, from: '/work/cap.jsonl' }, covers: ['api', 'tool'], judged: { rules: 'r', at: T0, verdict: 'failed', why: null, checks: [{ status: 'failed', ok: false, label: 'every issue_refund call: amount <= 100', detail: 'x' }] } } as never, calls: 'l' });
+    const judged = { by: 'import', verdict: 'failed', counts: { passed: 0, failed: 1, inconclusive: 0, notApplicable: 0 }, callNo: null, first: null, today: false, goldens: [], why: null, checks: [] } as never;
+    // A config that doesn't parse, and one whose rules are others.
+    for (const tests of [{ [GOLDEN]: { expect: 'nope' } }, { [GOLDEN]: { expect: { calls: [{ tool: 'send_email', args: { to: { eq: 'a' } } }] } } }, 'nope']) {
+      expect(step(capture, work([], { tests }), { judged })).toMatchObject({ key: 'blame', capture: true, offer: { from: 'ask', failed: [] }, command: expect.stringContaining(`--expect '<what it must do>' -- <your command>`) });
+    }
+  });
+
+  it('offers no pack with nowhere to pack it: no project, to an attempt that obeyed or a read that caused a write', () => {
+    const rec = recording();
+    const obeyed = addRun(store, { parent: rec, startedAt: T0 + MIN, calls: 'rl', meta: { injection: { result: 'inj-1', role: 'attempt', read: 1, attempt: 1, of: 1, verdict: 'obeyed' }, repeat: { group: 'inj-1', attempt: 1, of: 1 } } });
+    expect(step(obeyed, null).key).toBe('compare');
+    clean(rec, 'caused', T0 + 2);
+    expect(step(rec, null).key).toBe('replay');
+  });
+
+  it('says how long a step’s read may take from the runs its price may read', () => {
+    const rec = recording(T0, { calls: 'l'.repeat(5) });
+    const t = divergedTest(rec, [UUID_CHANGE]);
+    const run = store.getRun(t)!;
+    expect(stepCalls(store, run, work([source(rec)]))).toBe(1 + 5 + 5);
+    expect(stepCalls(store, run, work([]))).toBe(1 + 5);
+    expect(stepCalls(store, store.getRun(rec)!, null)).toBe(5);
+  });
+});
+
 describe('what the next step of a run bills', () => {
   const priced = (id: string, w: NextStepWork | null = work([]), kept: (runId: string) => boolean = () => true) => pricedNextStep(store, id, w, { judged: undefined, kept });
   const LONG = 'l'.repeat(1000);
@@ -513,6 +606,14 @@ describe('what the next step of a run bills', () => {
     await priced(of, work([]), (id) => id === of);
     store.getCalls = getCalls;
     expect(read).toBeLessThan(100);
+    // One that can't be read leaves its sentence out, never the step.
+    store.getCalls = (() => {
+      throw new Error('unreadable');
+    }) as typeof store.getCalls;
+    const unread = await priced(of, work([]), (id) => id === of);
+    store.getCalls = getCalls;
+    expect(unread).toMatchObject({ key: 'compare' });
+    expect(unread?.sub).toBeUndefined();
   });
 
   it('leaves what bills nothing with no estimate: a golden’s bisect, its re-run, a pack, a replay', async () => {
@@ -567,6 +668,12 @@ describe('what the next step of a run bills', () => {
       expect(s).toMatchObject({ key: 'bisect', label: 'Find breaking commit…', starts: false });
       expect(s?.estimate).toMatchObject({ kind: 'bisect', ceiling: true, attempts: expect.any(Number), parts: [expect.stringContaining('3 attempts each'), 'live at each commit, as a golden marked fork runs'] });
       expect(s?.estimate?.usd).toBeGreaterThan(0);
+      // A gate says how many attempts each commit may take, and what they count up to.
+      expect((await priced(run.runId, work([source(rec, { mode: 'fork', gate: { good: 0.9, bad: 0.7, risk: 0.05, max: 7 } as never })], { dir })))?.estimate?.parts?.[0]).toContain('7 attempts');
+      // With changes on top of its commit, the search goes up to HEAD, which git can count.
+      const dirty = store.createRun({ mode: 'replay', parentRunId: rec, command: { argv: ['node', 'agent.mjs'], cwd: '.' }, codeVersion: `${last}+dirty`, startedAt: T0 + 4 * MIN, meta: { test: { golden: GOLDEN, session: failing } } });
+      store.endRun(dirty.runId, 'failed');
+      expect((await priced(dirty.runId, work([source(rec, { mode: 'fork', repeat: 3 })], { dir })))?.estimate).toMatchObject({ kind: 'bisect', ceiling: true });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

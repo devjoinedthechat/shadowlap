@@ -319,14 +319,17 @@ function blameStep(runId: string, offer: BlameOffer, capture = false): Decided {
   return { key: 'blame', label: ACTIONS.runBlame.label, offer, ...(capture ? { capture: true as const } : {}), command: blameCommand(runId, offer, capture), ...blamePrice(runId) };
 }
 
-/** Whether a golden is made from this recording: one whose pack holds it, or one it was unpacked from. One of a fork or a replay of it says nothing of this one. */
-function madeIntoGolden(f: Facts, run: RunRecord): boolean {
-  const w = f.work;
-  if (!w) return false;
-  const dir = w.dir ?? '.';
+/**
+ * Whether a recording can be packed as a golden yet: there is a project to pack it into, and no golden
+ * is made from it, one whose pack holds it or one it was unpacked from. One of a fork or a replay of
+ * it says nothing of this one.
+ */
+function packable(f: Facts, run: RunRecord): boolean {
+  const dir = f.work?.dir;
+  if (!dir) return false;
   const from: unknown = run.meta?.imported?.from;
   const unpacked = typeof from === 'string' && from ? resolve(dir, from) : null;
-  return w.goldens.some((g) => g.runId === run.runId || resolve(dir, g.path) === unpacked);
+  return !f.work!.goldens.some((g) => g.runId === run.runId || resolve(dir, g.path) === unpacked);
 }
 
 /** The payloads every template plants, as a test with none picked plants them. */
@@ -562,7 +565,7 @@ function injectionStep(f: Facts): Decided | null {
   const results = f.reads.injection(row.runId);
   if (!results.length) return null;
   const newest = results.find((r) => r.mode === 'plant' && r.endedAt !== null);
-  return (newest ? plantStep(f, newest) : null) ?? (causedAWrite(results) && !madeIntoGolden(f, f.record) ? packGateStep(f, row.runId, false) : null);
+  return (newest ? plantStep(f, newest) : null) ?? (causedAWrite(results) && packable(f, f.record) ? packGateStep(f, row.runId, false) : null);
 }
 
 /** A run whose newest presets failed leads with their proof, the first attempt that failed. Presets left inconclusive change nothing: running them again finds the same. */
@@ -639,7 +642,7 @@ function attemptStep(f: Facts): Decided | null {
   if (!parent) return null;
   if (row.meta.injection?.verdict === 'obeyed') {
     const tested = f.store.getRun(parent);
-    if (tested && !madeIntoGolden(f, tested)) return packGateStep(f, parent, true);
+    if (tested && packable(f, tested)) return packGateStep(f, parent, true);
   }
   return row.attemptKind ? compareStep(parent, row.runId) : null;
 }
@@ -666,9 +669,9 @@ function ruleStep(f: Facts): Decided | null {
 
 /** A recording that didn't fail, no golden made from it yet: a golden from a failed run would pass on the failure and diverge once the fix ships. */
 function packStep(f: Facts): Decided | null {
-  const { row, work } = f;
-  if (row.kind !== 'recording' || row.status !== 'completed' || row.failed || !row.calls || !work?.dir) return null;
-  if (f.judged?.verdict === 'failed' || !hasRecordedCommand(f.record) || madeIntoGolden(f, f.record)) return null;
+  const { row } = f;
+  if (row.kind !== 'recording' || row.status !== 'completed' || row.failed || !row.calls) return null;
+  if (f.judged?.verdict === 'failed' || !hasRecordedCommand(f.record) || !packable(f, f.record)) return null;
   const folder = goldenFolder(row.runId);
   return { key: 'pack', label: ACTIONS.packAsGolden.label, runId: row.runId, folder, title: 'Pack as golden', sub: 'A golden that CI replays on every commit', command: commandLine(['pack', short(row.runId), folder]) };
 }
