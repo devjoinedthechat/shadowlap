@@ -2,7 +2,7 @@ import { act, createElement, useRef, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Tabs } from '../ui/components/Tabs.js';
 import { backRowKey, isDetail, pageSig, samePage, trailAfter, type TrailStop } from '../ui/focus.js';
-import { headingRef } from '../ui/focus-manager.js';
+import { handOnAtEnd, headingRef, notingJobFrom } from '../ui/focus-manager.js';
 import { useListKeys } from '../ui/list-keys.js';
 import { parseRoute } from '../ui/route.js';
 import { useRoute } from '../ui/router.js';
@@ -302,6 +302,65 @@ describe('a move between pages', () => {
     await r.focus(r.one('#other'));
     await moved('#/run/B');
     expect(r.focused().textContent).toBe('B');
+  });
+});
+
+describe('what is drawn anew', () => {
+  /** A page that draws a control anew at each step within it, as a run's view does. */
+  function Step() {
+    const route = useRoute();
+    return createElement('div', { id: 'app' }, createElement('main', { id: 'view', tabIndex: -1 }, createElement('h1', {}, 'A run'), createElement('button', { type: 'button', key: route.page === 'run' ? route.call : 0, id: 'kept' }, 'Kept')));
+  }
+
+  it('hands the focus to its counterpart, and a move you made yourself stays', async () => {
+    addressBar('#/run/A/1');
+    r = await render(createElement(Step));
+    const first = r.one('#kept');
+    await r.focus(first);
+    await act(async () => void (location.hash = '#/run/A/2'));
+    expect(r.one('#kept')).not.toBe(first);
+    expect(r.focused().getAttribute('id')).toBe('kept');
+    expect(r.focused()).toBe(r.one('#kept'));
+  });
+});
+
+describe('a job’s end', () => {
+  const tick = () => act(() => new Promise<void>((done) => setTimeout(done, 80)));
+  /** A section whose button started a job; what the job's end draws in its place comes with `after`. */
+  function Part({ after }: { after: boolean }) {
+    return createElement(
+      'main',
+      { id: 'view' },
+      createElement('button', { type: 'button', id: 'elsewhere' }, 'Elsewhere'),
+      createElement('section', { id: 'part' }, after ? createElement('button', { type: 'button', className: 'btn lime', id: 'step' }, 'Revert') : createElement('button', { type: 'button', className: 'btn', id: 'start' }, 'Find it')),
+    );
+  }
+  function Shown() {
+    const [after, setAfter] = useState(false);
+    ended = setAfter;
+    return createElement(Part, { after });
+  }
+  let ended!: (on: boolean) => void;
+
+  it('hands the focus on to the step that took the control’s place in its part of the page', async () => {
+    r = await render(createElement(Shown));
+    await r.focus(r.one('#start'));
+    await notingJobFrom(Promise.resolve({ id: 'job-1' }));
+    await act(async () => ended(true));
+    handOnAtEnd('job-1');
+    await tick();
+    expect(r.focused().getAttribute('id')).toBe('step');
+  });
+
+  it('leaves the focus where you moved it', async () => {
+    r = await render(createElement(Shown));
+    await r.focus(r.one('#start'));
+    await notingJobFrom(Promise.resolve({ id: 'job-2' }));
+    await r.focus(r.one('#elsewhere'));
+    await act(async () => ended(true));
+    handOnAtEnd('job-2');
+    await tick();
+    expect(r.focused().getAttribute('id')).toBe('elsewhere');
   });
 });
 

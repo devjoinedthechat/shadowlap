@@ -157,4 +157,9 @@ test('on a phone, the drawer takes the focus to its first item, and a click besi
   await page.mouse.click(700, 500);
   await expect(page.locator('aside#side.open')).toHaveCount(0);
   await expect(menu).toBeFocused();
+  // A link in it closes it, and its page takes the focus.
+  await menu.click();
+  await page.locator('aside#side .navlist a', { hasText: 'Fixes' }).click();
+  await expect(page.locator('aside#side.open')).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => document.activeElement?.matches('main#view h1'))).toBe(true);
 });

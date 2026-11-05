@@ -80,15 +80,13 @@ table.t tbody tr.sel td, table.t tbody tr.sel:hover td { background: var(--sel);
 :where(.panel.sec table.t tbody) tr.sel > td:only-child, :where(.panel.sec table.t tbody) tr.sel:hover > td:only-child { box-shadow: calc(-1 * var(--bleed)) 0 0 var(--sel), var(--bleed) 0 0 var(--sel); }
 /* a list's row in focus (j and k on every list) is drawn as a run's selected call is: the selected ground and the bar at its
    left, kept under the pointer as a picked row's is. In a section's table the ground reaches into the gutter as far as the
-   hover does, the bar at its outer edge, so it never covers a row's first letter. A table's scroll wrapper makes that room while
-   it holds the row, or while a row's link has the keyboard's focus, whose ring starts before the table does. */
+   hover does, the bar at its outer edge, so it never covers a row's first letter: the section's scroll wrapper has that room. */
 table.t tbody tr.krow > td, table.t tbody tr.krow:hover > td { background: var(--sel); }
 tr.krow > td:first-child { box-shadow: inset 3px 0 0 var(--ink); }
 .krow:not(tr) { background: var(--sel); box-shadow: inset 3px 0 0 var(--ink); }
 .krow:focus-visible { outline: none; }
 :where(.panel.sec table.t tbody) tr.krow > td:first-child, :where(.panel.sec table.t tbody) tr.krow:hover > td:first-child { box-shadow: calc(3px - var(--bleed)) 0 0 var(--sel), calc(-1 * var(--bleed)) 0 0 var(--ink); }
 :where(.panel.sec table.t tbody) tr.krow > td:last-child, :where(.panel.sec table.t tbody) tr.krow:hover > td:last-child { box-shadow: var(--bleed) 0 0 var(--sel); }
-.tscroll:has(tr.krow), .tscroll:has(a.rowa:focus-visible) { margin-inline: calc(-1 * var(--bleed)); padding-inline: var(--bleed); }
 @media (forced-colors: active) { .krow, tr.krow { outline: 2px solid Highlight; outline-offset: -2px; } }
 
 /* ---- a status (Status): a 7px dot and a word, both in the word's colour, passed included ---- */

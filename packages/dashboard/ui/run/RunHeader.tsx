@@ -198,7 +198,7 @@ export function RunHeader({
               className={next.key === 'replay' ? 'btn lime' : 'btn'}
               type="button"
               disabled={live || !!actionsOff || !replay || !!replay.disabled}
-              data-tip={tipText(live ? 'Replay once the recording finishes' : (off ?? replay?.disabled ?? ACTIONS.replay.label))}
+              {...offOrCard(live ? 'Replay once the recording finishes' : (off ?? replay?.disabled), ACTIONS.replay.label)}
               onClick={() => replay && onAction({ action: replay, callNo: null })} {...shortcut('replay')}
             >
               <Icon name="replay" />
@@ -214,7 +214,7 @@ export function RunHeader({
               aria-haspopup="menu"
               aria-expanded={forkMenu.open}
               disabled={live || !!actionsOff || selected === null}
-              data-tip={forkTip(live, off)}
+              {...offOrCard(live ? 'Fork once the recording finishes' : off, 'Each change in the menu shows the flag it runs')}
               onClick={(e) => forkMenu.toggle(e.currentTarget)} {...shortcut('fork')}
             >
               <Icon name="fork" />
@@ -270,8 +270,8 @@ function FixLead({ fix }: { fix: NonNullable<RunDetail['fix']> }) {
   );
 }
 
-/** Fork's card: why it waits, else what its menu shows. */
-const forkTip = (live: boolean, off: string | undefined) => tipText(live ? 'Fork once the recording finishes' : (off ?? 'Each change in the menu shows the flag it runs'));
+/** A button's hover, as every disabled button's: why it is off, which a browser shows on one, else its card, which says its key. */
+const offOrCard = (off: string | null | undefined, card: string) => (off ? { title: off } : { 'data-tip': tipText(card) });
 
 /** Compare's card: which run it is read against, and the command that does the same. */
 const compareTip = (from: string, to: string) => tipCard(`Against ${shortId(from)}`, [], `shadowlap diff ${shortId(from)} ${shortId(to)}`);

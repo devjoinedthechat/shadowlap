@@ -56,7 +56,7 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn', titl
   const failedText = failed.length ? `It failed “${failed[0]!}”${failed.length > 1 ? ` and ${failed.length - 1} more` : ''}, a check shadowlap.config.json doesn’t give. ` : '';
   return (
     <>
-      <button className={className} type="button" disabled={!!why} {...(icon ? { 'data-tip': tipCard(ACTIONS.runBlame.label, [], why ?? title) } : { title: why ?? title })} onClick={() => app.guard(() => void start({}))} {...mark}>
+      <button className={className} type="button" disabled={!!why} {...(icon && !why ? { 'data-tip': tipCard(ACTIONS.runBlame.label, [], title) } : { title: why ?? title })} onClick={() => app.guard(() => void start({}))} {...mark}>
         {icon ? <Icon name="loop" /> : null}
         {ACTIONS.runBlame.label}
       </button>
