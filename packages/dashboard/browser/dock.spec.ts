@@ -1,0 +1,198 @@
+import { expect, test, type Page } from '@playwright/test';
+import { demoId, openPage, seriousViolations } from './dashboard.js';
+
+/**
+ * The job's drawer docked across the content's foot, its chip and pill, and toasts over all of it, in
+ * Chromium over the demo store, at 1440 and on a phone at 390. Jobs here are scripted at the job
+ * routes, so nothing runs: `end` says how the job the page follows ended.
+ */
+
+const ID = 'feedfacefeedface';
+const box = async (page: Page, selector: string) => (await page.locator(selector).boundingBox())!;
+
+/** Starts a replay from the run's page, its routes answering for the job. */
+async function startJob(page: Page) {
+  const run = demoId('ticket');
+  const job = { id: ID, kind: 'action', title: 'Replaying', args: ['replay', run], worktree: null, runId: run, opensRun: true, startedAt: Date.now(), done: false, stopped: false, code: null as number | null, newRunId: null as string | null, lines: [] as string[], total: 0 };
+  const now = { job, started: false };
+  await page.route(/\/api\/jobs(\?.*)?$/, (route) => route.fulfill({ json: { jobs: now.started ? [{ ...now.job, lines: undefined }] : [] } }));
+  await page.route(/\/api\/runs\/[^/]+\/actions$/, (route) => {
+    now.started = true;
+    return route.fulfill({ json: now.job });
+  });
+  await page.route(new RegExp(`/api/jobs/${ID}/stop`), (route) => route.fulfill({ json: { stopped: false } }));
+  await page.route(new RegExp(`/api/jobs/${ID}(\\?.*)?$`), (route) => route.fulfill({ json: now.job }));
+  await openPage(page, `/run/${run}`, 'run');
+  await page.locator('.rhead .actions button', { hasText: /^Replay$/ }).click();
+  await page.locator('section.drawer').waitFor();
+  return {
+    run,
+    end: (lines: string[], over: Partial<typeof job> = {}) => {
+      now.job = { ...job, done: true, code: 0, lines, total: lines.length, ...over };
+    },
+  };
+}
+
+const CLEAN = '✓ Replay clean: 30/30 calls replayed';
+
+test.describe('at 1440', () => {
+  test('docks across the content, a hairline above it, and the content makes room', async ({ page }) => {
+    await startJob(page);
+    const d = await box(page, 'section.drawer');
+    const main = await box(page, 'main#view');
+    expect(Math.round(d.x)).toBe(Math.round(main.x));
+    expect(Math.round(d.x + d.width)).toBe(1440);
+    expect(Math.round(d.height)).toBe(264);
+    expect(Math.round(d.y + d.height)).toBe(900 - 28);
+    await expect(page.locator('main#view')).toHaveCSS('padding-bottom', '264px');
+    await expect(page.locator('#jtitle')).toHaveText('Replaying');
+    await expect(page.locator('section.drawer .st2').last()).toHaveText('running');
+    expect(await seriousViolations(page)).toEqual([]);
+  });
+
+  test('hides a running job behind the status bar’s chip, which opens it again', async ({ page }) => {
+    await startJob(page);
+    await page.locator('#jx').click();
+    await expect(page.locator('section.drawer')).toBeHidden();
+    await expect(page.locator('main#view')).toHaveCSS('padding-bottom', '0px');
+    const chip = page.locator('.status .jobchip');
+    await expect(chip).toHaveText('Replaying · running');
+    await expect(chip).toBeFocused();
+    expect((await chip.boundingBox())!.y).toBeGreaterThan(872);
+    expect(await seriousViolations(page)).toEqual([]);
+    await chip.click();
+    await expect(page.locator('section.drawer')).toBeVisible();
+    await expect(page.locator('#jx')).toBeFocused();
+    await expect(chip).toHaveCount(0);
+    // Esc hides it again, and goes on to nothing while it is hidden.
+    await page.keyboard.press('Escape');
+    await expect(page.locator('section.drawer')).toBeHidden();
+    await expect(chip).toBeFocused();
+  });
+
+  test('ends in the past tense, then folds to its header line, its room following it', async ({ page }) => {
+    const { end } = await startJob(page);
+    await page.locator('main#view').focus();
+    end([CLEAN]);
+    await expect(page.locator('#jtitle')).toHaveText('Replayed');
+    await expect(page.locator('section.drawer .st2').last()).toHaveText('reproduced · exit 0');
+    await expect(page.locator('section.drawer.folded')).toBeVisible({ timeout: 4000 });
+    const d = await box(page, 'section.drawer');
+    expect(d.height).toBeLessThan(60);
+    await expect(page.locator('#jout')).toBeHidden();
+    const room = await page.locator('main#view').evaluate((el) => parseFloat(getComputedStyle(el).paddingBottom));
+    expect(Math.abs(room - d.height)).toBeLessThan(1);
+    // The log is a button away.
+    await page.locator('#jlog').click();
+    await expect(page.locator('#jout')).toBeVisible();
+    await expect(page.locator('#jlog')).toHaveAttribute('aria-label', 'Hide log');
+    expect(Math.round((await box(page, 'section.drawer')).height)).toBe(264);
+    // Close: gone, and the content has its room back.
+    await page.locator('#jx').click();
+    await expect(page.locator('section.drawer')).toHaveCount(0);
+    await expect(page.locator('main#view')).toHaveCSS('padding-bottom', '0px');
+  });
+
+  test('stays across pages while it runs, and goes with the page once it has ended', async ({ page }) => {
+    const { end } = await startJob(page);
+    await page.evaluate(() => (location.hash = '#/runs'));
+    await page.locator('main#view table.runst').waitFor();
+    await expect(page.locator('section.drawer')).toBeVisible();
+    end([CLEAN]);
+    await expect(page.locator('#jtitle')).toHaveText('Replayed');
+    await page.evaluate(() => (location.hash = '#/tests'));
+    await expect(page.locator('section.drawer')).toHaveCount(0);
+  });
+
+  test('raises a toast with its way on when a hidden job ends, centred on the content', async ({ page }) => {
+    const { end, run } = await startJob(page);
+    await page.locator('#jx').click();
+    end([CLEAN], { newRunId: run });
+    const toast = page.locator('.toast');
+    await expect(toast).toContainText('Replayed · reproduced · exit 0');
+    await expect(page.locator('.status .jobchip')).toHaveText('Replayed · reproduced · exit 0');
+    const t = (await toast.boundingBox())!;
+    const main = await box(page, 'main#view');
+    expect(Math.abs(t.x + t.width / 2 - (main.x + main.width / 2))).toBeLessThan(2);
+    expect(Math.round(900 - (t.y + t.height))).toBe(28 + 14);
+    // The chip shows it again, and that toast goes: the drawer says the same.
+    await page.locator('.status .jobchip').click();
+    await expect(page.locator('section.drawer')).toBeVisible();
+    await expect(toast).toHaveCount(0);
+    await expect(page.locator('#jtitle')).toHaveText('Replayed');
+  });
+
+  test('offers Show when a hidden job has no way on', async ({ page }) => {
+    const { end } = await startJob(page);
+    await page.locator('#jx').click();
+    end([CLEAN]);
+    await page.locator('.toast .tbtn', { hasText: 'Show' }).click();
+    await expect(page.locator('section.drawer')).toBeVisible();
+    await expect(page.locator('#jx')).toBeFocused();
+  });
+
+  test('places a toast over the drawer, and again when the drawer goes', async ({ page }) => {
+    await startJob(page);
+    await page.locator('section.drawer .btn', { hasText: 'Stop' }).click();
+    const toast = page.locator('.toast');
+    await expect(toast).toContainText('Replaying had ended already');
+    const d = await box(page, 'section.drawer');
+    const t = (await toast.boundingBox())!;
+    expect(Math.round(d.y - (t.y + t.height))).toBe(14);
+    await page.locator('#jx').click();
+    await expect(page.locator('section.drawer')).toBeHidden();
+    await expect.poll(async () => Math.round(900 - ((await toast.boundingBox())!.y + (await toast.boundingBox())!.height))).toBe(28 + 14);
+  });
+
+  test('undoes with ⌘Z or u, only an Undo, and not from a field', async ({ page }) => {
+    await openPage(page, `/run/${demoId('eval')}`, 'run');
+    const good = page.locator('.rhead .runkey button', { hasText: 'good' });
+    await good.click();
+    await expect(good).toHaveAttribute('aria-pressed', 'true');
+    const undo = page.locator('.toast .tbtn', { hasText: 'Undo' });
+    await expect(undo).toBeVisible();
+    await expect(undo).toHaveAttribute('aria-keyshortcuts', 'Meta+Z Control+Z u');
+    await page.keyboard.press('ControlOrMeta+z');
+    await expect(good).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.locator('.toast')).toContainText('put back as it was');
+    await good.click();
+    await expect(good).toHaveAttribute('aria-pressed', 'true');
+    await expect(undo).toBeVisible();
+    await page.keyboard.press('u');
+    await expect(good).toHaveAttribute('aria-pressed', 'false');
+  });
+});
+
+test.describe('on a phone', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test('docks at the window’s foot and hides into a pill the bar keeps room for', async ({ page }) => {
+    const { end } = await startJob(page);
+    const d = await box(page, 'section.drawer');
+    expect(d.x).toBe(0);
+    expect(d.width).toBe(390);
+    expect(Math.round(d.height)).toBe(300);
+    expect(Math.round(d.y + d.height)).toBe(844);
+    await page.locator('#jx').click();
+    await expect(page.locator('section.drawer')).toBeHidden();
+    const pill = page.locator('.status .jobchip');
+    await expect(pill).toHaveText('Replaying · running');
+    const p = (await pill.boundingBox())!;
+    expect(Math.round(p.x + p.width)).toBe(390 - 12);
+    expect(Math.round(p.y + p.height)).toBe(844 - 12);
+    await expect(pill).toHaveCSS('height', '36px');
+    expect(parseFloat(await page.locator('.status').evaluate((el) => getComputedStyle(el).paddingBottom))).toBeGreaterThanOrEqual(56);
+    expect(await seriousViolations(page)).toEqual([]);
+    // Its end's toast says how it ended, over the foot, the pill stepping aside meanwhile.
+    end([CLEAN]);
+    const toast = page.locator('.toast');
+    await expect(toast).toContainText('Replayed · reproduced · exit 0');
+    await expect(pill).toBeHidden();
+    const t = (await toast.boundingBox())!;
+    expect(Math.abs(t.x + t.width / 2 - 195)).toBeLessThan(2);
+    expect(t.x).toBeGreaterThanOrEqual(16);
+    expect(t.x + t.width).toBeLessThanOrEqual(390 - 16 + 1);
+    await page.locator('.toast .tbtn', { hasText: 'Show' }).click();
+    await expect(page.locator('section.drawer')).toBeVisible();
+  });
+});
