@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { hideTip, tipShowing } from '../components/HoverCard.js';
 import { isTyping } from '../dom.js';
 import { useLatest } from '../hooks.js';
 import { modalOpen, overlayKeys, overlayOpen } from '../overlays/modal-store.js';
@@ -14,8 +15,8 @@ import { toastKey, UNDO_KEY } from '../toast.js';
  * calls), ? for the shortcuts, g then a letter to go to a page, u for what the toast on screen offers
  * (its Undo), and Esc. A menu and a modal have the keys first, in the capture phase, so while one is
  * open the page's never fire (`overlayKeys`): Esc closes it there, and only reaches this handler to
- * close a panel, then the phone sidebar. A run's own keys are its page's (`runKeys`). No shortcut
- * works while the link has expired.
+ * close a panel, then the phone sidebar, then a hover card. A run's own keys are its page's
+ * (`runKeys`). No shortcut works while the link has expired.
  */
 
 /** ⌘K: it closes the palette; over a dialog it opens nothing, and a menu has already gone. */
@@ -26,11 +27,14 @@ function paletteKey(a: AppState, e: KeyboardEvent): void {
   else if (!modalOpen()) a.setPalette(true);
 }
 
-/** Esc that no menu or modal took: a panel, then the phone's sidebar. */
+/** Esc that no menu or modal took: a panel, then the phone's sidebar, then a hover card. */
 function escapeKey(a: AppState, e: KeyboardEvent): void {
   if (closeTopPanel()) e.preventDefault();
   else if (a.sideOpen) {
     a.setSideOpen(false);
+    e.preventDefault();
+  } else if (tipShowing()) {
+    hideTip();
     e.preventDefault();
   }
 }

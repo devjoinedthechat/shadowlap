@@ -1,9 +1,19 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
+import { shownMenu } from '../overlays/menu-store.js';
+import { overlayOpen } from '../overlays/modal-store.js';
+import { placeTip } from '../place.js';
+import { Copy } from './Copy.js';
 
 /**
- * Hover cards: one style everywhere, a title and coloured rows. An element opts in with a `data-tip`
- * attribute (`tipText` or `tipCard`), and one layer follows the pointer, so a strip of 360 cells
- * costs one listener, not 360.
+ * Hover cards: one style everywhere, a title, a line or two, coloured rows and a command. An element
+ * opts in with a `data-tip` attribute (`tipText` or `tipCard`), and one layer listens for all of them,
+ * so a strip of 360 cells costs one listener, not 360. A card is anchored to its element (`placeTip`),
+ * never over the menu its button opened or a dialog's footer. A pointer waits 400 ms for it, and the
+ * next one shows at once while one was showing; the keyboard's focus shows one at once and keeps it
+ * as Tab scrolls the page to its control; a tap on a touch screen toggles one on a fact that is no
+ * link or button. While it shows, its element points at it with `aria-describedby`, and an element
+ * with a card and no action of its own takes the focus (`markTipTargets`), so what a hover shows is
+ * never only a hover's.
  */
 
 export interface TipRow {
@@ -15,9 +25,11 @@ export interface TipRow {
 
 interface Tip {
   t: string;
-  /** A line under the title: what a run was about, under its id. */
+  /** Under the title, a line a sentence: what a mark means here and the rule it stands on, a run's about line. */
   s?: string;
   rows?: Array<[string, string, string?]>;
+  /** What it runs, as `$ shadowlap …`: up to its first arguments, the whole of it in the dialog or the drawer. */
+  cmd?: string;
 }
 
 /** A card with a title only, such as an icon's words. */
@@ -25,13 +37,13 @@ export function tipText(t: string): string {
   return JSON.stringify({ t } satisfies Tip);
 }
 
-/** A card with a title and rows: what a strip cell, a bar or a chart group holds; `s`, a line under the title. */
-export function tipCard(t: string, rows: TipRow[], s?: string | null): string {
-  return JSON.stringify({ t, ...(s ? { s } : {}), rows: rows.map((r) => [r.label, r.value, r.color ?? '']) } satisfies Tip);
+/** A card with a title and rows: what a strip cell, a bar or a chart group holds; `s`, a line under the title; `cmd`, what it runs. */
+export function tipCard(t: string, rows: TipRow[], s?: string | null, cmd?: string | null): string {
+  return JSON.stringify({ t, ...(s ? { s } : {}), rows: rows.map((r) => [r.label, r.value, r.color ?? '']), ...(cmd ? { cmd } : {}) } satisfies Tip);
 }
 
 function read(el: Element): Tip | null {
-  const raw = (el as HTMLElement).dataset.tip;
+  const raw = el.getAttribute('data-tip');
   if (!raw) return null;
   try {
     const v = JSON.parse(raw) as Tip;
@@ -41,49 +53,371 @@ function read(el: Element): Tip | null {
   }
 }
 
-export function HoverCardLayer() {
-  const [tip, setTip] = useState<{ d: Tip; x: number; y: number } | null>(null);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const move = (e: MouseEvent) => {
-      const el = e.target instanceof Element ? e.target.closest('[data-tip]') : null;
-      const d = el ? read(el) : null;
-      setTip(d ? { d, x: e.clientX, y: e.clientY } : null);
-    };
-    const hide = () => setTip(null);
-    document.addEventListener('mousemove', move);
-    document.addEventListener('scroll', hide, true);
-    window.addEventListener('blur', hide);
-    return () => {
-      document.removeEventListener('mousemove', move);
-      document.removeEventListener('scroll', hide, true);
-      window.removeEventListener('blur', hide);
-    };
-  }, []);
-  // Placed after it is drawn, so it can flip to stay on screen.
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
-  useLayoutEffect(() => {
-    if (!tip || !ref.current) return setPos(null);
-    const w = ref.current.offsetWidth;
-    const h = ref.current.offsetHeight;
-    let x = tip.x + 14;
-    let y = tip.y + 14;
-    if (x + w > innerWidth - 8) x = tip.x - w - 14;
-    if (y + h > innerHeight - 8) y = tip.y - h - 14;
-    setPos({ left: Math.max(8, x), top: Math.max(8, y) });
-  }, [tip]);
-  if (!tip) return null;
+/** A clause of a definition that fits a card's line at the size it sets. */
+const CLAUSE = 64;
+
+/**
+ * A definition cut at its clauses and asides, each kept whole where a line holds it, so it breaks
+ * between them; one with a longer clause flows as written (null).
+ */
+export function tipClauses(text: string): string[] | null {
+  const clauses: string[] = [];
+  // The split keeps what it cuts at, every other piece: a clause's stop stays with its clause.
+  text.split(/([,:;.)] | (?=\())/).forEach((part, i) => clauses.push(i % 2 ? `${clauses.pop() ?? ''}${part.trim()}` : part));
+  return clauses.length > 1 && clauses.every((c) => c.length <= CLAUSE) ? clauses : null;
+}
+
+/**
+ * A long command on a card up to its first arguments, ending on …: the whole of it is in the dialog
+ * the button asks in, or the drawer of the job it starts. What a card quotes with no `$` stays whole.
+ */
+export function tipCmd(c: string): string {
+  if (!c.startsWith('$ ') || c.length <= 64) return c;
+  const parts = c.slice(2).match(/[^\s'"]*(?:'[^']*'|"[^"]*")\S*|\S+/g) ?? [];
+  const out: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]!;
+    if (out.length > 2 && `${out.join(' ')} ${part}`.length > 48) break;
+    out.push(part);
+    const next = parts[i + 1];
+    if (/^--?[a-z]/.test(part) && next && !next.startsWith('--') && `${out.join(' ')} ${next}`.length <= 56) {
+      out.push(next);
+      i++;
+    }
+  }
+  return `$ ${out.join(' ')}${out.length < parts.length ? ' …' : ''}`;
+}
+
+/** Past this, a row's label and value stack: its value under its words. */
+const STACKED = 46;
+
+function Line({ text, term }: { text: string; term: boolean }) {
+  const clauses = term ? tipClauses(text) : null;
+  if (clauses)
+    return (
+      <span className="ts">
+        {clauses.map((c, i) => (
+          <span className="tcl" key={i}>
+            {i ? ' ' : ''}
+            {c}
+          </span>
+        ))}
+      </span>
+    );
+  if (term) return <span className="ts">{text}</span>;
   return (
-    <div className="tip" ref={ref} role="tooltip" style={pos ?? { left: tip.x + 14, top: tip.y + 14, visibility: 'hidden' }}>
-      <b>{tip.d.t}</b>
-      {tip.d.s ? <span className="ts">{tip.d.s}</span> : null}
-      {(tip.d.rows ?? []).map(([label, value, color], i) => (
-        <div key={i}>
+    <Copy as="span" className="ts" phrases>
+      {text}
+    </Copy>
+  );
+}
+
+function Body({ d, term }: { d: Tip; term: boolean }) {
+  const cmd = d.cmd ?? (d.s?.startsWith('$ ') ? d.s : null);
+  const lines = d.s && d.s !== cmd ? d.s.split('\n') : [];
+  return (
+    <>
+      <b>{d.t}</b>
+      {lines.map((line, i) => (
+        <Line key={i} text={line} term={term} />
+      ))}
+      {(d.rows ?? []).map(([label, value, color], i) => (
+        <div key={i} className={label.length + value.length > STACKED ? 'stk' : undefined}>
           <i style={color ? { background: color } : undefined} />
           {label}
           <em>{value}</em>
         </div>
       ))}
+      {cmd ? <code>{tipCmd(cmd)}</code> : null}
+    </>
+  );
+}
+
+// ---- what shows: one card, whatever asked for it
+
+type By = 'pointer' | 'focus' | 'tap';
+
+interface Shown {
+  el: HTMLElement;
+  /** What points at the card: its element, or the control in it that has the focus (a link in a line). */
+  describes: HTMLElement;
+  d: Tip;
+  by: By;
+  /** Where the pointer came onto a wide row, which the card starts near. */
+  x: number | null;
+}
+
+let shown: Shown | null = null;
+/** An element waiting out the pointer's 400 ms. */
+let next: Element | null = null;
+let wait: ReturnType<typeof setTimeout> | undefined;
+/** When a card last went: the next one shows at once for half a second. */
+let wentAt = 0;
+const listeners = new Set<() => void>();
+
+const ID = 'tip';
+const WAIT_MS = 400;
+const WARM_MS = 500;
+
+function tell(): void {
+  for (const fn of [...listeners]) fn();
+}
+
+/** Points an element at the card, beside what it is described by already (a term's definition). */
+function describe(el: HTMLElement): void {
+  const had = el.getAttribute('aria-describedby');
+  if (!had?.split(' ').includes(ID)) el.setAttribute('aria-describedby', had ? `${had} ${ID}` : ID);
+}
+
+function undescribe(el: HTMLElement): void {
+  const rest = (el.getAttribute('aria-describedby') ?? '').split(' ').filter((x) => x && x !== ID);
+  if (rest.length) el.setAttribute('aria-describedby', rest.join(' '));
+  else el.removeAttribute('aria-describedby');
+}
+
+function show(el: HTMLElement, x: number | null, by: By, describes = el): void {
+  // An open menu is never covered by the card of the button that opened it.
+  const menu = shownMenu();
+  const d = el.isConnected && !(menu && !menu.root.contains(el)) ? read(el) : null;
+  if (!d) return;
+  if (shown && shown.describes !== describes) undescribe(shown.describes);
+  describe(describes);
+  shown = { el, describes, d, by, x };
+  tell();
+}
+
+/** Whether a card shows. */
+export const tipShowing = (): boolean => shown !== null;
+
+/** Hides the card, and any on its way; the next one shows at once for a moment. */
+export function hideTip(): void {
+  clearTimeout(wait);
+  next = null;
+  if (!shown) return;
+  wentAt = Date.now();
+  undescribe(shown.describes);
+  shown = null;
+  tell();
+}
+
+// ---- what takes the focus
+
+/** Where the row or the chart is the one stop: a mark in it takes no focus of its own. */
+const NO_STOP = 'tr, [role="row"], .groups, .cbars, .tl-row, .pips';
+
+/** What a card says, for a mark with no words of its own to be named by. */
+function tipWords(d: Tip): string {
+  return [d.t, d.s, ...(d.rows ?? []).map(([label, value]) => `${label} ${value}`.trim())].filter(Boolean).join(', ');
+}
+
+/**
+ * An element with a card and no action of its own takes the focus where it stands on its own (a
+ * page's facts, a lead line), unless a control in it does (a link in a line), whose focus shows the
+ * card; in a row or a chart it doesn't, and one with no words of its own (an avatar, a history cell,
+ * a chart's day) is an image named by its card's words, so a screen reader has them.
+ */
+export function markTipTargets(root: Pick<ParentNode, 'querySelectorAll'>): void {
+  for (const el of root.querySelectorAll<HTMLElement>('[data-tip]')) {
+    if (el.tabIndex >= 0 || el.matches('a[href], button, input, select, textarea, [tabindex], .glyph') || el.closest('a[href], button, [role="button"], [role="img"], [aria-hidden="true"]')) continue;
+    if (!el.closest(NO_STOP)) {
+      if (!el.querySelector('a[href], button')) el.tabIndex = 0;
+      continue;
+    }
+    if (el.textContent?.trim()) continue;
+    const d = read(el);
+    if (!d) continue;
+    el.setAttribute('role', 'img');
+    el.setAttribute('aria-label', tipWords(d));
+  }
+}
+
+// ---- where it goes
+
+function inView(el: HTMLElement): boolean {
+  const r = el.getBoundingClientRect();
+  const v = el.closest('#view')?.getBoundingClientRect() ?? { top: 0, bottom: innerHeight };
+  return r.bottom > Math.max(0, v.top) && r.top < Math.min(innerHeight, v.bottom);
+}
+
+/**
+ * Places the card on what it describes. It is shown at the window's left first, where it has its whole
+ * width, so it is set for the width it keeps wherever it goes, never for the room left beside the
+ * last card's place.
+ */
+function place(tip: HTMLElement, s: Shown): void {
+  tip.style.left = '8px';
+  tip.style.top = '8px';
+  tip.style.visibility = '';
+  const menu = s.el.closest('.pop:not(.sheet)');
+  const foot = s.el.closest('.dialog, .help')?.querySelector('footer');
+  const at = placeTip(
+    s.el.getBoundingClientRect(),
+    { width: tip.offsetWidth, height: tip.offsetHeight },
+    { width: innerWidth, height: innerHeight },
+    { x: s.x, menu: menu?.getBoundingClientRect() ?? null, foot: foot?.getClientRects().length ? foot.getBoundingClientRect().top : null },
+  );
+  tip.style.left = `${at.left}px`;
+  tip.style.top = `${at.top}px`;
+}
+
+// ---- what asks for it
+
+const tipOf = (t: EventTarget | null): HTMLElement | null => (t as Element | null)?.closest?.('[data-tip]') ?? null;
+
+function pointerOver(e: PointerEvent): void {
+  if (e.pointerType === 'touch') return;
+  const el = tipOf(e.target);
+  if (el && (el === shown?.el || el === next)) return;
+  clearTimeout(wait);
+  next = null;
+  const warm = shown !== null || Date.now() - wentAt < WARM_MS;
+  if (shown && shown.by !== 'focus') hideTip();
+  if (!el) return;
+  const x = e.clientX;
+  next = el;
+  wait = setTimeout(
+    () => {
+      next = null;
+      show(el, x, 'pointer');
+    },
+    warm ? 0 : WAIT_MS,
+  );
+}
+
+function pointerOut(e: PointerEvent): void {
+  if (!e.relatedTarget && shown?.by !== 'focus') hideTip();
+}
+
+function focusIn(e: FocusEvent): void {
+  const t = e.target as HTMLElement | null;
+  const el = tipOf(t);
+  if (el && t?.matches(':focus-visible')) {
+    clearTimeout(wait);
+    next = null;
+    show(el, null, 'focus', t);
+  } else if (shown?.by === 'focus') hideTip();
+}
+
+function focusOut(e: FocusEvent): void {
+  if (shown?.by === 'focus' && shown.el.contains(e.target as Node)) hideTip();
+}
+
+/** What a press found: a finger, and the card that showed, which its tap then hides. */
+let pressedBy: string | null = null;
+let hadCard: HTMLElement | null = null;
+
+function pressed(e: PointerEvent): void {
+  pressedBy = e.pointerType;
+  hadCard = shown?.el ?? null;
+}
+
+/** What a click does to a card, before the click itself acts: a click acts, and the card comes back on the next move; a tap on a fact, or any click on a term, is what the fact's card is for. */
+function clicked(e: MouseEvent): void {
+  const el = tipOf(e.target);
+  const term = !!el?.matches('.term.on');
+  if (pressedBy !== 'touch') {
+    if (term) show(el!, null, 'pointer');
+    else hideTip();
+    return;
+  }
+  if (!el || (el.closest('a[href], button, input, select, textarea, label, [role="button"]') && !term)) return hideTip();
+  if (el === hadCard) hideTip();
+  else show(el, null, 'tap');
+}
+
+/** Esc hides a card in the press that closes the menu or dialog it shows over; on the page, the page's own Esc does, and only the next one goes on (Keyboard.tsx). */
+function escape(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && shown && overlayOpen()) hideTip();
+}
+
+function subscribe(fn: () => void): () => void {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
+export function HoverCardLayer() {
+  const s = useSyncExternalStore(
+    subscribe,
+    () => shown,
+    () => null,
+  );
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // A scroll hides a card; one shown for the keyboard's focus moves with its control instead (Tab
+    // scrolls the page to the control it reaches), hidden while the control is out of view.
+    const scrolled = () => {
+      const tip = ref.current;
+      if (!shown) return;
+      if (shown.by === 'focus' && tip && shown.el.contains(document.activeElement)) {
+        if (inView(shown.el)) place(tip, shown);
+        else tip.style.visibility = 'hidden';
+      } else hideTip();
+    };
+    document.addEventListener('pointerover', pointerOver);
+    document.addEventListener('pointerout', pointerOut);
+    document.addEventListener('focusin', focusIn);
+    document.addEventListener('focusout', focusOut);
+    document.addEventListener('pointerdown', pressed, true);
+    document.addEventListener('click', clicked, true);
+    document.addEventListener('keydown', escape, true);
+    document.addEventListener('scroll', scrolled, true);
+    window.addEventListener('blur', hideTip);
+    return () => {
+      document.removeEventListener('pointerover', pointerOver);
+      document.removeEventListener('pointerout', pointerOut);
+      document.removeEventListener('focusin', focusIn);
+      document.removeEventListener('focusout', focusOut);
+      document.removeEventListener('pointerdown', pressed, true);
+      document.removeEventListener('click', clicked, true);
+      document.removeEventListener('keydown', escape, true);
+      document.removeEventListener('scroll', scrolled, true);
+      window.removeEventListener('blur', hideTip);
+      hideTip();
+    };
+  }, []);
+
+  // Every element with a card takes the focus or is named by it, however it came into the page.
+  useEffect(() => {
+    if (typeof MutationObserver !== 'function') return;
+    let frame = 0;
+    const soon = () => {
+      frame ||= requestAnimationFrame(() => {
+        frame = 0;
+        markTipTargets(document.body);
+      });
+    };
+    soon();
+    const watch = new MutationObserver(soon);
+    watch.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-tip'] });
+    return () => {
+      cancelAnimationFrame(frame);
+      watch.disconnect();
+    };
+  }, []);
+
+  // Placed as it is drawn, and again as its words settle at the width they get.
+  useLayoutEffect(() => {
+    const tip = ref.current;
+    if (!tip || !s) return;
+    place(tip, s);
+    if (typeof ResizeObserver !== 'function') return;
+    let width = tip.offsetWidth;
+    let height = tip.offsetHeight;
+    const again = new ResizeObserver(() => {
+      if (tip.offsetWidth === width && tip.offsetHeight === height) return;
+      width = tip.offsetWidth;
+      height = tip.offsetHeight;
+      place(tip, s);
+    });
+    again.observe(tip);
+    return () => again.disconnect();
+  }, [s]);
+
+  const term = !!s?.el.classList.contains('term');
+  return (
+    <div className={`tip${term ? ' gl' : ''}`} id={ID} ref={ref} role="tooltip" hidden={!s}>
+      {s ? <Body d={s.d} term={term} /> : null}
     </div>
   );
 }
