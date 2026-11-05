@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { JOB_KINDS, type Client } from '../api.js';
 import { Chips, PageHeader } from '../components/bits.js';
-import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
 import { EmptyLine } from '../components/States.js';
 import { ShowMore } from '../components/Table.js';
@@ -16,6 +15,7 @@ import { runRowScope } from '../run-row.js';
 import { BulkBar, type PickedRun } from '../runspage/BulkBar.js';
 import { Calendar } from '../runspage/Calendar.js';
 import { pickedOf, pickedRange, rangeTimes } from '../runspage/calendar-model.js';
+import { RunsActions } from '../runspage/RunsActions.js';
 import { RunsFilterField } from '../runspage/FilterField.js';
 import { FindCommitDialog } from '../runspage/FindCommit.js';
 import { ImportDialog } from '../runspage/ImportDialog.js';
@@ -335,7 +335,7 @@ function runsEyebrow(p: { name: string } | null, store: TeamStoreView | null, kn
 }
 
 function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
-  const { client, meta, tick, feeds, actionsOff, hasKind, guard, watchJob, toast, refresh, runs: appRuns } = useApp();
+  const { client, meta, tick, feeds, actionsOff, hasKind, guard, toast, refresh, runs: appRuns } = useApp();
   const { store, known: storeKnown } = useTeamStoreState();
   const tz = useMemo(viewerTimeZone, []);
   const f = useRunsFilter(filter);
@@ -474,7 +474,6 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   };
 
   const p = projectOf(meta);
-  const off = actionsOff ?? undefined;
   const runs = [...picked.values()];
   return (
     <Page>
@@ -482,21 +481,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
         eyebrow={runsEyebrow(p, store, storeKnown)}
         title="Runs"
         text={RUNS_TEXT}
-        actions={
-          <>
-            {store && hasKind(JOB_KINDS.pull) ? (
-              <button className="btn" type="button" disabled={!!actionsOff} title={off ?? `Bring the team’s runs from ${store.name}`} onClick={() => guard(() => watchJob(client.startJob(JOB_KINDS.pull, {})))}>
-                Pull
-              </button>
-            ) : null}
-            {hasKind(JOB_KINDS.importCapture) ? (
-              <button className="btn" type="button" disabled={!!actionsOff} title={off} onClick={() => guard(() => setDialog('import'))}>
-                <Icon name="import" />
-                {ACTIONS.importCapture.label}
-              </button>
-            ) : null}
-          </>
-        }
+        actions={<RunsActions store={store} onImport={() => setDialog('import')} />}
       />
       {cal.data ? <Calendar data={cal.data} chip={chip} range={range} onPick={pickDays} byPerson={!!store} onFindCommit={hasKind(JOB_KINDS.bisect) ? findCommit : null} actionsOff={actionsOff} /> : null}
       <div className="tbar">

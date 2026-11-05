@@ -304,7 +304,8 @@ With a [team store](./team.md) set, the table:
 - shows who made each run as their avatar, with the name on hover (yours marked *you*);
 - shows a teammate's run at what it cost where it was recorded;
 - tags `local` the runs only on this machine, and a run whose attempts are;
-- offers **Pull** above it, and **Push** for the runs ticked, with the attempts bundled under them; a run still recording goes when it ends.
+- offers **Pull** above it, and **Push** for the runs ticked, with the attempts bundled under them; a run still recording goes when it ends;
+- offers **Push local runs** above it, in lime, while runs are only on this machine. It runs `shadowlap push --all`, which leaves out a run still recording.
 
 The **Local** chip lists the runs only on this machine, as Needs a look counts them. The status bar names the store and when this machine last pushed or pulled.
 

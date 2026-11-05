@@ -492,7 +492,7 @@
       "Workspace": 195
     },
     "packages/dashboard/ui/pages/Runs.tsx": {
-      "ServerRuns": 173
+      "ServerRuns": 155
     },
     "packages/dashboard/ui/pages/Setup.tsx": {
       "SetupPage": 162
