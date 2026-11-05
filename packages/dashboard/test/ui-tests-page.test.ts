@@ -42,8 +42,8 @@ function view(goldens: GoldenSource[]): TestsView {
   return v;
 }
 
-function page(started: Array<{ kind: string; fields: Record<string, unknown> }>, goldens: GoldenSource[]) {
-  const v = view(goldens);
+function page(started: Array<{ kind: string; fields: Record<string, unknown> }>, goldens: GoldenSource[], shape: (v: TestsView) => TestsView = (v) => v) {
+  const v = shape(view(goldens));
   const client = {
     tests: () => Promise.resolve(v),
     jobs: () => Promise.resolve([]),
@@ -76,9 +76,9 @@ afterEach(async () => {
   delete g.location;
 });
 
-async function open(started: Array<{ kind: string; fields: Record<string, unknown> }> = [], goldens = GOLDENS) {
+async function open(started: Array<{ kind: string; fields: Record<string, unknown> }> = [], goldens = GOLDENS, shape?: (v: TestsView) => TestsView) {
   g.location = { hash: '#/tests' };
-  r = await render(page(started, goldens));
+  r = await render(page(started, goldens, shape));
   await r.until('the goldens to load', () => r!.all('table.gt tbody tr').length === goldens.length);
   return r;
 }
@@ -161,7 +161,7 @@ describe('the Tests page', () => {
   });
 
   it('names what a row opens with a real link to the same place, and a row that opens nothing with none', async () => {
-    const page = await open();
+    const page = await open([], GOLDENS, (v) => ({ ...v, rows: v.rows.map((row, i) => (i ? row : { ...row, runId: '01M5H2DKE9AAAAAAAAAAAAAAAA' })) }));
     const rows = page.all('table.gt tbody tr');
     const opening = rows.filter((row) => row.className !== 'still');
     expect(opening.length).toBeGreaterThan(0);
