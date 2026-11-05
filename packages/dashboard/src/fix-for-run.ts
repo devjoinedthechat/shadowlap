@@ -1,5 +1,6 @@
 import { canonicalize, checkSuggestion, fixLabelInfo, fixLabels, fixOfRun, labelledFixes, lostRange, type Block, type FixStatus, type StoreOf, type StoredBlame, type StoredFix, type VerifiedRun, type VerifyOutcome, unrescuedWords, unsettledFirst } from '@shadowlap/engine';
 import { fixHref, isUnblamedFailure, runHref, toolsCalled } from './fix-shared.js';
+import type { RunIndex } from './run-index.js';
 
 /** A run's fix, as its page shows it: the fix it fails in, and what blame found of it. */
 
@@ -72,8 +73,8 @@ function runBlame(b: StoredBlame, fixId: string | null): RunBlame {
   return { blameId: b.blameId, at: b.at, outcome: b.outcome, ...(unsettledFirst(r) ? { unsettled: true as const } : {}), lostAt: r.blamed?.callNo ?? null, range: lostRange(r.range), step: r.blamed?.step ?? null, steps: r.steps, confidence: r.confidence, rescuedRunId: r.contrast?.rescuedRunId ?? null, short: what, href: fixId ? fixHref(fixId, 'blame') : runHref(b.runId) };
 }
 
-/** How a run takes part in Fixes, for its page and the Forks view; null when it doesn't. */
-export function fixForRun(store: StoreOf<'recording' | 'readModels' | 'fixes'>, runId: string): FixForRun | null {
+/** How a run takes part in Fixes, for its page and the Forks view; null when it doesn't. `index`: the run index, where the caller has it for many runs. */
+export function fixForRun(store: StoreOf<'recording' | 'readModels' | 'fixes'>, runId: string, index?: RunIndex): FixForRun | null {
   const run = store.getRun(runId);
   if (!run) return null;
   const failing = fixOfRun(store, runId);
@@ -110,7 +111,7 @@ export function fixForRun(store: StoreOf<'recording' | 'readModels' | 'fixes'>, 
     const fix = store.getFix(good.fixId);
     if (fix) return { role: 'good', fix: fixRef(store, fix), blame: null, probe: null, verify: null };
   }
-  if (isUnblamedFailure(store, run)) {
+  if (isUnblamedFailure(store, run, index)) {
     const suggested = checkSuggestion(run, fixLabels(run).length ? labelledFixes(store) : []);
     return { role: 'unblamed', fix: null, blame: null, probe: null, verify: null, ...(suggested ? { expect: suggested.expect } : {}) };
   }

@@ -526,6 +526,65 @@ describe('a list’s rows', () => {
   });
 });
 
+describe('what a list reads for its rows’ steps', () => {
+  /** What the store is asked, counted, while `read` runs. */
+  function counted(read: () => void) {
+    const n = { histories: 0, results: 0, getRun: 0, blames: 0, index: 0 };
+    const was = { listTestResults: store.listTestResults.bind(store), getRun: store.getRun.bind(store), blamesOfRun: store.blamesOfRun.bind(store), query: store.query.bind(store) };
+    store.listTestResults = ((o: Parameters<typeof was.listTestResults>[0]) => {
+      const rows = was.listTestResults(o);
+      n.results += rows.length;
+      if (o?.golden && !o.sessionId) n.histories++;
+      return rows;
+    }) as typeof store.listTestResults;
+    store.getRun = ((id: string) => (n.getRun++, was.getRun(id))) as typeof store.getRun;
+    store.blamesOfRun = ((id: string) => (n.blames++, was.blamesOfRun(id))) as typeof store.blamesOfRun;
+    store.query = ((sql: string, ...params: never[]) => {
+      if (sql.includes('change_counts')) n.index++;
+      return was.query(sql, ...params);
+    }) as typeof store.query;
+    read();
+    Object.assign(store, was);
+    return n;
+  }
+
+  it('reads a golden’s results once, however many rows fail it and however long its history', () => {
+    const OTHER = 'goldens/other';
+    const rec = recording();
+    const HISTORY = 120;
+    for (let i = 0; i < HISTORY; i++) passedTest(rec, T0 + MIN + i * 1000, `a${String(i).padStart(6, '0')}`);
+    const FAILING = 20;
+    const failing = [...Array(FAILING).keys()].map((i) => (i % 2 ? crashedTest(rec, T0 + 2 * HISTORY * 1000 + i * 1000) : divergedTest(rec, [{ path: '$.messages[3].content', op: 'changed', before: 'a', after: 'b' }], { at: T0 + 2 * HISTORY * 1000 + i * 1000 })));
+    // A second golden, with one failure.
+    const session = store.startTestSession({ command: ['shadowlap', 'test', OTHER], startedAt: T0 + 4 * HISTORY * 1000, revision: 'bbbbbbb' }).sessionId;
+    const other = addRun(store, { parent: rec, startedAt: T0 + 4 * HISTORY * 1000, status: 'failed', calls: 'rl', meta: { test: { golden: OTHER, session } } });
+    store.addTestResult({ sessionId: session, golden: OTHER, ok: false, failure: 'exit', reason: 'the agent exited with code 1', runId: other, goldenRunId: rec, revision: 'bbbbbbb', at: T0 + 4 * HISTORY * 1000 });
+    const rows = listRuns(store);
+    const w = work([source(rec), source(rec, { path: OTHER })]);
+    let keys: Array<string | undefined> = [];
+    const n = counted(() => {
+      keys = nextStepRows(store, rows, w).filter((r) => failing.includes(r.runId)).map((r) => r.next?.key);
+    });
+    expect(new Set(keys)).toEqual(new Set(['bisect']));
+    expect(n.histories).toBe(2);
+    // Each golden's history, and each row's own result: never rows times history.
+    expect(n.results).toBeLessThan(HISTORY + FAILING + 1 + rows.length + FAILING);
+  });
+
+  it('asks a golden that passes for no history, and the run index and each row’s fix only once', () => {
+    const rec = recording();
+    for (let i = 0; i < 10; i++) passedTest(rec, T0 + MIN + i * 1000);
+    const FAILED = 12;
+    for (let i = 0; i < FAILED; i++) recording(T0 + 10 * MIN + i, { status: 'failed' });
+    const rows = listRuns(store);
+    const n = counted(() => nextStepRows(store, rows, work([source(rec)])));
+    expect(n.histories).toBe(0);
+    expect(n.blames).toBe(FAILED);
+    // Two looks at the index for the list: its own, and what tells each run's state.
+    expect(n.index).toBeLessThanOrEqual(2);
+  });
+});
+
 describe('a record a step can’t be read from', () => {
   // What reads the project throwing stands for any record a rule can't read: a pack can carry anything.
   const unreadable = { goldens: [], normalize: undefined, dir: '/work/project', get tests(): unknown { throw new Error('unreadable'); } } satisfies NextStepWork;

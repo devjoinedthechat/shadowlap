@@ -1,4 +1,5 @@
 import { ACTIONS, attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, isObject, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, plural, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResults } from './bisect-start.js';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { gateLine, gateRuleOf } from './verdict.js';
 import { links } from './links.js';
@@ -1600,7 +1601,6 @@ export interface BisectChoices {
   args: string[] | null;
 }
 
-const clean = (rev: string | null): rev is string => !!rev && !rev.endsWith('+dirty');
 
 const exitFailed = (run: RunRecord) => run.status === 'failed' || run.status === 'crashed';
 
@@ -1617,7 +1617,7 @@ function runFailed(run: RunRecord): boolean {
  * (`projectGoldens`), with the checks the config gives each; `before` limits the good commits to runs
  * started before it (the calendar passes the first day picked).
  */
-export function bisectChoices(store: StoreOf<'recording' | 'fixes' | 'tests'>, runId: string, options: { goldens: readonly GoldenSource[]; before?: number }): BisectChoices | null {
+export function bisectChoices(store: StoreOf<'recording' | 'fixes' | 'tests'>, runId: string, options: { goldens: readonly GoldenSource[]; before?: number; known?: KnownResults }): BisectChoices | null {
   const run = store.getRun(runId);
   if (!run) return null;
   const golden = run.meta?.test?.golden ?? null;
@@ -1628,7 +1628,7 @@ export function bisectChoices(store: StoreOf<'recording' | 'fixes' | 'tests'>, r
   const before = options.before ?? run.startedAt;
   const own = committed(run.codeVersion);
   // A test replay failed when its golden did in that session (a golden that may fork diverges by design).
-  const result = ofGolden ? store.listTestResults({ sessionId: run.meta!.test!.session, golden: golden!, limit: 1 })[0] : undefined;
+  const result = !ofGolden ? undefined : options.known ? (options.known.result ?? undefined) : store.listTestResults({ sessionId: run.meta!.test!.session, golden: golden!, limit: 1 })[0];
   // Its golden came out inconclusive there: neither passed nor failed, so no failure to find.
   const unsure = result !== undefined && verdictOfResult(result) === 'inconclusive';
   // A run in a fix as failing its check (blame found it so, or a repair or verify did), though it
@@ -1638,34 +1638,15 @@ export function bisectChoices(store: StoreOf<'recording' | 'fixes' | 'tests'>, r
   // A run that failed nothing, with a check of its own that could not be decided: neither passed nor
   // failed, as a golden that came out inconclusive is, so there is no failure to find either.
   const undecided = !result && !failed ? (run.meta?.checks ?? []).find((c) => checkStatus(c) === 'inconclusive') : undefined;
-  let revisions: BisectChoices['revisions'];
-  let sameRecording: string | null = null;
-  let passedHere: string | null = null;
-  if (ofGolden) {
-    const at = new Map<string, { rev: string; at: number; runs: number; failed: number; inconclusive: number }>();
-    for (const r of store.listTestResults({ golden: golden!, limit: 10_000 })) {
-      if (r.at >= before || !clean(r.revision) || r.revision === own) continue;
-      // Newest first: the first pass of the recording this replay failed on, under the checks the
-      // golden has now, is the one to offer: an earlier recording of the golden (before an update), or
-      // a pass under other checks, may be a commit where it already fails.
-      const counts = r.ok && underChecks(r, source.checks);
-      if (!sameRecording && counts && result?.goldenRunId && r.goldenRunId === result.goldenRunId) sameRecording = r.revision;
-      if (!passedHere && counts) passedHere = r.revision;
-      const row = at.get(r.revision) ?? { rev: r.revision, at: r.at, runs: 0, failed: 0, inconclusive: 0 };
-      row.runs++;
-      const verdict = verdictOfResult(r);
-      if (verdict === 'failed') row.failed++;
-      else if (verdict === 'inconclusive') row.inconclusive++;
-      row.at = Math.max(row.at, r.at);
-      at.set(r.revision, row);
-    }
-    revisions = [...at.values()].sort((a, b) => b.at - a.at);
-  } else {
-    revisions = store
-      .runRevisions({ argv: run.command.argv, before, limit: 100 })
-      .filter((r) => clean(r.revision) && r.revision !== own)
-      .map((r) => ({ rev: r.revision, at: r.lastAt, runs: r.runs, failed: r.failed }));
-  }
+  const between = { before, own, recording: result?.goldenRunId ?? null };
+  const history = ofGolden && !options.known ? store.listTestResults({ golden: golden!, limit: GOLDEN_HISTORY }) : [];
+  const goodOfGolden = !ofGolden ? null : startFromPasses(options.known?.passes ?? history.filter((r) => r.ok && underChecks(r, source.checks)), between);
+  const revisions: BisectChoices['revisions'] = ofGolden
+    ? revisionsBefore(history, between, verdictOfResult)
+    : store
+        .runRevisions({ argv: run.command.argv, before, limit: 100 })
+        .filter((r) => clean(r.revision) && r.revision !== own)
+        .map((r) => ({ rev: r.revision, at: r.lastAt, runs: r.runs, failed: r.failed }));
   const target: BisectChoices['target'] = ofGolden ? { kind: 'golden', golden: golden! } : { kind: 'run', runId: run.runId };
   const fork = !ofGolden && failed;
   // The check a forked replay is judged by: the run's own `--expect` when a check of it failed, else
@@ -1673,7 +1654,7 @@ export function bisectChoices(store: StoreOf<'recording' | 'fixes' | 'tests'>, r
   const expect = fork ? (checkFailed(run) && isObject(run.meta?.expect) ? run.meta.expect : blamed) : null;
   // A run that passed is the good end itself; bisect then looks up to HEAD. One that failed only
   // blame's check leaves the good one to be chosen: how other runs exited says nothing about it.
-  const good = !failed ? (clean(run.codeVersion) ? run.codeVersion : null) : ofGolden ? (sameRecording ?? passedHere) : blamed !== null ? null : (revisions.find((r) => r.failed < r.runs)?.rev ?? null);
+  const good = !failed ? (clean(run.codeVersion) ? run.codeVersion : null) : ofGolden ? goodOfGolden : blamed !== null ? null : (revisions.find((r) => r.failed < r.runs)?.rev ?? null);
   const bad = failed && clean(run.codeVersion) ? run.codeVersion : null;
   let unavailable: string | null = null;
   if (run.status === 'running') unavailable = 'this run is still recording';

@@ -38,9 +38,10 @@ import {
   type ToolTrust,
 } from '@shadowlap/engine';
 import { chaosMatrices, type ChaosMatrix } from './chaos.js';
+import { GOLDEN_HISTORY } from './bisect-start.js';
 import { HEX } from './commits-here.js';
 import { commandLine } from './fix-shared.js';
-import { fixForRun } from './fix-for-run.js';
+import { fixForRun, type FixForRun } from './fix-for-run.js';
 import { injectionLine } from './injection.js';
 import { links } from './links.js';
 import { gitAsync } from './patch-in-tree.js';
@@ -50,7 +51,7 @@ import { loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
 import type { RunJudged } from './run-outcome.js';
 import { callTotals, priced } from './run-stats.js';
 import { runStates, type RunRow, type RunState } from './runs-list.js';
-import { bisectAnswers, bisectChoices, standingAnswer, unjudgedOffline, unreadable, verdictOfResult, type AnswerEvent, type BisectAnswer, type GoldenSource } from './tests.js';
+import { bisectAnswers, bisectChoices, standingAnswer, underChecks, unjudgedOffline, unreadable, verdictOfResult, type BisectAnswer, type BisectChoices, type GoldenSource } from './tests.js';
 
 /**
  * The one next step of a run (A12): what its page's lime button leads with, worked out here from how
@@ -85,7 +86,8 @@ import { bisectAnswers, bisectChoices, standingAnswer, unjudgedOffline, unreadab
  *
  * A step that runs a job says what it runs and, on a run's page, what it bills: its estimate, from the
  * engine, read from the recording it replays (`pricedNextStep`). A list reads no run's calls for its
- * rows: each row carries its step's key, words and link (`stepRow`).
+ * rows, each of which carries its step's key, words and link (`stepRow`): what it reads besides each
+ * row's own records is each golden's results, once for all the rows that fail it (`StepReads`).
  */
 
 /** What the server reads of the project for a run's next step, as plain data in a job: the goldens on disk, and the config as written. */
@@ -153,17 +155,31 @@ export const goldenFolder = (runId: string): string => `goldens/${short(runId).t
 
 /** What finding a next step reads once for all the runs it is asked about: each read when it is first needed. */
 export interface StepReads {
+  index: RunIndex;
   state: (runId: string) => RunState | null;
   injection: (runId: string) => StoredInjectionResult[];
   presets: (runId: string) => ChaosMatrix | null;
   fixes: () => StoredFix[];
-  answers: () => Map<string, AnswerEvent[]>;
   parents: (runId: string) => string | null | undefined;
+  /** A golden's results, newest first. */
+  results: (golden: string) => readonly TestResult[];
+  /** Those that passed under the checks it has now: where Find breaking commit starts from. */
+  passes: (golden: GoldenSource) => readonly TestResult[];
+  /** What Find breaking commit said of the failure it shows now. */
+  standing: (golden: string) => BisectAnswer | null;
 }
 
 function once<T>(read: () => T): () => T {
   let known: { value: T } | null = null;
   return () => (known ??= { value: read() }).value;
+}
+
+function perKey<T>(read: (key: string) => T): (key: string) => T {
+  const known = new Map<string, T>();
+  return (key) => {
+    if (!known.has(key)) known.set(key, read(key));
+    return known.get(key)!;
+  };
 }
 
 export function stepReads(store: Store, index: RunIndex = loadRunIndex(store)): StepReads {
@@ -174,16 +190,30 @@ export function stepReads(store: Store, index: RunIndex = loadRunIndex(store)): 
     for (const m of chaosMatrices(store)) if (!byRun.has(m.runId)) byRun.set(m.runId, m);
     return byRun;
   });
+  const answers = once(() => bisectAnswers(store));
+  const results = perKey((golden) => store.listTestResults({ golden, limit: GOLDEN_HISTORY }));
+  const passing = new Map<string, readonly TestResult[]>();
+  const standing = perKey((golden) => {
+    const past = results(golden);
+    return past[0] ? standingAnswer(answers().get(golden), past, past[0]) : null;
+  });
   return {
+    index,
     state: runStates(store),
     injection: (runId) => (tested().has(runId) ? store.listInjectionResults({ runId, limit: 50 }) : []),
     presets: (runId) => matrices().get(runId) ?? null,
     fixes: once(() => store.listFixes()),
-    answers: once(() => bisectAnswers(store)),
     parents: (runId) => {
       const r = index.byId.get(runId);
       return r ? r.parentRunId : undefined;
     },
+    results,
+    passes: (g) => {
+      const known = passing.get(g.path) ?? results(g.path).filter((r) => r.ok && underChecks(r, g.checks));
+      passing.set(g.path, known);
+      return known;
+    },
+    standing,
   };
 }
 
@@ -208,6 +238,14 @@ interface Facts {
   judged: RunJudged | null | undefined;
   work: NextStepWork | null;
   reads: StepReads;
+  /** How it takes part in Fixes: its next step reads that several times. */
+  fix: () => FixForRun | null;
+  /** The test it replays, if any. */
+  tested: () => TestedGolden | null;
+  /** Its banner's offer, as a test that diverged. */
+  offer: () => TestOffer | null;
+  /** Where Find breaking commit may start from it. */
+  choices: () => BisectChoices | null;
 }
 
 // ---- the steps ----
@@ -270,7 +308,7 @@ interface TestedGolden {
   result: TestResult | null;
 }
 
-function testedGolden(f: Facts): TestedGolden | null {
+function testedGolden(f: Pick<Facts, 'row' | 'work' | 'store'>): TestedGolden | null {
   const test = f.row.meta.test;
   // The index reads the record field by field, and a golden or a session that isn't text as empty: a run can come from someone else's pack.
   if (f.row.kind !== 'test' || f.row.attemptKind || !test?.golden || !test.session) return null;
@@ -290,7 +328,7 @@ const JUDGE_ONCE = 'Asks the judge once, live, and keeps its verdict in the pack
 
 /** Update golden: re-recorded live, about what its recording cost. */
 function updateStep(f: Facts, golden: string, source: GoldenSource): Decided {
-  return { key: 'update-golden', label: ACTIONS.updateGolden.label, golden, test: testOffer(f.store, f.record, f.work?.normalize, f.work?.goldens ?? []), sub: REMADE, command: `shadowlap test ${golden} --update`, price: (p) => updateEstimate([{ calls: source.runId ? p.calls(source.runId) : [] }]) };
+  return { key: 'update-golden', label: ACTIONS.updateGolden.label, golden, test: f.offer(), sub: REMADE, command: `shadowlap test ${golden} --update`, price: (p) => updateEstimate([{ calls: source.runId ? p.calls(source.runId) : [] }]) };
 }
 
 /** What the values made anew on every run lead a diverged test to: the rule, then the test again or an update; null for an id that may be a real change, which only the person can tell, so neither leads. */
@@ -315,12 +353,12 @@ function valueStep(f: Facts, t: TestedGolden, offer: TestOffer): Decided | null 
 /** What a diverged test leads with: the rule for a value made anew on every run, an update for a change that was meant, else the commit that changed it; null where Find breaking commit can't start from it, which says nothing of its golden: the rules after decide. */
 function divergedStep(f: Facts, t: TestedGolden): Decided | null {
   const { golden, source, result } = t;
-  const offer = testOffer(f.store, f.record, f.work?.normalize, f.work?.goldens ?? []);
+  const offer = f.offer();
   const rule = offer?.values.values.length ? valueStep(f, t, offer) : null;
   if (rule) return rule;
   const d = f.record.divergence;
   if (d?.type === 'request_changed' && (d.diff ?? []).some((e) => pathSetByCode(e.path, d.name))) return updateStep(f, golden, source);
-  const c = bisectChoices(f.store, f.row.runId, { goldens: f.work?.goldens ?? [] });
+  const c = f.choices();
   if (c?.unavailable) return null;
   const price = bisectPrice(f, source, result, c?.good ?? null, c?.bad ?? null);
   return { key: 'bisect', label: ACTIONS.findBreakingCommit.label, golden, starts: false, blame: null, command: bisectCommand(golden, null, commitName(c?.bad)), sub: 'Asks for a commit where it still worked, then replays it at the commits between', ...(price ? { price } : {}) };
@@ -328,12 +366,12 @@ function divergedStep(f: Facts, t: TestedGolden): Decided | null {
 
 /** What a test replay of its own leads with while its golden is on disk: its passing run, or by how it diverged, or its judge's verdict. */
 function testStep(f: Facts): Decided | null {
-  const t = testedGolden(f);
+  const t = f.tested();
   if (!t) return null;
   const { row, store } = f;
   const diverged = row.failed && row.outcome.kind === 'diverged';
   if (diverged || (row.failed && crashed(row, t.result))) {
-    const passing = passedSince(store, f.record, t.golden);
+    const passing = passedSince(store, f.record, t.golden, f.reads.results(t.golden));
     if (passing) return { key: 'passing', label: ACTIONS.openPassingRun.label, runId: passing, href: links.run(passing), title: `Opens ${short(passing)}` };
   }
   const lead = diverged ? divergedStep(f, t) : null;
@@ -345,14 +383,6 @@ function testStep(f: Facts): Decided | null {
     return { ...updateStep(f, t.golden, t.source), sub: JUDGE_ONCE, price: () => updateEstimate([{ calls: [], judge }]) };
   }
   return null;
-}
-
-/** The answer Find breaking commit gave for the failure its golden shows now: once it names the commit, the change is the code's. */
-function bisectAnswer(f: Facts, golden: string): BisectAnswer | null {
-  const answers = f.reads.answers().get(golden);
-  if (!answers?.length) return null;
-  const past = f.store.listTestResults({ golden, limit: 1000 });
-  return past[0] ? standingAnswer(answers, past, past[0]) : null;
 }
 
 /**
@@ -389,10 +419,10 @@ function bisectPrice(f: Facts, source: GoldenSource, result: TestResult | null, 
 
 /** A crash: its commit leads, found offline and free from the newest commit its golden passed at, with Run blame beside it, until the commit is named. */
 function crashStep(f: Facts): Decided | null {
-  const t = testedGolden(f);
+  const t = f.tested();
   const { row, store } = f;
-  if (!t || !row.failed || !crashed(row, t.result) || bisectAnswer(f, t.golden)?.found) return null;
-  const c = bisectChoices(store, row.runId, { goldens: f.work?.goldens ?? [] });
+  if (!t || !row.failed || !crashed(row, t.result) || f.reads.standing(t.golden)?.found) return null;
+  const c = f.choices();
   if (!c || c.unavailable) return null;
   const good = commitName(c.good);
   const starts = !!good && !c.live;
@@ -402,7 +432,7 @@ function crashStep(f: Facts): Decided | null {
     label: starts ? confirmWords(ACTIONS.findBreakingCommit.label) : ACTIONS.findBreakingCommit.label,
     golden: t.golden,
     starts,
-    blame: fixForRun(store, row.runId)?.fix ? null : blameOffer(store, f.record, f.work?.tests),
+    blame: f.fix()?.fix ? null : blameOffer(store, f.record, f.work?.tests, f.fix),
     command: bisectCommand(t.golden, good, commitName(c.bad)),
     sub: starts ? `Replays the golden at the commits since ${good!}, where it passed, offline: no tokens` : 'Asks for a commit where it still worked, then replays it at the commits between',
     ...(price ? { price } : {}),
@@ -560,14 +590,14 @@ function attemptStep(f: Facts): Decided | null {
 /** Failed, and a fix covers it: the fix, its link as its page has it. */
 function coveredStep(f: Facts): Decided | null {
   if (!f.row.failed) return null;
-  const fix = fixForRun(f.store, f.row.runId)?.fix;
+  const fix = f.fix()?.fix;
   return fix ? fixStep(fix, fix.href) : null;
 }
 
 /** Failed, and nobody blamed it: blame, where blame can take it. */
 function unblamedStep(f: Facts): Decided | null {
   if (!f.row.failed) return null;
-  const offer = blameOffer(f.store, f.record, f.work?.tests);
+  const offer = blameOffer(f.store, f.record, f.work?.tests, f.fix);
   return offer ? blameStep(f.row.runId, offer) : null;
 }
 
@@ -611,12 +641,28 @@ function asListed(row: IndexedRun, state: RunState | null): IndexedRun {
 }
 
 function decided(store: Store, runId: string, work: NextStepWork | null, o: { judged?: RunJudged | null | undefined; reads?: StepReads }): Decided | null {
-  const index = loadRunIndex(store);
-  const found = index.byId.get(runId);
+  const reads = o.reads ?? stepReads(store);
+  const found = reads.index.byId.get(runId);
   const record = found ? store.getRun(runId) : null;
   if (!found || !record) return null;
-  const reads = o.reads ?? stepReads(store, index);
-  return decide({ store, index, row: asListed(found, reads.state(runId)), record, judged: o.judged, work, reads });
+  const row = asListed(found, reads.state(runId));
+  const tested = once(() => testedGolden({ store, row, work }));
+  return decide({
+    store,
+    index: reads.index,
+    row,
+    record,
+    judged: o.judged,
+    work,
+    reads,
+    tested,
+    fix: once(() => fixForRun(store, runId, reads.index)),
+    offer: once(() => testOffer(store, record, work?.normalize, work?.goldens ?? [])),
+    choices: once(() => {
+      const t = tested();
+      return bisectChoices(store, runId, { goldens: work?.goldens ?? [], ...(t ? { known: { passes: reads.passes(t.source), result: t.result } } : {}) });
+    }),
+  });
 }
 
 /** A run's next step, without what it bills, or null for a run the store doesn't have. */
@@ -694,7 +740,7 @@ export function listedStep(store: Store, runId: string, work: NextStepWork | nul
   }
 }
 
-/** Each row with its next step, its light form: what needs no run's calls read, so a list's cost stays what its rows' records cost. */
+/** Each row with its next step, its light form: what needs no run's calls read, with what several rows read, read once for all of them (`StepReads`). */
 export function nextStepRows<R extends Pick<RunRow, 'runId'> & { judged?: RunJudged | null }>(store: Store, rows: readonly R[], work: NextStepWork | null): Array<R & { next?: NextStepRow }> {
   const index = loadRunIndex(store);
   const reads = stepReads(store, index);
