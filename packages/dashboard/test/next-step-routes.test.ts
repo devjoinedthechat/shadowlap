@@ -26,7 +26,7 @@ let dash: Dashboard;
 const spawned: string[][] = [];
 let goldens: GoldenSource[] = [];
 
-const api = (path: string, init: RequestInit = {}) => fetch(`${dash.url}/api/${path}`, { ...init, headers: { 'x-shadowlap-token': dash.token, 'content-type': 'application/json', ...init.headers } });
+const api = (path: string, init: { method?: string; body?: string; headers?: Record<string, string> } = {}) => fetch(`${dash.url}/api/${path}`, { ...init, headers: { 'x-shadowlap-token': dash.token, 'content-type': 'application/json', ...init.headers } });
 const get = async <T,>(path: string): Promise<T> => {
   const res = await api(path);
   expect(res.status, path).toBe(200);

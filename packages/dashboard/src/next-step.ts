@@ -212,7 +212,8 @@ interface Facts {
 
 /** Replay: a clean or a test replay is the recording it came from served again, so it replays that recording, and says so. */
 export function replayStep(row: Pick<IndexedRun, 'runId' | 'kind' | 'parentRunId'>, record: RunRecord, index: RunIndex): NextStep {
-  const parent = row.parentRunId && index.byId.has(row.parentRunId) ? row.parentRunId : null;
+  // Not a capture's, which has no command of its own to replay it with: the replay of it has one.
+  const parent = row.parentRunId && index.byId.get(row.parentRunId)?.source === null ? row.parentRunId : null;
   if ((row.kind === 'clean' || row.kind === 'test') && parent) return { key: 'replay', label: ACTIONS.replayRecording.label, runId: parent, title: `Replays ${short(parent)}, the recording this replay came from`, command: `shadowlap replay ${short(parent)}` };
   if (!hasRecordedCommand(record)) return { key: 'replay', label: ACTIONS.replayWithCommand.label, runId: row.runId, command: `shadowlap replay ${short(row.runId)} -- <your command>` };
   return { key: 'replay', label: ACTIONS.replay.label, runId: row.runId, command: `shadowlap replay ${short(row.runId)}` };
@@ -399,8 +400,11 @@ const asClean = (r: StoredInjectionResult) => r.data as unknown as Partial<Clean
 
 /** The attempt a result's proof is, among those the store still has: the first that obeyed, else the first influenced, else the first that couldn't say why. */
 function proofOf(store: StoreOf<'recording'>, report: Partial<PlantReport>): NonNullable<PlantReport['attempts']>[number] | null {
-  const attempts = (report.attempts ?? []).filter((a) => store.getRun(a.runId));
-  return attempts.find((a) => a.verdict === 'obeyed') ?? attempts.find((a) => a.verdict === 'influenced') ?? attempts.find((a) => a.verdict === 'inconclusive') ?? null;
+  for (const verdict of ['obeyed', 'influenced', 'inconclusive']) {
+    const a = (report.attempts ?? []).find((x) => x.verdict === verdict && store.getRun(x.runId));
+    if (a) return a;
+  }
+  return null;
 }
 
 /** Whether the newest answer for any read and write of a run says the read's content caused the write. */
@@ -440,7 +444,9 @@ function plantStep(f: Facts, newest: StoredInjectionResult): Decided | null {
   if (verdict !== 'inconclusive') return null;
   const again = () => (report.cost ? injectionAgainEstimate(report as PlantReport) : null);
   const why = report.gate?.reason ?? 'no attempt decided';
-  if (report.stopReason && !newest.golden) return { key: 'injection-test', label: ACTIONS.runInjectionTest.label, runId: row.runId, command: `shadowlap injection ${short(row.runId)}`, sub: `It stopped early (${report.stopReason}): test with fewer templates, or a higher budget`, price: (p) => injectionEstimate(p.calls(row.runId), untrustedReads(p.raw(row.runId), f.work?.tools).reads, { payloads: allTemplates() }) };
+  // Stopped early, or with a payload file its result doesn't keep: it can't run again as it ran, so it asks what to test.
+  const ownFile = report.payloads?.some((x) => x.source === 'file');
+  if ((report.stopReason || ownFile) && !newest.golden) return { key: 'injection-test', label: ACTIONS.runInjectionTest.label, runId: row.runId, command: `shadowlap injection ${short(row.runId)}`, sub: report.stopReason ? `It stopped early (${report.stopReason}): test with fewer templates, or a higher budget` : `It showed too little to say: ${why}`, price: (p) => injectionEstimate(p.calls(row.runId), untrustedReads(p.raw(row.runId), f.work?.tools).reads, { payloads: allTemplates() }) };
   if (newest.golden) return { key: 'gate-again', label: ACTIONS.rerunTest.label, golden: newest.golden, command: `shadowlap test ${newest.golden}`, sub: `Its injection gate showed too little to say: ${why}`, price: again };
   const job = testedAs(report);
   return { key: 'injection-again', label: ACTIONS.rerunInjectionTest.label, runId: row.runId, job, command: againCommand(row.runId, job), sub: `It showed too little to say: ${why}`, price: again };

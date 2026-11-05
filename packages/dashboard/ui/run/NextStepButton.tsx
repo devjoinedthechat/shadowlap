@@ -14,6 +14,7 @@ import { startTestsJob } from '../tests-ask.js';
 import type { NextStep } from '../types.js';
 import type { PendingAction } from './actions.js';
 import { useDivergedJobs } from './diverged.js';
+import { checksOf } from './model.js';
 import { stepCard, stepCost } from './next-step.js';
 import { blameTitle } from './offers.js';
 
@@ -66,7 +67,7 @@ function DivergedStep({ run, step, offers }: StepProps & { step: Extract<NextSte
   const app = useApp();
   // The server's, until the page's offers come.
   const test = offers?.test ?? step.test;
-  const jobs = useDivergedJobs(run, test, 0);
+  const jobs = useDivergedJobs(run, test, checksOf(run).length);
   const verb = step.key === 'normalizer' ? 'add the normalizer' : 'update it';
   return (
     <>
@@ -74,6 +75,33 @@ function DivergedStep({ run, step, offers }: StepProps & { step: Extract<NextSte
         {step.label}
       </TestsJobButton>
       {jobs.dialogs}
+    </>
+  );
+}
+
+/** Update golden where no divergence says what changed: a judge's verdict the pack lacks, which it asks once. It asks first, for what it does. */
+function UpdateStep({ step }: { step: Extract<NextStep, { key: 'normalizer' | 'update-golden' }> }) {
+  const app = useApp();
+  const [asking, setAsking] = useState(false);
+  const cost = stepCost(step);
+  return (
+    <>
+      <TestsJobButton className="btn lime" verb="update it" off={app.actionsOff} tip={tipOf(step)} lead={step.key} onClick={() => app.guard(() => setAsking(true))}>
+        {step.label}
+      </TestsJobButton>
+      {asking ? (
+        <ConfirmDialog
+          title={`Update ${goldenName(step.golden)}?`}
+          text={[step.sub, cost].filter(Boolean).join(' ')}
+          ok={step.label}
+          {...(step.command ? { command: step.command } : {})}
+          onClose={() => setAsking(false)}
+          onOk={() => {
+            setAsking(false);
+            app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.testUpdate, { golden: step.golden })));
+          }}
+        />
+      ) : null}
     </>
   );
 }
@@ -128,7 +156,7 @@ function InjectionStep({ step }: { step: Extract<NextStep, { key: 'injection-tes
   const busy = useTreeBusy('reads', 'test it');
   const off = app.actionsOff ?? busy;
   const title = confirmWords(step.label);
-  const fields = step.key === 'injection-again' ? { runId: step.runId, repeat: step.job.repeat, templates: step.job.templates, baselines: step.job.baselines, liveReads: step.job.liveReads } : { runId: step.runId };
+  const fields = step.key === 'injection-again' ? { runId: step.runId, repeat: step.job.repeat, ...(step.job.templates.length ? { templates: step.job.templates } : {}), baselines: step.job.baselines, liveReads: step.job.liveReads } : { runId: step.runId };
   const cost = stepCost(step);
   return (
     <>
@@ -205,7 +233,7 @@ export function NextStepButton(props: StepProps) {
       return <RunBlameButton runId={run.run.runId} failed={step.offer.failed} title={blameTitle(step.offer)} tip={tipOf(step)} className="btn lime" icon lead {...(step.capture ? { capture: true } : {})} />;
     case 'normalizer':
     case 'update-golden':
-      return <DivergedStep {...props} step={step} />;
+      return step.key === 'update-golden' && !(props.offers?.test ?? step.test) ? <UpdateStep step={step} /> : <DivergedStep {...props} step={step} />;
     case 'rerun-test':
     case 'gate-again':
       return <RerunStep step={step} />;

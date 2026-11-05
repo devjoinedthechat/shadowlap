@@ -244,6 +244,20 @@ describe('the run page’s next step', () => {
     expect(started).toEqual([['test-update', { golden: GOLDEN }]]);
   });
 
+  it('updates a golden whose judge had no verdict, which no divergence explains, asking first what it bills', async () => {
+    const next: NextStep = { key: 'update-golden', label: 'Update golden', golden: GOLDEN, test: null, sub: 'Asks the judge once, live, and keeps its verdict in the pack: every test after judges from the recording, free', command: `shadowlap test ${GOLDEN} --update`, estimate: { kind: 'update', usd: 0.0005, ceiling: false, always: 'it replaces goldens', parts: ['its judge’s one call'] } };
+    const { a, started } = jobs();
+    page = await render(both(detail({ parent: PARENT, state: { ...passedState, kind: 'test' }, meta: { test: { golden: GOLDEN, session: 's1' } }, next }), null, a));
+    await page.click(page.byText('.rhead .actions button', 'Update golden'));
+    expect(started).toEqual([]);
+    const dialog = page.one('.dialog');
+    expect(dialog.querySelector('h3')?.textContent).toBe('Update refund-in-limit?');
+    expect(dialog.textContent).toContain('Asks the judge once');
+    expect(dialog.textContent).toContain('its judge’s one call');
+    await page.click(page.one('.dialog .dlg-ok'));
+    expect(started).toEqual([['test-update', { golden: GOLDEN }]]);
+  });
+
   it('runs a test again once its rule is in, asking first what would run live', async () => {
     const next: NextStep = { key: 'rerun-test', label: 'Re-run test', golden: GOLDEN, command: `shadowlap test ${GOLDEN}` };
     const { a, started } = jobs();

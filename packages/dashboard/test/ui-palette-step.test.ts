@@ -142,7 +142,7 @@ describe('Run blame in the palette', () => {
     const location = { hash: '#/', search: '', pathname: '/' };
     vi.stubGlobal('location', location);
     try {
-      r = await render(createElement(AppContext.Provider, { value: app({ runs: [row(RUN, 1, 'blame')] }, { startJob: () => Promise.reject(new ApiError(422, 'say what a passing run must do')) } as never) }, createElement(Palette, { route: OVERVIEW })));
+      r = await render(createElement(AppContext.Provider, { value: app({ runs: [row(RUN, 1, 'blame')] }, { startJob: () => Promise.reject(new ApiError(422, 'say what a passing run must do')) }) }, createElement(Palette, { route: OVERVIEW })));
       await type(r, 'blame');
       await r.click(r.byText('.palit .pl', 'Run blame'));
       await r.wait(0);

@@ -1,3 +1,7 @@
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { judgeCapture, NO_COMMAND, parseTests, recordBlame, recordEvent, rulesOnCalls, Store, type CleanReport, type DiffEntry, type Normalizer, type PlantReport, type RunMeta } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun } from '../../engine/test/fix-fixtures.js';
@@ -59,7 +63,7 @@ function passedTest(parent: string, at: number, revision = 'aaaaaaa'): string {
 const UUID_CHANGE: DiffEntry = { path: '$.metadata.user_id', op: 'changed', before: '3f1c9a2e-5b7d-4e21-9c0a-8d6f2b1e7a43', after: 'b84e07d1-2c9f-4a63-8e15-6f0d3a9c2b78' };
 const RULE: Normalizer = { kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' };
 
-function plant(runId: string, o: { gate: PlantReport['gate']; attempts?: Array<Partial<PlantReport['attempts'][number]>>; stopReason?: string | null; golden?: string | null; at?: number; ended?: boolean; cost?: Partial<PlantReport['cost']> }): void {
+function plant(runId: string, o: { gate: PlantReport['gate']; attempts?: Array<Partial<PlantReport['attempts'][number]>>; stopReason?: string | null; golden?: string | null; at?: number; ended?: boolean; cost?: Partial<PlantReport['cost']>; payloads?: Array<{ id: string; source: string }> }): void {
   const report = {
     resultId: `inj-${String(o.at ?? 0)}`,
     mode: 'plant',
@@ -68,6 +72,7 @@ function plant(runId: string, o: { gate: PlantReport['gate']; attempts?: Array<P
     templates: { version: 1, ids: ['system-notice'] },
     repeat: 2,
     unrecordedReads: 'fence',
+    payloads: o.payloads ?? [],
     attempts: o.attempts ?? [],
     baselines: [{ read: 1, runs: ['a', 'b'], writes: 1, failed: [] }],
     totals: { attempts: 1, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 0 },
@@ -218,8 +223,11 @@ describe('a run’s next step', () => {
     plant(rec, { gate: { obeyed: 0, influenced: null, verdict: 'inconclusive', reason: '3 of the 6 planned attempts ran' }, at: T0 + 2, stopReason: 'the budget of $2.00 is spent' });
     expect(step(rec)).toMatchObject({ key: 'injection-test', label: 'Run injection test…', runId: rec, command: `shadowlap injection ${rec.slice(0, 10)}`, sub: expect.stringContaining('the budget of $2.00 is spent') });
     plant(rec, { gate: { obeyed: 0, influenced: null, verdict: 'inconclusive', reason: 'no model read it' }, at: T0 + 3 });
-    plant(rec, { gate: failed, at: T0 + 4, ended: false });
+    plant(rec, { gate: failed, at: T0 + 10, ended: false });
     expect(step(rec)).toMatchObject({ key: 'injection-again', label: 'Re-run injection test', runId: rec, job: { repeat: 2, templates: ['system-notice'], baselines: 2, liveReads: false }, command: `shadowlap injection ${rec.slice(0, 10)} --templates system-notice --repeat 2`, sub: 'It showed too little to say: no model read it' });
+    // With a payload file its result doesn't keep, it can't run again as it ran: it asks what to test.
+    plant(rec, { gate: { obeyed: 0, influenced: null, verdict: 'inconclusive', reason: 'no model read it' }, at: T0 + 4, payloads: [{ id: 'mine', source: 'file' }] });
+    expect(step(rec)).toMatchObject({ key: 'injection-test', sub: 'It showed too little to say: no model read it' });
     // A golden's gate runs again in its test.
     plant(rec, { gate: { obeyed: 0, influenced: null, verdict: 'inconclusive', reason: 'no model read it' }, at: T0 + 5, golden: GOLDEN });
     expect(step(rec)).toMatchObject({ key: 'gate-again', label: 'Re-run test', golden: GOLDEN, command: `shadowlap test ${GOLDEN}`, sub: 'Its injection gate showed too little to say: no model read it' });
@@ -289,6 +297,9 @@ describe('a run’s next step', () => {
     expect(step(replayed)).toMatchObject({ key: 'replay', label: 'Replay recording', runId: rec, title: `Replays ${rec.slice(0, 10)}, the recording this replay came from`, command: `shadowlap replay ${rec.slice(0, 10)}` });
     const capture = addRun(store, { startedAt: T0 + MIN, argv: [NO_COMMAND], meta: { imported: { at: T0, from: '/work/cap.jsonl' }, covers: ['api'] }, calls: 'll' });
     expect(step(capture)).toMatchObject({ key: 'replay', label: 'Replay with your command…', runId: capture, command: `shadowlap replay ${capture.slice(0, 10)} -- <your command>` });
+    // A clean replay of a capture has a command of its own: it replays itself, as its capture has none to replay with.
+    const ofCapture = addRun(store, { parent: capture, startedAt: T0 + 2 * MIN, calls: 'rr' });
+    expect(step(ofCapture)).toMatchObject({ key: 'replay', label: 'Replay', runId: ofCapture });
     expect(replayStepOf(store, replayed)).toMatchObject({ label: 'Replay recording', runId: rec });
     expect(replayStepOf(store, rec)).toMatchObject({ label: 'Replay', runId: rec });
   });
@@ -377,6 +388,27 @@ describe('what the next step of a run bills', () => {
     const crash = crashedTest(rec, T0 + 2 * MIN);
     const est = (await priced(crash, work([source(rec, { mode: 'fork' })])))?.estimate;
     expect(est).toMatchObject({ kind: 'bisect', usd: null, none: 'no estimate until it has a commit to start from' });
+    // A repository of three commits: the golden passed at the first and crashed at the last.
+    const dir = mkdtempSync(join(tmpdir(), 'sl-next-step-git-'));
+    try {
+      const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 'a', GIT_AUTHOR_EMAIL: 'a@example.com', GIT_COMMITTER_NAME: 'a', GIT_COMMITTER_EMAIL: 'a@example.com' } }).trim();
+      git('init', '-q');
+      for (const m of ['one', 'two', 'three']) git('commit', '-q', '--allow-empty', '-m', m);
+      const [last, , first] = git('log', '--format=%h').split('\n') as [string, string, string];
+      const attempt = addRun(store, { parent: rec, startedAt: T0 + MIN, calls: 'rl', meta: { test: { golden: GOLDEN, session: 's0', attempt: 1 } } });
+      const session = store.startTestSession({ command: ['shadowlap', 'test', GOLDEN], startedAt: T0 + MIN, revision: first }).sessionId;
+      store.addTestResult({ sessionId: session, golden: GOLDEN, ok: true, runId: attempt, goldenRunId: rec, revision: first, at: T0 + MIN, data: { checks: [], spent: 0.01, attempts: { total: 1, passed: 1, required: 1, runs: [attempt] } } });
+      const failing = store.startTestSession({ command: ['shadowlap', 'test', GOLDEN], startedAt: T0 + 3 * MIN, revision: last }).sessionId;
+      const run = store.createRun({ mode: 'replay', parentRunId: rec, command: { argv: ['node', 'agent.mjs'], cwd: '.' }, codeVersion: last, startedAt: T0 + 3 * MIN, meta: { test: { golden: GOLDEN, session: failing } } });
+      store.endRun(run.runId, 'failed');
+      store.addTestResult({ sessionId: failing, golden: GOLDEN, ok: false, failure: 'exit', reason: 'the agent exited with code 1', runId: run.runId, goldenRunId: rec, revision: last, at: T0 + 3 * MIN, data: { attempts: { total: 1, passed: 0, required: 1, runs: [attempt] } } });
+      const s = await priced(run.runId, work([source(rec, { mode: 'fork', repeat: 3 })], { dir }));
+      expect(s).toMatchObject({ key: 'bisect', label: 'Find breaking commit…', starts: false });
+      expect(s?.estimate).toMatchObject({ kind: 'bisect', ceiling: true, attempts: expect.any(Number), parts: [expect.stringContaining('3 attempts each'), 'live at each commit, as a golden marked fork runs'] });
+      expect(s?.estimate?.usd).toBeGreaterThan(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
