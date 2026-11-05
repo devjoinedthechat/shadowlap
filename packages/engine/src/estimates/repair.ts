@@ -4,7 +4,7 @@ import { estimateCost } from '../prices.js';
 import { SPRT_DEFAULTS } from '../stats.js';
 import type { RunRecord } from '../types.js';
 import { blameBound, probedCalls } from './blame.js';
-import { counted, CUT_SHORT_LINE, liveFrom, noEstimate, noPriceWords, type Estimate, type PricedCall, type Prices } from './estimate.js';
+import { counted, CUT_SHORT_LINE, liveFrom, noEstimate, noPriceWords, timesWords, type Estimate, type PricedCall, type Prices } from './estimate.js';
 import { amountWords } from './spending.js';
 import { lastVerify, verifyCeiling, verifyParts, type LastVerify, type VerifyRule, type VerifyRunCost } from './verify.js';
 
@@ -13,7 +13,7 @@ import { lastVerify, verifyCeiling, verifyParts, type LastVerify, type VerifyRul
  * each failing run it shows the repairer, where none is kept to reuse (one stopped part way is run
  * again from the first model call, as blame keeps no search to resume); the repairer's answer, at
  * most what repair checks a budget against before it asks; and its candidates, each verified until
- * one is accepted twice. It asks the repairer for `--candidates` (3) and takes up to twice that from
+ * one is accepted twice. It asks the repairer for `--candidates` (3) and tries at most that many of
  * its answer; the first the gate accepts is verified once more with fresh attempts, so every
  * candidate may be verified up to twice, and at most ⌊1/risk⌋ are decided (repair-pick.ts). A
  * rewrite of the prompt or a tool description changes every request, so each attempt runs live from
@@ -37,8 +37,11 @@ export const REPAIRER_LIMITS = Object.freeze({
   charsPerToken: 3,
 });
 
-/** The candidates repair asks the repairer for, unless told otherwise (`--candidates 3`). */
+/** The candidates repair asks the repairer for, unless told otherwise (`--candidates 3`), and the most of its answer it tries. */
 export const REPAIR_CANDIDATES = 3;
+
+/** The most verifies of one candidate: the first the gate accepts is verified once more, with fresh attempts, and kept only if it passes again. */
+export const REPAIR_VERIFIES = 2;
 
 /** Why Run repair would end "No fix to try" without running anything: the blame it reuses didn't settle, or rescued no call. */
 export type NoFixToTry = 'unsettled' | 'unrescued';
@@ -129,15 +132,15 @@ function wholeRun(role: VerifyRunCost['role'], calls: readonly PricedCall[]): Ve
   return { role, usd: cost.usd, ...(cost.usd === null ? { none: noPriceWords(cost) } : {}) };
 }
 
-/** The most candidates repair decides: twice what it asks for, never past ⌊1/risk⌋ at its gate's risk. */
+/** The most candidates repair decides: what it asks for, which is the most it tries, never past ⌊1/risk⌋ at its gate's risk. */
 function decided(o: RepairPlan): number {
-  const asked = Math.max(o.candidates ?? REPAIR_CANDIDATES, 1) * 2;
+  const asked = Math.max(o.candidates ?? REPAIR_CANDIDATES, 1);
   const risk = o.rule?.attempts ? null : (o.rule?.gate?.risk ?? SPRT_DEFAULTS.risk);
   return risk ? Math.min(asked, Math.max(1, Math.floor(1 / risk + 1e-9))) : asked;
 }
 
 /**
- * Run repair's estimate: its ceiling (`At most ≈$37.16 · a new blame, then up to 6 candidates · each
+ * Run repair's estimate: its ceiling (`At most ≈$37.16 · a new blame, then up to 3 candidates · each
  * verified up to twice · live from each run’s first model call, writes stubbed`), and what makes it
  * up on the price's card; Free where it would end "No fix to try". It always asks first.
  */
@@ -158,8 +161,8 @@ export function repairEstimate(o: RepairPlan): Estimate {
   const each = verifyCeiling(runs, o.rule);
   if (each.usd === null) return { ...noEstimate('repair', runs.find((r) => r.none)?.none ?? 'a run it verifies has no price'), always };
   const k = decided(o);
-  const verifies = 2 * k * each.usd;
-  const parts = [`${blame.runs ? 'a new blame, then up' : 'up'} to ${counted(k, 'candidate')}`, 'each verified up to twice', 'live from each run’s first model call, writes stubbed'];
+  const verifies = REPAIR_VERIFIES * k * each.usd;
+  const parts = [`${blame.runs ? 'a new blame, then up' : 'up'} to ${counted(k, 'candidate')}`, `each verified up to ${timesWords(REPAIR_VERIFIES) ?? 'once'}`, 'live from each run’s first model call, writes stubbed'];
   const failing = runs.filter((r) => r.role !== 'good').length;
   const last = lastVerify(o.last);
   return {
@@ -180,6 +183,6 @@ export function repairEstimate(o: RepairPlan): Estimate {
         ...(blame.runs || !o.rule?.attempts ? [CUT_SHORT_LINE] : []),
       ],
     },
-    attempts: 2 * k * each.attempts,
+    attempts: REPAIR_VERIFIES * k * each.attempts,
   };
 }

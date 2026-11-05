@@ -493,7 +493,10 @@ class RepairRun {
     this.cost.repairer = answer.cost;
     report.repairer = { provider: s.repairer.provider, model: s.repairer.model, served: answer.served, cost: answer.cost };
     report.diagnosis = answer.diagnosis || null;
-    const fresh = answer.edits.slice(0, Math.max(s.candidates, 1) * 2).map((e) => this.proposed(e, w));
+    // As many as it was asked for, the first in its own order, before they are sorted smallest first: what Run repair's estimate prices.
+    const tried = Math.max(s.candidates, 1);
+    if (answer.edits.length > tried) warnings.push(`the repairer gave ${answer.edits.length} candidates, and only its first ${tried} were tried: raise --candidates to try more`);
+    const fresh = answer.edits.slice(0, tried).map((e) => this.proposed(e, w));
     this.candidates.push(...fresh);
     await this.tryAll(fresh);
     return null;

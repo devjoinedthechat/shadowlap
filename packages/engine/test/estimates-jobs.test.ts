@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { blameBound, blameEstimate } from '../src/estimates/blame.js';
 import { pricedCalls } from '../src/estimates/estimate.js';
-import { REPAIR_CANDIDATES, repairerBound, repairEstimate, splitHoldout, type RepairRun } from '../src/estimates/repair.js';
+import { REPAIR_CANDIDATES, REPAIR_VERIFIES, repairerBound, repairEstimate, splitHoldout, type RepairRun } from '../src/estimates/repair.js';
 import { amountWords } from '../src/estimates/spending.js';
 import { asksFirst, costLine } from '../src/estimates/spending.js';
 import { keptMaxOf, verifyCeiling, verifyEstimate, verifyLimits, verifyMoreEstimate, verifyParts, verifyRunCosts, type VerifyRunCost } from '../src/estimates/verify.js';
@@ -261,15 +261,16 @@ describe('Run repair', () => {
   // Claude Code's answer: its prompt, the shown run's longest request (3,000 tokens, about 4 characters each) counted at 3 characters a token, read in each of 2 turns, and 16,000 tokens out a turn, at claude-opus-5-5's price.
   const repairer = (2 * 4000 + 16_000) * 4e-6 + 2 * 16_000 * 20e-6;
 
-  it('bills a blame of the run it shows the repairer, its answer, and up to twice the candidates it asks for, each verified up to twice', () => {
+  it('bills a blame of the run it shows the repairer, its answer, and the candidates it asks for, the most it tries, each verified up to twice', () => {
     const e = repairEstimate({ failing: failing(), good });
-    expect(e).toMatchObject({ kind: 'repair', ceiling: true, always: 'it makes its candidates from your working tree', parts: ['a new blame, then up to 6 candidates', 'each verified up to twice', 'live from each run’s first model call, writes stubbed'] });
-    expect(e.usd).toBeCloseTo(279 * ALL + repairer + 2 * 6 * verify, 8);
+    // The words multiply to the price: as many candidates as it asks for, each verified up to twice.
+    expect([REPAIR_CANDIDATES, REPAIR_VERIFIES]).toEqual([3, 2]);
+    expect(e).toMatchObject({ kind: 'repair', ceiling: true, always: 'it makes its candidates from your working tree', parts: [`a new blame, then up to ${REPAIR_CANDIDATES} candidates`, 'each verified up to twice', 'live from each run’s first model call, writes stubbed'] });
+    expect(e.usd).toBeCloseTo(279 * ALL + repairer + REPAIR_VERIFIES * REPAIR_CANDIDATES * verify, 8);
     expect(e.items!.map((x) => x.what)).toEqual(['Blame', 'Repairer', 'A verify']);
     expect(e.items![1].usd).toBeCloseTo(0.736, 10);
     expect(e.items![2].usd).toBeCloseTo(verify, 10);
-    expect(e.attempts).toBe(2 * 6 * (80 + 80 + 400));
-    expect(REPAIR_CANDIDATES).toBe(3);
+    expect(e.attempts).toBe(REPAIR_VERIFIES * REPAIR_CANDIDATES * (80 + 80 + 400));
     expect(e.card!.lines.slice(-2)).toEqual(['A run that replays clean settles in one free attempt.', 'Attempts the provider cuts short come on top, up to as many again.']);
     // With a verify of the fix before it, what that one took.
     expect(repairEstimate({ failing: failing(), good, last: { attempts: 12, spent: 0.24, judge: { spent: 0.03, upstreamRequests: 12 }, unknownModels: [] } }).card!.lines.at(-2)).toBe(`The last verify of this fix took 12 attempts, ${amountWords(0.27)}.`);
@@ -300,16 +301,22 @@ describe('Run repair', () => {
   });
 
   it('reuses a kept blame that searched to the end, and blames a stopped one again', () => {
-    expect(repairEstimate({ failing: failing({ blame: { outcome: 'blamed' } }), good }).parts[0]).toBe('up to 6 candidates');
-    expect(repairEstimate({ failing: failing({ blame: { outcome: 'blamed' } }), good }).usd).toBeCloseTo(repairer + 12 * verify, 8);
-    expect(repairEstimate({ failing: failing({ blame: { outcome: 'stopped' } }), good }).usd).toBeCloseTo(279 * ALL + repairer + 12 * verify, 8);
+    expect(repairEstimate({ failing: failing({ blame: { outcome: 'blamed' } }), good }).parts[0]).toBe('up to 3 candidates');
+    expect(repairEstimate({ failing: failing({ blame: { outcome: 'blamed' } }), good }).usd).toBeCloseTo(repairer + 6 * verify, 8);
+    expect(repairEstimate({ failing: failing({ blame: { outcome: 'stopped' } }), good }).usd).toBeCloseTo(279 * ALL + repairer + 6 * verify, 8);
   });
 
   it('decides no more candidates than ⌊1/risk⌋, and asks for as many as told', () => {
     const at = (o: Parameters<typeof repairEstimate>[0]) => (repairEstimate(o).usd! - 279 * ALL - repairer) / verify;
-    expect(at({ failing: failing(), good, candidates: 1 })).toBeCloseTo(4, 8);
-    expect(at({ failing: failing(), good, rule: { gate: { kind: 'sprt', ...SPRT_DEFAULTS, risk: 0.2 } } })).toBeCloseTo(10, 8);
-    expect(repairEstimate({ failing: failing(), good, candidates: 1 }).parts[0]).toBe('a new blame, then up to 2 candidates');
+    expect(at({ failing: failing(), good, candidates: 1 })).toBeCloseTo(2, 8);
+    expect(at({ failing: failing(), good, candidates: 8 })).toBeCloseTo(16, 8);
+    // At 20% risk a repair decides 5 at most, however many it asks for: 5, verified up to twice.
+    expect(at({ failing: failing(), good, candidates: 8, rule: { gate: { kind: 'sprt', ...SPRT_DEFAULTS, risk: 0.2 } } })).toBeCloseTo(10, 8);
+    expect(at({ failing: failing(), good, rule: { gate: { kind: 'sprt', ...SPRT_DEFAULTS, risk: 0.5 } } })).toBeCloseTo(4, 8);
+    // A fixed count states no risk: as many as it asks for.
+    expect(at({ failing: failing(), good, candidates: 30, rule: { attempts: 5 } }) / at({ failing: failing(), good, candidates: 1, rule: { attempts: 5 } })).toBeCloseTo(30, 8);
+    expect(repairEstimate({ failing: failing(), good, candidates: 1 }).parts[0]).toBe('a new blame, then up to 1 candidate');
+    expect(repairEstimate({ failing: failing(), good, candidates: 8, rule: { gate: { kind: 'sprt', ...SPRT_DEFAULTS, risk: 0.2 } } }).parts[0]).toBe('a new blame, then up to 5 candidates');
   });
 
   it('is Free, and still asks first, where it would end No fix to try', () => {
