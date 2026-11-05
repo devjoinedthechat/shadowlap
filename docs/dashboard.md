@@ -109,10 +109,11 @@ The about line quotes what the run recorded. So a copy that leaves the store (an
 
 **Search or jump to** (⌘K or Ctrl K) is a palette over the whole dashboard. It offers:
 
-- **Every page**, and **This run's actions**.
+- **Every page**, and **This run's actions**, its next step first.
 - **The runs**: the newest 500, each by its id with its about line as the hint. Any other run is found by its id, typed in full or its first characters.
 - **The goldens**, each with its last verdict: *passed*, *failed* or *inconclusive*, a gate's with its tally and bound. When any diverged, **Update goldens…** opens its dialog on Tests.
 - **What the runs recorded**, from three characters: prompts, responses, tool arguments and results, up to six matches, two per run.
+- **Run blame**, once something is typed, for the three newest failures whose next step it is, by what they were about or `failed`. What it asks first, a check or a yes, it asks on the run's page.
 
 Every typed word must match. Matches in recordings, forks, tests and captures come first, however many attempts match too. An attempt (`--repeat`, a blame probe, a verify attempt) replays its run's text, so it shows only for a run with no match of its own. The attempts of one run count as that run.
 
@@ -166,7 +167,7 @@ Every run of the week is a row of calls colored by origin. The rows are grouped 
 | [Error-path presets](./error-paths.md) that failed | Each opens the attempt that shows it |
 | Inconclusive tests, with an amber mark, and presets left inconclusive | **Run more**, **Run again** or **Update**, all to Tests, else **Open** |
 | Failures with no fix yet: open fixes | **Fix it**, or **Open** and where to look |
-| Failures with no fix yet: failed runs never blamed | **Run blame** |
+| Failures with no fix yet: failed runs never blamed | **Run blame**, or **Open** where its page leads with another step |
 | A [preview of a change](./decisions.md) whose flagged runs no session of that change has settled since (amber) | Opens the first at the call whose decision changed |
 | Verified fixes waiting to be applied | **Mark applied** for one that has no patch, as its page has it |
 | How many behaviours seen in production no golden [covers](./coverage.md) | Opens a run of the newest |
@@ -360,24 +361,46 @@ The meta line says why the run failed, and the agent's exit with its last line. 
 
 ### The next step
 
-The header's one lime button is the run's next step:
+The header's one lime button is the run's next step: the first of these that applies. The server works it out, so a run's page, its row in the lists, Needs a look and Search or jump to say the same.
 
-| Button                                          | Leads for                                                                    |
-| ----------------------------------------------- | ---------------------------------------------------------------------------- |
-| **Open the fix**                                | A failure a fix holds                                                        |
-| **Run blame**                                   | A failure never blamed                                                       |
-| **Compare with parent**                         | A fork or an attempt                                                         |
-| **Add normalizer and re-run**, on the banner    | A test that left its recording on a value made anew on every run             |
-| **Add normalizer**, on the banner               | A replay that left its recording on a value made anew on every run           |
-| **Replay**                                      | A run where nothing needs doing                                              |
+| The run | Its next step |
+| --- | --- |
+| Still recording | **Replay**, off until it ends |
+| A test replay whose golden passed when it ran again | **Open passing run** |
+| A test that diverged on a value made anew on every run | **Add normalizer and re-run**, **Re-run test** once the rule is in the config |
+| A test that diverged on what a patch or a config change changed | **Update golden** |
+| A test that diverged on anything else | **Find breaking commit…** |
+| A test whose judge check couldn't be judged offline | **Update golden** |
+| An injection attempt that obeyed, no golden made from the recording it tested | **Pack with injection gate…** |
+| Any other attempt, failed or not | **Compare with parent** |
+| A test replay whose agent exited | **Find breaking commit**, until the commit is named |
+| A recording whose newest injection test failed | **Open proof** |
+| One that stopped early | **Run injection test…** |
+| One that showed too little to say | **Re-run injection test**, **Re-run test** for a golden's gate |
+| A recording a read is proven to have caused a write in, no golden made from it | **Pack with injection gate…** |
+| Error-path presets that failed | **Open proof** |
+| A failure a fix holds | **Open fix** |
+| A capture its import judged failed | **Open fix** where a fix holds the same failure, else **Run blame** |
+| A failure never blamed | **Run blame** |
+| A replay that left its recording on a value made anew on every run | **Add normalizer** |
+| A fork | **Compare with parent** |
+| A recording that didn't fail, no golden made from it | **Pack as golden…** |
+| Anything else | **Replay**, as below |
 
-Every other action stays beside it, plain, and the banner doesn't offer the step again.
+Every other action stays beside it, plain, and the banner doesn't offer the step again. Its hover says what it does, what it bills and the command it runs. Search or jump to lists it first under This run.
 
-- **Open the fix**: its hover names the fix, and the banner says how the fix stands, *fix open* or *fix verified*, where it linked it.
-- **Run blame** isn't offered on a run that made no model call, or on one that was stopped: blame needs a run that fails again as recorded.
+What each step does:
+
+- **Open fix**: its hover names the fix, and the banner says how the fix stands, *fix open* or *fix verified*, where it linked it.
+- **Run blame** isn't offered on a run that made no model call, or on one that was stopped: blame needs a run that fails again as recorded. On a capture, it asks for your command first.
 - **Compare with parent** leads for a fork, and for an attempt: a blame probe's, a verify's, a `--repeat`'s, an injection test's, a model's scoring, an error-path preset's, or a golden's repeated replay in one test session, whose failure counts towards its golden's result.
+- **Update golden**: a change it was made for reads as a changed system prompt, a tool's definition or the model, which go into every request.
+- **Find breaking commit** starts on the click, offline and free, from the newest commit its golden passed at, with **Run blame** plain beside it. With no such commit, or on a golden marked fork, it asks first and reads **Find breaking commit…**.
+- **Open proof** opens the first attempt that shows the verdict. Presets left inconclusive change nothing, since running them again finds the same.
+- **Pack as golden…** asks for a folder, `goldens/` and the run's short id in lower case unless you change it. **Pack with injection gate…** does the same, and names the entry under `tests` that gives the golden its gate.
+- **Replay** replays the run itself. On a clean or a test replay it reads **Replay recording**, and replays the recording it came from. On a capture it reads **Replay with your command…**.
 
-A fork that failed, by its check or its agent's exit, says *failed* beside its id, as any run that failed does. It keeps the banner that says how it forked, and leads with **Run blame**, or **Open the fix** once a fix holds it. Until it is blamed, it counts among the failures not blamed yet.
+A fork that failed, by its check or its agent's exit, says *failed* beside its id, as any run that failed does. It keeps the banner that says how it forked, and leads with **Run blame**, or **Open fix** once a fix holds it. Until it is blamed, it counts among the failures not blamed yet.
 
 ### Where a run opens
 
@@ -417,10 +440,12 @@ A golden's banner has **Tests →**. The attempt's status chip goes by that verd
 
 **A fork.** A replay an injection test, a model's scoring or an error-path preset made keeps its fork banner. A fork whose only flag is `--writes` forked where its request changed, and its banner says that.
 
-**A test that diverged.** A test that diverged on a value made anew on every run says what the value looks like, and offers:
+**A test that diverged.** A test that diverged on a value made anew on every run says what the value looks like, and offers what its header doesn't lead with:
 
 - **Add normalizer and re-run**, which adds the rule and runs the golden again. Once the rule is in the config, the banner says *normalizer added* and links the replay that passed.
 - **Update golden**, which asks first, as on Tests.
+
+An id that may be a real change leads with neither: only you can tell, so **Find breaking commit…** leads, and both stay on the banner.
 
 Sometimes the rule alone can't make the replay match: the request carries a field the recording never had, as a per-run id added since. The button then reads **Add normalizer and update**, and asks first too, in the Tests screen's dialog with both commands, since the golden is then re-recorded live after the rule. Once the rule is in, **Update golden** stays beside *normalizer added* until a replay of the golden passes.
 
@@ -1385,6 +1410,8 @@ With a [team store](./team.md), a share link comes first, its drawer ending on *
 
 When the run failed a check none of those give, or nothing says what a passing run must do, it asks for the check. The blame opens the run's fix, or joins one, and links to it.
 
+A capture has no command to run again, so **Run blame** asks for yours, which runs as `shadowlap blame <run> -- <command>`. A capture its import judged failed is blamed on the rules on calls it broke.
+
 ### Actions on a fix
 
 **Run repair**, on an open fix, runs [`shadowlap repair`](./repair.md):
@@ -1853,6 +1880,8 @@ Every request needs the session token in `x-shadowlap-token`.
 - **Its state**: a run's `state` (kind, outcome, failed, interrupted) is the one the run list works out for it, and its status is the list's. A run its recorder left running reads `crashed`, ended at its last call.
 - **Its outcome by checks**: `judged` says what judged it (`by`: `own`, `import` or `family`), its `verdict`, the checks' `counts`, the `callNo` it turned on, the `first` check that failed, `today`, `since`, the `goldens` and `why`. It is `null` when no check judges the run. The page's answer and Runs' rows add each of `checks`; the sidebar's rows leave them out.
 - **Its agent's exit**: a test replay its agent's exit failed carries `exitCode` where its test result kept the code.
+- **Its next step**: `next` is what its header leads with ([The next step](#the-next-step)): its `key` and `label`, `href` for a link, `off` for why it can't start, the hover's `title` and `sub`, and the `command` it runs. `estimate` is what it bills. A long run's first answer leaves that out.
+- **Its Replay**: `replay` is what its Replay button replays: `label` and `runId`. Each list row carries `next` too, with only `key`, `label`, `href` and `off`, as a list reads no run's calls for it.
 - **Its family**: each run of the family carries the same `status`, `kind`, `outcome` and `failed`, an attempt the list leaves out included. The HTML file holds such a run the same way.
 - **Its calls**: a call row carries `via` for a model call made to a host of another provider's format (the host; `provider` is then its format), and `extraRead` for a replay's extra read.
 - **Its WebSockets**: a run carries its `websockets` (`target`, `count`, `action`: `tunnelled` or `refused`) when it keeps them.
@@ -2082,7 +2111,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `action { runId, key, callNo?, value?, yes? }` | A run action the terminal UI shares: replay, the fork menu, repeat, pack, the suggested normalizer |
 | `apply { fixId }` | [`fix apply`](./cli.md#fix): a verified fix's patch into the working tree, its goldens tested |
 | `bisect { golden \| runId, good, bad? }` | Find breaking commit |
-| `blame { runId, expect?, yes? }` | Blame with the check the run failed: the one given, else the one it was judged by, else a 422 that asks for it |
+| `blame { runId, expect?, command?, yes? }` | Blame with the check given, else the one it was judged by, else a 422 that asks for it. A capture takes your `command` |
 | `blame { fixId, again: true, yes? }`, `blame { fixId, model, yes? }` | An open fix's blame again, under its check, when it couldn't settle or stopped part way, or with another model when nothing rescued its run |
 | `calibrate { runId?, write? }` | The setup's recording, else the newest finished one made here, unless one is named |
 | `chaos { golden, presets?, tool? }` | `test <golden> --chaos` |
