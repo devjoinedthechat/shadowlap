@@ -207,19 +207,17 @@ export function testOffer(store: StoreOf<'recording' | 'tests'>, run: RunRecord,
   const rules = Array.isArray(normalize) ? normalize : [];
   const wanted = banner.values.values.map((v) => v.normalizer);
   const normalized = wanted.length > 0 && wanted.every((w) => rules.some((r) => sameRule(r, w)));
-  let passingRun: string | null = null;
-  if (normalized) {
-    // Newest first: the first that passed, made after this run and still in the store.
-    for (const r of store.listTestResults({ golden: banner.golden, since: run.startedAt, limit: 50 })) {
-      if (!r.ok || !r.runId || r.runId === run.runId) continue;
-      const passed = store.getRun(r.runId);
-      if (passed && passed.startedAt >= run.startedAt) {
-        passingRun = passed.runId;
-        break;
-      }
-    }
+  return { ...banner, normalized, passingRun: normalized ? passedSince(store, run, banner.golden) : null, checks: goldens.find((g) => g.path === banner.golden)?.checks ?? null };
+}
+
+/** The newest replay of a golden that passed since this run, made after it and still in the store; null when none has. */
+export function passedSince(store: StoreOf<'recording' | 'tests'>, run: RunRecord, golden: string): string | null {
+  for (const r of store.listTestResults({ golden, since: run.startedAt, limit: 50 })) {
+    if (!r.ok || !r.runId || r.runId === run.runId) continue;
+    const passed = store.getRun(r.runId);
+    if (passed && passed.startedAt >= run.startedAt) return passed.runId;
   }
-  return { ...banner, normalized, passingRun, checks: goldens.find((g) => g.path === banner.golden)?.checks ?? null };
+  return null;
 }
 
 /**

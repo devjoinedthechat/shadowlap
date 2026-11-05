@@ -5,6 +5,7 @@ import { presetMarks, type PresetMark } from './chaos.js';
 import { fixForRun, type FixForRun } from './fixes.js';
 import { aboutOfRun, aboutsOf } from './run-about.js';
 import { exitCodes } from './exit-codes.js';
+import type { NextStep } from './next-step.js';
 import type { RunJudged } from './run-outcome.js';
 import { captureSource, loadRunIndex } from './run-index.js';
 import { recentRuns, type RunRow } from './runs-list.js';
@@ -190,6 +191,14 @@ export interface RunDetail extends RunPageFacts {
   judged?: RunJudged | null;
   /** For a test replay its agent's exit failed: the code, as its test result keeps it (run-outcome.ts `exitCodes`). */
   exitCode?: number;
+  /**
+   * Its next step, what its header's lime button leads with (next-step.ts), with what it bills; a long
+   * run's first answer leaves that out, until its calls are read. An exported copy holds only a
+   * comparison with a run it holds, since it runs nothing and holds no fix.
+   */
+  next?: NextStep;
+  /** Replay as its header keeps it beside the next step: on a clean or a test replay, the recording it came from. Not in an exported copy. */
+  replay?: NextStep;
 }
 
 export interface CallDetail {

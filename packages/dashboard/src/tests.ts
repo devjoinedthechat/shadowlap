@@ -1014,13 +1014,13 @@ function bisectRevisions(history: readonly TestResult[], failed: TestResult, che
 }
 
 /** What Find breaking commit said about a golden: a first bad commit, or none and why (the `bisect.found` and `bisect.none` activity events). */
-type BisectAnswer = { found: FoundCommit; missed: null } | { found: null; missed: BisectMiss };
+export type BisectAnswer = { found: FoundCommit; missed: null } | { found: null; missed: BisectMiss };
 
 /**
  * One answer, with the failure it answered: the golden's newest result when the search started, as
  * `shadowlap bisect` records it (`answered`), or null for an answer kept before it did.
  */
-interface AnswerEvent {
+export interface AnswerEvent {
   answer: BisectAnswer;
   at: number;
   answered: { at: number; ok: boolean } | null;
@@ -1029,7 +1029,7 @@ interface AnswerEvent {
 const MISS_OUTCOMES = new Set(['fails-at-good', 'passes-at-bad', 'untestable']);
 
 /** Every answer Find breaking commit gave, by golden, newest first. */
-function bisectAnswers(store: StoreOf<'activity'>): Map<string, AnswerEvent[]> {
+export function bisectAnswers(store: StoreOf<'activity'>): Map<string, AnswerEvent[]> {
   const out = new Map<string, AnswerEvent[]>();
   for (const e of store.listEvents({ kinds: ['bisect.found', 'bisect.none'], limit: 500 })) {
     if (!e.ref) continue;
@@ -1064,7 +1064,7 @@ const sameCommit = (a: string, b: string) => a.startsWith(b) || b.startsWith(a);
  * at the commit it fails at (`passes-at-bad`) stands only while it fails at that commit: once the
  * failure is committed, there is a commit to find again.
  */
-function standingAnswer(answers: readonly AnswerEvent[] | undefined, history: readonly TestResult[], latest: TestResult): BisectAnswer | null {
+export function standingAnswer(answers: readonly AnswerEvent[] | undefined, history: readonly TestResult[], latest: TestResult): BisectAnswer | null {
   if (!answers?.length) return null;
   // Newest first: the failures since the newest pass, the oldest of them where this streak began.
   const pass = history.findIndex((r) => r.ok);
@@ -1460,7 +1460,7 @@ function failingNext(r: TestResult, o: { fixId: string | null; mode: GoldenSourc
  * verdict in the pack. Not an injection test that showed too little to say, which an update doesn't
  * settle, nor a golden whose path the CLI would read as an option.
  */
-function unjudgedOffline(r: TestResult): boolean {
+export function unjudgedOffline(r: TestResult): boolean {
   if (r.failure !== 'inconclusive' || r.data?.gate?.decision === 'inconclusive' || r.data?.divergence || optionLike(r.golden)) return false;
   return (r.data?.checks ?? []).some((c) => checkStatus(c) === 'inconclusive' && !!c.judge);
 }

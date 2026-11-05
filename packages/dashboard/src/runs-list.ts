@@ -4,6 +4,7 @@ import { filterTerms } from './links.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay } from './local-days.js';
 import { aboutsOf, aboutsWithin, knownAbouts } from './run-about.js';
 import { classifiable, depthOf, fixedOutcome, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
+import type { NextStepRow } from './next-step.js';
 import type { RunJudged } from './run-outcome.js';
 import { callTotals, callTotalsWithin, knownSpent, priced, spentOf, totalsKnown, type StatsOptions } from './run-stats.js';
 
@@ -100,6 +101,8 @@ export interface RunRow extends RunListItem {
    * judged yet: a long run past what a list reads, judged once its page or a later list reaches it.
    */
   judged?: RunJudged | null;
+  /** Its next step in its light form (next-step.ts `stepRow`): which one, its words and its link, so a list says what the run's page leads with. */
+  next?: NextStepRow;
 }
 
 export interface ChipCounts {

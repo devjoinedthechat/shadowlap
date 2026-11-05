@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { configFilePath, isObject, parseTests, readConfigFile, testsEntryFor, type TestEntry } from '@shadowlap/engine';
 import { keepSeenChecks, seenChecks, type SeenChecks } from './checks-seen.js';
 import type { RouteContext } from './context.js';
+import type { NextStepWork } from './next-step.js';
 import type { OutcomeWork } from './run-outcome.js';
 import { goldensOf } from './routes/overview.js';
 
@@ -12,7 +13,8 @@ import { goldensOf } from './routes/overview.js';
  * checks they were not given (run-outcome.ts): the config's version and its `tests` as written, and
  * the goldens on disk with the run each pack holds, when it was packed and when its checks last
  * changed (checks-seen.ts). Null outside a project, or while its config can't be read: then only
- * runs' own verdicts, and those kept on captures, say anything.
+ * runs' own verdicts, and those kept on captures, say anything. With it, what a run's next step reads
+ * of the project (next-step.ts): the goldens as listed, and the config's tests, rules and tools.
  *
  * Listing the goldens reads every pack's head, so the work is kept per project and read again only
  * once a file it was read from changes, as stat tells: the config, the goldens folder, the folders
@@ -30,6 +32,7 @@ interface Kept {
   stats: string;
   prices: unknown;
   work: OutcomeWork | null;
+  steps: NextStepWork;
 }
 
 const kept = new WeakMap<RouteContext, Kept>();
@@ -76,6 +79,21 @@ function checksKey(tests: unknown, entries: readonly TestEntry[], golden: string
     .slice(0, 16);
 }
 
+/** The config's trust marks as the CLI reads them; a config mid-edit leaves them out. */
+function toolsOf(ctx: RouteContext): Pick<NextStepWork, 'tools'> {
+  try {
+    const tools = ctx.config().tools;
+    return tools ? { tools } : {};
+  } catch {
+    return {};
+  }
+}
+
+/** What a run's next step reads of the project, with the config as written; without a project or one that can be read, the goldens alone. */
+function stepsWork(ctx: RouteContext, dir: string | null, data: Record<string, unknown> | null): NextStepWork {
+  return { goldens: goldensOf(ctx), tests: data?.tests, normalize: data?.normalize, dir, ...(data ? toolsOf(ctx) : {}), ...(ctx.read.prices ? { prices: ctx.read.prices } : {}) };
+}
+
 function readWork(ctx: RouteContext, dir: string): Omit<Kept, 'prices'> {
   const config = configFilePath(dir);
   const folder = join(dir, GOLDENS);
@@ -87,7 +105,7 @@ function readWork(ctx: RouteContext, dir: string): Omit<Kept, 'prices'> {
   try {
     file = readConfigFile(dir);
   } catch {
-    return { watched, stats: before.join('|'), work: null };
+    return { watched, stats: before.join('|'), work: null, steps: stepsWork(ctx, dir, null) };
   }
   const tests = isObject(file.data) ? file.data.tests : undefined;
   let entries: TestEntry[] = [];
@@ -99,7 +117,8 @@ function readWork(ctx: RouteContext, dir: string): Omit<Kept, 'prices'> {
   const changedAt = file.exists ? writtenAt(file.path) : null;
   const seen = seenChecks(dir);
   const now = new Map<string, SeenChecks>();
-  const goldens = goldensOf(ctx).map((g) => {
+  const steps = stepsWork(ctx, dir, isObject(file.data) ? file.data : null);
+  const goldens = steps.goldens.map((g) => {
     const key = checksKey(tests, entries, g.path, dir);
     const was = seen.get(g.path);
     // First seen: its checks came with it. Changed since: by the config's write that changed them.
@@ -113,16 +132,27 @@ function readWork(ctx: RouteContext, dir: string): Omit<Kept, 'prices'> {
     watched: [...watched, ...others],
     stats: [...before, ...others.map(statOf)].join('|'),
     work: { version: file.version, tests, dir, goldens, ...(ctx.read.prices ? { prices: ctx.read.prices } : {}) },
+    steps,
   };
 }
 
-/** The outcome work for the current request: the one kept for the project while nothing it was read from changed, else read again. */
-export function outcomeWork(ctx: RouteContext): OutcomeWork | null {
-  const dir = ctx.project?.path;
-  if (!dir) return null;
+/** What was read of the project for the current request: what is kept while nothing it was read from changed, else read again. */
+function keptWork(ctx: RouteContext, dir: string): Omit<Kept, 'prices'> {
   const k = kept.get(ctx);
-  if (k && k.prices === ctx.read.prices && statsOf(k.watched) === k.stats) return k.work;
+  if (k && k.prices === ctx.read.prices && statsOf(k.watched) === k.stats) return k;
   const read = readWork(ctx, dir);
   kept.set(ctx, { ...read, prices: ctx.read.prices });
-  return read.work;
+  return read;
+}
+
+/** The outcome work for the current request. */
+export function outcomeWork(ctx: RouteContext): OutcomeWork | null {
+  const dir = ctx.project?.path;
+  return dir ? keptWork(ctx, dir).work : null;
+}
+
+/** What a run's next step reads of the project, for the current request; outside a project, the goldens the dashboard was given. */
+export function nextStepWork(ctx: RouteContext): NextStepWork {
+  const dir = ctx.project?.path;
+  return dir ? keptWork(ctx, dir).steps : stepsWork(ctx, null, null);
 }
