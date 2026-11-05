@@ -1,6 +1,7 @@
 import { act, createElement, useEffect, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ActionButton } from '../ui/components/ActionButton.js';
+import { Dialog } from '../ui/components/Dialog.js';
 import { JobDrawer } from '../ui/components/Drawer.js';
 import { chipJob, drawnJob, endedBehind, jobClosed, jobOpened, jobsLeftBehind, jobStarted, type WatchedJob } from '../ui/job-store.js';
 import { endChip } from '../ui/jobs.js';
@@ -445,6 +446,20 @@ describe('what waits', () => {
     const held = await draw({ conn: 'offline' }, { href: '#/tests', className: 'btn danger' });
     expect(held.button.tagName).toBe('BUTTON');
     expect(held.button.className).toBe('btn');
+  });
+
+  it('keeps a dialog open on its confirm, with what was typed, and takes its red away', async () => {
+    const onOk = vi.fn();
+    const toasts: unknown[][] = [];
+    const value = { conn: 'offline', actionsOff: null, toast: (...x: unknown[]) => toasts.push(x) } as unknown as AppState;
+    r = await render(createElement(AppContext.Provider, { value }, createElement(Dialog, { title: 'Delete it?', text: 'It goes.', ok: 'Delete it', tone: 'danger', onOk, onClose: () => undefined })));
+    const ok = r.one('.dialog .dlg-ok');
+    expect(ok.getAttribute('aria-disabled')).toBe('true');
+    expect(ok.className).not.toContain('danger');
+    await r.click(ok);
+    expect(onOk).not.toHaveBeenCalled();
+    expect(r.all('.dialog')).toHaveLength(1);
+    expect(toasts).toEqual([[PAUSED, 'notice', undefined]]);
   });
 
   it('offers a way out in the toast, and gives it the focus from the keyboard, with its reason in full on the card', async () => {

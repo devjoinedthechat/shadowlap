@@ -113,7 +113,7 @@ export function ToastHost() {
       if (held) back();
     }
     const opener = toastText.action?.returnTo ?? (held ? null : a);
-    if (opener || !held) from.current = openerOf(opener ?? null);
+    if (opener || !held) from.current = openerOf(opener && opener !== document.body ? opener : null);
     live.current = toastText;
     setOut(false);
     setShown(toastText);

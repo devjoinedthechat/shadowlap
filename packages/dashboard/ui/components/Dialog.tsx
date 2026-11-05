@@ -9,6 +9,7 @@ import { InSlot } from '../overlays/slots.js';
 import { dialogOnSwitch, noteDialogDropped, onShownProject, shownProject } from '../projects-api.js';
 import type { PromptChoice } from '../types.js';
 import { CmdLine } from './bits.js';
+import { ActionButton } from './ActionButton.js';
 
 /**
  * What every modal stands on: a scrim in the layer slot, the app behind it inert, Tab kept inside it,
@@ -188,9 +189,9 @@ export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = 
             {ok ? cancel : 'Close'}
           </button>
           {ok ? (
-            <button type="button" className={`btn ${tone} dlg-ok`} hidden={asking} disabled={okDisabled} onClick={() => onOk?.()}>
+            <ActionButton className={`btn ${tone} dlg-ok`} hidden={asking} disabled={okDisabled} onClick={() => onOk?.()}>
               {ok}
-            </button>
+            </ActionButton>
           ) : null}
           {asking ? (
             <>
