@@ -10,20 +10,25 @@ import type { RunOffers } from '../types.js';
 
 export type ShareKey = 'link' | 'html' | 'pack' | 'dataset' | 'otel' | 'har';
 
+/** A row of the menu: its words, the command it runs without `shadowlap` before it, and what it is for, on its hover card. */
 export interface ShareItem {
   key: ShareKey;
   label: string;
-  note: string;
+  flag: string;
+  why: string;
 }
 
 const ITEMS: Record<ShareKey, Omit<ShareItem, 'key'>> = {
-  link: { label: 'Share link', note: 'a redacted report in your bucket · expires in 7 days' },
-  html: { label: ACTIONS.exportHtml.label, note: 'export html · these views in one file that opens anywhere' },
-  pack: { label: ACTIONS.pack.label, note: 'pack · a folder for a golden, or for a colleague to replay' },
-  dataset: { label: ACTIONS.exportDataset.label, note: 'export dataset · JSONL, Braintrust, Langfuse or OpenAI chat' },
-  otel: { label: ACTIONS.exportTrace.label, note: 'export otel · a span per call, for the tools you already use' },
-  har: { label: ACTIONS.exportHar.label, note: 'export har · the model calls, for anything that reads HTTP archives' },
+  link: { label: 'Share link', flag: 'share', why: 'A redacted report in your bucket; the link expires in 7 days' },
+  html: { label: ACTIONS.exportHtml.label, flag: 'export html', why: 'These views in one file that opens anywhere' },
+  pack: { label: ACTIONS.pack.label, flag: 'pack', why: 'A folder for a golden, or for a colleague to replay' },
+  dataset: { label: ACTIONS.exportDataset.label, flag: 'export dataset', why: 'JSONL, Braintrust, Langfuse or OpenAI chat' },
+  otel: { label: ACTIONS.exportTrace.label, flag: 'export otel', why: 'A span per call, for the tools you already use' },
+  har: { label: ACTIONS.exportHar.label, flag: 'export har', why: 'The model calls, for anything that reads HTTP archives' },
 };
+
+/** A row's hover card's command: what it runs on this run, its options left to the dialog or the drawer. */
+export const shareCommand = (item: Pick<ShareItem, 'flag'>, runId: string): string => `$ shadowlap ${item.flag} ${shortId(runId)}`;
 
 /**
  * The copies the menu lists: the share link first when the project has a team store and the server

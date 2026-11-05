@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { JOB_KINDS, type ActionItem, type BisectOffer, type CallDetail, type RunDetail, type RunOffers } from '../api.js';
 import { consentAsked, dialogCopy, forkMenu, forkMenuTitle, menuLabel } from '../actions.js';
 import { ConfirmDialog, ConsentDialog, PromptDialog } from '../components/Dialog.js';
+import { tipCard } from '../components/HoverCard.js';
 import { Popover } from '../components/Popover.js';
 import { callName, shortId } from '../format.js';
 import { useApp } from '../state.js';
@@ -155,6 +156,12 @@ export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onCl
   const replay = call.actions.find((a) => a.key === 'r');
   const blocked = bisectBlocked(run.run.runId, offers?.bisect ?? null, hasKind(JOB_KINDS.bisect));
   const bisect = bisectLabel(offers?.bisect);
+  // A row's one line says what it runs; what it is for is on its card, with the flag on the command it adds it to.
+  const item = (m: ReturnType<typeof forkMenu>['call'][number]) => ({
+    disabled: !!m.action.disabled,
+    title: m.action.disabled ?? undefined,
+    'data-tip': m.action.disabled ? undefined : tipCard(m.label, [], m.action.hint ?? null, m.action.flag?.startsWith('--') ? `$ shadowlap replay ${shortId(run.run.runId)} ${m.action.flag}` : null),
+  });
   return (
     <Popover key="menu" anchor={anchor} onClose={onClose} className="fkm" label={`Fork at #${c.callNo}`}>
       <div className="pk">{call.forkTitle ?? forkMenuTitle({ ...c, ...(c.input ? { input: true } : {}) }, shortName)}</div>
@@ -169,7 +176,7 @@ export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onCl
       ) : (
         <>
           {menu.call.map((m) => (
-            <button key={m.action.key} type="button" role="menuitem" disabled={!!m.action.disabled} title={m.action.disabled ?? m.action.hint ?? m.action.flag ?? undefined} onClick={() => pick(m.action, c.callNo)}>
+            <button key={m.action.key} type="button" role="menuitem" {...item(m)} onClick={() => pick(m.action, c.callNo)}>
               <b>{m.label}</b>
               <small>{m.flag}</small>
             </button>
@@ -178,7 +185,7 @@ export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onCl
           <hr />
           <div className="pk">The whole run</div>
           {menu.run.map((m) => (
-            <button key={m.action.key} type="button" role="menuitem" disabled={!!m.action.disabled} title={m.action.disabled ?? m.action.hint ?? m.action.flag ?? undefined} onClick={() => pick(m.action, null)}>
+            <button key={m.action.key} type="button" role="menuitem" {...item(m)} onClick={() => pick(m.action, null)}>
               <b>{m.label}</b>
               <small>{m.flag}</small>
             </button>
@@ -187,7 +194,8 @@ export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onCl
             type="button"
             role="menuitem"
             disabled={!!blocked || !!actionsOff}
-            title={actionsOff ?? blocked ?? bisect.hint}
+            title={actionsOff ?? blocked ?? undefined}
+            data-tip={actionsOff || blocked ? undefined : tipCard(bisect.label, [], bisect.hint)}
             onClick={() => {
               onClose();
               onFindCommit();
