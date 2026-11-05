@@ -185,6 +185,14 @@ function blameNextPrice(rec: FixRecords, b: StoredBlame, o: { again: boolean; mo
   return blameEstimate(p.calls(b.runId), { ...rule, scope: b.scope, model, last: b.report, fresh, ...(p.prices ? { prices: p.prices } : {}) });
 }
 
+/** The `--budget` a step's command runs with, before any command of the agent's own after `--`; null for none. */
+function budgetOf(argv: readonly string[]): number | null {
+  const end = argv.indexOf('--');
+  const i = (end < 0 ? argv : argv.slice(0, end)).indexOf('--budget');
+  const usd = i < 0 ? Number.NaN : Number(argv[i + 1]);
+  return Number.isFinite(usd) && usd > 0 ? usd : null;
+}
+
 async function fixEstimates(store: Store, job: FixEstimatesJob): Promise<ReadAnswer> {
   const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem });
   const fix = d ? resolveFix(store, job.fixId) : null;
@@ -198,10 +206,11 @@ async function fixEstimates(store: Store, job: FixEstimatesJob): Promise<ReadAns
     const more = step.more;
     const v = more ? rec.verdicts.find((x) => x.verifyId === step.verifyId) : undefined;
     if (!more || !v) continue;
-    // Each run verified again from its first attempt, up to the step's limit, by the verdict's gate or count.
+    // Each run verified again from its first attempt, up to the step's limit, by the verdict's gate or
+    // count; Verify again with the budget it ran with, which Run more attempts leaves out.
     const g = sprtGate(v.report.gate);
     const rule = { ...job.rule, ...(g ? { gate: { ...g, max: more.max } } : { attempts: more.max }) };
-    const e = await estimateOf(() => (more.kind === 'more' ? verifyMoreEstimate(verifyRunCosts(v.report), { expected: more.expected, cost: more.cost }, { rule, last: v.report }) : verifyEstimate(verifyRunCosts(v.report), { rule, last: v.report })), pricing);
+    const e = await estimateOf(() => (more.kind === 'more' ? verifyMoreEstimate(verifyRunCosts(v.report), { expected: more.expected, cost: more.cost }, { rule, last: v.report }) : verifyEstimate(verifyRunCosts(v.report), { rule, last: v.report, budget: budgetOf(more.argv) })), pricing);
     if (e) verify[step.verifyId] = e;
   }
   const body: FixEstimates = {
