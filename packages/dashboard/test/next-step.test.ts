@@ -260,6 +260,13 @@ describe('a run’s next step', () => {
     clean(rec, 'caused', T0 + 2);
     expect(step(rec)).toMatchObject({ key: 'pack-gate', label: 'Pack with injection gate…', runId: rec });
     expect(step(rec, work([source(rec)])).key).toBe('replay');
+    // Nor does a golden of a fork of it count, as it doesn't test this one; one it was unpacked from does.
+    const fork = addRun(store, { parent: rec, startedAt: T0 + MIN, divergence: 2, calls: 'rl' });
+    expect(step(rec, work([source(fork)])).key).toBe('pack-gate');
+    const unpacked = recording(T0 + MIN, { meta: { imported: { at: T0, from: `/work/project/${GOLDEN}` } } });
+    clean(unpacked, 'caused', T0 + 2);
+    expect(step(unpacked).key).toBe('pack-gate');
+    expect(step(unpacked, work([source(null)])).key).not.toBe('pack-gate');
     // Only the newest answer for a read and a write counts.
     clean(rec, 'not caused', T0 + 3);
     expect(step(rec).key).toBe('pack');
@@ -300,11 +307,12 @@ describe('a run’s next step', () => {
     const rec = recording();
     expect(step(rec)).toMatchObject({ key: 'pack', label: 'Pack as golden…', runId: rec, folder: goldenFolder(rec), command: `shadowlap pack ${rec.slice(0, 10)} ${goldenFolder(rec)}` });
     expect(goldenFolder(rec)).toBe(`goldens/${rec.slice(0, 10).toLowerCase()}`);
-    // No project to pack into, a recording with a golden, one of its family's, and one that failed its family's checks today.
+    // No project to pack into, a recording a golden is packed from, and one that failed its family's checks today.
     expect(step(rec, null).key).toBe('replay');
     expect(step(rec, work([source(rec)])).key).toBe('replay');
+    // A golden packed from a fork of it says nothing of this one, which can still be kept.
     const fork = addRun(store, { parent: rec, startedAt: T0 + MIN, divergence: 2, calls: 'rl' });
-    expect(step(rec, work([source(fork)])).key).toBe('replay');
+    expect(step(rec, work([source(fork)])).key).toBe('pack');
     expect(step(rec, work([]), { judged: { by: 'family', verdict: 'failed', counts: { passed: 0, failed: 1, inconclusive: 0, notApplicable: 0 }, callNo: null, first: null, today: true, goldens: [], why: null } }).key).toBe('replay');
     // A recording cut short says nothing, and neither does one that made no call.
     expect(step(addRun(store, { startedAt: T0 + 2 * MIN, status: 'crashed', calls: 'l' })).key).toBe('replay');

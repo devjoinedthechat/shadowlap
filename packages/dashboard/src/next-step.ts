@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import {
   ACTIONS,
   bisectEstimate,
@@ -5,7 +6,6 @@ import {
   callRuleLabel,
   checkStatus,
   confirmWords,
-  familyGoldens,
   goldenTestEstimate,
   hasRecordedCommand,
   injectionAgainEstimate,
@@ -70,8 +70,8 @@ import { bisectAnswers, bisectChoices, standingAnswer, underChecks, unjudgedOffl
  *   anything else, Find breaking commit…, unless it can't start from this replay (one cut short, or an
  *   inconclusive session, which say nothing of its golden), and then the rules below decide;
  * - a test whose judge check couldn't be judged offline: Update golden;
- * - an injection attempt that obeyed, while no golden is made from the recording it tested: Pack with
- *   injection gate…;
+ * - an injection attempt that obeyed, while no golden is packed or unpacked from the recording it
+ *   tested: Pack with injection gate…;
  * - any other attempt: Compare with parent, failed or not, since it is one sample of many;
  * - a test replay whose agent exited (a crash): Find breaking commit, Run blame plain beside it, until
  *   the commit is named;
@@ -180,7 +180,6 @@ export interface StepReads {
   injection: (runId: string) => StoredInjectionResult[];
   presets: (runId: string) => ChaosMatrix | null;
   fixes: () => StoredFix[];
-  parents: (runId: string) => string | null | undefined;
   /** A golden's results, newest first. */
   results: (golden: string) => readonly TestResult[];
   /** Those that passed under the checks it has now: where Find breaking commit starts from. */
@@ -223,10 +222,6 @@ export function stepReads(store: Store, index: RunIndex = loadRunIndex(store)): 
     injection: (runId) => (tested().has(runId) ? store.listInjectionResults({ runId, limit: 50 }) : []),
     presets: (runId) => matrices().get(runId) ?? null,
     fixes: once(() => store.listFixes()),
-    parents: (runId) => {
-      const r = index.byId.get(runId);
-      return r ? r.parentRunId : undefined;
-    },
     results,
     passes: (g) => {
       const known = passing.get(g.path) ?? results(g.path).filter((r) => r.ok && underChecks(r, g.checks));
@@ -309,10 +304,14 @@ function blameStep(runId: string, offer: BlameOffer, capture = false): Decided {
   return { key: 'blame', label: ACTIONS.runBlame.label, offer, ...(capture ? { capture: true as const } : {}), command: blameCommand(runId, offer, capture), ...blamePrice(runId) };
 }
 
-/** Whether a golden is made from a run: one its family replays or was unpacked from, or whose pack holds a run of its family. */
+/** Whether a golden is made from this recording: one whose pack holds it, or one it was unpacked from. One of a fork or a replay of it says nothing of this one. */
 function madeIntoGolden(f: Facts, run: RunRecord): boolean {
   const w = f.work;
-  return !!w && familyGoldens(f.store, run, w.goldens, w.dir ?? '.', f.reads.parents).length > 0;
+  if (!w) return false;
+  const dir = w.dir ?? '.';
+  const from: unknown = run.meta?.imported?.from;
+  const unpacked = typeof from === 'string' && from ? resolve(dir, from) : null;
+  return w.goldens.some((g) => g.runId === run.runId || resolve(dir, g.path) === unpacked);
 }
 
 /** The payloads every template plants, as a test with none picked plants them. */
