@@ -10,6 +10,7 @@ import { navigate, useRoute } from '../ui/router.js';
 import { Keyboard } from '../ui/shell/Keyboard.js';
 import { Palette } from '../ui/shell/Palette.js';
 import { RecentRuns } from '../ui/shell/Sidebar.js';
+import { recentRunIds } from '../ui/runs.js';
 import type { RunListItem } from '../ui/types.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
@@ -354,6 +355,26 @@ describe('a move between pages', () => {
     expect(location.hash).toBe('#/runs');
   });
 
+  it('comes back to the link you left from where no row holds it, focused', async () => {
+    addressBar('#/run/A');
+    r = await render(createElement(Routed));
+    await r.click(r.one('#other'));
+    await moved('#/run/B');
+    expect(r.focused().textContent).toBe('B');
+    await r.press('Escape');
+    expect(location.hash).toBe('#/run/A');
+    expect(r.focused().getAttribute('id')).toBe('other');
+  });
+
+  it('with no link noted, comes back to a link that leads to the page it left, before the heading', async () => {
+    addressBar('#/run/A');
+    r = await render(createElement(Routed));
+    await moved('#/run/B');
+    await r.press('Escape');
+    expect(location.hash).toBe('#/run/A');
+    expect(r.focused().getAttribute('id')).toBe('other');
+  });
+
   it('leaves the focus where you moved it while the page comes', async () => {
     r = await render(createElement(Routed));
     await moved('#/run/A');
@@ -392,6 +413,10 @@ describe('the sidebar’s runs', () => {
     expect(keys).not.toHaveBeenCalled();
     expect(r.all('.krow')).toEqual([]);
     expect(r.all('a.run').every((a) => a.getAttribute('tabindex') === null)).toBe(true);
+  });
+
+  it('gives `[` and `]` their order when Runs never showed the run, attempts left out', () => {
+    expect(recentRunIds([...RUNS, { ...run('ATTEMPT', 9), attemptKind: 'repeat', parentRunId: 'RUNONE' }])).toEqual(['RUNONE', 'RUNTWO', 'RUNTHREE']);
   });
 
   it('leaves the keys to the page with the focus elsewhere', async () => {
@@ -456,6 +481,34 @@ describe('a job’s end', () => {
     handOnAtEnd('job-1');
     await tick();
     expect(r.focused().getAttribute('id')).toBe('step');
+  });
+
+  it('hands it to the drawer where nothing took the control’s place: its way on, else its log', async () => {
+    function Gone({ lime }: { lime: boolean }) {
+      const [after, setAfter] = useState(false);
+      ended = setAfter;
+      return createElement(
+        'div',
+        {},
+        createElement('main', { id: 'view' }, createElement('section', { id: 'part' }, after ? null : createElement('button', { type: 'button', className: 'btn', id: 'start' }, 'Verify'))),
+        createElement('div', { className: 'drawer' }, createElement('pre', { id: 'log', tabIndex: 0 }, 'output'), lime ? createElement('button', { type: 'button', className: 'btn lime', id: 'on' }, 'Run test') : null),
+      );
+    }
+    r = await render(createElement(Gone, { lime: true }));
+    await r.focus(r.one('#start'));
+    await notingJobFrom(Promise.resolve({ id: 'job-3' }));
+    await act(async () => ended(true));
+    handOnAtEnd('job-3');
+    await tick();
+    expect(r.focused().getAttribute('id')).toBe('on');
+    await r.unmount();
+    r = await render(createElement(Gone, { lime: false }));
+    await r.focus(r.one('#start'));
+    await notingJobFrom(Promise.resolve({ id: 'job-4' }));
+    await act(async () => ended(true));
+    handOnAtEnd('job-4');
+    await tick();
+    expect(r.focused().getAttribute('id')).toBe('log');
   });
 
   it('leaves the focus where you moved it', async () => {
