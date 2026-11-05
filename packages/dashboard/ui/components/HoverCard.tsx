@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
 import { shownMenu } from '../overlays/menu-store.js';
 import { overlayOpen } from '../overlays/modal-store.js';
 import { placeTip } from '../place.js';
@@ -96,11 +96,12 @@ function Line({ text, term }: { text: string; term: boolean }) {
   if (clauses)
     return (
       <span className="ts">
+        {/* The space goes between them: inside an inline block it would collapse, and two on a line would touch. */}
         {clauses.map((c, i) => (
-          <span className="tcl" key={i}>
-            {i ? ' ' : ''}
-            {c}
-          </span>
+          <Fragment key={i}>
+            {i ? ' ' : null}
+            <span className="tcl">{c}</span>
+          </Fragment>
         ))}
       </span>
     );

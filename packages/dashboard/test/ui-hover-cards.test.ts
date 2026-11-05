@@ -160,7 +160,9 @@ describe('a hover card', () => {
     r = await render(page(createElement('span', { key: 'term', id: 'term', className: 'term on', tabIndex: 0, 'data-tip': JSON.stringify({ t: 'golden', s: 'A recorded run kept as a test: CI replays it on every commit' }) }, 'golden')));
     await r.focus(r.one('#term'));
     expect(card().className).toContain('gl');
-    expect(r.all('#tip .tcl').map((c) => c.textContent.trim())).toEqual(['A recorded run kept as a test:', 'CI replays it on every commit']);
+    expect(r.all('#tip .tcl').map((c) => c.textContent)).toEqual(['A recorded run kept as a test:', 'CI replays it on every commit']);
+    // The space sits between them, where it lays out: inside an inline block it would collapse, and two on a line would touch.
+    expect(r.one('#tip .ts').childNodes.map((n) => n.textContent)).toEqual(['A recorded run kept as a test:', ' ', 'CI replays it on every commit']);
   });
 
   it('shortens only a long command, and quotes what has no $ whole', () => {
