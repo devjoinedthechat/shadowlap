@@ -2051,12 +2051,12 @@ A gate against history is figured at seven pass rates against the baseline `hist
 | --- | --- |
 | `GET /api/settings/matching`, `/redaction[?run=]`, `/redaction/preview?run=`, `/agents`, `/tools`, `/tools/mcp?command=\|url=`, `/project`, `/store` | Settings, one read per tab; a tab that edits the config also gets its `version` |
 | `POST /api/settings/rules/normalize\|redact`, `DELETE /api/settings/rules/:list/:n?expect=`, `PUT /api/settings/clock`, `PUT /api/settings/store/ci-push`, `POST /api/settings/calibrate/write` | Changes to `shadowlap.config.json`, each with the `version` it read as `expect`; the last adds what a calibrate job proposed |
-| `GET /api/user/spending`, `PUT /api/user/spending { askAbove }` | Spending, yours on this machine on every project: the amount above which a billed job asks first, in dollars, 0 to always ask and `null` to never ask; a change answers what it was (`was`), for Undo |
+| `GET /api/user/spending`, `PUT /api/user/spending { askAbove }` | Spending, yours on every project: the amount above which a billed job asks first; a change answers what it was (`was`), for Undo |
 
 - **`/agents`** also carries `skill`: the [skills](./agents.md#the-skills) with their commands, and what the project has of the Claude Code plugin and of the skills in `.agents/skills`. Each has its `state`, its `installedVersion` and the `install` a click runs (`null` where there is nothing to install). It also says which of Claude Code's settings files turns on the plugin installed from its marketplace.
 - **The preview** masks one run as a pack would (`redact preview --json`, each rule's `returned` and `unmasked` included), read on a thread of its own within limits. A rule that takes too long on one call is a 422; other previews being read, or a store another command holds, a 503.
 - **A change** to a file changed since is a 409, and a rule the CLI refuses a 400.
-- **Spending** is kept in `settings.json` in Shadowlap's folder for this machine (`SHADOWLAP_HOME`, else `~/.shadowlap`), never in `shadowlap.config.json`, so CI and teammates never take it on, and the CLI never reads it. A page showing another project may change it. An amount that isn't whole cents is a 400, and a file it would lose something of, such as a newer Shadowlap's, a 409.
+- **Spending** (`askAbove`) is in dollars: 0 always asks, and `null` never does. It is kept in `settings.json` under `SHADOWLAP_HOME` (else `~/.shadowlap`), never in `shadowlap.config.json`, so CI and teammates never take it on. A page showing another project may change it. An amount that isn't whole cents is a 400, and a file it would lose something of, such as a newer Shadowlap's, a 409.
 
 ### Projects and setup
 
