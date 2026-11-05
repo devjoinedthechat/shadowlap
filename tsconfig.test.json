@@ -94,6 +94,12 @@
     "packages/dashboard/test/run-roles.test.ts",
     // This renders the skip link, the palette, a menu, a dialog and the card a refused link shows.
     "packages/dashboard/test/ui-focus.test.ts",
+    "packages/dashboard/test/ui-overlays.test.ts",
+    "packages/dashboard/test/ui-overlays-route.test.ts",
+    "packages/dashboard/test/ui-menu-cards.test.ts",
+    "packages/dashboard/test/ui-overlays-page.ts",
+    "packages/dashboard/test/ui-picker.test.ts",
+    "packages/dashboard/test/ui-hover-cards.test.ts",
     // These render what a fork did differently, and Edit and fork.
     "packages/dashboard/test/ui-fork-differences.test.ts",
     "packages/dashboard/test/ui-edit-and-fork.test.ts",

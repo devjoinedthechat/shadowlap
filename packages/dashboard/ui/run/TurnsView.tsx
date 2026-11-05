@@ -65,7 +65,7 @@ export function TurnsView({ calls, selected, scoped, onSelect }: { calls: CallRo
         const sel = m.callNo === selected || t.tools.some((c) => c.callNo === selected);
         const ts = m.outcome === 'error' ? `HTTP ${m.status ?? 'error'}${m.attempts ? ` · ${m.attempts + 1} attempts` : ''}` : [tokensText(m), m.stopReason].filter(Boolean).join(' · ');
         return (
-          <div key={m.callNo} data-wi={at} className={`turn${sel ? ' sel' : ''}`} onClick={() => onSelect(m.callNo)}>
+          <div key={m.callNo} data-wi={at} data-acts="" className={`turn${sel ? ' sel' : ''}`} onClick={() => onSelect(m.callNo)}>
             <div className="t1">
               <span className="tn">#{m.callNo}</span>
               <span className="tm">{m.model ?? 'model call'}</span>

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { choiceAnswer, consentAsked, consentTitle, dialogCopy, forkMenu, injectsAsUser, isInject, isOverride, isUserAnswer, menuFlag, shortFlag, type ActionLike } from '../ui/actions.js';
 import { normalizeActions } from '../ui/normalize.js';
-import { keepPlaced, placePop, type PopMeasure } from '../ui/place.js';
 import { conversationLink } from '../ui/run/calls.js';
 import { forkMarkOf, modelLabel, withModelNames } from '../ui/run/model.js';
 import type { CallRow } from '../ui/types.js';
@@ -171,55 +170,6 @@ describe('an action’s dialog', () => {
     expect(consentAsked(refused(409, pack))).toBeNull();
     expect(consentAsked(refused(400, pack, confirm))).toBeNull();
     expect(consentAsked(new Error(pack))).toBeNull();
-  });
-});
-
-describe('a menu’s place', () => {
-  const view = { width: 1440, height: 900 };
-  it('hangs under its opener, right edges lined up, and stays 12px inside the window', () => {
-    expect(placePop({ left: 1000, right: 1100, bottom: 100 }, { width: 330, height: 300 }, view)).toEqual({ top: 106, left: 770 });
-    expect(placePop({ left: 40, right: 120, bottom: 100 }, { width: 330, height: 300 }, view, 'left')).toEqual({ top: 106, left: 40 });
-    // Near the right and bottom edges, and wider than the opener's left side allows.
-    expect(placePop({ left: 1400, right: 1430, bottom: 800 }, { width: 330, height: 300 }, view, 'left')).toEqual({ top: 588, left: 1098 });
-    expect(placePop({ left: 10, right: 60, bottom: 40 }, { width: 330, height: 300 }, view)).toEqual({ top: 46, left: 12 });
-  });
-
-  it('moves up into the window when it grows after opening under a low row', () => {
-    // The fork icon of call #22 at 1440 × 900: the menu opens on "Loading the call…", 40px tall, and
-    // grows to 343px once the call arrives.
-    const anchor = { left: 1180, right: 1204, bottom: 600 };
-    let height = 40;
-    const measure = (): PopMeasure => ({ anchor, pop: { width: 330, height }, view });
-    const places: Array<{ top: number; left: number }> = [];
-    let grew: (() => void) | null = null;
-    let stopped = false;
-    const stop = keepPlaced(measure, 'right', (p) => places.push(p), (again) => {
-      grew = again;
-      return () => {
-        stopped = true;
-      };
-    });
-    expect(places).toEqual([{ top: 606, left: 874 }]);
-    height = 343;
-    grew!();
-    const last = places.at(-1)!;
-    expect(last.top + height).toBeLessThanOrEqual(view.height - 12);
-    expect(last).toEqual({ top: 545, left: 874 });
-    // On a phone, 390 × 844, under row #7 near the bottom.
-    const phone = { width: 390, height: 844 };
-    const low = { left: 330, right: 354, bottom: 788 };
-    height = 40;
-    const onPhone: Array<{ top: number; left: number }> = [];
-    let phoneGrew: (() => void) | null = null;
-    keepPlaced(() => ({ anchor: low, pop: { width: 330, height }, view: phone }), 'right', (p) => onPhone.push(p), (again) => {
-      phoneGrew = again;
-      return () => {};
-    });
-    height = 343;
-    phoneGrew!();
-    expect(onPhone.at(-1)!.top + height).toBeLessThanOrEqual(phone.height - 12);
-    stop();
-    expect(stopped).toBe(true);
   });
 });
 

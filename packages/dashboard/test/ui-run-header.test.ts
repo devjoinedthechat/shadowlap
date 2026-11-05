@@ -13,7 +13,7 @@ import type { RunDetail } from '../ui/types.js';
  * FAILED, then the check) and a fork's kind twice (*fork @17*, FORK @17).
  */
 
-const app = { client: {}, exported: false, meta: null, runs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined, refresh: () => undefined, registerLayer: () => () => undefined, jobs: [], live: [], feeds: {}, tick: 0, runsTick: 0 } as unknown as AppState;
+const app = { client: {}, exported: false, meta: null, runs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined, refresh: () => undefined, jobs: [], live: [], feeds: {}, tick: 0, runsTick: 0 } as unknown as AppState;
 
 const REC = '01M5GRX4VY5XKQ0MRGD13QZKZN';
 const RUN = '01M5GRX8K406H4KHQ7DEKYWTSZ';

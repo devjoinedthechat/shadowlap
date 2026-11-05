@@ -220,7 +220,7 @@ const Row = memo(function Row({ at, run: r, on, selectable, byColumn, you, onPic
       className={on ? 'picked' : undefined}
       data-wi={at}
       aria-rowindex={at + 2}
-      onClick={rowOpen(() => navigate(href.run(r.runId)))}
+      {...rowOpen(() => navigate(href.run(r.runId)))}
       onKeyDown={
         onMark
           ? (e) => {

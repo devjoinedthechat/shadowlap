@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { JOB_KINDS, type RunDetail, type RunOffers } from '../api.js';
 import { Dialog, PromptDialog } from '../components/Dialog.js';
+import { tipCard } from '../components/HoverCard.js';
 import { Popover } from '../components/Popover.js';
 import { shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
@@ -10,7 +11,7 @@ import { errorText } from '../toast.js';
 import type { PendingAction } from './actions.js';
 import { DatasetDialog } from '../components/DatasetDialog.js';
 import { redactRuleCount } from './provenance.js';
-import { defaultPackFolder, htmlCopyVia, shareDialog, shareItemOff, shareItems, shareNote, type ShareKey } from './share.js';
+import { defaultPackFolder, htmlCopyVia, shareCommand, shareDialog, shareItemOff, shareItems, shareNote, shareWhy, type ShareKey } from './share.js';
 // The share job's drawer offers the link it made.
 import './share-link.js';
 
@@ -87,14 +88,16 @@ export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: 
   if (dialog === 'dataset') return <DatasetDialog ids={[id]} rules={offers?.copies.formats.find((f) => f.id === 'dataset')?.rules ?? null} onClose={close} />;
   if (dialog === 'otel') return <OtelDialog runId={id} rules={offers?.copies.formats.find((f) => f.id === 'otel')?.rules ?? null} onClose={close} onRun={(fields) => job(JOB_KINDS.otel, fields)} />;
   return (
-    <Popover anchor={anchor} onClose={onClose} label="Share">
-      <div className="pk">Share {shortId(id)}</div>
+    <Popover anchor={anchor} onClose={onClose} label="Share" className="fkm">
+      <div className="pk">
+        Share <code className="rnm">{shortId(id)}</code>
+      </div>
       {items.map((it) => {
         const off = shareItemOff(it.key, { actionsOff, live });
         return (
-          <button key={it.key} type="button" role="menuitem" disabled={!!off} title={off ?? undefined} onClick={() => pick(it.key)}>
+          <button key={it.key} type="button" role="menuitem" disabled={!!off} title={off ?? undefined} data-tip={off ? undefined : tipCard(it.label, [], shareWhy(it, offers?.team), shareCommand(it, id))} onClick={() => pick(it.key)}>
             <b>{it.label}</b>
-            <small title={it.key === 'link' && offers?.team && !off ? `shadowlap share · writes a redacted report to ${offers.team.store}` : undefined}>{it.note}</small>
+            <small>{it.flag}</small>
           </button>
         );
       })}

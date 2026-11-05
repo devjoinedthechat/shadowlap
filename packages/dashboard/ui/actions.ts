@@ -115,6 +115,25 @@ export function forkMenu(actions: readonly ActionLike[], toolName?: string | nul
   };
 }
 
+/** What each fork is for, as a card says it in a short line; its dialog says the rest (the server's hint). */
+const ROW_LINE: Readonly<Record<string, string>> = {
+  i: 'Adds the instruction at this call, kept for every later request of the fork',
+  m: 'From this call on, the new model answers live',
+  g: 'From this call on, the model sees your code’s system prompt and tools',
+  f: 'Every attempt fails, so the SDK’s retry policy runs and then gives up',
+  u: 'The agent gets this reply instead of the recorded one',
+  o: 'The agent gets this instead of the recorded result',
+  t: 'The tool doesn’t run: the agent gets the error instead',
+  x: 'Added to what the tool returned, as an attacker would',
+  l: 'Runs its first call for real, instead of serving its recorded result',
+  a: 'This call and everything after it run live, with writes fenced',
+  e: 'The attempts show whether the path after a fork holds or was luck',
+  s: 'Write tools after the fork return their stub instead of being blocked',
+};
+
+/** A fork menu's row on its hover card: what it is for in a short line, the server's hint for an action this page has none for. */
+export const forkRowLine = (a: Pick<ActionLike, 'key' | 'hint'>): string | null => ROW_LINE[a.key] ?? a.hint ?? null;
+
 /** The menu's header: the call and its kind. */
 export function forkMenuTitle(call: { callNo: number; kind: string; name: string; effect: string | null; input?: boolean }, shortName: string): string {
   const kind =

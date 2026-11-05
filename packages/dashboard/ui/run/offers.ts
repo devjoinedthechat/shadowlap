@@ -162,6 +162,16 @@ export interface BisectCopy {
  */
 type BisectFrom = Omit<BisectOffer, 'revisions'> & { revisions: ReadonlyArray<BisectOffer['revisions'][number] & { subject?: string | null }>; expect?: Record<string, unknown> | null };
 
+/** The command Find breaking commit runs from `good`: what it searches (a run, or the golden a test replay came from), up to which commit, and how each is judged. */
+function bisectLine(b: BisectFrom, good: string): string {
+  const target = b.target.kind === 'golden' ? b.target.golden : shortId(b.target.runId);
+  const expect = b.expect && Object.keys(b.expect).length ? ` --expect ${quote(JSON.stringify(b.expect))}` : '';
+  return `shadowlap bisect ${target} --good ${good}${b.bad ? ` --bad ${b.bad}` : ''}${expect}${b.fork ? ' --fork' : ''}`;
+}
+
+/** Find breaking commit's command for its hover card, before its dialog asks for a commit: from the one the server knows, else `<commit>`. */
+export const bisectCardCommand = (offer: BisectOffer): string => `$ ${bisectLine(offer, offer.good ?? '<commit>')}`;
+
 /**
  * Find breaking commit's dialog, from what the server offers: a run that failed looks for where it
  * started failing, from a commit where it still worked up to its own; one that passed, for the first
@@ -175,7 +185,6 @@ export function bisectCopy(runId: string, offer: BisectOffer): BisectCopy {
   // A run that failed on its own: one live replay decides each commit, which a failure that comes and goes can pass.
   const cost = bisectCost(b);
   const choices = b.revisions.map((r) => ({ value: r.rev, label: `${r.rev} · ${r.subject ? r.subject : `${r.runs === 1 ? '1 run' : `${num(r.runs)} runs`}${r.failed ? `, ${num(r.failed)} failed` : ''}${r.inconclusive ? `, ${num(r.inconclusive)} inconclusive` : ''}`}` }));
-  const expect = b.expect && Object.keys(b.expect).length ? ` --expect ${quote(JSON.stringify(b.expect))}` : '';
   if (b.good && !choices.some((c) => c.value === b.good)) choices.unshift({ value: b.good, label: b.failed ? `${b.good} · where it last passed` : `${b.good} · this run` });
   return {
     title: b.failed ? `Find breaking commit for ${shortId(runId)}` : `Find commit that changed ${shortId(runId)}`,
@@ -186,7 +195,7 @@ export function bisectCopy(runId: string, offer: BisectOffer): BisectCopy {
     label: b.failed ? 'A commit where it still worked' : 'Start from',
     choices,
     initial: b.good ?? choices[0]?.value ?? '',
-    command: (good) => `shadowlap bisect ${target} --good ${!good || good === '…' ? '…' : quote(good)}${b.bad ? ` --bad ${b.bad}` : ''}${expect}${b.fork ? ' --fork' : ''}`,
+    command: (good) => bisectLine(b, !good || good === '…' ? '…' : quote(good)),
   };
 }
 
@@ -198,7 +207,7 @@ export function bisectCopy(runId: string, offer: BisectOffer): BisectCopy {
  */
 export function bisectLabel(b: Pick<BisectOffer, 'failed'> | null | undefined): { label: string; hint: string } {
   return b && !b.failed
-    ? { label: ACTIONS.findChangingCommit.label, hint: 'Replays it at the commits after its own, halving each time, and names the first where it does something else' }
+    ? { label: ACTIONS.findChangingCommit.label, hint: 'Names the first commit after its own where it does something else' }
     : { label: ACTIONS.findBreakingCommit.label, hint: 'Replays it at commits between a good one and its own, halving each time' };
 }
 

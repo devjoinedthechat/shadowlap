@@ -84,6 +84,8 @@ export function RemoveProjectDialog({ id, onClose, onRemoved }: { id: string; on
       okDisabled={busy || !!blocked || (deleting && !match)}
       onOk={remove}
       onClose={onClose}
+      // A second Enter never removes it: from the switcher, Delete and Enter would.
+      initialFocus="cancel"
       className="rmdlg"
     >
       <div className="rmp">

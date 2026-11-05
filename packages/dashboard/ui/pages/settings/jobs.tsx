@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { createPortal } from 'react-dom';
 import { JOB_KINDS } from '../../api.js';
 import { Dialog } from '../../components/Dialog.js';
 import { mergeTreeJobs, treeBusy, type TreeJob } from '../../fixes/model.js';
@@ -61,8 +60,7 @@ function CleanupFooter({ job }: { job: JobView }) {
       <button className="btn" type="button" disabled={started || !!app.actionsOff} title={app.actionsOff ?? undefined} onClick={() => app.guard(() => setAsking(true))}>
         {label}
       </button>
-      {/* Over the page, not inside the drawer, whose header and footer styles would reach it. */}
-      {asking ? createPortal(
+      {asking ? (
         <Dialog
           title={freeOnly ? `${label}?` : `Delete ${gcDeleteWhat(dry)}?`}
           text={
@@ -81,8 +79,7 @@ function CleanupFooter({ job }: { job: JobView }) {
           }}
         >
           <CommandLine command={gcDeleteCommand(dry)} />
-        </Dialog>,
-        document.body,
+        </Dialog>
       ) : null}
     </>
   );

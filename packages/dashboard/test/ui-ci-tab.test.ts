@@ -32,7 +32,6 @@ function app(ciWorkflowsCall: (o?: Partial<CiWorkflowOptions>) => Promise<unknow
     guard: (fn: () => void) => fn(),
     watchJob: () => undefined,
     toast,
-    registerLayer: () => () => undefined,
   } as unknown as AppState;
 }
 

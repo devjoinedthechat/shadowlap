@@ -60,10 +60,7 @@ function app(client: Partial<Client>): AppState {
     setHelp: () => undefined,
     sideOpen: false,
     setSideOpen: () => undefined,
-    closeTopLayer: () => false,
-    blockingLayer: () => true,
     runKeys: { current: null },
-    registerLayer: () => () => undefined,
   };
   return base as unknown as AppState;
 }

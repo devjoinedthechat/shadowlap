@@ -1,19 +1,35 @@
-/* What opens over a page: dialogs, menus and pickers, the palette, the shortcuts, hover cards, the job drawer and toasts. */
-.tip { position: fixed; z-index: 60; pointer-events: none; min-width: 150px; padding: 9px 11px; border-radius: 10px; background: var(--raise); box-shadow: var(--shadow-pop); font-size: 12px; color: var(--dim); }
-.tip b { display: block; margin-bottom: 4px; color: var(--ink); font-weight: 600; }
-.tip div { display: flex; align-items: center; gap: 8px; }
-.tip div i { width: 8px; height: 8px; border-radius: 2px; }
-.tip div em { margin-left: auto; padding-left: 14px; font-style: normal; font-family: var(--mono); color: var(--ink); }
+/* What opens over a page: dialogs, menus and pickers, the palette, the shortcuts, hover cards, the job drawer and toasts.
+   Every overlay stands on this one surface: the page's own ground (--pop), set apart from what it covers by one edge and its
+   shadow (--shadow-pop, whose ring is the edge), never a tone of its own. Its rows tint as the page's rows do. With forced
+   colours, which draw no shadow, each takes a 1px outline in the text colour, or a clear border of its own shows as one (the
+   end of this file). */
+.pop, .dialog, .palette, .help, .tip, .bulkbar, .connblock .cb, .skip { background: var(--pop); box-shadow: var(--shadow-pop); }
 
-.scrim { position: fixed; inset: 0; z-index: 40; background: rgba(5,6,4,.55); backdrop-filter: blur(2px); display: grid; place-items: center; padding: 24px; }
-/* A dialog never outgrows the window: its body scrolls, so its title and buttons stay in view. */
-.dialog { width: min(520px, 100%); max-height: calc(100vh - 48px); max-height: calc(100dvh - 48px); display: flex; flex-direction: column; background: var(--raise); border-radius: 16px; box-shadow: var(--shadow-pop); overflow: hidden; }
+.tip { position: fixed; z-index: 60; pointer-events: none; min-width: 150px; max-width: min(360px, calc(100vw - 16px)); padding: 9px 11px; border-radius: var(--r-box); font-size: 12px; color: var(--dim); font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+.tip > b { display: block; margin-bottom: 4px; color: var(--ink); font-weight: 600; }
+.tip div { display: flex; align-items: center; gap: 8px; }
+.tip div i { width: 8px; height: 8px; border-radius: var(--r-mark); }
+.tip div em { margin-left: auto; padding-left: 14px; max-width: 300px; font-style: normal; font-family: var(--mono); color: var(--ink); text-align: right; white-space: normal; }
+/* a row too long for two columns stacks, its value under its words */
+.tip div.stk { display: grid; grid-template-columns: 8px minmax(0, 1fr); column-gap: 8px; row-gap: 1px; align-items: baseline; }
+.tip div.stk i { align-self: center; }
+.tip div.stk em { grid-column: 2; margin-left: 0; padding-left: 0; text-align: left; max-width: none; }
+/* what it runs, up to its first arguments, breaking only between them; what it quotes, as it is */
+.tip code { display: block; margin-top: 2px; font-size: var(--fs-label); color: var(--dim); white-space: pre-wrap; overflow-wrap: anywhere; }
+.tip code.ts-cmd { white-space: normal; overflow-wrap: normal; text-wrap: wrap; }
+.tip code.ts-cmd .cmdp > b { margin-right: 6px; font-weight: 400; color: var(--faint); }
+
+/* A modal always fits: at most the window less 16px each side, its header and footer kept, its body scrolling. */
+.scrim { position: fixed; inset: 0; z-index: 40; background: rgba(5,6,4,.55); backdrop-filter: blur(2px); display: grid; place-items: center; padding: 16px; }
+.dialog { width: min(520px, 100%); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; border-radius: var(--r-overlay); overflow: hidden; }
+.dialog:focus { outline: none; }
 .dialog > header, .dialog > footer { flex: none; }
+.dialog > .db { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .dialog header { padding: 18px 20px 6px; }
-.dialog header h3 { margin: 0; font: 600 17px var(--disp); letter-spacing: -.02em; }
+.dialog header h3 { margin: 0; font: 600 var(--fs-heading) var(--body); letter-spacing: -.01em; }
 .dialog header h3 code { font: 500 15.5px var(--mono); letter-spacing: 0; }
-.dialog header p { margin: 6px 0 0; color: var(--faint); font-size: 13px; }
-.dialog .db { padding: 12px 20px; min-height: 0; overflow: auto; }
+.dialog header p { margin: 6px 0 0; color: var(--faint); font-size: var(--fs-body); }
+.dialog .db { padding: 12px 20px; }
 /* Edit and fork: the result to edit, in the data face, as JSON or as text. */
 .dialog.editfork { width: min(720px, calc(100vw - 32px)); }
 .dialog.editfork textarea { min-height: 220px; font: 12.5px/1.55 var(--mono); resize: vertical; }
@@ -21,22 +37,69 @@
 .dialog.editfork .fieldnote { margin: 6px 0 10px; font-size: 12px; color: var(--faint); }
 .dialog.editfork .fieldnote.err { color: var(--err); }
 .dialog.editfork .warnline { color: var(--warn); font-weight: 500; }
-.dialog textarea, .dialog input[type="text"] { width: 100%; border-radius: 10px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 13px var(--body); padding: 10px 12px; outline: none; }
+.dialog textarea, .dialog input[type="text"] { width: 100%; border-radius: var(--r-box); border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: var(--fs-body) var(--body); padding: 10px 12px; outline: none; }
 .dialog textarea { min-height: 84px; resize: vertical; }
 .dialog textarea:focus, .dialog input:focus { border-color: var(--accent-line); }
 .dialog .cmdline { margin-top: 10px; }
 .dialog pre.gateentry { margin: 10px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .dialog .cmdcopy { margin-top: 8px; }
-.dialog footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px 18px; }
-.pop { position: fixed; z-index: 30; width: 340px; max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); overflow-y: auto; background: var(--raise); border-radius: 14px; box-shadow: var(--shadow-pop); padding: 6px; }
-.pop .pk { padding: 8px 10px 4px; font: 500 10px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }
-.pop button { display: block; width: 100%; text-align: left; border: 0; background: none; border-radius: 9px; padding: 8px 10px; cursor: pointer; }
-.pop button:hover:not([disabled]), .pop button:focus-visible { background: var(--hover); outline: none; }
-.pop button b { display: block; font-weight: 500; font-size: 13px; }
-.pop button small { display: block; margin-top: 1px; font: 11px var(--mono); color: var(--faint); }
+.dialog footer { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 20px 18px; }
+.dialog footer > [hidden], .help footer > [hidden] { display: none; }
+/* Esc or the scrim on a dialog with edits: the footer asks first */
+.dlgask { margin-right: auto; color: var(--dim); font-size: var(--fs-body); }
+/* On a phone a modal is a sheet from the foot of the screen: full width, rounded at the top, its footer above the home
+   indicator, 44px buttons and fields, and at least 32px to tap a chip, a segment or a text button. */
+@media (max-width: 640px) {
+  .scrim:not(.palscrim) { padding: 0; place-items: end stretch; }
+  .scrim:not(.palscrim) > .dialog, .scrim > .help { width: 100%; max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); border-radius: var(--r-overlay) var(--r-overlay) 0 0; }
+  .dialog > footer, .help > footer { padding-bottom: calc(14px + env(safe-area-inset-bottom)); }
+  .dialog > footer .btn, .help > footer .btn { flex: 1 1 auto; justify-content: center; height: 44px; padding: 0 16px; }
+  .dialog > footer .dlgask { flex-basis: 100%; }
+  .dialog .chips button, .dialog .linkbtn, .dialog .btn.sm, .dialog .seg button { position: relative; }
+  .dialog .chips button::after, .dialog .linkbtn::after, .dialog .btn.sm::after, .dialog .seg button::after { content: ''; position: absolute; inset: -6px -2px; }
+}
+/* A menu: rows of 34px, the label at the left, what the item runs (a flag, a command) at the right in mono, one line each;
+   what an item is for is on its card. Two widths: 340px, and 280px (narrow). */
+.pop { position: fixed; z-index: 45; width: 340px; max-width: calc(100vw - 24px); overflow-y: auto; overscroll-behavior: contain; border-radius: var(--r-overlay); padding: 6px; }
+.pop.narrow { width: 280px; }
+.pop .pk { padding: 8px 10px 4px; font: 500 var(--fs-caps) var(--mono); letter-spacing: var(--caps); text-transform: uppercase; color: var(--faint); }
+.pop .pk code { font: 500 var(--fs-quiet) var(--mono); letter-spacing: 0; text-transform: none; color: var(--ink); }
+.pop button { display: flex; align-items: baseline; gap: 12px; width: 100%; min-height: 34px; text-align: left; border: 0; background: none; border-radius: var(--r-control); padding: 8px 10px; line-height: 20px; cursor: pointer; }
+.pop button:hover:not([disabled]) { background: var(--hover); }
+/* the keyboard's place in a menu is the app's focus ring, inset, on the selected ground, a step brighter than the hover's tint */
+.pop button:focus-visible { background: var(--sel); outline: 2px solid var(--accent-line); outline-offset: -2px; }
+.pop button b { flex: 1; min-width: 0; font-weight: 500; font-size: var(--fs-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pop button small { flex: none; max-width: 46%; font: var(--fs-label) var(--mono); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* a project's row says its runs in words, not what it runs */
+.pop.projmenu button small { font: var(--fs-small) var(--body); }
 .pop button[disabled] { opacity: .4; cursor: not-allowed; }
 .pop hr { border: 0; border-top: 1px solid var(--line); margin: 6px 4px; }
-.pop .pnote { padding: 6px 10px 8px; color: var(--faint); font-size: 12px; }
+.pop .pnote { padding: 6px 10px 8px; color: var(--faint); font-size: var(--fs-small); }
+/* the one picked now (a project, a run) has a check mark before it, in ink; the others keep its room. A row's second button (.px) is no row. */
+.pop.curmark button[role^="menuitem"]:where(:not(.px))::before, .pop.curmark [role="option"]::before { content: ''; flex: none; width: 12px; align-self: center; font: 600 var(--fs-small) var(--body); color: var(--ink); }
+.pop.curmark button[aria-checked="true"]::before, .pop.curmark [role="option"][aria-selected="true"]::before { content: '✓'; }
+/* On a phone a menu is a sheet from the foot of the screen, over a scrim that takes the tap that closes it, its rows 44px. */
+.msheet { position: fixed; inset: 0; z-index: 44; background: rgba(5,6,4,.55); }
+.pop.sheet { left: 0; right: 0; bottom: 0; top: auto; width: auto; max-width: none; max-height: min(78vh, 640px); max-height: min(78dvh, 640px); border-radius: var(--r-overlay) var(--r-overlay) 0 0; padding: 8px 8px calc(10px + env(safe-area-inset-bottom)); }
+.pop.sheet button, .pop.sheet [role="option"] { min-height: 44px; align-items: center; }
+.pop.sheet .px { width: 44px; height: 44px; opacity: 1; }
+/* a link in a sheet's note answers a finger past its words */
+.pop.sheet .pnote .more { position: relative; }
+.pop.sheet .pnote .more::after { content: ''; position: absolute; inset: -12px -8px; }
+/* A picker: a filter over its list, at its button's width and in its button's type; on a phone a sheet with a 44px filter. */
+.pop.picker { display: flex; flex-direction: column; max-height: 440px; overflow: hidden; }
+.pop.picker .pfilter { flex: none; height: 34px; margin: 0 0 6px; padding: 0 10px; border: 1px solid var(--field); border-radius: var(--r-control); background: var(--panel); color: var(--ink); font: var(--fs-body) var(--body); outline: none; }
+.pop.picker .pfilter:focus { border-color: var(--accent-line); }
+.pop.picker .pklist { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; outline: none; }
+.pop.picker .opt { display: flex; align-items: baseline; gap: 10px; min-height: 34px; padding: 8px 10px; border-radius: var(--r-control); cursor: pointer; }
+.pop.picker .opt.on { background: var(--sel); }
+.pop.picker .pklist.kb .opt.on { outline: 2px solid var(--accent-line); outline-offset: -2px; }
+.pop.picker .opt .pid { flex: none; font: 500 var(--fs-quiet) var(--mono); color: var(--ink); white-space: nowrap; }
+.pop.picker .opt .pab { flex: 1 1 auto; min-width: 0; color: var(--faint); font-size: var(--fs-quiet); white-space: nowrap; overflow: hidden; }
+.pop.picker .pnone { margin: 0; padding: 8px 10px; color: var(--faint); font-size: var(--fs-quiet); }
+.pop.picker.sheet { max-height: min(78vh, 640px); max-height: min(78dvh, 640px); }
+.pop.picker.sheet .opt { min-height: 44px; align-items: center; }
+.pop.picker.sheet .pfilter { height: 44px; }
 .drawer { position: fixed; z-index: 35; right: 16px; bottom: 44px; width: min(560px, calc(100vw - 32px)); background: var(--raise); border-radius: 16px; box-shadow: var(--shadow-pop); overflow: hidden; }
 .drawer header { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .drawer header b { font: 600 13px var(--body); }
@@ -63,10 +126,12 @@
 .toast .tact:hover { background: color-mix(in srgb, var(--bg) 12%, transparent); }
 .toast .tact:focus-visible { outline: 2px solid var(--bg); outline-offset: -2px; }
 .toast .tkey { margin: 0 -4px 0 -6px; padding: 0 5px; border: 1px solid color-mix(in srgb, var(--bg) 35%, transparent); border-radius: 4px; font: 11px/16px var(--mono); }
-.help { width: min(760px, 100%); max-height: calc(100vh - 48px); overflow: auto; background: var(--raise); border-radius: 16px; box-shadow: var(--shadow-pop); padding: 16px 20px 20px; }
+.help { width: min(760px, 100%); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; overflow: hidden; border-radius: var(--r-overlay); }
 .help:focus { outline: none; }
-.help header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-.help h3 { margin: 0; font: 600 17px var(--disp); letter-spacing: -.02em; }
+.help > header { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 18px 20px 0; }
+.help .hbody { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 20px 6px; }
+.help > footer { flex: none; display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px 18px; }
+.help h3 { margin: 0; font: 600 var(--fs-heading) var(--body); letter-spacing: -.01em; }
 .hgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 28px; }
 .hgroup:last-child { grid-column: 1 / -1; }
 .hgroup h4 { display: flex; align-items: baseline; gap: 10px; margin: 14px 0 4px; font: 500 10.5px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }
@@ -82,9 +147,6 @@
 .help .then { margin: 0 6px; color: var(--faint); font-size: 11.5px; }
 @media (max-width: 640px) { .hgrid { grid-template-columns: minmax(0, 1fr); } .hgroup:last-child dl { grid-template-columns: max-content minmax(0, 1fr); } }
 @media (hover: none) and (pointer: coarse) { #helpBtn { display: none; } }
-
-/* A dialog opened from a page sits inside it here (the design keeps dialogs in a layer of their own): its prose wraps as the design's. */
-@media (max-width: 640px) { .page-in .dialog p { text-wrap: pretty; } }
 
 .dialog .check { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: var(--dim); line-height: 1.5; cursor: pointer; }
 .dialog .check input { margin-top: 3px; accent-color: var(--err); }
@@ -120,7 +182,7 @@ body:has(.bulkbar) .drawer { bottom: 100px; }
 @media (max-width: 720px) { body:has(.bulkbar) .drawer { bottom: 156px; } }
 
 .palscrim { align-items: flex-start; padding-top: 12vh; }
-.palette { width: min(620px, calc(100vw - 32px)); background: var(--raise); border-radius: 16px; box-shadow: var(--shadow-pop); overflow: hidden; border: 1px solid var(--line2); }
+.palette { width: min(620px, 100%); border-radius: var(--r-overlay); overflow: hidden; }
 .palin { display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--line); }
 .palin svg { width: 15px; height: 15px; color: var(--faint); flex: none; }
 .palin input { flex: 1; height: 52px; border: 0; background: none; color: var(--ink); font: 15px var(--body); outline: none; }
@@ -129,8 +191,10 @@ body:has(.bulkbar) .drawer { bottom: 100px; }
 .pallist > [role="listbox"] { max-height: min(420px, 56vh); overflow-y: auto; padding: 0 6px; }
 .pallist > .empty, .pallist > .palnote { margin-left: 6px; margin-right: 6px; }
 .palg { padding: 10px 10px 4px; font: 500 10px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }
-.palit { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 10px; border: 0; border-radius: 9px; background: none; color: var(--ink); text-align: left; cursor: pointer; }
+.palit { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 10px; border: 0; border-radius: var(--r-control); background: none; color: var(--ink); text-align: left; cursor: pointer; }
 .palit.on { background: var(--sel); }
+/* the arrowed row has the focus ring, the field keeping the focus itself; the pointer's place shows by the ground alone */
+.pallist.kb .palit.on { outline: 2px solid var(--accent-line); outline-offset: -2px; }
 /* an action that starts a job, while it can't: dimmed, its reason as its hint, and Enter says why */
 .palit.waits .pl { color: var(--faint); }
 .palit.waits { cursor: default; }
@@ -154,15 +218,8 @@ body:has(.bulkbar) .drawer { bottom: 100px; }
 .dialog .dz.advise .btn { margin-top: 10px; }
 @media (max-width: 640px) { .dialog .ondisk.steps li { grid-template-columns: 18px minmax(0, 1fr); row-gap: 2px; } .dialog .ondisk.steps li code { grid-column: 2; max-width: none; } }
 
-/* Fork menu: one line per action, its flag on the right like a shortcut. */
-.pop.fkm { width: 330px; }
-.pop.fkm button { display: flex; align-items: baseline; gap: 12px; padding: 7px 10px; }
-.pop.fkm button b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pop.fkm button small { margin: 0; flex: none; font: 11px var(--mono); color: var(--faint); }
+/* Fork menu: its one note sits close under its head. */
 .pop.fkm .pnote { padding: 2px 10px 6px; }
-
-/* the fork menu: a long flag gives way before the action's words do */
-.pop.fkm button small { max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* the job drawer names the folders a job wrote (a pack); files download from its footer */
 .drawer .jfiles { display: flex; flex-direction: column; gap: 4px; padding: 10px 14px 0; font-size: 12.5px; color: var(--dim); max-height: 136px; overflow-y: auto; }
@@ -219,21 +276,22 @@ body:has(.bulkbar) .drawer { bottom: 100px; }
 
 .dialog .trsteps .cmdline + .cmdline { margin-top: 6px; }
 
-/* a hover card can say what a run was about under its id */
+/* a hover card can say what a run was about under its id, or what a mark means here, a line a sentence */
 .tip .ts { display: block; max-width: 320px; margin: -2px 0 6px; color: var(--dim); font-weight: 400; white-space: normal; }
+.tip .ts + .ts { margin-top: -6px; }
+/* a glossary term's card is a little wider, and a definition's clauses are each kept whole where a line holds them */
+.tip.gl { max-width: min(376px, calc(100vw - 16px)); }
+.tip.gl .ts { max-width: 352px; }
+.tip .tcl { display: inline-block; max-width: 100%; }
 
 /* the palette: a run by its id, its about line as the hint, fitted to the rest of the row; any other hint cut at its end */
 .palit .pl { min-width: 0; max-width: 64%; overflow: hidden; text-overflow: ellipsis; }
 .palit .pl.mono { flex: none; }
 .palit .ph2.rab { flex: 1 1 auto; color: var(--faint); text-overflow: clip; }
 
-.pop.rpicks .pid { flex: none; font: 500 12.5px var(--mono); color: var(--ink); }
+/* Forced colours drop an overlay's shadow, its only edge: each surface keeps an outline in the user's text colour, the focus
+   on it or not (the bulk bar's, the connection card's and the skip link's clear border shows as theirs) */
+@media (forced-colors: active) { .pop, .dialog, .dialog:focus, .palette, .help, .help:focus, .tip, .toast { outline: 1px solid CanvasText; } }
 
-.pop.rpicks .rab { flex: 1 1 auto; color: var(--faint); font-size: 12.5px; }
-
-.pop.rpicks { overflow-y: auto; }
-.pop.rpicks button { display: flex; align-items: baseline; gap: 10px; padding: 8px 10px; font-size: 13px; }
-.pop.rpicks button[aria-selected="true"] { background: var(--sel); }
-
-/* Forced colours drop an overlay's shadow, its only edge: each surface main draws keeps an outline in the user's text colour */
-@media (forced-colors: active) { .pop, .dialog, .palette, .help, .tip, .toast { outline: 1px solid CanvasText; } }
+/* On a phone a dialog's fields are 44px, as its buttons are, whatever a field's own rule above says */
+@media (max-width: 640px) { .dialog .form input, .dialog .form select, .dialog input[type="text"], .dialog .confirm input { height: 44px; } }

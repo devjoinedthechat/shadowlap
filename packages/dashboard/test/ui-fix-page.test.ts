@@ -55,7 +55,6 @@ function app(o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?
     guard: (fn: () => void) => fn(),
     watchJob: () => undefined,
     toast: () => undefined,
-    registerLayer: () => () => undefined,
   } as unknown as AppState;
 }
 

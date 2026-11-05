@@ -103,8 +103,6 @@ describe('This run', () => {
       const items = await thisRun(detail(blame), { meta: PROJECT, jobs: holding() } as unknown as Partial<AppState>);
       expect(items[0]).toMatchObject({ label: 'Run blame', hint: WAITS, wait: WAITS, job: true });
       const toast = vi.fn();
-      const querySelector = vi.fn(() => null);
-      vi.stubGlobal('document', { querySelector });
       const value = {
         client: { search: async () => ({ hits: [] }), runsPage: async () => ({ runs: [], total: 0, next: null, chipCounts: {} }) },
         exported: false,
@@ -121,18 +119,16 @@ describe('This run', () => {
         palette: true,
         setPalette: () => undefined,
         setHelp: () => undefined,
-        closeTopLayer: () => false,
-        blockingLayer: () => true,
-        registerLayer: () => () => undefined,
+        setSideOpen: () => undefined,
       } as unknown as AppState;
       r = await render(createElement(AppContext.Provider, { value }, createElement(Palette, { route: { page: 'overview' } })));
+      const querySelector = vi.spyOn(r.document, 'querySelector');
       const option = r.all('.palit').find((el) => el.querySelector('.pl')!.textContent === 'Run blame')!;
       expect(option.className).toContain('waits');
       expect(option.props['aria-disabled']).toBe(true);
       expect(option.textContent).toContain(WAITS);
       await r.click(option);
       await r.wait(0);
-      vi.unstubAllGlobals();
       expect(toast).toHaveBeenCalledWith(WAITS);
       expect(querySelector).not.toHaveBeenCalled();
     });
@@ -188,9 +184,7 @@ describe('Run blame in the palette', () => {
       palette: true,
       setPalette: () => undefined,
       setHelp: () => undefined,
-      closeTopLayer: () => false,
-      blockingLayer: () => true,
-      registerLayer: () => () => undefined,
+      setSideOpen: () => undefined,
       ...over,
     }) as unknown as AppState;
   const shown = (p: Rendered) => p.all('.palit').map((el) => el.querySelector('.pl')!.textContent);

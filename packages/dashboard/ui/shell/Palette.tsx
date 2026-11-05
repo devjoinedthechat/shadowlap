@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { JOB_KINDS, type RecordedHit } from '../api.js';
 import { AboutLine, FitHint, useFitAbouts } from '../components/About.js';
+import { Modal } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { isMac } from '../dom.js';
 import { ACTIONS } from '../labels.js';
@@ -12,7 +13,7 @@ import { href, type Route } from '../route.js';
 import { navigate } from '../router.js';
 import { normalizeRuns } from '../normalize.js';
 import { isAttempt, kindWord, runSource, type RunLike } from '../runs.js';
-import { useApp, useLayer, type PaletteCommand } from '../state.js';
+import { useApp, type PaletteCommand } from '../state.js';
 import { paletteTestsAsk, startTestsJob } from '../tests-ask.js';
 
 /**
@@ -51,9 +52,10 @@ addPaletteSource(({ app, route, go }) => {
 
 function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
   const app = useApp();
-  useLayer('dialog', true, close);
   const [q, setQ] = useState('');
   const [i, setI] = useState(0);
+  // The ring on the row is the keyboard's: the pointer's place shows by the ground alone.
+  const [byKeys, setByKeys] = useState(false);
   const [hits, setHits] = useState<RecordedHit[]>([]);
   // While the server's index is behind: how many runs it has yet to read.
   const [indexing, setIndexing] = useState<{ runs: number; of: number } | null>(null);
@@ -62,15 +64,13 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
   useFitAbouts(list);
   const input = useRef<HTMLInputElement>(null);
 
-  // The field takes the focus; closing hands it back to what had it, as a dialog does, when that is
-  // still on the page (a pick that changed the page leaves it on the page's own).
+  // The field takes the focus; closing hands it back to what had it, as a dialog does (`Modal`). A
+  // phone's sidebar it was opened from closes behind it, so it opens centred on the page.
+  const { setSideOpen } = app;
   useEffect(() => {
-    const before = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
     input.current?.focus();
-    return () => {
-      if (before?.isConnected) before.focus();
-    };
   }, []);
+  useEffect(() => setSideOpen(false), [setSideOpen]);
   // A source whose answer lands while the palette is open (Tests, loaded from any page) is read again.
   const [sourcesChanged, setSourcesChanged] = useState(0);
   useEffect(() => onPaletteSourcesChanged(() => setSourcesChanged((n) => n + 1)), []);
@@ -206,7 +206,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
   });
   const optionId = (n: number) => `palopt-${n}`;
   return (
-    <div className="scrim palscrim" onMouseDown={(e) => e.target === e.currentTarget && close()}>
+    <Modal requestClose={close} scrimClass="palscrim">
       <div className="palette" role="dialog" aria-modal="true" aria-label="Search or jump to">
         <label className="palin">
           <Icon name="search" />
@@ -230,9 +230,11 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
             onKeyDown={(e) => {
               if (e.key === 'ArrowDown') {
                 e.preventDefault();
+                setByKeys(true);
                 setI(Math.min(shown.length - 1, at + 1));
               } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
+                setByKeys(true);
                 setI(Math.max(0, at - 1));
               } else if (e.key === 'Home' && shown.length && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
@@ -250,7 +252,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
             Esc
           </span>
         </label>
-        <div className="pallist" ref={list}>
+        <div className={`pallist${byKeys ? ' kb' : ''}`} ref={list}>
           {shown.length ? (
             <div id="palList" role="listbox" aria-label="Results">
               {groups.map((g) => (
@@ -271,7 +273,10 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
                         className={`palit${n === at ? ' on' : ''}${paused || x.wait ? ' waits' : ''}`}
                         // The field keeps the focus: a click picks without taking it.
                         onMouseDown={(e) => e.preventDefault()}
-                        onMouseMove={() => n !== at && setI(n)}
+                        onMouseMove={() => {
+                          setByKeys(false);
+                          if (n !== at) setI(n);
+                        }}
                         onClick={() => pick(n)}
                       >
                         <span className={`pl${x.mono ? ' mono' : ''}`}>
@@ -285,26 +290,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
                             x.label
                           )}
                         </span>
-                        {paused ? (
-                          // A job's entry while the server can't be reached: paused, in place of its hint.
-                          <span className="ph2">{PAUSED_HINT}</span>
-                        ) : x.about ? (
-                          // A run's about line as its hint, fitted to the rest of the row, the search word marked where it still is.
-                          <AboutLine about={x.about as { text: string; from: 'user' }} className="ph2" mark={words(q).find((w) => x.about!.text.toLowerCase().includes(w)) ?? null} />
-                        ) : x.snippet || !x.hint ? (
-                          <span className="ph2">
-                            {x.hint}
-                            {x.snippet ? (
-                              <>
-                                {' · '}
-                                {snippetParts(x.snippet).map((p, k) => (p.match ? <mark key={k}>{p.text}</mark> : <span key={k}>{p.text}</span>))}
-                              </>
-                            ) : null}
-                          </span>
-                        ) : (
-                          // Any other hint (a command, a list) is cut only at its end after a whole word: an id in it is whole or left out.
-                          <FitHint text={x.hint} className="ph2" />
-                        )}
+                        <RowHint x={x} q={q} paused={paused} />
                         {n === at ? (
                           <span className="kbd" aria-hidden="true">
                             ↵
@@ -341,7 +327,28 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
           </span>
         </div>
       </div>
-    </div>
+    </Modal>
+  );
+}
+
+/** A row's hint at its right: paused, a run's about line, what a recorded hit matched, or any other hint. */
+function RowHint({ x, q, paused }: { x: PaletteCommand & { snippet?: string }; q: string; paused: boolean }) {
+  // A job's entry while the server can't be reached: paused, in place of its hint.
+  if (paused) return <span className="ph2">{PAUSED_HINT}</span>;
+  // A run's about line as its hint, fitted to the rest of the row, the search word marked where it still is.
+  if (x.about) return <AboutLine about={x.about as { text: string; from: 'user' }} className="ph2" mark={words(q).find((w) => x.about!.text.toLowerCase().includes(w)) ?? null} />;
+  // Any other hint (a command, a list) is cut only at its end after a whole word: an id in it is whole or left out.
+  if (!x.snippet && x.hint) return <FitHint text={x.hint} className="ph2" />;
+  return (
+    <span className="ph2">
+      {x.hint}
+      {x.snippet ? (
+        <>
+          {' · '}
+          {snippetParts(x.snippet).map((p, k) => (p.match ? <mark key={k}>{p.text}</mark> : <span key={k}>{p.text}</span>))}
+        </>
+      ) : null}
+    </span>
   );
 }
 

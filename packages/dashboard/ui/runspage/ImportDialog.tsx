@@ -25,6 +25,16 @@ interface Picked {
   error: string | null;
 }
 
+/** The sample, picked as a file would be, so it goes up and is imported the same way. */
+function pickedSample(limit: number | null): Picked {
+  const sample = sampleTrace();
+  const file = new File([sample.text], sample.name, { type: 'application/json' });
+  return { file, ...pickedFormat(file.name, file.size, sample.text.slice(0, HEAD_BYTES), limit) };
+}
+
+/** A file that closing would lose: dropped, or the sample, it fired no field's change. A refused one holds nothing to keep. */
+const holdsFile = (picked: Picked | null): boolean => !!picked && !picked.error;
+
 export function ImportDialog({ onClose }: { onClose: () => void }) {
   const { client, watchJob, toast, meta } = useApp();
   const [source, setSource] = useState<Source>('file');
@@ -46,12 +56,9 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
       if (n === picking.current) setPicked({ file, ...pickedFormat(file.name, file.size, head, limit) });
     });
   };
-  // The sample: picked as a file would be, so it goes up and is imported the same way.
   const pickSample = () => {
     ++picking.current;
-    const sample = sampleTrace();
-    const file = new File([sample.text], sample.name, { type: 'application/json' });
-    setPicked({ file, ...pickedFormat(file.name, file.size, sample.text.slice(0, HEAD_BYTES), limit) });
+    setPicked(pickedSample(limit));
   };
   const drop = (e: DragEvent<HTMLLabelElement>) => {
     e.preventDefault();
@@ -94,6 +101,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
       okDisabled={!ready}
       onOk={() => void run()}
       onClose={onClose}
+      dirty={holdsFile(picked)}
       className="impdlg"
     >
       <Seg

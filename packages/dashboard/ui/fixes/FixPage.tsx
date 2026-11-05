@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { consentAsked } from '../actions.js';
 import { JOB_KINDS, ApiError, type JobView } from '../api.js';
 import { Badge, CmdLine } from '../components/bits.js';
@@ -406,24 +405,20 @@ function ApplyFooter({ job }: { job: JobView }) {
       <button className="btn lime" type="button" disabled={started || !!app.actionsOff} title={app.actionsOff ?? ask.command} onClick={() => app.guard(() => setAsking(true))}>
         Update goldens
       </button>
-      {/* Over the page, not inside the drawer, whose header and footer styles would reach it. */}
-      {asking
-        ? createPortal(
-            <ConfirmDialog
-              title={ask.title}
-              text={ask.text}
-              ok={ask.ok}
-              command={ask.command}
-              onClose={() => setAsking(false)}
-              onOk={() => {
-                setAsking(false);
-                setStarted(true);
-                app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.testUpdate, ask.fields)));
-              }}
-            />,
-            document.body,
-          )
-        : null}
+      {asking ? (
+        <ConfirmDialog
+          title={ask.title}
+          text={ask.text}
+          ok={ask.ok}
+          command={ask.command}
+          onClose={() => setAsking(false)}
+          onOk={() => {
+            setAsking(false);
+            setStarted(true);
+            app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.testUpdate, ask.fields)));
+          }}
+        />
+      ) : null}
     </>
   );
 }
