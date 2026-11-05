@@ -79,6 +79,13 @@ test('a step’s card goes as its dialog opens with the pointer on the button, a
   await expect(tip).toBeHidden();
 });
 
+test('a run’s buttons wrap rather than reach its id, in the narrowest window that sets them beside it', async ({ page }) => {
+  await page.setViewportSize({ width: 1010, height: 800 });
+  await openPage(page, `/run/${demoId('clean')}`, 'run');
+  const [id, buttons] = [await page.locator('.rhead h1').boundingBox(), await page.locator('.rhead .actions').boundingBox()];
+  expect(id!.x + id!.width).toBeLessThanOrEqual(buttons!.x);
+});
+
 test('while a job holds the working tree, a step goes plain and says why, in the palette too, and a press starts nothing', async ({ page }) => {
   const posts: string[] = [];
   page.on('request', (r) => {
