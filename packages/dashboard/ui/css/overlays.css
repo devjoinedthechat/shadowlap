@@ -61,6 +61,7 @@
 .dialog .dfacts dd { margin: 0; min-width: 0; font-size: 13px; line-height: 1.5; color: var(--ink); text-wrap: pretty; }
 .dialog .dfacts dd small { display: block; font-size: 12.5px; color: var(--faint); }
 .dialog .dfacts dd code { font-size: 12.5px; }
+.dialog .dfacts .dph { display: inline-block; max-width: 100%; }
 .dialog .dfacts .amber dt { color: var(--cq-amber); }
 .dialog .dfacts .red dt, .dialog .dfacts .red dd { color: var(--err); }
 /* a row whose value is one long token (a file's name) takes the whole width on a narrow phone, its label over it */

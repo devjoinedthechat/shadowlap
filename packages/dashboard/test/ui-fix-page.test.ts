@@ -238,7 +238,7 @@ describe('Run repair', () => {
     await open(fix.fixId, null, null, { problem: 'This repair asks your own Claude Code, and claude was not found on this machine.' });
     await r!.click(r!.byText('.ph .actions button', 'Run repair'));
     await r!.until('the dialog to read the fix again', () => r!.all('.dialog .dwarn').length > 0);
-    expect(text(r!.one('.dialog .dwarn'))).toBe('This repair asks your own Claude Code, and claude was not found on this machine.');
+    expect(text(r!.one('.dialog .dwarn'))).toBe('This repair asks your own Claude Code, and claude was not found on this machine');
     expect(text(r!.one('.dialog .dcost'))).toContain('nothing runs: the blame it reuses rescued no call');
   });
 

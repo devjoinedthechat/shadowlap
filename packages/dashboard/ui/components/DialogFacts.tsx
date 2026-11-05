@@ -1,5 +1,5 @@
-import { useLayoutEffect, useRef, type ReactNode } from 'react';
-import { tipText } from './HoverCard.js';
+import { Fragment, useLayoutEffect, useRef, type ReactNode } from 'react';
+import { tipCard } from './HoverCard.js';
 
 /** What decides whether to press, as a row: a label of a word or two, its value and the value's quiet part under it. */
 export interface DialogFact {
@@ -23,9 +23,15 @@ export const shownFacts = (rows: DialogFactRows | undefined): DialogFact[] => (r
 export const factId = (id: string, at: number) => `${id}f${at}`;
 
 /** Words that name something in code say it between backticks, as a dialog's words kept apart from its markup do. */
-function inCode(words: ReactNode): ReactNode {
+export function inCode(words: ReactNode): ReactNode {
   if (typeof words !== 'string' || !words.includes('`')) return words;
   return words.split('`').map((part, i) => (i % 2 ? <code key={i}>{part}</code> : part));
+}
+
+/** A quiet part's clauses after a middle dot each stay whole on a narrow line: the mock's `.dph`. */
+function quietWords(words: ReactNode): ReactNode {
+  if (typeof words !== 'string' || !words.includes(' · ')) return inCode(words);
+  return words.split(' · ').map((part, i) => (i ? <Fragment key={i}>{'\u00a0· '}<span className="dph">{inCode(part)}</span></Fragment> : <Fragment key={i}>{inCode(part)}</Fragment>));
 }
 
 /**
@@ -42,7 +48,7 @@ export function DialogFacts({ rows, id }: { rows: DialogFactRows; id?: string | 
           <dt>{f.label}</dt>
           <dd>
             {inCode(f.value)}
-            {f.quiet ? <small>{inCode(f.quiet)}</small> : null}
+            {f.quiet ? <small>{quietWords(f.quiet)}</small> : null}
           </dd>
         </div>
       ))}
@@ -50,10 +56,10 @@ export function DialogFacts({ rows, id }: { rows: DialogFactRows; id?: string | 
   );
 }
 
-/** Words in a dialog with a card of their own: the rest of what they say, on hover, on focus and on a tap. */
-export function DialogTip({ tip, children }: { tip: string; children: ReactNode }) {
+/** Words in a dialog with a card of their own, titled with what they name: the rest of what they say, on hover, on focus and on a tap. */
+export function DialogTip({ title, tip, children }: { title: string; tip: string; children: ReactNode }) {
   return (
-    <span className="dtip" tabIndex={0} data-tip={tipText(tip)}>
+    <span className="dtip" tabIndex={0} data-tip={tipCard(title, [], tip)}>
       {children}
     </span>
   );

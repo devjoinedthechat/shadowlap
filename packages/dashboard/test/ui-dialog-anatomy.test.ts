@@ -330,12 +330,26 @@ describe('a fix’s dialogs', () => {
     // While it reads, what it is doing: no docs to land on, and Cancel has the focus as the way on waits.
     expect(page.all('[role="dialog"] header p span')[0].textContent).toBe('Reading which repairer shadowlap.config.json names…');
     expect(page.all('[role="dialog"] header a')).toEqual([]);
+    expect(page.focused(), 'Cancel while the way on waits').toBe(page.one('[role="dialog"] .dlg-cancel'));
     answer(fix());
     await page.until('the fix to be read', () => !page.one('.dlg-ok').disabled);
     holds(page, { title: 'Run repair', doc: 'repair', first: OK, ok: 'Run repair' });
     expect(page.all('.dfacts div').map((d) => d.querySelectorAll('dt')[0].textContent)).toEqual(['Changes', 'Hands over', 'Keeps', 'While it runs']);
     expect(page.all('.dfacts div')[2].textContent).toBe('Keepsb, c passing');
     expect(page.one('.dcost').textContent).toContain('up to 3 candidates');
+  });
+  it('Run repair whose repairer can’t be asked keeps the focus on Cancel, and says why in one line', async () => {
+    const problem = 'This repair asks your own Claude Code, and claude was not found on the PATH: install Claude Code, or name another repairer in shadowlap.config.json (repair.repairer).';
+    let answer: (d: FixDetail) => void = () => undefined;
+    const client = { fix: () => new Promise<FixDetail>((yes) => (answer = yes)) };
+    const page = await open(createElement(RepairDialog, { fix: fix(), onRun: () => true, ...closes }), appWith({ client }));
+    expect(page.focused()).toBe(page.one('[role="dialog"] .dlg-cancel'));
+    answer(fix({ repairer: { name: 'claude-code', configured: false, problem } }));
+    await page.until('the fix to be read', () => page.all('[role="dialog"] .dwarn').length > 0);
+    expect(page.one('[role="dialog"] .dwarn').textContent).toBe(problem.replace(/\.$/, ''));
+    expect(page.one('.dlg-ok').disabled).toBe(true);
+    expect(page.all('.dfacts')).toEqual([]);
+    expect(page.focused(), 'the rows go, the focus stays').toBe(page.one('[role="dialog"] .dlg-cancel'));
   });
   it('Run repair that would end No fix to try', async () => {
     const noFix = fix({}, { repair: { argv: [], command: 'c', noFix: 'Blame couldn’t settle', noFixWhy: 'unsettled', candidates: 3 } });

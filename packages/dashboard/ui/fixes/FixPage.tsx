@@ -303,7 +303,8 @@ export function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose:
   const repair = now.actions.repair;
   const stopped = now.actions.blameAgain?.kind === 'stopped';
   const keeps = repair ? keepsOf(repair.argv) : [];
-  const line = ask.why ?? aside ?? (stopped ? 'Blame stopped part way: repair blames the run again first' : null);
+  // A line is one sentence with no stop; the engine's own sentence keeps it where the terminal UI shows it.
+  const line = ask.why?.replace(/\.$/, '') ?? aside ?? (stopped ? 'Blame stopped part way: repair blames the run again first' : null);
   // While it reads, what it is doing; then who it asks, or "the repairer" where it can't ask one from here.
   const lead = fresh ? `Asks ${ask.who ?? 'the repairer'} for prompt and tool rewrites and picks the smallest that fixes the failing runs.` : 'Reading which repairer shadowlap.config.json names…';
   return (
@@ -319,7 +320,7 @@ export function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose:
           : [
               { label: 'Changes', value: 'nothing in your working tree', quiet: 'each candidate is tried in a worktree of its own' },
               { label: 'Hands over', value: 'the accepted one, as a patch for you to apply' },
-              keeps.length ? { label: <DialogTip tip="A candidate that breaks a good run is rejected">Keeps</DialogTip>, value: `${keeps.map((k) => `\`${k}\``).join(', ')} passing` } : null,
+              keeps.length ? { label: <DialogTip title="Keeps" tip="A candidate that breaks a good run is rejected">Keeps</DialogTip>, value: `${keeps.map((k) => `\`${k}\``).join(', ')} passing` } : null,
               { label: 'While it runs', value: 'leave the prompt and tools alone' },
             ]
       }

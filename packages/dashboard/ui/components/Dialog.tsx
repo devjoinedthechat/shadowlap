@@ -188,24 +188,28 @@ export function Dialog({ title, lead, doc, warn, facts, children, factsUnder, ru
   const hasBody = !!(warn || shownFacts(facts).length || children || shownFacts(factsUnder).length || runs || command || cost);
   useCostStick(body, hasBody);
   // Where it opens is chosen as it opens: nothing the dialog shows later moves the focus.
-  const [opensOn] = useState(() => dialogFocus(tone, initialFocus, coarsePointer()));
+  const [[opensOn, touch]] = useState(() => {
+    const coarse = coarsePointer();
+    return [dialogFocus(tone, initialFocus, coarse), coarse] as const;
+  });
   const startedOn = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const root = ref.current;
     if (!root) return;
-    const first = firstFocus(root, opensOn);
+    const first = firstFocus(root, opensOn, touch);
     first.focus();
     // A line is selected, ready to type over; longer text to edit (a recorded result, a reply) keeps
     // it, with the cursor at its end, as the design's dialogs do.
     if (first instanceof HTMLInputElement) first.select();
     else if (first instanceof HTMLTextAreaElement) first.setSelectionRange(first.value.length, first.value.length);
     startedOn.current = first;
-  }, [opensOn]);
-  // A way on that waited for something (Run repair, reading its repairer) takes the focus once it can, if no one has moved it.
+  }, [opensOn, touch]);
+  // A way on that waited for something (Run repair, reading its repairer) takes the focus from Cancel
+  // once it can, if no one has moved it; one that asked for a file leaves it where it is.
   useEffect(() => {
     const ok = ref.current?.querySelector<HTMLElement>('.dlg-ok');
     const from = startedOn.current;
-    if (!okDisabled && ok && from && from !== ok && from === document.activeElement && !from.matches('input, textarea, select, .dlg-alt') && opensOn.includes('.dlg-ok')) ok.focus();
+    if (!okDisabled && ok && from && from === document.activeElement && from.matches('.dlg-cancel') && opensOn.includes('.dlg-ok')) ok.focus();
   }, [okDisabled, opensOn]);
 
   // What the fields held before anything was changed: a value that arrives as the dialog loads is no edit.
