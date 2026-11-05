@@ -104,9 +104,6 @@ export class FakeElement {
   get id(): string {
     return this.attributes.get('id') ?? '';
   }
-  get parentElement(): FakeElement | null {
-    return this.parentNode;
-  }
   get isConnected(): boolean {
     for (let n: FakeElement | null = this; n; n = n.parentNode) if (n === this.ownerDocument.body) return true;
     return false;

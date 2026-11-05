@@ -317,15 +317,11 @@ const JOB_HEAD = '.ph, .rhead, .page-in > .verdict';
 
 /** Where a job is starting from: what opened the dialog or menu it starts from, else what has the focus. Outside the page, nowhere. */
 export function noteJobFrom(): JobFrom {
-  const opener = openerNow();
-  if (!opener?.closest?.('#view')) return null;
-  for (let x: HTMLElement | null = opener; x && x.id !== 'view'; x = x.parentElement) {
-    const row = x.getAttribute('data-rowkey');
-    if (row) return { row };
-    if (x.id && x.matches('section')) return { section: x.id };
-    if (x.matches(JOB_HEAD)) return { head: true };
-  }
-  return null;
+  const part = openerNow()?.closest?.(`[data-rowkey], section[id], ${JOB_HEAD}`);
+  if (!part?.closest('#view')) return null;
+  const row = part.getAttribute('data-rowkey');
+  if (row) return { row };
+  return part.matches('section[id]') ? { section: part.id } : { head: true };
 }
 
 const pressable = (b: HTMLElement) => b.getClientRects().length > 0 && !(b as HTMLButtonElement).disabled && b.getAttribute('aria-disabled') !== 'true' && !b.closest('[inert], [hidden]');
