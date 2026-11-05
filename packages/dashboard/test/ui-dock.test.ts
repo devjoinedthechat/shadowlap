@@ -4,7 +4,7 @@ import { ActionButton } from '../ui/components/ActionButton.js';
 import { Dialog, PromptDialog } from '../ui/components/Dialog.js';
 import { JobDrawer } from '../ui/components/Drawer.js';
 import { chipJob, drawnJob, endedBehind, jobClosed, jobOpened, jobsLeftBehind, jobStarted, type WatchedJob } from '../ui/job-store.js';
-import { endChip } from '../ui/jobs.js';
+import { endChip, wayOnOf } from '../ui/jobs.js';
 import { closeTopPanel } from '../ui/overlays/slots.js';
 import { parseRoute, samePage } from '../ui/route.js';
 import { JobChip } from '../ui/shell/JobChip.js';
@@ -176,8 +176,54 @@ describe('the drawer', () => {
     const { Host } = page([entry(job({ lines: [line], total: 1 }))]);
     r = await render(createElement(Host));
     expect(r.one('#jout').textContent).toContain(`${line}\n`);
-    expect(r.all('#jout .tk').map((t) => t.textContent)).toEqual(['✓', 'wrote', '/a/very/long/path/that/goes/on/and/on/and/on/report.json', '--out file']);
+    // The command it runs first, its words kept whole as the CLI's are.
+    expect(r.all('#jout .p .tk').map((t) => t.textContent)).toEqual(['$', 'shadowlap', 'replay', 'X']);
+    expect(r.all('#jout .tk').map((t) => t.textContent).slice(4)).toEqual(['✓', 'wrote', '/a/very/long/path/that/goes/on/and/on/and/on/report.json', '--out file']);
     expect(r.all('#jout .tk wbr').length).toBeGreaterThan(5);
+  });
+
+  it('keeps a line’s element as the last 2,000 lines move on', async () => {
+    const lines = Array.from({ length: 2000 }, (_, i) => `line ${i}`);
+    const { Host, on } = page([entry(job({ lines, total: 2000 }))]);
+    r = await render(createElement(Host));
+    const at = (text: string) => r!.all('#jout span').find((x) => x.textContent === `${text}\n`);
+    const kept = at('line 1500');
+    expect(kept).toBeDefined();
+    await act(async () => on.set((l) => l.map((w) => ({ ...w, lines: [...lines.slice(1), 'line 2000'], job: { ...w.job, total: 2001 } }))));
+    expect(at('line 1500')).toBe(kept);
+    expect(at('line 0')).toBeUndefined();
+  });
+
+  it('keeps the focus on the chip as its hidden job ends, the chip saying how', async () => {
+    const { Host, on } = page([entry(job({ title: 'Forking', args: ['fork', 'X'] }), { open: false, hidden: true })]);
+    r = await render(createElement(Host));
+    await r.until('the chip', () => r!.all('.status .jobchip').length === 1);
+    const chip = r.one('.status .jobchip');
+    await r.focus(chip);
+    await act(async () => on.set(end()));
+    await r.until('its end on the chip', () => r!.one('.status .jobchip').className.includes('ok'));
+    expect(r.one('.status .jobchip')).toBe(chip);
+    expect(r.focused()).toBe(chip);
+  });
+
+  it('opens a job only another tab follows from the chip, and follows it in the drawer', async () => {
+    const other = job({ id: 'b2', title: 'Repairing', kind: 'repair', args: ['repair', 'fx-1'] });
+    const { lines: _lines, ...listed } = other;
+    const opened: unknown[][] = [];
+    const p = page([], {
+      client: { jobs: async () => [listed] } as unknown as AppState['client'],
+      openJob: (id: string, focus?: boolean) => {
+        opened.push([id, focus]);
+        p.on.set((l) => jobStarted(l, other));
+      },
+    });
+    r = await render(createElement(p.Host));
+    await r.until('the chip', () => r!.all('.status .jobchip').length === 1);
+    expect(r.one('.status .jobchip').textContent).toBe('Repairing · running');
+    await r.click(r.one('.status .jobchip'));
+    expect(opened).toEqual([['b2', true]]);
+    expect(r.one('#jtitle').textContent).toBe('Repairing');
+    expect(r.one('section.drawer').hasAttribute('hidden')).toBe(false);
   });
 
   it('ends in the past tense, in the verdict’s colour, and folds to its header line two seconds later', async () => {
@@ -328,6 +374,23 @@ describe('the drawer', () => {
     r = await render(createElement(Host));
     await act(async () => on.set(end({ files })));
     expect(on.toast[0].action!.label).toBe('HTML');
+  });
+
+  it('closes the drawer once the toast took its file, and offers a link beside the way on when nothing else is', async () => {
+    const files = [{ fileId: 'f', name: 'x.html', label: 'HTML' }] as unknown as JobFile[];
+    const downloadFile = vi.fn(async () => undefined);
+    const { Host, on } = page([entry(job({ title: 'Exporting HTML report', args: ['export', 'html'], files: [] }), { open: false, hidden: true })], { client: { jobs: async () => [], downloadFile } as unknown as AppState['client'] });
+    r = await render(createElement(Host));
+    await act(async () => on.set(end({ files })));
+    await act(async () => on.toast[0].action!.run());
+    expect(downloadFile).toHaveBeenCalledOnce();
+    expect(r.all('section.drawer')).toHaveLength(0);
+    expect(r.all('.status .jobchip')).toHaveLength(0);
+    await r.unmount();
+    const beside = page([entry(job({ title: 'Running tests', kind: 'tests', args: ['test'] }), { open: false, hidden: true })]);
+    r = await render(createElement(beside.Host));
+    await act(async () => beside.on.set(end({ links: [{ label: 'refund', href: '#/run/R', secondary: true }] })));
+    expect(beside.on.toast[0].action!.label).toBe('refund');
   });
 
   it('never links to the page on the screen, and reads plain while the page leads with its own lime step', async () => {
@@ -523,5 +586,16 @@ describe('a way on and the page on the screen', () => {
     expect(on('#/runs', '#/runs?q=x')).toBe(false);
     expect(on('#/runs?q=x', '#/runs?q=x')).toBe(true);
     expect(on('#/tests', '#/runs')).toBe(false);
+  });
+});
+
+describe('a replaced job’s way on', () => {
+  const tests = { kind: 'tests', args: ['test'], links: [{ label: 'Open Tests', href: '#/tests' }], newRunId: null } as unknown as Parameters<typeof wayOnOf>[0];
+  it('never offers the page on the screen, nor the run it made when that is on the screen', () => {
+    expect(wayOnOf(tests)).toEqual({ label: 'Open Tests', href: '#/tests' });
+    expect(wayOnOf(tests, (to) => to === '#/tests')).toBeNull();
+    const fork = { ...tests, kind: 'action', args: ['fork', 'X'], links: [], newRunId: 'R' } as unknown as Parameters<typeof wayOnOf>[0];
+    expect(wayOnOf(fork)?.href).toBe('#/run/R');
+    expect(wayOnOf(fork, (to) => to === '#/run/R')).toBeNull();
   });
 });

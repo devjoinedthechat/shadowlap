@@ -7,7 +7,8 @@ import { JobStore, type JobWatch, type WatchedJob } from './job-store.js';
 import { jobTitle } from './job-title.js';
 import { endedRecordings, recordingToast } from './live.js';
 import type { PaletteGroup } from './palette.js';
-import { navigate, previewState } from './router.js';
+import { parseRoute, samePage } from './route.js';
+import { currentRoute, navigate, previewState } from './router.js';
 import { errorText, type ToastAction, type ToastKind } from './toast.js';
 
 /**
@@ -213,7 +214,7 @@ export const RUNS_WARMING_MS = 1500;
 /** A job a newer one took the drawer from ended: its way on from what it reported, unless that is in another project, else Show. */
 async function sayReplacedEnd(job: JobView, lines: readonly string[], here: string | undefined, toast: AppState['toast'], show: (id: string) => void): Promise<void> {
   const { endToast, jobStatus, wayOnOf } = await import('./jobs.js');
-  const way = job.project && job.project.id !== here ? null : wayOnOf(job);
+  const way = job.project && job.project.id !== here ? null : wayOnOf(job, (to) => samePage(parseRoute(to), currentRoute()));
   toast(endToast(job, lines), jobStatus(job, lines).tone === 'err' ? 'error' : 'notice', way ? { label: way.label, run: () => navigate(way.href) } : { label: 'Show', run: () => show(job.id) });
 }
 
@@ -520,9 +521,10 @@ export function AppProvider({ client, children }: { client: Client; children: Re
   const watchJob = useCallback((p: Promise<JobView>) => watch(p), [watch]);
   const openJob = useCallback(
     (id: string, focus = false) => {
-      if (!jobStore.open(id, focus)) watch(client.job(id, 0), focus);
+      // One only another tab follows needs the server: while it is out of reach, why in a toast.
+      if (!jobStore.open(id, focus)) guard(() => watch(client.job(id, 0), focus));
     },
-    [client, jobStore, watch],
+    [client, jobStore, watch, guard],
   );
   const openJobNow = useLatest(openJob);
   const closeJob = useCallback((id: string) => jobStore.close(id), [jobStore]);

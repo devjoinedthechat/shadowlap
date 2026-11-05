@@ -7,7 +7,7 @@ import { useLatest } from '../hooks.js';
 import { jobFooter } from '../job-actions.js';
 import { drawnJob } from '../job-store.js';
 import { drawerCost } from '../../../engine/src/estimates/spending.js';
-import { calibrationTarget, endChip, endToast, forkDivergedEarly, jobCommand, jobHeader, jobStatus, lineTone, openRunWords, replayDivergence, stopAsk } from '../jobs.js';
+import { calibrationTarget, endToast, forkDivergedEarly, jobCommand, jobHeader, jobStatus, lineTone, openRunWords, replayDivergence, stopAsk } from '../jobs.js';
 import { overlayOpen } from '../overlays/modal-store.js';
 import { InSlot, usePanel } from '../overlays/slots.js';
 import { href, parseRoute, samePage } from '../route.js';
@@ -16,7 +16,6 @@ import { switchProject } from '../shell/ProjectBlock.js';
 import { useApp, type WatchedJob } from '../state.js';
 import { retoast } from '../toast-place.js';
 import { errorText, type ToastAction } from '../toast.js';
-import { ChipButton } from '../shell/JobChip.js';
 import { ActionButton } from './ActionButton.js';
 import { Spin } from './bits.js';
 import { DotParts } from './DotParts.js';
@@ -43,15 +42,10 @@ export function JobDrawer() {
   ) : null;
 }
 
-/** The status bar's chip of a hidden job that ended. */
-export function EndedChip({ watched }: { watched: WatchedJob }) {
-  return <ChipButton view={endChip(watched)} />;
-}
-
 /** The way on a job's end offers, where several show: its primary link, then what its kind adds, then a file. */
 function wayOnControl(root: HTMLElement | null): HTMLElement | null {
   if (!root) return null;
-  return root.querySelector<HTMLElement>('.jfoot a.btn') ?? root.querySelector<HTMLElement>('.jfoot .jkind .btn') ?? root.querySelector<HTMLElement>('.jfoot .jfile');
+  return root.querySelector<HTMLElement>('.jfoot a.btn') ?? root.querySelector<HTMLElement>('.jfoot .jkind .btn') ?? root.querySelector<HTMLElement>('.jfoot .jfile') ?? root.querySelector<HTMLElement>('.jfoot .jlinks a');
 }
 
 /** What the drawer takes at the content's foot: `--dock-h`, or, folded, its own height, kept as it wraps. On the root, so what reads it there follows. */
@@ -82,7 +76,7 @@ function useDockRoom(panel: { readonly current: HTMLElement | null }, hidden: bo
 /** A word of the log is kept whole where the line wraps, a flag with its value; a long one breaks after a slash. The spaces stay as printed, so the log copies as it prints. */
 const WORDS = /--?[a-z][\w-]* (?!-)\S+|\S+/g;
 
-const LogLine = memo(function LogLine({ line }: { line: string }) {
+const LogLine = memo(function LogLine({ line, tone: as }: { line: string; tone?: string }) {
   const parts: ReactNode[] = [];
   let at = 0;
   for (const m of line.matchAll(WORDS)) {
@@ -97,7 +91,7 @@ const LogLine = memo(function LogLine({ line }: { line: string }) {
     at = m.index + word.length;
   }
   if (at < line.length) parts.push(line.slice(at));
-  const tone = lineTone(line);
+  const tone = as ?? lineTone(line);
   return (
     <span className={tone || undefined}>
       {parts}
@@ -111,19 +105,24 @@ function linksHere(to: string): boolean {
   return typeof location !== 'undefined' && samePage(parseRoute(to), currentRoute());
 }
 
-/** The log: scrolled by keyboard too, focusable and named for what it holds, and never read out line by line. It follows the end as it grows. */
-function JobLog({ job, lines, running }: { job: WatchedJob['job']; lines: readonly string[]; running: boolean }) {
+/**
+ * The log: scrolled by keyboard too, focusable and named for what it holds, and never read out line by
+ * line. It follows the end as it grows, and shows its end when it is shown again, hidden or folded as
+ * the lines came. Each line is keyed by its place in the whole output, so a line keeps its element as
+ * the last 2,000 move on.
+ */
+function JobLog({ job, lines, running, shown }: { job: WatchedJob['job']; lines: readonly string[]; running: boolean; shown: boolean }) {
   const out = useRef<HTMLPreElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = out.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [lines.length, job.total]);
+    if (el && shown) el.scrollTop = el.scrollHeight;
+  }, [lines.length, job.total, shown]);
+  const first = job.total - lines.length;
   return (
     <pre ref={out} id="jout" tabIndex={0} role="log" aria-live="off" aria-label="Output">
-      <span className="p">$ {jobCommand(job.args)}</span>
-      {'\n'}
+      <LogLine line={`$ ${jobCommand(job.args)}`} tone="p" />
       {lines.map((l, i) => (
-        <LogLine key={i} line={l} />
+        <LogLine key={first + i} line={l} />
       ))}
       {running && lines.length === 0 ? <span>starting…</span> : null}
     </pre>
@@ -257,11 +256,11 @@ function WayOn({ watched, close, elsewhere }: { watched: WatchedJob; close: () =
  * toast says how it ended, with the way on, and it never folds: shown again, it shows its log, which
  * is what was asked for, and says what the toast said, so that toast goes.
  */
-function useJobEnd(watched: WatchedJob, panel: { readonly current: HTMLElement | null }, fold: () => void): void {
+function useJobEnd(watched: WatchedJob, panel: { readonly current: HTMLElement | null }, fold: () => void, close: () => void): void {
   const { toast, openJob, dropToast } = useApp();
   const { job } = watched;
   const hidden = !watched.open;
-  const now = useLatest({ hidden, job, lines: watched.lines, toast, openJob, dropToast, fold });
+  const now = useLatest({ hidden, job, lines: watched.lines, toast, openJob, dropToast, fold, close });
   const said = useRef(job.done);
   const offered = useRef<ToastAction | null>(null);
   useEffect(() => {
@@ -273,7 +272,13 @@ function useJobEnd(watched: WatchedJob, panel: { readonly current: HTMLElement |
         document.body.classList.remove('jobtoast');
         offered.current = null;
       };
-      const action: ToastAction = next ? { label: next.textContent.trim(), run: () => next.click(), onGone } : { label: 'Show', run: () => now.current.openJob(job.id, true), onGone };
+      // Taken from the toast, the way on closes the drawer as it does from the drawer: a link by
+      // itself, a file as it downloads. What the job's kind adds may start a job or ask first.
+      const take = () => {
+        next!.click();
+        if (next!.classList.contains('jfile')) now.current.close();
+      };
+      const action: ToastAction = next ? { label: next.textContent.trim(), run: take, onGone } : { label: 'Show', run: () => now.current.openJob(job.id, true), onGone };
       document.body.classList.add('jobtoast');
       offered.current = action;
       const { job: ended, lines } = now.current;
@@ -350,7 +355,7 @@ function Drawer({ watched }: { watched: WatchedJob }) {
   usePanel(close, !hidden);
   const [folded, setFolded] = useState(false);
   useDockRoom(panel, hidden, folded);
-  useJobEnd(watched, panel, () => setFolded(true));
+  useJobEnd(watched, panel, () => setFolded(true), close);
   const elsewhere = job.project && meta?.project?.id && job.project.id !== meta.project.id ? job.project : null;
   const head = jobHeader(job, lines, lost);
   // A billed job says what it costs beside running, a ceiling as one.
@@ -392,7 +397,7 @@ function Drawer({ watched }: { watched: WatchedJob }) {
           ))}
         </div>
       ) : null}
-      <JobLog job={job} lines={lines} running={running} />
+      <JobLog job={job} lines={lines} running={running} shown={!hidden && !folded} />
       {/* What a screen reader hears of the job: how it stands, as that changes, never each line it prints. */}
       <span className="sr" role="status">
         {`${head.title}, ${head.text.replace(/ · /g, ', ')}${cost ? `, ${cost.replace('≈', 'about ').replace('<', 'under ')}` : ''}`}

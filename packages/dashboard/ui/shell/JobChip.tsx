@@ -1,17 +1,26 @@
-import { useEffect } from 'react';
+import { useEffect, useReducer } from 'react';
 import { Spin } from '../components/bits.js';
-import { onShow } from '../components/OnShow.js';
 import { useServerJobs } from '../fixes/tree.js';
 import { chipJob, endedBehind, type JobChipView } from '../job-store.js';
+import type { endChip } from '../jobs.js';
 import { useApp } from '../state.js';
 import { retoast } from '../toast-place.js';
 
-/** The chip of a hidden job that ended: its words load with its drawer, which is drawn, hidden, by then. */
-const EndedChip = onShow(() => import('../components/Drawer.js').then((m) => m.EndedChip));
+/**
+ * How a hidden job that ended is said on its chip: the words of its kind, which come with its drawer,
+ * drawn hidden by then, and are asked for as soon as a chip shows. The chip stays the one button as
+ * its job ends, so the focus stays on it.
+ */
+let endedChip: typeof endChip | null = null;
+const loadEnded = (): Promise<void> =>
+  import('../jobs.js').then((m) => {
+    endedChip = m.endChip;
+  });
 
 /** The chip itself. */
 export function ChipButton({ view }: { view: JobChipView }) {
   const { openJob } = useApp();
+  // A job only another tab follows needs the server to open: `openJob` says why while it waits.
   return (
     <button type="button" className={`jobchip${view.tone ? ` ${view.tone}` : ''}`} aria-label={view.name} title={view.title} onClick={() => openJob(view.opens, true)}>
       {view.running ? <Spin /> : <i />}
@@ -30,6 +39,11 @@ export function JobChip() {
   const running = chipJob(useServerJobs(), jobs);
   const ended = running ? null : endedBehind(jobs);
   const shown = (!!running || !!ended) && conn !== 'expired';
+  const [, loaded] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => {
+    if (shown && !endedChip) void loadEnded().then(loaded, () => undefined);
+  }, [shown]);
+  const view = running ?? (ended && endedChip ? endedChip(ended) : null);
   useEffect(() => {
     document.body.classList.toggle('jobmin', shown);
     retoast();
@@ -41,7 +55,7 @@ export function JobChip() {
   if (!shown) return null;
   return (
     <>
-      <span className="st-job">{running ? <ChipButton view={running} /> : <EndedChip watched={ended!} />}</span>
+      <span className="st-job">{view ? <ChipButton view={view} /> : null}</span>
       <span className="sep" />
     </>
   );

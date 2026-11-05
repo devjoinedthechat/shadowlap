@@ -264,11 +264,13 @@ export function openRunWords(job: Pick<JobLike, 'args'>): string {
 }
 
 /** A job's way on where it has no drawer drawn to take it from: its first primary link, or the run it made. */
-export function wayOnOf(job: JobLike & { links?: ReadonlyArray<{ label: string; href: string; secondary?: boolean }>; newRunId?: string | null }): { label: string; href: string } | null {
-  const links = job.links ?? [];
+export function wayOnOf(job: JobLike & { links?: ReadonlyArray<{ label: string; href: string; secondary?: boolean }>; newRunId?: string | null }, here: (href: string) => boolean = () => false): { label: string; href: string } | null {
+  // Never the page on the screen, as the drawer never links to it.
+  const links = (job.links ?? []).filter((l) => !here(l.href));
   const first = links.find((l) => !l.secondary) ?? links[0];
   if (first) return { label: first.label, href: first.href };
-  return job.newRunId ? { label: openRunWords(job), href: `#/run/${job.newRunId}` } : null;
+  const run = job.newRunId ? `#/run/${job.newRunId}` : null;
+  return run && !here(run) ? { label: openRunWords(job), href: run } : null;
 }
 
 /** The status bar's chip for a hidden job that ended: what it did and how, in its verdict's colour. */
