@@ -3,6 +3,7 @@ import type { BisectRevision, TestsView } from '../api.js';
 import { Dialog } from '../components/Dialog.js';
 import { DialogSteps } from '../components/DialogFacts.js';
 import { COMMIT_NAME, GoodCommitField } from '../components/GoodCommit.js';
+import { namedIn } from '../components/Id.js';
 import { UpdateGoldenDialog } from '../components/UpdateGolden.js';
 import { commandText, revisionChoices } from '../goldens.js';
 import { updatePlan, type UpdatePlan } from '../update-plan.js';
@@ -40,7 +41,7 @@ export function FindCommitDialog({ name, golden, range, live, revisions, tried, 
   const args = ['bisect', golden, '--good', rev || '<commit>', ...(range?.bad ? ['--bad', range.bad] : [])];
   return (
     <Dialog
-      title={`Find breaking commit for ${name}`}
+      title={namedIn(`Find breaking commit for ${name}`, name)}
       lead={`Finds the first commit that broke ${name}, from ${tried ? 'an older one' : 'one'} where it worked.`}
       doc="bisect"
       facts={[range ? { label: 'Good', value: <code>{range.good}</code>, wide: true } : null, { label: 'Bad', value: <code>{range?.bad ?? 'HEAD'}</code>, quiet: 'where the search ends' }]}

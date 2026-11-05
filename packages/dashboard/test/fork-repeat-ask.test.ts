@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { RunRecord } from '@shadowlap/engine';
+import { noFixKind, type CallRecord, type RunRecord } from '@shadowlap/engine';
 import { actionsFor } from '../src/api.js';
 
 /**
@@ -17,5 +17,32 @@ describe('Repeat 5 times, as the page is sent it', () => {
     expect(repeat(run())).toEqual({ key: 'e', label: 'Repeat 5 times', opensRun: false, prompt: null, disabled: null, flag: '--repeat 5', group: 'run', command: `shadowlap replay ${ID} --repeat 5`, hint: 'Replays this run five times: what replays is free, and the attempts show whether the path after a fork holds or was luck.' });
     const fork = run({ mode: 'replay', parentRunId: '01K5CQ4N700000000000000000', meta: { interventions: [{ kind: 'diverge', at: 9, flag: '--diverge-at 9', args: ['--diverge-at', '9'] }] } });
     expect(repeat(fork)).toMatchObject({ label: 'Repeat 5 times', prompt: null, asksFirst: true, hint: expect.stringContaining('each attempt runs live from the fork') });
+  });
+});
+
+describe('what a call’s actions tell the dialog that asks', () => {
+  const call = (over: Partial<CallRecord>): CallRecord => ({ runId: ID, callNo: 3, kind: 'tool', name: 'send_email', effect: 'read', meta: {}, ...over }) as unknown as CallRecord;
+  const action = (key: string, over: Partial<CallRecord>) => actionsFor(run(), call(over), {}).find((a) => a.key === key)!;
+
+  it('asks before a write is forced live, in red, and starts any other tool at once', () => {
+    expect(action('l', { effect: 'write' })).toMatchObject({ asksFirst: true, warns: 'send_email acts on your systems', prompt: null, command: `shadowlap replay ${ID} --live-tool send_email` });
+    const read = action('l', { effect: 'read' });
+    expect(read.asksFirst).toBeUndefined();
+    expect(read.warns).toBeUndefined();
+  });
+
+  it('names the model that takes no system message mid-conversation, for an instruction’s row', () => {
+    const inject = (model: string) => actionsFor(run(), call({ kind: 'api', name: 'POST /v1/messages', effect: null, meta: { model } } as Partial<CallRecord>), {}).find((a) => a.key === 'i')!;
+    expect(inject('claude-sonnet-5').noSystemMessage).toBe('claude-sonnet-5');
+    expect(inject('claude-haiku-4-5').noSystemMessage).toBeUndefined();
+  });
+});
+
+describe('why a repair would end with no fix to try', () => {
+  it('tells the estimate’s two cases apart by the engine’s own sentence', () => {
+    expect(noFixKind(null)).toBeNull();
+    expect(noFixKind('Blame couldn\'t settle where the run was lost, so a rewrite of the prompt has nothing to aim at yet: the repair ends “No fix to try”. Settle the blame first.')).toBe('unsettled');
+    expect(noFixKind('No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.')).toBe('unrescued');
+    expect(noFixKind('Blame found that no answer of the model\'s lost this run, so a rewrite of the prompt can\'t fix it: the repair ends “No fix to try”.')).toBe('unrescued');
   });
 });

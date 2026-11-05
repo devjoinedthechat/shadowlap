@@ -3,6 +3,7 @@ import { consentAsked } from '../actions.js';
 import { ApiError, JOB_KINDS } from '../api.js';
 import { ConsentDialog, Dialog, pressWayOn } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
+import { namedIn } from '../components/Id.js';
 import { shortId } from '../format.js';
 import { useApp } from '../state.js';
 import { parseCheck } from './model.js';
@@ -100,7 +101,7 @@ export function CheckDialog({ runId, line, onClose, onRun }: { runId: string; li
   };
   return (
     <Dialog
-      title={`${ACTIONS.runBlame.label} on ${shortId(runId)}`}
+      title={namedIn(`${ACTIONS.runBlame.label} on ${shortId(runId)}`, shortId(runId))}
       lead="Finds the model call that lost the run."
       doc="blame"
       warn={line ? { text: line } : null}

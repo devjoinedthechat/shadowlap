@@ -5,7 +5,7 @@ import { JOB_KINDS } from '../api.js';
 import { DatasetDialog } from '../components/DatasetDialog.js';
 import { Dialog, PromptDialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
-import { Id } from '../components/Id.js';
+import { Id, namedIn } from '../components/Id.js';
 import { num, plural, shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { jobCommand } from '../jobs.js';
@@ -182,7 +182,7 @@ export function PackDialog({ ids, onClose, onRun }: { ids: readonly string[]; on
   const rules = offers.data?.copies.formats.find((f) => f.id === 'pack')?.rules ?? null;
   return (
     <PromptDialog
-      title={`Pack ${named(ids)}`}
+      title={one ? namedIn(`Pack ${named(ids)}`, shortId(one)) : `Pack ${named(ids)}`}
       lead={one ? 'Packs the run into a folder to commit as a golden or send to someone.' : 'Packs each run into a folder of its own, to commit as goldens or send to someone.'}
       doc="packs"
       facts={[PACK_HOLDS, redactsFact(rules)]}

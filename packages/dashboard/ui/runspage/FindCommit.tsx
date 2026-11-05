@@ -2,6 +2,7 @@ import { useId, useState } from 'react';
 import { JOB_KINDS } from '../api.js';
 import { Dialog } from '../components/Dialog.js';
 import { COMMIT_NAME, GoodCommitField } from '../components/GoodCommit.js';
+import { namedIn } from '../components/Id.js';
 import { shortId } from '../format.js';
 import { sentence } from '../normalize.js';
 import { useApp } from '../state.js';
@@ -24,7 +25,7 @@ export function FindCommitDialog({ runId, choices, earlier = null, onClose }: { 
   const [typed, setTyped] = useState('');
   const what = choices.target.kind === 'golden' ? choices.target.golden : shortId(runId);
   const upTo = bisectUpTo(choices);
-  const title = `Find breaking commit for ${what}`;
+  const title = namedIn(`Find breaking commit for ${what}`, what);
   const lead = `Finds the first commit that broke ${choices.target.kind === 'golden' ? what : 'the run'}, from one where it worked.`;
   const bad = bisectBadFact(choices, 'the commit the run was recorded at');
   if (choices.unavailable) return <Dialog title={title} lead={lead} doc="bisect" warn={{ text: choices.unavailable.replace(/\.$/, '') }} facts={[bad]} onClose={onClose} />;

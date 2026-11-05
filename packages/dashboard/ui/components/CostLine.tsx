@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode, type RefObject } from 'react';
+import { Fragment, useEffect, type ReactNode, type RefObject } from 'react';
 
 export interface CostLineProps {
   /** What it bills, first and in ink. */
@@ -18,13 +18,13 @@ export function CostLine({ price, parts = [], flow = false }: CostLineProps) {
   return (
     <p className={`dlgnote dcost${flow ? ' flow' : ''}`}>
       {all.map((part, i) => (
-        <span key={i}>
+        <Fragment key={i}>
           <span className="dcp">
             {part}
             {i < all.length - 1 ? '\u00a0·' : null}
           </span>
           {i < all.length - 1 ? ' ' : null}
-        </span>
+        </Fragment>
       ))}
     </p>
   );

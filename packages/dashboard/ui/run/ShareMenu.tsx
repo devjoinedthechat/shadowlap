@@ -10,6 +10,7 @@ import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import type { PendingAction } from './actions.js';
 import { DatasetDialog } from '../components/DatasetDialog.js';
+import { namedIn } from '../components/Id.js';
 import { redactRuleCount } from './provenance.js';
 import { defaultPackFolder, EXPORTS, htmlCopyVia, PACK_HOLDS, redactsFact, shareCommand, shareDialog, shareItemOff, shareItems, shareNote, shareWhy, type ShareKey } from './share.js';
 // The share job's drawer offers the link it made.
@@ -74,6 +75,7 @@ export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: 
     return (
       <PromptDialog
         {...shareDialog('pack', [id])}
+        title={namedIn(shareDialog('pack', [id]).title, shortId(id))}
         lead="Packs the run into a folder to commit as a golden or send to someone."
         doc="packs"
         facts={[PACK_HOLDS, redactsFact(offers?.copies.formats.find((f) => f.id === 'pack')?.rules ?? null)]}

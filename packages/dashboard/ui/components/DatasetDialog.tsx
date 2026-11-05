@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { JOB_KINDS } from '../api.js';
+import { shortId } from '../format.js';
 import { datasetCommand, datasetFile, datasetTooMany, redactsFact, shareDialog } from '../run/share.js';
 import { useApp } from '../state.js';
 import { Dialog } from './Dialog.js';
+import { namedIn } from './Id.js';
 
 /**
  * Runs as an eval dataset: a format and which calls become examples, run as the `export-dataset` job,
@@ -23,6 +25,7 @@ export function DatasetDialog({ ids, rules = null, onClose }: { ids: string[]; r
   return (
     <Dialog
       {...shareDialog('dataset', ids)}
+      title={ids.length === 1 ? namedIn(shareDialog('dataset', ids).title, shortId(ids[0]!)) : shareDialog('dataset', ids).title}
       lead="Exports each example as one JSON line: the conversation as the model saw it, and its answer."
       doc="datasets"
       warn={tooMany ? { text: tooMany.replace(/\.$/, '') } : null}

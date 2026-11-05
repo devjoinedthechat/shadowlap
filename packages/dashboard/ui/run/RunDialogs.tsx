@@ -2,7 +2,7 @@ import { useId, useState } from 'react';
 import type { BisectOffer } from '../api.js';
 import { ConfirmDialog, Dialog } from '../components/Dialog.js';
 import { COMMIT_NAME, GoodCommitField } from '../components/GoodCommit.js';
-import { Id } from '../components/Id.js';
+import { Id, namedIn } from '../components/Id.js';
 import { shortId } from '../format.js';
 import { deleteFacts, deleteLead } from '../runspage/bulk.js';
 import { bisectCopy } from './offers.js';
@@ -23,7 +23,7 @@ export function BisectDialog({ runId, offer, onRun, onClose }: { runId: string; 
   const good = typed.trim() || picked;
   return (
     <Dialog
-      title={copy.title}
+      title={namedIn(copy.title, offer.target.kind === 'golden' ? offer.target.golden : shortId(runId))}
       lead={copy.lead}
       doc="bisect"
       facts={copy.facts}

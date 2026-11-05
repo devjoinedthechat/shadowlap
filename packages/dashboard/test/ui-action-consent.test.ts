@@ -157,6 +157,32 @@ describe('an action on someone else’s run', () => {
   });
 });
 
+describe('an action that can’t start', () => {
+  it('leaves its dialog open with what was typed, and sends nothing, while the server is out of reach', async () => {
+    const asked: Asked[] = [];
+    const watched: Array<Promise<JobView>> = [];
+    const page = await open(inject, { ...app(asked, watched, () => null), guard: () => false } as unknown as AppState);
+    await page.click(page.one('.go'));
+    expect(page.all('[role="dialog"]')).toEqual([]);
+    const offline = { ...app(asked, watched, () => null), guard: (fn: () => void) => (reachable ? (fn(), true) : false) } as unknown as AppState;
+    let reachable = true;
+    await page.unmount();
+    const again = await open(inject, offline);
+    await again.click(again.one('.go'));
+    const field = again.one('[role="dialog"] textarea');
+    await again.type(field, 'Be brief.');
+    reachable = false;
+    await again.click(again.byText('.dlg-ok', 'Inject instruction'));
+    expect(asked).toEqual([]);
+    expect(again.one('[role="dialog"] textarea').value).toBe('Be brief.');
+    reachable = true;
+    await again.click(again.byText('.dlg-ok', 'Inject instruction'));
+    await again.until('the job', () => watched.length === 1);
+    expect(asked).toEqual([{ key: 'i', value: 'Be brief.', yes: null }]);
+    expect(again.all('[role="dialog"]')).toEqual([]);
+  });
+});
+
 describe('a fork repeated five times', () => {
   const repeat = (o: Partial<ActionItem> = {}): ActionItem => ({ key: 'e', label: 'Repeat 5 times', opensRun: false, prompt: null, disabled: null, flag: '--repeat 5', group: 'run', hint: 'Makes this replay again from 01M5GRX8K4 five times: the prefix replays free, and each attempt runs live from the fork, so they show whether the path after it holds or was luck.', ...o });
 

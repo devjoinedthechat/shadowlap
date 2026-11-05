@@ -136,7 +136,8 @@ export interface DialogProps {
 
 /** Enter on a dialog's field presses its way on, which may refuse: as the button does. */
 export function pressWayOn(from: EventTarget): void {
-  (from as HTMLElement).closest('.dialog')?.querySelector<HTMLButtonElement>('.dlg-ok')?.click();
+  const ok = (from as HTMLElement).closest('.dialog')?.querySelector<HTMLButtonElement>('.dlg-ok');
+  if (ok && !ok.disabled) ok.click();
 }
 
 /** The docs page a lead ends on, in a new tab; its arrow is drawn only, so a screen reader says the page's name alone. */
