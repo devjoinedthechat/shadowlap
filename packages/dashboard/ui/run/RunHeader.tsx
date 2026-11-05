@@ -5,9 +5,12 @@ import { Eyebrow, Tag } from '../components/bits.js';
 import { ConfirmDialog } from '../components/Dialog.js';
 import { RunKey } from '../components/RunKey.js';
 import { MARKS, type RunMark } from '../runkey.js';
+import { tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { useMenu } from '../components/Popover.js';
 import { copyText } from '../dom.js';
+import { headingRef } from '../focus-manager.js';
+import { shortcut } from '../shortcuts.js';
 import { dur, shortId, stamp, wholeCounts } from '../format.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
@@ -127,7 +130,7 @@ export function RunHeader({
       <div className="rmain">
         {eyebrow}
         <div className="rtitle">
-          <h1 className="rnm" title={r.runId}>
+          <h1 className="rnm" title={r.runId} ref={headingRef}>
             {shortId(r.runId)}
           </h1>
           {tag ? <Tag cls={tag.cls}>{tag.text}</Tag> : null}
@@ -194,8 +197,8 @@ export function RunHeader({
               aria-haspopup="menu"
               aria-expanded={forkMenu.open}
               disabled={live || !!actionsOff || selected === null}
-              title={live ? 'Fork once the recording finishes' : off}
-              onClick={(e) => forkMenu.toggle(e.currentTarget)}
+              {...offOrCard(live ? 'Fork once the recording finishes' : off, selected === null, 'Each change in the menu shows the flag it runs')}
+              onClick={(e) => forkMenu.toggle(e.currentTarget)} {...shortcut('fork')}
             >
               <Icon name="fork" />
               Fork at #{selected ?? '–'}
@@ -236,6 +239,9 @@ export function RunHeader({
     </section>
   );
 }
+
+/** A button's hover, as every disabled button's: why it is off, which a browser shows on one; nothing where it is off with no words for why (`idle`); else its card, which says its key. */
+const offOrCard = (off: string | null | undefined, idle: boolean, card: string) => (off ? { title: off } : idle ? {} : { 'data-tip': tipText(card) });
 
 /**
  * Labels: the good/bad key first (good and bad are its, so no chip says them again), then the other

@@ -82,7 +82,7 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
                   <b className="fxrole">{x.role}</b>
                 </td>
                 <td>
-                  <a className="fxcall" href={x.href}>
+                  <a className="rowa" href={x.href}>
                     <code>{shortId(x.runId)}</code>
                   </a>
                 </td>

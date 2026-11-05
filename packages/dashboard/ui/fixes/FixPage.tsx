@@ -3,6 +3,7 @@ import { consentAsked } from '../actions.js';
 import { JOB_KINDS, ApiError, type JobView } from '../api.js';
 import { Badge, CmdLine } from '../components/bits.js';
 import { ConfirmDialog, ConsentDialog, Dialog, PromptDialog } from '../components/Dialog.js';
+import { headingRef } from '../focus-manager.js';
 import { Page } from '../components/Page.js';
 import { NotFoundPage } from '../pages/NotFound.js';
 import { copyText } from '../dom.js';
@@ -86,7 +87,7 @@ function FixHeader({ fix, reload, leads }: { fix: FixDetail; reload: () => void;
           <i />
           fix · <code>{fixName(fix)}</code>
         </div>
-        <h1>{fix.title}</h1>
+        <h1 ref={headingRef}>{fix.title}</h1>
         <p className="pmeta">
           {/* Each separator is held to the item before it, so a wrapped line never starts with one. */}
           <Badge tone={badge.tone}>{badge.text}</Badge> <span>{`${fix.failing} failing run${s(fix.failing)}`}</span>

@@ -5,6 +5,7 @@ import { CmdLine } from '../components/bits.js';
 import { ConsentDialog, Dialog, PromptDialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { shortId } from '../format.js';
+import type { ShortcutMark } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import { parseCheck } from './model.js';
 import { plainButton, useTreeBusy } from './tree.js';
@@ -29,6 +30,7 @@ export function RunBlameButton({
   lead = false,
   capture = false,
   line,
+  mark,
 }: {
   runId: string;
   failed?: readonly string[];
@@ -44,6 +46,8 @@ export function RunBlameButton({
   capture?: boolean;
   /** The command it runs, where it knows it: a capture's asks for what fills in its `<your command>`. */
   line?: string;
+  /** Its key, where it is the run's next step. */
+  mark?: ShortcutMark;
 }) {
   const app = useApp();
   const busy = useTreeBusy('reads', 'blame');
@@ -86,6 +90,7 @@ export function RunBlameButton({
         {...(why ? { title: why } : tip ? { 'data-tip': tip } : { title })}
         {...(lead ? { 'data-next': 'blame' } : {})}
         onClick={() => app.guard(() => (capture ? setAsking({ kind: 'command' }) : void start({})))}
+        {...mark}
       >
         {icon ? <Icon name="loop" /> : null}
         {ACTIONS.runBlame.label}

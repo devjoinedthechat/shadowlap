@@ -20,8 +20,8 @@ export interface PaletteEntry {
   match?: string;
   /** Found only once something is typed, never listed on the open palette. */
   typed?: boolean;
-  /** The key that does what it does, where it has one. */
-  key?: string;
+  /** Its own key, one word per key: the row's key column, while single-key shortcuts are on. */
+  key?: string | undefined;
   /** Why it can't start now, a job holding what it needs: its hint says so, dimmed, and so does picking it. */
   wait?: string;
 }

@@ -492,10 +492,10 @@
       "NewProjectPage": 162
     },
     "packages/dashboard/ui/pages/Run.tsx": {
-      "Workspace": 251
+      "Workspace": 195
     },
     "packages/dashboard/ui/pages/Runs.tsx": {
-      "ServerRuns": 185
+      "ServerRuns": 179
     },
     "packages/dashboard/ui/pages/Setup.tsx": {
       "SetupPage": 162
@@ -528,7 +528,7 @@
       "ImportDialog": 162
     },
     "packages/dashboard/ui/shell/Palette.tsx": {
-      "PaletteDialog": 253
+      "PaletteDialog": 178
     },
     "packages/dashboard/ui/state.tsx": {
       "AppProvider": 341

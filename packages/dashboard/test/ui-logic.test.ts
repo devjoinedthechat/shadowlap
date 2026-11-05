@@ -72,10 +72,10 @@ describe('routes', () => {
     expect(tokenLinkStep('#/runs', 'same')).toBeNull();
   });
 
-  it('has a g-key for every page and cycles the five views without Provenance', () => {
+  it('has a g-key for every page and cycles every view', () => {
     expect(Object.keys(GO_KEYS).sort()).toEqual(['a', 'c', 'f', 'o', 'r', 's', 't']);
     expect(nextView('calls')).toBe('turns');
-    expect(nextView('forks')).toBe('calls');
+    expect(nextView('forks')).toBe('provenance');
     expect(nextView('provenance')).toBe('calls');
     expect(nextView(null)).toBe('turns');
   });

@@ -108,15 +108,15 @@ const region = (page: Page) =>
     return 'other';
   });
 
-test('Skip to the page is the first stop for Tab, shows when it has the focus, and takes it to the page', async ({ page }) => {
+test('Skip to content is the first stop for Tab, shows when it has the focus, and takes it to the page’s heading', async ({ page }) => {
   await openPage(page, `/run/${demoId('override')}`, 'run');
   await page.keyboard.press('Tab');
-  expect(await focusedLabel(page)).toContain('Skip to the page');
+  expect(await focusedLabel(page)).toContain('Skip to content');
   const box = (await page.locator('a.skip').boundingBox())!;
   expect(box.y).toBeGreaterThanOrEqual(0);
   expect(box.height).toBeGreaterThan(10);
   await page.keyboard.press('Enter');
-  expect(await page.evaluate(() => !!document.activeElement?.closest('main#view'))).toBe(true);
+  expect(await page.evaluate(() => document.activeElement?.matches('main#view h1'))).toBe(true);
   // The run's own actions are a few presses away, not the 53rd stop they were.
   const presses = await tabUntil(page, () => document.activeElement?.textContent?.trim() === 'Replay', 15);
   expect(presses).toBeLessThanOrEqual(10);

@@ -2,7 +2,8 @@ import { costLine, costWords } from '../../../engine/src/estimates/spending.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { normalizeAction } from '../normalize.js';
 import type { PaletteEntry } from '../palette.js';
-import type { ActionItem, BlameBeside, GateEntry, NextStep, RunDetail } from '../types.js';
+import { keyColumn, type ShortcutId } from '../shortcuts.js';
+import type { ActionItem, BlameBeside, GateEntry, NextStep, NextStepRow, RunDetail } from '../types.js';
 import { blameTitle } from './offers.js';
 
 /**
@@ -39,12 +40,13 @@ const STEP_JOBS: Partial<Record<NextStep['key'], { verb: string; tests: boolean 
 /** The job a step runs, for what it waits for and how its button words that; none for a link, or a step that waits for no job. */
 export const stepJob = (step: NextStep | null): { verb: string; tests: boolean } | null => (step && !step.href ? (STEP_JOBS[step.key] ?? null) : null);
 
-/** The key of the header button a step presses, by what the step does, never read from its label: Replay, Compare or Run blame. */
-const STEP_KEYS: Partial<Record<NextStep['key'], string>> = { replay: 'r', compare: 'c', blame: 'b' };
+/** The key of the header button a step presses, by what the step does, never read from its label: Replay, Compare or Run blame, as the table of keys has them. */
+const STEP_KEYS: Partial<Record<NextStep['key'], ShortcutId>> = { replay: 'replay', compare: 'compare', blame: 'blame' };
 
-/** A run's next step as This run's first entry: what the header's lime button says, what it runs or where it goes, and its key; while it waits, why (`wait`). */
-export function stepEntry(step: NextStep, wait: string | null = null): PaletteEntry {
-  const key = STEP_KEYS[step.key];
+/** A run's next step as This run's first entry, or a list's row carries it: what the header's lime button says, what it runs or where it goes, and its key; while it waits, why (`wait`). */
+export function stepEntry(step: NextStep | NextStepRow, wait: string | null = null): PaletteEntry {
+  const id = STEP_KEYS[step.key];
+  const key = id ? keyColumn(id) : null;
   return { group: 'This run', label: step.label, hint: wait ?? step.command ?? step.title ?? '', ...(step.href ? {} : { job: true }), ...(key ? { key } : {}), ...(wait ? { wait } : {}) };
 }
 

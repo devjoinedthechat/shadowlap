@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { errorText } from '../toast.js';
 import { letGoAfterPush, pushable, untilDone } from './push.js';
 import { JOB_KINDS } from '../api.js';
@@ -39,8 +39,26 @@ export interface PickedRun {
 
 type Open = 'label' | 'delete' | 'pack' | 'dataset' | null;
 
+/** The bar's height on the root, for as long as it shows: the window keeps a row in focus clear of it however many lines it wraps to. */
+function useBulkHeight(): RefObject<HTMLDivElement | null> {
+  const bar = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = bar.current;
+    if (!el || typeof ResizeObserver !== 'function') return;
+    const root = document.documentElement;
+    const sized = new ResizeObserver(() => root.style.setProperty('--bulk-h', `${el.offsetHeight}px`));
+    sized.observe(el);
+    return () => {
+      sized.disconnect();
+      root.style.removeProperty('--bulk-h');
+    };
+  }, []);
+  return bar;
+}
+
 export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedRun[]; store: boolean; clear: () => void; onDone: () => void }) {
   const { actionsOff, client, toast, guard, hasKind, watchJob } = useApp();
+  const bar = useBulkHeight();
   const [open, setOpen] = useState<Open>(null);
   const ids = runs.map((r) => r.runId);
   const live = runs.filter(isLive);
@@ -71,7 +89,7 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
 
   return (
     <>
-      <div className="bulkbar" role="toolbar" aria-label="Selected runs">
+      <div className="bulkbar" role="toolbar" aria-label="Selected runs" ref={bar}>
         <b>{num(runs.length)} selected</b>
         <span className="sep" />
         <button className="btn sm" type="button" disabled={!!actionsOff} title={off} onClick={() => guard(() => setOpen('label'))}>

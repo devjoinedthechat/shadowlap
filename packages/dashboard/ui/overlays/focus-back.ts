@@ -48,15 +48,15 @@ export interface ControlKey {
 }
 
 /** What changes as a control's state does, or says nothing of what it is. */
-const FLEETING = /^data-(tip|why|fit|short|mark|about|from)$/;
+const FLEETING = /^data-(tip|why|fit|short|mark|about|from|shortcut)$/;
+
+/** A list's row is known by its key alone: its words and its place change while it stays the row. */
+const rowKeyOf = (el: Element) => el.getAttribute('data-rowkey');
 
 const attrsOf = (el: Element) =>
-  el
-    .getAttributeNames()
-    .filter((a) => (a.startsWith('data-') && !FLEETING.test(a)) || a === 'href' || a === 'aria-label')
-    .map((a) => [a, el.getAttribute(a) ?? ''] as const);
+  (rowKeyOf(el) !== null ? ['data-rowkey'] : el.getAttributeNames().filter((a) => (a.startsWith('data-') && !FLEETING.test(a)) || a === 'href' || a === 'aria-label')).map((a) => [a, el.getAttribute(a) ?? ''] as const);
 
-const wordsOf = (el: Element) => (el.textContent ?? '').trim();
+const wordsOf = (el: Element) => (rowKeyOf(el) !== null ? '' : (el.textContent ?? '').trim());
 
 function isLike(el: Element, key: ControlKey): boolean {
   const attrs = attrsOf(el);

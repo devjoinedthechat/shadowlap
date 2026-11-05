@@ -6,6 +6,7 @@ import { ACTIONS } from '../labels.js';
 import { href, type View } from '../route.js';
 import { navigate } from '../router.js';
 import { MARKS, type RunMark } from '../runkey.js';
+import { keyColumn } from '../shortcuts.js';
 import { useApp, type PaletteCommand } from '../state.js';
 import { nextStepOf, replayAction, stepEntry } from './next-step.js';
 import { useStepWait } from './NextStepButton.js';
@@ -28,7 +29,7 @@ function leadCommands(run: RunDetail, o: { exported: boolean; actionsOff: string
   if (next && !next.off && (next.href || !o.actionsOff)) items.push({ ...stepEntry(next, o.wait), run: () => (next.href ? navigate(next.href) : pressStep(o.toast)) });
   const replay = run.actions.find((a) => a.key === 'r');
   const again = run.replay?.key === 'replay' ? run.replay : null;
-  if (!o.exported && !o.actionsOff && replay && run.run.status !== 'running' && next?.key !== 'replay') items.push({ group: 'This run', label: ACTIONS.replay.label, hint: again?.command ?? `shadowlap replay ${shortId(runId)}`, job: true, run: () => o.run({ action: replayAction(again) ?? replay, callNo: null, ...(again && again.runId !== runId ? { runId: again.runId } : {}) }) });
+  if (!o.exported && !o.actionsOff && replay && run.run.status !== 'running' && next?.key !== 'replay') items.push({ group: 'This run', label: ACTIONS.replay.label, hint: again?.command ?? `shadowlap replay ${shortId(runId)}`, key: keyColumn('replay'), job: true, run: () => o.run({ action: replayAction(again) ?? replay, callNo: null, ...(again && again.runId !== runId ? { runId: again.runId } : {}) }) });
   return items;
 }
 
@@ -63,6 +64,7 @@ export function useRunCommands(o: {
         group: 'This run',
         label: `Fork at #${selected}…`,
         hint: 'inject, override, fail, switch model',
+        key: keyColumn('fork'),
         job: true,
         run: () => {
           const btn = document.getElementById('forkBtn');
@@ -85,10 +87,10 @@ export function useRunCommands(o: {
     if (canMark)
       for (const m of MARKS) {
         const on = labels.includes(m);
-        items.push({ group: 'This run', label: on ? `Take off ${m}` : `Label it ${m}`, hint: m === 'good' ? '+ · repair --keeps label:good' : '- · repair --fixes label:bad', run: () => now.current.mark(m) });
+        items.push({ group: 'This run', label: on ? `Take off ${m}` : `Label it ${m}`, hint: m === 'good' ? 'repair --keeps label:good' : 'repair --fixes label:bad', key: keyColumn(m === 'good' ? 'markGood' : 'markBad'), run: () => now.current.mark(m) });
       }
     items.push({ group: 'This run', label: 'Provenance', hint: 'the run’s record, call by call', run: () => now.current.setView('provenance') });
-    if (run.parent && next?.key !== 'compare') items.push({ group: 'This run', label: ACTIONS.compareWithParent.label, hint: shortId(run.parent.runId), run: () => navigate(href.compare(run.parent!.runId, runId)) });
+    if (run.parent && next?.key !== 'compare') items.push({ group: 'This run', label: ACTIONS.compareWithParent.label, hint: shortId(run.parent.runId), key: keyColumn('compare'), run: () => navigate(href.compare(run.parent!.runId, runId)) });
     setRunCommands(items);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the commands change with what they show; the functions they call are read when they run, and taking them in would register the commands again on every render
   }, [runId, selected, live, exported, actionsOff, canFork, run.parent?.runId, offers?.bisect?.failed, canMark, labels.join('\n'), next?.key, next?.label, next?.href, next?.command, run.replay?.label, wait]);

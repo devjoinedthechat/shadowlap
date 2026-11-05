@@ -452,7 +452,7 @@ describe('opening a fix', () => {
   const saved = { location: g.location, history: g.history };
   afterEach(() => void Object.assign(g, saved));
 
-  it('hands the focus to the fix’s page, where the link it was opened with went', async () => {
+  it('hands the focus to the fix’s heading, where the link it was opened with went', async () => {
     const run = newRun({ labels: ['refund-bug'] });
     const { fix } = blame(run);
     // The address bar as a browser has it: a link followed sets it, and the router hears it (hashchange).
@@ -482,7 +482,8 @@ describe('opening a fix', () => {
     await r.until('the fix', () => r!.all('h1').some((h) => text(h) === 'issue_refund called with amount 240'));
     expect(hash).toBe(`#/fixes/${fix.fixId}`);
     expect(link.isConnected).toBe(false);
-    // Not the document's body, from where Tab would start again at the top bar: the page.
-    expect(r.focused().getAttribute('id')).toBe('view');
+    // Not the document's body, from where Tab would start again at the top bar: the page's heading, as a target Tab never stops at.
+    expect(r.focused().tagName).toBe('H1');
+    expect(r.focused().getAttribute('tabindex')).toBe('-1');
   });
 });

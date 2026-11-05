@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { JOB_KINDS, type RunDetail, type RunOffers } from '../api.js';
 import { ConfirmDialog, PromptDialog } from '../components/Dialog.js';
-import { tipCard } from '../components/HoverCard.js';
+import { tipCard, tipText } from '../components/HoverCard.js';
 import { Icon, type IconName } from '../components/Icon.js';
 import { goldenName, shortId } from '../format.js';
 import { commandText } from '../goldens.js';
@@ -12,6 +12,7 @@ import { useJobWait, useTreeBusy } from '../fixes/tree.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { href } from '../route.js';
 import { compareTarget } from '../runs.js';
+import { shortcut } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import { startTestsJob } from '../tests-ask.js';
 import type { NextStep } from '../types.js';
@@ -79,8 +80,9 @@ export function ReplayButton({ run, step, lime, onAction }: { run: RunDetail; st
       type="button"
       disabled={!!off || !action}
       {...(lime ? { 'data-next': 'replay' } : {})}
-      {...(off ? { title: off } : step ? { 'data-tip': tipOf(stepCard(step)) } : {})}
+      {...(off ? { title: off } : step ? { 'data-tip': tipOf(stepCard(step)) } : action ? { 'data-tip': tipText(ACTIONS.replay.label) } : {})}
       onClick={() => action && onAction({ action, callNo: null, ...target })}
+      {...shortcut('replay')}
     >
       <Icon name="replay" />
       {step?.label ?? 'Replay'}
@@ -100,7 +102,7 @@ export function CompareButton({ run }: { run: RunDetail }) {
   if (!pair) {
     if (exported) return null;
     return (
-      <button className="btn" type="button" disabled title={r.status === 'running' ? 'Nothing to compare yet: replay or fork it once it finishes' : 'Nothing to compare yet: replay it or fork it first'}>
+      <button className="btn" type="button" disabled title={r.status === 'running' ? 'Nothing to compare yet: replay or fork it once it finishes' : 'Nothing to compare yet: replay it or fork it first'} {...shortcut('compare')}>
         {ACTIONS.compare.label}
       </button>
     );
@@ -109,7 +111,7 @@ export function CompareButton({ run }: { run: RunDetail }) {
   const label = r.parentRunId ? ACTIONS.compareWithParent.label : run.children.find((c) => c.runId === other)?.kind === 'fork' ? ACTIONS.compareWithFork.label : ACTIONS.compareWithReplay.label;
   const tip = tipCard(`Against ${shortId(other)}`, [], runs?.find((x) => x.runId === other)?.about?.text, `$ shadowlap diff ${shortId(pair[0])} ${shortId(pair[1])}`);
   return (
-    <a className="btn" href={href.compare(pair[0], pair[1])} data-tip={tip}>
+    <a className="btn" href={href.compare(pair[0], pair[1])} data-tip={tip} {...shortcut('compare')}>
       {label}
     </a>
   );
@@ -271,7 +273,7 @@ export function NextStepButton(props: StepProps) {
   if (step.href) {
     const icon = ICONS[step.key];
     return (
-      <a className="btn lime" href={step.href} data-next={step.key} data-tip={tipOf(stepCard(step))}>
+      <a className="btn lime" href={step.href} data-next={step.key} data-tip={tipOf(stepCard(step))} {...(step.key === 'compare' ? shortcut('compare') : {})}>
         {icon ? <Icon name={icon} /> : null}
         {step.label}
       </a>
@@ -281,7 +283,7 @@ export function NextStepButton(props: StepProps) {
     case 'replay':
       return <ReplayButton run={run} step={step} lime onAction={onAction} />;
     case 'blame':
-      return <RunBlameButton runId={run.run.runId} failed={step.offer.failed} title={blameTitle(step.offer)} tip={tipOf(stepCard(step))} className="btn lime" icon lead {...(step.capture ? { capture: true } : {})} {...(step.command ? { line: step.command } : {})} />;
+      return <RunBlameButton runId={run.run.runId} failed={step.offer.failed} title={blameTitle(step.offer)} tip={tipOf(stepCard(step))} className="btn lime" icon lead mark={shortcut('blame')} {...(step.capture ? { capture: true } : {})} {...(step.command ? { line: step.command } : {})} />;
     case 'normalizer':
     case 'update-golden':
       return step.key === 'update-golden' && !(props.offers?.test ?? step.test) ? <UpdateStep step={step} /> : <DivergedStep {...props} step={step} />;

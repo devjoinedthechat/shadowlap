@@ -11,10 +11,11 @@ import { countOrigins, parseOrigins } from '../origins.js';
 import { ACTIONS } from '../labels.js';
 import { href } from '../route.js';
 import { runType, TODAY } from '../runs.js';
-import { tipCard } from '../components/HoverCard.js';
+import { tipCard, tipText } from '../components/HoverCard.js';
 import { Status } from '../components/Status.js';
 import { useLoad } from '../hooks.js';
 import { scopeCount, scopeDepth, scopeHint, scopeLeaf } from '../scopes.js';
+import { shortcut } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import type { PendingAction } from './actions.js';
 import type { PresetAttempt } from './preset.js';
@@ -208,6 +209,8 @@ export interface BannerProps {
   onAction: (p: PendingAction) => void;
   /** An error-path preset's attempt: the preset and its verdict, from its recording's presets. */
   preset?: PresetAttempt | null;
+  /** The call `n` jumps to where it is the fork or the lost call, and its card. */
+  jump?: { n: number; card: string } | null;
 }
 
 /**
@@ -225,8 +228,14 @@ function CallWords({ words, call }: { words: string; call: (n: number) => ReactN
   );
 }
 
+/** What `n` jumps to says so on the banner's call that shows it: a card that says its key and goes with it. */
+function jumpMark(n: number, jump: { n: number; card: string } | null | undefined) {
+  const mark = jump?.n === n ? shortcut('jump') : {};
+  return mark['aria-keyshortcuts'] ? { ...mark, 'data-tip': tipText(jump!.card) } : undefined;
+}
+
 /** The run's one banner: recording now, a preset's attempt, how it forked, where it was lost, what was not recorded, its checks, or that it failed. */
-export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggleDiff, onSelect, onAction, preset = null }: BannerProps) {
+export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggleDiff, onSelect, onAction, preset = null, jump }: BannerProps) {
   const app = useApp();
   const r = run.run;
   const iv = run.intervention ?? null;
@@ -260,12 +269,12 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
   });
   if (!b) return null;
   const call = (n: number) => (
-    <button className="bn" type="button" onClick={() => onSelect(n)}>
+    <button className="bn" type="button" onClick={() => onSelect(n)} {...jumpMark(n, jump)}>
       #{n}
     </button>
   );
   const diffToggle = (
-    <button className="linkbtn" type="button" onClick={onToggleDiff}>
+    <button className="linkbtn" type="button" data-act="diff" onClick={onToggleDiff}>
       {showDiff ? 'Hide diff' : 'Show diff'}
     </button>
   );
