@@ -109,8 +109,10 @@ describe('where a call’s answer came from', () => {
 
   it('keeps the replayed colour for a replayed call: a verdict is drawn in the consequence colours, a score and a finished step neutral', () => {
     for (const s of ['.pips i', '.st.ok i', '.attempts span i', '.attempts a i', '.alist > .al > i', '.astrip .ac', 'td.hist i.pass::before', '.prl i.ok', '.recline .ic']) expect(value(s, 'background'), s).toBe('var(--cq-lime)');
-    for (const s of ['.pips i.no', '.attempts span i.no', '.attempts a i.no', '.alist > .al > i.no', '.astrip .ac.no', '.fxlegend i.lg.block']) expect(value(s, 'background'), s).toBe('var(--cq-red)');
-    expect(value('.fxlegend i.lg.rep', 'background')).toBe('var(--cq-lime)');
+    for (const s of ['.pips i.no', '.attempts span i.no', '.attempts a i.no', '.alist > .al > i.no', '.astrip .ac.no']) expect(value(s, 'background'), s).toBe('var(--cq-red)');
+    // The row of calls' key says each probe's word in its colour.
+    expect(value('.fxleg .lw.ok', 'color')).toBe('var(--cq-lime)');
+    expect(value('.fxleg .lw.lost', 'color')).toBe('var(--cq-red)');
     for (const s of ['.sbar i', '.stepper .done .k i', '.psk.done i']) expect(value(s, 'background'), s).toBe('var(--dim)');
     const misused = rules().filter((r) => /var\(--o-rep\)/.test(r.body) && !r.selectors.every((s) => /\.rep\b|\.clean\b|\.metric b\.lime|^:root$/.test(s)));
     expect(misused.map((r) => r.selectors.join(', '))).toEqual([]);
@@ -222,7 +224,7 @@ describe('lime', () => {
   /** Passed, wherever it is drawn: a verdict's word, dot, cell, mark or ring. */
   const PASSED: Record<string, string> = {
     '.pips i': 'an attempt that passed',
-    '.fxlegend i.lg.rep': 'the probes’ key: an attempt that passed',
+    '.fxleg .lw.ok': 'the row of calls’ key: a probe that rescued the run',
     '.attempts span i': 'an attempt that passed',
     '.attempts a i': 'an attempt that passed',
     '.st.ok i': 'a run that came out well',
@@ -293,6 +295,7 @@ describe('amber', () => {
     '.pips i.unsure': 'an attempt that couldn’t decide',
     '.pips i.part': 'an attempt that partly passed: inconclusive',
     '.legend i.lg.unsure': 'the probes’ key: an attempt that couldn’t decide',
+    '.fxleg .lw.unsure': 'the row of calls’ key: a probe that couldn’t decide',
     '.attempts span i.unsure': 'an attempt that couldn’t decide',
     '.attempts a i.unsure': 'an attempt that couldn’t decide',
     '.st.warn': 'a status that needs a look',

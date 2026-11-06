@@ -312,6 +312,10 @@ export interface CallCell {
   inconclusive: number;
   /** Outside the blame's scope. */
   dim: boolean;
+  /** A model call blame's search steps through, probed or not (`BlameStep['callRow']`'s `probed`). */
+  probed: boolean;
+  /** Its probe's passes of the attempts judged, over the call (`3/4`); null for one no probe re-asked. */
+  tally: string | null;
   /** For a gap: how many calls it stands for. */
   skipped?: number;
 }
@@ -325,7 +329,7 @@ export const CALL_ROW_MAX = 18;
  * either side of each, and the first and last, with a gap for each stretch of model calls left out.
  */
 export function callRowCells(row: BlameStep['callRow'], max = CALL_ROW_MAX): { cells: CallCell[]; toolsLeftOut: boolean } {
-  const cell = (c: BlameStep['callRow'][number]): CallCell => ({ callNo: c.callNo, kind: c.kind === 'api' ? 'm' : 't', verdict: c.verdict, passes: c.passes, attempts: c.attempts, inconclusive: c.inconclusive ?? 0, dim: !c.inScope });
+  const cell = (c: BlameStep['callRow'][number]): CallCell => ({ callNo: c.callNo, kind: c.kind === 'api' ? 'm' : 't', verdict: c.verdict, passes: c.passes, attempts: c.attempts, inconclusive: c.inconclusive ?? 0, dim: !c.inScope, probed: c.probed, tally: c.tally });
   if (row.length <= max) return { cells: row.map(cell), toolsLeftOut: false };
   const models = row.filter((c) => c.kind === 'api' || c.verdict !== null);
   const keep = new Set<number>();
@@ -341,7 +345,7 @@ export function callRowCells(row: BlameStep['callRow'], max = CALL_ROW_MAX): { c
     for (let i = 0; i < models.length && keep.size < max; i++) add(i);
   }
   const cells: CallCell[] = [];
-  const gap = (callNo: number, skipped: number): CallCell => ({ callNo, kind: 'gap', verdict: null, passes: 0, attempts: 0, inconclusive: 0, dim: false, skipped });
+  const gap = (callNo: number, skipped: number): CallCell => ({ callNo, kind: 'gap', verdict: null, passes: 0, attempts: 0, inconclusive: 0, dim: false, probed: false, tally: null, skipped });
   let hiddenModels = 0;
   let hidden = 0;
   for (const c of row) {
@@ -360,23 +364,17 @@ export function callRowCells(row: BlameStep['callRow'], max = CALL_ROW_MAX): { c
 }
 
 /**
- * How a probe's verdict reads as a badge: rescued in lime (the blamed one too: it rescued the run),
+ * How a probe's verdict reads as a status: rescued in lime (the blamed one too: it rescued the run),
  * lost in red, inconclusive in amber. Amber means only that a verdict couldn't be reached; the blamed
  * call is marked apart, in ink (`probeVerdictWords`).
  */
-export function probeBadge(verdict: BlameStep['probes'][number]['verdict']): 'ok' | 'no' | 'y' {
-  return verdict === 'inconclusive' ? 'y' : verdict === 'lost' ? 'no' : 'ok';
+export function probeTone(verdict: BlameStep['probes'][number]['verdict']): 'ok' | 'err' | 'warn' {
+  return verdict === 'inconclusive' ? 'warn' : verdict === 'lost' ? 'err' : 'ok';
 }
 
 /** A probe's verdict word, and whether it is the blamed call, which the badge's row marks in ink: `rescued` and `blamed`. */
 export function probeVerdictWords(verdict: BlameStep['probes'][number]['verdict']): { word: string; blamed: boolean } {
   return verdict === 'rescued · blamed' ? { word: 'rescued', blamed: true } : { word: verdict, blamed: false };
-}
-
-/** "Model call 3 of 4" (in scope agent), or the run alone when blame placed the failure on no call. */
-export function blameWhere(b: Pick<BlameStep, 'step' | 'steps' | 'scope'>): string | null {
-  if (b.step === null) return null;
-  return `Model call ${b.step} of ${b.steps}${b.scope ? ` in scope ${b.scope}` : ''}`;
 }
 
 // ---------------------------------------------------------------------------------------------- repair

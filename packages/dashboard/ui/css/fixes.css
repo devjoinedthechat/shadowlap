@@ -7,8 +7,8 @@
 .callrow { list-style: none; margin: 30px 0 0; padding: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); position: relative; }
 .callrow::before { content: ""; position: absolute; left: 6%; right: 6%; top: 45px; height: 2px; background: var(--line2); }
 .callrow li { display: flex; flex-direction: column; align-items: center; gap: 6px; position: relative; }
-.callrow .pp { height: 10px; }
-.callrow .pl { height: 14px; font: 10.5px/14px var(--mono); color: var(--faint); white-space: nowrap; }
+.callrow .pp { height: 12px; font: 11px/12px var(--mono); color: var(--faint); white-space: nowrap; }
+.callrow .pl { height: 14px; font: 11px/14px var(--mono); color: var(--faint); white-space: nowrap; }
 .callrow .nr { height: 18px; display: flex; align-items: center; }
 .callrow .cn { width: 9px; height: 9px; border-radius: 50%; background: var(--line2); }
 .callrow .m .cn { width: 15px; height: 15px; border: 2px solid var(--dim); background: var(--panel); }
@@ -30,7 +30,8 @@
 .ans code { text-wrap: pretty; }
 table.probes td, table.probes th { padding: 10px 12px; }
 table.probes tr.hot td { background: var(--sel); }
-.bmk { margin-left: 8px; font: 600 10.5px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink); }
+/* blamed, beside a probe's status: in ink, the row's own size */
+.bmk { font: 600 12.5px var(--body); color: var(--ink); }
 
 .deltas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .deltas div { padding: 14px 16px; }
@@ -176,14 +177,19 @@ table.probes tr.hot td { background: var(--sel); }
 
 .fxgap { margin-top: 16px; }
 .callrow.fxrow { margin-top: 6px; }
-.callrow li.dim { opacity: .4; }
+/* outside the blame's scope a call's dot is dimmed; its number stays in the faint text colour, which passes contrast */
+.callrow li.dim > :not(.cl) { opacity: .38; }
+/* the whole column takes the tap: its ring or dot is too small a target of its own */
+.callrow .cn { display: block; }
+.callrow .cn::after { content: ""; position: absolute; inset: 0; }
 .callrow li.gap .nr { font: 11px var(--mono); color: var(--faint); }
 .callrow a.cn:hover { box-shadow: 0 0 0 4px var(--hover); }
-.fxlegend { margin-top: 16px; }
-/* the probes' key says passed and failed as their attempts' pips do, in the consequence colours: the markup names the
-   replayed and blocked origins' swatches, which say where a call's answer came from */
-.fxlegend i.lg.rep { background: var(--cq-lime); }
-.fxlegend i.lg.block { background: var(--cq-red); box-shadow: none; }
+/* the row's key names only what it shows, each word in its probe's colour */
+.legend.fxleg { margin-top: 16px; row-gap: 6px; font: 12px var(--body); }
+.fxleg .lw.ok { color: var(--cq-lime); }
+.fxleg .lw.lost { color: var(--cq-red); }
+.fxleg .lw.unsure { color: var(--cq-amber); }
+.fxleg .lw.hot { color: var(--ink); }
 .ans.one { grid-template-columns: minmax(0, 1fr); }
 .fxbundle + .fxbundle { margin-top: 12px; }
 /* A gate's attempts grouped by what each did: how many, the path they took, how they came out, why, and one to open. */
@@ -222,8 +228,46 @@ table.t td.fxwhere { color: var(--faint); }
 .fxwarn { margin: 14px 0 0; padding-left: 18px; color: var(--warn); font-size: 12.5px; }
 .fxwarn.bad { margin: -4px 0 16px; color: var(--err); }
 .fxwarn.bad li.unsure { color: var(--warn); }
-.fxlist { margin: 6px 0 14px; padding-left: 18px; color: var(--dim); font-size: 13px; }
-.fxlist.bad { color: var(--del); }
+.fxlist { margin: 6px 0 12px; padding-left: 18px; color: var(--dim); font-size: 13.5px; }
+.fxlist.bad li::marker { color: var(--cq-red); }
+/* a part's label in sentence case, over what it labels: the recording, a rescued fork, as recorded */
+.lbl { display: block; font: 500 12px var(--body); color: var(--faint); }
+.lbl + .fxlist, .lbl + code { margin-top: 4px; }
+.ans .lbl { display: inline; }
+.ans .rfid code { display: inline; margin: 0; font-size: 12.5px; }
+/* on a fix's step the two answers are one column: a hairline between them, none above the first */
+.fxg .ans > div:first-child { border-top: 0; padding-top: 0; }
+.fxg .ans > div + div { padding-top: 14px; }
+/* a step opens on its verdict line, then what was found in a sentence */
+.verdict.sv { margin-bottom: 12px; }
+.fxsay { margin: 0 0 24px; max-width: 90ch; color: var(--dim); font-size: 13.5px; line-height: 1.55; text-wrap: pretty; }
+.verdict p .dtip { text-decoration: underline dotted var(--line2); text-decoration-thickness: 1px; text-underline-offset: 3px; cursor: help; }
+.verdict p .dtip:focus-visible { outline-offset: 1px; border-radius: 2px; }
+.grid2.fxg { align-items: start; }
+/* a probe's tally keeps its two halves whole and breaks only after its dot, the bar and the toggle together */
+table.probes td.ptally { white-space: normal; color: var(--dim); font: 12.5px var(--body); font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+/* under the pointer the blamed row's ground reaches into the gutters as a row's hover does, in its own tone */
+:where(.panel.sec table.probes) tr.hot:hover > td:first-child { box-shadow: -12px 0 0 var(--sel); }
+:where(.panel.sec table.probes) tr.hot:hover > td:last-child { box-shadow: 12px 0 0 var(--sel); }
+/* a row's attempts, under it on request */
+table.t tr.sub td { padding: 4px 12px 14px 44px; white-space: normal; background: none; }
+/* blame's probes on a phone: each row stacks, the call and the verdict first, the tally under them */
+@media (max-width: 640px) {
+  .tscroll table.probes { min-width: 0; }
+  table.probes thead { display: none; }
+  table.probes tr:not(.sub) { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 10px; row-gap: 4px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  table.probes tr:not(.sub) td { padding: 0; border: 0; }
+  /* the last row's hairline is the row's own, not one under each of its cells as well */
+  .panel.sec table.probes tbody tr:last-child td { border-bottom: 0; }
+  table.probes td.pc { grid-row: 1; grid-column: 1; }
+  table.probes td.pv { grid-row: 1; grid-column: 2; }
+  table.probes td.pm { grid-row: 1; grid-column: 3; color: var(--faint); font-size: 12px; }
+  table.probes td.ptally { grid-row: 2; grid-column: 1 / -1; }
+  table.t tr.sub { display: block; }
+  table.t tr.sub td { display: block; padding: 0 14px 12px; }
+  /* a long run numbers only the model calls in the blame's scope, so the labels never run together; the others' numbers are on hover */
+  .callrow.dense li.t .cl, .callrow.dense li.dim .cl { visibility: hidden; }
+}
 .ph .fxrename { margin-left: 4px; vertical-align: 1px; }
 
 .fxsource { color: var(--ink); }

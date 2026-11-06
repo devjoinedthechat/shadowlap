@@ -32,7 +32,7 @@ export { type VerifyStep, type VerifyMore } from './fix-verify-step.js';
 export { type FixesSummary, type WeekWindows, fixesSummary, type NeedsLookItem, needsLookFixes } from './fix-summary.js';
 export { type FixRef, type RunBlame, type FixForRun, fixForRun } from './fix-for-run.js';
 export { type FixBundleAttempt, type FixBundle, fixBundles } from './fix-bundles.js';
-export { type StepKey, type VerifyRow, type FixActions, fixHref, shortFailure, type PatchCheck, type RewriteCheck, type FixRung, type FixPr } from './fix-shared.js';
+export { type StepKey, type StepLine, type VerifyRow, type FixActions, fixHref, shortFailure, type PatchCheck, type RewriteCheck, type FixRung, type FixPr } from './fix-shared.js';
 export { APPLY_GOLDENS, fieldChange, type GoldensFolder, goldensFolderIn } from './fix-actions.js';
 export { type FixLead } from './fix-lead.js';
 

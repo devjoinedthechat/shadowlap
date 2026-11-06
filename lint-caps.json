@@ -446,9 +446,6 @@
     "packages/dashboard/ui/api.ts": {
       "createClient": 172
     },
-    "packages/dashboard/ui/fixes/BlameStep.tsx": {
-      "BlameStepView": 193
-    },
     "packages/dashboard/ui/pages/NewProject.tsx": {
       "NewProjectPage": 162
     },

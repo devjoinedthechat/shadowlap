@@ -114,7 +114,7 @@ describe('a fix’s page, with what its verdicts say beyond their tallies', () =
     });
     const page = await open(fixId, 'blame');
     // The bound as the CLI prints it after the confidence.
-    expect(text(page.one('.sh p'))).toMatch(/· confidence high \(<= 4% risk that the range is wrong: 3 probes decided, at <= 1\.3% risk each\) · lost between #3 and #5/);
+    expect(text(page.one('.verdict p'))).toMatch(/· confidence high \(<= 4% risk that the range is wrong: 3 probes decided, at <= 1\.3% risk each\) · lost between #3 and #5/);
     const row = page.all('table.probes tbody tr')[1];
     expect(text(row)).toContain('· 2 unavailable');
   });
@@ -172,7 +172,10 @@ describe('a fix’s attempts grouped by what each did', () => {
       cut: false,
     };
     const blamePage = await open(fixId, 'blame', groups);
-    await blamePage.until('the groups', () => blamePage.all('.agroups').length > 0);
+    // A probe's groups show with its attempts, under its row once it is opened.
+    const probe = blamePage.all('table.probes tbody tr').find((x) => text(x).startsWith('#5'))!;
+    await blamePage.click(probe.querySelector('button.xbtn')!);
+    await blamePage.until('the groups', () => blamePage.all('tr.sub .agroups').length > 0);
     const lines = blamePage.all('.agroups li').map(text);
     expect(lines).toEqual(['2× escalate (stubbed) passed 01M3RZ0011 →', '2× issue_refund (blocked) failed issue_refund called 1 time 01M3RZ0012 →']);
     expect(blamePage.one('.agroups li.failed a').getAttribute('href')).toBe('#/run/01M3RZ0012AAAAAAAAAAAAAAAA/5');

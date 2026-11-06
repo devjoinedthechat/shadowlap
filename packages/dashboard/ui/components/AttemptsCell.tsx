@@ -87,14 +87,16 @@ const BAR_TONE: Partial<Record<Tone, 'ok' | 'no' | 'y'>> = { ok: 'ok', err: 'no'
 
 /**
  * The cell: `tally` ("17 of 18", as the server words it) and `bound` ("rate >= 0.74 (95%)", the
- * first on a page a defined term), the interval against `marks` when a gate decided it, and a
- * toggle that shows the attempts under the tally (`open`, where it starts). A row that draws the
+ * first on a page a defined term, `boundTitle` how it was worked out, on hover), the interval
+ * against `marks` when a gate decided it, and a toggle that shows the attempts under the tally
+ * (`open`, where it starts). A row that draws the
  * attempts elsewhere (a table's row under it) holds the toggle itself: `onToggle`, its `open` then
  * the state, and `listId`, the id of the list it draws.
  */
 export function AttemptsCell({
   tally,
   bound,
+  boundTitle,
   interval,
   marks = [],
   tone,
@@ -106,6 +108,8 @@ export function AttemptsCell({
 }: {
   tally: string;
   bound?: string | null;
+  /** The bound's method, as the CLI's report says it rests on: "the bound: exact under the gate’s stopping rule". */
+  boundTitle?: string | undefined;
   interval?: { lo: number; hi: number } | null;
   marks?: readonly number[];
   /** The verdict's colour: the bar's. */
@@ -134,7 +138,9 @@ export function AttemptsCell({
         {bound ? (
           <>
             {' '}
-            <span className="nw">{glossed(bound)}</span>
+            <span className="nw" title={boundTitle}>
+              {glossed(bound)}
+            </span>
           </>
         ) : null}
         {bar || n ? (

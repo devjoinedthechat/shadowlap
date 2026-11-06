@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applySteps, markLead, updateOutdatedAsk } from '../ui/fixes/dialog-words.js';
-import { appliedButton, attemptMark, blameNextStep, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, keepAt, laterStamp, mergeTreeJobs, moreLine, nothingAcceptedWhy, otherBlameWords, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, probeVerdictWords, repairAside, repairAsk, repairBy, repairReceipt, roleBadges, sameFolder, stepFor, leadingVerdict, treeBusy, verdictTone, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
+import { appliedButton, attemptMark, blameNextStep, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, keepAt, laterStamp, mergeTreeJobs, moreLine, nothingAcceptedWhy, otherBlameWords, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeTone, probeVerdictWords, repairAside, repairAsk, repairBy, repairReceipt, roleBadges, sameFolder, stepFor, leadingVerdict, treeBusy, verdictTone, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '../ui/types.js';
 
@@ -295,15 +295,15 @@ describe('the Blame step', () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 
-  it('badges a probe: rescued in lime, the blamed one too, lost in red, and only an inconclusive one in amber', () => {
-    expect(probeBadge('rescued')).toBe('ok');
-    expect(probeBadge('lost')).toBe('no');
+  it('says a probe’s status: rescued in lime, the blamed one too, lost in red, and only an inconclusive one in amber', () => {
+    expect(probeTone('rescued')).toBe('ok');
+    expect(probeTone('lost')).toBe('err');
     // The blamed call rescued the run: lime, and marked blamed apart, in ink.
-    expect(probeBadge('rescued · blamed')).toBe('ok');
+    expect(probeTone('rescued · blamed')).toBe('ok');
     expect(probeVerdictWords('rescued · blamed')).toEqual({ word: 'rescued', blamed: true });
     expect(probeVerdictWords('lost')).toEqual({ word: 'lost', blamed: false });
     // Inconclusive reads amber, as every page shows it: neither rescued nor lost.
-    expect(probeBadge('inconclusive')).toBe('y');
+    expect(probeTone('inconclusive')).toBe('warn');
   });
 });
 

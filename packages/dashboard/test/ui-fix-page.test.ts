@@ -155,14 +155,14 @@ describe('the Blame step', () => {
     await open(blame(run, { report }).fix.fixId, 'blame');
     const cli = /^ {2}Confidence: high \((.+)\)$/m.exec(formatBlame(report))?.[1];
     expect(cli).toBe('<= 3% risk that the call is wrong: 3 probes decided, at <= 1% risk each');
-    const head = text(r!.one('.sh p'));
+    const head = text(r!.one('.verdict p'));
     expect(head).toContain(` · confidence high (${cli!})`);
     expect(head).not.toContain('0.0297');
     await r!.unmount();
     // A report from before blame bounded its error says its confidence alone, as it did.
     const older = newRun({ labels: ['triage'], calls: ['api', 'tool', 'api', 'tool', 'api'] });
     await open(blame(older).fix.fixId, 'blame');
-    expect(text(r!.one('.sh p'))).toMatch(/ · confidence high(?! \()/);
+    expect(text(r!.one('.verdict p'))).toMatch(/ · confidence high(?! \()/);
   });
 
   it('prints no bound where the CLI prints no confidence line: every attempt that passed answered the call as the recording did', async () => {
@@ -173,9 +173,8 @@ describe('the Blame step', () => {
     for (const p of report.probes) p.risk = 0.01;
     expect(formatBlame(report)).not.toContain('Confidence:');
     await open(blame(run, { report }).fix.fixId, 'blame');
-    const head = text(r!.one('.sh p'));
-    expect(head).toContain(why);
-    expect(head).not.toMatch(/risk/);
+    expect(text(r!.one('p.fxsay'))).toContain(why);
+    expect(text(r!.one('.verdict p'))).not.toMatch(/risk/);
   });
 });
 
