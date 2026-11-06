@@ -208,10 +208,11 @@ describe('a run page’s views at every width', () => {
     expect(at(MID)).toBeGreaterThan(at(['@media (max-width: 1159px)']));
   });
 
-  it('keeps the strip’s key on a narrow screen, under cells that stay at the window’s top', () => {
+  it('keeps the strip’s key on a narrow screen, under cells that stay at the window’s top, its wrapped chips 24px to a finger', () => {
     const narrow = ['@media (max-width: 1000px)'];
     expect(under(narrow, '.strip', 'display')).toBe('contents');
     expect(under(narrow, '.strip .cells', 'position')).toBe('sticky');
+    expect(under(narrow, '.strip .legend.lfilter button', 'min-height')).toBe('24px');
     expect(styleRules().some((r) => r.selectors.includes('.strip .legend') && r.decls.some(([p, v]) => p === 'display' && v === 'none'))).toBe(false);
   });
 

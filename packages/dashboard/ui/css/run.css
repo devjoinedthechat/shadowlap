@@ -450,6 +450,8 @@ table.ctab tr.miss td { color: var(--warn); }
   .strip { display: contents; }
   .strip .cells { flex: none; position: sticky; top: 0; z-index: 6; padding: 18px 16px 10px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--bg); }
   .strip .legend.lfilter { flex: none; padding: 10px 16px 0; }
+  /* its rows wrap here, a chip over another: each 24px tall, a finger's target */
+  .strip .legend.lfilter button { min-height: 24px; }
   .strip .filter-in { margin: 8px 16px 10px; }
   .strip .filter-in input { width: 100%; }
   .rv .scopebar { padding-left: 16px; padding-right: 16px; }
