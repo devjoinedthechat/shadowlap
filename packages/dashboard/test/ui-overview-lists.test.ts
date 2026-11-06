@@ -67,7 +67,7 @@ describe('the Overview’s Usage', () => {
       { runId: '01M5GS3KT0QJ8V2W3X4Y5Z6A7B', kind: 'fork', callNo: 4, scope: null, model: 'sonnet-5', tokens: 3100 },
     ];
     const s = { ...summary, cache: { ...summary.cache, misses, sentAgain: 11300 } } as unknown as OverviewSummary;
-    const runs = [{ runId: misses[0]!.runId, about: { text: 'My blender arrived broken' } }];
+    const runs = [{ runId: misses[0].runId, about: { text: 'My blender arrived broken' } }];
     r = await render(createElement(AppContext.Provider, { value: { ...app(), runs } as unknown as AppState }, createElement(Usage, { s })));
     const rows = r.all('.leaks > a');
     // The id as a list draws it, its first characters quieter; the row's own hover only where the id has none.

@@ -134,7 +134,7 @@ function CachePart({ cache }: { cache: CacheUse }) {
   const pct = cache.readShare === null ? null : share(cache.readShare, 1);
   const box = useRef<HTMLDivElement>(null);
   const aboutOf = useAbouts();
-  // j and k walk the misses after Recent runs, while Usage is open; Enter opens the call's context.
+  // j and k walk the misses last, after Activity's entries, while Usage is open; Enter opens the call's context.
   const inFocus = useListKeys({ rows: cache.misses, keyOf: (m) => `${m.runId}#${m.callNo}`, root: box, open: (m) => navigate(href.run(m.runId, m.callNo, 'context')) });
   return (
     <Part title="Prompt cache" sub="live model calls, this week">
