@@ -28,14 +28,15 @@ export interface Finding {
 /** The colour each weight is listed in, on the card of the others. */
 export const SEVERITY_COLOURS: Readonly<Record<Severity, string>> = { 0: 'var(--cq-muted)', 1: 'var(--cq-amber)', 2: 'var(--cq-red)' };
 
-/** A banner's weight: lost, diverged, failed and not recorded are failures; a check that couldn't be judged needs a look. */
+/** A banner's weight: lost, diverged, failed and not recorded are failures; a check that couldn't be judged, or a blame stopped or inconclusive, needs a look. */
 export function bannerSeverity(b: Banner): Severity {
   switch (b.kind) {
     case 'diverged':
     case 'lost':
     case 'not-recorded':
-    case 'failed':
       return 2;
+    case 'failed':
+      return b.label === 'stopped' || b.label === 'inconclusive' ? 1 : 2;
     case 'checks':
       return b.checks.some((c) => c.status === 'inconclusive') ? 1 : 0;
     default:
@@ -58,6 +59,8 @@ export function bannerSays(b: Banner): string {
       return b.words.split('#')[0]!.trim();
     case 'not-recorded':
       return 'not recorded';
+    case 'failed':
+      return b.label ?? 'failed';
     default:
       return b.kind;
   }

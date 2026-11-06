@@ -163,10 +163,11 @@ describe('the run’s banner', () => {
     const fix = { id: 'fx-2', status: 'open', title: 'Confirmation email sent twice' };
     expect(bannerFor({ ...base, status: 'failed', fix })).toMatchObject({ why: 'the agent exited with an error · no change yet for “Confirmation email sent twice”', fix });
     expect(bannerFor({ ...base, status: 'failed', fix: { ...fix, status: 'verified' } })).toMatchObject({ why: 'the agent exited with an error · fixed: “Confirmation email sent twice”, verified' });
-    expect(bannerFor({ ...base, status: 'crashed', blame: { callNo: null, outcome: 'unrescuable' } })).toEqual({ kind: 'failed', why: 'the run was interrupted · blame found no call whose answer, asked again, saves the run', fix: null, blamed: true });
-    expect(bannerFor({ ...base, blame: { callNo: null, outcome: 'stopped' } })).toMatchObject({ why: 'blame confirmed it fails · blame stopped before it found the call', blamed: true });
+    // A blame that placed it on no call says how it stands as its label, in the engine's word, and what that stands on.
+    expect(bannerFor({ ...base, status: 'crashed', blame: { callNo: null, outcome: 'unrescuable' } })).toEqual({ kind: 'failed', why: 'from any model call · the run was interrupted', fix: null, blamed: true, label: 'not rescued' });
+    expect(bannerFor({ ...base, blame: { callNo: null, outcome: 'stopped' } })).toMatchObject({ why: 'blame confirmed it fails · before it found the call', blamed: true, label: 'stopped' });
     // Its first probe couldn't tell: inconclusive, which is no finding that no call saves the run.
-    expect(bannerFor({ ...base, status: 'crashed', blame: { callNo: null, outcome: 'unrescuable', unsettled: true } })).toEqual({ kind: 'failed', why: 'the run was interrupted · blame inconclusive at the first model call', fix: null, blamed: true });
+    expect(bannerFor({ ...base, status: 'crashed', blame: { callNo: null, outcome: 'unrescuable', unsettled: true } })).toEqual({ kind: 'failed', why: 'the run was interrupted · at the first model call', fix: null, blamed: true, label: 'inconclusive' });
   });
 
   it('shows nothing for a run with nothing to say', () => {

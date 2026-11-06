@@ -18,7 +18,7 @@ import type { PendingAction } from './actions.js';
 import { notRecordedBanner, ownBanner, type Banner as BannerView, type BannerInput } from './banner.js';
 import { useDivergedJobs } from './diverged.js';
 import { DifferencesPanel, useForkDifferences } from './ForkDifferences.js';
-import { runFindings, SEVERITY_COLOURS, type Finding } from './findings.js';
+import { bannerSeverity, runFindings, SEVERITY_COLOURS, type Finding } from './findings.js';
 import { attemptLinks, attemptOf, runLikeOf } from './model.js';
 import { fixStatusWords, nextStepOf } from './next-step.js';
 import type { RunNote } from './notes.js';
@@ -368,8 +368,8 @@ function ChecksFinding({ b, s }: { b: Of<'checks'>; s: Slot }) {
 function FailedFinding({ b, x, s }: { b: Of<'failed'>; x: Draw; s: Slot }) {
   const end = b.fix ? fixLink(x) : b.blamed ? null : runBlame(x);
   return (
-    <section className={cls('blame', s)}>
-      <span className="bk">failed</span>
+    <section className={cls(bannerSeverity(b) === 1 ? 'inc' : 'blame', s)}>
+      <span className="bk">{b.label ?? 'failed'}</span>
       <Why>{b.why}</Why>
       {end ? <span className="end">{end}</span> : null}
       {s.more}

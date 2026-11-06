@@ -136,3 +136,15 @@ describe('a fork’s finding', () => {
     expect(page.all('.findings .banner.fork .path')).toEqual([]);
   });
 });
+
+describe('a blame that placed the failure on no call', () => {
+  it('says how it stands as its label, amber while it needs a look, red where no call rescues the run', async () => {
+    const run = detail({ failed: true });
+    page = await render(createElement(AppContext.Provider, { value: app }, createElement(Banner, { ...props(run, [FAILED_CHECK]), blame: { callNo: null, outcome: 'stopped' } as never })));
+    expect(page.one('.findings .banner.inc .bk').textContent).toBe('stopped');
+    expect(page.one('.findings .banner.inc .why').textContent).toBe('check failed: send_email called 0 times, but called 1 time\u00a0· before it found the call');
+    await page.unmount();
+    page = await render(createElement(AppContext.Provider, { value: app }, createElement(Banner, { ...props(run, [FAILED_CHECK]), blame: { callNo: null, outcome: 'unrescuable' } as never })));
+    expect(page.one('.findings .banner.blame .bk').textContent).toBe('not rescued');
+  });
+});

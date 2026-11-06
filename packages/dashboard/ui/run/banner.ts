@@ -1,5 +1,5 @@
 import { num } from '../format.js';
-import { INCONCLUSIVE_FIRST } from '../../../engine/src/blame-words.js';
+import { blameStateWord } from '../../../engine/src/blame-words.js';
 import { fencedLabel, toolCheckLabel, toolCountDetail } from '../../../engine/src/checks/labels.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { attemptVerdict, checkFailed, FAILURE_WORDS, failureReason, lostWords } from '../../../engine/src/run-verdicts.js';
@@ -20,6 +20,9 @@ import { presetWhy, type PresetAttempt } from './preset.js';
  */
 
 /** A flag a replay ran with, as the server names it: `--fail-at` and `19=529`, and the call it names. */
+/** A blame that placed the failure on no call, in the engine's word for it. */
+type BlameState = ReturnType<typeof blameStateWord>;
+
 export interface FlagView {
   flag: string;
   value?: string | null;
@@ -136,7 +139,11 @@ export type Banner =
   | { kind: 'not-recorded'; why: string }
   | { kind: 'checks'; checks: ReadonlyArray<{ label: string; text: string; status?: string }>; why: string | null }
   | { kind: 'interrupted'; why: string }
-  | { kind: 'failed'; why: string; fix: { id: string; status: string; title: string } | null; blamed: boolean };
+  /**
+   * `label`: how a blame that placed the failure on no call stands, in the engine's word
+   * (blameStateWord): `stopped` and `inconclusive` need a look (amber), `not rescued` is a failure.
+   */
+  | { kind: 'failed'; why: string; fix: { id: string; status: string; title: string } | null; blamed: boolean; label?: BlameState };
 
 /** What made a fork diverge, in words. */
 export const DIVERGED: Readonly<Record<string, string>> = {
@@ -540,19 +547,30 @@ function checksBanner(i: BannerInput): Banner | null {
   return { kind: 'checks', checks: i.checks.map((c) => ({ label: c.label, text: checkText(c), ...(c.status ? { status: c.status } : {}) })), why };
 }
 
+/** How a blame that placed the failure on no call says what it stands on, by its word: the failure, and where blame got to. */
+const UNPLACED: Readonly<Record<BlameState, (failure: string) => string>> = {
+  stopped: (f) => `${f} · before it found the call`,
+  inconclusive: (f) => `${f} · at the first model call`,
+  'not rescued': (f) => `from any model call · ${f}`,
+};
+
 /**
- * That the run failed, and how its blame stands: its fix, where blame placed the failure on no call
- * (no answer asked again saved the run, its first probe couldn't tell, or it stopped first), why a
- * run with no model call or one stopped can't be blamed, or not blamed yet.
+ * That the run failed, and how its blame stands: its fix; where blame placed the failure on no call
+ * (no answer asked again saved the run, its first probe couldn't tell, or it stopped first), which
+ * its label says; why a run with no model call or one stopped can't be blamed; or not blamed yet.
  */
 function failedBanner(i: BannerInput): Banner | null {
   if (i.failed === false) return null;
   const failure = failureText(i);
   if (!failure) return null;
   const b = i.blame;
-  const unplaced = b ? (b.outcome === 'stopped' ? 'blame stopped before it found the call' : b.unsettled ? `blame ${INCONCLUSIVE_FIRST}` : 'blame found no call whose answer, asked again, saves the run') : null;
+  if (b && !i.fix) {
+    const label = blameStateWord(b.outcome === 'stopped' ? 'stopped' : 'unrescuable', !!b.unsettled);
+    return { kind: 'failed', why: UNPLACED[label](failure), fix: null, blamed: true, label };
+  }
+  // Blame needs a run that fails again as recorded: one with no model call, or one stopped, never does.
   const unblamable = i.modelCalls === 0 ? 'no model call to blame' : i.status === 'crashed' && !i.checks.some(checkFailed) ? 'blame needs a run that ended on its own' : null;
-  const state = i.fix ? (i.fix.status === 'open' ? `no change yet for “${i.fix.title}”` : `fixed: “${i.fix.title}”, ${i.fix.status}`) : (unplaced ?? unblamable ?? 'not blamed yet');
+  const state = i.fix ? (i.fix.status === 'open' ? `no change yet for “${i.fix.title}”` : `fixed: “${i.fix.title}”, ${i.fix.status}`) : (unblamable ?? 'not blamed yet');
   return { kind: 'failed', why: `${failure} · ${state}`, fix: i.fix, blamed: !!b };
 }
 
