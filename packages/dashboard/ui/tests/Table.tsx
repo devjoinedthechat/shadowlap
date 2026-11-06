@@ -7,7 +7,7 @@ import { checkMark, sourceText } from '../goldens.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { GateEvidence, gated } from './Evidence.js';
-import { HistoryCells, HistoryStrip, RevisionHeads } from './History.js';
+import { HistoryCells, HistoryKey, HistoryStrip, RevisionHeads } from './History.js';
 
 /**
  * Tests' table: each golden with its mode and where it came from, its checks marked by how its last
@@ -29,7 +29,7 @@ export function GoldensTable({ view }: { view: TestsView }) {
             <tr>
               <th className="gg">Golden</th>
               <th className="gck">Checks</th>
-              {history ? <RevisionHeads revisions={view.revisions} /> : null}
+              {history ? <RevisionHeads view={view} /> : null}
               <th className="glast">Last result</th>
             </tr>
           </thead>
@@ -40,7 +40,7 @@ export function GoldensTable({ view }: { view: TestsView }) {
           </tbody>
         </table>
       </div>
-      <GateRules rows={view.rows} />
+      <TableFoot rows={view.rows} history={history} />
     </section>
   );
 }
@@ -182,11 +182,12 @@ function PresetsLine({ p, only }: { p: Presets; only: boolean }) {
 }
 
 /**
- * Each gate's rule, stated once under the table for every golden it decided (decision 9), beside the
- * mode its goldens show: no row repeats it. Where two rules share a mode (two goldens' gates with
- * different limits), each names the goldens it decided, so "up to 12 attempts" says whose it is.
+ * Under the table: the key to By revision's cells, then each gate's rule, stated once for every
+ * golden it decided (decision 9), beside the mode its goldens show: no row repeats it. Where two
+ * rules share a mode (two goldens' gates with different limits), each names the goldens it decided,
+ * so "up to 12 attempts" says whose it is.
  */
-function GateRules({ rows }: { rows: readonly GoldenRow[] }) {
+function TableFoot({ rows, history }: { rows: readonly GoldenRow[]; history: boolean }) {
   const rules = new Map<string, { mode: string; names: string[] }>();
   for (const r of rows) {
     const rule = r.last.gate?.rule;
@@ -195,11 +196,13 @@ function GateRules({ rows }: { rows: readonly GoldenRow[] }) {
     if (kept) kept.names.push(r.name);
     else rules.set(rule, { mode: r.modeLabel, names: [r.name] });
   }
-  if (!rules.size) return null;
+  const key = history ? <HistoryKey rows={rows} /> : null;
+  if (!rules.size && !key) return null;
   const modes = [...rules.values()].map((x) => x.mode);
   const shared = (mode: string) => modes.filter((m) => m === mode).length > 1;
   return (
     <div className="gfoot">
+      {key}
       {[...rules].map(([rule, { mode, names }]) => (
         <p key={rule}>
           <span className="chip">{mode}</span>

@@ -185,6 +185,20 @@ describe('the Tests page', () => {
       ['r0', 'd2e8a1f'],
     ]);
   });
+
+  it('draws each cell as a picture named by its card\'s words, the phone\'s strip as a group of them, and keys them under the table', async () => {
+    const page = await open();
+    const rows = page.all('table.gt tbody tr');
+    expect(rows.map((row) => one(row, 'td.hist i').getAttribute('aria-label'))).toEqual(['d2e8a1f: passed', 'd2e8a1f: failed, failed', 'd2e8a1f: inconclusive, 0 of 1 attempts passed · failed', 'd2e8a1f: not tested here']);
+    expect(rows.map((row) => one(row, 'td.hist i').className)).toEqual(['hc r0 pass', 'hc r0 fail', 'hc r0 inc', 'hc r0 none']);
+    for (const row of rows) {
+      expect(one(row, 'td.hist i').getAttribute('role')).toBe('img');
+      const strip = one(row, '.gstrip');
+      expect([strip.getAttribute('role'), strip.getAttribute('aria-label')]).toEqual(['group', 'By revision']);
+      expect(one(strip, 'i').getAttribute('aria-label')).toBe(one(row, 'td.hist i').getAttribute('aria-label'));
+    }
+    expect(page.one('.gfoot .hkey').textContent).toBe('By revisionone attemptnot tested there');
+  });
 });
 
 describe('the Tests page\'s styles', () => {

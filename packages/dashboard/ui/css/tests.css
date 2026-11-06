@@ -3,13 +3,23 @@ table.gt td { vertical-align: top; }
 table.gt .rsub { display: block; margin-top: 3px; color: var(--faint); font-size: 12px; white-space: normal; }
 table.gt .chk span { display: block; font-size: 12.5px; color: var(--dim); }
 th.hist, td.hist { width: 1%; white-space: nowrap; }
-th.hist span { display: inline-block; width: 52px; text-align: center; font: 10px var(--mono); letter-spacing: 0; text-transform: none; }
-td.hist i { display: inline-block; width: 52px; height: 12px; position: relative; }
+/* history: a dot for one attempt, a bar filled to the share that passed for several, in the verdict's colour; a ring in ink
+   where it was updated, a red ring where its gate against history found a drop. A slot wide enough for a revision id, with
+   room between it and the next. */
+th.hist span { display: inline-block; width: 56px; text-align: center; font: 10px var(--mono); letter-spacing: 0; text-transform: none; }
+th.hist span.norev { color: var(--faint); font-style: italic; }
+td.hist i { display: inline-block; width: 56px; height: 12px; position: relative; }
+td.hist i.hc { height: 14px; vertical-align: middle; }
 td.hist i::before { content: ""; position: absolute; left: 50%; top: 50%; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; border-radius: 50%; }
 td.hist i.pass::before { background: var(--cq-lime); }
-td.hist i.fail::before { background: var(--err); }
+td.hist i.fail::before { background: var(--cq-red); }
 td.hist i.inc::before { background: var(--cq-amber); }
 td.hist i.none::before { width: 10px; height: 2px; margin: -1px 0 0 -5px; border-radius: 1px; background: var(--line2); }
+td.hist i.meter::before { width: 24px; height: 6px; margin: -3px 0 0 -12px; border-radius: 2px; background: var(--line2); }
+td.hist i.meter b { position: absolute; left: 50%; top: 50%; height: 6px; margin: -3px 0 0 -12px; max-width: 24px; border-radius: 2px; }
+td.hist i.meter.pass b { background: var(--cq-lime); }
+td.hist i.meter.fail b { background: var(--cq-red); }
+td.hist i.meter.inc b { background: var(--cq-amber); }
 pre.report { margin: 0; padding: 14px 16px; border-radius: 10px; background: var(--bg2); border: 1px solid var(--line); font: 12px/1.6 var(--mono); color: var(--dim); white-space: pre-wrap; overflow-x: auto; }
 pre.report .no, pre.report .del { color: var(--err); }
 pre.report .add { color: var(--add); }
@@ -20,6 +30,8 @@ pre.report .add { color: var(--add); }
 
 /* Goldens and bisect. An updated golden's history cell gets a ring. */
 td.hist i.upd::after { content: ""; position: absolute; left: 50%; top: 50%; width: 17px; height: 17px; margin: -8.5px 0 0 -8.5px; border-radius: 50%; box-shadow: 0 0 0 1.5px var(--ink); }
+td.hist i.hdrop::after { content: ""; position: absolute; left: 50%; top: 50%; width: 17px; height: 17px; margin: -8.5px 0 0 -8.5px; border-radius: 50%; box-shadow: 0 0 0 1.5px var(--cq-red); }
+td.hist i.meter.hdrop::after, td.hist i.meter.upd::after { width: 30px; height: 12px; margin: -6px 0 0 -15px; border-radius: 6px; }
 
 .bisect { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 13px; }
 .bisect .k { font: 500 10.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
@@ -80,11 +92,20 @@ table.gt .chk .ck.not-applicable .cm, table.gt .chk .ck.not-applicable .cw { col
 .gtw table.gt .chk.gin { display: none; margin-top: 10px; }
 /* the history's column is named over its revisions, as the mock names it */
 .gtw table.gt th.hist span.hn { display: block; width: auto; margin: 0 0 6px; text-align: left; font: inherit; letter-spacing: inherit; text-transform: inherit; }
-.gtw .gstrip { display: none; gap: 3px; }
-.gtw .gstrip i { width: 8px; height: 8px; border-radius: 2px; background: var(--line2); }
-.gtw .gstrip i.pass { background: var(--ok); }
-.gtw .gstrip i.fail { background: var(--err); }
-.gtw .gstrip i.inc { background: var(--warn); }
+/* on a phone, a square a revision under the golden's name, read as its cells are: several attempts fill it from the bottom
+   to the share that passed; a red ring for a drop, an ink one for an update */
+.gtw .gstrip { display: none; gap: 3px; align-items: center; }
+.gtw .gstrip i { position: relative; flex: none; width: 8px; height: 8px; border-radius: 2px; background: var(--line2); }
+.gtw .gstrip i.pass { background: var(--cq-lime); }
+.gtw .gstrip i.fail { background: var(--cq-red); }
+.gtw .gstrip i.inc { background: var(--cq-amber); }
+.gtw .gstrip i.meter.pass { background: linear-gradient(to top, var(--cq-lime) var(--f), var(--line2) var(--f)); }
+.gtw .gstrip i.meter.fail { background: linear-gradient(to top, var(--cq-red) var(--f), var(--line2) var(--f)); }
+.gtw .gstrip i.meter.inc { background: linear-gradient(to top, var(--cq-amber) var(--f), var(--line2) var(--f)); }
+.gtw .gstrip i.hdrop, .gtw .gstrip i.upd { margin: 0 3px; }
+.gtw .gstrip i.hdrop::after, .gtw .gstrip i.upd::after { content: ""; position: absolute; inset: -3px; border-radius: 2px; }
+.gtw .gstrip i.upd::after { box-shadow: 0 0 0 1.5px var(--ink); }
+.gtw .gstrip i.hdrop::after { box-shadow: 0 0 0 1.5px var(--cq-red); }
 
 @container (max-width: 1000px) {
   .gtw table.gt .hist .r3, .gtw table.gt .hist .r4, .gtw table.gt .hist .r5 { display: none; }
@@ -128,6 +149,19 @@ table.gt .gev .wib { margin: 0; width: 96px; }
 .gfoot p { margin: 0; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .gfoot .chip { flex: none; }
 .gfoot .gnames { font-weight: 500; color: var(--dim); }
+/* the key to By revision's cells, first under the table, before each gate's rule: the label and each entry on one baseline,
+   the glyphs centred on their own words */
+.hkey { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin: 0; }
+.hkey > span { display: inline-flex; align-items: baseline; gap: 4px; }
+.hkey .hk { align-self: center; }
+.hkey .hkh { font: 10px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+.hk { position: relative; display: inline-block; width: 22px; height: 14px; flex: none; }
+.hk::before { content: ""; position: absolute; left: 50%; top: 50%; }
+.hk.hk-dot::before { width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; background: var(--dim); }
+.hk.hk-bar::before { width: 20px; height: 6px; margin: -3px 0 0 -10px; border-radius: 2px; background: linear-gradient(90deg, var(--dim) 65%, var(--line2) 65%); }
+.hk.hk-none::before { width: 10px; height: 2px; margin: -1px 0 0 -5px; border-radius: 2px; background: var(--line2); }
+.hk.hk-upd::before, .hk.hk-drop::before { width: 13px; height: 13px; margin: -6.5px 0 0 -6.5px; border-radius: 50%; box-shadow: 0 0 0 1.5px var(--ink); }
+.hk.hk-drop::before { box-shadow: 0 0 0 1.5px var(--cq-red); }
 
 /* a part kept whole but on a phone, where it may wrap between its words */
 table.gt td.glast .kc { white-space: nowrap; }
@@ -148,5 +182,13 @@ table.gt td.glast a.gpre:hover { text-decoration: underline; text-underline-offs
   td.hist i::before { box-shadow: inset 0 0 0 1px CanvasText; }
   td.hist i.none::before { background: CanvasText; box-shadow: none; }
   td.hist i.upd::after { box-shadow: 0 0 0 1.5px CanvasText; }
+  /* a bar's track and fill keep their colours, the track edged; a drop's ring stays red, an update's is the text colour */
+  td.hist i.meter b { box-shadow: inset 0 0 0 1px CanvasText; }
   .gtw .gstrip i { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText; }
+  .gtw .gstrip i.upd::after { box-shadow: 0 0 0 1.5px CanvasText; }
+  /* the key's glyphs are its cells' own */
+  .hk { forced-color-adjust: none; }
+  .hk.hk-dot::before, .hk.hk-bar::before { box-shadow: inset 0 0 0 1px CanvasText; }
+  .hk.hk-none::before { background: CanvasText; }
+  .hk.hk-upd::before { box-shadow: 0 0 0 1.5px CanvasText; }
 }

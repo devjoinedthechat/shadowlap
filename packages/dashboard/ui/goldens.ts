@@ -4,7 +4,7 @@ import { rateBound } from '../../engine/src/stats.js';
 import { twoDigits as pad } from '../../engine/src/words.js';
 import { href } from './route.js';
 import { noteText, UNGUARDED_FIX } from './run/note-words.js';
-import type { BisectMiss, BisectRevision, CiWorkflowOptions, DivergenceView, FailureView, FoundCommit, GoldenCheck, GoldenRow, HistoryCell, InconclusiveView, TestsView } from './types.js';
+import type { BisectMiss, BisectRevision, CiWorkflowOptions, DivergenceView, FailureView, FoundCommit, GoldenCheck, GoldenRow, InconclusiveView, TestsView } from './types.js';
 
 /**
  * The Tests screen's words and choices, from the tests read model (`GET /api/tests`): the verdict's
@@ -118,27 +118,12 @@ export function revisionChoices(revisions: readonly BisectRevision[], tried: str
   return { options, initial };
 }
 
-/** A revision as the history's column names it: the short sha, with a + when it was tested with changes on top. */
+/** A revision as the history's column names it: the short sha, with a + when it was tested with changes on top; `no rev` for none, never a dash. */
 export function revLabel(rev: string | null): string {
-  if (!rev) return '—';
+  if (!rev) return 'no rev';
   const dirty = rev.endsWith('+dirty');
   const base = rev.replace(/\+dirty$/, '');
   return `${/^[0-9a-f]{8,}$/.test(base) ? base.slice(0, 7) : base.slice(0, 8)}${dirty ? '+' : ''}`;
-}
-
-/**
- * How a golden did at one revision, for its history cell's hover: the title and one coloured row. A
- * pass says when it was updated there, and a connection the network guard blocked in its replay.
- */
-export function historyTip(cell: HistoryCell, name: string): { title: string; label: string; value: string; color: string } {
-  const title = `${cell.revision ?? 'no revision'} · ${name}`;
-  // Run again on its own with changes on top of this commit (Add normalizer and re-run): said, as it isn't the commit alone.
-  const again = cell.tested && cell.tested !== cell.revision ? `run again at ${cell.tested}` : null;
-  // Neither passed nor failed: amber, with the attempts it ran.
-  if (cell.verdict === 'inconclusive') return { title, label: 'inconclusive', value: [again, cell.rate ? `${cell.rate.passes} of ${cell.rate.attempts} attempts passed` : null, cell.note].filter(Boolean).join(' · '), color: 'var(--warn)' };
-  if (cell.result === 'pass') return { title, label: 'passed', value: [cell.updated ? 'updated here: re-recorded, its checks passed' : null, again, cell.note].filter(Boolean).join(' · '), color: 'var(--o-rep)' };
-  if (cell.result === 'fail') return { title, label: 'failed', value: [again, cell.updated ? `updated here, then ${cell.note ?? 'failed'}` : cell.note].filter(Boolean).join(' · '), color: 'var(--err)' };
-  return { title, label: 'not tested here', value: '', color: 'var(--line2)' };
 }
 
 /**

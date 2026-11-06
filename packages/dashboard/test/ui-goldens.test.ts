@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { asksUpdate, checkMark, checkReportLine, checkWords, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, historyTip, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revisionChoices, revLabel, runningTests, sessionLine, sessionWait, shortDate, sourceText, testsBusy, testsPalette, TESTS_UPDATE_HASH } from '../ui/goldens.js';
+import { cellNote, cellShare, historyKey, KEY_WORDS, revisionTip } from '../ui/tests/cells.js';
+import { asksUpdate, checkMark, checkReportLine, checkWords, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revisionChoices, revLabel, runningTests, sessionLine, sessionWait, shortDate, sourceText, testsBusy, testsPalette, TESTS_UPDATE_HASH } from '../ui/goldens.js';
 import { updatePlan } from '../ui/update-plan.js';
 import { jobStatus } from '../ui/jobs.js';
-import type { DivergenceView, FailureView, GoldenCheck, GoldenRow, InconclusiveView, TestsView, UnjudgedCheck } from '../ui/types.js';
+import type { DivergenceView, FailureView, GoldenCheck, GoldenRow, HistoryCell, InconclusiveView, TestsView, UnjudgedCheck } from '../ui/types.js';
 
 /**
  * The Tests screen's words and choices, without a browser: the verdict's line, a history cell's
@@ -133,29 +134,54 @@ describe('the verdict', () => {
 });
 
 describe('the goldens table', () => {
-  it('names each revision by its short sha, a + when it was tested with changes on top', () => {
+  it('names each revision by its short sha, a + when it was tested with changes on top, and one with none `no rev`', () => {
     expect(revLabel('d2e8a1f9c0b1')).toBe('d2e8a1f');
     expect(revLabel('d2e8a1f+dirty')).toBe('d2e8a1f+');
     expect(revLabel('v2.4.0')).toBe('v2.4.0');
-    expect(revLabel(null)).toBe('—');
+    expect(revLabel(null)).toBe('no rev');
+    // Its hover: the commit's subject, and its author where names show; a session with none says why.
+    expect(revisionTip('d2e8a1f', { rev: 'd2e8a1f', subject: 'Tighten refund wording', by: 'dana@northwind.example' })).toEqual({ t: 'd2e8a1f · Tighten refund wording', s: 'dana@northwind.example' });
+    expect(revisionTip('d2e8a1f', undefined)).toEqual({ t: 'd2e8a1f' });
+    expect(revisionTip(null, undefined)).toEqual({ t: 'no revision', s: 'This session recorded no revision: it ran outside a git repository' });
   });
+
+  /** A cell as the server sends it, with what a test names. */
+  const cell = (c: Partial<HistoryCell>): HistoryCell => ({ revision: 'd2e8a1f', tested: 'd2e8a1f', result: 'pass', verdict: 'passed', rate: null, bound: null, dropped: false, drop: null, note: null, updated: false, runId: null, at: T, ...c });
+  const tip = (c: Partial<HistoryCell>, name = 'x') => cellNote(cell(c), name);
 
   it('says on hover a golden run again on its own with changes on top of that commit', () => {
-    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f+dirty', result: 'pass', verdict: 'passed', rate: null, dropped: false, note: null, updated: false, runId: null, at: T }, 'x').value).toBe('run again at d2e8a1f+dirty');
-    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f+dirty', result: 'fail', verdict: 'failed', rate: null, dropped: false, note: 'diverged at call 3', updated: false, runId: null, at: T }, 'x').value).toBe('run again at d2e8a1f+dirty · diverged at call 3');
+    expect(tip({ tested: 'd2e8a1f+dirty' }).note).toBe('run again at d2e8a1f+dirty');
+    expect(tip({ tested: 'd2e8a1f+dirty', result: 'fail', verdict: 'failed', note: 'diverged at call 3' }).note).toBe('run again at d2e8a1f+dirty · diverged at call 3');
   });
 
-  it('says on hover how a golden did at each revision, and why it failed', () => {
-    expect(historyTip({ revision: 'b7e40c2', tested: 'b7e40c2', result: 'fail', verdict: 'failed', rate: null, dropped: false, note: 'input tokens 71,940, over the 60,000 budget', updated: false, runId: null, at: T }, 'refund-flow-budget')).toEqual({ title: 'b7e40c2 · refund-flow-budget', label: 'failed', value: 'input tokens 71,940, over the 60,000 budget', color: 'var(--err)' });
-    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f', result: 'pass', verdict: 'passed', rate: null, dropped: false, note: null, updated: true, runId: null, at: T }, 'x')).toMatchObject({ label: 'passed', value: 'updated here: re-recorded, its checks passed', color: 'var(--o-rep)' });
-    expect(historyTip({ revision: null, tested: null, result: null, verdict: null, rate: null, dropped: false, note: null, updated: false, runId: null, at: null }, 'x')).toMatchObject({ title: 'no revision · x', label: 'not tested here' });
+  it('says on hover how a golden did at each revision, and why it failed, in the verdict\'s colour, and names the cell so', () => {
+    expect(tip({ revision: 'b7e40c2', tested: 'b7e40c2', result: 'fail', verdict: 'failed', note: 'input tokens 71,940, over the 60,000 budget' }, 'refund-flow-budget')).toEqual({ title: 'b7e40c2 · refund-flow-budget', word: 'failed', note: 'input tokens 71,940, over the 60,000 budget', color: 'var(--cq-red)', label: 'b7e40c2: failed, input tokens 71,940, over the 60,000 budget' });
+    expect(tip({ updated: true })).toMatchObject({ word: 'passed', note: 'updated here: re-recorded, its checks passed', color: 'var(--cq-lime)' });
+    expect(tip({ revision: null, tested: null, result: null, verdict: null, at: null })).toEqual({ title: 'no revision · x', word: 'not tested here', note: '', color: 'var(--line2)', label: 'no revision: not tested here' });
     // Updated, and its new recording failed the replay after it: both are said.
-    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f', result: 'fail', verdict: 'failed', rate: null, dropped: false, note: 'diverged at call 8', updated: true, runId: null, at: T }, 'x').value).toBe('updated here, then diverged at call 8');
+    expect(tip({ result: 'fail', verdict: 'failed', note: 'diverged at call 8', updated: true }).note).toBe('updated here, then diverged at call 8');
     // A pass whose replay had a connection blocked says so, after the update when there was one.
-    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f', result: 'pass', verdict: 'passed', rate: null, dropped: false, note: 'blocked connection to hooks.example.com:443', updated: false, runId: null, at: T }, 'x').value).toBe('blocked connection to hooks.example.com:443');
-    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f', result: 'pass', verdict: 'passed', rate: null, dropped: false, note: 'blocked connection to hooks.example.com:443', updated: true, runId: null, at: T }, 'x').value).toBe('updated here: re-recorded, its checks passed · blocked connection to hooks.example.com:443');
-    // Inconclusive: neither, in amber, with the attempts it ran there.
-    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f', result: 'fail', verdict: 'inconclusive', rate: { passes: 16, attempts: 20 }, dropped: false, note: 'inconclusive after 20 attempts', updated: false, runId: null, at: T }, 'x')).toEqual({ title: 'd2e8a1f · x', label: 'inconclusive', value: '16 of 20 attempts passed · inconclusive after 20 attempts', color: 'var(--warn)' });
+    expect(tip({ note: 'blocked connection to hooks.example.com:443' }).note).toBe('blocked connection to hooks.example.com:443');
+    expect(tip({ note: 'blocked connection to hooks.example.com:443', updated: true }).note).toBe('updated here: re-recorded, its checks passed · blocked connection to hooks.example.com:443');
+    // Inconclusive: neither, in amber, with the attempts it ran there and the bound its gate put on the rate.
+    expect(tip({ result: 'fail', verdict: 'inconclusive', rate: { passes: 16, attempts: 20 }, bound: 'rate 0.56 to 0.94 (95%)', note: 'inconclusive after 20 attempts' })).toEqual({ title: 'd2e8a1f · x', word: 'inconclusive', note: '16 of 20 attempts passed · rate 0.56 to 0.94 (95%) · inconclusive after 20 attempts', color: 'var(--cq-amber)', label: 'd2e8a1f: inconclusive, 16 of 20 attempts passed · rate 0.56 to 0.94 (95%) · inconclusive after 20 attempts' });
+    // Several attempts that failed: the tally and its bound; one attempt says neither.
+    expect(tip({ result: 'fail', verdict: 'failed', rate: { passes: 4, attempts: 8 }, bound: 'rate <= 0.87 (95%)' }).label).toBe('d2e8a1f: failed, 4 of 8 attempts passed · rate <= 0.87 (95%)');
+    expect(tip({ rate: { passes: 1, attempts: 1 } }).note).toBe('');
+  });
+
+  it('says what a drop was against, and how many of the sessions it pooled are columns here', () => {
+    const drop = { baseline: 0.94, history: { passes: 47, attempts: 50, sessions: 10 }, here: { sessions: 4, passes: 20, attempts: 20 } };
+    expect(tip({ result: 'fail', verdict: 'failed', rate: { passes: 3, attempts: 8 }, bound: 'rate <= 0.71 (95%)', dropped: true, drop }).note).toBe('3 of 8 attempts passed · rate <= 0.71 (95%) · a drop against 0.94 over its last 10 sessions (47 of 50; 4\u00a0of\u00a0them are columns here, 20 of 20)');
+    expect(tip({ result: 'fail', verdict: 'failed', dropped: true, drop: { ...drop, history: { passes: 5, attempts: 5, sessions: 1 }, here: { sessions: 0, passes: 0, attempts: 0 } } }).note).toBe('a drop against 0.94 over its last session (5 of 5)');
+    expect(tip({ result: 'fail', verdict: 'failed', dropped: true, drop: { ...drop, history: null } }).note).toBe('a drop against its recording (no history yet)');
+  });
+
+  it('keys only the cells the table shows, in one order', () => {
+    const rows = [{ history: [cell({}), cell({ rate: { passes: 3, attempts: 4 } }), cell({ result: null, verdict: null })] }, { history: [cell({ updated: true }), cell({ dropped: true, result: 'fail', verdict: 'failed' })] }];
+    expect(historyKey(rows)).toEqual(['dot', 'bar', 'none', 'upd', 'drop']);
+    expect(historyKey([{ history: [cell({})] }]).map((k) => KEY_WORDS[k])).toEqual(['one attempt']);
+    expect(cellShare(cell({ rate: { passes: 64, attempts: 80 } }))).toBe(0.8);
   });
 
   it('prints an inconclusive golden\'s report with its gate\'s evidence, and what more attempts would take', () => {
