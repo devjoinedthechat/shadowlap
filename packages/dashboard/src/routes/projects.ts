@@ -9,6 +9,7 @@ import { addedMessage, addProjectPage, projectSwitcher, removeDialog, setupView,
 import { answerData } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { countsOf, readTeamStoreInput } from '../team-store.js';
+import { keptGoldenAsk } from '../tests-live.js';
 import { sessionBusy, testsBusy } from './tests.js';
 
 /**
@@ -29,7 +30,8 @@ import { sessionBusy, testsBusy } from './tests.js';
  * the project list), `record` (`shadowlap run -- <command>`, the one place the browser sends a
  * command line: the agent's own, which only ever goes after `--`, split without a shell, and
  * confirmed the first time it runs in a folder) and `pack-test` (keep the setup's recording as a
- * golden: `pack <run> <golden>`, then `test <golden>`; only the test once it is packed). Setup
+ * golden: `pack <run> <golden>`, then `test <golden>`; only the test once it is packed; asking first,
+ * as Run tests does, when its tests entry runs that test live, its `yes` the answer). Setup
  * requests may name the project the page shows (`project`): one that is no longer current is
  * refused, so a click never acts on a project switched to elsewhere. The routes that name a project
  * by its id (switching, adding, removing) take any page's.
@@ -300,8 +302,9 @@ export function register(router: Router, ctx: RouteContext): void {
       const busy = testsBusy(ctx.jobs.list(), projectId, 'keep it as a test') ?? sessionBusy(store, 'keep it as a test');
       if (busy) return { error: busy, status: 409 };
       const packed = h.context(projectId).packs().some((p) => p.path === check.path && p.runIds.includes(run.runId));
-      if (packed) return { args: setupJobArgs.test(check.path), runId: run.runId, title: 'Testing the golden' };
-      return { args: setupJobArgs.pack(run.runId, check.path), then: [setupJobArgs.test(check.path)], runId: run.runId };
+      const job = packed ? { args: setupJobArgs.test(check.path), runId: run.runId, title: 'Testing the golden' } : { args: setupJobArgs.pack(run.runId, check.path), then: [setupJobArgs.test(check.path)], runId: run.runId };
+      // A test that runs the golden live (its tests entry marks it fork, or gives it an injection gate) asks first, as Run tests does.
+      return keptGoldenAsk(entry.path, check.path, [job.args, ...('then' in job ? job.then : [])], req.yes) ?? job;
     },
   });
 
