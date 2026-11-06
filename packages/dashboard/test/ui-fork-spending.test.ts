@@ -7,6 +7,7 @@ import { ForkMenu, useActionRunner } from '../ui/run/actions.js';
 import { forgetRunEstimates } from '../ui/run/estimates.js';
 import { resetSpending } from '../ui/spending.js';
 import type { RunDetail } from '../ui/types.js';
+import type { Estimate } from '../../engine/src/estimates/estimate.js';
 import type { Spending } from '../../engine/src/estimates/spending.js';
 import { shell } from './ui-overlays-page.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
@@ -22,7 +23,7 @@ const a = (key: string, label: string, over: Partial<ActionLike> = {}): ActionLi
 const ROWS = [a('a', 'Run live from #17', { flag: '--diverge-at 17' }), a('l', 'Force issue_refund live', { flag: '--live-tool issue_refund' }), a('e', 'Repeat 5 times', { group: 'run' }), a('s', 'Replay with writes stubbed', { group: 'run' })];
 const run = { run: { runId: RUN, status: 'completed' }, actions: [], source: null } as unknown as RunDetail;
 const call = (actions: ActionLike[]) => ({ call: { callNo: 17, kind: 'api', name: 'POST /v1/messages', effect: null }, actions, result: null, forkTitle: 'At #17 · model call' }) as unknown as CallDetail;
-const price = (usd: number, over: object = {}) => ({ kind: 'fork', usd, ceiling: false, parts: [], ...over });
+const price = (usd: number, over: Partial<Estimate> = {}): Estimate => ({ kind: 'fork', usd, ceiling: false, parts: [], ...over });
 
 let r: Rendered | null = null;
 beforeAll(() => {
