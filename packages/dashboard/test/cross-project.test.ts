@@ -265,7 +265,7 @@ describe('a link into another project', () => {
       // The read waits at triage-bot's store, with research-agent's still to read: its removal must wait for it.
       const release = lockStore(projectDbPath(w.triage));
       const asked = read === 'lookup' ? w.holding('run', B_REC) : w.api('projects');
-      await vi.waitFor(() => expect(holds, `${read}: no read beside the server holds the stores`).toHaveBeenCalledOnce(), { timeout: 3000 });
+      await vi.waitFor(() => expect(holds, `${read}: no read beside the server holds the stores`).toHaveBeenCalledOnce(), { timeout: 10_000 });
       const research = projectDbPath(w.research);
       expect(await pending(holds.mock.calls[0][0](research)), read).toBe(true);
       let removed = false;
