@@ -22,6 +22,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import { homedir, userInfo } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 /** The user's home folder as the system records it, whatever HOME says; HOME's when there is no such record. */
 function systemHome() {
@@ -147,21 +148,27 @@ function pathOf(arg) {
   }
 }
 
+/** `call`, which first asks `check` for a refusal: thrown, or for a call that returns a promise, rejected. */
+const checked = (call, check, promised) => (...args) => {
+  const stop = check(args);
+  if (!stop) return call(...args);
+  if (promised) return Promise.reject(stop);
+  throw stop;
+};
+
 /**
- * Replaces `target[name]` with the same call, which first asks `check` for a refusal: thrown, or for a
- * promise rejected. It keeps what the call carries, as how util.promisify makes it a promise: of
- * execFile's stdout and stderr.
+ * Replaces `target[name]` with the same call, which first asks `check` for a refusal. It keeps what
+ * the call carries, but for the promise util.promisify makes of it (execFile's and exec's): Node's
+ * starts the original call, past the check. So the guarded call has its own, which checks first and
+ * then is Node's, resolved with stdout and stderr.
  */
 function guard(target, name, check, promised = false) {
   const original = target[name];
   if (typeof original !== 'function') return;
-  const guarded = (...args) => {
-    const stop = check(args);
-    if (!stop) return original(...args);
-    if (promised) return Promise.reject(stop);
-    throw stop;
-  };
-  target[name] = Object.defineProperties(guarded, Object.getOwnPropertyDescriptors(original));
+  const carried = Object.getOwnPropertyDescriptors(original);
+  const custom = original[promisify.custom];
+  if (typeof custom === 'function') carried[promisify.custom] = { ...carried[promisify.custom], value: checked(custom, check, true) };
+  target[name] = Object.defineProperties(checked(original, check, promised), carried);
 }
 
 /**

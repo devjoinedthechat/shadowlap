@@ -1,11 +1,12 @@
-import { spawnSync } from 'node:child_process';
+import { exec, execFile, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { shadowlapHome } from '../../../packages/engine/src/projects/paths.js';
-import { canonical, childProblem, realShadowlapFolders, shadowlapHomeIn, writeProblem } from '../../home-guard.mjs';
+import { canonical, childProblem, realShadowlapFolders, shadowlapHomeIn, takeRefused, writeProblem } from '../../home-guard.mjs';
 
 /**
  * No run of the tests writes in the real home folder's Shadowlap files, wherever it starts: every
@@ -81,6 +82,22 @@ describe("the guard against the real home's Shadowlap files", () => {
     // With no HOME, Node takes the system's record of the user's home folder: the real one, never a stand-in.
     expect(childProblem({ PATH: process.env.PATH }, { command: 'node', platform: 'linux' })).toMatch(/^a test started node with HOME unset and SHADOWLAP_HOME unset, so Shadowlap there would keep this machine's files in the real home folder's/);
     expect(childProblem({ PATH: process.env.PATH, SHADOWLAP_HOME: own }, { platform: 'linux' })).toBeNull();
+  });
+
+  it('refuses such a process started through util.promisify(execFile) or (exec) as through the call itself, and keeps the refusal for the test', async () => {
+    /** What a promise of a started process came to: the message it was refused with, or that it ran. */
+    const outcome = (started: Promise<unknown>) => started.then(() => 'ran', (err: unknown) => (err as Error).message);
+    const env = { PATH: process.env.PATH };
+    const refused = /^a test started .+ with (HOME|USERPROFILE) unset and SHADOWLAP_HOME unset, so Shadowlap there would keep this machine's files in the real home folder's/;
+    const byExecFile = await outcome(promisify(execFile)(process.execPath, ['-e', ''], { env }));
+    expect(byExecFile).toMatch(refused);
+    const byExec = await outcome(promisify(exec)(`"${process.execPath}" -e ""`, { env }));
+    expect(byExec).toMatch(refused);
+    expect(takeRefused()).toEqual([byExecFile, byExec]);
+    // Given the run's SHADOWLAP_HOME, which process.env carries, it starts, and resolves as Node's own does.
+    const started = promisify(execFile)(process.execPath, ['-e', 'process.stdout.write("ran")']);
+    expect(started.child.pid).toEqual(expect.any(Number));
+    await expect(started).resolves.toEqual({ stdout: 'ran', stderr: '' });
   });
 
   it("finds Shadowlap's home in an environment as the engine does, and a path as the file system does", () => {
