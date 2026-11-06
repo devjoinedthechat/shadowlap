@@ -2,6 +2,7 @@ import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { RUNS_TEXT } from '../ui/pages/Runs.js';
 import { RunsTable } from '../ui/runspage/RunsTable.js';
+import { statusGivesWay } from '../ui/runs.js';
 import { RecentRuns } from '../ui/shell/Sidebar.js';
 import type { RunListItem } from '../ui/types.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
@@ -101,6 +102,39 @@ describe('the sidebar’s recent runs', () => {
     expect(line(CLEAN.runId)).toBe('clean replay · 30/30');
     // Amber, and shorter than Runs' "check inconclusive", as the design's sidebar says it.
     expect([byId(r, UNSURE.runId).querySelector('.r2 em.inc')?.textContent, line(UNSURE.runId)]).toEqual(['inconclusive', 'inconclusive · test']);
+  });
+
+  it('marks the words its status gives way with first, before the about line goes: its word stays, its icon saying the rest', async () => {
+    expect(statusGivesWay('check failed')).toEqual({ lead: 'check ', word: 'failed', tail: '' });
+    expect(statusGivesWay('lost at #9')).toEqual({ lead: '', word: 'lost', tail: ' at #9' });
+    expect(statusGivesWay('lost gradually around #5 and #7')).toEqual({ lead: '', word: 'lost', tail: ' gradually around #5 and #7' });
+    expect(statusGivesWay('lost between #3 and #5')?.word).toBe('lost');
+    expect(statusGivesWay('diverged at #1')).toEqual({ lead: '', word: 'diverged', tail: ' at #1' });
+    // No shorter word: it goes whole.
+    for (const whole of ['exited 1', 'inconclusive', 'interrupted', '9 calls']) expect(statusGivesWay(whole)).toBeNull();
+    // Beside an about line (decision 10), which a server that sends one gives each run.
+    const about = { text: 'Order A-1150: the customer asks for a refund', from: 'user' as const };
+    r = await render(createElement(RecentRuns, { runs: [{ ...LOST, about }, { ...FAILED_FORK, about }], current: null, loading: false }));
+    const gives = (id: string) => byId(r!, id).querySelectorAll('.r2s .sgw').map((x) => x.textContent);
+    expect(gives(LOST.runId)).toEqual([' at #9']);
+    expect(gives(FAILED_FORK.runId)).toEqual(['check ']);
+  });
+
+  it('folds at its heading’s caret, which names it, loading, empty or full', async () => {
+    for (const [runs, loading] of [
+      [[LOST, REC], false],
+      [[], false],
+      [[], true],
+    ] as const) {
+      r = await render(createElement(RecentRuns, { runs: [...runs], current: null, loading, folded: true }));
+      expect(r.one('.runs').getAttribute('id')).toBe('runs');
+      expect(r.one('.runs').getAttribute('hidden')).not.toBeNull();
+      await r.unmount();
+      r = await render(createElement(RecentRuns, { runs: [...runs], current: null, loading }));
+      expect(r.one('.runs').getAttribute('hidden')).toBeNull();
+      await r.unmount();
+      r = null;
+    }
   });
 });
 

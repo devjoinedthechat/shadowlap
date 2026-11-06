@@ -103,9 +103,11 @@ export function utcStamp(ms: number): string {
   return `${new Date(ms).toISOString().replace('T', ' ').replace(/\.\d+Z$/, '')} UTC`;
 }
 
-/** The day, for a copy that may be read long after it was made. */
-export function isoDay(ms: number): string {
-  return new Date(ms).toISOString().slice(0, 10);
+/** Oct 1, 10:20, local time, with the year where it isn't this one's (Oct 1, 2025, 10:20): when an exported copy was made. */
+export function minuteStamp(ms: number, now = Date.now()): string {
+  const d = new Date(ms);
+  const year = d.getFullYear() !== new Date(now).getFullYear() ? `, ${d.getFullYear()}` : '';
+  return `${MONTHS[d.getMonth()]!} ${d.getDate()}${year}, ${clock(ms)}`;
 }
 
 /** The viewer's own time zone: weeks and days are theirs. */

@@ -5,6 +5,7 @@ import { tipCard, tipText } from '../../components/HoverCard.js';
 import { RunPicker } from '../../compare/RunPicker.js';
 import { num } from '../../format.js';
 import { ACTIONS } from '../../labels.js';
+import { REDACTION_ASK } from '../../page-ask.js';
 import type { RedactionPreviewView, RedactionSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import { useTeamStore } from '../../teamstore.js';
@@ -30,7 +31,9 @@ export function RedactionTab() {
   const app = useApp();
   const { client } = app;
   const { data, error, reload } = useSettingsData(() => client.settings.redaction(), 'settings:redaction');
-  const [adding, setAdding] = useState(false);
+  // Asked for from the palette too, which opens this tab first.
+  const [adding, setAdding] = useState(() => REDACTION_ASK.take());
+  useEffect(() => REDACTION_ASK.on(() => setAdding(true)), []);
   const [run, setRun] = useState<string | null>(kept.run);
   const editor = useEditor(data?.config.version ?? null, reload);
   const teamStore = !!useTeamStore();

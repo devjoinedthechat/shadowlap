@@ -9,7 +9,7 @@ import { viewerTimeZone } from '../format.js';
 import { useLatest, useLoad, type Loaded } from '../hooks.js';
 import { shownRuns } from '../list-keys.js';
 import { sentence } from '../normalize.js';
-import { addPaletteSource } from '../palette-sources.js';
+import { IMPORT_ASK } from '../page-ask.js';
 import { runRowScope } from '../run-row.js';
 import { BulkBar, type PickedRun } from '../runspage/BulkBar.js';
 import { TwelveWeeks } from '../runspage/DaysRow.js';
@@ -21,7 +21,6 @@ import { ImportDialog } from '../runspage/ImportDialog.js';
 import { ALL_RUNS, dayTimes, runsHref } from '../runspage/query.js';
 import { commitRuns, replaceRuns, useRunsAddress } from '../runspage/history.js';
 import { useKeptScroll } from '../runspage/scroll.js';
-import { lastRunsHref } from '../runs-view.js';
 import type { RunsFilterRead } from '../../src/links.js';
 import { useMarkRun } from '../components/RunKey.js';
 import type { RunMark } from '../runkey.js';
@@ -36,7 +35,6 @@ import { useApp } from '../state.js';
 import { useTeamStoreState } from '../teamstore.js';
 import { errorText } from '../toast.js';
 import type { BisectChoices, ChipCounts, RunsByDay, RunsPage as RunsPageView, RunsPageRow, RunsQuery, TeamStoreView } from '../types.js';
-import { ACTIONS } from '../labels.js';
 
 /**
  * Runs: every run in a table, a page at a time from the server, with the 12-week calendar above it,
@@ -102,31 +100,6 @@ function useFilterField(f: RunsFilterRead, ms: number): [string, (v: string) => 
   }, [settled, fNow]);
   return [text, setText, settled];
 }
-
-/** The palette's way to the import dialog: Runs opens it when it next shows. */
-const IMPORT_ASKED = 'shadowlap:import';
-let importAsked = false;
-
-addPaletteSource(({ app, go }) =>
-  app.exported || !app.hasKind(JOB_KINDS.importCapture)
-    ? []
-    : [
-        {
-          group: 'Actions',
-          label: ACTIONS.importCapture.label,
-          // The dialog's sources, short enough to show whole on a desktop's row; the file formats match unseen.
-          hint: 'a file, or a Langfuse, LangSmith, Phoenix or Logfire trace',
-          match: 'HAR nock VCR LiteLLM OpenTelemetry OTLP',
-          job: true,
-          run: () =>
-            app.guard(() => {
-              importAsked = true;
-              window.dispatchEvent(new Event(IMPORT_ASKED));
-              go(lastRunsHref());
-            }),
-        },
-      ],
-);
 
 /**
  * How far down the table reads: as far as it was read when this view was last shown while the
@@ -341,13 +314,8 @@ function useShownTable(table: TableState, o: { chip: RunChip; q: string; times: 
 /** Asked from the palette: on this page already, or arriving on it. */
 function useImportAsked(open: () => void): void {
   useEffect(() => {
-    importAsked = false;
-    const on = () => {
-      importAsked = false;
-      open();
-    };
-    window.addEventListener(IMPORT_ASKED, on);
-    return () => window.removeEventListener(IMPORT_ASKED, on);
+    IMPORT_ASK.take();
+    return IMPORT_ASK.on(open);
   }, [open]);
 }
 
@@ -397,7 +365,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   const shownKey = runsHref({ ...f, q });
   const [limit, setLimit] = useReadTo(shownKey);
   const [picked, setPickedState] = useState(() => new Map(kept.picked));
-  const [dialog, setDialog] = useState<null | 'import' | { runId: string; choices: BisectChoices; earlier: { runId: string; why: string } | null }>(() => (importAsked ? 'import' : null));
+  const [dialog, setDialog] = useState<null | 'import' | { runId: string; choices: BisectChoices; earlier: { runId: string; why: string } | null }>(() => (IMPORT_ASK.take() ? 'import' : null));
   const now = Date.now();
   useImportAsked(useCallback(() => setDialog('import'), []));
 

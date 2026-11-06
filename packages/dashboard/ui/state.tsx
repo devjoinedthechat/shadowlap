@@ -23,6 +23,8 @@ export interface PaletteCommand {
   group: PaletteGroup;
   label: string;
   hint: string;
+  /** A shorter hint, where the whole one doesn't fit the row (`Compare with parent`'s `against <parent>`). */
+  short?: string;
   mono?: boolean;
   /** It starts a job, or opens what starts one: dimmed and paused while the server can't be reached. */
   job?: boolean;
@@ -49,8 +51,6 @@ export interface AppState {
   runs: RunListItem[] | null;
   /** When the run list last loaded: what an offline page is showing. */
   loadedAt: number | null;
-  /** The last successful exchange with the server. */
-  syncedAt: number | null;
   conn: Conn;
   retryIn: number;
   retrying: boolean;
@@ -114,7 +114,7 @@ export interface AppState {
 /**
  * The app's state as a store: AppProvider keeps it here, and each component reads it through
  * `useSyncExternalStore`, so a change re-renders the components that read what changed and no
- * other. The status bar's sync time moves on every poll; the pages that never read it don't redraw.
+ * other. Each poll sets the live recordings again; the pages that never read them don't redraw.
  */
 export class AppStore {
   private state: AppState;
@@ -249,7 +249,6 @@ export function AppProvider({ client, children }: { client: Client; children: Re
   const [meta, setMeta] = useState<Meta | null>(null);
   const [runs, setRuns] = useState<RunListItem[] | null>(null);
   const [loadedAt, setLoadedAt] = useState<number | null>(null);
-  const [syncedAt, setSyncedAt] = useState<number | null>(null);
   // The connection: ok, offline (with when the next try is due), or expired. See connection.ts.
   const [cs, dispatch] = useReducer(connStep, preview, connStart);
   const conn = cs.conn;
@@ -299,7 +298,6 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       listed.current = list;
       setRuns(list);
       setLoadedAt(Date.now());
-      setSyncedAt(Date.now());
       if (!o.first) {
         setTick((n) => n + 1);
         setRunsTick((n) => n + 1);
@@ -395,7 +393,6 @@ export function AppProvider({ client, children }: { client: Client; children: Re
           const first = cursor.current === null;
           cursor.current = feedCursor(ch);
           if (ch.live) setLive(ch.live);
-          setSyncedAt(Date.now());
           // Runs moved: the list loads again. Only calls: the recordings growing, whose counts the
           // feed carries, so the list takes them as they are and pages of counts reload (`tick`); a
           // run's page reloads on its own calls alone.
@@ -561,7 +558,6 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       meta,
       runs,
       loadedAt,
-      syncedAt,
       conn,
       retryIn,
       retrying,
@@ -593,7 +589,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       runCommands,
       setRunCommands,
     }),
-    [client, meta, runs, loadedAt, syncedAt, conn, retryIn, retrying, retryNow, tick, runsTick, feeds, live, refresh, reload, actionsOff, hasKind, guard, toast, dropToast, toastText, watchJob, jobs, openJob, closeJob, closeJobs, sideOpen, palette, help, runCommands],
+    [client, meta, runs, loadedAt, conn, retryIn, retrying, retryNow, tick, runsTick, feeds, live, refresh, reload, actionsOff, hasKind, guard, toast, dropToast, toastText, watchJob, jobs, openJob, closeJob, closeJobs, sideOpen, palette, help, runCommands],
   );
   // The state goes to the store, which tells the components that read what changed: the page
   // below is given once, so the provider's own re-render redraws none of it.

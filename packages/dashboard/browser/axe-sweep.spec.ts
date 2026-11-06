@@ -209,9 +209,11 @@ test('Fixes and each fix’s steps, Tests’ dialogs, the palette, the shortcuts
   }], ['the palette closed', escape(page, '.palette')]);
   // From the run ticked above, its checkbox focused again once the palette closed.
   states.push(['the shortcuts', press(page, '?', { shows: '.help' })], ['the shortcuts closed', escape(page, '.help')]);
+  // The top bar's help menu: Keyboard shortcuts, Docs, Command line.
+  states.push(['the help menu', click(page, '#helpBtn', undefined, { shows: '.pop.helpmenu' })], ['the help menu closed', escape(page, '.pop.helpmenu')]);
   // The shortcuts on pages of each kind: the keys that don't apply there are listed apart.
   for (const [where, path, drawn] of [['the Overview', '/', 'overview'], ['Runs', '/runs', 'runs'], ['Fixes', '/fixes', 'main#view'], ['Settings', '/settings/alerts', 'main#view']] as const) {
-    states.push([where, at(page, path, drawn)], [`the shortcuts on ${where}`, click(page, '#helpBtn', undefined, { shows: '.help' })], [`the shortcuts on ${where} closed`, escape(page, '.help')]);
+    states.push([where, at(page, path, drawn)], [`the shortcuts on ${where}`, press(page, '?', { shows: '.help' })], [`the shortcuts on ${where} closed`, escape(page, '.help')]);
   }
   // A toast with Undo: the good/bad key pressed, then put back with u.
   states.push(['a run', run(page, dash().runs.ticket as string)], ['a toast with Undo', click(page, '.rhead .runkey button', 'good', { shows: '.toast button:has-text("Undo")' })]);

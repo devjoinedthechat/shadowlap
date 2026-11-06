@@ -8,15 +8,18 @@ import { confirmWords } from '../labels.js';
 import { addPaletteSource } from '../palette-sources.js';
 import { ONLY_PROJECT, provideProjectRemoval } from '../project-actions.js';
 import { expectProject, onProjectSwitched, takeDialogDropped, takeLanding, type ProjectsView } from '../projects-api.js';
-import { exportedLine, keepsPageOnSwitch, switchedText } from '../projects.js';
+import { exportedLine, exportedNote, keepsPageOnSwitch, switchedText } from '../projects.js';
 import { projectInitial as initial } from '../../src/project-initial.js';
 import { href, parseRoute } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp, type AppState } from '../state.js';
 import { errorText } from '../toast.js';
-import { RemoveProjectDialog } from './RemoveProject.js';
 import { flush } from '../pending-delete.js';
 import { ActionButton, useActionWait } from '../components/ActionButton.js';
+import { onShow } from '../components/OnShow.js';
+
+/** The Remove dialog. Rarely opened, so its code waits out of the first look until the switcher opens. */
+const RemoveProjectDialog = onShow(() => import('./RemoveProject.js').then((m) => m.RemoveProjectDialog));
 
 /**
  * The project at the top of the sidebar, and the switcher behind it: each project on this machine
@@ -69,14 +72,13 @@ addPaletteSource(({ app }) =>
 
 export function ProjectBlock({ meta }: { meta: Meta | null }) {
   const p = projectOf(meta);
+  // An exported copy says what it is in the switcher's place: what it holds, when it was made, that it reads only.
   if (meta?.static) {
     return (
-      <div className="proj is-static">
-        <span className="pa">S</span>
-        <span className="pn">
-          <b>Exported copy</b>
-          <small>{exportedLine(meta.runIds?.length ?? 0)}</small>
-        </span>
+      <div className="expblock">
+        <b>Exported copy</b>
+        <span>{exportedLine(meta.counts?.runs ?? meta.runIds?.length ?? 0, meta.exportedAt ?? null)}</span>
+        <small>{exportedNote(meta.redacted)}</small>
       </div>
     );
   }
@@ -169,7 +171,10 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
         aria-expanded={menu.open}
         title={list?.notice ?? project.notice ?? project.path}
         onClick={(e) => {
-          if (!menu.open) load();
+          if (!menu.open) {
+            load();
+            RemoveProjectDialog.preload();
+          }
           menu.toggle(e.currentTarget);
         }}
       >

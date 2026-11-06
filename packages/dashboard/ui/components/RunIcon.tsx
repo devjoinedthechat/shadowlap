@@ -4,9 +4,11 @@ import { Icon } from './Icon.js';
 
 /**
  * One set of icons for runs and events, each with the same words beside it or on hover: a pulsing
- * dot (recording now), a ring (recording), a crossed circle (failed), a level-lined circle
- * (inconclusive), replay, fork, import (capture) and tests; events add Fixes, a folder (project),
- * sliders (settings) and a target (training).
+ * dot (recording now), a ring (recording), a crossed circle (failed), replay, fork, import (capture)
+ * and tests, amber where a test was inconclusive (the kind `warn`, as the server sends it); events add
+ * Fixes (the loop: lime accepted, red rejected, amber inconclusive), a folder (project), sliders
+ * (settings) and a target (training). An event's shape says what it was and its colour how it came
+ * out (`outcome`): red what failed, amber what couldn't decide, stopped or needs a look.
  */
 
 export const EVENT_LABEL: Record<GlyphKind, string> = {
@@ -21,6 +23,7 @@ export const EVENT_LABEL: Record<GlyphKind, string> = {
   blame: 'Blame',
   fixok: 'Fix accepted',
   fixbad: 'Fix rejected',
+  fixinc: 'Fix inconclusive',
   project: 'Project',
   setting: 'Settings',
   train: 'Training',
@@ -43,14 +46,6 @@ function Mark({ kind }: { kind: GlyphKind }) {
           <path d="M6.1 6.1l3.8 3.8M9.9 6.1l-3.8 3.8" />
         </svg>
       );
-    case 'warn':
-      // Neither passed nor failed: a circle with a level line, amber.
-      return (
-        <svg viewBox="0 0 16 16" aria-hidden="true">
-          <circle cx="8" cy="8" r="5.75" />
-          <path d="M5.6 8h4.8" />
-        </svg>
-      );
     case 'clean':
       return <Icon name="replay" />;
     case 'fork':
@@ -58,10 +53,12 @@ function Mark({ kind }: { kind: GlyphKind }) {
     case 'cap':
       return <Icon name="import" />;
     case 'test':
+    case 'warn':
       return <Icon name="tests" />;
     case 'blame':
     case 'fixok':
     case 'fixbad':
+    case 'fixinc':
       return <Icon name="loop" />;
     case 'project':
       return <Icon name="folder" />;
@@ -86,7 +83,12 @@ export function RunIcon({ run, className = 'ri' }: { run: RunLike; className?: s
   return <Glyph kind={g.kind} label={g.label} className={className} />;
 }
 
-/** An activity or Needs-a-look entry's icon. A "Recording started" entry stops pulsing once the run ends. */
-export function EventIcon({ kind, live = false, className = 'ic' }: { kind: GlyphKind; live?: boolean; className?: string }) {
-  return <Glyph kind={kind} label={EVENT_LABEL[kind]} className={className} done={kind === 'live' && !live} />;
+/**
+ * An activity or Needs-a-look entry's icon, its colour how it came out where that differs from its
+ * kind's: `err` red, `warn` amber (a stopped blame is the loop in amber). A "Recording started" entry
+ * stops pulsing once the run ends.
+ */
+export function EventIcon({ kind, live = false, outcome, className = 'ic' }: { kind: GlyphKind; live?: boolean; outcome?: 'err' | 'warn'; className?: string }) {
+  const tone = outcome === 'warn' ? ' amb' : outcome === 'err' ? ' err' : '';
+  return <Glyph kind={kind} label={EVENT_LABEL[kind]} className={`${className}${tone}`} done={kind === 'live' && !live} />;
 }

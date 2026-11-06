@@ -53,6 +53,9 @@ export const DOCS = {
   quickstart: { page: 'quickstart', what: 'Quickstart' },
   jobs: { page: 'dashboard#jobs', what: 'Jobs' },
   sessionTokens: { page: 'dashboard#security-and-consent', what: 'Session tokens' },
+  // The top bar's help menu: the dashboard's page and the command line's.
+  dashboard: { page: 'dashboard', what: 'Dashboard' },
+  cli: { page: 'cli', what: 'Command line' },
 } as const satisfies Record<string, DocsLink>;
 
 export type DocKey = keyof typeof DOCS;

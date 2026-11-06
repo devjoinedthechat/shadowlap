@@ -15,7 +15,8 @@ import { navigate, useRoute } from '../ui/router.js';
 import { Keyboard } from '../ui/shell/Keyboard.js';
 import { Palette } from '../ui/shell/Palette.js';
 import { RecentRuns } from '../ui/shell/Sidebar.js';
-import { keyColumn, setSingleKeys } from '../ui/shortcuts.js';
+import { keyColumn, setSingleKeys, shortcut } from '../ui/shortcuts.js';
+import { helpRowKey, parentCrumbKey } from '../ui/shell/top.js';
 import { recentRunIds } from '../ui/runs.js';
 import type { RunListItem } from '../ui/types.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -281,6 +282,28 @@ describe('the palette’s key column', () => {
         .map((x) => [x.label, x.key]);
     expect(row({ pick: () => undefined, pickKey: keyColumn('rowPick') })).toContainEqual(['Select run', 'x']);
     expect(row({}).map((x) => x[0])).toEqual(['Open run', 'Copy ID']);
+  });
+});
+
+describe('the parent’s crumb', () => {
+  it('says p as the keys’ table has it, and none while single keys are off', () => {
+    for (const on of [true, false]) {
+      setSingleKeys(on);
+      expect(parentCrumbKey(on)['aria-keyshortcuts']).toBe(shortcut('parent')['aria-keyshortcuts']);
+    }
+    setSingleKeys(true);
+    expect(parentCrumbKey(true)).toEqual({ 'aria-keyshortcuts': 'p' });
+  });
+});
+
+describe('the help menu’s Keyboard shortcuts row', () => {
+  it('shows ? as the keys’ table has it, and none while single keys are off', () => {
+    for (const on of [true, false]) {
+      setSingleKeys(on);
+      expect(helpRowKey(on) ?? undefined).toBe(shortcut('help')['aria-keyshortcuts']);
+    }
+    setSingleKeys(true);
+    expect(helpRowKey(true)).toBe(keyColumn('help'));
   });
 });
 

@@ -174,14 +174,17 @@ export function runCounts(r: RunLike): OriginCounts | null {
   return o ? countOrigins(o) : null;
 }
 
-export type GlyphKind = 'live' | 'rec' | 'fail' | 'warn' | 'clean' | 'fork' | 'cap' | 'test' | 'blame' | 'fixok' | 'fixbad' | 'project' | 'setting' | 'train';
+export type GlyphKind = 'live' | 'rec' | 'fail' | 'warn' | 'clean' | 'fork' | 'cap' | 'test' | 'blame' | 'fixok' | 'fixbad' | 'fixinc' | 'project' | 'setting' | 'train';
 
 /** Where a fork left its recording: `fork @17`, or `ended early @11` for a replay that stopped before its recording did. */
 function forkAt(d: { callNo: number; type?: string }, fork = 'fork'): string {
   return `${d.type === 'ended_early' ? 'ended early' : fork} @${d.callNo}`;
 }
 
-/** The icon a run shows, with the words that go with it. */
+/**
+ * The icon a run shows, with the words that go with it: a test that couldn't decide in amber, and a
+ * recording a check failed says so (one that failed otherwise, by its exit, keeps `failed`).
+ */
 export function runGlyph(r: RunLike): { kind: GlyphKind; label: string } {
   if (isLive(r)) return { kind: 'live', label: 'Recording now' };
   const t = runType(r);
@@ -190,9 +193,14 @@ export function runGlyph(r: RunLike): { kind: GlyphKind; label: string } {
   if (t === 'clean') return { kind: 'clean', label: 'Clean replay' };
   if (t === 'fork') return { kind: 'fork', label: `${r.divergence!.type === 'ended_early' ? 'Ended early' : 'Fork'} at #${r.divergence!.callNo}${cut}` };
   if (t === 'capture') return { kind: 'cap', label: 'Imported capture' };
-  if (t === 'test') return failed ? { kind: 'fail', label: 'Test failed' } : { kind: 'test', label: `Test replay${cut}` };
+  if (t === 'test') {
+    if (failed) return { kind: 'fail', label: 'Test failed' };
+    return outcomeOf(r).tone === 'warn' ? { kind: 'warn', label: 'Test inconclusive' } : { kind: 'test', label: `Test replay${cut}` };
+  }
   if (t === 'replay') return failed ? { kind: 'fail', label: 'Replay failed' } : { kind: 'clean', label: `Replay${cut}` };
-  return failed ? { kind: 'fail', label: 'Recording, failed' } : { kind: 'rec', label: `Recording${cut}` };
+  if (!failed) return { kind: 'rec', label: `Recording${cut}` };
+  const o = outcomeOf(r);
+  return { kind: 'fail', label: o.tone === 'err' && (o.of === 'judged' || o.of === 'check') ? 'Recording, check failed' : 'Recording, failed' };
 }
 
 /**
@@ -321,6 +329,18 @@ export function sideStatus(r: RunLike & { lostAt?: number | null }): { text: str
   if (needs) return needs;
   if (isInterrupted(r)) return { text: 'interrupted', tone: null };
   return null;
+}
+
+/**
+ * Where a status after an about line gives way to its word before it goes altogether (`fitAbouts`):
+ * `check failed` keeps `failed`, `diverged at #1` keeps `diverged`, and every lost form (`lost at
+ * #9`, `lost between #3 and #5`) keeps `lost`; `lead` and `tail` are the words that go first. Null
+ * for a status with no shorter word (`exited 1`, `inconclusive`, `9 calls`), which goes whole.
+ */
+export function statusGivesWay(text: string): { lead: string; word: string; tail: string } | null {
+  if (text === 'check failed') return { lead: 'check ', word: 'failed', tail: '' };
+  const m = /^(lost|diverged)( .+)$/.exec(text);
+  return m ? { lead: '', word: m[1]!, tail: m[2]! } : null;
 }
 
 /** What a fork's fence did to the writes after it, as the sidebar counts them: `2 writes blocked`, `1 write stubbed`, `3 writes fenced` (both), `no writes fenced`. */

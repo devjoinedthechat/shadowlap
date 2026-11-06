@@ -260,9 +260,6 @@
       "Banner": 60,
       "DiffPanel": 32
     },
-    "packages/dashboard/ui/shell/StatusBar.tsx": {
-      "StatusBar": 33
-    },
     "packages/engine/src/about.ts": {
       "changeWords": 31
     },
@@ -492,10 +489,10 @@
       "Banner": 194
     },
     "packages/dashboard/ui/shell/Palette.tsx": {
-      "PaletteDialog": 178
+      "PaletteDialog": 175
     },
     "packages/dashboard/ui/state.tsx": {
-      "AppProvider": 304
+      "AppProvider": 300
     },
     "packages/engine/src/json-doc.ts": {
       "scan": 217

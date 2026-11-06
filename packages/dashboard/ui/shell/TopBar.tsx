@@ -1,37 +1,51 @@
-import { Fragment, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
+import { Fragment, useLayoutEffect, useRef, useSyncExternalStore, type RefObject } from 'react';
+import { tipCard } from '../components/HoverCard.js';
 import { Brand, Icon } from '../components/Icon.js';
+import { paletteKeyLabel } from '../dom.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { settingsTabLabel } from '../pages/settings/tabs.js';
 import { shortId } from '../format.js';
 import { knownParent, onParentNoted } from '../parents.js';
+import { setupShowsOn } from '../projects.js';
 import { href, type Route } from '../route.js';
 import { useSingleKeys } from '../single-keys.js';
 import { useApp } from '../state.js';
 import { useFixCrumb } from '../fixes/data.js';
-import { useTeamStore } from '../teamstore.js';
-import { crumbLineage, liveChip, topPill } from './top.js';
+import { HelpMenu } from './HelpMenu.js';
+import { crumbLineage, liveChip, parentCrumbKey } from './top.js';
+import { unshownKey, useUnshown } from './unshown.js';
 import { lastRunsHref } from '../runs-view.js';
 
-/** A crumb; `run` for a run's id (its about line on hover), `anc` for an ancestor, which gives way first. */
-type Crumb = { label: string; href?: string; mono?: boolean; run?: boolean; anc?: boolean; tip?: string | null };
+/**
+ * A crumb. Its face: `rt` a run's id (mono), `code` a fix's label, `word` a part of the page in the
+ * UI face, none a plain word. `anc` for an ancestor, which gives way first; `parent` for the run's
+ * own parent, what p opens, its about line on its card; `tip` a run's about line.
+ */
+type Crumb = { label: string; href?: string; face?: 'rt' | 'code' | 'word'; anc?: boolean; parent?: boolean; tip?: string | null };
 
-function crumbsFor(route: Route, lineageOf: (id: string) => Array<{ runId: string; about: string | null }>, fixName: string | null = null, aboutOf: (id: string) => string | null = () => null): Crumb[] {
+/** What the page shows, as the crumbs name it: only its section where it can't show what it opened for (`unshown`). */
+function crumbsFor(route: Route, lineageOf: (id: string) => Array<{ runId: string; about: string | null }>, o: { fixName: string | null; aboutOf: (id: string) => string | null; unshown: boolean }): Crumb[] {
   switch (route.page) {
     case 'runs':
       return [{ label: 'Runs' }];
-    case 'run':
+    case 'run': {
+      if (o.unshown) return [{ label: 'Runs', href: lastRunsHref() }];
       // The run's lineage by id, from its recording down to this run, each with its about line on hover.
-      return [{ label: 'Runs', href: lastRunsHref() }, ...lineageOf(route.id).map((a) => ({ label: shortId(a.runId), href: href.run(a.runId), mono: true, run: true, anc: true, tip: a.about })), { label: shortId(route.id), mono: true, run: true, tip: aboutOf(route.id) }];
+      const lineage = lineageOf(route.id);
+      const up = lineage.map((a, i): Crumb => ({ label: shortId(a.runId), href: href.run(a.runId), face: 'rt', anc: true, parent: i === lineage.length - 1, tip: a.about }));
+      return [{ label: 'Runs', href: lastRunsHref() }, ...up, { label: shortId(route.id), face: 'rt', tip: o.aboutOf(route.id) }];
+    }
     case 'compare':
       return [{ label: 'Compare' }];
     case 'fixes':
-      return route.id ? [{ label: 'Fixes', href: href.fixes() }, { label: fixName ?? route.id, mono: true }] : [{ label: 'Fixes' }];
+      if (!route.id) return [{ label: 'Fixes' }];
+      return [{ label: 'Fixes', href: href.fixes() }, ...(o.unshown ? [] : [{ label: o.fixName ?? route.id, face: 'code' as const }])];
     case 'tests':
       return [{ label: 'Tests' }];
     case 'training':
-      return [{ label: 'Training', href: href.training() }, { label: route.tab === 'tasks' ? 'Tasks' : 'Pairs', mono: true }];
+      return [{ label: 'Training', href: href.training() }, { label: route.tab === 'tasks' ? 'Tasks' : 'Pairs', face: 'word' }];
     case 'settings':
-      return [{ label: 'Settings', href: href.settings() }, { label: settingsTabLabel(route.tab), mono: true }];
+      return [{ label: 'Settings', href: href.settings() }, { label: settingsTabLabel(route.tab), face: 'word' }];
     case 'new':
       return [{ label: confirmWords(ACTIONS.addProject.label) }];
     case 'setup':
@@ -43,22 +57,25 @@ function crumbsFor(route: Route, lineageOf: (id: string) => Array<{ runId: strin
   }
 }
 
-export function TopBar({ route }: { route: Route }) {
-  const { runs, live, sideOpen, setSideOpen, setHelp, conn, exported, meta, actionsOff, loadedAt } = useApp();
-  const singleKeys = useSingleKeys();
-  const listed = (id: string) => runs?.find((r) => r.runId === id || (id.length >= 10 && r.runId.startsWith(id))) ?? null;
-  const shown = route.page === 'run' ? listed(route.id) : null;
-  // A run the list leaves out (an attempt bundled under its run, or one older than the newest 500)
-  // names its parent in its own detail, which its page loads: the crumbs wait for that, asking
-  // nothing, and are drawn again once it is noted. Each step of the lineage reads the parents noted.
-  const ask = route.page === 'run' && !shown && !exported ? route.id : null;
-  useSyncExternalStore(onParentNoted, () => (ask ? knownParent(ask) : undefined));
-  const lineageOf = (id: string) => crumbLineage(id, { listed, loaded: knownParent, exported, holds: (x) => !!listed(x) });
-  // A fix goes by its label (Fixes / refund-bug), once the fixes read model has named it.
-  const fixName = useFixCrumb(route.page === 'fixes' ? route.id : null);
-  const crumbs = crumbsFor(route, lineageOf, fixName, (id) => listed(id)?.about?.text ?? null);
-  const nav = useRef<HTMLElement>(null);
-  // Where the bar is too short for the whole lineage, the oldest give way to "…" first; the run's own crumb stays.
+function CrumbWords({ c }: { c: Crumb }) {
+  // The parent's about line is on its card, so it has no title of its own to show under it.
+  if (c.face === 'rt')
+    return (
+      <b className="rt" title={c.parent ? undefined : (c.tip ?? undefined)}>
+        {c.label}
+      </b>
+    );
+  if (c.face === 'code')
+    return (
+      <b>
+        <code>{c.label}</code>
+      </b>
+    );
+  return c.face === 'word' ? <b>{c.label}</b> : <>{c.label}</>;
+}
+
+/** Where the bar is too short for the whole lineage, the oldest give way to "…" first; the run's own crumb stays. Fitted on each draw, as the window changes and once the fonts land. */
+function useFitCrumbs(nav: RefObject<HTMLElement | null>): void {
   useLayoutEffect(() => {
     const el = nav.current;
     if (!el) return;
@@ -74,39 +91,63 @@ export function TopBar({ route }: { route: Route }) {
       }
     };
     fit();
+    const fonts = typeof document.fonts?.addEventListener === 'function' ? document.fonts : null;
     window.addEventListener('resize', fit);
-    return () => window.removeEventListener('resize', fit);
+    fonts?.addEventListener('loadingdone', fit);
+    return () => {
+      window.removeEventListener('resize', fit);
+      fonts?.removeEventListener('loadingdone', fit);
+    };
   });
+}
+
+export function TopBar({ route }: { route: Route }) {
+  const { runs, live, meta, sideOpen, setSideOpen, setPalette, conn, exported, loadedAt } = useApp();
+  // The parent's crumb says its key only while single keys are on: drawn again as the switch moves.
+  const singleKeys = useSingleKeys();
+  const listed = (id: string) => runs?.find((r) => r.runId === id || (id.length >= 10 && r.runId.startsWith(id))) ?? null;
+  const shown = route.page === 'run' ? listed(route.id) : null;
+  // A run the list leaves out (an attempt bundled under its run, or one older than the newest 500)
+  // names its parent in its own detail, which its page loads: the crumbs wait for that, asking
+  // nothing, and are drawn again once it is noted. Each step of the lineage reads the parents noted.
+  const ask = route.page === 'run' && !shown && !exported ? route.id : null;
+  useSyncExternalStore(onParentNoted, () => (ask ? knownParent(ask) : undefined));
+  const lineageOf = (id: string) => crumbLineage(id, { listed, loaded: knownParent, exported, holds: (x) => !!listed(x) });
+  // A fix goes by its label (Fixes / refund-bug), once the fixes read model has named it.
+  const fixName = useFixCrumb(route.page === 'fixes' ? route.id : null);
+  const aboutOf = (id: string) => listed(id)?.about?.text ?? null;
+  // A run or a fix the page can't show, or the setup in its place: only the section is named.
+  const unshown = useUnshown(unshownKey(route)) || !!setupShowsOn(route, { exported, meta, runs });
+  const crumbs = crumbsFor(route, lineageOf, { fixName, aboutOf, unshown });
+  const nav = useRef<HTMLElement>(null);
+  useFitCrumbs(nav);
   const ancestors = crumbs.filter((c) => c.anc).map((c) => c.label);
-  // A dashboard that changes nothing says read-only where an exported copy says it is one; one with a
-  // team store says team.
-  const store = useTeamStore();
-  const pill = topPill({ exported, readOnly: !!meta && !exported && (meta.readOnly === true || !meta.actions), actionsOff, store: store?.url ?? null });
-  const chip = liveChip({ recording: live[0]?.runId ?? runs?.find((r) => r.status === 'running')?.runId ?? null, conn, loadedAt });
+  const recording = exported ? [] : live.length ? live : (runs ?? []).filter((r) => r.status === 'running');
+  const chip = liveChip({ recording, open: route.page === 'run' ? route.id : null, conn, loadedAt, aboutOf });
   return (
     <header className="top">
       <button className="ibtn menu-toggle" type="button" aria-label="Menu" aria-expanded={sideOpen} aria-controls="side" onClick={() => setSideOpen(!sideOpen)}>
         <Icon name="menu" />
       </button>
-      <a className="brand" href={exported ? href.runs() : href.overview()} aria-label={exported ? 'Shadowlap, runs' : 'Shadowlap dashboard, overview'}>
+      {/* An exported copy's #/ is the run it opens on. */}
+      <a className="brand" href={href.overview()} aria-label={exported ? 'Shadowlap exported copy, the run it opens on' : 'Shadowlap dashboard, overview'}>
         <Brand />
       </a>
-      <span className="pill" title={pill.title ?? undefined}>
-        {pill.word}
-      </span>
       <nav className="crumbs" aria-label="Breadcrumb" ref={nav}>
         {crumbs.map((c, i) => {
-          const inner = c.mono ? (
-            <b className={c.anc ? 'rt' : undefined} title={c.tip ?? undefined}>
-              {c.label}
-            </b>
-          ) : (
-            c.label
-          );
+          const card = c.parent ? { 'data-tip': tipCard('Open parent run', [], c.tip), ...parentCrumbKey(singleKeys) } : {};
           const crumb = (
             <>
               {i ? <i aria-hidden="true">/</i> : null}
-              {c.href ? <a href={c.href}>{inner}</a> : <span>{inner}</span>}
+              {c.href ? (
+                <a href={c.href} {...card}>
+                  <CrumbWords c={c} />
+                </a>
+              ) : (
+                <span>
+                  <CrumbWords c={c} />
+                </span>
+              )}
             </>
           );
           return (
@@ -130,14 +171,19 @@ export function TopBar({ route }: { route: Route }) {
       </nav>
       <div className="sp" />
       {chip ? (
-        <a className="livechip" href={href.run(chip.runId)} title={chip.title ?? undefined}>
+        <a className="livechip" href={href.run(chip.runId)} data-tip={tipCard(chip.title, [], chip.line)}>
           <span className="dotlive" />
-          recording {shortId(chip.runId)}
+          {chip.words}
         </a>
       ) : null}
-      <button className="ibtn" id="helpBtn" type="button" aria-label="Keyboard shortcuts" title={singleKeys ? 'Keyboard shortcuts  ?' : 'Keyboard shortcuts'} onClick={() => conn !== 'expired' && setHelp(true)}>
-        <Icon name="keys" />
-      </button>
+      {exported ? null : (
+        <button className="search sbtn" type="button" aria-label={`Search or jump to (${paletteKeyLabel()})`} aria-keyshortcuts="Meta+K Control+K" onClick={() => conn !== 'expired' && setPalette(true)}>
+          <Icon name="search" />
+          <span className="st">Search or jump to…</span>
+          <span className="kbd">{paletteKeyLabel()}</span>
+        </button>
+      )}
+      <HelpMenu />
     </header>
   );
 }

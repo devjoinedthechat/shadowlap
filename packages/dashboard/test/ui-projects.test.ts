@@ -213,9 +213,10 @@ describe('the project a page shows', () => {
 });
 
 describe('the project block of an exported copy', () => {
-  it('counts the runs it holds in words', () => {
-    expect(exportedLine(1)).toBe('1 run · nothing runs from here');
-    expect(exportedLine(2)).toBe('2 runs · nothing runs from here');
+  it('counts the runs it holds in words, then when it was made, to the minute', () => {
+    expect(exportedLine(1)).toBe('1 run');
+    expect(exportedLine(2)).toBe('2 runs');
+    expect(exportedLine(2, new Date(2026, 9, 1, 10, 20).getTime(), new Date(2026, 9, 2).getTime())).toBe('2 runs · Oct 1, 10:20');
   });
 });
 

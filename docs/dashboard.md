@@ -47,37 +47,52 @@ See [`dashboard`](./cli.md#dashboard) in the CLI reference.
 
 ## The shell
 
-Every page shares one frame: a sidebar, a top bar and a status bar. The dashboard is dark only. Below 1000px the sidebar is a drawer behind the menu button.
+Every page shares one frame: a sidebar, a top bar and a status bar. The dashboard is dark only.
+
+At 1000px and below the sidebar is a drawer behind the menu button. Opening it puts the focus on its first item, and the page and the status bar can't be reached until it closes. Esc, a click beside it, a link in it or ⌘K closes it.
 
 ### Sidebar
 
 The sidebar holds, from the top:
 
 - **The project**, which opens the [project switcher](#projects).
-- **Search or jump to** (⌘K or Ctrl K).
-- **The pages**: Overview, Runs, Compare, Fixes, Tests and Training.
-- **The most recent runs**, as a tree.
-- **Settings**.
+- **The pages**: Overview, Runs with how many there are, Compare, Fixes and Tests, then Training under a hairline.
+- **Recent runs**, as a tree. Its caret folds it, and the browser keeps it folded until you open it again.
+- **Settings**, at its foot, whether the tree shows or not.
 
 The recent runs make a tree as deep as each family goes. A replay or a fork sits a step in, under the run it came from, so a fork of a fork sits under that fork, as the Overview's grid nests it. A lineage deeper than four steps keeps to the fourth, where a run's id and time still fit.
 
 Each run shows its id and when it ran, then its [about line](#a-runs-id-and-its-about-line) and only what needs a look (*lost at #9*). A failure reads as Runs' Status says it (*lost at #9*, *diverged at #3*). A run where a check couldn't be decided reads *inconclusive*, in amber.
 
+A run's icon says what kind of run it is and how it came out, and a screen reader hears it in words. A test replay left inconclusive draws the tests icon in amber (*Test inconclusive*). A recording that a check failed reads *Recording, check failed*.
+
 ### Top bar
 
 The top bar shows:
 
-- **What this dashboard is**: *dashboard*; *team store* with a [team store](./team.md), naming it on hover; or *read-only* or *exported*, with why on hover.
-- **Where you are.**
-- **A live chip** while a run records. It is kept while the server can't be reached.
+- **Where you are**, as crumbs. A run's crumbs carry its lineage, each with its about line on hover. The run it came from shows its card on hover, and `p` opens it.
+- **A live chip** while a run records: *recording · 9 calls*, with the run and its about line on hover. It names the first recording that isn't the page you are on. While the server can't be reached it stays, saying when the recording was last heard of.
+- **Search or jump to** (⌘K or Ctrl K), which opens [the palette](#search-or-jump-to). At 1000px and below it shows its icon alone.
+- **Help**: Keyboard shortcuts, Docs and Command line. A touch screen leaves out Keyboard shortcuts.
+
+A page that can't show what its address names, such as a run the store doesn't hold, names only its section in its crumbs and its tab's title. At 640px and below the crumbs are left out, and at 1000px and below the live chip.
 
 When a recording ends, a toast says so on whatever page is open, whether it was recorded from a terminal or anywhere else: *Recording finished · 01M53JE2Q0 · 32 calls*, or *interrupted* when it stopped before its end. A run that a dashboard job made says how it ended in the job's drawer instead.
 
 ### Status bar
 
-The status bar shows the store, the run count (attempts counted apart), whether it is in sync, the address and the version. With a team store, it also shows the store's name and its last sync, or *setting up* while its setup is under way.
+The status bar says, from the left:
 
-A job off the screen leads its right-hand side: what it is doing (*Forking · running*), how many run from every tab (*2 jobs running*), or what a hidden one did (*Replayed · reproduced · exit 0*). A click opens it. Below 1000px it floats at the window's foot as a pill.
+- **The store**: its path, whole on hover.
+- **The runs**: *48 runs · 12 attempts*.
+- **The connection**, only when something is wrong: *offline*, or *link expired*.
+- **Read-only**, on a [read-only dashboard](#read-only-mode), with why on hover.
+- **Where it runs**: its address and *local only*. With a [team store](./team.md), the store's name and its last sync (*synced 10:14*), or *setting up* while its setup is under way.
+- **The version**.
+
+When the window is too narrow, a part gives way whole: the version first, then where it runs, then the store. The runs, the connection and *read-only* stay.
+
+A job off the screen leads its right-hand side: what it is doing (*Forking · running*), how many run from every tab (*2 jobs running*), or what a hidden one did (*Replayed · reproduced · exit 0*). A click opens it. At 1000px and below it floats at the window's foot as a pill.
 
 ### Toasts
 
@@ -106,7 +121,7 @@ How the about line fits the room it gets:
 
 - **On one line**, it is fitted to the room it gets at whole words: its first words and its last, with *…* between (*Ticket T-8812 … arrived damaged*). It keeps a ticket or order number rather than a UUID, and gives its place up rather than show part of a word.
 - **What a replay or a fork changed** is never shortened, except a field set by its path, which keeps its last parts with the value and the call (*budget_tokens=4096 #17* for *thinking.budget_tokens=4096 #17*).
-- **In the sidebar**, a test replay's status beside it (*check failed*) gives way before its golden's name does.
+- **In the sidebar**, a run's status beside it gives way before its about line does: first to its one word (*failed* for *check failed*, *lost* for *lost at #9*), then whole.
 
 The about line quotes what the run recorded. So a copy that leaves the store (an HTML file, a share link) works it out from that copy, with the project's redaction rules applied. Labels stay chips beside it, for meaning and filtering, never a name. Runs' filter matches it.
 
@@ -115,18 +130,28 @@ The about line quotes what the run recorded. So a copy that leaves the store (an
 **Search or jump to** (⌘K or Ctrl K) is a palette over the whole dashboard. It offers:
 
 - **Every page**, and **This run's actions**, its next step first.
+- **The actions** of every page, from the first time it opens, whichever pages you have visited: Run tests, Import capture…, Calibrate, Export pairs… and Score model… while there is something to export or score, the team store's setup, and Keyboard shortcuts.
 - **The runs**: the newest 500, each by its id with its about line as the hint. Any other run is found by its id, typed in full or its first characters.
+- **The fixes**, each by its title, with its label and status. Its steps find it too: `blame`, `repair`, `verify`, `apply`.
 - **The goldens**, each with its last verdict: *passed*, *failed* or *inconclusive*, a gate's with its tally and bound. When any diverged, **Update goldens** opens its dialog on Tests.
 - **What the runs recorded**, from three characters: prompts, responses, tool arguments and results, up to six matches, two per run.
-- **Run blame**, once something is typed, for the three newest failures whose next step it is, by what they were about or `failed`. What it asks first, your command, a check or a yes, it asks on the run's page.
 
-A row with a key of its own shows it at its right, while single-key shortcuts are on.
+Some rows show only once something is typed:
+
+- **Settings**, after the pages: each tab, found by what it holds. `redact`, `trust`, `alerts`, `settings ci` and `spending` each find theirs.
+- **Run blame**, for the three newest failures whose next step it is, by what they were about or `failed`. What it asks first, your command, a check or a yes, it asks on the run's page.
+- **Apply fix**, for each verified fix not yet applied, by its label or `fix patch`. It opens the fix's page and asks there.
+- **Add normalizer…** and **Add redaction rule…**, which open their Settings tab and its dialog.
+
+A row with a key of its own shows it at its right, while single-key shortcuts are on. On a touch screen, or where its own words don't fit, the field says *Search or jump to*.
 
 **On a list's row**, ⌘K offers that row's actions under its name: on a run's, Open run, its next step, Replay, Compare, Copy ID and Select run. The next step says what the run's lime button says, with no key: `b`, `r` and `c` press it on the run's page only, and Select run keeps its `x`. A link goes where it goes, Run blame and Replay start where you are, and any other step opens the run and presses the button there, so it asks and waits as the button does.
 
 Run blame and Replay start as the run's own buttons would, and Replay isn't offered while the run records. One that asks first, for your command, the check or whether to run someone else's, opens the run to ask. ⌫ in the empty field shows everything, and closing it hands the focus back to the row.
 
-Every typed word must match. Matches in recordings, forks, tests and captures come first, however many attempts match too. An attempt (`--repeat`, a blame probe, a verify attempt) replays its run's text, so it shows only for a run with no match of its own. The attempts of one run count as that run.
+Every typed word must match. An action is found by its name and what it does, never by the command in its hint, so a run's id finds the run, not every action that names it. A word of three or more letters and digits that is part of a listed run's id puts the runs first. A screen reader hears how many rows each word found.
+
+Matches in recordings, forks, tests and captures come first, however many attempts match too. An attempt (`--repeat`, a blame probe, a verify attempt) replays its run's text, so it shows only for a run with no match of its own. The attempts of one run count as that run.
 
 ### How search stays current
 
@@ -136,7 +161,8 @@ The dashboard keeps the search index up to date on a thread of its own, with its
 - **A store in memory**, which no other thread can open, is indexed on the server's own thread, a slice at a time while it answers no request.
 - **A run still recording**: a search first takes in what it said since the last search, so its newest calls are found as they arrive.
 - **The index's first start** over a store of thousands of runs: until the index has read every run, the palette says how many runs it has yet to read, and asks again until it has.
-- **While the server can't be reached**, the palette's field searches runs and pages. An action that starts a job stays in its place, dimmed: *paused: the server can't be reached*.
+- **While the server can't be reached**, the palette's field searches runs and pages. A line under it says *Offline: actions paused until the dashboard server is back*. An action that starts a job stays in its place, dimmed, its hint kept, marked *paused*.
+- **While another job holds what an action needs**, such as a test session for Run tests or a repair's working tree for Calibrate and Apply fix, the action stays in its place, dimmed, its hint saying why. Picking it says so again.
 
 ## Overview
 
@@ -1615,7 +1641,7 @@ The server asks that question itself: a 409 naming the exact command lines, with
 An apply changes your working tree, and a repair makes its candidates from it, so each runs alone in its project:
 
 - **It can't start** while a job runs your agent from that tree: a recording, a blame, a replay or fork, a test, a calibration.
-- **Until it is done**, any of those is refused, with what holds the tree. Their buttons wait, with the reason on hover, and Search or jump to leaves Calibrate out.
+- **Until it is done**, any of those is refused, with what holds the tree. Their buttons wait, with the reason on hover, as Calibrate and Apply fix do in Search or jump to.
 - **Run blame**, **Run repair**, **Apply fix** and the Tests actions that run your agent (**Run tests**, **Update golden**, **Add normalizer and re-run**) are off meanwhile, and say so on hover.
 - **Any other action that runs your agent** is refused, with the reason.
 - **A job in another project's folder** doesn't wait.
@@ -1640,12 +1666,12 @@ shadowlap dashboard --read-only
 Read-only mode shows every page and changes nothing in your runs. Use it to show a colleague your runs, or to look around without the risk of a click changing something.
 
 - **Refused**: replay, fork and the other actions, labels, notes, uploads and deletes. Each says why where you would have used it.
-- **The top bar** says *read-only*, with the reason on hover, and Search or jump to leaves the actions out.
+- **The status bar** says *read-only*, with the reason on hover, and Search or jump to leaves the actions out.
 - **Downloading a run as HTML** (**Share → HTML report**) still works, since it changes nothing: the file comes straight from the dashboard instead of being written into the project.
 - **The store**: read-only mode needs an existing store and never creates one. It opens that store the way every command does, which brings an older store's layout up to date and lets search build its index.
 - **Uploads**: it leaves the uploads folder alone, even files another dashboard left there.
 
-A dashboard started without the CLI behind it (embedded elsewhere) is read-only in the same way. Its top bar and buttons say to start it with `shadowlap dashboard`.
+A dashboard started without the CLI behind it (embedded elsewhere) is read-only in the same way. Its *read-only* and its buttons say, on hover, to start it with `shadowlap dashboard`.
 
 ## Send a run to someone
 
@@ -1659,6 +1685,8 @@ The file has the same views as the dashboard, with the run's data built in and n
 
 - **What it holds**: it opens on the run that was shared, and holds Runs (the runs in the file) and, when it holds two or more, Compare between them. Any other page opens Runs.
 - **What it leaves out**: there is nothing to run from it and no search across runs, so `/` filters a run's calls or Runs.
+- **How it reads**: the sidebar's top says *Exported copy*, how many runs it holds and when, and whether its redaction applied. Its runs sit under *In this copy*, with no Settings or live chip. The status bar says *1 run in this copy* and *exported Oct 1, 10:20 · read-only*.
+- **Its own pages**: the logo opens the run it opens on. A run it doesn't hold opens a page that says so, with a link to Runs.
 - **Redaction**: it holds recorded prompts and tool data, so the project's redaction rules apply by default; see [`export html`](./cli.md#export-html).
 
 From the dashboard:
@@ -1668,7 +1696,7 @@ From the dashboard:
 
 ## Keyboard shortcuts
 
-The dashboard's keys, by where they work. `?` lists them on a sheet, and each control a key presses says its key on its hover card and to a screen reader.
+The dashboard's keys, by where they work. `?`, or **Keyboard shortcuts** in the top bar's Help, lists them on a sheet, and each control a key presses says its key on its hover card and to a screen reader.
 
 **Single-key shortcuts** can be turned off at the sheet's foot, and the browser remembers it. Off, only ⌘K, ⌘Z, Esc, Enter and the arrows work, and nothing advertises a single key.
 
@@ -1777,7 +1805,7 @@ One that can't start leaves the dialog open, with what you typed.
 - **Search or jump to** keeps the focus in its field while ↑ and ↓ move through what it offers, as a screen reader expects of a combobox.
 - **Closing** a menu, a dialog or the palette hands the focus back to what had it, or to the control drawn in its place when the page has drawn it anew. A click outside a menu that lands on another control leaves the focus there.
 - **Closing a job's drawer** from inside it hands the focus back to where it was, or else to the page. Hiding a running job from inside its drawer hands the focus to the status bar's chip, and pressing the chip hands it back.
-- **The sidebar on a phone** takes the focus to its first item as it opens. Closing it from inside it, or with a click beside it, hands the focus to its button. A tap beside it only closes it: what it lands on doesn't act.
+- **The sidebar on a phone** takes the focus to its first item as it opens. Closing it from inside it, or with a click beside it, hands the focus to its button. A tap on the page or the status bar only closes it: what it lands on doesn't act. The top bar stays in reach, so its Search or jump to opens as the drawer closes.
 - **A link in a menu or a dialog** hands the focus to the page it opened, and so does Back with one open. A run picked in Compare leaves it on the picker.
 - **A focus ring** is drawn whole in every pane that scrolls. A pane that scrolls with no control in it (the Timeline, Turns and Context, a run's calls on Provenance, a code block, a command to copy, a job's output, a dialog's body) takes the focus itself, so the keyboard can scroll it.
 - **What has a hover card and no action of its own** takes the focus where it stands on its own (a run's outcome, a fact), so what a hover shows is never only a hover's. In a row or a chart it doesn't, and a mark with no words of its own is named by its card.
@@ -2338,7 +2366,7 @@ Outside a dashboard job the variable is unset, and nothing is written.
 **Browser tests.** `npm run test:browser` (from `packages/dashboard`) opens the dashboard in Chromium over the whole demo store, built by real commands (`scripts/demo-store.mjs`, or the one `SHADOWLAP_DEMO_DIR` names). It checks it with axe-core for no serious or critical violation:
 
 - on any page, Settings tab, run, view, inspector tab, menu or dialog;
-- on Fixes and each fix's steps, the palette, and the shortcuts on Overview, Runs, Fixes and Settings;
+- on Fixes and each fix's steps, the palette, the help menu, and the shortcuts on Overview, Runs, Fixes and Settings;
 - on a toast with Undo, or the bar that says the dashboard can't be reached;
 - on a page, and a run's view, whose code couldn't be loaded;
 - on an exported copy's run, opened from a file;
