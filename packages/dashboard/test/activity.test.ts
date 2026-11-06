@@ -533,6 +533,25 @@ describe('an outcome that is inconclusive', () => {
     expect(items.find((i) => i.id === `r:${rec}:blame`)).toMatchObject({ kind: 'blame', text: 'Blamed · inconclusive at the first model call' });
     store.close();
   });
+
+  it('colours a recording or a replay a check could not decide amber on its own shape, and one that failed red', () => {
+    const store = Store.open(':memory:');
+    const judge = 'judge "calm" answers yes';
+    const unsure = { ok: false, status: 'inconclusive' as const, label: judge, detail: "not judged: the judge's call failed: HTTP 400" };
+    const rec = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 100, meta: { checks: [unsure] } }).runId;
+    store.endRun(rec, 'completed', 200);
+    const replay = store.createRun({ mode: 'replay', parentRunId: rec, command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 300, meta: { checks: [unsure] } }).runId;
+    store.endRun(replay, 'completed', 400);
+    const failed = store.createRun({ mode: 'replay', parentRunId: rec, command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 500, meta: { checks: [unsure, { ok: false, status: 'failed', label: 'exits 0', detail: 'exit 1' }] } }).runId;
+    store.endRun(failed, 'completed', 600);
+    const items = activity(store).items;
+    expect(items.find((i) => i.id === `r:${rec}:end`)).toMatchObject({ kind: 'rec', outcome: 'warn', text: `Recorded 0 calls · check inconclusive: ${judge}` });
+    expect(items.find((i) => i.id === `r:${replay}:end`)).toMatchObject({ kind: 'rec', outcome: 'warn', text: `Replay finished · no calls · check inconclusive: ${judge}` });
+    const red = items.find((i) => i.id === `r:${failed}:end`);
+    expect(red).toMatchObject({ kind: 'fail', text: 'Replay finished · no calls · check failed: exits 0' });
+    expect(red?.outcome).toBeUndefined();
+    store.close();
+  });
 });
 
 describe('events as each feature records them', () => {

@@ -337,7 +337,7 @@ function recordingEnd(store: StoreOf<'recording'>, run: RunRecord): ActivityItem
   const item = base(run, `r:${run.runId}:end`, run.endedAt ?? run.startedAt);
   if (run.status === 'failed') return { ...item, kind: 'fail', text: `Recording failed · ${calls} · ${command(run)}` };
   if (checks?.failed) return { ...item, kind: 'fail', text: `Recorded ${calls} · check failed: ${checks.failed}` };
-  if (checks?.inconclusive) return { ...item, kind: 'rec', text: `Recorded ${calls} · check inconclusive: ${checks.inconclusive}` };
+  if (checks?.inconclusive) return { ...item, kind: 'rec', outcome: 'warn', text: `Recorded ${calls} · check inconclusive: ${checks.inconclusive}` };
   if (run.status === 'crashed') return { ...item, kind: 'rec', text: `Recording interrupted · ${calls} · ${command(run)}` };
   return { ...item, kind: 'rec', text: `Recorded ${calls} · ${command(run)}` };
 }
@@ -409,6 +409,15 @@ function testEnd(store: StoreOf<'recording' | 'tests'>, run: RunRecord, test: { 
   if (checks?.inconclusive) return { ...item, kind: 'warn', text: `Test inconclusive · ${golden} · check inconclusive: ${checks.inconclusive}` };
   const detail = checks ? checks.text : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`;
   return { ...item, kind: 'test', text: `Test passed · ${golden} · ${detail}` };
+}
+
+/**
+ * A replay a check couldn't decide reads amber on its own shape (clean, forked or plain). One that
+ * failed stays red, and a test's attempt is told by its test's result.
+ */
+function unsure(entry: ActivityItem, run: RunRecord): ActivityItem {
+  const checks = checksOutcome(run);
+  return run.meta?.test || entry.kind === 'fail' || checks?.failed || !checks?.inconclusive ? entry : { ...entry, outcome: 'warn' };
 }
 
 function replayEnd(store: StoreOf<'recording' | 'tests'>, run: RunRecord): ActivityItem {
@@ -674,7 +683,7 @@ function derived(store: StoreOf<'recording' | 'activity' | 'tests'>, runs: RunRe
         else tested.set(key, [run]);
         continue;
       }
-      stubs.push({ id: `r:${run.runId}:end`, at: run.endedAt ?? run.startedAt, render: () => replayEnd(store, run) });
+      stubs.push({ id: `r:${run.runId}:end`, at: run.endedAt ?? run.startedAt, render: () => unsure(replayEnd(store, run), run) });
     }
   }
   for (const attempts of tested.values()) {
