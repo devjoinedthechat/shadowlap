@@ -467,9 +467,6 @@
     "packages/dashboard/ui/pages/Run.tsx": {
       "Workspace": 195
     },
-    "packages/dashboard/ui/pages/Tests.tsx": {
-      "TestsPage": 234
-    },
     "packages/dashboard/ui/pages/Training.tsx": {
       "TasksTab": 163
     },
