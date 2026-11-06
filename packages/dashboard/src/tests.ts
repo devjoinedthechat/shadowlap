@@ -1,9 +1,9 @@
-import { ACTIONS, attemptsToFail, goldensPassed, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, isObject, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, plural, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, withoutCommand, type CallKind, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { ACTIONS, attemptsOf, attemptsToFail, goldensPassed, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, isObject, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, plural, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, withoutCommand, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResults } from './bisect-start.js';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { historyCells, liveSessionFields, type HistoryCell, type RevisionFact, type SessionFollowing } from './tests-history.js';
 import { evidenceWords, type EvidenceWords } from './tests-evidence.js';
-import { rulesToAdd } from './tests-normalize.js';
+import { divergenceOf, rulesToAdd, storedVolatile, volatileOf } from './tests-normalize.js';
 import type { NextStep } from './next-step.js';
 import { gateLine, gateRuleOf } from './verdict.js';
 import { links } from './links.js';
@@ -287,7 +287,12 @@ export interface BisectRevision {
   sameChecks: boolean;
   /** The commit's subject, when the project's git has the commit (added by the route). */
   subject?: string | null;
+  /** Its attempts there, passes of all, when it ran several: the dialog says `failed 4 of 8`. */
+  rate?: Tally | null;
 }
+
+/** A commit Find breaking commit's dialog offers that the golden was never tested at, with its subject. */
+export type UntestedCommit = { rev: string; subject: string };
 
 /** A golden whose last replay diverged, as the CLI prints it, with what each button runs. */
 export interface DivergenceView {
@@ -343,6 +348,8 @@ export interface DivergenceView {
   missed: BisectMiss | null;
   /** Commits to offer as good ones when Find breaking commit asks, newest first. */
   revisions: BisectRevision[];
+  /** With no range to search, commits of this checkout before the one it failed at that it was never tested at: the route asks git (commits-here.ts `commitsBefore`). */
+  untested?: UntestedCommit[];
   /** Why its pack can't be read, or null: such a golden can't be bisected. */
   unreadable: string | null;
 }
@@ -377,6 +384,7 @@ export interface FailureView {
   found: FoundCommit | null;
   missed: BisectMiss | null;
   revisions: BisectRevision[];
+  untested?: UntestedCommit[];
   unreadable: string | null;
 }
 
@@ -553,30 +561,10 @@ export function liveTestSession(store: StoreOf<'tests'>): TestSession | null {
   return null;
 }
 
-/** What volatileValues() made of a stored divergence: judged on all its changes when it was recorded. */
-export function volatileOf(r: TestResult, d: DivergenceReport): VolatileValues {
-  const kept = r.data?.divergence?.volatile;
-  return kept ? storedVolatile(kept) : volatileValues(d);
-}
-
-/** Stored values, with what a result kept before ids were told apart read as it was meant then. */
-function storedVolatile(kept: NonNullable<NonNullable<NonNullable<TestResult['data']>['divergence']>['volatile']>): VolatileValues {
-  return { values: kept.values.map((v) => ({ ...v, certain: v.certain ?? true })), explainsAll: kept.explainsAll, coversAll: kept.coversAll ?? kept.explainsAll };
-}
-
 /** The first value a view shows, with the command that adds its normalizer. */
 function shownValue(values: VolatileValues): DivergenceView['volatile'] {
   const v = values.values[0];
   return v ? { ...v, args: normalizeAddArgs(v.normalizer), command: normalizeAddCommand(v.normalizer) } : null;
-}
-
-export function divergenceOf(r: TestResult): DivergenceReport | null {
-  const d = r.data?.divergence;
-  if (!d) return null;
-  const report: DivergenceReport = { type: d.type as DivergenceReport['type'], callNo: d.callNo, kind: d.kind as CallKind, name: d.name, replayedBefore: d.replayedBefore };
-  if (d.diff) report.diff = d.diff as NonNullable<DivergenceReport['diff']>;
-  if (d.hints) report.hints = d.hints;
-  return report;
 }
 
 /** Why a result failed, in a few words: `diverged at call 1`, `check failed: send_email called 0 times`, `inconclusive after 40 attempts`. */
@@ -1023,7 +1011,7 @@ function bisectRevisions(history: readonly TestResult[], failed: TestResult, che
   return [...out.values()]
     .sort((a, b) => b.r.at - a.r.at)
     .slice(0, DIALOG_REVISIONS)
-    .map(({ r, rev }) => ({ rev, at: r.at, result: r.ok ? 'pass' : 'fail', verdict: verdictOfResult(r), sameChecks: underChecks(r, checks) }));
+    .map(({ r, rev }) => ({ rev, at: r.at, result: r.ok ? 'pass' : 'fail', verdict: verdictOfResult(r), sameChecks: underChecks(r, checks), rate: attemptsOf(r) }));
 }
 
 /** What Find breaking commit said about a golden: a first bad commit, or none and why (the `bisect.found` and `bisect.none` activity events). */

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { JOB_KINDS, type BisectRevision, type DivergenceView } from '../api.js';
+import { JOB_KINDS, type DivergenceView } from '../api.js';
 import { PageHeader } from '../components/bits.js';
 import { glossed } from '../components/Term.js';
 import { projectOf } from '../shell/ProjectBlock.js';
@@ -21,6 +21,7 @@ import { keepTests } from '../tests-palette.js';
 import { FailurePanel, DivergencePanel, InconclusivePanel } from '../tests/Reports.js';
 import { CiSections } from '../tests/Sections.js';
 import { TestsEmpty, TestsFailed, TestsLoading } from '../tests/States.js';
+import type { GoodCommitsOf } from '../tests/good-commits.js';
 import { GoldensTable } from '../tests/Table.js';
 import { leadStep } from '../tests/lead.js';
 import { Verdict, type LeadPress } from '../tests/Verdict.js';
@@ -40,7 +41,7 @@ const TEST_KINDS = new Set<string>([JOB_KINDS.tests, JOB_KINDS.testUpdate, JOB_K
 
 type Open =
   | { kind: 'update'; paths: string[]; estimate?: Price }
-  | { kind: 'bisect'; name: string; golden: string; range: { good: string; bad: string | null } | null; live: boolean; revisions: BisectRevision[]; tried: string | null }
+  | { kind: 'bisect'; name: string; golden: string; range: { good: string; bad: string | null } | null; live: boolean; goods: GoodCommitsOf }
   | { kind: 'normalize-update'; name: string; golden: string; steps: string[][]; estimate?: Price };
 
 
@@ -137,13 +138,13 @@ export function TestsPage() {
     else if (run === 'normalize-update' && d.normalizeAndTest) setOpen({ kind: 'normalize-update', name: d.name, golden: d.golden, steps: d.normalizeAndTest, estimate: e });
     else if (run === 'normalize') start(JOB_KINDS.normalizeAndTest, { golden: d.golden }, divergedAsk(view, d.golden, run), e);
   };
-  const findCommit = (f: Pick<DivergenceView, 'name' | 'golden' | 'bisect' | 'missed' | 'revisions'>) => {
+  const findCommit = (f: Pick<DivergenceView, 'name' | 'golden' | 'bisect' | 'missed' | 'revisions' | 'untested'>) => {
     // Once a search over the known range named no first bad commit, it asks for an older good one.
     const range = f.missed ? null : f.bisect;
     const live = bisectLive(view, f);
     // Free replays over a known range start at once; a search that needs a good commit, or costs tokens, asks first.
     if (range && !live) start(JOB_KINDS.bisect, { golden: f.golden, good: range.good, ...(range.bad ? { bad: range.bad } : {}) });
-    else setOpen({ kind: 'bisect', name: f.name, golden: f.golden, range: range ? { good: range.good, bad: range.bad } : null, live, revisions: f.revisions, tried: f.missed?.good ?? null });
+    else setOpen({ kind: 'bisect', name: f.name, golden: f.golden, range: range ? { good: range.good, bad: range.bad } : null, live, goods: f });
   };
 
   const press: LeadPress = {
@@ -199,8 +200,7 @@ export function TestsPage() {
           golden={open.golden}
           range={open.range}
           live={open.live}
-          revisions={open.revisions}
-          tried={open.tried}
+          goods={open.goods}
           onClose={() => setOpen(null)}
           onRun={(fields) => start(JOB_KINDS.bisect, { golden: open.golden, ...fields })}
         />

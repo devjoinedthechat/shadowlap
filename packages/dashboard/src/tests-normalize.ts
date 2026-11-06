@@ -1,10 +1,33 @@
-import { sameRule, type Normalizer, type VolatileValues } from '@shadowlap/engine';
+import { sameRule, volatileValues, type CallKind, type DivergenceReport, type Normalizer, type TestResult, type VolatileValues } from '@shadowlap/engine';
 
 /**
- * Add normalizer and update, for several goldens at once: the rules it adds for one of them, before
- * the update re-records them all. Beside tests.ts, which is at its length: GET /api/tests says them
- * for each diverged golden, and the job (routes/tests.ts) adds them.
+ * A golden's stored divergence and the values in it made anew on every run, which a normalizer
+ * masks: as a report, as the values it was judged on, and the rules Add normalizer and update adds
+ * for several goldens at once before the update re-records them all. Beside tests.ts, which is at
+ * its length: GET /api/tests says the rules for each diverged golden, and the job (routes/tests.ts)
+ * adds them.
  */
+
+/** A result's stored divergence as the report it was made from; null for a result that didn't diverge. */
+export function divergenceOf(r: TestResult): DivergenceReport | null {
+  const d = r.data?.divergence;
+  if (!d) return null;
+  const report: DivergenceReport = { type: d.type as DivergenceReport['type'], callNo: d.callNo, kind: d.kind as CallKind, name: d.name, replayedBefore: d.replayedBefore };
+  if (d.diff) report.diff = d.diff as NonNullable<DivergenceReport['diff']>;
+  if (d.hints) report.hints = d.hints;
+  return report;
+}
+
+/** What volatileValues() made of a stored divergence: judged on all its changes when it was recorded. */
+export function volatileOf(r: TestResult, d: DivergenceReport): VolatileValues {
+  const kept = r.data?.divergence?.volatile;
+  return kept ? storedVolatile(kept) : volatileValues(d);
+}
+
+/** Stored values, with what a result kept before ids were told apart read as it was meant then. */
+export function storedVolatile(kept: NonNullable<NonNullable<NonNullable<TestResult['data']>['divergence']>['volatile']>): VolatileValues {
+  return { values: kept.values.map((v) => ({ ...v, certain: v.certain ?? true })), explainsAll: kept.explainsAll, coversAll: kept.coversAll ?? kept.explainsAll };
+}
 
 /**
  * The rules Add normalizer and update adds for a golden among several: one for each value its last

@@ -483,9 +483,9 @@ describe('the Tests screen', () => {
     expect(f.bisect).toEqual({ good: 'bbb2222', bad: 'ddd4444', args: ['bisect', 'goldens/x', '--good', 'bbb2222', '--bad', 'ddd4444'], live: true });
     // The dialog offers each commit it was tested at before, newest first, with how it did there.
     expect(f.revisions).toEqual([
-      { rev: 'ccc3333', at: T0 + 2 * DAY + 1, result: 'pass', verdict: 'passed', sameChecks: true },
-      { rev: 'bbb2222', at: T0 + DAY + 1, result: 'pass', verdict: 'passed', sameChecks: true },
-      { rev: 'aaa1111', at: T0 + 1, result: 'pass', verdict: 'passed', sameChecks: true },
+      { rev: 'ccc3333', at: T0 + 2 * DAY + 1, result: 'pass', verdict: 'passed', sameChecks: true, rate: { passes: 1, attempts: 1 } },
+      { rev: 'bbb2222', at: T0 + DAY + 1, result: 'pass', verdict: 'passed', sameChecks: true, rate: { passes: 1, attempts: 1 } },
+      { rev: 'aaa1111', at: T0 + 1, result: 'pass', verdict: 'passed', sameChecks: true, rate: { passes: 1, attempts: 1 } },
     ]);
     store.close();
   });
@@ -504,7 +504,7 @@ describe('the Tests screen', () => {
     const [f] = testsView(store, [x]).failures;
     // No pass under today's check: the page asks for a good commit, offering aaa1111 as passed under other checks.
     expect(f.bisect).toBeNull();
-    expect(f.revisions).toEqual([{ rev: 'aaa1111', at: T0 + 1, result: 'pass', verdict: 'passed', sameChecks: false }]);
+    expect(f.revisions).toEqual([{ rev: 'aaa1111', at: T0 + 1, result: 'pass', verdict: 'passed', sameChecks: false, rate: { passes: 1, attempts: 1 } }]);
     store.close();
   });
 

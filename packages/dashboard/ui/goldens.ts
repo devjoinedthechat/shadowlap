@@ -4,7 +4,7 @@ import { rateBound } from '../../engine/src/stats.js';
 import { twoDigits as pad } from '../../engine/src/words.js';
 import { href } from './route.js';
 import { noteText, UNGUARDED_FIX } from './run/note-words.js';
-import type { BisectMiss, BisectRevision, CiWorkflowOptions, DivergenceView, FailureView, FoundCommit, GoldenCheck, GoldenRow, InconclusiveView, TestsView } from './types.js';
+import type { BisectMiss, CiWorkflowOptions, DivergenceView, FailureView, FoundCommit, GoldenCheck, GoldenRow, InconclusiveView, TestsView } from './types.js';
 
 /**
  * The Tests screen's words and choices, from the tests read model (`GET /api/tests`): the verdict's
@@ -102,21 +102,6 @@ export function sessionWait(view: (Pick<TestsView, 'running'> & Partial<Pick<Tes
 /** The running test job among these, for the palette's Run the tests to open rather than start another. */
 export function runningTests<T extends { kind?: string | undefined; done: boolean }>(jobs: readonly T[]): T | null {
   return jobs.find((x) => !x.done && x.kind === 'test') ?? null;
-}
-
-/**
- * The commits Find breaking commit's dialog offers as good ones, newest first, as the mock words them:
- * each with its subject, and how the golden did there when it didn't pass under today's checks: failed, inconclusive (neither passed nor failed), or passed under others. `initial` is the one to start on: the newest that passed under them, older
- * than `tried` when a search from that one named no first bad commit (it already failed there); ''
- * when none is known, for the dialog to ask for any commit.
- */
-export function revisionChoices(revisions: readonly BisectRevision[], tried: string | null = null): { options: Array<{ value: string; subject: string; how: string | null }>; initial: string } {
-  const options = revisions.map((r) => ({ value: r.rev, subject: r.subject || shortDate(r.at), how: r.verdict === 'inconclusive' ? 'inconclusive here' : r.result === 'fail' ? 'failed here' : r.sameChecks ? null : 'passed under other checks' }));
-  const at = tried ? revisions.findIndex((r) => r.rev === tried || r.rev.startsWith(tried) || tried.startsWith(r.rev)) : -1;
-  // Nothing older than the one tried is known: the dialog starts on a field for any commit ('').
-  const older = at >= 0 ? revisions.slice(at + 1) : revisions;
-  const initial = older.find((r) => r.result === 'pass' && r.sameChecks)?.rev ?? older[0]?.rev ?? '';
-  return { options, initial };
 }
 
 /** A revision as the history's column names it: the short sha, with a + when it was tested with changes on top; `no rev` for none, never a dash. */

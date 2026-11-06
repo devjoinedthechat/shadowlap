@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { cellNote, cellShare, historyKey, KEY_WORDS, revisionTip } from '../ui/tests/cells.js';
 import { leadStep } from '../ui/tests/lead.js';
-import { asksUpdate, checkMark, checkReportLine, checkWords, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revisionChoices, revLabel, runningTests, sessionLine, sessionWait, shortDate, sourceText, testsBusy, testsPalette, TESTS_UPDATE_HASH } from '../ui/goldens.js';
+import { asksUpdate, checkMark, checkReportLine, checkWords, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revLabel, runningTests, sessionLine, sessionWait, shortDate, sourceText, testsBusy, testsPalette, TESTS_UPDATE_HASH } from '../ui/goldens.js';
+import { goodCommits } from '../ui/tests/good-commits.js';
 import { updatePlan } from '../ui/update-plan.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { DivergenceView, FailureView, GoldenCheck, GoldenRow, HistoryCell, InconclusiveView, TestsView, UnjudgedCheck } from '../ui/types.js';
@@ -421,29 +422,45 @@ describe('Find the commit’s dialog', () => {
     { rev: 'aaa1111', at: T - 180_000, result: 'pass' as const, verdict: 'passed' as const, sameChecks: true, subject: 'Initial support agent' },
   ];
 
-  it('offers each commit the golden was tested at by its subject, as the mock words it, starting on the newest that passed', () => {
-    const c = revisionChoices(revisions);
+  it('offers each commit the golden was tested at by its subject, saying how it did there, starting on the newest that passed', () => {
+    const c = goodCommits({ revisions });
+    expect(c.label).toBe('Good commit');
     expect(c.options).toEqual([
-      { value: 'ddd4444', subject: 'Send the user id with every request', how: 'failed here' },
-      { value: 'ccc3333', subject: 'Escalate refunds above the limit', how: null },
+      { value: 'ddd4444', subject: 'Send the user id with every request', how: 'failed' },
+      { value: 'ccc3333', subject: 'Escalate refunds above the limit', how: 'passed' },
       { value: 'bbb2222', subject: 'Oct 1', how: 'passed under other checks' },
-      { value: 'aaa1111', subject: 'Initial support agent', how: null },
+      { value: 'aaa1111', subject: 'Initial support agent', how: 'passed' },
     ]);
     expect(c.initial).toBe('ccc3333');
+    // Several attempts there: their tally, passes first.
+    const rated = goodCommits({ revisions: [{ ...revisions[0], rate: { passes: 4, attempts: 8 } }, { ...revisions[2], rate: { passes: 12, attempts: 12 } }, { ...revisions[1], rate: { passes: 1, attempts: 1 } }] });
+    expect(rated.options.map((o) => o.how)).toEqual(['failed 4 of 8', 'passed 12 of 12 under other checks', 'passed']);
   });
 
   it('says inconclusive, never failed, at a commit where the golden came out neither passed nor failed', () => {
-    // Its gate ran out of attempts between its bounds at bbb2222: no pass to start from there, and no failure either.
-    const unsure = [revisions[0], { ...revisions[1], result: 'fail' as const, verdict: 'inconclusive' as const }, revisions[3]];
-    const c = revisionChoices(unsure);
-    expect(c.options.map((o) => o.how)).toEqual(['failed here', 'inconclusive here', null]);
+    // Its gate ran out of attempts between its bounds at ccc3333: no pass to start from there, and no failure either.
+    const unsure = [revisions[0], { ...revisions[1], result: 'fail' as const, verdict: 'inconclusive' as const, rate: { passes: 64, attempts: 80 } }, revisions[3]];
+    const c = goodCommits({ revisions: unsure });
+    expect(c.options.map((o) => o.how)).toEqual(['failed', 'inconclusive 64 of 80', 'passed']);
     expect(c.initial).toBe('aaa1111');
   });
 
-  it('starts on an older commit than the one a search already failed at', () => {
-    expect(revisionChoices(revisions, 'ccc3333').initial).toBe('aaa1111');
-    expect(revisionChoices(revisions, 'aaa1111').initial).toBe('');
-    expect(revisionChoices([], null)).toEqual({ options: [], initial: '' });
+  it('starts on an older commit than the one a search already failed at, which says so', () => {
+    const missed = (good: string, outcome: 'fails-at-good' | 'untestable' | null = 'fails-at-good') => ({ good, outcome });
+    const c = goodCommits({ revisions, missed: missed('ccc3333') });
+    expect(c.initial).toBe('aaa1111');
+    expect(c.options.map((o) => o.how)).toEqual(['failed', 'tried: it already fails there', 'passed under other checks', 'passed']);
+    expect(goodCommits({ revisions, missed: missed('ccc3333', 'untestable') }).options[1]?.how).toBe('tried: it could not be tested there');
+    expect(goodCommits({ revisions, missed: missed('ccc3333', null) }).options[1]?.how).toBe('passed');
+    expect(goodCommits({ revisions, missed: missed('aaa1111') }).initial).toBe('');
+    expect(goodCommits({ revisions: [] })).toEqual({ label: 'Good commit', options: [], initial: '' });
+  });
+
+  it('offers the commits it was never tested at after the rest, and says when it was tested at none', () => {
+    const sha = 'f'.repeat(40);
+    const untested = [{ rev: sha, subject: 'Bump the model' }];
+    expect(goodCommits({ revisions: revisions.slice(0, 1), untested }).options).toEqual([{ value: 'ddd4444', subject: 'Send the user id with every request', how: 'failed' }, { value: sha, subject: 'Bump the model', how: 'not tested there' }]);
+    expect(goodCommits({ revisions: [], untested })).toEqual({ label: 'Good commit · none tested yet', options: [{ value: sha, subject: 'Bump the model', how: null }], initial: sha });
   });
 
   it('writes the command as a person types it: a placeholder and HEAD~3 unquoted', () => {

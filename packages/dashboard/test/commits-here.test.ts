@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, type TestResultData } from '@shadowlap/engine';
-import { parentlessHere } from '../src/commits-here.js';
+import { commitsBefore, parentlessHere } from '../src/commits-here.js';
 import { commitsHere, commitSubjects, forgetCommits, startDashboard, type Dashboard, type GoldenSource, type JobView, type SpawnCli, type TestsView } from '../src/index.js';
 import type { DaysBisect } from '../src/routes/runs-list.js';
 
@@ -144,12 +144,34 @@ describe('Find the commit in this checkout', () => {
     // Its dialog offers the commits it was tested at that are here, each with its subject.
     const revisions = Object.fromEntries(view.failures.map((f) => [f.golden, f.revisions]));
     expect(revisions['goldens/refund-flow']).toEqual([]);
-    expect(revisions['goldens/refund-limit']).toEqual([{ rev: first, at: T0 - 3 * DAY + 1, result: 'pass', verdict: 'passed', sameChecks: true, subject: 'Start' }]);
+    expect(revisions['goldens/refund-limit']).toEqual([{ rev: first, at: T0 - 3 * DAY + 1, result: 'pass', verdict: 'passed', sameChecks: true, rate: { passes: 1, attempts: 1 }, subject: 'Start' }]);
+    // refund-flow never passed here: of the commits before the one it failed at, git has none to say, theirs being no commit here.
+    expect(view.failures.find((f) => f.golden === 'goldens/refund-flow')!.untested).toEqual([]);
     // The history's revisions, each named by its commit's subject where this checkout has it, by no
     // one (no team store is set); and a verdict of a commit git doesn't have is never called older.
     expect(view.revisions).toContain(first);
     expect(view.revisionFacts).toEqual(view.revisions.map((rev) => ({ rev, subject: rev === first ? 'Start' : null, by: null })));
     expect(view.older).toBe(false);
+  });
+
+  it('on Tests, offers a golden that never passed the commits before the one it failed at, each it was never tested at', async () => {
+    expect(await commitsBefore(repo, second)).toEqual([{ rev: first, subject: 'Start' }]);
+    // The first commit has none before it, and git can say nothing of a commit this checkout lacks.
+    expect(await commitsBefore(repo, first)).toEqual([]);
+    expect(await commitsBefore(repo, THEIRS)).toEqual([]);
+    const s = Store.open(':memory:');
+    const failed = s.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: `${second}+dirty`, actor: 'ci', startedAt: T0 });
+    s.addTestResult({ sessionId: failed.sessionId, golden: 'goldens/refund-limit', ok: false, failure: 'exit', reason: 'the agent exited with code 1', runId: null, goldenRunId: 'GOLDEN_LIMIT', revision: `${second}+dirty`, at: T0 + 1, data: { mode: 'replay', calls: { total: 4, replayed: 4, live: 0, blocked: 0, stubbed: 0 } } });
+    s.finishTestSession(failed.sessionId, { passed: 0, failed: 1, upstreamRequests: 0, endedAt: T0 + 10 });
+    const d = await startDashboard({ store: s, project: { path: repo }, goldens: () => goldens });
+    try {
+      const res = await fetch(`${d.url}/api/tests`, { headers: { 'x-shadowlap-token': d.token } });
+      const view = (await res.json()) as TestsView;
+      expect(view.failures.find((f) => f.golden === 'goldens/refund-limit')!.untested).toEqual([{ rev: first, subject: 'Start' }]);
+    } finally {
+      await d.close();
+      s.close();
+    }
   });
 
   it('offers no search from a failure at the first commit, and on the calendar the first failure that started later', async () => {

@@ -3,7 +3,7 @@ import { describeEvent } from '../activity.js';
 import { lookupRun, noSuchRun } from '../api.js';
 import { liveChaosSession } from '../chaos.js';
 import { ciWorkflows, fixPreview, gitFacts, goldenProviders, parseCiOptions } from '../ci-workflows.js';
-import { choicesInCheckout, commitAuthors, commitsHere, commitSubjects, rangeHere, revisionsHere } from '../commits-here.js';
+import { choicesInCheckout, commitAuthors, commitsBefore, commitsHere, commitSubjects, rangeHere, revisionsHere } from '../commits-here.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult } from '../jobs.js';
@@ -18,8 +18,8 @@ import { readTeamStoreInput } from '../team-store.js';
 import { namesTeamStore } from './verdicts.js';
 import { olderThanTree, revisionCommits, treeNow, withRevisionFacts } from '../tests-history.js';
 import { liveAsk } from '../tests-live.js';
-import { bisectChoices, bisectJob, checkedRevision, divergenceOf, gatePreview, knownGolden, liveTestSession, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, volatileOf, type BisectRange, type GoldenSource, type TestsJob, type TestsView } from '../tests.js';
-import { rulesToAdd } from '../tests-normalize.js';
+import { bisectChoices, bisectJob, checkedRevision, gatePreview, knownGolden, liveTestSession, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type GoldenSource, type TestsJob, type TestsView, type UntestedCommit } from '../tests.js';
+import { divergenceOf, rulesToAdd, volatileOf } from '../tests-normalize.js';
 
 /**
  * Tests: the goldens and how they did (`GET /api/tests`), what a run's page offers about a test
@@ -150,18 +150,35 @@ export function normalizeAndUpdateJob(store: StoreOf<'tests'>, goldens: readonly
  * Tests' Find breaking commit as the project's checkout can run it: a golden whose last pass was at a
  * commit this checkout lacks (a CI test session's merge commit, a teammate's) asks for a good one,
  * and one that failed at such a commit is searched up to HEAD. The commits its dialog offers are
- * those this checkout has, each with its subject. As it is without a project folder or when git
- * can't say.
+ * those this checkout has, each with its subject, and with no range to search (it never passed), the
+ * few before the one it failed at that it was never tested at. As it is without a project folder or
+ * when git can't say.
  */
-async function rangesInCheckout(view: TestsView, root: string | null | undefined): Promise<TestsView> {
+async function rangesInCheckout(store: StoreOf<'tests'>, view: TestsView, root: string | null | undefined): Promise<TestsView> {
   const all = [...view.divergences, ...view.failures];
   const revs = all.flatMap((d) => [d.bisect?.good ?? null, d.bisect?.bad ?? null, ...d.revisions.map((r) => r.rev)]);
-  if (!root || !revs.some(Boolean)) return view;
-  const here = await commitsHere(root, revs);
+  if (!root || !all.length) return view;
+  const here = revs.some(Boolean) ? await commitsHere(root, revs) : new Set<string>();
   if (!here) return view;
   const subjects = await commitSubjects(root, revs);
-  const inCheckout = <T extends { golden: string; bisect: BisectRange | null; revisions: TestsView['divergences'][number]['revisions'] }>(d: T): T => ({ ...d, bisect: d.bisect ? rangeHere(d.golden, d.bisect, here) : null, revisions: revisionsHere(d.revisions, here, subjects) });
-  return { ...view, divergences: view.divergences.map(inCheckout), failures: view.failures.map(inCheckout) };
+  const inCheckout = async <T extends Pick<TestsView['divergences'][number], 'golden' | 'bisect' | 'missed' | 'revisions' | 'untested'>>(d: T): Promise<T> => {
+    const bisect = d.bisect ? rangeHere(d.golden, d.bisect, here) : null;
+    const revisions = revisionsHere(d.revisions, here, subjects);
+    return { ...d, bisect, revisions, ...(bisect || d.missed ? {} : { untested: await untestedBefore(store, root, d.golden, revisions) }) };
+  };
+  return { ...view, divergences: await Promise.all(view.divergences.map(inCheckout)), failures: await Promise.all(view.failures.map(inCheckout)) };
+}
+
+/**
+ * The commits before the one a golden last failed at, along this checkout's first parents, that it
+ * was never tested at (none of `tested`), each with its subject: Find breaking commit offers them for
+ * a golden that never passed, as `not tested there`. None for a result with no commit.
+ */
+async function untestedBefore(store: StoreOf<'tests'>, root: string, golden: string, tested: readonly { rev: string }[]): Promise<UntestedCommit[]> {
+  const bad = store.listTestResults({ golden, limit: 1 })[0]?.revision?.replace(/\+dirty$/, '');
+  if (!bad) return [];
+  const same = (a: string, b: string) => a.startsWith(b) || b.startsWith(a);
+  return (await commitsBefore(root, bad)).filter((c) => !tested.some((t) => same(c.rev, t.rev)));
 }
 
 /**
@@ -241,7 +258,7 @@ export function register(router: Router, ctx: RouteContext): void {
   };
 
   router.get('/tests', async (r) => {
-    const view = await rangesInCheckout(testsView(ctx.store, goldens(), { folder: FOLDER, normalizers: normalizers() }), ctx.project?.path);
+    const view = await rangesInCheckout(ctx.store, testsView(ctx.store, goldens(), { folder: FOLDER, normalizers: normalizers() }), ctx.project?.path);
     r.tagged(await withSteps(await revisionsInCheckout(view, ctx.project?.path)));
   });
 

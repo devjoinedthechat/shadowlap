@@ -257,7 +257,7 @@ describe('a run’s dialogs', () => {
         ? createElement(BisectDialog, { runId: RUN, offer, onRun: (good: string) => (sent.push(good), true), ...closes })
         : where === 'runs'
           ? createElement(RunsFindCommit, { runId: RUN, choices, ...closes })
-          : createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: null, live: true, revisions, tried: null, onRun: (f: { good?: unknown }) => void sent.push(f.good), ...closes });
+          : createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: null, live: true, goods: { revisions }, onRun: (f: { good?: unknown }) => void sent.push(f.good), ...closes });
     const startJob = (_kind: string, fields: { good?: string }) => (sent.push(fields.good), new Promise(() => undefined));
     const page = await open(shown, appWith({ client: { startJob } }));
     const good = () => /--good (\S+)/.exec(page.one('[role="dialog"] .cmdline').textContent)?.[1];
@@ -457,10 +457,19 @@ describe('a golden’s dialogs', () => {
   });
   it('Find breaking commit for a golden', async () => {
     const revisions = [{ rev: 'c91d0f4', at: 1, subject: 'A change', result: 'pass', sameChecks: true }] as never;
-    holds(await open(createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: null, live: true, revisions, tried: null, onRun: () => undefined, ...closes })), { title: 'Find breaking commit for a', doc: 'bisect', first: 'input[type="text"]', ok: 'Find breaking commit' });
+    holds(await open(createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: null, live: true, goods: { revisions }, onRun: () => undefined, ...closes })), { title: 'Find breaking commit for a', doc: 'bisect', first: 'input[type="text"]', ok: 'Find breaking commit' });
+  });
+  it('Find breaking commit saying how the golden did at each commit, and when it was tested at none', async () => {
+    const revisions = [{ rev: 'c91d0f4', at: 1, subject: 'A change', result: 'fail', verdict: 'failed', sameChecks: true, rate: { passes: 4, attempts: 8 } }] as never;
+    const untested = [{ rev: 'b'.repeat(40), subject: 'Before it' }];
+    const page = await open(createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: null, live: false, goods: { revisions, untested }, onRun: () => undefined, ...closes }));
+    expect(page.all('.bgood small').map((x) => x.textContent)).toEqual(['failed 4 of 8', 'not tested there']);
+    const none = await open(createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: null, live: false, goods: { revisions: [], untested }, onRun: () => undefined, ...closes }));
+    expect(none.one('.cmdlbl').textContent).toBe('Good commit · none tested yet');
+    expect(none.all('.bgood small')).toHaveLength(0);
   });
   it('Find breaking commit over a range, with nothing to ask', async () => {
-    const page = await open(createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: { good: 'c91d0f4', bad: 'd2e8a1f' }, live: false, revisions: [], tried: null, onRun: () => undefined, ...closes }));
+    const page = await open(createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: { good: 'c91d0f4', bad: 'd2e8a1f' }, live: false, goods: { revisions: [] }, onRun: () => undefined, ...closes }));
     holds(page, { title: 'Find breaking commit for a', doc: 'bisect', first: OK, ok: 'Find breaking commit' });
     expect(page.all('.dfacts div').map((d) => d.textContent)).toEqual(['Goodc91d0f4', 'Badd2e8a1fthe commit the last test session ran at']);
     expect(page.one('.dcost').textContent).toContain('bisect replays offline');
