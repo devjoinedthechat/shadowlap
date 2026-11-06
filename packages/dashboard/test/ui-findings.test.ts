@@ -137,6 +137,21 @@ describe('a fork’s finding', () => {
   });
 });
 
+describe('a finding’s words', () => {
+  it('leads a failure in ink with no label, marks the glossary’s words, and links the fork that rescued the run', async () => {
+    const run = detail({ failed: true });
+    page = await render(createElement(AppContext.Provider, { value: app }, createElement(Banner, props(run, [FAILED_CHECK]))));
+    // The outcome says check failed: the finding leads with the check, and how its blame stands after it.
+    expect(page.all('.findings .banner .bk')).toHaveLength(0);
+    expect(page.one('.findings .banner.blame .why .lead').textContent).toBe('send_email called 0 times, but called 1 time');
+    await page.unmount();
+    const blame = { callNo: 1, outcome: 'blamed', modelCall: { k: 1, m: 2 }, confidence: 'high', rescuedRunId: OTHER, scope: null };
+    page = await render(createElement(AppContext.Provider, { value: app }, createElement(Banner, { ...props(run, [FAILED_CHECK]), blame: blame as never })));
+    expect(page.one('.findings .banner .bk .term').getAttribute('data-term')).toBe('lost');
+    expect(page.byText('.findings .banner .end a', 'Rescued fork →').getAttribute('href')).toBe(`#/run/${OTHER}`);
+  });
+});
+
 describe('a blame that placed the failure on no call', () => {
   it('says how it stands as its label, amber while it needs a look, red where no call rescues the run', async () => {
     const run = detail({ failed: true });

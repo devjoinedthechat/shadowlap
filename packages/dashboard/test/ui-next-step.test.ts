@@ -8,7 +8,7 @@ import { RunHeader } from '../ui/run/RunHeader.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { TestsAskHost } from '../ui/fixes/TestsJobButton.js';
 import type { NextStep, RunDetail, RunOffers, TestBannerOffer } from '../ui/types.js';
-import { render, type Rendered } from './ui-render.js';
+import { render, shownText, type Rendered } from './ui-render.js';
 
 /**
  * The run page leads with the run's next step, as the server works it out (src/next-step.ts), its one
@@ -106,7 +106,7 @@ describe('the run page’s next step', () => {
     expect(tip(open)).toMatchObject({ t: `“${verified.title}”`, s: 'verified: a change fixed its failing runs, ready to apply' });
     expect(page.byText('.rhead .actions button', 'Replay').className).toBe('btn');
     // The banner says how the fix stands instead of linking it again.
-    expect(page.one('.banner .bk').textContent).toBe('lost at');
+    expect(shownText(page.one('.banner .bk'))).toBe('lost at');
     expect(page.all('.banner a').some((a) => a.textContent === 'Fix →')).toBe(false);
     expect(page.one('.banner .st').className).toBe('st ok');
     expect(page.one('.banner .st').textContent).toBe('fix verified');
@@ -116,7 +116,7 @@ describe('the run page’s next step', () => {
     const selected: number[] = [];
     const run = detail({ state: failedState, fix: verified, blame: { ...lost, range: { from: 5, to: 7, gradual: true } }, next: FIX });
     page = await render(createElement(AppContext.Provider, { value: app() }, createElement(Banner, { ...bannerProps(run), onSelect: (n: number) => selected.push(n) })));
-    expect(page.one('.banner .bk').textContent).toBe('lost gradually around');
+    expect(shownText(page.one('.banner .bk'))).toBe('lost gradually around');
     expect(page.all('.banner .bn').map((b) => b.textContent)).toEqual(['#5', '#7']);
     expect(page.one('.banner').textContent).toContain('#5 and #7');
     expect(page.one('.banner .why').textContent).toContain('model calls 3 and 4 of 5');

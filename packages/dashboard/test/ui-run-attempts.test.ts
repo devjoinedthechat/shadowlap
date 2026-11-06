@@ -11,7 +11,7 @@ import { RunHeader } from '../ui/run/RunHeader.js';
 import { familyLine, kindTag, runTag, type RunLike } from '../ui/runs.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { LineageNode, RunDetail, RunOffers, TestBannerOffer } from '../ui/types.js';
-import { render, type Rendered } from './ui-render.js';
+import { render, shownText, type Rendered } from './ui-render.js';
 
 
 /**
@@ -279,7 +279,7 @@ describe('an attempt', () => {
     page = await render(createElement(AppContext.Provider, { value: app() }, createElement(Banner, props(run, { offers }))));
     expect(page.one('.banner.fork.wrap .bk').textContent).toBe('forked at');
     // What was asked again, each part held to the one before by a no-break space, so a wrapped line never starts with a dot.
-    expect(page.one('.banner .why').textContent).toBe('resampled #1, attempt\u00a01\u00a0of\u00a08: the model was asked #1 again, the request as recorded\u00a0· writes stubbed');
+    expect(shownText(page.one('.banner .why'))).toBe('resampled #1, attempt\u00a01\u00a0of\u00a08: the model was asked #1 again, the request as recorded\u00a0· writes stubbed');
     expect(page.all('.banner .why em')).toHaveLength(0);
     expect(page.all('.banner .end a').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
       ['Probe #1 →', '#/fixes/fx-01M5GRW7X3/blame'],

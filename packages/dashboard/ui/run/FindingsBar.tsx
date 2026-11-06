@@ -5,6 +5,7 @@ import type { ForkDifferences as Differences } from '../../src/fork-differences.
 import type { TestBannerOffer } from '../types.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { Icon } from '../components/Icon.js';
+import { glossed } from '../components/Term.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
 import { TestsJobButton } from '../fixes/TestsJobButton.js';
@@ -40,7 +41,7 @@ import { NoteFinding } from './RunNotes.js';
  * made a fork, when it is part of the line, is set as code. A lead, what the outcome stands on, comes
  * first in ink and never gives way.
  */
-function Why({ children, code, lead }: { children: string; code?: string | readonly string[] | null; lead?: string | undefined }) {
+function Why({ children, code, lead, gloss }: { children: string; code?: string | readonly string[] | null; lead?: string | undefined; gloss?: boolean }) {
   const ref = useRef<HTMLSpanElement>(null);
   const parts = children.split(' · ');
   // How many parts the line shows: all of them, until it is measured too long for its room.
@@ -71,18 +72,23 @@ function Why({ children, code, lead }: { children: string; code?: string | reado
     <span className="why" ref={ref}>
       {lead ? (
         <>
-          <span className="lead">{said(lead, code)}</span>
+          <span className="lead">{said(lead, code, gloss)}</span>
           {GLUED_SEPARATOR}
         </>
       ) : null}
-      {said(text, code)}
+      {said(text, code, gloss)}
     </span>
   );
 }
 
-/** A line as the banner sets it: wrapping only after a separator, never before its dot, with the flag in it set as code. */
-function said(text: string, code?: string | readonly string[] | null): ReactNode[] {
-  return codeParts(text, typeof code === 'string' ? [code] : (code ?? [])).map((p, i) => (typeof p === 'string' ? glued(p) : <code key={i}>{p.code}</code>));
+/**
+ * A line as the banner sets it: wrapping only after a separator, never before its dot, with the flag
+ * in it set as code, and where asked the glossary's words in it marked (`lost`, `stubbed`, `fenced`).
+ */
+function said(text: string, code?: string | readonly string[] | null, gloss = false): ReactNode[] {
+  return codeParts(text, typeof code === 'string' ? [code] : (code ?? [])).map((p, i) =>
+    typeof p !== 'string' ? <code key={i}>{p.code}</code> : gloss ? <Fragment key={i}>{glossed(glued(p))}</Fragment> : glued(p),
+  );
 }
 
 /** A line split around the names in it that read as code (a flag, a tool, a host), each at its first place after the one before. */
@@ -126,7 +132,7 @@ function CallWords({ words, call }: { words: string; call: (n: number) => ReactN
   const [label = '', ...rest] = words.split(/(#\d+)/);
   return (
     <>
-      <span className="bk">{label.trim()}</span>
+      <span className="bk">{glossed(label.trim())}</span>
       <span>{rest.map((part, i) => (/^#\d+$/.test(part) ? <Fragment key={i}>{call(Number(part.slice(1)))}</Fragment> : part))}</span>
     </>
   );
@@ -181,6 +187,7 @@ function bannerInput(run: RunDetail, p: Pick<BannerProps, 'blame' | 'rescued' | 
     checks: p.checks,
     fix: run.fix ?? null,
     upstreamRequests: run.summary.upstreamRequests,
+    spent: run.summary.cost.spent,
     volatile: test?.volatile ?? null,
     modelCalls: run.summary.byKind.api,
     ...(run.state ? { outcome: run.state.outcome, interrupted: run.state.interrupted, failed: run.state.failed } : {}),
@@ -271,7 +278,7 @@ function AttemptFinding({ b, x, s }: { b: Of<'attempt'>; x: Draw; s: Slot }) {
     <section className={cls('fork wrap', s)}>
       <span className="bk">{b.callNo !== null ? 'forked at' : 'replayed'}</span>
       {b.callNo !== null ? x.call(b.callNo) : null}
-      <span className="why">{said(b.why, b.flag)}</span>
+      <span className="why">{said(b.why, b.flag, true)}</span>
       <span className="end">
         {b.diff ? x.diffToggle : null}
         {b.of === 'rescued' ? fixLink(x, 'blame') : null}
@@ -318,7 +325,7 @@ function LostFinding({ b, x, s }: { b: Of<'lost'>; x: Draw; s: Slot }) {
       <span className="end">
         {b.rescuedRunId ? (
           <a className="more" href={href.run(b.rescuedRunId)}>
-            Rescued fork
+            Rescued fork →
           </a>
         ) : null}
         {fixLink(x, 'blame')}
@@ -351,7 +358,7 @@ function InterruptedFinding({ b, s }: { b: Of<'interrupted'>; s: Slot }) {
 
 function ChecksFinding({ b, s }: { b: Of<'checks'>; s: Slot }) {
   return (
-    <section className={cls('live', s)}>
+    <section className={cls('live ck', s)}>
       <span className="bk">checks</span>
       {b.checks.map((c) => (
         <span className={`st ${c.status === 'not-applicable' ? 'n' : c.status === 'inconclusive' ? 'warn' : 'ok'}`} key={c.label}>
@@ -359,7 +366,7 @@ function ChecksFinding({ b, s }: { b: Of<'checks'>; s: Slot }) {
           {c.text}
         </span>
       ))}
-      {b.why ? <Why>{b.why}</Why> : null}
+      {b.why ? <Why gloss>{b.why}</Why> : null}
       {s.more}
     </section>
   );

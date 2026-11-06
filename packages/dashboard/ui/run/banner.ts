@@ -1,4 +1,4 @@
-import { num } from '../format.js';
+import { approx, num, plural } from '../format.js';
 import { blameStateWord } from '../../../engine/src/blame-words.js';
 import { fencedLabel, toolCheckLabel, toolCountDetail } from '../../../engine/src/checks/labels.js';
 import { isObject } from '../../../engine/src/is-object.js';
@@ -56,6 +56,8 @@ export interface BannerInput {
   checks: ReadonlyArray<{ label: string; ok: boolean; count?: number; of?: number; detail?: string; status?: string }>;
   fix: { id: string; status: string; title: string } | null;
   upstreamRequests: number;
+  /** What the run spent live, in dollars, which a test that went live from its fork says. */
+  spent?: number;
   /** A test replay whose golden diverged on a value made anew on every run: what it looks like. */
   volatile?: { looks: string } | null;
   /** How many model calls the run made: one that made none has no answer of the model's to blame. */
@@ -544,11 +546,16 @@ function lostBanner(b: BannerInput['blame']): Banner | null {
   return { kind: 'lost', callNo: b.callNo, words: lostWords(b.callNo, b.range), why: lostWhy(b), rescuedRunId: b.rescuedRunId ?? null };
 }
 
+/** A test of a golden that may fork went live from its fork: what that sent and spent, its writes fenced unless --writes said otherwise. */
+function liveFrom(i: BannerInput, callNo: number): string {
+  return [`live from #${callNo}`, plural(i.upstreamRequests, 'upstream request'), ...(i.spent !== undefined ? [approx(i.spent)] : []), writesWord(i.interventions) ?? 'writes fenced'].join(' · ');
+}
+
 /** No check failed: each says how it came out, one that did not apply or could not be decided too. */
 function checksBanner(i: BannerInput): Banner | null {
   if (!i.checks.length || i.checks.some(checkFailed) || i.status !== 'completed') return null;
   const d = i.divergence;
-  const why = i.upstreamRequests === 0 ? 'replayed offline · 0 upstream' : forkedTest(i) && d ? `forked at #${d.callNo}, as its golden may · ${num(i.upstreamRequests)} upstream` : null;
+  const why = i.upstreamRequests === 0 ? 'replayed offline · 0 upstream' : forkedTest(i) && d ? liveFrom(i, d.callNo) : null;
   return { kind: 'checks', checks: i.checks.map((c) => ({ label: c.label, text: checkText(c), ...(c.status ? { status: c.status } : {}) })), why };
 }
 

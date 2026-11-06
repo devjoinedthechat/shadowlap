@@ -676,6 +676,10 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 /* a finding under an outcome that already gives its verdict leads with what the verdict stands on, in ink, and no label */
 .findings .banner .why .lead { color: var(--ink); }
 .findings .fx, .findings:not(.open) .fbody { display: none; }
+/* the checks finding lists every check: it wraps rather than push the page sideways, where other findings keep one line */
+.banner.ck { flex-wrap: wrap; row-gap: 4px; }
+.banner.ck > .st { flex: 0 1 auto; min-width: 0; white-space: normal; align-items: baseline; }
+.banner.ck > .st i { flex: none; transform: translateY(-1px); }
 .findings.open .banner.fx, .findings.open .rnote.fx { display: flex; }
 .findings.open .fdiff.fx { display: block; }
 .findings .fmore { flex: none; margin-left: auto; }

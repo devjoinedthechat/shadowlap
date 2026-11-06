@@ -192,13 +192,15 @@ describe('the run’s banner, from the state the run list shares', () => {
     expect(bannerFor({ ...base, status: 'failed', outcome: { kind: 'none' }, failed: false })).toBeNull();
   });
 
-  it('judges a test of a golden that may fork by its checks, saying where it forked', () => {
+  it('judges a test of a golden that may fork by its checks, saying where it went live, what that sent and spent, and its writes fenced', () => {
     const forked = { ...base, type: 'test' as const, divergence: { callNo: 3, type: 'request_changed', name: 'POST /v1/messages', replayedBefore: 2, diff: [{ path: '$.metadata' }] }, upstreamRequests: 14 };
     expect(bannerFor({ ...forked, outcome: { kind: 'passed' }, failed: false, checks: [{ label: 'at most 29000 input tokens', ok: true, count: 1, of: 1 }] })).toEqual({
       kind: 'checks',
       checks: [{ label: 'at most 29000 input tokens', text: 'at most 29000 input tokens · 1 of 1' }],
-      why: 'forked at #3, as its golden may · 14 upstream',
+      why: 'live from #3 · 14 upstream requests · writes fenced',
     });
+    expect(bannerFor({ ...forked, spent: 0.42, outcome: { kind: 'passed' }, failed: false, checks: [{ label: 'exits 0', ok: true }] })).toMatchObject({ why: 'live from #3 · 14 upstream requests · ≈$0.420 · writes fenced' });
+    expect(bannerFor({ ...forked, interventions: [{ flag: '--writes', value: 'allow' }], outcome: { kind: 'passed' }, failed: false, checks: [{ label: 'exits 0', ok: true }] })).toMatchObject({ why: 'live from #3 · 14 upstream requests · writes allowed' });
     expect(bannerFor({ ...forked, outcome: { kind: 'check-failed', check: 'at most 29000 input tokens' }, failed: true, modelCalls: 14, checks: [{ label: 'at most 29000 input tokens', ok: false, detail: '38337 input tokens' }] })).toMatchObject({
       kind: 'failed',
       lead: 'at most 29000 input tokens, but 38337 input tokens', why: 'not blamed yet',
