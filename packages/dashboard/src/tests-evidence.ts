@@ -1,4 +1,4 @@
-import { attemptVerdict, decisionWord, providerUnavailable, type BaselineEvidence, type GateResult, type SprtEvidence, type StoreOf, type TestResult } from '@shadowlap/engine';
+import { apartWords, attemptVerdict, decisionWord, providerUnavailable, tallyApart, type BaselineEvidence, type GateResult, type SprtEvidence, type StoreOf, type TestResult } from '@shadowlap/engine';
 import { attemptNote, runHref } from './fix-shared.js';
 import { answer, failed, type ReadTable } from './read-registry.js';
 import { runCalls } from './run-calls.js';
@@ -56,7 +56,7 @@ export function evidenceWords(g: GateResult, forkedAt: number | null): EvidenceW
     end: ranOut ? `attempt ${n}, its limit` : `attempt ${n}`,
     passK: k5 ? k5.value.toFixed(2) : '',
     forked: forkedAt ? `forked at call ${forkedAt}, each attempt live from there` : '',
-    provider: [cut ? `${cut} cut short by the provider, counted against either verdict` : '', g.unavailable ? `${g.unavailable} unavailable, not counted` : ''].filter(Boolean).join(' · '),
+    provider: tallyApart({ cutShort: cut, unavailable: g.unavailable }).join(' · '),
     head: g.decision === 'inconclusive' ? `inconclusive after ${n} attempts` : `${decisionWord(g.decision)} at attempt ${n}`,
   };
   return g.evidence.kind === 'sprt' ? sprtWords(g, g.evidence, common, ranOut) : historyWords(g, g.evidence, common, ranOut);
@@ -155,7 +155,7 @@ function judgeRuns(store: EvidenceStore, r: TestResult, into: TestEvidence): num
     const { verdict } = attemptVerdict({ status: run.status, checks: run.meta?.checks ?? [] });
     if (verdict !== 'passed' && (cut || retried) && providerUnavailable(runCalls(store, runId))) {
       if (!cut) continue;
-      into.attempts.push({ runId, href: runHref(runId), outcome: 'inconclusive', note: retried ? 'the provider was unavailable' : 'cut short by the provider, counted against either verdict' });
+      into.attempts.push({ runId, href: runHref(runId), outcome: 'inconclusive', note: retried ? 'the provider was unavailable' : apartWords('cutShort') });
     } else {
       const outcome = verdict === 'passed' ? 'passed' : verdict === 'inconclusive' ? 'inconclusive' : 'failed';
       into.attempts.push({ runId, href: runHref(runId), outcome, note: outcome === 'passed' ? null : attemptNote(false, undefined, run, outcome) });
