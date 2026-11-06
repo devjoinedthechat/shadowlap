@@ -615,7 +615,7 @@ describe('Update’s estimates: the apply drawer’s and a task’s', () => {
     expect(started).toEqual([[JOB_KINDS.testUpdate, { goldens: ['goldens/refund', 'goldens/cancel'], estimate: { usd: 0.4, ceiling: false } }]]);
   });
 
-  it('prices a task’s Update where it re-records the golden, asking first, and bills nothing where it only tests it again', async () => {
+  it('prices a task’s Update where it re-records the golden, asking first, or tests it again live, and bills nothing where that replays', async () => {
     resetSpending(null);
     const opened: unknown[] = [];
     const a = app();
@@ -636,5 +636,14 @@ describe('Update’s estimates: the apply drawer’s and a task’s', () => {
     expect(card().est).toBeUndefined();
     await r.click(r.one('button'));
     expect(opened).toEqual([update, null]);
+    await r.unmount();
+    // Where the golden's tests entry runs it live, testing it again bills: its card says the amount, as a form's, and its dialog opens with it.
+    const rerun = { kind: 'tests', usd: 0.3, ceiling: false, parts: ['live from where it forks'] };
+    Object.assign(a.client, { estimates: { testsEstimates: () => Promise.resolve({ run: null, goldens: { 'goldens/a': { update, rerun } } }) } });
+    r = await render(button(false));
+    await r.until('the estimate', () => !!card().est);
+    expect(card().est).toMatchObject({ usd: 0.3, ceiling: false });
+    await r.click(r.one('button'));
+    expect(opened).toEqual([update, null, rerun]);
   });
 });
