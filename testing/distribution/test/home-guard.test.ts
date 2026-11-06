@@ -5,8 +5,7 @@ import { isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { shadowlapHome } from '../../../packages/engine/src/projects/paths.js';
-import { canonical, childProblem, realShadowlapFolders, shadowlapHomeIn, takeRefused, writeProblem } from '../../home-guard.mjs';
+import { canonical, childProblem, realShadowlapFolders, takeRefused, writeProblem } from '../../home-guard.mjs';
 
 /**
  * No run of the tests writes in the real home folder's Shadowlap files, wherever it starts: every
@@ -47,6 +46,7 @@ describe("the guard against the real home's Shadowlap files", () => {
       join(standIn, '.shadowlap', 'not', 'there', 'yet.json'),
     ];
     for (const path of spelt) expect(writeProblem(path, { env: { SHADOWLAP_HOME: own }, home: standIn, real }), path).toMatch(/^a test wrote in the real home folder's Shadowlap files/);
+    expect(canonical(join(link, 'a', '..', 'b.json'))).toBe(join(standIn, '.shadowlap', 'b.json'));
     expect(writeProblem(join(link, 'projects.json'), { env: { SHADOWLAP_HOME: own }, home: standIn, real })).toBe(
       `a test wrote in the real home folder's Shadowlap files (${real[0]}): ${join(link, 'projects.json')}. A test keeps them in its file's own SHADOWLAP_HOME, which the setup sets and process.env carries, or in a folder of its own.`,
     );
@@ -98,15 +98,6 @@ describe("the guard against the real home's Shadowlap files", () => {
     const started = promisify(execFile)(process.execPath, ['-e', 'process.stdout.write("ran")']);
     expect(started.child.pid).toEqual(expect.any(Number));
     await expect(started).resolves.toEqual({ stdout: 'ran', stderr: '' });
-  });
-
-  it("finds Shadowlap's home in an environment as the engine does, and a path as the file system does", () => {
-    const home = join(dir, 'home');
-    for (const value of [undefined, '', '  ', '~', '~/sl-home', 'relative', own, ` ${own} `, `${own}/`]) {
-      const env = value === undefined ? {} : { SHADOWLAP_HOME: value };
-      expect(shadowlapHomeIn(env, home).dir, String(value)).toBe(shadowlapHome(env, home));
-    }
-    expect(canonical(join(link, 'a', '..', 'b.json'))).toBe(join(standIn, '.shadowlap', 'b.json'));
   });
 });
 

@@ -6,8 +6,6 @@ export function realHomes(): string[];
 export function canonical(path: string): string;
 /** The real home's Shadowlap folders, `homes`' .shadowlap, as the file system finds them. */
 export function realShadowlapFolders(homes?: readonly string[]): string[];
-/** Shadowlap's folder for this machine's files in `env`, with `home` the home folder, as the engine finds it; `named` says whether SHADOWLAP_HOME named it. */
-export function shadowlapHomeIn(env: NodeJS.ProcessEnv, home: string): { dir: string; named: boolean };
 /** Why a write to `path` is refused: in one of the `real` home's Shadowlap folders, or in the home `env` names while SHADOWLAP_HOME is unset or ignored. Null when it may go ahead. */
 export function writeProblem(path: string, options?: { env?: NodeJS.ProcessEnv; home?: string; real?: readonly string[] }): string | null;
 /** Why a process `command` with environment `env` is refused: Shadowlap in it would keep this machine's files in one of the `real` home's Shadowlap folders. Null when they would go elsewhere. */

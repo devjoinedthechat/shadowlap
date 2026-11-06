@@ -20,9 +20,10 @@ import childProcess from 'node:child_process';
 import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { homedir, userInfo } from 'node:os';
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { isWithin, shadowlapHome, shadowlapHomeProblem } from '../packages/engine/src/projects/paths.ts';
 
 /** The user's home folder as the system records it, whatever HOME says; HOME's when there is no such record. */
 function systemHome() {
@@ -53,27 +54,17 @@ export function canonical(path) {
   }
 }
 
-/** Whether `path` is `folder` or inside it, both as the file system finds them. */
-function within(path, folder) {
-  const rel = relative(folder, path);
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
-}
-
 /** The real home's Shadowlap folders, `homes`' .shadowlap, as the file system finds them. */
 export function realShadowlapFolders(homes = realHomes()) {
   return [...new Set(homes.map((home) => canonical(join(home, '.shadowlap'))))];
 }
 
 /**
- * Shadowlap's folder for this machine's files in `env`, with `home` the home folder, as the engine
- * finds it (projects/paths.ts): SHADOWLAP_HOME when it is an absolute path or one from `~`, else
- * <home>/.shadowlap. `named` says whether SHADOWLAP_HOME named it.
+ * Whether SHADOWLAP_HOME in `env` names Shadowlap's folder for this machine's files, with `home` the
+ * home folder: it is set, to a path the engine takes rather than ignores. The folder itself is the
+ * engine's shadowlapHome (projects/paths.ts), the one rule for both.
  */
-export function shadowlapHomeIn(env, home) {
-  const explicit = env.SHADOWLAP_HOME?.trim() ?? '';
-  const expanded = explicit === '~' ? home : /^~[/\\]/.test(explicit) ? join(home, explicit.slice(2)) : explicit;
-  return expanded && isAbsolute(expanded) ? { dir: resolve(expanded), named: true } : { dir: join(home, '.shadowlap'), named: false };
-}
+const named = (env, home) => Boolean(env.SHADOWLAP_HOME?.trim()) && shadowlapHomeProblem(env, home) === null;
 
 /** SHADOWLAP_HOME as a message names it: unset, or the value Shadowlap ignores. */
 const unnamed = (env) => (env.SHADOWLAP_HOME?.trim() ? `set to ${env.SHADOWLAP_HOME}, which isn't an absolute path` : 'unset');
@@ -85,10 +76,9 @@ const unnamed = (env) => (env.SHADOWLAP_HOME?.trim() ? `set to ${env.SHADOWLAP_H
  */
 export function writeProblem(path, { env = process.env, home = homedir(), real = realShadowlapFolders() } = {}) {
   const at = canonical(path);
-  const hit = real.find((folder) => within(at, folder));
+  const hit = real.find((folder) => isWithin(at, folder));
   if (hit) return `a test wrote in the real home folder's Shadowlap files (${hit}): ${path}. A test keeps them in its file's own SHADOWLAP_HOME, which the setup sets and process.env carries, or in a folder of its own.`;
-  const own = shadowlapHomeIn(env, home);
-  if (!own.named && within(at, canonical(own.dir))) return `a test wrote in Shadowlap's home folder with SHADOWLAP_HOME ${unnamed(env)}: ${path}. A test keeps its file's own SHADOWLAP_HOME, which the setup sets, or sets a folder of its own.`;
+  if (!named(env, home) && isWithin(at, canonical(shadowlapHome(env, home)))) return `a test wrote in Shadowlap's home folder with SHADOWLAP_HOME ${unnamed(env)}: ${path}. A test keeps its file's own SHADOWLAP_HOME, which the setup sets, or sets a folder of its own.`;
   return null;
 }
 
@@ -99,10 +89,11 @@ export function writeProblem(path, { env = process.env, home = homedir(), real =
  */
 export function childProblem(env, { command = 'a process', real = realShadowlapFolders(), platform = process.platform } = {}) {
   const name = platform === 'win32' ? 'USERPROFILE' : 'HOME';
-  const own = shadowlapHomeIn(env, env[name] || systemHome());
-  const hit = real.find((folder) => within(canonical(own.dir), folder));
+  const home = env[name] || systemHome();
+  const dir = canonical(shadowlapHome(env, home));
+  const hit = real.find((folder) => isWithin(dir, folder));
   if (!hit) return null;
-  const given = own.named ? `SHADOWLAP_HOME ${env.SHADOWLAP_HOME}` : `${name} ${env[name] || 'unset'} and SHADOWLAP_HOME ${unnamed(env)}`;
+  const given = named(env, home) ? `SHADOWLAP_HOME ${env.SHADOWLAP_HOME}` : `${name} ${env[name] || 'unset'} and SHADOWLAP_HOME ${unnamed(env)}`;
   return `a test started ${command} with ${given}, so Shadowlap there would keep this machine's files in the real home folder's (${hit}). Pass it the run's SHADOWLAP_HOME, which process.env carries, or a HOME of its own.`;
 }
 
