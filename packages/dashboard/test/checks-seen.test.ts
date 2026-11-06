@@ -1,10 +1,11 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import type * as fs from 'node:fs';
 import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
-import { afterAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { LOCK_STALE_MS, releaseLock, takeLock } from '@shadowlap/engine';
 import { CHECKS_SEEN_FILE, keepSeenChecks, seenChecks, type SeenChecks } from '../src/checks-seen.js';
 
@@ -14,6 +15,30 @@ import { CHECKS_SEEN_FILE, keepSeenChecks, seenChecks, type SeenChecks } from '.
  * race between them is what is tested, as the suite's shared home raced run-outcome.test.ts's
  * dashboard with other files' now and then.
  */
+
+// Each read of a file goes as it would, but the next one armed here fails once with its code: as a
+// process out of file handles fails it (EMFILE). One armed with a path fails the next call on that
+// path; one without, the next call.
+const failing: Array<{ call: string; path?: string; code: string }> = [];
+vi.mock('node:fs', async (importOriginal) => {
+  const real = await importOriginal<typeof import('node:fs')>();
+  const fail = (call: string, path: unknown) => {
+    const i = failing.findIndex((f) => f.call === call && (f.path === undefined || f.path === String(path)));
+    if (i < 0) return;
+    const code = failing.splice(i, 1)[0].code;
+    throw Object.assign(new Error(`${code}: armed to fail, ${call} '${String(path)}'`), { code });
+  };
+  return {
+    ...real,
+    readFileSync: ((path: fs.PathOrFileDescriptor, options?: never) => {
+      fail('readFileSync', path);
+      return real.readFileSync(path, options);
+    }) as typeof real.readFileSync,
+  };
+});
+afterEach(() => {
+  failing.length = 0;
+});
 
 const T = 1_760_000_000_000;
 /** A process id no process has: an earlier Shadowlap's lock that names it was left by a process that is gone. */
@@ -110,6 +135,32 @@ describe('the checks seen, kept by every dashboard on this machine in one file',
     const env = { SHADOWLAP_HOME: join(at, 'home') };
     expect(keepSeenChecks('/work/a', seen('k1', T), env)).toBe(true);
     expect(seenChecks('/work/a', env).get('goldens/refund')).toEqual({ key: 'k1', at: T });
+  });
+
+  it("never writes over a file it couldn't read under the lock: every other project's entry stays, and a later call writes its own", () => {
+    const env = home();
+    keepSeenChecks('/work/a', seen('k1', T), env);
+    keepSeenChecks('/work/b', seen('k2', T + 1), env);
+    const before = kept(env);
+    // Read afresh under the lock, as a process out of file handles reads it.
+    failing.push({ call: 'readFileSync', path: fileIn(env), code: 'EMFILE' });
+    expect(keepSeenChecks('/work/c', seen('k3'), env)).toBe(false);
+    expect(failing).toEqual([]);
+    expect(kept(env)).toEqual(before);
+    // The next request's write.
+    expect(keepSeenChecks('/work/c', seen('k3'), env)).toBe(true);
+    expect(kept(env)).toEqual({ ...before, '/work/c': { 'goldens/refund': { key: 'k3', at: null } } });
+  });
+
+  it("never writes over a newer Shadowlap's file, keeping what it saw for as long as it runs", () => {
+    const env = home();
+    const newer = `${JSON.stringify({ format: 2, seen: { '/work/a': 'theirs' } })}\n`;
+    writeFileSync(fileIn(env), newer);
+    expect(keepSeenChecks('/work/b', seen('k1', T), env)).toBe(true);
+    expect(readFileSync(fileIn(env), 'utf8')).toBe(newer);
+    // Read as none, but for what this process saw.
+    expect(seenChecks('/work/a', env).size).toBe(0);
+    expect(seenChecks('/work/b', env).get('goldens/refund')).toEqual({ key: 'k1', at: T });
   });
 });
 

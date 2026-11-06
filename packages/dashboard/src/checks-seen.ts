@@ -13,9 +13,11 @@ import { FileLockBusyError, isObject, shadowlapHome, withFileLock, writeFileAtom
  * The file is a cache every dashboard on this machine reads and writes. So a write changes its
  * project's entry alone, in the file as read afresh under its lock (the engine's, as Spending's and
  * the project list's), and replaces the file in one step; and the file is read again once it has
- * changed. A write never waits: while another process holds the lock it is skipped, and the next
- * request makes it (outcome-work.ts). One that can't be read or written is as none, and only costs
- * the times it held.
+ * changed. A write never waits, and never writes over what it couldn't read: while another process
+ * holds the lock, or while the file can't be read, it is skipped, and the next request makes it
+ * (outcome-work.ts). A file that is no JSON is as none, and one a newer Shadowlap wrote is read as
+ * none and never written over; where the folder can't be written, the times are kept for as long as
+ * the process runs.
  */
 
 export const CHECKS_SEEN_FILE = 'checks-seen.json';
@@ -30,21 +32,39 @@ export interface SeenChecks {
 }
 
 type Projects = Map<string, Map<string, SeenChecks>>;
+const empty = (): Projects => new Map();
+/** A file a newer Shadowlap wrote, in a format this one doesn't know: read as none, and never written over. */
+const NEWER = Symbol('newer');
+/** A write: made; for a later call to make, as nothing was written; or never to be made, so kept in this process alone. */
+type Kept = 'written' | 'later' | 'never';
 
 /** The file as last read, by its path, with what stat said of it then: read again once that changes. */
 const files = new Map<string, { stat: string; projects: Projects }>();
 /** What this process couldn't write, by the file's path: kept for as long as it runs. */
 const unwritten = new Map<string, Projects>();
 
-function parse(file: string): Projects {
-  const out: Projects = new Map();
+const codeOf = (err: unknown) => (err as NodeJS.ErrnoException).code ?? '';
+/** No file there, nor a folder for one: none yet. */
+const missing = (err: unknown) => codeOf(err) === 'ENOENT' || codeOf(err) === 'ENOTDIR';
+
+/** The file's projects: none without a file, or in one that is no JSON of this format; null when it couldn't be read. */
+function parse(file: string): Projects | typeof NEWER | null {
+  const out = empty();
+  let text: string;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch (err) {
+    return missing(err) ? out : null;
+  }
   let data: unknown;
   try {
-    data = JSON.parse(readFileSync(file, 'utf8'));
+    data = JSON.parse(text);
   } catch {
     return out;
   }
-  if (!isObject(data) || data.format !== FORMAT || !isObject(data.projects)) return out;
+  if (!isObject(data)) return out;
+  if (typeof data.format === 'number' && data.format > FORMAT) return NEWER;
+  if (data.format !== FORMAT || !isObject(data.projects)) return out;
   for (const [dir, goldens] of Object.entries(data.projects)) {
     if (!isObject(goldens)) continue;
     const seen = new Map<string, SeenChecks>();
@@ -71,7 +91,8 @@ function current(file: string): Projects {
   const stat = statOf(file);
   const was = files.get(file);
   if (stat !== null && was?.stat === stat) return was.projects;
-  const projects = parse(file);
+  const read = parse(file);
+  const projects = read === null || read === NEWER ? empty() : read;
   if (stat === null) files.delete(file);
   else files.set(file, { stat, projects });
   return projects;
@@ -91,31 +112,41 @@ export function seenChecks(dir: string, env: NodeJS.ProcessEnv = process.env): R
   return unwritten.get(file)?.get(dir) ?? current(file).get(dir) ?? new Map();
 }
 
+/** Under the file's lock: the project's entry written into the file as read afresh, but never over one it couldn't read, nor a newer Shadowlap's. */
+function writeEntry(file: string, dir: string, entry: Map<string, SeenChecks>): Kept {
+  // Read afresh, never the copy kept for reads: every other project's entry stays as it was written.
+  const projects = parse(file);
+  // Couldn't be read just then: written over, every other project's entry in it would be lost.
+  if (projects === null) return 'later';
+  if (projects === NEWER) return 'never';
+  projects.delete(dir);
+  projects.set(dir, entry);
+  while (projects.size > PROJECTS) projects.delete(projects.keys().next().value!);
+  writeFileAtomic(file, text(projects));
+  return 'written';
+}
+
 /**
  * Keeps each golden's checks as seen now in the project, the goldens no longer there left out: the
- * project's entry alone, written into the file as it is then. False when another process held the
- * file, so that nothing was written: a later call writes it.
+ * project's entry alone, written into the file as it is then. False when nothing was written, for a
+ * later call to write it: another process held the file, or it couldn't be read. Where it can't be
+ * written, in a folder that can't be or over a newer Shadowlap's file, the entry is kept for as long
+ * as this process runs.
  */
 export function keepSeenChecks(dir: string, seen: ReadonlyMap<string, SeenChecks>, env: NodeJS.ProcessEnv = process.env): boolean {
   const file = fileOf(env);
   const entry = new Map(seen);
+  let kept: Kept;
   try {
     // Tried once: a request never waits for another process's write.
-    withFileLock(file, 0, () => {
-      // Read afresh, never the copy kept for reads: every other project's entry stays as it was written.
-      const projects = parse(file);
-      projects.delete(dir);
-      projects.set(dir, entry);
-      while (projects.size > PROJECTS) projects.delete(projects.keys().next().value!);
-      writeFileAtomic(file, text(projects));
-    });
+    kept = withFileLock(file, 0, () => writeEntry(file, dir, entry));
   } catch (err) {
     if (err instanceof FileLockBusyError) return false;
-    // a folder that can't be written: the times are kept for as long as this process runs
-    const mine = unwritten.get(file) ?? new Map<string, Map<string, SeenChecks>>();
-    unwritten.set(file, mine.set(dir, entry));
-    return true;
+    // a folder that can't be written
+    kept = 'never';
   }
-  unwritten.get(file)?.delete(dir);
+  if (kept === 'later') return false;
+  if (kept === 'written') unwritten.get(file)?.delete(dir);
+  else unwritten.set(file, (unwritten.get(file) ?? empty()).set(dir, entry));
   return true;
 }
