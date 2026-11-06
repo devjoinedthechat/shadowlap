@@ -29,9 +29,10 @@ afterEach(async () => {
 
 const app = { client: { jobs: () => Promise.resolve([]) } as unknown as Client, exported: false, actionsOff: null, runs: [], jobs: [], live: [], feeds: {}, toast: () => undefined, guard: (fn: () => void) => fn(), watchJob: () => undefined, hasKind: () => true } as unknown as AppState;
 
-function detail(o: { runId?: string; notRecorded?: RunDetail['notRecorded']; failed?: boolean } = {}): RunDetail {
+function detail(o: { runId?: string; notRecorded?: RunDetail['notRecorded']; failed?: boolean; divergence?: unknown; intervention?: unknown } = {}): RunDetail {
   return {
-    run: { runId: o.runId ?? REC, parentRunId: null, mode: 'record', status: 'completed', divergence: null, command: { argv: ['node', 'agent.mjs'], cwd: '.' }, codeVersion: 'f6c5756', startedAt: 1, endedAt: 2, meta: {} },
+    run: { runId: o.runId ?? REC, parentRunId: o.divergence ? OTHER : null, mode: o.divergence ? 'replay' : 'record', status: 'completed', divergence: o.divergence ?? null, command: { argv: ['node', 'agent.mjs'], cwd: '.' }, codeVersion: 'f6c5756', startedAt: 1, endedAt: 2, meta: {} },
+    intervention: o.intervention ?? null,
     summary: { upstreamRequests: 5, byKind: { api: 5, tool: 4, clock: 0, random: 0 }, cost: { spent: 0.0037, saved: 0, captured: 0, unknownModels: [] }, imported: false },
     calls: [],
     actions: [],
@@ -119,5 +120,19 @@ describe('the findings bar', () => {
     await page.unmount();
     page = await render(createElement(AppContext.Provider, { value: app }, createElement(FindingsBar, { ...props(detail()), notes: [] })));
     expect(page.all('#findings')).toEqual([]);
+  });
+});
+
+describe('a fork’s finding', () => {
+  it('names the path its request changed at, and a --fail-at fork, whose request changed nothing, none', async () => {
+    const changed = { callNo: 17, type: 'request_changed', name: 'POST /v1/messages', replayedBefore: 16, diff: [{ path: '$.messages[16].content' }, { path: '$.model' }] };
+    page = await render(createElement(AppContext.Provider, { value: app }, createElement(Banner, props(detail({ divergence: changed })))));
+    expect(page.one('.findings .banner.fork .bk').textContent).toBe('forked at');
+    expect(page.one('.findings .banner.fork .path').textContent).toBe('~ $.messages[16].content');
+    await page.unmount();
+    const failAt = { callNo: 19, type: 'forced', reason: 'forced live by --fail-at 19=529', name: 'POST /v1/messages', replayedBefore: 18 };
+    page = await render(createElement(AppContext.Provider, { value: app }, createElement(Banner, props(detail({ divergence: failAt, intervention: { flag: '--fail-at', value: '19=529', callNo: 19 } })))));
+    expect(page.all('.findings .banner.fork code')[0].textContent).toBe('POST /v1/messages');
+    expect(page.all('.findings .banner.fork .path')).toEqual([]);
   });
 });
