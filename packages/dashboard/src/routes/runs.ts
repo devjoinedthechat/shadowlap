@@ -15,7 +15,7 @@ import { deleteRunsApart } from '../delete-apart.js';
 import { exportHtml, withAncestors, type ExportHtmlResult } from '../static.js';
 
 /** A whole number, 0 or more, from the query string; undefined when absent. */
-function count(r: { query: URLSearchParams }, name: string, what: string): number | undefined {
+export function count(r: { query: URLSearchParams }, name: string, what: string): number | undefined {
   const raw = r.query.get(name);
   if (raw === null) return undefined;
   const n = Number(raw);

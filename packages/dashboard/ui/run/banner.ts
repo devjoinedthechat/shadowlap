@@ -560,6 +560,15 @@ function presetBanner(i: BannerInput, p: PresetAttempt): Banner {
   return { kind: 'preset', callNo: i.divergence?.callNo ?? p.callNo, verdict: p.verdict, why, golden: p.golden };
 }
 
+/**
+ * The path a diverged test's finding names: the value made anew on every run the test found, else
+ * what it found diverged, else the divergence's first change; none without one. Show diff's answer
+ * names the same (src/request-diff.ts, test/request-diff.test.ts holds them equal).
+ */
+export function findingPath(b: { path: string | null }, test: { volatile?: { path: string } | null; cause?: string | null } | null): string | null {
+  return b.path ? (test?.volatile?.path ?? test?.cause ?? b.path) : null;
+}
+
 /** A test that left its recording: what the value that changed looks like, or why it came, then what came before it. */
 function divergedBanner(i: BannerInput, d: NonNullable<BannerInput['divergence']>): Banner {
   const lead = i.volatile?.looks ? `this looks like ${i.volatile.looks}` : (d.hints?.[0]?.message ?? DIVERGED[d.type] ?? d.type);

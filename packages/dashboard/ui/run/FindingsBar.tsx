@@ -17,7 +17,7 @@ import { fixedByWords, runType } from '../runs.js';
 import { shortcut } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import type { PendingAction } from './actions.js';
-import { notRecordedBanner, ownBanner, type Banner as BannerView, type BannerInput } from './banner.js';
+import { findingPath, notRecordedBanner, ownBanner, type Banner as BannerView, type BannerInput } from './banner.js';
 import { bannerCards, bannerJobsShown, useDivergedJobs } from './diverged.js';
 import { goldenPrice, useTestsEstimates } from '../tests-estimates.js';
 import { DifferencesPanel, useForkDifferences } from './ForkDifferences.js';
@@ -560,7 +560,7 @@ function DivergedFinding({ b, x, s }: { b: Of<'diverged'>; x: Draw; s: Slot }) {
   return (
     <section className={cls(b.fixedBy ? 'n' : 'blame', s)}>
       <Why lead={b.lead} code={b.name}>{[...(b.fixedBy ? [fixedByWords(b.fixedBy)] : []), b.name, b.why].join(' · ')}</Why>
-      {b.path ? <span className="path">~ {test?.volatile?.path ?? test?.cause ?? b.path}</span> : null}
+      {b.path ? <span className="path">~ {findingPath(b, test)}</span> : null}
       <span className="end">
         {add?.kind === 'added' ? (
           <NormalizerAdded passingRun={add.passingRun} leads={leads} />
