@@ -101,6 +101,8 @@ describe('Score a model', () => {
     // The picks' total, as the drawer says it: 5 attempts at each of 2 ready tasks.
     expect(scoreCost(DIALOG, '1', 5, 2)).toEqual({ price: '≈$0.040', parts: ['10 attempts on the Anthropic API', 'live from each takeover, writes stubbed'] });
     expect(scoreEstimate(DIALOG, '1', 5, 2)).toEqual({ usd: 0.04, ceiling: false });
+    // In the engine's amount words, as the drawer says the total: whole dollars from $100, and under a tenth of a cent as such.
+    expect([scoreCost(DIALOG, '1', 15_000, 2)?.price, scoreCost({ ...DIALOG, options: DIALOG.options.map((o) => ({ ...o, perAttempt: 0.00002 })) }, '1', 5, 2)?.price]).toEqual(['≈$120', '<$0.001']);
     expect([scoreEstimate(DIALOG, ENDPOINT, 5, 2), scoreCard(null).estimate, scoreCard({ dialog: DIALOG, notes: [] } as never).estimate]).toEqual([null, undefined, { usd: 0.004, ceiling: false, per: 'an attempt' }]);
     expect(scoreCost(DIALOG, ENDPOINT)).toEqual({ price: 'Free', parts: ['runs at your endpoint, writes stubbed'] });
     expect(scoreCost(null, '1')).toBeNull();

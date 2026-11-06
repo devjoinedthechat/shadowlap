@@ -1,8 +1,8 @@
 import type { CostWords } from './actions.js';
-import { approx } from './format.js';
 import { commandText } from './goldens.js';
 import { ACTIONS, confirmWords } from './labels.js';
 import type { Estimate } from '../../engine/src/estimates/estimate.js';
+import { amountWords } from '../../engine/src/estimates/spending.js';
 import { href } from './route.js';
 import type { ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, TrainingView } from './types.js';
 import { twoDigits as pad } from '../../engine/src/words.js';
@@ -121,7 +121,8 @@ export function scoreCost(dialog: ScoreDialogView | null, pick: string, attempts
   if (o.local) return { price: 'Free', parts: [`runs at ${o.baseUrl ? `\`${o.baseUrl}\`` : 'this machine'}, writes stubbed`] };
   if (o.perAttempt === null) return { price: 'Billed by your provider', parts: ['live from each takeover, writes stubbed'] };
   const n = scoreRuns(o, attempts, ready);
-  return { price: approx(o.perAttempt * n), parts: [`${n} ${n === 1 ? 'attempt' : 'attempts'} on the ${o.where}`, 'live from each takeover, writes stubbed'] };
+  // In the engine's amount words, as the card and the drawer say the same total.
+  return { price: amountWords(o.perAttempt * n), parts: [`${n} ${n === 1 ? 'attempt' : 'attempts'} on the ${o.where}`, 'live from each takeover, writes stubbed'] };
 }
 
 /** How many attempts scoring runs: the attempts picked, for each task the model answers, or for each ready one. */
