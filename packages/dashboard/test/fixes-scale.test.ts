@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { recordBlame, recordVerdict, Store } from '@shadowlap/engine';
+import { fixRecords, recordBlame, recordVerdict, repairArgv, Store, verifyArgv } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { times, timesOf } from '../../engine/test/timing.js';
-import { fixBundles } from '../src/fixes.js';
+import { fixBundles, fixDetail } from '../src/fixes.js';
 import { fixesView } from '../src/fixes-view.js';
 
 /**
@@ -147,5 +147,22 @@ describe('the Fixes page at scale', () => {
     // read of every run's row, and the read after a change to fixes, every row again, 25 to 30 times.
     expect(t.poll, `a poll took ${times(t.poll, t.runs)} a read of every run`).toBeLessThan(t.runs);
     expect(t.changed, `a read after a change took ${times(t.changed, t.runs)} a read of every run`).toBeLessThan(80 * t.runs);
+  });
+
+  it('reads every run for an open fix’s page only as often as working out its repair and verify commands once each does', () => {
+    const run = makeRun(store, { labels: ['page-flow'] });
+    const { fix } = recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'shadowlap blame x', title: 'issue_refund called twice', checkText: 'issue_refund called once', at: 70_000 });
+    const all = vi.spyOn(store, 'allRuns');
+    const rec = fixRecords(store, fix);
+    const argv = repairArgv(store, rec);
+    verifyArgv(store, rec);
+    const commands = all.mock.calls.length;
+    all.mockClear();
+    // The repair command and Run repair's offer are one argv, worked out once.
+    const d = fixDetail(store, fix.fixId);
+    expect(all).toHaveBeenCalledTimes(commands);
+    expect(commands).toBeGreaterThan(0);
+    expect(d?.actions.repair?.argv).toEqual(argv);
+    vi.restoreAllMocks();
   });
 });

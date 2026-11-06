@@ -174,7 +174,7 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
     openedBy: fix.data.openedBy ?? null,
     upstreamRequests: cost.upstreamRequests,
     defaultStep: done.at(-1)?.key ?? 'blame',
-    actions: fixActions(store, rec, { label: row.label, repairer: configured, patchInTree: options.patchInTree, rewriteHere: options.rewriteHere, goldensFolder: options.goldensFolder ?? null }),
+    actions: fixActions(store, rec, { label: row.label, repairer: configured, patchInTree: options.patchInTree, rewriteHere: options.rewriteHere, goldensFolder: options.goldensFolder ?? null, repairArgs }),
     rung: rungOf(rec),
     pr: prOf(rec),
     blame: b ? blameStep(store, b, commands.blame) : null,

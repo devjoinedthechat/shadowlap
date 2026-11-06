@@ -111,13 +111,15 @@ export interface FixActionsOptions {
   patchInTree?: PatchCheck | undefined;
   rewriteHere?: RewriteCheck | undefined;
   goldensFolder?: GoldensFolder | null | undefined;
+  /** The engine's `repairArgv` for the fix, where the caller has it already: each is a read of every run. */
+  repairArgs?: readonly string[] | undefined;
 }
 
 /** What each of a fix's buttons would run, as its page offers them and its Fixes row leads with one (fix-lead.ts). */
 export function fixActions(store: StoreOf<'recording' | 'fixes' | 'team'>, rec: FixRecords, o: FixActionsOptions): FixActions {
   const fix = rec.fix;
   const b = shownBlame(rec);
-  const repairArgs = fix.status === 'open' ? repairArgv(store, rec) : [];
+  const repairArgs = fix.status === 'open' ? [...(o.repairArgs ?? repairArgv(store, rec))] : [];
   const toApply = repairToApply(rec);
   const configured = o.repairer?.trim() || null;
   return {
