@@ -60,7 +60,7 @@ export const ACTIONS = {
   // Tests.
   runTests: { label: 'Run tests', doing: 'Running tests' },
   updateGolden: { label: 'Update golden', doing: 'Updating golden' },
-  updateGoldens: { label: 'Update goldens…', doing: 'Updating goldens' },
+  updateGoldens: { label: 'Update goldens', doing: 'Updating goldens' },
   // A normalizer a divergence or Calibrate proposes is added at once; with the golden's test after
   // it, re-run or updated when the rule alone can't make the replay match (a dialog that only
   // confirms earns no ellipsis). One of your own asks for its rule (Settings → Matching).

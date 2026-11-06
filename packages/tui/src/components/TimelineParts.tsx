@@ -325,6 +325,7 @@ export function LivePane({ action, args, width, height, onYes, onCancel }: { act
   return (
     <Ask width={width} height={height}>
       <Text bold>{action.label}</Text>
+      {action.warns ? <Text color={theme.err}>{safeLine(action.warns)}</Text> : null}
       {action.hint ? <Text color={theme.dim}>{action.hint}</Text> : null}
       <Text>
         <Text color={theme.dim}>It runs </Text>

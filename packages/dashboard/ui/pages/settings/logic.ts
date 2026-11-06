@@ -1,3 +1,4 @@
+import type { FactWords } from '../../actions.js';
 import type { AgentOffer } from '../../../src/agent-skill.js';
 import { regexProblem } from '../../../../engine/src/safe-regex.js';
 import type { CiWorkflowOptions, CiWorkflowsView } from '../../types.js';
@@ -40,9 +41,10 @@ export function redactionNotes(teamStore: boolean): string {
   ].join(' ');
 }
 
-/** What Add redaction rule… says it does, with or without a team store. */
-export function redactRuleText(teamStore: boolean): string {
-  return `Masks stored content in every export, pack and share link of a run.${teamStore ? ' Push copies runs to your team store as recorded.' : ''} A redacted pack still replays: its rules apply as normalizers.`;
+/** What a rule does beyond the lead, as Add normalizer's and Add redaction rule's rows; with a team store, what Push leaves as it is. */
+export function ruleFacts(list: 'normalize' | 'redact', teamStore: boolean): FactWords[] {
+  if (list === 'normalize') return [{ label: 'Matches', value: 'older recordings too', quiet: 'their fingerprints are worked out again' }];
+  return [{ label: 'Packs', value: 'still replay', quiet: 'the rule applies to them as a normalizer' }, ...(teamStore ? [{ label: 'Push', value: 'copies runs as recorded', quiet: 'to your team store' }] : [])];
 }
 
 /**
@@ -366,7 +368,7 @@ interface CalibrateResult {
   clean?: unknown;
 }
 
-/** How many normalizers "Add it (--write)" would add: those a finished calibration proposed and didn't write. 0 hides the button. */
+/** How many normalizers "Add normalizer" would add: those a finished calibration proposed and didn't write. 0 hides the button. */
 export function proposedCount(job: { done: boolean; result?: unknown }): number {
   if (!job.done) return 0;
   const r = job.result as CalibrateResult | null | undefined;
@@ -421,16 +423,6 @@ export function sizeNote(free: number, recording: number): string {
 
 export function gcGivesBack(d: GcDryRun): number {
   return d.bytes + (d.free >= UNUSED_WORTH ? d.free : 0);
-}
-
-/**
- * What a clean-up deletes, for its dialog's title, in the words of Runs' Delete: "3 runs and the 12
- * attempts bundled under them", or the runs alone when none has attempts. A count keeps to its noun.
- */
-export function gcDeleteWhat(d: Pick<GcDryRun, 'count' | 'attempts'>): string {
-  const runs = `${d.count.toLocaleString('en-US')}\u00a0${d.count === 1 ? 'run' : 'runs'}`;
-  if (!d.attempts) return runs;
-  return `${runs} and the ${d.attempts === 1 ? 'attempt' : `${d.attempts.toLocaleString('en-US')}\u00a0attempts`} bundled under ${d.count === 1 ? 'it' : 'them'}`;
 }
 
 /** The command the confirm runs, as the server builds it from the dry run: exactly the runs it listed, or for none, a plain `gc`. */
@@ -550,7 +542,7 @@ export function entryEnvFor(env: ReadonlyArray<{ name: string; value: string }>,
 }
 
 /**
- * What "Add a server…" says under the entry, by what it hid: `basic`, the variable a URL's user and
+ * What Add MCP server… says under the entry, by what it hid: `basic`, the variable a URL's user and
  * password became and where to set it (in .mcp.json's case, where Claude Code starts; for another
  * file, the entry's env; with no file yet, either); `inCopy`, a URL's user and password in a
  * command, which show as ••• in the copy too; `asTyped`, anything else that shows as ••• but is
@@ -575,7 +567,7 @@ export const MCP_FORMS: Readonly<Record<'stdio' | 'http', { label: string; line:
 const NAME_NOISE = new Set(['mcp', 'api', 'www', 'server', 'servers', 'app', 'com', 'net', 'org', 'io', 'dev', 'ai', 'co', 'cloud', 'node', 'python', 'python3', 'deno', 'bun', 'uv', 'docker']);
 
 /**
- * A name for a server "Add a server…" has no name for: `linear` for https://mcp.linear.app/mcp,
+ * A name for a server Add MCP server… has no name for: `linear` for https://mcp.linear.app/mcp,
  * `github` for npx -y @modelcontextprotocol/server-github, else `server`.
  */
 export function serverNameFor(transport: 'stdio' | 'http', target: string): string {

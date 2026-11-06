@@ -21,7 +21,7 @@ import { ToolsTab } from './settings/Tools.js';
  * shadowlap.config.json beside its code, one tab per address. Matching, Redaction, CI (still
  * `#/settings/alerts`), Coding agents, Tools, Project and Store. It is the one page a project with
  * no runs can open: nothing here needs a run. A project that can't be opened (its folder is gone)
- * says so in its header, as its setup does, with Remove from the dashboard; its tabs turn their
+ * says so in its header, as its setup does, with Remove project…; its tabs turn their
  * edits off (`useFolderGone`).
  */
 export function SettingsPage({ tab }: { tab: string | null }) {

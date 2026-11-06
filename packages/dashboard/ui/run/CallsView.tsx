@@ -1,4 +1,5 @@
-import { memo, useEffect, useRef } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef } from 'react';
+import { claimCallFocus } from '../focus-manager.js';
 import type { CallRow } from '../api.js';
 import { Org } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
@@ -10,6 +11,7 @@ import { callDetail, originOf, resultLine, timeOf, tokensText } from './model.js
 import { foldLabel, itemWords, type CallTree } from './groups.js';
 import { isPending, type ListedCall, type PendingCall } from './paging.js';
 import { useWindow } from './window-hook.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * Calls: #, call, origin, tokens, time. A tool's result sits on a second line under it. A replayed
@@ -98,13 +100,6 @@ export function CallsToolbar({
           placeholder="Filter calls"
           value={text}
           onChange={(e) => onText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape' && (e.currentTarget.value || document.activeElement === e.currentTarget)) {
-              e.stopPropagation();
-              if (e.currentTarget.value) onText('');
-              else e.currentTarget.blur();
-            }
-          }}
         />
         <span className="kbd">/</span>
       </label>
@@ -178,6 +173,8 @@ export function CallsTable({
     show(i, { centre: !placed.current, head: head.current?.offsetHeight ?? 34 });
     placed.current = true;
   }, [selected, show]);
+  // A call a key moved to takes the focus once the window has drawn it.
+  useLayoutEffect(claimCallFocus);
   if (!calls.length) return <div className="empty">No calls match.</div>;
   const cols = scoped ? 7 : 6;
   const grouped = !!tree?.grouped;
@@ -265,7 +262,7 @@ function Spacer({ height, cols }: { height: number; cols: number }) {
 /** A call whose page isn't read yet: its number, its mark and its origin, and a word that it is on its way. */
 const PendingRow = memo(function PendingRow({ at, c, selected, scoped, mark, onSelect, grouped = false }: { at: number; c: PendingCall; selected: boolean; scoped: boolean; mark: 'fork' | 'lost' | null; onSelect: (n: number) => void; grouped?: boolean }) {
   return (
-    <tr data-wi={at} data-acts="" aria-rowindex={at + 2} aria-selected={selected} aria-busy="true" onClick={() => onSelect(c.callNo)}>
+    <tr data-wi={at} data-call={c.callNo} data-acts="" aria-rowindex={at + 2} aria-selected={selected} aria-busy="true" onClick={() => onSelect(c.callNo)}>
       <td className="n">
         {mark ? <span className={`fk${mark === 'lost' ? ' bl' : ''}`}>{mark === 'fork' ? 'FORK' : 'LOST'}</span> : null}
         {c.callNo}
@@ -316,7 +313,7 @@ const Row = memo(function Row({
   const res = resultLine(c);
   const t = timeOf(c, ancestors, live);
   return (
-    <tr data-wi={at} data-acts="" aria-rowindex={at + 2} aria-selected={selected} onClick={() => onSelect(c.callNo)}>
+    <tr data-wi={at} data-call={c.callNo} data-acts="" aria-rowindex={at + 2} aria-selected={selected} onClick={() => onSelect(c.callNo)}>
       <td className="n">
         {mark ? <span className={`fk${mark === 'lost' ? ' bl' : ''}`}>{mark === 'fork' ? 'FORK' : 'LOST'}</span> : null}
         {c.callNo}
@@ -351,8 +348,7 @@ const Row = memo(function Row({
       </td>
       <td className="rowact">
         {canFork ? (
-          <button
-            type="button"
+          <ActionButton
             aria-haspopup="menu"
             aria-expanded="false"
             aria-label={`Fork at #${c.callNo}`}
@@ -363,7 +359,7 @@ const Row = memo(function Row({
             }}
           >
             <Icon name="fork" />
-          </button>
+          </ActionButton>
         ) : null}
       </td>
     </tr>

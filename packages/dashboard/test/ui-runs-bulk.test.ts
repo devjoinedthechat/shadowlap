@@ -61,8 +61,9 @@ describe('the bulk bar’s Delete', () => {
     const s = setup();
     r = await render(s.element);
     await r.click(r.byText('.bulkbar button', 'Delete'));
-    expect(text(r, '.dialog h3')).toBe('Delete 2 runs and the 44 attempts bundled under them?');
-    expect(text(r, '.dialog header p')).toBe('Removes the runs, the attempts bundled under them and the recorded data nothing else uses. Their forks keep their own data but lose the link.');
+    expect(text(r, '.dialog h3')).toBe('Delete 2 runs?');
+    expect(text(r, '.dialog header p')).toContain('Deletes the runs, their 44 attempts and the recorded data nothing else uses.');
+    expect(text(r, '.dialog .dfacts')).toBe('Forks, replayskeep their own datathey lose the link to them');
     expect(text(r, '.dialog .cmdline')).toBe('$shadowlap rm 01M5H2DJ1W 01M5H2DJR4');
     await r.click(r.byText('.dialog button', 'Delete 2 runs'));
     await r.until('the delete to answer', () => s.toast.mock.calls.length > 0);
@@ -94,9 +95,9 @@ describe('the bulk bar’s Dataset', () => {
     const s = setup();
     r = await render(s.element);
     await r.click(r.byText('.bulkbar button', 'Dataset'));
-    await r.until('the rules to load', () => text(r!, '.dialog header p').includes('redaction rules'));
+    await r.until('the rules to load', () => r!.all('.dialog .dfacts div').length === 2);
     expect(s.client.offers).toHaveBeenCalledWith(A);
-    expect(text(r, '.dialog header p')).toContain('The 3 redaction rules apply to the conversations and answers it keeps.');
+    expect(r.all('.dialog .dfacts div')[1].textContent).toBe('Redactsby 3 rulesthe store never changes');
     const cmd = text(r, '.dialog .cmdline');
     expect(cmd).toMatch(/^\$shadowlap export dataset 01M5H2DJ1W 01M5H2DJR4 --calls final --format jsonl --out \.shadowlap\/exports\/dataset-2-runs-\d{8}-\d{6}\.jsonl$/);
     // Titled and confirmed as a run's Share names it, for the runs it copies.
@@ -134,16 +135,16 @@ function valueAt(width: number, selector: string, property: string): string | un
 }
 
 describe('the bulk bar on a phone', () => {
-  it('wraps onto lines rather than scroll an action out of view, and a job’s drawer opens above them', () => {
+  it('wraps onto lines rather than scroll an action out of view, and rides over a job’s docked drawer', () => {
     for (const width of [390, 668, 720]) {
       expect(valueAt(width, '.bulkbar', 'flex-wrap'), `${width}`).toBe('wrap');
       expect(valueAt(width, '.bulkbar', 'overflow'), `${width}`).toBe('visible');
       expect(valueAt(width, '.bulkbar .sep', 'display'), `${width}`).toBe('none');
       expect(valueAt(width, '.bulkbar b', 'flex-basis'), `${width}`).toBe('100%');
-      expect(valueAt(width, 'body:has(.bulkbar) .drawer', 'bottom'), `${width}`).toBe('156px');
+      expect(valueAt(width, 'body.docked .bulkbar', 'bottom'), `${width}`).toBe('calc(12px + var(--dock-h))');
     }
-    // Wider, the bar keeps to one line, with the drawer just above it.
+    // Wider, the bar keeps to one line, over the drawer and the status bar.
     expect(valueAt(721, '.bulkbar', 'flex-wrap')).toBeUndefined();
-    expect(valueAt(721, 'body:has(.bulkbar) .drawer', 'bottom')).toBe('100px');
+    expect(valueAt(1440, 'body.docked .bulkbar', 'bottom')).toBe('calc(44px + var(--dock-h))');
   });
 });

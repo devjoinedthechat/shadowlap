@@ -1,21 +1,22 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useRetoast } from '../toast-place.js';
 import { errorText } from '../toast.js';
 import { letGoAfterPush, pushable, untilDone } from './push.js';
 import { JOB_KINDS } from '../api.js';
 import { DatasetDialog } from '../components/DatasetDialog.js';
-import { CmdLine, CopyButton } from '../components/bits.js';
 import { Dialog, PromptDialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
+import { Id, namedIn } from '../components/Id.js';
 import { num, plural, shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
-import { jobCommand } from '../jobs.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
-import { defaultPackFolder } from '../run/share.js';
+import { defaultPackFolder, PACK_HOLDS, packRunCommand, redactsFact } from '../run/share.js';
 import { isLive } from '../runs.js';
-import { useApp } from '../state.js';
+import { guardedWayOn, useApp } from '../state.js';
 import type { JobView } from '../types.js';
-import { bulkToast, datasetOff, deleteText, deleteWhat, inBatches, joinDeleted, joinLabelled, named, packCommand, packOff, rmCommand } from './bulk.js';
+import { bulkToast, datasetOff, deleteFacts, deleteLead, inBatches, joinDeleted, joinLabelled, labelCommands, named, packCommand, packOff, rmCommand } from './bulk.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * The bar over the Runs table once runs are picked: Label, Push (with a team store), Pack, Dataset,
@@ -39,8 +40,27 @@ export interface PickedRun {
 
 type Open = 'label' | 'delete' | 'pack' | 'dataset' | null;
 
+/** The bar's height on the root, for as long as it shows: the window keeps a row in focus clear of it however many lines it wraps to. */
+function useBulkHeight(): RefObject<HTMLDivElement | null> {
+  const bar = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = bar.current;
+    if (!el || typeof ResizeObserver !== 'function') return;
+    const root = document.documentElement;
+    const sized = new ResizeObserver(() => root.style.setProperty('--bulk-h', `${el.offsetHeight}px`));
+    sized.observe(el);
+    return () => {
+      sized.disconnect();
+      root.style.removeProperty('--bulk-h');
+    };
+  }, []);
+  return bar;
+}
+
 export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedRun[]; store: boolean; clear: () => void; onDone: () => void }) {
-  const { actionsOff, client, toast, guard, hasKind, watchJob } = useApp();
+  const { client, toast, guard, hasKind, watchJob } = useApp();
+  const bar = useBulkHeight();
+  useRetoast(bar);
   const [open, setOpen] = useState<Open>(null);
   const ids = runs.map((r) => r.runId);
   const live = runs.filter(isLive);
@@ -49,7 +69,7 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
   const ended = runs.filter((r) => !isLive(r));
   const endedIds = ended.map((r) => r.runId);
   const attempts = ended.reduce((n, r) => n + (r.attempts ?? 0), 0);
-  const off = actionsOff ?? undefined;
+  const rm = rmCommand(endedIds);
   // The bar picks up to 1,000 runs; one dataset, and one pack job, take fewer.
   const tooMany = datasetOff(ended.length);
   const tooManyPacks = packOff(ended.length);
@@ -71,27 +91,27 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
 
   return (
     <>
-      <div className="bulkbar" role="toolbar" aria-label="Selected runs">
+      <div className="bulkbar" role="toolbar" aria-label="Selected runs" ref={bar}>
         <b>{num(runs.length)} selected</b>
         <span className="sep" />
-        <button className="btn sm" type="button" disabled={!!actionsOff} title={off} onClick={() => guard(() => setOpen('label'))}>
+        <ActionButton className="btn sm" onClick={() => guard(() => setOpen('label'))}>
           <Icon name="plus" />
           Label
-        </button>
+        </ActionButton>
         {store && hasKind(JOB_KINDS.push) ? (
-          <button className="btn sm" type="button" disabled={!!actionsOff} title={off} onClick={() => guard(() => void push())}>
+          <ActionButton className="btn sm" onClick={() => guard(() => void push())}>
             Push
-          </button>
+          </ActionButton>
         ) : null}
         {hasKind(JOB_KINDS.pack) ? (
-          <button className="btn sm" type="button" disabled={!!actionsOff || !!tooManyPacks} title={off ?? tooManyPacks ?? undefined} onClick={() => guard(() => (ended.length ? setOpen('pack') : toast('A run that is still recording can’t be packed until it ends.')))}>
+          <ActionButton className="btn sm" why={tooManyPacks} onClick={() => guard(() => (ended.length ? setOpen('pack') : toast('A run that is still recording can’t be packed until it ends.')))}>
             Pack
-          </button>
+          </ActionButton>
         ) : null}
         {hasKind(JOB_KINDS.dataset) ? (
-          <button className="btn sm" type="button" disabled={!!actionsOff || !!tooMany} title={off ?? tooMany ?? undefined} onClick={() => guard(() => (ended.length ? setOpen('dataset') : toast('A run that is still recording can’t be exported until it ends.')))}>
+          <ActionButton className="btn sm" why={tooMany} onClick={() => guard(() => (ended.length ? setOpen('dataset') : toast('A run that is still recording can’t be exported until it ends.')))}>
             Dataset
-          </button>
+          </ActionButton>
         ) : null}
         <button
           className="btn sm"
@@ -107,43 +127,58 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
         >
           Compare
         </button>
-        <button className="btn sm quiet dz" type="button" disabled={!!actionsOff} title={off} onClick={() => guard(() => (ended.length ? setOpen('delete') : toast('A run that is still recording can’t be deleted.')))}>
+        <ActionButton className="btn sm quiet dz" onClick={() => guard(() => (ended.length ? setOpen('delete') : toast('A run that is still recording can’t be deleted.')))}>
           Delete
-        </button>
+        </ActionButton>
         <button className="linkbtn" type="button" onClick={clear}>
           Clear
         </button>
       </div>
       {open === 'label' ? (
         <PromptDialog
-          title={`Label ${named(ids)}`}
-          text="A label says what a run is, so it can be found and exported as part of a dataset (export dataset --label)."
+          title={`Add label to ${plural(ids.length, 'run')}`}
+          lead={ids.length === 1 ? 'Labels the run, so it can be found and exported with export dataset --label.' : 'Labels the runs, so they can be found and exported with export dataset --label.'}
+          doc="labels"
           label="Label"
           placeholder="good"
           maxLength={40}
           ok="Add label"
-          onClose={() => setOpen(null)}
-          onRun={(label) => {
-            setOpen(null);
-            inBatches(ids, (part) => client.labelRuns(part, [label])).then(joinLabelled).then(
-              (out) => {
-                toast(bulkToast({ verb: 'Labelled', done: out.done.map((d) => d.runId), of: ids.length, skipped: out.skipped, suffix: ` “${label}”` }));
-                onDone();
-              },
-              (err: unknown) => toast(errorText(err), 'error'),
-            );
+          command={(label) => {
+            const c = labelCommands(ids, label);
+            // A Copy named by what it holds, and the whole list wherever the box shows only its first few.
+            return { command: c.shown, ...(ids.length > 1 ? { what: 'the commands' } : {}), ...(c.full !== c.shown.join('\n') ? { full: c.full } : {}) };
           }}
+          onClose={() => setOpen(null)}
+          onRun={(label) =>
+            guardedWayOn(guard, () =>
+              inBatches(ids, (part) => client.labelRuns(part, [label]))
+                .then(joinLabelled)
+                .then(
+                  (out) => {
+                    toast(bulkToast({ verb: 'Labelled', done: out.done.map((d) => d.runId), of: ids.length, skipped: out.skipped, suffix: ` “${label}”` }));
+                    onDone();
+                    return true;
+                  },
+                  (err: unknown) => {
+                    toast(errorText(err), 'error');
+                    return false;
+                  },
+                ),
+            )
+          }
         />
       ) : null}
       {open === 'delete' ? (
         <Dialog
-          title={`Delete ${deleteWhat(endedIds, attempts)}?`}
-          text={deleteText(endedIds.length, attempts, live.map((r) => r.runId))}
+          title={endedIds.length === 1 ? <>Delete <Id id={shortId(endedIds[0]!)} />?</> : `Delete ${plural(endedIds.length, 'run')}?`}
+          lead={deleteLead(endedIds.length, attempts)}
+          doc="deletingRuns"
+          facts={deleteFacts(endedIds.length, live.map((r) => r.runId))}
+          command={{ command: rm.shown, ...(rm.shown !== rm.full ? { full: rm.full } : {}) }}
           ok={`Delete ${ended.length === 1 ? 'run' : plural(ended.length, 'run')}`}
           tone="danger"
           onClose={() => setOpen(null)}
           onOk={() => {
-            setOpen(null);
             inBatches(endedIds, (part) => client.deleteRuns(part)).then(joinDeleted).then(
               (out) => {
                 toast(bulkToast({ verb: 'Deleted', done: out.done, of: endedIds.length, skipped: out.skipped, attempts: out.attempts.length }));
@@ -153,29 +188,10 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
               (err: unknown) => toast(errorText(err), 'error'),
             );
           }}
-        >
-          <DeleteCommand ids={endedIds} />
-        </Dialog>
+        />
       ) : null}
       {open === 'pack' ? <PackDialog ids={endedIds} onClose={() => setOpen(null)} onRun={(fields) => guard(() => watchJob(client.startJob(JOB_KINDS.pack, fields)))} /> : null}
       {open === 'dataset' ? <BulkDataset ids={endedIds} onClose={() => setOpen(null)} /> : null}
-    </>
-  );
-}
-
-/** The command a bulk Delete runs: every id for a few runs, the first few and how many more for a long pick, whole behind Copy. */
-function DeleteCommand({ ids }: { ids: readonly string[] }) {
-  const rm = rmCommand(ids);
-  return (
-    <>
-      <CmdLine>{rm.shown}</CmdLine>
-      {rm.shown !== rm.full ? (
-        <div className="cmdcopy">
-          <CopyButton text={rm.full} label="the command">
-            Copy the whole command
-          </CopyButton>
-        </div>
-      ) : null}
     </>
   );
 }
@@ -186,35 +202,28 @@ function DeleteCommand({ ids }: { ids: readonly string[] }) {
  * typed (`.shadowlap/exports` unless another is given). One job packs them all, one after another,
  * and its drawer lists every folder it wrote.
  */
-function PackDialog({ ids, onClose, onRun }: { ids: readonly string[]; onClose: () => void; onRun: (fields: Record<string, unknown>) => void }) {
+export function PackDialog({ ids, onClose, onRun }: { ids: readonly string[]; onClose: () => void; onRun: (fields: Record<string, unknown>) => boolean }) {
+  const { client } = useApp();
   const one = ids.length === 1 ? ids[0]! : null;
+  // The project's rules, as a copy made now applies them: the server says per copy, of any run.
+  const offers = useLoad(() => client.offers(ids[0]!), `bulk-pack-rules:${ids[0]!}`);
+  const rules = offers.data?.copies.formats.find((f) => f.id === 'pack')?.rules ?? null;
   return (
     <PromptDialog
-      title={`Pack ${named(ids)}`}
-      text={
-        one
-          ? 'A folder to commit as a golden or send to someone: run.json, calls.jsonl and one file per blob. Redaction rules apply to the copy; the store is never changed.'
-          : 'A folder for each run, named by its id, inside the folder below: run.json, calls.jsonl and one file per blob, to commit as goldens or send to someone. Redaction rules apply to the copies; the store is never changed.'
-      }
+      title={one ? namedIn(`Pack ${named(ids)}`, shortId(one)) : `Pack ${named(ids)}`}
+      lead={one ? 'Packs the run into a folder to commit as a golden or send to someone.' : 'Packs each run into a folder of its own, to commit as goldens or send to someone.'}
+      doc="packs"
+      facts={[PACK_HOLDS, redactsFact(rules)]}
       label={one ? 'Folder, inside the project' : 'Folder for the packs, inside the project'}
       initial={one ? defaultPackFolder(one) : '.shadowlap/exports'}
-      ok={one ? 'Pack' : `Pack ${plural(ids.length, 'run')}`}
-      command={(dir) => (one ? jobCommand(['pack', shortId(one), dir]) : packCommand(ids, dir).shown)}
-      after={(dir) => {
-        const cmd = one ? null : packCommand(ids, dir);
-        return cmd && cmd.full !== cmd.shown ? (
-          <div className="cmdcopy">
-            <CopyButton text={cmd.full} label="the commands">
-              Copy every command
-            </CopyButton>
-          </div>
-        ) : null;
+      ok={one ? 'Pack run' : `Pack ${plural(ids.length, 'run')}`}
+      command={(dir) => {
+        if (one) return packRunCommand(one, dir);
+        const cmd = packCommand(ids, dir);
+        return { command: cmd.shown, what: 'the commands', ...(cmd.full !== cmd.shown ? { full: cmd.full } : {}) };
       }}
       onClose={onClose}
-      onRun={(dir) => {
-        onClose();
-        onRun(one ? { runId: one, dir } : { runIds: [...ids], dir });
-      }}
+      onRun={(dir) => onRun(one ? { runId: one, dir } : { runIds: [...ids], dir })}
     />
   );
 }

@@ -3,7 +3,7 @@ import { copyText } from '../dom.js';
 import { useApp } from '../state.js';
 import { Command } from './Copy.js';
 import { Icon } from './Icon.js';
-import { tipText } from './HoverCard.js';
+import { tipCard, tipText } from './HoverCard.js';
 
 /**
  * The code box: a command (`.cmdline`), a block of code (`pre.codebox`) or a file (`.codewrap`, its
@@ -27,6 +27,8 @@ export interface CodeBoxProps {
   /** A box that shows a change: read, not pasted, so it has no Copy. */
   change?: boolean;
   className?: string | undefined;
+  /** A command box's, for what folds it. */
+  id?: string | undefined;
 }
 
 /** What a box's Copy names and its toast says: what the box names itself, else the whole command, the commands, the command or the code. */
@@ -42,14 +44,14 @@ export function boxWhat({ command, full, what }: Pick<CodeBoxProps, 'command' | 
  * button, its words beside the icon (`children`), or the icon alone, named by `name` for a screen
  * reader and on hover. Every Copy on a page is this one.
  */
-export function CopyButton({ text, label, children = 'Copy', className = 'linkbtn', name }: { text: string; label?: string; children?: ReactNode; className?: string; name?: string }) {
+export function CopyButton({ text, label, children = 'Copy', className = 'linkbtn', name, sub }: { text: string; label?: string; children?: ReactNode; className?: string; name?: string; /** A line under its name, on its card. */ sub?: string }) {
   const { toast } = useApp();
   return (
     <button
       type="button"
       className={className}
       aria-label={name}
-      data-tip={name ? tipText(name) : undefined}
+      data-tip={name ? (sub ? tipCard(name, [], sub) : tipText(name)) : undefined}
       onClick={() => {
         void copyText(text).then((ok) => toast(ok ? `Copied ${label ?? text}` : 'Copying was refused by the browser'));
       }}
@@ -80,12 +82,12 @@ function BoxCopy({ text, what, words = false }: { text: string; what: string; wo
 
 /** One code box, with its one Copy: a command, code, or a file of code with its name in the header. */
 export function CodeBox(props: CodeBoxProps) {
-  const { command, code = '', file, full, change = false, className } = props;
+  const { command, code = '', file, full, change = false, className, id } = props;
   const what = boxWhat(props);
   if (command !== undefined) {
     const lines = typeof command === 'string' ? [command] : command;
     return (
-      <div className={`cmdline${className ? ` ${className}` : ''}`}>
+      <div id={id} className={`cmdline${className ? ` ${className}` : ''}`}>
         {change ? null : <BoxCopy text={full ?? lines.join('\n')} what={what} />}
         {lines.map((c, i) =>
           lines.length > 1 ? (

@@ -1,10 +1,11 @@
 import type { BlameReport } from '../blame.js';
+import { REPAIR_VERIFIES, repairParts, repairRunsNothing } from '../cost-words.js';
 import { DEFAULT_REPAIRER } from '../fix-jobs.js';
 import { estimateCost } from '../prices.js';
 import { SPRT_DEFAULTS } from '../stats.js';
 import type { RunRecord } from '../types.js';
 import { blameBound, probedCalls } from './blame.js';
-import { counted, CUT_SHORT_LINE, liveFrom, noEstimate, noPriceWords, timesWords, type Estimate, type PricedCall, type Prices } from './estimate.js';
+import { counted, CUT_SHORT_LINE, liveFrom, noEstimate, noPriceWords, type Estimate, type PricedCall, type Prices } from './estimate.js';
 import { amountWords } from './spending.js';
 import { lastVerify, verifyCeiling, verifyParts, type LastVerify, type VerifyRule, type VerifyRunCost } from './verify.js';
 
@@ -40,8 +41,8 @@ export const REPAIRER_LIMITS = Object.freeze({
 /** The candidates repair asks the repairer for, unless told otherwise (`--candidates 3`), and the most of its answer it tries. */
 export const REPAIR_CANDIDATES = 3;
 
-/** The most verifies of one candidate: the first the gate accepts is verified once more, with fresh attempts, and kept only if it passes again (cli/src/repair-pick.ts). */
-export const REPAIR_VERIFIES = 2;
+/** The most verifies of one candidate, from the words its parts say it in. */
+export { REPAIR_VERIFIES };
 
 /** Why Run repair would end "No fix to try" without running anything: the blame it reuses didn't settle, or rescued no call. */
 export type NoFixToTry = 'unsettled' | 'unrescued';
@@ -146,7 +147,7 @@ function decided(o: RepairPlan): number {
  */
 export function repairEstimate(o: RepairPlan): Estimate {
   const always = 'it makes its candidates from your working tree';
-  const free = (why: NoFixToTry): Estimate => ({ kind: 'repair', usd: 0, ceiling: false, always, parts: [`nothing runs: the blame it reuses ${why === 'unsettled' ? 'didn’t settle' : 'rescued no call'}`] });
+  const free = (why: NoFixToTry): Estimate => ({ kind: 'repair', usd: 0, ceiling: false, always, parts: [repairRunsNothing(why)] });
   if (o.noFix) return free(o.noFix);
   if (!o.failing.length) return { ...noEstimate('repair', 'there is no failing run to repair'), always };
   const targets = splitHoldout(o.failing, (r) => r).targets;
@@ -162,7 +163,7 @@ export function repairEstimate(o: RepairPlan): Estimate {
   if (each.usd === null) return { ...noEstimate('repair', runs.find((r) => r.none)?.none ?? 'a run it verifies has no price'), always };
   const k = decided(o);
   const verifies = REPAIR_VERIFIES * k * each.usd;
-  const parts = [`${blame.runs ? 'a new blame, then up' : 'up'} to ${counted(k, 'candidate')}`, `each verified up to ${timesWords(REPAIR_VERIFIES) ?? 'once'}`, 'live from each run’s first model call, writes stubbed'];
+  const parts = repairParts(k, blame.runs > 0);
   const failing = runs.filter((r) => r.role !== 'good').length;
   const last = lastVerify(o.last);
   return {

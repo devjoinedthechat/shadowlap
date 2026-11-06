@@ -6,6 +6,7 @@ import type { CodingAgentsSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import { CommandLine, FILES_GONE, LoadProblem, Loading, useFolderGone, useSettingsData } from './common.js';
 import { agentFileWords, orList, sharedSkillsWords, SKILL_INSTALL_KIND, skillWords, type AgentAction } from './logic.js';
+import { ActionButton } from '../../components/ActionButton.js';
 
 /**
  * Coding agents, as the design has it (codingAgentsPanel): coding agents need no MCP server, the CLI
@@ -24,7 +25,7 @@ export function AgentsTab() {
   const { client } = useApp();
   const { data, error } = useSettingsData(() => client.settings.agents(), 'settings:agents');
   const gone = useFolderGone();
-  const [asking, setAsking] = useState<{ install: Install; title: string; text: string } | null>(null);
+  const [asking, setAsking] = useState<{ install: Install; title: string; lead: string; path: string; others: boolean } | null>(null);
   const start = useInstall();
   if (error && !data) return <LoadProblem error={error} />;
   if (!data) return <Loading title="Coding agents" />;
@@ -47,11 +48,7 @@ export function AgentsTab() {
     if (!offer?.install) return;
     if (!a.ask) return start(offer.install);
     const v = skill?.version ?? 'this version';
-    setAsking(
-      agent === 'agents'
-        ? { install: offer.install, title: `Replace Shadowlap’s skills with ${v}’s copy?`, text: `${orList(shared, 'and')} in ${offer.path} were edited here: ${v}’s copy goes in their place, and the files it doesn’t have are removed. The other skills there are left as they are.` }
-        : { install: offer.install, title: `Replace the skills with ${v}’s copy?`, text: `${offer.path} was edited here: ${v}’s copy goes in its place, and the files it doesn’t have are removed.` },
-    );
+    setAsking({ install: offer.install, title: `Replace skills with ${v}’s copy?`, lead: `Puts ${v}’s copy in place of the skills edited here, and removes the files it doesn’t have.`, path: offer.path, others: agent === 'agents' });
   };
   const files = (
     <>
@@ -114,20 +111,7 @@ export function AgentsTab() {
           {files}
         </div>
       )}
-      {asking ? (
-        <ConfirmDialog
-          title={asking.title}
-          text={asking.text}
-          ok="Replace"
-          danger
-          command={asking.install.command}
-          onClose={() => setAsking(null)}
-          onOk={() => {
-            setAsking(null);
-            start(asking.install);
-          }}
-        />
-      ) : null}
+      {asking ? <ReplaceSkillsDialog {...asking} command={asking.install.command} onClose={() => setAsking(null)} onOk={() => start(asking.install)} /> : null}
     </section>
   );
 }
@@ -154,9 +138,9 @@ function useInstallOff(command: string | null): string | null {
 function InstallButton({ action, command, sub, small = false, lime = false, onClick }: { action: AgentAction; command: string | null; sub: string; small?: boolean; lime?: boolean; onClick: () => void }) {
   const off = useInstallOff(command);
   return (
-    <button className={`btn${small ? ' sm' : ''}${lime && !off ? ' lime' : ''}`} type="button" disabled={!!off} title={off ?? `${command ?? 'shadowlap skill install'} · ${sub}`} onClick={onClick}>
+    <ActionButton className={`btn${small ? ' sm' : ''}${lime ? ' lime' : ''}`} why={off} title={`${command ?? 'shadowlap skill install'} · ${sub}`} onClick={onClick}>
       {action.label}
-    </button>
+    </ActionButton>
   );
 }
 
@@ -244,5 +228,22 @@ function SkillRow({ skill, gone, onAct }: { skill: NonNullable<CodingAgentsSetti
         <InstallButton action={w.action} command={offer.install.command} sub={`writes the plugin to ${offer.path}, where Claude Code loads it for everyone working on the project`} lime={!w.action.ask} onClick={() => onAct(w.action!)} />
       ) : null}
     </div>
+  );
+}
+
+/** Replace skills: another version's copy over the ones edited here, red, as what goes doesn't come back. */
+export function ReplaceSkillsDialog({ title, lead, path, others, command, onOk, onClose }: { title: string; lead: string; path: string; others: boolean; command: string; onOk: () => unknown; onClose: () => void }) {
+  return (
+    <ConfirmDialog
+      title={title}
+      lead={lead}
+      doc="agents"
+      facts={[{ label: 'Changes', value: <code>{path}</code>, wide: true }, others ? { label: 'Left alone', value: 'the other skills there' } : null]}
+      ok="Replace skills"
+      danger
+      command={command}
+      onClose={onClose}
+      onOk={onOk}
+    />
   );
 }

@@ -108,7 +108,7 @@ export function sessionBusy(store: StoreOf<'tests' | 'chaos'>, verb: string): st
  * job runner checks the working tree only once the job is built, after the yes: the pages that ask
  * it wait while a job holds the tree instead, as the palette does (ui/tests-ask.ts).
  */
-export function testsBuild(job: TestsJob, busy: string | null = null, ask: { error: string; status: 409; confirm: string } | null = null): JobBuildResult {
+export function testsBuild(job: TestsJob, busy: string | null = null, ask: { error: string; status: 409; confirm: string; live?: unknown } | null = null): JobBuildResult {
   if ('error' in job) return { error: job.error };
   if (busy) return { error: busy, status: 409 };
   if (ask) return ask;

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Dialog } from '../components/Dialog.js';
+import { Dialog, pressWayOn } from '../components/Dialog.js';
 import { messageOf } from '../../../engine/src/message-of.js';
 import { expectProject, type RemoveDialogView } from '../projects-api.js';
 import { nameMatches } from '../projects.js';
@@ -10,10 +10,10 @@ import { errorText } from '../toast.js';
 
 /**
  * Remove a project, from the switcher's × or Settings → Project (`<RemoveProjectDialog id=… />`).
- * Removing only forgets the folder, so the button is a calm solid one: adding the folder again
- * brings everything back. Deleting its recordings sits in a zone of its own, shown only when it has
- * runs; ticking it crosses the store out, turns the button red, and keeps it disabled until the
- * project's name is typed. Goldens in the repository are never touched.
+ * Removing only forgets the folder, so the button reads in ink: adding the folder again brings
+ * everything back. Deleting its recordings sits in a zone of its own, shown only when it has runs;
+ * ticking it crosses the store out, turns the button red, and keeps it disabled until the project's
+ * name is typed. Goldens in the repository are never touched.
  */
 export function RemoveProjectDialog({ id, onClose, onRemoved }: { id: string; onClose: () => void; onRemoved?: (current: string) => void }) {
   const app = useApp();
@@ -41,7 +41,7 @@ export function RemoveProjectDialog({ id, onClose, onRemoved }: { id: string; on
     if (del) nameInput.current?.focus();
   }, [del]);
 
-  if (failed) return <Dialog title="Remove from the dashboard" text={failed} onClose={onClose} />;
+  if (failed) return <Dialog title="Remove project" lead="Takes the project off the dashboard; nothing on disk changes." doc="removingProject" warn={{ text: failed.replace(/\.$/, '') }} onClose={onClose} />;
   if (!view) return null;
 
   const zone = view.deleteZone;
@@ -50,11 +50,12 @@ export function RemoveProjectDialog({ id, onClose, onRemoved }: { id: string; on
   const match = !!zone && nameMatches(typed, zone.name);
   const blocked = actionsOff ?? (view.canRemove ? null : view.why);
 
+  // It closes itself once the server has removed it, and stays open on a refusal.
   const remove = () => {
     if (deleting && !match) {
       setTried(true);
       nameInput.current?.focus();
-      return;
+      return false;
     }
     guard(() => {
       setBusy(true);
@@ -73,12 +74,15 @@ export function RemoveProjectDialog({ id, onClose, onRemoved }: { id: string; on
         },
       );
     });
+    return false;
   };
 
   return (
     <Dialog
       title={view.title}
-      text={mode.text}
+      lead={mode.text}
+      doc="removingProject"
+      warn={blocked && !actionsOff ? { text: blocked } : null}
       ok={mode.button.label}
       tone={mode.button.style}
       okDisabled={busy || !!blocked || (deleting && !match)}
@@ -110,7 +114,7 @@ export function RemoveProjectDialog({ id, onClose, onRemoved }: { id: string; on
             );
           })}
         </ul>
-        <p className="rmnote">{mode.note}</p>
+        {mode.note ? <p className="rmnote">{mode.note}</p> : null}
       </div>
       {zone ? (
         <div className={`dz${deleting ? ' on' : ''}`}>
@@ -137,7 +141,7 @@ export function RemoveProjectDialog({ id, onClose, onRemoved }: { id: string; on
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
-                    if (match && !blocked && !busy) remove();
+                    if (match && !blocked && !busy) pressWayOn(e.currentTarget);
                     else setTried(true);
                   }
                 }}
@@ -146,7 +150,6 @@ export function RemoveProjectDialog({ id, onClose, onRemoved }: { id: string; on
           ) : null}
         </div>
       ) : null}
-      {blocked && !actionsOff ? <p className="fieldnote">{blocked}</p> : null}
     </Dialog>
   );
 }

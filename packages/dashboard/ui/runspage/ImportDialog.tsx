@@ -1,12 +1,13 @@
-import { useRef, useState, type DragEvent } from 'react';
+import { useRef, useState, type DragEvent, type RefObject } from 'react';
 import { JOB_KINDS } from '../api.js';
 import { Seg } from '../components/bits.js';
+import { DialogFacts, type DialogFactRows } from '../components/DialogFacts.js';
 import { Dialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { useLoad } from '../hooks.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
-import { FILE_FORMATS, fileHead, HEAD_BYTES, IMPORT_ACCEPT, IMPORT_FILE_FORMATS, keyList, OTEL_SAMPLE_NAME, phoenixProjectNote, phoenixProjectOk, pickedFormat, sampleTrace, TRACE_COPY, traceIdOk, type ImportFileFormat, type TraceSource } from './imports.js';
+import { FILE_FORMATS, fileHead, importWords, HEAD_BYTES, IMPORT_ACCEPT, IMPORT_FILE_FORMATS, OTEL_SAMPLE_NAME, phoenixProjectNote, phoenixProjectOk, pickedFormat, sampleTrace, TRACE_COPY, traceIdOk, type ImportFileFormat, type TraceSource } from './imports.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 
 /**
@@ -75,8 +76,9 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
   const traceOk = idOk && projectOk && !!t?.keys;
   const ready = !busy && (source === 'file' ? !!picked && !picked.error && !!picked.format : traceOk);
 
-  const run = async () => {
-    if (!ready) return;
+  // Stays open on a refusal, with what was picked.
+  const run = async (): Promise<boolean> => {
+    if (!ready) return false;
     setBusy(true);
     try {
       if (source === 'file' && picked?.format) {
@@ -86,25 +88,33 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
         const named = source === 'phoenix' && project.trim() !== t?.project ? { project: project.trim() } : {};
         watchJob(client.startJob(JOB_KINDS.importCapture, { format: source, traceId: trace.id.trim(), ...(host && host !== t?.host ? { host } : {}), ...named }));
       }
-      onClose();
+      return true;
     } catch (err) {
       toast(errorText(err), 'error');
       setBusy(false);
+      return false;
     }
   };
+  const words = importWords({ source, picked, id: trace.id, host, project, keys: t ?? null, defaults: t ?? null, uploads: limit !== null });
 
   return (
     <Dialog
       title={confirmWords(ACTIONS.importCapture.label)}
-      text="Turns traffic another tool captured, or a trace you already store, into a recording you can replay your own code against. What the source didn’t keep runs live on replay, with writes fenced."
+      lead="Turns a capture, or a trace you store, into a recording you can replay your code against."
+      doc="imports"
+      warn={words.line ? { text: words.line } : null}
+      // A file's row sits in its pane, above the sample, as the mock draws it.
+      factsUnder={source === 'file' ? undefined : words.rows}
+      command={words.command}
       ok={busy ? 'Uploading…' : confirmWords(ACTIONS.importCapture.label)}
       okDisabled={!ready}
-      onOk={() => void run()}
+      onOk={run}
       onClose={onClose}
       dirty={holdsFile(picked)}
       className="impdlg"
     >
       <Seg
+        className="impsrc"
         label="Source"
         items={[
           { key: 'file', label: 'File' },
@@ -121,87 +131,91 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
         }}
       />
       {source === 'file' ? (
-        <div className="impbody">
-          <label
-            className={`drop${over ? ' over' : ''}${picked && !picked.error ? ' has' : ''}`}
-            tabIndex={0}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setOver(true);
-            }}
-            onDragLeave={() => setOver(false)}
-            onDrop={drop}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                input.current?.click();
-              }
-            }}
-          >
-            <input ref={input} type="file" accept={IMPORT_ACCEPT} hidden onChange={(e) => pick(e.target.files?.[0])} />
-            <Icon name="import" />
-            <b>Drop a capture or trace file here</b>
-            <span>or click to choose · HAR, nock, VCR (JSON), LiteLLM (JSONL) or OpenTelemetry (OTLP JSON)</span>
-          </label>
-          {picked?.error ? <p className="fieldnote err">{picked.error}</p> : null}
-          {picked && !picked.error && picked.format ? (
-            <div className="capfile">
-              <Icon name="folder" />
-              <code>{picked.file.name}</code>
-              <label className="pick">
-                <span className="sr">Format</span>
-                <select value={picked.format} onChange={(e) => setPicked({ ...picked, format: e.target.value as ImportFileFormat })}>
-                  {FILE_FORMATS.map((f) => (
-                    <option key={f} value={f}>
-                      {IMPORT_FILE_FORMATS[f]}
-                    </option>
-                  ))}
-                </select>
-                <Icon name="caret" className="caret" />
-              </label>
-            </div>
-          ) : null}
-          {limit === null ? (
-            <p className="fieldnote warn">This dashboard takes no files: start it in your project with shadowlap dashboard, or import in a terminal with shadowlap import.</p>
-          ) : (
-            <div className="impsamples">
-              <button className="linkbtn" type="button" onClick={pickSample}>
-                Use a sample: {OTEL_SAMPLE_NAME}
-              </button>
-            </div>
-          )}
-        </div>
+        <FilePane picked={picked} over={over} setOver={setOver} drop={drop} input={input} pick={pick} setPicked={setPicked} pickSample={pickSample} uploads={limit !== null} rows={words.rows} />
       ) : (
-        <div className="impbody">
-          <div className="form one">
-            <label>
-              Host
-              <input spellCheck={false} value={host} onChange={(e) => setTrace({ ...trace, host: e.target.value })} />
-            </label>
-            {source === 'phoenix' ? (
-              <label>
-                Project
-                <input spellCheck={false} autoComplete="off" value={project} onChange={(e) => setTrace({ ...trace, project: e.target.value })} />
-              </label>
-            ) : null}
-            <label>
-              Trace id
-              <input spellCheck={false} autoComplete="off" placeholder={TRACE_COPY[source].id} value={trace.id} onChange={(e) => setTrace({ ...trace, id: e.target.value })} />
-            </label>
-          </div>
-          <p className="muted impnote">
-            {TRACE_COPY[source].keeps} {TRACE_COPY[source].key} {t ? keyList(t.keyNames) : TRACE_COPY[source].keys} on this machine; nothing passes through Shadowlap.
-          </p>
-          {TRACE_COPY[source].note ? <p className="muted impnote">{TRACE_COPY[source].note}</p> : null}
-          {t && !t.keys ? (
-            <p className="fieldnote warn">
-              {keyList(t.keyNames)} {t.keyNames.length === 1 ? 'is' : 'are'} not set where this dashboard runs: set {t.keyNames.length === 1 ? 'it' : 'them'}, then start shadowlap dashboard again.
-            </p>
-          ) : null}
-          {trace.id.trim() && !idOk ? <p className="fieldnote err">That is not a trace id: {TRACE_COPY[source].idRule}.</p> : null}
-          {phoenixProjectNote(project) ? <p className="fieldnote err">{phoenixProjectNote(project)}</p> : null}
-        </div>
+        <TracePane source={source} host={host} project={project} trace={trace} setTrace={setTrace} idOk={idOk} />
       )}
     </Dialog>
+  );
+}
+
+/** A capture from a file: its drop zone, the format read from its first bytes, and a sample where uploads work. */
+function FilePane({ picked, over, setOver, drop, input, pick, setPicked, pickSample, uploads, rows }: { rows: DialogFactRows; picked: Picked | null; over: boolean; setOver: (on: boolean) => void; drop: (e: DragEvent<HTMLLabelElement>) => void; input: RefObject<HTMLInputElement | null>; pick: (file: File | undefined) => void; setPicked: (p: Picked) => void; pickSample: () => void; uploads: boolean }) {
+  return (
+    <div className="impbody">
+      <label
+        className={`drop${over ? ' over' : ''}${picked && !picked.error ? ' has' : ''}`}
+        tabIndex={0}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setOver(true);
+        }}
+        onDragLeave={() => setOver(false)}
+        onDrop={drop}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            input.current?.click();
+          }
+        }}
+      >
+        <input ref={input} type="file" accept={IMPORT_ACCEPT} hidden onChange={(e) => pick(e.target.files?.[0])} />
+        <Icon name="import" />
+        <b>Drop a capture or trace file here</b>
+        <span>or click to choose · HAR, nock, VCR (JSON), LiteLLM (JSONL) or OpenTelemetry (OTLP JSON)</span>
+      </label>
+      {picked?.error ? <p className="fieldnote err">{picked.error}</p> : null}
+      {picked && !picked.error && picked.format ? (
+        <div className="capfile">
+          <Icon name="folder" />
+          <code>{picked.file.name}</code>
+          <label className="pick">
+            <span className="sr">Format</span>
+            <select value={picked.format} onChange={(e) => setPicked({ ...picked, format: e.target.value as ImportFileFormat })}>
+              {FILE_FORMATS.map((f) => (
+                <option key={f} value={f}>
+                  {IMPORT_FILE_FORMATS[f]}
+                </option>
+              ))}
+            </select>
+            <Icon name="caret" className="caret" />
+          </label>
+        </div>
+      ) : null}
+      <DialogFacts rows={rows} />
+      {uploads ? (
+        <div className="impsamples">
+          <button className="linkbtn" type="button" onClick={pickSample}>
+            Use sample: {OTEL_SAMPLE_NAME}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** A trace in a store you run: where it is, and its id, each checked as it is typed. */
+function TracePane({ source, host, project, trace, setTrace, idOk }: { source: TraceSource; host: string; project: string; trace: { host: string | null; id: string; project: string | null }; setTrace: (t: { host: string | null; id: string; project: string | null }) => void; idOk: boolean }) {
+  return (
+    <div className="impbody">
+      <div className="form one">
+        <label>
+          Host
+          <input spellCheck={false} value={host} onChange={(e) => setTrace({ ...trace, host: e.target.value })} />
+        </label>
+        {source === 'phoenix' ? (
+          <label>
+            Project
+            <input spellCheck={false} autoComplete="off" value={project} onChange={(e) => setTrace({ ...trace, project: e.target.value })} />
+          </label>
+        ) : null}
+        <label>
+          Trace id
+          <input spellCheck={false} autoComplete="off" placeholder={TRACE_COPY[source].id} value={trace.id} onChange={(e) => setTrace({ ...trace, id: e.target.value })} />
+        </label>
+      </div>
+      {trace.id.trim() && !idOk ? <p className="fieldnote err">That is not a trace id: {TRACE_COPY[source].idRule}.</p> : null}
+      {phoenixProjectNote(project) ? <p className="fieldnote err">{phoenixProjectNote(project)}</p> : null}
+    </div>
   );
 }

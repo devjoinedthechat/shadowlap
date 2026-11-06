@@ -113,12 +113,21 @@ function Line({ text, term }: { text: string; term: boolean }) {
   );
 }
 
-function Body({ d, term }: { d: Tip; term: boolean }) {
+/** The single key a card's control answers to, while single-key shortcuts leave it marked: a chord (⌘K) shows none. */
+function singleKeyOf(el: Element | undefined): string | null {
+  const k = el?.getAttribute('aria-keyshortcuts');
+  return k && !k.includes('+') ? k : null;
+}
+
+function Body({ d, term, shortcutKey }: { d: Tip; term: boolean; shortcutKey: string | null }) {
   const cmd = d.cmd ?? (d.s?.startsWith('$ ') ? d.s : null);
   const lines = d.s && d.s !== cmd ? d.s.split('\n') : [];
   return (
     <>
-      <b>{d.t}</b>
+      <b>
+        {d.t}
+        {shortcutKey ? <span className="kbd">{shortcutKey}</span> : null}
+      </b>
       {lines.map((line, i) => (
         <Line key={i} text={line} term={term} />
       ))}
@@ -308,7 +317,8 @@ function pointerOut(e: PointerEvent): void {
 function focusIn(e: FocusEvent): void {
   const t = e.target as HTMLElement | null;
   const el = tipOf(t);
-  if (el && t?.matches(':focus-visible')) {
+  // A row in focus (j and k) is a place in its list, not a control: it shows no card.
+  if (el && t?.matches(':focus-visible') && !t.hasAttribute('data-rowkey')) {
     clearTimeout(wait);
     next = null;
     show(el, null, 'focus', t);
@@ -446,7 +456,7 @@ export function HoverCardLayer() {
   const term = !!s?.el.classList.contains('term');
   return (
     <div className={`tip${term ? ' gl' : ''}`} id={ID} ref={ref} role="tooltip" hidden={!s}>
-      {s ? <Body d={s.d} term={term} /> : null}
+      {s ? <Body d={s.d} term={term} shortcutKey={singleKeyOf(s.el)} /> : null}
     </div>
   );
 }

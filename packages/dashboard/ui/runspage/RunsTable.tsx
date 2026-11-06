@@ -17,6 +17,8 @@ import { localTitle } from './bulk.js';
 import { ByAvatar } from './people.js';
 import { RunKey } from '../components/RunKey.js';
 import { markKey, MARKS, type RunMark } from '../runkey.js';
+import { useListKeys, type RowScope } from '../list-keys.js';
+import { singleKeysOn } from '../single-keys.js';
 
 /**
  * The Runs table, one row a run: its id (decision 10: the id is its name), then what it was about in
@@ -103,6 +105,7 @@ export function RunsTable({
   now,
   onMark = null,
   markOff = null,
+  rowActions = null,
 }: {
   rows: readonly TableRun[];
   /** The runs picked, by id. */
@@ -124,6 +127,8 @@ export function RunsTable({
   onMark?: ((run: TableRun, m: RunMark, from?: HTMLElement) => void) | null;
   /** Why the key can't change anything here (a read-only dashboard): its buttons are off, with this on hover. */
   markOff?: string | null;
+  /** What ⌘K offers on a row with the focus in it. */
+  rowActions?: ((run: TableRun) => RowScope | null) | null;
 }) {
   const allOn = rows.length > 0 && rows.every((r) => picked.has(r.runId));
   const table = useRef<HTMLTableElement>(null);
@@ -132,6 +137,16 @@ export function RunsTable({
   const win = useWindow(whole ? NO_ROWS : rows, RUN_ROWS);
   const [start, end] = whole ? [0, rows.length] : [win.start, win.end];
   const cols = 7 + (selectable ? 1 : 0) + (byColumn ? 1 : 0) + (onMark ? 1 : 0);
+  // j and k walk the rows, windowed or not; x picks one where rows have a checkbox.
+  const inFocus = useListKeys({
+    rows,
+    keyOf: rowKey,
+    root: table,
+    open: (r) => navigate(href.run(r.runId)),
+    pick: selectable ? (r) => onPick(r, !picked.has(r.runId)) : null,
+    actions: rowActions ?? null,
+    show: whole ? null : win.show,
+  });
   return (
     <table className="t runst" ref={table} aria-label="Runs" aria-rowcount={rows.length + 1}>
       <thead>
@@ -174,7 +189,7 @@ export function RunsTable({
       <tbody ref={win.listRef}>
         {!whole && win.before ? <Spacer height={win.before} cols={cols} /> : null}
         {rows.slice(start, end).map((r, j) => (
-          <Row key={r.runId} at={start + j} run={r} on={picked.has(r.runId)} selectable={selectable} byColumn={byColumn} you={!!you && r.author === you} onPick={onPick} now={now} onMark={onMark} markOff={markOff} />
+          <Row key={r.runId} at={start + j} run={r} on={picked.has(r.runId)} focused={inFocus === rowKey(r)} selectable={selectable} byColumn={byColumn} you={!!you && r.author === you} onPick={onPick} now={now} onMark={onMark} markOff={markOff} />
         ))}
         {!whole && win.after ? <Spacer height={win.after} cols={cols} /> : null}
       </tbody>
@@ -197,6 +212,9 @@ function Spacer({ height, cols }: { height: number; cols: number }) {
   );
 }
 
+/** What knows a row to the list keys: where it leads. */
+const rowKey = (r: { runId: string }) => href.run(r.runId);
+
 /** A key a row hears from a control in it: not one typed into a field (a checkbox is no field). */
 const typedIn = (t: EventTarget | null) => {
   const el = t as { tagName?: string; type?: string; isContentEditable?: boolean; getAttribute?: (name: string) => string | null } | null;
@@ -205,7 +223,7 @@ const typedIn = (t: EventTarget | null) => {
   return (el.tagName === 'INPUT' && type !== 'checkbox') || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || !!el.isContentEditable;
 };
 
-const Row = memo(function Row({ at, run: r, on, selectable, byColumn, you, onPick, now, onMark = null, markOff = null }: { at: number; run: TableRun; on: boolean; selectable: boolean; byColumn: boolean; you: boolean; onPick: (run: TableRun, on: boolean) => void; now: number; onMark?: ((run: TableRun, m: RunMark, from?: HTMLElement) => void) | null; markOff?: string | null }) {
+const Row = memo(function Row({ at, run: r, on, focused, selectable, byColumn, you, onPick, now, onMark = null, markOff = null }: { at: number; run: TableRun; on: boolean; focused: boolean; selectable: boolean; byColumn: boolean; you: boolean; onPick: (run: TableRun, on: boolean) => void; now: number; onMark?: ((run: TableRun, m: RunMark, from?: HTMLElement) => void) | null; markOff?: string | null }) {
   const out = runStatus(r);
   const spent = runSpent(r);
   const origins = runOrigins(r);
@@ -217,7 +235,8 @@ const Row = memo(function Row({ at, run: r, on, selectable, byColumn, you, onPic
   const chips = onMark ? r.labels.filter((l) => !(MARKS as readonly string[]).includes(l)) : r.labels;
   return (
     <tr
-      className={on ? 'picked' : undefined}
+      className={[on ? 'picked' : '', focused ? 'krow' : ''].join(' ').trim() || undefined}
+      data-rowkey={rowKey(r)}
       data-wi={at}
       aria-rowindex={at + 2}
       {...rowOpen(() => navigate(href.run(r.runId)))}
@@ -225,7 +244,7 @@ const Row = memo(function Row({ at, run: r, on, selectable, byColumn, you, onPic
         onMark
           ? (e) => {
               const m = markKey(e.key);
-              if (!m || markOff || typedIn(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+              if (!m || markOff || typedIn(e.target) || e.metaKey || e.ctrlKey || e.altKey || !singleKeysOn()) return;
               e.preventDefault();
               e.stopPropagation();
               onMark(r, m, e.currentTarget);
@@ -242,7 +261,7 @@ const Row = memo(function Row({ at, run: r, on, selectable, byColumn, you, onPic
         <span className="rid">
           <RunIcon run={r} />
           {/* The id's hover has the run's kind, parent and command. */}
-          <a className="rlink" href={href.run(r.runId)} title={`${kindWord(r)}${r.parentRunId ? ` of ${shortId(r.parentRunId)}` : ''} · ${r.source ? `from ${r.source}` : r.command}`}>
+          <a className="rowa" href={href.run(r.runId)} title={`${kindWord(r)}${r.parentRunId ? ` of ${shortId(r.parentRunId)}` : ''} · ${r.source ? `from ${r.source}` : r.command}`}>
             <code>{shortId(r.runId)}</code>
           </a>
           {byColumn && r.local ? (

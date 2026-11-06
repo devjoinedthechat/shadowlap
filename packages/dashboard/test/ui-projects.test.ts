@@ -114,7 +114,7 @@ describe('a dialog when the dashboard switches project elsewhere', () => {
 
   it('starts a confirmed first run as the project it was asked in, and says nothing was done when a dialog closed for a switch', () => {
     // The record confirm opened on research-agent: the job names it, so a dashboard switched to triage-bot meanwhile refuses it (409).
-    const asked = { confirm: { title: 'Run this command in ~/research-agent?', text: '', command: 'shadowlap run -- uv run research-agent', button: 'Run and record' }, command: 'uv run research-agent', project: 'research-agent' };
+    const asked = { confirm: { title: 'Record run in ~/research-agent', lead: 'Records one run: every model and tool call.', moved: null, calls: { value: 'the real API, with your keys', quiet: 'never stored' }, command: 'shadowlap run -- uv run research-agent', button: 'Run and record' }, command: 'uv run research-agent', project: 'research-agent' };
     expect(confirmedRecording(asked)).toEqual({ project: 'research-agent', command: 'uv run research-agent', confirmed: true });
     expect(takeDialogDropped()).toBe(false);
     noteDialogDropped();
@@ -126,7 +126,7 @@ describe('a dialog when the dashboard switches project elsewhere', () => {
     expect(dialogFocus('lime', 'cancel')).toEqual(['.dlg-cancel']);
     expect(dialogFocus('danger', 'cancel')).toEqual(['.dlg-cancel']);
     expect(dialogFocus('danger')).toEqual(['.dlg-cancel']);
-    expect(dialogFocus('lime')).toEqual([expect.stringMatching(/^textarea, input.*, \.dlg-ok$/)]);
+    expect(dialogFocus('lime')).toEqual([expect.stringMatching(/^textarea, input.*select$/), '.dlg-alt', '.dlg-ok', '.dlg-cancel']);
   });
 });
 

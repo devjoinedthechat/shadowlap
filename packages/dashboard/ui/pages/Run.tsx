@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CallDetail, RunDetail } from '../api.js';
 import { Legend, LoadFailed } from '../components/bits.js';
+import { Tabs } from '../components/Tabs.js';
+import { tipCard, tipText } from '../components/HoverCard.js';
 import { useMenu } from '../components/Popover.js';
 import { Page } from '../components/Page.js';
 import { Strip, stripDetail, type StripCall } from '../components/Strip.js';
@@ -10,7 +12,7 @@ import { useActiveTabInView, useLatest, useLoad } from '../hooks.js';
 import { followNewest, mergeRun, settledThrough } from '../live.js';
 import { countOrigins, presentOrigins } from '../origins.js';
 import { indexCalls, needsAncestors, notWaited, type CallIndex } from '../recorded.js';
-import { CYCLE_VIEWS, href, nextView, type View } from '../route.js';
+import { href, nextView, VIEWS, type View } from '../route.js';
 import { setOpenRunAbout } from '../title.js';
 import { navigate } from '../router.js';
 import { inScope, scopeChips, scopesOf } from '../scopes.js';
@@ -27,7 +29,7 @@ import { blameOf, checksOf, forkAtOf, forkMarkOf, originOf, withModelNames } fro
 import { firstFailedCall, openingCall } from '../run/open-at.js';
 import { ancestorsOf, callTree, heads, unfolded } from '../run/groups.js';
 import { useMarkRun, useRunLabels } from '../components/RunKey.js';
-import { markKey, type RunMark } from '../runkey.js';
+import type { RunMark } from '../runkey.js';
 import { Banner, DiffPanel, RunLoading, RunMetrics, ScopeBar } from '../run/parts.js';
 import { usePagedRun } from '../run/paged-run.js';
 import { followPages, isPending, listedCalls, type ListedCall } from '../run/paging.js';
@@ -36,6 +38,8 @@ import { useRunCommands } from '../run/run-commands.js';
 import { useWholeStep } from '../run/NextStepButton.js';
 import { RunNotes } from '../run/RunNotes.js';
 import { RunHeader } from '../run/RunHeader.js';
+import { useRunKeys } from '../run/run-keys.js';
+import { shortcut } from '../shortcuts.js';
 
 /**
  * A run: its header and numbers, a banner for how it forked, where it was lost or that it is
@@ -69,8 +73,26 @@ let lastTab: InspectorTab = 'conversation';
 /** No group folded. */
 const NO_FOLDS: ReadonlySet<number> = new Set();
 
-/** The views that may hold nothing that takes the focus, which take it themselves, by what each shows. */
-const PANE_NAMES: Partial<Record<View, string>> = { timeline: 'Timeline of the calls', turns: 'Turns of the conversation', context: 'Context of each model call' };
+const VIEW_NAMES: Readonly<Record<View, string>> = { calls: 'Calls', turns: 'Turns', context: 'Context', timeline: 'Timeline', forks: 'Forks', provenance: 'Provenance' };
+
+/** The call `n` jumps to where it is the fork or the lost call, and the card on the banner's call that shows it. */
+function jumpOf(forkAt: number | null, lostAt: number | null): { n: number; card: string } | null {
+  if (forkAt !== null) return { n: forkAt, card: 'Jump to fork' };
+  return lostAt !== null ? { n: lostAt, card: 'Jump to lost call' } : null;
+}
+
+/** The Views tabs: `v`'s key on the tab it shows next, whose card names it, and Provenance's card, its name over what it holds. */
+function viewTabs(v: View, calls: number, turns: number | undefined) {
+  const next = nextView(v);
+  return VIEWS.map((key) => {
+    const mark = key === next ? shortcut('view') : undefined;
+    const tip = key === 'provenance' ? tipCard(VIEW_NAMES[key], [], 'The run’s record: what made it, where it came from, what a copy would mask, and each call’s fingerprint.') : mark?.['aria-keyshortcuts'] ? tipText(VIEW_NAMES[key]) : undefined;
+    return { key, label: VIEW_NAMES[key], count: key === 'calls' ? calls : key === 'turns' ? turns : undefined, tip, mark };
+  });
+}
+
+/** The views that may hold nothing that takes the focus, which take it themselves, to be scrolled by keyboard. */
+const PANE_VIEWS: readonly View[] = ['timeline', 'turns', 'context'];
 
 export function RunPage({ id, call, view }: { id: string; call: number | null; view: View | null }) {
   const { client, runsTick, live } = useApp();
@@ -314,7 +336,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   // What the page offers beyond the run's record: Share's counts, Push, Run blame, Find breaking commit.
   // None of it applies while the run records, so it is asked for once it has ended, and again as runs change.
   const offers = useLoad(() => (exported || live ? null : client.offers(runId)), `${runId}:offers:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data ?? null;
-  const actions = useActionRunner(runId, !!run.source, offers);
+  const actions = useActionRunner(runId, !!run.source, offers, run.forkAt);
   // The run's labels, and the good/bad key's press (+ and - from the keyboard too).
   const [labels, setLabels] = useRunLabels(runId, run.run.meta?.labels);
   const markRun = useMarkRun(useCallback((_id: string, next: string[]) => setLabels(next), [setLabels]));
@@ -346,12 +368,13 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const setView = (next: View) => (warmViews(), navigate(href.run(runId, selected, next), true));
   const listFor = useCallback(() => (v === 'calls' ? visible : scopedCalls), [v, visible, scopedCalls]);
   const step = useCallback(
-    (delta: number) => {
+    (delta: number): number | null => {
       const list = listFor();
-      if (!list.length) return;
+      if (!list.length) return null;
       const i = list.findIndex((c) => c.callNo === selected);
       const next = list[i < 0 ? 0 : Math.max(0, Math.min(list.length - 1, i + delta))];
       if (next) select(next.callNo);
+      return next?.callNo ?? null;
     },
     [listFor, selected, select],
   );
@@ -368,54 +391,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   );
 
   // The run's keys, while this page is open.
-  /** ← and → on the selected call in Calls; false when there is nothing to fold, open or go to. */
-  const foldKey = (open: boolean): boolean => {
-    if (!tree || selected === null) return false;
-    const i = tree.index.get(selected);
-    if (i === undefined) return false;
-    const isHead = tree.kids[i]! > 0;
-    if (!open) {
-      if (isHead && !folded.has(selected)) return fold(selected), true;
-      const up = tree.parent.get(selected);
-      return up !== undefined ? (select(up), true) : false;
-    }
-    if (isHead && folded.has(selected)) return fold(selected), true;
-    const next = isHead ? listed[i + 1] : undefined;
-    return next ? (select(next.callNo), true) : false;
-  };
-  const keyState = useLatest({ step, setTab, v, forkAt, lostAt, failedAt, parentId: run.run.parentRunId, canFork, setView, setFilterWanted, canMark, mark, tree, foldKey });
-  useEffect(() => {
-    runKeys.current = (e) => {
-      const k = keyState.current;
-      if (e.key === 'j' || e.key === 'ArrowDown') return k.step(1), true;
-      if (e.key === 'k' || e.key === 'ArrowUp') return k.step(-1), true;
-      if (/^[1-4]$/.test(e.key)) return k.setTab(TABS[Number(e.key) - 1]!), true;
-      // The call that needs a look: where it forked, where blame found it lost, else where it first failed.
-      const at = k.forkAt ?? k.lostAt ?? k.failedAt;
-      if (e.key === 'n' && at !== null) return select(at), true;
-      if (e.key === 'p' && k.parentId) return navigate(href.run(k.parentId)), true;
-      if (e.key === 'v') return k.setView(nextView(k.v)), true;
-      // The good/bad key: + good, - bad, again to take it off.
-      const m = markKey(e.key);
-      if (m && k.canMark) return k.mark(m), true;
-      // In Calls, as in a tree: ← folds the selected call's group, or goes to the call it sits under; → opens it, or goes to its first call.
-      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && k.v === 'calls' && k.tree) return k.foldKey(e.key === 'ArrowRight');
-      if (e.key === 'f' && k.canFork) {
-        const btn = document.getElementById('forkBtn');
-        if (btn) forkMenu.openAt(btn);
-        return true;
-      }
-      if (e.key === '/') {
-        if (k.v !== 'calls') k.setView('calls');
-        k.setFilterWanted(true);
-        return true;
-      }
-      return false;
-    };
-    return () => {
-      runKeys.current = null;
-    };
-  }, [runKeys, keyState, select, forkMenu]);
+  useRunKeys(runKeys, { runId, v, selected, step, setTab: (n) => setTab(TABS[n]!), select, setView, setFilterWanted, forkAt, lostAt, failedAt, parentId: run.run.parentRunId, canMark, mark: (m) => mark(m), tree, folded, listed, fold, showDiff, setShowDiff, runs: app.runs, toast: app.toast });
 
   // This run, in the palette.
   useRunCommands({ run, selected, canFork, canMark, labels, mark, offers, actions, forkMenu, setView });
@@ -439,20 +415,13 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const present = useMemo(() => presentOrigins(countOrigins(stripCalls.map((c) => c.origin))), [stripCalls]);
 
   // While the pages come, Calls counts the run's calls and Turns says nothing until they are all read.
-  const tabs: Array<[View, string, number | undefined]> = [
-    ['calls', 'Calls', paging && scope === 'all' ? paging.total : scopedCalls.length],
-    ['turns', 'Turns', paging ? undefined : scopedCalls.filter((c) => c.kind === 'api').length],
-    ['context', 'Context', undefined],
-    ['timeline', 'Timeline', undefined],
-    ['forks', 'Forks', undefined],
-    ['provenance', 'Provenance', undefined],
-  ];
+  const tabs = viewTabs(v, paging && scope === 'all' ? paging.total : scopedCalls.length, paging ? undefined : scopedCalls.filter((c) => c.kind === 'api').length);
 
   return (
     <div className="rv">
       <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} />
       <RunMetrics run={run} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} />
-      <Banner run={run} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={() => setShowDiff(!showDiff)} onSelect={select} onAction={actions.run} preset={preset} />
+      <Banner run={run} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={() => setShowDiff(!showDiff)} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} />
       {showDiff ? <DiffPanel run={run} test={offers?.test ?? null} /> : null}
       <RunNotes notes={notes} onSelect={select} />
       {/* What a fork did differently from its parent, ranked as decisions ranks a change. */}
@@ -464,14 +433,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
       {scoped ? <ScopeBar run={run} scopes={scopeTree} scope={scope} onScope={setScope} /> : null}
       <div className="work">
         <section className="views" aria-label="Views of the run">
-          <div className="tabs" role="tablist" aria-label="Views" ref={useActiveTabInView<HTMLDivElement>(v)} onPointerEnter={warmViews} onFocus={warmViews}>
-            {tabs.map(([key, label, count]) => (
-              <button key={key} type="button" role="tab" aria-selected={v === key} onClick={() => setView(key)} title={CYCLE_VIEWS.includes(key) ? 'v cycles the views' : undefined}>
-                {label}
-                {count !== undefined ? <span className="count">{count.toLocaleString('en-US')}</span> : null}
-              </button>
-            ))}
-          </div>
+          <Tabs label="Views" idPrefix="vtab" panelId="vbody" items={tabs} value={v} onChange={setView} listRef={useActiveTabInView<HTMLDivElement>(v)} onPointerEnter={warmViews} onFocus={warmViews} />
           {v === 'calls' ? <CallsToolbar counts={filterCounts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} fold={foldAll} /> : null}
           {paging ? (
             <div className="toolbar muted" role="status">
@@ -485,7 +447,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
           {/* Each view starts at its top; Calls centres the selected call. The Timeline, the Turns of a
               run whose model called no tool and Context hold nothing that takes the focus, so the
               view takes it itself, to be scrolled by keyboard. */}
-          <div className="vbody" key={v} {...(PANE_NAMES[v] ? { tabIndex: 0, role: 'region', 'aria-label': PANE_NAMES[v] } : { tabIndex: -1 })}>
+          <div className="vbody" id="vbody" key={v} role="tabpanel" aria-labelledby={`vtab-${v}`} tabIndex={PANE_VIEWS.includes(v) ? 0 : -1}>
             {v === 'calls' ? <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={select} onFork={openForkAt} onNeed={need} tree={tree} folded={folded} onFold={fold} /> : null}
             {v === 'turns' ? <TurnsView calls={scopedCalls} selected={selected} scoped={scoped} onSelect={select} /> : null}
             {v === 'context' ? <ContextView run={run} calls={scopedCalls} selected={selected} onSelect={select} /> : null}

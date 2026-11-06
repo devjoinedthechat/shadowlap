@@ -171,7 +171,7 @@ export function shownEstimate(v: unknown): JobEstimate | null {
 }
 
 /** A job built, or why not: a question asking a yes to a command line carries its `confirm` (consent.ts). */
-export type JobBuildResult = JobBuild | { error: string; status?: number; confirm?: string };
+export type JobBuildResult = JobBuild | { error: string; status?: number; confirm?: string; live?: unknown };
 
 /**
  * Where a job runs: the project that is current when it starts, with its store and the store's
@@ -503,7 +503,7 @@ export class JobManager {
     }
     if ('error' in built) {
       uploads?.release(id);
-      throw new HttpError(built.status ?? 400, built.error, built.confirm);
+      throw new HttpError(built.status ?? 400, built.error, built.confirm, built.live);
     }
     let cwd: string | null;
     let title: string;

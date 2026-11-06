@@ -535,6 +535,16 @@ export function runTree<R extends RunLike>(runs: readonly R[]): Array<{ run: R; 
  */
 export const TREE_DEPTH = 4;
 
+/** How many of the newest runs (with their families) the sidebar lists; Runs has the rest. */
+export const RECENT_RUNS = 60;
+
+/** The runs the sidebar lists, in its order: `[` and `]` step through them when Runs never showed this one. */
+export function recentRunIds(runs: readonly RunLike[]): string[] {
+  return runTree(runs.filter((r) => !isAttempt(r)))
+    .slice(0, RECENT_RUNS)
+    .map((x) => x.run.runId);
+}
+
 /**
  * The sidebar's tree as the rows shown draw it, one step in for each level: each row's depth, and
  * for its branch lines, level by level, whether a later sibling follows the run at that level of its

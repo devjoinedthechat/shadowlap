@@ -75,10 +75,12 @@ describe('an action on someone else’s run', () => {
     await page.click(page.one('.go'));
     await page.until('the question', () => page.all('[role="dialog"]').length === 1);
     const dialog = page.one('[role="dialog"]');
-    expect(dialog.textContent).toContain('Run a command from an imported pack?');
-    expect(dialog.textContent).toContain(`${why('')}.`);
+    expect(dialog.textContent).toContain('Run command from imported pack');
+    expect(dialog.textContent).toContain('Runs a command someone else recorded, on this machine.');
+    // The server's words as they are, the amber line, shared with the terminal UI.
+    expect(page.one('[role="dialog"] .dwarn').textContent).toBe(why(''));
     expect(watched).toEqual([]);
-    await page.click(page.byText('.dlg-ok', 'Run'));
+    await page.click(page.byText('.dlg-ok', 'Run command'));
     await page.until('the job', () => watched.length === 1);
     expect(asked).toEqual([
       { key: 'r', yes: null },
@@ -123,8 +125,8 @@ describe('an action on someone else’s run', () => {
     await page.type(field, 'Be brief.');
     // Its confirm is the menu item's name, without the ellipsis.
     await page.click(page.byText('.dlg-ok', 'Inject instruction'));
-    await page.until('the question', () => page.all('[role="dialog"]').some((d) => d.textContent.includes('Run a command from an imported pack?')));
-    await page.click(page.byText('.dlg-ok', 'Run'));
+    await page.until('the question', () => page.all('[role="dialog"]').some((d) => d.textContent.includes('Run command from imported pack')));
+    await page.click(page.byText('.dlg-ok', 'Run command'));
     await page.until('the job', () => watched.length === 1);
     expect(asked).toEqual([
       { key: 'i', value: 'Be brief.', yes: null },
@@ -155,6 +157,28 @@ describe('an action on someone else’s run', () => {
   });
 });
 
+describe('an action that can’t start', () => {
+  it('leaves its dialog open with what was typed, and sends nothing, while the server is out of reach', async () => {
+    const asked: Asked[] = [];
+    const watched: Array<Promise<JobView>> = [];
+    let reachable = true;
+    const offline = { ...app(asked, watched, () => null), guard: (fn: () => void) => (reachable ? (fn(), true) : false) };
+    const again = await open(inject, offline);
+    await again.click(again.one('.go'));
+    const field = again.one('[role="dialog"] textarea');
+    await again.type(field, 'Be brief.');
+    reachable = false;
+    await again.click(again.byText('.dlg-ok', 'Inject instruction'));
+    expect(asked).toEqual([]);
+    expect(again.one('[role="dialog"] textarea').value).toBe('Be brief.');
+    reachable = true;
+    await again.click(again.byText('.dlg-ok', 'Inject instruction'));
+    await again.until('the job', () => watched.length === 1);
+    expect(asked).toEqual([{ key: 'i', value: 'Be brief.', yes: null }]);
+    expect(again.all('[role="dialog"]')).toEqual([]);
+  });
+});
+
 describe('a fork repeated five times', () => {
   const repeat = (o: Partial<ActionItem> = {}): ActionItem => ({ key: 'e', label: 'Repeat 5 times', opensRun: false, prompt: null, disabled: null, flag: '--repeat 5', group: 'run', hint: 'Makes this replay again from 01M5GRX8K4 five times: the prefix replays free, and each attempt runs live from the fork, so they show whether the path after it holds or was luck.', ...o });
 
@@ -166,7 +190,7 @@ describe('a fork repeated five times', () => {
     await page.until('the question', () => page.all('[role="dialog"]').length === 1);
     const dialog = page.one('[role="dialog"]');
     expect(dialog.textContent).toContain('Repeat fork 5 times');
-    expect(dialog.textContent).toContain('each attempt runs live from the fork');
+    expect(dialog.textContent).toContain('5 attempts, live from the fork, writes fenced');
     // Nothing to fill in: no field, and nothing is sent before its confirm.
     expect(page.all('[role="dialog"] input, [role="dialog"] textarea')).toEqual([]);
     expect(asked).toEqual([]);

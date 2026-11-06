@@ -631,9 +631,9 @@ async function reportSession(request: TestRequest, pusher: Pusher | null, s: Ses
   // session over several to the replay of each that failed, the first few, then Tests for them all.
   const only = results.length === 1 && packs.length === 1 ? results[0]! : null;
   // One primary action: the replay of a single golden, else Tests, with the other links beside it.
-  if (only?.runId) emitJobEvent({ type: 'link', label: only.ok ? 'Open the passing run' : 'Open the run', href: links.run(only.runId) });
-  else for (const r of results.filter((x) => !x.ok && x.runId).slice(0, FAILED_LINKS)) emitJobEvent({ type: 'link', label: `Open ${r.name}’s run`, href: links.run(r.runId!), secondary: true });
-  emitJobEvent({ type: 'link', label: 'Tests', href: links.tests(), ...(only?.runId ? { secondary: true } : {}) });
+  if (only?.runId) emitJobEvent({ type: 'link', label: only.ok ? 'Open passing run' : 'Open run', href: links.run(only.runId) });
+  else for (const r of results.filter((x) => !x.ok && x.runId).slice(0, FAILED_LINKS)) emitJobEvent({ type: 'link', label: r.name, href: links.run(r.runId!), secondary: true });
+  emitJobEvent({ type: 'link', label: 'Open Tests', href: links.tests(), ...(only?.runId ? { secondary: true } : {}) });
   // Inconclusive ones are counted apart, and what CI does with them is said.
   const inconclusive = inconclusiveWords(report.inconclusive, results, request.inconclusiveGiven);
   const passedCount = results.filter((r) => r.verdict === 'passed').length;

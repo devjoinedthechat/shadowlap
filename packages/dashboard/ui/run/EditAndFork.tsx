@@ -1,11 +1,13 @@
 import { useState } from 'react';
+import { liveFromPart } from '../../../engine/src/cost-words.js';
 import { consentAsked } from '../actions.js';
 import { JOB_KINDS, type ActionItem, type CallDetail } from '../api.js';
-import { CmdLine, Seg } from '../components/bits.js';
+import { Seg } from '../components/bits.js';
 import { ConsentDialog, Dialog } from '../components/Dialog.js';
 import { shortId } from '../format.js';
 import { messageOf } from '../../../engine/src/message-of.js';
 import { useApp } from '../state.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * Edit this result and fork, from the inspector: a tool's recorded result, or what a person answered
@@ -60,7 +62,7 @@ export function EditAndFork({ runId, detail, live }: { runId: string; detail: Ca
   const [consent, setConsent] = useState<{ fields: Record<string, unknown>; why: string; confirm: string } | null>(null);
   const action = overrideAction(detail);
   if (app.exported || !action || !app.hasKind(JOB_KINDS.override)) return null;
-  const off = live ? 'Fork once the recording finishes' : (app.actionsOff ?? action.disabled ?? null);
+  const off = live ? 'Fork once the recording finishes' : (action.disabled ?? null);
   // The fork, once the edited result is uploaded; a 409 that names someone else's command asks first.
   const start = (fields: Record<string, unknown>) =>
     app.client.startJob(JOB_KINDS.override, fields).then(
@@ -73,27 +75,18 @@ export function EditAndFork({ runId, detail, live }: { runId: string; detail: Ca
     );
   return (
     <>
-      <button className="linkbtn" type="button" disabled={!!off} title={off ?? 'Fork with this result edited: every call before it replays'} onClick={() => app.guard(() => setOpen(true))}>
+      <ActionButton className="linkbtn" why={off} title="Fork with this result edited: every call before it replays" onClick={() => app.guard(() => setOpen(true))}>
         Edit and fork…
-      </button>
+      </ActionButton>
       {open ? <EditDialog runId={runId} detail={detail} action={action} onFork={start} onClose={() => setOpen(false)} /> : null}
       {consent ? (
-        <ConsentDialog
-          why={consent.why}
-          ok="Run"
-          onClose={() => setConsent(null)}
-          onOk={() => {
-            const c = consent;
-            setConsent(null);
-            app.guard(() => void start({ ...c.fields, yes: c.confirm }));
-          }}
-        />
+        <ConsentDialog why={consent.why} ok="Run command" onClose={() => setConsent(null)} onOk={() => app.guard(() => void start({ ...consent.fields, yes: consent.confirm }))} />
       ) : null}
     </>
   );
 }
 
-function EditDialog({ runId, detail, action, onFork, onClose }: { runId: string; detail: CallDetail; action: ActionItem; onFork: (fields: Record<string, unknown>) => Promise<void>; onClose: () => void }) {
+export function EditDialog({ runId, detail, action, onFork, onClose }: { runId: string; detail: CallDetail; action: ActionItem; onFork: (fields: Record<string, unknown>) => Promise<void>; onClose: () => void }) {
   const app = useApp();
   const c = detail.call;
   const answer = action.key === 'u';
@@ -104,11 +97,10 @@ function EditDialog({ runId, detail, action, onFork, onClose }: { runId: string;
   const n = c.callNo;
   // A run from someone else's pack runs their command: the action's own words say so first.
   const label = action.prompt?.label ?? '';
-  const warning = /^This run came from /.test(label) ? label.slice(0, label.lastIndexOf('. ') + 1) : null;
+  const warning = /^This run came from /.test(label) ? label.slice(0, label.lastIndexOf('. ')) : null;
   const fork = () => {
-    if ('error' in out) return;
-    onClose();
-    app.guard(
+    if ('error' in out) return false;
+    return app.guard(
       () =>
         void app.client.upload(new Blob([out.body], { type: answer ? 'text/plain' : 'application/json' }), `${answer ? 'answer' : 'result'}-${n}.${answer ? 'txt' : 'json'}`).then(
           (up) => onFork({ runId, callNo: n, uploadId: up.uploadId }),
@@ -118,14 +110,13 @@ function EditDialog({ runId, detail, action, onFork, onClose }: { runId: string;
   };
   return (
     <Dialog
-      title={answer ? `Answer #${n} differently and fork` : `Edit #${n} ${c.name}’s result and fork`}
-      text={
-        <>
-          {warning ? <b className="warnline">{warning} </b> : null}
-          The fork replays every call before #{n}, gives the agent this {answer ? 'answer' : 'result'} at #{n}, and runs on live from there, its writes fenced.
-        </>
-      }
-      ok="Fork"
+      title={answer ? `Edit and fork user reply at #${n}` : `Edit and fork #${n} ${c.name}`}
+      lead={`The agent gets this ${answer ? 'reply' : 'result'} at #${n} instead of the recorded one.`}
+      doc="overrideResult"
+      warn={warning ? { text: warning } : null}
+      command={`shadowlap replay ${shortId(runId)} --override ${n}=${answer ? '…' : '<this result>'}`}
+      cost={{ price: 'Billed by your provider', parts: [liveFromPart('the next model call')] }}
+      ok="Edit and fork"
       okDisabled={'error' in out}
       onOk={fork}
       onClose={onClose}
@@ -152,7 +143,6 @@ function EditDialog({ runId, detail, action, onFork, onClose }: { runId: string;
       <p id="editforkWhy" className={`fieldnote${'error' in out ? ' err' : ''}`} role={'error' in out ? 'alert' : undefined}>
         {'error' in out ? out.error : `${new TextEncoder().encode(out.body).length.toLocaleString('en-US')} bytes, checked again by the dashboard before it forks.`}
       </p>
-      <CmdLine>{`shadowlap replay ${shortId(runId)} --override ${n}=${answer ? '…' : '<this result>'}`}</CmdLine>
     </Dialog>
   );
 }

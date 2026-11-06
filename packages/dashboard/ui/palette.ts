@@ -1,4 +1,5 @@
 import { consentAsked } from './actions.js';
+import { PAUSED } from './connection.js';
 import { ACTIONS } from './labels.js';
 
 /**
@@ -20,8 +21,8 @@ export interface PaletteEntry {
   match?: string;
   /** Found only once something is typed, never listed on the open palette. */
   typed?: boolean;
-  /** The key that does what it does, where it has one. */
-  key?: string;
+  /** Its own key, one word per key: the row's key column, while single-key shortcuts are on. */
+  key?: string | undefined;
   /** Why it can't start now, a job holding what it needs: its hint says so, dimmed, and so does picking it. */
   wait?: string;
 }
@@ -53,7 +54,7 @@ export function blameAsksOnItsPage(err: unknown): boolean {
 
 /** What picking an entry says instead of running it: paused while the server can't be reached, or why it waits. */
 export function pickRefusal(x: Pick<PaletteEntry, 'job' | 'wait'>, offline: boolean): string | null {
-  return offline && x.job ? 'Actions are paused until the dashboard server is back.' : (x.wait ?? null);
+  return offline && x.job ? PAUSED : (x.wait ?? null);
 }
 
 /** What a job's entry says in place of its hint while the server can't be reached. */

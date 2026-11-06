@@ -70,14 +70,26 @@ a.metric::after { content: ""; position: absolute; inset: -4px 0; }
 :where(.panel.sec table.t tbody) tr:hover > td:last-child { box-shadow: var(--bleed) 0 0 var(--hover); }
 :where(.panel.sec table.t tbody) tr:hover > td:only-child { box-shadow: calc(-1 * var(--bleed)) 0 0 var(--hover), var(--bleed) 0 0 var(--hover); }
 .panel.sec .tscroll, .panel.sec.tscroll { margin-left: calc(-1 * var(--bleed)); margin-right: calc(-1 * var(--bleed)); padding-left: var(--bleed); padding-right: var(--bleed); }
-/* a list's row in a section (Row): the same tint and bleed as a table's, and where you are (a picked or a selected row, one
-   in focus from j and k) on the selected ground, which wins over the pointer's; a table's picked row the same */
+/* a list's row in a section (Row): the same tint and bleed as a table's, and where you are (a picked or a selected row) on the
+   selected ground, which wins over the pointer's; a table's picked row the same */
 .panel.sec .srow:hover { background: var(--hover); box-shadow: calc(-1 * var(--bleed)) 0 0 var(--hover), var(--bleed) 0 0 var(--hover); }
 .panel.sec .srow.sel, .panel.sec .srow.sel:hover { background: var(--sel); box-shadow: calc(-1 * var(--bleed)) 0 0 var(--sel), var(--bleed) 0 0 var(--sel); }
 table.t tbody tr.sel td, table.t tbody tr.sel:hover td { background: var(--sel); }
 :where(.panel.sec table.t tbody) tr.sel > td:first-child, :where(.panel.sec table.t tbody) tr.sel:hover > td:first-child { box-shadow: calc(-1 * var(--bleed)) 0 0 var(--sel); }
 :where(.panel.sec table.t tbody) tr.sel > td:last-child, :where(.panel.sec table.t tbody) tr.sel:hover > td:last-child { box-shadow: var(--bleed) 0 0 var(--sel); }
 :where(.panel.sec table.t tbody) tr.sel > td:only-child, :where(.panel.sec table.t tbody) tr.sel:hover > td:only-child { box-shadow: calc(-1 * var(--bleed)) 0 0 var(--sel), var(--bleed) 0 0 var(--sel); }
+/* a list's row in focus (j and k on every list) is drawn as a run's selected call is: the selected ground and the bar at its
+   left, kept under the pointer as a picked row's is. In a section, a table's row or a Row, the ground reaches into the gutter
+   as far as the hover does, the bar at its outer edge, so it never covers a row's first letter: the section has that room. */
+table.t tbody tr.krow > td, table.t tbody tr.krow:hover > td { background: var(--sel); }
+tr.krow > td:first-child { box-shadow: inset 3px 0 0 var(--ink); }
+.krow:not(tr) { background: var(--sel); box-shadow: inset 3px 0 0 var(--ink); }
+.krow:focus-visible { outline: none; }
+.panel.sec .srow.krow, .panel.sec .srow.krow:hover { background: var(--sel); box-shadow: calc(3px - var(--bleed)) 0 0 var(--sel), calc(-1 * var(--bleed)) 0 0 var(--ink), var(--bleed) 0 0 var(--sel); }
+:where(.panel.sec table.t tbody) tr.krow > td:first-child, :where(.panel.sec table.t tbody) tr.krow:hover > td:first-child { box-shadow: calc(3px - var(--bleed)) 0 0 var(--sel), calc(-1 * var(--bleed)) 0 0 var(--ink); }
+:where(.panel.sec table.t tbody) tr.krow > td:last-child, :where(.panel.sec table.t tbody) tr.krow:hover > td:last-child { box-shadow: var(--bleed) 0 0 var(--sel); }
+/* forced colours take the ground and the bar away, so the row's outline says it, and the same on the focused row */
+@media (forced-colors: active) { .krow, tr.krow, .krow:focus-visible, tr.krow:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; } }
 
 /* ---- a status (Status): a 7px dot and a word, both in the word's colour, passed included ---- */
 /* Its colours are the consequence colours, apart from the origin colours a strip uses: lime passed, red failed, amber
@@ -164,8 +176,8 @@ table.t tbody tr.sel td, table.t tbody tr.sel:hover td { background: var(--sel);
 .switch i::after { content: ""; position: absolute; left: 2px; top: 2px; width: 12px; height: 12px; border-radius: var(--r-dot); background: var(--bg); transition: transform .15s; }
 .switch[aria-checked="true"] i { background: var(--ink); }
 .switch[aria-checked="true"] i::after { transform: translateX(12px); background: var(--tar); }
-.switch:disabled { cursor: not-allowed; }
-.switch:disabled i { opacity: .5; }
+.switch:disabled, .switch[aria-disabled="true"] { cursor: not-allowed; }
+.switch:disabled i, .switch[aria-disabled="true"] i { opacity: .5; }
 
 /* ---- the code box (CodeBox): one Copy, at its top right, the one way a box is copied ---- */
 /* A file's box names the file in its header and its Copy ends the header (.codewrap, base.css); any other box carries it in

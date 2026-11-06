@@ -95,7 +95,7 @@ describe('the Share menu’s rows', () => {
   const offers = { team, copies: { total: 1, pathless: 1, formats: [] } } as unknown as RunOffers;
 
   it('say each copy’s real command, and which bucket a share link goes to, in a clause of its own', async () => {
-    r = await render(shell({ client: {} as never, hasKind: () => true, actionsOff: null, toast: () => undefined, guard: (fn: () => void) => fn(), watchJob: () => undefined, meta: null }, createElement(ShareMenu, { anchor: null as unknown as HTMLElement, run, offers, onClose: () => undefined, onAction: () => undefined })));
+    r = await render(shell({ client: {} as never, hasKind: () => true, actionsOff: null, toast: () => undefined, guard: (fn: () => void) => (fn(), true), watchJob: () => undefined, meta: null }, createElement(ShareMenu, { anchor: null as unknown as HTMLElement, run, offers, onClose: () => undefined, onAction: () => undefined })));
     expect(card('Share link')).toMatchObject({ s: 'A redacted report in your bucket, northwind-agent-runs/support-agent; the link expires in 7 days', cmd: '$ shadowlap share 01M50J6C69 --lineage' });
     expect(card('Pack…').cmd).toBe('$ shadowlap pack 01M50J6C69 .shadowlap/exports/01m50j6c69');
     expect(card('HTML report').cmd).toBe('$ shadowlap export html 01M50J6C69 .shadowlap/exports/shadowlap-01m50j6c69.html --lineage');
@@ -109,7 +109,7 @@ describe('the project switcher’s rows', () => {
   const meta = { project: { id: 'support-agent', name: 'support-agent', path: '/work/support-agent' } } as unknown as Meta;
 
   it('say the folder, that one is still being set up, and no ellipsis on Add project', async () => {
-    r = await render(shell({ client: { projects: { list: async () => list } } as never, guard: (fn: () => void) => fn(), toast: () => undefined, reload: async () => undefined }, createElement(ProjectBlock, { key: 'block', meta })));
+    r = await render(shell({ client: { projects: { list: async () => list } } as never, guard: (fn: () => void) => (fn(), true), toast: () => undefined, reload: async () => undefined }, createElement(ProjectBlock, { key: 'block', meta })));
     await r.click(r.one('button.proj'));
     await r.until('the list', () => r!.all('.prow').length === 2);
     expect(card('support-agent').s).toBe('~/support-agent');
@@ -119,16 +119,16 @@ describe('the project switcher’s rows', () => {
 });
 
 describe('Remove project', () => {
-  const view = { title: 'Remove support-agent from the dashboard?', project: { id: 'support-agent', name: 'support-agent', path: '~/support-agent', initial: 'S', summary: '3 runs' }, onDisk: [], keep: { text: 'The dashboard stops listing it.', note: 'Adding the folder again brings it all back.', button: { label: 'Remove', style: 'solid' }, crossedOut: null, done: 'Removed' }, deleteZone: null, canRemove: true, why: null };
+  const view = { title: 'Remove support-agent from the dashboard?', project: { id: 'support-agent', name: 'support-agent', path: '~/support-agent', initial: 'S', summary: '3 runs' }, onDisk: [], keep: { text: 'The dashboard stops listing it.', note: 'Adding the folder again brings it all back.', button: { label: 'Remove', style: 'plain' }, crossedOut: null, done: 'Removed' }, deleteZone: null, canRemove: true, why: null };
 
   it('starts on Cancel, its button calm as it is: a second Enter never removes the project', async () => {
     function Opened() {
       const [open, setOpen] = useState(true);
       return open ? createElement(RemoveProjectDialog, { id: 'support-agent', onClose: () => setOpen(false) }) : null;
     }
-    r = await render(shell({ ...app(), client: { projects: { removal: async () => view } } as never, guard: (fn: () => void) => fn(), actionsOff: null }, createElement(Opened, { key: 'remove' })));
+    r = await render(shell({ ...app(), client: { projects: { removal: async () => view } } as never, guard: (fn: () => void) => (fn(), true), actionsOff: null }, createElement(Opened, { key: 'remove' })));
     await r.until('the dialog', () => r!.all('.dialog').length === 1);
-    expect(r.one('.dlg-ok').className).toContain('solid');
+    expect(r.one('.dlg-ok').className).not.toMatch(/lime|danger|solid/);
     expect(words(r.focused())).toBe('button Cancel');
   });
 });

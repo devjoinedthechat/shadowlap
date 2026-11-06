@@ -8,6 +8,9 @@ import { backoffSeconds } from './backoff.js';
  * tests import it.
  */
 
+/** Why anything that needs the server waits while it can't be reached: a waiting control, its toast, the palette, a settings write. */
+export const PAUSED = 'Paused until the dashboard server is back';
+
 export type Conn = 'ok' | 'offline' | 'expired';
 
 export interface ConnState {

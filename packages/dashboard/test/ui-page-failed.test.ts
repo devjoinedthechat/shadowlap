@@ -39,7 +39,7 @@ function app(o: { paused?: string[] } = {}): AppState {
     actionsOff: null,
     hasKind: () => false,
     // Offline, an action says it waits rather than run.
-    guard: (fn: () => void) => (o.paused ? void o.paused.push('Actions are paused until the dashboard server is back.') : fn()),
+    guard: (fn: () => void) => (o.paused ? void o.paused.push('Paused until the dashboard server is back') : fn()),
     toast: () => undefined,
   } as unknown as AppState;
 }
@@ -93,6 +93,6 @@ describe('a page whose code didn’t come', () => {
     const bar = await open('#/tests', app({ paused }));
     await r!.click(r!.byText('.loaderr button', 'Retry'));
     expect(bar.reload).not.toHaveBeenCalled();
-    expect(paused).toEqual(['Actions are paused until the dashboard server is back.']);
+    expect(paused).toEqual(['Paused until the dashboard server is back']);
   });
 });

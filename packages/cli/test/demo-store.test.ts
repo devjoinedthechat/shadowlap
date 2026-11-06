@@ -268,7 +268,7 @@ describe.skipIf(process.platform === 'win32')('scripts/demo-store.mjs --fast', (
 
 /**
  * What the demo's models answer after the build, when its mock providers run again for the
- * dashboard: Repair from here on the open fix gets rewrites for the check its runs fail, which leave
+ * dashboard: Run repair on the open fix gets rewrites for the check its runs fail, which leave
  * the refund rules alone, and the agent heeds the one about emailing once.
  */
 describe('the demo’s models', () => {

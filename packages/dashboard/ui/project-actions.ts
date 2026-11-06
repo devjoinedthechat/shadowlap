@@ -2,7 +2,7 @@ import { useSyncExternalStore, type ComponentType } from 'react';
 
 /**
  * Removing the current project from the dashboard, as the project switcher's × does: Settings →
- * Project's "Remove from dashboard" opens the projects feature's own dialog. That feature provides
+ * Project's Remove project… opens the projects feature's own dialog. That feature provides
  * the dialog and the current project (`provideProjectRemoval`, from the component that holds the
  * project list) and takes them back when it unmounts; Settings renders the dialog in its own page,
  * so it shows wherever the sidebar is. Without one (a dashboard that serves one folder), the only

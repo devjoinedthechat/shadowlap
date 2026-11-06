@@ -385,7 +385,7 @@ describe('shadowlap tasks', () => {
     const asked = anthropic.requests.slice(before);
     expect(asked.map((x) => x.body.model)).toEqual(['weak-model', 'weak-model', 'weak-model', 'weak-model']);
     expect(r.events.filter((e) => e.type === 'run')).toHaveLength(2);
-    expect(r.events.filter((e) => e.type === 'link')).toEqual([{ type: 'link', label: 'Open the scores', href: '#/training/tasks' }]);
+    expect(r.events.filter((e) => e.type === 'link')).toEqual([{ type: 'link', label: 'Open scores', href: '#/training/tasks' }]);
     expect(r.events.at(-1)).toMatchObject({ type: 'result', data: { model: 'weak-model', baseUrl: null, via: 'Anthropic API', mean: 1 / 3, attempts: 2 } });
     withStore(db, (s) => {
       const rows = s.listTaskScores();
@@ -1038,7 +1038,7 @@ describe('Training in the dashboard', () => {
 
       // Score model: every ready task, 5 attempts, against the mock; the drawer links to the scores.
       const scored = await runJob({ kind: 'score', model: 'claude-good', attempts: 5 });
-      expect(scored).toMatchObject({ done: true, code: 0, title: 'Scoring model', links: [{ label: 'Open the scores', href: '#/training/tasks' }] });
+      expect(scored).toMatchObject({ done: true, code: 0, title: 'Scoring model', links: [{ label: 'Open scores', href: '#/training/tasks' }] });
 
       const view = (await (await api('training')).json()) as {
         strip: { left: { value: string; file: string | null }; best: { value: string } };

@@ -51,15 +51,16 @@ export function InSlot({ name, children }: { name: SlotName; children: ReactNode
 /** A panel beside the page (the job's drawer): Esc closes the last one opened, after any menu or modal. */
 const panels: Array<{ current: () => void }> = [];
 
-/** Registers an open panel, so Esc closes it. */
-export function usePanel(close: () => void): void {
+/** Registers a panel while it is on the screen, so Esc closes it. */
+export function usePanel(close: () => void, on = true): void {
   const latest = useLatest(close);
   useEffect(() => {
+    if (!on) return;
     panels.push(latest);
     return () => {
       panels.splice(panels.indexOf(latest), 1);
     };
-  }, [latest]);
+  }, [latest, on]);
 }
 
 /** Closes the panel opened last; false when none is open. */

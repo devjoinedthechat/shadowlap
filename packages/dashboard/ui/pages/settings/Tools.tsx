@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CodeBlock, CopyButton, Seg } from '../../components/bits.js';
 import { Dialog } from '../../components/Dialog.js';
+import { DialogFacts } from '../../components/DialogFacts.js';
 import { tipCard, tipText, type TipRow } from '../../components/HoverCard.js';
 import { copyText } from '../../dom.js';
 import { num, whenShort } from '../../format.js';
@@ -155,7 +156,7 @@ function McpBlock({ data, gone, onAdd }: { data: ToolsSettings; gone: boolean; o
         </div>
       ) : null}
       <button className="btn sm" type="button" onClick={onAdd}>
-        Add a server…
+        Add MCP server…
       </button>
       {data.mcp.clientConfigs.map((b) => (
         <ClientConfig key={b.file ?? 'docs'} block={b} />
@@ -254,8 +255,8 @@ function McpServer({ row }: { row: McpRow }) {
   );
 }
 
-/** "Add a server…": the `shadowlap mcp` line and the client entry for a command or a URL. Nothing is written; the entry is copied. */
-function AddServerDialog({ files, onClose }: { files: ToolsSettings['mcp']['files']; onClose: () => void }) {
+/** Add MCP server…: the `shadowlap mcp` line and the client entry for a command or a URL. Nothing is written; the entry is copied. */
+export function AddServerDialog({ files, onClose }: { files: ToolsSettings['mcp']['files']; onClose: () => void }) {
   const { client, toast } = useApp();
   const [transport, setTransport] = useState<'stdio' | 'http'>('http');
   const [name, setName] = useState('');
@@ -280,16 +281,20 @@ function AddServerDialog({ files, onClose }: { files: ToolsSettings['mcp']['file
   const placeholder = transport === 'http' ? 'shadowlap mcp --url <server URL>' : 'shadowlap mcp -- <command>';
   return (
     <Dialog
-      title="Add an MCP server"
-      text="Its tool calls are then recorded, replayed and fenced like any other tool."
-      ok="Copy the entry"
+      title="Add MCP server"
+      lead="Records an MCP server’s tool calls, replayed and fenced like any other tool."
+      doc="mcp"
+      warn={notes ? { text: <AddServerNote notes={notes} /> } : null}
+      command={shown?.line ?? placeholder}
+      ok="Copy entry"
       okDisabled={!shown}
       keepOnSwitch
+      local
       onClose={onClose}
       onOk={() =>
-        void copyText(copied).then((ok) => {
+        copyText(copied).then((ok) => {
           toast(ok ? `Copied the entry for ${serverName} · paste it ${pasteWhere(files)}; its tool calls are recorded from the next run` : 'Copying was refused by the browser');
-          if (ok) onClose();
+          return ok;
         })
       }
     >
@@ -313,27 +318,24 @@ function AddServerDialog({ files, onClose }: { files: ToolsSettings['mcp']['file
         </label>
         <label>
           {transport === 'http' ? 'Server URL' : 'Command'}
-          <input value={target} placeholder={transport === 'http' ? 'https://mcp.linear.app/mcp' : 'npx -y @modelcontextprotocol/server-github'} spellCheck={false} autoComplete="off" autoFocus onChange={(e) => setTarget(e.target.value)} />
+          <input value={target} placeholder={transport === 'http' ? 'https://mcp.linear.app/mcp' : 'npx -y @modelcontextprotocol/server-github'} spellCheck={false} autoComplete="off" onChange={(e) => setTarget(e.target.value)} />
         </label>
       </div>
-      <CommandLine command={shown?.line ?? placeholder} />
-      <p className="muted mcphow">
-        {transport === 'http' ? 'The client starts the proxy, and the proxy talks to the remote server over Streamable HTTP.' : 'The client starts the proxy, and the proxy starts the server.'} Each tool’s effect comes from its readOnlyHint; anything else is a write.
-      </p>
+      <DialogFacts rows={[{ label: 'Effects', value: 'from each tool’s `readOnlyHint`', quiet: 'any other tool is a write' }]} />
+      <p className="muted mcphow">{transport === 'http' ? 'The client starts the proxy, and the proxy talks to the remote server over Streamable HTTP.' : 'The client starts the proxy, and the proxy starts the server.'}</p>
       {entry ? <pre className="codebox">{entry}</pre> : null}
       {line.error && asked === target.trim() ? <p className="fieldnote err">{line.error.message}</p> : null}
-      {notes ? <AddServerNote notes={notes} /> : null}
     </Dialog>
   );
 }
 
-/** What "Add a server…" says about what it hid (`addServerNotes`): where the Basic header's variable is set, and what the copy has as typed. */
+/** What Add MCP server… says about what it hid (`addServerNotes`): where the Basic header's variable is set, and what the copy has as typed. */
 function AddServerNote({ notes }: { notes: NonNullable<ReturnType<typeof addServerNotes>> }) {
   const KEEP_OUT = 'keep it out of a file you commit, or pass it in an environment variable.';
   const b = notes.basic;
   const ref = b ? <code>{`\${${b.name}}`}</code> : null;
   return (
-    <p className="fieldnote warn">
+    <>
       {b ? (
         <>
           The URL’s user and password aren’t copied: <code>shadowlap mcp</code> sends them as an Authorization header. Set <code>{b.name}</code> to their base64, from <code>printf &apos;user:password&apos; | base64</code>,{' '}
@@ -348,6 +350,6 @@ function AddServerNote({ notes }: { notes: NonNullable<ReturnType<typeof addServ
       ) : null}
       {notes.inCopy ? 'A URL’s user and password show as •••, in the copy too: put them back in your own entry. ' : null}
       {notes.asTyped ? (b || notes.inCopy ? `Anything else that looks like a credential shows as ••• and is copied as you typed it: ${KEEP_OUT}` : `Something that looks like a credential shows as •••. The copied entry has it as you typed it: ${KEEP_OUT}`) : null}
-    </p>
+    </>
   );
 }

@@ -1,96 +1,19 @@
+import type { FactWords } from './actions.js';
 import { isObject } from '../../engine/src/is-object.js';
 import { fixJobStatus } from './fixes/model.js';
-import { ACTIONS, doneWords, type JobEnd } from './labels.js';
+import { jobEnding, type JobWords } from './job-ending.js';
+import { isPlainReplay, jobTitle, ownArgs, type JobChipView, type JobLike, type RunningJob } from './job-title.js';
+import { doneWords, type JobEnd } from './labels.js';
+
+export { afterPollError, draftCommand, isPlainReplay, jobCommand, jobRunning, jobTitle, quoteArg, type AfterPollError, type JobLike, type RunningJob } from './job-title.js';
 
 /**
- * What the job drawer says about a CLI run the dashboard started: its title, how each output line
- * is coloured, and how it ended. No DOM here: the tests import it.
+ * What the job drawer says about a CLI run the dashboard started: how each output line is coloured,
+ * and how it ended. It loads with the drawer; what the first look needs of a job is `job-title.ts`'s.
+ * No DOM here: the tests import it.
  */
 
-export interface JobLike {
-  args: string[];
-  done: boolean;
-  code: number | null;
-  title?: string;
-  kind?: string;
-  /** What the command reported as its outcome (what `--json` would print). */
-  result?: unknown;
-  /** Someone asked it to stop. */
-  stopped?: boolean;
-}
-
-/** What following a job does after a poll for it failed. */
-export type AfterPollError = 'retry' | 'wait' | 'stop' | 'lost';
-
-/**
- * After a failed poll: wait while the server is unreachable and pick the job up again once it is
- * back; stop when the link expired (the page says so); call the job lost when the server no longer
- * has it (it was restarted) or keeps refusing to say.
- */
-export function afterPollError(e: { status: number | null; unreachable: boolean; failures: number }): AfterPollError {
-  if (e.status === 401) return 'stop';
-  if (e.status === 404) return 'lost';
-  if (e.unreachable) return 'wait';
-  return e.failures >= 5 ? 'lost' : 'retry';
-}
-
-/** The replay options that change the run at a call: a replay with one of them is a fork. */
-const FORK_FLAGS = ['--inject', '--override', '--fail-at', '--model', '--prompt-from', '--diverge-at', '--live-tool', '--inject-result', '--set', '--live-input'];
-
-/** A command's own options: what follows `--` is the agent's command, with flags of its own. */
-function ownArgs(args: readonly string[]): readonly string[] {
-  const end = args.indexOf('--');
-  return end < 0 ? args : args.slice(0, end);
-}
-
-/** Whether a replay's options fork it at a call (`--inject 17=…`, `--fail-at=19=529`). */
-function forks(args: readonly string[]): boolean {
-  return ownArgs(args).some((a) => FORK_FLAGS.includes(a.split('=')[0]!));
-}
-
-/**
- * A Replay: `replay <run>` with nothing that forks it and no `--repeat`. A policy for the writes or
- * the reads keeps it one (Replay with writes stubbed), and so does the command a capture is replayed with.
- */
-export function isPlainReplay(job: Pick<JobLike, 'args'>): boolean {
-  const own = ownArgs(job.args);
-  return own[0] === 'replay' && !own.includes('--repeat') && !forks(job.args);
-}
-
-/** The drawer's title for a command a job runs with no title of its own: the -ing form of its action's name. */
-const DOING: Readonly<Record<string, string>> = {
-  pack: ACTIONS.packRun.doing,
-  normalize: ACTIONS.addNormalizer.doing,
-  redact: ACTIONS.addRedactionRule.doing,
-  blame: ACTIONS.runBlame.doing,
-  repair: ACTIONS.runRepair.doing,
-  verify: ACTIONS.runVerify.doing,
-  test: ACTIONS.runTests.doing,
-  import: ACTIONS.importCapture.doing,
-  calibrate: ACTIONS.calibrate.doing,
-  bisect: ACTIONS.findBreakingCommit.doing,
-  gc: 'Cleaning up',
-  rm: 'Deleting',
-};
-
-/** Each export's, by what it exports. */
-const EXPORTING: Readonly<Record<string, string>> = { html: ACTIONS.exportHtml.doing, har: ACTIONS.exportHar.doing, otel: ACTIONS.exportTrace.doing, dataset: ACTIONS.exportDataset.doing };
-
-/** What the drawer calls a job: "Replaying", "Forking", "Packing", the server's title when it sends one. */
-export function jobTitle(job: JobLike): string {
-  if (job.title) return job.title;
-  const [cmd, sub] = job.args;
-  if (cmd === 'replay') return ownArgs(job.args).includes('--repeat') ? ACTIONS.repeat.doing : forks(job.args) ? 'Forking' : ACTIONS.replay.doing;
-  if (cmd === 'export') return EXPORTING[sub ?? ''] ?? 'Exporting';
-  return DOING[cmd ?? ''] ?? 'Running';
-}
-
-/** The command as typed, for the drawer's first line. */
-export function jobCommand(args: readonly string[]): string {
-  return `shadowlap ${args.map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`)).join(' ')}`;
-}
-
-export type LineTone = '' | 'p' | 'ok' | 'y' | 'no';
+export type LineTone = '' | 'p' | 'ok' | 'y' | 'no' | 'dim';
 
 /** How the drawer colours an output line, from the marks the CLI prints. */
 export function lineTone(line: string): LineTone {
@@ -98,7 +21,9 @@ export function lineTone(line: string): LineTone {
   if (t.startsWith('$ ')) return 'p';
   if (/^(✓|●)/.test(t)) return 'ok';
   if (/^(✗|error\b|Error\b)/.test(t)) return 'no';
-  if (/^(⑂|⚠|!|warning\b)/.test(t)) return 'y';
+  // `?` an inconclusive golden, `–` a check that doesn't apply.
+  if (/^(⑂|⚠|!|\? |warning\b)/.test(t)) return 'y';
+  if (t.startsWith('– ')) return 'dim';
   // Training: a `tasks score` attempt that missed a check ("3 · ✓ … · ✗ … · 0.33"), as the mock marks it.
   if (/^\d+ · /.test(t) && t.includes('✗')) return 'y';
   return '';
@@ -231,7 +156,7 @@ export function trainingJobStatus(job: { kind?: string; code: number | null; res
  * How a job ended, in the drawer's status line: the outcome first, then the exit code. Worked out
  * from the CLI's own words when the server sends no structured result.
  */
-export function jobStatus(job: JobLike, lines: readonly string[], lost = false): { text: string; tone: '' | 'ok' | 'warn' | 'err' } {
+export function jobStatus(job: JobLike, lines: readonly string[], lost = false): JobWords {
   if (lost && !job.done) return { text: 'lost · the dashboard server no longer has this job', tone: 'err' };
   if (!job.done) return { text: job.stopped ? 'stopping' : 'running', tone: '' };
   // Stopped on request: that is how it ended, whatever its exit code says.
@@ -253,17 +178,9 @@ export function jobStatus(job: JobLike, lines: readonly string[], lost = false):
   // So did a fork that left the recording before the call its flag acts on.
   const early = forkDivergedEarly(job, lines);
   if (early) return { text: `diverged at #${early.callNo}, before ${FORK_WORDS[early.target.flag]!} at #${early.target.callNo}${early.live ? ' · went live' : ''} · ${exit}`, tone: code === 0 ? 'warn' : 'err' };
-  // Find breaking commit: whether bisect named the first bad commit.
-  if (/^✓ first bad commit /m.test(all)) return { text: `found · ${exit}`, tone: 'ok' };
-  if (/^✗ no first bad commit/m.test(all)) return { text: `not found · ${exit}`, tone: 'warn' };
-  // `shadowlap test` (Run tests, Update golden, Add normalizer and re-run): the last totals it printed.
-  const totals = [...all.matchAll(/^(\d+) passed, (\d+) failed(, \d+ not run: interrupted)?/gm)].at(-1);
-  if (totals) {
-    // Stopped: the goldens after the one it was replaying didn't run, so the counts are no verdict.
-    if (totals[3] || code === 130 || code === 143) return { text: `interrupted · ${exit}`, tone: 'warn' };
-    const failed = Number(totals[2]);
-    return failed ? { text: `${failed} failed · ${exit}`, tone: 'err' } : { text: `${totals[1]!} passed · ${exit}`, tone: code === 0 ? 'ok' : 'err' };
-  }
+  // A session, an update, a search, a verify or a repeat: in the words of its kind.
+  const ending = jobEnding(job, all, code);
+  if (ending) return ending;
   // Refused before it ran anything: why, never a bare exit code.
   const refused = code !== 0 ? unrecordedRefused(lines) : null;
   if (refused) return { text: `refused · ${refused} · ${exit}`, tone: 'err' };
@@ -279,11 +196,19 @@ export function jobStatus(job: JobLike, lines: readonly string[], lost = false):
   return { text: exit, tone: 'err' };
 }
 
+/** A line kept to `max` characters: its first sentence where that fits, else cut after a whole word, with nothing dangling before the `…`. */
+function cutClean(line: string, max: number): string {
+  const first = /^(.+?[.!?])(\s|$)/.exec(line)?.[1];
+  const s = first && first.length <= max ? first : line;
+  const cut = s.length > max ? `${s.slice(0, Math.max(1, s.slice(0, max + 1).lastIndexOf(' '))).replace(/[\s,;:·…–—-]+$/, '')}…` : s;
+  return cut.replace(/\.$/, '');
+}
+
 /** The last line worth repeating in a toast when a job finishes behind a closed drawer. */
 export function lastLine(lines: readonly string[]): string {
   for (let i = lines.length - 1; i >= 0; i--) {
     const t = lines[i]!.replace(/^[\s✓✗⑂●!]+/, '').trim();
-    if (t) return t.length > 70 ? `${t.slice(0, 69)}…` : t;
+    if (t) return cutClean(t, 70);
   }
   return '';
 }
@@ -293,18 +218,18 @@ export function lastLine(lines: readonly string[]): string {
  * ran, killed, or failing with nothing but an exit code, it never did; any other way, it ran and came
  * out badly (tests failed, a replay diverged, a search found nothing, nothing was scored).
  */
-function jobEnd(status: { text: string; tone: string }): JobEnd {
+export function jobEnd(status: { text: string; tone: string }): JobEnd {
   if (status.tone === 'ok') return 'ok';
   return /^(refused\b|stopped$|lost\b|exit \d+$)/.test(status.text) ? 'not' : 'ran';
 }
 
 /**
- * What the toast says when a job ends behind a closed drawer: its title in the past tense, where that
- * claims no more than happened, and how it came out, in the drawer's status words ("Ran tests · 1
- * failed · exit 1", "Tried repairing · no fix found · exit 1", "Tried importing capture ·
- * shadowlap: x.har is not a HAR file"), a status that only repeats the verb left out ("Forked · exit
- * 0"). When those say no more than the exit code, the last line the job printed says it instead. One
- * stopped says so ("Running tests stopped"): it ended on no outcome to say in the past.
+ * What the toast says when a job ends behind a hidden drawer: its title in the past tense, where that
+ * claims no more than happened, and how it came out, in the drawer's status words ("Ran tests · failed
+ * · 2 of 7 goldens passed · exit 1", "Tried repairing · no fix found · exit 1", "Tried importing
+ * capture · shadowlap: x.har is not a HAR file"), a status that only repeats the verb left out
+ * ("Forked · exit 0"). When those say no more than the exit code, the last line the job printed says
+ * it instead. One stopped says so ("Running tests stopped"): it ended on no outcome to say in the past.
  */
 export function endToast(job: JobLike, lines: readonly string[]): string {
   if (job.stopped) return `${jobTitle(job)} stopped`;
@@ -313,34 +238,34 @@ export function endToast(job: JobLike, lines: readonly string[]): string {
   const done = doneWords(jobTitle(job), jobEnd(st), status);
   const last = lastLine(lines);
   const said = /^(finished · )?exit \d+$/.test(status) && last ? last : status.replace(/^finished · /, '');
-  // What it said that only repeats the title goes: "Forked · exit 0", "Found breaking commit · exit 0",
-  // "Packed share/x · 14 calls", "Applied fix · tests failed · exit 1", "Marked the fix applied · exit 0".
-  const words = done.toLowerCase().split(' ');
-  const verb = words[0] ?? '';
-  const repeated = [verb, words.at(-1) ?? ''].find((w) => said.startsWith(`${w} · `));
-  if (repeated) return `${done} · ${said.slice(repeated.length + 3)}`;
-  return !done.includes(' ') && said.startsWith(`${verb} `) ? `${done} ${said.slice(verb.length + 1)}` : `${done} · ${said}`;
+  // "Packed share/x · 14 calls", where it said that goes on from the title's one word.
+  const verb = done.toLowerCase().split(' ')[0] ?? '';
+  const left = withoutRepeat(done, said);
+  return left === said && !done.includes(' ') && said.startsWith(`${verb} `) ? `${done} ${said.slice(verb.length + 1)}` : `${done} · ${left}`;
 }
 
 /**
- * Whether a job of one of `kinds` (the jobs that run the goldens) is still running, as far as this
- * page follows it: the palette offers no second session meanwhile. A job the server lost is over.
+ * What a job said beside its past-tense title, less what only repeats the title: "Forked · exit 0",
+ * "Applied fix · tests failed · exit 1", "Marked the fix applied · exit 0".
  */
-export function jobRunning(jobs: ReadonlyArray<{ job: Pick<JobLike, 'done' | 'kind'>; lost?: boolean }>, kinds: ReadonlySet<string>): boolean {
-  return jobs.some((w) => !w.job.done && !w.lost && kinds.has(w.job.kind ?? ''));
+function withoutRepeat(done: string, said: string): string {
+  const words = done.toLowerCase().split(' ');
+  const repeated = [words[0] ?? '', words.at(-1) ?? ''].find((w) => said.startsWith(`${w} · `));
+  return repeated ? said.slice(repeated.length + 3) : said;
 }
 
-/** A job as Stop and the top bar's chip read it: whether it runs, and how it uses its working tree. */
-export interface RunningJob {
-  id: string;
-  done: boolean;
-  args?: readonly string[];
-  title?: string;
-  kind?: string;
-  stopped?: boolean;
-  /** When it started: the chip opens the newest. */
-  startedAt?: number;
-  worktree?: { use: 'reads' | 'writes'; doing: string } | null;
+/**
+ * The drawer's header and the status bar's chip: what it does or did, how that stands and in what
+ * colour. Running, its -ing title. Ended, its past tense, where that claims no more than happened,
+ * the same words its toast leads with, and a status that doesn't repeat them. A job stopped by hand
+ * or lost keeps its -ing title: it ended on no outcome to say in the past.
+ */
+export function jobHeader(job: JobLike, lines: readonly string[], lost = false): JobWords & { title: string } {
+  const title = jobTitle(job);
+  const st = jobStatus(job, lines, lost);
+  if (!job.done || job.stopped) return { title, ...st };
+  const done = doneWords(title, jobEnd(st), st.text);
+  return { title: done, text: withoutRepeat(done, st.text), tone: st.tone };
 }
 
 /**
@@ -348,28 +273,33 @@ export interface RunningJob {
  * from it, a patch being applied): stopped part way, the tree is what it says. Null for any other job, which
  * Stop stops at once, as Ctrl-C would: a run it was making ends as interrupted.
  */
-export function stopAsk(job: RunningJob): { title: string; text: string; ok: string } | null {
+export function stopAsk(job: RunningJob): { title: string; lead: string; facts: readonly FactWords[]; ok: string } | null {
   if (job.done || job.worktree?.use !== 'writes') return null;
   const [command, sub] = job.args ?? [];
-  if (command === 'repair')
-    return { title: 'Stop the repair?', text: 'It is verifying candidates in temporary worktrees, never in your working tree, which it leaves as it is. Stopped, it reports what it found so far, as Ctrl-C does.', ok: 'Stop the repair' };
-  if (command === 'fix' && sub === 'apply')
-    return { title: 'Stop applying the patch?', text: 'It is changing your working tree. Stopped part way, the patch may be in while the fix isn’t marked applied: Apply it again to finish.', ok: 'Stop applying' };
-  const doing = job.worktree.doing;
-  return { title: `Stop ${(job.title ?? 'this job').toLowerCase()}?`, text: `${doing.charAt(0).toUpperCase()}${doing.slice(1)}. Stopped part way, the tree is left as it is then.`, ok: 'Stop it' };
+  if (command === 'repair') return { title: 'Stop repair', lead: 'Stops the repair, which reports what it found so far.', facts: [{ label: 'Changes', value: 'nothing in your working tree' }], ok: 'Stop repair' };
+  if (command === 'fix' && sub === 'apply') return { title: 'Stop applying patch?', lead: 'Stops applying the patch, which may leave it in your working tree with the fix not marked applied.', facts: [{ label: 'Then', value: 'Apply fix again to finish' }], ok: 'Stop applying' };
+  const name = (job.title ?? 'this job').toLowerCase();
+  return { title: `Stop ${name}?`, lead: `Stops ${name}, which leaves the tree as it is then.`, facts: [], ok: 'Stop job' };
 }
 
-/**
- * The top bar's chip while jobs run (`1 job running`), and the job a click reopens: the newest one
- * running whose drawer isn't open. None while nothing runs, or while the only job running has its
- * drawer open already. A job stopping still runs. The server lists jobs newest first, but one this
- * tab has just started may not be in its list yet, so they go by when they started.
- */
-export function runningChip(jobs: readonly RunningJob[], open: string | null): { count: number; label: string; opens: string; title: string } | null {
-  const running = jobs.filter((j) => !j.done).sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
-  const opens = running.find((j) => j.id !== open);
-  if (!opens) return null;
-  const n = running.length;
-  const names = running.map((j) => jobTitle({ args: [...(j.args ?? [])], done: false, code: null, ...(j.title ? { title: j.title } : {}) }));
-  return { count: n, label: `${n} ${n === 1 ? 'job' : 'jobs'} running`, opens: opens.id, title: `${[...new Set(names)].join(', ')}: open ${n === 1 ? 'its' : 'the newest one’s'} drawer` };
+/** What a job's way on calls the run it made: the replay, the fork, or just the run. */
+export function openRunWords(job: Pick<JobLike, 'args'>): string {
+  if (job.args[0] !== 'replay') return 'Open run';
+  return isPlainReplay(job) ? 'Open replay' : 'Open fork';
+}
+
+/** A job's way on where it has no drawer drawn to take it from: its first primary link, or the run it made. */
+export function wayOnOf(job: JobLike & { links?: ReadonlyArray<{ label: string; href: string; secondary?: boolean }>; newRunId?: string | null }, here: (href: string) => boolean = () => false): { label: string; href: string } | null {
+  // Never the page on the screen, as the drawer never links to it.
+  const links = (job.links ?? []).filter((l) => !here(l.href));
+  const first = links.find((l) => !l.secondary) ?? links[0];
+  if (first) return { label: first.label, href: first.href };
+  const run = job.newRunId ? `#/run/${job.newRunId}` : null;
+  return run && !here(run) ? { label: openRunWords(job), href: run } : null;
+}
+
+/** The status bar's chip for a hidden job that ended: what it did and how, in its verdict's colour. */
+export function endChip(w: { job: JobLike & { id: string }; lines: readonly string[]; lost?: boolean | undefined }): JobChipView {
+  const end = jobHeader(w.job, w.lines, !!w.lost);
+  return { label: `${end.title} · ${end.text}`, name: `Show job: ${end.title}, ${end.text.replace(/ · /g, ', ')}`, opens: w.job.id, running: false, tone: end.tone };
 }

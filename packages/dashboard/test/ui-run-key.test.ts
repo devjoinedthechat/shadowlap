@@ -7,7 +7,10 @@ import { RunPage } from '../ui/pages/Run.js';
 import { markChange, markKey, markTitle, markToast, undoChange, withChange } from '../ui/runkey.js';
 import { RunsTable, type TableRun } from '../ui/runspage/RunsTable.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import { ACTION_TOAST_MS, toastKey, UNDO_KEY, type ToastAction } from '../ui/toast.js';
+import { ACTION_TOAST_MS, toastKey, UNDO_SHORTCUTS, type ToastAction } from '../ui/toast.js';
+import { shownRuns } from '../ui/list-keys.js';
+import { noteShownRuns } from '../ui/runspage/shown-runs.js';
+import { setSingleKeys } from '../ui/shortcuts.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -97,7 +100,7 @@ function server(start: string[]) {
   return { client, asked };
 }
 
-function app(client: Client, toasts: Array<{ text: string; action?: ToastAction }>) {
+function app(client: Client, toasts: Array<{ text: string; kind?: string; action?: ToastAction }>) {
   return {
     client,
     exported: false,
@@ -112,7 +115,7 @@ function app(client: Client, toasts: Array<{ text: string; action?: ToastAction 
     hasKind: () => false,
     guard: (fn: () => void) => fn(),
     watchJob: () => undefined,
-    toast: (text: string, _kind?: string, action?: ToastAction) => void toasts.push({ text, ...(action ? { action } : {}) }),
+    toast: (text: string, kind?: string, action?: ToastAction) => void toasts.push({ text, ...(kind ? { kind } : {}), ...(action ? { action } : {}) }),
     refresh: () => undefined,
     setRunCommands: () => undefined,
     setPalette: () => undefined,
@@ -134,6 +137,126 @@ function addressBar(hash: string) {
 }
 
 const keyButton = (label: string) => r!.all('.rhead .runkey button').find((b) => b.textContent === label)!;
+
+describe('a run’s keys', () => {
+  const opened = async (toast: Array<{ text: string; kind?: string; action?: ToastAction }> = [], over: Partial<RunDetail> = {}) => {
+    addressBar(`#/run/${RUN}/1`);
+    const { client } = server([]);
+    if (over.calls) (client as { run: unknown }).run = () => Promise.resolve({ ...answer([]), ...over });
+    const state = app(client, toast);
+    r = await render(createElement(AppContext.Provider, { value: state }, createElement(RunPage, { id: RUN, call: 1, view: null })));
+    await r.until('the run’s keys', () => !!(state.runKeys as { current: unknown }).current);
+    await r.until('the header', () => r!.all('.rhead .runkey button').length === 2);
+    return (key: string, target?: unknown) => (state.runKeys as { current: (e: { key: string; target?: unknown }) => boolean }).current({ key, target });
+  };
+
+  it('marks the header’s buttons, and takes the marks away with the switch', async () => {
+    await opened();
+    const replay = r!.byText('.rhead .actions button', 'Replay');
+    expect(replay.getAttribute('aria-keyshortcuts')).toBe('r');
+    expect(replay.getAttribute('data-shortcut')).toBe('replay');
+    expect(keyButton('good').getAttribute('aria-keyshortcuts')).toBe('Plus');
+    expect(keyButton('bad').getAttribute('aria-keyshortcuts')).toBe('-');
+    expect(r!.one('#forkBtn').getAttribute('aria-keyshortcuts')).toBe('f');
+    await act(async () => setSingleKeys(false));
+    expect(r!.byText('.rhead .actions button', 'Replay').getAttribute('aria-keyshortcuts')).toBeNull();
+    expect(r!.one('#forkBtn').getAttribute('data-shortcut')).toBeNull();
+    await act(async () => setSingleKeys(true));
+  });
+
+  it('gives This run’s rows in the palette the key of what each presses, a hint no longer saying it', async () => {
+    addressBar(`#/run/${RUN}/1`);
+    const { client } = server([]);
+    let commands: Array<{ label: string; hint: string; key?: string }> = [];
+    const state = { ...app(client, []), setRunCommands: (items: typeof commands) => void (items.length && (commands = items)) } as unknown as AppState;
+    r = await render(createElement(AppContext.Provider, { value: state }, createElement(RunPage, { id: RUN, call: 1, view: null })));
+    await r.until('This run’s rows', () => commands.length > 0);
+    const row = (start: string) => commands.find((c) => c.label.startsWith(start))!;
+    expect(row('Label it good')).toMatchObject({ hint: 'repair --keeps label:good', key: '+' });
+    expect(row('Label it bad')).toMatchObject({ hint: 'repair --fixes label:bad', key: '-' });
+    expect(row('Fork at').key).toBe('f');
+  });
+
+  it('moves with the arrows only in the views, j and k from anywhere', async () => {
+    const keys = await opened();
+    expect(keys('ArrowDown')).toBe(false);
+    expect(keys('ArrowDown', r!.one('.vbody'))).toBe(true);
+    expect(keys('j')).toBe(true);
+  });
+
+  it('says when a list has no run before or after this one, a step adding nothing to the way back', async () => {
+    const toasts: Array<{ text: string; action?: ToastAction }> = [];
+    shownRuns.current = { ids: [RUN, 'OTHERRUN00000000000000'], more: null };
+    const keys = await opened(toasts);
+    expect(keys('[')).toBe(true);
+    await r!.until('the toast', () => toasts.length > 0);
+    expect(toasts[0].text).toBe('No run before 01M5GRX8K4 in the list');
+    expect(keys(']')).toBe(true);
+    await r!.until('the step', () => location.hash === '#/run/OTHERRUN00000000000000');
+    shownRuns.current = null;
+  });
+
+  it('says nothing for a key whose button is off with no reason, and that button shows no card', async () => {
+    const toasts: Array<{ text: string; action?: ToastAction }> = [];
+    const keys = await opened(toasts, { calls: [], callsTotal: 0 });
+    const fork = r!.one('#forkBtn');
+    expect(fork.disabled).toBe(true);
+    expect(fork.getAttribute('title')).toBeNull();
+    expect(fork.getAttribute('data-tip')).toBeNull();
+    expect(keys('f')).toBe(true);
+    // This run offers no replay either.
+    expect(r!.byText('.rhead .actions button', 'Replay').getAttribute('data-tip')).toBeNull();
+    expect(keys('r')).toBe(true);
+    expect(toasts).toEqual([]);
+  });
+
+  it('reads a page once for two presses, and says the list has ended if nothing came', async () => {
+    const toasts: Array<{ text: string; action?: ToastAction }> = [];
+    const read = vi.fn(async () => ({ ids: [], next: null }));
+    noteShownRuns(['BEFORE0000000000000000', RUN], 'p2', read);
+    const keys = await opened(toasts);
+    keys(']');
+    keys(']');
+    await r!.until('the toast', () => toasts.length > 0);
+    expect(read).toHaveBeenCalledOnce();
+    expect(toasts[0].text).toBe('No run after 01M5GRX8K4 in the list');
+    expect(shownRuns.current).toEqual({ ids: ['BEFORE0000000000000000', RUN], more: null });
+    shownRuns.current = null;
+  });
+
+  it('steps once for two presses that wait on one page', async () => {
+    const read = vi.fn(async () => ({ ids: ['NEXTPAGE00000000000000', 'THENTHIS00000000000000'], next: null }));
+    noteShownRuns([RUN], 'p2', read);
+    const keys = await opened();
+    keys(']');
+    keys(']');
+    await r!.until('the step', () => location.hash === '#/run/NEXTPAGE00000000000000');
+    expect(read).toHaveBeenCalledOnce();
+    expect(shownRuns.current?.ids).toEqual([RUN, 'NEXTPAGE00000000000000', 'THENTHIS00000000000000']);
+    shownRuns.current = null;
+  });
+
+  it('says why when the next page can’t be read, as an error, and takes no step', async () => {
+    const toasts: Array<{ text: string; kind?: string; action?: ToastAction }> = [];
+    shownRuns.current = { ids: [RUN], more: () => Promise.reject(new Error('the server stopped')) };
+    const keys = await opened(toasts);
+    keys(']');
+    await r!.until('the toast', () => toasts.length > 0);
+    expect(toasts[0]).toEqual({ text: 'The server stopped', kind: 'error' });
+    expect(location.hash).toBe(`#/run/${RUN}/1`);
+    shownRuns.current = null;
+  });
+
+  it('reads the next page of the list before saying it has ended', async () => {
+    const more = vi.fn(async () => [RUN, 'NEXTPAGE00000000000000']);
+    shownRuns.current = { ids: [RUN], more };
+    const keys = await opened();
+    expect(keys(']')).toBe(true);
+    await r!.until('the step', () => location.hash === '#/run/NEXTPAGE00000000000000');
+    expect(more).toHaveBeenCalledOnce();
+    shownRuns.current = null;
+  });
+});
 
 describe('the key on a run’s header', () => {
   it('labels the run in one press, says so with Undo, and Undo puts it back', async () => {
@@ -189,8 +312,8 @@ describe('the key on a run’s header', () => {
     r = await render(createElement(AppContext.Provider, { value: state }, createElement(RunPage, { id: RUN, call: 1, view: null })));
     await r.until('the header', () => r!.all('.rhead .runkey button').length === 2);
     expect(keyButton('good').getAttribute('aria-pressed')).toBe('true');
-    expect(keyButton('good').hasAttribute('disabled')).toBe(true);
-    expect(keyButton('good').getAttribute('title')).toBe('Read-only: started with --read-only');
+    expect(keyButton('good').getAttribute('aria-disabled')).toBe('true');
+    expect(keyButton('good').getAttribute('data-why')).toBe('Read-only: started with --read-only');
   });
 });
 
@@ -200,7 +323,8 @@ describe('the key on a row of Runs', () => {
   it('is at the end of each row, marks that run from its buttons or + and - on the row, and good and bad are no chips there', async () => {
     const marked: Array<[string, string]> = [];
     const rows = [row(1, ['good', 'nightly']), row(2, [])];
-    r = await render(createElement(RunsTable, { rows, picked: new Set<string>(), selectable: true, byColumn: false, sort: 'when', onSort: () => undefined, onPick: () => undefined, onPickAll: () => undefined, now: T, onMark: (run: TableRun, m: string) => void marked.push([run.runId, m]) }));
+    const state = { actionsOff: null, conn: 'ok', toast: () => undefined } as unknown as AppState;
+    r = await render(createElement(AppContext.Provider, { value: state }, createElement(RunsTable, { rows, picked: new Set<string>(), selectable: true, byColumn: false, sort: 'when', onSort: () => undefined, onPick: () => undefined, onPickAll: () => undefined, now: T, onMark: (run: TableRun, m: string) => void marked.push([run.runId, m]) })));
     const groups = r.all('table.runst tbody td.keycell .runkey');
     expect(groups).toHaveLength(2);
     expect(groups[0].getAttribute('aria-label')).toBe('Good or bad: 01M5MXZ4Q3');
@@ -255,12 +379,15 @@ describe('a toast with an action', () => {
     expect(status.textContent).toBe('');
     expect(r.one('[role="alert"]').textContent).toBe('');
     await act(async () => set.toast!({ id: 1, text: '01M5GRX8K4 is good', kind: 'notice' }));
-    // The same region, its text arrived in it: what a screen reader hears change.
+    // The same region, its text arrived in it: what a screen reader hears change. What shows is in no region.
+    await r.until('the words', () => status.textContent !== '');
     expect(r.one('[role="status"]')).toBe(status);
     expect(status.textContent).toBe('01M5GRX8K4 is good');
+    expect(r.one('.toast').textContent).toBe('01M5GRX8K4 is good');
+    expect(r.one('[role="alert"]').textContent).toBe('');
+    // An error alone keeps its alert, and the polite region says nothing new.
     await act(async () => set.toast!({ id: 2, text: 'The server refused it', kind: 'error' }));
     expect(r.one('[role="alert"]').textContent).toContain('The server refused it');
-    expect(status.textContent).toBe('');
   });
 
   it('does its action from the undo key anywhere, and hands the focus back to the key that made the change', async () => {
@@ -268,8 +395,8 @@ describe('a toast with an action', () => {
     r = await render(createElement(Host));
     const key = r.one('button.good');
     let ran = 0;
-    await act(async () => set.toast!({ id: 1, text: '01M5GRX8K4 is good', kind: 'notice', action: { label: 'Undo', run: () => void ran++, returnTo: key as unknown as HTMLElement } }));
-    expect(r.byText('.toast button', 'Undo').getAttribute('aria-keyshortcuts')).toBe(UNDO_KEY);
+    await act(async () => set.toast!({ id: 1, text: '01M5GRX8K4 is good', kind: 'notice', action: { label: 'Undo', undo: true, run: () => void ran++, returnTo: key as unknown as HTMLElement } }));
+    expect(r.byText('.toast button', 'Undo').getAttribute('aria-keyshortcuts')).toBe(UNDO_SHORTCUTS);
     // The focus elsewhere, as after a Tab or two.
     (r.one('main#view') as unknown as HTMLElement).focus();
     expect(toastKey.current).not.toBeNull();
@@ -283,7 +410,7 @@ describe('a toast with an action', () => {
 
   it('hears the undo key from the page, and not while a field is being typed in', async () => {
     let ran = 0;
-    const toastText = { id: 1, text: '01M5GRX8K4 is good', kind: 'notice', action: { label: 'Undo', run: () => void ran++ } };
+    const toastText = { id: 1, text: '01M5GRX8K4 is good', kind: 'notice', action: { label: 'Undo', undo: true, run: () => void ran++ } };
     const state = { toastText, conn: 'ok', exported: false, palette: false, help: false, sideOpen: false, setPalette: () => undefined, setHelp: () => undefined, setSideOpen: () => undefined, runKeys: { current: null }, meta: null } as unknown as AppState;
     r = await render(createElement(AppContext.Provider, { value: state }, createElement('input', { type: 'search' }), createElement(Keyboard), createElement(ToastHost)));
     await r.until('the toast', () => r!.all('.toast').length === 1);
@@ -304,7 +431,7 @@ describe('a toast with an action', () => {
       const { Host, set } = page();
       r = await render(createElement(Host));
       const key = r.one('button.good');
-      await act(async () => set.toast!({ id: 1, text: '01M5GRX8K4 is good', kind: 'notice', action: { label: 'Undo', run: () => undefined, returnTo: key as unknown as HTMLElement } }));
+      await act(async () => set.toast!({ id: 1, text: '01M5GRX8K4 is good', kind: 'notice', action: { label: 'Undo', undo: true, run: () => undefined, returnTo: key as unknown as HTMLElement } }));
       const undo = r.byText('.toast button', 'Undo');
       (undo as unknown as HTMLElement).focus();
       expect(r.focused()).toBe(undo);
@@ -319,7 +446,7 @@ describe('a toast with an action', () => {
 
   it('has its button, which closes the toast and does it', async () => {
     let ran = 0;
-    const state = { toastText: { id: 1, text: 'Labelled good', kind: 'notice', action: { label: 'Undo', run: () => void ran++ } } } as unknown as AppState;
+    const state = { toastText: { id: 1, text: 'Labelled good', kind: 'notice', action: { label: 'Undo', undo: true, run: () => void ran++ } } } as unknown as AppState;
     r = await render(createElement(AppContext.Provider, { value: state }, createElement(ToastHost)));
     await r.until('the toast', () => r!.all('.toast').length === 1);
     const undo = r.byText('.toast button', 'Undo');

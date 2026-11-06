@@ -255,7 +255,7 @@ export function register(router: Router, ctx: RouteContext): void {
   // ---- jobs
 
   ctx.jobs.registerJobKind('init', {
-    title: (req) => (req.again === true ? 'Checking again' : 'Inspecting the folder'),
+    title: (req) => (req.again === true ? 'Checking again' : 'Inspecting folder'),
     build: (req, { projectId, project }) => {
       if (!project || !projectId) return { error: ONE_STORE, status: 501 };
       if (typeof req.project === 'string' && req.project && req.project !== projectId) return { error: `The dashboard switched to ${projectId}. Open ${req.project} again to inspect it.`, status: 409 };
@@ -276,7 +276,7 @@ export function register(router: Router, ctx: RouteContext): void {
       // The first time this command runs in this folder (through this model server), it asks first,
       // and it is remembered as confirmed once it has started: a start refused after this (too many
       // jobs, the dashboard stopping) asks again next time.
-      if (plan.confirm && req.confirmed !== true) return { error: `${plan.confirm.title} Confirm it first: ${plan.display}`, status: 409 };
+      if (plan.confirm && req.confirmed !== true) return { error: `${plan.confirm.title}: confirm it first: ${plan.display}`, status: 409 };
       return { args: plan.args, cwd: plan.cwd, env: plan.env, opensRun: true, title: 'Recording', ...(plan.confirm ? { started: () => void h.confirmCommand(projectId, plan) } : {}) };
     },
   });

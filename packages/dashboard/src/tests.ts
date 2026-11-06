@@ -454,7 +454,7 @@ export interface TestsView {
   failures: FailureView[];
   /** Goldens whose last result is inconclusive, apart from the failures: Run more attempts settles a gate's. */
   inconclusive: InconclusiveView[];
-  /** Goldens whose last result diverged: Update goldens… lists them. */
+  /** Goldens whose last result diverged: Update goldens lists them. */
   diverged: string[];
   /**
    * A test session running now, wherever it was started: a terminal, another dashboard, or a job of
@@ -476,7 +476,7 @@ export interface TestsView {
     pack: string;
     /** Run tests, as arguments: the CLI expands the pattern itself. */
     run: string[];
-    /** Update goldens…, or null when none diverged. */
+    /** Update goldens, or null when none diverged. */
     updateAll: string[] | null;
   };
   /** Recordings in `__recordings__/` belong to the pytest and Vitest plugins. */
@@ -1748,7 +1748,7 @@ export function runTestsJob(goldens: readonly GoldenSource[], req: Record<string
   return { title: ACTIONS.runTests.doing, args: ['test', ...testPatterns(goldens, options.folder), ...more] };
 }
 
-/** Update golden, or Update goldens… for several: each re-recorded live with writes stubbed, and replaced only when its checks pass. */
+/** Update golden, or Update goldens for several: each re-recorded live with writes stubbed, and replaced only when its checks pass. */
 export function updateGoldensJob(goldens: readonly GoldenSource[], req: Record<string, unknown>): TestsJob {
   const raw = Array.isArray(req.goldens) ? req.goldens : req.golden !== undefined ? [req.golden] : [];
   if (!raw.length || raw.length > 500) return { error: 'name the goldens to update' };
