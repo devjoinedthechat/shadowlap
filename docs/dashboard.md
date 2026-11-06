@@ -1974,6 +1974,7 @@ Every request needs the session token in `x-shadowlap-token`.
 | `GET /api/runs/:id/differences` | What a fork did differently from its parent (`null` for a run that is no fork of a run in the store) |
 | `GET /api/runs/:id/outcome` | The run's outcome by checks, each check with it ([Judged by checks](#judged-by-checks)) |
 | `GET /api/runs/:id/next` | The run's next step alone, whole, with what it bills: what its page's answer leaves out rather than read a long run's calls |
+| `GET /api/runs/:id/estimates?at=&model=` | What Run blame and each fork menu row at call `at` bill, by the row's key; without `at`, the whole run's rows |
 | `GET /api/runs/:id/offers` | What the run's page offers |
 | `GET /api/search?q=`, `GET /api/compare?a=&b=[&part=head]` | Search recorded content; compare two runs |
 
@@ -1988,6 +1989,7 @@ Every request needs the session token in `x-shadowlap-token`.
 - **Its next step**: `next` is what its header leads with ([The next step](#the-next-step)): its `key`, `label`, `href` for a link, `off` for why it can't start, the hover's `title` and `sub`, the `command` it runs and `estimate`, what it bills. `later` says this answer left out what would read a long run's calls, which `/api/runs/:id/next` answers with.
 - **A crash's next step**: `blame` is the Run blame beside it, its `offer`, `sub`, `command` and `estimate`.
 - **A list's rows** carry `next` too, with only `key`, `label`, `href`, `off`, `title`, `command` and `capture` (a capture's Run blame, which asks for your command on its page), as a list reads no run's calls for it.
+- **Its estimates**: `/api/runs/:id/estimates` answers `blame` and `actions`, each the engine's estimate of the job as it runs, worked out beside the server. A row that runs nothing live is Free, such as Repeat on a recording, and one with nothing to bill has none: Replay, a normalizer, Pack. `model` prices Switch model at that model; without it, as recorded.
 - **Its Replay**: `replay` is what its Replay button replays: `label` and `runId`, with the `action` that asks for your command where that run has none.
 - **Its family**: each run of the family carries the same `status`, `kind`, `outcome` and `failed`, an attempt the list leaves out included. The HTML file holds such a run the same way.
 - **Its calls**: a call row carries `via` for a model call made to a host of another provider's format (the host; `provider` is then its format), and `extraRead` for a replay's extra read.
@@ -2031,10 +2033,12 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 
 | Endpoint | What it does |
 | --- | --- |
-| `POST /api/jobs { kind, … }` | Start a job of a registered kind (`/api/meta` lists them; [Job kinds](#job-kinds) describes each) |
+| `POST /api/jobs { kind, … }` | Start a job of a registered kind (`/api/meta` lists them; [Job kinds](#job-kinds) describes each), with the `estimate` its page showed |
 | `POST /api/jobs { kind: "export-html" \| "export-har" \| "pack" \| "export-dataset" \| "export-otel", … }` | The Share menu's copies |
 | `POST /api/runs/:id/actions` | A run action the terminal UI shares, as the `action` job kind starts it |
 | `GET /api/jobs`, `GET /api/jobs/:id?after=n`, `POST /api/jobs/:id/stop` | Recent jobs (without output or result); one job's output from line `n`, its runs, links, files and result; stop it, with its agent |
+
+**A job's estimate.** `estimate` is the price its page showed: `usd`, `ceiling`, and where they apply `per` and `stops`. The job keeps it, and both `GET` routes answer it, so its drawer says what its card and its ask said. One of another shape is dropped, and the job still starts. Nothing reads it to decide what runs, and it never reaches the command line.
 
 **The Share menu's copies** take `{ runId }`, a pack's `{ runId, dir }`, a dataset's `{ runIds, format, calls }`, or a trace's `{ runId, endpoint }` or `{ runId, out }`. A run still recording is refused (409). One its recorder left running is copied as interrupted, ended at its last call, the store left as it is.
 
@@ -2046,9 +2050,11 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 | --- | --- |
 | `GET /api/fixes?status=`, `/api/fixes/:id`; `PUT /api/fixes/:id/title` | The fixes (all, open, verified or applied) with their counts; one fix, by its id or a prefix, with its three steps; its title |
 | `GET /api/fixes/:id/groups` | A fix's attempts grouped by what each did |
+| `GET /api/fixes/:id/estimates?model=` | What Run repair, Run blame again or with a stronger model, and each Verify step's more attempts bill |
 | `GET /api/fixes/family/:runId` | The attempts blame and verify made in a run's family, bundled per probe and per verified run |
 
 - **Groups**: for its blame's probes and for each verified run, each group's `path` (the tool calls from where the attempts left the run), `verdict`, `count`, `why` (the first failure), and an `example` attempt to open.
+- **Its estimates**: `repair`, `blameAgain`, `blameStronger`, and `verify` by each verdict's id, worked out beside the server for what the page offers. Run repair prices a blame only of a failing run whose blame it can't reuse, and is Free where it ends "No fix to try". `model` prices the stronger model; without it, `claude-opus-5-5`.
 - **A run's family**: each bundle with the fix step it leads to, its verdict as a gate's is said (`verdictLine`: the word, the tally and the bound), its `tone`, and the `rule` it was decided by.
 
 ### Tests and CI
@@ -2058,6 +2064,8 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 | `GET /api/tests` | The Tests screen |
 | `GET /api/tests/gate?good=&bad=&risk=&max=`, `?baseline=history&drop=&window=&min=&max=&history=47/50` | What a [gate](./gating.md)'s figures would do |
 | `GET /api/tests/runs/:id?before=<ms>` | For a run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's choices |
+| `GET /api/tests/estimates` | What Run tests and each golden's buttons bill |
+| `GET /api/estimates/bisect?runId=\|golden=&good=&bad=` | What Find breaking commit bills, on a run or a golden, from `good` up to `bad` |
 | `GET /api/ci/workflows?fix=&alerts=&budget=&repairer=&onlyMain=&secret=&inconclusive=` | Settings → CI: your workflow for those options |
 
 **The Tests screen** (`/api/tests`) holds:
@@ -2110,6 +2118,11 @@ A gate against history is figured at seven pass rates against the baseline `hist
 
 **A run's test** (`/api/tests/runs/:id`): the diverged-test banner has `rulesAdded` once the config has its rules. Find breaking commit's choices are the target, good and bad commits, revisions to pick from with their subjects, the check a run is judged by in `expect`, whether it costs tokens, or why it can't start. `before` limits the good commits to runs before it.
 
+**Their estimates** are the engine's for each job as it runs, worked out beside the server:
+
+- `/api/tests/estimates` answers `run` for Run tests, and each golden's `rerun`, `update`, `more` and `normalize` by its path. A golden that runs live in any way is never Free: one marked fork, or with an injection gate, has no estimate until it has run once. Run tests is what each golden it runs live spent the last time it ran.
+- `/api/estimates/bisect` counts the commits with git, as the job would search them. It has no estimate until `good` names a commit. A search the job would refuse has none, with why.
+
 **Your workflow** (`/api/ci/workflows`) takes its options: `fix`, `alerts` and `onlyMain` on or off, `budget` in dollars, `repairer` as `repair --repairer` takes it, `secret` the webhook secret's name, and `inconclusive` fail or warn. It answers with one job that runs the goldens once (`workflow`), what it needs, and for each part its own step and a preview of what lands. Whether the step pushes is no option: it follows Push from CI in `shadowlap.config.json`, read as `/settings/store` reads it (`fixOnFailure.teamStore`).
 
 ### Settings
@@ -2118,10 +2131,13 @@ A gate against history is figured at seven pass rates against the baseline `hist
 | --- | --- |
 | `GET /api/settings/matching`, `/redaction[?run=]`, `/redaction/preview?run=`, `/agents`, `/tools`, `/tools/mcp?command=\|url=`, `/project`, `/store` | Settings, one read per tab; a tab that edits the config also gets its `version` |
 | `POST /api/settings/rules/normalize\|redact`, `DELETE /api/settings/rules/:list/:n?expect=`, `PUT /api/settings/clock`, `PUT /api/settings/store/ci-push`, `POST /api/settings/calibrate/write` | Changes to `shadowlap.config.json`, each with the `version` it read as `expect`; the last adds what a calibrate job proposed |
+| `GET /api/user/spending`, `PUT /api/user/spending { askAbove }` | Spending, yours on every project: the amount above which a billed job asks first; a change answers what it was (`was`), for Undo |
 
 - **`/agents`** also carries `skill`: the [skills](./agents.md#the-skills) with their commands, and what the project has of the Claude Code plugin and of the skills in `.agents/skills`. Each has its `state`, its `installedVersion` and the `install` a click runs (`null` where there is nothing to install). It also says which of Claude Code's settings files turns on the plugin installed from its marketplace.
 - **The preview** masks one run as a pack would (`redact preview --json`, each rule's `returned` and `unmasked` included), read on a thread of its own within limits. A rule that takes too long on one call is a 422; other previews being read, or a store another command holds, a 503.
 - **A change** to a file changed since is a 409, and a rule the CLI refuses a 400.
+- **Spending** (`askAbove`) is in dollars: a billed job asks first when its estimate is above it, so 0 asks of every job that bills. With `null`, Never ask, no amount asks. A job with no estimate still asks, as do a form, a price per unit and a job that asks for what it does, such as Run repair.
+- **Where it is kept**: it is kept in `settings.json` under `SHADOWLAP_HOME` (else `~/.shadowlap`), never in `shadowlap.config.json`, so CI and teammates never take it on. A page showing another project may change it. An amount that isn't whole cents is a 400, and a file it would lose something of, such as a newer Shadowlap's, a 409.
 
 ### Projects and setup
 
@@ -2151,7 +2167,7 @@ A gate against history is figured at seven pass rates against the baseline `hist
 | --- | --- |
 | `GET /api/training?filter=all\|high\|medium` | Training: the strip, the pairs grouped per call with their sources and fixes, the goldens as tasks, and each model's scores |
 | `GET /api/models` | The models to score, each with its price per attempt and last score, and the picker made from them |
-| `GET /api/decisions?kind=decisions\|migrate`, `/api/decisions/:id`, `GET /api/runs/:id/decisions`, `GET /api/retirements` | The [decision diff](./decisions.md): its sessions, one session, a run's decisions, and the retirement notices |
+| `GET /api/decisions?kind=decisions\|migrate`, `/api/decisions/:id`, `/api/decisions/:id/estimates?runId=`, `GET /api/runs/:id/decisions`, `GET /api/retirements` | The [decision diff](./decisions.md): its sessions, one session, what its Verify bills, a run's decisions, and the retirement notices |
 | `GET /api/verdicts?kind=all\|sessions\|previews\|verifies&limit=`, `/api/verdicts/:rev` | Every change checked and its verdict, newest first; a revision's page |
 | `GET /api/injection?run=&golden=&limit=`, `/api/injection/:id`, `/api/injection/:id/report`, `/api/injection/needs-look`, `/api/injection/runs/:id`, `/api/injection/templates`, `/api/injection/tools` | [Injection tests](./injection.md): results, one result, its report, Needs a look, a run's untrusted reads, the templates and the tools |
 | `GET /api/chaos`, `/api/chaos/runs/:id` | [Error-path presets](./error-paths.md): the presets and their matrices; one run's matrix |
@@ -2163,6 +2179,7 @@ A gate against history is figured at seven pass rates against the baseline `hist
 
 - `/api/decisions`: the sessions kept, newest first, with the models the goldens use that retire.
 - `/api/decisions/:id`: one session as `decisions --json` or `migrate --json` printed it, with its `matrix`.
+- `/api/decisions/:id/estimates`: what its Verify bills, worked out beside the server. Each run it couldn't clear, or the one `runId` names, is priced in the role its checks give it as recorded, at what it costs under the change. `verify` is `null` when there is nothing to verify.
 - `/api/runs/:id/decisions`: a run's decisions under each session that asked it again.
 - `/api/retirements`: the retirement notices on their own, for the agent's models, Shadowlap's own judge calls left out.
 

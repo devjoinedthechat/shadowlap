@@ -1152,7 +1152,7 @@ verified against the same run under the code without the candidate, in another w
 | `--expect <json\|@file>` | What a passing run must do besides exiting 0 | — |
 | `--repairer <provider:model>` | The model that proposes fixes (below) | `repair.repairer` in the config |
 | `--repairer-timeout <seconds>` | Give up on the repairer when it hasn't answered after this long | `repair.timeout` in the config, else 600 |
-| `--candidates <n>` | Rewrites to ask for | 3 |
+| `--candidates <n>` | Rewrites to ask for, and the most it tries | 3 |
 | `--stronger <model>` | When the recorded model can't be rescued, rescue with this one and try switching to it, before asking the repairer | — |
 | `--scope <name>`, `--set <key=value>` | As for [`blame`](#blame): which calls to probe, and what probes change, such as `temperature=1` | — |
 | `--gate <json\|@file>` | The gate each candidate's runs are verified by, as for [`verify`](#verify) | `{"good":0.9,"bad":0.7,"risk":0.05,"max":80}` |
@@ -4903,7 +4903,7 @@ These environment variables change what Shadowlap does:
 - **`SHADOWLAP_PR`** is for where Shadowlap doesn't recognise pull requests by itself; it does on GitHub
   Actions and GitLab CI. The build then writes only to that pull request's folder in the
   [team store](./team.md#pull-requests).
-- **`SHADOWLAP_HOME`**: a relative path is ignored, and `~/.shadowlap` holds all of these files
+- **`SHADOWLAP_HOME`**: a relative path is ignored, and `~/.shadowlap` holds all of these files. It holds your dashboard [Spending](./dashboard.md#settings) too, in `settings.json`
   instead, as the dashboard says. Processes that find each other's files there need the same one, so
   give it to `shadowlap mcp` in your MCP client's configuration too ([details](./mcp.md#finding-the-run)).
 - **The proxy variables**: the agent never reaches the sidecar through one. `run`, `replay`, `test` and

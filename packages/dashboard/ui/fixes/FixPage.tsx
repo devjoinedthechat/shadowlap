@@ -26,7 +26,7 @@ import { FailedMust, Flagged } from './parts.js';
 import { RepairStepView } from './RepairStep.js';
 import { useTreeBusy } from './tree.js';
 import { VerifyStepView } from './VerifyStep.js';
-import { ACTIONS, confirmWords } from '../labels.js';
+import { ACTIONS, confirmWords, STRONGER_MODEL } from '../labels.js';
 import { ActionButton } from '../components/ActionButton.js';
 
 /**
@@ -357,7 +357,7 @@ export function StrongerDialog({ fix, onRun, onClose }: { fix: FixDetail; onRun:
       lead="Probes the run again with the model you name answering from each probed call."
       doc="blame"
       label="Model"
-      placeholder="claude-opus-5-5"
+      placeholder={STRONGER_MODEL}
       ok={confirmWords(ACTIONS.runBlameStronger.label)}
       command={(model) => `${base} --model ${model.trim() || '<model>'}`}
       cost={{ price: 'Billed by your provider', parts: [...(s ? [`the last blame took ${s.attempts} attempts, ${approx(s.spent)}`] : []), probesPart()] }}

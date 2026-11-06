@@ -92,7 +92,7 @@ export function register(program: Command): void {
     .option('--expect <json|@file>', 'what a passing run must do besides exiting 0, as under "expect" in shadowlap.config.json tests')
     .option('--repairer <provider:model>', 'the model that proposes fixes: anthropic (claude-opus-5-5), anthropic:<model>, openai:<model>, or claude-code[:<model>] to run your own Claude Code (default: repair.repairer in shadowlap.config.json)')
     .option('--repairer-timeout <seconds>', 'give up on the repairer when it has not answered after this long (default: repair.timeout in shadowlap.config.json, else 600)', parseIntArg)
-    .option('--candidates <n>', 'fixes to ask the repairer for', parseIntArg, 3)
+    .option('--candidates <n>', 'fixes to ask the repairer for, and the most of its answer it tries', parseIntArg, 3)
     .option('--stronger <model>', 'when asking the recorded model again rescues nothing, rescue with this one, and try switching to it')
     .option('--scope <name>', 'blame only model calls made in this scope, such as the agent\'s and not a simulated user\'s')
     .option('--set <key=value>', 'blame\'s probes set this request field from the probed call on, e.g. temperature=1 for an agent recorded at 0 (repeatable)', collect)

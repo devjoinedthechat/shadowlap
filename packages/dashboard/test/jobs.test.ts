@@ -492,3 +492,22 @@ describe('uploads', () => {
     }
   });
 });
+
+describe('a job’s estimate', () => {
+  it('is what the page showed as it started it, kept and shown as it was, and never part of what runs', async () => {
+    const shown = { usd: 0.027, ceiling: false, per: 'attempt', stops: 2, parts: ['live from #17'], always: 'it acts on your systems' };
+    const job = await startJob(dash, { kind: 'fake', mode: 'text-only', estimate: shown });
+    const kept = { usd: 0.027, ceiling: false, per: 'attempt', stops: 2 };
+    expect(job.estimate).toEqual(kept);
+    expect(JSON.stringify(job.args)).not.toMatch(/0\.027|estimate/);
+    expect((await waitJob(dash, job.id)).estimate).toEqual(kept);
+    const listed = ((await (await api(dash, 'jobs')).json()) as { jobs: JobView[] }).jobs.find((j) => j.id === job.id);
+    expect(listed?.estimate).toEqual(kept);
+    // None: a ceiling with no price yet is one, and an estimate in another shape is none, the job started all the same.
+    expect((await startJob(dash, { kind: 'fake', mode: 'text-only', estimate: { usd: null, ceiling: true } })).estimate).toEqual({ usd: null, ceiling: true });
+    for (const junk of [null, 'cheap', { usd: -1, ceiling: false }, { usd: '1', ceiling: true }, { usd: 1 }, { usd: 1, ceiling: 'no' }, { usd: 1, ceiling: false, per: 'x'.repeat(41) }, { usd: 1, ceiling: false, stops: -2 }]) {
+      const started = await startJob(dash, { kind: 'fake', mode: 'text-only', estimate: junk });
+      expect(started.estimate, JSON.stringify(junk)).toBeUndefined();
+    }
+  });
+});
