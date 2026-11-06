@@ -1,7 +1,8 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ApiError, type CallDetail, type CallRow, type JobView } from '../ui/api.js';
-import { EDIT_LIMIT, EditAndFork, editBody, editStart } from '../ui/run/EditAndFork.js';
+import { EditAndFork } from '../ui/run/EditAndFork.js';
+import { EDIT_LIMIT, editBody, editStart } from '../ui/run/EditDialog.js';
 import { Inspector } from '../ui/run/Inspector.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
@@ -60,6 +61,12 @@ const open = async (d: CallDetail, sent: Sent, over: Partial<AppState> = {}) => 
   return r;
 };
 
+/** Presses Edit and fork…, whose dialog is a part of its own: its script loads as the dialog first shows (OnShow.tsx). */
+const edit = async (page: Rendered) => {
+  await page.click(page.byText('button', 'Edit and fork…'));
+  await page.until('the dialog', () => page.all('[role="dialog"]').length === 1);
+};
+
 describe('what the editor opens with and sends', () => {
   it('opens a result as JSON laid out to edit, a string as text, and a person’s answer as its words', () => {
     expect(editStart(detail(), false)).toEqual({ mode: 'json', text: '{\n  "region": "EU",\n  "limit": 100\n}' });
@@ -80,7 +87,7 @@ describe('Edit and fork in the inspector', () => {
   it('opens the result to edit and forks with it: an upload, then the fork the server builds', async () => {
     const sent: Sent = { uploads: [], jobs: [] };
     const page = await open(detail(), sent);
-    await page.click(page.byText('button', 'Edit and fork…'));
+    await edit(page);
     const dialog = page.one('[role="dialog"]');
     expect(dialog.textContent).toContain('Edit and fork #16 lookup_policy');
     const field = page.one('.editfork textarea');
@@ -97,7 +104,7 @@ describe('Edit and fork in the inspector', () => {
   it('can’t fork with what isn’t JSON, and says why', async () => {
     const sent: Sent = { uploads: [], jobs: [] };
     const page = await open(detail(), sent);
-    await page.click(page.byText('button', 'Edit and fork…'));
+    await edit(page);
     const field = page.one('.editfork textarea');
     await page.type(field, '{"limit": 40,');
     const ok = page.byText('.dlg-ok', 'Edit and fork');
@@ -112,7 +119,7 @@ describe('Edit and fork in the inspector', () => {
   it('answers a person differently with words, and offers nothing on a model call', async () => {
     const sent: Sent = { uploads: [], jobs: [] };
     const page = await open(detail({ callNo: 1, name: 'user_input', key: 'u', result: { text: 'Refund it.' } }), sent);
-    await page.click(page.byText('button', 'Edit and fork…'));
+    await edit(page);
     expect(page.one('[role="dialog"]').textContent).toContain('Edit and fork user reply at #1');
     expect(page.all('.editmode')).toEqual([]);
     await page.type(page.one('.editfork textarea'), 'Cancel it instead.');
@@ -142,7 +149,7 @@ describe('Edit and fork in the inspector', () => {
       },
     };
     const page = await open(detail(), sent, { client } as unknown as Partial<AppState>);
-    await page.click(page.byText('button', 'Edit and fork…'));
+    await edit(page);
     await page.type(page.one('.editfork textarea'), '{"region": "EU", "limit": 40}');
     await page.click(page.byText('.dlg-ok', 'Edit and fork'));
     await page.until('the question', () => page.all('[role="dialog"]').some((d) => d.textContent.includes('Run command from imported pack')));
@@ -166,7 +173,7 @@ describe('Edit and fork in the inspector', () => {
     const base = app(sent);
     const client = { ...(base.client as object), startJob: async (_kind: string, fields: Record<string, unknown>) => (asked.push(fields), Promise.reject(new ApiError(409, '01M5GRX8K4 came from the team store: this runs the command it was recorded with (node agent.mjs), under shadowlap replay x. Confirm it to run it', 'feed'.repeat(8)))) };
     const page = await open(detail(), sent, { client } as unknown as Partial<AppState>);
-    await page.click(page.byText('button', 'Edit and fork…'));
+    await edit(page);
     await page.click(page.byText('.dlg-ok', 'Edit and fork'));
     await page.until('the question', () => page.all('[role="dialog"]').some((d) => d.textContent.includes('Run command from team store')));
     await page.click(page.byText('.dlg-cancel', 'Cancel'));
@@ -183,7 +190,7 @@ describe('Edit and fork in the inspector', () => {
 
   it('says so first when the run came from someone else’s pack', async () => {
     const page = await open(detail({ label: 'This run came from an imported pack (goldens/refund); replaying it runs: node agent.mjs. Result for #16 lookup_policy, as JSON:' }), { uploads: [], jobs: [] });
-    await page.click(page.byText('button', 'Edit and fork…'));
+    await edit(page);
     expect(page.one('.dwarn').textContent).toBe('This run came from an imported pack (goldens/refund); replaying it runs: node agent.mjs');
   });
 });
