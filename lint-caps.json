@@ -450,7 +450,7 @@
       "fixBundles": 180
     },
     "packages/dashboard/src/routes/projects.ts": {
-      "register": 239
+      "register": 221
     },
     "packages/dashboard/src/routes/settings.ts": {
       "register": 206
