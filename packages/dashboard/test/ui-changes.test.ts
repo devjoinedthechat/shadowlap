@@ -454,6 +454,24 @@ describe('Verdicts', () => {
     await page!.click(chip('All'));
   });
 
+  it('says a Show more that failed in its button’s place, under the rows it had, and reads on with Retry', async () => {
+    const many = Array.from({ length: 120 }, (_, i) => preview({ id: `dc-${i}`, sessionId: `dc-${i}`, at: AT - i }));
+    const all = { all: 120, sessions: 0, previews: 120, verifies: 0 };
+    let tries = 0;
+    const asked = await open((_kind, limit) => (limit > VERDICTS_STEP && ++tries === 1 ? Promise.reject(new ApiError(500, 'boom')) : Promise.resolve(view(many.slice(0, limit), { counts: all }))));
+    await page!.until('the rows', () => table().length === VERDICTS_STEP);
+    await page!.click(page!.one('button.attn-more'));
+    await page!.until('the error', () => page!.all('.loaderr').length === 1);
+    expect(table()).toHaveLength(VERDICTS_STEP);
+    expect(page!.all('button.attn-more')).toHaveLength(0);
+    expect(shown(page!.one('.loaderr p'))).toContain('answered 500');
+    await page!.click(page!.byText('.loaderr button', 'Retry'));
+    await page!.until('the next rows', () => table().length === 100);
+    expect(page!.all('.loaderr')).toHaveLength(0);
+    expect(asked.map(([, limit]) => limit)).toEqual([50, 100, 100]);
+    await page!.click(chip('All'));
+  });
+
   it('works out each row’s colour, kind line, link and how far Show more reads', () => {
     expect(VERDICTS_MAX).toBe(VERDICTS_WINDOW);
     expect([rowTone('ok'), rowTone('no'), rowTone('y'), rowTone(null)]).toEqual(['ok', 'err', 'warn', 'mu']);

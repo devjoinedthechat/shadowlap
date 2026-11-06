@@ -1,4 +1,4 @@
-import { Fragment, useRef, useState } from 'react';
+import { Fragment, useRef, useState, type ReactNode } from 'react';
 import { ApiError } from '../api.js';
 import { Chips } from '../components/bits.js';
 import { Words } from '../components/Copy.js';
@@ -44,15 +44,17 @@ export function VerdictsTab() {
   if (!loaded.data) return failed ?? <Loading />;
   const { view } = loaded.data;
   if (view.counts.all === 0) return failed ?? <EmptyState title="No change checked yet" text="Each test session CI runs checks the change it was given, and each preview a change you might make. Their verdicts collect here, newest first." copy command="shadowlap test goldens/*" />;
-  // A chip's read that failed leaves another chip's rows: the error stands in their place.
+  // A chip's read that failed leaves another chip's rows: the error stands in their place. A Show
+  // more that failed leaves the rows read: the error, with Retry, stands in its button's place.
   const stale = loaded.data.chip !== chip;
+  const moreFailed = failed && loaded.data.limit < limit ? failed : null;
   return (
     <>
       {view.lead ? <Lead lead={view.lead} /> : null}
       <div className="tbar">
         <Chips label="Kind of check" items={VERDICT_CHIPS.map((c) => ({ ...c, count: view.counts[c.key] }))} value={chip} onChange={(c) => show({ chip: c, limit: VERDICTS_STEP })} />
       </div>
-      {failed && stale ? failed : <Rows view={view} chip={loaded.data.chip} limit={loaded.data.limit} onMore={(n) => show({ chip, limit: n })} />}
+      {failed && stale ? failed : <Rows view={view} chip={loaded.data.chip} limit={loaded.data.limit} moreFailed={moreFailed} onMore={(n) => show({ chip, limit: n })} />}
     </>
   );
 }
@@ -78,7 +80,7 @@ function Lead({ lead }: { lead: SessionVerdict }) {
   );
 }
 
-function Rows({ view, chip, limit, onMore }: { view: VerdictsView; chip: VerdictsKind; limit: number; onMore: (limit: number) => void }) {
+function Rows({ view, chip, limit, moreFailed, onMore }: { view: VerdictsView; chip: VerdictsKind; limit: number; moreFailed: ReactNode; onMore: (limit: number) => void }) {
   const box = useRef<HTMLElement>(null);
   // j and k walk the rows; Enter opens one that leads somewhere.
   const inFocus = useListKeys({
@@ -112,7 +114,7 @@ function Rows({ view, chip, limit, onMore }: { view: VerdictsView; chip: Verdict
           </tbody>
         </table>
       </section>
-      {next !== null ? <ShowMore shown={view.rows.length} total={view.counts[chip]} onMore={() => onMore(next)} /> : view.more ? <p className="muted vdlocal">Older changes than these aren’t listed.</p> : null}
+      {moreFailed ?? (next !== null ? <ShowMore shown={view.rows.length} total={view.counts[chip]} onMore={() => onMore(next)} /> : view.more ? <p className="muted vdlocal">Older changes than these aren’t listed.</p> : null)}
       {view.shared ? null : (
         <p className="muted vdlocal">
           This machine’s test sessions only: CI’s show here once it pushes them to a team store.{' '}
