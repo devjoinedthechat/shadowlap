@@ -96,6 +96,25 @@ describe('a label’s ×', () => {
   });
 });
 
+describe('Fork while the run records', () => {
+  it('says why it waits on its card and on a press, from the keyboard too, where a disabled button’s title never reached', async () => {
+    const said: Said[] = [];
+    const client = { jobs: () => Promise.resolve([]) } as unknown as Client;
+    const app = { client, exported: false, meta: null, tick: 0, runsTick: 0, feeds: {}, jobs: [], live: [], runs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, refresh: () => undefined, toast: (text: string) => void said.push({ text }) } as unknown as AppState;
+    const run = detail([]);
+    const live = { ...run, run: { ...run.run, status: 'running', endedAt: null } } as RunDetail;
+    page = await render(createElement(AppContext.Provider, { value: app }, createElement(RunHeader, { run: live, call: null, selected: 3, rescued: false, offers: null, forkMenu: { open: false, anchor: null, toggle: () => undefined, close: () => undefined } as never, onAction: () => undefined, onFindCommit: () => undefined, labels: [], setLabels: () => undefined })));
+    const fork = page.one('#forkBtn');
+    expect([fork.getAttribute('disabled'), fork.getAttribute('aria-disabled'), fork.getAttribute('title')]).toEqual([null, 'true', null]);
+    expect((JSON.parse(fork.getAttribute('data-tip')!) as { s: string }).s).toBe('Fork once the recording finishes');
+    await page.focus(fork);
+    expect(page.focused()).toBe(fork);
+    await page.press('Enter');
+    await page.click(fork);
+    expect(said.map((x) => x.text)).toContain('Fork once the recording finishes');
+  });
+});
+
 describe('a run page’s Delete', () => {
   /** The Delete a run page confirms, on a server whose deletes answer `answer`: what it sent and what it said. */
   async function deleter(answer: () => Promise<{ deleted: string; attempts?: string[] }>) {

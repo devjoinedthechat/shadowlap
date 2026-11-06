@@ -172,7 +172,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
             {next?.key === 'replay' ? null : <ReplayButton run={run} step={run.replay ?? null} lime={false} onAction={onAction} />}
             <PlainPackAsGolden run={run} offers={offers} next={next} />
             <BlameBesideButton runId={r.runId} step={next} />
-            <ActionButton className="btn" id="forkBtn" aria-haspopup="menu" aria-expanded={forkMenu.open} disabled={live || selected === null} {...offOrCard(live ? 'Fork once the recording finishes' : undefined, selected === null, 'Each change in the menu shows the flag it runs')} onClick={(e) => forkMenu.toggle(e.currentTarget)} {...shortcut('fork')}>
+            <ActionButton className="btn" id="forkBtn" aria-haspopup="menu" aria-expanded={forkMenu.open} why={live ? 'Fork once the recording finishes' : null} disabled={!live && selected === null} {...cardUnlessIdle(selected === null, 'Each change in the menu shows the flag it runs')} onClick={(e) => forkMenu.toggle(e.currentTarget)} {...shortcut('fork')}>
               <Icon name="fork" />
               Fork at #{selected ?? '–'}
               <Icon name="caret" className="caret" />
@@ -200,8 +200,12 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   );
 }
 
-/** A button's hover, as every disabled button's: why it is off, which a browser shows on one; nothing where it is off with no words for why (`idle`); else its card, which says its key. */
-const offOrCard = (off: string | null | undefined, idle: boolean, card: string) => (off ? { title: off } : idle ? {} : { 'data-tip': tipText(card) });
+/**
+ * A button's card, which says its key; none where it is off with no words for why (`idle`, no call
+ * picked). Why it waits (a run still recording) is ActionButton's `why`: a card, a toast on a press,
+ * and a focus, which a disabled button's title never reaches from the keyboard or a touch screen.
+ */
+const cardUnlessIdle = (idle: boolean, card: string) => (idle ? {} : { 'data-tip': tipText(card) });
 
 /**
  * Labels: the good/bad key first (good and bad are its, so no chip says them again), then the other
