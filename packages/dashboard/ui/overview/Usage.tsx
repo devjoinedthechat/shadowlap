@@ -1,6 +1,7 @@
 import { type ReactNode, useId, useRef, useState } from 'react';
 import { Seg } from '../components/bits.js';
 import { tipCard } from '../components/HoverCard.js';
+import { Id } from '../components/Id.js';
 import { Glyph } from '../components/RunIcon.js';
 import { Section } from '../components/Section.js';
 import { glossed } from '../components/Term.js';
@@ -12,6 +13,7 @@ import { href } from '../route.js';
 import { navigate } from '../router.js';
 import type { CacheUse, DaySums, OverviewSummary } from '../types.js';
 import { chartScale, dayText, kindGlyph, originCounts, originRows, share, tickText, usageLine } from './model.js';
+import { useAbouts } from './words.js';
 
 /**
  * Usage, under the rest and folded until asked for: what replaying served, the prompt cache and
@@ -131,6 +133,7 @@ function OriginPart({ origins }: { origins: Readonly<Record<string, number>> }) 
 function CachePart({ cache }: { cache: CacheUse }) {
   const pct = cache.readShare === null ? null : share(cache.readShare, 1);
   const box = useRef<HTMLDivElement>(null);
+  const aboutOf = useAbouts();
   // j and k walk the misses after Recent runs, while Usage is open; Enter opens the call's context.
   const inFocus = useListKeys({ rows: cache.misses, keyOf: (m) => `${m.runId}#${m.callNo}`, root: box, open: (m) => navigate(href.run(m.runId, m.callNo, 'context')) });
   return (
@@ -159,10 +162,13 @@ function CachePart({ cache }: { cache: CacheUse }) {
             {cache.misses.map((m) => {
               const g = kindGlyph(m.kind);
               const key = `${m.runId}#${m.callNo}`;
+              const id = shortId(m.runId);
+              const about = aboutOf(id);
+              // The run's about line on its id's hover; the model and the tokens only for a run the dashboard hasn't listed.
               return (
-                <a key={key} className={inFocus === key ? 'krow' : undefined} data-rowkey={key} href={href.run(m.runId, m.callNo, 'context')} title={`${m.model ? `${m.model} · ` : ''}${num(m.tokens)} tokens sent again`}>
+                <a key={key} className={inFocus === key ? 'krow' : undefined} data-rowkey={key} href={href.run(m.runId, m.callNo, 'context')} title={about ? undefined : `${m.model ? `${m.model} · ` : ''}${num(m.tokens)} tokens sent again`}>
                   <Glyph kind={g.kind} label={g.label} className="ri" />
-                  <code>{shortId(m.runId)}</code>
+                  <Id id={id} list about={about} />
                   <span>
                     #{m.callNo}
                     {m.scope ? ` · ${m.scope}` : ''}

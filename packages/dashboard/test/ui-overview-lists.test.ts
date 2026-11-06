@@ -59,6 +59,24 @@ describe('the Overview’s Usage', () => {
     r = await render(inApp(createElement(Usage, { s: summary })));
     expect(r.all('.ugrid .upart')).toHaveLength(3);
   });
+
+  it('names the run of each call where the cache stopped hitting by its id, its about line on hover, and the model only where the dashboard hasn’t listed the run', async () => {
+    vi.stubGlobal('sessionStorage', { getItem: () => 'open', setItem: () => undefined, removeItem: () => undefined });
+    const misses = [
+      { runId: '01M5GRZNA5QJ8V2W3X4Y5Z6A7B', kind: 'recording', callNo: 17, scope: 'triage', model: 'sonnet-5', tokens: 8200 },
+      { runId: '01M5GS3KT0QJ8V2W3X4Y5Z6A7B', kind: 'fork', callNo: 4, scope: null, model: 'sonnet-5', tokens: 3100 },
+    ];
+    const s = { ...summary, cache: { ...summary.cache, misses, sentAgain: 11300 } } as unknown as OverviewSummary;
+    const runs = [{ runId: misses[0]!.runId, about: { text: 'My blender arrived broken' } }];
+    r = await render(createElement(AppContext.Provider, { value: { ...app(), runs } as unknown as AppState }, createElement(Usage, { s })));
+    const rows = r.all('.leaks > a');
+    // The id as a list draws it, its first characters quieter; the row's own hover only where the id has none.
+    expect(rows.map((a) => [text(a.querySelector('code.rnm.rl')!), a.querySelector('code')!.getAttribute('title'), a.getAttribute('title'), a.querySelectorAll('span').map(text).filter(Boolean).join()])).toEqual([
+      ['01M5GRZNA5', 'My blender arrived broken', null, '#17 · triage'],
+      ['01M5GS3KT0', null, 'sonnet-5 · 3,100 tokens sent again', '#4'],
+    ]);
+    expect(rows.map((a) => a.getAttribute('href'))).toEqual(['#/run/01M5GRZNA5QJ8V2W3X4Y5Z6A7B/17/context', '#/run/01M5GS3KT0QJ8V2W3X4Y5Z6A7B/4/context']);
+  });
 });
 
 describe('Needs a look', () => {
