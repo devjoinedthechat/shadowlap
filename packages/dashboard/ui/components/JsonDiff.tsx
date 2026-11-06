@@ -51,18 +51,25 @@ function DiffLine({ l }: { l: JsonLine }) {
   );
 }
 
-/** Two JSON values' structural diff: `was`, the recording's, against `now`, this run's; or `lines` already walked. */
-export function JsonDiff({ was, now, lines, split = false }: { was?: unknown; now?: unknown; lines?: readonly JsonLine[]; split?: boolean }) {
+/**
+ * Two JSON values' structural diff: `was`, the recording's, against `now`, this run's; or `lines`
+ * already walked. `children`, what is said under it from the lines it drew (Show diff's sentence).
+ */
+export function JsonDiff({ was, now, lines, split = false, children }: { was?: unknown; now?: unknown; lines?: readonly JsonLine[]; split?: boolean; children?: (lines: readonly JsonLine[]) => ReactNode }) {
   const all = useMemo(() => lines ?? jsonDiff(was, now), [lines, was, now]);
-  if (!split) {
-    return (
-      <div className="jd">
-        {all.map((l, i) => (
-          <DiffLine key={i} l={l} />
-        ))}
-      </div>
-    );
-  }
   const cell = (l: JsonLine | null, key: string) => (l ? <DiffLine key={key} l={l} /> : <div key={key} className="jl gap" aria-hidden="true" />);
-  return <div className="jd jds">{splitRows(all).flatMap(([was, now], i) => [cell(was, `${i}-`), cell(now, `${i}+`)])}</div>;
+  return (
+    <>
+      {split ? (
+        <div className="jd jds">{splitRows(all).flatMap(([was, now], i) => [cell(was, `${i}-`), cell(now, `${i}+`)])}</div>
+      ) : (
+        <div className="jd">
+          {all.map((l, i) => (
+            <DiffLine key={i} l={l} />
+          ))}
+        </div>
+      )}
+      {children?.(all)}
+    </>
+  );
 }

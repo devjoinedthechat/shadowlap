@@ -350,3 +350,5 @@ mark.jdw { color: var(--ink); border-radius: var(--r-mark); padding: 0 1px; }
 .jl.gap { min-height: 1.7em; }
 /* A high-contrast theme drops the marks' ground: the words that differ are underlined instead, as a pressed choice is. */
 @media (forced-colors: active) { mark.jdw { text-decoration: underline 2px; text-underline-offset: 2px; } }
+/* What Show diff says under the diff (DiffNotes.tsx): a line a change, then the normalizers' commands in one box. */
+.diffpanel .hint .cmdline { margin-top: 10px; }
