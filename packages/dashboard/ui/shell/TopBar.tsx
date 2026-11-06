@@ -8,12 +8,11 @@ import { shortId } from '../format.js';
 import { knownParent, onParentNoted } from '../parents.js';
 import { setupShowsOn } from '../projects.js';
 import { href, type Route } from '../route.js';
-import { shortcut } from '../shortcuts.js';
 import { useSingleKeys } from '../single-keys.js';
 import { useApp } from '../state.js';
 import { useFixCrumb } from '../fixes/data.js';
 import { HelpMenu } from './HelpMenu.js';
-import { crumbLineage, liveChip } from './top.js';
+import { crumbLineage, liveChip, parentCrumbKey } from './top.js';
 import { unshownKey, useUnshown } from './unshown.js';
 
 /**
@@ -104,7 +103,7 @@ function useFitCrumbs(nav: RefObject<HTMLElement | null>): void {
 export function TopBar({ route }: { route: Route }) {
   const { runs, live, meta, sideOpen, setSideOpen, setPalette, conn, exported, loadedAt } = useApp();
   // The parent's crumb says its key only while single keys are on: drawn again as the switch moves.
-  useSingleKeys();
+  const singleKeys = useSingleKeys();
   const listed = (id: string) => runs?.find((r) => r.runId === id || (id.length >= 10 && r.runId.startsWith(id))) ?? null;
   const shown = route.page === 'run' ? listed(route.id) : null;
   // A run the list leaves out (an attempt bundled under its run, or one older than the newest 500)
@@ -135,7 +134,7 @@ export function TopBar({ route }: { route: Route }) {
       </a>
       <nav className="crumbs" aria-label="Breadcrumb" ref={nav}>
         {crumbs.map((c, i) => {
-          const card = c.parent ? { 'data-tip': tipCard('Open parent run', [], c.tip), ...shortcut('parent') } : {};
+          const card = c.parent ? { 'data-tip': tipCard('Open parent run', [], c.tip), ...parentCrumbKey(singleKeys) } : {};
           const crumb = (
             <>
               {i ? <i aria-hidden="true">/</i> : null}

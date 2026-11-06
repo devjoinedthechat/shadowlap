@@ -14,8 +14,11 @@ import { href, parseRoute } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp, type AppState } from '../state.js';
 import { errorText } from '../toast.js';
-import { RemoveProjectDialog } from './RemoveProject.js';
 import { ActionButton, useActionWait } from '../components/ActionButton.js';
+import { onShow } from '../components/OnShow.js';
+
+/** The Remove dialog. Rarely opened, so its code waits out of the first look until the switcher opens. */
+const RemoveProjectDialog = onShow(() => import('./RemoveProject.js').then((m) => m.RemoveProjectDialog));
 
 /**
  * The project at the top of the sidebar, and the switcher behind it: each project on this machine
@@ -165,7 +168,10 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
         aria-expanded={menu.open}
         title={list?.notice ?? project.notice ?? project.path}
         onClick={(e) => {
-          if (!menu.open) load();
+          if (!menu.open) {
+            load();
+            RemoveProjectDialog.preload();
+          }
           menu.toggle(e.currentTarget);
         }}
       >

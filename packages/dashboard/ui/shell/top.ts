@@ -6,6 +6,15 @@ import { clock, plural, shortId } from '../format.js';
  */
 
 /**
+ * What the parent's crumb spreads to say its key, p, as the keys' table has it (`shortcut('parent')`,
+ * which test/ui-shell.test.ts holds this to): said here so the table stays out of the first look. p is
+ * a single key, so none while they're off. The run page's keys open the parent; the crumb only says so.
+ */
+export function parentCrumbKey(singleKeys: boolean): { 'aria-keyshortcuts'?: string } {
+  return singleKeys ? { 'aria-keyshortcuts': 'p' } : {};
+}
+
+/**
  * The parent a run's crumbs name (Runs / parent / run): the run list's, when it lists the run; else
  * the one in the run's own detail, once its page has loaded it (an attempt, or a run older than the
  * newest 500). An exported copy links only to runs it holds.
