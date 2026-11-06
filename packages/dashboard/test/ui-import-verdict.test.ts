@@ -14,7 +14,7 @@ import { render, type Rendered } from './ui-render.js';
 const RUN = '01M5JEQWA2QMJ3NYD1C687WP08';
 
 function importJob(verdict: string): JobView {
-  return { id: 'b1b2c3d4e5f60718', kind: 'import', title: 'Importing a capture', args: ['import', 'gateway.jsonl'], runId: null, opensRun: true, startedAt: 1_000, done: true, stopped: false, code: 0, newRunId: RUN, lines: ['$ shadowlap import gateway.jsonl', `✓ imported 1 run as ${RUN.slice(0, 10)}: 3 model calls`, verdict], total: 3 } as JobView;
+  return { id: 'b1b2c3d4e5f60718', kind: 'import', title: 'Importing a capture', args: ['import', 'gateway.jsonl'], runId: null, opensRun: true, startedAt: 1_000, done: true, stopped: false, code: 0, newRunId: RUN, lines: ['$ shadowlap import gateway.jsonl', `✓ imported 1 run as ${RUN.slice(0, 10)}: 3 model calls`, verdict], total: 3 };
 }
 
 const app = (j: JobView) => ({ conn: 'ok', exported: false, meta: { version: null, dbPath: null, actions: true, project: null }, runs: [], live: [], loadedAt: 0, runsTick: 0, feeds: {}, jobs: [{ job: j, lines: j.lines, open: true }], actionsOff: null, hasKind: () => false, guard: (fn: () => void) => fn(), toast: () => undefined, closeJob: () => undefined, openJob: () => undefined, sideOpen: false, setSideOpen: () => undefined, setHelp: () => undefined }) as unknown as AppState;
@@ -39,7 +39,7 @@ describe('Import capture’s job, at its end', () => {
       expect(shown?.getAttribute('class') ?? null, line).toBe(tone);
       const lime = r.all('.drawer footer .btn.lime');
       expect(lime.map((a) => a.textContent)).toEqual([`Open run ${RUN.slice(0, 10)}`]);
-      expect(lime[0]!.getAttribute('href')).toBe(`#/run/${RUN}`);
+      expect(lime[0]?.getAttribute('href')).toBe(`#/run/${RUN}`);
       await r.unmount();
       r = null;
     }
