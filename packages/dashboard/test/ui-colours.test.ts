@@ -346,6 +346,7 @@ describe('amber', () => {
     '.dialog .dwarn': 'a dialog’s one line: where it can’t help yet, or what to look at before pressing',
     '.dialog .dfacts .amber dt': 'a row of a dialog that runs someone else’s command: a look',
     '.connbar .cdot': 'the dashboard can’t be reached: a look',
+    '.paloff .cdot': 'the palette’s line saying the server can’t be reached: a look',
     '.status .off': 'the dashboard can’t be reached: a look',
   };
   /** Amber the design rules out that only a later slice can take away, each with the slice that does. */

@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Client } from '../ui/api.js';
-import { palettePlaceholder, PAUSED_HINT } from '../ui/palette.js';
+import { palettePlaceholder } from '../ui/palette.js';
 import type { Route } from '../ui/route.js';
 import { Palette } from '../ui/shell/Palette.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -75,13 +75,17 @@ describe('Search or jump to, as the dashboard stands', () => {
     const setPalette = vi.fn();
     r = await render(createElement(AppContext.Provider, { value: app({ conn: 'offline', client: { startJob } as unknown as Client, toast, setPalette }) }, createElement(Palette, { route: OVERVIEW })));
     expect(placeholder(r)).toBe('Search runs and pages');
-    // The job waits, dimmed, its reason as its hint; what isn't a job stays as it was.
+    // The job waits, dimmed, with its own hint; what isn’t a job stays as it was.
     expect(actions(r)).toEqual([
-      ['Run tests', PAUSED_HINT, true],
+      ['Run tests', 'shadowlap test goldens/*', true],
       ['Keyboard shortcuts', 'every key, by where it works', false],
     ]);
     const tests = r.all('.palit').find((el) => el.textContent.startsWith('Run tests'))!;
     expect(tests.getAttribute('aria-disabled')).toBe('true');
+    // It keeps its hint and says paused at its right; the line under the field says why, once.
+    expect(tests.querySelector('.paltag')?.textContent).toBe('paused');
+    expect(r.all('.paloff').map((el) => el.textContent)).toEqual(['Offline: actions paused until the dashboard server is back.']);
+    expect(r.one('.palin input').getAttribute('aria-describedby')).toBe('palOff');
     await r.click(tests);
     expect(startJob).not.toHaveBeenCalled();
     expect(toast).toHaveBeenCalledWith('Paused until the dashboard server is back');

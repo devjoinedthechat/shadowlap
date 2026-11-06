@@ -7,9 +7,9 @@ import { Icon } from '../components/Icon.js';
 import { isMac } from '../dom.js';
 import { dropRowScope, rowScopeNow, type RowScope, type RowStep } from '../list-keys.js';
 import { ACTIONS } from '../labels.js';
-import { callName, shortId } from '../format.js';
+import { callName, plural, shortId } from '../format.js';
 import { jobRunning } from '../job-title.js';
-import { blameAsksOnItsPage, blameEntries, highlight, INDEXING_RETRY_MS, indexingNote, limitRecorded, matchPalette, palettePlaceholder, PAUSED_HINT, pickRefusal, RECORDED_MIN_CHARS, runsById, runsToAskFor, snippetParts, words } from '../palette.js';
+import { blameAsksOnItsPage, blameEntries, highlight, INDEXING_RETRY_MS, indexingNote, limitRecorded, matchPalette, palettePlaceholder, pickRefusal, RECORDED_MIN_CHARS, runsById, runsToAskFor, snippetParts, words } from '../palette.js';
 import { addPaletteSource, onPaletteSourcesChanged, paletteSources } from '../palette-sources.js';
 // The pages' actions and Tests, so a fresh palette lists them before their pages have loaded.
 import '../palette-actions.js';
@@ -21,6 +21,7 @@ import { rowStep } from '../run/row-step.js';
 import { goKeyColumn, keyColumn } from '../shortcuts.js';
 import { singleKeysOn } from '../single-keys.js';
 import { useApp, type AppState, type PaletteCommand } from '../state.js';
+import { announce } from '../toast.js';
 import { paletteTestsAsk, startTestsJob } from '../tests-ask.js';
 
 /**
@@ -197,7 +198,8 @@ function PaletteRow({ x, n, q, at, paused, id, moved, pick }: { x: PaletteComman
           x.label
         )}
       </span>
-      <RowHint x={x} q={q} paused={paused} />
+      <RowHint x={x} q={q} />
+      {paused ? <span className="paltag">paused</span> : null}
       <RowKeys own={x.key} active={n === at} />
     </div>
   );
@@ -299,17 +301,10 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
   useEffect(() => {
     list.current?.querySelector('.palit.on')?.scrollIntoView({ block: 'nearest' });
   }, [at, shown.length]);
+  useSayCount(q, shown.length);
 
-  // Without the server, a job's entry stays in its place, dimmed: picked, it says why nothing runs.
   const offline = app.conn === 'offline';
-  const pick = (n: number) => {
-    const x = shown[n];
-    if (!x) return;
-    const refused = pickRefusal(x, offline);
-    if (refused) return app.toast(refused);
-    close();
-    x.run();
-  };
+  const pick = (n: number) => pickRow(shown[n], { offline, toast: app.toast, close });
 
   const groups = inGroups(shown);
   const optionId = (n: number) => `palopt-${n}`;
@@ -331,6 +326,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
             aria-expanded={shown.length > 0}
             aria-controls={shown.length ? 'palList' : undefined}
             aria-activedescendant={shown.length ? optionId(at) : undefined}
+            aria-describedby={offline ? 'palOff' : undefined}
             onChange={(e) => {
               setQ(e.target.value);
               setI(0);
@@ -364,6 +360,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
             Esc
           </span>
         </label>
+        {offline ? <OfflineLine /> : null}
         <div className={`pallist${byKeys ? ' kb' : ''}`} ref={list}>
           {shown.length ? (
             <div id="palList" role="listbox" aria-label="Results">
@@ -415,10 +412,44 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
   );
 }
 
-/** A row's hint at its right: paused, a run's about line, what a recorded hit matched, or any other hint. */
-function RowHint({ x, q, paused }: { x: PaletteCommand & { snippet?: string }; q: string; paused: boolean }) {
-  // A job's entry while the server can't be reached: paused, in place of its hint.
-  if (paused) return <span className="ph2">{PAUSED_HINT}</span>;
+/** Runs a picked row, closing the palette. Without the server, a job's row stays in its place, dimmed: picked, it says why nothing runs; so does one waiting on a job. */
+function pickRow(x: PaletteCommand | undefined, o: { offline: boolean; toast: (text: string) => void; close: () => void }): void {
+  if (!x) return;
+  const refused = pickRefusal(x, o.offline);
+  if (refused) return o.toast(refused);
+  o.close();
+  x.run();
+}
+
+/**
+ * Each word typed says how many rows it found, in the one polite live region: as the words change,
+ * not as later rows (recorded data, an older run) arrive. None found says so in the list's own
+ * status, so it isn't said twice; opening the palette says nothing.
+ */
+function useSayCount(q: string, count: number): void {
+  const typedOnce = useRef(false);
+  useEffect(() => {
+    if (!typedOnce.current) {
+      typedOnce.current = true;
+      return;
+    }
+    if (count) announce(plural(count, 'result'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- said as the words change, not as later rows arrive
+  }, [q]);
+}
+
+/** Why a job's row waits, said once under the field, which it describes: each such row keeps its hint and says paused. */
+function OfflineLine() {
+  return (
+    <p className="paloff" id="palOff">
+      <span className="cdot" aria-hidden="true" />
+      Offline: actions paused until the dashboard server is back.
+    </p>
+  );
+}
+
+/** A row's hint at its right: a run's about line, what a recorded hit matched, or any other hint. */
+function RowHint({ x, q }: { x: PaletteCommand & { snippet?: string }; q: string }) {
   // A run's about line as its hint, fitted to the rest of the row, the search word marked where it still is.
   if (x.about) return <AboutLine about={x.about as { text: string; from: 'user' }} className="ph2" mark={words(q).find((w) => x.about!.text.toLowerCase().includes(w)) ?? null} />;
   // Any other hint (a command, a list) is cut only at its end after a whole word: an id in it is whole or left out.
