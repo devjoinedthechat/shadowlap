@@ -160,6 +160,8 @@ table.gt button.gev[aria-expanded="true"] .cr { transform: rotate(180deg); }
 
 /* the evidence under its golden's row: why its gate stopped, the line, the attempts, what each attempt weighs */
 table.gt tr.gevrow td { padding: 2px 18px 18px 12px; }
+/* no line between a golden's row and its evidence under it */
+table.gt tr.open td { border-bottom-color: transparent; }
 .gevx { max-width: 760px; }
 .gevx .lead { margin: 0 0 14px; color: var(--ink); font-size: 13.5px; line-height: 1.5; text-wrap: pretty; }
 .gevx .receipt { margin-top: 10px; }
@@ -197,6 +199,13 @@ table.gt tr.gevrow td { padding: 2px 18px 18px 12px; }
 .evx { position: relative; height: 15px; margin: 7px 112px 0 0; font: 11px var(--mono); color: var(--faint); }
 .evx span { position: absolute; top: 0; left: 0; white-space: nowrap; }
 .evx span.r { left: auto; right: 0; }
+/* on a phone the line keeps more of the width, its bounds' labels closer to it (at the 11px floor, not the mock's 10px) */
+@media (max-width: 640px) {
+  table.gt tr.gevrow td { padding: 2px 14px 16px; }
+  .evl, .evx { margin-right: 110px; }
+  .evw.tall .evl { height: 104px; }
+  .evl .eb { left: calc(100% + 10px); }
+}
 .gfoot { padding: 10px 18px 12px; border-top: 1px solid var(--line); display: grid; gap: 6px; color: var(--faint); font-size: 12px; }
 .gfoot p { margin: 0; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .gfoot .chip { flex: none; }

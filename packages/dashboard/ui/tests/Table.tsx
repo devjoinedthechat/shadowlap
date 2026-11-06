@@ -54,12 +54,16 @@ export function GoldensTable({ view, press }: { view: TestsView; press?: LeadPre
             </tr>
           </thead>
           <tbody>
-            {view.rows.map((row) => (
-              <Fragment key={row.path}>
-                <GoldenTr row={row} rowKey={keyOf(row)} focused={inFocus === keyOf(row)} showHistory={history} open={open.has(row.path)} onToggle={() => toggle(row.path)} now={view.following?.goldens[row.path]} />
-                {open.has(row.path) && gated(row.last.gate) ? <EvidenceRow row={row} g={row.last.gate} span={history ? 4 : 3} press={press} inc={view.inconclusive.find((v) => v.golden === row.path)} /> : null}
-              </Fragment>
-            ))}
+            {view.rows.map((row) => {
+              const g = row.last.gate;
+              const shows = open.has(row.path) && gated(g);
+              return (
+                <Fragment key={row.path}>
+                  <GoldenTr row={row} rowKey={keyOf(row)} focused={inFocus === keyOf(row)} showHistory={history} open={shows} onToggle={() => toggle(row.path)} now={view.following?.goldens[row.path]} />
+                  {shows ? <EvidenceRow row={row} g={g} span={history ? 4 : 3} press={press} inc={view.inconclusive.find((v) => v.golden === row.path)} /> : null}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -72,7 +76,7 @@ function GoldenTr({ row, rowKey, focused, showHistory, open, onToggle, now }: { 
   const source = sourceText(row);
   const last = row.last;
   return (
-    <tr className={[row.runId ? '' : 'still', focused ? 'krow' : ''].join(' ').trim() || undefined} data-rowkey={rowKey} {...(row.runId ? rowOpen(() => navigate(href.run(row.runId!))) : {})}>
+    <tr className={[row.runId ? '' : 'still', focused ? 'krow' : '', open ? 'open' : ''].filter(Boolean).join(' ') || undefined} data-rowkey={rowKey} {...(row.runId ? rowOpen(() => navigate(href.run(row.runId!))) : {})}>
       <td className="gg">
         <code className="gn">{row.runId ? <a className="rowa" href={href.run(row.runId)}>{row.name}</a> : row.name}</code>
         <span className="gmeta">

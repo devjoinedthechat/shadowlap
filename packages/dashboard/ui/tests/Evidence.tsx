@@ -40,6 +40,8 @@ export function EvidenceToggle({ g, name, open, onToggle }: { g: GateShown; name
   const marks = g.kind === 'sprt' ? [g.bad, g.good] : baseline ? [baseline.at - baseline.drop, baseline.at] : [];
   const w = g.words;
   const id = evidenceId(name);
+  // The bar is a picture: these words are what the button shows, and its name holds them.
+  const against = g.kind === 'sprt' ? `against ${rate2(g.bad)} and ${rate2(g.good)}` : 'against its baseline';
   return (
     <button
       type="button"
@@ -47,12 +49,12 @@ export function EvidenceToggle({ g, name, open, onToggle }: { g: GateShown; name
       data-ev={id}
       aria-expanded={open}
       {...(open ? { 'aria-controls': id } : {})}
-      aria-label={`${open ? 'Hide' : 'Show'} why it stopped at attempt ${g.attempts}`}
+      aria-label={`${open ? 'Hide' : 'Show'} why it stopped at attempt ${g.attempts}, ${against}`}
       data-tip={w ? tipCard(`${name} · ${w.head}`, w.row ? [{ label: w.row[0], value: w.row[1], color: 'var(--faint)' }] : [], w.tip) : undefined}
       onClick={onToggle}
     >
       <IntervalBar lo={g.interval.lo} hi={g.interval.hi} marks={marks} tone={toneOf(g.decision)} />
-      <small>{g.kind === 'sprt' ? `against ${rate2(g.bad)} and ${rate2(g.good)}` : 'against its baseline'}</small>
+      <small>{against}</small>
       <Icon name="caret" className="cr" />
     </button>
   );

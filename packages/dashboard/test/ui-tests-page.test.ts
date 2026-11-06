@@ -241,12 +241,14 @@ describe('a gated golden’s evidence', () => {
     const gate = { ...decided, tally: '12 of 12', perAttempt: null, more: null, words: evidenceWords(decided, 3) };
     const page = await open([], GOLDENS, (v) => ({ ...v, rows: v.rows.map((row) => (row.path === 'goldens/passes' ? { ...row, last: { ...row.last, gate } } : row)) }));
     const bar = page.one('button.gev');
-    expect([bar.getAttribute('aria-expanded'), bar.getAttribute('aria-label'), one(bar, 'small').textContent]).toEqual(['false', 'Show why it stopped at attempt 12', 'against .70 and .90']);
+    expect([bar.getAttribute('aria-expanded'), bar.getAttribute('aria-label'), one(bar, 'small').textContent]).toEqual(['false', 'Show why it stopped at attempt 12, against .70 and .90', 'against .70 and .90']);
     expect(JSON.parse(bar.getAttribute('data-tip')!)).toMatchObject({ t: 'passes · passed at attempt 12', s: 'the score after each attempt: a pass adds 0.25, a failure −1.10; it passes at +3.00 and fails at −3.00', rows: [['pass^5', gate.words!.passK, 'var(--faint)']] });
     evidenceAsked.length = 0;
     await page.click(bar);
     await page.until('the attempts', () => page.all('tr.gevrow .alist').length === 1);
     const row = page.one('tr.gevrow');
+    // No line between the golden's row and its evidence: the row is open while the evidence shows.
+    expect(page.all('table.gt tbody tr.open').map((tr) => one(tr, 'code.gn').textContent)).toEqual(['passes']);
     const why = 'Stopped at attempt 12: the score reached +3.02, past +3.00, where it passes.';
     expect([one(row, 'p.lead').textContent, one(row, '.evl').getAttribute('aria-label'), one(row, 'td').props.colSpan]).toEqual([why, why, 4]);
     expect(all(row, '.eb').map((e) => e.textContent)).toEqual(['passes at +3.00', 'fails at −3.00']);
@@ -258,7 +260,7 @@ describe('a gated golden’s evidence', () => {
     await page.focus(one(row, '.alist a'));
     expect(pageUp.current?.()).toBe(true);
     await page.until('the evidence to close', () => page.all('tr.gevrow').length === 0);
-    expect(page.one('button.gev').getAttribute('aria-expanded')).toBe('false');
+    expect([page.one('button.gev').getAttribute('aria-expanded'), page.all('table.gt tbody tr.open').length]).toEqual(['false', 0]);
     expect(page.focused()).toBe(page.one("button.gev"));
     expect(pageUp.current?.()).toBe(false);
   });
