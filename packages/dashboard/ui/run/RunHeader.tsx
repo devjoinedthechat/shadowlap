@@ -12,10 +12,9 @@ import { headingRef } from '../focus-manager.js';
 import { shortcut } from '../shortcuts.js';
 import { dur, shortId, stamp, wholeCounts } from '../format.js';
 import { href } from '../route.js';
-import { navigate } from '../router.js';
 import { headerStatus, isFailed, runType } from '../runs.js';
-import { bulkToast } from '../runspage/bulk.js';
 import { DeleteRunDialog } from './RunDialogs.js';
+import { pendingRunOf, useDeleteRun } from './delete-run.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { ForkMenu, type PendingAction } from './actions.js';
@@ -54,7 +53,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   onMark?: ((m: RunMark, from?: HTMLElement) => void) | null;
 }) {
   const app = useApp();
-  const { exported, toast, client, guard, refresh, hasKind } = app;
+  const { exported, toast, client, guard, hasKind } = app;
   const r = run.run;
   // The page's labels when it keeps them (the good/bad key changes them too), else the run's, kept here.
   const [own, setOwn] = useState<string[] | null>(null);
@@ -69,6 +68,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   const tag = preset ? presetTag(preset) : headerStatus(like);
   const share = useMenu();
   const [deleting, setDeleting] = useState(false);
+  const deleteRun = useDeleteRun();
   const next = nextStepOf(run);
   const lead = next ? <NextStepButton key={next.key} run={run} step={next} offers={offers} onAction={onAction} onFindCommit={onFindCommit} /> : null;
   // The lineage is in the crumbs; a phone, which has none, reads the parent here, after the kind.
@@ -193,16 +193,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
           runId={r.runId}
           attempts={run.attempts ?? 0}
           onClose={() => setDeleting(false)}
-          onOk={() => {
-            client.remove(r.runId).then(
-              (out) => {
-                toast(bulkToast({ verb: 'Deleted', done: [r.runId], of: 1, skipped: [], attempts: out.attempts?.length ?? 0 }));
-                refresh();
-                navigate(href.runs());
-              },
-              (err: unknown) => toast(errorText(err), 'error'),
-            );
-          }}
+          onOk={() => deleteRun(pendingRunOf(run, offers))}
         />
       ) : null}
     </section>

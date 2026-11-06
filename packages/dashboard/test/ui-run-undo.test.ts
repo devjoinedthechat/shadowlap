@@ -1,14 +1,21 @@
 import { createElement, useState } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Client } from '../ui/api.js';
+import { pendingHidden } from '../ui/pending-delete.js';
+import { href } from '../ui/route.js';
+import { navigate } from '../ui/router.js';
+import { useDeleteRun } from '../ui/run/delete-run.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { ToastAction } from '../ui/toast.js';
 import type { RunDetail } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
+vi.mock('../ui/router.js', async (original) => ({ ...(await original<typeof import('../ui/router.js')>()), navigate: vi.fn() }));
+
 /**
- * Undo on a run's page: a label's × takes the label off at once, hands the focus to Add label where
+ * Undo on a run's page: Delete takes the run off the lists and goes to Runs, sending the delete only
+ * once its toast goes, so Undo sends nothing; a label's × takes the label off at once, hands the focus to Add label where
  * the × had it, and its toast's Undo puts the label back; a removal the server refuses puts the
  * labels back as they were.
  */
@@ -86,5 +93,65 @@ describe('a label’s ×', () => {
     await page!.until('the labels back', () => h.chips().length === 2);
     expect(h.chips()).toEqual(['what-if', 'refund']);
     expect(h.said.at(-1)!.text).toBe('The store is read-only');
+  });
+});
+
+describe('a run page’s Delete', () => {
+  /** The Delete a run page confirms, on a server whose deletes answer `answer`: what it sent and what it said. */
+  async function deleter(answer: () => Promise<{ deleted: string; attempts?: string[] }>) {
+    const said: Said[] = [];
+    const sent: string[] = [];
+    const client = { remove: (id: string) => (sent.push(id), answer()) } as unknown as Client;
+    const app = { client, refresh: () => undefined, toast: (text: string, _tone?: string, action?: ToastAction) => void said.push({ text, action }) } as unknown as AppState;
+    let del: ReturnType<typeof useDeleteRun> | null = null;
+    const Host = () => {
+      del = useDeleteRun();
+      return null;
+    };
+    page = await render(createElement(AppContext.Provider, { value: app }, createElement(Host)));
+    return { said, sent, del: del! };
+  }
+  const pending = (runId: string) => ({ runId, chips: ['recording'], attempts: 2, startedAt: 1 });
+
+  it('takes the run off the lists and goes to Runs, deleting nothing until its toast goes', async () => {
+    const id = '01M5JEQWB0QMJ3NYD1C687WP08';
+    const d = await deleter(() => Promise.resolve({ deleted: id, attempts: ['a1', 'a2'] }));
+    d.del(pending(id));
+    expect(vi.mocked(navigate)).toHaveBeenLastCalledWith(href.runs());
+    expect(pendingHidden().has(id)).toBe(true);
+    expect(d.sent).toEqual([]);
+    const toast = d.said.at(-1)!;
+    expect(toast.text).toBe('Deleted 01M5JEQWB0 and 2 attempts');
+    expect(toast.action).toMatchObject({ label: 'Undo', undo: true });
+    // Its time out: the delete goes once, and the toast isn't said again.
+    toast.action!.onGone!(false);
+    await page!.until('the delete sent', () => d.sent.length === 1);
+    expect(d.sent).toEqual([id]);
+    expect(d.said).toHaveLength(1);
+  });
+
+  it('sends nothing after Undo, and puts the run back', async () => {
+    const id = '01M5JEQWB1QMJ3NYD1C687WP08';
+    const d = await deleter(() => Promise.resolve({ deleted: id }));
+    d.del(pending(id));
+    const toast = d.said.at(-1)!;
+    // Pressed, the toast goes first, then Undo's own work runs.
+    toast.action!.onGone!(true);
+    toast.action!.run();
+    await page!.wait(10);
+    expect(d.sent).toEqual([]);
+    expect(pendingHidden().has(id)).toBe(false);
+    expect(d.said.at(-1)!.text).toBe('Restored 01M5JEQWB1');
+  });
+
+  it('sends the delete when the toast’s × closes it, and says why the server refused one, the run back', async () => {
+    const id = '01M5JEQWB2QMJ3NYD1C687WP08';
+    const d = await deleter(() => Promise.reject(new Error('the run is still recording')));
+    d.del(pending(id));
+    d.said.at(-1)!.action!.onGone!(true);
+    await page!.until('the refusal', () => d.said.length === 2);
+    expect(d.sent).toEqual([id]);
+    expect(d.said.at(-1)!.text).toBe('The run is still recording');
+    expect(pendingHidden().has(id)).toBe(false);
   });
 });
