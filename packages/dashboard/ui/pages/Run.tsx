@@ -372,7 +372,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
             {v === 'calls' ? <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={select} onFork={openForkAt} onNeed={need} tree={tree} folded={folded} onFold={fold} /> : null}
             {v === 'turns' ? <TurnsView calls={scopedCalls} selected={selected} scoped={scoped} onSelect={select} /> : null}
             {v === 'context' ? <ContextView run={run} calls={scopedCalls} selected={selected} onSelect={select} /> : null}
-            {v === 'timeline' ? <TimelineView calls={scopedCalls} selected={selected} scoped={scoped} onSelect={select} /> : null}
+            {v === 'timeline' ? <TimelineView calls={scopedCalls} selected={selected} scoped={scoped} byKind={kinds} onSelect={select} /> : null}
             {v === 'forks' ? <ForksView runId={runId} /> : null}
             {v === 'provenance' ? <ProvenanceView run={run} selected={selected} /> : null}
           </div>

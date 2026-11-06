@@ -717,7 +717,7 @@ What the misses tell you:
 
 ### Timeline view
 
-Timeline shows every call on a clock, colored by origin, scope by scope, with the first token of streamed responses marked. It shows how long model calls and tools took, the longest call, and what ran at once.
+Timeline shows every call on a clock, scope by scope, colored by origin, or on a recording by what each call was, in the strip's key, with the first token of streamed responses marked. It shows how long model calls and tools took, the longest call, and what ran at once.
 
 ### Forks view
 
