@@ -102,6 +102,7 @@
     "packages/dashboard/test/ui-presets.test.ts",
     // These render the run header and read which runs are attempts through the run page's modules.
     "packages/dashboard/test/ui-run-header.test.ts",
+    "packages/dashboard/test/ui-run-kinds.test.ts",
     "packages/dashboard/test/run-roles.test.ts",
     // This renders the skip link, the palette, a menu, a dialog and the card a refused link shows.
     "packages/dashboard/test/ui-focus.test.ts",
