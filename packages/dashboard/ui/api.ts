@@ -9,11 +9,12 @@ import { noteParent } from './parents.js';
 import { noProjects, noteRefusal, projectHeader, projectsApi, showProject, type ProjectsApi } from './projects-api.js';
 import { readTokenLink } from './route.js';
 import { holdWhile, Revalidation } from './revalidate.js';
+import { changesApi, type ChangesApi } from './changes-api.js';
 import { noSettings, settingsApi, type Request, type SettingsApi } from './settings-api.js';
 import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js';
 import type { CallDetail, CallsPage, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView, TrainingView } from './types.js';
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, OverviewWarming, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
-import type { DecisionSessionDetail, DecisionsListView, NextStep, RetirementsView, RunDecisionsView } from './types.js';
+import type { NextStep } from './types.js';
 import type { ChaosMatrix, ChaosView, CoverageView } from './types.js';
 import type { FixAttemptGroups } from '../src/attempt-groups.js';
 import type { ForkDifferences } from '../src/fork-differences.js';
@@ -140,7 +141,7 @@ export function tokenInUse(): string | null {
 
 // ---------------------------------------------------------------------------------------------- client
 
-export interface Client {
+export interface Client extends ChangesApi {
   /** An exported copy: answers come from the file, nothing changes. */
   exported: boolean;
   meta(): Promise<Meta>;
@@ -254,15 +255,6 @@ export interface Client {
   /** The models Score a model offers, each priced (`/api/models`). It asks providers, so it can take a second. */
   models(): Promise<ModelsView>;
 
-  // ---- The decision diff (`/api/decisions`)
-  /** The decisions and migrate sessions kept, newest first, and the goldens' models that retire. */
-  decisionSessions(kind?: 'decisions' | 'migrate'): Promise<DecisionsListView>;
-  /** One session whole, by its id (`dc-…`, `mg-…`): its report and its matrix. */
-  decisionSession(id: string): Promise<DecisionSessionDetail>;
-  /** A run's decisions under each session that asked its model calls again, for its Decisions view. */
-  runDecisions(runId: string): Promise<RunDecisionsView>;
-  /** The models the goldens use that retire, by the table that ships with Shadowlap. */
-  retirements(): Promise<RetirementsView>;
   // ---- Error-path presets and production coverage
   /** The last coverage scan: what imported runs did, and which behaviours no golden covers (`/api/coverage`); null on a server without it. */
   coverage(): Promise<CoverageView | null>;
@@ -507,10 +499,7 @@ export function createClient(token: string): Client {
     projects: projectsApi(request),
     training: () => request<TrainingView>('training'),
     models: () => request<ModelsView>('models'),
-    decisionSessions: (kind) => request<DecisionsListView>(`decisions${kind ? `?kind=${kind}` : ''}`),
-    decisionSession: (sessionId) => request<DecisionSessionDetail>(`decisions/${id(sessionId)}`),
-    runDecisions: (runId) => request<RunDecisionsView>(`runs/${id(runId)}/decisions`),
-    retirements: () => request<RetirementsView>('retirements'),
+    ...changesApi(request),
     // A server without the routes answers 404: nothing to show, rather than an error.
     coverage: () => request<CoverageView>('coverage').catch((err: unknown) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
     chaos: () => request<ChaosView>('chaos').catch((err: unknown) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
@@ -613,9 +602,11 @@ export function createExportedClient(data: StaticPayload): Client {
     projects: noProjects(readOnly),
     training: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Training is not part of it')),
     models: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Training is not part of it')),
-    // The decision diff is not part of an exported copy.
+    // The decision diff and Verdicts are not part of an exported copy.
     decisionSessions: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
     decisionSession: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
+    verdicts: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
+    verdictRevision: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
     runDecisions: () => Promise.resolve({ runId: '', sessions: [] }),
     retirements: () => Promise.resolve({ version: '', notices: [] }),
     coverage: () => Promise.resolve(null),

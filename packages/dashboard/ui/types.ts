@@ -523,6 +523,8 @@ export type { RetirementNotice } from '../../engine/src/model-retirements.js';
 export type DecisionSessionDetail = Record<string, unknown> & { kind: 'decisions' | 'migrate'; matrix: import('../src/decisions.js').DecisionRow[] };
 /** A run's decisions under each session that asked it again, newest first. */
 export type RunDecisionsView = ReturnType<typeof import('../src/decisions.js').runDecisions>;
+// Changes › Verdicts (`/api/verdicts`): every change checked, and the verdict it got.
+export type { PreviewVerdict, SessionVerdict, VerdictGolden, VerdictRevision, VerdictRow, VerdictsKind, VerdictsView, VerdictWord, VerifyVerdict } from '../src/verdicts.js';
 
 // ---- Compare (#/compare/<a>/<b>): two runs compared, with what git says about the code between them (src/compare.ts) ----
 export type { CodeChange } from '../src/compare.js';
