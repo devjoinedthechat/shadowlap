@@ -52,7 +52,7 @@ describe('a failed check, in the CLI’s words', () => {
 
   it('heads the failed banner of a run with it, the fenced count exact', () => {
     const base: BannerInput = { status: 'completed', type: 'recording', divergence: null, intervention: null, rescued: null, blame: null, notRecorded: null, checks: [check], fix: null, upstreamRequests: 4, calls: planted };
-    expect(bannerFor(base)).toMatchObject({ kind: 'failed', why: 'check failed: send_email called 1 time, but called 2 times (2 blocked) · not blamed yet' });
+    expect(bannerFor(base)).toMatchObject({ kind: 'failed', lead: 'send_email called 1 time, but called 2 times (2 blocked)', why: 'not blamed yet' });
   });
 
   it('says a tool’s fenced calls exactly', () => {

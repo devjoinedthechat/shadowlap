@@ -96,14 +96,14 @@ describe('a preset’s attempt', () => {
     expect(bannerFor({ ...input, preset: presetAttempt(matrix, UNSURE) })!).toMatchObject({ verdict: 'inconclusive', why: 'provider 500 preset on goldens/list-inbox, attempt 1 of 1 · writes stubbed · the replay never reached #3, so the preset was never played in' });
   });
 
-  it('draws the banner whole: it wraps rather than cut its words, the verdict word first in its colour', () => {
+  it('draws the banner whole: it wraps rather than cut its words, and leaves its verdict to the first fact', () => {
     const run = attemptRun();
     const html = renderToStaticMarkup(
       createElement(AppContext.Provider, { value: appState() }, createElement(Banner, { run, blame: null, rescued: null, checks: [], offers: null, showDiff: false, onToggleDiff: () => undefined, onSelect: () => undefined, onAction: () => undefined, preset: presetAttempt(matrix, ATTEMPT) })),
     );
     expect(html).toContain('<section class="banner fork wrap"><span class="bk">forked at</span><button class="bn" type="button">#2</button>');
     // Its tally kept whole where the line wraps.
-    expect(html).toContain('<span class="why"><em class="no">failed</em> · tool timeout preset on goldens/list-inbox, attempt 1\u00a0of\u00a01: list_inbox (#2) timed out, played in by the preset · writes stubbed</span>');
+    expect(html).toContain('<span class="why">tool timeout preset on goldens/list-inbox, attempt 1\u00a0of\u00a01: list_inbox (#2) timed out, played in by the preset · writes stubbed</span>');
     expect(html).toContain('<a class="more" href="#/tests" title="list-inbox on Tests">Tests →</a>');
     // Never a line cut at the banner's end.
     expect(html).not.toContain('…');

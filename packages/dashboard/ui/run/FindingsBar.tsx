@@ -37,9 +37,10 @@ import { NoteFinding } from './RunNotes.js';
 /**
  * One line: the explanation gives way first, a whole part (between its " · ") at a time, the rest
  * said by " · …" and shown in full on hover; a part too long alone is cut with "…". The flag that
- * made a fork, when it is part of the line, is set as code.
+ * made a fork, when it is part of the line, is set as code. A lead, what the outcome stands on, comes
+ * first in ink and never gives way.
  */
-function Why({ children, code }: { children: string; code?: string | readonly string[] | null }) {
+function Why({ children, code, lead }: { children: string; code?: string | readonly string[] | null; lead?: string | undefined }) {
   const ref = useRef<HTMLSpanElement>(null);
   const parts = children.split(' · ');
   // How many parts the line shows: all of them, until it is measured too long for its room.
@@ -49,8 +50,8 @@ function Why({ children, code }: { children: string; code?: string | readonly st
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.title = children;
-    if (count > 1 && el.scrollWidth > el.clientWidth + 1) setFit({ text: children, count: count - 1 });
+    el.title = lead ? `${lead} · ${children}` : children;
+    if (count > (lead ? 0 : 1) && el.scrollWidth > el.clientWidth + 1) setFit({ text: children, count: count - 1 });
   });
   // A room that grows may take the parts back: the line is measured again from the whole of it.
   useLayoutEffect(() => {
@@ -65,9 +66,15 @@ function Why({ children, code }: { children: string; code?: string | readonly st
     watch.observe(room);
     return () => watch.disconnect();
   }, [children]);
-  const text = count < parts.length ? `${parts.slice(0, count).join(' · ')} · …` : children;
+  const text = count < parts.length ? [...parts.slice(0, count), '…'].join(' · ') : children;
   return (
     <span className="why" ref={ref}>
+      {lead ? (
+        <>
+          <span className="lead">{said(lead, code)}</span>
+          {GLUED_SEPARATOR}
+        </>
+      ) : null}
       {said(text, code)}
     </span>
   );
@@ -229,19 +236,16 @@ function RecordingFinding({ s }: { s: Slot }) {
 }
 
 /**
- * An error-path preset's attempt: where it forked, its verdict word first in the verdict's colour,
- * then what was done. It wraps rather than cut its words; a golden's leads back to its presets on Tests.
+ * An error-path preset's attempt: where it forked, then what was done; the first fact says its verdict.
+ * It wraps rather than cut its words; a golden's leads back to its presets on Tests.
  */
 function PresetFinding({ b, x, s }: { b: Of<'preset'>; x: Draw; s: Slot }) {
   return (
     <section className={cls('fork wrap', s)}>
       <span className="bk">forked at</span>
       {b.callNo !== null ? x.call(b.callNo) : null}
-      <span className="why">
-        <em className={b.verdict === 'failed' ? 'no' : b.verdict === 'inconclusive' ? 'inc' : 'ok'}>{b.verdict}</em>
-        {/* A tally never breaks inside: "attempt 1 of 6". */}
-        {` · ${b.why.replace(/(\d+) of (\d+)/g, '$1\u00a0of\u00a0$2')}`}
-      </span>
+      {/* A tally never breaks inside: "attempt 1 of 6". */}
+      <span className="why">{b.why.replace(/(\d+) of (\d+)/g, '$1\u00a0of\u00a0$2')}</span>
       {b.golden ? (
         <span className="end">
           <a className="more" href={href.tests()} title={`${goldenName(b.golden)} on Tests`}>
@@ -255,8 +259,8 @@ function PresetFinding({ b, x, s }: { b: Of<'preset'>; x: Draw; s: Slot }) {
 }
 
 /**
- * An attempt, as the design draws every one: how it came out first, in its colour, then what was
- * asked again with which attempt it is, and the writes; the whole line wraps rather than cut a word.
+ * An attempt, as the design draws every one: what was asked again with which attempt it is, and the
+ * writes (the first fact says how it came out); the whole line wraps rather than cut a word.
  * Then the way back to where it counted (its probe, its verdict) and to its bundle; the fork blame
  * rescued a run with leads to its fix.
  */
@@ -267,11 +271,7 @@ function AttemptFinding({ b, x, s }: { b: Of<'attempt'>; x: Draw; s: Slot }) {
     <section className={cls('fork wrap', s)}>
       <span className="bk">{b.callNo !== null ? 'forked at' : 'replayed'}</span>
       {b.callNo !== null ? x.call(b.callNo) : null}
-      <span className="why">
-        <em className={b.outcome.tone}>{b.outcome.text}</em>
-        {GLUED_SEPARATOR}
-        {said(b.why, b.flag)}
-      </span>
+      <span className="why">{said(b.why, b.flag)}</span>
       <span className="end">
         {b.diff ? x.diffToggle : null}
         {b.of === 'rescued' ? fixLink(x, 'blame') : null}
@@ -369,8 +369,8 @@ function FailedFinding({ b, x, s }: { b: Of<'failed'>; x: Draw; s: Slot }) {
   const end = b.fix ? fixLink(x) : b.blamed ? null : runBlame(x);
   return (
     <section className={cls(bannerSeverity(b) === 1 ? 'inc' : 'blame', s)}>
-      <span className="bk">{b.label ?? 'failed'}</span>
-      <Why>{b.why}</Why>
+      {b.label ? <span className="bk">{b.label}</span> : null}
+      <Why lead={b.lead}>{b.why}</Why>
       {end ? <span className="end">{end}</span> : null}
       {s.more}
     </section>
@@ -494,9 +494,9 @@ export function Banner(p: BannerProps) {
 const NO_NOTES: readonly RunNote[] = [];
 
 /**
- * A test that diverged: where, on what, and its golden's jobs (useDivergedJobs) where the header
- * doesn't lead with them. Once the rule is in the config, the finding says so and links the replay
- * that passed.
+ * A test that diverged: what the value that changed looks like or why it came, in ink (the outcome
+ * says where), on what, its path, and its golden's jobs (useDivergedJobs) where the header doesn't
+ * lead with them. Once the rule is in the config, the finding says so and links the replay that passed.
  */
 function DivergedFinding({ b, x, s }: { b: Of<'diverged'>; x: Draw; s: Slot }) {
   const { run, test, leads, onAction } = x;
@@ -506,10 +506,7 @@ function DivergedFinding({ b, x, s }: { b: Of<'diverged'>; x: Draw; s: Slot }) {
   const add = jobs.acts.normalizer;
   return (
     <section className={cls('blame', s)}>
-      <span className="bk">diverged at</span>
-      {x.call(b.callNo)}
-      <code>{run.run.divergence?.name ?? ''}</code>
-      <Why>{b.why}</Why>
+      <Why lead={b.lead} code={b.name}>{`${b.name} · ${b.why}`}</Why>
       {b.path ? <span className="path">~ {test?.volatile?.path ?? test?.cause ?? b.path}</span> : null}
       <span className="end">
         {add?.kind === 'added' ? (

@@ -44,7 +44,7 @@ export function bannerSeverity(b: Banner): Severity {
   }
 }
 
-/** A banner in a few words: its label, as the bar draws it. */
+/** A banner in a few words: its label, as the bar draws it, or what it leads with where it has none. */
 export function bannerSays(b: Banner): string {
   switch (b.kind) {
     case 'preset':
@@ -52,7 +52,7 @@ export function bannerSays(b: Banner): string {
     case 'attempt':
       return b.callNo !== null ? 'forked at' : 'replayed';
     case 'diverged':
-      return 'diverged at';
+      return b.lead;
     case 'fork':
       return 'forked at';
     case 'lost':
@@ -60,7 +60,7 @@ export function bannerSays(b: Banner): string {
     case 'not-recorded':
       return 'not recorded';
     case 'failed':
-      return b.label ?? 'failed';
+      return b.label ?? b.lead ?? 'failed';
     default:
       return b.kind;
   }

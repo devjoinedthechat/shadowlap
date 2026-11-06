@@ -673,8 +673,6 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 .findings .rnote { border-top: 1px solid var(--line); }
 .findings .banner .bk, .findings .rnote .bk, .findings .fdiff h2 { font: 600 13.5px var(--body); letter-spacing: 0; text-transform: none; }
 .findings .banner.fork .bk, .findings .banner.fork .bn, .findings .banner.live .bk, .findings .fdiff h2 { color: var(--ink); }
-/* a label that names what ran is ink too: the verdict word after it carries the colour */
-.findings .banner .bk:has(+ .why > em:first-child) { color: var(--ink); }
 /* a finding under an outcome that already gives its verdict leads with what the verdict stands on, in ink, and no label */
 .findings .banner .why .lead { color: var(--ink); }
 .findings .fx, .findings:not(.open) .fbody { display: none; }

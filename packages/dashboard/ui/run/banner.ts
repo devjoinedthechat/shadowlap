@@ -124,7 +124,8 @@ export type Banner =
   | { kind: 'recording' }
   /** An attempt's banner: where it forked, its verdict word first, then what was done (`presetWhy`), and Tests → for a golden's. */
   | { kind: 'preset'; callNo: number | null; verdict: PresetAttempt['verdict']; why: string; golden: string | null }
-  | { kind: 'diverged'; callNo: number; name: string; why: string; path: string | null; normalizer: boolean; diff: boolean }
+  /** `lead`: what the change looks like, or why it came; `why`: what came before it. The outcome says where it diverged. */
+  | { kind: 'diverged'; callNo: number; name: string; lead: string; why: string; path: string | null; normalizer: boolean; diff: boolean }
   /**
    * An attempt, in the design's one grammar: its verdict (`outcome`, drawn first in its colour), then
    * `why`: what was asked again with which attempt it is, how the writes after it went, and for one
@@ -143,7 +144,11 @@ export type Banner =
    * `label`: how a blame that placed the failure on no call stands, in the engine's word
    * (blameStateWord): `stopped` and `inconclusive` need a look (amber), `not rescued` is a failure.
    */
-  | { kind: 'failed'; why: string; fix: { id: string; status: string; title: string } | null; blamed: boolean; label?: BlameState };
+  /**
+   * `lead`: what failed, which the outcome's `check failed` or `exited` stands on, said first in ink; `why`: how its blame
+   * stands. A blame that placed the failure on no call says its word as the label instead, the failure in its `why`.
+   */
+  | { kind: 'failed'; lead?: string; why: string; fix: { id: string; status: string; title: string } | null; blamed: boolean; label?: BlameState };
 
 /** What made a fork diverge, in words. */
 export const DIVERGED: Readonly<Record<string, string>> = {
@@ -509,10 +514,10 @@ function presetBanner(i: BannerInput, p: PresetAttempt): Banner {
   return { kind: 'preset', callNo: i.divergence?.callNo ?? p.callNo, verdict: p.verdict, why, golden: p.golden };
 }
 
-/** A test that left its recording: where, on what, and what the value that changed looks like. */
+/** A test that left its recording: what the value that changed looks like, or why it came, then what came before it. */
 function divergedBanner(i: BannerInput, d: NonNullable<BannerInput['divergence']>): Banner {
-  const looks = i.volatile?.looks ? `this looks like ${i.volatile.looks}` : d.hints?.[0]?.message;
-  return { kind: 'diverged', callNo: d.callNo, name: d.name, why: `${beforeFork(d, i.calls)}${looks ? ` · ${looks}` : ''}`, path: d.diff?.[0]?.path ?? null, normalizer: true, diff: !!d.diff?.length };
+  const lead = i.volatile?.looks ? `this looks like ${i.volatile.looks}` : (d.hints?.[0]?.message ?? DIVERGED[d.type] ?? d.type);
+  return { kind: 'diverged', callNo: d.callNo, name: d.name, lead, why: beforeFork(d, i.calls), path: d.diff?.[0]?.path ?? null, normalizer: true, diff: !!d.diff?.length };
 }
 
 /**
@@ -571,7 +576,7 @@ function failedBanner(i: BannerInput): Banner | null {
   // Blame needs a run that fails again as recorded: one with no model call, or one stopped, never does.
   const unblamable = i.modelCalls === 0 ? 'no model call to blame' : i.status === 'crashed' && !i.checks.some(checkFailed) ? 'blame needs a run that ended on its own' : null;
   const state = i.fix ? (i.fix.status === 'open' ? `no change yet for “${i.fix.title}”` : `fixed: “${i.fix.title}”, ${i.fix.status}`) : (unblamable ?? 'not blamed yet');
-  return { kind: 'failed', why: `${failure} · ${state}`, fix: i.fix, blamed: !!b };
+  return { kind: 'failed', lead: failure.replace(/^check failed: /, ''), why: state, fix: i.fix, blamed: !!b };
 }
 
 /**

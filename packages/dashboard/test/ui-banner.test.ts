@@ -96,8 +96,8 @@ describe('the run’s banner', () => {
   });
 
   it('says what a diverged test looks like, and what a failed check found', () => {
-    expect(bannerFor({ ...base, type: 'test', divergence: { ...fork, callNo: 3, replayedBefore: 2 }, volatile: { looks: 'a date' } })).toMatchObject({ kind: 'diverged', why: '2 calls replayed before it · this looks like a date' });
-    expect(bannerFor({ ...base, checks: [{ label: 'send_email called 0 times', ok: false, detail: 'called 1 time' }] })).toMatchObject({ kind: 'failed', why: 'check failed: send_email called 0 times, but called 1 time · not blamed yet' });
+    expect(bannerFor({ ...base, type: 'test', divergence: { ...fork, callNo: 3, replayedBefore: 2 }, volatile: { looks: 'a date' } })).toMatchObject({ kind: 'diverged', lead: 'this looks like a date', why: '2 calls replayed before it' });
+    expect(bannerFor({ ...base, checks: [{ label: 'send_email called 0 times', ok: false, detail: 'called 1 time' }] })).toMatchObject({ kind: 'failed', lead: 'send_email called 0 times, but called 1 time', why: 'not blamed yet' });
     expect(failedCheckText({ label: 'at most 12 model calls' })).toBe('check failed: at most 12 model calls');
     // The line under the run's id and the banner say it as the CLI does: what was expected, but what happened.
     expect(failureText({ status: 'completed', checks: [{ label: 'send_email called 0 times', ok: false, detail: 'called 1 time' }], blame: null })).toBe('check failed: send_email called 0 times, but called 1 time');
@@ -114,10 +114,10 @@ describe('the run’s banner', () => {
     expect(fixCheckText('send_email called twice', calls)).toBe('check failed: “send_email called twice”');
     expect(failureText({ status: 'crashed', checks: [], blame: null })).toBe('the run was interrupted');
     // A run that made no model call has nothing for blame to ask again.
-    expect(bannerFor({ ...base, status: 'failed', modelCalls: 0 })).toMatchObject({ kind: 'failed', why: 'the agent exited with an error · no model call to blame' });
-    expect(bannerFor({ ...base, status: 'failed', modelCalls: 3 })).toMatchObject({ kind: 'failed', why: 'the agent exited with an error · not blamed yet' });
+    expect(bannerFor({ ...base, status: 'failed', modelCalls: 0 })).toMatchObject({ kind: 'failed', lead: 'the agent exited with an error', why: 'no model call to blame' });
+    expect(bannerFor({ ...base, status: 'failed', modelCalls: 3 })).toMatchObject({ kind: 'failed', lead: 'the agent exited with an error', why: 'not blamed yet' });
     // Nor has a run that was stopped: blame needs one that fails again as recorded.
-    expect(bannerFor({ ...base, status: 'crashed', modelCalls: 3 })).toMatchObject({ kind: 'failed', why: 'the run was interrupted · blame needs a run that ended on its own' });
+    expect(bannerFor({ ...base, status: 'crashed', modelCalls: 3 })).toMatchObject({ kind: 'failed', lead: 'the run was interrupted', why: 'blame needs a run that ended on its own' });
     expect(failureText({ status: 'completed', checks: [{ label: 'x', ok: true }], blame: null })).toBeNull();
   });
 
@@ -126,7 +126,7 @@ describe('the run’s banner', () => {
     expect(bannerFor({ ...base, type: 'fork', divergence: fork, rescued: { callNo: 5 } })).toEqual({ kind: 'attempt', of: 'rescued', callNo: 5, outcome: { tone: 'ok', text: 'passed' }, why: 'rescued #5: the model was asked #5 again, the request as recorded · writes stubbed', flag: null, diff: true });
     // A rescue that names no call asked again the call it forked at.
     expect(bannerFor({ ...base, type: 'fork', divergence: fork, rescued: { callNo: null } })).toMatchObject({ kind: 'attempt', of: 'rescued', callNo: fork.callNo, why: `rescued #${fork.callNo}: the model was asked #${fork.callNo} again, the request as recorded · writes stubbed` });
-    expect(bannerFor({ ...base, type: 'test', divergence: { ...fork, callNo: 1, replayedBefore: 0, hints: [{ message: 'this looks like a per-run id', normalizer: {} }] } })).toMatchObject({ kind: 'diverged', callNo: 1, why: '0 calls replayed before it · this looks like a per-run id', normalizer: true });
+    expect(bannerFor({ ...base, type: 'test', divergence: { ...fork, callNo: 1, replayedBefore: 0, hints: [{ message: 'this looks like a per-run id', normalizer: {} }] } })).toMatchObject({ kind: 'diverged', callNo: 1, lead: 'this looks like a per-run id', why: '0 calls replayed before it', normalizer: true });
   });
 
   it('says where blame lost a run, as model call k of m in its scope', () => {
@@ -159,10 +159,10 @@ describe('the run’s banner', () => {
   });
 
   it('says a run failed: with its fix, not blamed yet, or blamed without a call to name', () => {
-    expect(bannerFor({ ...base, checks: [{ label: 'send_email called once', ok: false }] })).toEqual({ kind: 'failed', why: 'check failed: send_email called once · not blamed yet', fix: null, blamed: false });
+    expect(bannerFor({ ...base, checks: [{ label: 'send_email called once', ok: false }] })).toEqual({ kind: 'failed', lead: 'send_email called once', why: 'not blamed yet', fix: null, blamed: false });
     const fix = { id: 'fx-2', status: 'open', title: 'Confirmation email sent twice' };
-    expect(bannerFor({ ...base, status: 'failed', fix })).toMatchObject({ why: 'the agent exited with an error · no change yet for “Confirmation email sent twice”', fix });
-    expect(bannerFor({ ...base, status: 'failed', fix: { ...fix, status: 'verified' } })).toMatchObject({ why: 'the agent exited with an error · fixed: “Confirmation email sent twice”, verified' });
+    expect(bannerFor({ ...base, status: 'failed', fix })).toMatchObject({ lead: 'the agent exited with an error', why: 'no change yet for “Confirmation email sent twice”', fix });
+    expect(bannerFor({ ...base, status: 'failed', fix: { ...fix, status: 'verified' } })).toMatchObject({ lead: 'the agent exited with an error', why: 'fixed: “Confirmation email sent twice”, verified' });
     // A blame that placed it on no call says how it stands as its label, in the engine's word, and what that stands on.
     expect(bannerFor({ ...base, status: 'crashed', blame: { callNo: null, outcome: 'unrescuable' } })).toEqual({ kind: 'failed', why: 'from any model call · the run was interrupted', fix: null, blamed: true, label: 'not rescued' });
     expect(bannerFor({ ...base, blame: { callNo: null, outcome: 'stopped' } })).toMatchObject({ why: 'blame confirmed it fails · before it found the call', blamed: true, label: 'stopped' });
@@ -185,7 +185,7 @@ describe('the run’s banner, from the state the run list shares', () => {
     expect(bannerFor({ ...cut, callCount: 1 })).toMatchObject({ why: 'stopped before it ended: Ctrl-C, a kill or a crash · the call it made is kept' });
     expect(bannerFor({ ...cut, callCount: 0 })).toMatchObject({ why: 'stopped before it ended: Ctrl-C, a kill or a crash · no call made yet' });
     // One that failed a check before it stopped failed: that comes first.
-    expect(bannerFor({ ...cut, interrupted: false, failed: true, outcome: { kind: 'check-failed', check: 'send_email called once' }, checks: [{ label: 'send_email called once', ok: false }] })).toMatchObject({ kind: 'failed', why: 'check failed: send_email called once · not blamed yet' });
+    expect(bannerFor({ ...cut, interrupted: false, failed: true, outcome: { kind: 'check-failed', check: 'send_email called once' }, checks: [{ label: 'send_email called once', ok: false }] })).toMatchObject({ kind: 'failed', lead: 'send_email called once', why: 'not blamed yet' });
   });
 
   it('shows no failure the server does not count, such as an agent that exited 1 on an answer --fail-at injected', () => {
@@ -201,7 +201,7 @@ describe('the run’s banner, from the state the run list shares', () => {
     });
     expect(bannerFor({ ...forked, outcome: { kind: 'check-failed', check: 'at most 29000 input tokens' }, failed: true, modelCalls: 14, checks: [{ label: 'at most 29000 input tokens', ok: false, detail: '38337 input tokens' }] })).toMatchObject({
       kind: 'failed',
-      why: 'check failed: at most 29000 input tokens, but 38337 input tokens · not blamed yet',
+      lead: 'at most 29000 input tokens, but 38337 input tokens', why: 'not blamed yet',
     });
     // Held to its recording, where it diverged is what it failed on.
     expect(bannerFor({ ...forked, outcome: { kind: 'diverged' }, failed: true })).toMatchObject({ kind: 'diverged', callNo: 3 });
@@ -212,7 +212,7 @@ describe('the run’s banner, from the state the run list shares', () => {
     const fix = { id: 'fx-1', status: 'verified', title: 'Refunds above the limit issued without approval' };
     expect(bannerFor({ ...base, outcome: { kind: 'check-failed', check: 'issue_refund never called with {"amount":240}' }, failed: true, fix, calls })).toEqual({
       kind: 'failed',
-      why: 'check failed: issue_refund with {"amount":240} called 0 times, but called 1 time · fixed: “Refunds above the limit issued without approval”, verified',
+      lead: 'issue_refund with {"amount":240} called 0 times, but called 1 time', why: 'fixed: “Refunds above the limit issued without approval”, verified',
       fix,
       blamed: false,
     });

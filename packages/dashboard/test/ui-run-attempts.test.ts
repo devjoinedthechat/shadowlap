@@ -259,7 +259,7 @@ describe('an attempt', () => {
     expect(attemptLinks({ run: { runId: 'V2' }, fix: null }, { kind: 'verify', k: 4, n: null, role: 'good' })).toEqual([{ href: '#/run/V2/forks', label: 'Forks →' }]);
   });
 
-  it('draws its verdict first, in its colour, on a line that wraps, with its links and no Run blame', async () => {
+  it('draws what was asked again on a line that wraps, leaving its verdict to the first fact, with its links and no Run blame', async () => {
     const run = detail({
       runId: '01M5GRW4YMYK6SK2VFC2XFKCDA',
       parent: REFUND,
@@ -278,10 +278,9 @@ describe('an attempt', () => {
     const offers = { blame: { from: 'run', failed: ['issue_refund with {"amount":240} called 0 times'] }, test: null } as unknown as RunOffers;
     page = await render(createElement(AppContext.Provider, { value: app() }, createElement(Banner, props(run, { offers }))));
     expect(page.one('.banner.fork.wrap .bk').textContent).toBe('forked at');
-    // The verdict first, then each part held to the one before by a no-break space, so a wrapped line never starts with a dot.
-    expect(page.one('.banner .why').textContent).toBe('failed\u00a0· resampled #1, attempt\u00a01\u00a0of\u00a08: the model was asked #1 again, the request as recorded\u00a0· writes stubbed');
-    expect(page.one('.banner .why em').className).toBe('no');
-    expect(page.one('.banner .why em').textContent).toBe('failed');
+    // What was asked again, each part held to the one before by a no-break space, so a wrapped line never starts with a dot.
+    expect(page.one('.banner .why').textContent).toBe('resampled #1, attempt\u00a01\u00a0of\u00a08: the model was asked #1 again, the request as recorded\u00a0· writes stubbed');
+    expect(page.all('.banner .why em')).toHaveLength(0);
     expect(page.all('.banner .end a').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
       ['Probe #1 →', '#/fixes/fx-01M5GRW7X3/blame'],
       ['All 8 attempts →', '#/run/01M5GRW4YMYK6SK2VFC2XFKCDA/forks'],

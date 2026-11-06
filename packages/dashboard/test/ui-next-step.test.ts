@@ -136,7 +136,9 @@ describe('the run page’s next step', () => {
     const { a, started } = jobs();
     page = await render(both(failed, offers, a));
     expect(lime(page)).toEqual(['Run blame']);
-    expect(page.one('.banner .bk').textContent).toBe('failed');
+    // The outcome says it failed: the finding leads, in ink and with no label, with what failed.
+    expect(page.all('.banner .bk')).toHaveLength(0);
+    expect(page.one('.banner .why .lead').textContent).toBe('the agent exited with an error');
     expect(page.all('.banner button').some((b) => b.textContent === 'Run blame')).toBe(false);
     const lead = page.byText('.rhead .actions button', 'Run blame');
     expect(tip(lead)).toMatchObject({ t: 'Run blame', s: 'Find the model call where this run was lost, on its exit status: a passing run exits 0', rows: [['Costs', 'At most ≈$10.88', '']], cmd: `$ shadowlap blame ${REC.slice(0, 10)}` });
