@@ -3,7 +3,7 @@ import { cents, durLong, num } from '../format.js';
 import { ORIGIN_CODE, ORIGIN_NAME, type Origin7 } from '../origins.js';
 import { href } from '../route.js';
 import type { GlyphKind } from '../runs.js';
-import type { ActivityIcon, FixesFunnel, NeedsLookRow, OverviewSummary, TestsTile } from '../types.js';
+import type { ActivityIcon, FixesFunnel, OverviewSummary, TestsTile } from '../types.js';
 
 /**
  * What the Overview says, worked out from the server's summary: the outcome strip's lines, the
@@ -91,16 +91,37 @@ export function overviewFacts(o: OverviewSummary['outcomes'], fixes: Pick<FixesF
   ];
 }
 
-/** The word before a Needs a look row's arrow: its step's label, or Open with none, and for any step but a link on a dashboard that runs nothing (read-only). */
-export function needsLookAction(row: Pick<NeedsLookRow, 'step'>, actionsOff: string | null): string {
-  const s = row.step;
-  if (!s || (actionsOff && s.of !== 'link')) return 'Open';
-  return s.of === 'run' ? s.step.label : s.of === 'fix' ? s.lead.label : s.label;
+/** A piece of a row's words: plain, kept whole (`nw`), or a run's short id, named as every run is. */
+export interface KeptPart {
+  text: string;
+  kind: 'text' | 'nw' | 'id';
 }
 
-/** What tells a Needs a look row from the others, as React keys it: the key the server gives it, `attn:<what>:<what its step acts on>`. */
-export function needsLookKey(row: Pick<NeedsLookRow, 'key'>): string {
-  return row.key;
+const NB = '\u00a0';
+
+/**
+ * A Needs a look row's words in the pieces a wrapping line keeps together, as the mock keeps them: a
+ * tally (`8 of 72`, `search called 3 times`), a model with what uses it (`used by`), a date with its
+ * verb (`retires on Nov 30, 2026`) and a dot with the word before it, joined by no-break spaces; a
+ * hyphenated name kept whole, so a golden's name never breaks at its hyphens; and a run's short id
+ * as a piece of its own, for its about line on hover. No DOM here: the tests import it.
+ */
+export function keepParts(text: string): KeptPart[] {
+  const kept = text
+    .replace(/(\S+) called (\d+) (times?)\b/g, `$1${NB}called${NB}$2${NB}$3`)
+    .replace(/ · /g, `${NB}· `)
+    .replace(/\bused by /g, `used${NB}by `)
+    .replace(/(\d+) of (\d+)/g, `$1${NB}of${NB}$2`)
+    .replace(/([a-z]+) on ([A-Z][a-z]{2}) (\d{1,2})(, \d{4})?/g, (_m, w: string, mo: string, d: string, y?: string) => `${w}${NB}on${NB}${mo}${NB}${d}${y ? `,${NB}${y.slice(2)}` : ''}`);
+  const parts: KeptPart[] = [];
+  let at = 0;
+  for (const m of kept.matchAll(/\b01[0-9A-Z]{8}\b|[^\s(]*\w-\w[^\s)]*/g)) {
+    if (m.index > at) parts.push({ text: kept.slice(at, m.index), kind: 'text' });
+    parts.push({ text: m[0], kind: /^01[0-9A-Z]{8}$/.test(m[0]) ? 'id' : 'nw' });
+    at = m.index + m[0].length;
+  }
+  if (at < kept.length) parts.push({ text: kept.slice(at), kind: 'text' });
+  return parts;
 }
 
 /** A run's kind as Recent runs' hover names it, a test's attempt a test replay: `clean replay`, `fork @17`, `test replay`, `capture`, `recording`. */
@@ -201,15 +222,6 @@ export function activityLine(text: string, ref: string | null | undefined): { te
     if (text.includes(id)) return { text, code: null };
   }
   return { text, code };
-}
-
-/** Needs a look shows three, then "Show N more" opens the rest. */
-export const NEEDS_LOOK_SHOWN = 3;
-
-/** The lines Needs a look shows, and what its button says: the lines it would open, every one of them sent. */
-export function needsLookShown(items: readonly NeedsLookRow[], open: boolean): { rows: readonly NeedsLookRow[]; more: string | null } {
-  if (items.length <= NEEDS_LOOK_SHOWN) return { rows: items, more: null };
-  return open ? { rows: items, more: 'Show fewer' } : { rows: items.slice(0, NEEDS_LOOK_SHOWN), more: `Show ${num(items.length - NEEDS_LOOK_SHOWN)} more` };
 }
 
 /** Who did something, in the activity feed and the By column: an email by its name part, CI as `ci`. */

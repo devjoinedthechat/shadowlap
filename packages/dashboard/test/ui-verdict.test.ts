@@ -4,7 +4,8 @@ import { gateResult, Store, type TestResultData } from '@shadowlap/engine';
 import { testsView, type GoldenSource } from '../src/tests.js';
 import type { Client, TestsView } from '../ui/api.js';
 import { dotParts, IntervalBar } from '../ui/components/Verdict.js';
-import { ActivityCard, NeedsLook } from '../ui/overview/panels.js';
+import { NeedsLook } from '../ui/overview/NeedsLook.js';
+import { ActivityCard } from '../ui/overview/panels.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { ForksView } from '../ui/run/ForksView.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -69,18 +70,19 @@ describe('the interval’s bar', () => {
 
 describe('Needs a look and Activity', () => {
   const gated: NeedsLookRow = { kind: 'test', icon: 'fail', title: 'A test failed: eval-pushy', detail: 'failed · 4 of 8 · rate <= 0.78 (95%)', rule: RULE, key: 'attn:failed:goldens/eval-pushy', group: 'failing', step: null, href: '#/tests', runId: null, fixId: null, at: 1 };
-  const plain: NeedsLookRow = { kind: 'unblamed', icon: 'fail', title: 'A run failed: 01M5GRZKRY', detail: 'Write this week’s refund digest · not blamed yet', key: 'attn:unblamed:01M5GRZKRY', group: 'failing', step: { of: 'run', runId: '01M5GRZKRY', step: { key: 'blame', label: 'Run blame' } as never }, href: '#/run/01M5GRZKRY', runId: '01M5GRZKRY', fixId: null, at: 2 };
+  const plain: NeedsLookRow = { kind: 'unblamed', icon: 'fail', title: 'A run failed: 01M5GRZKRY', detail: 'Write this week’s refund digest · not blamed yet', key: 'attn:unblamed:01M5GRZKRY', group: 'failing', step: null, href: '#/run/01M5GRZKRYAAAAAAAAAAAAAAAA', runId: '01M5GRZKRYAAAAAAAAAAAAAAAA', fixId: null, at: 0 };
 
-  // Needs a look reads whether actions run here (a read-only dashboard's lines say Open): here they do.
+  // Needs a look reads whether actions run here (a read-only dashboard's steps say Open): here they do, and no row has a job.
   const inApp = (el: ReturnType<typeof createElement>) => createElement(AppContext.Provider, { value: { actionsOff: null } as unknown as AppState }, el);
+  const words = (t: string | null | undefined) => (t ?? '').replace(/\u00a0/g, ' ');
 
   it('says a gate’s verdict whole, each figure unbroken, with its rule on the row’s hover', async () => {
     r = await render(inApp(createElement(NeedsLook, { items: [gated, plain], total: 2 })));
-    const [row, other] = r.all('.attn a');
+    const [row, other] = r.all('.attn a.at');
     const d = row.querySelector('.d')!;
     expect(d.className).toBe('d gv');
-    expect(d.textContent).toBe('failed · 4 of 8 · rate <= 0.78 (95%)');
-    expect(d.querySelectorAll('.nw').map((s) => s.textContent)).toEqual(['failed ·', '4 of 8 ·', 'rate <= 0.78 (95%)']);
+    expect(words(d.textContent)).toBe('failed · 4 of 8 · rate <= 0.78 (95%)');
+    expect(d.querySelectorAll('.nw').map((s) => words(s.textContent))).toEqual(['failed ·', '4 of 8 ·', 'rate <= 0.78 (95%)']);
     // The rule is on the hover, under the golden, and in no line.
     expect(tip(row)?.t).toBe('eval-pushy');
     expect(tip(row)?.s?.replace(/\u00a0/g, ' ')).toBe(RULE);
@@ -90,17 +92,14 @@ describe('Needs a look and Activity', () => {
     expect(tip(other)).toBeNull();
   });
 
-  it('fits a failed run’s about line to one line before what is left to do, never clamping it mid-word', async () => {
+  it('names a run by its short id, with its about line on hover, never cut', async () => {
     const about = { text: 'Write this week’s refund digest, grouped by region, and post it to #refunds before the Monday review with the leads', from: 'user' as const };
-    r = await render(inApp(createElement(NeedsLook, { items: [{ ...plain, detail: 'not blamed yet', about }], total: 1 })));
-    const d = r.one('.attn a .d');
-    expect(d.className).toBe('d ab');
-    // The about line is a line the fitter fits at whole words (about.ts), with all of it on hover.
-    const line = d.querySelector('.rab')!;
-    expect([line.getAttribute('data-about'), line.getAttribute('data-from'), line.getAttribute('title')]).toEqual([about.text, 'user', about.text]);
-    // Then what is left to do, whole, after its dot.
-    expect(d.querySelector('.abs')!.textContent).toBe('·not blamed yet');
-    expect(d.children.map((c) => c.className)).toEqual(['rab', 'abs']);
+    r = await render(inApp(createElement(NeedsLook, { items: [{ ...plain, title: '3 failing runs nobody has blamed', detail: 'newest 01M5GRZKRY · failed', about }], total: 1 })));
+    const d = r.one('.attn a.at .d');
+    expect(d.className).toBe('d');
+    const id = d.querySelector('code.rnm')!;
+    expect([id.textContent, id.getAttribute('title')]).toEqual(['01M5GRZKRY', about.text]);
+    expect(words(d.textContent)).toBe('newest 01M5GRZKRY · failed');
   });
 
   it('gives a gate’s entry its rule on hover, and leaves an entry with nowhere to go a plain row', async () => {

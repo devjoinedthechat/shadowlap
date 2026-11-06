@@ -1,4 +1,4 @@
-import { type ReactNode, useId, useState } from 'react';
+import { type ReactNode, useId, useRef, useState } from 'react';
 import { Seg } from '../components/bits.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Glyph } from '../components/RunIcon.js';
@@ -6,8 +6,10 @@ import { Section } from '../components/Section.js';
 import { glossed } from '../components/Term.js';
 import { cents, ktok, money, num, shortId } from '../format.js';
 import { useStored } from '../hooks.js';
+import { useListKeys } from '../list-keys.js';
 import { ORIGIN_NAME } from '../origins.js';
 import { href } from '../route.js';
+import { navigate } from '../router.js';
 import type { CacheUse, DaySums, OverviewSummary } from '../types.js';
 import { chartScale, dayText, kindGlyph, originCounts, originRows, share, tickText, usageLine } from './model.js';
 
@@ -128,6 +130,9 @@ function OriginPart({ origins }: { origins: Readonly<Record<string, number>> }) 
 /** Live model calls where the prompt cache stopped hitting: the Context view's rule, across every run. */
 function CachePart({ cache }: { cache: CacheUse }) {
   const pct = cache.readShare === null ? null : share(cache.readShare, 1);
+  const box = useRef<HTMLDivElement>(null);
+  // j and k walk the misses after Recent runs, while Usage is open; Enter opens the call's context.
+  const inFocus = useListKeys({ rows: cache.misses, keyOf: (m) => `${m.runId}#${m.callNo}`, root: box, open: (m) => navigate(href.run(m.runId, m.callNo, 'context')) });
   return (
     <Part title="Prompt cache" sub="live model calls, this week">
       <div className="ovbig">
@@ -150,11 +155,12 @@ function CachePart({ cache }: { cache: CacheUse }) {
             <span>Where it stopped hitting</span>
             <b>{ktok(cache.sentAgain)} tokens sent again</b>
           </div>
-          <div className="leaks">
+          <div className="leaks" ref={box}>
             {cache.misses.map((m) => {
               const g = kindGlyph(m.kind);
+              const key = `${m.runId}#${m.callNo}`;
               return (
-                <a key={`${m.runId}#${m.callNo}`} href={href.run(m.runId, m.callNo, 'context')} title={`${m.model ? `${m.model} · ` : ''}${num(m.tokens)} tokens sent again`}>
+                <a key={key} className={inFocus === key ? 'krow' : undefined} data-rowkey={key} href={href.run(m.runId, m.callNo, 'context')} title={`${m.model ? `${m.model} · ` : ''}${num(m.tokens)} tokens sent again`}>
                   <Glyph kind={g.kind} label={g.label} className="ri" />
                   <code>{shortId(m.runId)}</code>
                   <span>

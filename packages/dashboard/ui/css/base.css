@@ -457,7 +457,7 @@ code.rnm { white-space: nowrap; }
 
 /* Decision 9 on every page: a gate's verdict is its word, its tally and its Wilson bound, broken only after a dot (each short
    part whole), its rule stated once; figures read as the CLI prints them, so ">=" never becomes the mono font's ligature */
-.vline .nw, .attn .d .nw, .feed .w .nw, table.gt td.glast .nw, .fnode .f2 .nw { white-space: nowrap; }
+.vline .nw, .attn .d .nw, .attn .t .nw, .feed .w .nw, table.gt td.glast .nw, .fnode .f2 .nw { white-space: nowrap; }
 
 
 .rab:empty + .abs .dot { display: none; }

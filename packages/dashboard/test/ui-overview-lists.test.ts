@@ -1,14 +1,14 @@
-import { createElement, type ReactElement } from 'react';
+import { act, createElement, type ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { NeedsLook } from '../ui/overview/panels.js';
+import { NeedsLook } from '../ui/overview/NeedsLook.js';
 import { Usage } from '../ui/overview/Usage.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { NeedsLookRow, OverviewSummary } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
- * The Overview's Usage folds until asked for, and each line of Needs a look says where it leads, or
- * Open where nothing runs.
+ * The Overview's Usage folds until asked for, and Needs a look shows every item under its group's
+ * head, each row ending on its step, which runs from the row, or Open where nothing runs.
  */
 
 const app = (actionsOff: string | null = null) => ({ actionsOff, exported: false, meta: null }) as unknown as AppState;
@@ -58,34 +58,73 @@ describe('the Overview’s Usage', () => {
   });
 });
 
-describe('Needs a look’s words', () => {
+describe('Needs a look', () => {
+  const run = '01M5H2F2QC9NCJ5PSZ0M4RX7VP';
   const rows: NeedsLookRow[] = [
     { kind: 'test', icon: 'fail', title: 'A test failed: refund-in-limit', detail: 'diverged at call 3', key: 'attn:failed:goldens/refund-in-limit', group: 'failing', step: null, href: '#/run/01M5H2EWWY8P621C63CJPVEM4A', runId: '01M5H2EWWY8P621C63CJPVEM4A', fixId: null, at: 3 },
-    { kind: 'unblamed', icon: 'fail', title: 'A run failed: 01M5H2F2QC digest', detail: 'not blamed yet', key: 'attn:unblamed:01M5H2F2QC9NCJ5PSZ0M4RX7VP', group: 'failing', step: { of: 'run', runId: '01M5H2F2QC9NCJ5PSZ0M4RX7VP', step: { key: 'blame', label: 'Run blame' } as never }, href: '#/run/01M5H2F2QC9NCJ5PSZ0M4RX7VP', runId: '01M5H2F2QC9NCJ5PSZ0M4RX7VP', fixId: null, at: 2 },
+    { kind: 'unblamed', icon: 'fail', title: '1 failing run nobody has blamed', detail: '01M5H2F2QC · failed', key: `attn:unblamed:${run}`, group: 'failing', step: { of: 'run', runId: run, step: { key: 'blame', label: 'Run blame', offer: { failed: [], from: 'config' } } as never }, href: '#/runs?types=failed', runId: run, fixId: null, at: 2 },
     { kind: 'local', icon: 'rec', title: '12 runs are only on this machine', detail: 'push them so the team can open them', key: 'attn:local', group: 'housekeeping', step: { of: 'push', label: 'Push local runs', command: 'shadowlap push --all' }, href: '#/runs?types=local', runId: null, fixId: null, at: 0 },
   ];
+  // A dashboard that runs jobs: the server's jobs, read once for the section, and what a step's start asks of it.
+  const running = (client: Record<string, unknown>) =>
+    ({ actionsOff: null, exported: false, meta: null, conn: 'online', jobs: [], feeds: {}, runs: [{ runId: run, about: { text: 'Write this week’s refund digest', from: 'user' } }], hasKind: () => true, guard: (fn: () => void) => (fn(), true), toast: () => undefined, watchJob: () => undefined, client }) as unknown as AppState;
+  const within = (value: AppState, el: ReactElement) => createElement(AppContext.Provider, { value }, el);
 
-  it('says where each line leads, and Open for every line where nothing runs', async () => {
-    r = await render(inApp(createElement(NeedsLook, { items: rows, total: 3 })));
-    expect(r.all('.needs .go').map(text)).toEqual(['Open →', 'Run blame →', 'Push local runs →']);
-    expect(r.all('.needs .attn a').map((a) => a.getAttribute('href'))).toEqual(['#/run/01M5H2EWWY8P621C63CJPVEM4A', '#/run/01M5H2F2QC9NCJ5PSZ0M4RX7VP', '#/runs?types=local']);
+  it('shows every item under its group’s head, each row ending on its step, and Open for a job where nothing runs', async () => {
+    const jobs = vi.fn(async () => []);
+    r = await render(within(running({ jobs }), createElement(NeedsLook, { items: rows, total: 3 })));
+    expect(r.all('.ovattn > header .sub').map(text)).toEqual(['3']);
+    // Each group's head says its count, quietly, beside it.
+    expect(r.all('.agrp').map(text)).toEqual(['Failing2', 'Housekeeping1']);
+    expect(r.all('.agrp span').map(text)).toEqual(['2', '1']);
+    // Each row keeps its key for the keys and the job's way back, its group, and an empty last column for Dismiss.
+    expect(r.all('.arow').map((x) => [x.getAttribute('data-rowkey'), x.getAttribute('data-agrp')])).toEqual(rows.map((x) => [x.key, x.group]));
+    expect(r.all('.arow .adx').map(text)).toEqual(['', '', '']);
+    expect(r.all('.arow a.at').map((a) => a.getAttribute('href'))).toEqual(rows.map((x) => x.href));
+    // A step is small and plain, never lime; a row with none opens what it is about.
+    expect(r.all('.arow .ast').map(text)).toEqual(['Open →', 'Run blame', 'Push local runs']);
+    expect(r.all('.arow .ast .btn').map((b) => b.className)).toEqual(['btn sm', 'btn sm']);
+    // The run a row names is its id, with its about line on hover.
+    expect(r.all('.arow .d code.rnm').map((c) => [text(c), c.getAttribute('title')])).toEqual([['01M5H2F2QC', 'Write this week’s refund digest']]);
+    // One read of the server's jobs, for every row's step.
+    expect(jobs).toHaveBeenCalledTimes(1);
     await r.unmount();
     r = await render(inApp(createElement(NeedsLook, { items: rows, total: 3 }), 'This dashboard is read-only: it was started with --read-only.'));
-    expect(r.all('.needs .go').map(text)).toEqual(['Open →', 'Open →', 'Open →']);
+    expect(r.all('.arow .ast').map(text)).toEqual(['Open →', 'Open →', 'Open →']);
+    await r.unmount();
+    r = await render(inApp(createElement(NeedsLook, { items: [], total: 0 })));
+    expect(r.all('.ovattn .emptyline').map(text)).toEqual(['Nothing needs a look.']);
   });
 
-  it('keeps a line for each failing golden when one fix holds them all, through Show more', async () => {
+  it('asks for a step’s price only once the step is reached, and a press before it came waits for it', async () => {
+    const more = { args: ['test', 'goldens/refund.json', '--max-attempts', '160', '--continue'], job: { golden: 'goldens/refund.json', maxAttempts: 160, continue: true as const }, attempts: 160, most: 80, expected: 27, settles: 0.93, cost: null };
+    const row: NeedsLookRow = { kind: 'test', icon: 'warn', title: 'A test is inconclusive: refund', detail: 'inconclusive · 80 of 80 attempts', key: 'attn:inconclusive:goldens/refund.json', group: 'tests', step: { of: 'more', golden: 'goldens/refund.json', label: 'Run more attempts', more }, href: '#/tests', runId: null, fixId: null, at: 0 };
+    let priced: (v: unknown) => void = () => undefined;
+    const testsEstimates = vi.fn(() => new Promise((res) => (priced = res)));
+    const startJob = vi.fn(async () => ({ id: 'job-1' }));
+    r = await render(within(running({ jobs: async () => [], startJob, estimates: { testsEstimates } }), createElement(NeedsLook, { items: [row], total: 1 })));
+    expect(testsEstimates).not.toHaveBeenCalled();
+    const step = r.one('.arow .ast .btn');
+    expect(JSON.parse(step.getAttribute('data-tip')!).s).toBe('Raises its limit to 160 for this session only and carries its 80 attempts over. That settles it 93% of the time, in about 27 more.');
+    await r.click(step);
+    expect(testsEstimates).toHaveBeenCalledTimes(1);
+    expect(startJob).not.toHaveBeenCalled();
+    await act(async () => priced({ run: null, goldens: { 'goldens/refund.json': { rerun: null, update: null, more: { kind: 'tests', usd: 0.42, ceiling: 0.6, parts: [] } } } }));
+    expect(startJob).toHaveBeenCalledWith('test', { golden: 'goldens/refund.json', maxAttempts: 160, continue: true, estimate: { usd: 0.42, ceiling: 0.6 } });
+  });
+
+  it('shows a row for each failing golden one fix holds, all of them, with no two keys alike', async () => {
     // One regression failed three goldens on the same check, and blame joined their runs into one fix.
     const fixId = 'fx-01M5H2DV7NHAEH1GM5ARZXX3BG';
-    const held: NeedsLookRow[] = ['refund-in-limit', 'refund-over-limit', 'refund-partial'].map((name, i) => ({ kind: 'test', icon: 'fail', title: `A test failed: ${name}`, detail: 'check failed: issue_refund called 1 time', key: `attn:failed:goldens/${name}`, group: 'failing', step: null, href: `#/fixes/${fixId}`, runId: `01M5H2EWWY8P621C63CJPVEM${i}A`, fixId, at: 3 - i }));
+    const held: NeedsLookRow[] = ['refund-in-limit', 'refund-over-limit', 'refund-partial'].map((name, i) => ({ kind: 'test', icon: 'fail', title: `A test failed: ${name}`, detail: 'check failed: issue_refund called 1 time', key: `attn:failed:goldens/${name}`, group: 'failing', step: null, href: `#/fixes/${fixId}`, runId: `01M5H2DV7NHAEH1GM5ARZXX3B${i}`, fixId, at: 3 - i }));
     const open: NeedsLookRow = { kind: 'open', icon: 'blame', title: 'Refunds above the limit issued without approval', detail: 'lost at model call #5 · no fix yet', key: `attn:fix:#/fixes/${fixId}`, group: 'failing', step: null, href: `#/fixes/${fixId}`, runId: null, fixId, at: 0 };
     const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       r = await render(inApp(createElement(NeedsLook, { items: [...held, open], total: 4 })));
-      await r.click(r.all('.attn-more')[0]);
-      expect(r.all('.needs .t').map(text)).toEqual(['A test failed: refund-in-limit', 'A test failed: refund-over-limit', 'A test failed: refund-partial', 'Refunds above the limit issued without approval']);
-      await r.click(r.all('.attn-more')[0]);
-      expect(r.all('.needs .t').map(text)).toEqual(['A test failed: refund-in-limit', 'A test failed: refund-over-limit', 'A test failed: refund-partial']);
+      expect(r.all('.arow .t').map((t) => text(t).replace(/\u00a0/g, ' '))).toEqual(['A test failed: refund-in-limit', 'A test failed: refund-over-limit', 'A test failed: refund-partial', 'Refunds above the limit issued without approval']);
+      // A golden's name keeps its hyphens: it never breaks inside.
+      expect(r.all('.arow .t .nw').map(text)).toEqual(['refund-in-limit', 'refund-over-limit', 'refund-partial']);
+      expect(r.all('.attn-more')).toHaveLength(0);
       expect(errors.mock.calls.map((c) => c.map(String).join(' ')).filter((m) => /same key/.test(m))).toEqual([]);
     } finally {
       errors.mockRestore();

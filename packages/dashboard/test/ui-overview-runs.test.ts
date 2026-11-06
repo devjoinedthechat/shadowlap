@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { parseOtlpFile, readOtel } from '../../cli/src/import-otel.js';
 import { runsLinkQuery, runsQueryString } from '../ui/runspage/query.js';
 import { factTip } from '../ui/components/Facts.js';
-import { activityGlyph, activityLine, callsSaid, chartScale, dayText, kindGlyph, needsLookAction, needsLookShown, originCounts, originRows, overviewFacts, personName, recentKind, reproducedNote, share, tickText, usageLine, verifiedNote } from '../ui/overview/model.js';
+import { activityGlyph, activityLine, callsSaid, chartScale, dayText, keepParts, kindGlyph, originCounts, originRows, overviewFacts, personName, recentKind, reproducedNote, share, tickText, usageLine, verifiedNote } from '../ui/overview/model.js';
 import { authorTint, ciName } from '../ui/runspage/authors.js';
 import { bulkToast, deleteFacts, deleteLead, localTitle, PACK_MAX, packCommand, packFolders, packOff, rmCommand } from '../ui/runspage/bulk.js';
 import { datasetCommand, datasetFile } from '../ui/run/share.js';
@@ -13,7 +13,7 @@ import { calSummary, counted, dayTip, dragEnd, dragOver, dragStart, failedOf, ke
 import { fileHead, FILE_FORMATS, HEAD_BYTES, IMPORT_FILE_FORMATS, keyList, OTEL_SAMPLE_NAME, pickedFormat, redateTrace, sampleTrace, tooLargeNote } from '../ui/runspage/imports.js';
 import { OTEL_SAMPLE, type OtlpTrace } from '../ui/runspage/sample-otel.js';
 import { runOutcome, runSpent, type RunLike } from '../ui/runs.js';
-import type { DayCount, NeedsLookRow } from '../ui/types.js';
+import type { DayCount } from '../ui/types.js';
 
 // The Overview's and the Runs page's logic: what each panel says from the server's numbers, how the
 // calendar picks days, and how an import guesses a file's format.
@@ -57,13 +57,24 @@ describe('the Overview’s words', () => {
     expect(quiet[1]?.tone).toBeUndefined();
     expect(quiet[2]).toMatchObject({ value: '1 of 1', words: 'golden passing', tip: { parts: ['no regressions', 'last run 10:02'] }, was: null });
     expect(overviewFacts({ ...outcomes, testsPassing: null }, { attempts: 0, spent: 0 }, now)[2]).toEqual({ value: '0', words: 'goldens yet', href: '#/tests' });
-    // Where nothing runs, every line of Needs a look opens what it names.
-    const push = { of: 'push', label: 'Push local runs', command: 'shadowlap push --all' } as const;
-    expect(needsLookAction({ step: push }, null)).toBe('Push local runs');
-    expect(needsLookAction({ step: push }, 'This dashboard is read-only: it was started with --read-only.')).toBe('Open');
-    // A link runs nothing: it leads where it says on a read-only dashboard too.
-    expect(needsLookAction({ step: { of: 'link', label: 'Continue setup', href: '#/setup/store' } }, 'read-only')).toBe('Continue setup');
-    expect(needsLookAction({ step: null }, null)).toBe('Open');
+    // Needs a look keeps a tally, a model with what uses it, a date with its verb, a dot with the word before it and a
+    // hyphenated name whole where its line wraps, and names a run by its short id, a piece of its own for its about line.
+    const nb = '\u00a0';
+    expect(keepParts('gpt-4o, used by 2 goldens, retires on Nov 30, 2026')).toEqual([
+      { text: 'gpt-4o,', kind: 'nw' },
+      { text: ` used${nb}by 2 goldens, retires${nb}on${nb}Nov${nb}30,${nb}2026`, kind: 'text' },
+    ]);
+    expect(keepParts('newest 01K5CQ5D2W · search called 3 times')).toEqual([
+      { text: 'newest ', kind: 'text' },
+      { text: '01K5CQ5D2W', kind: 'id' },
+      { text: `${nb}· search${nb}called${nb}3${nb}times`, kind: 'text' },
+    ]);
+    expect(keepParts('8 of 72 · refund-over-limit')).toEqual([
+      { text: `8${nb}of${nb}72${nb}· `, kind: 'text' },
+      { text: 'refund-over-limit', kind: 'nw' },
+    ]);
+    // A whole run id is no short id: it stays in its words.
+    expect(keepParts('run 01K5CQ5D2WABCDEFGHJKMNPQRS')).toEqual([{ text: 'run 01K5CQ5D2WABCDEFGHJKMNPQRS', kind: 'text' }]);
   });
 
   it('lists the origins present in the design’s order, with their shares', () => {
@@ -117,16 +128,6 @@ describe('the Overview’s words', () => {
     expect(personName('dana@northwind.example')).toBe('dana');
     expect(personName('ci')).toBe('ci');
     expect(personName(null)).toBe('unknown');
-  });
-
-  it('shows three lines of Needs a look, then the rest on asking', () => {
-    const row = (i: number): NeedsLookRow => ({ kind: 'unblamed', icon: 'fail', title: `t${i}`, detail: '', key: `attn:unblamed:${i}`, group: 'failing', step: { of: 'run', runId: String(i), step: { key: 'blame', label: 'Run blame' } as never }, href: '#/', runId: String(i), fixId: null, at: i });
-    const items = [1, 2, 3, 4, 5].map(row);
-    expect(needsLookShown(items, false)).toEqual({ rows: items.slice(0, 3), more: 'Show 2 more' });
-    expect(needsLookShown(items, true)).toEqual({ rows: items, more: 'Show fewer' });
-    expect(needsLookShown(items.slice(0, 3), false)).toEqual({ rows: items.slice(0, 3), more: null });
-    // A line that stands for the rest of its kind is one line to show: the button counts lines it opens.
-    expect(needsLookShown([...items, { ...row(6), title: '40 more failed runs not blamed yet', more: 40 }], false).more).toBe('Show 3 more');
   });
 
   it('says an activity entry’s id once, shortened as the CLI prints it', () => {

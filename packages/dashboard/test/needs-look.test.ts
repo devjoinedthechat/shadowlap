@@ -62,7 +62,7 @@ describe('Needs a look: the failing runs nobody has blamed', () => {
       const ask = (text: string) => ({ system: 'You are a support agent.', messages: [{ role: 'user', content: text }] });
       const failed = addRun(store, { startedAt: NOW - 3 * HOUR, status: 'failed', meta: { labels: ['digest'] }, calls: [{ code: 'l', request: ask("Write this week's refund digest and post it to #refunds.") }] });
       const row = overviewSummary(store, { tz: 'UTC', now: NOW }).needsLook.items.find((x) => x.runId === failed);
-      // Its label is no name. The page fits the about line to one line, then what is left to do, kept whole.
+      // Its label is no name. The page names the run by its id, with its about line on hover.
       expect(row).toMatchObject({
         key: `attn:unblamed:${failed}`,
         group: 'failing',
@@ -71,7 +71,8 @@ describe('Needs a look: the failing runs nobody has blamed', () => {
         about: { text: "Write this week's refund digest and post it to #refunds", from: 'user' },
         detail: `${failed.slice(0, 10)} · failed`,
         href: '#/runs?types=failed&from=2026-10-13&to=2026-10-19',
-        step: { of: 'run', runId: failed, step: { label: 'Run blame' } },
+        // Its card names the run it blames, the one run the row stands for.
+        step: { of: 'run', runId: failed, step: { label: 'Run blame', sub: `Blames ${failed.slice(0, 10)}: finds the model call that lost it, then joins the fix its failure belongs to` } },
       });
     } finally {
       store.close();

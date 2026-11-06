@@ -49,8 +49,10 @@ export const unblamed: LookSource = {
     const about = run ? (w.budget === undefined ? aboutsOf(w.store, w.index, [run]) : aboutsWithin(w.store, w.index, [run], { budget: w.budget })).get(runId) : undefined;
     // Run blame only where its page leads with it: blame can't take a run that made no model call, and a failed injection test's proof comes first.
     const next = listedStep(w.store, runId, w.next, { reads: w.reads });
-    const step: LookStep | null = next?.key !== 'blame' ? null : next.capture ? { of: 'link', label: next.label, href: links.run(runId) } : { of: 'run', runId, step: next };
     const n = week.length;
+    // Its card names the run it blames: the newest, where the row stands for several.
+    const blames = `Blames ${n > 1 ? 'the newest, ' : ''}${short(runId)}: finds the model call that lost it, then joins the fix its failure belongs to`;
+    const step: LookStep | null = next?.key !== 'blame' ? null : next.capture ? { of: 'link', label: next.label, href: links.run(runId) } : { of: 'run', runId, step: { ...next, sub: blames } };
     const row: NeedsLookRow = {
       key: `attn:unblamed:${runId}`,
       group: 'failing',

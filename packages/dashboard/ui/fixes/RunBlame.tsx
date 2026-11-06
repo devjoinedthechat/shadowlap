@@ -16,7 +16,7 @@ import { ActionButton } from '../components/ActionButton.js';
 import { AskNote } from '../components/AskNote.js';
 import { tipCard } from '../components/HoverCard.js';
 import type { CostLineProps } from '../components/CostLine.js';
-import { useBilledPress } from '../components/JobButton.js';
+import { type StepHooks, useBilledPress } from '../components/JobButton.js';
 import { sentEstimate, tipEst } from '../spending.js';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import type { BlameOffer } from '../types.js';
@@ -46,6 +46,8 @@ export function RunBlameButton({
   capture = false,
   line,
   mark,
+  busy,
+  on,
   ...priced
 }: {
   runId: string;
@@ -67,9 +69,13 @@ export function RunBlameButton({
   line?: string;
   /** Its key, where it is the run's next step. */
   mark?: ShortcutMark;
+  /** Why it waits, where a list reads the jobs once for all its rows (Needs a look); left out, it reads them itself. */
+  busy?: string | null;
+  /** A list row's handlers: its estimate asked for as the pointer or the focus reaches it. */
+  on?: StepHooks;
 }) {
   const app = useApp();
-  const busy = useTreeBusy('reads', 'blame');
+  const waits = useTreeBusy('reads', 'blame', busy);
   const [asking, setAsking] = useState<null | { kind: 'command' } | { kind: 'ask' } | { kind: 'check'; command: string | null } | { kind: 'consent'; why: string; confirm: string; fields: Record<string, unknown> }>(null);
   const own = useRunEstimates(runId, 'estimate' in priced ? undefined : null);
   const estimate: Estimate | null | undefined = 'estimate' in priced ? priced.estimate : own === undefined ? undefined : (own?.blame ?? null);
@@ -113,11 +119,12 @@ export function RunBlameButton({
     <>
       <ActionButton
         className={className}
-        why={busy}
+        why={waits}
         data-tip={tip ?? tipCard(ACTIONS.runBlame.label, [], title, `$ ${blameLine}`, tipEst(estimate, form))}
         {...(lead ? { 'data-next': 'blame' } : {})}
         onClick={() => (form ? app.guard(() => setAsking(capture ? { kind: 'command' } : { kind: 'check', command: null })) : press({ estimate, start: () => void start({}), ask: () => setAsking({ kind: 'ask' }) }))}
         {...mark}
+        {...on}
       >
         {icon ? <Icon name="loop" /> : null}
         {ACTIONS.runBlame.label}

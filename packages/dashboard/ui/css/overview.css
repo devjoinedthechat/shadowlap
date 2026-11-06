@@ -20,13 +20,33 @@
 .xlabels { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 14px; margin: 6px 0 0 52px; font: 10.5px var(--mono); color: var(--faint); text-align: center; }
 
 .attn { display: flex; flex-direction: column; }
-.attn a { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 12px 18px; border-top: 1px solid var(--line); text-decoration: none; }
-.attn a:first-child { border-top: 0; }
-.attn a:hover { background: var(--hover); }
-.attn .ic { margin-top: 2px; }
-.attn .t { font-weight: 500; }
-.attn .d { display: block; margin-top: 2px; color: var(--faint); font-size: 12.5px; }
-.attn .go { color: var(--faint); font-size: 12px; white-space: nowrap; }
+/* Needs a look: its groups' heads in the UI face, quiet, with their counts; a row an item: what it is about, which opens it
+   (the whole row is its link), and its next step at its end, a small plain button above the link. The last column is kept
+   empty on every row, for Dismiss, so the steps keep one right edge. On a phone the step goes under the words, and Open hides */
+.attn .agrp { display: flex; align-items: baseline; gap: 8px; margin: 22px 0 0; padding-bottom: 4px; font: 600 12.5px var(--body); color: var(--dim); }
+.attn .agrp:first-child { margin-top: 0; }
+.attn .agrp span { font: 500 11px var(--mono); color: var(--faint); }
+.arow { position: relative; display: grid; grid-template-columns: 14px minmax(0, 1fr) auto 22px; gap: 6px 12px; align-items: center; padding: 11px 0; border-top: 1px solid var(--line); }
+.agrp + .arow { border-top: 0; padding-top: 6px; }
+.arow:hover { background: var(--hover); box-shadow: calc(-1 * var(--bleed)) 0 0 var(--hover), var(--bleed) 0 0 var(--hover); }
+.arow .ic { align-self: start; margin-top: 3px; }
+.arow .at { min-width: 0; color: inherit; text-decoration: none; }
+.arow .at::after { content: ""; position: absolute; inset: 0; }
+.arow .t { display: block; font-weight: 500; color: var(--ink); }
+.arow .d { display: block; margin-top: 2px; color: var(--faint); font-size: 12.5px; }
+.arow .ast { position: relative; z-index: 1; display: flex; justify-content: flex-end; pointer-events: none; }
+.arow .ast > .btn { pointer-events: auto; }
+.arow .go { color: var(--faint); font-size: 12px; white-space: nowrap; }
+.arow:hover .go { color: var(--ink); }
+.arow .adx { position: relative; z-index: 1; display: flex; justify-content: center; align-self: center; }
+@media (max-width: 640px) {
+  .arow { grid-template-columns: 14px minmax(0, 1fr) 22px; }
+  .arow .ast { grid-column: 2; justify-content: flex-start; }
+  .arow .adx { grid-column: 3; grid-row: 1; align-self: start; }
+  .arow .ast:has(.go) { display: none; }
+}
+/* j and k: the row in focus keeps its bar in the bleed, as every list in a section does */
+.panel.sec .attn > .arow.krow, .panel.sec .rrows > a.krow, .panel.sec .feed > a.krow, .panel.sec .leaks > a.krow { background: var(--sel); box-shadow: calc(3px - var(--bleed)) 0 0 var(--sel), calc(-1 * var(--bleed)) 0 0 var(--ink), var(--bleed) 0 0 var(--sel); }
 .feed a { display: grid; grid-template-columns: 64px 14px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 9px 18px; text-decoration: none; border-top: 1px solid var(--line); }
 .feed a:first-child { border-top: 0; }
 .feed a:hover { background: var(--hover); }
@@ -131,21 +151,14 @@ table.daytable tbody tr:hover td { background: none; }
 .feed .empty { text-align: left; padding: 16px 18px; }
 
 
-/* a long command in a line of Needs a look stops at two lines */
-.needs .attn .d { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 
 /* two columns and fewer: the daily chart spans the row as every panel does; its span 2 above would
    add an empty column beside the one column below 760px, narrowing Activity */
 
 .attn .d.gv, .feed .w.gv { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
 
-/* Needs a look and Activity: a gate's verdict wraps whole after its dots, never clamped mid-figure; its rule is on hover */
-.needs .attn .d.gv, .feed .w.gv { display: block; -webkit-line-clamp: none; overflow: visible; overflow-wrap: normal; }
-/* Needs a look: a failed run's about line on one line, fitted at whole words (never clamped), then what is left to do, kept whole */
-.needs .attn .d.ab { display: flex; align-items: baseline; min-width: 0; white-space: nowrap; overflow: hidden; -webkit-line-clamp: none; overflow-wrap: normal; }
-.needs .attn .d.ab .rab { flex: 0 1 auto; color: inherit; }
-.needs .attn .d.ab .abs { flex: none; }
-.needs .attn .d.ab .dot { margin: 0 5px; }
+/* Activity: a gate's verdict wraps whole after its dots, never clamped mid-figure; its rule is on hover */
+.feed .w.gv { display: block; -webkit-line-clamp: none; overflow: visible; overflow-wrap: normal; }
 
 /* an activity entry with nowhere to go reads as a plain row: never a link back to the page it is on */
 .feed > .plain { display: grid; grid-template-columns: 64px 14px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 9px 18px; border-top: 1px solid var(--line); cursor: default; }

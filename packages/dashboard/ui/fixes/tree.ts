@@ -23,12 +23,14 @@ export function useServerJobs(wanted = true): JobListItem[] {
 /**
  * Why an action that uses the project's working tree as `use` can't start now, as the server would
  * refuse it, or null: what Run blame, Run repair, Apply fix and the Tests actions read to
- * disable themselves, with the reason (`treeBusy`). Only jobs in this project's tree count.
+ * disable themselves, with the reason (`treeBusy`). Only jobs in this project's tree count. A
+ * reason `given` already (a list's row, from the list's one read) is the answer, and nothing is read.
  */
-export function useTreeBusy(use: 'reads' | 'writes', verb: string): string | null {
+export function useTreeBusy(use: 'reads' | 'writes', verb: string, given?: string | null): string | null {
   const { meta } = useApp();
-  const tree = useServerJobs();
-  return treeBusy(tree, use, verb, meta?.project?.path ?? null);
+  // A list's rows are handed their reason from one read of the jobs (`given`), never one each.
+  const tree = useServerJobs(given === undefined);
+  return given !== undefined ? given : treeBusy(tree, use, verb, meta?.project?.path ?? null);
 }
 
 /**
