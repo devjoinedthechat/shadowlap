@@ -1,11 +1,12 @@
-import { createElement } from 'react';
+import { createElement, useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Spending } from '../../engine/src/estimates/spending.js';
 import type { Client } from '../ui/api.js';
+import { ToastHost } from '../ui/components/Toast.js';
 import { SpendingRow } from '../ui/pages/settings/SpendingRow.js';
 import { askSpendingFocus, resetSpending, spendingNow } from '../ui/spending.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import type { ToastAction } from '../ui/toast.js';
+import type { ToastAction, ToastKind } from '../ui/toast.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -27,8 +28,11 @@ interface Said {
   action: ToastAction | undefined;
 }
 
-/** The row, its server keeping what it is sent (or refusing it with `refuse`), each toast it says kept. */
-async function row(start: Spending, o: { refuse?: string; actionsOff?: string } = {}) {
+/**
+ * The row, its server keeping what it is sent (or refusing it with `refuse`), each toast it says kept.
+ * With `host`, the app's toasts draw (ToastHost), so ⌘Z does what a toast's Undo offers.
+ */
+async function row(start: Spending, o: { refuse?: string; actionsOff?: string; host?: boolean } = {}) {
   resetSpending(start);
   let kept: Spending = start;
   const puts: Spending[] = [];
@@ -43,8 +47,16 @@ async function row(start: Spending, o: { refuse?: string; actionsOff?: string } 
       return Promise.resolve({ askAbove: v, was });
     },
   };
-  const app = { client: { estimates } as unknown as Client, exported: false, conn: 'online', actionsOff: o.actionsOff ?? null, guard: (fn: () => void) => (fn(), true), toast: (text: string, kind?: string, action?: ToastAction) => toasts.push({ text, kind, action }) } as unknown as AppState;
-  r = await render(createElement(AppContext.Provider, { value: app }, createElement(SpendingRow)));
+  const app = { client: { estimates } as unknown as Client, exported: false, conn: 'online', jobs: [], actionsOff: o.actionsOff ?? null, guard: (fn: () => void) => (fn(), true), toast: (text: string, kind?: string, action?: ToastAction) => toasts.push({ text, kind, action }) } as unknown as AppState;
+  function Host() {
+    const [toastText, setToastText] = useState<AppState['toastText']>(null);
+    const toast = (text: string, kind: ToastKind = 'notice', action?: ToastAction) => {
+      toasts.push({ text, kind, action });
+      setToastText({ id: toasts.length, text, kind, ...(action ? { action } : {}) });
+    };
+    return createElement(AppContext.Provider, { value: { ...app, toast, toastText } }, createElement(SpendingRow), createElement(ToastHost));
+  }
+  r = await render(o.host ? createElement(Host) : createElement(AppContext.Provider, { value: app }, createElement(SpendingRow)));
   await r.wait(0);
   return { puts, toasts };
 }
@@ -91,6 +103,19 @@ describe('the Spending row', () => {
     // The same pick again changes nothing and says nothing.
     await r!.click(pick('Never ask'));
     expect(puts.length).toBe(5);
+  });
+
+  it('undoes a pick with ⌘Z while its toast shows, ⌘Z in the field being the field’s own', async () => {
+    const { puts } = await row(0.5, { host: true });
+    await r!.click(pick('$2'));
+    await r!.until('its toast', () => r!.all('.toast .tbtn').length === 1);
+    await r!.focus(input());
+    await r!.press('z', { metaKey: true }, input());
+    await r!.wait(0);
+    expect(puts).toEqual([2]);
+    const e = await r!.press('z', { metaKey: true }, r!.document.body);
+    await r!.until('the undo kept', () => spendingNow() === 0.5);
+    expect([e.defaultPrevented, puts, pressed()]).toEqual([true, [2, 0.5], ['$0.50']]);
   });
 
   it('keeps an amount typed in whole cents, once on Enter and the blur after it, $, spaces and commas ignored, empty for Never ask', async () => {
