@@ -475,4 +475,17 @@ describe('Tests’ buttons, priced from the page’s estimates', () => {
     await page.until('the job', () => sent.length === 1);
     expect(sent[0]).toEqual({ kind: 'test-update', fields: { golden: 'goldens/refund-in-limit', estimate: { usd: 0.2, ceiling: false } } });
   });
+
+  it('answers the palette’s Run tests by Spending too, from the estimate it reads once the server asks', async () => {
+    resetSpending(0.5);
+    const sent: Sent[] = [];
+    const watched: Array<Promise<JobView>> = [];
+    const state = app(sent, watched);
+    Object.assign(state.client, { estimates: { testsEstimates: () => Promise.resolve({ run: RUN, goldens: {} }) } });
+    const page = await shown(state, createElement(Palette, { route: { page: 'overview' } }));
+    await page.click(page.all('.palit').find((el) => el.textContent.startsWith('Run tests'))!);
+    await page.until('the yes', () => sent.length === 2);
+    expect(sent.map((s) => s.fields)).toEqual([{}, { estimate: { usd: 0.3, ceiling: false }, yes: CONFIRM }]);
+    expect(dialog(page)).toBeNull();
+  });
 });

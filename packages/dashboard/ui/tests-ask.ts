@@ -3,6 +3,7 @@ import type { Estimate } from '../../engine/src/estimates/estimate.js';
 import { asksFirst } from '../../engine/src/estimates/spending.js';
 import { consentAsked, type FactWords, type LiveGolden } from './actions.js';
 import type { DocKey } from './docs-links.js';
+import type { EstimatesApi } from './estimates-api.js';
 import { JOB_KINDS, type JobView } from './api.js';
 import { mergeTreeJobs, treeBusy, type TreeJob } from './fixes/model.js';
 import { goldenName } from './format.js';
@@ -147,7 +148,7 @@ export function runTestsAsk(view: Pick<TestsView, 'commands'>): TestsAsk {
 
 /** What the palette's question reads of the app (`AppState`). */
 export interface PaletteTestsApp {
-  client: { tests(): Promise<Pick<TestsView, 'commands'>>; jobs(): Promise<readonly TreeJob[]> };
+  client: { tests(): Promise<Pick<TestsView, 'commands'>>; jobs(): Promise<readonly TreeJob[]>; estimates?: Pick<EstimatesApi, 'testsEstimates'> | undefined };
   jobs: ReadonlyArray<{ job: TreeJob; lost?: boolean }>;
   meta: { project?: { path: string } | null } | null;
 }
@@ -156,14 +157,15 @@ export interface PaletteTestsApp {
  * The palette's Run the tests, which lists no goldens: once the server asks, its question names the
  * command from what Tests lists, as Tests' own Run tests does. That button waits while a job holds
  * the working tree (`treeBusy`), which the server checks only once it has the yes; so this asks
- * nothing then, and says why instead, as the refusal after the yes would.
+ * nothing then, and says why instead, as the refusal after the yes would. Its estimate is read then
+ * too (`GET /api/tests/estimates`), for Spending to answer by; none where that read fails, so it asks.
  */
 export function paletteTestsAsk(app: PaletteTestsApp): () => Promise<TestsAsk> {
   return () =>
-    Promise.all([app.client.tests(), app.client.jobs()]).then(([view, listed]) => {
+    Promise.all([app.client.tests(), app.client.jobs(), app.client.estimates?.testsEstimates().then((e) => e.run, () => null) ?? null]).then(([view, listed, estimate]) => {
       const held = treeBusy(mergeTreeJobs(listed, app.jobs), 'reads', 'run the tests', app.meta?.project?.path ?? null);
       if (held) throw new Error(held);
-      return runTestsAsk(view);
+      return { ...runTestsAsk(view), estimate };
     });
 }
 
