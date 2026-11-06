@@ -1,8 +1,9 @@
-import { ACTIONS, attemptsToFail, goldensPassed, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, isObject, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, plural, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { ACTIONS, attemptsToFail, goldensPassed, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, isObject, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, plural, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, withoutCommand, type CallKind, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResults } from './bisect-start.js';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { historyCells, liveSessionFields, type HistoryCell, type RevisionFact, type SessionFollowing } from './tests-history.js';
 import { evidenceWords, type EvidenceWords } from './tests-evidence.js';
+import { rulesToAdd } from './tests-normalize.js';
 import type { NextStep } from './next-step.js';
 import { gateLine, gateRuleOf } from './verdict.js';
 import { links } from './links.js';
@@ -332,6 +333,8 @@ export interface DivergenceView {
    * make it match.
    */
   rulesAdded: boolean;
+  /** Add normalizer and update for several goldens: the `normalize add` it runs for this one first, none when it masks none of its values (tests-normalize.ts). */
+  newRules?: string[][];
   /** Find breaking commit: from the last revision where it passed under today's checks to the one where it failed (null: HEAD). */
   bisect: BisectRange | null;
   /** What Find breaking commit found, kept until the golden passes again. */
@@ -551,7 +554,7 @@ export function liveTestSession(store: StoreOf<'tests'>): TestSession | null {
 }
 
 /** What volatileValues() made of a stored divergence: judged on all its changes when it was recorded. */
-function volatileOf(r: TestResult, d: DivergenceReport): VolatileValues {
+export function volatileOf(r: TestResult, d: DivergenceReport): VolatileValues {
   const kept = r.data?.divergence?.volatile;
   return kept ? storedVolatile(kept) : volatileValues(d);
 }
@@ -561,18 +564,13 @@ function storedVolatile(kept: NonNullable<NonNullable<NonNullable<TestResult['da
   return { values: kept.values.map((v) => ({ ...v, certain: v.certain ?? true })), explainsAll: kept.explainsAll, coversAll: kept.coversAll ?? kept.explainsAll };
 }
 
-/** Whether two normalizers are the same rule: the same fields, whatever their order. */
-function sameRule(a: Normalizer, b: Normalizer): boolean {
-  return a.kind === b.kind && a.name === b.name && a.path === b.path && a.pattern === b.pattern && a.replace === b.replace;
-}
-
 /** The first value a view shows, with the command that adds its normalizer. */
 function shownValue(values: VolatileValues): DivergenceView['volatile'] {
   const v = values.values[0];
   return v ? { ...v, args: normalizeAddArgs(v.normalizer), command: normalizeAddCommand(v.normalizer) } : null;
 }
 
-function divergenceOf(r: TestResult): DivergenceReport | null {
+export function divergenceOf(r: TestResult): DivergenceReport | null {
   const d = r.data?.divergence;
   if (!d) return null;
   const report: DivergenceReport = { type: d.type as DivergenceReport['type'], callNo: d.callNo, kind: d.kind as CallKind, name: d.name, replayedBefore: d.replayedBefore };
@@ -1269,7 +1267,8 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
         rerun: ['test', row.path],
         update: ['test', row.path, '--update'],
         normalizeAndTest: normalizeSteps(volatile, row.path),
-        rulesAdded: volatile.values.length > 0 && volatile.values.every((v) => (options.normalizers ?? []).some((n) => sameRule(n, v.normalizer))),
+        rulesAdded: volatile.values.length > 0 && volatile.values.every((v) => rules.some((n) => sameRule(n, v.normalizer))),
+        newRules: rulesToAdd(volatile, rules).map((rule) => normalizeAddArgs(rule)),
         bisect,
         found,
         missed,

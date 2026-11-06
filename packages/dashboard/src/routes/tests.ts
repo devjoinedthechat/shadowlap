@@ -1,4 +1,4 @@
-import { ACTIONS, confirmWords, messageOf, noEstimate, type Normalizer, type StoreOf } from '@shadowlap/engine';
+import { ACTIONS, confirmWords, messageOf, noEstimate, normalizeAddArgs, type Normalizer, type StoreOf } from '@shadowlap/engine';
 import { describeEvent } from '../activity.js';
 import { lookupRun, noSuchRun } from '../api.js';
 import { liveChaosSession } from '../chaos.js';
@@ -18,7 +18,8 @@ import { readTeamStoreInput } from '../team-store.js';
 import { namesTeamStore } from './verdicts.js';
 import { olderThanTree, revisionCommits, treeNow, withRevisionFacts } from '../tests-history.js';
 import { liveAsk } from '../tests-live.js';
-import { bisectChoices, bisectJob, checkedRevision, gatePreview, knownGolden, liveTestSession, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type BisectRange, type GoldenSource, type TestsJob, type TestsView } from '../tests.js';
+import { bisectChoices, bisectJob, checkedRevision, divergenceOf, gatePreview, knownGolden, liveTestSession, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, volatileOf, type BisectRange, type GoldenSource, type TestsJob, type TestsView } from '../tests.js';
+import { rulesToAdd } from '../tests-normalize.js';
 
 /**
  * Tests: the goldens and how they did (`GET /api/tests`), what a run's page offers about a test
@@ -34,7 +35,9 @@ import { bisectChoices, bisectJob, checkedRevision, gatePreview, knownGolden, li
  *                          continue?, yes? }            expands without a shell, and each pack named elsewhere), or one;
  *                                                       `maxAttempts` raises each gate's limit for that session, and
  *                                                       `continue` carries an inconclusive gate's attempts over (Run more attempts)
- *   test-update          { goldens: [...] } | { golden } re-record each live with writes stubbed; replaced when its checks pass
+ *   test-update          { goldens: [...] } | { golden } re-record each live with writes stubbed; replaced when its checks pass;
+ *                        { goldens, normalize: true } Add normalizer and update: first `normalize add` for each value made
+ *                                                       anew on every run that they diverged on, each rule once
  *   bisect               { golden | runId, good, bad? }  Find breaking commit: replays at each commit, halving the range;
  *                                                       for a run, as `GET /api/tests/runs/:id` offers it
  *   normalize-and-test   { golden | runId, path?, yes? } `normalize add` for each value made anew on every run, then `test` on the golden
@@ -121,6 +124,26 @@ export function testsBuild(job: TestsJob, busy: string | null = null, ask: { err
   const [first, ...then] = job.steps;
   if (!first) return { error: 'nothing to run' };
   return { title: job.title, args: first, ...(then.length ? { then } : {}), ...runId };
+}
+
+/**
+ * Add normalizer and update, for several goldens: each rule tests-normalize.ts finds for them (a value
+ * their last replays diverged on that is made anew on every run, its rule not in the config), each
+ * once, then the update of every golden named. Refused as Update goldens refuses, and when it would
+ * mask nothing. No question: the update's dialog asked, and an update re-records whatever the mode.
+ */
+export function normalizeAndUpdateJob(store: StoreOf<'tests'>, goldens: readonly GoldenSource[], req: Record<string, unknown>, config: readonly Normalizer[]): TestsJob {
+  const update = updateGoldensJob(goldens, req);
+  if (!('args' in update)) return update;
+  const rules: Normalizer[] = [];
+  // `test <goldens…> --update`: the goldens as checked, each once.
+  for (const golden of update.args.slice(1, -1)) {
+    const latest = store.listTestResults({ golden, limit: 1 })[0];
+    const d = latest?.failure === 'diverged' ? divergenceOf(latest) : null;
+    if (latest && d) rules.push(...rulesToAdd(volatileOf(latest, d), [...config, ...rules]));
+  }
+  if (!rules.length) return { error: 'none of them diverged on a value that changes every run: update them' };
+  return { title: ACTIONS.updateGoldens.doing, steps: [...rules.map((rule) => normalizeAddArgs(rule)), update.args] };
 }
 
 /**
@@ -326,9 +349,11 @@ export function register(router: Router, ctx: RouteContext): void {
       return testsBuild(job, busy(store, projectId, req.golden === undefined ? 'run the tests' : 'run it again'), liveAsk(list, job, req.yes));
     },
   });
+  // Several at once with their rules first (`normalize`) are a job of their own.
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.update, {
     title: () => ACTIONS.updateGoldens.doing,
-    build: (req, { store, projectId }) => testsBuild(updateGoldensJob(goldens(), req), busy(store, projectId, 'update it')),
+    build: (req, { store, projectId }) =>
+      req.normalize === true ? testsBuild(normalizeAndUpdateJob(store, goldens(), req, normalizers()), busy(store, projectId, 'update them')) : testsBuild(updateGoldensJob(goldens(), req), busy(store, projectId, 'update it')),
   });
   // A golden's search waits for the tests, and they for it; a run's searches nothing on disk.
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.bisect, {

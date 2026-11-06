@@ -434,6 +434,16 @@ describe('a golden’s dialogs', () => {
     expect(page.all('.dcost.flow')).toHaveLength(1);
     expect(page.all('.dcost')).toHaveLength(2);
   });
+  it('Update goldens with their normalizer and update lime, its cost said once under Update anyway', async () => {
+    const b = { ...div, golden: 'goldens/b', name: 'b' };
+    const several = { ...view, rows: [row, { ...row, path: 'goldens/b', name: 'b' }], divergences: [{ ...div, newRules: [['normalize', 'add']] }, b], diverged: ['goldens/a', 'goldens/b'] } as unknown as TestsView;
+    const page = await open(createElement(UpdateGoldensDialog, { view: several, paths: several.diverged, has: () => true, onUpdate: () => undefined, onInstead: () => undefined, ...closes }));
+    holds(page, { title: 'Update 2 diverged goldens?', doc: 'goldenUpdates', first: '.dlg-alt', ok: 'Update anyway', tone: 'plain' });
+    expect(page.all('[role="dialog"] footer button').map((x) => x.textContent)).toEqual(['Cancel', 'Update anyway', 'Add normalizer and update']);
+    expect(page.all('.cmdlbl').map((c) => c.textContent)).toEqual(['Add normalizer and updateShow command', 'Update anywayShow command']);
+    expect(page.all('.dcost')).toHaveLength(1);
+    expect(page.one('.dcost').textContent).toMatch(/^Billed by your provider\W+either way, as their recordings cost$/);
+  });
   it('Update golden with no advice', async () => {
     const quiet = { ...view, divergences: [{ ...div, volatile: null, normalizeAndTest: null }] } as unknown as TestsView;
     holds(await open(createElement(UpdateGoldensDialog, { view: quiet, paths: ['goldens/a'], has: () => true, onUpdate: () => undefined, onInstead: () => undefined, ...closes })), { title: 'Update a?', doc: 'goldenUpdates', first: OK, ok: 'Update golden' });

@@ -615,6 +615,25 @@ describe('the Update golden dialog', () => {
     expect(updatePlan(masked, masked.diverged)).toMatchObject({ advise: null, instead: null, note: null, ok: 'Update 2 goldens' });
   });
 
+  it('masks several goldens\' values first with Add normalizer and update, one job, each rule once', () => {
+    const rule = ['normalize', 'add', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'];
+    const a = divergence('refund-in-limit', { newRules: [rule] });
+    const b = divergence('limit-two', { newRules: [rule] });
+    const v = view({ divergences: [a, b, divergence('refund-flow', { rulesAdded: true })], diverged: [a.golden, b.golden, 'goldens/refund-flow'] });
+    const plan = updatePlan(v, v.diverged);
+    expect(plan.advise!.text).toBe('refund-in-limit, limit-two diverged on values that are new every run. Add normalizer and update masks them first.');
+    expect(plan.instead).toEqual({ label: 'Add normalizer and update', goldens: v.diverged, run: 'normalize-update-all', command: ["shadowlap normalize add --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", 'shadowlap test goldens/refund-in-limit goldens/limit-two goldens/refund-flow --update'], cost: null });
+    expect(plan.steps[2]).toEqual(['Replayed offline, as the next test will', 'a new value diverges again']);
+    expect(plan.cost).toEqual({ price: 'Billed by your provider', parts: ['either way, as their recordings cost'] });
+    expect(plan.note).toEqual(['The normalizers for refund-flow are in shadowlap.config.json now: a re-run passes without updating it.']);
+    expect(plan.ok).toBe('Update anyway');
+    // One of several, said of it alone; and where the server runs no update, the advice says the next run diverges again.
+    expect(updatePlan(view({ divergences: [a, divergence('limit-two', { volatile: null })], diverged: [a.golden, 'goldens/limit-two'] }), [a.golden, 'goldens/limit-two']).advise!.text).toBe('refund-in-limit diverged on a value that is new every run. Add normalizer and update masks it first.');
+    const without = updatePlan(v, v.diverged, (k) => k !== 'test-update');
+    expect(without).toMatchObject({ instead: null, cost: { parts: ['as their recordings cost'] } });
+    expect(without.advise!.text).toBe('refund-in-limit, limit-two diverged on values that change every run. Updating re-records them, and the next run diverges again.');
+  });
+
   it('quotes what a shell would need quoting in the command', () => {
     expect(commandText(['test', 'goldens/my golden', '--update'])).toBe("shadowlap test 'goldens/my golden' --update");
     expect(commandText(['test', 'goldens/*'])).toBe('shadowlap test goldens/*');

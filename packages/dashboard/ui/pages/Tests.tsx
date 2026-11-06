@@ -181,7 +181,7 @@ export function TestsPage() {
         />
       ))}
       <CiSections view={view} />
-      {/* What it offers instead opens no dialog of its own, though a session that runs a golden live still asks first (tests-ask.ts). */}
+      {/* What it offers instead opens no dialog of its own, though a session that runs a golden live still asks first (tests-ask.ts); several goldens' normalizer and update is the update this dialog asks about. */}
       {open?.kind === 'update' ? (
         <UpdateGoldensDialog
           view={view}
@@ -190,7 +190,7 @@ export function TestsPage() {
           estimate={open.estimate}
           onClose={() => setOpen(null)}
           onUpdate={() => start(JOB_KINDS.testUpdate, open.paths.length === 1 ? { golden: open.paths[0] } : { goldens: open.paths }, undefined, open.estimate)}
-          onInstead={(i) => start(i.run === 'rerun' ? JOB_KINDS.tests : JOB_KINDS.normalizeAndTest, { golden: i.golden }, divergedAsk(view, i.golden, i.run))}
+          onInstead={(i) => (i.run === 'normalize-update-all' ? start(JOB_KINDS.testUpdate, { goldens: i.goldens, normalize: true }, undefined, open.estimate) : start(i.run === 'rerun' ? JOB_KINDS.tests : JOB_KINDS.normalizeAndTest, { golden: i.golden }, divergedAsk(view, i.golden, i.run)))}
         />
       ) : null}
       {open?.kind === 'bisect' ? (

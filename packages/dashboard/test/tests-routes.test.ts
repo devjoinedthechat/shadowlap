@@ -454,6 +454,21 @@ describe('the Tests jobs', () => {
     expect((await post({ kind: 'test-update', goldens: [] })).status).toBe(400);
   });
 
+  it('adds the rules several goldens diverged on, each once, then updates them all, as one job', async () => {
+    spawned.length = 0;
+    const normalize = ['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'];
+    // GET /api/tests names the rules for each golden, as the dialog shows them before the job runs them.
+    expect((await getJson<TestsView>(dash, 'tests')).divergences.find((d) => d.golden === 'goldens/refund-in-limit')!.newRules).toEqual([normalize]);
+    const view = await job({ kind: 'test-update', goldens: ['goldens/refund-in-limit', 'goldens/refund-flow'], normalize: true });
+    expect(spawned).toEqual([normalize, ['test', 'goldens/refund-in-limit', 'goldens/refund-flow', '--update']]);
+    expect(view).toMatchObject({ title: 'Updating goldens', args: normalize });
+    // Nothing to mask: an update is what they need. And it refuses what Update goldens refuses.
+    const none = await post({ kind: 'test-update', goldens: ['goldens/refund-flow'], normalize: true });
+    expect(none.status).toBe(400);
+    expect(((await none.json()) as { error: string }).error).toBe('none of them diverged on a value that changes every run: update them');
+    expect((await post({ kind: 'test-update', goldens: ['goldens/refund-in-limit', '--online'], normalize: true })).status).toBe(400);
+  });
+
   it('finds the commit between revisions that look like ones, never an option', async () => {
     spawned.length = 0;
     const view = await job({ kind: 'bisect', golden: 'goldens/refund-in-limit', good: 'c91d0f4', bad: 'd2e8a1f' });

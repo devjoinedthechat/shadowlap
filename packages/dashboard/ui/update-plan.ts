@@ -26,8 +26,8 @@ export interface UpdatePlan {
    * other material, which a value that changes every run would make again, so its normalizer comes first.
    */
   advise: { title: string; text: string; path: string | null } | null;
-  /** The lime way on beside it, named for what it runs, with its command and what it bills: null for several goldens, or when the server runs none of it. */
-  instead: { label: string; golden: string; run: 'normalize' | 'normalize-update' | 'rerun'; command: readonly string[]; cost: CostWords } | null;
+  /** The lime way on beside it, named for what it runs, with its command and what it bills: null when the server runs none of it, or there is none. */
+  instead: OneInstead | SeveralInstead | null;
   /** A plain line above the command, a path set in code: several goldens' rules are in the config already, so a re-run is the fix. */
   note: Array<string | { code: string }> | null;
   command: string;
@@ -35,8 +35,30 @@ export interface UpdatePlan {
   ok: string;
 }
 
+/** One golden's way on beside Update anyway: its normalizer and a re-run, its normalizer and the update, or a re-run. */
+export interface OneInstead {
+  label: string;
+  golden: string;
+  run: 'normalize' | 'normalize-update' | 'rerun';
+  command: readonly string[];
+  cost: CostWords;
+}
+
+/**
+ * Several goldens': Add normalizer and update, one job (`test-update` with `normalize`) that adds the
+ * rules the server found for them, then updates them all. It bills what the update does, which the
+ * line under Update anyway says for both.
+ */
+export interface SeveralInstead {
+  label: string;
+  goldens: readonly string[];
+  run: 'normalize-update-all';
+  command: readonly string[];
+  cost: null;
+}
+
 /** The amber box's button, by what it runs in place of the update. */
-const INSTEAD: Record<'normalize' | 'normalize-update' | 'rerun', string> = {
+const INSTEAD: Record<OneInstead['run'], string> = {
   normalize: ACTIONS.addNormalizerAndRerun.label,
   // The rule alone can't make the replay match: it is added, and the golden updated after it.
   'normalize-update': ACTIONS.addNormalizerAndUpdate.label,
@@ -51,6 +73,9 @@ const updatesAfterRules = (d: DivergenceView) => !!d.normalizeAndTest && (d.norm
 
 /** What re-recording bills: until a price is known, who bills it. */
 export const recordingCost = (one: boolean): CostWords => ({ price: 'Billed by your provider', parts: [updatePart(one, false)] });
+
+/** An update's cost line, or its estimate's, where several goldens' normalizer and update bills the same: `either way, as their recordings cost`. */
+export const eitherWay = <T extends { parts?: readonly string[] }>(cost: T): T => ({ ...cost, parts: (cost.parts ?? []).map((p, i) => (i ? p : `either way, ${p}`)) });
 
 /** Its checks, as the step that replaces it says them: an update is kept only if they pass, or with none, if it exits 0. */
 export const replacedIf = (checks: number) => (checks === 0 ? 'Replaced only if it exits 0' : checks === 1 ? 'Replaced only if its check passes' : `Replaced only if its ${n(checks, 'check')} pass`);
@@ -72,7 +97,7 @@ export const divergedWhere = (d: { callNo: number; volatile: { path: string } | 
  * The lime way on beside Update anyway: what it runs, and what that bills. A re-run after the rules
  * replays offline, unless the golden may fork; one whose last step updates it re-records.
  */
-export function insteadOf(run: NonNullable<UpdatePlan['instead']>['run'], steps: readonly (readonly string[])[], golden: string, fork: boolean): NonNullable<UpdatePlan['instead']> {
+export function insteadOf(run: OneInstead['run'], steps: readonly (readonly string[])[], golden: string, fork: boolean): OneInstead {
   const lines = (run === 'rerun' ? steps.slice(-1) : steps).map((c) => commandText(c));
   const cost: CostWords = run === 'normalize-update' ? recordingCost(true) : fork ? { price: 'Billed by your provider', parts: ['live from where it forks'] } : { price: 'Free', parts: ['replays offline'] };
   return { label: INSTEAD[run], golden, run, command: lines, cost };
@@ -87,13 +112,27 @@ function oneGoldenAdvice(d: DivergenceView, perRun: boolean, rerun: boolean, has
   return { advise: rerun ? { title: 'Its normalizer is in the config now', text: 'is masked by a rule added since this replay, so a re-run passes without an update.', path: v?.path ?? null } : null, instead, note: null };
 }
 
-/** The advice beside several goldens' update: which diverged on values new every run, and which a re-run would pass. */
-function severalAdvice(perRun: readonly DivergenceView[], rerun: readonly DivergenceView[]): Pick<UpdatePlan, 'advise' | 'instead' | 'note'> {
-  const names = perRun.map((d) => d.name).join(', ');
+/**
+ * The advice beside several goldens' update: which diverged on values new every run, and which a re-run
+ * would pass. Where the server runs it, Add normalizer and update masks the values first, the rules it
+ * names for each golden (`newRules`) each once, then updates them all; without it, the advice says
+ * the next run diverges again.
+ */
+function severalAdvice(paths: readonly string[], ds: readonly DivergenceView[], perRun: readonly DivergenceView[], rerun: readonly DivergenceView[], has: (kind: string) => boolean): Pick<UpdatePlan, 'advise' | 'instead' | 'note'> {
+  const masks = has('test-update') ? ds.filter((d) => d.newRules?.length) : [];
+  const them = (list: readonly unknown[]) => (list.length === 1 ? 'it' : 'them');
+  const note: UpdatePlan['note'] = rerun.length ? [`The normalizers for ${rerun.map((d) => d.name).join(', ')} are in shadowlap.config.json now: a re-run passes without updating ${them(rerun)}.`] : null;
+  if (!masks.length) {
+    const names = perRun.map((d) => d.name).join(', ');
+    return { advise: perRun.length ? { title: 'A normalizer fixes this for good', text: `${names} diverged on values that change every run. Updating re-records ${them(perRun)}, and the next run diverges again.`, path: null } : null, instead: null, note };
+  }
+  const label = ACTIONS.addNormalizerAndUpdate.label;
+  const values = masks.length === 1 ? 'a value that is new every run' : 'values that are new every run';
+  const rules = [...new Set(masks.flatMap((d) => (d.newRules ?? []).map((r) => commandText(r))))];
   return {
-    advise: perRun.length ? { title: 'A normalizer fixes this for good', text: `${names} diverged on values that change every run. Updating re-records ${perRun.length === 1 ? 'it' : 'them'}, and the next run diverges again.`, path: null } : null,
-    instead: null,
-    note: rerun.length ? [`The normalizers for ${rerun.map((d) => d.name).join(', ')} are in shadowlap.config.json now: a re-run passes without updating ${rerun.length === 1 ? 'it' : 'them'}.`] : null,
+    advise: { title: 'A normalizer fixes this for good', text: `${masks.map((d) => d.name).join(', ')} diverged on ${values}. ${label} masks ${them(masks)} first.`, path: null },
+    instead: { label, goldens: [...paths], run: 'normalize-update-all', command: [...rules, commandText(['test', ...paths, '--update'])], cost: null },
+    note,
   };
 }
 
@@ -120,21 +159,23 @@ export function updatePlan(view: TestsView, paths: readonly string[], has: (kind
   // Its rules are in the config now: alone they make the replay match.
   const rerun = ds.filter((d) => d.rulesAdded && !!d.normalizeAndTest && !updatesAfterRules(d));
   const d0 = one ? (ds[0] ?? null) : null;
-  const said = d0 ? oneGoldenAdvice(d0, perRun.includes(d0), rerun.includes(d0), has, rows[0]?.mode === 'fork') : one ? { advise: null, instead: null, note: null } : severalAdvice(perRun, rerun);
+  const said = d0 ? oneGoldenAdvice(d0, perRun.includes(d0), rerun.includes(d0), has, rows[0]?.mode === 'fork') : one ? { advise: null, instead: null, note: null } : severalAdvice(paths, ds, perRun, rerun, has);
   const { advise, instead, note } = said;
   const replaced = one ? replacedIf(rows[0]?.checks.length ?? 0) : 'Each replaced only if its checks pass';
+  // Several masked first: updating anyway leaves a value that diverges again, and either way bills the same.
+  const masked = instead?.run === 'normalize-update-all';
   return {
     title: one ? `Update ${goldens[0]!.name}?` : `Update ${goldens.length} diverged goldens?`,
     lead: `${one ? `Re-records ${goldens[0]!.name}` : `Re-records the ${goldens.length} goldens`}, for a change you meant.`,
     doc: 'goldenUpdates',
     facts: [],
     goldens,
-    steps: updateSteps(replaced, perRun.length ? (one ? (perRun[0]!.volatile?.looks ?? 'value') : 'value') : null),
+    steps: updateSteps(replaced, perRun.length || masked ? (one ? (perRun[0]!.volatile?.looks ?? 'value') : 'value') : null),
     advise,
     instead,
     note,
     command: commandText(['test', ...paths, '--update']),
-    cost: recordingCost(one),
+    cost: masked ? eitherWay(recordingCost(one)) : recordingCost(one),
     ok: advise ? 'Update anyway' : updateOk(goldens.length),
   };
 }
