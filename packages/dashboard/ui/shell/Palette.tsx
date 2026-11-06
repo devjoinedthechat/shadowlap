@@ -22,6 +22,7 @@ import { goKeyColumn, keyColumn } from '../shortcuts.js';
 import { singleKeysOn } from '../single-keys.js';
 import { useApp, type AppState, type PaletteCommand } from '../state.js';
 import { announce } from '../toast.js';
+import { useMedia } from '../hooks.js';
 import { paletteTestsAsk, startTestsJob } from '../tests-ask.js';
 
 /**
@@ -51,6 +52,23 @@ function fitsField(el: HTMLElement, text: string): boolean {
   const cs = getComputedStyle(el);
   const width = widthIn(fontOf(cs));
   return !width || width(text) <= el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+}
+
+/**
+ * The field's words: what it searches, or "Search or jump to", as its button says, on a touch screen
+ * or where those words don't fit the field whole, measured in its own type again as the window's
+ * size changes.
+ */
+function useFieldWords(input: RefObject<HTMLInputElement | null>, words: string): string {
+  const touch = useMedia('(hover: none) and (pointer: coarse)');
+  const [fits, setFits] = useState(true);
+  useLayoutEffect(() => {
+    const measure = () => setFits(!input.current || fitsField(input.current, words));
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [input, words]);
+  return touch || !fits ? 'Search or jump to' : words;
 }
 
 /**
@@ -305,6 +323,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
 
   const offline = app.conn === 'offline';
   const pick = (n: number) => pickRow(shown[n], { offline, toast: app.toast, close });
+  const fieldWords = useFieldWords(input, palettePlaceholder({ exported: app.exported, actions: !app.actionsOff, offline }));
 
   const groups = inGroups(shown);
   const optionId = (n: number) => `palopt-${n}`;
@@ -317,7 +336,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
           <input
             ref={input}
             type="text"
-            placeholder={scopeWords ?? palettePlaceholder({ exported: app.exported, actions: !app.actionsOff, offline })}
+            placeholder={scopeWords ?? fieldWords}
             autoComplete="off"
             spellCheck={false}
             value={q}
