@@ -16,7 +16,7 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  *
  * The shell's pages load this way (pages/lazy.tsx), its palette and shortcuts sheet (shell/Shell.tsx),
  * and each part of a page heavy enough to wait for a script of its own: a run's views but Calls
- * (pages/Run.tsx). So must the structural diff
+ * (pages/Run.tsx), and the dialog a run's action asks in (run/actions.tsx). So must the structural diff
  * (components/JsonDiff.tsx), the results matrix (components/ResultsMatrix.tsx), the check builder
  * (checks/) and each Changes tab (changes/): test/ui-bundle-size.test.ts fails when one of them is in
  * the first look or loads with a page. A part is declared beside the page that shows it, never in
