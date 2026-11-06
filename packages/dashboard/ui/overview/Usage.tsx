@@ -39,8 +39,8 @@ function keepOpen(open: boolean): void {
   }
 }
 
-/** Parts of a line joined by dots, each kept whole, so a line that wraps breaks only after a dot. */
-const dotted = (parts: readonly string[]) => parts.map((p) => p.replace(/ /g, ' ')).join(' · ');
+/** Parts of a line joined by dots, each kept whole with its dot, so a line that wraps breaks only after a dot and never starts on one. */
+const dotted = (parts: readonly string[]) => parts.map((p) => p.replace(/ /g, '\u00a0')).join('\u00a0· ');
 
 export function Usage({ s }: { s: Pick<OverviewSummary, 'sums' | 'cache' | 'outcomes' | 'daily' | 'today'> }) {
   const [open, setOpen] = useState(wasOpen);

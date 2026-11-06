@@ -41,6 +41,8 @@ describe('the Overview’s Usage', () => {
     vi.stubGlobal('sessionStorage', { getItem: (k: string) => kept.get(k) ?? null, setItem: (k: string, v: string) => void kept.set(k, v), removeItem: (k: string) => void kept.delete(k) });
     r = await render(inApp(createElement(Usage, { s: summary })));
     expect(text(r.all('.ovuse > header .sub')[0])).toBe('2,785 calls in 28 runs · 37% replayed · 87% of input from the cache · $16.24 spent live this week');
+    // Each figure whole, its dot kept with it: a phone's wrapped line breaks only after a dot, never starting on one.
+    expect(r.all('.ovuse > header .sub')[0].textContent.split(' ').map((p) => p.endsWith('\u00a0·'))).toEqual([true, true, true, false]);
     const show = r.all('.ovuse .linkbtn')[0];
     expect([text(show), show.getAttribute('aria-expanded')]).toEqual(['Show', 'false']);
     expect(r.all('.ugrid')).toHaveLength(0);
