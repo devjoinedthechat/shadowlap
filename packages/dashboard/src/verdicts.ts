@@ -193,7 +193,6 @@ export function verdictsLimit(raw: string | number | null | undefined): number {
 /** A revision's key, as its page's address takes it: the revision, or `no-revision` for none. */
 export const revisionKey = (revision: string | null): string => revision ?? 'no-revision';
 
-
 /** The commit under a revision, the one git knows: `abc1234+dirty` was tested with changes on top of abc1234. */
 export const committed = (revision: string): string => revision.replace(/\+dirty$/, '');
 
@@ -691,8 +690,8 @@ function previewsAt(store: Store, revision: string): string[] {
 /**
  * A revision's page, by its key (`revisionKey`): its row as the list shows it, whether it is the
  * newest revision's, its goldens as the session that ran them all there judged them, worst first,
- * each with its note in Tests' words, the golden that leads its verdict, and the previews asked at it. Null for a key the window has no such
- * session for, or one no revision could be.
+ * each with its note in Tests' words, the golden that leads its verdict, and the previews asked at
+ * it. Null for a key the window has no such session for, or one no revision could be.
  */
 export function verdictRevision(store: Store, goldens: readonly GoldenSource[], key: string, options: Omit<VerdictsOptions, 'kind' | 'limit'> = {}): VerdictRevision | null {
   if (!isRevisionKey(key)) return null;
