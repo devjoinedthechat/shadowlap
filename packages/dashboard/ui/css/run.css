@@ -654,8 +654,9 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 /* At a phone's width the label goes over the note, which takes the whole width: no baseline alignment to hold it at its text's width. */
 @media (max-width: 760px) { .rnote { flex-direction: column; align-items: stretch; gap: 4px; padding: 8px 16px; } }
 .banner.n .bk { color: var(--dim); }
-/* a run's page at a phone's width: why a run failed wraps like the sentence it is, and so do a banner's buttons (a diverged test's Add normalizer and
-   update…, Update golden and Show diff) rather than run off the screen */
+/* a run's page at a phone's width: why a run failed wraps like the sentence it is, and so do a
+   banner's buttons (a diverged test's Add normalizer and update…, Update golden and Show diff)
+   rather than run off the screen */
 .rhead .meta > span.mfail { white-space: normal; }
 
 @media (max-width: 640px) {
