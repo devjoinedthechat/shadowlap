@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, w
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { ProjectHost, ProjectRegistry, Store, projectDbPath } from '@shadowlap/engine';
 import { startDashboard, type Dashboard, type ProjectConfig } from '../src/index.js';
 import type { HoldingView } from '../src/cross-project.js';
@@ -63,6 +63,32 @@ function changesOf(store: Store, runId: string, ids: { fix: string; preview: str
   const change = { model: 'claude-haiku-4-5', fields: {}, from: null, fromCode: null, text: 'the model claude-haiku-4-5' };
   store.putDecisionSession({ sessionId: ids.preview, kind: 'decisions', at: NOW - HOUR, change: change.text, actor: null, revision: null, data: { change, flagged: [], toVerify: [], verify: null }, runs: [{ runId, golden: null, rank: 1, changed: 1, data: decided }] });
   store.putDecisionSession({ sessionId: ids.migration, kind: 'migrate', at: NOW - HOUR, change: change.text, actor: null, revision: null, data: { change, decisions: {} }, runs: [{ runId, golden: null, rank: 1, changed: 1, data: decided }] });
+}
+
+/**
+ * Holds the store at `dbPath` as a writer that takes the whole file does, until what this returns is
+ * called: a read-only open waits on its busy timeout meanwhile. The store keeps a rollback journal
+ * for it, since a reader never waits on a writer in WAL mode.
+ */
+function lockStore(dbPath: string): () => void {
+  const raw = new DatabaseSync(dbPath);
+  raw.exec('PRAGMA journal_mode = DELETE');
+  raw.exec('BEGIN EXCLUSIVE');
+  return () => {
+    raw.exec('ROLLBACK');
+    raw.close();
+  };
+}
+
+/** Whether `p` still waits once what is ready now has run. */
+async function pending(p: Promise<unknown>): Promise<boolean> {
+  let settled = false;
+  void p.then(
+    () => (settled = true),
+    () => (settled = true),
+  );
+  await new Promise((r) => setTimeout(r, 0));
+  return !settled;
 }
 
 function fill(path: string, fn: (store: Store) => void): void {
@@ -208,12 +234,6 @@ describe('a link into another project', () => {
     expect({ runs: check.prepare('SELECT * FROM runs ORDER BY run_id').all(), stats: check.prepare('SELECT * FROM run_stats ORDER BY run_id').all() }).toEqual(before);
     check.close();
     expect(existsSync(join(w.triage, '.shadowlap', '.gitignore'))).toBe(false);
-
-    // Removing it with its recordings straight after a lookup isn't held up by it.
-    const lookup = w.holding('run', B_REC);
-    await w.host.remove('triage-bot', { deleteRecordings: true, typedName: 'triage-bot' });
-    expect((await lookup).status).toBe(200);
-    expect(existsSync(db)).toBe(false);
   });
 
   it('has a removal wait until a read of the store beside the server ends', async () => {
@@ -230,12 +250,35 @@ describe('a link into another project', () => {
     await read;
     await removal;
     expect(existsSync(db)).toBe(false);
-    // The switcher's read of the stores is held the same way, and nothing waits once it has ended.
+    // Once a read of the stores has ended, here the switcher's, a removal has nothing to wait for.
     const research = projectDbPath(w.research);
     expect((await w.api('projects')).status).toBe(200);
     await w.host.remove('research-agent', { deleteRecordings: true, typedName: 'research-agent' });
     expect(existsSync(research)).toBe(false);
   });
+
+  it('has a removal wait for a lookup under way that may open its store, and for the switcher’s read of the stores', async () => {
+    for (const read of ['lookup', 'switcher'] as const) {
+      const w = await world();
+      // What a removal waits for, as the dashboard's reads beside the server tell the host from the first one on.
+      const holds = vi.spyOn(w.host, 'holdStores');
+      // The read waits at triage-bot's store, with research-agent's still to read: its removal must wait for it.
+      const release = lockStore(projectDbPath(w.triage));
+      const asked = read === 'lookup' ? w.holding('run', B_REC) : w.api('projects');
+      await vi.waitFor(() => expect(holds, `${read}: no read beside the server holds the stores`).toHaveBeenCalledOnce(), { timeout: 3000 });
+      const research = projectDbPath(w.research);
+      expect(await pending(holds.mock.calls[0][0](research)), read).toBe(true);
+      let removed = false;
+      const removal = w.host.remove('research-agent', { deleteRecordings: true, typedName: 'research-agent' }).then(() => (removed = true));
+      await new Promise((r) => setTimeout(r, 100));
+      expect(removed, read).toBe(false);
+      expect(existsSync(research), read).toBe(true);
+      release();
+      expect((await asked).status, read).toBe(200);
+      await removal;
+      expect(existsSync(research), read).toBe(false);
+    }
+  }, 30_000);
 
   it('asks for a kind and one id, or two, of the characters an address holds', async () => {
     const w = await world();
