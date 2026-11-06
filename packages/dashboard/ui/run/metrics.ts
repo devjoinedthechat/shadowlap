@@ -3,6 +3,8 @@ import { approx, ktok, money, receiptDuration } from '../format.js';
 import type { OriginCounts } from '../origins.js';
 import { outcomeTip, type OutcomeTip } from '../outcome-tip.js';
 import { outcomeOf, type RunLike, type RunOutcomeWords } from '../runs.js';
+import type { AttemptOutcome } from './banner.js';
+import type { PresetAttempt } from './preset.js';
 
 /**
  * The run's facts after how it came out, in the order the header shows them: its calls, then, quieter,
@@ -93,8 +95,38 @@ export interface OutcomeFact {
   callNo: number | null;
   /** Judged by checks its family's goldens added after it was recorded, or rules on calls changed since its import. */
   today: boolean;
-  /** Its hover, the card Runs' Status shows too (outcome-tip.ts). */
-  tip: OutcomeTip;
+  /** Its hover, the card Runs' Status shows too (outcome-tip.ts); none for an attempt that passed, which needs no why. */
+  tip: OutcomeTip | null;
+}
+
+/** What else says how the run came out: a fork blame rescued a run with, an error-path preset's verdict, an attempt's (banner.ts's attemptOutcome). */
+export interface FactVerdicts {
+  rescued?: boolean;
+  preset?: PresetAttempt | null;
+  attempt?: AttemptOutcome | null;
+}
+
+const card = (title: string, sub: string | null): OutcomeTip => ({ title, sub, rows: [], said: sub });
+
+/**
+ * An attempt's verdict as its first fact, which the chip beside the id said before: a rescued fork and
+ * an attempt that passed `passed`, with no card; a preset's `exited <code>` or `check failed` with
+ * why under it, or `inconclusive`; an attempt's `interrupted` muted, `inconclusive` amber with the
+ * check it couldn't decide. A failed attempt says what its checks say (null here), else `failed`.
+ */
+function verdictFact(v: FactVerdicts): Omit<OutcomeFact, 'callNo' | 'today'> | null {
+  if (v.rescued) return { tone: 'ok', words: 'passed', tip: null };
+  const p = v.preset;
+  if (p) {
+    if (p.verdict === 'passed') return { tone: 'ok', words: 'passed', tip: null };
+    if (p.verdict === 'inconclusive') return { tone: 'warn', words: 'inconclusive', tip: card('Inconclusive', p.outcome) };
+    const words = p.exitCode ? `exited ${p.exitCode}` : 'check failed';
+    return { tone: 'err', words, tip: card(words[0]!.toUpperCase() + words.slice(1), p.outcome) };
+  }
+  const a = v.attempt;
+  if (!a || a.tone === 'no') return null;
+  if (a.tone === 'n') return { tone: 'mu', words: 'interrupted', tip: card('Stopped before it ended', null) };
+  return a.tone === 'inc' ? { tone: 'warn', words: 'inconclusive', tip: card('Inconclusive', a.why ?? null) } : { tone: 'ok', words: 'passed', tip: null };
 }
 
 /**
@@ -105,10 +137,14 @@ export interface OutcomeFact {
  * it. `pending`: a long run whose first answer came before its analysis judged it, which says nothing
  * yet. An interrupted run says so muted, by a grey dot, as every status that is no verdict.
  */
-export function outcomeFact(r: RunLike, o: { tools: number; pending?: boolean }): OutcomeFact {
+export function outcomeFact(r: RunLike, o: { tools: number; pending?: boolean } & FactVerdicts): OutcomeFact {
+  const verdict = verdictFact(o);
+  if (verdict) return { ...verdict, callNo: null, today: false };
   if (o.pending) return { tone: 'mu', words: '…', callNo: null, today: false, tip: { title: 'Judging it by its checks', sub: 'Read from all its calls, beside the server.', rows: [], said: 'judging it by its checks' } };
   const out = outcomeOf(r);
   const tip = outcomeTip(r, out, o.tools);
+  // A failed attempt whose checks say nothing still failed.
+  if ((out.of === 'none' || out.of === 'fork') && o.attempt?.tone === 'no') return { tone: 'err', words: 'failed', callNo: null, today: false, tip: card('Failed', null) };
   if (out.of === 'none' || out.of === 'fork') return { tone: 'mu', words: 'no checks', callNo: null, today: false, tip };
   return { tone: factTone(out.tone), words: out.at?.words ?? out.text, callNo: out.at?.callNo ?? null, today: !!out.today, tip };
 }

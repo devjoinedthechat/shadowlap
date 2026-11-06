@@ -19,10 +19,10 @@ import { shortcut } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import type { PendingAction } from './actions.js';
 import type { PresetAttempt } from './preset.js';
-import { bannerFor, DIVERGED } from './banner.js';
+import { attemptOutcome, bannerFor, DIVERGED } from './banner.js';
 import { refusedOffline } from './calls.js';
 import { metricItems, outcomeFact, type MetricInput, type OutcomeFact } from './metrics.js';
-import { attemptLinks, attemptOf, originOf, pulledSpender, runLikeOf } from './model.js';
+import { attemptLinks, attemptOf, checksOf, originOf, pulledSpender, runLikeOf } from './model.js';
 import { useDivergedJobs } from './diverged.js';
 import { fixStatusWords, nextStepOf } from './next-step.js';
 import { blameTitle, goldenName, updatesAfterRules } from './offers.js';
@@ -38,9 +38,15 @@ export function RunLoading() {
 }
 
 /** The run's numbers, led by its outcome by checks: the payload's, or asked for alone where its first answer came before its analysis judged it (useJudged). */
-export function RunMetrics(props: { run: RunDetail; notWaitedMs: number | null; notWaitedUnknown: number }) {
+export function RunMetrics(props: { run: RunDetail; notWaitedMs: number | null; notWaitedUnknown: number; preset?: PresetAttempt | null; rescued?: boolean }) {
   const judged = useJudged(props.run);
   return <Metrics {...props} judged={judged ?? null} pending={judged === undefined} />;
+}
+
+/** How an attempt came out, as its finding says it: the first fact says it too, where the chip beside the id once did. */
+function attemptVerdictOf(run: RunDetail, checks: ReturnType<typeof checksOf>) {
+  const a = attemptOf(run);
+  return a ? attemptOutcome({ status: run.run.status, checks, ...(run.state ? { interrupted: run.state.interrupted } : {}) }, a) : null;
 }
 
 /**
@@ -48,7 +54,7 @@ export function RunMetrics(props: { run: RunDetail; notWaitedMs: number | null; 
  * unless given; `pending` while a long run's analysis is yet to judge it); the counts follow; what
  * replaying saved comes last, as a quieter receipt.
  */
-export function Metrics({ run, notWaitedMs, notWaitedUnknown, judged = run.judged ?? null, pending = false }: { run: RunDetail; notWaitedMs: number | null; notWaitedUnknown: number; judged?: RunDetail['judged']; pending?: boolean }) {
+export function Metrics({ run, notWaitedMs, notWaitedUnknown, judged = run.judged ?? null, pending = false, preset = null, rescued = false }: { run: RunDetail; notWaitedMs: number | null; notWaitedUnknown: number; judged?: RunDetail['judged']; pending?: boolean; preset?: PresetAttempt | null; rescued?: boolean }) {
   const s = run.summary;
   const items = metricItems({
     // A recording's count as the poll says it, as its list has it: its page is asked for again only
@@ -69,7 +75,7 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown, judged = run.judge
     refused: run.calls.filter((c) => c.outcome === 'error' && refusedOffline(c)).length,
   });
   // How it came out leads: the verdict of the checks that judged it, as Runs' Status says it.
-  const fact = outcomeFact({ ...runLikeOf(run), judged: judged ?? null }, { tools: s.byKind.tool, pending });
+  const fact = outcomeFact({ ...runLikeOf(run), judged: judged ?? null }, { tools: s.byKind.tool, pending, preset, rescued, attempt: attemptVerdictOf(run, checksOf(run)) });
   return (
     <section className="metrics" aria-label="How it went">
       <Outcome fact={fact} runId={run.run.runId} />
@@ -102,7 +108,7 @@ function useJudged(run: RunDetail): RunDetail['judged'] {
  * by today's checks after it; what judged it on hover, and to a screen reader the check it names.
  */
 function Outcome({ fact, runId }: { fact: OutcomeFact; runId: string }) {
-  const tip = tipCard(fact.tip.title, fact.tip.rows.map(([label, value, color]) => ({ label, value, color })), fact.tip.sub);
+  const tip = fact.tip ? tipCard(fact.tip.title, fact.tip.rows.map(([label, value, color]) => ({ label, value, color })), fact.tip.sub) : undefined;
   return (
     <span className="metric rout">
       <Status tone={fact.tone} tip={tip}>
@@ -115,7 +121,7 @@ function Outcome({ fact, runId }: { fact: OutcomeFact; runId: string }) {
             </a>
           </>
         ) : null}
-        {fact.tip.said ? <span className="sr">: {fact.tip.said}</span> : null}
+        {fact.tip?.said ? <span className="sr">: {fact.tip.said}</span> : null}
       </Status>
       {fact.today ? <span className="rtoday">{TODAY}</span> : null}
     </span>
