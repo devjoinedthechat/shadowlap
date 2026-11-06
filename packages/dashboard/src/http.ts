@@ -13,6 +13,8 @@ export class HttpError extends Error {
     readonly status: number,
     message: string,
     readonly confirm?: string,
+    /** What a question says beyond its words: the goldens a Tests job would run live. */
+    readonly live?: unknown,
   ) {
     super(message);
   }

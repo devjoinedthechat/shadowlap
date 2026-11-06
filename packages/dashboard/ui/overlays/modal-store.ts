@@ -28,6 +28,8 @@ const stack: Stacked[] = [];
 
 export const modalOpen = (): boolean => stack.length > 0;
 const topModal = (): OpenModal | null => stack.at(-1) ?? null;
+/** The modal on top, what a toast keeps clear of. */
+export const topModalRoot = (): HTMLElement | null => topModal()?.root() ?? null;
 
 const listeners = new Set<() => void>();
 
@@ -69,7 +71,7 @@ export function openerNow(): HTMLElement | null {
   return top ? (top.openers.at(-1)?.el ?? null) : a;
 }
 
-const BEHIND = '#app, #conn, #dock, a.skip';
+const BEHIND = '#app, #dock, a.skip';
 /** An ended session's card is over everything, what is open over the page too. */
 const BEHIND_ALL = `${BEHIND}, #menu, #layer`;
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { appliedButton, applyText, attemptMark, blameNextStep, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, keepAt, laterStamp, markText, mergeTreeJobs, moreLine, nothingAcceptedWhy, otherBlameWords, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, probeVerdictWords, repairAside, repairAsk, repairBy, repairReceipt, roleBadges, sameFolder, statusBadge, stepFor, stepLeads, treeBusy, updateOutdatedAsk, verdictTone, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
+import { applySteps, markLead, updateOutdatedAsk } from '../ui/fixes/dialog-words.js';
+import { appliedButton, attemptMark, blameNextStep, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, keepAt, laterStamp, mergeTreeJobs, moreLine, nothingAcceptedWhy, otherBlameWords, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, probeVerdictWords, repairAside, repairAsk, repairBy, repairReceipt, roleBadges, sameFolder, statusBadge, stepFor, stepLeads, treeBusy, verdictTone, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '../ui/types.js';
 
@@ -77,8 +78,8 @@ describe('a fix', () => {
   });
 
   it('offers Run repair on an open fix, Apply fix on a verified one, and Patch applied once it is in', () => {
-    const repair = { argv: ['repair'], command: 'shadowlap repair', noFix: null };
-    const patch = { kind: 'patch' as const, argv: ['fix', 'apply', 'fx-1'], gitApply: 'git apply x/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff: 'diff --git a/agent.mjs b/agent.mjs\n', patchFile: 'x/fix.patch', refused: null, inTree: false, goldens: 1, change: null };
+    const repair = { argv: ['repair'], command: 'shadowlap repair', noFix: null, noFixWhy: null, candidates: 3 };
+    const patch = { kind: 'patch' as const, argv: ['fix', 'apply', 'fx-1'], gitApply: 'git apply x/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff: 'diff --git a/agent.mjs b/agent.mjs\n', patchFile: 'x/fix.patch', refused: null, inTree: false, goldens: 1, names: [], held: null, change: null };
     expect(fixAction({ status: 'open', actions: actions({ repair }) })).toEqual({ kind: 'repair' });
     expect(fixAction({ status: 'open', actions: actions({}) })).toEqual({ kind: 'none', label: 'Run repair', why: expect.stringMatching(/nothing to repair from here/) });
     expect(fixAction({ status: 'verified', actions: actions({ apply: patch }) })).toEqual({ kind: 'apply', label: 'Apply fix' });
@@ -95,11 +96,11 @@ describe('a fix', () => {
   });
 
   it('says what marking a fix applied does: for a patch in the tree already, what applying still does', () => {
-    expect(markText({ inTree: true, goldens: 2, pulled: false, change: null })).toBe('The patch is already in your working tree: this copies the goldens it is missing into goldens/, runs them with shadowlap test and marks the fix applied.');
-    expect(markText({ inTree: true, goldens: 0, pulled: true, change: null })).toBe('The patch is already in your working tree: this marks the fix applied. The recordings the fixed code made stay on the machine that ran the repair.');
-    expect(markText({ inTree: false, goldens: 0, pulled: false, change: null })).toBe('It was verified on your working tree as it is, so there is no patch to apply: this marks it applied.');
+    expect(markLead({ inTree: true, goldens: 2, change: null })).toBe('Copies the goldens it is missing into goldens/, runs them and marks the fix applied.');
+    expect(markLead({ inTree: true, goldens: 0, change: null })).toBe('Marks the fix applied; its patch is in your working tree already.');
+    expect(markLead({ inTree: false, goldens: 0, change: null })).toBe('Marks the fix applied: it was verified on your working tree as it is.');
     // A change of request fields is in no file: never "no patch to apply", which reads as if the change were in the tree.
-    expect(markText({ inTree: false, goldens: 0, pulled: false, change: "temperature=1 from each run's first model call" })).toBe("It was verified with temperature=1 from each run's first model call, a change to the requests rather than to your files: once your agent makes it, this marks the fix applied.");
+    expect(markLead({ inTree: false, goldens: 0, change: "temperature=1 from each run's first model call" })).toBe("Marks the fix applied once your agent sends temperature=1 from each run's first model call.");
   });
 
   it('says a fix with no patch was marked applied, naming the change its agent makes, never that a patch went in', () => {
@@ -113,12 +114,21 @@ describe('a fix', () => {
   });
 
   it('asks before applying with every file the patch changes and the patch itself, and runs nothing from a teammate’s', () => {
-    expect(applyText({ files: ['agent.mjs'], pulled: false })).toBe(
-      'This changes your working tree: the patch below goes into agent.mjs with git apply, the recordings the fixed code made are copied into goldens/, and shadowlap test replays them. Your other goldens are replayed offline, to name any the change makes diverge. Review the change before you commit it.',
-    );
-    expect(applyText({ files: ['agent.mjs', 'src/tools.mjs', 'prompt.txt'], pulled: true })).toBe(
-      "This changes your working tree: the patch below goes into agent.mjs, src/tools.mjs and prompt.txt with git apply. It came from the team store, so nothing here runs it: the recordings the fixed code made stay on the machine that ran the repair, and your goldens aren't replayed against it. Read it first; once it is in and is what you meant, check your goldens with shadowlap test.",
-    );
+    expect(applySteps({ files: ['agent.mjs'], pulled: false, goldens: 1 })).toEqual([
+      { what: 'Patch applied', where: 'agent.mjs, with git apply' },
+      { what: 'Recording copied', where: 'into goldens/' },
+      { what: 'Golden replayed', where: 'shadowlap test, offline' },
+      { what: 'Other goldens replayed', where: 'any that diverge are named' },
+    ]);
+    expect(applySteps({ files: ['agent.mjs'], pulled: false, goldens: 2 })[1].what).toBe('2 recordings copied');
+    // Of two, the one in goldens/ already is copied by no step; both are replayed.
+    expect(applySteps({ files: ['agent.mjs'], pulled: false, goldens: 2 }, { count: 1, to: 'goldens/refund-bug-1' }).slice(1, 3)).toEqual([
+      { what: 'Recording copied', where: 'goldens/refund-bug-1' },
+      { what: 'Goldens replayed', where: 'shadowlap test, offline' },
+    ]);
+    expect(applySteps({ files: ['agent.mjs'], pulled: false, goldens: 2 }, { count: 0, to: null }).map((s) => s.what)).toEqual(['Patch applied', 'Goldens replayed', 'Other goldens replayed']);
+    // A teammate's patch runs nothing here: it goes in, and the rest is the amber line's.
+    expect(applySteps({ files: ['agent.mjs', 'src/tools.mjs', 'prompt.txt'], pulled: true, goldens: 0 })).toEqual([{ what: 'Patch applied', where: 'agent.mjs, src/tools.mjs and prompt.txt, with git apply' }]);
     expect(patchLines('diff --git a/agent.mjs b/agent.mjs\n--- a/agent.mjs\n+++ b/agent.mjs\n@@ -1,2 +1,2 @@\n-old\n+new\n context\n--- removed dashes\n')).toEqual([
       { text: 'diff --git a/agent.mjs b/agent.mjs', tone: null },
       { text: '--- a/agent.mjs', tone: null },
@@ -134,15 +144,15 @@ describe('a fix', () => {
 
   it('keeps Run repair but not as the lead when the repair would end with no fix to try, and says why', () => {
     const noFix = 'No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.';
-    expect(repairAside({ actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair', noFix } }) })).toBe(noFix);
+    expect(repairAside({ actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair', noFix, noFixWhy: 'unrescued', candidates: 3 } }) })).toBe(noFix);
     // A blame that couldn't settle has a look of its own on the Blame step, which says nothing of a repair.
-    expect(repairAside({ actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair', noFix: null } }), blame: { look: 'Inconclusive: resampled from #1…' } as FixDetail['blame'] } as FixDetail)).toBeNull();
+    expect(repairAside({ actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair', noFix: null, noFixWhy: null, candidates: 3 } }), blame: { look: 'Inconclusive: resampled from #1…' } as FixDetail['blame'] } as FixDetail)).toBeNull();
     expect(repairAside({ actions: actions({}) })).toBeNull();
   });
 
   it('names the repairer Run repair asks as the fix reads again, and sends that one', () => {
     const fix = (repairer: FixDetail['repairer'], o: Partial<FixDetail> = {}) =>
-      ({ status: 'open', repairer, actions: actions({ repair: { argv: ['repair'], command: `shadowlap repair${repairer.configured ? '' : ' --repairer claude-code'}`, noFix: null } }), ...o }) as FixDetail;
+      ({ status: 'open', repairer, actions: actions({ repair: { argv: ['repair'], command: `shadowlap repair${repairer.configured ? '' : ' --repairer claude-code'}`, noFix: null, noFixWhy: null, candidates: 3 } }), ...o }) as FixDetail;
     // The page loaded before the config named a repairer; the dialog reads it again as it opens.
     const page = fix({ name: 'claude-code', configured: false, problem: null });
     const now = fix({ name: 'anthropic', configured: true, problem: null });
@@ -157,7 +167,7 @@ describe('a fix', () => {
   });
 
   it('keeps Repair off, saying why, when the repairer it would ask can’t be asked from here', () => {
-    const page = { status: 'open', repairer: { name: 'claude-code', configured: false, problem: null }, actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair --repairer claude-code', noFix: null } }) } as FixDetail;
+    const page = { status: 'open', repairer: { name: 'claude-code', configured: false, problem: null }, actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair --repairer claude-code', noFix: null, noFixWhy: null, candidates: 3 } }) } as FixDetail;
     const problem = 'This repair asks your own Claude Code, and claude was not found on this machine: install Claude Code, or set SHADOWLAP_CLAUDE to its path, or name another repairer in shadowlap.config.json (repair.repairer).';
     // claude went missing since the page loaded: the dialog reads the fix again as it opens.
     expect(repairAsk(page, { fix: { ...page, repairer: { ...page.repairer, problem } } })).toEqual({ ready: false, who: null, repairer: null, command: 'shadowlap repair --repairer claude-code', why: problem });
@@ -556,7 +566,9 @@ describe('the job drawer', () => {
     expect(jobStatus(job('blame', 0, unsettled), [])).toEqual({ text: 'inconclusive · exit 0', tone: 'warn' });
     expect(jobStatus(job('blame', 0, { ...unsettled, failedWrite: { name: 'post_digest', message: 'channel_not_found', callNo: 1 } }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'warn' });
     expect(jobStatus(job('blame', 0, { ...unsettled, probes: [{ callNo: 1, decision: 'fail' }] }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'warn' });
-    expect(jobStatus(job('blame', 1, { outcome: 'stopped' }), [])).toEqual({ text: 'stopped · exit 1', tone: 'err' });
+    expect(jobStatus(job('blame', 1, { outcome: 'stopped' }), [])).toEqual({ text: 'stopped · exit 1', tone: 'warn' });
+    expect(jobStatus(job('repair', 3, { outcome: 'stopped' }), [])).toEqual({ text: 'stopped · exit 3', tone: 'warn' });
+    expect(jobStatus(job('repair', 1, { outcome: 'no-diagnosis' }), [])).toEqual({ text: 'no fix to try · exit 1', tone: 'warn' });
     expect(jobStatus(job('repair', 0, { outcome: 'fixed' }), [])).toEqual({ text: 'fixed · exit 0', tone: 'ok' });
     expect(jobStatus(job('repair', 1, { outcome: 'not-fixed' }), [])).toEqual({ text: 'no fix found · exit 1', tone: 'err' });
     // Claude Code was never asked, and nothing else was tried: no fix was looked for, which is no failure of the agent's.
@@ -581,8 +593,8 @@ describe('the job drawer', () => {
     expect(outdatedOf({ outdated: [...outdated, { golden: '', callNo: 1, path: '$' }, { golden: 'x' }, 'goldens/y'] })).toEqual(outdated);
     expect(outdatedOf(null)).toEqual([]);
     const ask = updateOutdatedAsk(outdated);
-    expect(ask).toMatchObject({ title: 'Update 2 goldens?', ok: 'Update 2 goldens', command: 'shadowlap test goldens/refund-in-limit goldens/01M53A4MZS --update', fields: { goldens: ['goldens/refund-in-limit', 'goldens/01M53A4MZS'] } });
-    expect(ask.text).toMatch(/^They diverge on what the patch changed \(#1 \$\.tools\[4\]\.description\)\. Use this when the change was intended: each is re-recorded live with writes stubbed/);
+    expect(ask).toMatchObject({ title: 'Update 2 diverged goldens?', lead: 'Re-records the 2 goldens, for a change you meant.', ok: 'Update 2 goldens', command: 'shadowlap test goldens/refund-in-limit goldens/01M53A4MZS --update', fields: { goldens: ['goldens/refund-in-limit', 'goldens/01M53A4MZS'] } });
+    expect(ask.goldens[0]).toMatchObject({ name: 'refund-in-limit', where: '#1 ~ $.tools[4].description' });
     expect(updateOutdatedAsk(outdated.slice(1))).toMatchObject({ title: 'Update 01M53A4MZS?', ok: 'Update golden', fields: { golden: 'goldens/01M53A4MZS' } });
   });
 

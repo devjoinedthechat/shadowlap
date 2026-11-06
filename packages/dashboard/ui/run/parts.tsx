@@ -26,6 +26,7 @@ import { attemptLinks, attemptOf, originOf, pulledSpender, runLikeOf } from './m
 import { useDivergedJobs } from './diverged.js';
 import { fixStatusWords, nextStepOf } from './next-step.js';
 import { blameTitle, goldenName, updatesAfterRules } from './offers.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /** The run page while its run loads (a run of 50,000 calls takes seconds): it says so, and is busy for a screen reader. */
 export function RunLoading() {
@@ -377,9 +378,9 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
           {b.path ? <span className="path">~ {b.path}</span> : null}
           <span className="end">
             {b.normalizer && normalizer && !off && !leads('rule') ? (
-              <button className="btn sm" type="button" disabled={!!normalizer.disabled} onClick={() => onAction({ action: normalizer, callNo: null })}>
+              <ActionButton className="btn sm" why={normalizer.disabled} onClick={() => onAction({ action: normalizer, callNo: null })}>
                 {ACTIONS.addNormalizer.label}
-              </button>
+              </ActionButton>
             ) : null}
             {b.diff ? diffToggle : null}
             {/* A fork that failed is blamed as any failed run is: its fix, or Run blame. */}
@@ -478,9 +479,9 @@ function DivergedBanner({ run, test, leads, checks, call, path, why, callNo, dif
             {add.label}
           </TestsJobButton>
         ) : add?.kind === 'action' && normalizer && !leads('normalizer') ? (
-          <button className="btn sm" type="button" disabled={!!normalizer.disabled} onClick={() => onAction({ action: normalizer, callNo: null })}>
+          <ActionButton className="btn sm" why={normalizer.disabled} onClick={() => onAction({ action: normalizer, callNo: null })}>
             {ACTIONS.addNormalizer.label}
-          </button>
+          </ActionButton>
         ) : null}
         {jobs.acts.update && !leads('update-golden') ? (
           <TestsJobButton className="btn sm" verb="update it" off={app.actionsOff} onClick={jobs.update}>

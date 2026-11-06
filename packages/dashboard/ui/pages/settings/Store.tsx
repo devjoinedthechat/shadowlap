@@ -9,6 +9,7 @@ import type { StoreSetupView } from '../../store-api.js';
 import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, SAVING, useEditor, useFolderGone, useSettingsData } from './common.js';
 import { stepWords } from '../../../src/store-steps.js';
 import { shareLinksLine, syncText } from './logic.js';
+import { ActionButton } from '../../components/ActionButton.js';
 
 /**
  * Store: the team store, the project's runs in a bucket you own. Free, with nothing hosted: push
@@ -52,18 +53,17 @@ export function StoreTab() {
           <h2>Store</h2>
           <span className="sub">your team’s runs, in a bucket you own</span>
           <span className="sp" />
-          <button className="btn sm" type="button" disabled={!!pull} title={pull ?? `Bring the team’s runs from ${s.name}`} onClick={() => app.guard(() => app.watchJob(client.startJob(JOB_KINDS.pull, {})))}>
+          <ActionButton className="btn sm" why={pull} title={`Bring the team’s runs from ${s.name}`} onClick={() => app.guard(() => app.watchJob(client.startJob(JOB_KINDS.pull, {})))}>
             Pull
-          </button>
-          <button
+          </ActionButton>
+          <ActionButton
             className="btn sm lime"
-            type="button"
-            disabled={!!push}
-            title={push ?? (s.onlyLocal ? `Copy ${num(s.onlyLocal)} ${s.onlyLocal === 1 ? 'run' : 'runs'} to ${s.name}` : 'Every finished run is in the store')}
+            why={push}
+            title={s.onlyLocal ? `Copy ${num(s.onlyLocal)} ${s.onlyLocal === 1 ? 'run' : 'runs'} to ${s.name}` : 'Every finished run is in the store'}
             onClick={() => app.guard(() => (s.onlyLocal ? app.watchJob(client.startJob(JOB_KINDS.push, { all: true })) : app.toast('Every finished run is in the store.')))}
           >
             Push local runs
-          </button>
+          </ActionButton>
         </header>
         <div className="pbody lead">
           <p className="muted">
@@ -120,19 +120,18 @@ export function StoreTab() {
           {ci ? <CiStepButton step={ci} /> : null}
           <div className="seg" role="group" aria-label="Push from CI">
             {[true, false].map((on) => (
-              <button
+              <ActionButton
                 key={String(on)}
-                type="button"
                 aria-pressed={s.ciPush === on}
-                disabled={!!off}
-                title={off ?? `shadowlap store push-from-ci ${on ? 'on' : 'off'}`}
+                why={off}
+                title={`shadowlap store push-from-ci ${on ? 'on' : 'off'}`}
                 onClick={() => {
                   if (s.ciPush === on) return;
                   void editor.run(() => client.settings.setCiPush(on, version), () => `Push from CI ${on ? 'on' : 'off'} · written to ${CONFIG_FILE}; commit it for CI to see it`);
                 }}
               >
                 {on ? 'On' : 'Off'}
-              </button>
+              </ActionButton>
             ))}
           </div>
         </div>
@@ -204,7 +203,6 @@ function CiStepButton({ step }: { step: CopiedStep }) {
  * the project's folder gone, the file went with it, and there is nowhere to set one up.
  */
 function NoStore({ setup, unreadable, gone }: { setup: boolean; unreadable: boolean; gone: boolean }) {
-  const { actionsOff } = useApp();
   if (unreadable || gone)
     return (
       <section className="panel stepempty nostore">
@@ -221,14 +219,10 @@ function NoStore({ setup, unreadable, gone }: { setup: boolean; unreadable: bool
           <span>in a terminal</span>
           <code>{'$ shadowlap store set s3://<bucket>/<project> --check'}</code>
         </div>
-      ) : actionsOff ? (
-        <button className="btn lime" type="button" disabled title={actionsOff}>
-          {ACTIONS.setUpTeamStore.label}
-        </button>
       ) : (
-        <a className="btn lime" href={href.storeSetup()}>
+        <ActionButton className="btn lime" href={href.storeSetup()}>
           {ACTIONS.setUpTeamStore.label}
-        </a>
+        </ActionButton>
       )}
     </section>
   );

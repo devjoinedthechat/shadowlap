@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { folderGoneText } from '../../../src/folder-gone.js';
 import { ApiError } from '../../api.js';
+import { PAUSED } from '../../connection.js';
 import { useLoad, type Loaded } from '../../hooks.js';
 import { messageOf } from '../../../../engine/src/message-of.js';
 import { useApp, type AppState } from '../../state.js';
@@ -56,7 +57,7 @@ export async function runEdit<T>(app: AppState, edit: () => Promise<T>, o: { ok:
     return null;
   }
   if (app.conn === 'offline') {
-    app.toast('Actions are paused until the dashboard server is back.');
+    app.toast(PAUSED);
     return null;
   }
   try {

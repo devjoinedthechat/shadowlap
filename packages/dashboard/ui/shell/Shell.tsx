@@ -1,17 +1,17 @@
 import { useEffect, useSyncExternalStore, type ComponentType } from 'react';
 import { onShow } from '../components/OnShow.js';
 import { tabAbout } from '../about.js';
-import { JobDrawer } from '../components/Drawer.js';
 import { HoverCardLayer } from '../components/HoverCard.js';
 import { Sprite } from '../components/Icon.js';
 import { ToastHost } from '../components/Toast.js';
 import { useFixTitle } from '../fixes/data.js';
 import { TestsAskHost } from '../fixes/TestsJobButton.js';
+import { drawnJob } from '../job-store.js';
 import { OverlaySlots } from '../overlays/slots.js';
 import { setupShowsOn } from '../projects.js';
 import type { Route } from '../route.js';
 import { useRoute } from '../router.js';
-import { useApp } from '../state.js';
+import { useApp, useAppSelector } from '../state.js';
 import { docTitle, onOpenRunAbout, openRunAbout, TAB_ABOUT_MAX } from '../title.js';
 import { ExpiredCard, OfflineBar } from './Connection.js';
 import { Keyboard } from './Keyboard.js';
@@ -32,14 +32,23 @@ const Shortcuts = onShow(() => import('./Shortcuts.js').then((m) => m.Shortcuts)
  */
 export type Pages = ComponentType<{ route: Route }>;
 
+/** The job's drawer: its code loads as the first job shows. */
+const JobDrawer = onShow(() => import('../components/Drawer.js').then((m) => m.JobDrawer));
+
+/** Reads the jobs for the shell, which a job's every line would redraw otherwise. */
+function Dock() {
+  const drawn = useAppSelector((app) => !!drawnJob(app.jobs));
+  return drawn ? <JobDrawer /> : null;
+}
+
 /** The app: top bar, sidebar, the page, the status bar, and what sits over them. */
 export function Shell({ pages: PageSlot }: { pages: Pages }) {
   const route = useRoute();
   const { setSideOpen, closeJobs, conn } = useApp();
   useDocTitle(route);
 
-  // The phone sidebar closes on navigation; a job's drawer closes when the page changes (not when a
-  // call or a view is picked), and a toast says when the job finishes.
+  // The phone sidebar closes on navigation; a finished job's drawer closes when the page changes (not
+  // when a call or a view is picked). A running one stays across pages.
   useEffect(() => setSideOpen(false), [route, setSideOpen]);
   const pageKey = route.page === 'run' ? `run:${route.id}` : route.page;
   useEffect(() => closeJobs(), [pageKey, closeJobs]);
@@ -52,21 +61,21 @@ export function Shell({ pages: PageSlot }: { pages: Pages }) {
       {conn === 'expired' ? null : <SkipLink />}
       <div className="app" id="app">
         <TopBar route={route} />
+        <div id="conn">
+          <OfflineBar />
+        </div>
         <Sidebar route={route} />
         <main className="view" id="view" tabIndex={-1}>
           <PageSlot route={route} />
         </main>
         <StatusBar />
       </div>
-      <div id="conn">
-        <OfflineBar />
-      </div>
       <ExpiredCard />
       {/* Beside the app, so a modal can put the app out of reach: a menu, a modal and the job's drawer, each in a place of its own. */}
       <OverlaySlots />
       <Palette route={route} />
       <Shortcuts onRun={route.page === 'run'} />
-      <JobDrawer />
+      <Dock />
       {/* A Tests job that would run goldens live asks here, whichever page or the palette started it. */}
       <TestsAskHost />
       <ToastHost />

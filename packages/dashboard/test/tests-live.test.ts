@@ -61,13 +61,16 @@ describe('the question a session asks', () => {
   it('asks again when what goes live changed between the question and the yes', () => {
     const before = [at('goldens/a', { mode: 'fork' }), at('goldens/b')];
     const q = liveAsk(before, session('goldens/*'), undefined)!;
+    // The question lists what goes live and why, for its dialog's rows.
+    expect(q.live.map((g) => g.path)).toEqual(sessionLiveGoldens(before, session('goldens/*')).map((g) => g.path));
+    expect(q.live.length).toBeGreaterThan(0);
     expect(liveAsk(before, session('goldens/*'), q.confirm)).toBeNull();
     // Its judge is asked live too, or another golden goes live: the yes was to neither.
     const judged = [at('goldens/a', { mode: 'fork', judges: [HAIKU] }), at('goldens/b')];
     const planted = [at('goldens/a', { mode: 'fork' }), at('goldens/b', { injection: true })];
     for (const now of [judged, planted]) {
       const again = liveAsk(now, session('goldens/*'), q.confirm);
-      expect(again).toEqual({ error: words(now), status: 409, confirm: expect.stringMatching(/^[0-9a-f]{32}$/) });
+      expect(again).toEqual({ error: words(now), status: 409, confirm: expect.stringMatching(/^[0-9a-f]{32}$/), live: sessionLiveGoldens(now, session('goldens/*')) });
       expect(again!.confirm).not.toBe(q.confirm);
     }
   });

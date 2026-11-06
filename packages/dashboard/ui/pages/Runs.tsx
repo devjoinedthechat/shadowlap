@@ -515,7 +515,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
         text={RUNS_TEXT}
         actions={<RunsActions store={store} onImport={() => setDialog('import')} />}
       />
-      <TwelveWeeks load={cal} chip={chip} range={range} onPick={pickDays} byPerson={!!store} onFindCommit={hasKind(JOB_KINDS.bisect) ? findCommit : null} actionsOff={actionsOff} />
+      <TwelveWeeks load={cal} chip={chip} range={range} onPick={pickDays} byPerson={!!store} onFindCommit={hasKind(JOB_KINDS.bisect) ? findCommit : null} />
       <div className="tbar">
         <Chips label="Kind of run" items={RUN_CHIPS.filter(([key]) => key !== 'local' || store || chip === 'local').map(([key, label]) => ({ key, label, ...(counts ? { count: counts[key] } : {}) }))} value={chip} onChange={setChip} />
         <RunsFilterField value={query} onChange={setQuery} onCommit={() => commitRuns({ ...f, q: query })} settled={q} total={table.total} loaded={table.loaded} />

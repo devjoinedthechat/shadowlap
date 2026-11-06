@@ -1,8 +1,8 @@
+import { RECORD_PART } from '../cost-words.js';
 import { isJudgeCall } from '../judge-scope.js';
 import { estimateCost, type Price } from '../prices.js';
 import type { ModelResolver } from '../report.js';
 import type { CallRecord, Usage } from '../types.js';
-import { pluralS } from '../words.js';
 
 /**
  * What a billed job costs before it starts (A15): the ground every estimate stands on, and the shape
@@ -103,14 +103,14 @@ export function noEstimate(kind: EstimateKind, none: string, parts: string[] = [
  * from. Its line says who bills what and no more: `Billed by your provider · the agent’s own model calls`.
  */
 export function recordEstimate(): Estimate {
-  return { kind: 'record', usd: null, ceiling: false, parts: ['the agent’s own model calls'], none: 'no estimate until it has run once' };
+  return { kind: 'record', usd: null, ceiling: false, parts: [RECORD_PART], none: 'no estimate until it has run once' };
 }
 
 /**
  * A count with its noun, as the cost lines say it: `1 attempt`, `3 attempts`, `1,224 requests`. The
  * noun takes its s as plural's does (words.ts); the count keeps its thousands apart, as the design's do.
  */
-export const counted = (n: number, noun: string): string => `${n.toLocaleString('en-US')} ${noun}${pluralS(n)}`;
+export { counted, timesWords } from '../cost-words.js';
 
 /** The config's `prices`, over the engine's table; none for the table alone. */
 export type Prices = Record<string, Price> | undefined;
@@ -283,16 +283,3 @@ export function noPriceWords(cost: { unpriced?: readonly string[]; uncounted?: r
   return words.join('; ');
 }
 
-/**
- * A factor in words, as an ask says what calls cost asked of another model: `twice`, `half`, `1.7
- * times`, under a tenth to two figures (`0.048 times`); null for about the same, or none to give.
- */
-export function timesWords(k: number): string | null {
-  if (!Number.isFinite(k) || k <= 0) return null;
-  const small = k < 0.1;
-  const r = small ? Number(k.toPrecision(2)) : Math.round(k * 10) / 10;
-  if (r === 1) return null;
-  if (r === 2) return 'twice';
-  if (r === 0.5) return 'half';
-  return `${r.toLocaleString('en-US', small ? { maximumSignificantDigits: 2 } : { maximumFractionDigits: 1 })} times`;
-}

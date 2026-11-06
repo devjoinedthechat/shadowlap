@@ -4,6 +4,7 @@ import { authorColour } from '../ui/runspage/authors.js';
 import { barHeights, barOf, barSpans, barTop, dragEnd, dragOver, dragStart, firstGivesWay, keyPick, monthMarks, moveDay, rowSteps } from '../ui/runspage/calendar-model.js';
 import { fitMonths, TwelveWeeks } from '../ui/runspage/DaysRow.js';
 import type { RunChip } from '../ui/runs.js';
+import { AppContext, type AppState } from '../ui/state.js';
 import type { DayCount, RunsByDay } from '../ui/types.js';
 import { styleRules } from './css-sheet.js';
 import { render, type Rendered } from './ui-render.js';
@@ -38,9 +39,11 @@ function touchScreen() {
   vi.stubGlobal('matchMedia', (q: string) => ({ matches: q.includes('pointer: coarse'), addEventListener: () => undefined, removeEventListener: () => undefined }));
 }
 
-async function weeks(o: { chip?: RunChip; range?: [number, number] | null; data?: RunsByDay | null; error?: boolean; onPick?: (range: [number, number] | null) => void; onFindCommit?: ((range: [number, number]) => void) | null; byPerson?: boolean } = {}) {
+async function weeks(o: { chip?: RunChip; range?: [number, number] | null; data?: RunsByDay | null; error?: boolean; onPick?: (range: [number, number] | null) => void; onFindCommit?: ((range: [number, number]) => void) | null; byPerson?: boolean; actionsOff?: string | null; toast?: AppState['toast'] } = {}) {
   const load = { data: o.data === undefined ? DATA : o.data, error: o.error ? new Error('no') : null, loading: false, reload: () => undefined };
-  r = await render(createElement(TwelveWeeks, { load, chip: o.chip ?? 'all', range: o.range ?? null, onPick: o.onPick ?? (() => undefined), byPerson: o.byPerson ?? false, onFindCommit: o.onFindCommit === undefined ? () => undefined : o.onFindCommit, actionsOff: null }));
+  const app = { actionsOff: o.actionsOff ?? null, conn: 'ok', exported: false, toast: o.toast ?? (() => undefined) } as unknown as AppState;
+  const days = createElement(TwelveWeeks, { load, chip: o.chip ?? 'all', range: o.range ?? null, onPick: o.onPick ?? (() => undefined), byPerson: o.byPerson ?? false, onFindCommit: o.onFindCommit === undefined ? () => undefined : o.onFindCommit });
+  r = await render(createElement(AppContext.Provider, { value: app }, days));
   return r;
 }
 
@@ -186,6 +189,25 @@ describe('the twelve weeks over Runs', () => {
     expect(JSON.parse(find.getAttribute('data-tip')!)).toEqual({ t: 'Find breaking commit', s: 'From the first failure from Oct 9 to Oct 15, between a commit where it worked and its own', rows: [] });
     await t.click(find);
     expect(asked).toEqual([[74, 80]]);
+  });
+
+  it('holds Find breaking commit on a dashboard that changes nothing, in the row and the grid, its card saying why', async () => {
+    const asked: Array<[number, number]> = [];
+    const toast = vi.fn();
+    const t = await weeks({ chip: 'failed', range: [74, 80], data: { ...DATA, days: DAYS.map((d) => ({ ...d, runs: d.failed })) }, onFindCommit: (x) => asked.push(x), actionsOff: 'This dashboard is read-only', toast });
+    const held = (find: ReturnType<Rendered['one']>) => {
+      expect(find.getAttribute('aria-disabled')).toBe('true');
+      expect(find.getAttribute('data-why')).toBe('This dashboard is read-only');
+      expect(JSON.parse(find.getAttribute('data-tip')!)).toEqual({ t: 'Find breaking commit', s: 'This dashboard is read-only', rows: [] });
+    };
+    held(t.byText('.hact button', 'Find breaking commit…'));
+    await t.click(t.byText('.hact button', 'Find breaking commit…'));
+    expect(toast).toHaveBeenCalledWith('This dashboard is read-only', 'notice', undefined);
+    await t.click(t.byText('.hact button', 'Calendar'));
+    held(t.byText('.calside button', 'Find breaking commit…'));
+    await t.click(t.byText('.calside button', 'Find breaking commit…'));
+    expect(asked).toEqual([]);
+    await t.click(t.byText('.calside > button', 'Hide calendar'));
   });
 
   it('opens the grid on Calendar and comes back on Hide calendar, the button that takes its place in focus', async () => {

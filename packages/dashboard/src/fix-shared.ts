@@ -1,4 +1,4 @@
-import { BLAME_DEFAULTS, fieldValue, outcomeOf, repairPatchProblem, repairToApply, SPRT_DEFAULTS, verdictCounts, type AttemptVerdict, type FixRecords, type PulledFrom, type RepairCandidate, type RunRecord, type StoreOf, type StoredRepair, type SprtGate, type StoredVerdict, type VerifiedRun } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, fieldValue, outcomeOf, repairPatchProblem, repairToApply, SPRT_DEFAULTS, verdictCounts, type AttemptVerdict, type FixRecords, type NoFixToTry, type PulledFrom, type RepairCandidate, type RunRecord, type StoreOf, type StoredRepair, type SprtGate, type StoredVerdict, type VerifiedRun } from '@shadowlap/engine';
 import { type VerifyEvidence } from './evidence.js';
 import { links } from './links.js';
 import { isCount } from './rerun.js';
@@ -53,9 +53,10 @@ export interface FixActions {
    * An open fix: repair from here. Argv after `shadowlap`, without `--db` or `--repairer`, which the
    * caller adds (`repairJobArgv`); `command` is the whole command line, repairer included. `noFix`:
    * why the repair would end "No fix to try" without running the agent, in a sentence (`noFixToTry`),
-   * or null when it would run it.
+   * or null when it would run it; `noFixWhy`, which of the estimate's two cases that is; `candidates`,
+   * how many it asks the repairer for.
    */
-  repair: { argv: string[]; command: string; noFix: string | null } | null;
+  repair: { argv: string[]; command: string; noFix: string | null; noFixWhy: NoFixToTry | null; candidates: number } | null;
   /**
    * A verified or applied fix: apply its repair's patch (`patch`), or mark a change verified in the
    * working tree applied (`mark`). Once `applied`, the button is "Patch applied" ("Marked applied"
@@ -69,10 +70,14 @@ export interface FixActions {
    * is in the working tree already (merged, or applied by hand), which applying only marks applied,
    * and the fix applied. `patchFile` is where the patch is, relative to the project folder.
    * `goldens`: how many recordings the fixed code made that applying copies into the goldens folder
-   * and tests. `change`: for a change of request fields (`--set`, `--model`) with no patch, what it
-   * set (`fieldChange`): marking it applied leaves making it in the agent to you.
+   * and tests. `names`: each of them it copies now (one copied before keeps where it went), by the
+   * run it is a recording of (its short id), with the name it takes unless the dialog gives another
+   * (`fix apply --name <run>=<name>`); `held`: the names the project's goldens folder holds, which
+   * none may take, or null where the folder wasn't read. `change`: for a change of request fields
+   * (`--set`, `--model`) with no patch, what it set (`fieldChange`): marking it applied leaves making
+   * it in the agent to you.
    */
-  apply: { kind: 'patch' | 'mark'; argv: string[]; gitApply: string | null; pending: string | null; pulled: boolean; files: string[]; diff: string | null; patchFile: string | null; refused: string | null; inTree: boolean; goldens: number; change: string | null } | null;
+  apply: { kind: 'patch' | 'mark'; argv: string[]; gitApply: string | null; pending: string | null; pulled: boolean; files: string[]; diff: string | null; patchFile: string | null; refused: string | null; inTree: boolean; goldens: number; names: Array<{ run: string; name: string }>; held: string[] | null; change: string | null } | null;
   applied: boolean;
   /**
    * An open fix whose blame couldn't settle where its run was lost (`unsettled`: its first probe

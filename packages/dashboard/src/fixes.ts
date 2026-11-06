@@ -15,7 +15,8 @@
  * buttons run, and exports the rest.
  */
 
-import { applyLeft, commitTitle, DEFAULT_REPAIRER, expectArgs, fixCost, type FixData, FixIdError, fixRecords, type FixRecords, gitApplyCommand, lostRange, noFixToTry, patchFiles, repairArgv, repairJobArgv, type RepairOutcome, repairPatchProblem, repairToApply, resolveFix, type RunRecord, shownBlame, type StoredBlame, type StoredFix, type StoredRepair, type StoreOf, unsettledFirst, verifyArgv } from '@shadowlap/engine';
+import { isAbsolute, join, resolve } from 'node:path';
+import { applyGoldens, applyLeft, commitTitle, DEFAULT_REPAIRER, defaultGoldenNames, expectArgs, fixCost, type FixData, FixIdError, fixRecords, type FixRecords, gitApplyCommand, goldensFolder, lostRange, noFixReason, patchFiles, REPAIR_CANDIDATES, repairArgv, repairJobArgv, type RepairOutcome, repairPatchProblem, repairToApply, resolveFix, type RunRecord, shownBlame, type StoredBlame, type StoredFix, type StoredRepair, type StoreOf, unsettledFirst, verifyArgv } from '@shadowlap/engine';
 import { type FixRow, rowOf } from './fix-list.js';
 import { acceptedCandidate, commandLine, counting, fieldsSet, type FixActions, type PatchCheck, patchMerged, patchToCheck, type RewriteCheck, runHref, short, shownRepair, type StepKey, unrepairedVerdict } from './fix-shared.js';
 import { blameNext, blameStep, type BlameStep } from './fix-blame-step.js';
@@ -131,6 +132,16 @@ export function pulledPatchesToCheck(store: StoreOf<'fixes' | 'team'>, fixes: re
 }
 
 /**
+ * A repair from here as the fix's page offers it: its command, and why it would end "No fix to try"
+ * without running the agent, with which of the estimate's cases that is, as the engine words it. Read
+ * only for an open fix a repair can start from.
+ */
+function repairOffer(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords, scope: string | null, command: string, argv: string[]): NonNullable<FixDetail['actions']['repair']> {
+  const noFix = noFixReason(store, rec, scope);
+  return { argv, command, noFix: noFix?.sentence ?? null, noFixWhy: noFix?.kind ?? null, candidates: REPAIR_CANDIDATES };
+}
+
+/**
  * Why `fix apply` refuses the patch of `r`, the repair it would apply: more than its accepted
  * candidate's one rewrite (`repairPatchProblem`), or, for one a pull brought, a rewrite repair itself
  * doesn't make in this working tree, as `here` read it (`rewriteHere`).
@@ -141,14 +152,75 @@ function refusedOf(store: StoreOf<'team'>, r: StoredRepair | null, here: Rewrite
 }
 
 /**
+ * What the project's goldens folder holds, for the goldens apply copies (the engine's
+ * `goldensFolder`): the runs whose recording is in it already, under the run's name or as the very
+ * recording under any, which keep it, and every name it holds, which none of the rest may take.
+ * Given each golden it offers by its run, with the folder of its recording, as the repair's report
+ * gives it.
+ */
+export type GoldensFolder = (offered: ReadonlyArray<{ run: string; source: string }>) => { there: ReadonlyArray<{ run: string; at: string }>; held: readonly string[] };
+
+/** The goldens folder the dashboard's apply job copies into: `fix apply`'s own, `goldens/` in the project. */
+export const APPLY_GOLDENS = 'goldens';
+
+/**
+ * What a project's goldens folder holds, as Apply fix reads it beside the server (read-jobs.ts).
+ * A recording the store places outside the project is never read: `fix apply` refuses it anyway.
+ */
+export const goldensFolderIn =
+  (project: string): GoldensFolder =>
+  (offered) =>
+    goldensFolder(
+      join(project, APPLY_GOLDENS),
+      offered.map((g) => ({ ...g, source: !isAbsolute(g.source) && !g.source.split('/').includes('..') ? resolve(project, g.source) : '' })),
+    );
+
+/**
+ * Apply fix, on a verified or applied fix (null on an open one): its repair's patch, or a change
+ * verified on the working tree, to mark applied. Each recording of the fixed runs it copies now, by
+ * its run, with the name it takes unless another is given (`names`, the engine's
+ * `defaultGoldenNames`), but one the project's goldens folder holds already, and the names that
+ * folder holds (`held`; null where it isn't read), which none of them may take.
+ */
+function applyOffer(store: StoreOf<'team'>, rec: FixRecords, row: FixRow, toApply: StoredRepair | null, o: { refused: string | null; inTree: boolean; folder: GoldensFolder | null }): FixActions['apply'] {
+  const fix = rec.fix;
+  if (fix.status === 'open') return null;
+  const pulled = !!toApply && store.repairPulled(toApply.repairId) !== null;
+  const patch = toApply?.report.patch ?? null;
+  const patchFile = toApply && patch ? `${toApply.dir.replace(/\/+$/, '')}/fix.patch` : null;
+  const copies = applyGoldens(fix, toApply, { pulled });
+  const made = defaultGoldenNames({ label: row.label, title: fix.title }, copies.length);
+  const offered = copies.flatMap((g, i) => (g.copied ? [] : [{ run: g.run, name: made[i]!, source: g.source }]));
+  const folder = o.folder ? o.folder(offered) : null;
+  return {
+    kind: toApply ? 'patch' : 'mark',
+    argv: ['fix', 'apply', fix.fixId],
+    // Once the patch is in the working tree, git apply would only fail.
+    gitApply: patchFile && !o.refused && !o.inTree && fix.status !== 'applied' ? gitApplyCommand(patchFile) : null,
+    pending: pendingText(applyLeft(fix, toApply, { pulled })),
+    pulled,
+    files: patch ? patchFiles(patch) : [],
+    diff: patch,
+    patchFile,
+    refused: o.refused,
+    inTree: o.inTree,
+    goldens: copies.length,
+    names: offered.filter((g) => !folder?.there.some((t) => t.run === g.run)).map((g) => ({ run: g.run, name: g.name })),
+    held: folder ? [...folder.held] : null,
+    change: toApply ? null : fieldChange(rec),
+  };
+}
+
+/**
  * One fix, every step as its page shows it. Null for an id that matches no fix, or several.
  * `repairer` is the one shadowlap.config.json names, if any: the repair commands use it.
  * `checkRepairer` says why the repairer a repair would ask can't be asked from here, for an open fix
  * (`repairerProblem`, which looks for claude on the PATH), `patchInTree` whether a verified
- * fix's patch is in the working tree already, and `rewriteHere` why `fix apply` refuses a pulled
- * repair's patch there: this stays a read of the store without them.
+ * fix's patch is in the working tree already, `rewriteHere` why `fix apply` refuses a pulled
+ * repair's patch there, and `goldensFolder` what the project's goldens folder holds of the goldens
+ * apply copies and what else: this stays a read of the store without them.
  */
-export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, idOrPrefix: string, options: { repairer?: string | null; checkRepairer?: (repairer: string, configured: boolean) => string | null; patchInTree?: PatchCheck; rewriteHere?: RewriteCheck } = {}): FixDetail | null {
+export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, idOrPrefix: string, options: { repairer?: string | null; checkRepairer?: (repairer: string, configured: boolean) => string | null; patchInTree?: PatchCheck; rewriteHere?: RewriteCheck; goldensFolder?: GoldensFolder } = {}): FixDetail | null {
   let found: StoredFix | null;
   try {
     found = resolveFix(store, idOrPrefix);
@@ -192,25 +264,8 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
     upstreamRequests: cost.upstreamRequests,
     defaultStep: done.at(-1)?.key ?? 'blame',
     actions: {
-      repair: fix.status === 'open' && repairArgs.length ? { argv: repairArgs, command: commandLine(repairJobArgv(repairArgs, configured)), noFix: noFixToTry(store, rec, b?.scope ?? null) } : null,
-      apply:
-        fix.status === 'open'
-          ? null
-          : {
-              kind: toApply ? 'patch' : 'mark',
-              argv: ['fix', 'apply', fix.fixId],
-              // Once the patch is in the working tree, git apply would only fail.
-              gitApply: toApply?.report.patch && !refused && !inTree && fix.status !== 'applied' ? gitApplyCommand(`${toApply.dir.replace(/\/+$/, '')}/fix.patch`) : null,
-              pending: pendingText(applyLeft(fix, toApply, { pulled: pulled(toApply) })),
-              pulled: pulled(toApply),
-              files: toApply?.report.patch ? patchFiles(toApply.report.patch) : [],
-              diff: toApply?.report.patch ?? null,
-              patchFile: toApply?.report.patch ? `${toApply.dir.replace(/\/+$/, '')}/fix.patch` : null,
-              refused,
-              inTree,
-              goldens: toApply && !pulled(toApply) ? toApply.report.output.goldens.length : 0,
-              change: toApply ? null : fieldChange(rec),
-            },
+      repair: fix.status === 'open' && repairArgs.length ? repairOffer(store, rec, b?.scope ?? null, commandLine(repairJobArgv(repairArgs, configured)), repairArgs) : null,
+      apply: applyOffer(store, rec, row, toApply, { refused, inTree, folder: options.goldensFolder ?? null }),
       applied: fix.status === 'applied',
       ...blameNext(store, rec, b),
     },

@@ -12,7 +12,7 @@ export interface MatchingSettings {
   /**
    * The button: "Calibrate <run>" with the job's argv, or "Record a run first" with none. The job
    * streams each round and ends with a result event (the object `calibrate --json` prints). When it
-   * proposed normalizers, "Add it (--write)" adds exactly those, the ones the person just read,
+   * proposed normalizers, "Add normalizer" adds exactly those, the ones the person just read,
    * without replaying again: addRules(cwd, 'normalize', proposedRules(result), { expect:
    * config.version }), which checks each as `normalize add` does; record each returned event with
    * the run id and `via: 'calibrate'`.

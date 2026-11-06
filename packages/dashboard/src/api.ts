@@ -244,8 +244,14 @@ export interface ActionItem {
   group: 'call' | 'run' | null;
   /** One line on what the action does and why, for its dialog. */
   hint: string | null;
-  /** Set when it asks before it starts with nothing to fill in: a fork's Repeat 5 times, whose attempts run live from the fork. */
+  /** Set when it asks before it starts with nothing to fill in: a fork's Repeat 5 times, whose attempts run live from the fork; a write forced live. */
   asksFirst?: true;
+  /** The command an action with nothing to fill in runs. */
+  command?: string;
+  /** The model at this call, where it takes no system message mid-conversation. */
+  noSystemMessage?: string;
+  /** What it does for real, as its dialog's red line: a write forced live. */
+  warns?: string;
 }
 
 export interface ReadOptions {
@@ -695,6 +701,9 @@ export function actionsFor(run: RunRecord, call: CallRecord | undefined, context
     group: a.group ?? null,
     hint: a.hint ?? null,
     ...(a.asksFirst ? { asksFirst: true as const } : {}),
+    ...(a.args ? { command: quoteArgv(['shadowlap', ...a.args]) } : {}),
+    ...(a.noSystemMessage ? { noSystemMessage: a.noSystemMessage } : {}),
+    ...(a.warns ? { warns: a.warns } : {}),
   }));
 }
 

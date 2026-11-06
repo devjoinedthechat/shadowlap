@@ -1153,7 +1153,7 @@ verified against the same run under the code without the candidate, in another w
 | `--expect <json\|@file>` | What a passing run must do besides exiting 0 | — |
 | `--repairer <provider:model>` | The model that proposes fixes (below) | `repair.repairer` in the config |
 | `--repairer-timeout <seconds>` | Give up on the repairer when it hasn't answered after this long | `repair.timeout` in the config, else 600 |
-| `--candidates <n>` | Rewrites to ask for | 3 |
+| `--candidates <n>` | Rewrites to ask for, and the most it tries | 3 |
 | `--stronger <model>` | When the recorded model can't be rescued, rescue with this one and try switching to it, before asking the repairer | — |
 | `--scope <name>`, `--set <key=value>` | As for [`blame`](#blame): which calls to probe, and what probes change, such as `temperature=1` | — |
 | `--gate <json\|@file>` | The gate each candidate's runs are verified by, as for [`verify`](#verify) | `{"good":0.9,"bad":0.7,"risk":0.05,"max":80}` |
@@ -1210,7 +1210,7 @@ open, with every candidate tried and why it was dropped.
 shadowlap fix ls [--status open|verified|applied] [--json]
 shadowlap fix show <fix> [--json]
 shadowlap fix title <fix> <title...>
-shadowlap fix apply <fix> [--goldens <dir>] [--no-test] [--build <command>] [--json]
+shadowlap fix apply <fix> [--name <run>=<name>]... [--goldens <dir>] [--no-test] [--build <command>] [--json]
 shadowlap fix pr <fix> [<url>] [--json]
 ```
 
@@ -1228,13 +1228,14 @@ A fix is one failure, from the blame that reproduced it to a change that held.
 
 Its subcommands take these flags:
 
-| Flag                | What it does                                                              | Default   |
-| ------------------- | ------------------------------------------------------------------------- | --------- |
-| `--status <status>` | `fix ls`: only open, verified (applied ones too) or applied fixes         | —         |
-| `--goldens <dir>`   | `fix apply`: where the recordings go                                      | `goldens` |
-| `--no-test`         | `fix apply`: copy the recordings without running `shadowlap test` on them | —         |
-| `--build <command>` | `fix apply`: rebuild the agent after the patch, before the test           | —         |
-| `--json`            | Print it as JSON: the dashboard's read model of Fixes (below)             | —         |
+| Flag                  | What it does                                                              | Default         |
+| --------------------- | ------------------------------------------------------------------------- | --------------- |
+| `--status <status>`   | `fix ls`: only open, verified (applied ones too) or applied fixes         | —               |
+| `--name <run>=<name>` | `fix apply`: the name of the golden copied from a fixed run (repeatable)  | The fix's label |
+| `--goldens <dir>`     | `fix apply`: where the recordings go                                      | `goldens`       |
+| `--no-test`           | `fix apply`: copy the recordings without running `shadowlap test` on them | —               |
+| `--build <command>`   | `fix apply`: rebuild the agent after the patch, before the test           | —               |
+| `--json`              | Print it as JSON: the dashboard's read model of Fixes (below)             | —               |
 
 With `--json`, each subcommand prints:
 
@@ -1379,6 +1380,9 @@ step.
   `patchFile`;
 - `inTree` when it is in the working tree already, which applying only marks;
 - how many recordings applying copies into the goldens folder, in `goldens`;
+- each recording it is still to copy, by its `run` (the short id), with the `name` it takes unless
+  `--name` gives another, in `names`; and the names the goldens folder holds, which none may take,
+  in `held` (`null` where the folder isn't read);
 - the request fields a change with no patch set, in `change`;
 - `refused`, saying why `fix apply` won't apply it, when the patch is more than the change its repair
   verified, or a teammate's is no rewrite a repair makes in this working tree. `gitApply` is `null`
@@ -1419,7 +1423,8 @@ Hands a verified fix over. Run it in the folder the repair ran in, where its dir
 `.shadowlap/repairs/` is.
 
 1. It runs `git apply` on the accepted repair's `fix.patch`.
-2. It copies the recordings the fixed code made into the goldens folder.
+2. It copies the recordings the fixed code made into the goldens folder, each a golden named as
+   below.
 3. It runs [`shadowlap test`](#test) on them, and marks the fix applied.
 4. It replays the project's other goldens, and names each that diverges on what the patch changed
    (below).
@@ -1431,8 +1436,29 @@ Hands a verified fix over. Run it in the folder the repair ran in, where its dir
 | `1` | It refuses the patch: not the change its repair verified, a file it may not write through, or `fix.patch` changed since |
 | `1` | The patch does not apply, or the test fails |
 | `2` | The fix is still open (nothing verified to apply), or it runs outside the repository and folder the repair ran in |
+| `2` | A golden's name won't do (below), and nothing is changed |
 
 A patch that applied stays applied.
+
+**The goldens' names.** Each recording of a fixed run becomes a golden of its own, a folder in the
+goldens folder named for what a test reads it by, never the run's id:
+
+- `--name <run>=<name>` names the one from that run, by its id or the start of it, such as
+  `--name 01K5CQ2E8M=double-email`. Give one for each golden you name.
+- A golden you don't name takes the fix's label, else its title, as a name: `refund-bug`, or
+  `refund-bug-1` and `refund-bug-2` for two.
+- A name takes lower-case letters, digits and hyphens, from a letter or a digit. Each golden needs
+  one of its own, and not one the goldens folder holds already, read without case as macOS and
+  Windows read a folder's name.
+
+A name that won't do changes nothing: `fix apply` says why and how to give another, and exits 2. So
+does a `--name` where it copies no recording: a fix with no repair behind it, one applied with none
+left to copy, or a teammate's repair, whose recordings stay on their machine. It prints where each
+golden went and the run it holds (`copied goldens/double-email from 01K5CQ2E8M`).
+
+A golden copied before keeps its name and takes no other: one `fix apply` copied, one
+`repair --goldens` copied under the run's id, and one an apply stopped part way left, the very
+recording under whatever name it gave it. A `--name` for one of them can give it only that name.
 
 **The project's other goldens.** Then `fix apply` replays the project's other goldens offline, in a
 store of their own that nothing keeps. A prompt or a tool description goes into every request, so they
@@ -1521,7 +1547,7 @@ re-recorded what another fix changed, say), which says the fix holds again.
 | `status` | `applied`, or `already-applied` when nothing was left to do |
 | `again` | Set when it finished a fix applied before |
 | `patch` | What became of the patch: `applied`, `already` in the tree, or `none` to apply |
-| `goldens` | Each golden's `from`, `to`, and whether it was `copied` |
+| `goldens` | Each golden's `run` (the fixed run it holds, by its short id), `from`, `to`, and whether it was `copied` |
 | `tests` | `passed`, `failed` or `skipped` |
 | `outdated` | The project's other goldens that diverge on what the patch changed, each with its `golden`, `callNo` and request field `path` |
 | `update` | The command that re-records them, or `null` |
@@ -4910,8 +4936,9 @@ These environment variables change what Shadowlap does:
   Actions and GitLab CI. The build then writes only to that pull request's folder in the
   [team store](./team.md#pull-requests).
 - **`SHADOWLAP_HOME`**: a relative path is ignored, and `~/.shadowlap` holds all of these files
-  instead, as the dashboard says. Processes that find each other's files there need the same one, so
-  give it to `shadowlap mcp` in your MCP client's configuration too ([details](./mcp.md#finding-the-run)).
+  instead, as the dashboard says. It holds your dashboard [Spending](./dashboard.md#settings) too, in
+  `settings.json`. Processes that find each other's files there need the same one, so give it to
+  `shadowlap mcp` in your MCP client's configuration too ([details](./mcp.md#finding-the-run)).
 - **The proxy variables**: the agent never reaches the sidecar through one. `run`, `replay`, `test` and
   `serve --recordings` add `127.0.0.1`, `localhost` and `::1` to `NO_PROXY` and `no_proxy`.
 

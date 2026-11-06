@@ -27,7 +27,7 @@ export { provenance, showRunJson } from './api.js';
 export { countMasked } from './run-page.js';
 export type { CallFacts, MaskCounter, ProvenanceOptions, RunBlame, RunCheck, RunPageFacts, RunProvenance } from './api.js';
 // Fixes: the read model behind #/fixes, the Overview's fix numbers, Needs a look and the run page's banners.
-export { fieldChange, fixBundles, fixDetail, fixesSummary, fixForRun, fixHref, fixList, needsLookFixes, patchesToCheck, pulledPatchesToCheck } from './fixes.js';
+export { fieldChange, fixBundles, fixDetail, fixesSummary, fixForRun, fixHref, fixList, goldensFolderIn, needsLookFixes, patchesToCheck, pulledPatchesToCheck } from './fixes.js';
 export { patchesInTree, patchInTree, rewritesHere } from './patch-in-tree.js';
 export type { BlameStep, CandidateVerdict, FixActions, FixBundle, FixBundleAttempt, FixDetail, FixesSummary, FixForRun, FixList, FixRef, FixRow, FixRunRef, FixStep, NeedsLookItem, PatchCheck, RepairStep, RewriteCheck, RunBlame as FixRunBlame, StepKey, StepState, VerifyRow, VerifyStep } from './fixes.js';
 export { ghEnv, ghReader, GH_TIMEOUT_MS, isGithubPr, openPullRequest, parsePrState, prHost, PrStates, readableHosts, remoteHost, storePrStates, type PrRead, type PrReader, type PrState, type PrStatesOptions } from './pr-state.js';
@@ -47,7 +47,7 @@ export type { AgentFile, CodingAgentsSettings, ConfigInfo, HttpHostRow, Matching
 export { AGENTS_FOLDER_READERS, CLAUDE_CODE_PLUGIN, CODING_AGENTS, SKILLS, SKILL_PLUGIN, SKILL_PUBLISHED, SKILL_REPOSITORY, TARGETS, claudeConfigDir, codingAgent, installCodingAgent, installedCopy, marketplaceEnabled, sharedSkill, shippedCodingAgents, shippedFiles, shippedVersion, skillOffer } from './agent-skill.js';
 export type { AgentInstall, AgentOffer, CodingAgent, InstallResult, InstallState, InstalledCopy, SkillOffer } from './agent-skill.js';
 // Training: pairs, tasks and the model picker.
-export { approx, exportPairsJob, modelsView, money, PAIRS_EXPORT_FILE, readTraining, scoreDialogView, scoreModelJob, scoreNote, sourceFixes, trainingView } from './training.js';
+export { approx, exportPairsJob, modelsView, money, PAIRS_EXPORT_FILE, readTraining, scoreDialogView, scoreModelJob, sourceFixes, trainingView } from './training.js';
 export type { ModelOptionView, ModelsView, PairFilter, ScoreDialogView, SourceFix, TrainingInput, TrainingOptions, TrainingView } from './training.js';
 // The team store's status: the bucket, the last push and pull, runs in the store and only here, the last check.
 export { readTeamStoreInput, teamStoreStatus } from './team-store.js';

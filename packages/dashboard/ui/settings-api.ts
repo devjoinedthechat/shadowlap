@@ -30,7 +30,7 @@ export interface RuleInput {
   replace?: string;
 }
 
-/** What "Add a server…" shows for a command or a URL: the line, the client entry, and whether a credential was hidden. */
+/** What Add MCP server… shows for a command or a URL: the line, the client entry, and whether a credential was hidden. */
 export interface McpLine {
   transport: 'stdio' | 'http';
   target: string;
@@ -41,7 +41,7 @@ export interface McpLine {
   env?: Array<{ name: string; value: string }>;
   /** That variable, for an `Authorization: Basic` header; null without one. */
   basic?: string | null;
-  /** The entry as typed, except a URL's user and password, which are never copied: what Copy the entry copies. */
+  /** The entry as typed, except a URL's user and password, which are never copied: what Copy entry copies. */
   copy?: { command: string; args: string[] };
 }
 
@@ -59,7 +59,7 @@ export interface SettingsApi {
   removeRule(list: RuleListName, n: number, expect: string): Promise<{ n: number; version: string }>;
   setClock(mode: 'auto' | 'exact', expect: string): Promise<{ clock: string; changed: boolean; version: string }>;
   setCiPush(on: boolean, expect: string): Promise<{ ciPush: boolean; changed: boolean; version: string }>;
-  /** "Add it (--write)": the normalizers a finished calibrate job proposed, read from its result on the server. */
+  /** "Add normalizer": the normalizers a finished calibrate job proposed, read from its result on the server. */
   writeCalibration(jobId: string): Promise<{ added: number[]; already: number[]; version: string }>;
 }
 

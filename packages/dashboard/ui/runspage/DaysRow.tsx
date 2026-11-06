@@ -17,7 +17,7 @@ const WEEKLY = '(max-width: 640px), (pointer: coarse)';
  * days. It filters the table as the grid does (`useDayPicks`); one sentence at its end says what it
  * counts, with Clear, Find breaking commit and Calendar, which opens the grid in its place.
  */
-export function DaysRow({ data, chip, range, onPick, byPerson, onFindCommit, actionsOff = null, onToggle, toggleRef }: WeeksProps & { onToggle: () => void; toggleRef: Ref<HTMLButtonElement> }) {
+export function DaysRow({ data, chip, range, onPick, byPerson, onFindCommit, onToggle, toggleRef }: WeeksProps & { onToggle: () => void; toggleRef: Ref<HTMLButtonElement> }) {
   const weekly = useMedia(WEEKLY);
   const step = weekly ? 7 : 1;
   const days: DayCount[] = data?.days ?? [];
@@ -94,7 +94,7 @@ export function DaysRow({ data, chip, range, onPick, byPerson, onFindCommit, act
               Clear
             </button>
           ) : null}
-          {range && onFindCommit && failedChip && sum.failed > 0 ? <FindCommitLink days={days} range={range} onFindCommit={onFindCommit} actionsOff={actionsOff} /> : null}
+          {range && onFindCommit && failedChip && sum.failed > 0 ? <FindCommitLink days={days} range={range} onFindCommit={onFindCommit} /> : null}
           <button className="linkbtn" type="button" aria-expanded="false" ref={toggleRef} onClick={onToggle}>
             Calendar
           </button>

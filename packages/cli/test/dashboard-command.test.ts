@@ -116,7 +116,7 @@ describe('shadowlap dashboard', () => {
       }
       expect(job).toMatchObject({ done: true, code: 0, result: { exitCode: 0 } });
       expect(job.newRunId).toMatch(/^[0-9A-Z]{26}$/);
-      expect(job.links).toEqual([{ label: `Open run ${job.newRunId!.slice(0, 10)}`, href: `#/run/${job.newRunId}` }]);
+      expect(job.links).toEqual([{ label: 'Open run', href: `#/run/${job.newRunId}` }]);
       const activity = (await (await api('activity')).json()) as { items: Array<{ runId?: string; actor?: string }> };
       expect(activity.items.find((i) => i.runId === job.newRunId)?.actor).toBe('priya@example.com');
     } finally {

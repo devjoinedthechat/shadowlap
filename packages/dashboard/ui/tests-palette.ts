@@ -2,8 +2,8 @@ import { testsPalette } from './goldens.js';
 import type { TestsView } from './types.js';
 
 /**
- * The palette's Tests group and its Update goldens…, on any page: each golden opens Tests, and
- * Update goldens… opens Tests with its dialog (`#/tests?update`). What it lists is the goldens as the
+ * The palette's Tests group and its Update goldens, on any page: each golden opens Tests, and
+ * Update goldens opens Tests with its dialog (`#/tests?update`). What it lists is the goldens as the
  * server last listed them: the Tests page keeps that current (`keepTests`), and opening the palette
  * loads it again, once at a time; when what it lists changes, `onTestsChanged` hears of it, so an
  * open palette gains the group as soon as the answer lands. Tests.tsx registers it. No DOM here, and
@@ -23,7 +23,7 @@ export interface TestsPaletteCommand {
   label: string;
   hint: string;
   mono: boolean;
-  /** It opens what starts a job (Update goldens…): paused while the server can't be reached. */
+  /** It opens what starts a job (Update goldens): paused while the server can't be reached. */
   job?: boolean;
   run: () => void;
 }
@@ -63,7 +63,7 @@ export function loadTests(client: TestsPaletteApp['client']): Promise<void> {
 
 /**
  * The palette's entries, read each time it opens, which also loads the goldens again. `update`: the
- * server updates goldens (Update goldens… is offered only then, and only where actions can run).
+ * server updates goldens (Update goldens is offered only then, and only where actions can run).
  */
 export function testsPaletteCommands(app: TestsPaletteApp, go: (to: string) => void, o: { update: boolean }): TestsPaletteCommand[] {
   if (app.exported) return [];

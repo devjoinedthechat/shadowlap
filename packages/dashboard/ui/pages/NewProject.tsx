@@ -10,6 +10,7 @@ import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
 import { flush } from '../pending-delete.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * Add project (#/new): pick the folder your agent's code is in. Typing filters the folders the
@@ -24,7 +25,7 @@ const PROJECT_FILES = ['pyproject.toml', 'package.json'];
 
 export function NewProjectPage() {
   const app = useApp();
-  const { client, guard, toast, actionsOff, meta } = app;
+  const { client, guard, toast, meta } = app;
   const [query, setQuery] = useState('');
   const [pick, setPick] = useState<string | null>(null);
   const [view, setView] = useState<AddProjectView | null>(null);
@@ -172,9 +173,9 @@ export function NewProjectPage() {
             <a className="btn quiet" href={view?.cancel.href ?? href.overview()}>
               {view?.cancel.label ?? 'Cancel'}
             </a>
-            <button className="btn lime" type="button" disabled={!view || view.button.disabled || busy || !!actionsOff} title={actionsOff ?? view?.button.title ?? undefined} onClick={add}>
+            <ActionButton className="btn lime" disabled={!view || view.button.disabled || busy} title={view?.button.title ?? undefined} onClick={add}>
               <span>{view?.button.label ?? 'Add project'}</span>
-            </button>
+            </ActionButton>
           </footer>
         </section>
         <section className="panel nextsteps">

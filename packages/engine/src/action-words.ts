@@ -24,6 +24,9 @@ export interface ActionWords {
   doing?: string;
 }
 
+/** The model Run blame with stronger model's field suggests before one is typed, and so the model its price is worked out at until one is. */
+export const STRONGER_MODEL = 'claude-opus-5-5';
+
 export const ACTIONS = {
   // The fork menu at a call, in the CLI's verbs, as the terminal UI and the dashboard offer it
   // (run-actions.ts); Force <tool> live names its tool.
@@ -57,7 +60,7 @@ export const ACTIONS = {
   // Tests.
   runTests: { label: 'Run tests', doing: 'Running tests' },
   updateGolden: { label: 'Update golden', doing: 'Updating golden' },
-  updateGoldens: { label: 'Update goldens…', doing: 'Updating goldens' },
+  updateGoldens: { label: 'Update goldens', doing: 'Updating goldens' },
   // A normalizer a divergence or Calibrate proposes is added at once; with the golden's test after
   // it, re-run or updated when the rule alone can't make the replay match (a dialog that only
   // confirms earns no ellipsis). One of your own asks for its rule (Settings → Matching).

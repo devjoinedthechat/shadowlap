@@ -290,7 +290,7 @@ function answer(req: IncomingMessage, res: ServerResponse, d: { uiDir: string; l
     // `notFound`, so the browser logs no failed load for it. Any other client gets the 404.
     if (status === 404 && req.method === 'GET' && req.headers['x-shadowlap-not-found'] === 'answer') return json(res, 200, { error, notFound: true });
     // A body refused part way is not read to its end: close the connection so the client stops sending it.
-    const confirm = err instanceof HttpError && err.confirm !== undefined ? { confirm: err.confirm } : {};
+    const confirm = err instanceof HttpError && err.confirm !== undefined ? { confirm: err.confirm, ...(err.live !== undefined ? { live: err.live } : {}) } : {};
     json(res, status, { error, ...confirm }, status === 413 ? { connection: 'close' } : {});
   });
 }

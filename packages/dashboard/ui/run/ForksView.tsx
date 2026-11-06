@@ -11,6 +11,7 @@ import { useApp } from '../state.js';
 import { FixBundleNode, useFixBundles } from '../fixes/Bundles.js';
 import { lineageRunLike } from './model.js';
 import { goldenName } from './offers.js';
+import { useOfflineLink } from '../components/ActionButton.js';
 
 /**
  * Forks: the run's family as a tree, its recording and every replay and fork of it, each by its id and
@@ -146,10 +147,11 @@ function Bundle({ attempts, current, title, gate = null }: { attempts: LineageNo
   );
   const first = attempts.find((n) => n.runId === b.attempts[0]?.runId) ?? attempts[0]!;
   const has = attempts.some((n) => n.runId === current);
+  const attemptLink = useOfflineLink();
   const spent = attempts.reduce((sum, n) => sum + n.spent, 0);
   const word = gate ? /^(passed|failed|inconclusive)\b/.exec(gate.verdict)?.[1] : null;
   return (
-    <a className={`fnode${has ? ' here' : ''}`} href={href.run(first.runId)}>
+    <a className={`fnode${has ? ' here' : ''}`} href={href.run(first.runId)} onClick={attemptLink}>
       {title ? <Glyph kind={word === 'failed' ? 'fail' : word === 'inconclusive' ? 'warn' : 'test'} label="Test attempts" /> : <Glyph kind="fork" label="Repeated attempts" />}
       <span>
         <span className="f1">

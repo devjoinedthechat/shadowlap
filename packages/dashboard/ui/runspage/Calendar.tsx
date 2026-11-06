@@ -8,6 +8,7 @@ import { CAL_CELLS, CAL_NOUN, calSummary, counted, dayTip, failedOf, GRID_STEPS,
 import { useDayPicks } from './day-picks.js';
 import { dayText } from '../overview/model.js';
 import { ACTIONS, confirmWords } from '../labels.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /** What the twelve weeks over Runs are drawn from, as the slim row of days or the grid alike. */
 export interface WeeksProps {
@@ -20,18 +21,15 @@ export interface WeeksProps {
   byPerson: boolean;
   /** Find breaking commit, offered with Failed picked and days chosen that failed; null hides it. */
   onFindCommit: ((range: [number, number]) => void) | null;
-  /** Why actions can't run here (a read-only dashboard): Find breaking commit is off, saying why. */
-  actionsOff?: string | null;
 }
 
-/** Find breaking commit for the days picked, its card saying where the search starts; off on a dashboard that changes nothing, saying why. */
-export function FindCommitLink({ days, range, onFindCommit, actionsOff }: { days: readonly DayCount[]; range: [number, number]; onFindCommit: (range: [number, number]) => void; actionsOff: string | null }) {
+/** Find breaking commit for the days picked, its card saying where the search starts; on a dashboard that changes nothing it waits, its card saying why. */
+export function FindCommitLink({ days, range, onFindCommit }: { days: readonly DayCount[]; range: [number, number]; onFindCommit: (range: [number, number]) => void }) {
   const label = ACTIONS.findBreakingCommit.label;
-  const tip = actionsOff ? undefined : tipCard(confirmWords(label), [], `From the first failure ${spanText(days, range)}, between a commit where it worked and its own`);
   return (
-    <button className="linkbtn" type="button" disabled={!!actionsOff} title={actionsOff ?? undefined} data-tip={tip} onClick={() => onFindCommit(range)}>
+    <ActionButton className="linkbtn" tip={confirmWords(label)} sub={`From the first failure ${spanText(days, range)}, between a commit where it worked and its own`} onClick={() => onFindCommit(range)}>
       {label}
-    </button>
+    </ActionButton>
   );
 }
 
@@ -43,7 +41,7 @@ export function FindCommitLink({ days, range, onFindCommit, actionsOff }: { days
  * table and the chip counts follow. Clicking the day again, Clear or Escape undoes it; the arrow
  * keys move between days, Enter picks one, Shift+Enter extends (`useDayPicks`).
  */
-export function Calendar({ data, chip, range, onPick, byPerson, onFindCommit, actionsOff = null, onToggle, toggleRef }: WeeksProps & { onToggle: () => void; toggleRef: Ref<HTMLButtonElement> }) {
+export function Calendar({ data, chip, range, onPick, byPerson, onFindCommit, onToggle, toggleRef }: WeeksProps & { onToggle: () => void; toggleRef: Ref<HTMLButtonElement> }) {
   const days: DayCount[] = data?.days ?? [];
   const pick = useDayPicks({ count: days.length, range, onPick, steps: GRID_STEPS });
   const { shown, focusDay } = pick;
@@ -115,7 +113,7 @@ export function Calendar({ data, chip, range, onPick, byPerson, onFindCommit, ac
               Clear
             </button>
           ) : null}
-          {range && onFindCommit && chip === 'failed' && sum.failed > 0 ? <FindCommitLink days={days} range={range} onFindCommit={onFindCommit} actionsOff={actionsOff} /> : null}
+          {range && onFindCommit && chip === 'failed' && sum.failed > 0 ? <FindCommitLink days={days} range={range} onFindCommit={onFindCommit} /> : null}
         </div>
         <dl className="calkv">
           {!one ? (

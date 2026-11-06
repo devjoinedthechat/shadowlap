@@ -1,5 +1,5 @@
 /**
- * The import dialog's sample trace ("Use a sample: otel-traces.json"): one agent run as an
+ * The import dialog's sample trace ("Use sample: otel-traces.json"): one agent run as an
  * OpenTelemetry collector exports it (OTLP JSON, the GenAI semantic conventions), with two model
  * calls and the tool call between them. It is the trace the CLI's own import tests read, and the one
  * the demo store imports as captures/otel-traces.json. No DOM here: the tests import it.

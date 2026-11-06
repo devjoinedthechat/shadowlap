@@ -222,7 +222,7 @@ The menu's actions:
 | `o` | Override result… (opens with the recorded result to edit) | tool call | `… --override <n>=<json>` |
 | `t` | Fail with tool error… (`timeout`, `error` or `error:<message>`, or a status) | tool call | `… --fail-at <n>=<failure>` |
 | `x` | Plant instruction… (asks for the text) | read tool call | `… --inject-result <n>=<text> --repeat 3` |
-| `l` | Force *tool* live | tool call | `… --live-tool <name>` |
+| `l` | Force *tool* live (on a write, asks first: it acts on your systems) | tool call | `… --live-tool <name>` |
 | `u` | Override user reply… (starts from the recorded reply) | recorded user input | `… --override <n>=<reply>` |
 | `a` | Run live from here | any call | `… --diverge-at <n>` |
 | `e` | Repeat 5 times (on a fork, asks first: its attempts run live) | the whole run | `… --repeat 5` |

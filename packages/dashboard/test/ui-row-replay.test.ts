@@ -23,7 +23,7 @@ function starts(answer: () => Promise<JobView>) {
   const action = vi.fn((_runId: string, _key: string, _callNo: number | null) => answer());
   const startJob = vi.fn((_kind: string, _args: object) => answer());
   const watchJob = vi.fn();
-  return { app: { client: { action, startJob } as never, guard: (fn: () => void) => fn(), watchJob }, action, startJob, watchJob };
+  return { app: { client: { action, startJob } as never, guard: (fn: () => void) => (fn(), true), watchJob }, action, startJob, watchJob };
 }
 
 function items(o: { next?: NextStepRow | null; replay?: NextStepRow | null; status?: string; app?: ReturnType<typeof starts>['app'] }) {

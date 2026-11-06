@@ -16,6 +16,7 @@ import { useApp, type AppState } from '../state.js';
 import { errorText } from '../toast.js';
 import { RemoveProjectDialog } from './RemoveProject.js';
 import { flush } from '../pending-delete.js';
+import { ActionButton, useActionWait } from '../components/ActionButton.js';
 
 /**
  * The project at the top of the sidebar, and the switcher behind it: each project on this machine
@@ -94,6 +95,7 @@ export function ProjectBlock({ meta }: { meta: Meta | null }) {
 
 function ProjectSwitcher({ meta }: { meta: Meta }) {
   const app = useApp();
+  const removeWait = useActionWait();
   const { client, guard } = app;
   const menu = useMenu();
   const [list, setList] = useState<ProjectsView | null>(lastList);
@@ -115,7 +117,7 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
   // Loaded once, and again whenever the project changes; the menu loads it afresh as it opens.
   useEffect(() => load(), [load, id]);
 
-  // Settings → Project's "Remove from dashboard" opens this same dialog for the current project.
+  // Settings → Project's Remove project… opens this same dialog for the current project.
   const several = list ? list.items.length > 1 : true;
   useEffect(() => provideProjectRemoval({ current: () => ({ id, blocked: several ? null : ONLY_PROJECT }), Dialog: RemoveProjectDialog }), [id, several]);
 
@@ -192,6 +194,10 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
             const row = items.find((p) => p.id === (document.activeElement as HTMLElement | null)?.dataset?.project);
             if (!row?.removable) return false;
             e.preventDefault();
+            if (removeWait) {
+              app.toast(removeWait);
+              return true;
+            }
             menu.close();
             setRemoving(row.id);
             return true;
@@ -205,19 +211,18 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
                 <small>{p.detail}</small>
               </button>
               {p.removable ? (
-                <button
-                  type="button"
+                <ActionButton
                   role="menuitem"
                   className="px"
                   aria-label={p.removeLabel}
-                  title="Remove from the dashboard"
+                  title="Remove project…"
                   onClick={() => {
                     menu.close();
                     setRemoving(p.id);
                   }}
                 >
                   ×
-                </button>
+                </ActionButton>
               ) : null}
             </div>
           ))}

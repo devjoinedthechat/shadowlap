@@ -88,13 +88,21 @@ describe('Runs’ header actions', () => {
     expect(labels()).toEqual(['Import capture…']);
   });
 
-  it('say why each is off on a dashboard that changes nothing, with no card over the reason', async () => {
-    r = await render(actions({ ...TEAM, onlyLocal: 1 }, { actionsOff: 'This dashboard is read-only' }).element);
+  it('wait on a dashboard that changes nothing, each card saying why and a press starting nothing', async () => {
+    const toast = vi.fn();
+    const a = actions({ ...TEAM, onlyLocal: 1 }, { actionsOff: 'This dashboard is read-only', toast });
+    r = await render(a.element);
+    expect(labels()).toEqual(['Pull', 'Import capture…', 'Push local runs']);
     for (const b of r.all('button')) {
-      expect(b.getAttribute('disabled')).toBe('');
-      expect(b.getAttribute('title')).toBe('This dashboard is read-only');
-      expect(b.getAttribute('data-tip')).toBeNull();
+      expect(b.getAttribute('aria-disabled')).toBe('true');
+      expect(b.getAttribute('data-why')).toBe('This dashboard is read-only');
+      expect(b.getAttribute('title')).toBeNull();
+      expect(JSON.parse(b.getAttribute('data-tip')!)).toMatchObject({ t: b.textContent, s: 'This dashboard is read-only' });
     }
+    expect(r.all('button')[2].className).toBe('btn');
+    await r.click(r.all('button')[2]);
+    expect(a.startJob).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith('This dashboard is read-only', 'notice', undefined);
   });
 
   it('hand Push’s focus to Import capture… when its runs are in the store', async () => {

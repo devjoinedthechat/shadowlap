@@ -98,7 +98,7 @@ export function useTimelineActions(o: TimelineActionsInput) {
     }
     if (action.imported === 'confirm') setMode({ kind: 'consent', action, args: action.prompt!.build('yes') });
     else if (action.prompt) setMode({ kind: 'prompt', action });
-    // A fork's Repeat 5 times runs live five times: it says so, and its command, before it starts.
+    // A fork's Repeat 5 times runs live five times, and a write forced live acts on your systems: it says so, and its command, before it starts.
     else if (action.args && action.asksFirst) setMode({ kind: 'live', action, args: action.args });
     else if (action.args) runAction(action.args);
   };

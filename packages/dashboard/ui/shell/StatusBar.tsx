@@ -6,6 +6,7 @@ import { isAttempt } from '../runs.js';
 import { useApp } from '../state.js';
 import { useTeamStore } from '../teamstore.js';
 import type { RunListItem } from '../types.js';
+import { JobChip } from './JobChip.js';
 
 /** The runs the store holds and the attempts bundled under them, less those a delete waits to take (pending-delete.ts). */
 function storeCounts(counts: { runs: number; attempts: number } | null | undefined, runs: readonly RunListItem[] | null, hidden: ReadonlySet<string>, gone: readonly PendingRun[]): { runs: number | null; attempts: number | null } {
@@ -16,8 +17,8 @@ function storeCounts(counts: { runs: number; attempts: number } | null | undefin
 
 /**
  * The status bar: the store, the counts (runs, then the attempts bundled under them), the sync state,
- * the address and the version. Below 640px only the left side stays. A recording in progress shows in
- * the top bar's chip, not here.
+ * the address and the version, and a job off the screen (`JobChip`). Below 640px only the left side
+ * stays. A recording in progress shows in the top bar's chip, not here.
  */
 export function StatusBar() {
   const { meta, runs, conn, syncedAt, exported } = useApp();
@@ -49,6 +50,7 @@ export function StatusBar() {
         {attempts ? ` · ${num(attempts)} ${attempts === 1 ? 'attempt' : 'attempts'}` : ''}
       </span>
       <span className="sp" />
+      <JobChip />
       {exported ? (
         <span>{meta?.redacted ? 'redaction rules applied' : 'as recorded, not redacted'}</span>
       ) : (

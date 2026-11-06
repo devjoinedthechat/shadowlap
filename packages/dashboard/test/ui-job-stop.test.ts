@@ -2,9 +2,8 @@ import { createElement, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Client } from '../ui/api.js';
 import { JobDrawer } from '../ui/components/Drawer.js';
-import { TopBar } from '../ui/shell/TopBar.js';
 import { AppContext, type AppState, type WatchedJob } from '../ui/state.js';
-import type { JobListItem, JobView } from '../ui/types.js';
+import type { JobView } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -78,14 +77,17 @@ describe('a job’s output in its drawer', () => {
   it('scrolls by keyboard too, named for what it holds', async () => {
     r = await render(createElement(AppContext.Provider, { value: app({ jobs: [watched(job())] }) }, createElement(JobDrawer)));
     const out = r.one('.drawer pre');
-    expect([out.getAttribute('tabindex'), out.getAttribute('role'), out.getAttribute('aria-label')]).toEqual(['0', 'region', 'What the command printed']);
+    expect([out.getAttribute('tabindex'), out.getAttribute('role'), out.getAttribute('aria-live'), out.getAttribute('aria-label')]).toEqual(['0', 'log', 'off', 'Output']);
   });
 });
 
 describe('what a screen reader hears of a job', () => {
   /** Whether the element is in a live region, whose every change a screen reader reads out. */
   const inLive = (el: Rendered['document']['body'] | null): boolean => {
-    for (let e = el; e; e = e.parentNode) if (e.getAttribute('aria-live') || ['status', 'log', 'alert'].includes(e.getAttribute('role') ?? '')) return true;
+    for (let e = el; e; e = e.parentNode) {
+      if (e.getAttribute('aria-live') === 'off') return false;
+      if (e.getAttribute('aria-live') || ['status', 'log', 'alert'].includes(e.getAttribute('role') ?? '')) return true;
+    }
     return false;
   };
 
@@ -100,14 +102,14 @@ describe('what a screen reader hears of a job', () => {
     }
     r = await render(createElement(Host));
     const said = () => r!.all('.drawer [role="status"]').map((s) => s.textContent);
-    expect(said()).toEqual(['Running tests: running']);
+    expect(said()).toEqual(['Running tests, running']);
     expect(inLive(r.one('.drawer pre'))).toBe(false);
     print('[shadowlap] golden 01M5GS3E4G passed');
     await r.until('the line', () => r!.one('.drawer pre').textContent.includes('passed'));
-    expect(said()).toEqual(['Running tests: running']);
+    expect(said()).toEqual(['Running tests, running']);
     finish();
-    await r.until('the end', () => said()[0] !== 'Running tests: running');
-    expect(said()).toEqual(['Running tests: 3 passed · exit 0']);
+    await r.until('the end', () => said()[0] !== 'Running tests, running');
+    expect(said()).toEqual(['Ran tests, passed, 3 of 3 goldens passed, exit 0']);
     expect(inLive(r.one('.drawer pre'))).toBe(false);
   });
 });
@@ -131,14 +133,15 @@ describe('Stop in the job drawer', () => {
     const j = REPAIR();
     r = await render(createElement(AppContext.Provider, { value: app({ client: { stopJob } as unknown as Client, jobs: [watched(j)] }) }, createElement(JobDrawer)));
     await r.click(r.byText('.drawer header button', 'Stop'));
-    expect(r.one('.dialog h3').textContent).toBe('Stop the repair?');
-    expect(r.one('.dialog header p').textContent).toContain('never in your working tree, which it leaves as it is');
+    expect(r.one('.dialog h3').textContent).toBe('Stop repair');
+    expect(r.one('.dialog header p').textContent).toContain('Stops the repair, which reports what it found so far.');
+    expect(r.one('.dialog .dfacts').textContent).toBe('Changesnothing in your working tree');
     // Keep it running: the dialog goes, the repair goes on.
     await r.click(r.byText('.dialog button', 'Keep it running'));
     expect(r.all('.dialog')).toHaveLength(0);
     expect(stopJob).not.toHaveBeenCalled();
     await r.click(r.byText('.drawer header button', 'Stop'));
-    await r.click(r.byText('.dialog button', 'Stop the repair'));
+    await r.click(r.byText('.dialog button', 'Stop repair'));
     expect(stopJob).toHaveBeenCalledWith(j.id);
     expect(r.all('.dialog')).toHaveLength(0);
   });
@@ -146,7 +149,8 @@ describe('Stop in the job drawer', () => {
   it('says a stopped job was stopped, and offers Stop only while a job runs', async () => {
     r = await render(createElement(AppContext.Provider, { value: app({ client: {} as Client, jobs: [watched(job({ done: true, stopped: true, code: 143, endedAt: 2_000 }))] }) }, createElement(JobDrawer)));
     expect(header(r)).toBe('Running tests · stopped · exit 143');
-    expect(r.all('.drawer header button').map((b) => b.textContent)).toEqual(['']);
+    // The log's button and Close: no Stop.
+    expect(r.all('.drawer header button').map((b) => b.getAttribute('aria-label'))).toEqual(['Hide log', 'Close']);
   });
 
   it('says so when the job had ended before the stop reached it', async () => {
@@ -156,44 +160,5 @@ describe('Stop in the job drawer', () => {
     await r.click(r.byText('.drawer header button', 'Stop'));
     await r.until('the answer to the stop', () => toast.mock.calls.length > 0);
     expect(toast).toHaveBeenCalledWith('Running tests had ended already');
-  });
-});
-
-describe('The top bar’s jobs chip', () => {
-  /** A client whose server runs `listed`, and answers what the top bar asks besides. */
-  const client = (listed: JobListItem[]) => ({ jobs: vi.fn(async () => listed), teamStore: vi.fn(async () => null), fixes: vi.fn(async () => ({ fixes: [] })) }) as unknown as Client;
-  const listedJob = (j: JobView): JobListItem => {
-    const { lines: _lines, result: _result, ...item } = j;
-    return item;
-  };
-
-  it('counts a job started elsewhere, and opens its drawer', async () => {
-    const openJob = vi.fn();
-    const j = REPAIR();
-    r = await render(createElement(AppContext.Provider, { value: app({ client: client([listedJob(j)]), openJob }) }, createElement(TopBar, { route: { page: 'fixes', id: null, step: null, sub: null } })));
-    await r.until('the chip', () => r!.all('button.jobchip').length > 0);
-    const chip = r.one('button.jobchip');
-    expect(chip.textContent).toBe('1 job running');
-    expect(chip.getAttribute('title')).toBe('Repairing: open its drawer');
-    await r.click(chip);
-    expect(openJob).toHaveBeenCalledWith(j.id);
-  });
-
-  it('opens the newest job whose drawer is closed, and shows nothing once none is left to find', async () => {
-    const openJob = vi.fn();
-    const older = job({ id: '0000000000000001', startedAt: 1_000 });
-    const newer = REPAIR({ startedAt: 2_000 });
-    r = await render(createElement(AppContext.Provider, { value: app({ client: client([listedJob(newer), listedJob(older)]), openJob, jobs: [watched(newer)] }) }, createElement(TopBar, { route: { page: 'tests' } })));
-    await r.until('the chip', () => r!.all('button.jobchip').length > 0);
-    expect(r.one('button.jobchip').textContent).toBe('2 jobs running');
-    // The newest has its drawer open already: the chip opens the other one.
-    await r.click(r.one('button.jobchip'));
-    expect(openJob).toHaveBeenCalledWith(older.id);
-  });
-
-  it('shows no chip while nothing runs', async () => {
-    r = await render(createElement(AppContext.Provider, { value: app({ client: client([listedJob(job({ done: true, code: 0 }))]) }) }, createElement(TopBar, { route: { page: 'tests' } })));
-    await r.wait(50);
-    expect(r.all('button.jobchip')).toHaveLength(0);
   });
 });

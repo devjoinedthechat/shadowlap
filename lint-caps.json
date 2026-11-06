@@ -72,7 +72,7 @@
       "runDoctor": 76
     },
     "packages/cli/src/fix-apply.ts": {
-      "applyFix": 72
+      "applyFix": 68
     },
     "packages/cli/src/fix-format.ts": {
       "formatFixDetail": 64
@@ -171,7 +171,7 @@
       "verifyMore": 41
     },
     "packages/dashboard/src/fixes.ts": {
-      "fixDetail": 48
+      "fixDetail": 33
     },
     "packages/dashboard/src/injection.ts": {
       "injectionJob": 49
@@ -206,26 +206,14 @@
     "packages/dashboard/test/static.test.ts": {
       "scriptEnd": 56
     },
-    "packages/dashboard/ui/actions.ts": {
-      "dialogCopy": 40
-    },
     "packages/dashboard/ui/compare/model.ts": {
       "changeCards": 33
     },
-    "packages/dashboard/ui/components/Drawer.tsx": {
-      "Drawer": 43
-    },
     "packages/dashboard/ui/fixes/FixPage.tsx": {
-      "FixActions": 37
+      "FixActions": 36
     },
     "packages/dashboard/ui/fixes/model.ts": {
       "fixJobStatus": 37
-    },
-    "packages/dashboard/ui/goldens.ts": {
-      "updatePlan": 32
-    },
-    "packages/dashboard/ui/jobs.ts": {
-      "jobStatus": 35
     },
     "packages/dashboard/ui/normalize.ts": {
       "normalizeRunDetail": 36
@@ -234,7 +222,7 @@
       "Comparison": 51
     },
     "packages/dashboard/ui/pages/NewProject.tsx": {
-      "NewProjectPage": 38
+      "NewProjectPage": 36
     },
     "packages/dashboard/ui/pages/Run.tsx": {
       "Workspace": 79
@@ -242,14 +230,11 @@
     "packages/dashboard/ui/pages/Training.tsx": {
       "ScoreDialog": 34
     },
-    "packages/dashboard/ui/pages/settings/RuleTable.tsx": {
-      "RuleDialog": 37
-    },
     "packages/dashboard/ui/pages/settings/Store.tsx": {
-      "StoreTab": 34
+      "StoreTab": 32
     },
     "packages/dashboard/ui/pages/settings/StoreSetup.tsx": {
-      "StoreSetup": 73
+      "StoreSetup": 65
     },
     "packages/dashboard/ui/run/Inspector.tsx": {
       "ConversationTab": 33,
@@ -259,7 +244,7 @@
       "ProvenanceView": 95
     },
     "packages/dashboard/ui/run/RunHeader.tsx": {
-      "RunHeader": 76
+      "RunHeader": 71
     },
     "packages/dashboard/ui/run/banner.ts": {
       "attemptBanner": 52,
@@ -274,9 +259,6 @@
     "packages/dashboard/ui/run/parts.tsx": {
       "Banner": 60,
       "DiffPanel": 32
-    },
-    "packages/dashboard/ui/runspage/ImportDialog.tsx": {
-      "ImportDialog": 45
     },
     "packages/dashboard/ui/shell/StatusBar.tsx": {
       "StatusBar": 33
@@ -474,25 +456,19 @@
       "register": 206
     },
     "packages/dashboard/src/training.ts": {
-      "trainingView": 182
+      "trainingView": 168
     },
     "packages/dashboard/ui/api.ts": {
       "createClient": 177
     },
-    "packages/dashboard/ui/components/Drawer.tsx": {
-      "Drawer": 173
-    },
     "packages/dashboard/ui/fixes/BlameStep.tsx": {
-      "BlameStepView": 198
+      "BlameStepView": 193
     },
     "packages/dashboard/ui/pages/NewProject.tsx": {
       "NewProjectPage": 162
     },
     "packages/dashboard/ui/pages/Run.tsx": {
       "Workspace": 195
-    },
-    "packages/dashboard/ui/pages/Setup.tsx": {
-      "SetupPage": 162
     },
     "packages/dashboard/ui/pages/Tests.tsx": {
       "TestsPage": 238
@@ -501,7 +477,7 @@
       "TasksTab": 167
     },
     "packages/dashboard/ui/pages/settings/StoreSetup.tsx": {
-      "StoreSetup": 285
+      "StoreSetup": 284
     },
     "packages/dashboard/ui/run/ContextView.tsx": {
       "ContextView": 164
@@ -510,19 +486,16 @@
       "ProvenanceView": 267
     },
     "packages/dashboard/ui/run/RunHeader.tsx": {
-      "RunHeader": 183
+      "RunHeader": 163
     },
     "packages/dashboard/ui/run/parts.tsx": {
       "Banner": 194
-    },
-    "packages/dashboard/ui/runspage/ImportDialog.tsx": {
-      "ImportDialog": 162
     },
     "packages/dashboard/ui/shell/Palette.tsx": {
       "PaletteDialog": 178
     },
     "packages/dashboard/ui/state.tsx": {
-      "AppProvider": 341
+      "AppProvider": 304
     },
     "packages/engine/src/json-doc.ts": {
       "scan": 217
@@ -581,9 +554,9 @@
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,
     "packages/dashboard/src/tests.ts": 1088,
-    "packages/dashboard/test/fixes.test.ts": 884,
+    "packages/dashboard/test/fixes.test.ts": 871,
     "packages/dashboard/test/tests.test.ts": 1111,
-    "packages/dashboard/test/ui-logic.test.ts": 833,
+    "packages/dashboard/test/ui-logic.test.ts": 822,
     "packages/engine/src/pairs.ts": 819,
     "packages/engine/src/redact.ts": 983,
     "packages/remote/test/sync.test.ts": 1059,

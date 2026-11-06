@@ -31,10 +31,16 @@ afterEach(async () => {
   store.close();
 });
 
-/** The app as the shell gives it, its server answering from the store; `inTree` stands for git saying a patch is in the working tree. */
-function app(o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?: string } = {}): AppState {
+/** What the project's goldens folder holds, as the page is told: every name in it, and the recordings in it already. */
+type Folder = { held?: string[]; there?: Array<{ run: string; at: string }> };
+
+/**
+ * The app as the shell gives it, its server answering from the store; `inTree` stands for git saying
+ * a patch is in the working tree, `held` and `there` for what the project's goldens folder holds.
+ */
+function app(o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?: string } & Folder = {}): AppState {
   const client = {
-    fix: (id: string) => Promise.resolve(fixDetail(store, id, { ...(o.inTree ? { patchInTree: () => true } : {}), ...(o.problem ? { checkRepairer: () => o.problem! } : {}) })),
+    fix: (id: string) => Promise.resolve(fixDetail(store, id, { ...(o.inTree ? { patchInTree: () => true } : {}), ...(o.problem ? { checkRepairer: () => o.problem! } : {}), ...(o.held ? { goldensFolder: () => ({ there: o.there ?? [], held: o.held! }) } : {}) })),
     fixes: () => Promise.resolve(fixList(store)),
     attemptGroups: (id: string) => Promise.resolve(fixAttemptGroups(store, id)),
     jobs: () => Promise.resolve([]),
@@ -59,7 +65,7 @@ function app(o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?
 }
 
 /** The fix's page, opened at a step, once it has loaded. */
-async function open(fixId: string, step: string | null = null, sub: string | null = null, o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?: string } = {}): Promise<Rendered> {
+async function open(fixId: string, step: string | null = null, sub: string | null = null, o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?: string } & Folder = {}): Promise<Rendered> {
   r = await render(createElement(AppContext.Provider, { value: app(o) }, createElement(FixPage, { id: fixId, step, sub })));
   await r.until('the fix to load', () => r!.all('h1').length === 1);
   return r;
@@ -228,16 +234,18 @@ describe('Run repair', () => {
     expect(button.className).toBe('btn');
     expect(button.props.title).toBe('No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.');
     await r!.click(button);
-    await r!.until('the dialog to read the fix again', () => r!.all('.dialog .fxdlg').length > 0);
-    const notes = r!.all('.dialog .fxdlg').map(text);
-    expect(notes).toEqual(['No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.']);
+    await r!.until('the dialog to read the fix again', () => r!.all('.dialog .dwarn').length > 0);
+    expect(text(r!.one('.dialog .dwarn'))).toBe('No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.');
+    // Nothing of what a repair that runs would do, and what it bills says why: nothing runs.
+    expect(r!.all('.dialog .dfacts')).toEqual([]);
+    expect(text(r!.one('.dialog .dcost'))).toContain('nothing runs: the blame it reuses rescued no call');
     await r!.unmount();
     // Where claude can't be found the dialog says so, and still that the repair would end with no fix to try.
     await open(fix.fixId, null, null, { problem: 'This repair asks your own Claude Code, and claude was not found on this machine.' });
     await r!.click(r!.byText('.ph .actions button', 'Run repair'));
-    await r!.until('the dialog to read the fix again', () => r!.all('.dialog .fxdlg').length > 0);
-    expect(text(r!.one('.dialog header p'))).toBe('This repair asks your own Claude Code, and claude was not found on this machine.');
-    expect(r!.all('.dialog .fxdlg').map(text)).toEqual(['No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.']);
+    await r!.until('the dialog to read the fix again', () => r!.all('.dialog .dwarn').length > 0);
+    expect(text(r!.one('.dialog .dwarn'))).toBe('This repair asks your own Claude Code, and claude was not found on this machine');
+    expect(text(r!.one('.dialog .dcost'))).toContain('nothing runs: the blame it reuses rescued no call');
   });
 
   it('says the agent runs live and is billed when the repair has a passing path to learn from', async () => {
@@ -247,12 +255,15 @@ describe('Run repair', () => {
     const button = r!.byText('.ph .actions button', 'Run repair');
     expect(button.className).toBe('btn lime');
     await r!.click(button);
-    await r!.until('the dialog to read the fix again', () => r!.all('.dialog .fxdlg').length > 0);
-    expect(r!.all('.dialog .fxdlg').map(text)).toEqual(['The agent runs live from where each run was lost, writes stubbed: its model calls are billed. A file you change meanwhile is in the candidates made after it.']);
+    await r!.until('the dialog to read the fix again', () => !r!.one('.dialog .dlg-ok').disabled);
+    expect(text(r!.one('.dialog header p'))).toContain('Asks your own Claude Code for prompt and tool rewrites and picks the smallest that fixes the failing runs.');
+    expect(text(r!.one('.dialog .dcost'))).toContain('live from each run’s first model call, writes stubbed');
+    expect(text(r!.one('.dialog .dcost'))).toContain('up to 3 candidates');
     // Candidates are verified in a worktree of their own: the dialog never says they are tried in the working tree.
-    const said = text(r!.one('.dialog header p'));
-    expect(said).toContain('Each candidate is verified in a temporary worktree made from your working tree as it is, never in the working tree itself');
-    expect(said).not.toMatch(/put back|tried in your working tree/);
+    const said = r!.all('.dialog .dfacts div').map(text);
+    expect(said).toContain('Changesnothing in your working treeeach candidate is tried in a worktree of its own');
+    expect(said).toContain('Hands overthe accepted one, as a patch for you to apply');
+    expect(said).toContain('While it runsleave the prompt and tools alone');
     // Its command wraps between words, each flag kept with its value: never "--" at a line's end and "repairer" at the next's start.
     const kept = r!.all('.dialog .cmdline span.nw').map((e) => e.textContent);
     expect(kept).toContain('--repairer ');
@@ -262,10 +273,11 @@ describe('Run repair', () => {
 
 describe('Apply fix', () => {
   /** A verified fix, its repair's patch not applied yet. */
-  function verified(): string {
-    const run = newRun({ labels: ['refund-bug'] });
-    const { fix } = blame(run);
-    recordRepair(store, { repairId: 'repair-munzln2i', dir: '.shadowlap/repairs/repair-munzln2i', report: repairReport({ targets: [run] }), expect: EXPECT, command: 'shadowlap repair --fixes label:refund-bug', at: NOW + 1 });
+  /** A fix a repair verified, having fixed `runs` failing runs labelled refund-bug. */
+  function verified(runs = 1): string {
+    const fixed = Array.from({ length: runs }, () => newRun({ labels: ['refund-bug'] }));
+    const { fix } = blame(fixed[0]);
+    recordRepair(store, { repairId: 'repair-munzln2i', dir: '.shadowlap/repairs/repair-munzln2i', report: repairReport({ targets: fixed }), expect: EXPECT, command: 'shadowlap repair --fixes label:refund-bug', at: NOW + 1 });
     return fix.fixId;
   }
   const buttons = () => r!.all('.ph .actions button').map(text);
@@ -274,8 +286,8 @@ describe('Apply fix', () => {
     await open(verified(), null, null, { inTree: true });
     expect(buttons()).toEqual(['Mark applied']);
     await r!.click(r!.byText('.ph .actions button', 'Mark applied'));
-    expect(text(r!.one('.dialog h3'))).toBe('Mark this fix applied?');
-    expect(text(r!.one('.dialog header p'))).toBe('The patch is already in your working tree: this copies the goldens it is missing into goldens/, runs them with shadowlap test and marks the fix applied.');
+    expect(text(r!.one('.dialog h3'))).toBe('Mark fix applied?');
+    expect(text(r!.one('.dialog header p'))).toContain('Copies the goldens it is missing into goldens/, runs them and marks the fix applied.');
   });
 
   it('offers the patch and git apply to copy while the patch is still to apply', async () => {
@@ -286,14 +298,108 @@ describe('Apply fix', () => {
     expect([text(r!.one('.dialog h3')), text(r!.one('.dialog .dlg-ok'))]).toEqual(['Apply fix?', 'Apply fix']);
   });
 
+  it('asks a name for each golden it copies, checks it as it is typed, and sends it with the job', async () => {
+    const started: Array<[string, unknown]> = [];
+    const fixId = verified();
+    const run = fixDetail(store, fixId)!.actions.apply!.names[0].run;
+    await open(fixId, null, null, { started, held: ['refund-in-limit'] });
+    await r!.click(r!.byText('.ph .actions button', 'Apply fix'));
+    const field = () => r!.one('.dialog .gnames input');
+    const said = () => r!.all('.dialog .fieldnote.err').map(text);
+    const ok = () => r!.one('.dialog .dlg-ok');
+    const command = () => text(r!.one('.dialog .cmdline'));
+    const copied = () => text(r!.all('.dialog .ondisk.steps li small')[1]);
+    // Under the patch, prefilled from the fix's label, never the run's id; its command and its step follow it.
+    expect(text(r!.one('.dialog .gnames label'))).toBe(`The golden from ${run}goldens/`);
+    expect([field().value, field().getAttribute('aria-label')]).toEqual(['refund-bug', `Name of the golden from ${run}`]);
+    expect(command()).toContain(`shadowlap fix apply ${fixId.slice(0, 13)} --name ${run}=refund-bug`);
+    expect(copied()).toBe('goldens/refund-bug');
+    expect([said(), ok().disabled]).toEqual([[], false]);
+    // Each name that won't do says why under the field, and Apply fix waits until it will.
+    for (const [typed, why] of [
+      ['Refund Bug', 'A golden’s name takes lower-case letters, digits and hyphens.'],
+      ['', 'Give the golden a name.'],
+      ['refund-in-limit', 'goldens/refund-in-limit is taken: pick another name.'],
+    ]) {
+      await r!.type(field(), typed);
+      expect([said(), ok().disabled, field().getAttribute('aria-invalid')]).toEqual([[why], true, 'true']);
+      expect(field().getAttribute('aria-describedby')).toBe(r!.one('.dialog .fieldnote.err').getAttribute('id'));
+    }
+    await r!.type(field(), '');
+    expect(command()).toContain(`--name ${run}=<name>`);
+    expect(copied()).toBe('goldens/<name>');
+    await r!.type(field(), ' refund-over-limit ');
+    expect([said(), ok().disabled, field().getAttribute('aria-invalid')]).toEqual([[], false, null]);
+    expect(command()).toContain(`--name ${run}=refund-over-limit`);
+    await r!.click(ok());
+    expect(started).toEqual([['apply', { fixId, names: { [run]: 'refund-over-limit' } }]]);
+  });
+
+  it('numbers two goldens’ names, says the second of two the same won’t do, and counts what it copies now', async () => {
+    const started: Array<[string, unknown]> = [];
+    const fixId = verified(2);
+    const runs = fixDetail(store, fixId)!.actions.apply!.names.map((n) => n.run);
+    await open(fixId, null, null, { started, held: [] });
+    await r!.click(r!.byText('.ph .actions button', 'Apply fix'));
+    const fields = () => r!.all('.dialog .gnames input');
+    // The step after the patch: what it does, and where.
+    const step = () => r!.all('.dialog .ondisk.steps li')[1].children.filter((c) => c.tagName === 'SPAN' || c.tagName === 'SMALL').map(text);
+    expect(fields().map((f) => f.value)).toEqual(['refund-bug-1', 'refund-bug-2']);
+    expect(step()).toEqual(['2 recordings copied', 'into goldens/, as named below']);
+    await r!.type(fields()[1], 'refund-bug-1');
+    expect(r!.all('.dialog .fieldnote.err').map(text)).toEqual(['Each golden needs a name of its own.']);
+    expect(fields().map((f) => f.getAttribute('aria-invalid'))).toEqual([null, 'true']);
+    expect(r!.one('.dialog .dlg-ok').disabled).toBe(true);
+    await r!.type(fields()[1], 'refund-twice');
+    await r!.click(r!.one('.dialog .dlg-ok'));
+    expect(started).toEqual([['apply', { fixId, names: { [runs[0]]: 'refund-bug-1', [runs[1]]: 'refund-twice' } }]]);
+    // One in goldens/ already keeps its name: asked none, and copied by no step.
+    await r!.unmount();
+    await open(fixId, null, null, { held: [runs[1]], there: [{ run: runs[1], at: runs[1] }] });
+    await r!.click(r!.byText('.ph .actions button', 'Apply fix'));
+    expect(fields().map((f) => f.value)).toEqual(['refund-bug-1']);
+    expect(step()).toEqual(['Recording copied', 'goldens/refund-bug-1']);
+  });
+
+  it('asks the golden’s name in Mark fix applied?, for a patch already in the working tree', async () => {
+    const started: Array<[string, unknown]> = [];
+    const fixId = verified();
+    const run = fixDetail(store, fixId)!.actions.apply!.names[0].run;
+    await open(fixId, null, null, { started, inTree: true, held: [] });
+    await r!.click(r!.byText('.ph .actions button', 'Mark applied'));
+    expect(text(r!.one('.dialog h3'))).toBe('Mark fix applied?');
+    expect(r!.one('.dialog .gnames input').value).toBe('refund-bug');
+    await r!.type(r!.one('.dialog .gnames input'), 'refund-merged');
+    expect(text(r!.one('.dialog .cmdline'))).toContain(`--name ${run}=refund-merged`);
+    await r!.click(r!.one('.dialog .dlg-ok'));
+    expect(started).toEqual([['apply', { fixId, names: { [run]: 'refund-merged' } }]]);
+  });
+
+  it('asks Finish applying fix? the names of the goldens an apply left, and none of those it copied', async () => {
+    const started: Array<[string, unknown]> = [];
+    const fixId = verified(2);
+    const runs = fixDetail(store, fixId)!.actions.apply!.names.map((n) => n.run);
+    markFixApplied(store, fixId, { patch: 'applied', repairId: 'repair-munzln2i', goldens: ['goldens/refund-twice'], tests: 'passed', via: 'fix apply', from: { 'goldens/refund-twice': runs[0] } });
+    await open(fixId, null, null, { started, held: ['refund-twice'] });
+    await r!.click(r!.byText('.ph .actions button', 'Finish applying'));
+    expect(text(r!.one('.dialog h3'))).toBe('Finish applying fix?');
+    expect(r!.all('.dialog .gnames input').map((f) => [f.value, f.getAttribute('aria-label')])).toEqual([['refund-bug-2', `Name of the golden from ${runs[1]}`]]);
+    await r!.type(r!.one('.dialog .gnames input'), 'refund-twice');
+    expect(r!.all('.dialog .fieldnote.err').map(text)).toEqual(['goldens/refund-twice is taken: pick another name.']);
+    await r!.type(r!.one('.dialog .gnames input'), 'refund-once');
+    await r!.click(r!.one('.dialog .dlg-ok'));
+    expect(started).toEqual([['apply', { fixId, names: { [runs[1]]: 'refund-once' } }]]);
+  });
+
   it('offers the patch to read on an applied fix, never a git apply that would fail', async () => {
     const fixId = verified();
     markFixApplied(store, fixId, { patch: 'applied', repairId: 'repair-munzln2i', goldens: ['goldens/01M3RZ0001'], tests: 'passed', via: 'fix apply' });
     await open(fixId);
-    expect(buttons()).toEqual(['View the patch', 'Patch applied']);
-    await r!.click(r!.byText('.ph .actions button', 'View the patch'));
-    expect(text(r!.one('.dialog h3'))).toBe('fix.patch');
-    expect(text(r!.one('.dialog header p'))).toBe('In your working tree since the fix was applied: .shadowlap/repairs/repair-munzln2i/fix.patch');
+    expect(buttons()).toEqual(['Show patch', 'Patch applied']);
+    await r!.click(r!.byText('.ph .actions button', 'Show patch'));
+    expect(text(r!.one('.dialog h3'))).toBe('Show patch');
+    expect(text(r!.one('.dialog header p'))).toContain('The fix as repair handed it over, in your working tree since you applied it.');
+    expect(text(r!.one('.dialog .dfacts'))).toBe('Path.shadowlap/repairs/repair-munzln2i/fix.patch');
     expect(text(r!.one('.dialog pre.fxpatch'))).toContain('+You are a support agent. Follow the refund policy: escalate every refund above the limit it sets.');
     // To read only: Close, and nothing to run.
     expect(r!.all('.dialog footer button').map(text)).toEqual(['Close']);
@@ -371,7 +477,7 @@ describe('what settles a fix left unsettled', () => {
     await open(fix.fixId, 'verify', null, { started });
     const more = r!.byText('.verdict .actions button', 'Run more attempts');
     expect(more.className).toBe('btn sm lime');
-    expect(JSON.parse(String(more.props['data-tip']))).toMatchObject({ t: 'Verifies the change again from the start, up to 80 attempts a run', s: `$ shadowlap verify --fixes ${run} --expect '${JSON.stringify(EXPECT)}' --set temperature=1` });
+    expect(JSON.parse(String(more.props['data-tip']))).toMatchObject({ t: 'Verifies the change again from the start, up to 80 attempts a run', cmd: `$ shadowlap verify --fixes ${run} --expect '${JSON.stringify(EXPECT)}' --set temperature=1` });
     // The header's Run repair reads plain while the step leads.
     expect(r!.byText('.ph .actions button', 'Run repair').className).toBe('btn');
     expect(text(r!.one('.fxreceipt.vmore'))).toBe(`${run.slice(0, 10)} is inconclusive: the budget of $0.01 is spent. Run more attempts verifies again from the start (verify has no --continue), up to 80 a run, without its --budget 0.012: about 12 attempts, ≈$0.144.`);
@@ -410,7 +516,7 @@ describe('what settles a fix left unsettled', () => {
     // Titled with its button's name, without the ellipsis, and confirmed so.
     expect(text(r!.one('.dialog h3'))).toBe('Run blame with stronger model');
     expect(text(r!.one('.dialog .dlg-ok'))).toBe('Run blame with stronger model');
-    expect(text(r!.one('.dialog header p'))).toContain('the last blame took 4 attempts');
+    expect(text(r!.one('.dialog .dcost'))).toContain('the last blame took 4 attempts');
     expect(started).toEqual([]);
   });
 });
@@ -422,7 +528,7 @@ describe('Mark applied for a change of request fields', () => {
     recordVerdict(store, { report: { ...verifyReport([{ runId: run, role: 'target', pass: true }], { codeVersion: 'f353f41' }), fields: { temperature: 1 } }, expect: EXPECT, command: 'shadowlap verify --fixes label:double-email --set temperature=1', at: NOW + 1 });
     await open(fix.fixId);
     await r!.click(r!.byText('.ph .actions button', 'Mark applied'));
-    expect(text(r!.one('.dialog header p'))).toBe("It was verified with temperature=1 from each run's first model call, a change to the requests rather than to your files: once your agent makes it, this marks the fix applied.");
+    expect(text(r!.one('.dialog header p'))).toContain("Marks the fix applied once your agent sends temperature=1 from each run's first model call.");
   });
 
   it('reads Marked applied once marked, its hover naming the change, never a patch', async () => {

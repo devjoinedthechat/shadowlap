@@ -3,7 +3,7 @@ import { activity } from './activity.js';
 import { callDetail, lineage, listRuns, lookupRun, noSuchRun, provenance, runCallsPage, runDetail, showRunJson, type ReadOptions } from './api.js';
 import { fixAttemptGroups } from './attempt-groups.js';
 import { codeChangeCache, compareHead, compareView } from './compare.js';
-import { fixDetail, patchesToCheck } from './fixes.js';
+import { fixDetail, goldensFolderIn, patchesToCheck } from './fixes.js';
 import { forkDifferences } from './fork-differences.js';
 import { runInjection, toolTrust } from './injection.js';
 import { runUnrecorded } from './run-unrecorded.js';
@@ -14,6 +14,7 @@ import { localRunIds } from './routes/store.js';
 import type { MaskCount } from './run-mask.js';
 import { runCalls } from './run-calls.js';
 import { loadRunIndex } from './run-index.js';
+import { ESTIMATE_READS } from './estimates.js';
 import { withExitCodes } from './exit-codes.js';
 import { NEXT_STEP_READS, nextStepRows, pageSteps, type NextStepWork } from './next-step.js';
 import { judgedRows, judgeFor, OUTCOME_READS, runJudged, type OutcomeWork } from './run-outcome.js';
@@ -116,13 +117,13 @@ type CoreJob =
    */
   | { kind: 'store-facts'; stores: Array<{ id: string; dbPath: string | null; keep: string | null }> }
   /** The Training screen (training.ts `trainingView`): the pairs every run makes, with the project's goldens as tasks and its normalizers, read on the server's thread. */
-  | { kind: 'training'; tasks: Task[]; tasksError: string | null; normalizers: Normalizer[]; filter: PairFilter }
+  | { kind: 'training'; tasks: Task[]; tasksError: string | null; normalizers: Normalizer[]; redactRules: number | null; filter: PairFilter }
   /**
    * A fix with its three steps (fixes.ts `fixDetail`), its blamed run's calls among them: the repairer
    * the config names, whether each patch the fix could apply is in the working tree, as git said on
    * the server's thread, and why `fix apply` refuses a pulled repair's patch there, by the repair.
    */
-  | { kind: 'fix'; fixId: string; repairer: string | null; inTree?: Array<[string, boolean | null]>; refusedHere?: Array<[string, string | null]> };
+  | { kind: 'fix'; fixId: string; repairer: string | null; inTree?: Array<[string, boolean | null]>; refusedHere?: Array<[string, string | null]>; project?: string };
 
 /** A run id that names no single run: several runs (409), or none (404). */
 function noRun(store: StoreOf<'readModels'>, id: string): ReadAnswer {
@@ -193,11 +194,15 @@ function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns' | 'ju
   return { ...answer({ ...page, runs: nextStepRows(store, withExitCodes(store, judgedRows(store, runs, outcome, whole ? Infinity : ROW_CALLS_BUDGET, { checks: true })), next) }, { tagged: true }), ...judgeAfter(later, outcome) };
 }
 
-/** A fix's page, with what the server's thread found in the working tree: patches in it already, and pulled ones `fix apply` refuses there. */
+/**
+ * A fix's page, with what the server's thread found in the working tree: patches in it already, and
+ * pulled ones `fix apply` refuses there. The names the project's goldens folder holds, which the
+ * goldens Apply fix copies can't take, are read here, beside the server.
+ */
 function fixPage(store: Store, job: Extract<CoreJob, { kind: 'fix' }>): ReadAnswer {
   const inTree = job.inTree ? new Map(job.inTree) : null;
   const here = job.refusedHere ? new Map(job.refusedHere) : null;
-  const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}), ...(here ? { rewriteHere: (repairId: string) => here.get(repairId) ?? null } : {}) });
+  const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}), ...(here ? { rewriteHere: (repairId: string) => here.get(repairId) ?? null } : {}), ...(job.project ? { goldensFolder: goldensFolderIn(job.project) } : {}) });
   return d ? answer(d, { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
 }
 
@@ -318,7 +323,7 @@ const CORE_READS: ReadTable<CoreJob> = {
   'tool-trust': (store, job) => answer(toolTrust(store, job.tools), { tagged: true }),
   'tool-reads': (store) => answer(toolReads(store)),
   'store-facts': (store, job) => storeFactsOf(store, job.stores),
-  training: (store, job) => answer(trainingView(readTraining(store, { tasks: job.tasks, tasksError: job.tasksError, fixOf: sourceFixes(store), normalizers: job.normalizers }), { filter: job.filter }), { tagged: true }),
+  training: (store, job) => answer(trainingView(readTraining(store, { tasks: job.tasks, tasksError: job.tasksError, redactRules: job.redactRules, fixOf: sourceFixes(store), normalizers: job.normalizers }), { filter: job.filter }), { tagged: true }),
   fix: (store, job) => fixPage(store, job),
   search: (store, job) => {
     const index = loadRunIndex(store);
@@ -333,7 +338,7 @@ const CORE_READS: ReadTable<CoreJob> = {
  * says how one is written). A feature's table is one line here, and a kind two of them register stops
  * the dashboard as it loads.
  */
-const READ_TABLES = [CORE_READS, OUTCOME_READS, NEXT_STEP_READS, RUNS_FAILURES_READS] as const;
+const READ_TABLES = [CORE_READS, OUTCOME_READS, NEXT_STEP_READS, RUNS_FAILURES_READS, ESTIMATE_READS] as const;
 
 /** A job a read-model thread answers: of a kind a table registers, as that table's handler takes it. */
 export type ReadJob = JobOf<(typeof READ_TABLES)[number]>;

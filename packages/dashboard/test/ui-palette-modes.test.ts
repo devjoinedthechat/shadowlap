@@ -84,7 +84,7 @@ describe('Search or jump to, as the dashboard stands', () => {
     expect(tests.getAttribute('aria-disabled')).toBe('true');
     await r.click(tests);
     expect(startJob).not.toHaveBeenCalled();
-    expect(toast).toHaveBeenCalledWith('Actions are paused until the dashboard server is back.');
+    expect(toast).toHaveBeenCalledWith('Paused until the dashboard server is back');
     // The palette stays open on it.
     expect(setPalette).not.toHaveBeenCalled();
   });

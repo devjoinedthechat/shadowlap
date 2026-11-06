@@ -37,8 +37,8 @@ describe('Import capture’s job, at its end', () => {
       const shown = r.all('.drawer pre span').find((s) => s.textContent.includes('judge'));
       expect(shown?.textContent, line).toBe(`${line}\n`);
       expect(shown?.getAttribute('class') ?? null, line).toBe(tone);
-      const lime = r.all('.drawer footer .btn.lime');
-      expect(lime.map((a) => a.textContent)).toEqual([`Open run ${RUN.slice(0, 10)}`]);
+      const lime = r.all('.drawer .jfoot .btn.lime');
+      expect(lime.map((a) => a.textContent)).toEqual(['Open run']);
       expect(lime[0]?.getAttribute('href')).toBe(`#/run/${RUN}`);
       await r.unmount();
       r = null;

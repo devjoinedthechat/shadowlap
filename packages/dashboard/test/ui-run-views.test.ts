@@ -73,7 +73,7 @@ function app(o: { paused?: string[] } = {}): AppState {
     actionsOff: null,
     hasKind: () => false,
     // Offline, an action says it waits rather than run.
-    guard: (fn: () => void) => (o.paused ? void o.paused.push('Actions are paused until the dashboard server is back.') : fn()),
+    guard: (fn: () => void) => (o.paused ? void o.paused.push('Paused until the dashboard server is back') : fn()),
     watchJob: () => undefined,
     toast: () => undefined,
     refresh: () => undefined,
@@ -188,7 +188,7 @@ describe('a run’s views but Calls', () => {
     // Offline, Retry waits for the server rather than leave the browser's own error in the page's place.
     await r!.click(r!.byText('.vbody .loaderr button', 'Retry'));
     expect(bar.reload).not.toHaveBeenCalled();
-    expect(paused).toEqual(['Actions are paused until the dashboard server is back.']);
+    expect(paused).toEqual(['Paused until the dashboard server is back']);
     paused.length = 0;
     // Back, it loads the page again: a browser never asks for a script it failed to load a second time.
     (state as unknown as { guard: (fn: () => void) => void }).guard = (fn) => fn();

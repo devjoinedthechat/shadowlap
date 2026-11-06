@@ -14,9 +14,6 @@ import { BULK_BATCH, bulkToast, inBatches, joinDeleted, named } from './bulk.js'
  * left alone, or a failure, and the runs come back.
  */
 
-/** A toast's Undo as the toast takes it: `undo` answers ⌘Z, and `onGone` is called once however it goes (`acted`: its button, its × or its key). */
-export type UndoAction = ToastAction & { undo?: boolean; onGone?: (acted: boolean) => void };
-
 /** The browser lets keepalive requests carry 64 KiB between them while in flight: room for two batches of a thousand ids. */
 export const KEEPALIVE_BYTES = 60_000;
 let keepaliveInFlight = 0;
@@ -72,7 +69,7 @@ export function useDeleteRuns(): (runs: readonly PendingRun[], from?: HTMLElemen
     };
     const batch = begin(runs, send);
     const go = () => void sendNow(batch);
-    const undo: UndoAction = {
+    const undo: ToastAction = {
       label: 'Undo',
       undo: true,
       returnTo: from ?? null,

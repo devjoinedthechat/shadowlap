@@ -328,7 +328,8 @@ test('a modal fits the window: its header and footer stay in view, its body scro
   await expect(dialog).toBeVisible();
   // It sits beside the app, which can't be reached, nor the job's dock, nor the connection bar's place.
   expect(await dialog.evaluate((el) => el.closest('#layer') !== null)).toBe(true);
-  for (const sel of ['#app', '#conn', '#dock', 'a.skip']) expect(await page.locator(sel).getAttribute('inert'), sel).toBe('');
+  for (const sel of ['#app', '#dock', 'a.skip']) expect(await page.locator(sel).getAttribute('inert'), sel).toBe('');
+  expect(await page.locator('#conn').evaluate((el) => el.closest('[inert]')?.id ?? null)).toBe('app');
   // Import capture starts on its drop zone.
   await expect(page.locator('.dialog .drop')).toBeFocused();
   await page.setViewportSize({ width: 1440, height: 320 });
@@ -344,7 +345,8 @@ test('a modal fits the window: its header and footer stay in view, its body scro
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
-  for (const sel of ['#app', '#conn', '#dock', 'a.skip']) expect(await page.locator(sel).getAttribute('inert'), sel).toBeNull();
+  for (const sel of ['#app', '#dock', 'a.skip']) expect(await page.locator(sel).getAttribute('inert'), sel).toBeNull();
+  expect(await page.locator('#conn').evaluate((el) => el.closest('[inert]'))).toBeNull();
 });
 
 test('a dialog’s body that scrolls and holds no control takes the focus, so the keyboard can scroll it, only while it scrolls', async ({ page }) => {
@@ -353,6 +355,8 @@ test('a dialog’s body that scrolls and holds no control takes the focus, so th
   const body = page.locator('.dialog > .db');
   await expect(body).toBeVisible();
   expect(await body.getAttribute('tabindex')).toBeNull();
+  // A body whose command's Copy can be reached needs no stop of its own: with none, as Stop's or a patch's body has, it takes one.
+  await page.locator('.dialog .boxcopy').evaluate((copy) => copy.remove());
   await page.setViewportSize({ width: 1440, height: 170 });
   await expect(body).toHaveAttribute('tabindex', '0');
   expect(await body.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);

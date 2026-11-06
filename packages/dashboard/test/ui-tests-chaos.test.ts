@@ -79,14 +79,14 @@ describe('the Tests page while error-path presets run on goldens', () => {
     r = await render(createElement(Shell));
     const runTests = () => r!.byText('button', 'Run tests');
     await r.until('the tests to load', () => r!.all('button').some((b) => b.textContent.trim() === 'Run tests'));
-    expect(runTests().props.disabled).toBe(true);
-    expect(runTests().props.title).toBe('shadowlap test goldens/* --chaos is running: run the tests once it is done.');
+    expect(runTests().props['aria-disabled']).toBe('true');
+    expect(runTests().props['data-why']).toBe('shadowlap test goldens/* --chaos is running: run the tests once it is done.');
 
     // The session ends: the store moves the chaos count, and nothing else.
     ended = true;
     await act(async () => moveFeeds({ chaos: 1 }));
-    await r.until('the tests to load again', () => !runTests().props.disabled);
+    await r.until('the tests to load again', () => !runTests().props['aria-disabled']);
     expect(asked).toBe(2);
-    expect(runTests().props.title).toBeUndefined();
+    expect(runTests().props['data-why']).toBeUndefined();
   });
 });

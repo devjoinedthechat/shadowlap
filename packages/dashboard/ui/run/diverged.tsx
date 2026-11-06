@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { JOB_KINDS, type RunDetail } from '../api.js';
+import { UpdateGoldenDialog } from '../components/UpdateGolden.js';
 import { goldenName } from '../format.js';
 import { NormalizeUpdateDialog } from '../pages/TestsDialogs.js';
 import { useApp } from '../state.js';
 import { bannerNormalizerAsk, startTestsJob } from '../tests-ask.js';
 import type { TestBannerOffer } from '../types.js';
 import { divergedActions, updateGoldenCopy } from './offers.js';
-import { UpdateGoldenDialog } from './RunDialogs.js';
 
 /**
  * The jobs of a test that diverged, wherever they are offered: the header's next step and the plain
@@ -27,17 +27,10 @@ export function useDivergedJobs(run: RunDetail, test: TestBannerOffer | null, re
     <>
       {dialog === 'update' && test ? (
         <UpdateGoldenDialog
-          golden={test.golden}
-          copy={updateGoldenCopy(test, r.divergence?.callNo ?? 1, add?.kind === 'job', replayChecks)}
-          onAddNormalizer={() => {
-            setDialog(null);
-            addNormalizer();
-          }}
+          plan={updateGoldenCopy(test, r.divergence?.callNo ?? 1, add?.kind === 'job', replayChecks)}
+          onInstead={addNormalizer}
           onClose={() => setDialog(null)}
-          onOk={() => {
-            setDialog(null);
-            app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.testUpdate, { golden: test.golden })));
-          }}
+          onUpdate={() => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.testUpdate, { golden: test.golden })))}
         />
       ) : null}
       {dialog === 'normalize' && test && add?.kind === 'job' && add.asks ? (
@@ -45,10 +38,7 @@ export function useDivergedJobs(run: RunDetail, test: TestBannerOffer | null, re
           name={goldenName(test.golden)}
           steps={add.asks}
           onClose={() => setDialog(null)}
-          onRun={() => {
-            setDialog(null);
-            addNormalizer();
-          }}
+          onRun={addNormalizer}
         />
       ) : null}
     </>

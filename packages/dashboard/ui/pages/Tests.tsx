@@ -19,6 +19,7 @@ import { divergedAsk, moreAttemptsAsk, runTestsAsk, startTestsJob, type TestsAsk
 import { keepTests, onTestsChanged, testsPaletteCommands } from '../tests-palette.js';
 import { FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from './TestsDialogs.js';
 import { ACTIONS, confirmWords } from '../labels.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * Tests (#/tests): every golden CI runs and how it did at each revision. The verdict for the goldens'
@@ -59,7 +60,7 @@ export function TestsPage() {
     if (view) keepTests(view);
   }, [view]);
 
-  // Update goldens…, asked for by the palette or a link (#/tests?update), on arriving here or while
+  // Update goldens, asked for by the palette or a link (#/tests?update), on arriving here or while
   // here: the address goes back to #/tests at once, so nothing is left to open the dialog later.
   const [asked, setAsked] = useState(false);
   useEffect(() => {
@@ -85,14 +86,15 @@ export function TestsPage() {
   // A job that would run goldens live asks first, in the shell's dialog, saying `ask`'s words around
   // the server's; one that only replays starts on the click (tests-ask.ts).
   const start = (kind: string, fields: Record<string, unknown>, ask?: TestsAsk) => {
-    setOpen(null);
-    startTestsJob(app, kind, fields, ask);
+    const went = startTestsJob(app, kind, fields, ask);
+    if (went !== false) setOpen(null);
+    return went;
   };
   const header = (actions?: ReactNode) => <PageHeader eyebrow="goldens · shadowlap test" title="Tests" text="Every golden CI runs, and how it did at each revision." actions={actions} />;
 
   if (!view) {
     return (
-      <Page>
+      <Page busy={!loaded.error}>
         {header()}
         {loaded.error ? <EmptyState title="Tests could not be loaded" text={loaded.error.message} /> : <div className="empty">Loading the goldens…</div>}
       </Page>
@@ -122,14 +124,14 @@ export function TestsPage() {
         CI settings
       </a>
       {view.diverged.length && hasKind(JOB_KINDS.testUpdate) ? (
-        <button className="btn" type="button" disabled={!!updateWait} title={updateWait ?? undefined} onClick={() => guard(() => setOpen({ kind: 'update', paths: view.diverged }))}>
+        <ActionButton className="btn" why={updateWait} onClick={() => guard(() => setOpen({ kind: 'update', paths: view.diverged }))}>
           {ACTIONS.updateGoldens.label}
-        </button>
+        </ActionButton>
       ) : null}
       {hasKind(JOB_KINDS.tests) ? (
-        <button className="btn lime" type="button" disabled={!!runWait} title={runWait ?? undefined} onClick={() => start(JOB_KINDS.tests, {}, runTestsAsk(view))}>
+        <ActionButton className="btn lime" why={runWait} onClick={() => start(JOB_KINDS.tests, {}, runTestsAsk(view))}>
           {ACTIONS.runTests.label}
-        </button>
+        </ActionButton>
       ) : null}
     </>
   );
@@ -203,19 +205,19 @@ export function TestsPage() {
             ) : null}
             <div className="actions">
               {b.normalize ? (
-                <button className={`btn${b.normalize.lead ? ' lime' : ''}`} type="button" disabled={!!normalizeWait} title={normalizeWait ?? undefined} onClick={() => guard(() => normalize(d))}>
+                <ActionButton className={`btn${b.normalize.lead ? ' lime' : ''}`} why={normalizeWait} onClick={() => guard(() => normalize(d))}>
                   {b.normalize.label}
-                </button>
+                </ActionButton>
               ) : null}
               {b.update ? (
-                <button className="btn" type="button" disabled={!!goldenWait} title={goldenWait ?? undefined} onClick={() => guard(() => setOpen({ kind: 'update', paths: [d.golden] }))}>
+                <ActionButton className="btn" why={goldenWait} onClick={() => guard(() => setOpen({ kind: 'update', paths: [d.golden] }))}>
                   {ACTIONS.updateGolden.label}
-                </button>
+                </ActionButton>
               ) : null}
               {b.bisect ? (
-                <button className="btn" type="button" disabled={!!findWait} title={findWait ?? undefined} onClick={() => guard(() => findCommit(d))}>
+                <ActionButton className="btn" why={findWait} onClick={() => guard(() => findCommit(d))}>
                   {b.bisect.range && !b.bisect.live ? confirmWords(ACTIONS.findBreakingCommit.label) : ACTIONS.findBreakingCommit.label}
-                </button>
+                </ActionButton>
               ) : null}
             </div>
             <p className="hintx">Normalizers apply at match time, so older goldens keep working. Update a golden only when the change was intended.</p>
@@ -273,8 +275,7 @@ export function TestsPage() {
         </section>
       </div>
       <p className="hintx tfoot">{view.note}</p>
-      {/* The dialog already says what an update does, so what it offers instead opens no dialog of
-          its own, though a session that runs a golden live still asks first (tests-ask.ts). */}
+      {/* What it offers instead opens no dialog of its own, though a session that runs a golden live still asks first (tests-ask.ts). */}
       {open?.kind === 'update' ? (
         <UpdateGoldensDialog
           view={view}
@@ -655,15 +656,15 @@ function InconclusivePanel({ v, off, canRun, onMore, updateOff, canUpdate, onUpd
     <ReportPanel name={v.name} runId={v.runId} lines={inconclusiveLines(v)} found={null} missed={null}>
       {more && canRun ? (
         <div className="actions">
-          <button className="btn lime" type="button" disabled={!!off} title={off ?? commandText(more.args)} onClick={() => onMore(more.job, moreAttemptsAsk(v.name, more.args))}>
+          <ActionButton className="btn lime" why={off} title={commandText(more.args)} onClick={() => onMore(more.job, moreAttemptsAsk(v.name, more))}>
             Run more attempts
-          </button>
+          </ActionButton>
         </div>
       ) : update && canUpdate ? (
         <div className="actions">
-          <button className="btn" type="button" disabled={!!updateOff} title={updateOff ?? commandText(update)} onClick={onUpdate}>
+          <ActionButton className="btn" why={updateOff} title={commandText(update)} onClick={onUpdate}>
             Update golden
-          </button>
+          </ActionButton>
         </div>
       ) : null}
       <p className="hintx">{inconclusiveHint(v)}</p>
@@ -677,9 +678,9 @@ function FailurePanel({ f, off, button, onBisect }: { f: FailureView; off: strin
     <ReportPanel name={f.name} runId={f.runId} lines={failureLines(f)} found={f.found} missed={f.missed}>
       {button ? (
         <div className="actions">
-          <button className="btn" type="button" disabled={!!off} title={off} onClick={onBisect}>
+          <ActionButton className="btn" why={off} onClick={onBisect}>
             {button.range && !button.live ? confirmWords(ACTIONS.findBreakingCommit.label) : ACTIONS.findBreakingCommit.label}
-          </button>
+          </ActionButton>
         </div>
       ) : null}
       <p className="hintx">{failureHint(f)}</p>

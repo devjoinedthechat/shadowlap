@@ -82,12 +82,12 @@ describe('Edit and fork in the inspector', () => {
     const page = await open(detail(), sent);
     await page.click(page.byText('button', 'Edit and fork…'));
     const dialog = page.one('[role="dialog"]');
-    expect(dialog.textContent).toContain('Edit #16 lookup_policy’s result and fork');
+    expect(dialog.textContent).toContain('Edit and fork #16 lookup_policy');
     const field = page.one('.editfork textarea');
     // The field takes the focus, ready to edit.
     expect(page.focused()).toBe(field);
     await page.type(field, '{"region": "EU", "limit": 40}');
-    await page.click(page.byText('.dlg-ok', 'Fork'));
+    await page.click(page.byText('.dlg-ok', 'Edit and fork'));
     await page.until('the fork to start', () => sent.jobs.length === 1);
     expect(sent.uploads).toEqual([{ name: 'result-16.json', text: '{"region": "EU", "limit": 40}' }]);
     expect(sent.jobs).toEqual([{ kind: 'override', fields: { runId: RUN, callNo: 16, uploadId: '01M5UPLOAD0000000000000000' } }]);
@@ -100,7 +100,7 @@ describe('Edit and fork in the inspector', () => {
     await page.click(page.byText('button', 'Edit and fork…'));
     const field = page.one('.editfork textarea');
     await page.type(field, '{"limit": 40,');
-    const ok = page.byText('.dlg-ok', 'Fork');
+    const ok = page.byText('.dlg-ok', 'Edit and fork');
     expect(ok.disabled).toBe(true);
     expect(field.getAttribute('aria-invalid')).toBe('true');
     expect(page.one('#editforkWhy').textContent).toMatch(/^Not JSON: /);
@@ -113,10 +113,10 @@ describe('Edit and fork in the inspector', () => {
     const sent: Sent = { uploads: [], jobs: [] };
     const page = await open(detail({ callNo: 1, name: 'user_input', key: 'u', result: { text: 'Refund it.' } }), sent);
     await page.click(page.byText('button', 'Edit and fork…'));
-    expect(page.one('[role="dialog"]').textContent).toContain('Answer #1 differently and fork');
+    expect(page.one('[role="dialog"]').textContent).toContain('Edit and fork user reply at #1');
     expect(page.all('.editmode')).toEqual([]);
     await page.type(page.one('.editfork textarea'), 'Cancel it instead.');
-    await page.click(page.byText('.dlg-ok', 'Fork'));
+    await page.click(page.byText('.dlg-ok', 'Edit and fork'));
     await page.until('the fork to start', () => sent.jobs.length === 1);
     expect(sent.uploads).toEqual([{ name: 'answer-1.txt', text: 'Cancel it instead.' }]);
     await page.unmount();
@@ -144,13 +144,13 @@ describe('Edit and fork in the inspector', () => {
     const page = await open(detail(), sent, { client } as unknown as Partial<AppState>);
     await page.click(page.byText('button', 'Edit and fork…'));
     await page.type(page.one('.editfork textarea'), '{"region": "EU", "limit": 40}');
-    await page.click(page.byText('.dlg-ok', 'Fork'));
-    await page.until('the question', () => page.all('[role="dialog"]').some((d) => d.textContent.includes('Run a command from an imported pack?')));
+    await page.click(page.byText('.dlg-ok', 'Edit and fork'));
+    await page.until('the question', () => page.all('[role="dialog"]').some((d) => d.textContent.includes('Run command from imported pack')));
     // Nothing ran yet; the dialog shows the command the server named.
     expect(sent.jobs).toEqual([]);
-    expect(page.one('[role="dialog"]').textContent).toContain(`${why}.`);
+    expect(page.one('[role="dialog"] .dwarn').textContent).toBe(why);
     // Confirmed, the same upload goes with the yes: the question's confirm.
-    await page.click(page.byText('.dlg-ok', 'Run'));
+    await page.click(page.byText('.dlg-ok', 'Run command'));
     await page.until('the fork to start', () => sent.jobs.length === 1);
     expect(sent.uploads).toHaveLength(1);
     expect(asked).toEqual([
@@ -167,8 +167,8 @@ describe('Edit and fork in the inspector', () => {
     const client = { ...(base.client as object), startJob: async (_kind: string, fields: Record<string, unknown>) => (asked.push(fields), Promise.reject(new ApiError(409, '01M5GRX8K4 came from the team store: this runs the command it was recorded with (node agent.mjs), under shadowlap replay x. Confirm it to run it', 'feed'.repeat(8)))) };
     const page = await open(detail(), sent, { client } as unknown as Partial<AppState>);
     await page.click(page.byText('button', 'Edit and fork…'));
-    await page.click(page.byText('.dlg-ok', 'Fork'));
-    await page.until('the question', () => page.all('[role="dialog"]').some((d) => d.textContent.includes('Run a command from the team store?')));
+    await page.click(page.byText('.dlg-ok', 'Edit and fork'));
+    await page.until('the question', () => page.all('[role="dialog"]').some((d) => d.textContent.includes('Run command from team store')));
     await page.click(page.byText('.dlg-cancel', 'Cancel'));
     expect(page.all('[role="dialog"]')).toEqual([]);
     expect(asked).toHaveLength(1);
@@ -177,14 +177,14 @@ describe('Edit and fork in the inspector', () => {
   it('is off, saying why, where the fork menu’s override is', async () => {
     const page = await open(detail({ disabled: 'A capture has no command: replay it with yours first' }), { uploads: [], jobs: [] });
     const button = page.byText('button', 'Edit and fork…');
-    expect(button.disabled).toBe(true);
-    expect(button.getAttribute('title')).toBe('A capture has no command: replay it with yours first');
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(button.getAttribute('data-why')).toBe('A capture has no command: replay it with yours first');
   });
 
   it('says so first when the run came from someone else’s pack', async () => {
     const page = await open(detail({ label: 'This run came from an imported pack (goldens/refund); replaying it runs: node agent.mjs. Result for #16 lookup_policy, as JSON:' }), { uploads: [], jobs: [] });
     await page.click(page.byText('button', 'Edit and fork…'));
-    expect(page.one('.warnline').textContent).toBe('This run came from an imported pack (goldens/refund); replaying it runs: node agent.mjs. ');
+    expect(page.one('.dwarn').textContent).toBe('This run came from an imported pack (goldens/refund); replaying it runs: node agent.mjs');
   });
 });
 

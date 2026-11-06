@@ -267,7 +267,7 @@ export function register(program: Command): void {
       if (flags.json) process.stdout.write(JSON.stringify(json, null, 2) + '\n');
       else if (verdict === 'inconclusive' && !runner.interrupted) process.stdout.write(p.dim(flags.inconclusive === 'warn' ? 'Inconclusive, let through by --inconclusive warn.\n' : 'Inconclusive fails the run; --inconclusive warn lets it through.\n'));
       emitJobEvent({ type: 'result', data: json });
-      for (const r of reports) emitJobEvent({ type: 'link', label: reports.length === 1 ? 'Open the run' : `Open ${shortId(r.runId)}`, href: links.run(r.runId), ...(reports.length > 1 ? { secondary: true } : {}) });
+      for (const r of reports) emitJobEvent({ type: 'link', label: reports.length === 1 ? 'Open run' : `Open ${shortId(r.runId)}`, href: links.run(r.runId), ...(reports.length > 1 ? { secondary: true } : {}) });
       // Cut short by a signal, its status; failed, 1; inconclusive and not let through, 3.
       process.exitCode = runner.interrupted ? interruptedStatus() : passed ? EXIT.ok : verdict === 'failed' ? EXIT.failed : inconclusiveStatus(flags.inconclusive);
     });

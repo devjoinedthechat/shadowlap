@@ -1,3 +1,4 @@
+import type { Estimate } from '../../engine/src/estimates/estimate.js';
 import type { ActionItem as ServerAction, CallDetail as ServerCallDetail, CallRow as ServerCallRow, CallsPage as ServerCallsPage, LineageNode as ServerLineageNode, RunDetail as ServerRunDetail, RunListItem as ServerRunListItem } from '../src/api.js';
 import type { NextStep, NextStepRow } from '../src/next-step.js';
 import type { RunJudged } from '../src/run-outcome.js';
@@ -312,11 +313,14 @@ export interface PromptChoice {
  * `group: null` is an action with a place of its own (Replay, Pack, a normalizer); `choices` are
  * answers a prompt offers as a list (any other answer is accepted too).
  */
-export type ActionItem = Omit<ServerAction, 'prompt' | 'flag' | 'group' | 'hint'> & {
+export type ActionItem = Omit<ServerAction, 'prompt' | 'flag' | 'group' | 'hint' | 'command' | 'noSystemMessage' | 'warns'> & {
   prompt: { label: string; placeholder?: string; initial?: string; choices?: readonly PromptChoice[] } | null;
   flag?: string;
   group?: 'call' | 'run' | null;
   hint?: string;
+  command?: string;
+  noSystemMessage?: string;
+  warns?: string;
 };
 
 export type CallDetail = Omit<ServerCallDetail, 'call' | 'actions'> & {
@@ -429,6 +433,8 @@ export interface JobView {
   result?: unknown;
   /** With several projects: the one the job runs in (its runs and links are that project's). */
   project?: { id: string; name: string };
+  /** What a billed job is estimated to cost, as its card and its ask say it: its drawer says it beside running. */
+  estimate?: Pick<Estimate, 'usd' | 'ceiling' | 'per' | 'stops'> | null;
 }
 
 /** A job in `GET /api/jobs`: everything but its output and its result. */
