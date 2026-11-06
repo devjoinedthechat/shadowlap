@@ -1,6 +1,7 @@
 import { controlOpen, decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, emptyCounts, fixVerifyHead, goldensPassed, judgeOpen, migrateBreaks, migrateUnsettled, outcomeOf, plural, runOutcomeWord, verdictWord, verifyHead, type DecisionCounts, type DecisionStep, type DecisionsVerify, type MigratePasses, type Normalizer, type StepRerun, type StoreOf, type TestResult, type TestSession, type UnsettledRun, type VerdictStanding, type VerifiedRun, type VerifyOutcome, type VerifyReport } from '@shadowlap/engine';
 import { changeName, fieldsOf } from './fix-shared.js';
 import { uncountedHead } from './fix-verify-step.js';
+import { isRevisionKey } from './links.js';
 import { asksForAll, optionLike, resultLine, verdictOfResult, type GoldenSource, type GoldenVerdict } from './tests.js';
 import type { VerdictTone } from './verdict.js';
 
@@ -141,6 +142,8 @@ export interface VerdictGolden {
 /** A revision's page: its verdict, its goldens as that session judged them, and the previews asked at it. */
 export interface VerdictRevision {
   row: SessionVerdict;
+  /** It is the newest revision's verdict, the one Verdicts leads with: what was tested last. */
+  latest: boolean;
   /** The golden that leads its verdict: the first that failed, else the first inconclusive; null when every golden passed. */
   lead: VerdictGolden | null;
   /** Worst first: those that failed, then those inconclusive, then those that passed. */
@@ -190,8 +193,6 @@ export function verdictsLimit(raw: string | number | null | undefined): number {
 /** A revision's key, as its page's address takes it: the revision, or `no-revision` for none. */
 export const revisionKey = (revision: string | null): string => revision ?? 'no-revision';
 
-/** A key a page's address may carry: `no-revision`, or a revision as `shadowlap test` names one. */
-const KEY = /^(?:no-revision|[A-Za-z0-9][A-Za-z0-9._-]{0,99}(?:\+dirty)?)$/;
 
 /** The commit under a revision, the one git knows: `abc1234+dirty` was tested with changes on top of abc1234. */
 export const committed = (revision: string): string => revision.replace(/\+dirty$/, '');
@@ -688,14 +689,15 @@ function previewsAt(store: Store, revision: string): string[] {
 }
 
 /**
- * A revision's page, by its key (`revisionKey`): its row as the list shows it, its goldens as the
- * session that ran them all there judged them, worst first, each with its note in Tests' words, the
- * golden that leads its verdict, and the previews asked at it. Null for a key the window has no such
+ * A revision's page, by its key (`revisionKey`): its row as the list shows it, whether it is the
+ * newest revision's, its goldens as the session that ran them all there judged them, worst first,
+ * each with its note in Tests' words, the golden that leads its verdict, and the previews asked at it. Null for a key the window has no such
  * session for, or one no revision could be.
  */
 export function verdictRevision(store: Store, goldens: readonly GoldenSource[], key: string, options: Omit<VerdictsOptions, 'kind' | 'limit'> = {}): VerdictRevision | null {
-  if (!KEY.test(key)) return null;
-  const session = revisionSessions(store, goldens).sessions.find((s) => revisionKey(s.revision) === key);
+  if (!isRevisionKey(key)) return null;
+  const tested = revisionSessions(store, goldens).sessions;
+  const session = tested.find((s) => revisionKey(s.revision) === key);
   if (!session) return null;
   const shared = !!options.shared;
   const folder = options.folder ?? 'goldens';
@@ -713,5 +715,5 @@ export function verdictRevision(store: Store, goldens: readonly GoldenSource[], 
     }))
     .sort((a, b) => WORST[a.verdict] - WORST[b.verdict] || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   const lead = judged.find((g) => g.verdict === 'failed') ?? judged.find((g) => g.verdict === 'inconclusive') ?? null;
-  return { row: row!, lead, goldens: judged, decisions: session.revision ? previewRows(store, previewsAt(store, session.revision), shared) : [], shared };
+  return { row: row!, latest: tested[0]?.sessionId === session.sessionId, lead, goldens: judged, decisions: session.revision ? previewRows(store, previewsAt(store, session.revision), shared) : [], shared };
 }
