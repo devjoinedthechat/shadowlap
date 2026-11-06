@@ -126,21 +126,21 @@ describe('the Tests page', () => {
     expect(all(page.one('.ph p'), '.term').map((t) => t.textContent.slice(0, 6))).toEqual(['golden']);
     expect(page.all('button').map((b) => b.textContent.trim())).not.toContain('Copy CI command');
     const ci = page.all('section.panel').find((s) => all(s, 'h2').some((h) => h.textContent === 'In CI'))!;
-    expect(ci.textContent).toContain('Replay goldens run offline and need no key. A golden marked fork runs live from where it forks, and needs the providers’ keys. A divergence, a non-zero exit, no calls, or a check or gate that fails or can’t decide fails a golden.');
+    expect(ci.textContent).toContain('Replay goldens run offline and need no key; a golden marked fork runs live from where it forks and needs the providers’ keys. A divergence, a non-zero exit, no calls, or a check, gate or injection test that fails or can’t decide fails a golden.');
     expect(ci.textContent).not.toContain('throwaway store');
     expect(one(ci, '.cmdline').textContent).toBe(`$shadowlap test 'goldens/*' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`);
-    // It wraps between its words only.
-    expect(all(ci, '.cmdline.words span')).toHaveLength(8);
-    expect(all(ci, 'button').map((b) => b.textContent.trim())).toEqual(['Copy']);
+    // In its box alone, with the box's one Copy, named by what it copies.
+    expect(all(ci, 'button').map((b) => b.getAttribute('aria-label'))).toEqual(['Copy CI command']);
     // budget has a gate against history: CI must keep the store between runs.
-    expect(ci.textContent).toContain('A gate against history needs the store kept between runs: the Action’s keep-history does it, or cache .shadowlap/shadowlap.db.');
+    expect(ci.textContent).toContain('It needs the store kept between runs: the Action’s keep-history does it, or cache .shadowlap/shadowlap.db.');
+    expect(all(ci, 'a.more').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([['Settings → CI', '#/settings/ci']]);
     expect(page.document.body.textContent).toContain('A golden whose checks say what the agent must do is also a task a model can be scored on.');
   });
 
   it('says an injection test runs live too, and needs the keys, when a golden has one', async () => {
     const page = await open([], GOLDENS.map((x) => (x.path === 'goldens/passes' ? { ...x, injection: true } : x)));
     const ci = page.all('section.panel').find((s) => all(s, 'h2').some((h) => h.textContent === 'In CI'))!;
-    expect(all(ci, 'p.muted')[0].textContent).toBe('Replay goldens run offline and need no key. A golden marked fork runs live from where it forks, and an injection test from each payload it plants: both need the providers’ keys. A divergence, a non-zero exit, no calls, or a check or gate that fails or can’t decide fails a golden.');
+    expect(all(ci, 'p.muted')[0].textContent).toBe('Replay goldens run offline and need no key; a golden marked fork runs live from where it forks, and an injection test from each payload it plants: both need the providers’ keys. A divergence, a non-zero exit, no calls, or a check, gate or injection test that fails or can’t decide fails a golden.');
   });
 
   it('settles a judge a replay golden couldn\'t ask offline with Update golden, which asks first and names its command', async () => {
