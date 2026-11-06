@@ -68,21 +68,23 @@ test('a fix’s failing-runs link opens Runs under Failed', async ({ page }) => 
   await page.locator('main#view table tbody tr').first().waitFor();
 });
 
-test('the newest unblamed run’s id sits above its row’s link, so the pointer gets its about line, at 1440px and 390px', async ({ page }) => {
-  await openFixes(page);
-  const id = page.locator(`${ROWS}[data-rowkey="unblamed"] .rs code.rnm`);
-  await expect(id).toHaveAttribute('title', /\S/);
-  for (const width of [1440, 390]) {
+// Opened at its width: a window narrowed under an open page slides the sidebar out over it for a moment.
+for (const width of [1440, 390])
+  test(`the newest unblamed run’s id sits above its row’s link, so the pointer gets its about line, at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
+    await openFixes(page);
+    const id = page.locator(`${ROWS}[data-rowkey="unblamed"] .rs code.rnm`);
+    await expect(id).toHaveAttribute('title', /\S/);
     await id.scrollIntoViewIfNeeded();
-    const hit = await id.evaluate((el) => {
-      const box = el.getBoundingClientRect();
-      const at = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
-      return at && (at === el || el.contains(at)) ? 'the id' : (at?.className ?? null);
-    });
-    expect(hit, `at ${width}px`).toBe('the id');
-  }
-});
+    const hit = () =>
+      id.evaluate((el) => {
+        const box = el.getBoundingClientRect();
+        const at = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+        return at && (at === el || el.contains(at)) ? 'the id' : (at?.className ?? null);
+      });
+    // Asked again until it holds: the row's link would cover the id for good, a page still settling only for a moment.
+    await expect.poll(hit).toBe('the id');
+  });
 
 test('a job started from a row’s next step hands the focus to that row’s step when it ends', async ({ page }) => {
   const email = demoId('emailFix');
@@ -96,14 +98,14 @@ test('a job started from a row’s next step hands the focus to that row’s ste
   await page.route(/\/api\/fixes\/[^/]+\/estimates/, (route) => route.fulfill({ json: { repair: null, blameAgain: null, blameStronger: null, verify: {} } }));
   const job = (done: boolean) => ({ id: 'rowstep', kind: 'blame', title: 'Blaming', args: ['blame'], worktree: { use: 'reads', doing: 'a blame is running your agent from your working tree', folder: null }, runId: null, fixId, opensRun: false, startedAt: Date.now() - 1000, endedAt: done ? Date.now() : null, done, stopped: false, code: done ? 0 : null, newRunId: null, runs: [], links: [], files: [], total: 0, lines: [], project: { id: 'support-agent', name: 'support-agent' } });
   const sent: unknown[] = [];
-  let polls = 0;
-  // The start answered here, so no blame runs: the job ends on its third poll.
+  let ended = false;
+  // The start answered here, so no blame runs: the job ends when the test ends it.
   await page.route('**/api/jobs', (route) => {
     if (route.request().method() !== 'POST') return route.continue();
     sent.push(route.request().postDataJSON());
     return route.fulfill({ status: 202, json: job(false) });
   });
-  await page.route('**/api/jobs/rowstep*', (route) => route.fulfill({ json: job(++polls >= 3) }));
+  await page.route('**/api/jobs/rowstep*', (route) => route.fulfill({ json: job(ended) }));
   await openFixes(page);
   const fix = await fixKey(page, 'emailFix');
   fixId = fix.slice('#/fixes/'.length);
@@ -113,11 +115,12 @@ test('a job started from a row’s next step hands the focus to that row’s ste
   await page.keyboard.press('Enter');
   await page.locator('.dialog .dlg-ok').click();
   await expect.poll(() => sent).toEqual([expect.objectContaining({ kind: 'blame', fixId, again: true })]);
+  // Its drawer follows it once the server has answered, by when the page has noted the row it started from.
+  await expect(page.locator('.drawer #jtitle')).toHaveText('Blaming');
   // The step's control redrawn while the job ran, as the list's answer redraws it: the focus is lost.
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   expect(await rowInFocus(page)).toBe('BODY');
-  expect(polls).toBeLessThan(3);
-  await expect.poll(() => polls).toBeGreaterThanOrEqual(3);
+  ended = true;
   await expect.poll(() => rowInFocus(page)).toBe(fix);
   await expect.poll(() => page.evaluate(() => document.activeElement?.textContent?.trim())).toBe('Run blame again');
 });
