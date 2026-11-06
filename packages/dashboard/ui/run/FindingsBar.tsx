@@ -6,6 +6,7 @@ import type { TestBannerOffer } from '../types.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { Icon } from '../components/Icon.js';
 import { glossed } from '../components/Term.js';
+import { firstWords } from '../outcome-tip.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
 import { TestsJobButton } from '../fixes/TestsJobButton.js';
@@ -108,6 +109,8 @@ function codeParts(text: string, codes: readonly string[]): Array<string | { cod
 
 export interface BannerProps {
   run: RunDetail;
+  /** The run's verdict by checks (useJudgedAt): a capture its import judged failed is a failed finding. */
+  judged?: RunDetail['judged'];
   blame: BlameView | null;
   rescued: { callNo: number | null } | null;
   checks: CheckView[];
@@ -170,7 +173,7 @@ type Of<K extends BannerView['kind']> = Extract<BannerView, { kind: K }>;
 const cls = (c: string, s: Slot) => `banner ${c}${s.fx ? ' fx' : ''}`;
 
 /** The run's record as banner.ts reads it, how it came out as Runs and the Overview have it. */
-function bannerInput(run: RunDetail, p: Pick<BannerProps, 'blame' | 'rescued' | 'checks' | 'preset'>, test: TestBannerOffer | null): BannerInput {
+function bannerInput(run: RunDetail, p: Pick<BannerProps, 'blame' | 'rescued' | 'checks' | 'preset' | 'judged' | 'offers'>, test: TestBannerOffer | null): BannerInput {
   const r = run.run;
   const iv = run.intervention ?? null;
   const flagRow = iv?.callNo ? run.calls.find((c) => c.callNo === iv.callNo) : undefined;
@@ -188,6 +191,8 @@ function bannerInput(run: RunDetail, p: Pick<BannerProps, 'blame' | 'rescued' | 
     fix: run.fix ?? null,
     upstreamRequests: run.summary.upstreamRequests,
     spent: run.summary.cost.spent,
+    crash: p.offers?.crash ?? null,
+    judged: p.judged?.by === 'import' && p.judged.verdict === 'failed' ? firstWords(p.judged) : null,
     volatile: test?.volatile ?? null,
     modelCalls: run.summary.byKind.api,
     ...(run.state ? { outcome: run.state.outcome, interrupted: run.state.interrupted, failed: run.state.failed } : {}),
@@ -358,7 +363,7 @@ function InterruptedFinding({ b, s }: { b: Of<'interrupted'>; s: Slot }) {
 
 function ChecksFinding({ b, s }: { b: Of<'checks'>; s: Slot }) {
   return (
-    <section className={cls('live ck', s)}>
+    <section className={cls(bannerSeverity(b) === 1 ? 'inc ck' : 'live ck', s)}>
       <span className="bk">checks</span>
       {b.checks.map((c) => (
         <span className={`st ${c.status === 'not-applicable' ? 'n' : c.status === 'inconclusive' ? 'warn' : 'ok'}`} key={c.label}>

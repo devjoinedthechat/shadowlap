@@ -31,7 +31,7 @@ import { firstFailedCall, openOn, rememberCall } from '../run/open-at.js';
 import { ancestorsOf, callTree, heads, unfolded } from '../run/groups.js';
 import { useMarkRun, useRunLabels } from '../components/RunKey.js';
 import type { RunMark } from '../runkey.js';
-import { DiffPanel, RunLoading, RunMetrics, ScopeBar } from '../run/parts.js';
+import { DiffPanel, RunLoading, RunMetrics, ScopeBar, useJudgedAt } from '../run/parts.js';
 import { FindingsBar } from '../run/FindingsBar.js';
 import { usePagedRun } from '../run/paged-run.js';
 import { followPages, isPending, listedCalls, type ListedCall } from '../run/paging.js';
@@ -279,11 +279,12 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const last = paging ? paging.total : calls.length ? calls[calls.length - 1]!.callNo : null;
   // A failed run opens where it first failed, every call's origin read while a long run's pages come;
   // clock and random reads are never where a run opens (open-at.ts).
-  const failed = run.state?.failed ?? run.run.status === 'failed';
-  const failedAt = useMemo(() => (failed ? firstFailedCall(calls, paging?.origins ?? null) : null), [failed, calls, paging?.origins]);
+  const failedAt = useMemo(() => ((run.state?.failed ?? run.run.status === 'failed') ? firstFailedCall(calls, paging?.origins ?? null) : null), [run.state?.failed, run.run.status, calls, paging?.origins]);
+  // Its verdict by checks, which a long run's analysis may give after its first answer: its first fact and findings say it.
+  const { judged, outcomeAt } = useJudgedAt(run);
   // A call picked on this run's page earlier in the session comes first, then the most telling (open-at.ts); a recording
   // follows its newest.
-  const fallback = useMemo(() => openOn(runId, { forkAt, lostAt, live, calls, origins: paging?.origins ?? null, total: paging?.total ?? null }), [runId, forkAt, lostAt, live, calls, paging?.origins, paging?.total]);
+  const fallback = useMemo(() => openOn(runId, { forkAt, lostAt, outcomeAt, live, calls, origins: paging?.origins ?? null, total: paging?.total ?? null }), [runId, forkAt, lostAt, outcomeAt, live, calls, paging?.origins, paging?.total]);
   // While its pages come, a call of the run is one numbered up to its count, read yet or not.
   const isCall = (n: number) => (paging ? n >= 1 && n <= paging.total : calls.some((c) => c.callNo === n));
   const selected = call !== null && isCall(call) ? call : call !== null && live ? call : fallback;
@@ -452,8 +453,8 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
 
   return (
     <div className="rv">
-      <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} facts={<RunMetrics run={run} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} preset={preset} rescued={!!rescued} />} />
-      <FindingsBar run={run} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={() => setShowDiff(!showDiff)} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} />
+      <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} facts={<RunMetrics run={run} judged={judged} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} preset={preset} rescued={!!rescued} />} />
+      <FindingsBar run={run} judged={judged} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={() => setShowDiff(!showDiff)} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} />
       {showDiff ? <DiffPanel run={run} test={offers?.test ?? null} /> : null}
       <section className="strip">
         {stripCalls.length ? <Strip calls={stripCalls} selected={selected} forkAt={forkMark} lostAt={lostAt} inScope={inScopeFn} live={live} onSelect={select} /> : <div className="cells empty-strip">{live ? 'Waiting for the first call…' : 'No calls.'}</div>}

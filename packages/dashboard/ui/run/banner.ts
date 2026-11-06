@@ -58,6 +58,10 @@ export interface BannerInput {
   upstreamRequests: number;
   /** What the run spent live, in dollars, which a test that went live from its fork says. */
   spent?: number;
+  /** A capture its import judged failed, by the rules on calls: the check that failed, in its words. */
+  judged?: string | null;
+  /** A test replay whose agent crashed (`offers.crash`): its last line, and the call it stopped at of the recorded ones. */
+  crash?: { line: string; at: number | null; of: number | null } | null;
   /** A test replay whose golden diverged on a value made anew on every run: what it looks like. */
   volatile?: { looks: string } | null;
   /** How many model calls the run made: one that made none has no answer of the model's to blame. */
@@ -407,14 +411,14 @@ export function failureText(i: Pick<BannerInput, 'status' | 'checks' | 'blame' |
 }
 
 /**
- * A check in the checks banner: what it asks, then for one that did not apply or could not be
- * decided, that and why in a few words (`not applicable · the condition never held`), else how many
- * attempts it held in.
+ * A check in the checks banner: what it asks, then for one that did not apply, that and why in a few
+ * words (`not applicable · the condition never held`); for one that could not be decided, why alone
+ * (`not judged`), the outcome saying inconclusive; else how many attempts it held in.
  */
 function checkText(c: BannerInput['checks'][number]): string {
   const why = c.detail ? ` · ${c.detail.split(':')[0]!}` : '';
   if (c.status === 'not-applicable') return `${c.label} · not applicable${why}`;
-  if (c.status === 'inconclusive') return `${c.label} · inconclusive${why}`;
+  if (c.status === 'inconclusive') return `${c.label}${why}`;
   return `${c.label}${c.count !== undefined && c.of !== undefined ? ` · ${c.count} of ${c.of}` : ''}`;
 }
 
@@ -551,12 +555,18 @@ function liveFrom(i: BannerInput, callNo: number): string {
   return [`live from #${callNo}`, plural(i.upstreamRequests, 'upstream request'), ...(i.spent !== undefined ? [approx(i.spent)] : []), writesWord(i.interventions) ?? 'writes fenced'].join(' · ');
 }
 
-/** No check failed: each says how it came out, one that did not apply or could not be decided too. */
+/**
+ * No check failed: each says how it came out, one that did not apply or could not be decided too. A
+ * check that could not be decided comes first, the outcome having said inconclusive, and the line
+ * says how many calls were replayed to get that far.
+ */
 function checksBanner(i: BannerInput): Banner | null {
   if (!i.checks.length || i.checks.some(checkFailed) || i.status !== 'completed') return null;
   const d = i.divergence;
-  const why = i.upstreamRequests === 0 ? 'replayed offline · 0 upstream' : forkedTest(i) && d ? liveFrom(i, d.callNo) : null;
-  return { kind: 'checks', checks: i.checks.map((c) => ({ label: c.label, text: checkText(c), ...(c.status ? { status: c.status } : {}) })), why };
+  const unsure = i.checks.some((c) => c.status === 'inconclusive') && i.callCount !== undefined;
+  const why = unsure ? `${plural(i.callCount ?? 0, 'call')} replayed` : i.upstreamRequests === 0 ? 'replayed offline · 0 upstream' : forkedTest(i) && d ? liveFrom(i, d.callNo) : null;
+  const checks = i.checks.map((c) => ({ label: c.label, text: checkText(c), ...(c.status ? { status: c.status } : {}) }));
+  return { kind: 'checks', checks: [...checks.filter((c) => c.status === 'inconclusive'), ...checks.filter((c) => c.status !== 'inconclusive')], why };
 }
 
 /** How a blame that placed the failure on no call says what it stands on, by its word: the failure, and where blame got to. */
@@ -569,12 +579,13 @@ const UNPLACED: Readonly<Record<BlameState, (failure: string) => string>> = {
 /**
  * That the run failed, and how its blame stands: its fix; where blame placed the failure on no call
  * (no answer asked again saved the run, its first probe couldn't tell, or it stopped first), which
- * its label says; why a run with no model call or one stopped can't be blamed; or not blamed yet.
+ * its label says; why a run with no model call or one stopped can't be blamed; or not blamed yet. A
+ * capture its import judged failed says so after the check.
  */
 function failedBanner(i: BannerInput): Banner | null {
-  if (i.failed === false) return null;
-  const failure = failureText(i);
-  if (!failure) return null;
+  const failure = i.failed === false ? null : failureText(i);
+  // A capture that failed only by its import's judgement leads with the check, as one that failed its own does.
+  if (!failure) return i.judged ? { kind: 'failed', lead: i.judged, why: `judged when it was imported · ${fixState(i.fix) ?? 'not blamed yet'}`, fix: i.fix, blamed: !!i.blame } : null;
   const b = i.blame;
   if (b && !i.fix) {
     const label = blameStateWord(b.outcome === 'stopped' ? 'stopped' : 'unrescuable', !!b.unsettled);
@@ -582,8 +593,15 @@ function failedBanner(i: BannerInput): Banner | null {
   }
   // Blame needs a run that fails again as recorded: one with no model call, or one stopped, never does.
   const unblamable = i.modelCalls === 0 ? 'no model call to blame' : i.status === 'crashed' && !i.checks.some(checkFailed) ? 'blame needs a run that ended on its own' : null;
-  const state = i.fix ? (i.fix.status === 'open' ? `no change yet for “${i.fix.title}”` : `fixed: “${i.fix.title}”, ${i.fix.status}`) : (unblamable ?? 'not blamed yet');
-  return { kind: 'failed', lead: failure.replace(/^check failed: /, ''), why: state, fix: i.fix, blamed: !!b };
+  // A test replay whose agent crashed leads with the last line it printed, then where it stopped.
+  const crash = i.crash && failure === FAILURE_WORDS.exit ? i.crash : null;
+  const stopped = crash && crash.at !== null && crash.of !== null ? `at call ${crash.at}, ${crash.at - 1} of ${crash.of} recorded calls replayed` : null;
+  return { kind: 'failed', lead: crash?.line ?? failure.replace(/^check failed: /, ''), why: stopped ?? fixState(i.fix) ?? unblamable ?? 'not blamed yet', fix: i.fix, blamed: !!b };
+}
+
+/** How the fix that lists a failed run stands, in the finding's words; null when none does. */
+function fixState(fix: BannerInput['fix']): string | null {
+  return fix ? (fix.status === 'open' ? `no change yet for “${fix.title}”` : `fixed: “${fix.title}”, ${fix.status}`) : null;
 }
 
 /**

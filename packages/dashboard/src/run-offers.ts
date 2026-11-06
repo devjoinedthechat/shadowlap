@@ -4,9 +4,9 @@ import { lookupRun } from './api.js';
 import { loadRunIndex } from './run-index.js';
 import { fixForRun, type FixForRun } from './fixes.js';
 import { injectionResults, type InjectionRow } from './injection.js';
-import { goldenFolder, keepable } from './next-step.js';
+import { crashed, goldenFolder, keepable } from './next-step.js';
 import { copyRules, recordingNow, type CopyRules } from './run-exports.js';
-import { bisectChoices, testRunBanner, type BisectChoices, type GoldenSource, type TestRunBanner } from './tests.js';
+import { bisectChoices, testOf, testRunBanner, type BisectChoices, type GoldenSource, type TestRunBanner } from './tests.js';
 import { runState } from './runs-list.js';
 
 /**
@@ -77,6 +77,12 @@ export interface RunOffers {
    * running has no report yet), and whether it planted payloads or tested a clean answer; null with none.
    */
   security: { resultId: string; mode: InjectionRow['mode'] } | null;
+  /**
+   * A test replay whose agent exited with an error: the last line it printed, and the call it stopped
+   * at of its golden's recorded calls where the replay kept them (`ended_early`); absent or null for
+   * any other run, and for a crash that kept no output.
+   */
+  crash?: { line: string; at: number | null; of: number | null } | null;
 }
 
 export interface RunOffersInput {
@@ -238,6 +244,17 @@ export function testOffer(store: StoreOf<'recording' | 'tests'>, run: RunRecord,
   return { ...banner, normalized, passingRun: normalized ? passedSince(store, run, banner.golden) : null, checks: goldens.find((g) => g.path === banner.golden)?.checks ?? null };
 }
 
+/** A test replay that crashed (next-step's `crashed`, by its golden's result): what the agent printed last, and where it stopped. */
+export function crashOffer(store: StoreOf<'recording' | 'tests'>, run: RunRecord): NonNullable<RunOffers['crash']> | null {
+  const test = testOf(run);
+  const result = test ? (store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0] ?? null) : null;
+  if (!result || !crashed(null, result)) return null;
+  const line = result.data?.output?.split('\n').map((l) => l.trim()).filter(Boolean).at(-1);
+  if (!line) return null;
+  const d = run.divergence?.type === 'ended_early' ? run.divergence : null;
+  return { line, at: d?.callNo ?? null, of: d?.recorded ?? null };
+}
+
 /**
  * The newest replay of a golden that passed since this run, made after it and still in the store;
  * null when none has. `results`: the golden's, newest first, where the caller has read them.
@@ -318,5 +335,6 @@ export function runOffers(store: Store, idOrPrefix: string, input: RunOffersInpu
     test: testOffer(store, run, input.config?.normalize, input.goldens ?? []),
     keep: keepOffer(store, run, input),
     security: securityOffer(store, run),
+    crash: crashOffer(store, run),
   };
 }

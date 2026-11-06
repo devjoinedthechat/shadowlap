@@ -158,6 +158,25 @@ describe('the run’s banner', () => {
     });
   });
 
+  it('says a capture its import judged failed leads with the check, judged when it was imported, and how its fix stands', () => {
+    const judged = 'send_email called at most 1 time, but called 2 times';
+    const capture = { ...base, type: 'capture' as const, failed: false, judged };
+    expect(bannerFor(capture)).toEqual({ kind: 'failed', lead: judged, why: 'judged when it was imported · not blamed yet', fix: null, blamed: false });
+    const fix = { id: 'fx-2', status: 'open', title: 'Confirmation email sent twice' };
+    expect(bannerFor({ ...capture, fix })).toMatchObject({ lead: judged, why: 'judged when it was imported · no change yet for “Confirmation email sent twice”', fix });
+    expect(bannerFor({ ...capture, judged: null })).toBeNull();
+  });
+
+  it('leads a test replay that crashed with the last line its agent printed, then where it stopped', () => {
+    const crash = { line: "KeyError: 'total'", at: 19, of: 30 };
+    const replay = { ...base, type: 'test' as const, status: 'failed' as const, modelCalls: 3, crash };
+    expect(bannerFor(replay)).toEqual({ kind: 'failed', lead: "KeyError: 'total'", why: 'at call 19, 18 of 30 recorded calls replayed', fix: null, blamed: false });
+    // Where the replay kept no place, how its blame stands follows the line.
+    expect(bannerFor({ ...replay, crash: { ...crash, at: null, of: null } })).toMatchObject({ lead: "KeyError: 'total'", why: 'not blamed yet' });
+    // A check it failed leads instead: the crash was not what failed it.
+    expect(bannerFor({ ...replay, checks: [{ label: 'send_email called once', ok: false }] })).toMatchObject({ lead: 'send_email called once' });
+  });
+
   it('says a run failed: with its fix, not blamed yet, or blamed without a call to name', () => {
     expect(bannerFor({ ...base, checks: [{ label: 'send_email called once', ok: false }] })).toEqual({ kind: 'failed', lead: 'send_email called once', why: 'not blamed yet', fix: null, blamed: false });
     const fix = { id: 'fx-2', status: 'open', title: 'Confirmation email sent twice' };

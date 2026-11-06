@@ -381,9 +381,9 @@ function testedGolden(f: Pick<Facts, 'row' | 'work' | 'store'>): TestedGolden | 
 }
 
 /** Whether a test replay's agent exited with an error, as its golden's result says (a run keeps no exit of its own): a crash. */
-function crashed(row: IndexedRun, result: TestResult | null): boolean {
+export function crashed(row: Pick<IndexedRun, 'status' | 'outcome'> | null, result: TestResult | null): boolean {
   if (result) return result.failure === 'exit';
-  return row.status === 'failed' && row.outcome.kind === 'check-failed' && row.outcome.check === null;
+  return !!row && row.status === 'failed' && row.outcome.kind === 'check-failed' && row.outcome.check === null;
 }
 
 const REMADE = 'It re-records the golden under the change';

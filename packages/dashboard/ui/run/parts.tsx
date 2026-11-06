@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { wholeInput } from '../../../engine/src/tokens.js';
 import type { RunDetail } from '../api.js';
 import type { TestBannerOffer } from '../types.js';
@@ -6,7 +6,7 @@ import { CmdLine } from '../components/bits.js';
 import { callName, clip, jsonText, num, shortId } from '../format.js';
 import { countOrigins, parseOrigins } from '../origins.js';
 import { href } from '../route.js';
-import { runType, TODAY } from '../runs.js';
+import { outcomeOf, runType, TODAY } from '../runs.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Status } from '../components/Status.js';
 import { useLoad } from '../hooks.js';
@@ -28,10 +28,19 @@ export function RunLoading() {
   );
 }
 
-/** The run's numbers, led by its outcome by checks: the payload's, or asked for alone where its first answer came before its analysis judged it (useJudged). */
-export function RunMetrics(props: { run: RunDetail; notWaitedMs: number | null; notWaitedUnknown: number; preset?: PresetAttempt | null; rescued?: boolean }) {
-  const judged = useJudged(props.run);
-  return <Metrics {...props} judged={judged ?? null} pending={judged === undefined} />;
+/** The run's numbers, led by its outcome by checks: the payload's, or the one asked for alone (useJudgedAt), pending until it comes. */
+export function RunMetrics(props: { run: RunDetail; judged: RunDetail['judged']; notWaitedMs: number | null; notWaitedUnknown: number; preset?: PresetAttempt | null; rescued?: boolean }) {
+  return <Metrics {...props} judged={props.judged ?? null} pending={props.judged === undefined} />;
+}
+
+/**
+ * The run's verdict by its checks (useJudged), for its first fact and its findings, and the call that
+ * fact names, where the run opens when nothing more telling comes first (openingCall).
+ */
+export function useJudgedAt(run: RunDetail): { judged: RunDetail['judged']; outcomeAt: number | null } {
+  const judged = useJudged(run);
+  const outcomeAt = useMemo(() => (judged === undefined ? null : (outcomeOf({ ...runLikeOf(run), judged }).at?.callNo ?? null)), [run, judged]);
+  return { judged, outcomeAt };
 }
 
 /** How an attempt came out, as its finding says it: the first fact says it too, where the chip beside the id once did. */
