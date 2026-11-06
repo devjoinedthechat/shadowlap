@@ -46,6 +46,7 @@ describe('a run a page at a time', () => {
     expect(callNos(d)).toEqual(range(1, 10));
     expect(d).toMatchObject({ callsTotal: 10, callsNext: null });
     expect(d.origins).toBeUndefined();
+    expect(d.kinds).toBeUndefined();
     expect(d.warming).toBeUndefined();
     store.close();
   });
@@ -58,6 +59,9 @@ describe('a run a page at a time', () => {
     expect(callNos(quick)).toEqual(range(1, 200));
     expect(quick).toMatchObject({ callsTotal: 3001, callsNext: 201, warming: { done: 300, total: 3001 } });
     expect(quick.origins).toBe('l'.repeat(3001));
+    // And what each call was, for a recording's strip by kind: its model calls and its tool calls.
+    expect(quick.kinds).toHaveLength(3001);
+    expect(quick.kinds!.replace(/[^m]/g, '')).toHaveLength(1501);
     expect(quick.summary).toMatchObject({ total: 3001, byKind: { api: 1501, tool: 1500 } });
 
     // The next pages, the calls up to each read for it.
