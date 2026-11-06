@@ -8,7 +8,9 @@ import { UpdateGoldenDialog } from '../components/UpdateGolden.js';
 import { commandText, revisionChoices } from '../goldens.js';
 import { updatePlan, type UpdatePlan } from '../update-plan.js';
 import { ACTIONS, confirmWords } from '../labels.js';
+import { useBisectEstimate } from '../runspage/bisect-estimate.js';
 import { bisectCost } from '../runspage/find-commit.js';
+import { sentEstimate } from '../spending.js';
 
 /**
  * The Tests screen's dialogs: Update golden (one or several), Find the commit when it needs a good
@@ -32,13 +34,15 @@ export function UpdateGoldensDialog({ view, paths, has, onUpdate, onInstead, onC
  * `tried`; or the golden may fork, so each replay runs live from where it forks, which its cost line
  * says first. With a `range` there is nothing to ask: it says the two commits.
  */
-export function FindCommitDialog({ name, golden, range, live, revisions, tried, onRun, onClose }: { name: string; golden: string; range: { good: string; bad: string | null } | null; live: boolean; revisions: readonly BisectRevision[]; tried: string | null; onRun: (good: string, bad: string | null) => unknown; onClose: () => void }) {
+export function FindCommitDialog({ name, golden, range, live, revisions, tried, onRun, onClose }: { name: string; golden: string; range: { good: string; bad: string | null } | null; live: boolean; revisions: readonly BisectRevision[]; tried: string | null; onRun: (fields: Record<string, unknown>) => unknown; onClose: () => void }) {
   const choices = revisionChoices(revisions, tried);
   const id = useId();
   const [picked, setPicked] = useState(choices.initial);
   const [typed, setTyped] = useState('');
   const rev = range ? range.good : typed.trim() || picked;
   const args = ['bisect', golden, '--good', rev || '<commit>', ...(range?.bad ? ['--bad', range.bad] : [])];
+  // The search's estimate from the commit given, once it has rested: the job keeps the last one shown.
+  const estimate = useBisectEstimate({ golden, good: rev, ...(range?.bad ? { bad: range.bad } : {}) });
   return (
     <Dialog
       title={namedIn(`Find breaking commit for ${name}`, name)}
@@ -46,10 +50,10 @@ export function FindCommitDialog({ name, golden, range, live, revisions, tried, 
       doc="bisect"
       facts={[range ? { label: 'Good', value: `\`${range.good}\``, wide: true } : null, { label: 'Bad', value: `\`${range?.bad ?? 'HEAD'}\``, quiet: range?.bad ? 'the commit the last test session ran at' : 'this checkout as it stands' }]}
       command={commandText(args)}
-      cost={bisectCost({ fork: false, live })}
+      cost={{ ...bisectCost({ fork: false, live }), estimate }}
       ok={confirmWords(ACTIONS.findBreakingCommit.label)}
       okDisabled={!COMMIT_NAME.test(rev)}
-      onOk={() => onRun(rev, range?.bad ?? null)}
+      onOk={() => onRun({ good: rev, ...(range?.bad ? { bad: range.bad } : {}), ...sentEstimate(estimate) })}
       onClose={onClose}
     >
       {range ? null : <GoodCommitField id={id} choices={choices.options} picked={picked} typed={typed} onPick={setPicked} onType={setTyped} />}

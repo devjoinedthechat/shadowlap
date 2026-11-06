@@ -257,7 +257,7 @@ describe('a run’s dialogs', () => {
         ? createElement(BisectDialog, { runId: RUN, offer, onRun: (good: string) => (sent.push(good), true), ...closes })
         : where === 'runs'
           ? createElement(RunsFindCommit, { runId: RUN, choices, ...closes })
-          : createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: null, live: true, revisions, tried: null, onRun: (good: string) => void sent.push(good), ...closes });
+          : createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: null, live: true, revisions, tried: null, onRun: (f: { good?: unknown }) => void sent.push(f.good), ...closes });
     const startJob = (_kind: string, fields: { good?: string }) => (sent.push(fields.good), new Promise(() => undefined));
     const page = await open(shown, appWith({ client: { startJob } }));
     const good = () => /--good (\S+)/.exec(page.one('[role="dialog"] .cmdline').textContent)?.[1];

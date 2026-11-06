@@ -295,7 +295,7 @@ export function TestsPage() {
           revisions={open.revisions}
           tried={open.tried}
           onClose={() => setOpen(null)}
-          onRun={(good, bad) => start(JOB_KINDS.bisect, { golden: open.golden, good, ...(bad ? { bad } : {}) })}
+          onRun={(fields) => start(JOB_KINDS.bisect, { golden: open.golden, ...fields })}
         />
       ) : null}
       {open?.kind === 'normalize-update' ? <NormalizeUpdateDialog name={open.name} steps={open.steps} onClose={() => setOpen(null)} onRun={() => start(JOB_KINDS.normalizeAndTest, { golden: open.golden }, divergedAsk(view, open.golden, 'normalize-update'))} /> : null}

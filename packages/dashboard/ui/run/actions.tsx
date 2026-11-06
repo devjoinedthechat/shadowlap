@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import { JOB_KINDS, type ActionItem, type BisectOffer, type CallDetail, type RunDetail, type RunOffers } from '../api.js';
 import { consentAsked, forkMenu, forkMenuTitle, forkRowLine, menuLabel } from '../actions.js';
 import { dialogCopy } from './fork-dialog.js';
@@ -11,7 +12,9 @@ import { useApp } from '../state.js';
 import { bisectBlocked, bisectCardCommand, bisectLabel } from './offers.js';
 import { BisectDialog } from './RunDialogs.js';
 import { ActionButton } from '../components/ActionButton.js';
+import type { TipEst } from '../components/HoverCard.js';
 import { tipEst, useBilledPress } from '../components/JobButton.js';
+import { bisectQuery, useBisectEstimate } from '../runspage/bisect-estimate.js';
 import { AskNote } from '../components/AskNote.js';
 import { sentEstimate } from '../spending.js';
 import { isFork, rowPriced, useDialogEstimate, useRunEstimates, type RowPrice } from './estimates.js';
@@ -104,7 +107,7 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
       runId={runId}
       offer={offers?.bisect ?? UNKNOWN_BISECT(runId)}
       onClose={() => setBisecting(false)}
-      onRun={(good) => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.bisect, { runId, good })))}
+      onRun={(good, sent) => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.bisect, { runId, good, ...sent })))}
     />
   ) : null;
   return { run, dialog, findCommit };
@@ -158,6 +161,8 @@ export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onCl
   const { hasKind } = useApp();
   // What each row bills at this call, asked as the menu opens on it: its answer redraws the menu in place.
   const estimates = useRunEstimates(run.run.runId, call ? call.call.callNo : undefined);
+  // Find breaking commit's, from the commit its offer starts at, asked as the menu opens.
+  const bisectPrice = useBisectEstimate(bisectQuery(run.run.runId, offers?.bisect));
   // Opened from a row that isn't the selected call, the menu waits for the call. Once it arrives the
   // menu opens afresh (its key), so its first item takes the focus as it does on a call already loaded.
   if (!call) {
@@ -223,6 +228,7 @@ export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onCl
             tip={confirmWords(bisect.label)}
             sub={bisect.hint}
             command={bisectCardCommand(offers?.bisect ?? UNKNOWN_BISECT(runId))}
+            est={bisectOnCard(offers?.bisect, bisectPrice)}
             onClick={() => {
               onClose();
               onFindCommit();
@@ -235,6 +241,12 @@ export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onCl
       )}
     </Popover>
   );
+}
+
+/** Find breaking commit's line on its card, the amount alone as a form's: from the commit its offer starts at, `no estimate` with none to start from yet. */
+function bisectOnCard(b: BisectOffer | null | undefined, e: Estimate | null | undefined): TipEst | null {
+  if (!b || b.unavailable) return null;
+  return tipEst(b.good ? e : null, true);
 }
 
 /** A row's price on its card: none for a row that bills nothing; an item that asks in a dialog says the amount alone. */
