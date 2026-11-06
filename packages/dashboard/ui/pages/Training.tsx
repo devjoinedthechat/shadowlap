@@ -13,13 +13,12 @@ import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { redactsFact } from '../run/share.js';
 import { useApp } from '../state.js';
-import { ENDPOINT, exportCommand, filterGroups, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingDialog, pickNote, pickReplaces, pipClass, pipTip, scoreCard, scoreCommand, scoreCost, scoreEstimate, scoreFields, takeTrainingDialog, whenDone, type PairChip, type TrainingDialog } from '../training.js';
+import { ENDPOINT, exportCommand, filterGroups, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingDialog, pickNote, pickReplaces, pipClass, pipTip, scoreCard, scoreCommand, scoreCost, scoreEstimate, scoreFields, sendTaskUpdate, takeTrainingDialog, whenDone, type LiveAsked, type PairChip, type TrainingDialog } from '../training.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { JobButton } from '../components/JobButton.js';
 import { sentEstimate } from '../spending.js';
-import { liveFacts, type TestsJobApp } from '../tests-ask.js';
-import { consentAsked } from '../actions.js';
+import { liveFacts } from '../tests-ask.js';
 import type { CostLineProps } from '../components/CostLine.js';
 import { goldenPrice, useTestsEstimates, type Price } from '../tests-estimates.js';
 import { testsJob } from './tests-cards.js';
@@ -604,36 +603,6 @@ export function TaskUpdateButton({ update, name, onOpen, ...rest }: { className:
   );
 }
 
-/** The server's question, where testing a task's golden again would run it live (`consentAsked`). */
-type LiveAsked = NonNullable<ReturnType<typeof consentAsked>>;
-
-/**
- * Sends a task's Update golden, with `yes` once its dialog has shown the server's question. Testing it
- * again where the golden runs live asks that question; a dialog that had said so, with the amount,
- * was the ask, so the job is sent again with the yes at once (`said`), never asked twice. Else the
- * question goes to `ask`, for the dialog to show. True once the job is sent or refused; false while
- * nothing can start, or while the question waits.
- */
-function sendTaskUpdate(app: TestsJobApp, fields: Record<string, unknown>, yes: string | undefined, said: boolean, ask: (q: LiveAsked) => void): Promise<boolean> {
-  return new Promise((done) => {
-    const send = (answer?: string) =>
-      void app.client.startJob(JOB_KINDS.taskUpdate, answer === undefined ? fields : { ...fields, yes: answer }).then(
-        (job) => {
-          app.watchJob(Promise.resolve(job));
-          done(true);
-        },
-        (err: unknown) => {
-          const asked = answer === undefined ? consentAsked(err) : null;
-          if (asked && said) return send(asked.confirm);
-          if (asked) ask(asked);
-          else app.watchJob(Promise.reject(err));
-          done(!asked);
-        },
-      );
-    if (!app.guard(() => send(yes))) done(false);
-  });
-}
-
 /** What a task's Update bills, on its dialog's Cost line: a re-record as its recording cost; a re-test as the card said, live once the server says so. */
 function taskUpdateCost(update: TaskUpdate, estimate: Price, asked: boolean): CostLineProps | null {
   if (update.rerecords) return { price: 'Billed by your provider', parts: ['as its recording cost'], estimate };
@@ -669,7 +638,7 @@ export function TaskUpdateDialog({ name, update, estimate, busy, onClose }: { na
       cost={taskUpdateCost(update, estimate, !!asked)}
       ok={update.rerecords ? (rules ? ACTIONS.addNormalizerAndUpdate.label : confirmWords(ACTIONS.updateGolden.label)) : ACTIONS.addNormalizerAndRerun.label}
       okDisabled={!!busy}
-      onOk={() => (busy ? false : sendTaskUpdate({ client, watchJob, guard }, { golden: update.golden, ...sentEstimate(kept) }, asked?.confirm, said, setAsked))}
+      onOk={() => (busy ? false : sendTaskUpdate({ client, watchJob, guard }, JOB_KINDS.taskUpdate, { golden: update.golden, ...sentEstimate(kept) }, asked?.confirm, said, setAsked))}
       onClose={onClose}
     >
       {rules && update.rerecords ? (

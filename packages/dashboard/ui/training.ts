@@ -1,10 +1,10 @@
-import type { CostWords } from './actions.js';
+import { consentAsked, type CostWords } from './actions.js';
 import { commandText } from './goldens.js';
 import { ACTIONS, confirmWords } from './labels.js';
 import type { Estimate } from '../../engine/src/estimates/estimate.js';
 import { amountWords } from '../../engine/src/estimates/spending.js';
 import { href } from './route.js';
-import type { ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, TrainingView } from './types.js';
+import type { JobView, ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, TrainingView } from './types.js';
 import { twoDigits as pad } from '../../engine/src/words.js';
 
 /** A job's price as a control holds it (spending.ts's Priced, kept apart so this file loads no browser code): an estimate, null for none, undefined until known. */
@@ -12,8 +12,8 @@ type Priced = Pick<Estimate, 'usd' | 'ceiling' | 'per'> | null | undefined;
 
 /**
  * Training's logic (`pages/Training.tsx`), without the DOM so the tests import it: which pair groups a
- * filter shows, the words for times and files, what Score a model sends, and how the palette opens a
- * Training dialog from anywhere. Nothing here imports the client or the app state, which need a
+ * filter shows, the words for times and files, what Score a model and a task's Update golden send, and
+ * how the palette opens a Training dialog from anywhere. Nothing here imports the client or the app state, which need a
  * browser: the palette's actions take what they use from the palette's context.
  */
 
@@ -191,6 +191,47 @@ export function leftOutLine(leftOut: ScoreDialogView['leftOut'] | undefined): st
   if (!leftOut?.length) return null;
   const names = (models: string[]) => (models.length > 3 ? `${models.slice(0, 3).join(', ')} and ${models.length - 3} more` : models.join(', '));
   return `Not offered: ${leftOut.map((l) => `${l.models.length === 1 ? l.models[0]! : `${l.group}: ${names(l.models)}`} (${l.why})`).join(' · ')}`;
+}
+
+// ---- a task's Update golden, and the server's question where it runs the golden live ----
+
+/** The server's question, where testing a task's golden again would run it live (`consentAsked`). */
+export type LiveAsked = NonNullable<ReturnType<typeof consentAsked>>;
+
+/** What sending it needs of the app (tests-ask.ts's TestsJobApp, kept apart so this file loads no browser code). */
+interface TaskUpdateApp {
+  client: { startJob(kind: string, fields: Record<string, unknown>): Promise<JobView> };
+  guard(fn: () => void): boolean;
+  watchJob(p: Promise<JobView>): void;
+}
+
+/**
+ * Sends a task's Update golden (`kind`, the client's task-update), with `yes` once its dialog has
+ * shown the server's question. Testing it again where the golden runs live asks that question; a
+ * dialog that had said so, with the amount, was the ask, so the job is sent again with the yes at once
+ * (`said`), never asked twice. Else the question goes to `ask`, for the dialog to show. True once the
+ * job is sent or refused; false while nothing can start, or while the question waits. It is read here,
+ * as Tests' live question is in tests-ask.ts: a page that reads the server's question itself asks
+ * someone else's command's, with ConsentDialog.
+ */
+export function sendTaskUpdate(app: TaskUpdateApp, kind: string, fields: Record<string, unknown>, yes: string | undefined, said: boolean, ask: (q: LiveAsked) => void): Promise<boolean> {
+  return new Promise((done) => {
+    const send = (answer?: string) =>
+      void app.client.startJob(kind, answer === undefined ? fields : { ...fields, yes: answer }).then(
+        (job) => {
+          app.watchJob(Promise.resolve(job));
+          done(true);
+        },
+        (err: unknown) => {
+          const asked = answer === undefined ? consentAsked(err) : null;
+          if (asked && said) return send(asked.confirm);
+          if (asked) ask(asked);
+          else app.watchJob(Promise.reject(err));
+          done(!asked);
+        },
+      );
+    if (!app.guard(() => send(yes))) done(false);
+  });
 }
 
 // ---- the palette opens a Training dialog from any page ----
