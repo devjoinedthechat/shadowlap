@@ -12,8 +12,9 @@ import { bisectBlocked, bisectCardCommand, bisectLabel } from './offers.js';
 import { BisectDialog } from './RunDialogs.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { tipEst, useBilledPress } from '../components/JobButton.js';
-import { sentEstimate, type Priced } from '../spending.js';
-import { isFork, rowPriced, useRunEstimates } from './estimates.js';
+import { AskNote } from '../components/AskNote.js';
+import { sentEstimate } from '../spending.js';
+import { isFork, rowPriced, useDialogEstimate, useRunEstimates, type RowPrice } from './estimates.js';
 
 /**
  * Running a run's actions: the fork menu at a call, and the dialog an action asks its one thing in.
@@ -26,13 +27,15 @@ export interface PendingAction {
   /** The call's recorded result, to start an override from. */
   recorded?: unknown;
   callName?: string;
+  /** The call is a model call, as Run live's ask words it. */
+  modelCall?: boolean;
   /** The run it acts on, where it isn't the page's: Replay recording replays the recording a replay came from. */
   runId?: string;
   /**
    * What it bills, as the fork menu's row said it (`rowPriced`): false for a row that bills nothing.
    * Left out (a key, the banner), the runner tells a row that bills nothing by its key and the run.
    */
-  estimate?: Priced | false;
+  estimate?: RowPrice;
 }
 
 /** A Find breaking commit with nothing known about the run's revisions: the dialog asks for a commit. */
@@ -87,7 +90,7 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
       forkAt={forkAt}
       pending={pending}
       onClose={() => setPending(null)}
-      onRun={(v) => start(pending, v)}
+      onRun={(v, estimate) => start({ ...pending, estimate }, v)}
     />
   ) : consent ? (
     <ConsentDialog
@@ -107,7 +110,14 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
   return { run, dialog, findCommit };
 }
 
-export function ActionDialog({ runId, capture, forkAt, pending, onRun, onClose }: { runId: string; capture: boolean; forkAt: number | null | undefined; pending: PendingAction; onRun: (v?: string) => boolean; onClose: () => void }) {
+/**
+ * The dialog an action asks in. Its Cost line says the estimate once it has come, Switch model's for
+ * the model in its field, and the job starts with what the line said; an ask's footer says why it
+ * asks where Spending's threshold is why.
+ */
+export function ActionDialog({ runId, capture, forkAt, pending, onRun, onClose }: { runId: string; capture: boolean; forkAt: number | null | undefined; pending: PendingAction; onRun: (v: string | undefined, estimate: RowPrice) => boolean; onClose: () => void }) {
+  const [model, setModel] = useState('');
+  const estimate = useDialogEstimate(runId, pending, forkAt != null || !!pending.action.asksFirst, model);
   const copy = dialogCopy(pending.action, {
     id: shortId(runId),
     callNo: pending.callNo,
@@ -115,14 +125,17 @@ export function ActionDialog({ runId, capture, forkAt, pending, onRun, onClose }
     forkAt: forkAt ?? null,
     ...(pending.callName !== undefined ? { callName: pending.callName } : {}),
     ...(pending.recorded !== undefined ? { recorded: pending.recorded } : {}),
+    ...(pending.modelCall ? { modelCall: true } : {}),
   });
   const { title, lead, doc, warn, facts, factsUnder, cost, ok } = copy;
-  const slots = { title: copy.titleName ? namedIn(title, copy.titleName) : title, lead, ok, onClose, ...(doc ? { doc } : {}), ...(warn ? { warn } : {}), ...(facts ? { facts } : {}), ...(cost ? { cost } : {}) };
+  const billed = estimate === false ? {} : { ...(cost ? { cost: estimate ? { ...cost, estimate } : cost } : {}), footNote: <AskNote estimate={estimate} form={!!pending.action.prompt} /> };
+  const slots = { title: copy.titleName ? namedIn(title, copy.titleName) : title, lead, ok, onClose, ...(doc ? { doc } : {}), ...(warn ? { warn } : {}), ...(facts ? { facts } : {}), ...(cost ? { cost } : {}), ...billed };
   // Nothing to fill in: it asks only whether to start, as it runs live.
-  if (!pending.action.prompt) return <ConfirmDialog {...slots} {...(copy.command ? { command: copy.command('') } : {})} onOk={() => onRun()} />;
+  if (!pending.action.prompt) return <ConfirmDialog {...slots} {...(copy.command ? { command: copy.command('') } : {})} onOk={() => onRun(undefined, estimate)} />;
   return (
     <PromptDialog
       {...slots}
+      {...(pending.action.key === 'm' ? { onAnswer: setModel } : {})}
       {...(factsUnder ? { factsUnder } : {})}
       {...(copy.label ? { label: copy.label } : {})}
       {...(copy.fieldName ? { fieldName: copy.fieldName } : {})}
@@ -132,7 +145,7 @@ export function ActionDialog({ runId, capture, forkAt, pending, onRun, onClose }
       multiline={copy.multiline}
       initial={copy.initial}
       placeholder={copy.placeholder}
-      onRun={onRun}
+      onRun={(v) => onRun(v, estimate)}
     />
   );
 }
@@ -162,7 +175,7 @@ export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onCl
   const fork = isFork(call.actions);
   const pick = (action: ActionItem, callNo: number | null) => {
     onClose();
-    onPick({ action, callNo, ...(recorded !== undefined ? { recorded } : {}), callName: shortName, estimate: rowPriced(estimates, action, fork) });
+    onPick({ action, callNo, ...(recorded !== undefined ? { recorded } : {}), callName: shortName, ...(c.kind === 'api' ? { modelCall: true } : {}), estimate: rowPriced(estimates, action, fork) });
   };
   const capture = !!run.source;
   const replay = call.actions.find((a) => a.key === 'r');
@@ -225,6 +238,6 @@ export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onCl
 }
 
 /** A row's price on its card: none for a row that bills nothing; an item that asks in a dialog says the amount alone. */
-function priceOnCard(priced: Priced | false, form: boolean) {
+function priceOnCard(priced: RowPrice, form: boolean) {
   return priced === false ? null : tipEst(priced, form);
 }

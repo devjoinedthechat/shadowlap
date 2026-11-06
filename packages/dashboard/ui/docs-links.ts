@@ -24,6 +24,7 @@ export const DOCS = {
   plantInstruction: { page: 'interventions#plant-an-instruction-in-a-tool-result', what: 'Interventions' },
   repeatFork: { page: 'interventions#repeat-a-fork', what: 'Interventions' },
   forceLive: { page: 'interventions#force-a-tool-live', what: 'Interventions' },
+  changedPrompt: { page: 'interventions#apply-a-changed-prompt-from-a-later-call', what: 'Interventions' },
   injectionTests: { page: 'injection#what-a-test-does', what: 'Injection tests' },
   injectionGate: { page: 'injection#gate-ci-on-it', what: 'Injection tests' },
   imports: { page: 'cli#import', what: 'Imports' },

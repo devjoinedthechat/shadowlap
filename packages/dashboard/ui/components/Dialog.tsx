@@ -387,11 +387,12 @@ export function PromptDialog({
   multiline = false,
   command,
   after,
+  onAnswer,
   maxLength,
   choices,
   onRun,
   ...slots
-}: Pick<DialogProps, 'title' | 'lead' | 'doc' | 'warn' | 'facts' | 'factsUnder' | 'cost' | 'onClose'> & {
+}: Pick<DialogProps, 'title' | 'lead' | 'doc' | 'warn' | 'facts' | 'factsUnder' | 'cost' | 'footNote' | 'onClose'> & {
   ok: string;
   label?: string;
   /** The field's name for a screen reader, where no label shows. */
@@ -405,6 +406,8 @@ export function PromptDialog({
   command?: string | ((answer: string) => string | CommandRowProps);
   /** What follows the field, worked out from the answer so far: a gate's entry for the folder typed. */
   after?: (answer: string) => ReactNode;
+  /** Told the answer as it changes: Switch model prices the model typed. */
+  onAnswer?: (answer: string) => void;
   maxLength?: number;
   /** Answers to pick from; any other answer is accepted too. */
   choices?: readonly PromptChoice[];
@@ -417,6 +420,7 @@ export function PromptDialog({
   const [words, setWords] = useState('');
   const picked = listed && !own ? choices.find((c) => c.value === value) : undefined;
   const answer = picked ? choiceAnswer(picked, words) : value.trim();
+  useEffect(() => onAnswer?.(answer), [answer, onAnswer]);
   const ready = answer.length > 0;
   const named = !label && !listed ? { 'aria-label': fieldName ?? (typeof slots.title === 'string' ? slots.title : 'Your answer') } : {};
   const field = multiline ? (
@@ -532,7 +536,7 @@ export function PromptDialog({
 }
 
 /** A yes-or-no before something that cannot be undone, with the command it runs. */
-export function ConfirmDialog({ danger = false, ...slots }: Pick<DialogProps, 'title' | 'lead' | 'doc' | 'warn' | 'facts' | 'command' | 'cost' | 'onOk' | 'onClose'> & { ok: string; danger?: boolean }) {
+export function ConfirmDialog({ danger = false, ...slots }: Pick<DialogProps, 'title' | 'lead' | 'doc' | 'warn' | 'facts' | 'command' | 'cost' | 'footNote' | 'onOk' | 'onClose'> & { ok: string; danger?: boolean }) {
   return <Dialog {...slots} tone={danger ? 'danger' : 'lime'} />;
 }
 
