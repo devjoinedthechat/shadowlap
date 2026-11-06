@@ -1,6 +1,6 @@
 import { emptyOriginCounts, importedRecording, sumCacheUse, type OriginCounts, type RunAbout, type RunKind, type Store } from '@shadowlap/engine';
 import { fixesSummary, type PatchCheck, type RewriteCheck } from './fixes.js';
-import { lookWork, needsLook } from './needs-look/index.js';
+import { lookWork, type NeedsLook, needsLook } from './needs-look/index.js';
 import type { NextStepWork } from './next-step.js';
 import { aboutsOf, aboutsWithin } from './run-about.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay, type LocalDay } from './local-days.js';
@@ -144,8 +144,6 @@ export interface FixesFunnel {
   attempts: number;
   spent: number;
 }
-
-import type { NeedsLook } from './needs-look/index.js';
 
 export type { LookStep, NeedsLook, NeedsLookRow } from './needs-look/index.js';
 
@@ -345,7 +343,6 @@ function weekCache(store: Store, index: RunIndex, since: number, budget?: number
     missCount: use.misses,
   };
 }
-
 
 /** About lines, worked out whole, or within a request's budget (`aboutsWithin`). */
 const aboutsUpTo = (store: Store, index: RunIndex, runs: readonly IndexedRun[], budget: number | undefined): Map<string, RunAbout> =>

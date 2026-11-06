@@ -133,6 +133,3 @@ export function miniCells(origins: readonly Origin7[], max = MINI_CELLS): Origin
   return bins ? bins.map((b) => b.origin) : [...origins];
 }
 
-/** The Overview's family rows share one scale, at least this many calls wide, so a fork's prefix lines up under its parent. */
-export const GRID_MIN = 30;
-
