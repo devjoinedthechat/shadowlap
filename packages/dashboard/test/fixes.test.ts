@@ -769,7 +769,7 @@ describe('what settles a fix left unsettled', () => {
     const { fix } = recordBlame(store, { runId: run, report, expect: EXPECT, scope: 'agent', command: `shadowlap blame ${run.slice(0, 10)} --expect '{"old":1}' --scope agent --budget 0.05`, rerun: { flags: ['--budget', '0.05'], command: null }, title: 'email twice', checkText: 'send_email called once', at: NOW - DAY });
     expect(unsettledFirst(report)).toBe(true);
     const again = fixDetail(store, fix.fixId)!.actions.blameAgain!;
-    expect(again).toMatchObject({ kind: 'unsettled', gate: { good: 0.4, max: 40 } });
+    expect(again).toMatchObject({ kind: 'unsettled', gate: { good: 0.4, max: 40 }, lastGood: 0.6, soFar: null });
     expect(again.argv).toEqual(['blame', run, '--expect', JSON.stringify(EXPECT), '--scope', 'agent', '--gate', '{"good":0.4,"max":40}']);
     expect(fixDetail(store, fix.fixId)!.actions.blameStronger).toBeNull();
     // Nothing rescued it, and nothing says the model's answer isn't what lost it: a stronger model may.

@@ -445,8 +445,8 @@ describe('what settles a fix left unsettled', () => {
     // No estimate read, so it asks, with the lower bar it passes.
     await r!.click(r!.byText('.ph .actions button', 'Run blame again'));
     expect(text(r!.one('.dialog h3'))).toBe('Run blame again');
-    // The last blame's gate asked for 60%; again asks for less.
-    expect(text(r!.one('.dialog dl'))).toBe('Gatea rescue at 40% or more');
+    // The last blame's gate asked for 60%; again asks for less, and says the last one's beside it.
+    expect(text(r!.one('.dialog dl'))).toBe('Gatea rescue at 40% or morethe last blame’s was 60%');
     expect(started).toEqual([]);
     await r!.click(r!.one('.dialog .dlg-ok'));
     expect(started).toEqual([['blame', { fixId: fix.fixId, again: true }]]);
@@ -472,6 +472,13 @@ describe('what settles a fix left unsettled', () => {
     expect(text(r!.one('.dialog .dlg-ok'))).toBe('Run blame with stronger model');
     expect(text(r!.one('.dialog .dcost'))).toContain('the last blame took 4 attempts');
     expect(started).toEqual([]);
+    await r!.unmount();
+    // A search that stopped part way searches again from the first model call: its ask says how far the last got.
+    const cut = newRun({ labels: ['triage'] });
+    await open(blame(cut, { report: blameReport(cut, 'stopped') }).fix.fixId, null, null, { started });
+    await r!.click(r!.byText('.ph .actions button', 'Run blame again'));
+    expect(text(r!.one('.dialog header'))).toContain('Searches the run again from the first model call: the last search stopped at #1.');
+    expect(r!.all('.dialog dl')).toHaveLength(0);
   });
 
   it('prices Run blame with stronger model at the model typed once the field rests, its card at the placeholder’s, opening on every setting', async () => {

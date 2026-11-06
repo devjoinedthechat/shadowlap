@@ -18,17 +18,22 @@ import { useStrongerEstimate } from './estimates.js';
 /** How a rescue rate reads on the Gate row. */
 const rate = (p: number): string => `${Math.round(p * 100)}%`;
 
-/** Run blame again: the same blame with more attempts and a lower bar, or from the first model call where the last stopped part way. */
+/**
+ * Run blame again: the same blame with more attempts and a lower bar, the last blame's beside it, or
+ * from the first model call where the last stopped part way, at the furthest call it had rescued.
+ */
 export function BlameAgainDialog({ fix, estimate, onRun, onClose }: { fix: FixDetail; estimate: Estimate | null | undefined; onRun: () => boolean; onClose: () => void }) {
   const again = fix.actions.blameAgain;
   const stopped = again?.kind === 'stopped';
   const gate = !stopped && again?.gate ? again.gate : null;
+  const soFar = again?.soFar ?? null;
+  const last = again?.lastGood ?? null;
   return (
     <ConfirmDialog
       title={ACTIONS.runBlameAgain.label}
-      lead={stopped ? 'Searches the run again from the first model call: the last search stopped part way.' : 'Probes again with more attempts and a lower bar.'}
+      lead={stopped ? `Searches the run again from the first model call: the last search stopped ${soFar === null ? 'part way' : `at #${soFar}`}.` : 'Probes again with more attempts and a lower bar.'}
       doc="blame"
-      facts={gate ? [{ label: 'Gate', value: `a rescue at ${rate(gate.good)} or more` }] : []}
+      facts={gate ? [{ label: 'Gate', value: `a rescue at ${rate(gate.good)} or more`, ...(last === null ? {} : { quiet: `the last blame’s was ${rate(last)}` }) }] : []}
       command={again?.command ?? null}
       cost={{ price: 'Billed by your provider', parts: [probesPart()], estimate }}
       footNote={<AskNote estimate={estimate} />}
