@@ -4,6 +4,10 @@ import type { CallRow, Client, RunDetail } from '../ui/api.js';
 import { RunPage } from '../ui/pages/Run.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
+import { forgetPickedCalls } from '../ui/run/open-at.js';
+
+// A call picked on a run's page is remembered for the session: each test opens its runs afresh.
+afterEach(forgetPickedCalls);
 
 /**
  * A run's page draws, under its banner, what the run did that Shadowlap did not record (the tools

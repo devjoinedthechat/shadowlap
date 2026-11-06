@@ -28,7 +28,7 @@ import { flagText } from '../run/banner.js';
 import { askedTools } from '../run/calls.js';
 import { presetAttempt } from '../run/preset.js';
 import { blameOf, checksOf, forkAtOf, forkMarkOf, originOf, withModelNames } from '../run/model.js';
-import { firstFailedCall, openingCall } from '../run/open-at.js';
+import { firstFailedCall, openOn, rememberCall } from '../run/open-at.js';
 import { ancestorsOf, callTree, heads, unfolded } from '../run/groups.js';
 import { useMarkRun, useRunLabels } from '../components/RunKey.js';
 import type { RunMark } from '../runkey.js';
@@ -235,6 +235,26 @@ function useChange(run: RunDetail, detail: CallDetail | null, forkAt: number | n
   }, [want, detail, theirs.data, forkAt, run.run.meta?.test]);
 }
 
+/**
+ * The page's address and what it remembers of where it is. A short id (`id`) settles on the full one,
+ * and a link naming no call lands on the one the page shows; that call is kept for the session
+ * (open-at.ts); and Run blame placing the loss while the page is open moves the selection and the
+ * address there.
+ */
+function useOpenAt({ runId, id, call, selected, lostAt, view }: { runId: string; id: string; call: number | null; selected: number | null; lostAt: number | null; view: View | null }): void {
+  useEffect(() => {
+    if (runId !== id || (call === null && selected !== null)) navigate(href.run(runId, call ?? selected, view), true);
+  }, [runId, id, call, selected, view]);
+  useEffect(() => {
+    if (runId === id && selected !== null) rememberCall(runId, selected);
+  }, [runId, id, selected]);
+  const lostBefore = useRef(lostAt);
+  useEffect(() => {
+    if (runId === id && lostBefore.current === null && lostAt !== null) navigate(href.run(runId, lostAt, view), true);
+    lostBefore.current = lostAt;
+  }, [lostAt, runId, id, view]);
+}
+
 function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: string; call: number | null; view: View | null }) {
   const app = useApp();
   // A long run's calls come a page at a time (paging.ts): `run` holds those read so far, its next step whole once that is known.
@@ -262,7 +282,9 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   // clock and random reads are never where a run opens (open-at.ts).
   const failed = run.state?.failed ?? run.run.status === 'failed';
   const failedAt = useMemo(() => (failed ? firstFailedCall(calls, paging?.origins ?? null) : null), [failed, calls, paging?.origins]);
-  const fallback = useMemo(() => openingCall({ forkAt, lostAt, live, failed, calls, origins: paging?.origins ?? null, total: paging?.total ?? null }), [forkAt, lostAt, live, failed, calls, paging?.origins, paging?.total]);
+  // A call picked on this run's page earlier in the session comes first, then the most telling (open-at.ts); a recording
+  // follows its newest.
+  const fallback = useMemo(() => openOn(runId, { forkAt, lostAt, live, calls, origins: paging?.origins ?? null, total: paging?.total ?? null }), [runId, forkAt, lostAt, live, calls, paging?.origins, paging?.total]);
   // While its pages come, a call of the run is one numbered up to its count, read yet or not.
   const isCall = (n: number) => (paging ? n >= 1 && n <= paging.total : calls.some((c) => c.callNo === n));
   const selected = call !== null && isCall(call) ? call : call !== null && live ? call : fallback;
@@ -275,9 +297,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
 
   // A short id settles on the full one; a run opened without a call lands on its fork, its lost call,
   // where it first failed, or its first call (openingCall).
-  useEffect(() => {
-    if (runId !== id || (call === null && selected !== null)) navigate(href.run(runId, call ?? selected, view), true);
-  }, [runId, id, call, selected, view]);
+  useOpenAt({ runId, id, call, selected, lostAt, view });
 
   // Recording: the selection follows the newest call if it was on the newest (also when the last calls
   // and the end of the recording arrive together). The shell says when it ends, on any page (state.tsx).

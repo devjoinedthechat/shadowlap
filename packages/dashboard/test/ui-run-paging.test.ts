@@ -8,6 +8,10 @@ import { ASKING_PAUSE_MS, PAGES_AFTER_MS, RETRY_MS, usePagedRun } from '../ui/ru
 import { followPages, listedCalls, nextRead, PAGE, rangeOf, withPage, withRange } from '../ui/run/paging.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
+import { forgetPickedCalls } from '../ui/run/open-at.js';
+
+// A call picked on a run's page is remembered for the session: each test opens its runs afresh.
+afterEach(forgetPickedCalls);
 
 /**
  * A run's calls come a page at a time (contract 8): its page comes with the first of them, how many
