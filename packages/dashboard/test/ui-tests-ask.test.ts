@@ -332,6 +332,26 @@ describe('the same question from elsewhere', () => {
     expect(sent.map((x) => x.fields)).toEqual([{ runId: RUN }, { runId: RUN, yes: CONFIRM }]);
   });
 
+  it('says each banner job’s estimate on its card, from Tests’ estimates for its golden, and Spending answers its question with it', async () => {
+    resetSpending(0.5);
+    const sent: Sent[] = [];
+    const watched: Array<Promise<JobView>> = [];
+    const state = app(sent, watched);
+    const live: Estimate = { kind: 'tests', usd: 0.3, ceiling: false, parts: ['live from where it forks'] };
+    const update: Estimate = { kind: 'update', usd: 0.2, ceiling: false, always: 'it replaces goldens', parts: ['as its recording cost'] };
+    Object.assign(state.client, { estimates: { testsEstimates: () => Promise.resolve({ run: null, goldens: { 'goldens/refund-in-limit': { rerun: live, update, normalize: live } } }) } });
+    const page = await shown(state, banner(STEPS));
+    const card = (label: string) => JSON.parse(page.byText('.banner button', label).getAttribute('data-tip') ?? '{}') as { s?: string; cmd?: string; est?: unknown };
+    await page.until('the estimates', () => !!card('Add normalizer and re-run').est);
+    expect(card('Add normalizer and re-run')).toMatchObject({ s: 'Masks the value at match time, then replays the golden offline', est: { usd: 0.3, ceiling: false } });
+    expect(card('Update golden')).toMatchObject({ s: 'It re-records the golden under the change', cmd: 'shadowlap test goldens/refund-in-limit --update', est: { usd: 0.2, always: 'it replaces goldens' } });
+    await page.click(page.byText('.banner button', 'Add normalizer and re-run'));
+    await page.until('the yes', () => sent.length === 2);
+    expect(sent.map((x) => x.fields)).toEqual([{ runId: RUN, estimate: { usd: 0.3, ceiling: false } }, { runId: RUN, estimate: { usd: 0.3, ceiling: false }, yes: CONFIRM }]);
+    expect(dialog(page)).toBeNull();
+    resetSpending();
+  });
+
   it('asks over whatever page is open when the palette runs the tests, with the command Tests lists', async () => {
     const sent: Sent[] = [];
     const watched: Array<Promise<JobView>> = [];
