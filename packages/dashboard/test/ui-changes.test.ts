@@ -569,10 +569,14 @@ describe('Changes’ page', () => {
   });
 
   it('opens a preview’s and a migration’s address on Verdicts, until their tabs land', async () => {
-    const bar = addressBar('#/changes/decisions/dc-01M5000000000000000000000A');
-    page = await render(createElement(AppContext.Provider, { value: app({ verdicts: () => Promise.resolve(view([preview()])) }) }, createElement(ChangesPage, { tab: 'decisions', id: 'dc-01M5000000000000000000000A' })));
-    await page.until('the address', () => bar.hash === '#/changes');
-    expect(page.one('.ph h1').textContent).toBe('Changes');
+    for (const tab of ['decisions', 'migrate'] as const) {
+      const bar = addressBar(`#/changes/${tab}/dc-01M5000000000000000000000A`);
+      page = await render(createElement(AppContext.Provider, { value: app({ verdicts: () => Promise.resolve(view([preview()])) }) }, createElement(ChangesPage, { tab, id: 'dc-01M5000000000000000000000A' })));
+      await page.until(`${tab}’s address`, () => bar.hash === '#/changes');
+      expect(page.one('.ph h1').textContent).toBe('Changes');
+      await page.unmount();
+      page = null;
+    }
   });
 });
 
