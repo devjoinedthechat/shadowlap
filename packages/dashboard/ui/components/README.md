@@ -131,7 +131,8 @@ says about it), `scopes.ts` (scopes and their chips), `backoff.ts` and
 `connection.ts` (offline, the retry schedule, the `?state=offline` preview), `live.ts` (following a
 recording, and which ended between two loads of the run list, for the shell's toast), `actions.ts` (the fork menu and each action's dialog words), `jobs.ts` (a job's title and status, where a Replay diverged, the recording Calibrate takes), `place.ts`,
 `focus.ts` (what a dialog focuses first), `shell/top.ts` (a run's parent in its
-crumbs, and the live chip), `parents.ts` (each run's parent, from the run details loaded so far, so the
+crumbs, the help menu's key, and the live chip), `shell/status.ts` (the status bar's parts, which give
+way first, and when it names read-only), `parents.ts` (each run's parent, from the run details loaded so far, so the
 crumbs never load a run twice),
 `normalize.ts`, `format.ts`, and on the run page `run/banner.ts` (which banner, and what it says),
 `run/metrics.ts`, `run/model.ts` and `run/calls.ts`; for Compare, `compare/model.ts` (what the four
