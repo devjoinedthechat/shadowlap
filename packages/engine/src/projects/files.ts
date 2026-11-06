@@ -8,20 +8,24 @@ import { withLockFile } from '../lock-file.js';
 /**
  * Replaces `file` with `text` in one step: written to a temporary file beside it (owner-only, never
  * following a link that was planted there), flushed, then renamed over the old one. A crash leaves
- * the old list or the new one, never part of either.
+ * the old list or the new one, never part of either; a write that fails, or stops short as on a full
+ * disk, leaves the old one, and no temporary file.
  */
 export function writeFileAtomic(file: string, text: string): void {
   const dir = dirname(file);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const tmp = join(dir, `.${basename(file)}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`);
   const fd = openSync(tmp, 'wx', 0o600);
+  const bytes = Buffer.from(text, 'utf8');
   try {
-    writeSync(fd, text);
-    fsyncSync(fd);
-  } finally {
-    closeSync(fd);
-  }
-  try {
+    try {
+      // Node writes until all of it is written or a write fails, and then says how much was written
+      // without throwing: short is that failure.
+      if (writeSync(fd, bytes) !== bytes.length) throw new Error(`${file} could not be written whole: the disk may be full`);
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
     renameSync(tmp, file);
   } catch (err) {
     rmSync(tmp, { force: true });
