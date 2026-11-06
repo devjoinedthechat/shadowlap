@@ -1,7 +1,10 @@
 import { memo, useRef } from 'react';
 import { aboutForms, orderForms } from '../about.js';
 import { AboutLine, useFitAbouts } from '../components/About.js';
+import { Id } from '../components/Id.js';
 import { RunIcon } from '../components/RunIcon.js';
+import { Status } from '../components/Status.js';
+import { glossed } from '../components/Term.js';
 import { MiniStrip } from '../components/Strip.js';
 import { rowOpen, SortTh } from '../components/Table.js';
 import { num, shortId, whenShort } from '../format.js';
@@ -9,10 +12,11 @@ import { labelTerm } from '../../src/links.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useWindow } from '../run/window-hook.js';
-import { kindWord, outcomeOf, runOrigins, runSource, runSpent, runStatus, sideStatus, TODAY, type RunLike, type RunSort } from '../runs.js';
+import { kindWord, outcomeOf, runOrigins, runSource, runSpent, sideStatus, TODAY, type OutcomeOf, type RunLike, type RunOutcomeWords, type RunSort } from '../runs.js';
 import { tipCard } from '../components/HoverCard.js';
 import { outcomeTip } from '../outcome-tip.js';
-import type { RunListItem } from '../types.js';
+import type { ChipCounts, RunListItem } from '../types.js';
+import { EmptyLine } from '../components/States.js';
 import { localTitle } from './bulk.js';
 import { ByAvatar } from './people.js';
 import { RunKey } from '../components/RunKey.js';
@@ -24,9 +28,8 @@ import { singleKeysOn } from '../single-keys.js';
  * The Runs table, one row a run: its id (decision 10: the id is its name), then what it was about in
  * a column of its own, fitted at whole words, with its labels as chips at the column's end; who made
  * it (with a team store, as their avatar, the name on hover, so every row keeps one line), its calls
- * by origin, calls, what it spent live, how it came out (a fork, what came of its writes by a neutral
- * dot, or the check it failed, wrapping onto the row's second line rather than widen its column) and
- * when.
+ * by origin, calls, what it spent live, how it came out, in one line (a fork, what came of its writes
+ * by a neutral dot, its terms defined; the check a run failed, on hover) and when.
  * What only adds to a row gives way, measured after layout rather than at fixed widths, while About
  * would get less than 200px, or a labelled row less than its shortest about line beside its labels:
  * first the strip of calls by origin, then the labels, then By. Only when About would get less even
@@ -198,9 +201,47 @@ export function RunsTable({
 }
 
 /** A row's Status on hover: what judged it and each check, as the run's first fact has it (outcome-tip.ts). */
-function statusTip(r: RunLike): string {
-  const tip = outcomeTip(r, outcomeOf(r));
+function statusTip(r: RunLike, out: RunOutcomeWords & { of: OutcomeOf }): string {
+  const tip = outcomeTip(r, out);
   return tipCard(tip.title, tip.rows.map(([label, value, color]) => ({ label, value, color })), tip.sub);
+}
+
+/**
+ * A row's Status, in one line (outcomeOf): a dot and its words, what judged it on hover, the card the
+ * run's first fact has, and judged by checks its family's goldens added after it was recorded, said
+ * to a screen reader too. A run no check judges says a dash, no dot, named for a screen reader; an
+ * interrupted one says so, no dot either. A fork no check judges has no card, so its first term
+ * (blocked, stubbed, fenced) is the one the glossary defines.
+ */
+function RowStatus({ r }: { r: RunLike }) {
+  const out = outcomeOf(r);
+  if (out.tone === 'n') {
+    return (
+      <span className="st n" aria-label={out.text === '—' ? 'no checks' : undefined} data-tip={statusTip(r, out)}>
+        {afterDots(out.text)}
+      </span>
+    );
+  }
+  return (
+    <Status tone={out.tone} tip={out.of === 'fork' ? undefined : statusTip(r, out)}>
+      {glossed(afterDots(out.text))}
+      {out.today ? <span className="sr"> {TODAY}</span> : null}
+    </Status>
+  );
+}
+
+/**
+ * What the table says in place of its rows: why they could not be read, that they are being read, or
+ * why none show, as a line from the left (`No runs match.`, `No runs on the days picked.`). A store with
+ * no runs keeps its step.
+ */
+export function RunsTableEmpty({ error, loaded, shown, counts, days }: { error: Error | null; loaded: boolean; shown: number; counts: ChipCounts | null; days: unknown }) {
+  if (error && !shown) return <div className="empty">The runs could not be read: {error.message}</div>;
+  if (!loaded) return <div className="empty">Loading runs…</div>;
+  if (shown) return null;
+  if (counts?.all) return <EmptyLine>No runs match.</EmptyLine>;
+  if (days) return <EmptyLine>No runs on the days picked.</EmptyLine>;
+  return <div className="empty">{'No runs yet. Record one with shadowlap run -- <command>.'}</div>;
 }
 
 /** The height of the rows not drawn, above or below those that are. */
@@ -224,7 +265,6 @@ const typedIn = (t: EventTarget | null) => {
 };
 
 const Row = memo(function Row({ at, run: r, on, focused, selectable, byColumn, you, onPick, now, onMark = null, markOff = null }: { at: number; run: TableRun; on: boolean; focused: boolean; selectable: boolean; byColumn: boolean; you: boolean; onPick: (run: TableRun, on: boolean) => void; now: number; onMark?: ((run: TableRun, m: RunMark, from?: HTMLElement) => void) | null; markOff?: string | null }) {
-  const out = runStatus(r);
   const spent = runSpent(r);
   const origins = runOrigins(r);
   // What the run was about: the server's line, else (an older server) its command, its last resort.
@@ -254,7 +294,10 @@ const Row = memo(function Row({ at, run: r, on, focused, selectable, byColumn, y
     >
       {selectable ? (
         <td className="selcell">
-          <input type="checkbox" aria-label={`Select ${shortId(r.runId)}`} checked={on} onChange={(e) => onPick(r, e.target.checked)} />
+          {/* The whole cell picks the row (a 44px target on a touch screen), and never opens the run. */}
+          <label className="selhit">
+            <input type="checkbox" aria-label={`Select ${shortId(r.runId)}`} checked={on} onChange={(e) => onPick(r, e.target.checked)} />
+          </label>
         </td>
       ) : null}
       <td className="runcell">
@@ -262,7 +305,7 @@ const Row = memo(function Row({ at, run: r, on, focused, selectable, byColumn, y
           <RunIcon run={r} />
           {/* The id's hover has the run's kind, parent and command. */}
           <a className="rowa" href={href.run(r.runId)} title={`${kindWord(r)}${r.parentRunId ? ` of ${shortId(r.parentRunId)}` : ''} · ${r.source ? `from ${r.source}` : r.command}`}>
-            <code>{shortId(r.runId)}</code>
+            <Id id={shortId(r.runId)} list />
           </a>
           {byColumn && r.local ? (
             <span className="tag-local" title={localTitle(r.localAttempts)}>
@@ -273,9 +316,9 @@ const Row = memo(function Row({ at, run: r, on, focused, selectable, byColumn, y
         <span className="rsub rline">
           <AboutLine about={about} />
           {st ? (
-            <span className="rso">
+            <span className="rso" data-gives="">
               <span className="dot">·</span>
-              {st.tone ? <em className={st.tone === 'warn' ? 'inc' : undefined}>{st.text}</em> : st.text}
+              {st.tone ? <em className={st.tone === 'warn' ? 'inc' : undefined}>{glossed(st.text)}</em> : glossed(st.text)}
             </span>
           ) : null}
         </span>
@@ -306,26 +349,7 @@ const Row = memo(function Row({ at, run: r, on, focused, selectable, byColumn, y
         {spent.captured ? <span className="nil"> as captured</span> : null}
       </td>
       <td className="stcell hide-sm">
-        {out.check ? (
-          // The check it failed, under the words, as wide as the column already is: whole on hover.
-          <span className="st err named" data-tip={statusTip(r)}>
-            <i />
-            <span className="stw">
-              {out.text}
-              <span className="sr">: </span>
-              <span className="stc" title={`check failed: “${out.check}”`}>
-                “{out.check}”
-              </span>
-            </span>
-          </span>
-        ) : (
-          // What judged it, on hover, the card the run's first fact has; judged by checks its family's goldens added after it was recorded, said to a screen reader too.
-          <span className={`st ${out.tone}`} aria-label={out.text === '—' ? 'no checks' : undefined} data-tip={statusTip(r)}>
-            {out.tone === 'n' ? null : <i />}
-            {afterDots(out.text)}
-            {out.today ? <span className="sr"> {TODAY}</span> : null}
-          </span>
-        )}
+        <RowStatus r={r} />
       </td>
       <td className="num">{whenShort(r.startedAt, now)}</td>
       {onMark ? (

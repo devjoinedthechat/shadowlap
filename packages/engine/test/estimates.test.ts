@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { blameSteps, probedCalls, probedInScope } from '../src/estimates/blame.js';
 import { liveFrom, liveSums, modelFactor, noPriceWords, pricedCalls, recordEstimate, spentLive, timesWords } from '../src/estimates/estimate.js';
 import { forkEstimate, plantEstimate, PLANT_REPEAT, repeatEstimate, REPEAT_TIMES } from '../src/estimates/fork.js';
-import { amountWords, askWords, asksFirst, centsWords, costLine, costWords, drawerCost, heldAmount, parseSpending, priceWords, SPENDING_DEFAULT, SPENDING_PICKS, spendingField, spendingUsd, spendingWords, validSpending, type Spending } from '../src/estimates/spending.js';
+import { amountWords, askedOverThreshold, askWords, asksFirst, centsWords, costLine, costWords, drawerCost, heldAmount, parseSpending, priceWords, SPENDING_DEFAULT, SPENDING_PICKS, spendingField, spendingUsd, spendingWords, validSpending, type Spending } from '../src/estimates/spending.js';
 import { JUDGE_SCOPE } from '../src/judge-scope.js';
 import { buildActions } from '../src/run-actions.js';
 import type { CallRecord } from '../src/types.js';
@@ -171,6 +171,29 @@ describe('Spending', () => {
     expect(asksFirst({ usd: 0 }, 0)).toBe(false);
     expect(asksFirst({ usd: 0, always: 'it makes its candidates from your working tree' }, null)).toBe(true);
     expect(asksFirst({ usd: 0.02 }, 2, { form: true })).toBe(true);
+  });
+
+  it('says the threshold is why a job asks only where its amount alone made it ask', () => {
+    // At or under the threshold it starts; above it, or at Always ask, the amount is why it asks.
+    expect(askedOverThreshold({ usd: 0.5 }, 0.5)).toBe(false);
+    expect(askedOverThreshold({ usd: 0.5004 }, 0.5)).toBe(false);
+    expect(askedOverThreshold({ usd: 0.51 }, 0.5)).toBe(true);
+    expect(askedOverThreshold({ usd: 0.001 }, 0)).toBe(true);
+    expect(askedOverThreshold({ usd: 10.88 }, 0)).toBe(true);
+    // A job held to the budget it stops at, under the threshold: it starts.
+    expect(askedOverThreshold({ usd: 10.88, stops: 0.4 }, 0.5)).toBe(false);
+    // What asks on every setting, or never: never the threshold's doing.
+    for (const s of SETTINGS) {
+      expect(askedOverThreshold(null, s), String(s)).toBe(false);
+      expect(askedOverThreshold({ usd: null }, s), String(s)).toBe(false);
+      expect(askedOverThreshold({ usd: 0 }, s), String(s)).toBe(false);
+      expect(askedOverThreshold({ usd: 3, always: 'it makes its candidates from your working tree' }, s), String(s)).toBe(false);
+      expect(askedOverThreshold({ usd: 3, per: 'an attempt' }, s), String(s)).toBe(false);
+      expect(askedOverThreshold({ usd: 3 }, s, { form: true }), String(s)).toBe(false);
+    }
+    expect(askedOverThreshold({ usd: 10.88 }, null)).toBe(false);
+    // It asks for its amount wherever the threshold says so, and only there.
+    for (const s of SETTINGS) for (const usd of [0.027, 0.5, 0.51, 2, 2.31]) expect(askedOverThreshold({ usd }, s), `${usd} at ${s}`).toBe(asksFirst({ usd }, s));
   });
 
   it('says a card’s cost line, the amount alone for a form, and none for a job that bills nothing', () => {

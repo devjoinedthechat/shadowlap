@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadApiRequest, Store } from '@shadowlap/engine';
 import { traceStoreHost } from '../src/import-fetch.js';
-import { fetchLangfuseTrace, readLangfuse } from '../src/import-langfuse.js';
+import { fetchLangfuseTrace, langfusePage, PAGE_LINK_MS, readLangfuse } from '../src/import-langfuse.js';
 import { fetchLangsmithRuns, readLangsmith } from '../src/import-langsmith.js';
 import { parseOtlpFile, readOtel } from '../src/import-otel.js';
 import { dialectOf, importTrace, messagesOf, outputOf, type Trace } from '../src/import-trace.js';
@@ -544,6 +544,8 @@ describe('reading a trace store', () => {
     const seen: string[] = [];
     const host = await listen((req) => {
       seen.push(`${req.method} ${req.url}`);
+      // The trace itself, asked for once more for its page in Langfuse.
+      if (req.url === '/api/public/traces/7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07') return { status: 200, body: full };
       const cursor = new URL(req.url!, 'http://x').searchParams.get('cursor');
       return { status: 200, body: cursor ? { data: rows.slice(4), meta: { cursor: null } } : { data: rows.slice(0, 4), meta: { cursor: 'c-2' } } };
     });
@@ -551,11 +553,64 @@ describe('reading a trace store', () => {
     expect(seen).toEqual([
       'GET /api/public/v2/observations?traceId=7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07&fields=core%2Cbasic%2Cio%2Cmodel%2Cusage%2Cmetadata&limit=1000',
       'GET /api/public/v2/observations?traceId=7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07&fields=core%2Cbasic%2Cio%2Cmodel%2Cusage%2Cmetadata&limit=1000&cursor=c-2',
+      'GET /api/public/traces/7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07',
     ]);
-    // In the order they started, each as the trace endpoint gives it.
-    expect(trace).toEqual({ id: '7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07', observations: full.observations.map((o) => ({ ...o, input: o.input ?? null, output: o.output ?? null })) });
-    const read = readLangfuse(trace);
+    // In the order they started, each as the trace endpoint gives it, with the trace's page.
+    expect(trace).toEqual({ id: '7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07', observations: full.observations.map((o) => ({ ...o, input: o.input ?? null, output: o.output ?? null })), htmlPath: '/project/cm1shopproject/traces/7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07' });
+    const read = readLangfuse(trace, host);
     expect(read.calls.filter((c) => c.kind === 'model')).toHaveLength(3);
+    expect(read.url).toBe(`${host}/project/cm1shopproject/traces/7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07`);
+  });
+
+  it("keeps a Langfuse trace's page only on the host the API answered from, and imports a trace whose page doesn't answer", async () => {
+    const at = 'https://cloud.langfuse.com';
+    expect(langfusePage(at, '/project/cm1/traces/7f3a')).toBe('https://cloud.langfuse.com/project/cm1/traces/7f3a');
+    expect(langfusePage('https://ops.example.com/langfuse', '/project/cm1/traces/7f3a')).toBe('https://ops.example.com/langfuse/project/cm1/traces/7f3a');
+    for (const path of ['javascript:alert(1)', 'https://evil.example/project/cm1', '@evil.example/project/cm1', 'project/cm1/traces/7f3a', 42, null]) expect(langfusePage(at, path), String(path)).toBeUndefined();
+    expect(readLangfuse({ id: '7f3a', observations: [], htmlPath: '/project/cm1/traces/7f3a' }).url).toBeUndefined();
+    const full = JSON.parse(fixture('langfuse-trace.json')) as { observations: Array<Record<string, unknown>> };
+    const host = await listen((req) => (req.url!.startsWith('/api/public/v2/') ? { status: 200, body: { data: full.observations, meta: { cursor: null } } } : { status: 500, body: { message: 'Internal Server Error' } }));
+    const trace = await fetchLangfuseTrace('7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07', { host, publicKey: 'pk-lf-1', secretKey: 'sk-lf-2' });
+    expect(trace.htmlPath).toBeUndefined();
+    const read = readLangfuse(trace, host);
+    expect(read.calls.filter((c) => c.kind === 'model')).toHaveLength(3);
+    expect(read.url).toBeUndefined();
+  });
+
+  it("gives the trace's page a few seconds at most, and imports the trace without it when it takes longer", async () => {
+    const id = '7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07';
+    const full = JSON.parse(fixture('langfuse-trace.json')) as { observations: Array<Record<string, unknown>> };
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    // Each request with the time limit it was given; the page answers only once that is up.
+    const asked: Array<[string, number]> = [];
+    const fake = (async (input: string, init?: RequestInit) => {
+      const url = new URL(input);
+      asked.push([url.pathname, timeout.mock.calls.at(-1)![0]]);
+      if (url.pathname.startsWith('/api/public/v2/')) return Response.json({ data: full.observations, meta: { cursor: null } });
+      return new Promise<Response>((_, reject) => init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason as Error)));
+    }) as unknown as typeof fetch;
+    try {
+      const keys = { host: 'https://cloud.langfuse.com', publicKey: 'pk-lf-1', secretKey: 'sk-lf-2', fetch: fake };
+      const quick = await fetchLangfuseTrace(id, { ...keys, timeoutMs: 50 });
+      expect(quick.htmlPath).toBeUndefined();
+      expect((quick.observations as unknown[]).length).toBe(full.observations.length);
+      // A request's whole time limit for the observations, and for the page no more than a few seconds.
+      expect(asked).toEqual([
+        ['/api/public/v2/observations', 50],
+        [`/api/public/traces/${id}`, 50],
+      ]);
+      expect(PAGE_LINK_MS).toBeLessThanOrEqual(5_000);
+      asked.length = 0;
+      const answered = (async (input: string) => {
+        const url = new URL(input);
+        asked.push([url.pathname, timeout.mock.calls.at(-1)![0]]);
+        return url.pathname.startsWith('/api/public/v2/') ? Response.json({ data: full.observations, meta: { cursor: null } }) : Response.json({ id, htmlPath: `/project/cm1/traces/${id}` });
+      }) as unknown as typeof fetch;
+      expect((await fetchLangfuseTrace(id, { ...keys, fetch: answered })).htmlPath).toBe(`/project/cm1/traces/${id}`);
+      expect(asked.map(([, ms]) => ms)).toEqual([30_000, PAGE_LINK_MS]);
+    } finally {
+      timeout.mockRestore();
+    }
   });
 
   it('fetches a Langfuse trace with the project keys from a Langfuse without the v2 API, and its observations when the trace lists ids only', async () => {

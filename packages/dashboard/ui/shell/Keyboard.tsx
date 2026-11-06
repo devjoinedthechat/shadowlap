@@ -11,6 +11,7 @@ import { closeTopPanel } from '../overlays/slots.js';
 import { knownParent } from '../parents.js';
 import { GO_KEYS, GO_WINDOW_MS, href } from '../route.js';
 import { copyCompares } from '../runs.js';
+import { lastRunsHref, lastViewOf } from '../runs-view.js';
 import { currentRoute, navigate } from '../router.js';
 import { singleKeysOn, useSingleKeys } from '../single-keys.js';
 import { useApp, type AppState } from '../state.js';
@@ -51,7 +52,7 @@ function leaveField(e: KeyboardEvent): void {
 function upFrom(a: AppState, id: string): string {
   const listed = a.runs?.find((r) => r.runId === id) ?? null;
   const parent = crumbParent({ listed, loaded: knownParent(id), exported: a.exported, holds: (x) => !!a.runs?.some((r) => r.runId === x) });
-  return parent ? href.run(parent) : href.runs();
+  return parent ? href.run(parent) : lastRunsHref();
 }
 
 /** Esc with nothing open: a run's panel or Runs' selection (`pageUp`), then back the way you came (opened cold, a fix's and a revision's lists), then the row in focus lets go. */
@@ -96,7 +97,7 @@ function goKey(a: AppState, e: KeyboardEvent, gAt: RefObject<number>): boolean {
     const to = fresh ? goTarget(a, e.key) : null;
     if (to) {
       e.preventDefault();
-      navigate(to);
+      navigate(lastViewOf(to));
     }
     if (fresh) return true;
   }

@@ -27,7 +27,7 @@ export { provenance, showRunJson } from './api.js';
 export { countMasked } from './run-page.js';
 export type { CallFacts, MaskCounter, ProvenanceOptions, RunBlame, RunCheck, RunPageFacts, RunProvenance } from './api.js';
 // Fixes: the read model behind #/fixes, the Overview's fix numbers, Needs a look and the run page's banners.
-export { fieldChange, fixBundles, fixDetail, fixesSummary, fixForRun, fixHref, fixList, needsLookFixes, patchesToCheck, pulledPatchesToCheck } from './fixes.js';
+export { fieldChange, fixBundles, fixDetail, fixesSummary, fixForRun, fixHref, fixList, goldensFolderIn, needsLookFixes, patchesToCheck, pulledPatchesToCheck } from './fixes.js';
 export { patchesInTree, patchInTree, rewritesHere } from './patch-in-tree.js';
 export type { BlameStep, CandidateVerdict, FixActions, FixBundle, FixBundleAttempt, FixDetail, FixesSummary, FixForRun, FixList, FixRef, FixRow, FixRunRef, FixStep, NeedsLookItem, PatchCheck, RepairStep, RewriteCheck, RunBlame as FixRunBlame, StepKey, StepState, VerifyRow, VerifyStep } from './fixes.js';
 export { ghEnv, ghReader, GH_TIMEOUT_MS, isGithubPr, openPullRequest, parsePrState, prHost, PrStates, readableHosts, remoteHost, storePrStates, type PrRead, type PrReader, type PrState, type PrStatesOptions } from './pr-state.js';

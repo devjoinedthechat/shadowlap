@@ -389,6 +389,8 @@ describe('grounds, tints and lines', () => {
     '.cal .cd.l1': 'the Runs calendar’s ramp over its empty day',
     '.cal .cd.l2': 'the Runs calendar’s ramp over its empty day',
     '.cal .cd.l3': 'the Runs calendar’s ramp over its empty day',
+    '.cal .cd.hb .hn': 'a bar of Runs’ row of days, the ink faint over whatever ground it sits on',
+    '.cal button.cd.hb:hover .hn': 'a bar of Runs’ row of days under the pointer, the ink a step stronger',
     '.tag.live': 'a live run’s chip, ringed in the live colour',
     '.banner.live': 'a live run’s banner, faintly in the live colour',
     '.connblock': 'the page behind the offline bar, veiled in its own ground',

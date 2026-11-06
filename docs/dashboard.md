@@ -145,7 +145,9 @@ Some rows show only once something is typed:
 
 A row with a key of its own shows it at its right, while single-key shortcuts are on. On a touch screen, or where its own words don't fit, the field says *Search or jump to*.
 
-**On a list's row**, ⌘K offers that row's actions under its name: on a run's, Open run, its next step, Compare, Copy ID and Select run. The next step says what the run's lime button says, with the key that button has on the run's page. A link goes where it goes; any other step opens the run and presses the button there, so it asks and waits as the button does. ⌫ in the empty field shows everything, and closing it hands the focus back to the row.
+**On a list's row**, ⌘K offers that row's actions under its name: on a run's, Open run, its next step, Replay, Compare, Copy ID and Select run. The next step says what the run's lime button says, with no key: `b`, `r` and `c` press it on the run's page only, and Select run keeps its `x`. A link goes where it goes, Run blame and Replay start where you are, and any other step opens the run and presses the button there, so it asks and waits as the button does.
+
+Run blame and Replay start as the run's own buttons would, and Replay isn't offered while the run records. One that asks first, for your command, the check or whether to run someone else's, opens the run to ask. ⌫ in the empty field shows everything, and closing it hands the focus back to the row.
 
 Every typed word must match. An action is found by its name and what it does, never by the command in its hint, so a run's id finds the run, not every action that names it. A word of three or more letters and digits that is part of a listed run's id puts the runs first. A screen reader hears how many rows each word found.
 
@@ -272,7 +274,7 @@ Each row shows these columns:
 | Calls by origin | Its calls, colored by origin |
 | Calls | How many calls it made |
 | Spent | What it spent |
-| Status | Its outcome: what [its checks](#judged-by-checks) say (*check failed at #6*), what a fork's writes came to (*forked · 2 writes blocked*), or a dash |
+| Status | Its outcome in one line: what [its checks](#judged-by-checks) say (*check failed at #6*), a fork's writes (*forked · 2 writes blocked*), or a dash |
 | When | When it ran |
 | *good · bad* | The [good/bad key](#labels-and-notes) |
 
@@ -282,7 +284,9 @@ Some runs are shown differently:
 
 - **Attempts** (`--repeat`, blame, verify and the [error-path presets](./error-paths.md)) are bundled under the run they came from rather than listed.
 - **A golden replayed more than once** in one test session (`repeat`) is one test run too: the attempt its result shows, whose checks count every attempt (*5 of 5*).
-- **A fork that failed a check** names the check under *check failed*.
+- **A run that failed a check** names the check on its status's hover, so the row keeps one line.
+- **A test replay that failed** reads *fixed by* and the run that passed, muted, once its golden passes when it runs again: *fixed by 01K5CQ7A3M*. It leaves Failed.
+- **A fork no check judges** defines its first *blocked*, *stubbed* or *fenced* on hover, as the glossary does.
 - **A run imported from a capture** shows the file it came from where a command would be, and its cost as captured rather than spent: that money was spent where the traffic ran.
 - **A run whose recorder stopped before it ended** (killed, or out of memory) reads *interrupted*. It is deleted, packed and pushed like a run that ended.
 
@@ -290,16 +294,31 @@ Some runs are shown differently:
 
 Above the table:
 
-- **Chips by kind**, with their counts: recordings, forks, clean replays, tests, captures, failed.
-- **A filter**: every word must be in the run's id, about line, kind, labels, command, source or revision. `label:good` is the runs labelled exactly that. A label with a space in it is quoted, `label:"needs review"`, as its chip writes it.
+- **Chips by kind**, with their counts: recordings, forks, clean replays, test replays, captures, failed. Failed counts the runs that failed and the captures their import judged failed, but not a test replay [fixed since](#the-table). A run that fails only its family's checks says so in Status, but Failed and the days above the table leave it out.
+- **A filter**: every word must be in the run's id, about line, kind, labels, command, source or revision, or in what the run recorded. Beside it, how many runs match: *207 runs match*. Its terms below narrow it further.
 - **Sorting** by calls, spend or time.
 
-### The calendar and Find breaking commit
+| Term | Lists |
+| --- | --- |
+| `label:good` | The runs labelled exactly that. A label with a space in it is quoted, `label:"needs review"`, as its chip writes it |
+| `status:failed` | The runs whose Status says so: `passed`, `failed`, `inconclusive`, `not-applicable` or `live`, or a short form (`fail`, `inc`, `na`) |
+| `type:fork` | The runs of one kind: `recording`, `fork`, `clean` (or `replay`), `test` or `capture` |
+| `tool:issue_refund` | The runs that recorded a call to a tool whose name starts so. Only recorded tool calls count |
+| `"refund over limit"` | Quoted words, as a phrase in that order |
 
-Above the table, twelve weeks of days, a column per week, are shaded by how many runs each day had of what the chips and the filter match. So with **Failed** picked, it shows when something started failing.
+A word of 3 characters or more also searches what runs recorded, as whole words. While the index of what they recorded is behind, the table says so: *Still reading what 3 of 200 runs recorded: more matches may follow.*
 
-- **Pick days**: click a day, drag across several, or Shift-click to extend. The table and the chip counts follow.
-- **From the keyboard**: the arrow keys move between days, Enter picks one, and Escape clears.
+`status:` reads each run's verdict as its Status does. Where that takes more than the table can wait for, it says how far it got: *The verdicts of 60 of 200 runs are known so far: runs among the rest may match too.* The table fills in as they are worked out, a long run's beside the server. A run whose outcome decides it, such as one that diverged or failed its own check, matches at once. The days above the table, and Find breaking commit, count the same runs.
+
+### Twelve weeks and Find breaking commit
+
+Above the table, the last twelve weeks are a row of bars, a day each. A bar is as tall as the runs that day had of what the chips and the filter match, its failures red at its foot. So with **Failed** picked, it shows when something started failing. On a phone or a touch screen, a bar is a week.
+
+One line beside the bars says what they count: *207 runs in 12 weeks, on this machine, 41 failed.* **Calendar** shows the same weeks as a grid, a column per week, until **Hide calendar**. The dashboard keeps the one you picked while it is open.
+
+- **Pick days**: click a day, drag across several, or Shift-click to extend. A week's bar picks its seven days. The table and the chip counts follow.
+- **From the keyboard**: the arrow keys move between days, Enter picks one, Shift+Enter extends, and Escape clears. In the row, ← and → move a bar.
+- **From a link**: days that run past the twelve weeks keep to the days inside, and the address says so.
 
 With **Failed** picked and days chosen, **Find breaking commit…** bisects from the first failure of those days, between a commit where it still worked and its own:
 
@@ -308,11 +327,15 @@ With **Failed** picked and days chosen, **Find breaking commit…** bisects from
 
 ### Act on several runs
 
-Tick runs to label, pack, export, compare or delete them together. A run ticked and then deleted elsewhere leaves the selection.
+Tick runs to label, pack, export, compare or delete them together. A run ticked and then deleted elsewhere leaves the selection, and **Clear selection** lets go of them all.
 
-- **Delete** names the attempts bundled under the runs ticked, which go with them as `shadowlap rm` takes them, and counts them when it is done. It leaves alone a run still recording, one a replay in progress reads from, and one with an attempt still running. Its dialog shows the `shadowlap rm` command: for a long pick, the first ids and how many more, its Copy taking the whole command.
+- **Delete 2 runs** names the attempts bundled under the runs ticked, which go with them as `shadowlap rm` takes them. It leaves alone a run still recording, one a replay in progress reads from, and one with an attempt still running. Its dialog shows the `shadowlap rm` command: for a long pick, the first ids and how many more, its Copy taking the whole command.
+- **Undo** a delete while its toast shows, or press ⌘Z. The runs go from the store only when the toast goes. Leave the page or switch projects first and the delete goes then, its toast left without Undo. A second toast says only what went otherwise: runs left alone, or a failure, and those runs come back.
+- **While a delete waits**, its runs are off Runs' table and its counts, the nav, the status bar, the sidebar and **Search or jump to**. The days above the table and the other pages keep them until the delete lands, then catch up.
+- **Add label…** suggests the labels runs carry as you type, most used first. It reads the newest 500 runs, so an older label is typed.
+- **Pack** and **Export dataset…** wait while every run ticked is still recording, as a copy made then would be cut off.
 - **Pack** asks for a folder first. One run goes into `.shadowlap/exports/<id>` unless you name another folder inside the project. Several go into a folder each, named by its id, inside `.shadowlap/exports` or the folder you name, in one job whose drawer lists every folder (at most 100 runs at once).
-- **Dataset** says how many redaction rules its copy applies, and shows the `shadowlap export dataset` command it runs, with the file it writes. One dataset takes at most 500 runs.
+- **Export dataset…** says how many redaction rules its copy applies, and shows the `shadowlap export dataset` command it runs, with the file it writes. One dataset takes at most 500 runs.
 
 ### Runs with a team store
 
@@ -321,7 +344,8 @@ With a [team store](./team.md) set, the table:
 - shows who made each run as their avatar, with the name on hover (yours marked *you*);
 - shows a teammate's run at what it cost where it was recorded;
 - tags `local` the runs only on this machine, and a run whose attempts are;
-- offers **Pull** above it, and **Push** for the runs ticked, with the attempts bundled under them; a run still recording goes when it ends.
+- offers **Pull** above it, and **Push** for the runs ticked, with the attempts bundled under them; a run still recording goes when it ends;
+- offers **Push local runs** above it, in lime, while runs are only on this machine. It runs `shadowlap push --all`, which leaves out a run still recording.
 
 The **Local** chip lists the runs only on this machine, as Needs a look counts them. The status bar names the store and when this machine last pushed or pulled.
 
@@ -329,9 +353,12 @@ The **Local** chip lists the runs only on this machine, as Needs a look counts t
 
 What the table shows is in the address: the filter's words, the chip, the sort and the days picked, the days the viewer's own (`#/runs?q=refund&types=failed&sort=spent&from=2026-10-20&to=2026-10-22`). So a view of Runs keeps through a reload, can be kept as a bookmark, and opens from the link the dashboard prints, with the view at the end (`#token=…&open=/runs?types=failed`).
 
-- Picking a chip, a sort or days is a step of its own, which Back goes back through.
-- The words typed take the place of the step they were typed in, once they settle.
-- Runs opened on `#/runs` alone from another page shows what it showed last while the dashboard is open, and says so in the address.
+- Picking a chip, a sort or days, or pressing Enter in the filter, is a step of its own, which Back goes back through.
+- The words typed take the place of the step they were typed in, once they settle. So Back undoes the words and the step after them together.
+- Each view comes back scrolled where its list was left.
+- `#/runs` alone is every run, as the sidebar's **all** and the Overview open it. The nav's **Runs**, the crumbs, `g r`, Search or jump to's Runs and Esc from a run opened cold open the view Runs showed last while the dashboard is open.
+
+The address says a view one way, a space as `+` (`#/runs?q=refund+label:good`), and Runs writes it so in its place. It reads keys and a chip's word in any case, and a chip's word in the plural too (`#/runs?TYPES=Forks` is `#/runs?types=fork`). A value it can't read, such as a day there isn't, is left out.
 
 ### Import a capture or a trace
 
@@ -358,6 +385,8 @@ You can also give a Langfuse, LangSmith, Phoenix or Logfire host and trace id. T
 | Logfire | 32 hex characters | `LOGFIRE_READ_TOKEN` |
 
 Phoenix's project starts as `PHOENIX_PROJECT` or `PHOENIX_PROJECT_NAME`, else `default`. Logfire is searched back 30 days; an older trace takes [`--since`](./cli.md#traces) in a terminal.
+
+A run imported from Langfuse links back to the trace: **Open in Langfuse ↗** in [its header](#the-header).
 
 The job runs [`shadowlap import`](./cli.md#import) under the name of the file you picked. Its drawer links to each run it made, or past three, to Runs filtered to them. Each run it makes is judged by the project's rules on calls as it is imported, and its Status says that verdict ([Judged by checks](#judged-by-checks)).
 
@@ -386,6 +415,7 @@ How it came out comes first, as Runs' Status says it: *check failed at #6*, its 
 - **A capture** whose file kept no times (nock, VCR) shows no duration. One of the model calls alone says its tool calls were not captured.
 - **A recording unpacked from someone's pack** says *recording · from a pack*.
 - **A teammate's run pulled from the [team store](./team.md)** is a recording like any. It shows the requests it sent and what it spent where it was recorded, by whom (*≈$0.0030 spent · by maya*, and the same in Provenance's Upstream row). Its replay asks first, as a pack's does.
+- **A trace imported from Langfuse** has **Open in Langfuse ↗** after Compare. It opens the trace's page there in a tab of its own, and its hover names the trace and the host. A pack doesn't carry the link.
 
 The meta line says why the run failed, and the agent's exit with its last line. It also says:
 
@@ -513,6 +543,7 @@ How a run came out by its checks is its page's first fact and Runs' Status, in t
 | *inconclusive* | *inconclusive* | A check could not be decided, such as a judge with no recorded verdict, or a check on what the agent printed |
 | *not applicable* | *not applicable* | No check applied: a capture none of whose rules on calls had a call to read |
 | *diverged at #1* | *diverged at #1* | A test replay left its golden at that call, which the page links |
+| *fixed by 01K5CQ7A3M* | *fixed by 01K5CQ7A3M* | A test replay that failed, once its golden passes when it runs again: the run that passed, muted, and out of Failed |
 | *exited 1* | *exited 1* | The agent exited with an error and no check failed: the code where its test result kept it, else *exited with an error* |
 | *no checks* | A dash, or a fork's writes (*forked · 2 writes blocked*) | No check judges the run, a clean replay among them |
 
@@ -1522,6 +1553,13 @@ Each is built from the blame's report and the flags kept beside it, as Run more 
 - **A patch that is more than the change its repair verified** (another file, a file made, renamed or given a mode, lines its candidate doesn't rewrite) can't be applied from here. The button stays off and says why, Copy git apply is gone, and `fix apply` refuses it.
 - **A teammate's patch that is no rewrite a repair makes in your working tree** (code or a comment rewritten, text past the end of its string, a file or a value that runs) is refused the same way. See [the team store](./team.md#a-teammates-patch-is-held-to-a-repairs-rewrites).
 
+Under the patch, the dialog asks a name for each golden it copies: *The golden from `01K5CQ2E8M`*, filled with the fix's label (`refund-bug`, or `refund-bug-1` and `refund-bug-2` for two), never the run's id.
+
+- A name takes lower-case letters, digits and hyphens, from a letter or a digit, one golden each, and not one `goldens/` holds already. Under the field, the dialog says why one won't do, such as *goldens/refund-bug is taken: pick another name.*, and Apply fix waits until each will.
+- The command follows what you type, `shadowlap fix apply <fix> --name 01K5CQ2E8M=refund-bug`, and the step says where each recording goes.
+- A recording in `goldens/` already keeps its name and is asked none, as [`fix apply`](./cli.md#fix-apply) keeps it: one an earlier apply copied, under whatever name it gave it, or one `repair --goldens` copied under the run's id.
+- Mark applied and Finish applying ask the names of the goldens they copy too.
+
 For a patch repaired here, or a teammate's already in your tree, the project's other goldens are replayed offline too. A prompt or a tool description goes into every request, so a golden recorded before the change can diverge on it from the first call.
 
 - The drawer names each golden that does, at the call and request field, with **Update goldens**. It asks first, and re-records them with `shadowlap test <goldens> --update`.
@@ -1700,7 +1738,7 @@ These keys work on any page:
 | ⌘K or Ctrl K      | Search or jump to anything; with the focus in a list's row, its actions |
 | `/`               | Filter a run's calls, filter Runs, or search anywhere else              |
 | `?`               | Show the shortcuts                                                      |
-| ⌘Z or Ctrl Z, `u` | Undo, while a toast offers it (a good or bad label)                     |
+| ⌘Z or Ctrl Z, `u` | Undo, while a toast offers it (a good or bad label, a delete)           |
 | Esc               | Close what is open, then go up a level                                  |
 
 These keys work in a list: Runs, and the sidebar's runs while one has the focus.
@@ -1798,7 +1836,7 @@ One that can't start leaves the dialog open, with what you typed.
 - **Search or jump to** keeps the focus in its field while ↑ and ↓ move through what it offers, as a screen reader expects of a combobox.
 - **Closing** a menu, a dialog or the palette hands the focus back to what had it, or to the control drawn in its place when the page has drawn it anew. A click outside a menu that lands on another control leaves the focus there.
 - **Closing a job's drawer** from inside it hands the focus back to where it was, or else to the page. Hiding a running job from inside its drawer hands the focus to the status bar's chip, and pressing the chip hands it back.
-- **The sidebar on a phone** takes the focus to its first item as it opens. Closing it from inside it, or with a click beside it, hands the focus to its button.
+- **The sidebar on a phone** takes the focus to its first item as it opens. Closing it from inside it, or with a click beside it, hands the focus to its button. A tap on the page or the status bar only closes it: what it lands on doesn't act. The top bar stays in reach, so its Search or jump to opens as the drawer closes.
 - **A link in a menu or a dialog** hands the focus to the page it opened, and so does Back with one open. A run picked in Compare leaves it on the picker.
 - **A focus ring** is drawn whole in every pane that scrolls. A pane that scrolls with no control in it (the Timeline, Turns and Context, a run's calls on Provenance, a code block, a command to copy, a job's output, a dialog's body) takes the focus itself, so the keyboard can scroll it.
 - **What has a hover card and no action of its own** takes the focus where it stands on its own (a run's outcome, a fact), so what a hover shows is never only a hover's. In a row or a chart it doesn't, and a mark with no words of its own is named by its card.
@@ -1815,10 +1853,12 @@ The dashboard's limits, in one place:
 | --------------------------------------------- | ----------------------------------------------------------------- |
 | Runs that Search or jump to lists             | The newest 500; any other run by its id                           |
 | Recorded text that Search or jump to finds    | From three characters; up to six matches, two per run             |
+| Recorded text that Runs' filter finds         | Whole words, from three characters                                |
+| Runs that `status:` judges by their checks    | The newest 2,000 it reads; an older one goes by its own outcome   |
 | A row of This week's runs, on the Overview    | Past 60 calls, a cell stands for a range                          |
 | Lines of one kind in Needs a look             | Ten, then one line says how many more there are                   |
 | A lineage in the sidebar                      | Four steps deep                                                   |
-| The calendar on Runs                          | Twelve weeks                                                      |
+| The days above Runs' table                    | Twelve weeks                                                      |
 | Runs in one dataset                           | 500; past that, `shadowlap export dataset --label`                |
 | Runs packed in one job                        | 100                                                               |
 | A page of Runs, or of a run's calls           | 500 rows, or 500 calls                                            |
@@ -2024,7 +2064,7 @@ Every request needs the session token in `x-shadowlap-token`.
 | `GET /api/runs`, `/api/runs/:id[?after=<n>]`, `/calls/:n`, `/lineage`, `/export` | Runs; one run (with `after`, only its calls numbered after `n`, for a recording's page); one call; its family; the HTML download |
 | `GET /api/runs/:id/calls?from=&limit=&whole=` | A page of a run's calls from call `from` on, `limit` of them (500 at most): `calls`, `callsTotal`, `callsNext` |
 | `GET /api/runs/page?limit&cursor&from&to&types&q&sort` | A page of the Runs table (at most 500 rows), each row with its `about` line |
-| `GET /api/runs/days?weeks&tz&types&q` | Runs per day for the calendar, in the viewer's days |
+| `GET /api/runs/days?weeks&tz&types&q` | Runs per day for the twelve weeks above Runs' table, in the viewer's days |
 | `GET /api/runs/bisect?from&to&types&q` | Find breaking commit for the days picked: their first failure, and what bisect can start from |
 | `POST /api/runs/labels { ids, add, remove }`, `POST /api/runs/delete { ids }` | Label or delete several runs at once, by their full ids |
 | `POST /api/runs/known { ids }` | Which of these runs are still in the store (changes nothing, so a read-only dashboard answers it too) |
@@ -2034,6 +2074,7 @@ Every request needs the session token in `x-shadowlap-token`.
 | `GET /api/runs/:id/differences` | What a fork did differently from its parent (`null` for a run that is no fork of a run in the store) |
 | `GET /api/runs/:id/outcome` | The run's outcome by checks, each check with it ([Judged by checks](#judged-by-checks)) |
 | `GET /api/runs/:id/next` | The run's next step alone, whole, with what it bills: what its page's answer leaves out rather than read a long run's calls |
+| `GET /api/runs/:id/estimates?at=&model=` | What Run blame and each fork menu row at call `at` bill, by the row's key; without `at`, the whole run's rows |
 | `GET /api/runs/:id/offers` | What the run's page offers |
 | `GET /api/search?q=`, `GET /api/compare?a=&b=[&part=head]` | Search recorded content; compare two runs |
 
@@ -2048,6 +2089,7 @@ Every request needs the session token in `x-shadowlap-token`.
 - **Its next step**: `next` is what its header leads with ([The next step](#the-next-step)): its `key`, `label`, `href` for a link, `off` for why it can't start, the hover's `title` and `sub`, the `command` it runs and `estimate`, what it bills. `later` says this answer left out what would read a long run's calls, which `/api/runs/:id/next` answers with.
 - **A crash's next step**: `blame` is the Run blame beside it, its `offer`, `sub`, `command` and `estimate`.
 - **A list's rows** carry `next` too, with only `key`, `label`, `href`, `off`, `title`, `command` and `capture` (a capture's Run blame, which asks for your command on its page), as a list reads no run's calls for it.
+- **Its estimates**: `/api/runs/:id/estimates` answers `blame` and `actions`, each the engine's estimate of the job as it runs, worked out beside the server. A row that runs nothing live is Free, such as Repeat on a recording, and one with nothing to bill has none: Replay, a normalizer, Pack. `model` prices Switch model at that model; without it, as recorded.
 - **Its Replay**: `replay` is what its Replay button replays: `label` and `runId`, with the `action` that asks for your command where that run has none.
 - **Its family**: each run of the family carries the same `status`, `kind`, `outcome` and `failed`, an attempt the list leaves out included. The HTML file holds such a run the same way.
 - **Its calls**: a call row carries `via` for a model call made to a host of another provider's format (the host; `provider` is then its format), and `extraRead` for a replay's extra read.
@@ -2091,10 +2133,12 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 
 | Endpoint | What it does |
 | --- | --- |
-| `POST /api/jobs { kind, … }` | Start a job of a registered kind (`/api/meta` lists them; [Job kinds](#job-kinds) describes each) |
+| `POST /api/jobs { kind, … }` | Start a job of a registered kind (`/api/meta` lists them; [Job kinds](#job-kinds) describes each), with the `estimate` its page showed |
 | `POST /api/jobs { kind: "export-html" \| "export-har" \| "pack" \| "export-dataset" \| "export-otel", … }` | The Share menu's copies |
 | `POST /api/runs/:id/actions` | A run action the terminal UI shares, as the `action` job kind starts it |
 | `GET /api/jobs`, `GET /api/jobs/:id?after=n`, `POST /api/jobs/:id/stop` | Recent jobs (without output or result); one job's output from line `n`, its runs, links, files and result; stop it, with its agent |
+
+**A job's estimate.** `estimate` is the price its page showed: `usd`, `ceiling`, and where they apply `per` and `stops`. The job keeps it, and both `GET` routes answer it, so its drawer says what its card and its ask said. One of another shape is dropped, and the job still starts. Nothing reads it to decide what runs, and it never reaches the command line.
 
 **The Share menu's copies** take `{ runId }`, a pack's `{ runId, dir }`, a dataset's `{ runIds, format, calls }`, or a trace's `{ runId, endpoint }` or `{ runId, out }`. A run still recording is refused (409). One its recorder left running is copied as interrupted, ended at its last call, the store left as it is.
 
@@ -2106,9 +2150,11 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 | --- | --- |
 | `GET /api/fixes?status=`, `/api/fixes/:id`; `PUT /api/fixes/:id/title` | The fixes (all, open, verified or applied) with their counts; one fix, by its id or a prefix, with its three steps; its title |
 | `GET /api/fixes/:id/groups` | A fix's attempts grouped by what each did |
+| `GET /api/fixes/:id/estimates?model=` | What Run repair, Run blame again or with a stronger model, and each Verify step's more attempts bill |
 | `GET /api/fixes/family/:runId` | The attempts blame and verify made in a run's family, bundled per probe and per verified run |
 
 - **Groups**: for its blame's probes and for each verified run, each group's `path` (the tool calls from where the attempts left the run), `verdict`, `count`, `why` (the first failure), and an `example` attempt to open.
+- **Its estimates**: `repair`, `blameAgain`, `blameStronger`, and `verify` by each verdict's id, worked out beside the server for what the page offers. Run repair prices a blame only of a failing run whose blame it can't reuse, and is Free where it ends "No fix to try". `model` prices the stronger model; without it, `claude-opus-5-5`.
 - **A run's family**: each bundle with the fix step it leads to, its verdict as a gate's is said (`verdictLine`: the word, the tally and the bound), its `tone`, and the `rule` it was decided by.
 
 ### Tests and CI
@@ -2118,6 +2164,8 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 | `GET /api/tests` | The Tests screen |
 | `GET /api/tests/gate?good=&bad=&risk=&max=`, `?baseline=history&drop=&window=&min=&max=&history=47/50` | What a [gate](./gating.md)'s figures would do |
 | `GET /api/tests/runs/:id?before=<ms>` | For a run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's choices |
+| `GET /api/tests/estimates` | What Run tests and each golden's buttons bill |
+| `GET /api/estimates/bisect?runId=\|golden=&good=&bad=` | What Find breaking commit bills, on a run or a golden, from `good` up to `bad` |
 | `GET /api/ci/workflows?fix=&alerts=&budget=&repairer=&onlyMain=&secret=&inconclusive=` | Settings → CI: your workflow for those options |
 
 **The Tests screen** (`/api/tests`) holds:
@@ -2170,6 +2218,11 @@ A gate against history is figured at seven pass rates against the baseline `hist
 
 **A run's test** (`/api/tests/runs/:id`): the diverged-test banner has `rulesAdded` once the config has its rules. Find breaking commit's choices are the target, good and bad commits, revisions to pick from with their subjects, the check a run is judged by in `expect`, whether it costs tokens, or why it can't start. `before` limits the good commits to runs before it.
 
+**Their estimates** are the engine's for each job as it runs, worked out beside the server:
+
+- `/api/tests/estimates` answers `run` for Run tests, and each golden's `rerun`, `update`, `more` and `normalize` by its path. A golden that runs live in any way is never Free: one marked fork, or with an injection gate, has no estimate until it has run once. Run tests is what each golden it runs live spent the last time it ran.
+- `/api/estimates/bisect` counts the commits with git, as the job would search them. It has no estimate until `good` names a commit. A search the job would refuse has none, with why.
+
 **Your workflow** (`/api/ci/workflows`) takes its options: `fix`, `alerts` and `onlyMain` on or off, `budget` in dollars, `repairer` as `repair --repairer` takes it, `secret` the webhook secret's name, and `inconclusive` fail or warn. It answers with one job that runs the goldens once (`workflow`), what it needs, and for each part its own step and a preview of what lands. Whether the step pushes is no option: it follows Push from CI in `shadowlap.config.json`, read as `/settings/store` reads it (`fixOnFailure.teamStore`).
 
 ### Settings
@@ -2178,10 +2231,13 @@ A gate against history is figured at seven pass rates against the baseline `hist
 | --- | --- |
 | `GET /api/settings/matching`, `/redaction[?run=]`, `/redaction/preview?run=`, `/agents`, `/tools`, `/tools/mcp?command=\|url=`, `/project`, `/store` | Settings, one read per tab; a tab that edits the config also gets its `version` |
 | `POST /api/settings/rules/normalize\|redact`, `DELETE /api/settings/rules/:list/:n?expect=`, `PUT /api/settings/clock`, `PUT /api/settings/store/ci-push`, `POST /api/settings/calibrate/write` | Changes to `shadowlap.config.json`, each with the `version` it read as `expect`; the last adds what a calibrate job proposed |
+| `GET /api/user/spending`, `PUT /api/user/spending { askAbove }` | Spending, yours on every project: the amount above which a billed job asks first; a change answers what it was (`was`), for Undo |
 
 - **`/agents`** also carries `skill`: the [skills](./agents.md#the-skills) with their commands, and what the project has of the Claude Code plugin and of the skills in `.agents/skills`. Each has its `state`, its `installedVersion` and the `install` a click runs (`null` where there is nothing to install). It also says which of Claude Code's settings files turns on the plugin installed from its marketplace.
 - **The preview** masks one run as a pack would (`redact preview --json`, each rule's `returned` and `unmasked` included), read on a thread of its own within limits. A rule that takes too long on one call is a 422; other previews being read, or a store another command holds, a 503.
 - **A change** to a file changed since is a 409, and a rule the CLI refuses a 400.
+- **Spending** (`askAbove`) is in dollars: a billed job asks first when its estimate is above it, so 0 asks of every job that bills. With `null`, Never ask, no amount asks. A job with no estimate still asks, as do a form, a price per unit and a job that asks for what it does, such as Run repair.
+- **Where it is kept**: it is kept in `settings.json` under `SHADOWLAP_HOME` (else `~/.shadowlap`), never in `shadowlap.config.json`, so CI and teammates never take it on. A page showing another project may change it. An amount that isn't whole cents is a 400, and a file it would lose something of, such as a newer Shadowlap's, a 409.
 
 ### Projects and setup
 
@@ -2211,7 +2267,7 @@ A gate against history is figured at seven pass rates against the baseline `hist
 | --- | --- |
 | `GET /api/training?filter=all\|high\|medium` | Training: the strip, the pairs grouped per call with their sources and fixes, the goldens as tasks, and each model's scores |
 | `GET /api/models` | The models to score, each with its price per attempt and last score, and the picker made from them |
-| `GET /api/decisions?kind=decisions\|migrate`, `/api/decisions/:id`, `GET /api/runs/:id/decisions`, `GET /api/retirements` | The [decision diff](./decisions.md): its sessions, one session, a run's decisions, and the retirement notices |
+| `GET /api/decisions?kind=decisions\|migrate`, `/api/decisions/:id`, `/api/decisions/:id/estimates?runId=`, `GET /api/runs/:id/decisions`, `GET /api/retirements` | The [decision diff](./decisions.md): its sessions, one session, what its Verify bills, a run's decisions, and the retirement notices |
 | `GET /api/verdicts?kind=all\|sessions\|previews\|verifies&limit=`, `/api/verdicts/:rev` | Every change checked and its verdict, newest first; a revision's page |
 | `GET /api/injection?run=&golden=&limit=`, `/api/injection/:id`, `/api/injection/:id/report`, `/api/injection/needs-look`, `/api/injection/runs/:id`, `/api/injection/templates`, `/api/injection/tools` | [Injection tests](./injection.md): results, one result, its report, Needs a look, a run's untrusted reads, the templates and the tools |
 | `GET /api/chaos`, `/api/chaos/runs/:id` | [Error-path presets](./error-paths.md): the presets and their matrices; one run's matrix |
@@ -2223,6 +2279,7 @@ A gate against history is figured at seven pass rates against the baseline `hist
 
 - `/api/decisions`: the sessions kept, newest first, with the models the goldens use that retire. Each session's `href` opens Changes (`#/changes/decisions/<id>`, `#/changes/migrate/<id>`).
 - `/api/decisions/:id`: one session as `decisions --json` or `migrate --json` printed it, with its `matrix`.
+- `/api/decisions/:id/estimates`: what its Verify bills, worked out beside the server. Each run it couldn't clear, or the one `runId` names, is priced in the role its checks give it as recorded, at what it costs under the change. `verify` is `null` when there is nothing to verify.
 - `/api/runs/:id/decisions`: a run's decisions under each session that asked it again.
 - `/api/retirements`: the retirement notices on their own, for the agent's models, Shadowlap's own judge calls left out.
 
@@ -2276,7 +2333,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | Job | What it runs |
 | --- | --- |
 | `action { runId, key, callNo?, value?, yes? }` | A run action the terminal UI shares: replay, the fork menu, repeat, pack, the suggested normalizer |
-| `apply { fixId }` | [`fix apply`](./cli.md#fix): a verified fix's patch into the working tree, its goldens tested |
+| `apply { fixId, names? }` | [`fix apply`](./cli.md#fix): a verified fix's patch into the working tree, its goldens named by their runs as `names` says, and tested |
 | `bisect { golden \| runId, good, bad? }` | Find breaking commit |
 | `blame { runId, expect?, command?, yes? }` | Blame with the check given, else the one it was judged by, else a 422 that asks for it. A capture takes your `command` |
 | `blame { fixId, again: true, yes? }`, `blame { fixId, model, yes? }` | An open fix's blame again, under its check, when it couldn't settle or stopped part way, or with another model when nothing rescued its run |

@@ -2,9 +2,11 @@ import { choicesInCheckout } from '../commits-here.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { Router } from '../router.js';
-import { sendAnswer } from '../read-pool.js';
+import { answerData, sendAnswer } from '../read-pool.js';
 import { deleteRunsApart } from '../delete-apart.js';
-import { knownRuns, labelRuns, matchingRuns, runsByDayOptions, runsPageOptions, type RunRow } from '../runs-list.js';
+import { filterTerms, RECORDED_MIN_CHARS } from '../links.js';
+import { knownRuns, labelRuns, runsByDayOptions, runsPageOptions, type RunRow } from '../runs-list.js';
+import { LATER_FAILURES, type DayFailure } from '../runs-failures.js';
 import { bisectChoices, type BisectChoices } from '../tests.js';
 import { readTeamStoreInput, type TeamStoreInput } from '../team-store.js';
 import { goldensOf, projectWork } from '../outcome-work.js';
@@ -42,9 +44,6 @@ export type RunsPageRow = RunRow & { local?: boolean; localAttempts?: { run: boo
  */
 export type DaysBisect = { runId: string; label: string; command: string; startedAt: number; choices: BisectChoices; earlier?: { runId: string; why: string } } | { runId: null; reason: string };
 
-/** Failures on the days picked that Find breaking commit looks through for one that started after the first commit. */
-const LATER_FAILURES = 50;
-
 /** The team store as the project's config names it, for the Local chip and the `local` tag; null without one. */
 function teamOf(ctx: RouteContext): TeamStoreInput | null {
   if (!ctx.project) return null;
@@ -52,24 +51,38 @@ function teamOf(ctx: RouteContext): TeamStoreInput | null {
   return team.store ? team : null;
 }
 
+/**
+ * A read whose filter has words that read what runs recorded: the search index takes in what runs
+ * still recording said first, a moment at most, as a search does (routes/search.ts), and whatever
+ * else arrived since is indexed after.
+ */
+async function withRecorded<T>(ctx: RouteContext, q: string | undefined, read: () => Promise<T>): Promise<T> {
+  if (!filterTerms(q).words.some((w) => w.length >= RECORDED_MIN_CHARS)) return read();
+  await ctx.search.recordings();
+  const a = await read();
+  ctx.search.look();
+  return a;
+}
+
 export function register(router: Router, ctx: RouteContext): void {
   const { store } = ctx;
 
-  // Worked out beside the server (read-pool.ts). Its filter field matches the about lines known,
-  // and the sort by spent the totals known: while the warm-up works out the rest, the page says so
-  // (`warming`), and asks again.
+  // Worked out beside the server (read-pool.ts). Its filter field matches the about lines and the
+  // verdicts known, and the sort by spent the totals known: while the warm-up works out the rest, the
+  // page says so (`warming`), and asks again.
   router.get('/runs/page', async (r) => {
     const o = runsPageOptions(r.query);
     if ('error' in o) throw new HttpError(400, o.error);
-    const a = await ctx.reads.run({ kind: 'runs-page', options: { ...o, ...ctx.read }, team: teamOf(ctx), ...projectWork(ctx) });
+    const a = await withRecorded(ctx, o.q, () => ctx.reads.run({ kind: 'runs-page', options: { ...o, ...ctx.read }, team: teamOf(ctx), ...projectWork(ctx) }));
     if (a.warming) ctx.reads.warm();
     sendAnswer(r, a);
   });
 
+  // The same filter, read the same way: the row of days counts the runs the table lists.
   router.get('/runs/days', async (r) => {
     const o = runsByDayOptions(r.query);
     if ('error' in o) throw new HttpError(400, o.error);
-    const a = await ctx.reads.run({ kind: 'runs-days', options: o, team: o.types?.includes('local') ? teamOf(ctx) : null });
+    const a = await withRecorded(ctx, o.q, () => ctx.reads.run({ kind: 'runs-days', options: o, team: o.types?.includes('local') ? teamOf(ctx) : null, outcome: projectWork(ctx).outcome }));
     if (a.warming) ctx.reads.warm();
     sendAnswer(r, a);
   });
@@ -83,12 +96,12 @@ export function register(router: Router, ctx: RouteContext): void {
     const o = runsPageOptions(r.query);
     if ('error' in o) throw new HttpError(400, o.error);
     if (o.from == null || o.to == null) throw new HttpError(400, 'from and to: the days picked');
-    // Newest first: the first failure is the last.
-    // The about lines known (on this thread nothing is worked out from any request).
-    const failures = matchingRuns(store, { from: o.from, to: o.to, types: [...new Set([...(o.types ?? []), 'failed' as const])], ...(o.q ? { q: o.q } : {}), known: true }).reverse();
+    // The failures the filter matches, oldest first, matched beside the server (runs-failures.ts).
+    const job = { kind: 'runs-failures' as const, options: { from: o.from, to: o.to, ...(o.types ? { types: o.types } : {}), ...(o.q ? { q: o.q } : {}) }, outcome: projectWork(ctx).outcome };
+    const { failures } = answerData<{ failures: DayFailure[] }>(await withRecorded(ctx, o.q, () => ctx.reads.run(job)));
     if (!failures.length) return r.json({ runId: null, reason: 'nothing failed on the days picked' } satisfies DaysBisect);
-    const offer = (run: (typeof failures)[number], choices: BisectChoices) => ({ runId: run.runId, label: run.label, command: run.source ?? run.argv.join(' '), startedAt: run.startedAt, choices });
-    let earlier: { run: (typeof failures)[number]; choices: BisectChoices } | null = null;
+    const offer = (run: DayFailure, choices: BisectChoices) => ({ ...run, choices });
+    let earlier: { run: DayFailure; choices: BisectChoices } | null = null;
     for (const run of failures.slice(0, LATER_FAILURES)) {
       const all = bisectChoices(store, run.runId, { goldens: goldensOf(ctx), before: o.from });
       if (!all) continue;

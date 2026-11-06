@@ -296,6 +296,16 @@ test('Runs keeps its filters in the address, Back goes back through them, and it
   await page.goBack();
   await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/runs?types=recording&sort=calls');
   expect(await pressed().evaluate((b) => b.childNodes[0]?.textContent)).toBe('Recordings');
+  // The filter checks no spelling, and says how many runs its words match; Esc leaves it with its words kept, the
+  // search field's own clear never taking them.
+  const field = page.locator('main#view #runsQuery');
+  await expect(field).toHaveAttribute('spellcheck', 'false');
+  await expect(field).toHaveAttribute('placeholder', 'Filter: words, label:, status:, type: or tool:');
+  await field.fill('type:recording');
+  await expect(page.locator('main#view .rqw .qn[role="status"]')).toHaveText(/^\d[\d,]* runs? match(es)?$/);
+  await page.keyboard.press('Escape');
+  await expect(field).not.toBeFocused();
+  await expect(field).toHaveValue('type:recording');
 });
 
 test('the good/bad key labels a run in one press, says so with Undo, and has no serious axe violation', async ({ page }) => {

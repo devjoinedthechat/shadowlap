@@ -8,6 +8,7 @@ import { applyNormalizers } from '../normalize.js';
 import type { Price } from '../prices.js';
 import type { Store } from '../store.js';
 import type { CallRecord, Normalizer, RunRecord } from '../types.js';
+import type { VerifyRole } from '../verify.js';
 import { evaluateChecks, notJudgedWhy, storedCheckInput, type EvaluateOptions, type JudgeCheckVerdict } from './evaluate.js';
 import { hasChecks, judgeChecksOf, readsOutput, withoutOutput, type CheckResult, type ExpectSpec, type JudgeCheck, type TestSpec } from './grammar.js';
 
@@ -186,4 +187,13 @@ export function judgeRecording(store: Store, run: RunRecord, calls: CallRecord[]
     ...checkFailures(checks.filter((c) => c.status === 'inconclusive')),
   ];
   return { passed: failures.length ? false : unsettled.length ? null : true, failures, checks, unsettled };
+}
+
+/**
+ * The role a recording plays in a verify under `spec`, as `decisions --verify` and `migrate` give
+ * each run: one that fails its checks as recorded must now pass (`target`); any other, one the
+ * recording can't settle too, must keep passing (`good`). It reads the run's calls.
+ */
+export function recordedRole(store: Store, run: RunRecord, spec: TestSpec | null, prices?: Record<string, Price>): VerifyRole {
+  return judgeRecording(store, run, store.getCalls(run.runId), spec, prices).passed === false ? 'target' : 'good';
 }

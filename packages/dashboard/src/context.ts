@@ -19,6 +19,8 @@ export interface ProjectConfig {
   http?: Array<{ host: string; effect: string }>;
   mcp?: { effects: Record<string, string> };
   repair?: { repairer?: string; baseUrl?: string };
+  /** `verify`: what a good run is kept against, and the most pairs (or attempts) it takes, as a repair's candidates and Run more attempts are verified. */
+  verify?: { baseline?: 'paired' | 'history'; max?: number };
   /** Tools by name: `trust` marks the reads shadowlap injection plants in (Settings → Tools' Trust column). */
   tools?: Record<string, { trust: 'trusted' | 'untrusted' }>;
   /** `tools.unrecorded`: the effect of each tool the agent runs without Shadowlap recording it, which decides whether a replay may run it again. */

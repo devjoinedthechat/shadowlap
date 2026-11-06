@@ -1,11 +1,20 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 import { useNow } from '../hooks.js';
 import { storePath } from '../projects.js';
+import { lessPending, usePendingHidden, useStillCounted, withoutPending, type PendingRun } from '../pending-delete.js';
 import { isAttempt } from '../runs.js';
 import { useApp } from '../state.js';
 import { useTeamStore } from '../teamstore.js';
+import type { RunListItem } from '../types.js';
 import { JobChip } from './JobChip.js';
 import { readOnlyWhy, STATUS_GIVES_WAY, statusParts, type StatusPart } from './status.js';
+
+/** The runs the store holds and the attempts bundled under them, less those a delete waits to take (pending-delete.ts). */
+function storeCounts(counts: { runs: number; attempts: number } | null | undefined, runs: readonly RunListItem[] | null, hidden: ReadonlySet<string>, gone: readonly PendingRun[]): { runs: number | null; attempts: number | null } {
+  const shown = runs ? withoutPending(runs, hidden) : null;
+  const listed = shown ? shown.filter((r) => !isAttempt(r)).length : null;
+  return { runs: lessPending(counts?.runs, gone) ?? listed, attempts: lessPending(counts?.attempts, gone, 'attempts') ?? (shown ? shown.length - (listed ?? 0) : null) };
+}
 
 /**
  * Fits the bar to its width, measured: while it overflows, what it can do without gives way whole,
@@ -69,12 +78,11 @@ export function StatusBar({ inert = false }: { inert?: boolean }) {
   // The team store's words say when it last synced.
   const now = useNow(10_000);
   const team = useTeamStore();
-  const listed = runs ? runs.filter((r) => !isAttempt(r)).length : null;
-  const attempts = meta?.counts?.attempts ?? (runs ? runs.length - (listed ?? 0) : null);
+  const { runs: runCount, attempts } = storeCounts(meta?.counts, runs, usePendingHidden(), useStillCounted(meta));
   const { left, right } = statusParts({
     exported,
     store: meta?.dbPath ? { shown: storePath(meta), whole: meta.dbPath } : null,
-    runs: meta?.counts?.runs ?? listed,
+    runs: runCount,
     attempts,
     exportedAt: meta?.exportedAt ?? null,
     conn,

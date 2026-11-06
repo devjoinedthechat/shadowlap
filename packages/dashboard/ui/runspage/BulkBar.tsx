@@ -9,22 +9,26 @@ import { Icon } from '../components/Icon.js';
 import { Id, namedIn } from '../components/Id.js';
 import { num, plural, shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
+import { BULK, confirmWords } from '../labels.js';
+import type { PendingRun } from '../pending-delete.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { defaultPackFolder, PACK_HOLDS, packRunCommand, redactsFact } from '../run/share.js';
 import { isLive } from '../runs.js';
 import { guardedWayOn, useApp } from '../state.js';
 import type { JobView } from '../types.js';
-import { bulkToast, datasetOff, deleteFacts, deleteLead, inBatches, joinDeleted, joinLabelled, labelCommands, named, packCommand, packOff, rmCommand } from './bulk.js';
+import { bulkToast, datasetOff, deleteFacts, deleteLead, inBatches, joinLabelled, labelCommands, labelSuggestions, named, packCommand, packOff, rmCommand } from './bulk.js';
+import { useDeleteRuns } from './delete-runs.js';
 import { ActionButton } from '../components/ActionButton.js';
 
 /**
- * The bar over the Runs table once runs are picked: Label, Push (with a team store), Pack, Dataset,
- * Compare (exactly two) and Delete, then Clear. Label and Delete act on every run picked by its full
- * id, a thousand to a request; Delete takes the attempts bundled under each run, as `shadowlap rm`
- * does, and says how many. Pack asks for a folder first, as the run page's does, then packs every run
- * in one job, a folder each; Dataset (at most 500 runs) starts the run page's export job, and Push
- * the team store's.
+ * The bar over the Runs table once runs are picked: Add label…, Push (with a team store), Pack,
+ * Export dataset…, Compare (exactly two) and Delete, then Clear selection. Label and Delete act on
+ * every run picked by its full id, a thousand to a request; Delete takes the attempts bundled under
+ * each run, as `shadowlap rm` does, and says how many, with Undo while its toast shows
+ * (`delete-runs.ts`). Pack asks for a folder first, as the run page's does, then packs every run in
+ * one job, a folder each; Export dataset… (at most 500 runs) starts the run page's export job, and
+ * Push the team store's. Pack and Export dataset… wait while every run picked is still recording.
  */
 
 /** What the bar needs of a run picked: it may no longer be on the page shown. */
@@ -36,7 +40,12 @@ export interface PickedRun {
   local?: boolean;
   /** Attempts bundled under it, which a delete takes with it, as the table counted them. */
   attempts?: number;
+  /** The chips it counts under, `all` aside: what it takes from their counts while its delete waits. */
+  chips?: readonly string[];
 }
+
+/** What a run picked takes from the lists and their counts while its delete waits. */
+const pendingOf = (r: PickedRun): PendingRun => ({ runId: r.runId, chips: r.chips ?? [], attempts: r.attempts ?? 0, startedAt: r.startedAt });
 
 type Open = 'label' | 'delete' | 'pack' | 'dataset' | null;
 
@@ -58,9 +67,10 @@ function useBulkHeight(): RefObject<HTMLDivElement | null> {
 }
 
 export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedRun[]; store: boolean; clear: () => void; onDone: () => void }) {
-  const { client, toast, guard, hasKind, watchJob } = useApp();
+  const { client, toast, guard, hasKind, watchJob, runs: inMemory } = useApp();
   const bar = useBulkHeight();
   useRetoast(bar);
+  const startDelete = useDeleteRuns();
   const [open, setOpen] = useState<Open>(null);
   const ids = runs.map((r) => r.runId);
   const live = runs.filter(isLive);
@@ -70,9 +80,9 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
   const endedIds = ended.map((r) => r.runId);
   const attempts = ended.reduce((n, r) => n + (r.attempts ?? 0), 0);
   const rm = rmCommand(endedIds);
-  // The bar picks up to 1,000 runs; one dataset, and one pack job, take fewer.
-  const tooMany = datasetOff(ended.length);
-  const tooManyPacks = packOff(ended.length);
+  // The bar picks up to 1,000 runs; one dataset, and one pack job, take fewer. A copy of runs still recording would be cut off.
+  const waits = ended.length ? null : BULK.waits(runs.length);
+  const waitsTip = waits ? BULK.waitsTip(runs.length) : undefined;
 
   // A run still recording goes too: the CLI queues it, and pushes it when it ends. Once the push has
   // worked the selection is let go, as the runs it picked are in the store (push.ts).
@@ -96,7 +106,7 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
         <span className="sep" />
         <ActionButton className="btn sm" onClick={() => guard(() => setOpen('label'))}>
           <Icon name="plus" />
-          Label
+          {BULK.label}
         </ActionButton>
         {store && hasKind(JOB_KINDS.push) ? (
           <ActionButton className="btn sm" onClick={() => guard(() => void push())}>
@@ -104,13 +114,13 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
           </ActionButton>
         ) : null}
         {hasKind(JOB_KINDS.pack) ? (
-          <ActionButton className="btn sm" why={tooManyPacks} onClick={() => guard(() => (ended.length ? setOpen('pack') : toast('A run that is still recording can’t be packed until it ends.')))}>
+          <ActionButton className="btn sm" tip="Pack" why={waits ?? packOff(ended.length)} whyTip={waitsTip} onClick={() => guard(() => setOpen('pack'))}>
             Pack
           </ActionButton>
         ) : null}
         {hasKind(JOB_KINDS.dataset) ? (
-          <ActionButton className="btn sm" why={tooMany} onClick={() => guard(() => (ended.length ? setOpen('dataset') : toast('A run that is still recording can’t be exported until it ends.')))}>
-            Dataset
+          <ActionButton className="btn sm" tip={confirmWords(BULK.dataset)} why={waits ?? datasetOff(ended.length)} whyTip={waitsTip} onClick={() => guard(() => setOpen('dataset'))}>
+            {BULK.dataset}
           </ActionButton>
         ) : null}
         <button
@@ -128,10 +138,10 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
           Compare
         </button>
         <ActionButton className="btn sm quiet dz" onClick={() => guard(() => (ended.length ? setOpen('delete') : toast('A run that is still recording can’t be deleted.')))}>
-          Delete
+          {BULK.delete(runs.length)}
         </ActionButton>
         <button className="linkbtn" type="button" onClick={clear}>
-          Clear
+          {BULK.clear}
         </button>
       </div>
       {open === 'label' ? (
@@ -142,6 +152,7 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
           label="Label"
           placeholder="good"
           maxLength={40}
+          suggestions={labelSuggestions(inMemory)}
           ok="Add label"
           command={(label) => {
             const c = labelCommands(ids, label);
@@ -179,14 +190,8 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
           tone="danger"
           onClose={() => setOpen(null)}
           onOk={() => {
-            inBatches(endedIds, (part) => client.deleteRuns(part)).then(joinDeleted).then(
-              (out) => {
-                toast(bulkToast({ verb: 'Deleted', done: out.done, of: endedIds.length, skipped: out.skipped, attempts: out.attempts.length }));
-                clear();
-                onDone();
-              },
-              (err: unknown) => toast(errorText(err), 'error'),
-            );
+            startDelete(ended.map(pendingOf));
+            clear();
           }}
         />
       ) : null}

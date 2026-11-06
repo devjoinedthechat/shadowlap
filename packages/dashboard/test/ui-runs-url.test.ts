@@ -1,11 +1,12 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isAllRuns, links, parseRunsQuery, runsFilter } from '../src/links.js';
+import { isAllRuns, isLink, links, parseRunsQuery, runsFilter } from '../src/links.js';
 import type { Client, RunsQuery } from '../ui/api.js';
 import { RunsPage } from '../ui/pages/Runs.js';
-import { parseRoute, routeHref } from '../ui/route.js';
+import { parseRoute, readTokenLink, routeHref } from '../ui/route.js';
 import { useRoute } from '../ui/router.js';
 import { dayTimes, runsLinkQuery } from '../ui/runspage/query.js';
+import { lastRunsHref, lastViewOf, useLastRunsHref } from '../ui/runs-view.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
 
@@ -19,7 +20,7 @@ describe('the address of a view of Runs', () => {
   it('holds the words, the chip, the sort and the days, one way, and reads back as it was written', () => {
     const link = links.runs({ q: 'refund (A-1042) & more', types: 'failed', sort: 'spent', from: '2026-10-22', to: '2026-10-20' });
     // Every field in its place, the days in order.
-    expect(link).toBe('#/runs?q=refund%20%28A-1042%29%20%26%20more&types=failed&sort=spent&from=2026-10-20&to=2026-10-22');
+    expect(link).toBe('#/runs?q=refund+%28A-1042%29+%26+more&types=failed&sort=spent&from=2026-10-20&to=2026-10-22');
     expect(parseRunsQuery(link.slice('#/runs?'.length))).toEqual({ q: 'refund (A-1042) & more', types: 'failed', sort: 'spent', days: { from: '2026-10-20', to: '2026-10-22' } });
     const route = parseRoute(link);
     expect(route).toEqual({ page: 'runs', filter: { q: 'refund (A-1042) & more', types: 'failed', sort: 'spent', days: { from: '2026-10-20', to: '2026-10-22' } } });
@@ -27,7 +28,7 @@ describe('the address of a view of Runs', () => {
     expect(runsLinkQuery(link)).toEqual(route.page === 'runs' ? route.filter : null);
     // The runs with a label, as the key's column and a label chip link to them.
     const good = links.runs({ q: 'label:good' });
-    expect(good).toBe('#/runs?q=label%3Agood');
+    expect(good).toBe('#/runs?q=label:good');
     expect(parseRoute(good)).toEqual({ page: 'runs', filter: { q: 'label:good', types: 'all', sort: 'when', days: null } });
     expect(routeHref(parseRoute(good))).toBe(good);
     // Every run is #/runs alone, its route with no filter.
@@ -45,6 +46,26 @@ describe('the address of a view of Runs', () => {
     for (const hash of ['#/runs', '#/runs?types=nightly', '#/runs?q=%20', '#/run/01K5CQ4N7G?q=x', '#token=abc&open=/runs']) expect(runsLinkQuery(hash), hash).toBeNull();
     // Words past what the field takes are cut, not refused.
     expect(runsLinkQuery(`#/runs?q=${'a'.repeat(500)}`)?.q).toHaveLength(200);
+  });
+
+  it('reads keys and words in any case, a chip by its plural or the type: word, and a + as a space', () => {
+    expect(runsLinkQuery('#/runs?Q=status:failed+label:refund&KIND=forks&Types=Recordings&SORT=Calls')).toEqual({ q: 'status:failed label:refund', types: 'recording', sort: 'calls', days: null });
+    expect(runsLinkQuery('#/runs?types=replays')?.types).toBe('clean');
+    expect(runsLinkQuery('#/runs?types=TESTS')?.types).toBe('test');
+    expect(runsLinkQuery('#/runs?type=captures')?.types).toBe('capture');
+    expect(runsLinkQuery('#/runs?types=constructor')).toBeNull();
+    // What it can't read is left out: a day there isn't, a broken escape.
+    expect(runsLinkQuery('#/runs?from=2026-02-30&types=fork')).toEqual({ q: '', types: 'fork', sort: 'when', days: null });
+    expect(runsLinkQuery('#/runs?q=100%&types=fork')).toEqual({ q: '', types: 'fork', sort: 'when', days: null });
+    expect(runsLinkQuery('#/runs?from=2028-02-29')?.days).toEqual({ from: '2028-02-29', to: '2028-02-29' });
+    expect(links.runs({ from: '2026-02-30' })).toBe('#/runs');
+    // Written as it reads: a space as +, and : , / @ as typed, whole in a link a command prints.
+    const link = links.runs({ q: 'status:failed label:refund tool:a/b @x,y' });
+    expect(link).toBe('#/runs?q=status:failed+label:refund+tool:a/b+@x,y');
+    expect(isLink(link)).toBe(true);
+    expect(readTokenLink(`#token=abc&open=${link.slice(1)}`)?.open).toBe(link);
+    expect(runsLinkQuery(link)?.q).toBe('status:failed label:refund tool:a/b @x,y');
+    expect(runsLinkQuery(links.runs({ q: 'a+b' }))?.q).toBe('a+b');
   });
 
   it('asks the table for the days picked as the viewer’s own days: the first one’s start to the start of the day after the last', () => {
@@ -123,6 +144,12 @@ function Routed() {
   return route.page === 'runs' ? createElement(RunsPage, { filter: route.filter }) : null;
 }
 
+/** The nav's Runs, drawn beside the page as the sidebar's is. */
+function NavRuns() {
+  return createElement('a', { className: 'navruns', href: useLastRunsHref() }, 'Runs');
+}
+const navRuns = () => r!.one('a.navruns').getAttribute('href');
+
 let r: Rendered | null = null;
 afterEach(async () => {
   await r?.unmount();
@@ -179,27 +206,92 @@ describe('Runs, from its address', () => {
     expect(r.one('.tbar input[type="search"]').value).toBe('refund ');
   });
 
-  it('opens on #/runs alone with what it showed last, and says so in the address', async () => {
-    const first = addressBar('#/runs?types=fork&sort=calls');
+  it('opens on #/runs alone with every run, and the nav’s Runs on the view it showed last', async () => {
+    addressBar('#/runs?types=fork&sort=calls');
     const { client, asked } = server();
-    r = await render(createElement(AppContext.Provider, { value: app(client) }, createElement(Routed)));
+    r = await render(createElement(AppContext.Provider, { value: app(client) }, createElement(Routed), createElement(NavRuns)));
     await r.until('the first page', () => asked.length > 0);
+    expect(navRuns()).toBe('#/runs?types=fork&sort=calls');
+    expect(lastViewOf('#/runs')).toBe('#/runs?types=fork&sort=calls');
+    expect(lastViewOf('#/fixes')).toBe('#/fixes');
+    // The nav's link follows the view as it changes.
+    await r.click(chip('All'));
+    await r.until('the link moved', () => navRuns() === '#/runs?sort=calls');
+    expect(lastRunsHref()).toBe('#/runs?sort=calls');
     await r.unmount();
     r = null;
     vi.unstubAllGlobals();
-    void first;
-    // Later, from the sidebar's Runs: the same view, in the address too.
+    // Later, from the sidebar's all or the Overview: every run, the address as it was.
     const bar = addressBar('#/runs');
     asked.length = 0;
     r = await render(createElement(AppContext.Provider, { value: app(client) }, createElement(Routed)));
     await r.until('the first page', () => asked.length > 0);
-    expect(bar.steps).toEqual(['#/runs?types=fork&sort=calls']);
-    expect(asked[0]).toMatchObject({ types: ['fork'], sort: 'calls' });
-    expect(pressed()).toEqual(['Forks']);
-    // Picking All there clears it for good: #/runs alone is then every run.
+    expect(bar.steps).toEqual(['#/runs']);
+    expect(asked[0]).toMatchObject({ sort: 'when' });
+    expect(asked[0]?.types ?? []).toEqual([]);
+    expect(pressed()).toEqual(['All']);
+    expect(lastRunsHref()).toBe('#/runs');
+  });
+
+  it('writes the address in the one form it reads, in place of its step', async () => {
+    const bar = addressBar('#/runs?TYPES=Forks&Sort=SPENT&q=refund%20A&from=2026-02-30');
+    const { client, asked } = server();
+    r = await render(createElement(AppContext.Provider, { value: app(client) }, createElement(Routed)));
+    await r.until('the first page', () => asked.length > 0);
+    expect(bar.steps).toEqual(['#/runs?q=refund+A&types=fork&sort=spent']);
+    expect(asked[0]).toMatchObject({ types: ['fork'], q: 'refund A', sort: 'spent', from: null, to: null });
+    expect(r.one('.tbar input[type="search"]').value).toBe('refund A');
+  });
+
+  it('makes Enter a step of its own, Back undoing the words typed and the step together, and a chip keeps the focus', async () => {
+    const bar = addressBar('#/runs?types=fork');
+    const { client, asked } = server();
+    r = await render(createElement(AppContext.Provider, { value: app(client) }, createElement(Routed)));
+    await r.until('the first page', () => asked.length > 0);
+    const field = () => r!.one('.tbar input[type="search"]');
+    await r.type(field(), 'refund');
+    await r.until('the words in the address', () => bar.steps[0] !== '#/runs?types=fork');
+    expect(bar.steps).toEqual(['#/runs?q=refund&types=fork']);
+    await r.press('Enter', {}, field());
+    expect(bar.steps).toEqual(['#/runs?types=fork', '#/runs?q=refund&types=fork']);
+    // More words, then a chip: one step, the words with it.
+    await r.type(field(), 'refund A');
+    await r.until('the words in the address', () => bar.steps.at(-1) === '#/runs?q=refund+A&types=fork');
+    expect(bar.steps).toHaveLength(2);
     await r.click(chip('All'));
-    expect(bar.steps.at(-1)).toBe('#/runs?sort=calls');
-    await r.click(r.byText('th button', 'When'));
-    expect(bar.steps.at(-1)).toBe('#/runs');
+    expect(bar.steps).toEqual(['#/runs?types=fork', '#/runs?q=refund&types=fork', '#/runs?q=refund+A']);
+    expect(r.document.activeElement).toBe(chip('All'));
+    // Back: the step before the chip as it was committed, its words and its chip.
+    bar.back();
+    await r.until('Forks again', () => pressed()[0] === 'Forks');
+    expect(field().value).toBe('refund');
+    bar.back();
+    await r.until('no words', () => field().value === '');
+    expect(pressed()).toEqual(['Forks']);
+  });
+
+  it('gives a view back where its list was left, once its rows are in', async () => {
+    addressBar('#/runs?types=fork');
+    const { client } = server();
+    r = await render(createElement(AppContext.Provider, { value: app(client) }, createElement(Routed)));
+    await r.until('the rows', () => r!.all('table.runst tbody tr').length > 0);
+    (window as unknown as { scrollY: number }).scrollY = 640;
+    // A row opened: the page goes.
+    await r.unmount();
+    r = null;
+    // Back to it: the rows come once the spy is in place.
+    let open: () => void = () => undefined;
+    const gate = new Promise<void>((res) => (open = res));
+    const slow: Client = { ...client, runsPage: (q: RunsQuery) => gate.then(() => client.runsPage(q)) };
+    r = await render(createElement(AppContext.Provider, { value: app(slow) }, createElement(Routed)));
+    const to = vi.fn();
+    (window as unknown as { scrollTo: typeof to }).scrollTo = to;
+    expect(to).not.toHaveBeenCalled();
+    open();
+    await r.until('the place given back, and again after a tick', () => to.mock.calls.length >= 2);
+    expect(to.mock.calls).toEqual([
+      [0, 640],
+      [0, 640],
+    ]);
   });
 });

@@ -616,7 +616,7 @@ describe('what the next step of a run bills', () => {
     expect(unread?.sub).toBeUndefined();
   });
 
-  it('leaves what bills nothing with no estimate: a golden’s bisect, its re-run, a pack, a replay', async () => {
+  it('leaves what bills nothing with no estimate: a golden’s bisect, its re-run (never where its injection gate runs live), a pack, a replay', async () => {
     const rec = recording();
     passedTest(rec, T0 + MIN);
     const crash = crashedTest(rec, T0 + 2 * MIN);
@@ -625,7 +625,7 @@ describe('what the next step of a run bills', () => {
     expect((await priced(other))?.key).toBe('pack');
     expect((await priced(other))?.estimate).toBeUndefined();
     const t = divergedTest(rec, [UUID_CHANGE], { at: T0 + 4 * MIN });
-    expect((await priced(t, work([source(rec)])))?.estimate).toMatchObject({ kind: 'tests', usd: 0 });
+    for (const [injection, kind, usd] of [[false, 'tests', 0], [true, 'injection', null]] as const) expect((await priced(t, work([source(rec, { injection })])))?.estimate, String(injection)).toMatchObject({ kind, usd });
   });
 
   it('prices a re-run at what the last test spent, and asks first with no estimate when that spent nothing', async () => {

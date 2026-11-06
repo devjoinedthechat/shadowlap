@@ -47,12 +47,16 @@ describe('the limits an estimate is worked out from', () => {
     expect(repairerBound('openai:gpt-5', chars, { 'gpt-5': { input: 9, output: 9 } }).usd).toBe(repairerMost({ provider: 'openai', model: 'gpt-5' }, prompt, { 'gpt-5': { input: 9, output: 9 } }));
   });
 
-  it('decide as many candidates as repair may: twice what it asks the repairer for, never past ⌊1/risk⌋', () => {
+  it('decide as many candidates as repair may: what it asks the repairer for, the most it tries, never past ⌊1/risk⌋', () => {
     expect(defaultOf('repair', '--candidates')).toBe(REPAIR_CANDIDATES);
     const run: CallRecord = { runId: 'r', callNo: 1, kind: 'api', name: 'POST /v1/messages', fingerprint: 'f', occurrence: 0, origin: 'live', effect: null, requestRef: null, meta: { model: 'claude-sonnet-5' }, at: 1, end: { runId: 'r', callNo: 1, attempt: 0, responseRef: null, outcome: 'ok', meta: { model: 'claude-sonnet-5', usage: { inputTokens: 100, outputTokens: 10 } }, at: 1 }, attempts: [] };
-    for (const risk of [0.05, 0.2, 0.3, 0.45]) {
-      const e = repairEstimate({ failing: [{ runId: 'r', startedAt: 1, calls: pricedCalls([run]) }], rule: { gate: { kind: 'sprt', ...SPRT_DEFAULTS, risk } } });
-      expect(e.parts[0], String(risk)).toBe(`a new blame, then up to ${Math.min(2 * REPAIR_CANDIDATES, mostDecided(risk))} candidates`);
+    const failing = [{ runId: 'r', startedAt: 1, calls: pricedCalls([run]) }];
+    for (const candidates of [undefined, 1, 8]) {
+      for (const risk of [0.05, 0.2, 0.3, 0.45, 0.6]) {
+        const e = repairEstimate({ failing, rule: { gate: { kind: 'sprt', ...SPRT_DEFAULTS, risk } }, ...(candidates ? { candidates } : {}) });
+        const most = Math.min(candidates ?? REPAIR_CANDIDATES, mostDecided(risk));
+        expect(e.parts[0], `${candidates} at ${risk}`).toBe(`a new blame, then up to ${most} candidate${most === 1 ? '' : 's'}`);
+      }
     }
   });
 

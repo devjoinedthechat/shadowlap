@@ -56,6 +56,8 @@
     "packages/dashboard/test/ui-route-helpers.ts",
     "packages/dashboard/test/ui-list-keys.test.ts",
     "packages/dashboard/test/ui-row-step.test.ts",
+    "packages/dashboard/test/ui-row-replay.test.ts",
+    "packages/dashboard/test/ui-import-verdict.test.ts",
     "packages/dashboard/test/ui-palette-ids.test.ts",
     "packages/dashboard/test/ui-palette-step.test.ts",
     "packages/dashboard/test/ui-client-cache.test.ts",
@@ -63,6 +65,7 @@
     "packages/dashboard/test/ui-runs-bulk.test.ts",
     "packages/dashboard/test/ui-overview-lists.test.ts",
     "packages/dashboard/test/ui-sidebar-runs.test.ts",
+    "packages/dashboard/test/ui-runs-status.test.ts",
     // This renders a fix's page.
     "packages/dashboard/test/ui-fix-page.test.ts",
     // This drives the fork menu's actions, with their confirmation of someone else's command.
@@ -118,6 +121,10 @@
     "packages/dashboard/test/ui-render-counts.test.ts",
     // These render the Runs page, a page of its table at a time, and a run's page, a page of its calls at a time.
     "packages/dashboard/test/ui-runs-paging.test.ts",
+    "packages/dashboard/test/ui-runs-head.test.ts",
+    "packages/dashboard/test/ui-runs-table.test.ts",
+    "packages/dashboard/test/ui-runs-days.test.ts",
+    "packages/dashboard/test/ui-pending-delete.test.ts",
     "packages/dashboard/test/ui-run-paging.test.ts",
     // This renders the Overview while the runs' totals are added up.
     "packages/dashboard/test/ui-overview-warming.test.ts",

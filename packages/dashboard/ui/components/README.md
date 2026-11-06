@@ -67,7 +67,7 @@ Whatever opens over a page stands on one surface (`--pop`, one edge and its shad
 | `DialogFacts`, `DialogSteps`, `DialogTip` | `DialogFacts.tsx` | Label and value rows between hairlines, a quiet part under the value, an amber or red row; numbered What happens; words with a card of their own. Not the page's `Facts`, a row of figures. |
 | `CostLine`, `CommandRow` | `CostLine.tsx`, `CommandRow.tsx` | What a dialog bills, price first, breaking after a dot, holding the body's foot while it scrolls; its `$` row, a chain a line a command, the box's one Copy. |
 | `UpdateGoldenDialog`, `GoodCommitField` | `UpdateGolden.tsx`, `GoodCommit.tsx` | Update golden, on Tests, a test replay's page and the apply drawer, from `update-plan.ts`; Find breaking commit's radio list and its field for any other commit, in all three of its dialogs. |
-| `PromptDialog`, `ConfirmDialog` | `Dialog.tsx` | One field before an action runs (or one of a few `choices`, with "Something else…"; a choice with `text` asks for a few words more, as "error, with a message" does), with the command it runs, which can follow the answer; a yes or no with the command it runs. |
+| `PromptDialog`, `ConfirmDialog` | `Dialog.tsx` | One field before an action runs (or one of a few `choices`, with "Something else…"; a choice with `text` asks for a few words more, as "error, with a message" does; `suggestions`, answers it offers as you type, as the bulk bar's Label offers the labels runs carry), with the command it runs, which can follow the answer; a yes or no with the command it runs. |
 | `DatasetDialog` | `DatasetDialog.tsx` | Runs as an eval dataset: a format and which calls become examples, as the `export-dataset` job. A run's Share menu and the Runs page's bulk bar both open it; pass `rules` when the page knows how many redaction rules the copy applies. |
 | `Popover`, `MenuItem`, `useMenu` | `Popover.tsx` | A menu hanging from its button (`.pop`, `narrow` for the second of its two widths, `curmark` for a check before each row), placed by the room there is (`placeMenu` in `place.ts`) and again as it or the window changes size, its first item focused, a sheet on a phone. Arrows round its ends, Home, End, PageUp, PageDown, a typed letter, → to a row's second button (`.prow`, `.px`), Tab and Esc to close, `onKeys` for keys of its own. A button that opens one says so as it is drawn (`aria-haspopup`), so ↓ and ↑ open it from the first press. A row is one line: `<b>` what it does, `<small>` what it runs; what it is for and its command go on its hover card (`data-tip`). `MenuItem`'s `checked` makes it the picked one of a choice (`menuitemradio`). `useMenu()` holds the open state and the anchor. |
 | `Picker`, `matchPicks`, `pickMove` | `Picker.tsx` | A combobox: a filter over a listbox, the field naming the option the arrows light (`aria-activedescendant`), the one picked checked, "Nothing matches." when the filter leaves none, at its button's width, a sheet on a phone. The lit row moves by a class alone, so a key draws no row of a long list again. `RunPicker` (`ui/compare/`) is one over runs, by id, about line or label: Compare's, the redaction preview's. |
@@ -152,14 +152,24 @@ with what it has and calls `paletteSourcesChanged()` when more arrives, and an o
 its sources again. Pages a later version fills in each have their own file under `pages/`.
 
 The Overview's panels are in `overview/` (`panels.tsx`, with what they say in `overview/model.ts`),
-and the Runs page's parts in `runspage/`: the calendar (`Calendar.tsx`, its logic in
-`calendar-model.ts`), the table, the bulk bar (`bulk.ts`: its toasts, Dataset's limit, ids sent in batches, the Delete command),
-the import dialog (`imports.ts` reads a file's first
+and the Runs page's parts in `runspage/`: the header's actions (`RunsActions.tsx`: Pull, Import
+capture… and Push local runs while runs are only here), the filter field (`FilterField.tsx`: its
+terms on hover, how many runs match, `onCommit` for Enter), the row of days (`DaysRow.tsx`, a bar a
+week on a phone, its days picked by `day-picks.ts`) and the calendar it opens (`Calendar.tsx`, its
+logic in `calendar-model.ts`), the table (`RunsTable.tsx`, `RunsTableEmpty` the line an empty list
+says), the bulk bar (`BulkBar.tsx`, on `ActionButton`, Pack and Export dataset… saying why they wait;
+`bulk.ts`: its toasts, Dataset's limit, ids sent in batches, the Delete command, `labelSuggestions`
+for Label), the import dialog (`imports.ts` reads a file's first
 bytes for the engine's `guessImportFormat`, and dates the sample trace in `sample-otel.ts` to end now), Find the commit (`find-commit.ts`, what it asks bisect
-for) and authors; `runspage/query.ts` builds the page's requests and reads the
+for) and authors. The bulk bar's Delete waits out its toast with Undo (`delete-runs.ts`); meanwhile
+`ui/pending-delete.ts` keeps the runs off every list and sends the delete as the page or the
+project goes. `runspage/query.ts` builds the page's requests and reads the
 filter its address holds (`#/runs?q=…&types=failed&sort=spent&from=…&to=…`, written by `links.runs`
-in `src/links.ts`), so any screen can link to a filtered list, and Back and Forward go through the
-views Runs showed. `teamstore.ts` has `useTeamStore()`, the team store as `GET /api/store` reports it, for any
+in `src/links.ts`), so any screen can link to a filtered list. `runspage/history.ts` writes it:
+`commitRuns` as a step Back undoes (a chip, a sort, days, Enter), `replaceRuns` in place (the words
+as they settle). `runspage/scroll.ts` gives each view back where its list was left, and
+`ui/runs-view.ts` keeps the view Runs showed last, which the nav's Runs, the crumbs, `g r` and a
+cold Esc open. `teamstore.ts` has `useTeamStore()`, the team store as `GET /api/store` reports it, for any
 screen that changes with one (the status bar's part that names it among them); it reads again when the change
 feed's `team` counter moves (a push, a pull, a step of the setup). The store's setup is a page of its
 own, `#/setup/store` (`pages/settings/StoreSetup.tsx`; its palette rows are added in `palette-actions.ts`), its steps worked out in

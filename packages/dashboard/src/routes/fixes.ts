@@ -1,7 +1,7 @@
-import { ACTIONS, blameCheckFor, DEFAULT_REPAIRER, failedCheckLabels, FIX_STATUSES, FixIdError, type FixStatus, hasRecordedCommand, type JobConsent, needsConsent, readConfigFile, repairerProblem, repairJobArgv, resolveFix, type RunRecord, selectedRuns, setFixTitle, splitCommand, type StoredFix, type StoreOf } from '@shadowlap/engine';
+import { ACTIONS, blameCheckFor, DEFAULT_REPAIRER, failedCheckLabels, FIX_STATUSES, FixIdError, type FixStatus, goldenNameArgs, goldenNamesProblem, hasRecordedCommand, type JobConsent, needsConsent, readConfigFile, repairerProblem, repairJobArgv, resolveFix, type RunRecord, selectedRuns, setFixTitle, splitCommand, type StoredFix, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
-import { fixBundles, fixDetail, fixList, patchesToCheck, pulledPatchesToCheck } from '../fixes.js';
+import { APPLY_GOLDENS, fixBundles, fixDetail, fixList, patchesToCheck, pulledPatchesToCheck } from '../fixes.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult, JobRequest } from '../jobs.js';
 import { patchesInTree, rewritesHere } from '../patch-in-tree.js';
@@ -11,14 +11,18 @@ import { sendAnswer } from '../read-pool.js';
 import type { ReadAnswer } from '../read-jobs.js';
 import { recordingNow } from '../run-exports.js';
 import type { Router } from '../router.js';
+import { loadRunIndex } from '../run-index.js';
+import { MODEL, modelParam, verifyRule } from './estimates.js';
 
 /**
- * Fixes: the list (`GET /api/fixes`), a fix with its three steps (`GET /api/fixes/:id`), its title
- * (`PUT /api/fixes/:id/title`), and the attempts blame and verify made in a run's family, bundled
- * for the Forks view (`GET /api/fixes/family/:runId`). Four job kinds act on them: `blame` (a
+ * Fixes: the list (`GET /api/fixes`), a fix with its three steps (`GET /api/fixes/:id`), what its
+ * billed buttons would cost (`GET /api/fixes/:id/estimates`), its title (`PUT /api/fixes/:id/title`),
+ * and the attempts blame and verify made in a run's family, bundled for the Forks view
+ * (`GET /api/fixes/family/:runId`). Four job kinds act on them: `blame` (a
  * failed run, with the check it failed; or an open fix's blame again, or with a stronger model),
  * `repair` (an open fix, from its failing and good runs), `verify` (more attempts for a verdict left
- * incomplete) and `apply` (a verified fix's patch, into the working tree). Each builder checks what it is asked and
+ * incomplete) and `apply` (a verified fix's patch, into the working tree, with the names the page
+ * gave the goldens it copies). Each builder checks what it is asked and
  * builds the command line; the CLI records what it did, so the pages read it back from the store.
  * A blame needs the check the run failed: the one the request names, else the one it was judged by
  * (its own --expect, or the config's tests for the recording it replays, through its ancestors),
@@ -64,7 +68,8 @@ function configuredRepairer(ctx: RouteContext): string | null {
  * A fix's page, worked out beside the server (read-jobs.ts `fix`): it reads the blamed run's calls,
  * every one of them. Whether each patch it could apply is in the project's working tree already, as
  * git says it there, and why `fix apply` refuses a pulled repair's patch there, as its file reads, are
- * asked here first and handed over as data; none without a project folder.
+ * asked here first and handed over as data; the thread reads what the project's goldens folder
+ * holds itself. None of them without a project folder.
  */
 async function fixAnswer(ctx: RouteContext, store: StoreOf<'fixes' | 'team'>, fix: StoredFix): Promise<ReadAnswer> {
   const project = ctx.project?.path;
@@ -78,6 +83,7 @@ async function fixAnswer(ctx: RouteContext, store: StoreOf<'fixes' | 'team'>, fi
     repairer: configuredRepairer(ctx),
     ...(check ? { inTree: patches.map((p): [string, boolean | null] => [p, check(p)]) } : {}),
     ...(here ? { refusedHere: pulled.map((r): [string, string | null] => [r.repairId, here(r.repairId)]) } : {}),
+    ...(project ? { project } : {}),
   });
 }
 
@@ -113,8 +119,6 @@ function importedCommand(runs: RunRecord[], yes: unknown, args: readonly string[
   return needsConsent({ runs, yes, args });
 }
 
-/** A model as `--model` takes it: a name, never a flag. */
-const MODEL = /^[A-Za-z0-9][\w.:/@-]{0,119}$/;
 
 /**
  * Run blame again, or Run blame with stronger model, for an open fix whose blame placed its failure on no
@@ -234,6 +238,30 @@ function repairJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 
   return { args: [...args, ...consent.yes] };
 }
 
+/**
+ * The names the page gave the goldens apply copies now (`names`, `{ <run>: <name> }`, each run by the
+ * short id the fix's page gave it), as `fix apply --name` takes them, or why they won't do: a run it
+ * copies no recording of, or a name the engine's rule refuses, read among the names given alone.
+ * Whether one is taken, or is the name a golden given none takes, `fix apply` reads in the goldens
+ * folder (where a recording copied before keeps its own), and refuses before it changes anything.
+ * None given, each takes the name the fix's label makes.
+ */
+function namesFor(given: unknown, offered: ReadonlyArray<{ run: string; name: string }>): { names: Array<{ run: string; name: string }> } | { error: string } {
+  if (given === undefined) return { names: [] };
+  if (!given || typeof given !== 'object' || Array.isArray(given)) return { error: 'names gives each golden its name by its run, such as {"01K5CQ2E8M":"refund-bug"}' };
+  const names: Array<{ run: string; name: string }> = [];
+  for (const [run, name] of Object.entries(given)) {
+    if (!offered.some((o) => o.run === run)) return { error: `${run.slice(0, 40)} is not a run whose recording applying the fix copies now` };
+    if (typeof name !== 'string') return { error: `the name of the golden from ${run} is text` };
+    names.push({ run, name: name.trim() });
+  }
+  const problem = goldenNamesProblem(
+    names.map((n) => n.name),
+    { folder: APPLY_GOLDENS, held: [] },
+  );
+  return problem ? { error: problem.text } : { names };
+}
+
 function applyJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>): JobBuildResult {
   const fix = findFix(store, req.fixId);
   const d = fixDetail(store, fix.fixId)!;
@@ -241,7 +269,9 @@ function applyJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | '
   if (!apply) return { error: `${short(fix.fixId)} is open: no change has been verified for it yet, so there is nothing to apply`, status: 409 };
   if (d.actions.applied && !apply.pending) return { error: `${short(fix.fixId)} is applied already, and nothing is left to do`, status: 409 };
   if (apply.refused) return { error: `${short(fix.fixId)}'s patch is not the change its repair verified: ${apply.refused}. Nothing ran`, status: 409 };
-  return { args: apply.argv, title: apply.kind === 'mark' ? 'Marking the fix applied' : d.actions.applied ? 'Finishing the apply' : ACTIONS.applyFix.doing };
+  const named = namesFor(req.names, apply.names);
+  if ('error' in named) return named;
+  return { args: [...apply.argv, ...goldenNameArgs(named.names)], title: apply.kind === 'mark' ? 'Marking the fix applied' : d.actions.applied ? 'Finishing the apply' : ACTIONS.applyFix.doing };
 }
 
 export function register(router: Router, ctx: RouteContext): void {
@@ -272,6 +302,20 @@ export function register(router: Router, ctx: RouteContext): void {
     const fix = findFix(store, r.params.id);
     prs?.refresh([fix]);
     sendAnswer(r, await fixAnswer(ctx, store, fix));
+  });
+
+  // What Run repair, Run blame again or with a stronger model (at `model`), and each Verify step's
+  // more attempts would bill, beside the server: they read the fix's runs' calls, every one. Asked
+  // apart from the fix's page, so the page stays quick.
+  router.get('/fixes/:id/estimates', async (r) => {
+    const fix = findFix(store, r.params.id);
+    const model = modelParam(r.query.get('model'));
+    // The calls of the runs it reads, by the fix's links alone: its blames, repairs and verdicts are read beside the server.
+    const runs = new Set(store.fixLinks(fix.fixId).flatMap((l) => (l.kind === 'failing' || l.kind === 'good' ? [l.ref] : [])));
+    const { byId } = loadRunIndex(store);
+    const calls = [...runs].reduce((n, id) => n + (byId.get(id)?.calls ?? 0), 0);
+    const job = { kind: 'fix-estimates' as const, fixId: fix.fixId, repairer: configuredRepairer(ctx), rule: verifyRule(ctx), model, ...(ctx.read.prices ? { prices: ctx.read.prices } : {}) };
+    sendAnswer(r, await ctx.reads.run(job, { calls }));
   });
 
   router.put('/fixes/:id/title', async (r) => {
