@@ -88,9 +88,9 @@ function modelCall(runId: string, callNo: number, email: string) {
 
 describe('reading the tabs', () => {
   it('serves every tab for a project with no runs and no config', async () => {
-    const m = await get<{ rules: unknown[]; calibrate: { label: string; argv: null }; config: { exists: boolean; version: string } }>('settings/matching');
+    const m = await get<{ rules: unknown[]; calibrate: { runId: null; argv: null; recordings: unknown[] }; config: { exists: boolean; version: string } }>('settings/matching');
     expect(m.rules).toEqual([]);
-    expect(m.calibrate).toMatchObject({ label: 'Record a run first', argv: null });
+    expect(m.calibrate).toMatchObject({ runId: null, argv: null, recordings: [] });
     expect(m.config).toMatchObject({ exists: false, version: 'absent' });
     expect(await get('settings/redaction')).toMatchObject({ rules: [], runs: [], previewRunId: null, previewError: 'Record a run first: the preview needs one to read.' });
     expect(await get('settings/agents')).toMatchObject({ files: expect.arrayContaining([expect.objectContaining({ path: 'CLAUDE.md', found: false })]) });

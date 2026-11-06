@@ -29,7 +29,7 @@ const config = { file: 'shadowlap.config.json', path: '/work/research-agent/shad
 const form = { kinds: ['api', 'tool'], patterns: ['email', 'uuid'], defaultReplace: '<REDACTED>' };
 
 function matching(rules: MatchingSettings['rules'] = []): MatchingSettings {
-  return { config, rules, form, clock: { mode: 'auto', explicit: false, error: null }, calibrate: { runId: 'R1', source: 'newest', label: 'Calibrate 01M5GS3GZR', command: 'shadowlap calibrate 01M5GS3GZR', argv: ['calibrate', 'R1'] } } as unknown as MatchingSettings;
+  return { config, rules, form, clock: { mode: 'auto', explicit: false, error: null }, calibrate: { runId: 'R1', source: 'newest', command: 'shadowlap calibrate R1', argv: ['calibrate', 'R1'], recordings: [{ runId: 'R1' }] } } as unknown as MatchingSettings;
 }
 
 const project = {
@@ -141,7 +141,7 @@ describe('Settings’ shell', () => {
     const seg = r.one('.settab .seg');
     expect([seg.getAttribute('aria-label'), seg.getAttribute('aria-labelledby'), seg.getAttribute('aria-describedby')]).toEqual([null, 'clock-name', 'clock-help']);
     expect(r.one('#clock-name').textContent).toBe('Dates and times');
-    expect(r.byText('.settab .setrow .btn', 'Calibrate 01M5GS3GZR').getAttribute('aria-describedby')).toBe('calibrate-help');
+    expect(r.byText('.settab .setrow .btn', 'Calibrate').getAttribute('aria-describedby')).toBe('calibrate-help');
   });
 
   it('says every rule’s scope in words, a call’s name as code, and a missing path or pattern in words', async () => {

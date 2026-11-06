@@ -13,7 +13,7 @@ export { nestsDeeper } from './credential-shapes.js';
 export { secretNamesMeta, secretNamesOf, withSecretNames, type SecretNamesRule } from './http.js';
 export { credentialFreeArgv, credentialFreeCommandLine, sameCommandLine } from './argv-credentials.js';
 export { CREDENTIAL_HEADERS, CREDENTIAL_PLACEHOLDER, STATE_HEADERS, TOKEN_IN_VALUE, capturedHttp, credentialFreeBody, credentialFreeCallName, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, credentialFreeUrl, credentialHeader, credentialParam, credentialQueryParam, credentialValue, decodedParam, formShaped, maskBytesCredentials, maskChallenge, maskJsonCredentials, maskJsonTextCredentials, maskLocation, maskMultipartBytes, maskPathCredentials, maskTextCredentials, maskUrlCredentials, rawJsonMember, responseBodyWithoutCredentials, resultBlob, withoutCredentials, withoutStoredCredentials } from './http.js';
-export { calibrationTarget, covered, generalize, proposeNormalizers, type CalibrationStep, type Proposal } from './calibrate.js';
+export { calibratable, calibrationTarget, covered, generalize, proposeNormalizers, type CalibrationStep, type Proposal } from './calibrate.js';
 export { asParsed, isRawNumber, matchable, parseJsonExact, reportable } from './json-exact.js';
 export { multipartContents, multipartView, parseMultipart, type MultipartContent, type MultipartPart, type MultipartView } from './multipart.js';
 export { CLOCK_PLACEHOLDERS, CLOCK_WINDOW_MS, maskClock, maskClockText, nearClock, type ClockMode, type ClockReference, type ClockSeen } from './clock.js';

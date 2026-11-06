@@ -26,7 +26,7 @@ const RULES = [
 ];
 
 function matching(version: string, rules: unknown[] = RULES, mode: 'auto' | 'exact' = 'auto'): MatchingSettings {
-  return { config: config(version), rules, form, clock: { mode, explicit: false, error: null }, calibrate: { runId: 'R1', source: 'newest', label: 'Calibrate', command: 'shadowlap calibrate R1', argv: ['calibrate', 'R1'] } } as unknown as MatchingSettings;
+  return { config: config(version), rules, form, clock: { mode, explicit: false, error: null }, calibrate: { runId: 'R1', source: 'newest', command: 'shadowlap calibrate R1', argv: ['calibrate', 'R1'], recordings: [{ runId: 'R1' }] } } as unknown as MatchingSettings;
 }
 
 interface Toasted {

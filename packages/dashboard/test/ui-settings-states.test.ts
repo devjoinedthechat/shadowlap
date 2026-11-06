@@ -24,7 +24,7 @@ const config = (error: string | null) => ({ file: 'shadowlap.config.json', path:
 const form = { kinds: ['api', 'tool'], patterns: ['email', 'uuid'], defaultReplace: '<REDACTED>' };
 
 function matching(error: string | null): MatchingSettings {
-  return { config: config(error), rules: [], form, clock: { mode: 'auto', explicit: false, error: null }, calibrate: { runId: 'R1', source: 'newest', label: 'Calibrate 01M5GS3GZR', command: 'shadowlap calibrate 01M5GS3GZR', argv: ['calibrate', 'R1'] } } as unknown as MatchingSettings;
+  return { config: config(error), rules: [], form, clock: { mode: 'auto', explicit: false, error: null }, calibrate: { runId: 'R1', source: 'newest', command: 'shadowlap calibrate R1', argv: ['calibrate', 'R1'], recordings: [{ runId: 'R1' }] } } as unknown as MatchingSettings;
 }
 
 function redaction(error: string | null): RedactionSettings {

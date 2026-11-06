@@ -4,7 +4,8 @@
 .setrow { display: flex; align-items: center; gap: 20px; padding: 14px 18px; border-top: 1px solid var(--line); }
 .setrow > div:first-child { flex: 1; min-width: 0; }
 .setrow b { display: block; font-weight: 500; }
-.setrow span { display: block; margin-top: 2px; color: var(--faint); font-size: 12.5px; max-width: 72ch; }
+/* A row's lines under its label, never the spans of a picker or a field beside them. */
+.setrow > :where(div:first-child) span { display: block; margin-top: 2px; color: var(--faint); font-size: 12.5px; max-width: 72ch; }
 .setrow span.fieldnote { margin-top: 6px; }
 .preview { border-top: 1px solid var(--line); }
 .pvhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
@@ -39,7 +40,7 @@
 @media (max-width: 640px) {
   .set header .sub { display: none; }
   .setrow { flex-direction: column; align-items: flex-start; gap: 10px; }
-  .pvhead .pick, .pvhead select { width: 100%; }
+  .pvhead .pick, .pvhead select, .setrow > .pick { width: 100%; }
   .pvrule { grid-template-columns: auto 28px minmax(0, 1fr); }
 }
 
