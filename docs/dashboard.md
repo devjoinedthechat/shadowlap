@@ -455,30 +455,37 @@ Unless the link names a call, a run opens at:
 | Any other run that failed | Its first call that failed: a model call answered with an error, or a tool that threw; never a write fenced after a fork |
 | Any other run | Its first call, past any clock or random reads, which hold a value rather than a step of the agent's |
 
-### Banners
+### Findings
 
-Under the header, a banner says more about some kinds of run.
+Under the header, one bar holds what the run's page found: the run's own banner, what the fork did differently, what Shadowlap did not record and the run's notes. A failure comes first, in red, then what needs a look, in amber, then the rest, each in the order they come.
 
-**An attempt.** An attempt of blame, verify or `replay --repeat` says it is one: *blame attempt*, *verify attempt* or *repeat attempt* above its id. The fork blame rescued a run with is its *rescued fork*. Its banner says, in order:
+The bar shows the most telling finding whole. **N findings** at its end opens the rest in place, its hover listing them while closed, and the focus stays on it. A lone finding with more to show, a note's tools or the fork's changes, has **Details** instead. The bar stays open or closed for each run until you reload.
 
-1. How it came out: *passed*, *failed*, *inconclusive* or *interrupted*.
-2. What was asked again, and which attempt it is of those made.
-3. How the writes after it went.
-4. For one that could not be decided, the check that couldn't be.
+A finding never says what the header's first fact already does. Where that fact gives the verdict, the finding leads, in ink and with no label, with what the verdict stands on, then the rest:
 
-For example:
+| Run | The finding leads with | Then |
+|---|---|---|
+| Failed a check | The check: *send_email called 0 times, but called 1 time* | *not blamed yet*, or how its fix stands |
+| A capture its import judged failed | The check that failed | *judged when it was imported*, then how its fix stands |
+| A test replay whose agent crashed | The last line the agent printed | *at call 19, 18 of 30 recorded calls replayed* |
+| A test that diverged | What the value looks like, or why it came | The request's name and the calls replayed before it |
+| A test left inconclusive | The check it couldn't judge, and why, in amber | *18 calls replayed* |
 
-- *failed · resampled #5, attempt 2 of 4: the model was asked #5 again, the request as recorded · writes stubbed*
-- *passed · verify · target, attempt 1 of 12 · code 35034be: the change it verified is in the request (~ $.system)*, or the flag a `--model` or `--set` change was made with
+A blame that placed the failure on no call says how it stands as the finding's label instead: *stopped* or *inconclusive* in amber, *not rescued* in red. A blame that found the call says *lost at #17*, with **Rescued fork →** where the fork that rescued the run is kept. Words the glossary defines, such as *lost*, *stubbed* and *fenced*, are underlined, with their meaning on hover.
+
+**An attempt.** An attempt of blame, verify or `replay --repeat` says it is one: *blame attempt*, *verify attempt* or *repeat attempt* above its id. The fork blame rescued a run with is its *rescued fork*. Its first fact says how it came out. Its finding says what was asked again, which attempt it is of those made, how the writes after it went and, for one that could not be decided, the check that couldn't be. For example:
+
+- *resampled #5, attempt 2 of 4: the model was asked #5 again, the request as recorded · writes stubbed*
+- *verify · target, attempt 1 of 12 · code 35034be: the change it verified is in the request (~ $.system)*, or the flag a `--model` or `--set` change was made with
 - *replay --repeat 5 at #16, attempt 2 of 5: forced live with `--live-tool lookup_policy`*
 
-A gate that settles makes fewer attempts than its limit, and the count is of the attempts made. The banner wraps rather than cut its words. It links back to the attempt's probe on its fix's Blame step, or to the verdict it counted towards, and to all its attempts in Forks. It offers no Run blame, since its failure counts towards what made it.
+A gate that settles makes fewer attempts than its limit, and the count is of the attempts made. The finding wraps rather than cut its words. It links back to the attempt's probe on its fix's Blame step, or to the verdict it counted towards, and to all its attempts in Forks. It offers no Run blame, since its failure counts towards what made it.
 
-**An error-path preset's attempt.** One banner says how an [error-path preset](./error-paths.md)'s attempt came out, by the verdict of the session that decided it. An earlier session's attempt keeps its own once the presets run again. Then it names the preset and the golden it ran on, which attempt of the preset it was, and what the preset played in where, wrapping rather than cut:
+**An error-path preset's attempt.** Its first fact says how an [error-path preset](./error-paths.md)'s attempt came out, by the verdict of the session that decided it. An earlier session's attempt keeps its own once the presets run again. Its finding names the preset and the golden it ran on, which attempt of the preset it was, and what the preset played in where, wrapping rather than cut:
 
-*failed · tool timeout preset on goldens/list-inbox, attempt 1 of 1: list_inbox (#2) timed out, played in by the preset · writes stubbed*
+*tool timeout preset on goldens/list-inbox, attempt 1 of 1: list_inbox (#2) timed out, played in by the preset · writes stubbed*
 
-A golden's banner has **Tests →**. The attempt's first fact goes by that verdict.
+A golden's finding has **Tests →**.
 
 **A fork.** A replay an injection test, a model's scoring or an error-path preset made keeps its fork banner. A fork whose only flag is `--writes` forked where its request changed, and its banner says that.
 
@@ -497,7 +504,7 @@ Sometimes the rule alone can't make the replay match: the request carries a fiel
 
 The server works out how a run stands once, for its page and every list:
 
-- **A test of a golden that may fork** is judged by its checks, not where it left the recording. Its banner lists the checks it passed and where it forked, or the check it failed.
+- **A test of a golden that may fork** is judged by its checks, not where it left the recording. Its finding lists the checks it passed, then where it went live, what that sent and spent, and its writes: *live from #3 · 14 upstream requests · ≈$0.420 · writes fenced*. Or it leads with the check it failed.
 - **A run a fix lists among its failing runs** (verify's target) fails that fix's check, here and in Runs, with how the fix stands.
 - **A run whose agent exited with an error** reads *failed*; one that failed a check reads *check failed*.
 - **A run that stopped before it ended** (Ctrl-C, a kill, a crash, a recorder that went away) reads *interrupted* in grey after what it is (*recording · interrupted*, *fork @3 · interrupted*), ended at its last call. It stopped; it did not fail.
