@@ -85,7 +85,7 @@ test('Never ask starts a priced fork at once, and Run repair still asks', async 
   // Run repair asks on every setting, so its footer says nothing of the threshold.
   await openPage(page, `/fixes/${demoId('emailFix')}`, 'fix');
   const repair = page.locator('.ph .actions button', { hasText: 'Run repair' });
-  if (!(await repair.count())) return;
+  await expect(repair.first()).toBeVisible();
   await repair.first().click();
   const dialog = page.locator(DIALOG);
   await expect(dialog).toBeVisible();
