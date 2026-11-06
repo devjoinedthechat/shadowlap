@@ -3,15 +3,18 @@ import { consentAsked } from '../actions.js';
 import { ConsentDialog } from '../components/Dialog.js';
 import { useApp } from '../state.js';
 import { useTreeBusy } from './tree.js';
-import { ActionButton } from '../components/ActionButton.js';
+import { JobButton } from '../components/JobButton.js';
+import { sentEstimate, type Priced } from '../spending.js';
 
 /**
  * A button on a fix's page that starts a job running the agent from the working tree (Run blame again,
  * Run more attempts, Verify again): lime when it is the page's next step, its command on hover, and
  * plain, with why, while it can't start (a read-only dashboard, a server without the job, a repair
  * or an apply holding the tree). A job whose runs came from someone else's pack asks once more
- * before it runs their command. `ask`, when given, opens a dialog first, which starts the job with
- * the fields it adds.
+ * before it runs their command. `ask`, when given, is its dialog, which starts the job with the fields
+ * it adds. With an `estimate`, a press follows Spending (JobButton): it starts at once at or under the
+ * threshold, else opens `ask`, and the start, the ask's and the consent's yes all send the estimate
+ * the card said. Without one, `ask` opens on every press, as a form does.
  */
 export function FixJobButton({
   kind,
@@ -23,6 +26,7 @@ export function FixJobButton({
   command,
   className = 'btn',
   ask,
+  ...priced
 }: {
   kind: string;
   fields: Record<string, unknown>;
@@ -35,6 +39,8 @@ export function FixJobButton({
   command: string;
   className?: string;
   ask?: (start: (more: Record<string, unknown>) => boolean, close: () => void) => ReactNode;
+  /** What the job bills, when the page knows it (JobButton's `estimate`). */
+  estimate?: Priced;
 }) {
   const app = useApp();
   const busy = useTreeBusy('reads', verb);
@@ -54,12 +60,12 @@ export function FixJobButton({
     );
   return (
     <>
-      <ActionButton className={`${className}${lead ? ' lime' : ''}`} why={why} tip={tip} command={`$ ${command}`} onClick={() => app.guard(() => (ask ? setAsking(true) : void start({})))}>
+      <JobButton {...priced} form={!('estimate' in priced) && !!ask} className={`${className}${lead ? ' lime' : ''}`} why={why} tip={tip} command={`$ ${command}`} start={(sent) => void start(sent)} ask={() => (ask ? setAsking(true) : void start(sentEstimate(priced.estimate)))}>
         {label}
-      </ActionButton>
+      </JobButton>
       {asking && ask
         ? ask(
-            (more) => app.guard(() => void start(more)),
+            (more) => app.guard(() => void start({ ...sentEstimate(priced.estimate), ...more })),
             () => setAsking(false),
           )
         : null}

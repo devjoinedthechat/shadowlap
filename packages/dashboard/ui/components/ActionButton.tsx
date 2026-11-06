@@ -2,7 +2,7 @@ import type { ButtonHTMLAttributes, MouseEvent, ReactNode, Ref } from 'react';
 import { PAUSED } from '../connection.js';
 import { closeMenu, shownMenu } from '../overlays/menu-store.js';
 import { useApp } from '../state.js';
-import { tipCard } from './HoverCard.js';
+import { tipCard, type TipEst } from './HoverCard.js';
 
 /**
  * What every action on the server is drawn with. It keeps its place and its focus while it can't run:
@@ -66,6 +66,8 @@ export interface ActionButtonProps extends ButtonProps {
   tip?: string | undefined;
   sub?: string | null | undefined;
   command?: string | undefined;
+  /** What the job it starts bills, for its card's line (JobButton); while it waits, the amount alone. */
+  est?: TipEst | null | undefined;
   /** A link while it can run; a button while it waits. */
   href?: string | undefined;
   ref?: Ref<HTMLButtonElement> | undefined;
@@ -78,7 +80,7 @@ function wordsOf(node: ReactNode): string {
   return Array.isArray(node) ? node.map(wordsOf).join('') : '';
 }
 
-export function ActionButton({ why, reads = false, whyAct, whyTip, tip, sub, command, href, onClick, className = '', title, disabled, children, ref, type = 'button', ...rest }: ActionButtonProps) {
+export function ActionButton({ why, reads = false, whyAct, whyTip, tip, sub, command, est, href, onClick, className = '', title, disabled, children, ref, type = 'button', ...rest }: ActionButtonProps) {
   const { toast } = useApp();
   const reason = useActionWait(why, reads);
   if (reason && !disabled) {
@@ -93,14 +95,14 @@ export function ActionButton({ why, reads = false, whyAct, whyTip, tip, sub, com
       toast(reason, 'notice', whyAct ? { ...whyAct, returnTo: from, focus: keyboard } : undefined);
     };
     const plain = className.replace(/\b(lime|danger)\b/g, '').replace(/\s+/g, ' ').trim();
-    const card = tipCard(tip ?? rest['aria-label'] ?? title ?? wordsOf(children), [], whyTip ?? reason, command);
+    const card = tipCard(tip ?? rest['aria-label'] ?? title ?? wordsOf(children), [], whyTip ?? reason, command, est ? { ...est, wait: true } : null);
     return (
       <button {...rest} ref={ref} type={type} className={plain} aria-disabled="true" data-why={reason} data-tip={card} onClick={press}>
         {children}
       </button>
     );
   }
-  const data = tip ? { 'data-tip': tipCard(tip, [], sub, command) } : {};
+  const data = tip ? { 'data-tip': tipCard(tip, [], sub, command, est) } : {};
   if (href && !disabled) {
     return (
       <a {...(rest as object)} {...data} className={className} href={href} title={title} onClick={onClick}>

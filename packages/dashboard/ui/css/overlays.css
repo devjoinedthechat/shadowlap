@@ -52,6 +52,11 @@
 .dialog pre.gateentry { margin: 10px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .dialog footer { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 20px 18px; }
 .dialog footer > [hidden], .help footer > [hidden] { display: none; }
+/* An ask the threshold decided says so at the left of its footer, with the way to change it (AskNote). */
+.dlgcost { margin-right: auto; color: var(--dim); font-size: var(--fs-quiet); white-space: nowrap; }
+.dlgcost .more { position: relative; }
+/* Where Cancel and the way on don't fit beside it, it takes a row of its own above them. */
+.dialog > footer .dlgcost.own { flex-basis: 100%; margin-bottom: 4px; }
 /* The dialog's anatomy: what decides whether to press as label and value rows between hairlines, a word or two a label, so
    the two columns hold on a phone; one amber or red line before them where it can't help yet or acts for real; what it
    bills in one quiet line under the command, the price first in ink; the docs page at the lead's end, a link in ink */
@@ -136,6 +141,8 @@
   .dialog > footer, .help > footer { padding-bottom: calc(14px + env(safe-area-inset-bottom)); }
   .dialog > footer .btn, .help > footer .btn { flex: 1 1 auto; justify-content: center; height: 44px; padding: 0 16px; }
   .dialog > footer .dlgask { flex-basis: 100%; }
+  .dialog > footer .dlgcost { flex-basis: 100%; margin-bottom: 4px; }
+  .dlgcost .more::after { content: ''; position: absolute; inset: -9px -6px; }
   .dialog .chips button, .dialog .linkbtn, .dialog .btn.sm, .dialog .seg button { position: relative; }
   .dialog .chips button::after, .dialog .linkbtn::after, .dialog .btn.sm::after, .dialog .seg button::after { content: ''; position: absolute; inset: -6px -2px; }
 }
@@ -315,6 +322,8 @@
 /* a hover card can say what a run was about under its id, or what a mark means here, a line a sentence */
 .tip .ts { display: block; max-width: 320px; margin: -2px 0 6px; color: var(--dim); font-weight: 400; white-space: normal; }
 .tip .ts + .ts { margin-top: -6px; }
+/* A billed job's price on its control's card, under its sentence and over its command: `≈$0.027 · starts at once`. */
+.tip .tc { display: block; max-width: 320px; margin: -2px 0 6px; color: var(--dim); font-weight: 400; white-space: normal; }
 /* a glossary term's card is a little wider, and a definition's clauses are each kept whole where a line holds them */
 .tip.gl { max-width: min(376px, calc(100vw - 16px)); }
 .tip.gl .ts { max-width: 352px; }

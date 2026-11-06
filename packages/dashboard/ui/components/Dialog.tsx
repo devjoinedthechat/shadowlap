@@ -111,6 +111,8 @@ export interface DialogProps {
   command?: CommandRowProps | string | readonly string[] | null | undefined;
   /** What it bills. */
   cost?: CostLineProps | null | undefined;
+  /** At the left of its footer: an ask's Spending note (AskNote), which takes a row of its own where the buttons don't fit beside it. */
+  footNote?: ReactNode;
   /** The action's words; omit for a dialog with Close only. */
   ok?: string;
   /** `danger` turns the action red; `plain` gives it no colour. */
@@ -210,7 +212,7 @@ function DialogWays({ ok, alt, local, tone, okDisabled, onOk, press, hidden }: {
   );
 }
 
-export function Dialog({ title, lead, doc, warn, facts, children, factsUnder, runs, command, cost, ok, tone: asked = 'lime', okDisabled = false, onOk, alt, onClose, cancel = 'Cancel', className = '', initialFocus, dirty = false, keepOnSwitch = false, local = false }: DialogProps) {
+export function Dialog({ title, lead, doc, warn, facts, children, factsUnder, runs, command, cost, footNote, ok, tone: asked = 'lime', okDisabled = false, onOk, alt, onClose, cancel = 'Cancel', className = '', initialFocus, dirty = false, keepOnSwitch = false, local = false }: DialogProps) {
   const ref = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   useScrollStop(body);
@@ -343,6 +345,7 @@ export function Dialog({ title, lead, doc, warn, facts, children, factsUnder, ru
         </header>
         {hasBody ? <DialogBody {...{ id, warn, facts, factsUnder, runs, command, cost, body, children }} /> : null}
         <footer>
+          {asking ? null : footNote}
           <button type="button" className="btn dlg-cancel" hidden={asking} onClick={onClose}>
             {ok ? cancel : 'Close'}
           </button>
