@@ -272,7 +272,7 @@ const MONTH_ROOM_PX = 4;
  * Whether the first bar's month name runs into the next name, as the page has laid them out, so the
  * row drops it. Never with nothing laid out to measure.
  */
-export function firstGivesWay(first: Pick<DOMRect, 'right' | 'width'>, next: Pick<DOMRect, 'left'>): boolean {
+export function firstGivesWay(first: { right: number; width: number }, next: { left: number }): boolean {
   return first.width > 0 && first.right + MONTH_ROOM_PX > next.left;
 }
 
