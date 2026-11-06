@@ -1,4 +1,5 @@
 import { clock, plural, shortId } from '../format.js';
+import { href, type Route } from '../route.js';
 
 /**
  * What the top bar says: the parent in a run's crumbs, the help menu's key, and the chip of a run
@@ -21,6 +22,26 @@ export function parentCrumbKey(singleKeys: boolean): { 'aria-keyshortcuts'?: str
  */
 export function helpRowKey(singleKeys: boolean): string | null {
   return singleKeys ? '?' : null;
+}
+
+/** A crumb of Changes: a link, or the tab in the UI face (`word`), or a revision in the code face. */
+export interface ChangesCrumb {
+  label: string;
+  href?: string;
+  face?: 'code' | 'word';
+}
+
+/**
+ * Changes' crumbs: the page itself (`#/changes`, which opens Verdicts, never the tab last shown), then
+ * the tab; on a revision's page Verdicts leads back to the list and the revision follows as code, once
+ * the page shows it (`unshown` until then: only the tab). A preview's and a migration's addresses read
+ * as Verdicts, which they open until their tabs land. An exported copy's Compare is a page of its own.
+ */
+export function changesCrumbs(route: Extract<Route, { page: 'changes' | 'compare' }>, o: { exported: boolean; unshown: boolean }): ChangesCrumb[] {
+  if (route.page === 'compare') return o.exported ? [{ label: 'Compare' }] : [{ label: 'Changes', href: href.changes() }, { label: 'Compare', face: 'word' }];
+  const rev = route.tab === 'verdicts' ? route.id : null;
+  const tab: ChangesCrumb = rev ? { label: 'Verdicts', href: href.changes(), face: 'word' } : { label: 'Verdicts', face: 'word' };
+  return [{ label: 'Changes', href: href.changes() }, tab, ...(rev && !o.unshown ? [{ label: rev, face: 'code' as const }] : [])];
 }
 
 /**
