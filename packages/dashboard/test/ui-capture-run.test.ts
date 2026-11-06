@@ -12,13 +12,16 @@ import { runDuration } from '../ui/run/model.js';
 describe('a capture', () => {
   const counts = (s: string) => countOrigins([...s].map(() => 'live'));
   const input = (over: Partial<MetricInput> = {}): MetricInput => ({ total: 4, byKind: { api: 4, tool: 0 }, upstreamRequests: 0, cost: { spent: 0, saved: 0, captured: 0.0005, unknownModels: [] }, tokensNotRespent: 0, counts: counts('llll'), capture: true, live: false, notWaitedMs: null, ...over });
+  /** The calls' card's rows: what the calls were. */
+  const rows = (m: MetricInput) => metricItems(m)[0].tip.rows;
 
   it('says its tool calls were not captured, rather than counting none', () => {
-    expect(metricItems(input({ toolsCaptured: false }))).toContainEqual(['—', 'tool calls not captured']);
-    expect(metricItems(input({ toolsCaptured: false })).some(([v, l]) => v === 0 && l === 'tool calls')).toBe(false);
+    expect(rows(input({ toolsCaptured: false }))).toContainEqual(['tool calls not captured', '—']);
+    expect(rows(input({ toolsCaptured: false })).some(([l]) => l === 'tool calls')).toBe(false);
     // One that captured its tools, or a recording, counts them.
-    expect(metricItems(input({ toolsCaptured: true }))).toContainEqual([0, 'tool calls']);
-    expect(metricItems(input({ capture: false }))).toContainEqual([0, 'tool calls']);
+    // None is no row: a capture that saw the tools says nothing of them where it made none.
+    expect(rows(input({ toolsCaptured: true })).some(([l]) => /tool calls/.test(l))).toBe(false);
+    expect(rows(input({ capture: false })).some(([l]) => /tool calls/.test(l))).toBe(false);
   });
 
   it('has no duration when nothing timed it', () => {

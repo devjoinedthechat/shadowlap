@@ -1504,7 +1504,7 @@ export interface TestRunBanner {
 }
 
 /** The test a run says it was made by, read only as text: a pack can carry anything. */
-const testOf = (run: RunRecord) => (typeof run.meta?.test?.golden === 'string' && typeof run.meta.test.session === 'string' ? run.meta.test : null);
+export const testOf = (run: RunRecord) => (typeof run.meta?.test?.golden === 'string' && typeof run.meta.test.session === 'string' ? run.meta.test : null);
 
 /**
  * For a run made by `shadowlap test` whose golden failed because it diverged: its golden and the

@@ -7,7 +7,7 @@ import { testsView, type DivergenceView, type GoldenSource } from '../src/tests.
 import { ApiError, type Client, type JobView, type TestsView } from '../ui/api.js';
 import { TestsAskHost } from '../ui/fixes/TestsAskHost.js';
 import { TestsPage } from '../ui/pages/Tests.js';
-import { Banner } from '../ui/run/parts.js';
+import { Banner } from '../ui/run/FindingsBar.js';
 import { bannerJobsShown } from '../ui/run/diverged.js';
 import { estimatesKey, useTestsEstimates } from '../ui/tests-estimates.js';
 import { Palette } from '../ui/shell/Palette.js';

@@ -34,7 +34,11 @@ beforeAll(() => {
 afterAll(() => store.close());
 
 const detail = (runId: string): RunDetail => normalizeRunDetail(JSON.parse(JSON.stringify(runDetail(store, runId))) as RunDetail);
-const spentLabel = (d: RunDetail) => metricItems({ ...inputOf(d) }).find(([, label]) => label.startsWith('spent'));
+const spentFact = (d: RunDetail) => metricItems({ ...inputOf(d) }).find((f) => f.label.startsWith('spent'));
+const spentLabel = (d: RunDetail) => {
+  const f = spentFact(d);
+  return f ? [f.value, f.label] : undefined;
+};
 function inputOf(d: RunDetail): Parameters<typeof metricItems>[0] {
   const s = d.summary;
   const by = pulledSpender(d.run);
@@ -73,7 +77,7 @@ describe('a run pulled from the team store', () => {
     expect(d.summary.cost.spent).toBeGreaterThan(0);
     expect(pulledSpender(d.run)).toBe('maya');
     expect(spentLabel(d)).toEqual([expect.stringMatching(/^≈\$/), 'spent · by maya']);
-    expect(metricItems(inputOf(d)).find(([, label]) => /upstream/.test(label))).toEqual([4, 'upstream requests']);
+    expect(spentFact(d)?.tip.rows).toEqual([['upstream requests', 4]]);
     // Provenance's Upstream row says the same.
     expect(upstreamParts(d.summary.upstreamRequests, d.summary.cost.spent, pulledSpender(d.run))).toEqual({ text: expect.stringMatching(/^4 requests · ≈\$\S+$/), note: 'by maya' });
     // Runs shows it at that cost too, as spent.

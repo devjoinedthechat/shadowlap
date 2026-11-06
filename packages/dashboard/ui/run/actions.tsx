@@ -2,9 +2,7 @@ import { useState } from 'react';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import { JOB_KINDS, type ActionItem, type BisectOffer, type CallDetail, type RunDetail, type RunOffers } from '../api.js';
 import { consentAsked, forkMenu, forkMenuTitle, forkRowLine, menuLabel } from '../actions.js';
-import { dialogCopy } from './fork-dialog.js';
-import { ConfirmDialog, ConsentDialog, PromptDialog } from '../components/Dialog.js';
-import { namedIn } from '../components/Id.js';
+import { ConsentDialog } from '../components/Dialog.js';
 import { Popover } from '../components/Popover.js';
 import { callName, shortId } from '../format.js';
 import { confirmWords } from '../labels.js';
@@ -15,9 +13,12 @@ import { ActionButton } from '../components/ActionButton.js';
 import type { TipEst } from '../components/HoverCard.js';
 import { tipEst, useBilledPress } from '../components/JobButton.js';
 import { bisectQuery, useBisectEstimate } from '../runspage/bisect-estimate.js';
-import { AskNote } from '../components/AskNote.js';
 import { sentEstimate } from '../spending.js';
-import { isFork, rowPriced, useDialogEstimate, useRunEstimates, type RowPrice } from './estimates.js';
+import { isFork, rowPriced, useRunEstimates, type RowPrice } from './estimates.js';
+import { onShow } from '../components/OnShow.js';
+
+/** The dialog an action asks in, a part of its own: it loads the first time an action asks something first (OnShow.tsx). */
+const ActionDialog = onShow(() => import('./ActionDialog.js').then((m) => m.ActionDialog));
 
 /**
  * Running a run's actions: the fork menu at a call, and the dialog an action asks its one thing in.
@@ -111,46 +112,6 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
     />
   ) : null;
   return { run, dialog, findCommit };
-}
-
-/**
- * The dialog an action asks in. Its Cost line says the estimate once it has come, Switch model's for
- * the model in its field, and the job starts with what the line said; an ask's footer says why it
- * asks where Spending's threshold is why.
- */
-export function ActionDialog({ runId, capture, forkAt, pending, onRun, onClose }: { runId: string; capture: boolean; forkAt: number | null | undefined; pending: PendingAction; onRun: (v: string | undefined, estimate: RowPrice) => boolean; onClose: () => void }) {
-  const [model, setModel] = useState('');
-  const estimate = useDialogEstimate(runId, pending, forkAt != null || !!pending.action.asksFirst, model);
-  const copy = dialogCopy(pending.action, {
-    id: shortId(runId),
-    callNo: pending.callNo,
-    capture,
-    forkAt: forkAt ?? null,
-    ...(pending.callName !== undefined ? { callName: pending.callName } : {}),
-    ...(pending.recorded !== undefined ? { recorded: pending.recorded } : {}),
-    ...(pending.modelCall ? { modelCall: true } : {}),
-  });
-  const { title, lead, doc, warn, facts, factsUnder, cost, ok } = copy;
-  const billed = estimate === false ? {} : { ...(cost ? { cost: estimate ? { ...cost, estimate } : cost } : {}), footNote: <AskNote estimate={estimate} form={!!pending.action.prompt} /> };
-  const slots = { title: copy.titleName ? namedIn(title, copy.titleName) : title, lead, ok, onClose, ...(doc ? { doc } : {}), ...(warn ? { warn } : {}), ...(facts ? { facts } : {}), ...(cost ? { cost } : {}), ...billed };
-  // Nothing to fill in: it asks only whether to start, as it runs live.
-  if (!pending.action.prompt) return <ConfirmDialog {...slots} {...(copy.command ? { command: copy.command('') } : {})} onOk={() => onRun(undefined, estimate)} />;
-  return (
-    <PromptDialog
-      {...slots}
-      {...(pending.action.key === 'm' ? { onAnswer: setModel } : {})}
-      {...(factsUnder ? { factsUnder } : {})}
-      {...(copy.label ? { label: copy.label } : {})}
-      {...(copy.fieldName ? { fieldName: copy.fieldName } : {})}
-      {...(copy.command ? { command: copy.command } : {})}
-      {...(copy.choices ? { choices: copy.choices } : {})}
-      {...(copy.startFrom ? { startFrom: copy.startFrom } : {})}
-      multiline={copy.multiline}
-      initial={copy.initial}
-      placeholder={copy.placeholder}
-      onRun={(v) => onRun(v, estimate)}
-    />
-  );
 }
 
 /**

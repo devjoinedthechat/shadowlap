@@ -26,9 +26,17 @@ for (const p of PAGES) {
   });
 }
 
+/** The run's findings bar opened, as `N findings` (or `Details`) opens it: the findings it folds, a note's tools and hint, and the fork's changes show. */
+async function openFindings(page: Page) {
+  const more = page.locator('main#view .findings .fmore');
+  await more.click();
+  await expect(more).toHaveAttribute('aria-expanded', 'true');
+}
+
 test('a fork’s page says what it did differently, and has no serious or critical axe violation with it', async ({ page }) => {
   await openPage(page, `/run/${demoId('override')}`, 'run');
-  await page.waitForSelector('.fdiff h2');
+  await openFindings(page);
+  await page.waitForSelector('.findings .fdiff h2');
   expect(await page.textContent('.fdiff h2')).toBe('What the fork did differently');
   expect(await seriousViolations(page)).toEqual([]);
 });
@@ -37,6 +45,7 @@ test('a fork’s writes and a kept run’s baseline wrap: a phone shows the fork
   // A phone: the fork's page is no wider than the phone, its writes' arguments wrapped.
   await page.setViewportSize({ width: 390, height: 900 });
   await openPage(page, `/run/${demoId('override')}`, 'run');
+  await openFindings(page);
   await page.waitForSelector('.fdiff .fdw code');
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
   // A laptop: the table of the runs a fix was verified on doesn't scroll sideways for a good run's baseline.
@@ -117,9 +126,11 @@ test('Skip to content is the first stop for Tab, shows when it has the focus, an
   expect(box.height).toBeGreaterThan(10);
   await page.keyboard.press('Enter');
   expect(await page.evaluate(() => document.activeElement?.matches('main#view h1'))).toBe(true);
-  // The run's own actions are a few presses away, not the 53rd stop they were.
+  // The run's own actions are a few presses away, not the 53rd stop they were. In the design's order they
+  // come after what the eye reads beside them: the id, Copy ID, the good/bad key, a label's × and Add label,
+  // then each fact with a card (the outcome, calls, spent, not re-spent, not waited), then Share.
   const presses = await tabUntil(page, () => document.activeElement?.textContent?.trim() === 'Replay', 15);
-  expect(presses).toBeLessThanOrEqual(10);
+  expect(presses).toBeLessThanOrEqual(13);
 });
 
 test('Tab goes through the top bar, then the sidebar, then the page, never back', async ({ page }) => {
@@ -190,8 +201,10 @@ test('a menu closes on Esc to its button; a dialog keeps Tab in it and hands the
   await page.keyboard.press('Escape');
   await expect(page.locator('.pop[role="menu"]')).toHaveCount(0);
   await expect(share).toBeFocused();
-  const del = page.locator('.rhead .actions button', { hasText: 'Delete' });
+  // Delete run waits in …, which the dialog hands the focus back to.
+  const del = page.locator('#moreBtn');
   await del.click();
+  await page.locator('.pop[role="menu"] [role="menuitem"]', { hasText: 'Delete run' }).click();
   const dialog = page.locator('[role="dialog"][aria-modal="true"]');
   await expect(dialog).toBeVisible();
   for (let i = 0; i < 4; i++) {
@@ -213,8 +226,10 @@ test('on a phone, a menu’s sheet closes on Esc to its button, a dialog’s she
   await page.keyboard.press('Escape');
   await expect(sheet).toHaveCount(0);
   await expect(share).toBeFocused();
-  const del = page.locator('.rhead .actions button', { hasText: 'Delete' });
+  // Delete run waits in …, which the dialog hands the focus back to.
+  const del = page.locator('#moreBtn');
   await del.click();
+  await page.locator('.pop[role="menu"] [role="menuitem"]', { hasText: 'Delete run' }).click();
   const dialog = page.locator('[role="dialog"][aria-modal="true"]');
   await expect(dialog).toBeVisible();
   for (let i = 0; i < 4; i++) {
@@ -340,20 +355,22 @@ test('a run’s calls sit under the call they belong to, each fold mark announce
   await expect(fold).toHaveAttribute('aria-expanded', 'true');
 });
 
-test('what a run did that Shadowlap did not record shows under its banner, with no serious axe violation', async ({ page }) => {
+test('what a run did that Shadowlap did not record is among its findings, with no serious axe violation', async ({ page }) => {
   // The eval's agent hands the policy check to a function it never wrapped: the model called it, and nothing recorded it.
   await openPage(page, `/run/${demoId('eval')}`, 'run');
-  await page.waitForSelector('main#view .rnotes .rnote');
-  await expect(page.locator('main#view .rnotes .rntools code').first()).toHaveText('check_policy');
+  await openFindings(page);
+  await page.waitForSelector('main#view .findings .rnote');
+  await expect(page.locator('main#view .findings .rntools code').first()).toHaveText('check_policy');
   expect(await seriousViolations(page)).toEqual([]);
 });
 
 test('on a phone, what a run did that Shadowlap did not record wraps inside the page, its hint a sentence', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openPage(page, `/run/${demoId('eval')}`, 'run');
-  await page.waitForSelector('main#view .rnotes .rnhint');
+  await openFindings(page);
+  await page.waitForSelector('main#view .findings .rnhint');
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
-  const past = await page.evaluate(() => [...document.querySelectorAll('main#view .rnotes *')].filter((el) => el.getClientRects().length && el.getBoundingClientRect().right > document.documentElement.clientWidth + 1).map((el) => el.className));
+  const past = await page.evaluate(() => [...document.querySelectorAll('main#view .findings *')].filter((el) => el.getClientRects().length && el.getBoundingClientRect().right > document.documentElement.clientWidth + 1).map((el) => el.className));
   expect(past).toEqual([]);
   // No line of the hint starts with its own punctuation: ". Or declare…" follows the code before it.
   const lineStart = await page.evaluate(() => {

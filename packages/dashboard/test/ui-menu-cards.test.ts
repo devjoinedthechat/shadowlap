@@ -101,6 +101,22 @@ describe('the Share menu’s rows', () => {
     expect(card('HTML report').cmd).toBe('$ shadowlap export html 01M50J6C69 .shadowlap/exports/shadowlap-01m50j6c69.html --lineage');
     expect(card('HAR file').cmd).toBe('$ shadowlap export har 01M50J6C69 .shadowlap/exports/01m50j6c69.har');
   });
+
+  it('head the menu with the run’s id, end on a kept result’s Security report, and say the way to the rules and what a run still recording waits for', async () => {
+    const app = { client: {} as never, hasKind: () => true, actionsOff: null, toast: () => undefined, guard: (fn: () => void) => (fn(), true), watchJob: () => undefined, meta: null };
+    const kept = { ...offers, security: { resultId: 'inj-1', mode: 'plant' } } as RunOffers;
+    r = await render(shell(app, createElement(ShareMenu, { anchor: null as unknown as HTMLElement, run, offers: kept, onClose: () => undefined, onAction: () => undefined })));
+    expect(r.one('.pop').getAttribute('aria-label')).toBe('Share 01M50J6C69');
+    const last = r.all('.pop [role="menuitem"] b').at(-1)!;
+    expect(last.textContent).toBe('Security report');
+    expect(card('Security report')).toEqual({ t: 'Security report', s: 'The kept test’s report: the matrix and each proof', rows: [] });
+    expect(r.all('.pop [role="menuitem"]').find((b) => b.textContent?.startsWith('Security report'))!.textContent).toBe('Security report');
+    expect(r.one('.pnote a.more.nw').textContent).toBe('Redaction settings →');
+    await r.unmount();
+    const live = { ...run, run: { ...run.run, status: 'running' } } as RunDetail;
+    r = await render(shell(app, createElement(ShareMenu, { anchor: null as unknown as HTMLElement, run: live, offers, onClose: () => undefined, onAction: () => undefined })));
+    expect(card('HAR file')).toMatchObject({ s: 'Waits until the recording ends: a copy now would be cut off', cmd: '$ shadowlap export har 01M50J6C69 .shadowlap/exports/01m50j6c69.har' });
+  });
 });
 
 describe('the project switcher’s rows', () => {

@@ -56,7 +56,7 @@ function watch(page: Page): string[] {
 async function open(page: Page): Promise<string[]> {
   const seen = watch(page);
   await page.goto(file);
-  await expect(page.locator('main#view .rhead .rnm')).toHaveAttribute('title', fork);
+  await expect(page.locator('main#view .rhead .rnm')).toHaveAttribute('data-run', fork);
   return seen;
 }
 
