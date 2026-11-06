@@ -79,16 +79,16 @@ afterEach(async () => {
 describe('Settings while shadowlap.config.json can’t be read', () => {
   it('says the rules can’t be read where they would be, and offers no Calibrate', async () => {
     r = await page(app({ client: { matching: async () => matching(BROKEN) } }), 'matching');
-    await r.until('the tab', () => r!.all('.ruletable').length > 0);
-    expect(r.one('.ruletable td.none').textContent).toBe('The rules can’t be read until the file is fixed.');
+    await r.until('the tab', () => r!.all('.settab .emptyline, .ruletable').length > 0);
+    expect(r.one('.settab .emptyline').textContent).toBe('The rules can’t be read until the file is fixed.');
     expect(r.all('.setrow b').map((b) => b.textContent)).toEqual(['Dates and times']);
     expect(r.one('.verdict h2').textContent).toBe('Fix shadowlap.config.json to change these settings');
   });
 
   it('says so on Redaction too, with no preview of rules it can’t read', async () => {
     r = await page(app({ client: { redaction: async () => redaction(BROKEN) } }), 'redaction');
-    await r.until('the tab', () => r!.all('.ruletable').length > 0);
-    expect(r.one('.ruletable td.none').textContent).toBe('The rules can’t be read until the file is fixed.');
+    await r.until('the tab', () => r!.all('.settab .emptyline, .ruletable').length > 0);
+    expect(r.one('.settab .emptyline').textContent).toBe('The rules can’t be read until the file is fixed.');
     expect(r.all('.preview')).toHaveLength(0);
   });
 
@@ -109,8 +109,8 @@ describe('Settings while shadowlap.config.json can’t be read', () => {
 
   it('still says "No normalizers yet" and offers Calibrate for a file that reads', async () => {
     r = await page(app({ client: { matching: async () => matching(null) } }), 'matching');
-    await r.until('the tab', () => r!.all('.ruletable').length > 0);
-    expect(r.one('.ruletable td.none').textContent).toContain('No normalizers yet');
+    await r.until('the tab', () => r!.all('.settab .emptyline, .ruletable').length > 0);
+    expect(r.one('.settab .emptyline').textContent).toContain('No normalizers yet');
     expect(r.all('.setrow b').map((b) => b.textContent)).toEqual(['Dates and times', 'Calibrate']);
   });
 
@@ -120,7 +120,7 @@ describe('Settings while shadowlap.config.json can’t be read', () => {
       ['redaction', { redaction: async () => redaction(null) }, 'Add redaction rule…', 'Add redaction rule'],
     ] as const) {
       r = await page(app({ client }), tab);
-      await r.until('the tab', () => r!.all('.ruletable').length > 0);
+      await r.until('the tab', () => r!.all('.settab .emptyline, .ruletable').length > 0);
       await r.click(r.byText('.settab header button', button));
       await r.until('the dialog', () => r!.all('.dialog').length === 1);
       expect([r.one('.dialog header h3').textContent, r.one('.dialog .dlg-ok').textContent]).toEqual([name, name]);
@@ -133,7 +133,7 @@ describe('Settings while shadowlap.config.json can’t be read', () => {
 describe('Settings for a project whose folder is gone', () => {
   it('says so in its header, turns every edit off with why, and shows no rules it can’t read', async () => {
     r = await page(app({ missing: true, client: { matching: async () => matching(null) } }), 'matching');
-    await r.until('the tab', () => r!.all('.ruletable').length > 0);
+    await r.until('the tab', () => r!.all('.settab .emptyline, .ruletable').length > 0);
     expect(r.one('.ph h1').textContent).toBe('Can’t open research-agent');
     expect(r.byText('.ph button', 'Remove project…').disabled).toBe(false);
     const why = 'research-agent’s folder is gone: put it back or remove the project';
@@ -142,14 +142,14 @@ describe('Settings for a project whose folder is gone', () => {
     expect(add.getAttribute('data-why')).toBe(why);
     for (const b of r.all('.settab .seg button')) expect(b.getAttribute('data-why')).toBe(why);
     // Not a healthy project with no normalizers yet, and nothing to calibrate.
-    expect(r.one('.ruletable td.none').textContent).toBe('The rules can’t be read while the folder is gone.');
+    expect(r.one('.settab .emptyline').textContent).toBe('The rules can’t be read while the folder is gone.');
     expect(r.all('.setrow b').map((b) => b.textContent)).toEqual(['Dates and times']);
   });
 
   it('shows no redaction rules or preview there', async () => {
     r = await page(app({ missing: true, client: { redaction: async () => redaction(null) } }), 'redaction');
-    await r.until('the tab', () => r!.all('.ruletable').length > 0);
-    expect(r.one('.ruletable td.none').textContent).toBe('The rules can’t be read while the folder is gone.');
+    await r.until('the tab', () => r!.all('.settab .emptyline, .ruletable').length > 0);
+    expect(r.one('.settab .emptyline').textContent).toBe('The rules can’t be read while the folder is gone.');
     expect(r.all('.preview')).toHaveLength(0);
     expect(r.byText('.settab header button', 'Add redaction rule…').getAttribute('aria-disabled')).toBe('true');
   });
@@ -334,15 +334,15 @@ describe('the rest of Settings while its file or folder can’t be read', () => 
   it('shows no clock mode as chosen while the file can’t be read, or the folder is gone', async () => {
     const pressed = (x: Rendered) => x.all('.settab .seg[aria-labelledby="clock-name"] button').map((b) => b.getAttribute('aria-pressed'));
     r = await page(app({ client: { matching: async () => matching(BROKEN) } }), 'matching');
-    await r.until('the tab', () => r!.all('.ruletable').length > 0);
+    await r.until('the tab', () => r!.all('.settab .emptyline, .ruletable').length > 0);
     expect(pressed(r)).toEqual(['false', 'false']);
     await r.unmount();
     r = await page(app({ missing: true, client: { matching: async () => matching(null) } }), 'matching');
-    await r.until('the tab', () => r!.all('.ruletable').length > 0);
+    await r.until('the tab', () => r!.all('.settab .emptyline, .ruletable').length > 0);
     expect(pressed(r)).toEqual(['false', 'false']);
     await r.unmount();
     r = await page(app({ client: { matching: async () => matching(null) } }), 'matching');
-    await r.until('the tab', () => r!.all('.ruletable').length > 0);
+    await r.until('the tab', () => r!.all('.settab .emptyline, .ruletable').length > 0);
     expect(pressed(r)).toEqual(['true', 'false']);
   });
 });

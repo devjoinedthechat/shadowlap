@@ -10,6 +10,7 @@ import { useApp, type AppState } from '../../state.js';
 import { CONFIG_FILE, editErrorText, type useEditor } from './common.js';
 import { emptyRuleForm, ruleCommand, ruleFacts, ruleInput, ruleProblem, ruleScope, ruleWarning, suggestedReplace, type PatternMode, type RuleFormState, type RuleListName } from './logic.js';
 import { ActionButton } from '../../components/ActionButton.js';
+import { EmptyLine } from '../../components/States.js';
 
 /**
  * The rules of one list, as Matching and Redaction show them (scope, path, pattern, what replaces
@@ -18,6 +19,12 @@ import { ActionButton } from '../../components/ActionButton.js';
  */
 
 const NOUN: Record<RuleListName, string> = { normalize: 'normalizer', redact: 'redaction rule' };
+
+/** What a list with no rule says: what fills it. */
+const EMPTY: Record<RuleListName, string> = {
+  normalize: 'No normalizers yet: Calibrate, below, proposes one for every value the agent makes anew.',
+  redact: 'No redaction rules yet: a copy holds what was recorded. Add redaction rule masks a value in every copy that leaves this machine.',
+};
 
 /**
  * `unreadable`: why there is no list to show, empty or not (`rulesUnreadable`: shadowlap.config.json
@@ -44,6 +51,9 @@ export function RuleTable({ list, rows, off, onRemove, unreadable = null, focus 
     if (returnTo !== button) returnTo?.focus();
     onRemove(row, returnTo);
   };
+  // With no rule to show, a line under the hairline takes the table's place: what fills it, or why
+  // the list can't be read.
+  if (rows.length === 0) return <EmptyLine>{unreadable ?? EMPTY[list]}</EmptyLine>;
   return (
     <div className="tscroll">
       <table className="t ruletable">
@@ -57,13 +67,6 @@ export function RuleTable({ list, rows, off, onRemove, unreadable = null, focus 
           </tr>
         </thead>
         <tbody ref={body}>
-          {rows.length === 0 ? (
-            <tr>
-              <td colSpan={5} className="none">
-                <span>{unreadable ?? (list === 'normalize' ? 'No normalizers yet. Calibrate finds the ones a recording needs.' : 'No redaction rules yet: exports, packs and share links hold what was recorded.')}</span>
-              </td>
-            </tr>
-          ) : null}
           {rows.map((r) =>
             r.error ? (
               <tr key={r.n} data-n={r.n}>

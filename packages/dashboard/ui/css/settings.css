@@ -191,9 +191,8 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .set > .pbody.lead p.muted { margin: 0; }
 .set > .kvs dd small.warn { color: var(--warn); }
 .set table.t tbody tr.still, .set table.ruletable tbody tr { cursor: default; }
-.set table.ruletable td.none { color: var(--faint); font-size: 12.5px; white-space: normal; }
-/* On a phone the empty table still scrolls sideways: the note stays in view, as wide as the panel. */
-.set table.ruletable td.none > span { position: sticky; left: 12px; display: block; max-width: calc(100vw - 80px); }
+/* With no rule left, one line under the hairline in the table's place. */
+.set .emptyline { border-top: 1px solid var(--line); }
 .set table.ruletable .rerr { color: var(--err); font-size: 12.5px; }
 .set table.ruletable td.num .linkbtn[disabled], .set table.ruletable td.num .linkbtn[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
 .set table.ruletable td.num .linkbtn[disabled]:hover, .set table.ruletable td.num .linkbtn[aria-disabled="true"]:hover { background: none; color: var(--dim); }
