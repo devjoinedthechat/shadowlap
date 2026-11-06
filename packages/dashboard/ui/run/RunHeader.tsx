@@ -30,6 +30,7 @@ import { canPush, pushTitle } from './share.js';
 import { ShareMenu } from './ShareMenu.js';
 import { ActionButton, useWhenFree } from '../components/ActionButton.js';
 import { fitHead, moreRows, useMetaCard, type MoreRow } from './fit-head.js';
+import { fitWork } from './fit-work.js';
 
 /**
  * The run's header, as every page's: what kind of run it is, muted, over its id (decision 10: the id
@@ -112,7 +113,8 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   const about = run.about ?? null;
   const ownAbout = !!about?.text && about.text.toLowerCase() !== kind.toLowerCase();
   const head = useRef<HTMLElement>(null);
-  useFitAbouts(head, fitHead);
+  // Once it is fitted, the calls list under it keeps to the room it leaves (fit-work.ts).
+  useFitAbouts(head, fitHead, fitWorkUnder);
   useMetaCard(head);
   // Push: a run only on this machine goes to the team store the config names.
   const pushable = canPush({ exported, live, team: offers?.team, hasPush: hasKind(JOB_KINDS.push) });
@@ -267,6 +269,9 @@ function MoreMenu({ run, offers, live }: { run: RunDetail; offers: RunOffers | n
  * picked). Why it waits (a run still recording) is ActionButton's `why`: a card, a toast on a press,
  * and a focus, which a disabled button's title never reaches from the keyboard or a touch screen.
  */
+/** The run page's calls list, fitted to the room the header leaves it. */
+const fitWorkUnder = (head: HTMLElement) => fitWork(head.closest<HTMLElement>('.rv'));
+
 const cardUnlessIdle = (idle: boolean, card: string) => (idle ? {} : { 'data-tip': tipText(card) });
 
 /**

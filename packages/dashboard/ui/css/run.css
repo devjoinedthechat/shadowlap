@@ -190,6 +190,7 @@
 .tabs [aria-selected="true"] { color: var(--ink); }
 .tabs [aria-selected="true"]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--ink); }
 .tabs .count { font: 11px var(--mono); color: var(--faint); margin-left: 4px; }
+.views > .tabs { padding-top: 0; }
 .toolbar { display: flex; align-items: center; gap: 10px; padding: 9px 18px; border-bottom: 1px solid var(--line); }
 .filter-in { margin-left: auto; position: relative; }
 .filter-in input { height: 30px; width: 200px; border-radius: 8px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 12.5px var(--body); padding: 0 30px 0 10px; outline: none; }
@@ -388,28 +389,95 @@ table.ctab tr.miss td { color: var(--warn); }
 .addnote textarea { flex: 1; min-height: 38px; max-height: 120px; resize: vertical; border-radius: 9px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 13px var(--body); padding: 8px 10px; outline: none; }
 .addnote textarea:focus { border-color: var(--accent-line); }
 
+/* The run page keeps its views in sight. From 1001px the window doesn't scroll, so the findings and
+   the strip took their height from the views until the calls list kept a row or none. The work area
+   keeps its minimum instead, the calls list about 180px (its head and four rows) and the inspector
+   beside it or under it, and the run page scrolls (.rv) when the window is shorter, the strip kept
+   at its top as the calls' header. */
+@media (min-width: 1001px) {
+  .rv { overflow-y: auto; overscroll-behavior: contain; }
+  .work { flex: 1 1 0; min-height: 420px; }
+  .strip { position: sticky; top: 0; z-index: 6; background: var(--bg); }
+}
+/* While a job's log is open the views give up their minimum height, so the calls keep their rows
+   above it, from 1281px where the inspector sits beside them; a shorter window scrolls the page. */
+@media (min-width: 1281px) { body.docked:not(.dockfold) .work { min-height: 240px; } }
+/* The calls and the inspector stay side by side down to 1160px, the inspector at its 360px least
+   (its tabs and its title fit), the view tabs 8px a side so the counts keep inside the calls'
+   column; narrower, the inspector goes under the calls. Below 1281px the cells take the strip's
+   whole width, the key and the field under them. */
+@media (min-width: 1160px) and (max-width: 1280px) {
+  .work { grid-template-columns: minmax(0, 1fr) minmax(360px, .62fr); }
+  .views > .tabs { padding-left: 16px; }
+  .views > .tabs button { padding-left: 8px; padding-right: 8px; }
+  .views > .tabs [aria-selected="true"]::after { left: 8px; right: 8px; }
+}
 @media (max-width: 1280px) {
+  .strip { flex-wrap: wrap; row-gap: 8px; }
+  .strip .cells { flex: 1 1 100%; }
+  .strip .legend.lfilter { flex: 1 1 auto; }
+}
+@media (max-width: 1159px) {
   .work { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(280px, 1fr) minmax(320px, 1fr); }
   .views { border-right: 0; border-bottom: 1px solid var(--line); }
+}
+/* From 1001px to 1159px the inspector sits under the calls at its own height and the run page
+   scrolls to it: only the calls list scrolls inside the page, at most half the window (fit-work.ts
+   sets it lower, so the inspector's head shows under it), so nothing is a scroll inside a scroll
+   inside a scroll. The list stays a box of its own height, which its window needs to draw only
+   the rows in view. */
+@media (min-width: 1001px) and (max-width: 1159px) {
+  .work { flex: none; grid-template-rows: auto auto; min-height: 0; }
+  .vbody { max-height: max(300px, 50vh); }
+  .ibody { overflow: visible; }
+  #insp { scroll-margin-top: 84px; }
 }
 
 @media (max-width: 1000px) {
   .diffpanel { grid-template-columns: minmax(0, 1fr); }
   .rhead { padding: 16px 16px 12px; }
   .rhead .actions { margin-left: 0; justify-content: flex-start; }
-  .strip .legend { display: none; }
   .rv { flex: none; }
   .work { grid-template-rows: auto auto; }
   .vbody, .ibody { max-height: 70vh; }
+  /* The window scrolls: the cells stay at its top as the calls' header, the key and the field under
+     them, one 16px gutter down the page as the header's. */
+  .strip { display: contents; }
+  .strip .cells { flex: none; position: sticky; top: 0; z-index: 6; padding: 18px 16px 10px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--bg); }
+  .strip .legend.lfilter { flex: none; padding: 10px 16px 0; }
+  .strip .filter-in { margin: 8px 16px 10px; }
+  .strip .filter-in input { width: 100%; }
+  .rv .scopebar { padding-left: 16px; padding-right: 16px; }
+  #insp { scroll-margin-top: 64px; }
 }
 
 @media (max-width: 640px) {
-  table.calls .tok { display: none; }
+  table.calls .tok, table.calls .hide-sm { display: none; }
   table.calls .det { display: none; }
   .toolbar { flex-wrap: wrap; padding: 9px 16px; }
-  .filter-in { margin-left: 0; flex: 1 1 100%; }
-  .filter-in input { width: 100%; }
 }
+/* Under 400px a call's name keeps its room: a cell's padding 6px, the origin its swatch alone (its
+   word kept for a screen reader, on the swatch's hover and in the inspector), a fork's or a lost
+   call's word over its number. The word is hidden inside its cell, which holds it in place. */
+@media (max-width: 400px) {
+  table.calls td, table.calls th { padding-left: 6px; padding-right: 6px; }
+  table.calls .n { width: auto; }
+  table.calls .n .fk { display: block; margin: 0 0 1px; line-height: 1.1; }
+  table.calls .org .orgw, table.calls .orgh .orgw { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  table.calls .org { position: relative; }
+}
+/* Under 360px (a 320px phone, or 400% zoom) the inspector's four tabs keep the width by tighter
+   sides; if they still don't fit, they scroll in their row rather than push the page sideways, a
+   focused tab's ring drawn inside it, whole. */
+@media (max-width: 359px) {
+  .insp .tabs { padding-right: 10px; overflow-x: auto; scrollbar-width: none; }
+  .insp .tabs::-webkit-scrollbar { display: none; }
+  .insp .tabs button { flex: none; padding-left: 6px; padding-right: 6px; }
+  .insp .tabs [aria-selected="true"]::after { left: 6px; right: 6px; bottom: 0; }
+  .insp .tabs button:focus-visible { outline-offset: -2px; }
+}
+/* A scope gives its room to the call's name past 140px; its hover has all of it. */
+table.calls .scopecell code { display: inline-block; max-width: 140px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 
 .cells button.inject { background: var(--o-inject); }
 .cells button.fail { background: var(--o-fail-fill); }
@@ -509,6 +577,7 @@ table.ledger code { font-size: 11.5px; color: var(--dim); }
 
 /* On a phone the run's view tabs scroll sideways inside their row instead of widening the page. */
 @media (max-width: 640px) { .views .tabs { overflow-x: auto; scrollbar-width: none; } .views .tabs::-webkit-scrollbar { display: none; } .views .tabs button { flex: none; } .views .tabs [aria-selected="true"]::after { bottom: 0; } }
+@media (max-width: 640px) { .views .tabs button:focus-visible { outline-offset: -2px; } }
 @media (max-width: 640px) { .rhead > div { max-width: 100%; } .rhead .meta code { white-space: normal; overflow-wrap: anywhere; } }
 
 .rv.loading { flex: 1; }
