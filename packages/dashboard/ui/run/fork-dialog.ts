@@ -1,4 +1,4 @@
-import { attemptsPart, liveFromPart } from '../../../engine/src/cost-words.js';
+import { attemptsPart, liveFromPart, nothingUpstreamPart } from '../../../engine/src/cost-words.js';
 import { ACTIONS, confirmWords, dialogName } from '../labels.js';
 import type { DocKey } from '../docs-links.js';
 import { shortId } from '../format.js';
@@ -198,7 +198,7 @@ const FORKS: Record<string, (c: ForkContext) => Partial<DialogCopy>> = {
     ok: confirmWords(ACTIONS.failWithStatus.label),
     ...withCommand(forkLine(ctx.id, a.flag)),
     // A model call's failure makes no request for that call, but the calls after it may go live.
-    cost: billed(`nothing upstream at ${at}`, 'later model calls live, writes fenced'),
+    cost: billed(nothingUpstreamPart(at), 'later model calls live, writes fenced'),
   }),
   m: ({ a, ctx, at }) => ({
     title: `Switch model from ${at}`,
