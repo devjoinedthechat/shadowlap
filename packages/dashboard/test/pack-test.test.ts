@@ -12,8 +12,9 @@ import { addRun } from './read-model-store.js';
 /**
  * Pack as golden… on a run's page: any run packed as a golden, then its test, as one job, on every
  * dashboard with a project folder (`shadowlap ui` in one too), the folder checked by the engine's
- * rule, nothing written to the config, and a recording from elsewhere asked about before its test
- * runs the command it was recorded with.
+ * rule, nothing written to the config, a test its golden's tests entry runs live asked about first,
+ * as Run tests asks, and a recording from elsewhere asked about before its test runs the command it
+ * was recorded with: one question where both apply.
  */
 
 const T0 = 1_790_100_000_000;
@@ -96,6 +97,32 @@ describe('pack-test for a run the request names', () => {
     // A run this machine recorded asks nothing, whatever the request sent.
     const mine = addRun(store, { startedAt: T0 + 70, calls: 'll' });
     expect(await build({ runId: mine, golden: 'goldens/mine', yes: asked.confirm })).toMatchObject({ then: [['test', 'goldens/mine']] });
+  });
+
+  describe('where the golden’s tests entry runs its test live', () => {
+    let forks: string;
+    const LIVE = 'goldens/x is marked fork, so it runs live from where it forks, writes blocked. Live calls are billed by your provider.';
+    beforeAll(() => {
+      forks = realpathSync(mkdtempSync(join(tmpdir(), 'sl-pack-test-live-')));
+      writeFileSync(join(forks, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/*': { fork: true } } }));
+    });
+    afterAll(() => rmSync(forks, { recursive: true, force: true }));
+    const live = (req: JobRequest) => build(req, { project: { name: 'forks', path: forks } });
+
+    it('asks first, as Run tests does, and packs and tests it on the yes', async () => {
+      const id = addRun(store, { startedAt: T0 + 90, calls: 'll' });
+      const asked = (await live({ runId: id, golden: 'goldens/x' })) as { error: string; status: number; confirm: string; live: unknown };
+      expect(asked).toMatchObject({ status: 409, error: `${LIVE} Confirm it to run it`, live: [{ path: 'goldens/x', why: [{ kind: 'fork' }] }] });
+      expect(await live({ runId: id, golden: 'goldens/x', yes: asked.confirm })).toEqual({ args: ['pack', id, 'goldens/x'], then: [['test', 'goldens/x']], runId: id, title: 'Packing as golden' });
+    });
+
+    it('asks one question for a recording from elsewhere, naming its command and what runs live, and a yes to it runs both', async () => {
+      const id = addRun(store, { startedAt: T0 + 100, calls: 'll', argv: ['node', 'their-agent.mjs'], meta: { commandFromImport: true } });
+      const asked = (await live({ runId: id, golden: 'goldens/x' })) as { error: string; status: number; confirm: string; live: unknown };
+      expect(asked).toMatchObject({ status: 409, live: [{ path: 'goldens/x', why: [{ kind: 'fork' }] }] });
+      expect(asked.error).toBe(`${id.slice(0, 10)} came from an imported pack: its test runs the command it was recorded with (node their-agent.mjs), under shadowlap test goldens/x. ${LIVE} Confirm it to run it`);
+      expect(await live({ runId: id, golden: 'goldens/x', yes: asked.confirm })).toEqual({ args: ['pack', id, 'goldens/x'], then: [['test', 'goldens/x', '--yes']], runId: id, title: 'Packing as golden' });
+    });
   });
 });
 
