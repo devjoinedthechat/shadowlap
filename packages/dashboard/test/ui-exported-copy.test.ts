@@ -77,7 +77,7 @@ async function open(runIds: string[], hash: string) {
   return bar;
 }
 
-const runOpen = () => r!.all('.rhead .rnm').map((h) => h.getAttribute('title'));
+const runOpen = () => r!.all('.rhead .rnm').map((h) => h.getAttribute('data-run'));
 
 describe('an exported copy', () => {
   it('opens on the run that was shared, the one the others lead to, whichever order it lists them in', async () => {

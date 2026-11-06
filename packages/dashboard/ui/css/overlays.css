@@ -348,7 +348,9 @@
 
 /* Forced colours drop an overlay's shadow, its only edge: each surface keeps an outline in the user's text colour, the focus
    on it or not (the bulk bar's, the connection card's and the skip link's clear border shows as theirs) */
-@media (forced-colors: active) { .pop, .dialog, .dialog:focus, .palette, .help, .help:focus, .tip, .toast { outline: 1px solid CanvasText; } }
+@media (forced-colors: active) { .pop, .dialog, .dialog:focus, .palette, .help, .help:focus, .tip, .toast, .rhead .meta { outline: 1px solid CanvasText; } }
+/* the … menu's Delete run, in red as a destructive row is */
+.pop.fkm button.dz b { color: var(--err); }
 
 /* On a phone a dialog's fields are 44px, as its buttons are, whatever a field's own rule above says */
 @media (max-width: 640px) { .dialog .form input, .dialog .form select, .dialog input[type="text"], .dialog .confirm input { height: 44px; } }

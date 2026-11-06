@@ -31,7 +31,8 @@ export type IconName =
   | 'bell'
   | 'loop'
   | 'target'
-  | 'check';
+  | 'check'
+  | 'more';
 
 export function Icon({ name, className }: { name: IconName; className?: string }) {
   return (
@@ -175,6 +176,11 @@ export function Sprite() {
       <symbol id="i-target" viewBox="0 0 16 16">
         <circle cx="8" cy="8" r="5.75" fill="none" stroke="currentColor" strokeWidth="1.4" />
         <circle cx="8" cy="8" r="2.4" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      </symbol>
+      <symbol id="i-more" viewBox="0 0 16 16">
+        <circle cx="3.5" cy="8" r="1.25" fill="currentColor" />
+        <circle cx="8" cy="8" r="1.25" fill="currentColor" />
+        <circle cx="12.5" cy="8" r="1.25" fill="currentColor" />
       </symbol>
     </svg>
   );

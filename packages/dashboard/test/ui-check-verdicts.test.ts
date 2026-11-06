@@ -79,12 +79,14 @@ describe('the run page', () => {
     expect(bannerFor({ ...base, checks, outcome: { kind: 'inconclusive', check: 'judge "j" answers yes' }, failed: false })).toEqual({
       kind: 'checks',
       checks: [
+        // What could not be decided first, in its own words: the outcome says inconclusive.
+        { label: 'judge "j" answers yes', text: 'judge "j" answers yes · not judged', status: 'inconclusive' },
         { label: 'issue_refund called 0 times', text: 'issue_refund called 0 times · 1 of 1', status: 'passed' },
         { label: checks[1].label, text: `${checks[1].label} · not applicable · the condition never held`, status: 'not-applicable' },
-        { label: 'judge "j" answers yes', text: 'judge "j" answers yes · inconclusive · not judged', status: 'inconclusive' },
       ],
       why: 'replayed offline · 0 upstream',
     });
+    expect(bannerFor({ ...base, checks, callCount: 18, outcome: { kind: 'inconclusive', check: 'judge "j" answers yes' }, failed: false })).toMatchObject({ why: '18 calls replayed' });
     // A failed check is still the failure, whatever else could not be decided.
     expect(failureText({ status: 'completed', checks: [checks[2], { label: 'send_email called 0 times', ok: false, status: 'failed', detail: 'called 1 time' }], blame: null })).toBe('check failed: send_email called 0 times, but called 1 time');
     expect(failureText({ status: 'completed', checks: [checks[2]], blame: null })).toBeNull();

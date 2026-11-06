@@ -224,9 +224,5 @@ export function needsLookShown(items: readonly NeedsLookRow[], open: boolean): {
   return open ? { rows: items, more: 'Show fewer' } : { rows: items.slice(0, NEEDS_LOOK_SHOWN), more: `Show ${num(items.length - NEEDS_LOOK_SHOWN)} more` };
 }
 
-/** Who did something, in the activity feed and the By column: an email by its name part, CI as `ci`. */
-export function personName(author: string | null | undefined): string {
-  if (!author) return 'unknown';
-  const at = author.indexOf('@');
-  return at > 0 ? author.slice(0, at) : author;
-}
+/** Who did something: person.ts's, which a run's page reads without the rest of this module. */
+export { personName } from '../person.js';

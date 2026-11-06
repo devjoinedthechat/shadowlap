@@ -4,6 +4,10 @@ import type { CallRow, Client, RunDetail } from '../ui/api.js';
 import { VIEWS } from '../ui/route.js';
 import type { AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
+import { forgetPickedCalls } from '../ui/run/open-at.js';
+
+// A call picked on a run's page is remembered for the session: each test opens its runs afresh.
+afterEach(forgetPickedCalls);
 
 /**
  * A run's views but Calls, each in a script of its own (`VIEW_PARTS`, ui/pages/Run.tsx). Opening a

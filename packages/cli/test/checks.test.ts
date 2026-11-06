@@ -113,6 +113,12 @@ describe('outcome checks', () => {
       label: 'send_email with {"to":"ceo@example.com"} called 1 time',
       detail: 'called 0 times; 1 call with other arguments',
     });
+    // Some calls hold its arguments and others don't: the detail counts only the others.
+    const mixed = ['ceo', 'cfo', 'ceo', 'cto'].map((who, i) => ({ ...call(i + 1, 'tool', 'send_email', 'live'), args: { to: `${who}@example.com` } }));
+    expect(evaluateChecks(withArgs, { calls: mixed, output: '', answer: null, argsOf: (c) => (c as { args?: unknown }).args, costOf: () => null })[0]).toMatchObject({
+      status: 'failed',
+      detail: 'called 2 times; 2 calls with other arguments',
+    });
   });
 
   it('says exactly how a tool’s calls were fenced after a fork: blocked, stubbed, or some of each', () => {

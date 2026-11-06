@@ -372,10 +372,10 @@ export function Dialog({ title, lead, doc, warn, facts, children, factsUnder, ru
 const OTHER = '\u0000other';
 
 /** A field's `list`, naming its suggestions, where it has any. */
-const suggestedList = (id: string, values: readonly string[] | undefined) => (values?.length ? { list: id } : {});
+export const suggestedList = (id: string, values: readonly string[] | undefined) => (values?.length ? { list: id } : {});
 
-/** What a field offers as you type, for its `list`: none drawn where it has none. */
-function Suggestions({ id, values }: { id: string; values: readonly string[] | undefined }) {
+/** What a field offers as you type, for its `list`: none drawn where it has none. A dialog's field, and a run's Add label. */
+export function Suggestions({ id, values }: { id: string; values: readonly string[] | undefined }) {
   if (!values?.length) return null;
   return (
     <datalist id={id}>

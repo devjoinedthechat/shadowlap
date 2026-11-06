@@ -20,9 +20,10 @@ export interface TestsCard {
  * always posts, or opens what asks for what it does (Update golden): a job that would run goldens
  * live asks first in the server's question (TestsAskHost), which Spending answers, so it never asks twice.
  * A lime one goes plain while it waits: the page never offers a lime button that can't start.
+ * `fold`: a run header's button that folds into its … menu by that name.
  */
-export function TestsJobButton(props: { verb: string; off: string | null; title?: string | null; tip?: string; card?: TestsCard | undefined; estimate?: Priced; lead?: string; className: string; onClick: () => void; children: ReactNode }) {
-  const { verb, off, title, tip, card, lead, className, onClick, children } = props;
+export function TestsJobButton(props: { verb: string; off: string | null; title?: string | null; tip?: string; card?: TestsCard | undefined; estimate?: Priced; lead?: string; fold?: string; className: string; onClick: () => void; children: ReactNode }) {
+  const { verb, off, title, tip, card, lead, fold, className, onClick, children } = props;
   const wait = useTestsWait(verb);
   return (
     <JobButton
@@ -32,6 +33,7 @@ export function TestsJobButton(props: { verb: string; off: string | null; title?
       {...card}
       {...(tip ? { 'data-tip': tip } : {})}
       {...(lead ? { 'data-next': lead } : {})}
+      {...(fold ? { 'data-fold': fold } : {})}
       {...('estimate' in props ? { estimate: props.estimate } : { bills: false })}
       start={onClick}
       ask={onClick}
