@@ -6,9 +6,9 @@
  * web fonts load. At every other width the stylesheet's height holds.
  *
  * The header is fitted after every draw, and a long run's page draws again with each page of calls
- * that comes, so the height is set only when it differs from the list's own. Only then is the
- * selected call brought back, when the shorter list left it out of sight: a page arriving while the
- * reader scrolls the list leaves it where they took it.
+ * that comes, so the height is set only when it differs from the list's own. The selected call is
+ * brought back only when it was in sight and the shorter list left it out: a list the reader
+ * scrolled away from it stays where they took it, as the paging line goes and the list grows too.
  */
 
 /** The list's sticky head, which covers its top rows. */
@@ -25,9 +25,18 @@ export function fitWork(rv: HTMLElement | null): void {
     want = `${Math.round(Math.max(240, Math.min(rv.clientHeight - 120 - top, innerHeight / 2)))}px`;
   }
   if (list.style.maxHeight === want) return;
+  const sel = list.querySelector<HTMLElement>('tr[aria-selected="true"]');
+  const was = !!sel && inSight(list, sel);
   list.style.maxHeight = want;
-  const sel = want ? list.querySelector<HTMLElement>('tr[aria-selected="true"]') : null;
-  if (!sel) return;
-  const at = sel.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
-  if (at - HEAD < list.scrollTop || at + sel.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = Math.max(0, at - (list.clientHeight - sel.offsetHeight) / 2);
+  if (!sel || !was || inSight(list, sel)) return;
+  list.scrollTop = Math.max(0, rowTop(list, sel) - (list.clientHeight - sel.offsetHeight) / 2);
+}
+
+/** A row's top in its list's own coordinates. */
+const rowTop = (list: HTMLElement, row: HTMLElement) => row.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
+
+/** Whether a row shows whole in its list, under the list's sticky head. */
+function inSight(list: HTMLElement, row: HTMLElement): boolean {
+  const at = rowTop(list, row);
+  return at - HEAD >= list.scrollTop && at + row.offsetHeight <= list.scrollTop + list.clientHeight;
 }
