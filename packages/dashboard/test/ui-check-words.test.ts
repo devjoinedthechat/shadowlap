@@ -101,7 +101,7 @@ describe('a call’s input, split as the recording keeps it', () => {
     const run = { run: { divergence: null }, cache: { misses: [] } } as unknown as RunDetail;
     const chart = renderToStaticMarkup(createElement(ContextView, { run, calls: [call], selected: 3, onSelect: () => undefined }));
     const legend = chart.slice(chart.indexOf('<div class="legend">'), chart.indexOf('</div>', chart.indexOf('<div class="legend">')));
-    expect(legend.split(/<[^>]*>/).filter((t) => t.trim())).toEqual(['cache read', 'cache creation', 'uncached', 'output']);
+    expect(legend.split(/<[^>]*>/).filter((t) => t.trim())).toEqual(['cache read', 'cache creation', 'uncached', 'output, on its own axis']);
     expect(chart).toContain('[&quot;cache read&quot;,&quot;4,000&quot;,&quot;var(--c-read)&quot;],[&quot;cache creation&quot;,&quot;400&quot;,&quot;var(--c-write)&quot;],[&quot;uncached&quot;,&quot;200&quot;,&quot;var(--c-unc)&quot;]');
     const app = { client: {}, exported: true, actionsOff: null, toast: () => undefined, guard: (fn: () => void) => fn() } as unknown as AppState;
     const detail = { call, notes: [], actions: [] } as unknown as CallDetail;

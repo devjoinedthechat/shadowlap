@@ -222,6 +222,14 @@ table.calls .rowact button:hover { color: var(--ink); border-color: var(--dim); 
 .couts { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; align-items: start; height: 34px; margin-top: 2px; }
 .couts i { display: block; border-radius: 0 0 4px 4px; background: var(--c-out); }
 .clabels { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; margin-top: 4px; font: 10.5px var(--mono); color: var(--faint); text-align: center; }
+/* Context's axes: the input's beside the bars with its gridlines, the output's beside its own bars; the
+   baseline's 0 serves both, and the output's ticks run down from it */
+.cplot { display: grid; grid-template-columns: 30px minmax(0, 1fr); column-gap: 8px; row-gap: 2px; }
+.cplot .yaxis { height: auto; }
+.cplot .couts, .cplot .clabels { margin-top: 0; }
+.cplot .couts { height: 44px; }
+.cplot .yout span:last-child { transform: none; }
+.cbars .gl { position: absolute; left: 0; right: 0; height: 1px; background: var(--line); pointer-events: none; }
 .cnote { margin: 14px 0 0; font-size: 12.5px; color: var(--faint); }
 .cnote b { color: var(--warn); font-weight: 500; }
 table.ctab { width: 100%; border-collapse: collapse; font: 12px var(--mono); }
