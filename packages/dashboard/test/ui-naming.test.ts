@@ -2,6 +2,7 @@ import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { RunPicker } from '../ui/compare/RunPicker.js';
+import { EventIcon } from '../ui/components/RunIcon.js';
 import { ResponseDifferences } from '../ui/pages/Compare.js';
 import { TodayCard, WeekGrid } from '../ui/overview/panels.js';
 import { matchPalette } from '../ui/palette.js';
@@ -424,5 +425,17 @@ describe('one name for each action, and its forms', () => {
     expect(shareItems({ can: () => true, team: null }).map((i) => i.label)).toEqual([ACTIONS.exportHtml.label, ACTIONS.pack.label, ACTIONS.exportDataset.label, ACTIONS.exportTrace.label, ACTIONS.exportHar.label]);
     expect(jobTitle({ args: ['bisect', 'R', '--good', 'x'], done: false, code: null })).toBe('Finding breaking commit');
     expect(jobTitle({ args: ['export', 'html', 'R', 'x.html'], done: false, code: null })).toBe('Exporting HTML report');
+  });
+});
+
+describe('an event’s icon', () => {
+  it('says what it was by its shape and how it came out by its colour', () => {
+    const html = (outcome?: 'err' | 'warn') => renderToStaticMarkup(createElement(EventIcon, { kind: 'blame', outcome }));
+    expect(html()).toContain('class="glyph blame ic"');
+    // A stopped blame: the loop, amber; one that failed, red.
+    expect(html('warn')).toContain('class="glyph blame ic amb"');
+    expect(html('err')).toContain('class="glyph blame ic err"');
+    expect(html('warn')).toContain('aria-label="Blame"');
+    expect(renderToStaticMarkup(createElement(EventIcon, { kind: 'fixinc' }))).toContain('aria-label="Fix inconclusive"');
   });
 });

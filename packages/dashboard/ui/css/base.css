@@ -53,7 +53,10 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .glyph.fork, .glyph.blame { color: var(--dim); }
 .glyph.cap { color: var(--dim); }
 .glyph.fail, .glyph.fixbad { color: var(--err); }
-.glyph.warn { color: var(--cq-amber); }
+.glyph.warn, .glyph.fixinc { color: var(--cq-amber); }
+/* An event that came out inconclusive, stopped or needing a look is amber whatever its shape, one that failed red. */
+.glyph.amb { color: var(--cq-amber); }
+.glyph.err { color: var(--err); }
 /* A verify's attempts under a verdict that doesn't count for the fix: no verdict on it, so no verdict's colour. */
 .glyph.plain { color: var(--dim); }
 

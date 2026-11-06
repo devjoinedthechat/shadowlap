@@ -192,7 +192,9 @@ describe('what each colour may mean', () => {
   });
 
   it('draws what is inconclusive in the consequence amber', () => {
-    for (const s of ['.st.warn', '.glyph.warn', '.tag.inc', 'pre.report .y']) expect(value(s, 'color'), s).toBe('var(--cq-amber)');
+    for (const s of ['.st.warn', '.glyph.warn', '.glyph.fixinc', '.glyph.amb', '.tag.inc', 'pre.report .y']) expect(value(s, 'color'), s).toBe('var(--cq-amber)');
+    // An event that failed is red whatever its shape.
+    expect(value('.glyph.err', 'color')).toBe('var(--err)');
     expect(value('td.hist i.inc::before', 'background')).toBe('var(--cq-amber)');
   });
 
@@ -283,6 +285,8 @@ describe('amber', () => {
   /** Needs a look or inconclusive, wherever it is drawn: a word, dot, cell, mark, line or banner. */
   const LOOK: Record<string, string> = {
     '.glyph.warn': 'a glyph that needs a look',
+    '.glyph.fixinc': 'a fix whose verify couldn’t decide',
+    '.glyph.amb': 'an event that couldn’t decide, stopped or needs a look, whatever its shape',
     '.pips i.unsure': 'an attempt that couldn’t decide',
     '.pips i.part': 'an attempt that partly passed: inconclusive',
     '.legend i.lg.unsure': 'the probes’ key: an attempt that couldn’t decide',
