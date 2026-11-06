@@ -246,23 +246,34 @@ export function barHeights(c: number, f: number, top: number): { hn: number; hf:
 }
 
 /**
- * The month names under the row: at each bar that holds a month's first day, and at the first bar
- * unless the next name is within two weeks of it (as the grid's, `monthLabels`). `at` is where the
- * bar starts, in % of the row.
+ * The month names under the row, as the design names them: at the first bar, by the month its first
+ * day is in, and at each other bar that holds a month's first day. `at` is where the bar starts, in %
+ * of the row. Where the next name would run into the first bar's, the row drops the first as it lays
+ * them out (`firstGivesWay`): a day is a few pixels wide, so only the row's width can say.
  */
 export function monthMarks(days: readonly Pick<DayCount, 'day'>[], spans: ReadonlyArray<readonly [number, number]>): Array<{ at: number; label: string }> {
-  const out: Array<{ at: number; label: string; day: number }> = [];
-  const name = (i: number) => dayText(days[i]!.day).split(' ')[0]!;
+  const out: Array<{ at: number; label: string }> = [];
   spans.forEach(([a, b], i) => {
     for (let j = a; j <= b; j++) {
-      if (Number(days[j]?.day.slice(8, 10)) === 1) {
-        out.push({ at: (i / spans.length) * 100, label: name(j), day: j });
+      const day = days[j]?.day;
+      if (day && (j === 0 || Number(day.slice(8, 10)) === 1)) {
+        out.push({ at: (i / spans.length) * 100, label: dayText(day).split(' ')[0]! });
         break;
       }
     }
   });
-  if (days.length && (!out.length || out[0]!.day >= 14)) out.unshift({ at: 0, label: name(0), day: 0 });
-  return out.map(({ at, label }) => ({ at, label }));
+  return out;
+}
+
+/** The room kept between two month names under the row, in px. */
+const MONTH_ROOM_PX = 4;
+
+/**
+ * Whether the first bar's month name runs into the next name, as the page has laid them out, so the
+ * row drops it. Never with nothing laid out to measure.
+ */
+export function firstGivesWay(first: Pick<DOMRect, 'right' | 'width'>, next: Pick<DOMRect, 'left'>): boolean {
+  return first.width > 0 && first.right + MONTH_ROOM_PX > next.left;
 }
 
 /** What a span of days adds up to: its runs, failures, kinds and people. */

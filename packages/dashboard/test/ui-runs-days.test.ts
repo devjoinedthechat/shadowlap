@@ -1,8 +1,8 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { authorColour } from '../ui/runspage/authors.js';
-import { barHeights, barOf, barSpans, barTop, dragEnd, dragOver, dragStart, keyPick, monthMarks, moveDay, rowSteps } from '../ui/runspage/calendar-model.js';
-import { TwelveWeeks } from '../ui/runspage/DaysRow.js';
+import { barHeights, barOf, barSpans, barTop, dragEnd, dragOver, dragStart, firstGivesWay, keyPick, monthMarks, moveDay, rowSteps } from '../ui/runspage/calendar-model.js';
+import { fitMonths, TwelveWeeks } from '../ui/runspage/DaysRow.js';
 import type { RunChip } from '../ui/runs.js';
 import type { DayCount, RunsByDay } from '../ui/types.js';
 import { styleRules } from './css-sheet.js';
@@ -62,20 +62,38 @@ describe('the slim row of days', () => {
     expect(barTop([], [])).toBe(1);
   });
 
-  it('names the months under the bars that hold their first day, and the first bar’s unless the next is within two weeks', () => {
+  it('names the first bar by the month its first day is in, and each other bar that holds a month’s first day, as the design does', () => {
     const at = (bars: number, i: number) => (i / bars) * 100;
     expect(monthMarks(DAYS, barSpans(DAYS, 1))).toEqual([
+      { at: 0, label: 'Jul' },
       { at: at(81, 5), label: 'Aug' },
       { at: at(81, 36), label: 'Sep' },
       { at: at(81, 66), label: 'Oct' },
     ]);
+    // A week holding Aug 1 that starts in July is July's, as the design's first bar is.
     expect(monthMarks(DAYS, barSpans(DAYS, 7))).toEqual([
-      { at: 0, label: 'Aug' },
+      { at: 0, label: 'Jul' },
       { at: at(12, 5), label: 'Sep' },
       { at: at(12, 9), label: 'Oct' },
     ]);
-    const fromJul6 = Array.from({ length: 84 }, (_, i) => day(new Date(Date.UTC(2026, 6, 6 + i)).toISOString().slice(0, 10), i));
-    expect(monthMarks(fromJul6, barSpans(fromJul6, 1)).map((m) => m.label)).toEqual(['Jul', 'Aug', 'Sep']);
+    const fromAug1 = Array.from({ length: 84 }, (_, i) => day(new Date(Date.UTC(2026, 7, 1 + i)).toISOString().slice(0, 10), i));
+    expect(monthMarks(fromAug1, barSpans(fromAug1, 1)).map((m) => m.label)).toEqual(['Aug', 'Sep', 'Oct']);
+  });
+
+  it('drops the first bar’s month only where the next name runs into it as the row is laid out', () => {
+    expect(firstGivesWay({ right: 30, width: 20 }, { left: 31 })).toBe(true);
+    expect(firstGivesWay({ right: 30, width: 20 }, { left: 40 })).toBe(false);
+    expect(firstGivesWay({ right: 0, width: 0 }, { left: 0 })).toBe(false);
+    const span = (left: number, width: number) => ({ hidden: true, getBoundingClientRect: () => ({ left, right: left + width, width }) });
+    const crowded = [span(0, 20), span(18, 20)];
+    fitMonths({ children: crowded } as never);
+    expect(crowded.map((m) => m.hidden)).toEqual([true, true]);
+    const roomy = [span(0, 20), span(50, 20)];
+    fitMonths({ children: roomy } as never);
+    expect(roomy[0].hidden).toBe(false);
+    const alone = [span(0, 20)];
+    fitMonths({ children: alone } as never);
+    expect(alone[0].hidden).toBe(false);
   });
 
   it('names a bar by its day or its week, its runs and its failures, and gives it the grid’s hover card', () => {
@@ -141,8 +159,8 @@ describe('the twelve weeks over Runs', () => {
       ['hf', '28.6%'],
     ]);
     expect(bars[0].querySelectorAll('i')).toHaveLength(0);
-    expect(t.all('.hmon span').map((s) => s.textContent)).toEqual(['Aug', 'Sep', 'Oct']);
-    expect((t.all('.hmon span')[2].props.style as { left: string }).left).toBe(`min(${((66 / 81) * 100).toFixed(2)}%, calc(100% - 2em))`);
+    expect(t.all('.hmon span').map((s) => s.textContent)).toEqual(['Jul', 'Aug', 'Sep', 'Oct']);
+    expect((t.all('.hmon span')[3].props.style as { left: string }).left).toBe(`min(${((66 / 81) * 100).toFixed(2)}%, calc(100% - 2em))`);
   });
 
   it('says in one sentence what it counts, the failures beside, each count kept to its word', async () => {

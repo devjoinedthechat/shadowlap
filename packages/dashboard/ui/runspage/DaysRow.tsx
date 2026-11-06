@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState, type Ref } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type Ref, type RefObject } from 'react';
 import { tipCard } from '../components/HoverCard.js';
 import { num } from '../format.js';
 import { useMedia, type Loaded } from '../hooks.js';
 import type { DayCount, RunsByDay } from '../types.js';
 import { Calendar, FindCommitLink, type WeeksProps } from './Calendar.js';
-import { barOf, barSpans, barTop, CAL_NOUN, calSummary, monthMarks, oneOf, rowSteps, spanText } from './calendar-model.js';
+import { barOf, barSpans, barTop, CAL_NOUN, calSummary, firstGivesWay, monthMarks, oneOf, rowSteps, spanText } from './calendar-model.js';
 import { useDayPicks } from './day-picks.js';
 
 /** A day's bar is too narrow to tap on a phone or a touch screen: there a bar is a week. */
@@ -29,6 +29,9 @@ export function DaysRow({ data, chip, range, onPick, byPerson, onFindCommit, act
   const top = barTop(days, spans);
   const sum = calSummary(days, shown);
   const per = weekly ? 'per week' : 'per day';
+  const marks = monthMarks(days, spans);
+  const months = useRef<HTMLDivElement>(null);
+  useMonthsFit(months, marks.map((m) => `${m.label}${m.at}`).join());
   return (
     <section className={`cal hist${shown ? ' has-sel' : ''}${failedChip ? ' fails' : ''}${data ? '' : ' wait'}`} aria-hidden={data ? undefined : true} aria-label={`${noun.charAt(0).toUpperCase()}${noun.slice(1)} ${per}, last 12 weeks`}>
       <div className="hmain">
@@ -55,8 +58,8 @@ export function DaysRow({ data, chip, range, onPick, byPerson, onFindCommit, act
             );
           })}
         </div>
-        <div className="hmon" aria-hidden="true">
-          {monthMarks(days, spans).map((m) => (
+        <div className="hmon" aria-hidden="true" ref={months}>
+          {marks.map((m) => (
             <span key={`${m.label}${m.at}`} style={{ left: `min(${m.at.toFixed(2)}%, calc(100% - 2em))` }}>
               {m.label}
             </span>
@@ -126,4 +129,34 @@ export function TwelveWeeks({ load, ...rest }: Omit<WeeksProps, 'data'> & { load
   if (!load.data && load.error) return null;
   const props = { ...rest, data: load.data, onToggle, toggleRef };
   return grid ? <Calendar {...props} /> : <DaysRow {...props} />;
+}
+
+/**
+ * Drops the first bar's month name where the next one would run into it, measured as the row is laid
+ * out, once the fonts are in, and again as its width changes (`firstGivesWay`).
+ */
+export function useMonthsFit(ref: RefObject<HTMLElement | null>, marks: string): void {
+  useLayoutEffect(() => {
+    const row = ref.current;
+    if (!row) return;
+    let live = true;
+    const fit = () => live && fitMonths(row);
+    fit();
+    void document.fonts?.ready.then(fit);
+    const sized = typeof ResizeObserver === 'function' ? new ResizeObserver(fit) : null;
+    sized?.observe(row);
+    return () => {
+      live = false;
+      sized?.disconnect();
+    };
+  }, [ref, marks]);
+}
+
+/** Shows the first month name under the row again, then hides it if the next name runs into it. */
+export function fitMonths(row: Pick<HTMLElement, 'children'>): void {
+  const first = row.children[0] as HTMLElement | undefined;
+  const next = row.children[1] as HTMLElement | undefined;
+  if (!first) return;
+  first.hidden = false;
+  if (next) first.hidden = firstGivesWay(first.getBoundingClientRect(), next.getBoundingClientRect());
 }

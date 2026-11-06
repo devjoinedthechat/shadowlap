@@ -11,6 +11,23 @@ import { openPage, seriousViolations } from './dashboard.js';
 
 const hash = (page: import('@playwright/test').Page) => page.evaluate(() => location.hash);
 
+test('the months under the row start at its first bar, and the first gives way only where the next runs into it', async ({ page }) => {
+  const spans = 'main#view section.cal.hist .hmon span';
+  const boxes = () => page.locator(`${spans}:visible`).evaluateAll((els) => els.map((e) => [e.getBoundingClientRect().left, e.getBoundingClientRect().right] as const));
+  for (const width of [1440, 1001, 800]) {
+    await page.setViewportSize({ width, height: 900 });
+    await openPage(page, '/runs', 'main#view section.cal.hist .hbars button');
+    const shown = await boxes();
+    for (let i = 1; i < shown.length; i++) expect(shown[i]![0]).toBeGreaterThanOrEqual(shown[i - 1]![1]);
+    const bar = (await page.locator('main#view section.cal.hist .hbars').boundingBox())!;
+    expect(shown[0]![0] - bar.x).toBeLessThan(32);
+  }
+  // Moved under the first, the next name crowds it, and the row drops the first as its width changes.
+  await page.locator(spans).nth(1).evaluate((e) => ((e as HTMLElement).style.left = '0.5%'));
+  await page.setViewportSize({ width: 801, height: 900 });
+  await expect(page.locator(spans).first()).toBeHidden();
+});
+
 test('the twelve weeks are a row of days a drag picks from, and Calendar opens the grid until Hide calendar', async ({ page }) => {
   await openPage(page, '/runs', 'main#view table.runst tbody tr');
   const row = page.locator('main#view section.cal.hist');
