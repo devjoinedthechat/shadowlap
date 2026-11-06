@@ -129,6 +129,69 @@ describe('Search or jump to, as the dashboard stands', () => {
     }
   });
 
+  it('keeps Calibrate and Apply fix listed while a repair holds the working tree, dimmed, saying why, once the server’s jobs have come', async () => {
+    const location = { hash: '#/', search: '', pathname: '/' };
+    vi.stubGlobal('location', location);
+    const startJob = vi.fn(async () => ({}));
+    const toast = vi.fn();
+    // A repair the terminal started: only the server's list holds it, read as the palette opens, and
+    // shared by both rows. The first read waits until the test lets it answer; later ones answer at once.
+    const listed: unknown[] = [];
+    let answer!: () => void;
+    const gate = new Promise<void>((done) => (answer = done));
+    const jobs = vi.fn(async () => {
+      await gate;
+      return [...listed];
+    });
+    const value = app({
+      client: { jobs, startJob } as unknown as Client,
+      toast,
+      meta: { actions: true, project: { id: 'p1', name: 'support-agent', path: '/work/support-agent' } } as never,
+      hasKind: (k: string) => k === JOB_KINDS.calibrate || k === JOB_KINDS.applyFix,
+    });
+    const open = () => render(createElement(AppContext.Provider, { value }, createElement(Palette, { route: OVERVIEW })));
+    const row = (label: string) => r!.all('.palit').find((el) => el.querySelector('.pl')!.textContent === label);
+    const seen = (label: string) => {
+      const el = row(label)!;
+      return [el.querySelector('.ph2')!.textContent, el.getAttribute('aria-disabled') === 'true', el.className.includes('waits')];
+    };
+    rememberList({ fixes: [{ fixId: 'fx-ready', status: 'verified', title: 'Escalate refunds above the limit', label: 'refund-bug' } as FixRow], counts: { all: 1, open: 0, verified: 1 } });
+    try {
+      r = await open();
+      await r.type(r.one('.palin input'), 'Calibrate');
+      // Both rows wait on one read of the list; before it has come, nothing holds the tree that the palette knows of.
+      expect(jobs).toHaveBeenCalledTimes(1);
+      expect(seen('Calibrate')).toEqual(['propose normalizers', false, false]);
+      listed.push({ id: 'r1', kind: 'repair', args: ['repair'], done: false, worktree: { use: 'writes', doing: 'a repair is verifying candidates made from your working tree', folder: '/work/support-agent' } });
+      answer();
+      // The read lands and the open palette reads its sources again, with nothing pressed.
+      await r.until('Calibrate waits', () => seen('Calibrate')[1] === true);
+      const calibrating = 'A repair is verifying candidates made from your working tree: calibrate once it is done.';
+      expect(seen('Calibrate')).toEqual([calibrating, true, true]);
+      await r.click(row('Calibrate')!);
+      expect(toast).toHaveBeenLastCalledWith(calibrating);
+      await r.type(r.one('.palin input'), 'fix patch');
+      const applying = 'A repair is verifying candidates made from your working tree: apply the patch once it is done.';
+      expect(seen('Apply fix')).toEqual([applying, true, true]);
+      await r.click(row('Apply fix')!);
+      expect(toast).toHaveBeenLastCalledWith(applying);
+      // Neither started: no job, no fix page asked to open its dialog.
+      expect(startJob).not.toHaveBeenCalled();
+      expect(location.hash).toBe('#/');
+      expect(APPLY_ASK.take('fx-ready')).toBe(false);
+      // Once the repair is done, the next opening finds the rows ready again, as the list then says.
+      listed.length = 0;
+      await r.unmount();
+      r = await open();
+      await r.type(r.one('.palin input'), 'Calibrate');
+      await r.until('Calibrate ready', () => seen('Calibrate')[1] === false);
+      expect(seen('Calibrate')).toEqual(['propose normalizers', false, false]);
+    } finally {
+      rememberList({ fixes: [], counts: { all: 0, open: 0, verified: 0 } });
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('promises no actions on a dashboard that runs none', async () => {
     r = await render(createElement(AppContext.Provider, { value: app({ actionsOff: 'This dashboard is read-only: it was started with --read-only.' }) }, createElement(Palette, { route: OVERVIEW })));
     expect(placeholder(r)).toBe('Search runs, pages and what runs recorded');
