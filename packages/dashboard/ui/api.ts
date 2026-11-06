@@ -189,6 +189,8 @@ export interface Client {
   remove(id: string): Promise<{ deleted: string; attempts?: string[] }>;
   /** Saves a run, with the runs it came from, as one HTML file. */
   exportHtml(id: string): Promise<{ filename: string; redacted: boolean }>;
+  /** Saves a kept injection result's report as one HTML file, as Share's Security report does. */
+  injectionReport(resultId: string): Promise<{ filename: string; redacted: boolean }>;
   /** Saves a file a job wrote. */
   downloadFile(file: JobFile): Promise<void>;
   /** What changed since `since`, or null when the server has no `/api/changes` and the UI polls instead. */
@@ -300,6 +302,13 @@ function shape<T extends object, U>(raw: T, fn: (raw: T) => U): U {
   shaped.set(raw, out);
   holdWhile(out, raw);
   return out;
+}
+
+/** A report the server sent as a file, saved: its name, and whether the project's redaction rules masked it. */
+async function savedReport(file: Promise<{ filename: string; res: Response }>): Promise<{ filename: string; redacted: boolean }> {
+  const { filename, res } = await file;
+  saveBlob(await res.blob(), filename);
+  return { filename, redacted: res.headers.get('x-shadowlap-redacted') === 'yes' };
 }
 
 function saveBlob(blob: Blob, filename: string): void {
@@ -447,11 +456,8 @@ export function createClient(token: string): Client {
     remove: (runId) => request<{ deleted: string; attempts?: string[] }>(`runs/${id(runId)}`, { method: 'DELETE' }),
     // The API authenticates with a header, which a plain link cannot send, and a token in a URL would
     // end up in history and logs: so a file is fetched here and handed to the browser to save.
-    exportHtml: async (runId) => {
-      const { filename, res } = await fetchFile(`runs/${id(runId)}/export`, `shadowlap-${runId.slice(0, 10).toLowerCase()}.html`);
-      saveBlob(await res.blob(), filename);
-      return { filename, redacted: res.headers.get('x-shadowlap-redacted') === 'yes' };
-    },
+    exportHtml: (runId) => savedReport(fetchFile(`runs/${id(runId)}/export`, `shadowlap-${runId.slice(0, 10).toLowerCase()}.html`)),
+    injectionReport: (resultId) => savedReport(fetchFile(`injection/${id(resultId)}/report`, 'shadowlap-injection.html')),
     downloadFile: async (file) => {
       const { filename, res } = await fetchFile(`files/${id(file.fileId)}`, file.name);
       saveBlob(await res.blob(), filename);
@@ -586,6 +592,7 @@ export function createExportedClient(data: StaticPayload): Client {
     jobs: () => Promise.resolve([]),
     remove: readOnly,
     exportHtml: readOnly,
+    injectionReport: readOnly,
     downloadFile: readOnly,
     changes: () => Promise.resolve(null),
     // An exported copy lists its runs from the file: the Runs page works them out itself.

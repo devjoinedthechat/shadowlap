@@ -12,7 +12,7 @@ import { DatasetDialog } from '../components/DatasetDialog.js';
 import { namedIn } from '../components/Id.js';
 import { redactRuleCount } from './provenance.js';
 import { jobCommand, quoteArg } from '../job-title.js';
-import { defaultPackFolder, EXPORTS, htmlCopyVia, PACK_HOLDS, packRunCommand, redactsFact, shareCommand, shareDialog, shareItemOff, shareItems, shareNote, shareWhy, type ShareKey } from './share.js';
+import { defaultPackFolder, EXPORTS, htmlCopyVia, PACK_HOLDS, packRunCommand, REDACTION_SETTINGS, redactsFact, shareCommand, shareDialog, shareItemOff, shareItems, shareNote, shareWhy, STILL_RECORDING_CARD, type ShareKey } from './share.js';
 // The share job's drawer offers the link it made.
 import './share-link.js';
 import { ActionButton } from '../components/ActionButton.js';
@@ -41,8 +41,10 @@ export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: 
     onClose();
   };
   const job = (kind: string, fields: Record<string, unknown>) => guard(() => app.watchJob(client.startJob(kind, fields)));
-  const kindOf: Record<ShareKey, string> = { link: JOB_KINDS.share, html: JOB_KINDS.exportHtml, pack: JOB_KINDS.pack, dataset: JOB_KINDS.dataset, otel: JOB_KINDS.otel, har: JOB_KINDS.har };
-  const items = shareItems({ can: (key) => hasKind(kindOf[key]) || (key === 'pack' && !!packAction), team: offers?.team });
+  const kindOf: Record<Exclude<ShareKey, 'security'>, string> = { link: JOB_KINDS.share, html: JOB_KINDS.exportHtml, pack: JOB_KINDS.pack, dataset: JOB_KINDS.dataset, otel: JOB_KINDS.otel, har: JOB_KINDS.har };
+  const items = shareItems({ can: (key) => hasKind(kindOf[key]) || (key === 'pack' && !!packAction), team: offers?.team, security: offers?.security });
+  // A download, as the HTML file's is: the file, then whether the project's rules masked it.
+  const saved = (r: { filename: string; redacted: boolean }, also = '') => toast(`Saved ${r.filename}${also} · ${r.redacted ? 'redaction rules applied' : 'no redaction rules to apply'}`);
   const pick = (key: ShareKey) => {
     if (shareItemOff(key, { actionsOff, live })) return;
     switch (key) {
@@ -55,10 +57,13 @@ export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: 
         // Where jobs can't run (read-only), or a server without the job: the file comes straight from it.
         return guard(() =>
           void client.exportHtml(id).then(
-            (r) => toast(`Saved ${r.filename}${run.parent ? ' with the runs it came from' : ''} · ${r.redacted ? 'redaction rules applied' : 'no redaction rules to apply'}`),
+            (r) => saved(r, run.parent ? ' with the runs it came from' : ''),
             (err: unknown) => toast(errorText(err), 'error'),
           ),
         );
+      case 'security':
+        onClose();
+        return offers?.security ? guard(() => void client.injectionReport(offers.security!.resultId).then(saved, (err: unknown) => toast(errorText(err), 'error'))) : undefined;
       case 'pack':
         if (hasKind(JOB_KINDS.pack)) return setDialog('pack');
         onClose();
@@ -90,16 +95,16 @@ export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: 
   if (dialog === 'dataset') return <DatasetDialog ids={[id]} rules={offers?.copies.formats.find((f) => f.id === 'dataset')?.rules ?? null} onClose={close} />;
   if (dialog === 'otel') return <OtelDialog runId={id} rules={offers?.copies.formats.find((f) => f.id === 'otel')?.rules ?? null} onClose={close} onRun={(fields) => job(JOB_KINDS.otel, fields)} />;
   return (
-    <Popover anchor={anchor} onClose={onClose} label="Share" className="fkm">
+    <Popover anchor={anchor} onClose={onClose} label={`Share ${shortId(id)}`} className="fkm">
       <div className="pk">
         Share <code className="rnm">{shortId(id)}</code>
       </div>
       {items.map((it) => {
         const off = shareItemOff(it.key, { actionsOff, live });
         return (
-          <ActionButton key={it.key} role="menuitem" why={off} reads={it.key === 'html'} tip={it.label} sub={shareWhy(it, offers?.team)} command={shareCommand(it, id)} onClick={() => pick(it.key)}>
+          <ActionButton key={it.key} role="menuitem" why={off} reads={it.key === 'html' || it.key === 'security'} tip={it.label} whyTip={live ? STILL_RECORDING_CARD : undefined} sub={shareWhy(it, offers?.team)} command={shareCommand(it, id) ?? undefined} onClick={() => pick(it.key)}>
             <b>{it.label}</b>
-            <small>{it.flag}</small>
+            {it.flag ? <small>{it.flag}</small> : null}
           </ActionButton>
         );
       })}
@@ -107,8 +112,8 @@ export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: 
       <div className="pnote">
         {note.text}{' '}
         {/* A menu holds menu items only: the way to the rules is one, as a screen reader moves through them. */}
-        <a className="more" role="menuitem" href={href.settings('redaction')}>
-          {note.link}
+        <a className="more nw" role="menuitem" href={href.settings('redaction')}>
+          {REDACTION_SETTINGS}
         </a>
       </div>
     </Popover>

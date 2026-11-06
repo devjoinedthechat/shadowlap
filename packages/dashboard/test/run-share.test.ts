@@ -60,7 +60,7 @@ describe('the Share menu’s jobs', () => {
   it('runs what each row of the menu says on its card', () => {
     const id = addRun(store, { startedAt: T0 + 50, calls: 'l' });
     const items = shareItems({ can: () => true, team: { store: 'bucket/team', state: 'only-here' } });
-    const card = (key: ShareKey) => shareCommand(items.find((i) => i.key === key)!, id).replace(id.slice(0, 10), id);
+    const card = (key: ShareKey) => shareCommand(items.find((i) => i.key === key)!, id)!.replace(id.slice(0, 10), id);
     const runs = (job: unknown) => `$ shadowlap ${(job as { args: string[] }).args.join(' ')}`;
     expect(card('html')).toBe(runs(exportHtmlJob(store, proj(), { runId: id })));
     expect(card('har')).toBe(runs(exportHarJob(store, proj(), { runId: id })));
@@ -369,6 +369,20 @@ describe('what the run page offers', () => {
     expect(keep(addRun(store, { startedAt: T0 + 34, calls: 'l', argv: [NO_COMMAND] }))).toBeNull();
     // A replay is no recording: its recording is what a golden is made from.
     expect(keep(addRun(store, { startedAt: T0 + 35, calls: 'r', parent: id }))).toBeNull();
+  });
+
+  it('offers the Security report of the newest kept injection result that has ended, a test’s or a clean answer’s', () => {
+    const id = addRun(store, { startedAt: T0 + 37, calls: 'll' });
+    const security = () => runOffers(store, id, { redact: [], config: null })!.security;
+    expect(security()).toBeNull();
+    const kept = { runId: id, golden: null, sessionId: null, attempts: 1, obeyed: 0, influenced: 0, ignored: 1, inconclusive: 0, verdict: 'ignored', actor: 'dev', data: {} };
+    store.putInjectionResult({ ...kept, resultId: 'inj-plant', mode: 'plant', at: 10, endedAt: 20 });
+    expect(security()).toEqual({ resultId: 'inj-plant', mode: 'plant' });
+    store.putInjectionResult({ ...kept, resultId: 'inj-clean', mode: 'clean', at: 30, endedAt: 40 });
+    expect(security()).toEqual({ resultId: 'inj-clean', mode: 'clean' });
+    // A newer one still running has no report yet: the newest that ended stays.
+    store.putInjectionResult({ ...kept, resultId: 'inj-running', mode: 'plant', at: 50, endedAt: null });
+    expect(security()).toEqual({ resultId: 'inj-clean', mode: 'clean' });
   });
 
   it('offers no search after a run that passed at HEAD: there is no later commit yet', () => {

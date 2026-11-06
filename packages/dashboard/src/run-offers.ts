@@ -3,6 +3,7 @@ import { parseStoreUrl, shortStoreName, storeKey, teamRunInStore } from '@shadow
 import { lookupRun } from './api.js';
 import { loadRunIndex } from './run-index.js';
 import { fixForRun, type FixForRun } from './fixes.js';
+import { injectionResults, type InjectionRow } from './injection.js';
 import { goldenFolder, keepable } from './next-step.js';
 import { copyRules, recordingNow, type CopyRules } from './run-exports.js';
 import { bisectChoices, testRunBanner, type BisectChoices, type GoldenSource, type TestRunBanner } from './tests.js';
@@ -71,6 +72,11 @@ export interface RunOffers {
    * `keepable`), with the folder the dialog offers; null otherwise, and with no project to pack into.
    */
   keep: { folder: string } | null;
+  /**
+   * Share's Security report: this run's newest kept injection result that has ended (one still
+   * running has no report yet), and whether it planted payloads or tested a clean answer; null with none.
+   */
+  security: { resultId: string; mode: InjectionRow['mode'] } | null;
 }
 
 export interface RunOffersInput {
@@ -90,6 +96,12 @@ export interface RunOffersInput {
 function keepOffer(store: Store, run: RunRecord, input: RunOffersInput): RunOffers['keep'] {
   const row = loadRunIndex(store).byId.get(run.runId);
   return row && keepable(row, run, input.dir, input.goldens ?? []) ? { folder: goldenFolder(run.runId) } : null;
+}
+
+/** Share's Security report: the newest of the run's kept injection results with a report, not one still running. */
+function securityOffer(store: Store, run: RunRecord): RunOffers['security'] {
+  const done = injectionResults(store, { runId: run.runId }).results.find((r) => !r.running);
+  return done ? { resultId: done.resultId, mode: done.mode } : null;
 }
 
 function teamOf(store: StoreOf<'recording' | 'readModels' | 'team'>, run: RunRecord, raw: unknown): RunOffers['team'] {
@@ -305,5 +317,6 @@ export function runOffers(store: Store, idOrPrefix: string, input: RunOffersInpu
     bisect: passingBisect(blamedBisect(run, bisectChoices(asListed(store, run), run.runId, { goldens: input.goldens ?? [] })), input.head),
     test: testOffer(store, run, input.config?.normalize, input.goldens ?? []),
     keep: keepOffer(store, run, input),
+    security: securityOffer(store, run),
   };
 }
