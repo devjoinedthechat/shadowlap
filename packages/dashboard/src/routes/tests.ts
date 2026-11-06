@@ -18,7 +18,7 @@ import { readTeamStoreInput } from '../team-store.js';
 import { namesTeamStore } from './verdicts.js';
 import { olderThanTree, revisionCommits, treeNow, withRevisionFacts } from '../tests-history.js';
 import { liveAsk } from '../tests-live.js';
-import { bisectChoices, bisectJob, checkedRevision, gatePreview, liveTestSession, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type BisectRange, type GoldenSource, type TestsJob, type TestsView } from '../tests.js';
+import { bisectChoices, bisectJob, checkedRevision, gatePreview, knownGolden, liveTestSession, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type BisectRange, type GoldenSource, type TestsJob, type TestsView } from '../tests.js';
 
 /**
  * Tests: the goldens and how they did (`GET /api/tests`), what a run's page offers about a test
@@ -27,7 +27,8 @@ import { bisectChoices, bisectJob, checkedRevision, gatePreview, liveTestSession
  * figured against `&history=47/50`), the
  * workflow steps Settings → CI shows (`GET /api/ci/workflows`), what Tests' buttons and Find breaking
  * commit would bill (`GET /api/tests/estimates`, `GET /api/estimates/bisect`, worked out beside the
- * server: estimates.ts), and the jobs the Tests screen starts:
+ * server: estimates.ts), a gated golden's attempts (`GET /api/tests/evidence?golden=`, beside the
+ * server: tests-evidence.ts), and the jobs the Tests screen starts:
  *
  *   test                 { golden?, maxAttempts?,       every golden on disk (the goldens folder's pattern, which the CLI
  *                          continue?, yes? }            expands without a shell, and each pack named elsewhere), or one;
@@ -231,6 +232,14 @@ export function register(router: Router, ctx: RouteContext): void {
     if (before !== undefined && !Number.isFinite(before)) throw new HttpError(400, 'before is a time in milliseconds');
     const bisect = bisectChoices(ctx.store, run.runId, { goldens: goldens(), ...(before !== undefined ? { before } : {}) });
     r.tagged({ banner: testRunBanner(ctx.store, run.runId, { normalizers: normalizers() }), bisect: bisect && (await choicesInCheckout(ctx.project?.path, bisect)) });
+  });
+
+  // A gated golden's attempts, each judged from its run, asked when the row under it opens: read in
+  // the pool, by key. A golden not on disk is refused here, before the pool is asked.
+  router.get('/tests/evidence', async (r) => {
+    const golden = knownGolden(goldens(), r.query.get('golden'));
+    if (!golden) throw new HttpError(400, 'golden: name a golden on disk');
+    sendAnswer(r, await ctx.reads.run({ kind: 'tests-evidence', golden }));
   });
 
   // What Run tests and each golden's buttons would bill, worked out beside the server: they read the

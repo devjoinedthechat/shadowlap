@@ -456,7 +456,7 @@
       "trainingView": 168
     },
     "packages/dashboard/ui/api.ts": {
-      "createClient": 172
+      "createClient": 170
     },
     "packages/dashboard/ui/fixes/BlameStep.tsx": {
       "BlameStepView": 193
@@ -547,7 +547,7 @@
     "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,
-    "packages/dashboard/src/tests.ts": 1081,
+    "packages/dashboard/src/tests.ts": 1083,
     "packages/dashboard/test/fixes.test.ts": 871,
     "packages/dashboard/test/tests.test.ts": 1111,
     "packages/dashboard/test/ui-logic.test.ts": 822,

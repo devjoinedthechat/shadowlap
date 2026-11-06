@@ -2,6 +2,7 @@ import { ACTIONS, attemptsToFail, goldensPassed, attemptsToPass, BASELINE_DEFAUL
 import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResults } from './bisect-start.js';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { historyCells, type HistoryCell, type RevisionFact } from './tests-history.js';
+import { evidenceWords, type EvidenceWords } from './tests-evidence.js';
 import type { NextStep } from './next-step.js';
 import { gateLine, gateRuleOf } from './verdict.js';
 import { links } from './links.js';
@@ -71,6 +72,8 @@ export type GateResultView = GateResult & {
   perAttempt: number | null;
   /** Run more attempts, for an inconclusive verdict; null otherwise. */
   more: MoreAttempts | null;
+  /** Its evidence in words, as the row under it says why it stopped (tests-evidence.ts); null for a clean replay. */
+  words?: EvidenceWords | null;
 };
 
 /**
@@ -789,7 +792,7 @@ export function gateResultView(r: TestResult, golden: string): GateResultView | 
   const spent = typeof agent === 'number' ? agent + (typeof judges === 'number' ? judges : 0) : undefined;
   const own = r.data?.attempts?.total ?? g.attempts;
   const perAttempt = typeof spent === 'number' && spent > 0 && own > 0 ? spent / own : null;
-  return { ...g, tally: formatTally(g), rule: gateRuleOf(g), perAttempt, more: moreAttempts(g, golden, perAttempt) };
+  return { ...g, tally: formatTally(g), rule: gateRuleOf(g), perAttempt, more: moreAttempts(g, golden, perAttempt), words: evidenceWords(g, r.data?.mode === 'replay' ? null : (r.data?.divergence?.callNo ?? null)) };
 }
 
 /**
@@ -1700,7 +1703,7 @@ export function bisectArgs(ref: string, good: string, bad: string | null, fork: 
 export type TestsJob = { title: string; args: string[]; runId?: string } | { title: string; steps: string[][]; runId?: string } | { error: string };
 
 /** The golden a request names, as listed on disk, or null; never a path the CLI would read as an option. */
-function knownGolden(goldens: readonly GoldenSource[], raw: unknown): string | null {
+export function knownGolden(goldens: readonly GoldenSource[], raw: unknown): string | null {
   const path = typeof raw === 'string' ? (goldens.find((g) => g.path === raw)?.path ?? null) : null;
   return path !== null && !optionLike(path) ? path : null;
 }
