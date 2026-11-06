@@ -22,7 +22,6 @@ import { useApp } from '../state.js';
 import { useActionRunner } from '../run/actions.js';
 import { CallsTable, CallsToolbar, matchesFilter, pendingMatches, type OriginFilter } from '../run/CallsView.js';
 import { onShow } from '../components/OnShow.js';
-import { ForkDifferences } from '../run/ForkDifferences.js';
 import { Inspector, TABS, type InspectorTab } from '../run/Inspector.js';
 import { flagText } from '../run/banner.js';
 import { askedTools } from '../run/calls.js';
@@ -32,13 +31,13 @@ import { firstFailedCall, openOn, rememberCall } from '../run/open-at.js';
 import { ancestorsOf, callTree, heads, unfolded } from '../run/groups.js';
 import { useMarkRun, useRunLabels } from '../components/RunKey.js';
 import type { RunMark } from '../runkey.js';
-import { Banner, DiffPanel, RunLoading, RunMetrics, ScopeBar } from '../run/parts.js';
+import { DiffPanel, RunLoading, RunMetrics, ScopeBar } from '../run/parts.js';
+import { FindingsBar } from '../run/FindingsBar.js';
 import { usePagedRun } from '../run/paged-run.js';
 import { followPages, isPending, listedCalls, type ListedCall } from '../run/paging.js';
 import { runNotes } from '../run/notes.js';
 import { useRunCommands } from '../run/run-commands.js';
 import { useWholeStep } from '../run/NextStepButton.js';
-import { RunNotes } from '../run/RunNotes.js';
 import { RunHeader } from '../run/RunHeader.js';
 import { useRunKeys } from '../run/run-keys.js';
 import { shortcut } from '../shortcuts.js';
@@ -454,11 +453,8 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   return (
     <div className="rv">
       <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} facts={<RunMetrics run={run} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} preset={preset} rescued={!!rescued} />} />
-      <Banner run={run} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={() => setShowDiff(!showDiff)} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} />
+      <FindingsBar run={run} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={() => setShowDiff(!showDiff)} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} />
       {showDiff ? <DiffPanel run={run} test={offers?.test ?? null} /> : null}
-      <RunNotes notes={notes} onSelect={select} />
-      {/* What a fork did differently from its parent, ranked as decisions ranks a change. */}
-      {run.run.divergence && run.run.parentRunId && !live ? <ForkDifferences runId={runId} /> : null}
       <section className="strip">
         {stripCalls.length ? <Strip calls={stripCalls} selected={selected} forkAt={forkMark} lostAt={lostAt} inScope={inScopeFn} live={live} onSelect={select} /> : <div className="cells empty-strip">{live ? 'Waiting for the first call…' : 'No calls.'}</div>}
         <Legend origins={present} />

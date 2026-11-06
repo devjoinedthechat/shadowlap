@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type Client } from '../ui/api.js';
 import { fixStatusWords, nextStepOf, stepCard, stepCostLine } from '../ui/run/next-step.js';
-import { Banner } from '../ui/run/parts.js';
+import { Banner } from '../ui/run/FindingsBar.js';
 import { useWholeStep } from '../ui/run/NextStepButton.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { AppContext, type AppState } from '../ui/state.js';

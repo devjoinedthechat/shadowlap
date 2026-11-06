@@ -7,7 +7,7 @@ import type { Client, TestsView } from '../ui/api.js';
 import { testsPalette } from '../ui/goldens.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { bannerFor, type BannerInput } from '../ui/run/banner.js';
-import { Banner } from '../ui/run/parts.js';
+import { Banner } from '../ui/run/FindingsBar.js';
 import { exitWords, presetAttempt, presetWhy } from '../ui/run/preset.js';
 import { ForksView } from '../ui/run/ForksView.js';
 import { RunHeader } from '../ui/run/RunHeader.js';

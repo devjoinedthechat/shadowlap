@@ -131,6 +131,7 @@
     "packages/dashboard/test/ui-run-key.test.ts",
     "packages/dashboard/test/ui-shortcut-keys.test.ts",
     "packages/dashboard/test/ui-run-notes.test.ts",
+    "packages/dashboard/test/ui-findings.test.ts",
     "packages/dashboard/test/ui-calls-grouping.test.ts",
     // These render a run's views as their scripts load, and a page or a view whose script didn't come.
     "packages/dashboard/test/ui-run-views.test.ts",

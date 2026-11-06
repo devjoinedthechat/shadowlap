@@ -8,14 +8,15 @@ import type { RunType } from '../runs.js';
 import { presetWhy, type PresetAttempt } from './preset.js';
 
 /**
- * The run page's one banner: which it is, and what it says. A run shows at most one, in this order:
- * recording now; an error-path preset's attempt (the preset and its verdict); an attempt (the fork
- * blame rescued a run with, a blame probe's, a verify's, a `--repeat`'s: how it came out, what was
- * asked again and which attempt it is); a test that diverged; a fork (the flag that made it, or what
- * changed, and whether it failed, for Run blame); where blame found the run lost; what was not
- * recorded; the checks it passed; that it was interrupted (neutral, as every list says it); or that
- * it failed (with its fix, or Run blame). How the run came out is the server's state, the one Runs
- * and the Overview read. No DOM here: the tests import it, and `parts.tsx` draws it.
+ * The run page's own finding: which it is, and what it says. A run has at most one, in this order:
+ * recording now; an error-path preset's attempt (the preset it played in); an attempt (the fork
+ * blame rescued a run with, a blame probe's, a verify's, a `--repeat`'s: what was asked again and
+ * which attempt it is); a test that diverged; a fork (the flag that made it, or what changed, and
+ * whether it failed, for Run blame); where blame found the run lost; the checks it passed; that it
+ * was interrupted (neutral, as every list says it); or that it failed (with its fix, or Run blame).
+ * What it did not record is a finding of its own beside it (findings.ts). How the run came out is the
+ * server's state, the one Runs and the Overview read. No DOM here: the tests import it, and
+ * `FindingsBar.tsx` draws it.
  */
 
 /** A flag a replay ran with, as the server names it: `--fail-at` and `19=529`, and the call it names. */
@@ -482,67 +483,103 @@ function attemptBanner(i: BannerInput, a: AttemptInput | null, rescuedAt: number
   return { kind: 'attempt', of: rescued ? 'rescued' : a.kind, callNo, outcome, why: [what, writes, outcome.why].filter(Boolean).join(' · '), flag, diff: !!d?.diff?.length };
 }
 
-export function bannerFor(i: BannerInput): Banner | null {
+/**
+ * A test of a golden that may fork went live from where it left the recording, and its checks judged
+ * it: where it forked is not what it failed on, so its finding is its checks, or its failure.
+ */
+function forkedTest(i: Pick<BannerInput, 'type' | 'divergence' | 'outcome'>): boolean {
+  return i.type === 'test' && !!i.divergence && !!i.outcome && i.outcome.kind !== 'diverged';
+}
+
+/**
+ * An error-path preset's attempt says which preset it played in where, in every attempt's grammar:
+ * its run alone reads as a healthy fork, the failure being one Shadowlap injected. One that couldn't
+ * say says why at its end.
+ */
+function presetBanner(i: BannerInput, p: PresetAttempt): Banner {
+  const writes = writesWord(i.interventions);
+  const why = [presetWhy(p), ...(writes ? [writes] : []), ...(p.verdict === 'inconclusive' ? [p.outcome] : [])].join(' · ');
+  return { kind: 'preset', callNo: i.divergence?.callNo ?? p.callNo, verdict: p.verdict, why, golden: p.golden };
+}
+
+/** A test that left its recording: where, on what, and what the value that changed looks like. */
+function divergedBanner(i: BannerInput, d: NonNullable<BannerInput['divergence']>): Banner {
+  const looks = i.volatile?.looks ? `this looks like ${i.volatile.looks}` : d.hints?.[0]?.message;
+  return { kind: 'diverged', callNo: d.callNo, name: d.name, why: `${beforeFork(d, i.calls)}${looks ? ` · ${looks}` : ''}`, path: d.diff?.[0]?.path ?? null, normalizer: true, diff: !!d.diff?.length };
+}
+
+/**
+ * A fork: the flag that made it and how the writes after it went, or what changed (a policy for the
+ * calls after a fork made no fork: one whose only flag is --writes forked where its request changed),
+ * then what came before it; a model call answered with a failure says what the SDK did instead. One
+ * that failed its check, or whose agent failed, is blamed as any failed run is.
+ */
+function forkBanner(i: BannerInput, d: NonNullable<BannerInput['divergence']>): Banner {
+  const forced = d.type === 'forced' && d.reason ? d.reason.replace(/^forced live by /, '') : null;
+  const iv = madeBy(i);
+  const writes = writesWord(i.interventions);
+  const what = `${iv ? flagWhy(iv, i.flagCall ?? null, d.name) : (forced ?? DIVERGED[d.type] ?? d.type)}${writes ? ` · ${writes}` : ''}`;
+  const failedModelCall = iv?.flag === '--fail-at' && i.flagCall?.kind !== 'tool';
+  // An override's or a planted result's flag names its call: what came before the fork doesn't again.
+  const named = iv && (iv.flag === '--override' || iv.flag === '--inject-result') ? (iv.callNo ?? null) : null;
+  const failed = i.failed ?? failureText(i) !== null;
+  return { kind: 'fork', callNo: d.callNo, name: d.name, why: failedModelCall ? what : `${what} · ${beforeFork(d, i.calls, named)}`, flag: flagText(iv) ?? forced, path: d.diff?.[0]?.path ?? null, normalizer: !!d.hints?.some((h) => h.normalizer), diff: !!d.diff?.length, failed };
+}
+
+/** Where blame found the run lost, when it placed the failure on a call. */
+function lostBanner(b: BannerInput['blame']): Banner | null {
+  if (!b || b.callNo === null || b.outcome === 'unrescuable' || b.outcome === 'stopped') return null;
+  return { kind: 'lost', callNo: b.callNo, words: lostWords(b.callNo, b.range), why: lostWhy(b), rescuedRunId: b.rescuedRunId ?? null };
+}
+
+/** No check failed: each says how it came out, one that did not apply or could not be decided too. */
+function checksBanner(i: BannerInput): Banner | null {
+  if (!i.checks.length || i.checks.some(checkFailed) || i.status !== 'completed') return null;
+  const d = i.divergence;
+  const why = i.upstreamRequests === 0 ? 'replayed offline · 0 upstream' : forkedTest(i) && d ? `forked at #${d.callNo}, as its golden may · ${num(i.upstreamRequests)} upstream` : null;
+  return { kind: 'checks', checks: i.checks.map((c) => ({ label: c.label, text: checkText(c), ...(c.status ? { status: c.status } : {}) })), why };
+}
+
+/**
+ * That the run failed, and how its blame stands: its fix, where blame placed the failure on no call
+ * (no answer asked again saved the run, its first probe couldn't tell, or it stopped first), why a
+ * run with no model call or one stopped can't be blamed, or not blamed yet.
+ */
+function failedBanner(i: BannerInput): Banner | null {
+  if (i.failed === false) return null;
+  const failure = failureText(i);
+  if (!failure) return null;
+  const b = i.blame;
+  const unplaced = b ? (b.outcome === 'stopped' ? 'blame stopped before it found the call' : b.unsettled ? `blame ${INCONCLUSIVE_FIRST}` : 'blame found no call whose answer, asked again, saves the run') : null;
+  const unblamable = i.modelCalls === 0 ? 'no model call to blame' : i.status === 'crashed' && !i.checks.some(checkFailed) ? 'blame needs a run that ended on its own' : null;
+  const state = i.fix ? (i.fix.status === 'open' ? `no change yet for “${i.fix.title}”` : `fixed: “${i.fix.title}”, ${i.fix.status}`) : (unplaced ?? unblamable ?? 'not blamed yet');
+  return { kind: 'failed', why: `${failure} · ${state}`, fix: i.fix, blamed: !!b };
+}
+
+/**
+ * The run's own finding, every one but what it did not record: recording now, a preset's attempt, an
+ * attempt, a test that diverged or a fork, where blame found it lost, the checks it passed, that it
+ * was interrupted, or that it failed. The first that applies.
+ */
+export function ownBanner(i: BannerInput): Banner | null {
   const d = i.divergence;
   if (i.status === 'running') return { kind: 'recording' };
-  // An error-path preset's attempt says how it came out by the preset's verdict, then which preset it
-  // played in where, in every attempt's grammar: its run alone reads as a healthy fork, the failure
-  // being one Shadowlap injected. One that couldn't say says why at its end.
-  if (i.preset) {
-    const p = i.preset;
-    const writes = writesWord(i.interventions);
-    const why = [presetWhy(p), ...(writes ? [writes] : []), ...(p.verdict === 'inconclusive' ? [p.outcome] : [])].join(' · ');
-    return { kind: 'preset', callNo: d?.callNo ?? p.callNo, verdict: p.verdict, why, golden: p.golden };
-  }
+  if (i.preset) return presetBanner(i, i.preset);
   // The fork blame rescued a run with is the attempt of its probe that passed: it says so, as every attempt does.
   if (i.rescued && d) return attemptBanner(i, i.attempt?.kind === 'probe' ? i.attempt : null, i.rescued.callNo ?? d.callNo);
   // An attempt of blame, verify or --repeat is one sample of many: it says so, and how it came out.
   if (i.attempt) return attemptBanner(i, i.attempt, null);
-  // A test of a golden that may fork went live from where it left the recording, and its checks
-  // judged it: where it forked is not what it failed on, so its banner is its checks, or its failure.
-  const forkedTest = i.type === 'test' && !!d && !!i.outcome && i.outcome.kind !== 'diverged';
-  if (d && !forkedTest) {
-    const path = d.diff?.[0]?.path ?? null;
-    const diff = !!d.diff?.length;
-    if (i.type === 'test') {
-      const looks = i.volatile?.looks ? `this looks like ${i.volatile.looks}` : d.hints?.[0]?.message;
-      return { kind: 'diverged', callNo: d.callNo, name: d.name, why: `${beforeFork(d, i.calls)}${looks ? ` · ${looks}` : ''}`, path, normalizer: true, diff };
-    }
-    const forced = d.type === 'forced' && d.reason ? d.reason.replace(/^forced live by /, '') : null;
-    // A policy for the calls after a fork made no fork: one whose only flag is --writes forked where
-    // its request changed (a change in the code), and its banner says that, then how the writes went.
-    const iv = madeBy(i);
-    // The flag names what the fork changed, and how the writes after it went; a fork without one is a change in the code.
-    const writes = writesWord(i.interventions);
-    const what = `${iv ? flagWhy(iv, i.flagCall ?? null, d.name) : (forced ?? DIVERGED[d.type] ?? d.type)}${writes ? ` · ${writes}` : ''}`;
-    // A model call answered with a failure says what the SDK did instead, as the design's line does; any other fork, what it replayed first.
-    const failedModelCall = iv?.flag === '--fail-at' && i.flagCall?.kind !== 'tool';
-    // An override's or a planted result's flag names its call: what came before the fork doesn't again.
-    const named = iv && (iv.flag === '--override' || iv.flag === '--inject-result') ? (iv.callNo ?? null) : null;
-    // A fork that failed its check, or whose agent failed, is blamed as any failed run is.
-    const failed = i.failed ?? failureText(i) !== null;
-    return { kind: 'fork', callNo: d.callNo, name: d.name, why: failedModelCall ? what : `${what} · ${beforeFork(d, i.calls, named)}`, flag: flagText(iv) ?? forced, path, normalizer: !!d.hints?.some((h) => h.normalizer), diff, failed };
-  }
-  const b = i.blame;
-  if (b && b.callNo !== null && b.outcome !== 'unrescuable' && b.outcome !== 'stopped') return { kind: 'lost', callNo: b.callNo, words: lostWords(b.callNo, b.range), why: lostWhy(b), rescuedRunId: b.rescuedRunId ?? null };
-  if (i.notRecorded && (i.notRecorded.tools.length || i.notRecorded.hosts.length)) return { kind: 'not-recorded', why: notRecordedWhy(i.notRecorded) };
-  const failedCheck = i.checks.find(checkFailed);
-  // No check failed: each says how it came out, one that did not apply or could not be decided too.
-  if (i.checks.length && !failedCheck && i.status === 'completed')
-    return {
-      kind: 'checks',
-      checks: i.checks.map((c) => ({ label: c.label, text: checkText(c), ...(c.status ? { status: c.status } : {}) })),
-      why: i.upstreamRequests === 0 ? 'replayed offline · 0 upstream' : forkedTest && d ? `forked at #${d.callNo}, as its golden may · ${num(i.upstreamRequests)} upstream` : null,
-    };
-  if (i.interrupted) return { kind: 'interrupted', why: interruptedWhy(i) };
-  if (i.failed === false) return null;
-  const failure = failureText(i);
-  if (!failure) return null;
-  // Blame ran but placed the failure on no call: no answer asked again saved the run, its first probe
-  // couldn't tell (inconclusive, which is no finding that none saves it), or it stopped first.
-  const unplaced = b ? (b.outcome === 'stopped' ? 'blame stopped before it found the call' : b.unsettled ? `blame ${INCONCLUSIVE_FIRST}` : 'blame found no call whose answer, asked again, saves the run') : null;
-  // Blame needs a run that fails again as recorded: one with no model call, or one stopped, never does.
-  const unblamable = i.modelCalls === 0 ? 'no model call to blame' : i.status === 'crashed' && !failedCheck ? 'blame needs a run that ended on its own' : null;
-  const state = i.fix ? (i.fix.status === 'open' ? `no change yet for “${i.fix.title}”` : `fixed: “${i.fix.title}”, ${i.fix.status}`) : (unplaced ?? unblamable ?? 'not blamed yet');
-  return { kind: 'failed', why: `${failure} · ${state}`, fix: i.fix, blamed: !!b };
+  if (d && !forkedTest(i)) return i.type === 'test' ? divergedBanner(i, d) : forkBanner(i, d);
+  return lostBanner(i.blame) ?? checksBanner(i) ?? (i.interrupted ? { kind: 'interrupted', why: interruptedWhy(i) } : null) ?? failedBanner(i);
+}
+
+/** What the run did that Shadowlap did not record: a finding of its own, so it never hides the failure after it. */
+export function notRecordedBanner(i: Pick<BannerInput, 'notRecorded'>): Banner | null {
+  const nr = i.notRecorded;
+  return nr && (nr.tools.length || nr.hosts.length) ? { kind: 'not-recorded', why: notRecordedWhy(nr) } : null;
+}
+
+/** The run's one finding where a page shows one: its own, else what it did not record. */
+export function bannerFor(i: BannerInput): Banner | null {
+  return ownBanner(i) ?? notRecordedBanner(i);
 }

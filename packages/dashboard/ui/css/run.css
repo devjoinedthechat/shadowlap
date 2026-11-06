@@ -55,7 +55,7 @@
 .metric.rout .st[data-tip] { cursor: default; }
 .metric .rtoday { font-size: 12px; color: var(--faint); }
 .metric span { font-size: 12px; color: var(--faint); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.banner { display: flex; align-items: center; gap: 12px; padding: 9px 24px; border-top: 1px solid var(--line); font-size: 13px; flex-wrap: wrap; }
+.banner { display: flex; align-items: center; gap: 12px; padding: 9px 24px; border-top: 1px solid var(--line); font-size: 13.5px; flex-wrap: wrap; }
 .banner.fork { background: color-mix(in srgb, var(--warn) 5%, transparent); }
 .banner.blame { background: color-mix(in srgb, var(--err) 5%, transparent); }
 .banner.live { background: color-mix(in srgb, var(--o-live) 6%, transparent); }
@@ -63,10 +63,10 @@
 .banner.fork .bk, .banner.fork .bn { color: var(--ink); }
 .banner.blame .bk, .banner.blame .bn { color: var(--err); }
 .banner.live .bk { color: var(--ink); }
-.banner .bn { font: 600 14px var(--mono); cursor: pointer; border: 0; background: none; padding: 0; }
+.banner .bn { font: 600 12.5px var(--mono); cursor: pointer; border: 0; background: none; padding: 0; }
 .banner code { font-size: 12.5px; }
 .banner .why { color: var(--faint); }
-.banner .path { font: 12px var(--mono); color: var(--add); }
+.banner .path { font: 12.5px var(--mono); color: var(--add); }
 /* A flag and its value (an --override's JSON) or a path has no space to break at: where the banner
    wraps, it breaks anywhere rather than widen the page on a phone. */
 .banner .why code, .banner .path { overflow-wrap: anywhere; }
@@ -665,3 +665,23 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
   .tl-row.sel .lab { color: HighlightText; }
   .attempts span i, .attempts a i { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText; }
 }
+
+/* The run's findings, one bar: plain lines between hairlines with no ground of their own, the label in the UI face, coloured
+   only when it is a verdict (lost, diverged, failed and not recorded in red; inconclusive in amber); the first whole, the
+   others opening in place under it from "2 findings", a note's tools and hint and the fork's changes with them. */
+.findings .banner, .findings .rnote, .findings .fdiff { padding-top: 6px; padding-bottom: 6px; background: none; }
+.findings .rnote { border-top: 1px solid var(--line); }
+.findings .banner .bk, .findings .rnote .bk, .findings .fdiff h2 { font: 600 13.5px var(--body); letter-spacing: 0; text-transform: none; }
+.findings .banner.fork .bk, .findings .banner.fork .bn, .findings .banner.live .bk, .findings .fdiff h2 { color: var(--ink); }
+/* a label that names what ran is ink too: the verdict word after it carries the colour */
+.findings .banner .bk:has(+ .why > em:first-child) { color: var(--ink); }
+/* a finding under an outcome that already gives its verdict leads with what the verdict stands on, in ink, and no label */
+.findings .banner .why .lead { color: var(--ink); }
+.findings .fx, .findings:not(.open) .fbody { display: none; }
+.findings.open .banner.fx, .findings.open .rnote.fx { display: flex; }
+.findings.open .fdiff.fx { display: block; }
+.findings .fmore { flex: none; margin-left: auto; }
+.findings .banner .end + .fmore { margin-left: 0; }
+.findings .fmore .caret { width: 10px; height: 10px; margin-left: 4px; transition: transform .15s; }
+.findings.open .fmore .caret { transform: rotate(180deg); }
+@media (max-width: 1000px) { .findings .banner, .findings .rnote, .findings .fdiff { padding-left: 16px; padding-right: 16px; } }

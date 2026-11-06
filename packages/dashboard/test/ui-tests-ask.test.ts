@@ -5,7 +5,7 @@ import { testsView, type DivergenceView, type GoldenSource } from '../src/tests.
 import { ApiError, type Client, type JobView, type TestsView } from '../ui/api.js';
 import { TestsAskHost } from '../ui/fixes/TestsJobButton.js';
 import { TestsPage } from '../ui/pages/Tests.js';
-import { Banner } from '../ui/run/parts.js';
+import { Banner } from '../ui/run/FindingsBar.js';
 import { Palette } from '../ui/shell/Palette.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { moreAttemptsAsk, testsQuestion } from '../ui/tests-ask.js';
