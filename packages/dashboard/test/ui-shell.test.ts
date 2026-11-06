@@ -176,8 +176,8 @@ describe('the top bar', () => {
   it('says how far a recording has got on its chip, names it on its card, and keeps it while offline, saying when it was last heard of', () => {
     const at = new Date(2026, 9, 16, 14, 2).getTime();
     const rec = [{ runId: '01M51XRN57ABCDEFGHJKMNPQRS', calls: 9 }];
-    const about = (id: string) => (id === rec[0]!.runId ? 'Ticket T-8812: the order arrived damaged' : null);
-    expect(liveChip({ recording: rec, open: null, conn: 'ok', loadedAt: at, aboutOf: about })).toEqual({ runId: rec[0]!.runId, words: 'recording · 9 calls', title: 'Recording 01M51XRN57', line: 'Ticket T-8812: the order arrived damaged' });
+    const about = (id: string) => (id === rec[0].runId ? 'Ticket T-8812: the order arrived damaged' : null);
+    expect(liveChip({ recording: rec, open: null, conn: 'ok', loadedAt: at, aboutOf: about })).toEqual({ runId: rec[0].runId, words: 'recording · 9 calls', title: 'Recording 01M51XRN57', line: 'Ticket T-8812: the order arrived damaged' });
     expect(liveChip({ recording: [{ runId: 'R1', calls: 1 }], open: null, conn: 'ok', loadedAt: at })?.words).toBe('recording · 1 call');
     expect(liveChip({ recording: rec, open: null, conn: 'offline', loadedAt: at, aboutOf: about })?.line).toBe('Recording when last heard of, at 14:02: live updates are paused');
     expect(liveChip({ recording: rec, open: null, conn: 'expired', loadedAt: at })).toBeNull();
@@ -189,10 +189,10 @@ describe('the top bar', () => {
       { runId: '01M51XRN57ABCDEFGHJKMNPQRS', calls: 9 },
       { runId: '01M52AAAAAABCDEFGHJKMNPQRS', calls: 3 },
     ];
-    expect(liveChip({ recording: rec.slice(0, 1), open: rec[0]!.runId, conn: 'ok', loadedAt: null })).toBeNull();
+    expect(liveChip({ recording: rec.slice(0, 1), open: rec[0].runId, conn: 'ok', loadedAt: null })).toBeNull();
     expect(liveChip({ recording: rec.slice(0, 1), open: '01M51XRN57', conn: 'ok', loadedAt: null })).toBeNull();
-    expect(liveChip({ recording: rec, open: '01M51XRN57', conn: 'ok', loadedAt: null })?.runId).toBe(rec[1]!.runId);
-    expect(liveChip({ recording: rec, open: '01M51', conn: 'ok', loadedAt: null })?.runId).toBe(rec[0]!.runId);
+    expect(liveChip({ recording: rec, open: '01M51XRN57', conn: 'ok', loadedAt: null })?.runId).toBe(rec[1].runId);
+    expect(liveChip({ recording: rec, open: '01M51', conn: 'ok', loadedAt: null })?.runId).toBe(rec[0].runId);
   });
 });
 

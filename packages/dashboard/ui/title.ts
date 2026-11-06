@@ -61,11 +61,17 @@ export function onOpenRunAbout(f: () => void): () => void {
   return () => titleListeners.delete(f);
 }
 
+/** A run or a fix the page can't show, or the setup in its place, goes by its section, as the crumbs name it. */
+function sectionOnly(route: Route, facts: TitleFacts): string | null {
+  if (!facts.unshown && !facts.setup) return null;
+  if (route.page === 'run') return 'Runs';
+  return route.page === 'fixes' && route.id ? 'Fixes' : null;
+}
+
 /** What the route's page is, before the product's name. */
 export function pageTitle(route: Route, facts: TitleFacts = {}): string {
-  // A run or a fix the page can't show, or the setup in its place, goes by its section, as the crumbs name it.
-  const names = route.page === 'run' || (route.page === 'fixes' && !!route.id);
-  if (names && (facts.unshown || facts.setup)) return route.page === 'run' ? 'Runs' : 'Fixes';
+  const section = sectionOnly(route, facts);
+  if (section) return section;
   if (facts.setup) return facts.problem ? `Can’t open ${facts.problem.name}` : 'Set up';
   switch (route.page) {
     case 'overview':

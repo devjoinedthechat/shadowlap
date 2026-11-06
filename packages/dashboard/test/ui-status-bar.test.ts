@@ -25,7 +25,7 @@ describe('the status bar', () => {
     expect(said(left)).toEqual(['st-store: store `~/support-agent/.shadowlap/shadowlap.db`', 'st-runs: 207 runs · 427 attempts']);
     expect(said(right)).toEqual(['st-where: `127.0.0.1:4777` · local only', 'st-ver: shadowlap 0.1.0']);
     // The whole path on hover.
-    expect(left[0]!.title).toBe('/Users/dev/support-agent/.shadowlap/shadowlap.db');
+    expect(left[0].title).toBe('/Users/dev/support-agent/.shadowlap/shadowlap.db');
   });
 
   it('counts in words, with no attempts part when there are none, and waits with … for the meta', () => {
@@ -46,7 +46,7 @@ describe('the status bar', () => {
     const RO = 'This dashboard is read-only (started with --read-only): it shows runs and changes nothing.';
     const right = statusParts({ ...base, readOnly: RO, conn: 'offline' }).right;
     expect(said(right)).toEqual(['st-sync: *offline*', 'st-ro: read-only', 'st-where: `127.0.0.1:4777` · local only', 'st-ver: shadowlap 0.1.0']);
-    expect(right[1]!.title).toBe(RO);
+    expect(right[1].title).toBe(RO);
     expect(STATUS_GIVES_WAY).toEqual(['st-ver', 'st-where', 'st-store']);
   });
 
