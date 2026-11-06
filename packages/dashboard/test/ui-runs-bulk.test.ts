@@ -1,13 +1,15 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Client } from '../ui/api.js';
-import { pendingHidden } from '../ui/pending-delete.js';
+import { flush, pendingHidden } from '../ui/pending-delete.js';
 import { BulkBar, type PickedRun } from '../ui/runspage/BulkBar.js';
 import { labelSuggestions } from '../ui/runspage/bulk.js';
 import { KEEPALIVE_BYTES, sendDelete, type UndoAction } from '../ui/runspage/delete-runs.js';
+import { switchProject } from '../ui/shell/ProjectBlock.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { DeleteResult, JobView } from '../ui/types.js';
 import { sheet } from './css-sheet.js';
+import { addressBar } from './ui-route-helpers.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -79,6 +81,7 @@ let r: Rendered | null = null;
 afterEach(async () => {
   await r?.unmount();
   r = null;
+  vi.unstubAllGlobals();
 });
 
 describe('the bulk bar’s Delete', () => {
@@ -170,6 +173,38 @@ describe('the bulk bar’s Delete', () => {
     await Promise.resolve();
     expect(s.client.deleteRuns).toHaveBeenCalledTimes(1);
     expect(s.toast.mock.calls.some((c) => c[0].startsWith('Restored'))).toBe(false);
+  });
+
+  it('sends what waits before the project changes, its toast replaced by one without Undo, which takes nothing back', async () => {
+    const runs = picked('SWAP');
+    const s = setup([], runs);
+    const { said, undo } = await confirmDelete(s, 2);
+    addressBar('#/runs');
+    const select = vi.fn(() => Promise.resolve());
+    const app = { meta: { project: { id: 'here' } }, client: { projects: { select } }, reload: () => Promise.resolve(), toast: s.toast };
+    await switchProject(app as unknown as AppState, 'there', '#/runs');
+    expect(s.client.deleteRuns).toHaveBeenCalledTimes(1);
+    expect(s.client.deleteRuns).toHaveBeenCalledWith(runs.map((x) => x.runId));
+    expect(select).toHaveBeenCalledWith('there');
+    // The delete is on its way, so the toast says the same with nothing to undo.
+    expect(lastToast(s)).toEqual([said]);
+    // The toast that waited, gone later, sends nothing; its Undo, or ⌘Z, takes nothing back.
+    undo.onGone!(false);
+    undo.run();
+    await Promise.resolve();
+    expect(s.client.deleteRuns).toHaveBeenCalledTimes(1);
+    expect(s.toast.mock.calls.some((c) => c[0].startsWith('Restored'))).toBe(false);
+  });
+
+  it('raises no second toast for a delete its toast sent as it went', async () => {
+    const runs = picked('GONE');
+    const s = setup([], runs);
+    const { undo } = await confirmDelete(s, 2);
+    undo.onGone!(false);
+    await r!.until('the delete to answer', () => s.refresh.mock.calls.length > 0);
+    await flush();
+    expect(s.toast).toHaveBeenCalledTimes(1);
+    expect(s.client.deleteRuns).toHaveBeenCalledTimes(1);
   });
 
   it('keeps a page’s last requests within the browser’s keepalive room, and fails cleanly past it', async () => {

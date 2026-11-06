@@ -6,12 +6,12 @@ import type { DeleteResult } from '../types.js';
 import { BULK_BATCH, bulkToast, inBatches, joinDeleted, named } from './bulk.js';
 
 /**
- * The bulk bar's Delete, once its dialog is confirmed: the runs leave every list at once and the
- * toast says so, with Undo (⌘Z). The delete goes to the server when the toast goes, however it goes
- * (its time out, a newer toast, its ×), or before, as the page or the project changes
- * (`pending-delete.ts`); Undo before then puts the runs back on the lists, as nothing was deleted.
- * Sent, a second toast says only what differs from the first: runs left alone, or a failure, and
- * the runs come back.
+ * The bulk bar's Delete, once its dialog is confirmed: the runs leave the lists `pending-delete.ts`
+ * names at once and the toast says so, with Undo (⌘Z). The delete goes to the server when the toast
+ * goes, however it goes (its time out, a newer toast, its ×), or before, as the page or the project
+ * changes, the toast then saying the same with no Undo; Undo before then puts the runs back on the
+ * lists, as nothing was deleted. Sent, a second toast says only what differs from the first: runs
+ * left alone, or a failure, and the runs come back.
  */
 
 /** A toast's Undo as the toast takes it: `undo` answers ⌘Z, and `onGone` is called once however it goes (`acted`: its button, its × or its key). */
@@ -59,9 +59,11 @@ export function useDeleteRuns(): (runs: readonly PendingRun[], from?: HTMLElemen
   return (runs, from) => {
     const ids = runs.map((r) => r.runId);
     const said = bulkToast({ verb: 'Deleted', done: ids, of: ids.length, skipped: [], attempts: runs.reduce((n, r) => n + r.attempts, 0) });
+    let toastGone = false;
     const send = async (keepalive: boolean) => {
-      // As the page goes the toast goes too: a page brought back from the browser's cache has nothing waiting to undo.
-      if (keepalive) toast(said);
+      // Sent before its toast goes, as the project or the page changes, the toast says the same with no Undo: nothing
+      // waits to undo, here or on a page the browser brings back from its cache.
+      if (!toastGone) toast(said);
       const { out, failed } = await sendDelete(client, ids, keepalive);
       if (failed) toast(errorText(failed), 'error');
       else if (out.skipped.length || out.done.length < ids.length) toast(bulkToast({ verb: 'Deleted', done: out.done, of: ids.length, skipped: out.skipped, attempts: out.attempts.length }));
@@ -78,7 +80,11 @@ export function useDeleteRuns(): (runs: readonly PendingRun[], from?: HTMLElemen
         if (cancel(batch)) toast(`Restored ${named(ids)}`);
       },
       // Pressed, the toast goes before its button's own work is done: Undo has taken the runs back by the next tick, and × hasn't.
-      onGone: (acted) => (acted ? queueMicrotask(go) : go()),
+      onGone: (acted) => {
+        toastGone = true;
+        if (acted) queueMicrotask(go);
+        else go();
+      },
     };
     toast(said, 'notice', undo);
   };
