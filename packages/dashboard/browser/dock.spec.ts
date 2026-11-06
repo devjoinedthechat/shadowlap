@@ -33,6 +33,28 @@ async function startJob(page: Page, title = 'Replaying') {
   };
 }
 
+/** j along Runs with a drawer docked: each row it brings into view stops above the drawer, and once one is picked, above the bulk bar over it. */
+async function rowsClearOfTheDock(page: Page, width: number) {
+  const clear = (over: string) => page.evaluate((s): [number, number] => [document.querySelector('.krow')!.getBoundingClientRect().bottom, document.querySelector(s)!.getBoundingClientRect().top], over);
+  await startJob(page);
+  await page.evaluate(() => {
+    location.hash = '#/runs';
+  });
+  await page.locator('main#view table.runst tbody tr').first().waitFor();
+  for (let i = 0; i < 12; i++) {
+    await page.keyboard.press('j');
+    const [rowBottom, top] = await clear('section.drawer');
+    expect(rowBottom, `row ${i + 1} at ${width}`).toBeLessThanOrEqual(top + 1);
+  }
+  await page.keyboard.press('x');
+  await page.locator('.bulkbar').waitFor();
+  for (let i = 12; i < 24; i++) {
+    await page.keyboard.press('j');
+    const [rowBottom, top] = await clear('.bulkbar');
+    expect(rowBottom, `row ${i + 1} at ${width}, under the bar`).toBeLessThanOrEqual(top + 1);
+  }
+}
+
 const CLEAN = '✓ Replay clean: 30/30 calls replayed';
 
 /** A page in a connection state's preview, which stops no server. */
@@ -186,6 +208,10 @@ test.describe('at 1440', () => {
     expect(Math.round(bar.y - (t.y + t.height))).toBe(14);
   });
 
+  test('stops a row j brings into view above a docked drawer, and above the bulk bar over it', async ({ page }) => {
+    await rowsClearOfTheDock(page, 1440);
+  });
+
   test('keeps a long notice within the content it is centred on', async ({ page }) => {
     await startJob(page, `Replaying ${'with a title that goes on and on '.repeat(6).trim()}`);
     await page.locator('section.drawer .btn', { hasText: 'Stop' }).click();
@@ -240,6 +266,10 @@ test.describe('at 1050', () => {
 
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 } });
+
+  test('stops a row j brings into view above a docked drawer, and above the bulk bar over it', async ({ page }) => {
+    await rowsClearOfTheDock(page, 390);
+  });
 
   test('places a toast over the bulk bar that rides over a docked drawer', async ({ page }) => {
     await startJob(page);
