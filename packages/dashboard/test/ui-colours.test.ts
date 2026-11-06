@@ -118,7 +118,7 @@ describe('where a call’s answer came from', () => {
 
   it('draws a prompt’s cache reads in the quiet neutral, in the Context chart and the Overview’s cache bar alike', () => {
     expect(value(':root', '--c-read')).toBe('color-mix(in srgb, var(--ink) 40%, var(--panel))');
-    expect(value('.ovc .segbar i.rep', 'background')).toBe('var(--c-read)');
+    expect(value('.segbar i.cread', 'background')).toBe('var(--c-read)');
   });
 });
 
@@ -301,6 +301,7 @@ describe('amber', () => {
     '.tag.inc': 'an inconclusive status chip',
     '.wib.y .iv': 'a gate’s bound that can’t yet say pass or fail',
     '.run .r2 em.inc': 'a run that came out inconclusive',
+    '.rrow .rr2 em.inc': 'a recent run that came out inconclusive',
     'table.runst .rline em.inc': 'a run that came out inconclusive',
     '.banner.inc': 'a run that came out inconclusive',
     '.banner.inc .bk': 'a run that came out inconclusive',

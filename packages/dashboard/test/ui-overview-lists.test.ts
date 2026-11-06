@@ -1,34 +1,60 @@
 import { createElement, type ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { NeedsLook, Outcomes } from '../ui/overview/panels.js';
+import { NeedsLook } from '../ui/overview/panels.js';
+import { Usage } from '../ui/overview/Usage.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import type { NeedsLookRow, OverviewSummary, TestsTile } from '../ui/types.js';
+import type { NeedsLookRow, OverviewSummary } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
- * The Overview agrees with Tests and Fixes: its Tests tile counts each golden by its newest result,
- * as Tests does, and each line of Needs a look says where it leads, or Open where nothing runs.
+ * The Overview's Usage folds until asked for, and each line of Needs a look says where it leads, or
+ * Open where nothing runs.
  */
 
 const app = (actionsOff: string | null = null) => ({ actionsOff, exported: false, meta: null }) as unknown as AppState;
 const inApp = (el: ReactElement, actionsOff: string | null = null) => createElement(AppContext.Provider, { value: app(actionsOff) }, el);
 const text = (el: { textContent: string }) => el.textContent.replace(/\s+/g, ' ').trim();
 
-const TILE: TestsTile = { goldens: 7, passing: 5, inconclusive: 0, untested: 1, lastWeek: null, regressions: 1, lastRunAt: null };
 let r: Rendered | null = null;
 afterEach(async () => {
   await r?.unmount();
   r = null;
+  vi.unstubAllGlobals();
 });
 
-describe('the Overview’s tests', () => {
-  it('counts every golden by its newest result in the tile', async () => {
-    const outcomes = { reproduced: { value: 2, lastWeek: 0, open: 1 }, fixesVerified: { value: 1, lastWeek: 0, rejected: 1 }, testsPassing: TILE, spent: { value: 3, lastWeek: 0, notRespent: 0.72, notWaitedMs: 15_000 } } as OverviewSummary['outcomes'];
-    r = await render(inApp(createElement('div', null, createElement(Outcomes, { o: outcomes, now: Date.now() }))));
-    const tile = r.all('.kpi').find((k) => text(k.querySelector('.k')!) === 'Tests passing')!;
-    expect(text(tile.querySelector('.kv b')!)).toBe('5 / 7');
-    expect(tile.querySelector('.kv b')!.className).toBe('err');
-    expect(text(tile.querySelector('.n')!)).toBe('1 failed · 1 not run yet');
+describe('the Overview’s Usage', () => {
+  const summary = {
+    sums: { week: { calls: 2785, runs: 28, origins: { r: 1030, l: 1755 } } },
+    cache: { readShare: 0.87, input: 1000, cacheRead: 870, misses: [], sentAgain: 0 },
+    outcomes: { spent: { value: 16.24 } },
+    daily: [
+      { day: '2026-10-13', start: 0, spent: 1, notRespent: 0.5 },
+      { day: '2026-10-14', start: 0, spent: 2, notRespent: 1.72 },
+    ],
+    today: { served: 1034, notRespent: 1.72 },
+  } as unknown as OverviewSummary;
+
+  it('folds until asked for, its figures on its heading’s line, and stays open for the session', async () => {
+    // The session's storage, as a browser keeps it for the tab.
+    const kept = new Map<string, string>();
+    vi.stubGlobal('sessionStorage', { getItem: (k: string) => kept.get(k) ?? null, setItem: (k: string, v: string) => void kept.set(k, v), removeItem: (k: string) => void kept.delete(k) });
+    r = await render(inApp(createElement(Usage, { s: summary })));
+    expect(text(r.all('.ovuse > header .sub')[0])).toBe('2,785 calls in 28 runs · 37% replayed · 87% of input from the cache · $16.24 spent live this week');
+    const show = r.all('.ovuse .linkbtn')[0];
+    expect([text(show), show.getAttribute('aria-expanded')]).toEqual(['Show', 'false']);
+    expect(r.all('.ugrid')).toHaveLength(0);
+    await r.click(show);
+    expect(r.all('.ugrid .upart h3').map(text)).toEqual(['Calls by origin', 'Prompt cache', 'Spend per day']);
+    expect(r.all('.ovuse .linkbtn')[0].getAttribute('aria-expanded')).toBe('true');
+    expect(text(r.all('.ovuse > .leaknote')[0])).toBe('Today 1,034 calls were served from recordings: $1.72 not re-spent.');
+    expect(kept.get('shadowlap-overview-usage')).toBe('open');
+    // A day after the first in the same month keeps its month for a phone to hide.
+    expect(r.all('.xlabels > span').map(text)).toEqual(['Oct 13', 'Oct 14']);
+    expect(r.all('.xlabels .xm')).toHaveLength(1);
+    // Opened once, it opens open for the rest of the session.
+    await r.unmount();
+    r = await render(inApp(createElement(Usage, { s: summary })));
+    expect(r.all('.ugrid .upart')).toHaveLength(3);
   });
 });
 

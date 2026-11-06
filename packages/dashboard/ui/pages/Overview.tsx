@@ -4,7 +4,10 @@ import { PageHeader, StepList } from '../components/bits.js';
 import { Page } from '../components/Page.js';
 import { viewerTimeZone } from '../format.js';
 import { useLoad } from '../hooks.js';
-import { ActivityCard, CacheCard, DailyCard, FixesCard, NeedsLook, OriginCard, Outcomes, WatchLive } from '../overview/panels.js';
+import { ErrorState } from '../components/States.js';
+import { overviewFacts } from '../overview/model.js';
+import { ActivityCard, NeedsLook, RecentRuns, WatchLive } from '../overview/panels.js';
+import { Usage } from '../overview/Usage.js';
 import { isAttempt } from '../runs.js';
 import { projectOf } from '../shell/ProjectBlock.js';
 import { useApp } from '../state.js';
@@ -12,14 +15,14 @@ import { useTeamStore } from '../teamstore.js';
 import { setupSteps } from './Setup.js';
 
 /**
- * The Overview: this week at a glance, worked out on the server in the viewer's time zone. Outcomes
- * lead (failures reproduced, fixes verified, tests passing, what was spent); then every run of the
- * week as a row of calls beside what needs a look and what ran today; where the calls came from,
- * where the prompt cache stopped hitting and how far each failure got towards a fix; and what was
- * spent and not re-spent per day beside the latest activity. Three columns, two below 1180px, one
- * below 760px. It follows the runs as they change, a recording included. While the server is still
- * adding up the runs' totals (a store no dashboard has opened yet), it says how far that has got and
- * asks again every second; once it has shown the Overview, it keeps it until a whole one replaces it.
+ * The Overview: this week at a glance, worked out on the server in the viewer's time zone. Its
+ * header says the outcomes in four facts (failures reproduced, fixes verified, goldens passing, and
+ * what was spent live, last and quieter), each with its makeup and last week on hover. Needs a look
+ * leads, widest, beside the newest runs over the activity feed; Usage, folded until asked for, is
+ * under both. Needs a look takes the width below 1180px, and one column is left below 760px. It
+ * follows the runs as they change, a recording included. While the server is still adding up the
+ * runs' totals (a store no dashboard has opened yet), it says how far that has got and asks again
+ * every second; once it has shown the Overview, it keeps it until a whole one replaces it.
  */
 
 /** How often the Overview asks again while the runs' totals are being added up. */
@@ -60,7 +63,7 @@ export function OverviewPage() {
       <Page busy={!summary.error && !warming}>
         <PageHeader eyebrow={`${name} · this week`} title="Overview" text="What failed, what got fixed and proven, and what it cost." />
         {summary.error ? (
-          <div className="empty tall">The Overview could not be worked out: {summary.error.message}</div>
+          <ErrorState retry={summary.reload}>The Overview could not be worked out: {summary.error.message}</ErrorState>
         ) : warming ? (
           <div className="empty tall" role="status">
             Adding up what each run did: {warming.done.toLocaleString('en-US')} of {warming.total.toLocaleString('en-US')} runs so far. The Overview shows once they all are; every other page works meanwhile.
@@ -83,20 +86,22 @@ export function OverviewPage() {
   const liveCalls = recording ? (live.find((l) => l.runId === recording.runId)?.calls ?? recording.calls) : 0;
   return (
     <Page>
-      <PageHeader eyebrow={`${name} · this week`} title="Overview" text="What failed, what got fixed and proven, and what it cost." actions={recording ? <WatchLive runId={recording.runId} command={recording.command} calls={liveCalls} /> : null} />
-      <Outcomes o={s.outcomes} now={s.now} />
+      <PageHeader
+        eyebrow={`${name} · this week`}
+        title="Overview"
+        text="What failed, what got fixed and proven, and what it cost."
+        facts={overviewFacts(s.outcomes, s.fixes, s.now)}
+        factsLabel="Overview in figures"
+        actions={recording ? <WatchLive runId={recording.runId} about={recording.about?.text ?? recording.command} calls={liveCalls} /> : null}
+      />
       <div className="ovg">
         <NeedsLook items={s.needsLook.items} total={s.needsLook.total} />
+        <div className="ovside">
+          <RecentRuns runs={runs} now={s.now} />
+          <ActivityCard items={activity.data?.items ?? null} error={activity.error} retry={activity.reload} now={s.now} byPerson={!!store} live={live} />
+        </div>
       </div>
-      <div className="ovg">
-        <OriginCard origins={s.sums.week.origins} />
-        <CacheCard cache={s.cache} />
-        <FixesCard fixes={s.fixes} />
-      </div>
-      <div className="ovg ovlast">
-        <DailyCard daily={s.daily} />
-        <ActivityCard items={activity.data?.items ?? null} now={s.now} byPerson={!!store} live={live} />
-      </div>
+      <Usage s={s} />
     </Page>
   );
 }
