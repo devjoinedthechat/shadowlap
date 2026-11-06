@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isObject } from '@shadowlap/engine';
+import { isObject, NAME_MAX } from '@shadowlap/engine';
 import { describe, expect, it } from 'vitest';
 import { aliasOf, EXPECT_KEYS, JUDGE_MODEL, OPERATORS, parseExpect, parseTests } from '../src/checks.js';
 
@@ -186,6 +186,13 @@ describe('the expect part of the config schema', () => {
       const judge = { judge: [{ name: 'j', question: 'q?', model }] };
       expect(expectValid(judge), model).toBe(parses(judge));
     }
+  });
+
+  it('takes a judge’s name as long as the parser does, NAME_MAX, the most a golden’s name takes too', () => {
+    const judge = (name: string) => ({ judge: [{ name, question: 'q?', model: 'claude-haiku-4-5' }] });
+    expect(parses(judge('a'.repeat(NAME_MAX)))).toBe(true);
+    expect(parses(judge('a'.repeat(NAME_MAX + 1)))).toBe(false);
+    for (const name of ['j', 'a'.repeat(NAME_MAX), 'a'.repeat(NAME_MAX + 1)]) expect(expectValid(judge(name)), name).toBe(parses(judge(name)));
   });
 
   it('takes every example on the checks page, which the parser reads too', () => {

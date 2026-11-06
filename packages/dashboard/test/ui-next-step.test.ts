@@ -6,9 +6,10 @@ import { Banner } from '../ui/run/parts.js';
 import { useWholeStep } from '../ui/run/NextStepButton.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import { TestsAskHost } from '../ui/fixes/TestsJobButton.js';
+import { TestsAskHost } from '../ui/fixes/TestsAskHost.js';
 import type { NextStep, RunDetail, RunOffers, TestBannerOffer } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
+import { resetSpending } from '../ui/spending.js';
 
 /**
  * The run page leads with the run's next step, as the server works it out (src/next-step.ts), its one
@@ -24,6 +25,7 @@ let page: Rendered | null = null;
 afterEach(async () => {
   await page?.unmount();
   page = null;
+  resetSpending();
 });
 
 function app(o: Partial<AppState> = {}, client: Partial<Client> = {}): AppState {
@@ -139,9 +141,11 @@ describe('the run page’s next step', () => {
     expect(page.one('.banner .bk').textContent).toBe('failed');
     expect(page.all('.banner button').some((b) => b.textContent === 'Run blame')).toBe(false);
     const lead = page.byText('.rhead .actions button', 'Run blame');
-    expect(tip(lead)).toMatchObject({ t: 'Run blame', s: 'Find the model call where this run was lost, on its exit status: a passing run exits 0', rows: [['Costs', 'At most ≈$10.88', '']], cmd: `$ shadowlap blame ${REC.slice(0, 10)}` });
+    expect(tip(lead)).toMatchObject({ t: 'Run blame', s: 'Find the model call where this run was lost, on its exit status: a passing run exits 0', rows: [], est: { usd: 10.88, ceiling: true }, cmd: `$ shadowlap blame ${REC.slice(0, 10)}` });
+    // Under Spending's threshold it starts at once, with the estimate its card said.
+    resetSpending(20);
     await page.click(lead);
-    expect(started).toEqual([['blame', { runId: REC }]]);
+    expect(started).toEqual([['blame', { runId: REC, estimate: { usd: 10.88, ceiling: true } }]]);
   });
 
   it('gains what a long run’s step bills once its read of its own answers, and asks only where its answer left it out', async () => {
@@ -152,7 +156,7 @@ describe('the run page’s next step', () => {
     page = await render(createElement(AppContext.Provider, { value: app({}, { nextStep }) }, createElement(Page, { run: detail({ status: 'failed', state: failedState, next: later }) })));
     await page.wait(0);
     expect(nextStep).toHaveBeenCalledOnce();
-    expect(tip(page.byText('.rhead .actions button', 'Run blame'))).toMatchObject({ rows: [['Costs', 'At most ≈$10.88', '']], cmd: `$ shadowlap blame ${REC.slice(0, 10)}` });
+    expect(tip(page.byText('.rhead .actions button', 'Run blame'))).toMatchObject({ rows: [], est: { usd: 10.88, ceiling: true }, cmd: `$ shadowlap blame ${REC.slice(0, 10)}` });
     await page.unmount();
     // A step its first answer holds whole asks for nothing.
     nextStep.mockClear();
@@ -316,7 +320,7 @@ describe('the run page’s next step', () => {
     expect(started).toEqual([]);
     expect(page.one('.dialog h3').textContent).toContain('Update refund-in-limit?');
     await page.click(page.one('.dialog .dlg-ok'));
-    expect(started).toEqual([['test-update', { golden: GOLDEN }]]);
+    expect(started).toEqual([['test-update', { golden: GOLDEN, estimate: { usd: 0.03, ceiling: false } }]]);
   });
 
   it('updates a golden whose judge had no verdict, which no divergence explains, asking first what it bills', async () => {
@@ -345,7 +349,7 @@ describe('the run page’s next step', () => {
 
   it('finds a crash’s breaking commit on the click, free from where its golden passed, Run blame plain beside it', async () => {
     const estimate: NonNullable<NextStep['estimate']> = { kind: 'blame', usd: 16.16, ceiling: true, parts: ['up to 7 probes'] };
-    const next: NextStep = { key: 'bisect', label: 'Find breaking commit', golden: GOLDEN, starts: true, blame: { offer: OFFER.offer, sub: 'Whether an answer of the model’s lost the run', command: `shadowlap blame ${REC.slice(0, 10)}`, estimate }, command: `shadowlap bisect ${GOLDEN} --good aaaaaaa --bad bbbbbbb` };
+    const next: NextStep = { key: 'bisect', label: 'Find breaking commit', golden: GOLDEN, starts: true, blame: { offer: OFFER.offer, sub: 'Whether an answer of the model’s lost the run', command: `shadowlap blame ${REC.slice(0, 10)}`, estimate }, command: `shadowlap bisect ${GOLDEN} --good aaaaaaa --bad bbbbbbb`, estimate: { kind: 'bisect', usd: 0, ceiling: false, parts: ['bisect replays offline'] } };
     const offers = { blame: OFFER.offer, test: null, bisect: { target: { kind: 'golden', golden: GOLDEN }, failed: true, good: 'aaaaaaa', bad: 'bbbbbbb', revisions: [], fork: false, live: false, unavailable: null, args: [] } } as unknown as RunOffers;
     const { a, started } = jobs();
     const found = vi.fn();
@@ -353,7 +357,7 @@ describe('the run page’s next step', () => {
     expect(lime(page)).toEqual(['Find breaking commit']);
     const beside = page.byText('.rhead .actions button', 'Run blame');
     expect(beside.className).toBe('btn');
-    expect(tip(beside)).toMatchObject({ t: 'Run blame', s: 'Whether an answer of the model’s lost the run', rows: [['Costs', 'At most ≈$16.16', '']], cmd: `$ shadowlap blame ${REC.slice(0, 10)}` });
+    expect(tip(beside)).toMatchObject({ t: 'Run blame', s: 'Whether an answer of the model’s lost the run', rows: [], est: { usd: 16.16, ceiling: true }, cmd: `$ shadowlap blame ${REC.slice(0, 10)}` });
     // Before Fork at #n, the lime one last.
     const buttons = page.all('.rhead .actions button').map((b) => b.textContent);
     expect(buttons.indexOf('Run blame')).toBeLessThan(buttons.findIndex((b) => b?.startsWith('Fork at')));
@@ -361,7 +365,8 @@ describe('the run page’s next step', () => {
     // Once, in the header: the banner leaves it there.
     expect(page.all('.banner button').some((b) => b.textContent === 'Run blame')).toBe(false);
     await page.click(page.byText('.rhead .actions button', 'Find breaking commit'));
-    expect(started).toEqual([['bisect', { runId: REC, good: 'aaaaaaa' }]]);
+    // Free, so it starts by Spending on every setting, with the estimate its drawer says.
+    expect(started).toEqual([['bisect', { runId: REC, good: 'aaaaaaa', estimate: { usd: 0, ceiling: false } }]]);
     expect(found).not.toHaveBeenCalled();
   });
 
@@ -399,7 +404,8 @@ describe('the run page’s next step', () => {
     expect(dialog.querySelector('.dcost')?.textContent).toContain('live from each read, writes stubbed');
     expect(dialog.textContent).toContain(`shadowlap injection ${REC.slice(0, 10)} --templates system-notice --repeat 2`);
     await page.click(page.one('.dialog .dlg-ok'));
-    expect(started).toEqual([['injection', { runId: REC, repeat: 2, templates: ['system-notice'], baselines: 3, liveReads: false }]]);
+    // The job keeps the estimate the card and the Cost line said, for its drawer.
+    expect(started).toEqual([['injection', { runId: REC, repeat: 2, templates: ['system-notice'], baselines: 3, liveReads: false, estimate: { usd: 3.11, ceiling: false } }]]);
   });
 
   it('runs an injection test its budget stopped, and a gate’s through its golden’s test', async () => {
@@ -493,8 +499,8 @@ describe('the run page’s next step', () => {
 
   it('says what a step bills in the words an ask does', () => {
     const step: NextStep = { ...OFFER, estimate: { kind: 'blame', usd: null, ceiling: false, parts: ['a model has no price'], none: 'a model has no price' } };
-    expect(stepCard(step).rows).toEqual([{ label: 'Costs', value: 'no estimate' }]);
-    expect(stepCostLine(step)).toEqual({ price: 'Billed by your provider', parts: ['a model has no price'] });
+    expect(stepCard(step)).toMatchObject({ rows: [], est: { usd: null, ceiling: false } });
+    expect(stepCostLine(step)).toEqual({ price: 'Billed by your provider', parts: ['a model has no price'], estimate: step.estimate });
     // Nothing to say of what bills nothing, on its card; its title is its words without what its dialog asks.
     const free: NextStep = { key: 'rerun-test', label: 'Re-run test', golden: GOLDEN, estimate: { kind: 'tests', usd: 0, ceiling: false, parts: ['replays offline'] } };
     expect(stepCard(free).rows).toEqual([]);

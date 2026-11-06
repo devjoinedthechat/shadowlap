@@ -118,6 +118,15 @@ describe('fix apply --name', () => {
     expect(result.goldens.map((g) => g.to)).toEqual(['goldens/refund-in-limit', 'goldens/refund-over-limit-2']);
   });
 
+  it('refuses a name too long for a folder, or one Windows keeps for itself, before the working tree changes', async () => {
+    const { fix, runs } = verified();
+    const how = `Nothing was changed: name the recording of ${runs[0]} with --name ${runs[0]}=<name>`;
+    // Past the rule once, a name this long failed at mkdir with ENAMETOOLONG, the patch in already.
+    expect(await refused(fix, [{ run: runs[0], name: 'a'.repeat(300) }])).toBe(`A golden’s name is at most 64 characters. ${how}`);
+    expect(await refused(fix, [{ run: runs[0], name: 'con' }])).toBe(`con is a name Windows keeps for itself: pick another. ${how}`);
+    expect(existsSync(join(project, 'goldens'))).toBe(false);
+  });
+
   it('finds the goldens an earlier apply named, copies the rest, and names none of them again', async () => {
     const { fix, runs } = verified({ runs: 2 });
     const [a, b] = runs as [string, string];

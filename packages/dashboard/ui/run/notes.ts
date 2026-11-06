@@ -1,5 +1,6 @@
 import { num } from '../format.js';
 import { jsString as literal } from '../../../engine/src/text.js';
+import { UNGUARDED_FIX } from './note-words.js';
 
 /**
  * What a run's page says, under its banner, of what the run did that Shadowlap did not record or
@@ -15,6 +16,10 @@ import { jsString as literal } from '../../../engine/src/text.js';
 
 /** A part of a note's line: words, a name set as code, or a call that opens on a click. */
 export type NotePart = string | { code: string } | { call: number };
+
+// The guard's fix and a note's words alone, which Tests' failure lines read too: in a module of their
+// own, so the first look holds them without the rest of a run's notes.
+export { noteText, UNGUARDED_FIX } from './note-words.js';
 
 export interface UnrecordedToolView {
   name: string;
@@ -139,20 +144,6 @@ function howToRecord(t: UnrecordedToolView): NotePart[] | null {
 }
 
 /**
- * What to do about a process the guard can't watch, in `shadowlap doctor`'s words (its
- * UNGUARDED_FIX, which a test holds this to), with the page's apostrophes.
- */
-export const UNGUARDED_FIX: readonly NotePart[] = [
-  'The Claude Code CLI the Claude Agent SDK runs is a native program that loads no Shadowlap preload, so the network guard can’t watch a connection it makes itself, and its fence names what it can still reach. Close each (disallow WebFetch, keep MCP servers to the query’s own with strictMcpConfig, reach a remote one through ',
-  { code: 'shadowlap mcp' },
-  ', which records and fences its calls), accept the CLI alone with ',
-  { code: '"guard": { "accept": ["claude-code"] }' },
-  ' in shadowlap.config.json, or test with ',
-  { code: '--guard warn' },
-  ' to accept every connection the guard can’t watch. A Node or Python process whose guard could not start says so on its standard error.',
-];
-
-/**
  * The run's preloads: none loaded, so the guard never watched the run; or a process of the agent said
  * it runs with no guard (`unguarded`), as the Claude Code CLI does, in the words the run kept. Under
  * --guard block the run failed for either; under warn it only went unwatched.
@@ -208,11 +199,6 @@ export function runNotes(i: NotesInput): RunNote[] {
   const notes = [i.unrecorded ? unrecordedNote(i.unrecorded, i.mode) : null, ...(i.preloads ? preloadNotes(i.preloads) : []), ...(i.websockets ? webSocketNotes(i.websockets, i.mode) : []), i.extraReads ? extraNote(i.extraReads) : null].filter((n): n is RunNote => n !== null);
   const rank = { err: 0, warn: 1, n: 2 } as const;
   return notes.map((n, at) => ({ n, at })).sort((a, b) => rank[a.n.tone] - rank[b.n.tone] || a.at - b.at).map((x) => x.n);
-}
-
-/** A note's words alone, as a screen reader and a test read them. */
-export function noteText(parts: readonly NotePart[]): string {
-  return parts.map((p) => (typeof p === 'string' ? p : 'code' in p ? p.code : `#${p.call}`)).join('');
 }
 
 /** The host a model call went to (`meta.via`), in words: a host the config declares, in its format, or one built in by name. */

@@ -16,7 +16,8 @@
 // - A Shadowlap home of the run's own: SHADOWLAP_HOME, which every process the run starts inherits, is
 //   a temporary folder, removed after the run. So the project list, the agents commands register
 //   while they run and the proxies `mcp --listen` registers go there, never in the real ~/.shadowlap.
-//   HOME stays as it is: uv keeps its caches there.
+//   Vitest gives each test file a folder of its own in it (file-home.mjs). HOME stays as it is: uv
+//   keeps its caches there.
 // - Nothing written in the real ~/.shadowlap: what it holds is compared before and after the run, as
 //   the .shadowlap folders above are. The owner's own Shadowlap writes there while the tests run too
 //   (a dashboard keeps its project list, an agent of theirs is registered and removed), and nothing
@@ -45,18 +46,21 @@ export const REAL_HOME = join(homedir(), '.shadowlap');
 
 /**
  * A Shadowlap home of the run's own: a temporary folder, set as SHADOWLAP_HOME in this process's
- * environment, which every process it starts inherits. `remove` takes the folder away, and puts
- * back what SHADOWLAP_HOME was.
+ * environment, which every process it starts inherits, and as SHADOWLAP_TESTS_HOME, where each test
+ * file makes its own (file-home.mjs). `remove` takes the folder away, and puts back what both were.
  */
 export function ownHome() {
   const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'shadowlap-tests-home-')));
-  const was = process.env.SHADOWLAP_HOME;
+  const was = { SHADOWLAP_HOME: process.env.SHADOWLAP_HOME, SHADOWLAP_TESTS_HOME: process.env.SHADOWLAP_TESTS_HOME };
   process.env.SHADOWLAP_HOME = dir;
+  process.env.SHADOWLAP_TESTS_HOME = dir;
   return {
     dir,
     remove() {
-      if (was === undefined) delete process.env.SHADOWLAP_HOME;
-      else process.env.SHADOWLAP_HOME = was;
+      for (const [name, value] of Object.entries(was)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
       rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     },
   };

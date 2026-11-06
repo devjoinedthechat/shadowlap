@@ -1228,14 +1228,14 @@ A fix is one failure, from the blame that reproduced it to a change that held.
 
 Its subcommands take these flags:
 
-| Flag                  | What it does                                                              | Default         |
-| --------------------- | ------------------------------------------------------------------------- | --------------- |
-| `--status <status>`   | `fix ls`: only open, verified (applied ones too) or applied fixes         | —               |
-| `--name <run>=<name>` | `fix apply`: the name of the golden copied from a fixed run (repeatable)  | The fix's label |
-| `--goldens <dir>`     | `fix apply`: where the recordings go                                      | `goldens`       |
-| `--no-test`           | `fix apply`: copy the recordings without running `shadowlap test` on them | —               |
-| `--build <command>`   | `fix apply`: rebuild the agent after the patch, before the test           | —               |
-| `--json`              | Print it as JSON: the dashboard's read model of Fixes (below)             | —               |
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--status <status>` | `fix ls`: only open, verified (applied ones too) or applied fixes | — |
+| `--name <run>=<name>` | `fix apply`: the name of the golden copied from a fixed run, at most 64 characters and not a name Windows keeps (repeatable) | The fix's label |
+| `--goldens <dir>` | `fix apply`: where the recordings go | `goldens` |
+| `--no-test` | `fix apply`: copy the recordings without running `shadowlap test` on them | — |
+| `--build <command>` | `fix apply`: rebuild the agent after the patch, before the test | — |
+| `--json` | Print it as JSON: the dashboard's read model of Fixes (below) | — |
 
 With `--json`, each subcommand prints:
 
@@ -1446,10 +1446,13 @@ goldens folder named for what a test reads it by, never the run's id:
 - `--name <run>=<name>` names the one from that run, by its id or the start of it, such as
   `--name 01K5CQ2E8M=double-email`. Give one for each golden you name.
 - A golden you don't name takes the fix's label, else its title, as a name: `refund-bug`, or
-  `refund-bug-1` and `refund-bug-2` for two.
-- A name takes lower-case letters, digits and hyphens, from a letter or a digit. Each golden needs
-  one of its own, and not one the goldens folder holds already, read without case as macOS and
-  Windows read a folder's name.
+  `refund-bug-1` and `refund-bug-2` for two. A label that makes a name Windows keeps gives way to
+  the title, and a title to `golden`.
+- A name takes lower-case letters, digits and hyphens, from a letter or a digit, at most 64 of
+  them. Each golden needs one of its own, and not one the goldens folder holds already, read without
+  case as macOS and Windows read a folder's name.
+- A name Windows keeps for itself won't do, whatever its case: `con`, `nul`, `prn`, `aux`, `com1`
+  to `com9` and `lpt1` to `lpt9`.
 
 A name that won't do changes nothing: `fix apply` says why and how to give another, and exits 2. So
 does a `--name` where it copies no recording: a fix with no repair behind it, one applied with none
@@ -4936,7 +4939,7 @@ These environment variables change what Shadowlap does:
   Actions and GitLab CI. The build then writes only to that pull request's folder in the
   [team store](./team.md#pull-requests).
 - **`SHADOWLAP_HOME`**: a relative path is ignored, and `~/.shadowlap` holds all of these files
-  instead, as the dashboard says. It holds your dashboard [Spending](./dashboard.md#settings) too, in
+  instead, as the dashboard says. It holds your dashboard [Spending](./dashboard.md#spending) too, in
   `settings.json`. Processes that find each other's files there need the same one, so give it to
   `shadowlap mcp` in your MCP client's configuration too ([details](./mcp.md#finding-the-run)).
 - **The proxy variables**: the agent never reaches the sidecar through one. `run`, `replay`, `test` and

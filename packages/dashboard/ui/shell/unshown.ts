@@ -2,12 +2,12 @@ import { useLayoutEffect, useSyncExternalStore } from 'react';
 import type { Route } from '../route.js';
 
 /**
- * What the open page has found it can't show (a run or a fix that isn't there), by the page it is
- * (`run:<id>`, `fixes:<id>`, `compare:<a>/<b>`): the crumbs and the tab's title then name only the
- * section, as the design has them name only what the page shows. Until a page says so they name what
- * it opened for, so an open never flashes. The page notes it (`Unshown`); the top bar and the title
- * read it. A page that says another project holds it notes which (`heldBy`): the tab's title names
- * that project (`In support-agent`).
+ * What the open page has found it can't show (a run, a fix, a revision or a pair of runs that isn't
+ * there), by the page it is (`run:<id>`, `fixes:<id>`, `changes:<rev>`, `compare:<a>/<b>`): the
+ * crumbs and the tab's title then name only the section, as the design has them name only what the
+ * page shows. Until a page says so they name what it opened for, so an open never flashes. The page
+ * notes it (`Unshown`); the top bar and the title read it. A page that says another project holds it
+ * notes which (`heldBy`): the tab's title names that project (`In support-agent`).
  */
 let unshown: { at: string; heldBy: string | null } | null = null;
 const heard = new Set<() => void>();
@@ -25,7 +25,7 @@ function onUnshown(fn: () => void): () => void {
 
 /** The page a route opens, as `Unshown` notes it: null for a page that names nothing of its own. */
 export function unshownKey(route: Route): string | null {
-  if ((route.page === 'run' || route.page === 'fixes') && route.id) return `${route.page}:${route.id}`;
+  if ((route.page === 'run' || route.page === 'fixes' || route.page === 'changes') && route.id) return `${route.page}:${route.id}`;
   return route.page === 'compare' && route.a ? `compare:${route.a}/${route.b ?? ''}` : null;
 }
 

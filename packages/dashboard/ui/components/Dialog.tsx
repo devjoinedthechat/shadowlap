@@ -111,6 +111,8 @@ export interface DialogProps {
   command?: CommandRowProps | string | readonly string[] | null | undefined;
   /** What it bills. */
   cost?: CostLineProps | null | undefined;
+  /** At the left of its footer: an ask's Spending note (AskNote), which takes a row of its own where the buttons don't fit beside it. */
+  footNote?: ReactNode;
   /** The action's words; omit for a dialog with Close only. */
   ok?: string;
   /** `danger` turns the action red; `plain` gives it no colour. */
@@ -210,7 +212,7 @@ function DialogWays({ ok, alt, local, tone, okDisabled, onOk, press, hidden }: {
   );
 }
 
-export function Dialog({ title, lead, doc, warn, facts, children, factsUnder, runs, command, cost, ok, tone: asked = 'lime', okDisabled = false, onOk, alt, onClose, cancel = 'Cancel', className = '', initialFocus, dirty = false, keepOnSwitch = false, local = false }: DialogProps) {
+export function Dialog({ title, lead, doc, warn, facts, children, factsUnder, runs, command, cost, footNote, ok, tone: asked = 'lime', okDisabled = false, onOk, alt, onClose, cancel = 'Cancel', className = '', initialFocus, dirty = false, keepOnSwitch = false, local = false }: DialogProps) {
   const ref = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   useScrollStop(body);
@@ -343,6 +345,7 @@ export function Dialog({ title, lead, doc, warn, facts, children, factsUnder, ru
         </header>
         {hasBody ? <DialogBody {...{ id, warn, facts, factsUnder, runs, command, cost, body, children }} /> : null}
         <footer>
+          {asking ? null : footNote}
           <button type="button" className="btn dlg-cancel" hidden={asking} onClick={onClose}>
             {ok ? cancel : 'Close'}
           </button>
@@ -384,7 +387,7 @@ function Suggestions({ id, values }: { id: string; values: readonly string[] | u
 }
 
 /** What `PromptDialog` takes: its field, its answers and its way on, and the anatomy's slots it passes through. */
-type PromptDialogProps = Pick<DialogProps, 'title' | 'lead' | 'doc' | 'warn' | 'facts' | 'factsUnder' | 'cost' | 'onClose'> & {
+type PromptDialogProps = Pick<DialogProps, 'title' | 'lead' | 'doc' | 'warn' | 'facts' | 'factsUnder' | 'cost' | 'footNote' | 'onClose'> & {
   ok: string;
   label?: string;
   /** The field's name for a screen reader, where no label shows. */
@@ -398,6 +401,8 @@ type PromptDialogProps = Pick<DialogProps, 'title' | 'lead' | 'doc' | 'warn' | '
   command?: string | ((answer: string) => string | CommandRowProps);
   /** What follows the field, worked out from the answer so far: a gate's entry for the folder typed. */
   after?: (answer: string) => ReactNode;
+  /** Told the answer as it changes: Switch model prices the model typed. */
+  onAnswer?: (answer: string) => void;
   maxLength?: number;
   /** Answers to pick from; any other answer is accepted too. */
   choices?: readonly PromptChoice[];
@@ -422,6 +427,7 @@ export function PromptDialog({
   multiline = false,
   command,
   after,
+  onAnswer,
   maxLength,
   choices,
   suggestions,
@@ -436,6 +442,7 @@ export function PromptDialog({
   const [words, setWords] = useState('');
   const picked = listed && !own ? choices.find((c) => c.value === value) : undefined;
   const answer = picked ? choiceAnswer(picked, words) : value.trim();
+  useEffect(() => onAnswer?.(answer), [answer, onAnswer]);
   const ready = answer.length > 0;
   const named = !label && !listed ? { 'aria-label': fieldName ?? (typeof slots.title === 'string' ? slots.title : 'Your answer') } : {};
   const field = multiline ? (
@@ -553,7 +560,7 @@ export function PromptDialog({
 }
 
 /** A yes-or-no before something that cannot be undone, with the command it runs. */
-export function ConfirmDialog({ danger = false, ...slots }: Pick<DialogProps, 'title' | 'lead' | 'doc' | 'warn' | 'facts' | 'command' | 'cost' | 'onOk' | 'onClose'> & { ok: string; danger?: boolean }) {
+export function ConfirmDialog({ danger = false, ...slots }: Pick<DialogProps, 'title' | 'lead' | 'doc' | 'warn' | 'facts' | 'command' | 'cost' | 'footNote' | 'onOk' | 'onClose'> & { ok: string; danger?: boolean }) {
   return <Dialog {...slots} tone={danger ? 'danger' : 'lime'} />;
 }
 

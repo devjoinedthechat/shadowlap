@@ -440,7 +440,7 @@ describe('the Training read model', () => {
     expect(gone.tasks.rows[0]).toMatchObject({ href: `#/run/${golden.runId}/17`, opens: 'Open the golden’s run at the takeover', update: { steps: [['test', 'goldens/refund-over-limit', '--update']] } });
 
     // The job runs what the store and the config say, for such a task only.
-    expect(taskUpdateJob({ golden: 'goldens/refund-over-limit' }, s, [inLimit, over], [])).toEqual({ title: 'Updating refund-over-limit', steps: update!.steps });
+    expect(taskUpdateJob({ golden: 'goldens/refund-over-limit' }, s, [inLimit, over], [])).toEqual({ title: 'Updating refund-over-limit', steps: update!.steps, rerecords: true });
     expect(taskUpdateJob({ golden: 'goldens/refund-in-limit' }, s, [inLimit, over], [])).toEqual({ error: 'refund-in-limit is not blocked by its test forking before the takeover' });
     expect(taskUpdateJob({ golden: 'goldens/x' }, s, [task('goldens/x', 'blocked', null)], [])).toEqual({ error: 'x is not blocked by its test forking before the takeover: its test fails; fix it on Tests' });
     // One whose last test was inconclusive failed nothing: it is settled on Tests, not fixed.

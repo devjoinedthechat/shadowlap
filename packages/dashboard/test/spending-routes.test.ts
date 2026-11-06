@@ -3,7 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ProjectHost, ProjectRegistry, releaseLock, SPENDING_REFUSED, Store, takeLock, USER_SETTINGS_FILE } from '@shadowlap/engine';
-import { startDashboard, type Dashboard, type ProjectConfig } from '../src/index.js';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { startDashboard, type Dashboard, type GoldenSource, type JobView, type ProjectConfig, type SpawnCli } from '../src/index.js';
 
 /**
  * Spending over HTTP: the person's own threshold on this machine, kept under SHADOWLAP_HOME and never
@@ -155,6 +157,37 @@ describe('Spending, with several projects', () => {
       await several.close();
       host.close();
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('Spending is no budget', () => {
+  const FAKE = fileURLToPath(new URL('./fake-tests-cli.mjs', import.meta.url));
+  const GOLDEN: GoldenSource = { path: 'goldens/refund', runId: 'GOLDEN_REFUND', packedAt: Date.UTC(2026, 10, 1), mode: 'fork', repeat: 1, passes: 1, checks: [] };
+
+  it('reaches no job’s arguments at any setting: a job starts with what it was asked and its estimate, never a --budget of the threshold', async () => {
+    const spawned: string[][] = [];
+    const spawnCli: SpawnCli = (args, options) => {
+      spawned.push(args);
+      return spawn(process.execPath, [FAKE, ...args], { ...(options?.cwd ? { cwd: options.cwd } : {}), stdio: ['ignore', 'pipe', 'pipe'] });
+    };
+    const d = await startDashboard({ store, spawnCli, readOnly: false, project: { path: project }, goldens: () => [GOLDEN] });
+    try {
+      for (const askAbove of [0, 0.5, 2, null]) {
+        expect((await put(askAbove, d)).status).toBe(200);
+        // The server asks the same question at every setting: the page answers it by Spending.
+        const asked = await api(d, 'jobs', { method: 'POST', body: { kind: 'test', golden: GOLDEN.path } });
+        expect(asked.status).toBe(409);
+        const res = await api(d, 'jobs', { method: 'POST', body: { kind: 'test', golden: GOLDEN.path, yes: asked.body.confirm, estimate: { usd: 0.3, ceiling: false } } });
+        expect(res.status).toBe(202);
+        const job = res.body as unknown as JobView;
+        expect(job.args).toEqual(['test', GOLDEN.path]);
+        expect(job.estimate).toEqual({ usd: 0.3, ceiling: false });
+        for (let i = 0; i < 400 && !(await api(d, `jobs/${job.id}`)).body.done; i++) await new Promise((r) => setTimeout(r, 25));
+      }
+      expect(spawned.flat()).not.toContain('--budget');
+    } finally {
+      await d.close();
     }
   });
 });

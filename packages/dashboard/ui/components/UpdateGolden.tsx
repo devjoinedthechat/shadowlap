@@ -1,4 +1,5 @@
 import { useId, useState } from 'react';
+import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import type { UpdatePlan } from '../update-plan.js';
 import { CommandRow } from './CommandRow.js';
 import { CostLine } from './CostLine.js';
@@ -23,7 +24,7 @@ function CommandName({ name, controls, open, onToggle }: { name: string; control
  * every run the normalizer's way on, lime, beside Update anyway, each with its own command and what
  * it bills. A golden that only lacks a judge's verdict names no row: nothing diverged.
  */
-export function UpdateGoldenDialog({ plan, onUpdate, onInstead, onClose }: { plan: UpdatePlan; onUpdate: WayOn; onInstead?: WayOn | undefined; onClose: () => void }) {
+export function UpdateGoldenDialog({ plan, estimate, onUpdate, onInstead, onClose }: { plan: UpdatePlan; estimate?: Estimate | null | undefined; onUpdate: WayOn; onInstead?: WayOn | undefined; onClose: () => void }) {
   const one = plan.goldens.length === 1 ? plan.goldens[0]! : null;
   const instead = onInstead ? plan.instead : null;
   const id = useId();
@@ -40,7 +41,8 @@ export function UpdateGoldenDialog({ plan, onUpdate, onInstead, onClose }: { pla
       onOk={onUpdate}
       onClose={onClose}
       command={instead ? { command: plan.command, id: `${id}update`, className: `updany${shown.update ? ' open' : ''}` } : plan.command}
-      cost={plan.cost}
+      // The update's estimate once it has come, in place of the words that say what it bills.
+      cost={{ ...plan.cost, estimate }}
     >
       {!plan.goldens.length ? null : one ? (
         <div className="rmp">

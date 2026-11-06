@@ -383,7 +383,7 @@ describe('shadowlap mcp --url', () => {
 
   it('says at the start when the sidecar it was given does not answer, and refuses writes', async () => {
     const child = spawn(process.execPath, [CLI, 'mcp', '--url', server.url], {
-      env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '', SHADOWLAP_URL: 'http://127.0.0.1:9/t/left-over', SHADOWLAP_RUN_ID: 'r', SHADOWLAP_TELEMETRY: '0' },
+      env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '', SHADOWLAP_HOME: process.env.SHADOWLAP_HOME, SHADOWLAP_URL: 'http://127.0.0.1:9/t/left-over', SHADOWLAP_RUN_ID: 'r', SHADOWLAP_TELEMETRY: '0' },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     let stderr = '';

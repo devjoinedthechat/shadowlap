@@ -196,6 +196,8 @@ describe('GET /api/verdicts/:rev', () => {
   it('gives a revision’s goldens as its session judged them, worst first, and the previews asked at it', async () => {
     const page = await getJson<VerdictRevision>(dash, `verdicts/${tightened}`);
     expect(page.row).toMatchObject({ title: 'Tighten refund wording', subject: 'Tighten refund wording', word: 'failed', line: '1 of 2 goldens passed', by: null });
+    // Not the newest revision's: the list leads with the session that ran with no revision.
+    expect(page.latest).toBe(false);
     expect(page.goldens.map((g) => [g.name, g.verdict, g.note])).toEqual([
       ['refund-in-limit', 'failed', 'the agent exited with code 1'],
       ['refund-flow', 'passed', '4/4 replayed'],
@@ -206,7 +208,7 @@ describe('GET /api/verdicts/:rev', () => {
 
   it('opens a revision with changes not committed, and one with no revision', async () => {
     expect((await getJson<VerdictRevision>(dash, `verdicts/${encodeURIComponent(`${tightened}+dirty`)}`)).row).toMatchObject({ title: 'Tighten refund wording', revision: `${tightened}+dirty` });
-    expect((await getJson<VerdictRevision>(dash, 'verdicts/no-revision')).row).toMatchObject({ title: 'Tested with no revision', revision: null });
+    expect(await getJson<VerdictRevision>(dash, 'verdicts/no-revision')).toMatchObject({ row: { title: 'Tested with no revision', revision: null }, latest: true });
   });
 
   it('is a 404 for a change no session checked', async () => {

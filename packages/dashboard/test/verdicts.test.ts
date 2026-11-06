@@ -363,6 +363,8 @@ describe('a revision’s page', () => {
   it('gives its goldens as that session judged them, worst first with notes, and the previews asked at it', () => {
     const page = verdictRevision(store, GOLDENS, 'd2e8a1f')!;
     expect(page.row).toMatchObject({ key: 'd2e8a1f', word: 'failed' });
+    // A revision tested before the newest: Verdicts leads with another.
+    expect(page.latest).toBe(false);
     expect(page.goldens).toEqual([
       { golden: 'goldens/refund-flow', name: 'refund-flow', verdict: 'failed', note: 'diverged at call 3 · $.model', runId: '01M5REPLAYFLOW000000000000' },
       { golden: 'goldens/escalate-over-limit', name: 'escalate-over-limit', verdict: 'inconclusive', note: 'inconclusive: the judge check "polite" could not be judged', runId: null },
@@ -376,7 +378,8 @@ describe('a revision’s page', () => {
   });
 
   it('opens with no revision too, leads with nothing when every golden passed, and is null for a change no session checked', () => {
-    expect(verdictRevision(store, GOLDENS, 'no-revision')).toMatchObject({ row: { title: 'Tested with no revision' }, lead: { golden: 'goldens/escalate-over-limit' }, decisions: [] });
+    // The newest revision's page says so, as Verdicts leads with it.
+    expect(verdictRevision(store, GOLDENS, 'no-revision')).toMatchObject({ row: { title: 'Tested with no revision' }, latest: true, lead: { golden: 'goldens/escalate-over-limit' }, decisions: [] });
     expect(verdictRevision(store, GOLDENS, 'c91d0f4')).toMatchObject({ lead: null });
     for (const key of ['d2e8a1f+dirty', 'e5f6a7b', 'f00ba47', '0000000', '../etc', '']) expect(verdictRevision(store, GOLDENS, key), key).toBeNull();
   });

@@ -8,7 +8,10 @@
  *   #/                                   Overview
  *   #/runs[?q=&types=&sort=&from=&to=]   Runs, filtered when the link asks
  *   #/run/<id>[/<call>[/<view>]]         a run, a call, a view
- *   #/compare[/<a>/<b>]                  Compare
+ *   #/changes[/verdicts/<rev>]           Changes: Verdicts, and a revision's page there
+ *   #/changes/decisions[/<id>]           Changes: a preview (`shadowlap decisions`)
+ *   #/changes/migrate[/<id>]             Changes: a migration (`shadowlap migrate`)
+ *   #/compare[/<a>[/<b>[/<call>]]]       Changes: Compare, two runs, a call of theirs
  *   #/fixes[/<id>[/<step>[/<sub>]]]      Fixes
  *   #/tests  #/training[/tasks]  #/settings[/<tab>]  #/new  #/setup  #/setup/store
  */
@@ -49,6 +52,14 @@ export interface RunsFilterRead {
 }
 
 const enc = encodeURIComponent;
+
+/**
+ * A revision's key, as a revision's page takes it in its address and `/api/verdicts/<key>` does:
+ * `no-revision`, or a revision as `shadowlap test` names one (`d2e8a1f`, `d2e8a1f+dirty`).
+ */
+export function isRevisionKey(s: unknown): s is string {
+  return typeof s === 'string' && /^(?:no-revision|[A-Za-z0-9][A-Za-z0-9._-]{0,99}(?:\+dirty)?)$/.test(s);
+}
 
 /**
  * Words for a query string, as they read: a space as `+`, and `:` `,` `/` `@` as typed
@@ -207,7 +218,12 @@ export const links = {
     const v = view && view !== 'calls' ? `/${view}` : '';
     return `#/run/${enc(id)}${call ? `/${call}` : ''}${v}`;
   },
-  compare: (a?: string | null, b?: string | null): string => (a && b ? `#/compare/${enc(a)}/${enc(b)}` : '#/compare'),
+  /** Changes: Verdicts, the tab it opens on, and a revision's page there (`no-revision` for a session that knew none). */
+  changes: (rev?: string | null): string => (rev ? `#/changes/verdicts/${enc(rev)}` : '#/changes'),
+  /** Changes: a preview's tab (`decisions`) or a migration's (`migrate`), at a session. */
+  changeSession: (kind: 'decisions' | 'migrate', id?: string | null): string => `#/changes/${kind}${id ? `/${enc(id)}` : ''}`,
+  /** Compare, under Changes: one run picked, two, and a call of theirs (which needs both). */
+  compare: (a?: string | null, b?: string | null, call?: number | null): string => (a ? `#/compare/${enc(a)}${b ? `/${enc(b)}${call ? `/${call}` : ''}` : ''}` : '#/compare'),
   /** Fixes, a fix, one of its steps (`blame`, `repair`, `verify`), and a verdict of its Verify step. */
   fixes: (id?: string | null, step?: string | null, sub?: string | null): string => `#/fixes${id ? `/${enc(id)}${step ? `/${enc(step)}${sub ? `/${enc(sub)}` : ''}` : ''}` : ''}`,
   tests: (): string => '#/tests',

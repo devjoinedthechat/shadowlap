@@ -6,7 +6,9 @@ import { namedIn } from '../components/Id.js';
 import { shortId } from '../format.js';
 import { sentence } from '../normalize.js';
 import { useApp } from '../state.js';
+import { sentEstimate } from '../spending.js';
 import type { BisectChoices } from '../types.js';
+import { bisectQuery, useBisectEstimate } from './bisect-estimate.js';
 import { bisectBadFact, bisectCommand, bisectCost, bisectRequest, bisectUpTo, FLAKY_NOTE, revisionTally } from './find-commit.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 
@@ -14,7 +16,8 @@ import { ACTIONS, confirmWords } from '../labels.js';
  * Find breaking commit, from the calendar: the first failure on the days picked is where it started
  * failing, and bisect replays it at commits between one where it still worked (before the first day
  * picked) and its own, halving each time, to name the first that broke it. Replays are free, so it
- * costs no tokens, unless its replays have to run live from where they diverge (`bisectCost`). A
+ * costs no tokens, unless its replays have to run live from where they diverge: its Cost line is the
+ * search's estimate from the commit picked, once it has rested, and the job keeps the last one shown. A
  * first failure at the first commit has nothing before it to search: the server offers the first
  * that started later, and `earlier` says why the first was passed over.
  */
@@ -28,8 +31,9 @@ export function FindCommitDialog({ runId, choices, earlier = null, onClose }: { 
   const title = namedIn(`Find breaking commit for ${what}`, what);
   const lead = `Finds the first commit that broke ${choices.target.kind === 'golden' ? what : 'the run'}, from one where it worked.`;
   const bad = bisectBadFact(choices);
-  if (choices.unavailable) return <Dialog title={title} lead={lead} doc="bisect" warn={{ text: choices.unavailable.replace(/\.$/, '') }} facts={[bad]} onClose={onClose} />;
   const rev = typed.trim() || picked;
+  const estimate = useBisectEstimate(bisectQuery(runId, choices, choices.unavailable ? '' : rev));
+  if (choices.unavailable) return <Dialog title={title} lead={lead} doc="bisect" warn={{ text: choices.unavailable.replace(/\.$/, '') }} facts={[bad]} onClose={onClose} />;
   return (
     <Dialog
       title={title}
@@ -38,11 +42,11 @@ export function FindCommitDialog({ runId, choices, earlier = null, onClose }: { 
       {...(earlier ? { warn: { text: `${sentence(earlier.why)} This finds the commit that broke ${what}, the first failure on those days that started later` } } : {})}
       facts={[bad]}
       command={bisectCommand(runId, choices, rev)}
-      cost={bisectCost(choices)}
+      cost={{ ...bisectCost(choices), estimate }}
       ok={confirmWords(ACTIONS.findBreakingCommit.label)}
       okDisabled={!COMMIT_NAME.test(rev) || rev === upTo}
       onClose={onClose}
-      onOk={() => guard(() => watchJob(client.startJob(JOB_KINDS.bisect, bisectRequest(runId, choices, rev))))}
+      onOk={() => guard(() => watchJob(client.startJob(JOB_KINDS.bisect, { ...bisectRequest(runId, choices, rev), ...sentEstimate(estimate) })))}
     >
       <GoodCommitField
         id={id}
@@ -52,7 +56,7 @@ export function FindCommitDialog({ runId, choices, earlier = null, onClose }: { 
         onPick={setPicked}
         onType={setTyped}
       />
-      {choices.fork ? <p className="dlgnote fieldhint">{FLAKY_NOTE}</p> : null}
+      {choices.fork && !estimate?.card ? <p className="dlgnote fieldhint">{FLAKY_NOTE}</p> : null}
     </Dialog>
   );
 }

@@ -203,12 +203,14 @@ export function register(router: Router, ctx: RouteContext): void {
   });
 
   // What Run tests and each golden's buttons would bill, worked out beside the server: they read the
-  // goldens' recordings, and the attempts of their last sessions.
+  // goldens' recordings, and the attempts of their last sessions. `update`, given once for each golden,
+  // prices Update goldens… for those together.
   router.get('/tests/estimates', async (r) => {
     const list = goldens();
+    const update = r.query.getAll('update').filter((path) => list.some((g) => g.path === path));
     const { byId } = loadRunIndex(ctx.store);
     const calls = list.reduce((n, g) => n + (g.runId ? (byId.get(g.runId)?.calls ?? 0) : 0), 0) + attemptCalls(ctx.store, byId, list);
-    sendAnswer(r, await ctx.reads.run({ kind: 'tests-estimates', goldens: list, folder: FOLDER, ...prices() }, { calls }));
+    sendAnswer(r, await ctx.reads.run({ kind: 'tests-estimates', goldens: list, folder: FOLDER, ...(update.length ? { update } : {}), ...prices() }, { calls }));
   });
 
   // Find breaking commit's, as its dialog's revisions are typed: the job its build would start, the

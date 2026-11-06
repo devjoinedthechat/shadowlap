@@ -9,11 +9,13 @@ import { noteParent } from './parents.js';
 import { noProjects, noteRefusal, projectHeader, projectsApi, showProject, type ProjectsApi } from './projects-api.js';
 import { readTokenLink } from './route.js';
 import { holdWhile, Revalidation } from './revalidate.js';
+import { estimatesApi, noEstimates, type EstimatesApi } from './estimates-api.js';
+import { changesApi, type ChangesApi } from './changes-api.js';
 import { noSettings, settingsApi, type Request, type SettingsApi } from './settings-api.js';
 import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js';
 import type { CallDetail, CallsPage, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView, TrainingView } from './types.js';
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, OverviewWarming, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
-import type { DecisionSessionDetail, DecisionsListView, NextStep, RetirementsView, RunDecisionsView } from './types.js';
+import type { NextStep } from './types.js';
 import type { ChaosMatrix, ChaosView, CoverageView } from './types.js';
 import type { FixAttemptGroups } from '../src/attempt-groups.js';
 import type { ForkDifferences } from '../src/fork-differences.js';
@@ -140,7 +142,7 @@ export function tokenInUse(): string | null {
 
 // ---------------------------------------------------------------------------------------------- client
 
-export interface Client {
+export interface Client extends ChangesApi {
   /** An exported copy: answers come from the file, nothing changes. */
   exported: boolean;
   meta(): Promise<Meta>;
@@ -177,7 +179,8 @@ export interface Client {
    * `yes`: the command of a run from someone else's pack or the team store was confirmed, in the
    * step that showed it: the `confirm` of the 409 that named it, which ties the yes to that line.
    */
-  action(id: string, key: string, callNo: number | null, value?: string, yes?: string): Promise<JobView>;
+  /** A fork menu row's job; `sent`, what its start sends besides, such as the estimate its card showed. */
+  action(id: string, key: string, callNo: number | null, value?: string, yes?: string, sent?: Record<string, unknown>): Promise<JobView>;
   /** Starts a job of a registered kind (`POST /api/jobs`). */
   startJob(kind: string, fields: Record<string, unknown>): Promise<JobView>;
   job(jobId: string, after: number): Promise<JobView>;
@@ -241,6 +244,8 @@ export interface Client {
   // ---- Settings
   /** Settings: each tab's read and the edits to shadowlap.config.json (`settings-api.ts`). */
   settings: SettingsApi;
+  /** What billed jobs would cost, and Spending, the threshold above which one asks first. */
+  estimates: EstimatesApi;
   /** The team store's setup page (`#/setup/store`, `store-api.ts`). */
   storeSetup: StoreSetupApi;
 
@@ -254,15 +259,6 @@ export interface Client {
   /** The models Score a model offers, each priced (`/api/models`). It asks providers, so it can take a second. */
   models(): Promise<ModelsView>;
 
-  // ---- The decision diff (`/api/decisions`)
-  /** The decisions and migrate sessions kept, newest first, and the goldens' models that retire. */
-  decisionSessions(kind?: 'decisions' | 'migrate'): Promise<DecisionsListView>;
-  /** One session whole, by its id (`dc-…`, `mg-…`): its report and its matrix. */
-  decisionSession(id: string): Promise<DecisionSessionDetail>;
-  /** A run's decisions under each session that asked its model calls again, for its Decisions view. */
-  runDecisions(runId: string): Promise<RunDecisionsView>;
-  /** The models the goldens use that retire, by the table that ships with Shadowlap. */
-  retirements(): Promise<RetirementsView>;
   // ---- Error-path presets and production coverage
   /** The last coverage scan: what imported runs did, and which behaviours no golden covers (`/api/coverage`); null on a server without it. */
   coverage(): Promise<CoverageView | null>;
@@ -439,7 +435,7 @@ export function createClient(token: string): Client {
     search: (q) => request<SearchAnswer>(`search?q=${id(q)}&limit=40`).then((r) => ({ hits: r.hits ?? [], ...(r.indexing ? { indexing: r.indexing } : {}) })),
     labels: (runId, add, remove = []) => request<{ labels: string[] }>(`runs/${id(runId)}/labels`, { method: 'POST', body: JSON.stringify({ add, remove }) }),
     note: (runId, callNo, text) => request<{ notes: RunNote[] }>(`runs/${id(runId)}/notes`, { method: 'POST', body: JSON.stringify({ callNo, text }) }),
-    action: (runId, key, callNo, value, yes) => request<JobView>(`runs/${id(runId)}/actions`, { method: 'POST', body: JSON.stringify({ key, callNo, ...(value !== undefined ? { value } : {}), ...(yes !== undefined ? { yes } : {}) }) }),
+    action: (runId, key, callNo, value, yes, sent) => request<JobView>(`runs/${id(runId)}/actions`, { method: 'POST', body: JSON.stringify({ ...sent, key, callNo, ...(value !== undefined ? { value } : {}), ...(yes !== undefined ? { yes } : {}) }) }),
     startJob: (kind, fields) => request<JobView>('jobs', { method: 'POST', body: JSON.stringify({ ...fields, kind }) }),
     job: (jobId, after) => request<JobView>(`jobs/${id(jobId)}?after=${after}`),
     stopJob: (jobId) => request<{ stopped: boolean }>(`jobs/${id(jobId)}/stop`, { method: 'POST', body: '{}' }),
@@ -502,15 +498,10 @@ export function createClient(token: string): Client {
     tests: () => request<TestsView>('tests'),
     testRun: (runId, before) => request<TestRunView>(`tests/runs/${id(runId)}${before !== undefined ? `?before=${before}` : ''}`),
     ciWorkflows: (o) => request<CiWorkflowsView>(`ci/workflows${ciQuery(o)}`),
-    settings: settingsApi(request),
-    storeSetup: storeSetupApi(request),
-    projects: projectsApi(request),
+    ...ownApis(request),
     training: () => request<TrainingView>('training'),
     models: () => request<ModelsView>('models'),
-    decisionSessions: (kind) => request<DecisionsListView>(`decisions${kind ? `?kind=${kind}` : ''}`),
-    decisionSession: (sessionId) => request<DecisionSessionDetail>(`decisions/${id(sessionId)}`),
-    runDecisions: (runId) => request<RunDecisionsView>(`runs/${id(runId)}/decisions`),
-    retirements: () => request<RetirementsView>('retirements'),
+    ...changesApi(request),
     // A server without the routes answers 404: nothing to show, rather than an error.
     coverage: () => request<CoverageView>('coverage').catch((err: unknown) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
     chaos: () => request<ChaosView>('chaos').catch((err: unknown) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
@@ -520,6 +511,11 @@ export function createClient(token: string): Client {
     attemptGroups: (fixId) => request<FixAttemptGroups>(`fixes/${id(fixId)}/groups`),
     ...longRunReads(request),
   };
+}
+
+/** The parts of the client that are APIs of their own, each written beside its routes. */
+function ownApis(request: Request): Pick<Client, 'settings' | 'storeSetup' | 'projects' | 'estimates'> {
+  return { settings: settingsApi(request), storeSetup: storeSetupApi(request), projects: projectsApi(request), estimates: estimatesApi(request) };
 }
 
 /** What a long run's first answer leaves to reads of their own, as its analysis has them. */
@@ -609,13 +605,16 @@ export function createExportedClient(data: StaticPayload): Client {
     testRun: () => Promise.resolve({ banner: null, bisect: null }),
     ciWorkflows: () => get<CiWorkflowsView>('ci/workflows'),
     settings: noSettings(readOnly),
+    estimates: noEstimates(readOnly),
     storeSetup: noStoreSetup(readOnly),
     projects: noProjects(readOnly),
     training: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Training is not part of it')),
     models: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Training is not part of it')),
-    // The decision diff is not part of an exported copy.
+    // The decision diff and Verdicts are not part of an exported copy.
     decisionSessions: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
     decisionSession: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
+    verdicts: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
+    verdictRevision: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
     runDecisions: () => Promise.resolve({ runId: '', sessions: [] }),
     retirements: () => Promise.resolve({ version: '', notices: [] }),
     coverage: () => Promise.resolve(null),

@@ -2,9 +2,10 @@ import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CAPS_ONLY_NOTE, Store, type ModelListing, type Task } from '@shadowlap/engine';
 import { exportPairsJob, modelsView, readTraining, scoreModelJob, trainingView } from '../src/training.js';
-import type { Client } from '../ui/api.js';
+import { ApiError, type Client, type TaskUpdate } from '../ui/api.js';
 import { commandText } from '../ui/goldens.js';
-import { TrainingPage } from '../ui/pages/Training.js';
+import { TaskUpdateDialog, TrainingPage } from '../ui/pages/Training.js';
+import type { Price } from '../ui/tests-estimates.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { exportCommand, scoreCommand } from '../ui/training.js';
 import { render, type Rendered } from './ui-render.js';
@@ -170,5 +171,43 @@ describe('the commands the Training dialogs show', () => {
       expect(scoreCommand(fields, ready.map((t) => t.golden))).toBe(commandText(job.args));
     }
     expect(scoreCommand(null, [])).toBeNull();
+  });
+});
+
+describe('a task’s Update golden that tests it again', () => {
+  const GOLDEN = 'goldens/refund-forked';
+  const RETEST: TaskUpdate = { golden: GOLDEN, forkedAt: 3, takeover: 7, normalizers: ['$.metadata.user_id'], rerecords: false, steps: [['normalize', 'add', '--path', '$.metadata.user_id', '--replace', '<ID>'], ['test', GOLDEN]] };
+  const CONFIRM = 'c0ffee'.padEnd(32, '0');
+  const WHY = `${GOLDEN} is marked fork, so it runs live from where it forks, writes blocked. Live calls are billed by your provider. Confirm it to run it`;
+
+  /** Its dialog, the server asking first before it runs the golden live, as `liveAsk` does. */
+  function asked(estimate: Price, sent: Array<Record<string, unknown>>, watched: Array<Promise<unknown>>) {
+    const client = { startJob: (_kind: string, fields: Record<string, unknown>) => (sent.push(fields), fields.yes === CONFIRM ? Promise.resolve({ id: 'j1' }) : Promise.reject(new ApiError(409, WHY, CONFIRM))) };
+    const app = { client, guard: (fn: () => void) => (fn(), true), watchJob: (p: Promise<unknown>) => void watched.push(p), actionsOff: null, hasKind: () => true, jobs: [] };
+    return createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(TaskUpdateDialog, { name: 'refund-forked', update: RETEST, estimate, busy: null, onClose: () => undefined }));
+  }
+
+  it('shows the server’s question in its own dialog where it hadn’t said the test runs live, and only then sends the yes', async () => {
+    const [sent, watched]: [Array<Record<string, unknown>>, Array<Promise<unknown>>] = [[], []];
+    r = await render(asked(null, sent, watched));
+    expect(r.all('.dialog .dcost')).toHaveLength(0);
+    await r.click(r.one('.dialog .dlg-ok'));
+    await r.until('the question', () => r!.all('.dialog dl').length > 0);
+    expect(text(r, '.dialog dl')[0]).toContain(WHY);
+    expect(text(r, '.dialog .dcost')).toEqual(['Billed by your provider']);
+    expect([sent, watched]).toEqual([[{ golden: GOLDEN }], []]);
+    await r.click(r.one('.dialog .dlg-ok'));
+    await r.until('the yes', () => watched.length === 1);
+    expect(sent).toEqual([{ golden: GOLDEN }, { golden: GOLDEN, yes: CONFIRM }]);
+  });
+
+  it('sends the yes at once where it said what testing it again bills live, the job keeping that estimate', async () => {
+    const [sent, watched]: [Array<Record<string, unknown>>, Array<Promise<unknown>>] = [[], []];
+    r = await render(asked({ kind: 'tests', usd: 0.3, ceiling: false, parts: ['live from where it forks'] }, sent, watched));
+    expect(text(r, '.dialog .dcost')[0]?.replace(/\s+/g, ' ')).toBe('≈$0.300 · live from where it forks');
+    await r.click(r.one('.dialog .dlg-ok'));
+    await r.until('the yes', () => watched.length === 1);
+    const estimate = { usd: 0.3, ceiling: false };
+    expect(sent).toEqual([{ golden: GOLDEN, estimate }, { golden: GOLDEN, estimate, yes: CONFIRM }]);
   });
 });

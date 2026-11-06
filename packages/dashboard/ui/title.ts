@@ -35,7 +35,7 @@ export interface TitleFacts {
   unshown?: boolean;
   /** Another project holds what the page opened for, and the page says so (pages/Elsewhere.tsx): its name. */
   heldBy?: string | null;
-  /** An exported copy: its Compare is its only pair, so the pair isn't named. */
+  /** An exported copy: its Compare is a page of its own, not a tab of Changes. */
   exported?: boolean;
 }
 
@@ -63,11 +63,22 @@ export function onOpenRunAbout(f: () => void): () => void {
   return () => titleListeners.delete(f);
 }
 
-/** A run or a fix the page can't show, or the setup in its place, goes by its section, as the crumbs name it. */
+/** A run, a fix or a revision the page can't show, or the setup in its place, goes by its section, as the crumbs name it. */
 function sectionOnly(route: Route, facts: TitleFacts): string | null {
   if (!facts.unshown && !facts.setup) return null;
   if (route.page === 'run') return 'Runs';
+  if (route.page === 'changes' && route.id) return 'Verdicts · Changes';
   return route.page === 'fixes' && route.id ? 'Fixes' : null;
+}
+
+/**
+ * Changes by its tab, a revision by its key before it (`d2e8a1f · Verdicts · Changes`). A preview's
+ * and a migration's addresses read as Verdicts, which they open until their tabs land. An exported
+ * copy's Compare is a page of its own.
+ */
+function changesTitle(route: Extract<Route, { page: 'changes' | 'compare' }>, facts: TitleFacts): string {
+  if (route.page === 'compare') return facts.exported ? 'Compare' : 'Compare · Changes';
+  return `${route.tab === 'verdicts' && route.id ? `${route.id} · ` : ''}Verdicts · Changes`;
 }
 
 /** What the route's page is, before the product's name. */
@@ -86,7 +97,8 @@ export function pageTitle(route: Route, facts: TitleFacts = {}): string {
       return `${shortId(route.id)}${about && about.length <= TAB_ABOUT_MAX ? ` · ${about}` : ''}`;
     }
     case 'compare':
-      return route.a && route.b && !facts.exported ? `${shortId(route.a)} → ${shortId(route.b)} · Compare` : 'Compare';
+    case 'changes':
+      return changesTitle(route, facts);
     case 'fixes':
       return route.id ? `${facts.fixTitle?.trim() || route.id} · Fix` : 'Fixes';
     case 'tests':

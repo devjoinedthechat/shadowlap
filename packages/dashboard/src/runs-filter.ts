@@ -32,11 +32,26 @@ const fixable = (r: IndexedRun): r is IndexedRun & { meta: { test: { golden: str
 /** The most of a golden's results read back to its oldest failed replay: a passing replay is among the newest. */
 const RESULTS_READ = 1000;
 
+/**
+ * A failed test replay of a golden that a later replay of it passed, whatever way it failed: the
+ * newest run that passed since; null for any other run. The one rule Runs' Status (`fixed by <run>`,
+ * `fixedByOf`) and a run's next step (Open passing run, next-step.ts) read, each on the run as the
+ * index has it. `results` reads its golden's, newest first, only for a failed test replay: of
+ * however many, the newest `RESULTS_READ`, as Runs reads them.
+ */
+export function fixedBy(store: StoreOf<'recording' | 'tests'>, run: IndexedRun, results: (golden: string) => readonly TestResult[]): string | null {
+  if (!fixable(run)) return null;
+  const golden = run.meta.test.golden;
+  const read = results(golden);
+  return passedSince(store, run, golden, read.length > RESULTS_READ ? read.slice(0, RESULTS_READ) : read);
+}
+
 const fixedKept = new WeakMap<object, { key: string; fixed: ReadonlyMap<string, string> }>();
 
 /**
- * Each failed test replay whose golden passed when it ran again since, with the run that passed: its
- * golden's results read once for all its failed replays, kept until runs or the tests' results move.
+ * Each failed test replay whose golden passed when it ran again since, with the run that passed
+ * (`fixedBy`): its golden's results read once for all its failed replays, kept until runs or the
+ * tests' results move.
  */
 export function fixedByOf(store: StoreOf<'recording' | 'tests' | 'activity'>, index: RunIndex): ReadonlyMap<string, string> {
   const key = `${index.revision}|${index.runs.length}|${store.changeCounts().tests ?? 0}`;
@@ -54,7 +69,7 @@ export function fixedByOf(store: StoreOf<'recording' | 'tests' | 'activity'>, in
     const since = Math.min(...failed.map((r) => r.startedAt));
     const results = store.listTestResults({ golden, since, limit: RESULTS_READ });
     for (const r of failed) {
-      const by = passedSince(store, r, golden, results);
+      const by = fixedBy(store, r, () => results);
       if (by) fixed.set(r.runId, by);
     }
   }

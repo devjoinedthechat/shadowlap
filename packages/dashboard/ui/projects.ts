@@ -167,9 +167,10 @@ export function exportedNote(redacted: boolean | null | undefined): string {
 /**
  * Whether a page stays as it is when the dashboard switches to another project elsewhere (another
  * tab switched, or removed the project this one showed): a page every project has (the Overview,
- * Runs, Tests, Fixes, Training, Settings, Add project, the setup) stays, with whatever is typed on
- * it, and reads the current project's data; one that names a run, a pair of runs or a fix of the
- * project it showed has nothing to show in the other and goes to the Overview. A dialog open on a
+ * Runs, Changes' Verdicts, Tests, Fixes, Training, Settings, Add project, the setup) stays, with
+ * whatever is typed on it, and reads the current project's data; one that names a run, a pair of
+ * runs, a revision, a session or a fix of the project it showed has nothing to show in the other and
+ * goes to the Overview. A dialog open on a
  * page that stays closes, unless it holds only what was typed into it (`dialogOnSwitch`).
  */
 export function keepsPageOnSwitch(route: Route): boolean {
@@ -180,6 +181,7 @@ export function keepsPageOnSwitch(route: Route): boolean {
     case 'compare':
       return !route.a && !route.b;
     case 'fixes':
+    case 'changes':
       return !route.id;
     default:
       return true;

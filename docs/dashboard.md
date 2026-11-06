@@ -4,7 +4,7 @@
 
 This page walks through each page of the dashboard, then what you can do from it, then the reference:
 
-- **The pages**: [the shell](#the-shell), [Search or jump to](#search-or-jump-to), [Overview](#overview), [Runs](#runs), [a run's page](#a-runs-page), [Compare](#compare), [Fixes](#fixes), [Tests](#tests), [Training](#training), [Settings](#settings), [the team store's setup](#the-team-stores-setup) and [Projects](#projects).
+- **The pages**: [the shell](#the-shell), [Search or jump to](#search-or-jump-to), [Overview](#overview), [Runs](#runs), [a run's page](#a-runs-page), [Changes](#changes), [Fixes](#fixes), [Tests](#tests), [Training](#training), [Settings](#settings), [the team store's setup](#the-team-stores-setup) and [Projects](#projects).
 - **What you can do**: [Actions](#actions), [read-only mode](#read-only-mode) and [sending a run to someone](#send-a-run-to-someone).
 - **Reference**: [keyboard shortcuts](#keyboard-shortcuts), [limits](#limits), [security and consent](#security-and-consent), [large stores and long runs](#large-stores-and-long-runs), [how the page stays current](#how-the-page-stays-current), the [HTTP API](#http-api), [notes for contributors](#for-contributors) and [troubleshooting](#troubleshooting).
 
@@ -56,7 +56,7 @@ At 1000px and below the sidebar is a drawer behind the menu button. Opening it p
 The sidebar holds, from the top:
 
 - **The project**, which opens the [project switcher](#projects).
-- **The pages**: Overview, Runs with how many there are, Compare, Fixes and Tests, then Training under a hairline.
+- **The pages**: Overview, Runs with how many there are, Changes, Fixes and Tests, then Training under a hairline. Changes opens the tab it last showed in the project.
 - **Recent runs**, as a tree. Its caret folds it, and the browser keeps it folded until you open it again.
 - **Settings**, at its foot, whether the tree shows or not.
 
@@ -139,7 +139,7 @@ The about line quotes what the run recorded. So a copy that leaves the store (an
 Some rows show only once something is typed:
 
 - **Settings**, after the pages: each tab, found by what it holds. `redact`, `trust`, `alerts`, `settings ci` and `spending` each find theirs.
-- **Run blame**, for the three newest failures whose next step it is, by what they were about or `failed`. What it asks first, your command, a check or a yes, it asks on the run's page.
+- **Run blame**, for the three newest failures whose next step it is, by what they were about or `failed`. It is priced as you pick it and goes by [Spending](#spending), asking over any page in *Run blame on* the run. What else it asks first, your command, a check or a yes, it asks on the run's page.
 - **Apply fix**, for each verified fix not yet applied, by its label or `fix patch`. It opens the fix's page and asks there.
 - **Add normalizer…** and **Add redaction rule…**, which open their Settings tab and its dialog.
 
@@ -847,11 +847,41 @@ The fork that blame rescued says it was rescued. Each [outcome check](./ci.md#ou
 
 A run imported from someone else's pack carries what they recorded about it. Anything malformed there is left out rather than shown.
 
-## Compare
+## Changes
 
-Compare puts any two runs side by side. Pick them at the top, from lists of runs each by its id and its about line.
+Changes shows what a change does to your agent, on its own recorded runs. It has two tabs, each one word with the command it matches on hover: **Verdicts** lists every change checked, and **Compare** puts two runs side by side.
 
-### What changed
+The sidebar, `g` then `c` and [Search or jump to](#search-or-jump-to) reopen the tab last shown in the project, Compare on the pair it showed. The first time, and after a reload, they open Verdicts. The crumb *Changes* always opens Verdicts.
+
+### Verdicts
+
+Verdicts lists every change checked, newest first, one row each. A change is one of three kinds:
+
+- **A test session** that ran every golden at a revision. Its row opens [the revision's page](#a-revisions-page).
+- **A preview or a migration**: what a change of model, prompt or tools decides differently.
+- **A verify a fix keeps.** Its row opens the fix's Verify step at that verify.
+
+Each row gives the change and how it was checked (*test session · d2e8a1f*), what it was checked on (*7 goldens*), what moved and when. Its verdict is in the words of the command that gave it: *passed*, *failed*, *inconclusive*, *accepted*, *rejected*, *not verified* or *nothing to verify*, with its tally under it. On a phone the verdict sits under the change.
+
+The newest revision a test session ran every golden at leads the page: its verdict, its tally and **Open the change**, in lime while it failed or couldn't decide. The chips (*All*, *Test sessions*, *Previews*, *Verifies*) each count their rows. **Show more** reads 50 more at a time, up to 200, and says when older changes aren't listed.
+
+The page keeps its chip, and how far it read, while it stays open, so the way back from a revision's page lands on its row. Who made a change shows only with a [team store](#the-team-stores-setup). Without one, Verdicts lists this machine's test sessions only, and says so, with a link to the store's settings.
+
+### A revision's page
+
+A test session's row opens its revision's page (`#/changes/verdicts/<revision>`). It gives that session's verdict and tally, the change, who made it and when, with **Open Tests**. On the newest revision, Open Tests is lime while it failed or couldn't decide. Under them:
+
+- **Goldens**, worst first, as that session judged them, each with its note (*4/4 replayed*). A golden opens the replay that judged it while the store holds it, else Tests.
+- **Decisions**: the previews and migrations asked at that revision.
+- **The command** that gave the verdict.
+
+A revision no session ran every golden at says *No change d2e8a1f.*, with **Open Verdicts**.
+
+### Compare
+
+Compare puts any two runs side by side. Pick them on the row under the tabs, from lists of runs each by its id and its about line.
+
+#### What changed
 
 Compare starts with what changed between the two runs:
 
@@ -862,7 +892,7 @@ Compare starts with what changed between the two runs:
 
 Two runs of one commit whose revisions git abbreviated with different lengths read as unchanged code.
 
-### Where the runs part
+#### Where the runs part
 
 Then it shows where the runs part, in order:
 
@@ -876,7 +906,7 @@ A call the model answered the same way in another response is counted in the lin
 
 Each side's calls are headed by its kind (*fork @7*), failed or not.
 
-### Two long runs
+#### Two long runs
 
 Two long runs take seconds to compare whole, since every model call's request of both is read. Meanwhile:
 
@@ -886,9 +916,10 @@ Two long runs take seconds to compare whole, since every model call's request of
 
 A run still recording is compared again as its calls arrive.
 
-### Open a comparison
+#### Open a comparison
 
 - **`#/compare`** alone opens the newest fork or replay against its parent. With fewer than two runs, it says how to make a second.
+- **Compare's tab** reopens the pair it last showed in the project. Once a run of that pair is gone, it opens as `#/compare` alone does.
 - **`#/compare/<run>`** opens that run against its newest fork, else its newest replay (a test's last), else its parent. A run with none says there is nothing to compare yet, with the replay that makes something.
 - **A fork or a replay** has *Compare with parent*. A recording compares with its first fork or replay, never an attempt bundled under it (a blame probe, a verify or `--repeat` attempt).
 - **Two runs ticked on Runs**, and the palette, open it too.
@@ -898,9 +929,9 @@ When a side can't be compared, Compare says so:
 - **The same run on both sides** says so, rather than compare it with itself.
 - **A run the store doesn't hold** is named, and so is an id that starts several runs' ids (*01M5GRV matches several runs; use more of the id*), with the side to pick again.
 
-### Compare in an exported copy
+#### Compare in an exported copy
 
-An exported copy compares the runs it holds: every pair up to six runs, and beyond that each run with the first. It opens on the first against the newest other, and the pickers offer only those.
+An exported copy compares the runs it holds: every pair up to six runs, and beyond that each run with the first. It opens on the first against the newest other, and the pickers offer only those. There Compare is a page of its own, under its own head, with no tabs.
 
 ## Fixes
 
@@ -1117,8 +1148,9 @@ Training shows:
 
 - **Score model…** offers only the models that can answer a ready task, and names the ones it leaves out, with why. A recording on Bedrock, Vertex AI, Azure OpenAI or the Gemini API is translated for another provider's model.
 - **Score model… is off** while a repair or an applied patch changes the working tree.
+- **Its card** says what an attempt of the model its dialog starts on costs. The dialog's Cost line is what the picks cost together (`20 attempts on the Anthropic API`), and the drawer says that total.
 
-A task whose test forks before its takeover opens that test's run where it forked. It offers **Update golden**, which adds the normalizer a value that changes every run needs, and runs `test --update` on the golden.
+A task whose test forks before its takeover opens that test's run where it forked. It offers **Update golden**, which adds the normalizer a value that changes every run needs, and runs `test --update` on the golden. When the normalizer is the whole fix, it tests the golden again instead. If that test runs live (the golden is marked `fork`, or has an injection gate), the card and the dialog say what it bills, and the dialog's button is your yes. Without an estimate, the server's question shows in that dialog before anything runs.
 
 ## Settings
 
@@ -1217,6 +1249,13 @@ Credentials in a copied config:
 ### Project
 
 *Project* shows the project's store, runs and attempts, size and address, with **Clean up old runs** and **Remove project…**. Beside the store's size, it shows any unused space that runs deleted since left in the store.
+
+**Spending** is the row that sets when a billed job asks first: **Always ask**, **$0.50**, **$2** or **Never ask**, or an amount typed in dollars, kept once you press Enter or leave the field. See [Spending](#spending).
+
+- **It is yours**, on every project on this machine, kept under `SHADOWLAP_HOME` in `settings.json`, never in the project.
+- **Each change is kept at once**, with **Undo** in its toast (`Asks above $2 · on this machine`).
+- **Its words follow the setting**: *Ask before spending more than $0.50.* and *A job with no estimate always asks.*
+- **Change**, in a dialog's footer, opens this row with the field focused.
 
 ### Store
 
@@ -1372,6 +1411,7 @@ The setup has four steps. Each runs the command beside it in the project's folde
 **4. Keep it as a test.** The golden goes in a folder of its own, `goldens/<project>` unless you name another. Shadowlap never packs over a golden that is already there, and offers the next free name instead.
 
 - **Pack as a golden** packs it and runs its test in one job, so leaving the page doesn't stop it halfway. The step is done once the test passes.
+- **A golden its tests entry runs live** (marked `fork`, or with an injection gate) asks first before its test runs, whatever [Spending](#spending) says, as nothing prices it here.
 - **A golden whose test failed** keeps the step open, with why and **Run the test again**. Fix what changed (or record again), then run it.
 
 **Skip the rest** appears after the first recording. Finishing before the test passed counts the last step as skipped.
@@ -1425,6 +1465,36 @@ Labels, notes and actions run only from a dashboard started with `shadowlap dash
 
 Each action has one name wherever it is offered: its button, its menu item and its entry in Search or jump to. Its dialog is titled and confirmed with that name, and its drawer heads it in the -ing form, then in the past tense once it has done it (**Run repair**, *Repairing*, *Repaired*). A name is verb and object in the CLI's words, with no article, and it ends in an ellipsis when the action asks for something before it runs (**Find breaking commit…**).
 
+### Spending
+
+A billed job, one that makes live model calls, starts or asks first by Spending: the most a job may spend before it asks. You set it in Settings → [Project](#project), and it holds on every project on this machine.
+
+- **At or under it**, the job starts on the click, and its drawer says its estimate beside *running* (`running · ≈$0.027`).
+- **Above it**, the job asks first. The dialog's footer says why, `Asks above $0.50 · Change`, and **Change** opens the Spending row.
+- **With no estimate**, as for a job with nothing recorded to price it from, the job always asks, except **Record run** with a command this folder has run before, which starts with no estimate.
+
+Spending has four settings, and takes any amount in dollars:
+
+| Setting | A billed job with an estimate |
+| --- | --- |
+| **Always ask** | Asks first, its footer saying `Always asks · Change` |
+| **$0.50** | Starts at once at or under $0.50, the default |
+| **$2** | Starts at once at or under $2 |
+| **Never ask** | Starts at once |
+
+Some jobs ask on every setting, Never ask included, and their footer says nothing of Spending:
+
+- **A form**, an action that asks for something first, such as **Switch model from here…** or **Score model…**;
+- **Run repair**, **Update golden**, and **Force *tool* live** on a tool that writes, which say what they change before they run;
+- **A price per unit**, such as an attempt's;
+- **Someone else's command**, from a pack, the team store or a program that sent the sidecar its command. That yes is to the command, never Spending's.
+
+A job that bills nothing, such as a replay offline, starts at once on every setting.
+
+**Each billed control's card** says its price and what a click does: `≈$0.027 · starts at once`, `At most ≈$10.88 · asks first`, `no estimate · asks first`. *At most* is a ceiling: the job stops early when it can. Its dialog's Cost line says the estimate and what is billed (`≈$0.027 · live from #12, writes fenced`). The job keeps the estimate it started with, so its card, its dialog and its drawer say the same amount.
+
+**Spending is no budget.** No job stops at it, and the drawer's amount is the estimate, not what was spent. A budget still stops a job: `--budget` (on an injection test too) and CI's fix budget. Spending is the dashboard's: the CLI and the [terminal UI](./tui.md) don't read it.
+
 ### Actions on a run
 
 **Replay** re-runs the recorded command.
@@ -1440,9 +1510,10 @@ Each action has one name wherever it is offered: its button, its menu item and i
 
 The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An item that asks for something first ends in an ellipsis, and its dialog is titled and confirmed with its name: **Inject instruction…** opens *Inject instruction at #17*, confirmed with **Inject instruction**.
 
-- **Repeat 5 times** runs five attempts. On a recording they replay offline, and it starts at once. On a fork they run live from where it forks, so it asks first, in *Repeat fork 5 times*, confirmed with **Repeat 5 times**.
+- **Repeat 5 times** runs five attempts. On a recording they replay offline, and it starts at once. On a fork they run live from where it forks, so it goes by [Spending](#spending), asking in *Repeat fork 5 times*, confirmed with **Repeat 5 times**.
 - **A fork is made again** from its parent, with the flags, command and checks that made it.
-- **Force a tool live** on a tool that writes asks first, in red and starting on Cancel, since it acts on your systems. On any other tool it starts at once.
+- **Force a tool live** on a tool that writes asks first, in red and starting on Cancel, since it acts on your systems. On any other tool it goes by [Spending](#spending), as **Run live from here** and **Use changed prompt from here** do.
+- **Replay with writes stubbed** replays a recording offline, and starts at once. On a fork it runs live from where it forks, so it goes by [Spending](#spending).
 - **An action that needs something from you** (the instruction to inject, the status to fail with, the model to switch to) asks for it in a dialog first. The dialog shows the command it runs, following what you type.
 - **What you type** is passed as text, never read as a file. See [Interventions](./interventions.md).
 - **Plant instruction…** starts from a few sample instructions, or takes your own or a red-teaming tool's payload as text.
@@ -1452,7 +1523,7 @@ The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An 
 - It asks for a commit where the run still worked, and offers the ones its command was recorded at that this checkout has. It searches up to HEAD when the run failed at a commit it lacks, such as a teammate's.
 - On a run that passed, it reads **Find commit that changed it…**, and finds the first commit after its own that changed what it does, once there is a commit after it.
 - A run that failed at the repository's first commit, or the oldest a shallow clone has, has nothing before it to search, and the item says so instead.
-- A run that failed on its own is replayed with `--fork`. The dialog says that one live replay decides each commit, which a failure that doesn't happen every time can pass.
+- A run that failed on its own is replayed with `--fork`. One live replay decides each commit, which a failure that doesn't happen every time can pass. The dialog's Cost line is the search's estimate from the commit you give, and the card on its price says what one replay can't settle.
 - A run that failed only the check of its fix (blame found it failing, though it exited 0), or a check given with its own `--expect`, is searched with that check (`--expect … --fork`), from a commit you pick.
 
 **A run imported from a capture** has no command, so its menu shows a note and one action, **Replay with your command…**. That replay records every kind of call, and every fork works on it.
@@ -1500,7 +1571,7 @@ A capture has no command to run again, so **Run blame** asks for yours, which ru
 - **Keeping** the fix's own good runs (those a repair or a verify of it kept), else the runs labelled `good` that run the same agent, else none. A good run of another agent checks nothing a change to this one touches.
 - **With** the repairer `repair.repairer` in `shadowlap.config.json` names, or else your own Claude Code (`--repairer claude-code`).
 
-It asks first, since it runs your agent live. It says that nothing in your working tree changes: each candidate is tried in a worktree of its own, made from your working tree as it is. So a file you change meanwhile is in the candidates made after it.
+It asks first on every setting of [Spending](#spending), since it runs your agent live. Its card and Cost line say how many candidates it tries, each verified up to twice, and what that is estimated to cost. It says that nothing in your working tree changes: each candidate is tried in a worktree of its own, made from your working tree as it is. So a file you change meanwhile is in the candidates made after it.
 
 **The repairer.** The dialog reads the config again as it opens and names the repairer it will ask, whose account pays. If the config names another by the time you confirm, nothing runs, and the job says which one the config names instead.
 
@@ -1516,7 +1587,9 @@ It asks first, since it runs your agent live. It says that nothing in your worki
 The dialog's cost line then reads *Free*, nothing runs, and the blame's own next step leads instead:
 
 - **Run blame again**, for a blame that couldn't settle (more attempts and a lower bar, as blame's report says), or that stopped part way (to the end, without its budget), under the fix's check.
-- **Run blame with stronger model…**, which asks for the model first, for one that asked the recorded model again and rescued the run from no call, unless blame found the model's answer isn't what lost the run.
+- **Run blame with stronger model…**, which asks for the model first, for one that asked the recorded model again and rescued the run from no call, unless blame found the model's answer isn't what lost the run. Its Cost line follows the model you type.
+
+Run blame again goes by [Spending](#spending), priced for its lower bar. Its ask shows that bar beside the last blame's, or, for a search that stopped, the furthest call it had rescued the run at.
 
 Each is built from the blame's report and the flags kept beside it, as Run more attempts is. A blame a pull brought asks first, showing the exact command.
 
@@ -1532,7 +1605,8 @@ Each is built from the blame's report and the flags kept beside it, as Run more 
 
 Under the patch, the dialog asks a name for each golden it copies: *The golden from `01K5CQ2E8M`*, filled with the fix's label (`refund-bug`, or `refund-bug-1` and `refund-bug-2` for two), never the run's id.
 
-- A name takes lower-case letters, digits and hyphens, from a letter or a digit, one golden each, and not one `goldens/` holds already. Under the field, the dialog says why one won't do, such as *goldens/refund-bug is taken: pick another name.*, and Apply fix waits until each will.
+- A name takes lower-case letters, digits and hyphens, from a letter or a digit, at most 64 of them, one golden each, and not one `goldens/` holds already. Under the field, the dialog says why one won't do, such as *goldens/refund-bug is taken: pick another name.*, and Apply fix waits until each will.
+- A name Windows keeps for itself won't do either, whatever its case: `con`, `nul`, `prn`, `aux`, `com1` to `com9` and `lpt1` to `lpt9`. A label that makes one gives way to the fix's title in the field.
 - The command follows what you type, `shadowlap fix apply <fix> --name 01K5CQ2E8M=refund-bug`, and the step says where each recording goes.
 - A recording in `goldens/` already keeps its name and is asked none, as [`fix apply`](./cli.md#fix-apply) keeps it: one an earlier apply copied, under whatever name it gave it, or one `repair --goldens` copied under the run's id.
 - Mark applied and Finish applying ask the names of the goldens they copy too.
@@ -1567,12 +1641,14 @@ The server refuses another such job with the same words, from any tab, the palet
 
 **Run tests** runs `shadowlap test goldens/*` (plus each pack the config names elsewhere), with no shell: the CLI expands the pattern itself, as it does in CI. The page follows the session as each result lands. Its drawer ends on **Open Tests**, which isn't drawn on Tests itself, with the first three goldens that failed linked by name beside it, each opening its replay. A run of one golden ends on its replay.
 
-**A session that runs live asks first.** Before a session runs a golden live, **Run tests**, **Run more attempts**, **Re-run** and **Add normalizer and re-run** ask, on Tests and on a test replay's page, and so does the palette's *Run tests*. A test replays offline, except for two things that run live:
+**A session that runs live goes by [Spending](#spending).** Before a session runs a golden live, the server asks. The page answers by Spending for **Run tests**, **Run more attempts**, **Re-run** and **Add normalizer and re-run**, on Tests, on a test replay's page and from the palette's *Run tests*. At or under it, the session starts with its estimate; otherwise its dialog asks. A test replays offline, except for two things that run live:
 
 - **A golden marked `fork`** runs live from where it forks, writes blocked, and asks its judge checks live.
 - **An [injection gate](./injection.md#gate-ci-on-it)** runs live from each payload it plants, writes stubbed.
 
-The dialog says how many goldens go live and why, and shows the commands. It opens on its button, the only way to start the session. A session that only replays starts at once.
+The dialog says how many goldens go live and why, and shows the commands. Its Cost line says the session's estimate. It opens on its button, the only way to start the session. A session that only replays starts at once.
+
+Setup's **Pack as a golden** asks every time its test would run a golden live, as nothing prices it. A task's **Update golden** asks in its own dialog, with what testing the golden again bills.
 
 **Update golden** (or **Update goldens** for every one that diverged) asks first, in a dialog that says what happens. It says when a normalizer is the lasting fix, or, once the rule is in the config, that a re-run passes without an update, and offers that as its way on, beside **Update anyway**. Then it runs `shadowlap test <golden> --update`, which re-records it live with writes stubbed.
 
@@ -1580,7 +1656,7 @@ The dialog says how many goldens go live and why, and shows the commands. It ope
 
 **Find breaking commit** runs `shadowlap bisect` from the newest revision where the golden passed under its checks as they stand. A pass from before a check was added may be a commit where it already fails that check.
 
-- **It asks first**, as **Find breaking commit…**, when there is no such revision, after a search from it named no first bad commit, or for a golden marked `fork` (its replays cost tokens). It lists the commits the golden was tested at, each with its subject and how it did there, and takes any other.
+- **It asks first**, as **Find breaking commit…**, when there is no such revision, after a search from it named no first bad commit, or for a golden marked `fork`, whose replays run live. Its Cost line is the search's estimate from the commit it opens on. It lists the commits the golden was tested at, each with its subject and how it did there, and takes any other.
 - **Another commit** is a field under the list, for any other: what it holds is searched from, and picking from the list again clears it.
 - **Only commits this checkout has**, as on Runs and a run's page. A golden that last passed at a commit it lacks (a pull request's merge commit in CI, say) asks for one, and one that failed at such a commit is searched up to HEAD.
 
@@ -1734,7 +1810,7 @@ These keys go to a page, in the order they are listed:
 
 | Key                                  | What it does                                              |
 | ------------------------------------ | --------------------------------------------------------- |
-| `g` then `o` `r` `c` `f` `t` `a` `s` | Overview, Runs, Compare, Fixes, Tests, Training, Settings |
+| `g` then `o` `r` `c` `f` `t` `a` `s` | Overview, Runs, Changes, Fixes, Tests, Training, Settings |
 
 These keys work on a run's page:
 
@@ -1756,9 +1832,9 @@ These keys work on a run's page:
 
 **`b`** presses Run blame only where the run's page leads with it, not the Run blame beside a crash's Find breaking commit.
 
-**Esc** does one thing a press: it closes a menu, a dialog or the palette, hides or closes a job's drawer, then closes the sidebar on a phone, then leaves a field, then hides a hover card. Only then does it go up: a run's open diff closes, a run or a fix goes back the way you came, Runs' selection clears, and the row in focus lets go.
+**Esc** does one thing a press: it closes a menu, a dialog or the palette, hides or closes a job's drawer, then closes the sidebar on a phone, then leaves a field, then hides a hover card. Only then does it go up: a run's open diff closes, a run, a fix or a revision's page goes back the way you came, Runs' selection clears, and the row in focus lets go.
 
-**The way back** lands on the row or the link you left. A page opened cold goes up to its crumbs' parent: a fork or a replay to the run it came from, a run to Runs, a fix to Fixes. `[`, `]` and opening a run's parent add nothing to the way back, and a page it already passed through takes it back to there.
+**The way back** lands on the row or the link you left. A page opened cold goes up to its crumbs' parent: a fork or a replay to the run it came from, a run to Runs, a fix to Fixes, a revision's page to Verdicts. `[`, `]` and opening a run's parent add nothing to the way back, and a page it already passed through takes it back to there.
 
 **`[` and `]`** step through Runs as it was last shown, its filter and sort, reading its next page when they come to the last row read. A run Runs never showed steps through the sidebar's. At either end a toast says so.
 
@@ -1977,6 +2053,7 @@ The dashboard's first script holds the shell and what the pages share. The rest 
 
 - **A page's own code** loads when you first open the page, which waits empty until it comes. Opening a page loads nothing more.
 - **A run's views but Calls** each have a script of their own. They load once the pointer or the focus reaches the Views tabs, or the view first changes, so switching to one draws it at once.
+- **Changes' tabs**: Verdicts and a revision's page each have a script of their own, and so does Compare. Changes' head and tabs come with the page, and stay while a tab's script loads.
 - **A script that can't be loaded** (the dashboard stopped, or was updated since the page opened) leaves a line that says so under the page's title, or in the view. Its **Retry** loads the page again, since a browser never asks twice for a script that failed, and waits while the server can't be reached.
 
 An exported copy is one script, built apart with only what a copy shows: its runs, a run's page with every view, and Compare between them.
@@ -2140,7 +2217,7 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 | `GET /api/tests` | The Tests screen |
 | `GET /api/tests/gate?good=&bad=&risk=&max=`, `?baseline=history&drop=&window=&min=&max=&history=47/50` | What a [gate](./gating.md)'s figures would do |
 | `GET /api/tests/runs/:id?before=<ms>` | For a run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's choices |
-| `GET /api/tests/estimates` | What Run tests and each golden's buttons bill |
+| `GET /api/tests/estimates?update=` | What Run tests and each golden's buttons bill, and Update goldens… for the goldens `update` names |
 | `GET /api/estimates/bisect?runId=\|golden=&good=&bad=` | What Find breaking commit bills, on a run or a golden, from `good` up to `bad` |
 | `GET /api/ci/workflows?fix=&alerts=&budget=&repairer=&onlyMain=&secret=&inconclusive=` | Settings → CI: your workflow for those options |
 
@@ -2197,6 +2274,7 @@ A gate against history is figured at seven pass rates against the baseline `hist
 **Their estimates** are the engine's for each job as it runs, worked out beside the server:
 
 - `/api/tests/estimates` answers `run` for Run tests, and each golden's `rerun`, `update`, `more` and `normalize` by its path. A golden that runs live in any way is never Free: one marked fork, or with an injection gate, has no estimate until it has run once. Run tests is what each golden it runs live spent the last time it ran.
+- `update`, given once for each golden, adds `update` to the answer: what Update goldens… bills for those goldens together. A path that isn't a golden on disk is left out.
 - `/api/estimates/bisect` counts the commits with git, as the job would search them. It has no estimate until `good` names a commit. A search the job would refuse has none, with why.
 
 **Your workflow** (`/api/ci/workflows`) takes its options: `fix`, `alerts` and `onlyMain` on or off, `budget` in dollars, `repairer` as `repair --repairer` takes it, `secret` the webhook secret's name, and `inconclusive` fail or warn. It answers with one job that runs the goldens once (`workflow`), what it needs, and for each part its own step and a preview of what lands. Whether the step pushes is no option: it follows Push from CI in `shadowlap.config.json`, read as `/settings/store` reads it (`fixOnFailure.teamStore`).
@@ -2254,7 +2332,7 @@ A gate against history is figured at seven pass rates against the baseline `hist
 
 **The decision diff:**
 
-- `/api/decisions`: the sessions kept, newest first, with the models the goldens use that retire.
+- `/api/decisions`: the sessions kept, newest first, with the models the goldens use that retire. Each session's `href` opens Changes (`#/changes/decisions/<id>`, `#/changes/migrate/<id>`).
 - `/api/decisions/:id`: one session as `decisions --json` or `migrate --json` printed it, with its `matrix`.
 - `/api/decisions/:id/estimates`: what its Verify bills, worked out beside the server. Each run it couldn't clear, or the one `runId` names, is priced in the role its checks give it as recorded, at what it costs under the change. `verify` is `null` when there is nothing to verify.
 - `/api/runs/:id/decisions`: a run's decisions under each session that asked it again.
@@ -2276,7 +2354,7 @@ The `matrix` has a row per run and a cell per model call. Each cell holds:
 - `/api/verdicts`: every change checked, newest first, `limit` rows (50 unless given, at most 200) of the chip `kind` names. A change is a revision a test session ran every golden at, a preview or a migration, or a verify a fix keeps.
 - Each row gives its verdict as the command that gave it says it (`word`, coloured by `tone`), the `line` under it, what it was `checked` on and what `moved`. It names who made the change (`by`: a commit's author, who ran a preview) only when the project's config names a team store.
 - `counts` gives each chip's count, and `lead` the newest revision's verdict. The list reads the newest 200 test sessions, previews and verifies, and `more` says older changes exist.
-- `/api/verdicts/:rev` gives a revision's page (`no-revision` for a session that knew none): its goldens as that session judged them, worst first with their notes, and the previews and migrations asked at that revision.
+- `/api/verdicts/:rev` gives a revision's page (`no-revision` for a session that knew none): its goldens as that session judged them, worst first with their notes, and the previews and migrations asked at that revision. `latest` says whether it is the newest revision's, the one the list leads with.
 
 **Injection tests:**
 
@@ -2330,7 +2408,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `migrate { to, goldens?, runs?, from?, scope?, set? }` | A migration, every golden unless some are named |
 | `normalize-and-test { golden \| runId, path?, yes? }` | A normalizer for each value made anew on every run, then `test` on the golden |
 | `override { runId, callNo, uploadId, yes? }` | Edit and fork: `replay --override` of a tool's result or a person's answer, from an upload checked as untrusted data |
-| `pack-test { golden? }` | Pack, then test; the test alone once packed |
+| `pack-test { golden?, yes? }` | Pack, then test; the test alone once packed |
 | `pairs { format?, minConfidence? }` | Export pairs, written to `.shadowlap/exports/pairs.jsonl` |
 | `push { runIds }`, `pull` | Push runs to the team store, or `{ all: true }`; pull from it |
 | `repair { fixId, repairer?, yes? }` | An open fix, from its failing and good runs, by the repairer its confirm dialog named |
@@ -2338,7 +2416,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `share { runId }` | A share link |
 | `skill-install { agent, replace? }` | [`skill install`](./cli.md#skill), `--force` with `replace` |
 | `store-set { url, provider }` | `store set --check` |
-| `task-update { golden }` | Update golden, from Training |
+| `task-update { golden, yes? }` | Update golden, from Training |
 | `test { golden?, maxAttempts?, continue?, yes? }` | A test session |
 | `test-update { goldens }` | Re-recorded live with writes stubbed, each replaced when its checks pass; or `{ golden }` |
 | `verify { fixId, verifyId, yes? }` | Run more attempts, or Verify again, for a verdict left incomplete |
@@ -2394,7 +2472,7 @@ A second dashboard, started in the demo's triage-bot, checks [a link into anothe
 - **Attempts**: which runs are attempts is one rule, `packages/engine/src/run-roles.ts`.
 - **Endpoints**: the server's endpoints are registered by feature in `packages/dashboard/src/routes/`, and the shapes they answer with are in `packages/dashboard/src/views.ts` and `api.ts`.
 - **Shared parts**: a page's header and facts, its sections, statuses, verdict lines, switches, pickers, code boxes, run ids and attempts, and its empty, loading and error states are components in `packages/dashboard/ui/components/`, listed in its `README.md`, with their styles in `ui/css/components.css`. `Term` reads its definitions from `ui/glossary.ts`.
-- **Scripts**: `packages/dashboard/ui-bundles.mjs` splits the browser app: a chunk per page (`ui/pages/lazy.tsx`), one per part of a page through `onShow` (`ui/components/OnShow.tsx`), and an exported copy's one script from `ui/main-copy.tsx`. `test/ui-bundle-size.test.ts` holds each to its budget, and fails when a part it lists as heavy loads with a page instead of through `onShow`.
+- **Scripts**: `packages/dashboard/ui-bundles.mjs` splits the browser app: a chunk per page (`ui/pages/lazy.tsx`), one per part of a page through `onShow` (`ui/components/OnShow.tsx`), and an exported copy's one script from `ui/main-copy.tsx`. `test/ui-bundle-size.test.ts` holds each to its budget, and fails when a part it lists as heavy loads with a page instead of through `onShow`: Compare, and everything under `ui/changes/` but its head, `Head.tsx`.
 
 ## Troubleshooting
 

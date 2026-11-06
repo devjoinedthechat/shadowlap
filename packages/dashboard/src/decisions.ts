@@ -11,7 +11,7 @@ import { optionLike, type GoldenSource } from './tests.js';
  * migrate and verify what a session flagged. Plain functions of the store, for the Changes page.
  */
 
-/** A session in the list: what changed, over how many runs, how many flagged, and where to open it. */
+/** A session in the list: what changed, over how many runs, how many flagged, and where to open it (its page under Changes). */
 export interface DecisionSessionView {
   sessionId: string;
   kind: 'decisions' | 'migrate';
@@ -68,17 +68,6 @@ export interface RetirementsView {
   notices: Array<RetirementNotice & { goldens: string[] }>;
 }
 
-/**
- * Where a session opens, as the dashboard has no page of its own for one: the run whose change it
- * ranked most consequential, at the call of that change, as Needs a look opens a preview; Runs for a
- * session that kept no run.
- */
-function sessionHref(store: StoreOf<'readModels'>, sessionId: string): string {
-  const top = store.query(`SELECT run_id AS id, data FROM decision_runs WHERE session_id = ? ORDER BY rank IS NULL, rank, position LIMIT 1`, sessionId)[0];
-  if (!top) return links.runs();
-  return runHref(String(top.id), top.data);
-}
-
 /** A run's part of a session, opened at its most consequential change (`decisionRow`'s cells), else at its start. */
 function runHref(runId: string, data: unknown): string {
   let run: DecisionRun | null;
@@ -92,8 +81,9 @@ function runHref(runId: string, data: unknown): string {
   return links.run(runId, ranked?.callNo ?? null);
 }
 
-export function decisionSessions(store: StoreOf<'readModels' | 'decisions'>, o: { limit?: number; kind?: 'decisions' | 'migrate' } = {}): DecisionSessionView[] {
-  return store.listDecisionSessions(o).map((s) => ({ ...s, href: sessionHref(store, s.sessionId) }));
+/** The sessions the store keeps, newest first, each opening at its own page under Changes (a preview's tab, a migration's). */
+export function decisionSessions(store: StoreOf<'decisions'>, o: { limit?: number; kind?: 'decisions' | 'migrate' } = {}): DecisionSessionView[] {
+  return store.listDecisionSessions(o).map((s) => ({ ...s, href: links.changeSession(s.kind, s.sessionId) }));
 }
 
 /** A run's row: its model calls in call order, each with its rank. */

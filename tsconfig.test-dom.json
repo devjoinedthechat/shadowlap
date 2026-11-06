@@ -40,6 +40,10 @@
     "packages/dashboard/test/ui-load.test.ts",
     "packages/dashboard/test/ui-tests-page.test.ts",
     "packages/dashboard/test/ui-tests-ask.test.ts",
+    "packages/dashboard/test/ui-job-button.test.ts",
+    "packages/dashboard/test/ui-fork-spending.test.ts",
+    "packages/dashboard/test/ui-bisect-spending.test.ts",
+    "packages/dashboard/test/ui-spending-row.test.ts",
     "packages/dashboard/test/ui-training-page.test.ts",
     "packages/dashboard/test/ui-job-stop.test.ts",
     "packages/dashboard/test/ui-dock.test.ts",
@@ -86,7 +90,8 @@
     "packages/dashboard/test/ui-page-failed.test.ts",
     "packages/dashboard/test/ui-primitives.test.ts",
     "packages/dashboard/test/primitives-page.tsx",
-    "packages/dashboard/test/ui-status-bar.test.ts"
+    "packages/dashboard/test/ui-status-bar.test.ts",
+    "packages/dashboard/test/ui-changes.test.ts"
   ],
   "exclude": []
 }

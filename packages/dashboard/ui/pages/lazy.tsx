@@ -29,14 +29,16 @@ function onOpen<P extends object>(load: () => Promise<ComponentType<P>>): OnShow
 /**
  * A page whose code didn't come: its title, as the browser's tab names it, over one line that says
  * so, with Retry (`LoadFailed`), which loads the page again. A run's page is titled by the run's
- * id, in the code face.
+ * id, in the code face; Changes' tabs (`Verdicts · Changes`) say diffs over it, as their head does.
  */
 function PageFailed() {
   const route = useRoute();
   const { exported, meta, runs } = useApp();
   const setup = setupShowsOn(route, { exported, meta, runs });
   const run = route.page === 'run' && !setup;
-  const eyebrow = [projectOf(meta)?.name, run ? 'run' : null].filter(Boolean).join(' · ');
+  // What the page is, as its own eyebrow names it: a run, Changes' diffs.
+  const kind = run ? 'run' : !setup && (route.page === 'changes' || route.page === 'compare') ? 'diffs' : null;
+  const eyebrow = [projectOf(meta)?.name, kind].filter(Boolean).join(' · ');
   const problem = meta?.project?.problem ? { name: meta.project.name } : null;
   return (
     <Page>
@@ -49,6 +51,7 @@ function PageFailed() {
 export const OverviewPage = onOpen(() => import('./Overview.js').then((m) => m.OverviewPage));
 export const RunsPage = onOpen(() => import('./Runs.js').then((m) => m.RunsPage));
 export const RunPage = onOpen(() => import('./Run.js').then((m) => m.RunPage));
+export const ChangesPage = onOpen(() => import('./Changes.js').then((m) => m.ChangesPage));
 export const ComparePage = onOpen(() => import('./Compare.js').then((m) => m.ComparePage));
 export const FixesPage = onOpen(() => import('./Fixes.js').then((m) => m.FixesPage));
 export const TestsPage = onOpen(() => import('./Tests.js').then((m) => m.TestsPage));
@@ -85,6 +88,8 @@ function PageFor({ route }: { route: Route }) {
       // Not keyed on the id: a short id settling on the full one is the run already loaded, which
       // RunPage keeps; another run starts the page empty there.
       return <RunPage id={route.id} call={route.call} view={route.view} />;
+    case 'changes':
+      return <ChangesPage tab={route.tab} id={route.id} />;
     case 'compare':
       return <ComparePage a={route.a} b={route.b} />;
     case 'fixes':

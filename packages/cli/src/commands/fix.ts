@@ -1,5 +1,5 @@
 import { Command, Option } from 'commander';
-import { ACTIONS, applyLeft, BLAME_DEFAULTS, describeBaselineRule, FIX_STATUSES, FixIdError, fixRecords, type FixStatus, KEPT_DEFAULTS, prNumber, type ReadPolicy, repairerProblem, resolveFix, setFixTitle, SPRT_DEFAULTS, type StoredFix, type StoreOf, verifyArgv } from '@shadowlap/engine';
+import { ACTIONS, applyLeft, BLAME_DEFAULTS, describeBaselineRule, FIX_STATUSES, FixIdError, fixRecords, type FixStatus, KEPT_DEFAULTS, NAME_MAX, prNumber, type ReadPolicy, repairerProblem, resolveFix, setFixTitle, SPRT_DEFAULTS, type StoredFix, type StoreOf, verifyArgv } from '@shadowlap/engine';
 import { fieldChange, fixDetail, fixHref, fixList, ghReader, goldensFolderIn, patchesInTree, patchesToCheck, prHost, pulledPatchesToCheck, readableHosts, rewritesHere, type PrRead } from '@shadowlap/dashboard';
 import { acceptedRepair, ApplyError, applyFix } from '../fix-apply.js';
 import { parseNameFlag } from '../fix-apply-names.js';
@@ -244,7 +244,7 @@ function registerFixes(program: Command): void {
     .description("Apply a verified fix: git apply its repair's patch, copy the recordings the fixed code made into the goldens folder, each a golden of its own, run shadowlap test on them, and mark the fix applied. On an applied fix, finish what is left")
     .argument('<fix>', 'a fix id or a unique prefix of it')
     .option('--goldens <dir>', "the project's goldens folder, where the repair's recordings go", 'goldens')
-    .option('--name <run=name>', "the name of the golden copied from a fixed run, its id or the start of it: lower-case letters, digits and hyphens, one golden each, not one the folder holds (repeatable; default: the fix's label, numbered for several)", collect)
+    .option('--name <run=name>', `the name of the golden copied from a fixed run, its id or the start of it: lower-case letters, digits and hyphens, at most ${NAME_MAX} of them, not a name Windows keeps such as con or nul, one golden each, not one the folder holds (repeatable; default: the fix's label, numbered for several)`, collect)
     .option('--no-test', 'copy the recordings without running shadowlap test on them')
     .option('--build <command>', 'rebuild the agent after the patch is applied, before the test')
     .option('--json', 'print what was done as JSON (progress still goes to stderr)')

@@ -19,6 +19,9 @@ import { errorText } from '../toast.js';
 import { SETUP_INTRO } from '../../src/setup-words.js';
 import { NotFoundPage } from './NotFound.js';
 import { ActionButton } from '../components/ActionButton.js';
+import { tipEst } from '../spending.js';
+import { startTestsJob, type TestsAsk } from '../tests-ask.js';
+import { commandText } from '../goldens.js';
 
 /**
  * Setting a project up (#/setup, and in place of the pages of a project with no runs, or of the
@@ -95,6 +98,16 @@ function SetupStep({ n, state, title, cli, children }: { n: number; state: Inspe
       </div>
     </li>
   );
+}
+
+/**
+ * Keep it as a test's question, where the golden's tests entry runs it live: Pack as a golden (it
+ * packs the run, then tests it) or, once it is packed, Run the test, titled by the step's button.
+ * The shell asks it, as it asks a Tests session's; this page's chunk holds its words.
+ */
+export function keepAsk(label: string | undefined, golden: string, packs: boolean): TestsAsk {
+  const title = label ?? (packs ? 'Pack as a golden' : 'Run the test');
+  return { title, lead: packs ? `Packs the run as ${golden}, then runs its test.` : `Runs the test of ${golden}.`, doc: 'goldensThatFork', ok: title, commands: [commandText(['test', golden])], parts: ['only what runs live'] };
 }
 
 /** `asked`: opened at #/setup, rather than shown in place of a page; a project with nothing to set up says so there. */
@@ -220,7 +233,9 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
     });
   const calibrate = (runId: string, write: boolean) => guard(() => start(client.startJob(JOB_KINDS.calibrate, { runId, write })));
   // Pack as a golden: the path checked first, so a mistake shows under the field; then one job packs
-  // it and runs its test, on the server, so leaving the page doesn't stop halfway.
+  // it and runs its test, on the server, so leaving the page doesn't stop halfway. Where its tests
+  // entry runs that test live, the server asks first, as for Tests' sessions, and the shell asks it.
+  const keep = { client, guard, watchJob: start };
   const pack = (value: string) =>
     guard(() => {
       setGoldenError(null);
@@ -228,13 +243,13 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
         ({ path, runId }) => {
           if (!runId) return setGoldenError('Record a first run before you keep it as a test.');
           setGolden(path);
-          start(client.startJob(JOB_KINDS.keepGolden, { project: id, golden: path }));
+          startTestsJob(keep, JOB_KINDS.keepGolden, { project: id, golden: path }, keepAsk(view.test.button?.label, path, true));
         },
         (err: unknown) => setGoldenError(messageOf(err)),
       );
     });
   // Packed already: its test runs (again).
-  const testGolden = () => guard(() => start(client.startJob(JOB_KINDS.keepGolden, { project: id })));
+  const testGolden = () => startTestsJob(keep, JOB_KINDS.keepGolden, { project: id }, keepAsk(view.test.button?.label, view.test.packed?.golden ?? golden ?? '', false));
   const finish = () =>
     guard(() => {
       client.projects.finish(id).then(
@@ -549,7 +564,8 @@ function RecordBody({
         {step.command ? <CommandField value={value} enabled={enabled} onChange={setCommand} onEnter={go} /> : null}
         {step.button ? (
           <div className="actions">
-            <ActionButton className="btn lime" disabled={!step.button.enabled || !value.trim()} why={why} onClick={go}>
+            {/* The first recording in a folder asks on every setting, as no estimate prices what a command does. */}
+            <ActionButton className="btn lime" disabled={!step.button.enabled || !value.trim()} why={why} tip={step.button.label} est={tipEst(null)} onClick={go}>
               {step.button.label}
             </ActionButton>
           </div>
@@ -572,7 +588,7 @@ function RecordBody({
         <div className="again">
           <CommandField value={value} enabled={step.again.command.enabled} onChange={setCommand} onEnter={go} />
           <div className="actions">
-            <ActionButton className="btn" disabled={!step.again.command.enabled || !value.trim()} why={why} onClick={go}>
+            <ActionButton className="btn" disabled={!step.again.command.enabled || !value.trim()} why={why} tip={step.again.label} est={tipEst(null, true)} onClick={go}>
               {step.again.label}
             </ActionButton>
           </div>

@@ -83,7 +83,14 @@ Under CI, anything else that appears, and a tracked file that changed, fail the 
 - runs the CLI in a temporary folder of its own (`cwd`), with its own store (`--db`);
 - makes a project an agent runs in with `testing/temp-project.mjs`, in the temporary folder below links to the packages it imports.
 
-Your own `~/.shadowlap` is left alone too. The run sets `SHADOWLAP_HOME` to a temporary folder of its own, for the suites and every process they start, and removes it after. So the project list, and the agents and proxies registered while they run, never reach yours. A test that runs the CLI keeps `process.env` in the environment it gives it, or sets a folder of its own.
+Your own `~/.shadowlap` is left alone too. The run sets `SHADOWLAP_HOME` to a temporary folder of its own, each test file gets a folder of its own inside it, and every process a test starts inherits it. The run removes it after. So the project list, the checks seen, and the agents and proxies registered while the tests run never reach yours.
+
+A run started at the root has that setup from `vitest.config.ts`. So does one started in a suite's folder or its `test` folder, as in `cd packages/dashboard && npx vitest run test/<file>`. Each has a `vitest.config.mjs` that gives the root's setup the suite's tests. Vitest reads only the config in the folder it starts in, so a run started anywhere else has neither a home of its own nor the guard below.
+
+A guard in each test file's process (`testing/home-guard.mjs`) fails the test that reaches the real home's Shadowlap files:
+
+- **A write there** is refused, however its path gets there: through a link, with a trailing slash or `..`, or relative to the working folder. So is a write in the home the environment names while `SHADOWLAP_HOME` is unset or relative.
+- **A process** that would keep Shadowlap's files there isn't started. A test that runs the CLI keeps `process.env` in the environment it gives it, or sets a `SHADOWLAP_HOME` or `HOME` of its own.
 
 What changes in the real `~/.shadowlap` while the tests run fails the run under CI. Elsewhere it is only reported, as your own Shadowlap may write there meanwhile.
 
