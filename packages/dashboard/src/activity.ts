@@ -6,7 +6,8 @@ import { projectEventText } from './projects.js';
 import { cachedRuns } from './run-cache.js';
 import { shortReason, verdictOfResult } from './tests.js';
 import { gateLine, gateRuleOf as ruleOf } from './verdict.js';
-import type { ActivityIcon, ActivityItem, ActivityPage } from './views.js';
+import { FEATURE_EVENT_TEXT, type Describe, type EventText } from './activity-events.js';
+import type { ActivityItem, ActivityPage } from './views.js';
 
 /**
  * The activity feed: what happened in this project, newest first. Most of it is read from the runs
@@ -19,15 +20,7 @@ import type { ActivityIcon, ActivityItem, ActivityPage } from './views.js';
 export const ACTIVITY_LIMIT = 50;
 export const ACTIVITY_MAX = 200;
 
-/** How a stored event reads in the feed. */
-export interface EventText {
-  kind: ActivityIcon;
-  text: string;
-  /** Where it opens; defaults to its run, if it has one. */
-  href?: string;
-}
-
-type Describe = (event: StoredEvent, data: Record<string, unknown>) => EventText;
+export type { EventText } from './activity-events.js';
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : typeof v === 'number' ? String(v) : null);
 /** A time from run meta, which a pack someone else made can carry as anything. */
@@ -70,10 +63,11 @@ function rejection(d: Record<string, unknown>): string | null {
 
 /**
  * The wording of every stored event kind, read from the fields each command records (documented in
- * packages/engine/src/events.ts). A feature that records a new kind adds its wording with
- * `describeEvent`; an unknown kind reads as its name and its ref.
+ * packages/engine/src/events.ts), the features' own kinds among them (activity-events.ts), so every
+ * thread that reads the feed has them all; an unknown kind reads as its name and its ref.
  */
 const EVENT_TEXT = new Map<string, Describe>([
+  ...FEATURE_EVENT_TEXT,
   ['normalizer.added', (e, d) => ({ kind: 'setting', text: `Normalizer added · ${str(d.path) ?? e.ref ?? 'every string'}`, href: links.settings('matching') })],
   ['normalizer.removed', (e, d) => ({ kind: 'setting', text: `Normalizer removed · ${str(d.path) ?? e.ref ?? 'every string'}`, href: links.settings('matching') })],
   // A redaction rule reads by what it puts in place and where, never by its pattern: a pattern can
@@ -179,7 +173,11 @@ function importText(name: string, runs: number, modelCalls: number | null): stri
   return parts(`Imported ${name}`, runs > 1 && plural(runs, 'run'), modelCalls !== null && plural(modelCalls, 'model call'));
 }
 
-/** Sets how a stored event kind reads in the feed: a feature that records a new kind calls this from its route module. */
+/**
+ * Sets how a stored event kind reads in the feed, for an embedder. A feature's own kinds go in
+ * activity-events.ts instead: a describer registered from a route module never reaches the read
+ * threads, which load no route module, and the feed is read there.
+ */
 export function describeEvent(kind: string, describe: Describe): void {
   EVENT_TEXT.set(kind, describe);
 }

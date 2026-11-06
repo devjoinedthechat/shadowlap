@@ -5,8 +5,6 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { gateResult, packRun, recordEvent, Store, unpackRun, type CallKind, type CreateRunInput, type Origin, type RunMeta } from '@shadowlap/engine';
 import { activity, describeEvent, type ActivityItem } from '../src/index.js';
-// Tests registers the wording of what Find the commit answers with no commit.
-import '../src/routes/tests.js';
 
 /** The activity feed: what runs tell by themselves, merged with what commands recorded, newest first. */
 

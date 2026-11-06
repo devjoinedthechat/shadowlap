@@ -1,5 +1,4 @@
 import { ACTIONS, confirmWords, messageOf, noEstimate, type Normalizer, type StoreOf } from '@shadowlap/engine';
-import { describeEvent } from '../activity.js';
 import { lookupRun, noSuchRun } from '../api.js';
 import { liveChaosSession } from '../chaos.js';
 import { ciWorkflows, fixPreview, gitFacts, goldenProviders, parseCiOptions } from '../ci-workflows.js';
@@ -7,7 +6,6 @@ import { choicesInCheckout, commitsHere, commitSubjects, rangeHere, revisionsHer
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult } from '../jobs.js';
-import { links } from '../links.js';
 import { searchedCommits } from '../next-step.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
@@ -136,10 +134,6 @@ async function rangesInCheckout(view: TestsView, root: string | null | undefined
   const inCheckout = <T extends { golden: string; bisect: BisectRange | null; revisions: TestsView['divergences'][number]['revisions'] }>(d: T): T => ({ ...d, bisect: d.bisect ? rangeHere(d.golden, d.bisect, here) : null, revisions: revisionsHere(d.revisions, here, subjects) });
   return { ...view, divergences: view.divergences.map(inCheckout), failures: view.failures.map(inCheckout) };
 }
-
-// Find breaking commit that named no first bad commit, in the activity feed: why, so the next search
-// starts elsewhere. A golden's answer opens Tests, which shows it; a run's, the run.
-describeEvent('bisect.none', (e, d) => ({ kind: 'test', text: `No first bad commit · ${e.ref ?? confirmWords(ACTIONS.findBreakingCommit.label)}${typeof d.why === 'string' && d.why ? `: ${d.why}` : ''}`, href: e.runId ? links.run(e.runId) : links.tests() }));
 
 /**
  * Find breaking commit's job as `req` asks it: whether this checkout has the commit a run's search
