@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { JOB_KINDS, type RunDetail, type RunOffers } from '../api.js';
-import { useTestsWait } from '../fixes/tree.js';
+import { useJobWait } from '../fixes/tree.js';
 import { shortId } from '../format.js';
 import { useLatest } from '../hooks.js';
 import { ACTIONS } from '../labels.js';
@@ -58,8 +58,9 @@ export function useRunCommands(o: {
   const live = run.run.status === 'running';
   const next = nextStepOf(run);
   const wait = useStepWait(run, next);
-  const packWait = useTestsWait(PACK_VERB);
   const packFolder = exported || actionsOff ? null : plainPackFolder(run, offers, next);
+  // Read only where the row shows: the jobs' feed is a read of its own.
+  const packWait = useJobWait(packFolder ? { verb: PACK_VERB, tests: true } : null);
   const now = useLatest(o);
   useEffect(() => {
     const items = leadCommands(run, { exported, actionsOff, wait, toast, run: (p) => now.current.actions.run(p) });
