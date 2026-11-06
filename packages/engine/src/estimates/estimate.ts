@@ -110,7 +110,7 @@ export function recordEstimate(): Estimate {
  * A count with its noun, as the cost lines say it: `1 attempt`, `3 attempts`, `1,224 requests`. The
  * noun takes its s as plural's does (words.ts); the count keeps its thousands apart, as the design's do.
  */
-export { counted } from '../cost-words.js';
+export { counted, timesWords } from '../cost-words.js';
 
 /** The config's `prices`, over the engine's table; none for the table alone. */
 export type Prices = Record<string, Price> | undefined;
@@ -281,18 +281,4 @@ export function noPriceWords(cost: { unpriced?: readonly string[]; uncounted?: r
   if (uncounted.length) words.push(`${few(uncounted.map((c) => `#${c}`))} kept no token counts`);
   if (unanswered.length) words.push(`${few(unanswered.map((c) => `#${c}`))} got no answer when recorded, so what ${unanswered.length === 1 ? 'it costs' : 'they cost'} is unknown`);
   return words.join('; ');
-}
-
-/**
- * A factor in words, as an ask says what calls cost asked of another model: `twice`, `half`, `1.7
- * times`, under a tenth to two figures (`0.048 times`); null for about the same, or none to give.
- */
-export function timesWords(k: number): string | null {
-  if (!Number.isFinite(k) || k <= 0) return null;
-  const small = k < 0.1;
-  const r = small ? Number(k.toPrecision(2)) : Math.round(k * 10) / 10;
-  if (r === 1) return null;
-  if (r === 2) return 'twice';
-  if (r === 0.5) return 'half';
-  return `${r.toLocaleString('en-US', small ? { maximumSignificantDigits: 2 } : { maximumFractionDigits: 1 })} times`;
 }

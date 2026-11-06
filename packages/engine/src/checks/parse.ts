@@ -1,5 +1,6 @@
 import { isObject } from '../is-object.js';
 import { messageOf } from '../message-of.js';
+import { NAME_MAX } from '../name-max.js';
 import { parsePath } from '../normalize.js';
 import { EXPECT_KEYS, JUDGE_MODEL, OPERATORS, aliasOf, asNumber, hasChecks, hasWildcard, type CallCondition, type CallRule, type CountRange, type ExpectSpec, type JudgeCheck, type Matcher, type Operand, type Operator, type Reference, type TestSpec, type TextCheck, type WhenRule } from './grammar.js';
 
@@ -197,7 +198,7 @@ export function parseWhen(raw: unknown, where: string, judges = new Map<string, 
   return { if: condition, then };
 }
 
-const JUDGE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const JUDGE_NAME = new RegExp(`^[A-Za-z0-9][A-Za-z0-9._-]{0,${NAME_MAX - 1}}$`);
 const JUDGE_OF = ['answer', 'output', 'run'] as const;
 
 /**

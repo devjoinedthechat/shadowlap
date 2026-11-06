@@ -9,6 +9,7 @@ import { codeParts } from '../projects.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
+import { flush } from '../pending-delete.js';
 import { ActionButton } from '../components/ActionButton.js';
 
 /**
@@ -81,7 +82,7 @@ export function NewProjectPage() {
     if (!path || view.button.disabled) return;
     guard(() => {
       setBusy(true);
-      client.projects.add(path).then(
+      void flush().then(() => client.projects.add(path)).then(
         async (out) => {
           toast(out.message);
           expectProject(out.project.id);

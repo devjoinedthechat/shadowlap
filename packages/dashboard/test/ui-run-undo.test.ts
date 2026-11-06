@@ -3,8 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Client } from '../ui/api.js';
 import { ToastHost } from '../ui/components/Toast.js';
 import { pendingHidden } from '../ui/pending-delete.js';
-import { href } from '../ui/route.js';
 import { navigate } from '../ui/router.js';
+import { keepRunsView } from '../ui/runs-view.js';
+import { ALL_RUNS } from '../ui/runspage/query.js';
 import { useDeleteRun } from '../ui/run/delete-run.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -15,10 +16,10 @@ import { render, type Rendered } from './ui-render.js';
 vi.mock('../ui/router.js', async (original) => ({ ...(await original<typeof import('../ui/router.js')>()), navigate: vi.fn() }));
 
 /**
- * Undo on a run's page: Delete takes the run off the lists and goes to Runs, sending the delete only
- * once its toast goes, so Undo sends nothing; a label's × takes the label off at once, hands the focus to Add label where
- * the × had it, and its toast's Undo puts the label back; a removal the server refuses puts the
- * labels back as they were.
+ * Undo on a run's page: Delete takes the run off the lists and goes to Runs as it was last shown,
+ * sending the delete only once its toast goes, so Undo sends nothing; a label's × takes the label off
+ * at once, hands the focus to Add label where the × had it, and its toast's Undo puts the label back;
+ * a removal the server refuses puts the labels back as they were.
  */
 
 const RUN = '01M5JEQWA2QMJ3NYD1C687WP08';
@@ -134,11 +135,13 @@ describe('a run page’s Delete', () => {
   }
   const pending = (runId: string) => ({ runId, chips: ['recording'], attempts: 2, startedAt: 1 });
 
-  it('takes the run off the lists and goes to Runs, deleting nothing until its toast goes', async () => {
+  it('takes the run off the lists and goes to Runs as it was last shown, deleting nothing until its toast goes', async () => {
     const id = '01M5JEQWB0QMJ3NYD1C687WP08';
     const d = await deleter(() => Promise.resolve({ deleted: id, attempts: ['a1', 'a2'] }));
+    keepRunsView({ ...ALL_RUNS, types: 'fork', sort: 'calls' });
     d.del(pending(id));
-    expect(vi.mocked(navigate)).toHaveBeenLastCalledWith(href.runs());
+    keepRunsView(ALL_RUNS);
+    expect(vi.mocked(navigate)).toHaveBeenLastCalledWith('#/runs?types=fork&sort=calls');
     expect(pendingHidden().has(id)).toBe(true);
     expect(d.sent).toEqual([]);
     const toast = d.said.at(-1)!;

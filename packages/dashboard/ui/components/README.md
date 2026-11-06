@@ -21,6 +21,7 @@ that draws one has.
 | Component | File | Use it for |
 |---|---|---|
 | `PageHeader`, `Eyebrow` | `bits.tsx` | One header on every page (`.ph`): the eyebrow, a muted line for what the page is (the project and a noun for what it shows, or a thing's kind and its name; never lime), the title at 24/600 in the display face, at most one short line of context, the actions at the top right (under the title on a phone, the lime one first), then `facts`. |
+| `ChangesHead` | `changes/Head.tsx` | Changes' head on each of its tabs: `PageHeader` with the project and `diffs`, the title and its one line, then the tabs (`.stabs`), one word each, with the command each matches on hover. It has no button: each tab's next step keeps the lime. It notes the tab it shows for the project (`changes-tab.ts`); an exported copy's Compare has a `PageHeader` of its own. |
 | `Facts`, `Fact` | `Facts.tsx` | A page's facts under its header (`.metrics.pfacts`): each figure in the display face, its words muted, money last and quieter (`money`), a figure that leads somewhere a link in ink (`href`). What it is made of and what it was before (`tip`, `was`) are on its hover, never beside it. Three across on a phone, two when there are two or four. |
 | `Row` | `Row.tsx` | A row of a list in a section (`.srow`): its hover 12px past its text on both sides, and where you are (`sel`) on the selected ground, which wins over the pointer's; a link with `href`. A table's row takes the same with `className="sel"`. |
 | `Section` | `Section.tsx` | A part of a page in place of a card (`.panel.sec`): a hairline above, its heading (14px, 600) and a muted sub, its rows full width between hairlines, a row's hover 12px past its text on both sides (`--bleed`). Sections are 32px apart, two side by side (`.grid2.secs`) 40px. Only what is not the page keeps a box: a dialog, a drawer, a menu, code. |
@@ -66,7 +67,7 @@ Whatever opens over a page stands on one surface (`--pop`, one edge and its shad
 | `DialogFacts`, `DialogSteps`, `DialogTip` | `DialogFacts.tsx` | Label and value rows between hairlines, a quiet part under the value, an amber or red row; numbered What happens; words with a card of their own. Not the page's `Facts`, a row of figures. |
 | `CostLine`, `CommandRow` | `CostLine.tsx`, `CommandRow.tsx` | What a dialog bills, price first, breaking after a dot, holding the body's foot while it scrolls; its `$` row, a chain a line a command, the box's one Copy. |
 | `UpdateGoldenDialog`, `GoodCommitField` | `UpdateGolden.tsx`, `GoodCommit.tsx` | Update golden, on Tests, a test replay's page and the apply drawer, from `update-plan.ts`; Find breaking commit's radio list and its field for any other commit, in all three of its dialogs. |
-| `PromptDialog`, `ConfirmDialog` | `Dialog.tsx` | One field before an action runs (or one of a few `choices`, with "Something else…"; a choice with `text` asks for a few words more, as "error, with a message" does), with the command it runs, which can follow the answer; a yes or no with the command it runs. |
+| `PromptDialog`, `ConfirmDialog` | `Dialog.tsx` | One field before an action runs (or one of a few `choices`, with "Something else…"; a choice with `text` asks for a few words more, as "error, with a message" does; `suggestions`, answers it offers as you type, as the bulk bar's Label offers the labels runs carry), with the command it runs, which can follow the answer; a yes or no with the command it runs. |
 | `DatasetDialog` | `DatasetDialog.tsx` | Runs as an eval dataset: a format and which calls become examples, as the `export-dataset` job. A run's Share menu and the Runs page's bulk bar both open it; pass `rules` when the page knows how many redaction rules the copy applies. |
 | `Popover`, `MenuItem`, `useMenu` | `Popover.tsx` | A menu hanging from its button (`.pop`, `narrow` for the second of its two widths, `curmark` for a check before each row), placed by the room there is (`placeMenu` in `place.ts`) and again as it or the window changes size, its first item focused, a sheet on a phone. Arrows round its ends, Home, End, PageUp, PageDown, a typed letter, → to a row's second button (`.prow`, `.px`), Tab and Esc to close, `onKeys` for keys of its own. A button that opens one says so as it is drawn (`aria-haspopup`), so ↓ and ↑ open it from the first press. A row is one line: `<b>` what it does, `<small>` what it runs; what it is for and its command go on its hover card (`data-tip`). `MenuItem`'s `checked` makes it the picked one of a choice (`menuitemradio`). `useMenu()` holds the open state and the anchor. |
 | `Picker`, `matchPicks`, `pickMove` | `Picker.tsx` | A combobox: a filter over a listbox, the field naming the option the arrows light (`aria-activedescendant`), the one picked checked, "Nothing matches." when the filter leaves none, at its button's width, a sheet on a phone. The lit row moves by a class alone, so a key draws no row of a long list again. `RunPicker` (`ui/compare/`) is one over runs, by id, about line or label: Compare's, the redaction preview's. |
@@ -131,13 +132,13 @@ says about it), `scopes.ts` (scopes and their chips), `backoff.ts` and
 `connection.ts` (offline, the retry schedule, the `?state=offline` preview), `live.ts` (following a
 recording, and which ended between two loads of the run list, for the shell's toast), `actions.ts` (the fork menu and each action's dialog words), `jobs.ts` (a job's title and status, where a Replay diverged, the recording Calibrate takes), `place.ts`,
 `focus.ts` (what a dialog focuses first), `shell/top.ts` (a run's parent in its
-crumbs, the help menu's key, and the live chip), `shell/status.ts` (the status bar's parts, which give
+crumbs, Changes' crumbs by tab, the help menu's key, and the live chip), `shell/status.ts` (the status bar's parts, which give
 way first, and when it names read-only), `parents.ts` (each run's parent, from the run details loaded so far, so the
 crumbs never load a run twice),
 `normalize.ts`, `format.ts`, and on the run page `run/banner.ts` (which banner, and what it says),
 `run/metrics.ts`, `run/model.ts` and `run/calls.ts`; for Compare, `compare/model.ts` (what the four
 change cards say, which calls after the fork the other run made too, the prefix line, which runs the
-pickers offer); for Training, `training.ts` (what a pairs filter
+pickers offer); for Changes, `changes-tab.ts` (the tab and the pair last shown, per project, outside `changes/` so the shell can hold it) and `changes/model.ts` (each Verdicts row's colour, kind line and link, a chip's empty line, how far Show more reads); for Training, `training.ts` (what a pairs filter
 shows, what Score a model sends, and the palette's Training actions). Tests has `goldens.ts`: the
 verdict's line, a check's name in the table, the reports as the CLI prints them, which buttons a
 failure gets and what the Update golden dialog says; `tests-palette.ts` lists the goldens in the
@@ -151,14 +152,24 @@ with what it has and calls `paletteSourcesChanged()` when more arrives, and an o
 its sources again. Pages a later version fills in each have their own file under `pages/`.
 
 The Overview's panels are in `overview/` (`panels.tsx`, with what they say in `overview/model.ts`),
-and the Runs page's parts in `runspage/`: the calendar (`Calendar.tsx`, its logic in
-`calendar-model.ts`), the table, the bulk bar (`bulk.ts`: its toasts, Dataset's limit, ids sent in batches, the Delete command),
-the import dialog (`imports.ts` reads a file's first
+and the Runs page's parts in `runspage/`: the header's actions (`RunsActions.tsx`: Pull, Import
+capture… and Push local runs while runs are only here), the filter field (`FilterField.tsx`: its
+terms on hover, how many runs match, `onCommit` for Enter), the row of days (`DaysRow.tsx`, a bar a
+week on a phone, its days picked by `day-picks.ts`) and the calendar it opens (`Calendar.tsx`, its
+logic in `calendar-model.ts`), the table (`RunsTable.tsx`, `RunsTableEmpty` the line an empty list
+says), the bulk bar (`BulkBar.tsx`, on `ActionButton`, Pack and Export dataset… saying why they wait;
+`bulk.ts`: its toasts, Dataset's limit, ids sent in batches, the Delete command, `labelSuggestions`
+for Label), the import dialog (`imports.ts` reads a file's first
 bytes for the engine's `guessImportFormat`, and dates the sample trace in `sample-otel.ts` to end now), Find the commit (`find-commit.ts`, what it asks bisect
-for) and authors; `runspage/query.ts` builds the page's requests and reads the
+for) and authors. The bulk bar's Delete waits out its toast with Undo (`delete-runs.ts`); meanwhile
+`ui/pending-delete.ts` keeps the runs off every list and sends the delete as the page or the
+project goes. `runspage/query.ts` builds the page's requests and reads the
 filter its address holds (`#/runs?q=…&types=failed&sort=spent&from=…&to=…`, written by `links.runs`
-in `src/links.ts`), so any screen can link to a filtered list, and Back and Forward go through the
-views Runs showed. `teamstore.ts` has `useTeamStore()`, the team store as `GET /api/store` reports it, for any
+in `src/links.ts`), so any screen can link to a filtered list. `runspage/history.ts` writes it:
+`commitRuns` as a step Back undoes (a chip, a sort, days, Enter), `replaceRuns` in place (the words
+as they settle). `runspage/scroll.ts` gives each view back where its list was left, and
+`ui/runs-view.ts` keeps the view Runs showed last, which the nav's Runs, the crumbs, `g r` and a
+cold Esc open. `teamstore.ts` has `useTeamStore()`, the team store as `GET /api/store` reports it, for any
 screen that changes with one (the status bar's part that names it among them); it reads again when the change
 feed's `team` counter moves (a push, a pull, a step of the setup). The store's setup is a page of its
 own, `#/setup/store` (`pages/settings/StoreSetup.tsx`; its palette rows are added in `palette-actions.ts`), its steps worked out in

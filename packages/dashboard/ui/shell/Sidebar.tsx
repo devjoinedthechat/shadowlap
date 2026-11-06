@@ -1,5 +1,6 @@
-import { memo, useCallback, useEffect, useMemo, useRef, type MouseEvent, type RefObject } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useSyncExternalStore, type MouseEvent, type RefObject } from 'react';
 import type { RunListItem } from '../api.js';
+import { changesHref, onChangesTab } from '../changes-tab.js';
 import { AboutLine, useFitAbouts } from '../components/About.js';
 import { RunIcon } from '../components/RunIcon.js';
 import { Icon, type IconName } from '../components/Icon.js';
@@ -12,16 +13,29 @@ import { runRowScope } from '../run-row.js';
 import { href, navSection, type Route } from '../route.js';
 import { copyCompares, isAttempt, RECENT_RUNS, runTree, sideLine, sideStatus, statusGivesWay, treeLines } from '../runs.js';
 import { useApp } from '../state.js';
+import { lessPending, usePendingHidden, useStillCounted, withoutPending } from '../pending-delete.js';
 import { ProjectBlock } from './ProjectBlock.js';
+import { useLastRunsHref } from '../runs-view.js';
 
 /** How long the drawer takes to show: it slides in hidden from the focus, and a hidden element can't take it. */
 const DRAWER_SHOWS_MS = 40;
 
-/** The phone's drawer has opened: its first item takes the focus once it shows, and a click beside it closes it, its button taking the focus. Hands back what undoes that. */
+/**
+ * The phone's drawer has opened: its first item takes the focus once it shows, and a click beside it
+ * closes it, its button taking the focus. A tap or a mouse's click there does nothing else (a row
+ * beside it doesn't open); a key's (Enter on what Tab reached past the drawer) still does what it
+ * says, and so does any click on the top bar, which stays in reach while the page can't be (Search or
+ * jump to opens over the drawer it closes). Hands back what undoes that.
+ */
 function drawerOpened(aside: RefObject<HTMLElement | null>, close: () => void): () => void {
   const timer = setTimeout(() => aside.current?.querySelector<HTMLElement>('a[href], button')?.focus({ preventScroll: true }), DRAWER_SHOWS_MS);
   const beside = (e: Event) => {
-    if ((e.target as Element | null)?.closest?.('#side, .menu-toggle, #menu, #layer')) return;
+    const at = e.target as Element | null;
+    if (at?.closest?.('#side, .menu-toggle, #menu, #layer')) return;
+    if ((e as UIEvent).detail > 0 && !at?.closest?.('header.top')) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     close();
     document.querySelector<HTMLElement>('.menu-toggle')?.focus({ preventScroll: true });
   };
@@ -41,7 +55,10 @@ const isFold = (v: string): v is Fold => v === 'open' || v === 'closed';
 
 export function Sidebar({ route }: { route: Route }) {
   const { meta, runs, exported, sideOpen, setSideOpen, toast } = useApp();
-  const listed = useMemo(() => (runs ?? []).filter((r) => !isAttempt(r)), [runs]);
+  // A run a delete waits to take is gone from here as from Runs' table, and from the count (pending-delete.ts).
+  const hidden = usePendingHidden();
+  const gone = useStillCounted(meta);
+  const listed = useMemo(() => withoutPending(runs ?? [], hidden).filter((r) => !isAttempt(r)), [runs, hidden]);
   // On a phone the sidebar is a drawer: closed while the focus was in it (Esc, a pick), the focus goes
   // back to the menu button that opened it, rather than to nothing once the drawer is hidden.
   const aside = useRef<HTMLElement>(null);
@@ -57,14 +74,18 @@ export function Sidebar({ route }: { route: Route }) {
   const rowActions = useCallback((r: RunListItem) => (exported ? null : runRowScope(r, { runs: runsNow.current ?? [], toast })), [exported, runsNow, toast]);
   const [fold, setFold] = useStored<Fold>('shadowlap-recent-runs', 'open', isFold);
   const section = navSection(route);
-  const count = meta?.counts?.runs ?? listed.length;
+  // Changes opens the tab it last showed in this project, Compare at its pair: true while Changes itself moves.
+  const changes = useSyncExternalStore(onChangesTab, changesHref);
+  const count = lessPending(meta?.counts?.runs, gone) ?? listed.length;
+  // The nav's Runs opens the view Runs showed last; the list's `all` below, every run.
+  const runsTo = useLastRunsHref();
   // The loop (what was run and what needs a look), a hairline, then the tools: a later page joins either list.
   const loop: NavItem[] = exported
-    ? [['runs', 'runs', 'Runs', href.runs(), count], ...(copyCompares(meta?.runIds) ? [['compare', 'compare', 'Compare', href.compare(), null] as NavItem] : [])]
+    ? [['runs', 'runs', 'Runs', runsTo, count], ...(copyCompares(meta?.runIds) ? [['changes', 'compare', 'Compare', href.compare(), null] as NavItem] : [])]
     : [
         ['overview', 'home', 'Overview', href.overview(), null],
-        ['runs', 'runs', 'Runs', href.runs(), count],
-        ['compare', 'compare', 'Compare', href.compare(), null],
+        ['runs', 'runs', 'Runs', runsTo, count],
+        ['changes', 'compare', 'Changes', changes, null],
         ['fixes', 'loop', 'Fixes', href.fixes(), null],
         ['tests', 'tests', 'Tests', href.tests(), null],
       ];

@@ -2,14 +2,19 @@ import { describeEvent } from '../activity.js';
 import type { RouteContext } from '../context.js';
 import { decisionSession, decisionSessions, decisionsJob, migrateJob, retirementsView, runDecisions, verifyFlaggedJob } from '../decisions.js';
 import { HttpError } from '../http.js';
+import { outcomeWork } from '../outcome-work.js';
+import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
+import { loadRunIndex } from '../run-index.js';
 import type { GoldenSource } from '../tests.js';
+import { verifyRule } from './estimates.js';
 
 /**
  * The decision diff (`shadowlap decisions`, `migrate`), for the Changes page and a run's Decisions view:
  *
  *   GET /api/decisions[?kind=decisions|migrate]   the sessions kept, newest first, and the goldens' models that retire
  *   GET /api/decisions/:id                       one session whole (`dc-…` or `mg-…`): its report, and its matrix
+ *   GET /api/decisions/:id/estimates[?runId=]    what its Verify bills (estimates.ts), on every run it could not clear or the one named
  *   GET /api/runs/:id/decisions                  a run's decisions under each session that asked it again
  *   GET /api/retirements                         the models the goldens use that retire, by the table that ships
  *   POST /api/jobs { kind: "decisions", runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?, thenVerify?, yes? }
@@ -45,6 +50,16 @@ export function register(router: Router, ctx: RouteContext): void {
     const session = decisionSession(ctx.store, r.params.id!);
     if (!session) throw new HttpError(404, `no session ${r.params.id!.slice(0, 40)}`);
     r.tagged(session);
+  });
+
+  // What Verify would bill on a kept session, or on the one run `runId` names, beside the server: it
+  // judges each run's recording by its checks, which reads its calls. Asked apart from the session.
+  router.get('/decisions/:id/estimates', async (r) => {
+    const { byId } = loadRunIndex(ctx.store);
+    const calls = ctx.store.decisionRunIds(r.params.id!).reduce((n, id) => n + (byId.get(id)?.calls ?? 0), 0);
+    const runId = r.query.get('runId')?.trim() || null;
+    const job = { kind: 'decision-estimates' as const, sessionId: r.params.id!, runId, work: outcomeWork(ctx), rule: verifyRule(ctx), ...(ctx.read.prices ? { prices: ctx.read.prices } : {}) };
+    sendAnswer(r, await ctx.reads.run(job, { calls }));
   });
 
   router.get('/runs/:id/decisions', (r) => {

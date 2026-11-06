@@ -21,6 +21,7 @@ import { ForkMenu, type PendingAction } from './actions.js';
 import { failureText, fixCheckText } from './banner.js';
 import { nextStepOf } from './next-step.js';
 import { BlameBesideButton, CompareButton, NextStepButton, PlainPackAsGolden, ReplayButton } from './NextStepButton.js';
+import { TraceLink } from './TraceLink.js';
 import { exitWords, type PresetAttempt } from './preset.js';
 import { checksOf, forkKindWords, recordingWords, runDuration, runLikeOf } from './model.js';
 import { canPush, pushTitle } from './share.js';
@@ -161,7 +162,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
         {!failure && type === 'fork' && exitWords(r.status, preset) ? <span className={preset?.verdict === 'failed' ? 'mfail' : undefined}>{exitWords(r.status, preset)}</span> : null}
       </div>
       <div className="actions">
-        {next?.key === 'compare' ? null : <CompareButton run={run} />}
+        {next?.key === 'compare' ? null : <CompareButton run={run} />}<TraceLink trace={run.trace} />
         {exported ? lead : (
           <>
             <ActionButton className="btn" id="shareBtn" reads aria-haspopup="menu" aria-expanded={share.open} onClick={(e) => share.toggle(e.currentTarget)}>

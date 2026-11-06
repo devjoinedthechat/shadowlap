@@ -97,7 +97,7 @@ test('an exported copy lists its runs, compares them, and opens its runs for any
   await expect(page.locator('main#view .prefix')).toBeVisible();
   // A page a copy doesn't hold, from a link or the address bar, opens its runs; the Overview's
   // address, the run that was shared.
-  for (const other of ['#/fixes', '#/tests', '#/training', '#/settings/redaction']) {
+  for (const other of ['#/fixes', '#/changes', '#/changes/verdicts/d2e8a1f', '#/tests', '#/training', '#/settings/redaction']) {
     await page.evaluate((to) => void (location.hash = to), other);
     await expect.poll(() => hash(page), other).toBe('#/runs');
     await expect(rows).toHaveCount(2);

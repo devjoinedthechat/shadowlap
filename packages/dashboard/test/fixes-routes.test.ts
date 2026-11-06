@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
@@ -702,6 +702,64 @@ describe('the apply job', () => {
     markFixApplied(store, fixId, { patch: 'applied', repairId: 'repair-munzln2i', goldens: [], tests: 'skipped', by: 'dana', via: 'fix apply' });
     const again = await started({ kind: 'apply', fixId });
     expect(again.title).toBe('Finishing the apply');
+  });
+
+  it('names the goldens it copies as the page names them, and refuses a name the engine’s rule refuses, running nothing', async () => {
+    const { fixId, failing } = story();
+    const run = failing.slice(0, 10);
+    // What the project's goldens folder holds is a name none may take.
+    const pack = (dir: string, text = `{"from":"${run}"}\n`) => {
+      mkdirSync(join(project, dir), { recursive: true });
+      writeFileSync(join(project, dir, 'run.json'), text);
+    };
+    pack('goldens/refund-in-limit', '{"from":"elsewhere"}\n');
+    await start();
+    expect((await json(await api(`fixes/${fixId}`))).actions.apply).toMatchObject({ goldens: 1, names: [{ run, name: 'refund-bug' }], held: ['refund-in-limit'] });
+    // The recording an apply stopped part way left, under the name the dialog gave it, is found
+    // there, as fix apply finds it, and keeps that name: it is asked none.
+    pack(`.shadowlap/repairs/repair-munzln2i/goldens/${run}`);
+    pack('goldens/refund-twice');
+    expect((await json(await api(`fixes/${fixId}`))).actions.apply).toMatchObject({ goldens: 1, names: [], held: ['refund-in-limit', 'refund-twice'] });
+    rmSync(join(project, 'goldens', 'refund-twice'), { recursive: true });
+    // So does one repair --goldens copied under its run's name.
+    pack(`goldens/${run}`, '{}\n');
+    expect((await json(await api(`fixes/${fixId}`))).actions.apply).toMatchObject({ goldens: 1, names: [] });
+    rmSync(join(project, 'goldens', run), { recursive: true });
+    const j = await started({ kind: 'apply', fixId, names: { [run]: 'refund-over-limit' } });
+    expect(spawned.at(-1)).toEqual(['fix', 'apply', fixId, '--name', `${run}=refund-over-limit`]);
+    await finished(j);
+    const before = spawned.length;
+    const refusals: Array<[unknown, string]> = [
+      [['refund-over-limit'], 'names gives each golden its name by its run, such as {"01K5CQ2E8M":"refund-bug"}'],
+      [{ '01ZZZZZZZZ': 'x' }, '01ZZZZZZZZ is not a run whose recording applying the fix copies now'],
+      [{ [run]: 7 }, `the name of the golden from ${run} is text`],
+      [{ [run]: 'Refund Bug' }, 'A golden’s name takes lower-case letters, digits and hyphens.'],
+      [{ [run]: '' }, 'Give the golden a name.'],
+    ];
+    for (const [names, error] of refusals) {
+      const res = await job({ kind: 'apply', fixId, names });
+      expect(res.status).toBe(400);
+      expect((await json(res)).error).toBe(error);
+    }
+    expect(spawned.length).toBe(before);
+  });
+
+  it('checks the names the page gives among themselves alone: what each other golden takes, fix apply reads', async () => {
+    const [a, b] = [makeRun(store, { labels: ['refund-bug'] }), makeRun(store, { labels: ['refund-bug'] })];
+    const { fix } = blame(a);
+    recordRepair(store, { repairId: 'repair-twogolds', dir: '.shadowlap/repairs/repair-twogolds', report: repairReport({ targets: [a, b], dir: '.shadowlap/repairs/repair-twogolds' }), expect: EXPECT, command: 'r' });
+    const [ra, rb] = [a.slice(0, 10), b.slice(0, 10)];
+    // repair --goldens copied the second's recording already: the page asks the first's name alone.
+    mkdirSync(join(project, 'goldens', rb), { recursive: true });
+    await start();
+    expect((await json(await api(`fixes/${fix.fixId}`))).actions.apply).toMatchObject({ goldens: 2, names: [{ run: ra, name: 'refund-bug-1' }] });
+    // The name the second would take, were it copied now, is the first's to take.
+    const j = await started({ kind: 'apply', fixId: fix.fixId, names: { [ra]: 'refund-bug-2' } });
+    expect(spawned.at(-1)).toEqual(['fix', 'apply', fix.fixId, '--name', `${ra}=refund-bug-2`]);
+    await finished(j);
+    const res = await job({ kind: 'apply', fixId: fix.fixId, names: { [ra]: 'refund-twice', [rb]: 'refund-twice' } });
+    expect(res.status).toBe(400);
+    expect((await json(res)).error).toBe('Each golden needs a name of its own.');
   });
 
   it('marks applied a fix verified on the working tree as it is, which has no patch', async () => {

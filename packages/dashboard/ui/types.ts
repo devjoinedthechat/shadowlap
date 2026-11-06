@@ -81,8 +81,12 @@ export interface RunListExtras {
   judged?: RunJudged | null;
   /** For a test replay its agent's exit failed: the code, as its test result keeps it. */
   exitCode?: number;
+  /** For a failed test replay whose golden passed when it ran again since: the run that passed, which its status names. */
+  fixedBy?: string;
   /** What its page leads with, in the light form a list carries; absent from an exported copy. */
   next?: NextStepRow | null;
+  /** What its page's Replay replays, where its next step is another: for ⌘K on its row. Absent from an exported copy. */
+  replay?: NextStepRow | null;
 }
 export type RunListItem = Omit<ServerRunListItem, 'about'> & RunListExtras;
 
@@ -523,6 +527,8 @@ export type { RetirementNotice } from '../../engine/src/model-retirements.js';
 export type DecisionSessionDetail = Record<string, unknown> & { kind: 'decisions' | 'migrate'; matrix: import('../src/decisions.js').DecisionRow[] };
 /** A run's decisions under each session that asked it again, newest first. */
 export type RunDecisionsView = ReturnType<typeof import('../src/decisions.js').runDecisions>;
+// Changes › Verdicts (`/api/verdicts`): every change checked, and the verdict it got.
+export type { PreviewVerdict, SessionVerdict, VerdictGolden, VerdictRevision, VerdictRow, VerdictsKind, VerdictsView, VerdictWord, VerifyVerdict } from '../src/verdicts.js';
 
 // ---- Compare (#/compare/<a>/<b>): two runs compared, with what git says about the code between them (src/compare.ts) ----
 export type { CodeChange } from '../src/compare.js';

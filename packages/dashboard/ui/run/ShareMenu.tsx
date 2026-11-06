@@ -8,14 +8,17 @@ import { href } from '../route.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import type { PendingAction } from './actions.js';
-import { DatasetDialog } from '../components/DatasetDialog.js';
 import { namedIn } from '../components/Id.js';
+import { onShow } from '../components/OnShow.js';
 import { redactRuleCount } from './provenance.js';
 import { jobCommand, quoteArg } from '../job-title.js';
 import { defaultPackFolder, EXPORTS, htmlCopyVia, PACK_HOLDS, packRunCommand, REDACTION_SETTINGS, redactsFact, shareCommand, shareDialog, shareItemOff, shareItems, shareNote, shareWhy, STILL_RECORDING_CARD, type ShareKey } from './share.js';
 // The share job's drawer offers the link it made.
 import './share-link.js';
 import { ActionButton } from '../components/ActionButton.js';
+
+/** Export dataset…'s dialog: rarely opened from a run's page, so a part of its own, which loads as it first shows. */
+const DatasetDialog = onShow(() => import('../components/DatasetDialog.js').then((m) => m.DatasetDialog));
 
 /**
  * Share: the run as a share link (with a team store), an HTML file (with the runs it came from), a

@@ -11,7 +11,7 @@ import { optionLike, type GoldenSource } from './tests.js';
  * migrate and verify what a session flagged. Plain functions of the store, for the Changes page.
  */
 
-/** A session in the list: what changed, over how many runs, how many flagged, and where to open it. */
+/** A session in the list: what changed, over how many runs, how many flagged, and where to open it (its page under Changes). */
 export interface DecisionSessionView {
   sessionId: string;
   kind: 'decisions' | 'migrate';
@@ -68,17 +68,6 @@ export interface RetirementsView {
   notices: Array<RetirementNotice & { goldens: string[] }>;
 }
 
-/**
- * Where a session opens, as the dashboard has no page of its own for one: the run whose change it
- * ranked most consequential, at the call of that change, as Needs a look opens a preview; Runs for a
- * session that kept no run.
- */
-function sessionHref(store: StoreOf<'readModels'>, sessionId: string): string {
-  const top = store.query(`SELECT run_id AS id, data FROM decision_runs WHERE session_id = ? ORDER BY rank IS NULL, rank, position LIMIT 1`, sessionId)[0];
-  if (!top) return links.runs();
-  return runHref(String(top.id), top.data);
-}
-
 /** A run's part of a session, opened at its most consequential change (`decisionRow`'s cells), else at its start. */
 function runHref(runId: string, data: unknown): string {
   let run: DecisionRun | null;
@@ -92,8 +81,9 @@ function runHref(runId: string, data: unknown): string {
   return links.run(runId, ranked?.callNo ?? null);
 }
 
-export function decisionSessions(store: StoreOf<'readModels' | 'decisions'>, o: { limit?: number; kind?: 'decisions' | 'migrate' } = {}): DecisionSessionView[] {
-  return store.listDecisionSessions(o).map((s) => ({ ...s, href: sessionHref(store, s.sessionId) }));
+/** The sessions the store keeps, newest first, each opening at its own page under Changes (a preview's tab, a migration's). */
+export function decisionSessions(store: StoreOf<'decisions'>, o: { limit?: number; kind?: 'decisions' | 'migrate' } = {}): DecisionSessionView[] {
+  return store.listDecisionSessions(o).map((s) => ({ ...s, href: links.changeSession(s.kind, s.sessionId) }));
 }
 
 /** A run's row: its model calls in call order, each with its rank. */
@@ -286,6 +276,25 @@ export function migrateJob(req: JobRequest, store: StoreOf<'recording'>, goldens
   return { args: ['migrate', '--to', req.to, ...targets.args, ...from, ...scope, ...set, ...consent.yes], title: `Migrating to ${req.to}` };
 }
 
+/** A session's report: a decisions session's own, a migration's decisions. */
+export const sessionReport = (session: NonNullable<ReturnType<typeof decisionSession>>) => (session.kind === 'migrate' ? session.decisions : session) as { flagged?: unknown; toVerify?: unknown; runs?: DecisionRun[]; change?: { fromCode?: unknown } };
+
+/**
+ * The runs a session's Verify takes, as `decisions --verify <session> [run]` picks them: those it
+ * could not clear (`toVerify`; a session kept before it said which, the ones it flagged), or the one
+ * `runId` names among them, by its id or a prefix of 6 or more. Why there are none, when none.
+ */
+export function runsToVerify(session: NonNullable<ReturnType<typeof decisionSession>>, runId?: unknown): string[] | { error: string; status: number } {
+  const report = sessionReport(session);
+  const listed = Array.isArray(report.toVerify) ? report.toVerify : report.flagged;
+  let ids = (Array.isArray(listed) ? listed : []).filter((id): id is string => typeof id === 'string');
+  if (runId !== undefined) {
+    ids = ids.filter((id) => id === runId || (typeof runId === 'string' && runId.length >= 6 && id.startsWith(runId)));
+    if (!ids.length) return { error: 'this session cleared that run: there is nothing to verify', status: 404 };
+  }
+  return ids.length ? ids : { error: 'this session cleared every run: there is nothing to verify', status: 409 };
+}
+
 /**
  * Verify the runs a session could not clear, the page's primary action: `shadowlap decisions --verify
  * <session>` (with the one `runId` names), which verifies each run under its own checks (its
@@ -297,15 +306,8 @@ export function verifyFlaggedJob(req: JobRequest, store: StoreOf<'recording' | '
   if (typeof req.sessionId !== 'string') return { error: 'sessionId is required' };
   const session = decisionSession(store, req.sessionId);
   if (!session) return { error: `no session ${req.sessionId.slice(0, 40)}`, status: 404 };
-  const report = (session.kind === 'migrate' ? session.decisions : session) as { flagged?: unknown; toVerify?: unknown };
-  // The runs it could not clear; a session kept before it said which, the ones it flagged.
-  const listed = Array.isArray(report.toVerify) ? report.toVerify : report.flagged;
-  let flagged = (Array.isArray(listed) ? listed : []).filter((id): id is string => typeof id === 'string');
-  if (req.runId !== undefined) {
-    flagged = flagged.filter((id) => id === req.runId || (typeof req.runId === 'string' && req.runId.length >= 6 && id.startsWith(req.runId)));
-    if (!flagged.length) return { error: 'this session cleared that run: there is nothing to verify', status: 404 };
-  }
-  if (!flagged.length) return { error: 'this session cleared every run: there is nothing to verify', status: 409 };
+  const flagged = runsToVerify(session, req.runId);
+  if (!Array.isArray(flagged)) return flagged;
   const runs = flagged.map((id) => store.getRun(id)).filter((r): r is NonNullable<typeof r> => r !== null);
   if (runs.length < flagged.length) return { error: 'a run this session flagged is no longer in the store', status: 409 };
   // A run from the store whose command came from someone's pack runs only with a yes, and so does a

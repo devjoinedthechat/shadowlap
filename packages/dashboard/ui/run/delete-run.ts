@@ -1,8 +1,8 @@
 import type { RunDetail, RunOffers } from '../api.js';
 import { begin, cancel, sendNow, type PendingRun } from '../pending-delete.js';
-import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { isFailed, runType } from '../runs.js';
+import { lastRunsHref } from '../runs-view.js';
 import { bulkToast, named } from '../runspage/bulk.js';
 import { useApp } from '../state.js';
 import { errorText, type ToastAction } from '../toast.js';
@@ -17,10 +17,10 @@ export function pendingRunOf(run: RunDetail, offers: RunOffers | null): PendingR
 
 /**
  * A run page's Delete, once its dialog is confirmed, as Runs' bulk Delete: the run leaves the lists
- * at once (`pending-delete.ts`), the page goes to Runs, and the toast says so, with Undo (⌘Z). The
- * delete goes to the server when the toast goes, however it goes (its time out, its ×, a newer toast),
- * or before, as the page or the project changes, the toast then saying the same with no Undo; as the
- * page goes, it is sent with keepalive, so the browser sees it out. Undo
+ * at once (`pending-delete.ts`), the page goes to Runs as it was last shown, and the toast says so,
+ * with Undo (⌘Z). The delete goes to the server when the toast goes, however it goes (its time out,
+ * its ×, a newer toast), or before, as the page or the project changes, the toast then saying the
+ * same with no Undo; as the page goes, it is sent with keepalive, so the browser sees it out. Undo
  * before then puts the run back, as nothing was deleted. A delete the server refuses says why, and
  * the run comes back.
  */
@@ -58,7 +58,7 @@ export function useDeleteRun(): (run: PendingRun, from?: HTMLElement | null) => 
         else go();
       },
     };
-    navigate(href.runs());
+    navigate(lastRunsHref());
     toast(said, 'notice', undo);
   };
 }

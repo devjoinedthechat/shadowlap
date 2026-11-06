@@ -44,7 +44,7 @@ describe('fix apply after repair --apply', () => {
 
       const lines: string[] = [];
       const result = await applyFix(store, fix, { cwd: project, goldens: 'goldens', test: true, build: null, db: join(project, 'shadowlap.db'), log: (l) => lines.push(l) });
-      expect(result).toMatchObject({ status: 'applied', again: true, patch: 'already', goldens: [{ from: `${dir}/goldens/${name}`, to: `tests/goldens/${name}`, copied: false }] });
+      expect(result).toMatchObject({ status: 'applied', again: true, patch: 'already', goldens: [{ run: name, from: `${dir}/goldens/${name}`, to: `tests/goldens/${name}`, copied: false }] });
       // These folders are not real recordings, so the test fails: what matters is where it looked.
       expect(result.tests).toBe('failed');
       expect(lines).toContain(`  shadowlap test tests/goldens/${name}`);
@@ -69,8 +69,10 @@ describe('fix apply after repair --apply', () => {
       const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report, expect: EXPECT, command: 'r', goldensCopied: [`../elsewhere/${name}`] }).fixes[0].fix;
       const lines: string[] = [];
       const result = await applyFix(store, fix, { cwd: project, goldens: 'goldens', test: true, build: null, db: join(project, 'shadowlap.db'), log: (l) => lines.push(l) });
-      expect(result.goldens).toEqual([{ from: `${dir}/goldens/${name}`, to: `goldens/${name}`, copied: true }]);
-      expect(lines).toContain(`  shadowlap test goldens/${name}`);
+      // Named by the fix's label, as one copied afresh is: the run it came from is said beside it.
+      expect(result.goldens).toEqual([{ run: name, from: `${dir}/goldens/${name}`, to: 'goldens/refund-over-limit', copied: true }]);
+      expect(lines).toContain(`  copied goldens/refund-over-limit from ${name}`);
+      expect(lines).toContain('  shadowlap test goldens/refund-over-limit');
     } finally {
       store.close();
     }

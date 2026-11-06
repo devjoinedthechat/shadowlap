@@ -45,7 +45,7 @@ test('on a laptop the sidebar holds the project, the pages, Recent runs and Sett
   await openPage(page, '/', 'overview');
   // The pages: the loop, a hairline, then the tools; Settings at the sidebar's foot.
   const pages = page.getByRole('navigation', { name: 'Sections' });
-  await expect(pages.getByRole('link')).toHaveText([/^Overview/, /^Runs\s*\d/, /^Compare/, /^Fixes/, /^Tests/, /^Training/]);
+  await expect(pages.getByRole('link')).toHaveText([/^Overview/, /^Runs\s*\d/, /^Changes/, /^Fixes/, /^Tests/, /^Training/]);
   expect(await pages.locator('hr').evaluate((hr) => [hr.previousElementSibling?.textContent, hr.nextElementSibling?.textContent])).toEqual([expect.stringMatching(/^Tests/), expect.stringMatching(/^Training/)]);
   await expect(page.getByRole('navigation', { name: 'Project settings' }).getByRole('link')).toHaveText(['Settings']);
   // Recent runs: two lines a run, 52px tall, and eight of them whole at 1440×900, the search being in the top bar.

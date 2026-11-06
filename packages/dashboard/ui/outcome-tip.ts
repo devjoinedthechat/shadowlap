@@ -1,7 +1,7 @@
 import { STATUS_WORDS } from '../../engine/src/check-status.js';
 import { checkWords, RULES_ON_CALLS } from '../../engine/src/checks/labels.js';
 import type { CheckStatus } from '../../engine/src/types.js';
-import { goldenName } from './format.js';
+import { goldenName, shortId } from './format.js';
 import { DIVERGED } from './run/banner.js';
 import type { JudgedLike, OutcomeOf, RunLike, RunOutcomeWords } from './runs.js';
 
@@ -83,6 +83,8 @@ export function outcomeTip(r: RunLike, out: RunOutcomeWords & { of: OutcomeOf },
     }
     case 'live':
       return plain('Still recording', 'It is judged once it finishes.');
+    case 'fixed':
+      return plain('Passes since', `${shortId(r.fixedBy ?? '')} replays it and passes.`);
     case 'diverged':
       return plain(`Diverged at #${out.at!.callNo}`, divergedWhy(r));
     case 'check':

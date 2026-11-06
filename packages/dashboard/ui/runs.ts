@@ -2,6 +2,7 @@ import { passedWords } from '../../engine/src/checks/labels.js';
 import { isAttempt as isAttemptRun } from '../../engine/src/run-roles.js';
 import { FAILURE_WORDS, lostWords } from '../../engine/src/run-verdicts.js';
 import { filterTerms } from '../src/links.js';
+import { judgedDecides, verdictOf } from '../src/run-verdict.js';
 import type { RunJudged } from '../src/run-outcome.js';
 import { approx, money, num, plural, shortId } from './format.js';
 import { countOrigins, parseOrigins, type Origin7, type OriginCounts } from './origins.js';
@@ -60,6 +61,8 @@ export interface RunLike {
   judged?: JudgedLike | null;
   /** For a test replay whose agent exited with an error: the code, as its test result says it; absent where nothing kept it. */
   exitCode?: number | null;
+  /** For a failed test replay whose golden passed when it ran again since: the run that passed (runs-filter.ts), which its status names. */
+  fixedBy?: string | null;
 }
 
 /**
@@ -356,7 +359,7 @@ export interface RunOutcomeWords {
  * divergence, the checks that judged it, a check that failed or the agent's exit, a check that could
  * not be decided, checks that passed, an interruption, a fork's writes, or nothing.
  */
-export type OutcomeOf = 'live' | 'diverged' | 'judged' | 'check' | 'exit' | 'inconclusive' | 'passed' | 'interrupted' | 'fork' | 'none';
+export type OutcomeOf = 'live' | 'fixed' | 'diverged' | 'judged' | 'check' | 'exit' | 'inconclusive' | 'passed' | 'interrupted' | 'fork' | 'none';
 
 /** How the agent's exit reads in a status: `exited 1` where its code was kept, else as the engine says it. */
 export const exitWords = (r: Pick<RunLike, 'exitCode'>): string => (typeof r.exitCode === 'number' && r.exitCode !== 0 ? `exited ${r.exitCode}` : FAILURE_WORDS.exit.replace(/^the agent /, ''));
@@ -365,24 +368,13 @@ export const exitWords = (r: Pick<RunLike, 'exitCode'>): string => (typeof r.exi
 const atCall = (tone: RunOutcomeWords['tone'], words: string, callNo: number): RunOutcomeWords => ({ tone, text: `${words} #${callNo}`, at: { words, callNo } });
 
 /**
- * Whether the checks that judged a run say how it came out: not while it records or where a test
- * diverged, nor where the agent's exit failed it with no check of its own failing. A run blame found
- * lost failed its own check, which it names; a family's verdict never stands for a run's own failure.
- */
-function judgedDecides(r: RunLike, j: JudgedLike): boolean {
-  const o = r.outcome;
-  if (!o || o.kind === 'none' || o.kind === 'clean' || o.kind === 'passed' || o.kind === 'inconclusive') return true;
-  return j.by === 'own' && j.verdict === 'failed' && (o.kind === 'lost' || (o.kind === 'check-failed' && !!o.check));
-}
-
-/**
  * The status the checks that judged a run give it (`judged`), where they decide it (judgedDecides):
  * `check failed at #6` (`2 checks failed` with more), `inconclusive`, `2 checks passed`, `not
  * applicable`; null without a verdict to say.
  */
 export function judgedOutcome(r: RunLike): RunOutcomeWords | null {
   const j = r.judged;
-  if (!j || !judgedDecides(r, j)) return null;
+  if (!j || !judgedDecides(r.outcome, j)) return null;
   const today = j.today ? { today: true as const } : {};
   if (j.verdict === 'failed') {
     const words = j.counts.failed > 1 ? `${plural(j.counts.failed, 'check')} failed` : 'check failed';
@@ -395,7 +387,8 @@ export function judgedOutcome(r: RunLike): RunOutcomeWords | null {
 
 /**
  * How a run came out, and what decided it, in the words the Runs table's Status and a run's first
- * fact say: in progress; a test replay that diverged, at its call; the verdict of the checks that
+ * fact say: in progress; a failed test replay its golden's next replay passed, muted, by the run that
+ * passed (`fixed by 01K5CQ7A3M`); a test replay that diverged, at its call; the verdict of the checks that
  * judged it (judgedOutcome); a check that failed, or the agent's exit (`exited 1`); a check that
  * could not be decided, `inconclusive`; checks that passed; `interrupted`. A run no check judges says
  * nothing, a dash, a clean replay too (how faithful it was is no verdict), and a fork what came of
@@ -406,6 +399,7 @@ export function outcomeOf(r: RunLike): RunOutcomeWords & { of: OutcomeOf } {
   if (isLive(r)) return { of: 'live', tone: 'live', text: 'in progress' };
   const o = r.outcome;
   if (o?.kind === 'running') return { of: 'live', tone: 'live', text: 'in progress' };
+  if (r.fixedBy) return { of: 'fixed', tone: 'mu', text: `fixed by ${shortId(r.fixedBy)}` };
   const diverged = o ? (o.kind === 'diverged' && typeof o.callNo === 'number' ? o.callNo : null) : r.test && r.divergence ? r.divergence.callNo : null;
   if (diverged !== null) return { of: 'diverged', ...atCall('err', 'diverged at', diverged) };
   const judged = judgedOutcome(r);
@@ -439,15 +433,11 @@ export function runOutcome(r: RunLike): RunOutcomeWords {
 }
 
 /**
- * The Runs table's Status: the outcome, and for a fork, what it did that its recording didn't: what
- * came of its writes (`forked · 2 writes blocked`), or the check it failed, named in its own words
- * under `check failed` (`check`), as the run's page names a check it can tell no more of.
+ * The Runs table's Status: the outcome, in one line. A fork says what came of its writes (`forked · 2
+ * writes blocked`); the check a run failed is on its hover (outcome-tip.ts), so a row keeps its height.
  */
-export function runStatus(r: RunLike): RunOutcomeWords & { check?: string } {
-  const out = runOutcome(r);
-  const check = r.outcome?.kind === 'check-failed' ? r.outcome.check : null;
-  if (out.tone === 'err' && check && runType(r) === 'fork') return { ...out, check };
-  return out;
+export function runStatus(r: RunLike): RunOutcomeWords {
+  return runOutcome(r);
 }
 
 /**
@@ -468,8 +458,8 @@ export const RUN_CHIPS: ReadonlyArray<[RunChip, string]> = [
   ['all', 'All'],
   ['recording', 'Recordings'],
   ['fork', 'Forks'],
-  ['clean', 'Clean'],
-  ['test', 'Tests'],
+  ['clean', 'Clean replays'],
+  ['test', 'Test replays'],
   ['capture', 'Captures'],
   ['failed', 'Failed'],
   ['local', 'Local'],
@@ -483,11 +473,17 @@ export function matchesChip(r: RunLike, chip: RunChip): boolean {
   return runType(r) === chip;
 }
 
-/** The filter field: every word must appear in the id, about line, command, labels or revision, as the server matches it. */
+/**
+ * The filter field, in an exported copy: every word must appear in the id, about line, command,
+ * labels or revision, as the server matches it; `status:` is the verdict Status says (verdictOf) and
+ * `type:` the kind its chip lists. A copy keeps no index of what runs recorded, so a `tool:` term
+ * matches no run, and a word only what the row says.
+ */
 export function matchesText(r: RunLike, query: string): boolean {
   // As the server's filter reads it (links.ts `filterTerms`): a `label:<name>` term is that label exactly, as typed.
-  const { words, labels } = filterTerms(query);
+  const { words, labels, statuses, types, tools } = filterTerms(query);
   if (!labels.every((l) => r.labels.includes(l))) return false;
+  if (tools.length || !types.every((t) => runType(r) === t) || !statuses.every((s) => verdictOf(r) === s)) return false;
   if (!words.length) return true;
   const hay = `${r.runId} ${r.about?.text ?? ''} ${runSource(r)} ${r.labels.join(' ')} ${r.codeVersion ?? ''} ${kindWord(r)}`.toLowerCase();
   return words.every((w) => hay.includes(w));

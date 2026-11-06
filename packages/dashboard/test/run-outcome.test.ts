@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, uti
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { judgeCapture, parseTests, rulesOnCalls, shadowlapHome, Store, type RunRecord } from '@shadowlap/engine';
+import { judgeCapture, parseTests, rulesOnCalls, shadowlapHome, Store, withLockFile, type RunRecord } from '@shadowlap/engine';
 import { RunBuilder, text, toolUse, usage, user } from '../../engine/test/run-fixtures.js';
 import { CHECKS_SEEN_FILE } from '../src/checks-seen.js';
 import type { RouteContext } from '../src/context.js';
@@ -262,6 +262,27 @@ describe('what the server reads of the project', () => {
     // Kept for this machine, for a dashboard started later.
     const kept = JSON.parse(readFileSync(join(shadowlapHome(), CHECKS_SEEN_FILE), 'utf8')) as { projects: Record<string, Record<string, { at: number | null }>> };
     expect(kept.projects[dir]?.['goldens/refund']?.at).toBe(T0 + 5000);
+  });
+
+  it('answers while another process writes what is kept of the checks, and keeps them on the next request', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-outcome-held-'));
+    dirs.push(dir);
+    writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/refund': { expect: { tools: { send_email: '<= 1' } } } } }));
+    let listed = 0;
+    const ctx = { project: { path: dir }, options: { goldens: () => (listed++, [golden(T0)]) }, read: {} } as unknown as RouteContext;
+    const file = join(shadowlapHome(), CHECKS_SEEN_FILE);
+    const keptFor = () => (existsSync(file) ? Object.keys((JSON.parse(readFileSync(file, 'utf8')) as { projects: object }).projects) : []);
+    // The lock held, as by another dashboard writing the file: the request is answered all the same.
+    const first = withLockFile(`${file}.lock`, { wait: 0, busy: () => new Error('held') }, () => outcomeWork(ctx)!);
+    expect(first.goldens).toEqual([{ path: 'goldens/refund', runId: '01K8RG00000000000000000001', packedAt: T0, checksAt: null }]);
+    expect(keptFor()).not.toContain(dir);
+    // The next request reads again, and keeps them; the one after answers from what that one read.
+    const next = outcomeWork(ctx)!;
+    expect(listed).toBe(2);
+    expect(next.goldens).toEqual(first.goldens);
+    expect(keptFor()).toContain(dir);
+    expect(outcomeWork(ctx)).toBe(next);
+    expect(listed).toBe(2);
   });
 
   it('hands a request that asks for what judges a run and what its next step reads both, from one look at the files', () => {

@@ -124,3 +124,13 @@ export function joinLabelled(parts: readonly LabelRunsResult[]): LabelRunsResult
 export function joinDeleted(parts: readonly DeleteResult[]): DeleteResult {
   return { done: parts.flatMap((p) => p.done), attempts: parts.flatMap((p) => p.attempts), skipped: parts.flatMap((p) => p.skipped), blobs: parts.reduce((n, p) => n + p.blobs, 0), bytes: parts.reduce((n, p) => n + p.bytes, 0) };
 }
+
+/**
+ * Add label…'s suggestions: every label the runs in memory carry (the newest 500), most used first,
+ * ties in alphabetical order, `good` and `bad` among them. An older label is typed.
+ */
+export function labelSuggestions(runs: ReadonlyArray<{ labels?: readonly string[] | null }> | null): string[] {
+  const uses = new Map<string, number>();
+  for (const r of runs ?? []) for (const l of r.labels ?? []) uses.set(l, (uses.get(l) ?? 0) + 1);
+  return [...uses].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).map(([l]) => l);
+}

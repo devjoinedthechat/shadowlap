@@ -4,7 +4,7 @@ import { decisionRunCost, migrateEstimate, previewEstimate } from '../src/estima
 import { pricedCalls } from '../src/estimates/estimate.js';
 import { causeEstimate, CLEAN_GATE, GATE_REPEAT, injectionAgainEstimate, injectionEstimate, injectionGateEstimate, presetsEstimate } from '../src/estimates/injection.js';
 import { amountWords, asksFirst, costLine, costWords, drawerCost, priceWords, type Spending } from '../src/estimates/spending.js';
-import { bisectCommits, bisectEstimate, goldenTestEstimate, moreEstimate, runBisectEstimate, testsEstimate, updateEstimate } from '../src/estimates/tests.js';
+import { bisectCommits, bisectEstimate, goldenRerunEstimate, goldenTestEstimate, moreEstimate, runBisectEstimate, testsEstimate, updateEstimate } from '../src/estimates/tests.js';
 import { verifyEstimate } from '../src/estimates/verify.js';
 import { untrustedReads } from '../src/injection.js';
 import { defaultFrom, modelUse } from '../src/switch-from.js';
@@ -34,6 +34,15 @@ describe('Run tests', () => {
 
   it('has no estimate for goldens that run live until a session has run', () => {
     expect(testsEstimate(2, null)).toEqual({ kind: 'tests', usd: null, ceiling: false, parts: ['no estimate until a session has run'], none: 'no estimate until a session has run' });
+  });
+
+  it('prices each golden that runs live at its own newest test, with none until every one has run once', () => {
+    const forked = { data: { spent: 0.4 } };
+    const gate = { spent: 0.1, unknownModels: [] };
+    expect(testsEstimate(2, { results: [forked], injection: [gate] }).usd).toBeCloseTo(0.5, 10);
+    for (const last of [{ results: [forked, null] }, { results: [forked], injection: [null] }]) expect(testsEstimate(2, last)).toMatchObject({ usd: null, none: 'no estimate until every golden that runs live has run once' });
+    // None of them has run: as with no session at all.
+    expect(testsEstimate(2, { results: [null], injection: [null] }).none).toBe('no estimate until a session has run');
   });
 
   it('has none, and asks on every setting, where the last session spent nothing live or met a model with no price', () => {
@@ -205,6 +214,24 @@ describe('an injection test', () => {
     expect(e).toEqual({ kind: 'injection', usd: 3.11, ceiling: false, note: 'as the last test’s 72 attempts and 6 clean replays', parts: ['live from each read, writes stubbed'], last: { usd: 3.11, attempts: 78 } });
     expect(costLine(e)).toEqual(['≈$3.11, as the last test’s 72 attempts and 6 clean replays', 'live from each read, writes stubbed']);
     expect(injectionAgainEstimate({ ...kept(0.41), baselines: [] }).note).toBe('as the last test’s 72 attempts');
+  });
+
+  it('has none to run again before its injection test has run once', () => {
+    const none = 'no estimate until its injection test has run once';
+    expect(injectionAgainEstimate(null)).toEqual({ kind: 'injection', usd: null, ceiling: false, parts: ['live from each read, writes stubbed', none], none });
+  });
+
+  it('re-runs one golden by each way it runs live: a gate at what it spent, a fork at what its test did, and both at the two', () => {
+    const forked = { data: { spent: 0.11 } };
+    expect(goldenRerunEstimate({ live: false, fork: false, injection: false }, null, null)).toEqual(goldenTestEstimate(false, null));
+    expect(goldenRerunEstimate({ live: true, fork: true, injection: false }, forked, null)).toEqual(goldenTestEstimate(true, forked));
+    expect(goldenRerunEstimate({ live: true, fork: false, injection: true }, forked, kept(0.25))).toEqual(injectionAgainEstimate(kept(0.25)));
+    const both = goldenRerunEstimate({ live: true, fork: true, injection: true }, forked, kept(0.25));
+    expect(both).toMatchObject({ kind: 'tests', parts: ['what the last session spent live'] });
+    expect(both.usd).toBeCloseTo(0.36, 10);
+    // Both, before the test or the gate has run once.
+    expect(goldenRerunEstimate({ live: true, fork: true, injection: true }, null, kept(0.25))).toMatchObject({ usd: null, parts: ['live from there, writes blocked', 'live from each read, writes stubbed', 'no estimate until it has run once'] });
+    expect(goldenRerunEstimate({ live: true, fork: true, injection: true }, forked, null).none).toBe('no estimate until its injection test has run once');
   });
 
   it('has none to run again from a test that spent nothing live, or met a model with no price', () => {

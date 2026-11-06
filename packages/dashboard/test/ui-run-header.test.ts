@@ -106,4 +106,17 @@ describe('a run’s header', () => {
     const replaying = header(detail({ parent: true, status: 'running', state: { status: 'running', kind: 'clean', outcome: { kind: 'running' }, failed: false } }));
     expect(eyebrow(replaying)).toBe('clean replay of 01M5GRX4VY');
   });
+
+  it('opens the trace an import read the run from in the store it came from, after Compare, in a tab of its own', () => {
+    const id = '7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07';
+    const url = `https://cloud.langfuse.com/project/cm1shopproject/traces/${id}`;
+    const html = header({ ...detail({ state: { status: 'completed', kind: 'recording', outcome: { kind: 'none' }, failed: false } }), trace: { url, store: 'Langfuse', id } });
+    const actions = part(html, '<div class="actions">', '</div>');
+    expect(text(actions)).toMatch(/^Compare Open in Langfuse ↗ /);
+    const link = /<a [^>]*>Open in Langfuse/.exec(actions)?.[0] ?? '';
+    expect(link).toContain(`href="${url}"`);
+    expect(link).toContain('target="_blank" rel="noopener noreferrer"');
+    expect(JSON.parse(/data-tip="([^"]*)"/.exec(link)![1].replace(/&quot;/g, '"'))).toMatchObject({ t: 'Open in Langfuse', s: `The trace it was imported from, ${id}, on cloud.langfuse.com` });
+    expect(header(detail({ state: { status: 'completed', kind: 'recording', outcome: { kind: 'none' }, failed: false } }))).not.toContain('Open in');
+  });
 });

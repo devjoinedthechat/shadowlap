@@ -13,9 +13,9 @@ import { addressBar, app } from './ui-route-helpers.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
- * A run row's next step in ⌘K on the row: after Open run, what the run's lime button says, its key by
- * what it presses, a link going where it goes and any other step opening the run to press that
- * button there, as This run's entry presses it.
+ * A run row's next step in ⌘K on the row: after Open run, what the run's lime button says, with no
+ * key (b, r and c press it on its page only), a link going where it goes, Run blame starting where you
+ * are, and any other step opening the run to press that button there, as This run's entry presses it.
  */
 
 const RUN = '01M5JEQWA2QMJ3NYD1C687WP08';
@@ -45,23 +45,33 @@ function rowItems(next: NextStepRow | null, o: { parent?: string; actionsOff?: s
 }
 
 describe('a run row’s next step in ⌘K', () => {
-  it('comes after Open run, its key by what it presses, and one that compares takes Compare’s place', () => {
+  it('comes after Open run, with no key of its own, and one that compares takes Compare’s place', () => {
     expect(rowItems(BLAME).map((x) => [x.label, x.key])).toEqual([
       ['Open run', undefined],
-      ['Run blame', 'b'],
+      ['Run blame', undefined],
       ['Copy ID', undefined],
     ]);
     expect(rowItems(BLAME)[1]).toMatchObject({ hint: `shadowlap blame ${RUN.slice(0, 10)}`, job: true });
-    expect(rowItems({ key: 'replay', label: 'Replay' })[1]).toMatchObject({ label: 'Replay', key: 'r' });
+    expect(rowItems({ key: 'replay', label: 'Replay' })[1]).toMatchObject({ label: 'Replay' });
+    expect(rowItems({ key: 'replay', label: 'Replay' })[1]).not.toHaveProperty('key');
     const compare: NextStepRow = { key: 'compare', label: 'Compare with parent', href: `#/compare/${PARENT}/${RUN}`, title: `Against ${PARENT.slice(0, 10)}` };
     const items = rowItems(compare, { parent: PARENT });
     expect(items.map((x) => [x.label, x.key])).toEqual([
       ['Open run', undefined],
-      ['Compare with parent', 'c'],
+      ['Compare with parent', undefined],
       ['Copy ID', undefined],
     ]);
     // A step no key presses has none.
     expect(rowItems({ key: 'pack', label: 'Pack as golden…' })[1]).not.toHaveProperty('key');
+  });
+
+  it('carries no key the row doesn’t take: Select run keeps its x, and b, r and c stay on the run’s page', () => {
+    for (const next of [BLAME, { key: 'replay', label: 'Replay' }, { key: 'compare', label: 'Compare with parent', href: `#/compare/${PARENT}/${RUN}` }, { key: 'pack', label: 'Pack as golden…' }, { key: 'fix', label: 'Open fix', href: '#/fixes/F1' }] as NextStepRow[]) {
+      const run = { runId: RUN, parentRunId: PARENT, startedAt: 1, mode: 'replay', status: 'completed', next };
+      const runs = [run, { runId: PARENT, parentRunId: null, startedAt: 0, mode: 'record', status: 'completed' }];
+      const items = runRowScope(run as never, { runs: runs as never, toast: () => undefined, pick: () => undefined, picked: false, pickKey: 'x' }).items(rowStep(null, () => undefined));
+      expect(items.filter((x) => x.key).map((x) => [x.label, x.key])).toEqual([['Select run', 'x']]);
+    }
   });
 
   it('is the palette’s to build, and a row that says no step has none', () => {
@@ -84,23 +94,26 @@ describe('a run row’s next step in ⌘K', () => {
     expect(location.hash).toBe('#/fixes/F1');
   });
 
-  it('is listed under the row’s name on a row in focus, its key while single keys are on', async () => {
+  it('is listed under the row’s name on a row in focus, with no key of its own, and Run blame starts where you are', async () => {
     const runs = [{ runId: RUN, parentRunId: null, startedAt: 1, mode: 'record', status: 'completed', next: BLAME }];
+    const startJob = vi.fn(async () => ({ id: 'j1' }));
+    const watchJob = vi.fn();
     function Runs() {
       const [open, setOpen] = useState(false);
-      return createElement(AppContext.Provider, { value: app({ palette: open, setPalette: setOpen }) }, createElement('main', { id: 'view' }, createElement(Rows, { runs })), createElement(Keyboard), createElement(Palette, { route: { page: 'runs' } }));
+      const client = { search: async () => ({ hits: [] }), startJob };
+      return createElement(AppContext.Provider, { value: app({ palette: open, setPalette: setOpen, client: client as never, watchJob }) }, createElement('main', { id: 'view' }, createElement(Rows, { runs })), createElement(Keyboard), createElement(Palette, { route: { page: 'runs' } }));
     }
-    // The test's clock: the press it starts looks for a run's page this test never draws.
-    vi.useFakeTimers();
     r = await render(createElement(Runs));
     await r.press('j');
     await r.press('k', { metaKey: true });
     await r.until('the palette', () => r!.all('.palette').length === 1);
     expect(r.all('.palit .pl').map((x) => x.textContent)).toEqual(['Open run', 'Run blame', 'Copy ID']);
     const blame = r.all('.palit').find((x) => x.querySelector('.pl')!.textContent === 'Run blame')!;
-    expect(blame.querySelector('.palk')!.textContent).toBe('b');
+    expect(blame.querySelector('.palk')).toBeNull();
     await r.click(blame);
-    expect(location.hash).toBe(`#/run/${RUN}`);
+    await r.until('the job watched', () => watchJob.mock.calls.length === 1);
+    expect(startJob).toHaveBeenCalledWith('blame', { runId: RUN });
+    expect(location.hash).toBe('#/runs');
   });
 });
 

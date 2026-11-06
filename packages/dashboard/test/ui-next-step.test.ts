@@ -317,6 +317,8 @@ describe('the run page’s next step', () => {
     expect(page.all('.banner button').map((b) => b.textContent)).not.toContain('Update golden');
     await page.click(page.byText('.rhead .actions button', 'Update golden'));
     expect(started).toEqual([]);
+    // A diverged test's dialogs are a part of their own: it comes as its script does.
+    await page.until('its dialog', () => page!.all('.dialog h3').length > 0);
     expect(page.one('.dialog h3').textContent).toContain('Update refund-in-limit?');
     await page.click(page.one('.dialog .dlg-ok'));
     expect(started).toEqual([['test-update', { golden: GOLDEN }]]);

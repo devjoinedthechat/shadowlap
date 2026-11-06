@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { CHECK_STATUSES, classifyRun, filedTestAttempt, hasRecordedCommand, isFailedOutcome, isObject, kindLabel, lostRange, runOutcome, type AttemptKind, type CheckStatus, type ClassifiableRun, type RunAsk, type RunKind, type RunMode, type RunOutcome, type RunStatus, type StoreOf } from '@shadowlap/engine';
+import { CHECK_STATUSES, classifyRun, filedTestAttempt, hasRecordedCommand, isFailedOutcome, isObject, keptCaptureVerdict, kindLabel, lostRange, runOutcome, type AttemptKind, type CaptureVerdict, type CheckStatus, type ClassifiableRun, type RunAsk, type RunKind, type RunMode, type RunOutcome, type RunStatus, type StoreOf } from '@shadowlap/engine';
 import { num, str } from './fields.js';
 
 /**
@@ -99,6 +99,11 @@ export interface IndexedMeta {
   author: string | null;
   /** For a run made in CI (`author` is `ci`): the provider, such as `github`. */
   ci: string | null;
+  /**
+   * A capture's verdict by the rules on calls, as it kept it when it was imported (`meta.judged`,
+   * engine `keptCaptureVerdict`): what the lists count it failed by, with no call read.
+   */
+  judged: CaptureVerdict['verdict'] | null;
 }
 
 export interface RunIndex {
@@ -132,7 +137,7 @@ function runColumns(bounded: boolean): string {
        r.meta -> '$.repeat' AS rep, r.meta -> '$.probe' AS probe, r.meta -> '$.verify' AS verify,
        r.meta -> '$.test' AS test, r.meta -> '$.checks' AS checks, r.meta -> '$.blame' AS blame, r.meta -> '$.chaos' AS chaos,
        r.meta -> '$.interventions' AS interventions, r.meta -> '$.injection' AS injection, r.meta -> '$.task' AS task,
-       r.meta ->> '$.author' AS author, r.meta ->> '$.ci' AS ci,
+       r.meta ->> '$.author' AS author, r.meta ->> '$.ci' AS ci, r.meta -> '$.judged' AS judged,
        -- The calls it started and all its call events, in one pass over its entries in the primary
        -- key's index: a pass of their own for the events took a whole read of 10,000 runs 25% longer.
        (SELECT json_array(COUNT(*) FILTER (WHERE c.phase = 'start'), COUNT(*)) FROM call_events c WHERE c.run_id = r.run_id${upTo('c')}) AS counts,
@@ -244,7 +249,14 @@ function readMeta(row: Record<string, unknown>): IndexedMeta {
     task: isObject(task) ? task : null,
     author: str(row.author),
     ci: str(row.ci),
+    judged: importVerdict(json(row.judged)),
   };
+}
+
+/** A capture's verdict as its import kept it, read field by field as the engine reads it: a run can come from someone else's pack. */
+function importVerdict(judged: unknown): IndexedMeta['judged'] {
+  const meta: Record<string, unknown> = { judged };
+  return keptCaptureVerdict({ meta })?.verdict ?? null;
 }
 
 /** What a run with no command came from, shown where its command would be: the capture's file name. */

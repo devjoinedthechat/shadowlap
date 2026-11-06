@@ -10,7 +10,7 @@ import { OverlaySlots } from '../ui/overlays/slots.js';
 import { noteParent } from '../ui/parents.js';
 import { runRowScope } from '../ui/run-row.js';
 import { noteShownRuns } from '../ui/runspage/shown-runs.js';
-import { parseRoute } from '../ui/route.js';
+import { href, parseRoute } from '../ui/route.js';
 import { navigate, useRoute } from '../ui/router.js';
 import { Keyboard } from '../ui/shell/Keyboard.js';
 import { Palette } from '../ui/shell/Palette.js';
@@ -35,14 +35,14 @@ interface Item {
 const ITEMS: Item[] = [{ id: 'A' }, { id: 'B' }, { id: 'C' }];
 const keyOf = (x: Item) => `#/run/${x.id}`;
 
-/** A list as a page draws one: its rows, the one in focus `.krow`, a checkbox in each where it picks. */
-function List({ rows = ITEMS, picks, drawn, show, actions }: { rows?: Item[]; picks?: (x: Item) => void; drawn?: number; show?: (i: number) => void; actions?: (x: Item) => { name: string; items: () => Array<{ label: string; hint: string; run: () => void }> } | null }) {
+/** A list as a page draws one: its rows, each keyed by where it leads (a run, unless `to` says), the one in focus `.krow`, a checkbox in each where it picks. */
+function List({ rows = ITEMS, to = keyOf, picks, drawn, show, actions }: { rows?: Item[]; to?: (x: Item) => string; picks?: (x: Item) => void; drawn?: number; show?: (i: number) => void; actions?: (x: Item) => { name: string; items: () => Array<{ label: string; hint: string; run: () => void }> } | null }) {
   const root = useRef<HTMLUListElement>(null);
-  const at = useListKeys({ rows, keyOf, root, open: (x) => (location.hash = keyOf(x)), pick: picks ?? null, actions: actions ?? null, show: show ?? null });
+  const at = useListKeys({ rows, keyOf: to, root, open: (x) => (location.hash = to(x)), pick: picks ?? null, actions: actions ?? null, show: show ?? null });
   return createElement(
     'ul',
     { ref: root },
-    rows.slice(0, drawn ?? rows.length).map((x) => createElement('li', { key: x.id, 'data-rowkey': keyOf(x), className: at === keyOf(x) ? 'krow' : undefined }, createElement('input', { type: 'checkbox', 'aria-label': x.id }), x.id)),
+    rows.slice(0, drawn ?? rows.length).map((x) => createElement('li', { key: x.id, 'data-rowkey': to(x), className: at === to(x) ? 'krow' : undefined }, createElement('input', { type: 'checkbox', 'aria-label': x.id }), x.id)),
   );
 }
 
@@ -353,6 +353,23 @@ describe('a move between pages', () => {
     expect(r.focused().tagName).toBe('H1');
   });
 
+  /** Changes › Verdicts, a row per revision leading to its page, and a revision's page, the route read as the shell reads it. */
+  function Verdicts() {
+    const route = useRoute();
+    const rev = route.page === 'changes' ? route.id : null;
+    const list = createElement(List, { to: (x: Item) => href.changes(x.id) });
+    return createElement(AppContext.Provider, { value: app() }, createElement('main', { id: 'view', tabIndex: -1 }, createElement('h1', { ref: headingRef }, rev ?? 'Verdicts'), rev ? null : list), createElement(Keyboard));
+  }
+
+  it('goes up from a revision’s page opened cold to Verdicts, the revision’s row in focus', async () => {
+    addressBar('#/changes/verdicts/B');
+    r = await render(createElement(Verdicts));
+    await r.press('Escape');
+    expect(location.hash).toBe('#/changes');
+    expect(rowInFocus()).toBe('#/changes/verdicts/B');
+    expect(krows()).toEqual(['#/changes/verdicts/B']);
+  });
+
   it('counts a replace as no move, and the page it settles on as the page', async () => {
     addressBar('#/run/ABC');
     r = await render(createElement(Routed));
@@ -574,6 +591,18 @@ describe('the way back’s rules', () => {
     expect(pageSig(to('#/compare/a/b'))).toBe(pageSig(to('#/compare')));
     expect(samePage('run:ABC', 'run:ABCDEF')).toBe(true);
     expect(samePage('run:ABC', 'run:ABD')).toBe(false);
+  });
+
+  it('counts Verdicts at either address as one page, and a revision’s page, a session’s tab and Compare each as another', () => {
+    expect(pageSig(to('#/changes'))).toBe(pageSig(to('#/changes/verdicts')));
+    expect(pageSig(to('#/changes/verdicts/d2e8a1f'))).not.toBe(pageSig(to('#/changes')));
+    expect(pageSig(to('#/changes/verdicts/d2e8a1f'))).not.toBe(pageSig(to('#/changes/verdicts/c91d0f4')));
+    expect(pageSig(to('#/changes/decisions'))).not.toBe(pageSig(to('#/changes')));
+    expect(pageSig(to('#/compare'))).not.toBe(pageSig(to('#/changes')));
+    // A revision's page is left the way you came, as a run's is; the tabs' lists and a session's tab aren't.
+    expect(isDetail(to('#/changes/verdicts/d2e8a1f'))).toBe(true);
+    expect(isDetail(to('#/changes'))).toBe(false);
+    expect(isDetail(to('#/changes/decisions/dc-01M5000000000000000000000A'))).toBe(false);
   });
 
   it('empties on a page that is no detail page, adds nothing by Esc or along a list, and cuts back to a page it passed', () => {

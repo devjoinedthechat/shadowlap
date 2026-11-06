@@ -1,4 +1,4 @@
-import { endedEarlyCount, type DivergenceReport } from '@shadowlap/engine';
+import { endedEarlyCount, normalizeAddCommand, type DivergenceReport } from '@shadowlap/engine';
 import type { RenderedLine } from './render.js';
 import { wrap } from './render.js';
 import { THEMES, type Theme } from './theme.js';
@@ -68,9 +68,7 @@ export function diffLines(d: DivergenceReport | null, width: number, theme: Them
       for (const h of d.hints ?? []) {
         say(`hint: ${h.message}`, theme.warn);
         if (h.normalizer) {
-          const n = h.normalizer;
-          const args = [n.kind ? `--kind ${n.kind}` : '', n.name ? `--name ${JSON.stringify(n.name)}` : '', `--path '${n.path!}'`, n.pattern ? `--pattern ${n.pattern}` : ''].filter(Boolean).join(' ');
-          say(`shadowlap normalize add ${args}`);
+          say(normalizeAddCommand(h.normalizer));
           say('or press : then n to add it', theme.dim);
         }
       }

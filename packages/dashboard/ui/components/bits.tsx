@@ -133,7 +133,15 @@ export function Chips<K extends string>({ items, value, onChange, hideEmpty = fa
         hideEmpty && i > 0 && c.count === 0 && c.key !== value ? null : (
           <button key={c.key} type="button" aria-pressed={value === c.key} onClick={() => onChange(c.key)}>
             {c.label}
-            {c.count !== undefined ? <b>{c.count.toLocaleString('en-US')}</b> : null}
+            {c.count !== undefined ? (
+              <>
+                {/* A space a screen reader says, so the word and its count are two words; the count's margin shows it. */}
+                <span className="srsp">
+                  <span className="sr"> </span>
+                </span>
+                <b>{c.count.toLocaleString('en-US')}</b>
+              </>
+            ) : null}
           </button>
         ),
       )}

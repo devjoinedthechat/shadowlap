@@ -4,6 +4,7 @@ import { ACTIONS } from './labels.js';
 import { knownFixes } from './fixes/data.js';
 import { addPaletteSource, type PaletteContext, paletteSourcesChanged } from './palette-sources.js';
 import { href } from './route.js';
+import { lastRunsHref } from './runs-view.js';
 import { APPLY_ASK, IMPORT_ASK, NORMALIZER_ASK, REDACTION_ASK, type PageAsk } from './page-ask.js';
 import { SETTINGS_TABS, type SettingsTab } from './pages/settings/tabs.js';
 import type { StoreSetupView } from './store-api.js';
@@ -43,7 +44,7 @@ addPaletteSource(({ app, go }) =>
           run: () =>
             app.guard(() => {
               IMPORT_ASK.ask();
-              go(href.runs());
+              go(lastRunsHref());
             }),
         },
       ],

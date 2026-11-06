@@ -137,6 +137,9 @@ Some keys in more detail:
 - **`exactNumbers`**: an integer past 2^53 is stored by its digits, and `20.0` as written.
 - **`headerParameters`**: those parameters are Bedrock's guardrail, trace, latency profile and
   service tier ([identity](#identity)).
+- **`imported`**: an import from a trace store keeps the trace's id there as `key`. From Langfuse it
+  also keeps `url`, the trace's page, on the store's own host. A reader links to it only when it is an
+  http or https address. A pack's own `imported` is replaced, so the page doesn't travel in a pack.
 
 `secretNames` takes one of two values:
 
