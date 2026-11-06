@@ -1062,7 +1062,7 @@ Training shows:
 - **Score model… is off** while a repair or an applied patch changes the working tree.
 - **Its card** says what an attempt of the model its dialog starts on costs. The dialog's Cost line is what the picks cost together (`20 attempts on the Anthropic API`), and the drawer says that total.
 
-A task whose test forks before its takeover opens that test's run where it forked. It offers **Update golden**, which adds the normalizer a value that changes every run needs, and runs `test --update` on the golden.
+A task whose test forks before its takeover opens that test's run where it forked. It offers **Update golden**, which adds the normalizer a value that changes every run needs, and runs `test --update` on the golden. When the normalizer is the whole fix, it tests the golden again instead. If that test runs live, it asks first by [Spending](#spending), as a Tests session does.
 
 ## Settings
 
@@ -1315,6 +1315,7 @@ The setup has four steps. Each runs the command beside it in the project's folde
 **4. Keep it as a test.** The golden goes in a folder of its own, `goldens/<project>` unless you name another. Shadowlap never packs over a golden that is already there, and offers the next free name instead.
 
 - **Pack as a golden** packs it and runs its test in one job, so leaving the page doesn't stop it halfway. The step is done once the test passes.
+- **A golden its tests entry runs live** (marked `fork`, or with an injection gate) asks first by [Spending](#spending) before its test runs, as a Tests session does.
 - **A golden whose test failed** keeps the step open, with why and **Run the test again**. Fix what changed (or record again), then run it.
 
 **Skip the rest** appears after the first recording. Finishing before the test passed counts the last step as skipped.
@@ -1535,7 +1536,7 @@ The server refuses another such job with the same words, from any tab, the palet
 
 **Run tests** runs `shadowlap test goldens/*` (plus each pack the config names elsewhere), with no shell: the CLI expands the pattern itself, as it does in CI. The page follows the session as each result lands. Its drawer ends on **Open Tests**, which isn't drawn on Tests itself, with the first three goldens that failed linked by name beside it, each opening its replay. A run of one golden ends on its replay.
 
-**A session that runs live goes by [Spending](#spending).** Before a session runs a golden live, the server asks. The page answers by Spending for **Run tests**, **Run more attempts**, **Re-run** and **Add normalizer and re-run**, on Tests, on a test replay's page and from the palette's *Run tests*. At or under it, the session starts with its estimate; otherwise its dialog asks. A test replays offline, except for two things that run live:
+**A session that runs live goes by [Spending](#spending).** Before a session runs a golden live, the server asks. The page answers by Spending for **Run tests**, **Run more attempts**, **Re-run** and **Add normalizer and re-run**, on Tests, on a test replay's page and from the palette's *Run tests*. Setup's **Pack as a golden** and a task's **Update golden** ask the same way when their test runs live. At or under it, the session starts with its estimate; otherwise its dialog asks. A test replays offline, except for two things that run live:
 
 - **A golden marked `fork`** runs live from where it forks, writes blocked, and asks its judge checks live.
 - **An [injection gate](./injection.md#gate-ci-on-it)** runs live from each payload it plants, writes stubbed.
@@ -2293,7 +2294,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `migrate { to, goldens?, runs?, from?, scope?, set? }` | A migration, every golden unless some are named |
 | `normalize-and-test { golden \| runId, path?, yes? }` | A normalizer for each value made anew on every run, then `test` on the golden |
 | `override { runId, callNo, uploadId, yes? }` | Edit and fork: `replay --override` of a tool's result or a person's answer, from an upload checked as untrusted data |
-| `pack-test { golden? }` | Pack, then test; the test alone once packed |
+| `pack-test { golden?, yes? }` | Pack, then test; the test alone once packed |
 | `pairs { format?, minConfidence? }` | Export pairs, written to `.shadowlap/exports/pairs.jsonl` |
 | `push { runIds }`, `pull` | Push runs to the team store, or `{ all: true }`; pull from it |
 | `repair { fixId, repairer?, yes? }` | An open fix, from its failing and good runs, by the repairer its confirm dialog named |
@@ -2301,7 +2302,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `share { runId }` | A share link |
 | `skill-install { agent, replace? }` | [`skill install`](./cli.md#skill), `--force` with `replace` |
 | `store-set { url, provider }` | `store set --check` |
-| `task-update { golden }` | Update golden, from Training |
+| `task-update { golden, yes? }` | Update golden, from Training |
 | `test { golden?, maxAttempts?, continue?, yes? }` | A test session |
 | `test-update { goldens }` | Re-recorded live with writes stubbed, each replaced when its checks pass; or `{ golden }` |
 | `verify { fixId, verifyId, yes? }` | Run more attempts, or Verify again, for a verdict left incomplete |
