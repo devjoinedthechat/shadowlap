@@ -34,7 +34,8 @@ test('a page whose code didn’t come says so under its title, asks for it no mo
   await page.unroute(tests);
   await line.getByRole('button', { name: 'Retry' }).click();
   await expect(page.locator('main#view .ph h1')).toHaveText('Tests');
-  await expect(page.locator('main#view .ph p')).toHaveText('Every golden CI runs, and how it did at each revision.');
+  // `golden` is a defined term there, its definition hidden after it in the line.
+  await expect(page.locator('main#view .ph p')).toHaveText(/^Every golden.+ CI runs, and how it did at each revision\.$/);
   await expect(page.locator('main#view .loaderr')).toHaveCount(0);
   expect(asked).toBe(2);
 });
