@@ -69,6 +69,7 @@
     // These render the Runs page's bulk bar, the Overview's panels and the lists of runs.
     "packages/dashboard/test/ui-runs-bulk.test.ts",
     "packages/dashboard/test/ui-overview-lists.test.ts",
+    "packages/dashboard/test/ui-overview-page.test.ts",
     "packages/dashboard/test/ui-sidebar-runs.test.ts",
     "packages/dashboard/test/ui-runs-status.test.ts",
     // This renders a fix's page.
