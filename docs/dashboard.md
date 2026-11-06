@@ -1498,7 +1498,8 @@ Each is built from the blame's report and the flags kept beside it, as Run more 
 
 Under the patch, the dialog asks a name for each golden it copies: *The golden from `01K5CQ2E8M`*, filled with the fix's label (`refund-bug`, or `refund-bug-1` and `refund-bug-2` for two), never the run's id.
 
-- A name takes lower-case letters, digits and hyphens, from a letter or a digit, one golden each, and not one `goldens/` holds already. Under the field, the dialog says why one won't do, such as *goldens/refund-bug is taken: pick another name.*, and Apply fix waits until each will.
+- A name takes lower-case letters, digits and hyphens, from a letter or a digit, at most 64 of them, one golden each, and not one `goldens/` holds already. Under the field, the dialog says why one won't do, such as *goldens/refund-bug is taken: pick another name.*, and Apply fix waits until each will.
+- A name Windows keeps for itself won't do either, whatever its case: `con`, `nul`, `prn`, `aux`, `com1` to `com9` and `lpt1` to `lpt9`. A label that makes one gives way to the fix's title in the field.
 - The command follows what you type, `shadowlap fix apply <fix> --name 01K5CQ2E8M=refund-bug`, and the step says where each recording goes.
 - A recording in `goldens/` already keeps its name and is asked none, as [`fix apply`](./cli.md#fix-apply) keeps it: one an earlier apply copied, under whatever name it gave it, or one `repair --goldens` copied under the run's id.
 - Mark applied and Finish applying ask the names of the goldens they copy too.

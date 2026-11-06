@@ -241,8 +241,10 @@ export { decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, m
 // preview's verify by verify's head, a fix's as its Verify step heads it.
 export { fixVerifyHead, goldensPassed, runOutcomeWord, verdictWord, verifyHead } from './verdict-words.js';
 export { ACTIONS, confirmWords, forceLiveLabel, STRONGER_MODEL, type ActionWords } from './action-words.js';
-// The names the goldens a fix's apply copies go by, for `fix apply --name` and the dashboard's Apply fix.
+// The names the goldens a fix's apply copies go by, for `fix apply --name` and the dashboard's Apply fix,
+// and the most characters one takes, as a judge's name in a check does.
 export { asGoldenName, defaultGoldenNames, goldenNameArgs, goldenNamesProblem, type GoldenNameProblem } from './golden-names.js';
+export { NAME_MAX } from './name-max.js';
 export { goldensFolder, type GoldenThere } from './goldens-folder.js';
 export { longDate, replacementModels, retiredFields, retirementOf, retirementPlatform, retirementsOf, retirementTable, retirementTableProblems, tableModel } from './model-retirements.js';
 export type { FieldRetirement, ModelRetirement, RetirementNotice, RetirementPlatform, RetirementSource, RetirementTable } from './model-retirements.js';
