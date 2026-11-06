@@ -11,7 +11,7 @@ import { minuteStamp } from '../ui/format.js';
 import { ChangesPage } from '../ui/pages/Changes.js';
 import { ComparePage } from '../ui/pages/Compare.js';
 import { showProject } from '../ui/projects-api.js';
-import { parseRoute, routeHref } from '../ui/route.js';
+import { navSection, parseRoute, routeHref, samePage } from '../ui/route.js';
 import { goTarget } from '../ui/shell/Keyboard.js';
 import { Palette } from '../ui/shell/Palette.js';
 import { changesCrumbs } from '../ui/shell/top.js';
@@ -167,6 +167,20 @@ describe('Changes’ addresses', () => {
     expect(parseRoute('#/changes/migrate')).toEqual({ page: 'changes', tab: 'migrate', id: null });
     expect(parseRoute('#/changes/other')).toMatchObject({ page: 'notfound' });
     expect(parseRoute('#/changes/verdicts/d2e8a1f/more')).toMatchObject({ page: 'notfound' });
+  });
+
+  it('sits under Changes in the nav, Compare and a revision’s page too, and counts each tab and each revision’s page as a page of its own', () => {
+    for (const hash of ['#/changes', '#/changes/verdicts/d2e8a1f', '#/changes/decisions', `#/compare/${REC}/${FORK}`, '#/compare']) expect(navSection(parseRoute(hash)), hash).toBe('changes');
+    // A job's way on that is already open isn't offered: a revision's page isn't Verdicts, nor one session's tab another's.
+    const same = (x: string, y: string) => samePage(parseRoute(x), parseRoute(y));
+    expect(same('#/changes', '#/changes/verdicts')).toBe(true);
+    expect(same('#/changes/verdicts/d2e8a1f', '#/changes/verdicts/d2e8a1f')).toBe(true);
+    expect(same('#/changes', '#/changes/verdicts/d2e8a1f')).toBe(false);
+    expect(same('#/changes/verdicts/d2e8a1f', '#/changes/verdicts/c91d0f4')).toBe(false);
+    expect(same('#/changes/decisions', '#/changes')).toBe(false);
+    expect(same('#/changes/decisions/dc-1', '#/changes/decisions/dc-2')).toBe(false);
+    expect(same('#/changes/decisions/dc-1', '#/changes/migrate/dc-1')).toBe(false);
+    expect(same('#/compare', '#/changes')).toBe(false);
   });
 
   it('crumbs every tab from Changes itself, which opens Verdicts, a revision as code once its page shows it', () => {
