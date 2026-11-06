@@ -576,6 +576,13 @@ function divergedBanner(i: BannerInput, d: NonNullable<BannerInput['divergence']
 }
 
 /**
+ * Whether a fork's finding has Show diff: where its request changed, and on a fork forced live (Run
+ * live from here, a tool forced live or failed), whose answer says what changed or that nothing did.
+ * Never on a model call --fail-at failed, which sent no request to show.
+ */
+const forkShowsDiff = (d: NonNullable<BannerInput['divergence']>, failedModelCall: boolean): boolean => !failedModelCall && (!!d.diff?.length || d.type === 'forced');
+
+/**
  * A fork: the flag that made it and how the writes after it went, or what changed (a policy for the
  * calls after a fork made no fork: one whose only flag is --writes forked where its request changed),
  * then what came before it; a model call answered with a failure says what the SDK did instead. One
@@ -590,7 +597,7 @@ function forkBanner(i: BannerInput, d: NonNullable<BannerInput['divergence']>): 
   // An override's or a planted result's flag names its call: what came before the fork doesn't again.
   const named = iv && (iv.flag === '--override' || iv.flag === '--inject-result') ? (iv.callNo ?? null) : null;
   const failed = i.failed ?? failureText(i) !== null;
-  return { kind: 'fork', callNo: d.callNo, name: d.name, why: failedModelCall ? what : `${what} · ${beforeFork(d, i.calls, named)}`, flag: flagText(iv) ?? forced, path: d.diff?.[0]?.path ?? null, normalizer: !!d.hints?.some((h) => h.normalizer), diff: !!d.diff?.length, failed };
+  return { kind: 'fork', callNo: d.callNo, name: d.name, why: failedModelCall ? what : `${what} · ${beforeFork(d, i.calls, named)}`, flag: flagText(iv) ?? forced, path: d.diff?.[0]?.path ?? null, normalizer: !!d.hints?.some((h) => h.normalizer), diff: forkShowsDiff(d, failedModelCall), failed };
 }
 
 /** Where blame found the run lost, when it placed the failure on a call. */
