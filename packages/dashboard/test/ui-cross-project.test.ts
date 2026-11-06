@@ -1,9 +1,16 @@
-import { act, createElement, useMemo, useState } from 'react';
+import { act, createElement, useMemo, useState, type ReactElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Client } from '../ui/api.js';
+import { ApiError, type Client } from '../ui/api.js';
+import { FixPage } from '../ui/fixes/FixPage.js';
+import { ComparePage } from '../ui/pages/Compare.js';
 import { Elsewhere } from '../ui/pages/held-elsewhere.js';
+import { RunPage } from '../ui/pages/Run.js';
 import { showProject, type HoldingView } from '../ui/projects-api.js';
+import { useRoute } from '../ui/router.js';
+import { unshownKey, useHeldBy, useUnshown } from '../ui/shell/unshown.js';
 import { AppContext, type AppState } from '../ui/state.js';
+import { docTitle } from '../ui/title.js';
+import type { RunDetail, RunListItem } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -11,7 +18,8 @@ import { render, type Rendered } from './ui-render.js';
  * says so (pages/held-elsewhere.tsx, pages/Elsewhere.tsx): its own loading look meanwhile, then the
  * In page with Switch to, or its own not-found. It asks once for each thing and project shown, again
  * only after an ask that failed, never on an exported copy or a dashboard that serves one store; and
- * Switch to holds the page until the page it opens has read again.
+ * Switch to holds the page until the page it opens has read again. A run's page, a fix's and
+ * Compare's each ask so, for what their address names that their store can't.
  */
 
 const RUN = '01M5GRVTKSJ12EE2SE9YZ5W4J3';
@@ -250,5 +258,189 @@ describe('Switch to', () => {
       ['run', [RUN]],
       ['run', [RUN]],
     ]);
+  });
+});
+
+// The pages that ask: a run's, a fix's and Compare's, each drawn as the shell draws it.
+
+const FIX = 'fx-01M5GMZKCV0000000000000000';
+const A = '01M5GRXFM1Y2E2VBPFX0TV2TGA';
+const B = '01M5GRYHR0BT1ATQFZP3EQR1MZ';
+const ELSE = ['01M5GS00000000000000000001', '01M5GS00000000000000000002'];
+
+/** A run's page as the server sends it, with only what Compare reads: a run with no replay, fork or parent. */
+const detail = (runId: string) =>
+  ({ run: { runId, parentRunId: null, mode: 'record', status: 'completed', divergence: null, command: { argv: ['node', 'agent.mjs'], cwd: '.' }, codeVersion: null, startedAt: 1, endedAt: 2 }, parent: null, children: [], source: null, calls: [], summary: {} }) as unknown as RunDetail;
+
+const listed = (runId: string) => ({ runId, parentRunId: null, mode: 'record', status: 'completed', divergence: null, command: 'node agent.mjs', codeVersion: null, startedAt: 1, calls: 3, spent: 0, saved: 0, captured: 0, imported: false, covers: null, source: null, labels: [] }) as unknown as RunListItem;
+
+/**
+ * What each store holds: `here` the runs triage-bot's lists and reads, `several` ids that start
+ * several of its runs' ids (a 409), any other a 404; `there` support-agent's, any other read there
+ * waiting, so the page holds. A fix is a 404 here, a comparison a 500 in both.
+ */
+interface Stores {
+  here?: string[];
+  several?: string[];
+  there?: string[];
+}
+
+/** The tab's title, as the shell works it out for the address and what the page notes. */
+function TabTitle() {
+  const route = useRoute();
+  const at = unshownKey(route);
+  return createElement('i', { className: 'tabtitle' }, docTitle(route, { unshown: useUnshown(at), heldBy: useHeldBy(at) }));
+}
+
+/**
+ * `draw` at `hash` in triage-bot, with every read and ask the page makes said in order. The server
+ * says support-agent holds the first id asked until it serves support-agent, which `select` makes it
+ * do; the reload after it has the meta and the runs follow. `copy`: an exported copy; `oneStore`: a
+ * dashboard that serves one store.
+ */
+async function openPage(hash: string, draw: () => ReactElement, o: Stores & { copy?: boolean; oneStore?: boolean } = {}): Promise<string[]> {
+  addressBar(hash);
+  const said: string[] = [];
+  const asked = <T>(line: string, answer: () => Promise<T>): Promise<T> => (said.push(line), answer());
+  let now = HERE;
+  const run = (id: string): Promise<RunDetail> => {
+    if (now !== HERE) return o.there?.includes(id) ? Promise.resolve(detail(id)) : new Promise(() => undefined);
+    if (o.several?.includes(id)) return Promise.reject(new ApiError(409, `run id prefix ${id} matches several runs: use more of the id`));
+    return o.here?.includes(id) ? Promise.resolve(detail(id)) : Promise.reject(new ApiError(404, `no run ${id}`));
+  };
+  const client = {
+    exported: !!o.copy,
+    jobs: () => Promise.resolve([]),
+    run: (id: string) => asked(`run ${id}`, () => run(id)),
+    fix: (id: string) => asked(`fix ${id}`, () => (now === HERE ? Promise.reject(new ApiError(404, `no fix ${id}`)) : new Promise(() => undefined))),
+    compare: (a: string, b: string) => asked(`compare ${a} ${b}`, () => Promise.reject(new ApiError(500, 'the comparison failed'))),
+    compareHead: (a: string, b: string) => asked(`head ${a} ${b}`, () => Promise.resolve(null)),
+    projects: {
+      holding: (what: string, ids: readonly string[]) => asked(`holding ${what} ${ids.join(' ')}`, () => Promise.resolve<HoldingView>({ current: { id: now, name: now }, held: now === HERE ? { project: { id: THERE, name: THERE }, id: ids[0] } : null })),
+      select: (id: string) => asked(`select ${id}`, () => ((now = id), Promise.resolve({ current: id, name: id }))),
+    },
+  } as unknown as Client;
+  const one = o.copy || o.oneStore;
+  showProject(one ? null : HERE);
+  function Harness() {
+    const [shown, setShown] = useState(HERE);
+    const app = useMemo(
+      () =>
+        ({
+          client,
+          exported: !!o.copy,
+          meta: o.copy ? { static: true } : { project: one ? { name: HERE, path: `/home/${HERE}` } : { id: shown, name: shown, path: `/home/${shown}` } },
+          runs: ((shown === HERE ? o.here : o.there) ?? []).map(listed),
+          ...{ conn: 'ok', actionsOff: null, tick: 0, runsTick: 0, feeds: {}, jobs: [], live: [] },
+          hasKind: () => true,
+          guard: (fn: () => void) => (fn(), true),
+          watchJob: () => undefined,
+          toast: (text: string) => void said.push(`toast ${text}`),
+          reload: () => {
+            said.push('reload');
+            showProject(now);
+            setShown(now);
+            return Promise.resolve();
+          },
+        }) as unknown as AppState,
+      [shown],
+    );
+    return createElement(AppContext.Provider, { value: app }, createElement(TabTitle), draw());
+  }
+  page = await render(createElement(Harness));
+  return said;
+}
+
+/** The In page for what `id` names: its title, its line, Switch in lime, and the tab's title naming the project that holds it. */
+async function inPage(id: string, what = 'run'): Promise<void> {
+  await page!.until('the In page', () => page!.all('h1').some((h) => h.textContent === `In ${THERE}`));
+  expect(page!.one('.ph p').textContent).toBe(`The ${what} ${id} is in ${THERE}’s store, not ${HERE}’s.`);
+  const button = page!.one('.ph .actions button');
+  expect([button.className, button.textContent]).toEqual(['btn lime', `Switch to ${THERE}`]);
+  expect(page!.one('.tabtitle').textContent).toBe(`In ${THERE} — shadowlap`);
+}
+
+const busy = () => page!.one('.page').attributes.get('aria-busy') === 'true';
+
+describe('a run’s page and a fix’s', () => {
+  it('a run another project holds: In support-agent, and Switch reads it there, holding at the same call until it answers', async () => {
+    const said = await openPage(`#/run/${A}/2`, () => createElement(RunPage, { id: A, call: 2, view: null }));
+    await inPage(A);
+    expect(said).toEqual([`run ${A}`, `holding run ${A}`]);
+    await page!.click(page!.one('.ph .actions button'));
+    await page!.until('the run read there', () => said.length === 5);
+    expect(said.slice(2)).toEqual([`select ${THERE}`, 'reload', `run ${A}`]);
+    expect((g.location as { hash: string }).hash).toBe(`#/run/${A}/2`);
+    expect(busy()).toBe(true);
+  });
+
+  it('a fix another project holds: the same, at the same step', async () => {
+    const said = await openPage(`#/fixes/${FIX}/verify`, () => createElement(FixPage, { id: FIX, step: 'verify', sub: null }));
+    await inPage(FIX, 'fix');
+    expect(said).toEqual([`fix ${FIX}`, `holding fix ${FIX}`]);
+    await page!.click(page!.one('.ph .actions button'));
+    await page!.until('the fix read there', () => said.length === 5);
+    expect(said.slice(2)).toEqual([`select ${THERE}`, 'reload', `fix ${FIX}`]);
+    expect((g.location as { hash: string }).hash).toBe(`#/fixes/${FIX}/verify`);
+    expect(busy()).toBe(true);
+  });
+
+  it('asks nothing on an exported copy or a dashboard that serves one store, where each page says it isn’t there', async () => {
+    const pages: Array<[string, () => ReactElement, string]> = [
+      [`#/run/${A}`, () => createElement(RunPage, { id: A, call: null, view: null }), `No run ${A}`],
+      [`#/fixes/${FIX}`, () => createElement(FixPage, { id: FIX, step: null, sub: null }), `No fix ${FIX}`],
+      [`#/compare/${A}`, () => createElement(ComparePage, { a: A, b: null }), `No run ${A}`],
+      [`#/compare/${A}/${B}`, () => createElement(ComparePage, { a: A, b: B }), `No run ${A}`],
+    ];
+    for (const [hash, draw, words] of pages)
+      for (const o of [{ copy: true }, { oneStore: true }]) {
+        const said = await openPage(hash, draw, { ...o, here: ELSE });
+        await page!.until(`${hash}’s not-found`, () => page!.document.body.textContent.includes(words));
+        await page!.wait(20);
+        expect(said.filter((l) => l.startsWith('holding')), hash).toEqual([]);
+        expect(page!.one('.tabtitle').textContent, hash).not.toMatch(/^In /);
+        await page!.unmount();
+        page = null;
+      }
+  });
+});
+
+describe('Compare', () => {
+  it('one run another project holds: asks for it, and Switch reads it there, where it is drawn', async () => {
+    const said = await openPage(`#/compare/${A}`, () => createElement(ComparePage, { a: A, b: null }), { here: ELSE, there: [A] });
+    await inPage(A);
+    expect(said).toEqual([`run ${A}`, `holding run ${A}`]);
+    await page!.click(page!.one('.ph .actions button'));
+    await page!.until('the run drawn there', () => page!.all('.stepempty h3').length === 1);
+    expect(page!.one('.stepempty h3').textContent).toBe('Nothing to compare yet');
+    expect(said.slice(2)).toEqual([`select ${THERE}`, 'reload', `run ${A}`]);
+  });
+
+  it('a pair: asks for the side this store doesn’t hold, never one that starts several of its runs’ ids, and Switch reads all four again there', async () => {
+    const said = await openPage(`#/compare/${A}/${B}`, () => createElement(ComparePage, { a: A, b: B }), { here: ELSE, several: [A], there: [A, B] });
+    await inPage(B);
+    expect(said.filter((l) => l.startsWith('holding'))).toEqual([`holding run ${B}`]);
+    const asked = said.length;
+    await page!.click(page!.one('.ph .actions button'));
+    await page!.until('the pair compared there', () => page!.all('.empty').some((e) => e.textContent === 'Could not compare these runs: the comparison failed'));
+    expect(said.slice(asked, asked + 2)).toEqual([`select ${THERE}`, 'reload']);
+    expect(said.slice(asked + 2).sort()).toEqual([`compare ${A} ${B}`, `head ${A} ${B}`, `run ${A}`, `run ${B}`].sort());
+    expect(page!.all('h1').map((h) => h.textContent)).not.toContain(`In ${THERE}`);
+  });
+
+  it('a pair with neither side here asks for both', async () => {
+    const said = await openPage(`#/compare/${A}/${B}`, () => createElement(ComparePage, { a: A, b: B }), { here: ELSE });
+    await inPage(A);
+    expect(said.filter((l) => l.startsWith('holding'))).toEqual([`holding run ${A} ${B}`]);
+  });
+
+  it('a pair in a project with fewer than two runs: asks for both, and Switch compares them there', async () => {
+    const said = await openPage(`#/compare/${A}/${B}`, () => createElement(ComparePage, { a: A, b: B }), { here: ELSE.slice(0, 1), there: [A, B] });
+    await inPage(A);
+    expect(said).toEqual([`holding run ${A} ${B}`]);
+    await page!.click(page!.one('.ph .actions button'));
+    await page!.until('the pair compared there', () => page!.all('.empty').some((e) => e.textContent === 'Could not compare these runs: the comparison failed'));
+    expect(said.slice(1, 3)).toEqual([`select ${THERE}`, 'reload']);
+    expect(said.slice(3).sort()).toEqual([`compare ${A} ${B}`, `head ${A} ${B}`, `run ${A}`, `run ${B}`].sort());
   });
 });
