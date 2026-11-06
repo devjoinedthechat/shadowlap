@@ -30,7 +30,7 @@ const LookRow = memo(function LookRow({ x, wait, aboutOf, focused }: { x: NeedsL
     <div className={`arow${focused ? ' krow' : ''}`} data-rowkey={x.key} data-agrp={x.group}>
       <EventIcon kind={x.icon} />
       {/* A gate's verdict says its word, tally and bound, whole, and its rule on hover. */}
-      <a className="at" href={x.href} data-tip={x.rule ? ruleTip(x.title.replace(/^A test (?:failed|is inconclusive): /, ''), x.rule) : undefined}>
+      <a className="at" href={x.href} data-tip={x.rule ? ruleTip(x.name ?? x.title, x.rule) : undefined}>
         <span className="t">
           <Pieces parts={keepParts(x.title)} aboutOf={about} />
         </span>

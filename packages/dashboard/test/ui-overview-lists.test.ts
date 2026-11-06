@@ -61,7 +61,7 @@ describe('the Overview’s Usage', () => {
 describe('Needs a look', () => {
   const run = '01M5H2F2QC9NCJ5PSZ0M4RX7VP';
   const rows: NeedsLookRow[] = [
-    { kind: 'test', icon: 'fail', title: 'A test failed: refund-in-limit', detail: 'diverged at call 3', key: 'attn:failed:goldens/refund-in-limit', group: 'failing', step: null, href: '#/run/01M5H2EWWY8P621C63CJPVEM4A', runId: '01M5H2EWWY8P621C63CJPVEM4A', fixId: null, at: 3 },
+    { kind: 'test', icon: 'fail', title: 'A golden failed: refund-in-limit', name: 'refund-in-limit', detail: 'diverged at call 3', key: 'attn:failed:goldens/refund-in-limit', group: 'failing', step: null, href: '#/run/01M5H2EWWY8P621C63CJPVEM4A', runId: '01M5H2EWWY8P621C63CJPVEM4A', fixId: null, at: 3 },
     { kind: 'unblamed', icon: 'fail', title: '1 failing run nobody has blamed', detail: '01M5H2F2QC · failed', key: `attn:unblamed:${run}`, group: 'failing', step: { of: 'run', runId: run, step: { key: 'blame', label: 'Run blame', offer: { failed: [], from: 'config' } } as never }, href: '#/runs?types=failed', runId: run, fixId: null, at: 2 },
     { kind: 'local', icon: 'rec', title: '12 runs are only on this machine', detail: 'push them so the team can open them', key: 'attn:local', group: 'housekeeping', step: { of: 'push', label: 'Push local runs', command: 'shadowlap push --all' }, href: '#/runs?types=local', runId: null, fixId: null, at: 0 },
   ];
@@ -98,7 +98,7 @@ describe('Needs a look', () => {
 
   it('asks for a step’s price only once the step is reached, and a press before it came waits for it', async () => {
     const more = { args: ['test', 'goldens/refund.json', '--max-attempts', '160', '--continue'], job: { golden: 'goldens/refund.json', maxAttempts: 160, continue: true as const }, attempts: 160, most: 80, expected: 27, settles: 0.93, cost: null };
-    const row: NeedsLookRow = { kind: 'test', icon: 'warn', title: 'A test is inconclusive: refund', detail: 'inconclusive · 80 of 80 attempts', key: 'attn:inconclusive:goldens/refund.json', group: 'tests', step: { of: 'more', golden: 'goldens/refund.json', label: 'Run more attempts', more }, href: '#/tests', runId: null, fixId: null, at: 0 };
+    const row: NeedsLookRow = { kind: 'test', icon: 'warn', title: 'A golden is inconclusive: refund', name: 'refund', detail: 'inconclusive · 80 of 80 attempts', key: 'attn:inconclusive:goldens/refund.json', group: 'tests', step: { of: 'more', golden: 'goldens/refund.json', label: 'Run more attempts', more }, href: '#/tests', runId: null, fixId: null, at: 0 };
     let priced: (v: unknown) => void = () => undefined;
     const testsEstimates = vi.fn(() => new Promise((res) => (priced = res)));
     const startJob = vi.fn(async () => ({ id: 'job-1' }));
@@ -116,12 +116,12 @@ describe('Needs a look', () => {
   it('shows a row for each failing golden one fix holds, all of them, with no two keys alike', async () => {
     // One regression failed three goldens on the same check, and blame joined their runs into one fix.
     const fixId = 'fx-01M5H2DV7NHAEH1GM5ARZXX3BG';
-    const held: NeedsLookRow[] = ['refund-in-limit', 'refund-over-limit', 'refund-partial'].map((name, i) => ({ kind: 'test', icon: 'fail', title: `A test failed: ${name}`, detail: 'check failed: issue_refund called 1 time', key: `attn:failed:goldens/${name}`, group: 'failing', step: null, href: `#/fixes/${fixId}`, runId: `01M5H2DV7NHAEH1GM5ARZXX3B${i}`, fixId, at: 3 - i }));
+    const held: NeedsLookRow[] = ['refund-in-limit', 'refund-over-limit', 'refund-partial'].map((name, i) => ({ kind: 'test', icon: 'fail', title: `A golden failed: ${name}`, name, detail: 'check failed: issue_refund called 1 time', key: `attn:failed:goldens/${name}`, group: 'failing', step: null, href: `#/fixes/${fixId}`, runId: `01M5H2DV7NHAEH1GM5ARZXX3B${i}`, fixId, at: 3 - i }));
     const open: NeedsLookRow = { kind: 'open', icon: 'blame', title: 'Refunds above the limit issued without approval', detail: 'lost at model call #5 · no fix yet', key: `attn:fix:#/fixes/${fixId}`, group: 'failing', step: null, href: `#/fixes/${fixId}`, runId: null, fixId, at: 0 };
     const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       r = await render(inApp(createElement(NeedsLook, { items: [...held, open], total: 4 })));
-      expect(r.all('.arow .t').map((t) => text(t).replace(/\u00a0/g, ' '))).toEqual(['A test failed: refund-in-limit', 'A test failed: refund-over-limit', 'A test failed: refund-partial', 'Refunds above the limit issued without approval']);
+      expect(r.all('.arow .t').map((t) => text(t).replace(/\u00a0/g, ' '))).toEqual(['A golden failed: refund-in-limit', 'A golden failed: refund-over-limit', 'A golden failed: refund-partial', 'Refunds above the limit issued without approval']);
       // A golden's name keeps its hyphens: it never breaks inside.
       expect(r.all('.arow .t .nw').map(text)).toEqual(['refund-in-limit', 'refund-over-limit', 'refund-partial']);
       expect(r.all('.attn-more')).toHaveLength(0);

@@ -69,7 +69,7 @@ describe('the interval’s bar', () => {
 });
 
 describe('Needs a look and Activity', () => {
-  const gated: NeedsLookRow = { kind: 'test', icon: 'fail', title: 'A test failed: eval-pushy', detail: 'failed · 4 of 8 · rate <= 0.78 (95%)', rule: RULE, key: 'attn:failed:goldens/eval-pushy', group: 'failing', step: null, href: '#/tests', runId: null, fixId: null, at: 1 };
+  const gated: NeedsLookRow = { kind: 'test', icon: 'fail', title: 'A golden failed: eval-pushy', name: 'eval-pushy', detail: 'failed · 4 of 8 · rate <= 0.78 (95%)', rule: RULE, key: 'attn:failed:goldens/eval-pushy', group: 'failing', step: null, href: '#/tests', runId: null, fixId: null, at: 1 };
   const plain: NeedsLookRow = { kind: 'unblamed', icon: 'fail', title: 'A run failed: 01M5GRZKRY', detail: 'Write this week’s refund digest · not blamed yet', key: 'attn:unblamed:01M5GRZKRY', group: 'failing', step: null, href: '#/run/01M5GRZKRYAAAAAAAAAAAAAAAA', runId: '01M5GRZKRYAAAAAAAAAAAAAAAA', fixId: null, at: 0 };
 
   // Needs a look reads whether actions run here (a read-only dashboard's steps say Open): here they do, and no row has a job.

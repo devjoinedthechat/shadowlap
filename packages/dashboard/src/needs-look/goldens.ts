@@ -21,8 +21,9 @@ export function runLookStep(runId: string, step: NextStep | null | undefined): L
 
 const held = (w: LookWork, t: FailingTest) => !!t.fixId && (w.held.get(t.fixId) ?? []).some((h) => h.golden === t.golden);
 
-const golden = (t: FailingTest, step: LookStep | null): Pick<NeedsLookRow, 'title' | 'detail' | 'step' | 'href' | 'runId' | 'at' | 'report' | 'rule'> => ({
+const golden = (t: FailingTest, step: LookStep | null): Pick<NeedsLookRow, 'title' | 'name' | 'detail' | 'step' | 'href' | 'runId' | 'at' | 'report' | 'rule'> => ({
   title: t.title,
+  name: goldenName(t.golden),
   detail: t.line,
   step,
   // Tests, at the golden's report.

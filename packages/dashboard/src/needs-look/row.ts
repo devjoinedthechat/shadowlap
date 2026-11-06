@@ -49,6 +49,8 @@ export interface NeedsLookRow {
   rule?: string | null;
   /** The about line of the run the row names (decision 10), for its hover. */
   about?: RunAbout | null;
+  /** A golden's name, as Tests says it, which its rule's hover is headed with. */
+  name?: string;
   /** A golden's report on Tests (`report-<name>`), which its row scrolls to. */
   report?: string;
 }

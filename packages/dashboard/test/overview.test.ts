@@ -289,7 +289,7 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       local.finishTestSession(t.sessionId, { passed: 0, failed: 1, upstreamRequests: 0, endedAt: NOW - HOUR + 2 });
       const row = overviewSummary(local, { tz: 'UTC', now: NOW, goldens }).needsLook.items[0];
       // The verdict word, the tally and the bound, whole: no rule in the line to cut off mid-figure.
-      expect(row).toMatchObject({ kind: 'test', title: 'A golden failed: eval-pushy', detail: 'failed · 0 of 3 · rate <= 0.71 (95%)', rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts' });
+      expect(row).toMatchObject({ kind: 'test', title: 'A golden failed: eval-pushy', name: 'eval-pushy', detail: 'failed · 0 of 3 · rate <= 0.71 (95%)', rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts' });
     } finally {
       local.close();
     }
