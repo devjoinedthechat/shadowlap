@@ -99,17 +99,23 @@ export interface KeptPart {
 
 const NB = '\u00a0';
 
+/** The longest hyphenated word kept whole as a name: a longer one, such as a project's path, is no name. */
+const NAME_MAX = 32;
+
 /**
  * Words cut into the pieces a wrapping line keeps whole: a hyphenated name (`nw`), so a golden's name
  * never breaks at its hyphens, and a run's short id on its own (`id`), for its about line on hover.
- * The rest is as it is, with the no-break spaces its caller put in.
+ * The rest is as it is, with the no-break spaces its caller put in: a hyphenated word longer than a
+ * name, such as a path, among it, to break where it must rather than run past its panel.
  */
 export function keepPieces(kept: string): KeptPart[] {
   const parts: KeptPart[] = [];
   let at = 0;
   for (const m of kept.matchAll(/\b01[0-9A-Z]{8}\b|[^\s(]*\w-\w[^\s)]*/g)) {
+    const id = /^01[0-9A-Z]{8}$/.test(m[0]);
+    if (!id && m[0].length > NAME_MAX) continue;
     if (m.index > at) parts.push({ text: kept.slice(at, m.index), kind: 'text' });
-    parts.push({ text: m[0], kind: /^01[0-9A-Z]{8}$/.test(m[0]) ? 'id' : 'nw' });
+    parts.push({ text: m[0], kind: id ? 'id' : 'nw' });
     at = m.index + m[0].length;
   }
   if (at < kept.length) parts.push({ text: kept.slice(at), kind: 'text' });

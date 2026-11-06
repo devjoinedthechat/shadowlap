@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { parseOtlpFile, readOtel } from '../../cli/src/import-otel.js';
 import { runsLinkQuery, runsQueryString } from '../ui/runspage/query.js';
 import { factTip } from '../ui/components/Facts.js';
-import { activityGlyph, activityLine, callsSaid, chartScale, dayText, keepParts, kindGlyph, originCounts, originRows, overviewFacts, personName, recentKind, reproducedNote, share, tickText, usageLine, verifiedNote } from '../ui/overview/model.js';
+import { activityGlyph, activityLine, callsSaid, chartScale, dayText, keepParts, keepPieces, kindGlyph, originCounts, originRows, overviewFacts, personName, recentKind, reproducedNote, share, tickText, usageLine, verifiedNote } from '../ui/overview/model.js';
 import { authorTint, ciName } from '../ui/runspage/authors.js';
 import { bulkToast, deleteFacts, deleteLead, localTitle, PACK_MAX, packCommand, packFolders, packOff, rmCommand } from '../ui/runspage/bulk.js';
 import { datasetCommand, datasetFile } from '../ui/run/share.js';
@@ -75,6 +75,12 @@ describe('the Overview’s words', () => {
     ]);
     // A whole run id is no short id: it stays in its words.
     expect(keepParts('run 01K5CQ5D2WABCDEFGHJKMNPQRS')).toEqual([{ text: 'run 01K5CQ5D2WABCDEFGHJKMNPQRS', kind: 'text' }]);
+    // A hyphenated word longer than a name, a project's path, stays in its words too, to break where it must.
+    expect(keepPieces('Project added · /home/dana/code/acme-support-agent/support-agent')).toEqual([{ text: 'Project added · /home/dana/code/acme-support-agent/support-agent', kind: 'text' }]);
+    expect(keepPieces('Packed · list-inbox-label-thread-d2a5a7')).toEqual([
+      { text: 'Packed · ', kind: 'text' },
+      { text: 'list-inbox-label-thread-d2a5a7', kind: 'nw' },
+    ]);
   });
 
   it('lists the origins present in the design’s order, with their shares', () => {

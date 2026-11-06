@@ -32,8 +32,8 @@
 .arow .ic { align-self: start; margin-top: 3px; }
 .arow .at { min-width: 0; color: inherit; text-decoration: none; }
 .arow .at::after { content: ""; position: absolute; inset: 0; }
-.arow .t { display: block; font-weight: 500; color: var(--ink); }
-.arow .d { display: block; margin-top: 2px; color: var(--faint); font-size: 12.5px; }
+.arow .t { display: block; font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
+.arow .d { display: block; margin-top: 2px; color: var(--faint); font-size: 12.5px; overflow-wrap: anywhere; }
 .arow .ast { position: relative; z-index: 1; display: flex; justify-content: flex-end; pointer-events: none; }
 .arow .ast > .btn { pointer-events: auto; }
 .arow .go { color: var(--faint); font-size: 12px; white-space: nowrap; }
@@ -52,10 +52,10 @@
 .feed a:hover { background: var(--hover); }
 .feed .at { font: 11px var(--mono); color: var(--faint); }
 .feed .ic { transform: translateY(3px); }
-.feed .w { color: var(--dim); }
+.feed .w { color: var(--dim); overflow-wrap: anywhere; }
 /* an entry is read whole, never cut to a few lines; its run's id, or the fix, verdict or file it names, wraps as one piece
    after its words, so it never drags the last word down with it. At 320px (a 1280px window zoomed to 400%) a part kept
-   whole may wrap, so nothing scrolls sideways */
+   whole may wrap, so nothing scrolls sideways; a piece too long for any line, as a project's path, breaks where it must */
 .feed .w code { font-size: 11px; color: var(--faint); margin-left: 2px; white-space: nowrap; }
 @media (max-width: 340px) { .feed .w .nw { white-space: normal; } }
 
