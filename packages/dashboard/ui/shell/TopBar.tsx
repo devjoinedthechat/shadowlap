@@ -12,7 +12,7 @@ import { useSingleKeys } from '../single-keys.js';
 import { useApp } from '../state.js';
 import { useFixCrumb } from '../fixes/data.js';
 import { HelpMenu } from './HelpMenu.js';
-import { crumbLineage, liveChip, parentCrumbKey } from './top.js';
+import { changesCrumbs, crumbLineage, liveChip, parentCrumbKey } from './top.js';
 import { unshownKey, useUnshown } from './unshown.js';
 import { lastRunsHref } from '../runs-view.js';
 
@@ -24,7 +24,7 @@ import { lastRunsHref } from '../runs-view.js';
 type Crumb = { label: string; href?: string; face?: 'rt' | 'code' | 'word'; anc?: boolean; parent?: boolean; tip?: string | null };
 
 /** What the page shows, as the crumbs name it: only its section where it can't show what it opened for (`unshown`). */
-function crumbsFor(route: Route, lineageOf: (id: string) => Array<{ runId: string; about: string | null }>, o: { fixName: string | null; aboutOf: (id: string) => string | null; unshown: boolean }): Crumb[] {
+function crumbsFor(route: Route, lineageOf: (id: string) => Array<{ runId: string; about: string | null }>, o: { fixName: string | null; aboutOf: (id: string) => string | null; unshown: boolean; exported: boolean }): Crumb[] {
   switch (route.page) {
     case 'runs':
       return [{ label: 'Runs' }];
@@ -36,7 +36,8 @@ function crumbsFor(route: Route, lineageOf: (id: string) => Array<{ runId: strin
       return [{ label: 'Runs', href: lastRunsHref() }, ...up, { label: shortId(route.id), face: 'rt', tip: o.aboutOf(route.id) }];
     }
     case 'compare':
-      return [{ label: 'Compare' }];
+    case 'changes':
+      return changesCrumbs(route, o);
     case 'fixes':
       if (!route.id) return [{ label: 'Fixes' }];
       return [{ label: 'Fixes', href: href.fixes() }, ...(o.unshown ? [] : [{ label: o.fixName ?? route.id, face: 'code' as const }])];
@@ -118,7 +119,7 @@ export function TopBar({ route }: { route: Route }) {
   const aboutOf = (id: string) => listed(id)?.about?.text ?? null;
   // A run or a fix the page can't show, or the setup in its place: only the section is named.
   const unshown = useUnshown(unshownKey(route)) || !!setupShowsOn(route, { exported, meta, runs });
-  const crumbs = crumbsFor(route, lineageOf, { fixName, aboutOf, unshown });
+  const crumbs = crumbsFor(route, lineageOf, { fixName, aboutOf, unshown, exported });
   const nav = useRef<HTMLElement>(null);
   useFitCrumbs(nav);
   const ancestors = crumbs.filter((c) => c.anc).map((c) => c.label);

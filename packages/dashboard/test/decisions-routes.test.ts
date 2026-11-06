@@ -123,7 +123,7 @@ describe('the decision read models', () => {
   it('fills a migrate session\'s decisions in from its runs, and finds a run\'s decisions newest first', () => {
     const m = decisionSession(store, 'mg-01M5000000000000000000000B')!;
     expect(m).toMatchObject({ kind: 'migrate', to: 'claude-haiku-4-5', decisions: { runs: [{ runId: refunded }] } });
-    // Each opens the run at its most consequential change: the dashboard has no page of a session's own.
+    // A run's part of a session opens the run at its most consequential change, as its page's Decisions view lists it.
     expect(runDecisions(store, refunded).sessions.map((s) => [s.sessionId, s.kind, s.rank, s.href])).toEqual([
       ['mg-01M5000000000000000000000B', 'migrate', 1, `#/run/${refunded}/5`],
       ['dc-01M5000000000000000000000A', 'decisions', 1, `#/run/${refunded}/5`],
@@ -146,10 +146,10 @@ describe('the decision routes', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('etag')).toBeTruthy();
     const view = (await res.json()) as DecisionsListView;
-    // A session opens the run whose change it ranked most consequential, at that change.
+    // A session opens at its own page under Changes: a migration's tab, a preview's.
     expect(view.sessions.map((s) => [s.sessionId, s.kind, s.runs, s.flagged, s.href])).toEqual([
-      ['mg-01M5000000000000000000000B', 'migrate', 1, 1, `#/run/${refunded}/5`],
-      ['dc-01M5000000000000000000000A', 'decisions', 2, 2, `#/run/${refunded}/5`],
+      ['mg-01M5000000000000000000000B', 'migrate', 1, 1, '#/changes/migrate/mg-01M5000000000000000000000B'],
+      ['dc-01M5000000000000000000000A', 'decisions', 2, 2, '#/changes/decisions/dc-01M5000000000000000000000A'],
     ]);
     expect(view.retirements.notices.map((n) => n.model)).toEqual(['claude-sonnet-4-5-20250929']);
     const only = (await (await api(dash, 'decisions?kind=decisions')).json()) as DecisionsListView;

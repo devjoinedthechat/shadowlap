@@ -1,5 +1,6 @@
-import { memo, useCallback, useEffect, useMemo, useRef, type MouseEvent, type RefObject } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useSyncExternalStore, type MouseEvent, type RefObject } from 'react';
 import type { RunListItem } from '../api.js';
+import { changesHref, onChangesTab } from '../changes-tab.js';
 import { AboutLine, useFitAbouts } from '../components/About.js';
 import { RunIcon } from '../components/RunIcon.js';
 import { Icon, type IconName } from '../components/Icon.js';
@@ -73,16 +74,18 @@ export function Sidebar({ route }: { route: Route }) {
   const rowActions = useCallback((r: RunListItem) => (exported ? null : runRowScope(r, { runs: runsNow.current ?? [], toast })), [exported, runsNow, toast]);
   const [fold, setFold] = useStored<Fold>('shadowlap-recent-runs', 'open', isFold);
   const section = navSection(route);
+  // Changes opens the tab it last showed in this project, Compare at its pair: true while Changes itself moves.
+  const changes = useSyncExternalStore(onChangesTab, changesHref);
   const count = lessPending(meta?.counts?.runs, gone) ?? listed.length;
   // The nav's Runs opens the view Runs showed last; the list's `all` below, every run.
   const runsTo = useLastRunsHref();
   // The loop (what was run and what needs a look), a hairline, then the tools: a later page joins either list.
   const loop: NavItem[] = exported
-    ? [['runs', 'runs', 'Runs', runsTo, count], ...(copyCompares(meta?.runIds) ? [['compare', 'compare', 'Compare', href.compare(), null] as NavItem] : [])]
+    ? [['runs', 'runs', 'Runs', runsTo, count], ...(copyCompares(meta?.runIds) ? [['changes', 'compare', 'Compare', href.compare(), null] as NavItem] : [])]
     : [
         ['overview', 'home', 'Overview', href.overview(), null],
         ['runs', 'runs', 'Runs', runsTo, count],
-        ['compare', 'compare', 'Compare', href.compare(), null],
+        ['changes', 'compare', 'Changes', changes, null],
         ['fixes', 'loop', 'Fixes', href.fixes(), null],
         ['tests', 'tests', 'Tests', href.tests(), null],
       ];

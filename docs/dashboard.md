@@ -4,7 +4,7 @@
 
 This page walks through each page of the dashboard, then what you can do from it, then the reference:
 
-- **The pages**: [the shell](#the-shell), [Search or jump to](#search-or-jump-to), [Overview](#overview), [Runs](#runs), [a run's page](#a-runs-page), [Compare](#compare), [Fixes](#fixes), [Tests](#tests), [Training](#training), [Settings](#settings), [the team store's setup](#the-team-stores-setup) and [Projects](#projects).
+- **The pages**: [the shell](#the-shell), [Search or jump to](#search-or-jump-to), [Overview](#overview), [Runs](#runs), [a run's page](#a-runs-page), [Changes](#changes), [Fixes](#fixes), [Tests](#tests), [Training](#training), [Settings](#settings), [the team store's setup](#the-team-stores-setup) and [Projects](#projects).
 - **What you can do**: [Actions](#actions), [read-only mode](#read-only-mode) and [sending a run to someone](#send-a-run-to-someone).
 - **Reference**: [keyboard shortcuts](#keyboard-shortcuts), [limits](#limits), [security and consent](#security-and-consent), [large stores and long runs](#large-stores-and-long-runs), [how the page stays current](#how-the-page-stays-current), the [HTTP API](#http-api), [notes for contributors](#for-contributors) and [troubleshooting](#troubleshooting).
 
@@ -56,7 +56,7 @@ At 1000px and below the sidebar is a drawer behind the menu button. Opening it p
 The sidebar holds, from the top:
 
 - **The project**, which opens the [project switcher](#projects).
-- **The pages**: Overview, Runs with how many there are, Compare, Fixes and Tests, then Training under a hairline.
+- **The pages**: Overview, Runs with how many there are, Changes, Fixes and Tests, then Training under a hairline. Changes opens the tab it last showed in the project.
 - **Recent runs**, as a tree. Its caret folds it, and the browser keeps it folded until you open it again.
 - **Settings**, at its foot, whether the tree shows or not.
 
@@ -847,11 +847,41 @@ The fork that blame rescued says it was rescued. Each [outcome check](./ci.md#ou
 
 A run imported from someone else's pack carries what they recorded about it. Anything malformed there is left out rather than shown.
 
-## Compare
+## Changes
 
-Compare puts any two runs side by side. Pick them at the top, from lists of runs each by its id and its about line.
+Changes shows what a change does to your agent, on its own recorded runs. It has two tabs, each one word with the command it matches on hover: **Verdicts** lists every change checked, and **Compare** puts two runs side by side.
 
-### What changed
+The sidebar, `g` then `c` and [Search or jump to](#search-or-jump-to) reopen the tab last shown in the project, Compare on the pair it showed. The first time, and after a reload, they open Verdicts. The crumb *Changes* always opens Verdicts.
+
+### Verdicts
+
+Verdicts lists every change checked, newest first, one row each. A change is one of three kinds:
+
+- **A test session** that ran every golden at a revision. Its row opens [the revision's page](#a-revisions-page).
+- **A preview or a migration**: what a change of model, prompt or tools decides differently.
+- **A verify a fix keeps.** Its row opens the fix's Verify step at that verify.
+
+Each row gives the change and how it was checked (*test session · d2e8a1f*), what it was checked on (*7 goldens*), what moved and when. Its verdict is in the words of the command that gave it: *passed*, *failed*, *inconclusive*, *accepted*, *rejected*, *not verified* or *nothing to verify*, with its tally under it. On a phone the verdict sits under the change.
+
+The newest revision a test session ran every golden at leads the page: its verdict, its tally and **Open the change**, in lime while it failed or couldn't decide. The chips (*All*, *Test sessions*, *Previews*, *Verifies*) each count their rows. **Show more** reads 50 more at a time, up to 200, and says when older changes aren't listed.
+
+The page keeps its chip, and how far it read, while it stays open, so the way back from a revision's page lands on its row. Who made a change shows only with a [team store](#the-team-stores-setup). Without one, Verdicts lists this machine's test sessions only, and says so, with a link to the store's settings.
+
+### A revision's page
+
+A test session's row opens its revision's page (`#/changes/verdicts/<revision>`). It gives that session's verdict and tally, the change, who made it and when, with **Open Tests**. On the newest revision, Open Tests is lime while it failed or couldn't decide. Under them:
+
+- **Goldens**, worst first, as that session judged them, each with its note (*4/4 replayed*). A golden opens the replay that judged it while the store holds it, else Tests.
+- **Decisions**: the previews and migrations asked at that revision.
+- **The command** that gave the verdict.
+
+A revision no session ran every golden at says *No change d2e8a1f.*, with **Open Verdicts**.
+
+### Compare
+
+Compare puts any two runs side by side. Pick them on the row under the tabs, from lists of runs each by its id and its about line.
+
+#### What changed
 
 Compare starts with what changed between the two runs:
 
@@ -862,7 +892,7 @@ Compare starts with what changed between the two runs:
 
 Two runs of one commit whose revisions git abbreviated with different lengths read as unchanged code.
 
-### Where the runs part
+#### Where the runs part
 
 Then it shows where the runs part, in order:
 
@@ -876,7 +906,7 @@ A call the model answered the same way in another response is counted in the lin
 
 Each side's calls are headed by its kind (*fork @7*), failed or not.
 
-### Two long runs
+#### Two long runs
 
 Two long runs take seconds to compare whole, since every model call's request of both is read. Meanwhile:
 
@@ -886,9 +916,10 @@ Two long runs take seconds to compare whole, since every model call's request of
 
 A run still recording is compared again as its calls arrive.
 
-### Open a comparison
+#### Open a comparison
 
 - **`#/compare`** alone opens the newest fork or replay against its parent. With fewer than two runs, it says how to make a second.
+- **Compare's tab** reopens the pair it last showed in the project. Once a run of that pair is gone, it opens as `#/compare` alone does.
 - **`#/compare/<run>`** opens that run against its newest fork, else its newest replay (a test's last), else its parent. A run with none says there is nothing to compare yet, with the replay that makes something.
 - **A fork or a replay** has *Compare with parent*. A recording compares with its first fork or replay, never an attempt bundled under it (a blame probe, a verify or `--repeat` attempt).
 - **Two runs ticked on Runs**, and the palette, open it too.
@@ -898,9 +929,9 @@ When a side can't be compared, Compare says so:
 - **The same run on both sides** says so, rather than compare it with itself.
 - **A run the store doesn't hold** is named, and so is an id that starts several runs' ids (*01M5GRV matches several runs; use more of the id*), with the side to pick again.
 
-### Compare in an exported copy
+#### Compare in an exported copy
 
-An exported copy compares the runs it holds: every pair up to six runs, and beyond that each run with the first. It opens on the first against the newest other, and the pickers offer only those.
+An exported copy compares the runs it holds: every pair up to six runs, and beyond that each run with the first. It opens on the first against the newest other, and the pickers offer only those. There Compare is a page of its own, under its own head, with no tabs.
 
 ## Fixes
 
@@ -1727,7 +1758,7 @@ These keys go to a page, in the order they are listed:
 
 | Key                                  | What it does                                              |
 | ------------------------------------ | --------------------------------------------------------- |
-| `g` then `o` `r` `c` `f` `t` `a` `s` | Overview, Runs, Compare, Fixes, Tests, Training, Settings |
+| `g` then `o` `r` `c` `f` `t` `a` `s` | Overview, Runs, Changes, Fixes, Tests, Training, Settings |
 
 These keys work on a run's page:
 
@@ -1749,9 +1780,9 @@ These keys work on a run's page:
 
 **`b`** presses Run blame only where the run's page leads with it, not the Run blame beside a crash's Find breaking commit.
 
-**Esc** does one thing a press: it closes a menu, a dialog or the palette, hides or closes a job's drawer, then closes the sidebar on a phone, then leaves a field, then hides a hover card. Only then does it go up: a run's open diff closes, a run or a fix goes back the way you came, Runs' selection clears, and the row in focus lets go.
+**Esc** does one thing a press: it closes a menu, a dialog or the palette, hides or closes a job's drawer, then closes the sidebar on a phone, then leaves a field, then hides a hover card. Only then does it go up: a run's open diff closes, a run, a fix or a revision's page goes back the way you came, Runs' selection clears, and the row in focus lets go.
 
-**The way back** lands on the row or the link you left. A page opened cold goes up to its crumbs' parent: a fork or a replay to the run it came from, a run to Runs, a fix to Fixes. `[`, `]` and opening a run's parent add nothing to the way back, and a page it already passed through takes it back to there.
+**The way back** lands on the row or the link you left. A page opened cold goes up to its crumbs' parent: a fork or a replay to the run it came from, a run to Runs, a fix to Fixes, a revision's page to Verdicts. `[`, `]` and opening a run's parent add nothing to the way back, and a page it already passed through takes it back to there.
 
 **`[` and `]`** step through Runs as it was last shown, its filter and sort, reading its next page when they come to the last row read. A run Runs never showed steps through the sidebar's. At either end a toast says so.
 
@@ -1970,6 +2001,7 @@ The dashboard's first script holds the shell and what the pages share. The rest 
 
 - **A page's own code** loads when you first open the page, which waits empty until it comes. Opening a page loads nothing more.
 - **A run's views but Calls** each have a script of their own. They load once the pointer or the focus reaches the Views tabs, or the view first changes, so switching to one draws it at once.
+- **Changes' tabs**: Verdicts and a revision's page each have a script of their own, and so does Compare. Changes' head and tabs come with the page, and stay while a tab's script loads.
 - **A script that can't be loaded** (the dashboard stopped, or was updated since the page opened) leaves a line that says so under the page's title, or in the view. Its **Retry** loads the page again, since a browser never asks twice for a script that failed, and waits while the server can't be reached.
 
 An exported copy is one script, built apart with only what a copy shows: its runs, a run's page with every view, and Compare between them.
@@ -2246,7 +2278,7 @@ A gate against history is figured at seven pass rates against the baseline `hist
 
 **The decision diff:**
 
-- `/api/decisions`: the sessions kept, newest first, with the models the goldens use that retire.
+- `/api/decisions`: the sessions kept, newest first, with the models the goldens use that retire. Each session's `href` opens Changes (`#/changes/decisions/<id>`, `#/changes/migrate/<id>`).
 - `/api/decisions/:id`: one session as `decisions --json` or `migrate --json` printed it, with its `matrix`.
 - `/api/decisions/:id/estimates`: what its Verify bills, worked out beside the server. Each run it couldn't clear, or the one `runId` names, is priced in the role its checks give it as recorded, at what it costs under the change. `verify` is `null` when there is nothing to verify.
 - `/api/runs/:id/decisions`: a run's decisions under each session that asked it again.
@@ -2268,7 +2300,7 @@ The `matrix` has a row per run and a cell per model call. Each cell holds:
 - `/api/verdicts`: every change checked, newest first, `limit` rows (50 unless given, at most 200) of the chip `kind` names. A change is a revision a test session ran every golden at, a preview or a migration, or a verify a fix keeps.
 - Each row gives its verdict as the command that gave it says it (`word`, coloured by `tone`), the `line` under it, what it was `checked` on and what `moved`. It names who made the change (`by`: a commit's author, who ran a preview) only when the project's config names a team store.
 - `counts` gives each chip's count, and `lead` the newest revision's verdict. The list reads the newest 200 test sessions, previews and verifies, and `more` says older changes exist.
-- `/api/verdicts/:rev` gives a revision's page (`no-revision` for a session that knew none): its goldens as that session judged them, worst first with their notes, and the previews and migrations asked at that revision.
+- `/api/verdicts/:rev` gives a revision's page (`no-revision` for a session that knew none): its goldens as that session judged them, worst first with their notes, and the previews and migrations asked at that revision. `latest` says whether it is the newest revision's, the one the list leads with.
 
 **Injection tests:**
 
@@ -2383,7 +2415,7 @@ It also checks the contrast of text and of a field's edge, the focus order, the 
 - **Attempts**: which runs are attempts is one rule, `packages/engine/src/run-roles.ts`.
 - **Endpoints**: the server's endpoints are registered by feature in `packages/dashboard/src/routes/`, and the shapes they answer with are in `packages/dashboard/src/views.ts` and `api.ts`.
 - **Shared parts**: a page's header and facts, its sections, statuses, verdict lines, switches, pickers, code boxes, run ids and attempts, and its empty, loading and error states are components in `packages/dashboard/ui/components/`, listed in its `README.md`, with their styles in `ui/css/components.css`. `Term` reads its definitions from `ui/glossary.ts`.
-- **Scripts**: `packages/dashboard/ui-bundles.mjs` splits the browser app: a chunk per page (`ui/pages/lazy.tsx`), one per part of a page through `onShow` (`ui/components/OnShow.tsx`), and an exported copy's one script from `ui/main-copy.tsx`. `test/ui-bundle-size.test.ts` holds each to its budget, and fails when a part it lists as heavy loads with a page instead of through `onShow`.
+- **Scripts**: `packages/dashboard/ui-bundles.mjs` splits the browser app: a chunk per page (`ui/pages/lazy.tsx`), one per part of a page through `onShow` (`ui/components/OnShow.tsx`), and an exported copy's one script from `ui/main-copy.tsx`. `test/ui-bundle-size.test.ts` holds each to its budget, and fails when a part it lists as heavy loads with a page instead of through `onShow`: Compare, and everything under `ui/changes/` but its head, `Head.tsx`.
 
 ## Troubleshooting
 

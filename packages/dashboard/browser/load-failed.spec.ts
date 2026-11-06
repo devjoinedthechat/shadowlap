@@ -56,3 +56,22 @@ test('a run’s view whose code didn’t come says so in the view, with the run�
   await expect(page.locator('main#view .vbody .turnlist')).toBeVisible();
   await page.unroute(timeline);
 });
+
+test('a Changes tab whose code didn’t come says so under Changes’ head, with the head and its tabs whole', async ({ page }) => {
+  const verdicts = /\/assets\/chunks\/Verdicts-\w+\.js$/;
+  await page.route(verdicts, (route) => route.abort());
+  await openPage(page, '/changes', 'main#view .loaderr');
+  const line = page.locator('main#view .loaderr');
+  await expect(line.locator('.st.err')).toHaveText('couldn’t load');
+  await expect(line).toContainText('This tab’s code didn’t come from the dashboard server.');
+  await expect(line.getByRole('button', { name: 'Retry' })).toBeVisible();
+  await expectAccessible(page);
+  // The head stands over it, and Compare's tab draws from a script of its own.
+  await expect(page.locator('main#view .ph h1')).toHaveText('Changes');
+  const tabs = page.getByRole('navigation', { name: 'Changes' });
+  await expect(tabs.getByRole('link', { name: 'Verdicts' })).toHaveAttribute('aria-current', 'page');
+  await tabs.getByRole('link', { name: 'Compare' }).click();
+  await expect(page.locator('main#view .pickers')).toHaveCount(1);
+  await expect(tabs.getByRole('link', { name: 'Compare' })).toHaveAttribute('aria-current', 'page');
+  await page.unroute(verdicts);
+});

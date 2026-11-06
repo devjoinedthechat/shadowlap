@@ -36,9 +36,9 @@ const PART = 100 * KB;
 const COPY = 900 * KB;
 
 /** The pages the shell routes to, by their chunk's name: the list grows as pages land. */
-const PAGES = ['Compare', 'Fixes', 'NewProject', 'Overview', 'Run', 'Runs', 'Settings', 'Setup', 'StoreSetup', 'Tests', 'Training'];
+const PAGES = ['Changes', 'Compare', 'Fixes', 'NewProject', 'Overview', 'Run', 'Runs', 'Settings', 'Setup', 'StoreSetup', 'Tests', 'Training'];
 /** The parts of pages, and the shell's palette, shortcuts sheet and Remove project dialog, in scripts of their own, by their chunk's name: the list grows as parts land. */
-const PARTS = ['ContextView', 'Drawer', 'ForksView', 'Palette', 'ProvenanceView', 'RemoveProject', 'Shortcuts', 'TimelineView', 'TurnsView', 'jobs'];
+const PARTS = ['ContextView', 'Drawer', 'ForksView', 'Palette', 'ProvenanceView', 'RemoveProject', 'RevisionPage', 'Shortcuts', 'TimelineView', 'TurnsView', 'Verdicts', 'jobs'];
 /** The pages an exported copy shows (ui/pages/copy.tsx). */
 const COPY_PAGES = ['Compare', 'Run', 'Runs'];
 /** The parts the copy shows, in its one script: a run's views but Calls, and what its shell holds. */

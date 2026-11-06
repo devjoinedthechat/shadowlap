@@ -36,7 +36,7 @@ describe('where the setup shows', () => {
 
   it('takes every page but Settings while the project has no runs, and #/setup always', () => {
     const none = { exported: false, meta: project(true), runs: [] };
-    for (const hash of ['#/', '#/runs', '#/compare', '#/fixes', '#/tests', '#/training', '#/run/01M50Y3WTS']) expect(setupShowsOn(at(hash), none), hash).toBe(true);
+    for (const hash of ['#/', '#/runs', '#/compare', '#/changes', '#/fixes', '#/tests', '#/training', '#/run/01M50Y3WTS']) expect(setupShowsOn(at(hash), none), hash).toBe(true);
     expect(setupShowsOn(at('#/settings/matching'), none)).toBe(false);
     expect(setupShowsOn(at('#/new'), none)).toBe(false);
     expect(setupShowsOn(at('#/setup'), { ...none, runs: [run()], meta: project(false) })).toBe(true);
@@ -222,8 +222,8 @@ describe('the project block of an exported copy', () => {
 
 describe('a switch made elsewhere', () => {
   it('keeps a page every project has, with what is open on it, and leaves one that names the other project’s runs or fixes', () => {
-    for (const hash of ['#/', '#/runs', '#/compare', '#/fixes', '#/tests', '#/training/tasks', '#/settings/redaction', '#/new', '#/setup']) expect(keepsPageOnSwitch(parseRoute(hash)), hash).toBe(true);
-    for (const hash of ['#/run/01M51X7HV4', '#/run/01M51X7HV4/3/context', '#/compare/01M51X7HV4/01M51X7HR0', '#/fixes/fx-01M51X6N0C', '#/nowhere']) expect(keepsPageOnSwitch(parseRoute(hash)), hash).toBe(false);
+    for (const hash of ['#/', '#/runs', '#/compare', '#/changes', '#/fixes', '#/tests', '#/training/tasks', '#/settings/redaction', '#/new', '#/setup']) expect(keepsPageOnSwitch(parseRoute(hash)), hash).toBe(true);
+    for (const hash of ['#/run/01M51X7HV4', '#/run/01M51X7HV4/3/context', '#/compare/01M51X7HV4/01M51X7HR0', '#/changes/verdicts/d2e8a1f', '#/fixes/fx-01M51X6N0C', '#/nowhere']) expect(keepsPageOnSwitch(parseRoute(hash)), hash).toBe(false);
   });
 
   it('says what happened, and that nothing was done when a change was refused for it', () => {

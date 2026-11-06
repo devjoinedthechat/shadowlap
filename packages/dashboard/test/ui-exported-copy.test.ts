@@ -127,6 +127,7 @@ describe('an exported copy', () => {
   it('sends any other page to its runs, and Compare too when it holds one run', async () => {
     for (const [runIds, hash] of [
       [[forkId, runId], '#/fixes'],
+      [[forkId, runId], '#/changes'],
       [[forkId, runId], '#/tests'],
       [[forkId, runId], '#/settings/alerts'],
       [[forkId], '#/compare'],

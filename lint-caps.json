@@ -456,7 +456,7 @@
       "trainingView": 168
     },
     "packages/dashboard/ui/api.ts": {
-      "createClient": 177
+      "createClient": 174
     },
     "packages/dashboard/ui/fixes/BlameStep.tsx": {
       "BlameStepView": 193
