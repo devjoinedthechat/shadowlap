@@ -198,6 +198,29 @@ describe('Switch to', () => {
     expect(w.holding).toHaveLength(1);
   });
 
+  it('holds through the page’s reads that fail before the switch lands, as a recording in the project it showed makes them', async () => {
+    let landed: () => void = () => undefined;
+    const w = await open({ holding: (n) => Promise.resolve(n === 1 ? answer(THERE) : answer(null, THERE)), select: () => new Promise((resolve) => (landed = () => resolve({ current: THERE, name: THERE }))) });
+    await page!.until('the In page', () => page!.all('h1').length === 1);
+    await page!.click(page!.one('.ph .actions button'));
+    await page!.until('the switch to be asked', () => w.selected.length === 1);
+    w.failAgain();
+    await page!.wait(20);
+    w.failAgain();
+    await page!.wait(20);
+    expect(page!.one('.page').attributes.get('aria-busy')).toBe('true');
+    expect(page!.one('.ph .actions button').attributes.has('disabled')).toBe(true);
+    expect(w.holding).toHaveLength(1);
+    landed();
+    await page!.until('the switch', () => w.reloads === 1);
+    expect(w.retries).toBe(1);
+    expect(page!.one('.page').attributes.get('aria-busy')).toBe('true');
+    // The page read it there: it draws, never having asked again or said it isn't here.
+    w.found();
+    await page!.until('the page', () => page!.all('h1.drawn').length === 1);
+    expect(w.holding).toHaveLength(1);
+  });
+
   it('asks again once the page it opens can’t find it there either', async () => {
     const w = await open({ holding: (n) => Promise.resolve(n === 1 ? answer(THERE) : answer(null, THERE)) });
     await page!.until('the In page', () => page!.all('h1').length === 1);
