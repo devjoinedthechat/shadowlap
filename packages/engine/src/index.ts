@@ -261,7 +261,8 @@ export type { ChaosResult, ChaosResultData, ChaosSession, ChaosVerdict, NewChaos
 // Each billed job's estimate before it runs, one helper per kind (A15), and Spending, the rule for when a job asks
 // first, kept in this machine's settings: the dashboard's server works them out, its pages and the terminal UI say them.
 export { CUT_SHORT_LINE, liveFrom, liveSums, modelFactor, noEstimate, noPriceWords, pricedCalls, recordEstimate, spentLive, timesWords, type Estimate, type EstimateKind, type ExpectedFigure, type LiveCost, type PriceOptions, type PricedCall, type Prices } from './estimates/estimate.js';
-export { amountWords, askedOverThreshold, askWords, asksFirst, centsWords, costLine, costWords, drawerCost, heldAmount, parseSpending, priceWords, SPENDING_DEFAULT, SPENDING_PICKS, SPENDING_REFUSED, spendingField, spendingUsd, spendingWords, validSpending, type CostShown, type Spending } from './estimates/spending.js';
+export { amountWords, askedOverThreshold, askWords, asksFirst, centsWords, costLine, costWords, drawerCost, heldAmount, priceWords, SPENDING_DEFAULT, spendingUsd, validSpending, type CostShown, type Spending } from './estimates/spending.js';
+export { parseSpending, SPENDING_PICKS, SPENDING_REFUSED, spendingField, spendingWords } from './estimates/spending-row.js';
 export { forkEstimate, plantEstimate, PLANT_REPEAT, repeatEstimate, REPEAT_TIMES, type ForkEstimateChange } from './estimates/fork.js';
 export { BLAME_SCAN, blameBound, blameEstimate, blameRules, blameSteps, probedCalls, probedInScope, type BlameBound, type BlameEstimateOptions, type BlameRule, type BlameRules } from './estimates/blame.js';
 export { keptMaxOf, lastVerify, VERIFY_LIVE, verifyCeiling, verifyEstimate, verifyLimits, verifyMoreEstimate, verifyParts, verifyRunCosts, type LastVerify, type VerifyEstimateOptions, type VerifyLimits, type VerifyRule, type VerifyRunCost } from './estimates/verify.js';

@@ -5,7 +5,8 @@ import { ApiError, type Client, type JobView } from '../ui/api.js';
 import { tipCostLine, type TipEst } from '../ui/components/HoverCard.js';
 import { JobButton, tipEst } from '../ui/components/JobButton.js';
 import { FixJobButton } from '../ui/fixes/FixJobButton.js';
-import { heldTo, loadSpending, pressBilled, resetSpending, saveSpending, sentEstimate, spendingNow, type Priced } from '../ui/spending.js';
+import { heldTo, loadSpending, pressBilled, resetSpending, sentEstimate, spendingNow, type Priced } from '../ui/spending.js';
+import { saveSpending } from '../ui/pages/settings/SpendingRow.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
 

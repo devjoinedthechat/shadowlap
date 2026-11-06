@@ -30,7 +30,8 @@ export function heldTo(): Spending {
   return v === undefined ? 0 : v;
 }
 
-function show(v: Spending | undefined): void {
+/** Shows a threshold to every control that reads it: as the server said it, or as it is being kept. */
+export function showSpending(v: Spending | undefined): void {
   if (v === now) return;
   now = v;
   for (const on of [...listeners]) on();
@@ -58,7 +59,7 @@ export function loadSpending(client: SpendingClient): Promise<void> {
   loading ??= api
     .spending()
     .then(
-      (v) => show(v.askAbove),
+      (v) => showSpending(v.askAbove),
       () => undefined,
     )
     .finally(() => {
@@ -73,22 +74,6 @@ export function watchSpending(client: SpendingClient, win: Pick<Window, 'addEven
   const again = () => void loadSpending(client);
   win.addEventListener('focus', again);
   return () => win.removeEventListener('focus', again);
-}
-
-/** Keeps a threshold, shown at once; answers what it was, for Undo. One the server refuses puts back what showed, and throws why. */
-export async function saveSpending(client: SpendingClient, v: Spending): Promise<Spending> {
-  const api = client?.estimates;
-  if (!api) throw new Error('Spending is kept by the dashboard server, which this page has none of');
-  const before = now;
-  show(v);
-  try {
-    const kept = await api.setSpending(v);
-    show(kept.askAbove);
-    return kept.was;
-  } catch (err) {
-    show(before);
-    throw err;
-  }
 }
 
 /** The estimate a job's start sends, so its drawer says what its card and its ask said: only what the server keeps. */
@@ -132,7 +117,7 @@ export function pressBilled(p: BilledPress): 'started' | 'asked' {
 /** For tests: forget the threshold, as a page that has just opened. */
 export function resetSpending(v?: Spending): void {
   loading = null;
-  show(v);
+  showSpending(v);
 }
 
 let focusAsked = false;
