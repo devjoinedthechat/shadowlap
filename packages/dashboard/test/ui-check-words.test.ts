@@ -14,7 +14,9 @@ import { render, type Rendered } from './ui-render.js';
 /**
  * The run page in the CLI's words: a failed check as `test` prints it, its arguments kept and a
  * tool's fenced calls counted exactly; what came before a fork, never counting a call an override
- * answered as replayed; and the strip's key, which names blocked and stubbed calls apart, as the design does.
+ * answered as replayed; the strip's key, which names blocked and stubbed calls apart, as the design does;
+ * and Calls' words: a blocked tool's result, and the fork's and the lost call's marks, read apart from
+ * the number they stand before.
  */
 
 let page: Rendered | null = null;
@@ -105,16 +107,32 @@ describe('the strip’s key, which filters the calls', () => {
   });
 });
 
+/** Calls as the run page draws it, in plain markup. */
+function callsMarkup(calls: CallRow[], marks: { forkAt?: number; lostAt?: number } = {}): string {
+  const app = { actionsOff: null, conn: 'ok', toast: () => undefined } as unknown as AppState;
+  const table = createElement(CallsTable, { calls, asked: null, selected: 1, scoped: false, forkAt: marks.forkAt ?? null, lostAt: marks.lostAt ?? null, ancestors: [], live: false, canFork: false, onSelect: () => undefined, onFork: () => undefined });
+  return renderToStaticMarkup(createElement(AppContext.Provider, { value: app }, table));
+}
+
+const tool = { kind: 'tool', name: 'issue_refund', effect: 'write', status: null, latencyMs: 2, model: null, stopReason: null, usage: null, cost: null, bytes: null, detail: '{"order":"A-1042"}', attempts: 0, replayedFrom: null, startedAt: 0, endedAt: 2, ttftMs: null, scope: null, resultShort: null, conversation: 1, conversationStart: false, requestedBy: null, toolUseId: null, cacheMiss: null, recordedMs: null, asks: null };
+
 describe('a blocked tool’s result in Calls', () => {
   it('says blocked in the blocked grey’s class, keeping the failure red for a call that failed', () => {
-    const tool = { kind: 'tool', name: 'issue_refund', effect: 'write', status: null, latencyMs: 2, model: null, stopReason: null, usage: null, cost: null, bytes: null, detail: '{"order":"A-1042"}', attempts: 0, replayedFrom: null, startedAt: 0, endedAt: 2, ttftMs: null, scope: null, resultShort: null, conversation: 1, conversationStart: false, requestedBy: null, toolUseId: null, cacheMiss: null, recordedMs: null, asks: null };
     const blocked = { ...tool, callNo: 1, origin: 'blocked', outcome: 'error', error: 'blocked by the fence' } as unknown as CallRow;
     const failed = { ...tool, callNo: 2, origin: 'live', outcome: 'error', error: 'refund API returned 500' } as unknown as CallRow;
-    const app = { actionsOff: null, conn: 'ok', toast: () => undefined } as unknown as AppState;
-    const table = createElement(CallsTable, { calls: [blocked, failed], asked: null, selected: 1, scoped: false, forkAt: null, lostAt: null, ancestors: [], live: false, canFork: false, onSelect: () => undefined, onFork: () => undefined });
-    const html = renderToStaticMarkup(createElement(AppContext.Provider, { value: app }, table));
+    const html = callsMarkup([blocked, failed]);
     expect(html).toContain('<span class="res blk">→ blocked</span>');
     expect(html).toContain('<span class="res err">→ refund API returned 500</span>');
+  });
+});
+
+describe('the fork’s and the lost call’s marks in Calls', () => {
+  it('are words before the call’s number, with a space a screen reader says between them: fork 1, lost 2', () => {
+    const calls = [1, 2].map((callNo) => ({ ...tool, callNo, origin: 'live', outcome: 'ok', error: null }) as unknown as CallRow);
+    const html = callsMarkup(calls, { forkAt: 1, lostAt: 2 });
+    const space = '<span class="srsp"><span class="sr"> </span></span>';
+    expect(html).toContain(`<td class="n"><span class="fk">fork</span>${space}1</td>`);
+    expect(html).toContain(`<td class="n"><span class="fk bl">lost</span>${space}2</td>`);
   });
 });
 
