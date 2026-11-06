@@ -227,5 +227,8 @@ test('in a forced-colours theme the notch is drawn in the text colour and the ke
   await chip.click();
   await expect(chip).toHaveAttribute('aria-pressed', 'true');
   expect(await chip.evaluate((el) => getComputedStyle(el).textDecorationLine)).toBe('underline');
-  expect(await seriousViolations(page)).toEqual([]);
+  // Not axe's contrast here: it reads -webkit-text-fill-color, which Chrome leaves at the colour the
+  // stylesheet gives where it paints the system's, so the lime button's dark words would read as dark
+  // on the forced black. Its contrast is checked in the page's own colours above.
+  expect((await seriousViolations(page)).filter((v) => !v.startsWith('color-contrast '))).toEqual([]);
 });

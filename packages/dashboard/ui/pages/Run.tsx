@@ -90,8 +90,12 @@ function viewTabs(v: View, calls: number, turns: number | undefined) {
   });
 }
 
-/** The views that may hold nothing that takes the focus, which take it themselves, to be scrolled by keyboard. */
-const PANE_VIEWS: readonly View[] = ['timeline', 'turns', 'context'];
+/**
+ * The views that may hold nothing that takes the focus, which take it themselves, to be scrolled by
+ * keyboard. Calls is one: its only stops, the selected call's fork button and the fold marks, go with
+ * a filter that leaves the call out, a run that can't fork, or a scroll that takes its row from the window.
+ */
+const PANE_VIEWS: readonly View[] = ['calls', 'timeline', 'turns', 'context'];
 
 export function RunPage({ id, call, view }: { id: string; call: number | null; view: View | null }) {
   const { client, runsTick, live } = useApp();
@@ -368,9 +372,9 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
                 : `${paging.read.toLocaleString('en-US')} of ${paging.total.toLocaleString('en-US')} calls read so far; the rest are on their way.${text.trim() || scope !== 'all' || v !== 'calls' ? ' What shows is from those read.' : ''}`}
             </div>
           ) : null}
-          {/* Each view starts at its top; Calls centres the selected call. The Timeline, the Turns of a
-              run whose model called no tool and Context hold nothing that takes the focus, so the
-              view takes it itself, to be scrolled by keyboard. */}
+          {/* Each view starts at its top; Calls centres the selected call. Calls, the Timeline, the Turns
+              of a run whose model called no tool and Context may hold nothing that takes the focus, so
+              the view takes it itself, to be scrolled by keyboard. */}
           <div className="vbody" id="vbody" key={v} role="tabpanel" aria-labelledby={`vtab-${v}`} tabIndex={PANE_VIEWS.includes(v) ? 0 : -1}>
             {v === 'calls' ? <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={pickRow} onFork={openForkAt} onNeed={need} tree={tree} folded={folded} onFold={fold} /> : null}
             {v === 'turns' ? <TurnsView calls={scopedCalls} selected={selected} scoped={scoped} onSelect={select} /> : null}
