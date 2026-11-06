@@ -277,7 +277,7 @@ Above the table:
 
 A word of 3 characters or more also searches what runs recorded, as whole words. While the index of what they recorded is behind, the table says so: *Still reading what 3 of 200 runs recorded: more matches may follow.*
 
-`status:` reads each run's verdict as its Status does. Where that takes more than the table can wait for, it says how far it got: *The verdicts of 60 of 200 runs are known so far: runs among the rest may match too.* The table fills in as they are worked out. The days above the table, and Find breaking commit, count the same runs.
+`status:` reads each run's verdict as its Status does. Where that takes more than the table can wait for, it says how far it got: *The verdicts of 60 of 200 runs are known so far: runs among the rest may match too.* The table fills in as they are worked out, a long run's beside the server. A run whose outcome decides it, such as one that diverged or failed its own check, matches at once. The days above the table, and Find breaking commit, count the same runs.
 
 ### Twelve weeks and Find breaking commit
 
@@ -1769,6 +1769,7 @@ The dashboard's limits, in one place:
 | Runs that Search or jump to lists             | The newest 500; any other run by its id                           |
 | Recorded text that Search or jump to finds    | From three characters; up to six matches, two per run             |
 | Recorded text that Runs' filter finds         | Whole words, from three characters                                |
+| Runs that `status:` judges by their checks    | The newest 2,000 it reads; an older one goes by its own outcome   |
 | A row of This week's runs, on the Overview    | Past 60 calls, a cell stands for a range                          |
 | Lines of one kind in Needs a look             | Ten, then one line says how many more there are                   |
 | A lineage in the sidebar                      | Four steps deep                                                   |

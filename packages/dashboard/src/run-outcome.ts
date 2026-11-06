@@ -149,13 +149,13 @@ export function parseWork(work: OutcomeWork | null): ParsedWork | null {
 /** What a run judged with its calls read is kept as, per thread: by what judged it and where its calls stand. */
 const judged = new Map<string, RunJudged | null>();
 /** The most kept, the oldest going first: most are a run no golden of its family judges, kept as null. */
-const KEEP = 5_000;
+export const JUDGED_KEPT = 5_000;
 
 /** What judged a run (its own checks, or the work and a capture's kept rules) and where the run stands. */
 const keyOf = (by: string, r: IndexedRun) => `${by}|${r.runId}|${r.callEvents}|${r.status}|${String(r.endedAt)}`;
 
 function keep(key: string, value: RunJudged | null): RunJudged | null {
-  if (judged.size >= KEEP) judged.delete(judged.keys().next().value!);
+  if (judged.size >= JUDGED_KEPT) judged.delete(judged.keys().next().value!);
   judged.set(key, value);
   return value;
 }

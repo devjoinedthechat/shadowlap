@@ -67,6 +67,17 @@ function byOutcome(o: NonNullable<VerdictRun['outcome']>): RunVerdict | null | u
   return undefined;
 }
 
+/**
+ * Whether what judged a run can change its verdict (`verdictOf`): not while it records, once a later
+ * replay fixed it, or where its outcome has it failed already (diverged, lost, a check that failed),
+ * since `judgedDecides` then only ever agrees. So a list's `status:` needs no call of such a run read.
+ */
+export function judgedCanChange(r: Pick<VerdictRun, 'status' | 'outcome' | 'fixedBy' | 'divergence' | 'test'>): boolean {
+  if (r.status === 'running' || r.fixedBy || divergedAt(r) !== null) return false;
+  const kind = r.outcome?.kind;
+  return kind === undefined || kind === 'none' || kind === 'clean' || kind === 'passed' || kind === 'inconclusive';
+}
+
 /** A run's verdict, as its Status says it (see above); null where it says none. */
 export function verdictOf(r: VerdictRun): RunVerdict | null {
   if (r.status === 'running' || r.outcome?.kind === 'running') return 'live';

@@ -1,7 +1,7 @@
 import type { RunRecord, Store, StoreOf, TestResult } from '@shadowlap/engine';
 import { filterTerms, RECORDED_MIN_CHARS } from './links.js';
 import type { IndexedRun, RunIndex } from './run-index.js';
-import { verdictOf, type RunVerdict, type VerdictJudged } from './run-verdict.js';
+import { judgedCanChange, verdictOf, type RunVerdict, type VerdictJudged } from './run-verdict.js';
 import { recordedRuns, searchBehind } from './search-hits.js';
 
 /**
@@ -94,33 +94,54 @@ export interface TermReads {
   recorded?: (word: string, r: IndexedRun) => boolean;
   /** Once the filter has gone over the runs: how many of the verdicts `status:` asked for are known, while some aren't. */
   warming: () => TermsWarming | null;
+  /** Once the filter has gone over the runs: the newest whose verdict `status:` waits for and whose calls are more than a read judges, to judge beside the server (read-jobs.ts). */
+  judgeAfter: () => string | null;
   /** While the search index is behind on some runs, for words it is asked: how many, of how many. */
   indexing: { runs: number; of: number } | null;
 }
 
 /**
- * Each run's verdict, worked out as the filter reaches it, so newest first: what needs no call read,
- * then a run whose calls fit what is left of `budget`, as the rows are judged (run-outcome.ts
- * `judgedRows`). A run past it is undefined, so it matches no `status:` yet: `warming` counts it, the
- * page says so and asks again, and each read judges more of them, kept on its thread.
+ * The most runs one read of `status:` judges by their checks, newest first, those it judged before
+ * among them: well within what a thread keeps judged (run-outcome.ts `JUDGED_KEPT`) beside the rows
+ * and the runs' pages, so what a walk over the runs judged is still kept when the page asks again.
+ * An older run goes by its own outcome, as Status shows a row nothing judged, and isn't waited for.
  */
-function verdictsAsked(fixed: ReadonlyMap<string, string>, judge: JudgeRun | null, budget: number): Pick<TermReads, 'verdict' | 'warming'> {
+export const STATUS_JUDGED_RUNS = 2_000;
+
+/**
+ * Each run's verdict, worked out as the filter reaches it, so newest first. A run whose outcome
+ * decides it needs nothing judged (`judgedCanChange`); then what needs no call read, then a run whose
+ * calls fit what is left of `budget`, as the rows are judged (run-outcome.ts `judgedRows`). A run past
+ * it is undefined, so it matches no `status:` yet: `warming` counts it, the page says so and asks
+ * again, and each read judges more of them, kept on its thread. One with more calls than `budget` is
+ * judged beside the server once the read is answered (`judgeAfter`), the newest first.
+ */
+function verdictsAsked(fixed: ReadonlyMap<string, string>, judge: JudgeRun | null, budget: number): Pick<TermReads, 'verdict' | 'warming' | 'judgeAfter'> {
   const known = new Map<string, RunVerdict | null | undefined>();
+  const capped = Number.isFinite(budget);
   let left = budget;
   let pending = 0;
-  const verdict = (r: IndexedRun): RunVerdict | null | undefined => {
-    if (known.has(r.runId)) return known.get(r.runId);
-    let judged = judge ? judge(r.runId, true) : null;
+  let reached = 0;
+  let after: string | null = null;
+  const judgedOf = (r: IndexedRun): VerdictJudged | null | undefined => {
+    let judged = judge!(r.runId, true);
     if (judged === undefined && r.calls <= left) {
       left -= r.calls;
       judged = judge!(r.runId, false);
     }
-    const v = judged === undefined ? undefined : verdictOf({ status: r.status, outcome: r.outcome, judged, fixedBy: fixed.get(r.runId) ?? null });
+    if (judged === undefined && r.calls > budget) after ??= r.runId;
+    return judged;
+  };
+  const verdict = (r: IndexedRun): RunVerdict | null | undefined => {
+    if (known.has(r.runId)) return known.get(r.runId);
+    const run = { status: r.status, outcome: r.outcome, fixedBy: fixed.get(r.runId) ?? null };
+    const judged = judge && judgedCanChange(run) && (!capped || ++reached <= STATUS_JUDGED_RUNS) ? judgedOf(r) : null;
+    const v = judged === undefined ? undefined : verdictOf({ ...run, judged });
     if (v === undefined) pending++;
     known.set(r.runId, v);
     return v;
   };
-  return { verdict, warming: () => (pending ? { done: known.size - pending, total: known.size, what: 'verdicts' } : null) };
+  return { verdict, warming: () => (pending ? { done: known.size - pending, total: known.size, what: 'verdicts' } : null), judgeAfter: () => after };
 }
 
 const toolsKept = new WeakMap<object, { key: string; tools: ReadonlyMap<string, readonly string[]> }>();
@@ -161,6 +182,7 @@ export function termReads(store: Store, index: RunIndex, filter: { q?: string; j
     ...(tools ? { tools: (r: IndexedRun) => tools.get(r.runId) ?? [] } : {}),
     ...(behind === null ? {} : { recorded: (w: string, r: IndexedRun) => recordedRuns(store, w, index, String(behind)).has(r.runId) }),
     warming: asked?.warming ?? (() => null),
+    judgeAfter: asked?.judgeAfter ?? (() => null),
     indexing: behind ? { runs: behind, of: index.runs.length } : null,
   };
 }

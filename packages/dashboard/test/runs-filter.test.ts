@@ -1,8 +1,9 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { NO_COMMAND, Store } from '@shadowlap/engine';
-import { loadRunIndex } from '../src/run-index.js';
-import { judgeFor } from '../src/run-outcome.js';
-import { fixedByOf, termReads, type JudgeRun } from '../src/runs-filter.js';
+import { loadRunIndex, type IndexedRun } from '../src/run-index.js';
+import { judgeFor, JUDGED_KEPT } from '../src/run-outcome.js';
+import { judgedCanChange, verdictOf, type VerdictJudged, type VerdictRun } from '../src/run-verdict.js';
+import { fixedByOf, STATUS_JUDGED_RUNS, termReads, type JudgeRun } from '../src/runs-filter.js';
 import { listRunsPage, recentRuns, runsByDay, type RunRow } from '../src/runs-list.js';
 import { addRun, DAY, HOUR } from './read-model-store.js';
 
@@ -126,11 +127,74 @@ describe('the filter’s status:', () => {
     const reads = termReads(store, index, { q: 'status:failed', judge }, 5);
     const runs = index.runs.filter((r) => !r.bundled);
     const matched = runs.filter((r) => reads.verdict!(r) === 'failed').map((r) => r.runId);
-    // 4 calls, then 1: the runs between are past what was left, and match nothing yet.
-    expect(read).toEqual([id.passing, id.still]);
+    // 4 calls: the runs after it are past what was left, and match nothing yet. A diverged run, and
+    // one fixed since, need nothing judged: their outcome decides them.
+    expect(read).toEqual([id.passing]);
     expect(matched).toEqual([id.passing, id.still]);
-    expect(reads.warming()).toEqual({ done: 2, total: runs.length, what: 'verdicts' });
+    expect(reads.warming()).toEqual({ done: 3, total: runs.length, what: 'verdicts' });
+    // None has more calls than a read judges: none waits for a job after the read.
+    expect(reads.judgeAfter()).toBeNull();
     // Without a status: term nothing is judged.
     expect(termReads(store, index, { q: 'refund', judge }, 5).verdict).toBeUndefined();
+  });
+
+  /** A run as the index has it, for what `status:` reads of it. */
+  const indexed = (runId: string, outcome: IndexedRun['outcome'], o: { calls?: number; status?: string } = {}) => ({ runId, status: o.status ?? 'completed', outcome, calls: o.calls ?? 10 }) as unknown as IndexedRun;
+
+  it('judges nothing where the outcome decides the verdict: diverged, lost, a check that failed, still recording', () => {
+    const judge = vi.fn<JudgeRun>(() => undefined);
+    const reads = termReads(store, loadRunIndex(store), { q: 'status:failed', judge }, 5);
+    expect(reads.verdict!(indexed('D', { kind: 'diverged', callNo: 3 }))).toBe('failed');
+    expect(reads.verdict!(indexed('L', { kind: 'lost', callNo: 2 }))).toBe('failed');
+    expect(reads.verdict!(indexed('C', { kind: 'check-failed', check: 'send_email called at most 1 time' }, { calls: 5_010 }))).toBe('failed');
+    expect(reads.verdict!(indexed('E', { kind: 'check-failed', check: null }))).toBe('failed');
+    expect(reads.verdict!(indexed('R', { kind: 'running' }, { status: 'running' }))).toBe('live');
+    expect(judge).not.toHaveBeenCalled();
+    expect(reads.warming()).toBeNull();
+  });
+
+  it('says a judged verdict can change a run’s only where it can, as verdictOf reads them', () => {
+    const judges: VerdictJudged[] = (['own', 'import', 'family'] as const).flatMap((by) => (['passed', 'failed', 'inconclusive', 'not-applicable'] as const).map((verdict) => ({ by, verdict })));
+    const outcomes: Array<VerdictRun['outcome'] | undefined> = [undefined, null, { kind: 'none' }, { kind: 'clean' }, { kind: 'passed', checks: 2 }, { kind: 'inconclusive', check: 'c' }, { kind: 'lost', callNo: 2 }, { kind: 'check-failed', check: 'c' }, { kind: 'check-failed', check: null }, { kind: 'diverged', callNo: 3 }, { kind: 'running' }];
+    for (const outcome of outcomes)
+      for (const status of ['completed', 'failed', 'running', 'interrupted'])
+        for (const fixedBy of [null, 'F']) {
+          const r = { status, fixedBy, ...(outcome === undefined ? {} : { outcome }) };
+          const bare = verdictOf({ ...r, judged: null });
+          expect([outcome, status, fixedBy, judgedCanChange(r)]).toEqual([outcome, status, fixedBy, judges.some((judged) => verdictOf({ ...r, judged }) !== bare)]);
+        }
+  });
+
+  it('hands a run with more calls than a read judges on to a job after the read, and knows it once that job judged it', () => {
+    let judgedAfter = false;
+    const judge: JudgeRun = (runId, quick) => (quick && !(runId === 'BIG' && judgedAfter) ? undefined : { by: 'family', verdict: 'failed' });
+    const big = indexed('BIG', { kind: 'none' }, { calls: 6 });
+    const small = indexed('SMALL', { kind: 'clean' }, { calls: 3 });
+    const first = termReads(store, loadRunIndex(store), { q: 'status:failed', judge }, 5);
+    expect([first.verdict!(big), first.verdict!(small)]).toEqual([undefined, 'failed']);
+    expect(first.judgeAfter()).toBe('BIG');
+    expect(first.warming()).toEqual({ done: 1, total: 2, what: 'verdicts' });
+    judgedAfter = true;
+    const again = termReads(store, loadRunIndex(store), { q: 'status:failed', judge }, 5);
+    expect([again.verdict!(big), again.verdict!(small)]).toEqual(['failed', 'failed']);
+    expect(again.judgeAfter()).toBeNull();
+    expect(again.warming()).toBeNull();
+  });
+
+  it('judges by their checks only the newest runs a thread keeps judged with room to spare, and reads older ones by their own outcome', () => {
+    expect(STATUS_JUDGED_RUNS * 2).toBeLessThanOrEqual(JUDGED_KEPT);
+    const asked: string[] = [];
+    const judge: JudgeRun = (runId, quick) => (quick ? undefined : (asked.push(runId), { by: 'family', verdict: 'failed' }));
+    const runs = Array.from({ length: STATUS_JUDGED_RUNS + 2 }, (_, i) => indexed(`R${i}`, { kind: 'none' }, { calls: 1 }));
+    const reads = termReads(store, loadRunIndex(store), { q: 'status:failed', judge }, 5_000);
+    const verdicts = runs.map((r) => reads.verdict!(r));
+    expect(asked).toHaveLength(STATUS_JUDGED_RUNS);
+    expect(verdicts.slice(0, STATUS_JUDGED_RUNS).every((v) => v === 'failed')).toBe(true);
+    // Past them, a run nothing judged reads as its outcome says, and isn't waited for.
+    expect(verdicts.slice(STATUS_JUDGED_RUNS)).toEqual([null, null]);
+    expect(reads.warming()).toBeNull();
+    // A read with no budget, which judges whole, judges them all.
+    const whole = termReads(store, loadRunIndex(store), { q: 'status:failed', judge }, Infinity);
+    expect(runs.every((r) => whole.verdict!(r) === 'failed')).toBe(true);
   });
 });

@@ -144,6 +144,8 @@ export interface RunsPage {
   warming?: { done: number; total: number; what?: TermsWarming['what'] };
   /** While the search index is behind for the filter's words: the runs it has yet to cover, of how many. Matches among them may follow. */
   indexing?: { runs: number; of: number };
+  /** A run whose verdict `status:` waits for and has more calls than a read judges (runs-filter.ts `judgeAfter`): the read job judges it once this is answered, and never sends it. */
+  judgeAfter?: string;
 }
 
 interface Matcher {
@@ -384,7 +386,14 @@ export function listRunsPage(store: Store, options: RunsPageOptions = {}): RunsP
     chipCounts: chipCounts(all, m.scope, options.localRuns ?? null, m.failed),
     ...(warming ? { warming } : {}),
     ...(f.terms.indexing ? { indexing: f.terms.indexing } : {}),
+    ...judgeAfterOf(f),
   };
+}
+
+/** The run a read's `status:` hands on to be judged once it is answered, if any (`RunsPage.judgeAfter`). */
+function judgeAfterOf(f: ReturnType<typeof filterReads>): Pick<RunsPage, 'judgeAfter'> {
+  const runId = f.terms.judgeAfter();
+  return runId ? { judgeAfter: runId } : {};
 }
 
 /**
@@ -561,6 +570,8 @@ export interface RunsByDay {
   warming?: RunsPage['warming'];
   /** While the search index is behind for the filter's words (`RunsPage.indexing`). */
   indexing?: { runs: number; of: number };
+  /** A run whose verdict `status:` waits for, judged once this is answered (`RunsPage.judgeAfter`). */
+  judgeAfter?: string;
 }
 
 /** Runs per day for the calendar above the table, in the viewer's days. Throws a RangeError for an unknown time zone. */
@@ -600,7 +611,7 @@ export function runsByDay(store: Store, options: RunsByDayOptions = {}): RunsByD
     if (d.runs && (!busiest || d.runs > busiest.runs)) busiest = { day: d.day, runs: d.runs };
   }
   const warming = filterWarming(f);
-  return { tz, weeks, today: today.key, from: days[0]!.start, to: today.end, days: out, thresholds, totals: { ...totals, busiest }, ...(warming ? { warming } : {}), ...(f.terms.indexing ? { indexing: f.terms.indexing } : {}) };
+  return { tz, weeks, today: today.key, from: days[0]!.start, to: today.end, days: out, thresholds, totals: { ...totals, busiest }, ...(warming ? { warming } : {}), ...(f.terms.indexing ? { indexing: f.terms.indexing } : {}), ...judgeAfterOf(f) };
 }
 
 // ---- counts and bulk actions ----

@@ -143,6 +143,9 @@ function eitherMissing(store: Store, a: string, b: string): ReadAnswer | null {
 /** For a long run answered from a part of its calls: its whole analysis (and its outcome by checks), beside the server once this is answered, for the page to ask again. */
 const analyseAfter = (runId: string, outcome?: OutcomeWork | null): Pick<ReadAnswer, 'then'> => ({ then: { kind: 'analyse', runId, ...(outcome ? { outcome } : {}) } });
 
+/** For a run whose verdict a list's `status:` waits for and whose calls are more than a read judges: judged beside the server once this is answered, kept on this thread for the page's next ask. */
+const judgeAfter = (runId: string | undefined, outcome: OutcomeWork | null): Pick<ReadAnswer, 'then'> => (runId ? { then: { kind: 'outcome', runId, work: outcome } } : {});
+
 /** What git said about the code between two revisions, kept for a minute per pair: one per thread. */
 const code = codeChangeCache();
 
@@ -173,7 +176,7 @@ async function summary(store: Store, w: SummaryWork, whole: boolean): Promise<Re
 function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns' | 'judge'>, team: TeamStoreInput | null, whole: boolean, outcome: OutcomeWork | null, next: NextStepWork | null): ReadAnswer {
   const key = teamKey(store, team);
   // `status:` judges the runs it reaches by the same work as the rows.
-  const page = listRunsPage(store, { ...options, known: !whole, localRuns: key ? localRunSet(store, key) : null, judge: judgeFor(store, outcome) });
+  const { judgeAfter: later, ...page } = listRunsPage(store, { ...options, known: !whole, localRuns: key ? localRunSet(store, key) : null, judge: judgeFor(store, outcome) });
   // With a team store, each row says whether it, or an attempt bundled under it, is only here: the
   // `local` tag, and what Push in the bulk bar sends.
   let runs: RunsPageRow[] = page.runs;
@@ -187,7 +190,7 @@ function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns' | 'ju
     });
   }
   // Each row's outcome by checks, those that read calls within the rows' budget, each check with it for Status's hover, a test replay's exit code (run-outcome.ts), and its next step (next-step.ts).
-  return answer({ ...page, runs: nextStepRows(store, withExitCodes(store, judgedRows(store, runs, outcome, whole ? Infinity : ROW_CALLS_BUDGET, { checks: true })), next) }, { tagged: true });
+  return { ...answer({ ...page, runs: nextStepRows(store, withExitCodes(store, judgedRows(store, runs, outcome, whole ? Infinity : ROW_CALLS_BUDGET, { checks: true })), next) }, { tagged: true }), ...judgeAfter(later, outcome) };
 }
 
 /** A fix's page, with what the server's thread found in the working tree: patches in it already, and pulled ones `fix apply` refuses there. */
@@ -275,7 +278,8 @@ const CORE_READS: ReadTable<CoreJob> = {
   'runs-page': (store, job, { whole }) => runsPage(store, job.options, job.team, whole, job.outcome ?? null, job.next ?? null),
   'runs-days': (store, job, { whole }) => {
     const key = job.options.types?.includes('local') ? teamKey(store, job.team) : null;
-    return answer(runsByDay(store, { ...job.options, known: !whole, localRuns: key ? localRunSet(store, key) : null, judge: judgeFor(store, job.outcome ?? null) }), { tagged: true });
+    const { judgeAfter: later, ...days } = runsByDay(store, { ...job.options, known: !whole, localRuns: key ? localRunSet(store, key) : null, judge: judgeFor(store, job.outcome ?? null) });
+    return { ...answer(days, { tagged: true }), ...judgeAfter(later, job.outcome ?? null) };
   },
   recent: (store, job, { whole }) => {
     // The rows' totals as far as they are known: the sidebar asks again while some are warming.
