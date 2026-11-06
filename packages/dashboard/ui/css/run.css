@@ -479,7 +479,6 @@ table.ctab tr.miss td { color: var(--warn); }
   .insp .tabs::-webkit-scrollbar { display: none; }
   .insp .tabs button { flex: none; padding-left: 6px; padding-right: 6px; }
   .insp .tabs [aria-selected="true"]::after { left: 6px; right: 6px; bottom: 0; }
-  .insp .tabs button:focus-visible { outline-offset: -2px; }
 }
 /* A scope gives its room to the call's name past 140px; its hover has all of it. */
 table.calls .scopecell code { display: inline-block; max-width: 140px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
