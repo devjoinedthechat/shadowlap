@@ -20,7 +20,8 @@ import { SETUP_INTRO } from '../../src/setup-words.js';
 import { NotFoundPage } from './NotFound.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { tipEst } from '../spending.js';
-import { keepAsk, startTestsJob } from '../tests-ask.js';
+import { startTestsJob, type TestsAsk } from '../tests-ask.js';
+import { commandText } from '../goldens.js';
 
 /**
  * Setting a project up (#/setup, and in place of the pages of a project with no runs, or of the
@@ -97,6 +98,16 @@ function SetupStep({ n, state, title, cli, children }: { n: number; state: Inspe
       </div>
     </li>
   );
+}
+
+/**
+ * Keep it as a test's question, where the golden's tests entry runs it live: Pack as a golden (it
+ * packs the run, then tests it) or, once it is packed, Run the test, titled by the step's button.
+ * The shell asks it, as it asks a Tests session's; this page's chunk holds its words.
+ */
+export function keepAsk(label: string | undefined, golden: string, packs: boolean): TestsAsk {
+  const title = label ?? (packs ? 'Pack as a golden' : 'Run the test');
+  return { title, lead: packs ? `Packs the run as ${golden}, then runs its test.` : `Runs the test of ${golden}.`, doc: 'goldensThatFork', ok: title, commands: [commandText(['test', golden])], parts: ['only what runs live'] };
 }
 
 /** `asked`: opened at #/setup, rather than shown in place of a page; a project with nothing to set up says so there. */

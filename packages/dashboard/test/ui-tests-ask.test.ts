@@ -11,7 +11,8 @@ import { Banner } from '../ui/run/parts.js';
 import { Palette } from '../ui/shell/Palette.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { resetSpending, sentEstimate } from '../ui/spending.js';
-import { keepAsk, moreAttemptsAsk, rerunAsk, startTestsJob, testsQuestion } from '../ui/tests-ask.js';
+import { moreAttemptsAsk, rerunAsk, startTestsJob, testsQuestion } from '../ui/tests-ask.js';
+import { keepAsk } from '../ui/pages/Setup.js';
 import type { RunDetail, RunOffers } from '../ui/types.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 

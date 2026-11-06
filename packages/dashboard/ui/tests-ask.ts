@@ -214,15 +214,6 @@ function normalizerAsk(name: string, steps: readonly (readonly string[])[] | nul
   };
 }
 
-/**
- * Setup's Keep it as a test, where the golden's tests entry runs it live: Pack as a golden (it packs
- * the run, then tests it) or, once it is packed, Run the test, titled by the step's button.
- */
-export function keepAsk(label: string | undefined, golden: string, packs: boolean): TestsAsk {
-  const title = label ?? (packs ? 'Pack as a golden' : 'Run the test');
-  return { title, lead: packs ? `Packs the run as ${golden}, then runs its test.` : `Runs the test of ${golden}.`, doc: 'goldensThatFork', ok: title, commands: [commandText(['test', golden])], parts: ['only what runs live'] };
-}
-
 /** Re-run on a golden that diverged, from Tests or a test replay's next step: its test again, live from where it forks. */
 export function rerunAsk(name: string, golden: string): TestsAsk {
   return { title: `Re-run ${name}`, lead: `Replays ${name} again, live from where it forks.`, doc: 'goldensThatFork', ok: 'Re-run', commands: [commandText(['test', golden])], parts: ['only what runs live'] };
