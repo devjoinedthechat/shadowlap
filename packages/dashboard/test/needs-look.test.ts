@@ -117,7 +117,7 @@ describe('Needs a look: a model the goldens use that retires', () => {
 describe('Needs a look: one cause, one row', () => {
   const GOLDEN = 'goldens/refund-in-limit';
   // A value made anew on every run: its replay diverged on it, so the golden needs a normalizer, not the fix.
-  const UUID_CHANGE = { path: '$.metadata.user_id', op: 'changed', before: '3f1c9a2e-5b7d-4e21-9c0a-8d6f2b1e7a43', after: 'b84e07d1-2c9f-4a63-8e15-6f0d3a9c2b78' };
+  const UUID_CHANGE = { path: '$.metadata.user_id', op: 'changed' as const, before: '3f1c9a2e-5b7d-4e21-9c0a-8d6f2b1e7a43', after: 'b84e07d1-2c9f-4a63-8e15-6f0d3a9c2b78' };
 
   /** The golden's test replay, failed as `failure` says, in a session of its own. */
   const tested = (store: Store, rec: string, failure: 'exit' | 'diverged', at: number) => {
