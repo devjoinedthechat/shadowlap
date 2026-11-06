@@ -412,6 +412,7 @@ describe('what settles a fix left unsettled', () => {
     // No estimate read, so it asks first, with what it runs.
     await r!.click(more);
     expect(text(r!.one('.dialog h3'))).toBe('Run more attempts');
+    expect(text(r!.one('.dialog header'))).toContain(`Verifies the change again from the first attempt: the ${report.attempts} so far don’t carry over.`);
     expect(started).toEqual([]);
     await r!.click(r!.one('.dialog .dlg-ok'));
     expect(started).toEqual([['verify', { fixId: fix.fixId, verifyId: verdict.verifyId }]]);
@@ -428,6 +429,19 @@ describe('what settles a fix left unsettled', () => {
     // On the Blame step, the fix's own lead is back.
     await open(fix.fixId, 'blame');
     expect(r!.byText('.ph .actions button', 'Run repair').className).toBe('btn lime');
+  });
+
+  it('asks Verify again of a verdict an attempt that couldn’t be judged stopped, in its own words', async () => {
+    const run = newRun({ labels: ['double-email'] });
+    const { fix } = blame(run);
+    const report = verifyReport([{ runId: run, role: 'target', pass: true }]);
+    report.runs[0] = { ...report.runs[0], verdict: 'open', decision: 'continue', undecided: 'judge "sent-once" could not answer: no key for anthropic' };
+    Object.assign(report, decideVerify(report.runs, null), { gate: { kind: 'sprt' as const, good: 0.9, bad: 0.7, risk: 0.05, max: 80 }, stopReason: null, attemptsPerRun: 80 });
+    recordVerdict(store, { report, expect: EXPECT, command: `shadowlap verify --fixes label:double-email --expect '${JSON.stringify(EXPECT)}'`, rerun: { flags: [], command: null }, at: NOW + 1 });
+    await open(fix.fixId, 'verify');
+    await r!.click(r!.byText('.verdict .actions button', 'Verify again'));
+    expect(text(r!.one('.dialog h3'))).toBe('Verify again');
+    expect(text(r!.one('.dialog header'))).toContain('Verifies the same runs again from the first attempt, once the judge answers.');
   });
 
   it('leads with Run blame again a blame that couldn’t settle, and asks for the model a stronger blame asks', async () => {
