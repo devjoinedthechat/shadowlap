@@ -254,10 +254,10 @@ table.t th.num, table.calls th.num, table.calls th.n { font: 500 10px var(--mono
 /* A blocked mark that may be narrower than the hatch can draw (a mini strip's cells, a binned range, the Overview's
    grid on a phone, a share of a bar, a timeline bar) is the hatch's tone as a solid under 6px; a failed one is its tint
    ringed in the one red from 6px, the tint alone below. */
-:is(.ms i, .gs i, .segbar i):is(.block, .fail) { position: relative; }
-:is(.cells button, .ms i, .gs i, .segbar i, .tl-row .bar):is(.block, .fail) { container-type: inline-size; }
-@container (max-width: 5.99px) { :is(.cells button, .ms i, .gs i, .segbar i, .tl-row .bar).block::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--o-block-solid); } }
-@container (min-width: 6px) { :is(.cells button, .ms i, .gs i, .segbar i, .tl-row .bar).fail::before { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1.5px var(--o-fail); } }
+:is(.ms i, .segbar i):is(.block, .fail) { position: relative; }
+:is(.cells button, .ms i, .segbar i, .tl-row .bar):is(.block, .fail) { container-type: inline-size; }
+@container (max-width: 5.99px) { :is(.cells button, .ms i, .segbar i, .tl-row .bar).block::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--o-block-solid); } }
+@container (min-width: 6px) { :is(.cells button, .ms i, .segbar i, .tl-row .bar).fail::before { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1.5px var(--o-fail); } }
 
 .muted { color: var(--faint); font-size: 12.5px; }
 p.muted { margin: 0 0 12px; }

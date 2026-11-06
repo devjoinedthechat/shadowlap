@@ -1,7 +1,7 @@
 import { memo, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react';
 import { ktok } from '../format.js';
 import { ORIGIN_COLOR, ORIGIN_NAME, ORIGINS, type Origin7 } from '../origins.js';
-import { gridCells, miniCells, moveCell, stripCells, stripTabStop, type StripItem } from '../strip.js';
+import { miniCells, moveCell, stripCells, stripTabStop, type StripItem } from '../strip.js';
 import { tipCard, type TipRow } from './HoverCard.js';
 
 /**
@@ -103,14 +103,3 @@ export function MiniStrip({ origins, max = 60, className = 'ms', said }: { origi
   );
 }
 
-/** A row of the Overview's grid: a family shares one scale, so a fork's replayed prefix lines up under its parent. */
-export function GridStrip({ origins, scale, forkAt = null, live = false }: { origins: readonly Origin7[]; scale: number; forkAt?: number | null; live?: boolean }) {
-  const cells = useMemo(() => gridCells(origins, scale, forkAt), [origins, scale, forkAt]);
-  return (
-    <span className="gs" style={{ gridTemplateColumns: `repeat(${Math.max(1, cells.length)}, minmax(0, 1fr))` }} aria-hidden="true">
-      {cells.map((c, i) => (
-        <i key={i} className={[c.origin ?? (live ? 'pend' : ''), c.fork ? 'fk' : ''].filter(Boolean).join(' ') || undefined} />
-      ))}
-    </span>
-  );
-}

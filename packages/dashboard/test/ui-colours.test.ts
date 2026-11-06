@@ -89,7 +89,7 @@ describe('the colour tokens', () => {
 
 describe('where a call’s answer came from', () => {
   /** Every cell, bar and swatch an origin is drawn in. */
-  const MARKS = ['.cells button', '.ms i', '.gs i', '.segbar i', '.oleg i', '.tl-row .bar', '.legend i.lg', '.org'];
+  const MARKS = ['.cells button', '.ms i', '.segbar i', '.oleg i', '.tl-row .bar', '.legend i.lg', '.org'];
   const mark = (m: string, o: string) => (m === '.org' ? '.org.' + o + ' i' : `${m}.${o}`);
 
   it('draws a blocked write as a neutral hatch, fenced by its outline where a mark is big enough to show one', () => {
@@ -410,9 +410,6 @@ describe('grounds, tints and lines', () => {
   };
   /** Tints the design drops with the part they draw, each with the slice that does. */
   const UNTIL: Record<string, string> = {
-    '.dp': 'port/overview: the delta pills go with the KPI tiles',
-    '.dp.good': 'port/overview: the delta pills go with the KPI tiles',
-    '.fstep .fb': 'port/overview: a fix step’s share goes with the Overview’s Fixes card',
     '.changes div.diff': 'port/compare: what changed is one quiet line, in place of Compare’s tiles',
   };
 
@@ -440,7 +437,7 @@ describe('forced colours', () => {
   }
 
   it('keeps the colour of every mark that says something by its colour alone, edged so it shows on any ground', () => {
-    const marks = ['.cells button', '.ms', '.gs', '.segbar', '.org i', '.legend i', '.pips i', '.st i', '.dotlive', '.oleg i', '.grp i', 'td.hist i', '.cal .cd:not(.fut)', '.callrow .cn', '.wib', '.attempts span i', '.alist > .al > i', '.astrip .ac', '.tl-row .bar', '.prl i', '.cilist li i'];
+    const marks = ['.cells button', '.ms', '.segbar', '.org i', '.legend i', '.pips i', '.st i', '.dotlive', '.oleg i', '.grp i', 'td.hist i', '.cal .cd:not(.fut)', '.callrow .cn', '.wib', '.attempts span i', '.alist > .al > i', '.astrip .ac', '.tl-row .bar', '.prl i', '.cilist li i'];
     for (const s of marks) expect(forced.get(s)?.get('forced-color-adjust'), s).toBe('none');
   });
 

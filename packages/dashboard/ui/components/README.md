@@ -15,7 +15,7 @@ that comes from data goes there, everything else is a class.
 Every page speaks the run page's language: it opens quietly, with a muted kind, its title and its
 facts, and lays its parts out as full-width sections between hairlines. These are its parts, built
 once; a page draws them and never its own. Pages move onto them one by one: `Badge`, `Tag`, `Kpi`,
-`DeltaPill`, `CmdLine`, `CommandLine`, `CodeBlock` and `CopyButton` below stay until the last page
+`CmdLine`, `CommandLine`, `CodeBlock` and `CopyButton` below stay until the last page
 that draws one has.
 
 | Component | File | Use it for |
@@ -92,7 +92,6 @@ project in the job, so a server switched since refuses it.
 |---|---|---|
 | `Strip` | `Strip.tsx` | A run's calls by origin; past 360 calls a cell stands for a range and takes its most notable origin, and hovering it counts each origin. Flags the fork and the lost call; a live run grows a pending cell. |
 | `MiniStrip` | `Strip.tsx` | The small strip in tables (`.ms`), grouped past 60 cells. |
-| `GridStrip` | `Strip.tsx` | A row of a family on one scale (`.gs`), for the Overview's grid. |
 | `RunIcon`, `EventIcon`, `Glyph` | `RunIcon.tsx` | One set of icons, each with its words on hover: recording now (pulsing), recording, failed, replay, fork, capture, test, and for events Fixes, project, settings and training. |
 | `Icon`, `Sprite`, `Brand`, `Tile` | `Icon.tsx` | The icon sprite (drawn once by the app) and the logo. |
 | `Org`, `Legend` | `bits.tsx` | An origin's colour and word; a legend of the origins present. |
@@ -101,7 +100,7 @@ project in the job, so a server switched since refuses it.
 | `Tabs` | `Tabs.tsx` | Underlined tabs with counts, as the pattern has them: one Tab stop, ← → round the ends, Home and End, a count read apart. `idPrefix` and `panelId` tie them to their `tabpanel`; each tab takes a card (`tip`) and a key (`mark`, `shortcut(id)`). Pages switched with links stay `nav.stabs`. |
 | `shortcut(id)` | `../shortcuts.ts` | What a control spreads to say its key: `aria-keyshortcuts`, which its hover card reads, and `data-shortcut`, by which the key finds it. Gone while single keys are off. Every key is in that one table, which the shortcuts sheet draws. |
 | `useListKeys` | `../list-keys.ts` | One hook for every list: hand it the rows as data, `keyOf`, `root`, `open`, and `pick`, `actions` or `show` where they apply; spread `data-rowkey` on each row and draw the one it returns `.krow`. j and k, ↓ ↑, Enter, x, ⌘K and Esc follow, a page's lists as one sequence. |
-| `Kpi`, `DeltaPill` | `bits.tsx` | A number with its label and a line, with its change against last week, until the Overview's facts are its header's. |
+| `Kpi` | `bits.tsx` | A number with its label and a line, as Training draws its scores. |
 | `CmdLine`, `CommandLine`, `CodeBlock`, `CopyButton` | `bits.tsx` | A shell command; one long enough to wrap, which breaks only between its words (`shellWords` in `format.ts`); a file with Copy in its header; copy and say so (`CodeBox.tsx`'s, the one copy button, its icon alone where `name` names it). Each page moves its boxes to `CodeBox` as it ports. |
 | `SortTh`, `ShowMore`, `rowOpen` | `Table.tsx` | A sorting header for `table.t`, "Show 50 more", and what a row spreads to open a page unless a control inside it was clicked. |
 | `JsonTree` | `Json.tsx` | A JSON value as a folding tree that draws a branch only when it is opened. |
@@ -152,7 +151,7 @@ page and asks there (`page-ask.ts`; Apply fix asks by the fix's id). A source ru
 with what it has and calls `paletteSourcesChanged()` when more arrives, and an open palette reads
 its sources again. Pages a later version fills in each have their own file under `pages/`.
 
-The Overview's panels are in `overview/` (`panels.tsx`, with what they say in `overview/model.ts`),
+The Overview's sections are in `overview/` (`panels.tsx` and `Usage.tsx`, with what they say in `overview/model.ts`),
 and the Runs page's parts in `runspage/`: the header's actions (`RunsActions.tsx`: Pull, Import
 capture… and Push local runs while runs are only here), the filter field (`FilterField.tsx`: its
 terms on hover, how many runs match, `onCommit` for Enter), the row of days (`DaysRow.tsx`, a bar a
