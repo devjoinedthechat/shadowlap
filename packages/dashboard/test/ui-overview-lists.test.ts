@@ -133,6 +133,28 @@ describe('Needs a look', () => {
     }
   });
 
+  describe('Find breaking commit…', () => {
+    const bisect: NeedsLookRow = { kind: 'test', icon: 'fail', title: 'A golden failed: refund-in-limit', name: 'refund-in-limit', detail: 'exited with code 1', key: 'attn:failed:goldens/refund-in-limit', group: 'failing', step: { of: 'run', runId: run, step: { key: 'bisect', label: 'Find breaking commit…', starts: false } as never }, href: '#/tests', runId: run, fixId: null, at: 3 };
+
+    it('asks for the commit to start from in its dialog where the run offers no range, as the run’s page does', async () => {
+      const client = { jobs: async () => [], nextStep: async () => ({ next: null }), offers: async () => ({ bisect: null }) };
+      r = await render(within(running(client), createElement(NeedsLook, { items: [bisect], total: 1 })));
+      await r.click(r.one('.arow .ast .btn'));
+      await r.until('its dialog', () => r!.all('[role="dialog"]').length === 1);
+      expect(r.one('[role="dialog"]').textContent).toContain('Find breaking commit');
+    });
+
+    it('says why where the run’s offers can’t be read, and asks nothing', async () => {
+      const toast = vi.fn();
+      const client = { jobs: async () => [], nextStep: async () => ({ next: null }), offers: async () => Promise.reject(new Error('the server is gone')) };
+      r = await render(within({ ...running(client), toast }, createElement(NeedsLook, { items: [bisect], total: 1 })));
+      await r.click(r.one('.arow .ast .btn'));
+      await r.until('the toast', () => toast.mock.calls.length === 1);
+      expect(toast).toHaveBeenCalledWith('The server is gone', 'error');
+      expect(r.all('[role="dialog"]')).toEqual([]);
+    });
+  });
+
   it('shows a row for each failing golden one fix holds, all of them, with no two keys alike', async () => {
     // One regression failed three goldens on the same check, and blame joined their runs into one fix.
     const fixId = 'fx-01M5H2DV7NHAEH1GM5ARZXX3BG';

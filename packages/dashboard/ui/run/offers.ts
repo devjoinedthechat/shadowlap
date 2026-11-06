@@ -159,6 +159,9 @@ function bisectLine(b: BisectFrom, good: string): string {
 }
 
 /** Find breaking commit's command for its hover card, before its dialog asks for a commit: from the one the server knows, else `<commit>`. */
+/** A Find breaking commit with nothing known about the run's revisions: the dialog asks for a commit, on the run's page and from Needs a look. */
+export const unknownBisect = (runId: string): BisectOffer => ({ target: { kind: 'run', runId }, failed: true, good: null, bad: null, revisions: [], fork: false, live: false, unavailable: null, args: null });
+
 export const bisectCardCommand = (offer: BisectOffer): string => `$ ${bisectLine(offer, offer.good ?? '<commit>')}`;
 
 /**

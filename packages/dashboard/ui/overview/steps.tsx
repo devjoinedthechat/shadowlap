@@ -14,10 +14,8 @@ import { goldenName } from '../format.js';
 import { testsBusy } from '../goldens.js';
 import { ACTIONS, PUSH_LOCAL } from '../labels.js';
 import { moreCard } from '../pages/tests-cards.js';
-import { href } from '../route.js';
-import { navigate } from '../router.js';
 import { stepCard, stepJob } from '../run/next-step.js';
-import { blameTitle } from '../run/offers.js';
+import { blameTitle, unknownBisect } from '../run/offers.js';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import { sentEstimate, tipEst } from '../spending.js';
 import { useApp } from '../state.js';
@@ -358,17 +356,20 @@ function RunStep({ s, why }: { s: Extract<LookStep, { of: 'run' }>; why: string 
     const starts = step.starts;
     const bisect = (good: string | null, sent: Record<string, unknown>) => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.bisect, { runId, good, ...sent })));
     go = (p) =>
-      void app.client.offers(runId).then((offers) => {
-        const b = offers?.bisect;
-        if (!b) return navigate(href.run(runId));
-        const ask = () =>
-          show(async (close) => {
-            const m = await import('../run/RunDialogs.js');
-            return <m.BisectDialog runId={runId} offer={b} onClose={close} onRun={bisect} />;
-          });
-        if (starts && b.good && !b.unavailable) press({ estimate: p, start: (sent) => void bisect(b.good, sent), ask });
-        else ask();
-      });
+      void app.client.offers(runId).then(
+        (offers) => {
+          // With no offer, as on the run's page: its dialog asks for the commit to start from.
+          const b = offers?.bisect ?? unknownBisect(runId);
+          const ask = () =>
+            show(async (close) => {
+              const m = await import('../run/RunDialogs.js');
+              return <m.BisectDialog runId={runId} offer={b} onClose={close} onRun={bisect} />;
+            });
+          if (starts && b.good && !b.unavailable) press({ estimate: p, start: (sent) => void bisect(b.good, sent), ask });
+          else ask();
+        },
+        (err: unknown) => app.toast(errorText(err), 'error'),
+      );
     return (
       <>
         <ActionButton className="btn sm" why={why} {...card} est={tipEst(e, !starts)} {...priced.on} onClick={() => app.guard(priced.when(go))}>
