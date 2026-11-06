@@ -361,7 +361,8 @@ describe('the blame job', () => {
   it('blames a failed run with the check given, as JSON or its text, or the exit code alone', async () => {
     const run = makeRun(store, {});
     await start();
-    await started({ kind: 'blame', runId: run.slice(0, 10), expect: { tools: { send_email: 1 } } });
+    // A run's own blame has no fix yet: the Fixes list says no step of any fix is running.
+    expect((await started({ kind: 'blame', runId: run.slice(0, 10), expect: { tools: { send_email: 1 } } })).fixId).toBeUndefined();
     await started({ kind: 'blame', runId: run, expect: '{"tools":{"send_email":0}}' });
     await started({ kind: 'blame', runId: run, expect: null });
     expect(spawned).toEqual([
@@ -540,7 +541,8 @@ describe('the repair job', () => {
     const { fix } = blame(run, { expect: { tools: { send_email: 1 } } });
     await start();
     const j = await started({ kind: 'repair', fixId: fix.fixId.slice(0, 13) });
-    expect(j.title).toBe('Repairing');
+    // The fix it acts on, whole, so its row on Fixes says repairing…
+    expect(j).toMatchObject({ title: 'Repairing', fixId: fix.fixId });
     expect(spawned.at(-1)).toEqual(['repair', '--fixes', 'label:double-email', '--keeps', 'label:good', '--expect', '{"tools":{"send_email":1}}', '--repairer', 'claude-code']);
     expect(good).toBeTruthy();
     await api(`jobs/${j.id}/stop`, { method: 'POST' });
@@ -718,7 +720,7 @@ describe('the apply job', () => {
     const { fixId } = story();
     await start();
     const j = await started({ kind: 'apply', fixId });
-    expect(j.title).toBe('Applying fix');
+    expect(j).toMatchObject({ title: 'Applying fix', fixId });
     expect(spawned.at(-1)).toEqual(['fix', 'apply', fixId]);
     await finished(j);
     markFixApplied(store, fixId, { patch: 'applied', repairId: 'repair-munzln2i', goldens: [], tests: 'skipped', by: 'dana', via: 'fix apply' });
@@ -845,7 +847,7 @@ describe('what settles an unsettled fix', () => {
     Object.assign(report, decideVerify(report.runs, 'the budget of $0.01 is spent'), { gate, stopReason: 'the budget of $0.01 is spent', attemptsPerRun: 80, fields: { temperature: 1 } });
     const { verdict } = recordVerdict(store, { report, expect: { tools: { send_email: 1 } }, command: `shadowlap verify --fixes label:double-email --expect '{"tools":{"send_email":1}}' --set temperature=1 --budget 0.012`, rerun: { flags: ['--budget', '0.012'], command: null } });
     await start();
-    await started({ kind: 'verify', fixId: fix.fixId, verifyId: verdict.verifyId });
+    expect((await started({ kind: 'verify', fixId: fix.fixId, verifyId: verdict.verifyId })).fixId).toBe(fix.fixId);
     expect(spawned.at(-1)).toEqual(['verify', '--fixes', failing, '--expect', '{"tools":{"send_email":1}}', '--set', 'temperature=1']);
     expect((await job({ kind: 'verify', fixId, verifyId: settled })).status).toBe(409);
     expect((await job({ kind: 'verify', fixId: fix.fixId, verifyId: 'vf-nope' })).status).toBe(404);
@@ -861,10 +863,10 @@ describe('what settles an unsettled fix', () => {
     const plain = makeRun(store, { labels: ['digest'] });
     const { fix: other } = recordBlame(store, { runId: plain, report: blameReport(plain, 'unrescuable'), expect: EXPECT, scope: null, command: `shadowlap blame ${plain.slice(0, 10)}`, rerun: { flags: [], command: null }, title: 'digest', checkText: 'exits 0' });
     await start();
-    expect((await started({ kind: 'blame', fixId: fix.fixId, again: true })).title).toBe('Blaming again');
+    expect(await started({ kind: 'blame', fixId: fix.fixId, again: true })).toMatchObject({ title: 'Blaming again', fixId: fix.fixId });
     expect(spawned.at(-1)).toEqual(['blame', run, '--expect', JSON.stringify(EXPECT), '--gate', '{"good":0.4,"max":40}']);
     // Titled by the action's name: the model is in the command it runs.
-    expect((await started({ kind: 'blame', fixId: other.fixId, model: 'claude-opus-5-5' })).title).toBe('Blaming with stronger model');
+    expect(await started({ kind: 'blame', fixId: other.fixId, model: 'claude-opus-5-5' })).toMatchObject({ title: 'Blaming with stronger model', fixId: other.fixId });
     expect(spawned.at(-1)).toEqual(['blame', plain, '--expect', JSON.stringify(EXPECT), '--attempts', '5', '--passes', '2', '--model', 'claude-opus-5-5']);
     expect((await job({ kind: 'blame', fixId: other.fixId, model: '--writes=allow' })).status).toBe(400);
     expect((await job({ kind: 'blame', fixId: other.fixId, again: true })).status).toBe(409);
