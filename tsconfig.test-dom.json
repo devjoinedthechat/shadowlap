@@ -37,6 +37,7 @@
     "packages/dashboard/test/ui-tests-page.test.ts",
     "packages/dashboard/test/ui-tests-ask.test.ts",
     "packages/dashboard/test/ui-job-button.test.ts",
+    "packages/dashboard/test/ui-fork-spending.test.ts",
     "packages/dashboard/test/ui-training-page.test.ts",
     "packages/dashboard/test/ui-job-stop.test.ts",
     "packages/dashboard/test/ui-dock.test.ts",

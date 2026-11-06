@@ -178,7 +178,8 @@ export interface Client {
    * `yes`: the command of a run from someone else's pack or the team store was confirmed, in the
    * step that showed it: the `confirm` of the 409 that named it, which ties the yes to that line.
    */
-  action(id: string, key: string, callNo: number | null, value?: string, yes?: string): Promise<JobView>;
+  /** A fork menu row's job; `sent`, what its start sends besides, such as the estimate its card showed. */
+  action(id: string, key: string, callNo: number | null, value?: string, yes?: string, sent?: Record<string, unknown>): Promise<JobView>;
   /** Starts a job of a registered kind (`POST /api/jobs`). */
   startJob(kind: string, fields: Record<string, unknown>): Promise<JobView>;
   job(jobId: string, after: number): Promise<JobView>;
@@ -442,7 +443,7 @@ export function createClient(token: string): Client {
     search: (q) => request<SearchAnswer>(`search?q=${id(q)}&limit=40`).then((r) => ({ hits: r.hits ?? [], ...(r.indexing ? { indexing: r.indexing } : {}) })),
     labels: (runId, add, remove = []) => request<{ labels: string[] }>(`runs/${id(runId)}/labels`, { method: 'POST', body: JSON.stringify({ add, remove }) }),
     note: (runId, callNo, text) => request<{ notes: RunNote[] }>(`runs/${id(runId)}/notes`, { method: 'POST', body: JSON.stringify({ callNo, text }) }),
-    action: (runId, key, callNo, value, yes) => request<JobView>(`runs/${id(runId)}/actions`, { method: 'POST', body: JSON.stringify({ key, callNo, ...(value !== undefined ? { value } : {}), ...(yes !== undefined ? { yes } : {}) }) }),
+    action: (runId, key, callNo, value, yes, sent) => request<JobView>(`runs/${id(runId)}/actions`, { method: 'POST', body: JSON.stringify({ ...sent, key, callNo, ...(value !== undefined ? { value } : {}), ...(yes !== undefined ? { yes } : {}) }) }),
     startJob: (kind, fields) => request<JobView>('jobs', { method: 'POST', body: JSON.stringify({ ...fields, kind }) }),
     job: (jobId, after) => request<JobView>(`jobs/${id(jobId)}?after=${after}`),
     stopJob: (jobId) => request<{ stopped: boolean }>(`jobs/${id(jobId)}/stop`, { method: 'POST', body: '{}' }),
