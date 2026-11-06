@@ -128,8 +128,9 @@ describe('GET /api/tests', () => {
     const view = await getJson<TestsView>(dash, 'tests');
     expect(view.empty).toBe(false);
     expect(view.goldens).toBe(4);
-    expect(view.verdict).toMatchObject({ state: 'failing', failing: 1, passing: 1, untested: 2, title: 'refund-in-limit diverged at call 1', session: { revision: 'd2e8a1f', passed: 1, failed: 1 } });
+    expect(view.verdict).toMatchObject({ state: 'failing', failing: 1, passing: 1, untested: 2, title: '1 of 4 goldens passed · refund-in-limit diverged at call 1 · 2 goldens not tested yet', session: { revision: 'd2e8a1f', passed: 1, failed: 1 } });
     expect(view.revisions).toEqual(['c91d0f4', 'd2e8a1f']);
+    expect(view.steps).toMatchObject({ 'goldens/refund-in-limit': { key: 'replay', off: 'Replay once the recording finishes' } });
     expect(view.rows.map((r) => [r.name, r.modeLabel, r.last.result])).toEqual([
       ['refund-flow', 'replay', 'pass'],
       ['refund-in-limit', 'replay', 'fail'],

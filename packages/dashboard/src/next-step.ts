@@ -57,7 +57,7 @@ import { callTotals, priced as pricedTotals } from './run-stats.js';
 import { fixedBy } from './runs-filter.js';
 import { runStates, type RunRow, type RunState } from './runs-list.js';
 import { liveReasons } from './tests-live.js';
-import { bisectAnswers, bisectChoices, standingAnswer, underChecks, unjudgedOffline, unreadable, verdictOfResult, type BisectAnswer, type BisectChoices, type GoldenSource } from './tests.js';
+import { bisectAnswers, bisectChoices, gateResultView, standingAnswer, underChecks, unjudgedOffline, unreadable, verdictOfResult, type BisectAnswer, type BisectChoices, type GoldenSource } from './tests.js';
 
 /**
  * The one next step of a run (A12): what its page's lime button leads with, worked out here from how
@@ -110,7 +110,7 @@ export interface NextStepWork {
   prices?: Record<string, Price>;
 }
 
-export type NextStepKey = 'replay' | 'passing' | 'normalizer' | 'rule' | 'rerun-test' | 'update-golden' | 'gate-again' | 'bisect' | 'pack-gate' | 'pack' | 'compare' | 'injection-proof' | 'injection-test' | 'injection-again' | 'preset-proof' | 'fix' | 'blame';
+export type NextStepKey = 'replay' | 'passing' | 'normalizer' | 'rule' | 'rerun-test' | 'update-golden' | 'gate-again' | 'more-attempts' | 'bisect' | 'pack-gate' | 'pack' | 'compare' | 'injection-proof' | 'injection-test' | 'injection-again' | 'preset-proof' | 'fix' | 'blame';
 
 /** A step as a list's row carries it: which one, its words, where it opens when it is a link, why it can't start when it can't, and what it says it does: none of which reads a call. */
 export interface NextStepRow {
@@ -151,6 +151,7 @@ export type NextStep = StepWords &
     | { key: 'blame'; offer: BlameOffer }
     | { key: 'normalizer' | 'update-golden'; golden: string; test: TestOffer | null }
     | { key: 'rerun-test' | 'gate-again'; golden: string }
+    | { key: 'more-attempts'; golden: string }
     | { key: 'bisect'; golden: string; starts: boolean; blame: BlameBeside | null }
     | { key: 'rule' }
     | { key: 'injection-test'; runId: string }
@@ -833,8 +834,33 @@ export function stepCalls(store: StoreOf<'readModels'>, run: Pick<RunRecord, 'ru
   return [run.runId, run.parentRunId, source].reduce((n, id) => n + (id ? (byId.get(id)?.calls ?? 0) : 0), 0);
 }
 
-/** The job this module's table answers: one run's next step, whole, with what it bills, however long the runs it reads. */
-export type NextStepJob = { kind: 'next'; runId: string; outcome: OutcomeWork | null; next: NextStepWork | null };
+/**
+ * What a golden that didn't pass leads Tests with, by its newest result: Run more attempts where its
+ * gate ran out of attempts between its bounds, which only Tests runs; else its replay's own step, as
+ * the replay's page leads with it, in the light form a list's row has. Null for a golden that passed,
+ * has no result yet, or whose replay the store doesn't hold or can't read.
+ */
+export function goldenStep(store: Store, golden: string, work: NextStepWork | null, reads: StepReads): NextStep | null {
+  const result = reads.results(golden)[0];
+  if (!result || verdictOfResult(result) === 'passed') return null;
+  const more = verdictOfResult(result) === 'inconclusive' ? gateResultView(result, golden)?.more : null;
+  if (more) return { key: 'more-attempts', label: ACTIONS.runMoreAttempts.label, golden, command: commandLine(more.args) };
+  return (result.runId ? listedStep(store, result.runId, work, { reads }) : null) ?? null;
+}
+
+/** Tests' steps (`GET /api/tests`): of the goldens named, each that leads with one, by its path. */
+export function goldenSteps(store: Store, goldens: readonly string[], work: NextStepWork | null): Record<string, NextStep> {
+  const reads = stepReads(store);
+  const steps: Record<string, NextStep> = {};
+  for (const golden of goldens) {
+    const step = goldenStep(store, golden, work, reads);
+    if (step) steps[golden] = step;
+  }
+  return steps;
+}
+
+/** The jobs this module's table answers: one run's next step, whole, with what it bills, however long the runs it reads; and Tests' goldens' steps, in their light form. */
+export type NextStepJob = { kind: 'next'; runId: string; outcome: OutcomeWork | null; next: NextStepWork | null } | { kind: 'tests-steps'; goldens: string[]; next: NextStepWork | null };
 
 export const NEXT_STEP_READS: ReadTable<NextStepJob> = {
   next: async (store, job) => {
@@ -847,6 +873,7 @@ export const NEXT_STEP_READS: ReadTable<NextStepJob> = {
     const { next } = await pageSteps(store, run.runId, job.next, { judged: judged ?? null, kept: () => true });
     return answer({ runId: run.runId, next: next ?? null }, { tagged: true });
   },
+  'tests-steps': (store, job) => answer(goldenSteps(store, job.goldens, job.next)),
 };
 
 /**

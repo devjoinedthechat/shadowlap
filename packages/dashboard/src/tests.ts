@@ -1,7 +1,8 @@
-import { ACTIONS, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, isObject, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, plural, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { ACTIONS, attemptsToFail, goldensPassed, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, isObject, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, plural, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResults } from './bisect-start.js';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { historyCells, type HistoryCell, type RevisionFact } from './tests-history.js';
+import type { NextStep } from './next-step.js';
 import { gateLine, gateRuleOf } from './verdict.js';
 import { links } from './links.js';
 
@@ -449,6 +450,8 @@ export interface TestsView {
   revisionFacts?: RevisionFact[];
   /** The session the verdict names tested a clean commit, and the working tree has changed since: the route asks git. */
   older?: boolean;
+  /** Each golden that didn't pass, by its path, with the step it leads with, as its replay's page leads: the route asks beside the server (next-step.ts `goldenSteps`). */
+  steps?: Record<string, NextStep>;
   commands: {
     /**
      * The In CI panel's one command, as docs/gating.md writes it: every golden, its pattern quoted for
@@ -592,6 +595,26 @@ export function shortReason(r: TestResult): string {
   // Its injection gate: what obeyed, without the limit and the proof the reason goes on with.
   if (r.failure === 'injection') return reason.replace(/ \(at most[^)]*\).*$/, '');
   return `couldn't run: ${reason}`;
+}
+
+/**
+ * The verdict's reason after the name: `shortReason`'s, but for a failed check its gate decided
+ * (`failed its gate`, `failed against its own history`), one over several attempts (`failed its
+ * check`), and a judge check a replay couldn't judge offline.
+ */
+function leadReason(r: TestResult): string {
+  const gate = r.data?.gate;
+  if (r.failure === 'check' && gate && gate.decision !== 'continue') return gate.kind === 'baseline' ? 'failed against its own history' : 'failed its gate';
+  if (r.failure === 'check' && (r.data?.attempts?.total ?? 1) > 1) return 'failed its check';
+  return unjudgedOffline(r) ? 'inconclusive: its judge check wasn’t judged offline' : shortReason(r);
+}
+
+/** The verdict's line: the tally first wherever a golden leads or one wasn't tested, then the golden that leads and what wasn't tested; else that they all pass ("All 1 goldens pass" isn't English). */
+function verdictTitle(c: { first: TestResult | null; passing: number; total: number; notRun: number; presetsOnly: number }, folder: string): string {
+  if (!c.first && !c.notRun && !c.presetsOnly) return c.total === 1 ? 'The golden passes' : `All ${c.total} goldens pass`;
+  const goldens = (n: number) => `${n} golden${n === 1 ? '' : 's'}`;
+  const parts = [goldensPassed(c.passing, c.total), c.first ? `${nameOf(c.first.golden, folder)} ${leadReason(c.first)}` : '', c.notRun ? `${goldens(c.notRun)} not tested yet` : '', c.presetsOnly ? `${goldens(c.presetsOnly)} tested only by ${c.presetsOnly === 1 ? 'its' : 'their'} error-path presets` : ''];
+  return parts.filter(Boolean).join(' · ');
 }
 
 /**
@@ -1274,8 +1297,7 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
       inconclusive: unsure.length,
       passing,
       untested,
-      // One golden: "All 1 goldens pass" isn't English.
-      title: first ? `${nameOf(first.golden, folder)} ${shortReason(first)}` : untested ? `${passing} of ${total} goldens pass${notRun ? `, ${notRun} not run yet` : ''}${presetsOnly ? `, ${presetsOnly} tested only by ${presetsOnly === 1 ? 'its' : 'their'} error-path presets` : ''}` : total === 1 ? 'The golden passes' : `All ${total} goldens pass`,
+      title: verdictTitle({ first, passing, total, notRun, presetsOnly }, folder),
       first: first ? { golden: first.golden, name: nameOf(first.golden, folder), reason: first.reason ?? 'failed', runId: runIfKept(store, first.runId) } : null,
       session: sessionView(store, shown),
       since: lastResults.filter((r) => r.sessionId !== shown.sessionId && r.at > shown.startedAt).map((r) => ({ golden: r.golden, name: nameOf(r.golden, folder), ok: r.ok, verdict: verdictOfResult(r), revision: r.revision, at: r.at })),

@@ -8,8 +8,9 @@ import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult } from '../jobs.js';
 import { links } from '../links.js';
-import { searchedCommits } from '../next-step.js';
-import { sendAnswer } from '../read-pool.js';
+import { searchedCommits, type NextStep } from '../next-step.js';
+import { nextStepWork } from '../outcome-work.js';
+import { answerData, sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { loadRunIndex, runAffinity, type RunIndex } from '../run-index.js';
 import { configFileError } from '../settings.js';
@@ -202,9 +203,22 @@ export function register(router: Router, ctx: RouteContext): void {
   // Another job replaying or rewriting the goldens, then a session from a terminal: the job is named first.
   const busy = (store: StoreOf<'tests' | 'chaos'>, projectId: string | null, verb: string) => testsBusy(ctx.jobs.list(), projectId, verb) ?? sessionBusy(store, verb);
 
+  // Each golden that didn't pass with the step it leads with, as its replay's page leads, worked out
+  // beside the server: the light form, which reads no call. Left out when that read fails: the page
+  // then leads with Run tests.
+  const withSteps = async (view: TestsView): Promise<TestsView> => {
+    const named = [...view.divergences, ...view.failures, ...view.inconclusive].map((d) => d.golden);
+    if (!named.length) return view;
+    try {
+      return { ...view, steps: answerData<Record<string, NextStep>>(await ctx.reads.run({ kind: 'tests-steps', goldens: named, next: nextStepWork(ctx) })) };
+    } catch {
+      return view;
+    }
+  };
+
   router.get('/tests', async (r) => {
     const view = await rangesInCheckout(testsView(ctx.store, goldens(), { folder: FOLDER, normalizers: normalizers() }), ctx.project?.path);
-    r.tagged(await revisionsInCheckout(view, ctx.project?.path));
+    r.tagged(await withSteps(await revisionsInCheckout(view, ctx.project?.path)));
   });
 
   // A run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's
