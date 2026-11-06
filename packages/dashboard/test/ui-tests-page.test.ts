@@ -58,6 +58,7 @@ function page(started: Array<{ kind: string; fields: Record<string, unknown> }>,
       return Promise.resolve({ attempts: [{ runId: 'run-a1', href: '#/run/run-a1', outcome: 'passed', note: null }], carried: 0, gone: 0 });
     },
     jobs: () => Promise.resolve([]),
+    offers: () => Promise.resolve(null),
     startJob: (kind: string, fields: Record<string, unknown>) => {
       started.push({ kind, fields });
       return Promise.resolve({ id: 'j1' });
@@ -279,6 +280,26 @@ describe('Tests\' states, parts and keys', () => {
     const none = await drawn({ app: { runs: [] } });
     await none.until('the empty state', () => none.all('.stepempty').length === 1);
     expect(none.all('.stepempty .cmdline')).toHaveLength(0);
+  });
+
+  it('offers the newest run its listed step says to pack as Pack <id> as golden…, lime, its command under it, packing it and its test as the run page does', async () => {
+    const started: Array<{ kind: string; fields: Record<string, unknown> }> = [];
+    const packs = (id: string) => ({ key: 'pack', label: 'Pack as golden…', command: `shadowlap pack ${id} goldens/${id.toLowerCase()}`, folder: `goldens/${id.toLowerCase()}` });
+    const runs = [
+      { runId: '01K5CQ3W6H0000000000000000', startedAt: 1, next: packs('01K5CQ3W6H') },
+      { runId: '01K5CQ4N7G0000000000000000', startedAt: 3, next: packs('01K5CQ4N7G') },
+      { runId: '01K5CQ5P8J0000000000000000', startedAt: 4, next: { key: 'blame', label: 'Run blame' } },
+    ];
+    g.location = { hash: '#/tests' };
+    const p = (r = await render(page(started, [], undefined, { app: { runs } })));
+    await p.until('the step', () => p.all('.stepempty .actions .btn.lime').length === 1);
+    expect([p.one('.stepempty .actions .btn.lime').textContent, p.one('.stepempty .cli code').textContent, p.all('.stepempty .cmdline').length]).toEqual(['Pack 01K5CQ4N7G as golden…', '$ shadowlap pack 01K5CQ4N7G goldens/01k5cq4n7g', 0]);
+    await p.click(p.one('.stepempty .actions .btn.lime'));
+    await p.until('the dialog', () => p.all('.dialog').length === 1);
+    expect(all(p.one('.dialog'), 'h2, h3')[0].textContent).toBe('Pack 01K5CQ4N7G as golden?');
+    await p.click(p.byText('.dialog button', 'Pack as golden'));
+    await p.until('the job', () => started.length === 1);
+    expect(started).toEqual([{ kind: JOB_KINDS.keepGolden, fields: { runId: '01K5CQ4N7G0000000000000000', golden: 'goldens/01k5cq4n7g' } }]);
   });
 
   it('gives each report the id a job started from it hands the focus back to, the recordings line quiet under the sections, and the first bound its definition', async () => {

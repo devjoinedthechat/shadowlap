@@ -1,6 +1,14 @@
 import { ApiError, type TestsView } from '../api.js';
+import { tipCard } from '../components/HoverCard.js';
 import { EmptyState, ErrorState, Skeleton } from '../components/States.js';
 import { VerdictLine } from '../components/VerdictLine.js';
+import { shortId } from '../format.js';
+import { useLoad } from '../hooks.js';
+import { usePendingHidden } from '../pending-delete.js';
+import { PackAsGolden } from '../run/PackAsGolden.js';
+import { packRunCommand } from '../run/share.js';
+import { useApp } from '../state.js';
+import type { NextStepRow, RunListItem } from '../types.js';
 
 /**
  * Tests' states besides the goldens: loading drawn in the page's final layout as quiet bars, a read
@@ -48,10 +56,32 @@ export function TestsFailed({ error, retry }: { error: Error; retry: () => void 
 }
 
 /**
- * No golden yet: what the page will hold and the command that packs one. The command names a run,
- * so a project with no run yet is offered none: recording one comes first.
+ * No golden yet: what the page will hold and the step that gets there, Pack <id> as golden… for the
+ * newest run whose listed step is to pack it, with its command for a terminal under it; with none,
+ * the command that packs one. The command names a run, so a project with no run yet is offered
+ * none: recording one comes first.
  */
-export function TestsEmpty({ view, runs }: { view: Pick<TestsView, 'commands'>; runs: readonly unknown[] | null }) {
+export function TestsEmpty({ view, runs }: { view: Pick<TestsView, 'commands'>; runs: readonly RunListItem[] | null }) {
+  const hidden = usePendingHidden();
+  const run = runs ? newestToPack(runs, hidden) : null;
+  const own = run ? (run.next.command ?? packRunCommand(run.runId, run.next.folder)) : null;
   // The project's runs not yet listed: the command, as it may well have one.
-  return <EmptyState title="No goldens yet" text="Pack a run you consider correct into the repository, and CI replays it offline on every commit." command={runs?.length !== 0 ? view.commands.pack : undefined} />;
+  const command = own ?? (runs?.length !== 0 ? view.commands.pack : undefined);
+  return <EmptyState title="No goldens yet" text="Pack a run you consider correct into the repository, and CI replays it offline on every commit." step={run && own ? <PackRun run={run} command={own} /> : undefined} command={command} />;
+}
+
+type ToPack = RunListItem & { next: NextStepRow & { folder: string } };
+
+/** The newest run the server says to pack as a golden (its listed step `pack`), none of them being deleted. */
+function newestToPack(runs: readonly RunListItem[], hidden: ReadonlySet<string>): ToPack | null {
+  const packable = runs.filter((r): r is ToPack => r.next?.key === 'pack' && !!r.next.folder && !hidden.has(r.runId));
+  return packable.reduce<ToPack | null>((a, r) => (a && a.startedAt >= r.startedAt ? a : r), null);
+}
+
+/** Pack <id> as golden…, lime: its page's dialog, with the run's redaction rules as its page says them. */
+function PackRun({ run, command }: { run: ToPack; command: string }) {
+  const { client } = useApp();
+  const offers = useLoad(() => client.offers(run.runId), `tests-pack-rules:${run.runId}`).data ?? null;
+  const id = shortId(run.runId);
+  return <PackAsGolden runId={run.runId} folder={run.next.folder} offers={offers} lead tip={tipCard(`Pack ${id} as golden`, [], run.about?.text ?? null, `$ ${command}`)} label={`Pack ${id} as golden…`} />;
 }

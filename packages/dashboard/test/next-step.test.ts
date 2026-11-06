@@ -762,7 +762,7 @@ describe('a list’s rows', () => {
     const rows = nextStepRows(store, judgedRows(store, listRuns(store), null, Infinity), w);
     const by = new Map(rows.map((r) => [r.runId, r.next]));
     expect(by.get(rec)).toEqual({ key: 'blame', label: 'Run blame', command: `shadowlap blame ${rec.slice(0, 10)}` });
-    expect(by.get(passed)).toEqual({ key: 'pack', label: 'Pack as golden…', title: 'Pack as golden', command: `shadowlap pack ${passed.slice(0, 10)} ${goldenFolder(passed)}` });
+    expect(by.get(passed)).toEqual({ key: 'pack', label: 'Pack as golden…', title: 'Pack as golden', command: `shadowlap pack ${passed.slice(0, 10)} ${goldenFolder(passed)}`, folder: goldenFolder(passed) });
     expect(by.get(fork)).toEqual({ key: 'compare', label: 'Compare with parent', href: `#/compare/${rec}/${fork}`, title: `Against ${rec.slice(0, 10)}`, command: `shadowlap diff ${rec.slice(0, 10)} ${fork.slice(0, 10)}` });
     for (const id of [rec, passed, fork]) expect(by.get(id)).toEqual(stepRow(step(id, w)));
   });

@@ -125,6 +125,8 @@ export interface NextStepRow {
   capture?: true;
   /** Replay's run: the recording a clean or a test replay came from, else the run itself. */
   runId?: string;
+  /** Pack as golden…'s folder, the goldens' named for the run: Tests with no golden yet offers it. */
+  folder?: string;
 }
 
 /** A step on a run's page: the row's, and the rest of what its hover says, what it bills. */
@@ -867,7 +869,7 @@ export function copyNextStep(store: Store, runId: string, held: readonly string[
 
 /** A step as a list's row carries it. */
 export function stepRow(step: NextStep): NextStepRow {
-  return { key: step.key, label: step.label, ...(step.href ? { href: step.href } : {}), ...(step.off ? { off: step.off } : {}), ...(step.title ? { title: step.title } : {}), ...(step.command ? { command: step.command } : {}), ...(step.capture ? { capture: true as const } : {}), ...(step.key === 'replay' ? { runId: step.runId } : {}) };
+  return { key: step.key, label: step.label, ...(step.href ? { href: step.href } : {}), ...(step.off ? { off: step.off } : {}), ...(step.title ? { title: step.title } : {}), ...(step.command ? { command: step.command } : {}), ...(step.capture ? { capture: true as const } : {}), ...(step.key === 'replay' ? { runId: step.runId } : {}), ...(step.key === 'pack' ? { folder: step.folder } : {}) };
 }
 
 /**
