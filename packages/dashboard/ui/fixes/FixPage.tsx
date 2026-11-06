@@ -3,7 +3,7 @@ import { probesPart } from '../../../engine/src/cost-words.js';
 import { consentAsked } from '../actions.js';
 import { JOB_KINDS, ApiError, type JobView } from '../api.js';
 import { Badge } from '../components/bits.js';
-import { ConfirmDialog, ConsentDialog, Dialog, PromptDialog } from '../components/Dialog.js';
+import { ConsentDialog, Dialog, PromptDialog } from '../components/Dialog.js';
 import { DialogSteps, DialogTip } from '../components/DialogFacts.js';
 import { UpdateGoldenDialog } from '../components/UpdateGolden.js';
 import { headingRef } from '../focus-manager.js';
@@ -17,6 +17,7 @@ import { href } from '../route.js';
 import { guardedWayOn, useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import type { FixDetail } from '../types.js';
+import { copiedTo, GoldenNameFields, nameFields, nameFlags, useGoldenNames } from './ApplyNames.js';
 import { BlameStepView } from './BlameStep.js';
 import { rememberFix } from './data.js';
 import { applySteps, keepsOf, markLead, PULLED_LINE, repairCost, updateOutdatedAsk } from './dialog-words.js';
@@ -270,7 +271,7 @@ export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boo
         />
       ) : null}
       {asking === 'repair' ? <RepairDialog fix={fix} onClose={() => setAsking(null)} onRun={(repairer) => app.guard(() => void start(JOB_KINDS.repair, { fixId: fix.fixId, repairer }))} /> : null}
-      {asking === 'apply' && action.kind === 'apply' ? <ApplyDialog fix={fix} label={action.label} onClose={() => setAsking(null)} onRun={() => app.guard(() => void start(JOB_KINDS.applyFix, { fixId: fix.fixId }))} /> : null}
+      {asking === 'apply' && action.kind === 'apply' ? <ApplyDialog fix={fix} label={action.label} onClose={() => setAsking(null)} onRun={(names) => app.guard(() => void start(JOB_KINDS.applyFix, { fixId: fix.fixId, ...(names ? { names } : {}) }))} /> : null}
       {consent ? (
         <ConsentDialog
           why={consent.why}
@@ -384,28 +385,35 @@ export function PatchDialog({ fix, diff, onClose }: { fix: FixDetail; diff: stri
   );
 }
 
-export function ApplyDialog({ fix, label, onClose, onRun }: { fix: FixDetail; label: string; onClose: () => void; onRun: () => boolean }) {
+/**
+ * Asks before applying: Apply fix with the patch and every file it changes, Mark fix applied for a
+ * patch in the working tree already (or none to apply), Finish applying fix for what an apply left
+ * undone. Each that copies goldens asks each its name under the rest (ApplyNames.tsx), and sends
+ * them with the job; it waits until each will do.
+ */
+export function ApplyDialog({ fix, label, onClose, onRun }: { fix: FixDetail; label: string; onClose: () => void; onRun: (names: Record<string, string> | null) => boolean }) {
   const apply = fix.actions.apply!;
-  const command = `shadowlap fix apply ${shortFixId(fix.fixId)}`;
+  const names = useGoldenNames(apply);
+  const asks = { command: `shadowlap fix apply ${shortFixId(fix.fixId)}${nameFlags(names)}`, ok: label, okDisabled: !!names.problem, onOk: () => onRun(nameFields(names)), onClose, doc: 'repairHandover' as const };
+  const fields = <GoldenNameFields names={names} />;
   // No patch to apply: verified on the working tree as it is, or its patch is there already.
   if (apply.kind === 'mark' || (apply.inTree && !fix.actions.applied))
     return (
-      <ConfirmDialog
-        title={apply.inTree && apply.goldens ? 'Mark fix applied?' : 'Mark fix applied'}
-        lead={markLead(apply)}
-        doc="repairHandover"
-        facts={apply.pulled ? [{ label: 'Recordings', value: 'stay on the machine that ran the repair' }] : []}
-        ok={label}
-        command={command}
-        onOk={onRun}
-        onClose={onClose}
-      />
+      <Dialog {...asks} title={apply.inTree && apply.goldens ? 'Mark fix applied?' : 'Mark fix applied'} lead={markLead(apply)} facts={apply.pulled ? [{ label: 'Recordings', value: 'stay on the machine that ran the repair' }] : []}>
+        {fields}
+      </Dialog>
     );
-  if (fix.actions.applied) return <ConfirmDialog title="Finish applying fix?" lead="Finishes what applying the fix left undone." doc="repairHandover" facts={[{ label: 'Left', value: apply.pending ?? 'nothing' }]} ok={label} command={command} onOk={onRun} onClose={onClose} />;
+  if (fix.actions.applied)
+    return (
+      <Dialog {...asks} title="Finish applying fix?" lead="Finishes what applying the fix left undone." facts={[{ label: 'Left', value: apply.pending ?? 'nothing' }]}>
+        {fields}
+      </Dialog>
+    );
   // What goes in is what is shown: the patch itself, with every file it changes named.
   return (
-    <Dialog title={`${confirmWords(ACTIONS.applyFix.label)}?`} lead="Applies the fix to your working tree, for you to review before you commit." doc="repairHandover" warn={apply.pulled ? { text: PULLED_LINE } : null} command={command} ok={label} onOk={onRun} onClose={onClose}>
-      <DialogSteps steps={applySteps(apply)} />
+    <Dialog {...asks} title={`${confirmWords(ACTIONS.applyFix.label)}?`} lead="Applies the fix to your working tree, for you to review before you commit." warn={apply.pulled ? { text: PULLED_LINE } : null}>
+      {/* What the fields name, once the goldens folder was read; else every recording, as far as the page knows. */}
+      <DialogSteps steps={applySteps(apply, { count: apply.held ? names.offered.length : apply.goldens, to: copiedTo(names) })} />
       {apply.diff ? (
         <pre className="fxcode fxpatch">
           {patchLines(apply.diff).map((l, i) => (
@@ -416,6 +424,7 @@ export function ApplyDialog({ fix, label, onClose, onRun }: { fix: FixDetail; la
           ))}
         </pre>
       ) : null}
+      {fields}
     </Dialog>
   );
 }

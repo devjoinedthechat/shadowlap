@@ -22,10 +22,12 @@ import { ForkMenu, type PendingAction } from './actions.js';
 import { failureText, fixCheckText } from './banner.js';
 import { nextStepOf } from './next-step.js';
 import { BlameBesideButton, CompareButton, NextStepButton, ReplayButton } from './NextStepButton.js';
+import { TraceLink } from './TraceLink.js';
 import { exitWords, presetTag, type PresetAttempt } from './preset.js';
 import { checksOf, forkKindWords, recordingWords, runDuration, runLikeOf } from './model.js';
 import { canPush, pushTitle } from './share.js';
 import { ShareMenu } from './ShareMenu.js';
+import { lastRunsHref } from '../runs-view.js';
 import { ActionButton, useWhenFree } from '../components/ActionButton.js';
 
 /**
@@ -169,7 +171,7 @@ export function RunHeader({
         </div>
       </div>
       <div className="actions">
-        {next?.key === 'compare' ? null : <CompareButton run={run} />}
+        {next?.key === 'compare' ? null : <CompareButton run={run} />}<TraceLink trace={run.trace} />
         {exported ? lead : (
           <>
             <ActionButton className="btn" reads aria-haspopup="menu" aria-expanded={share.open} onClick={(e) => share.toggle(e.currentTarget)}>
@@ -210,7 +212,7 @@ export function RunHeader({
               (out) => {
                 toast(bulkToast({ verb: 'Deleted', done: [r.runId], of: 1, skipped: [], attempts: out.attempts?.length ?? 0 }));
                 refresh();
-                navigate(href.runs());
+                navigate(lastRunsHref());
               },
               (err: unknown) => toast(errorText(err), 'error'),
             );

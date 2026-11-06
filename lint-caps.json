@@ -72,7 +72,7 @@
       "runDoctor": 76
     },
     "packages/cli/src/fix-apply.ts": {
-      "applyFix": 72
+      "applyFix": 68
     },
     "packages/cli/src/fix-format.ts": {
       "formatFixDetail": 64
@@ -171,7 +171,7 @@
       "verifyMore": 41
     },
     "packages/dashboard/src/fixes.ts": {
-      "fixDetail": 48
+      "fixDetail": 33
     },
     "packages/dashboard/src/injection.ts": {
       "injectionJob": 49
@@ -227,9 +227,6 @@
     "packages/dashboard/ui/pages/Run.tsx": {
       "Workspace": 79
     },
-    "packages/dashboard/ui/pages/Runs.tsx": {
-      "ServerRuns": 35
-    },
     "packages/dashboard/ui/pages/Training.tsx": {
       "ScoreDialog": 34
     },
@@ -264,7 +261,7 @@
       "DiffPanel": 32
     },
     "packages/dashboard/ui/shell/StatusBar.tsx": {
-      "StatusBar": 41
+      "StatusBar": 33
     },
     "packages/engine/src/about.ts": {
       "changeWords": 31
@@ -473,9 +470,6 @@
     "packages/dashboard/ui/pages/Run.tsx": {
       "Workspace": 195
     },
-    "packages/dashboard/ui/pages/Runs.tsx": {
-      "ServerRuns": 178
-    },
     "packages/dashboard/ui/pages/Tests.tsx": {
       "TestsPage": 238
     },
@@ -496,9 +490,6 @@
     },
     "packages/dashboard/ui/run/parts.tsx": {
       "Banner": 194
-    },
-    "packages/dashboard/ui/runspage/Calendar.tsx": {
-      "Calendar": 206
     },
     "packages/dashboard/ui/shell/Palette.tsx": {
       "PaletteDialog": 178
@@ -563,7 +554,7 @@
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,
     "packages/dashboard/src/tests.ts": 1088,
-    "packages/dashboard/test/fixes.test.ts": 884,
+    "packages/dashboard/test/fixes.test.ts": 871,
     "packages/dashboard/test/tests.test.ts": 1111,
     "packages/dashboard/test/ui-logic.test.ts": 822,
     "packages/engine/src/pairs.ts": 819,

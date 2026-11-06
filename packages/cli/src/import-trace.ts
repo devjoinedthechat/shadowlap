@@ -119,6 +119,8 @@ export interface Trace {
   skipped: Skip[];
   /** The span, observation or run each one ran inside, by id, where the source names one. */
   parents?: ReadonlyMap<string, string>;
+  /** The trace's page in the store it came from, where the source gives one: an http or https address on the store's own host. */
+  url?: string;
 }
 
 // ---------------------------------------------------------------------------------------------- reading what sources log
@@ -955,7 +957,7 @@ export function importTrace(store: StoreOf<'recording'>, trace: Trace, opts: Imp
   const coveredSet = new Set(covered);
 
   const startedAt = calls.find((c) => c.startedAt !== null)?.startedAt ?? Date.now();
-  const writer = new ImportWriter(store, { ...opts, startedAt, covers: ['api', ...covered.map((name) => `tool:${name}` as const)] });
+  const writer = new ImportWriter(store, { ...(trace.url ? { url: trace.url } : {}), ...opts, startedAt, covers: ['api', ...covered.map((name) => `tool:${name}` as const)] });
   // A failure part way deletes the run it started.
   return writeImport(writer, () => writeTrace(writer, trace, calls, tools, coveredSet));
 }

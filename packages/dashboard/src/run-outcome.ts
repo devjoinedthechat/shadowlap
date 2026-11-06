@@ -28,6 +28,7 @@ import { lookupRun, noSuchRun } from './api.js';
 import { answer, failed, type ReadTable } from './read-registry.js';
 import { runCalls } from './run-calls.js';
 import { loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
+import type { JudgeRun } from './runs-filter.js';
 
 /**
  * A run's outcome by checks, as its status says it everywhere (A13, E26): the run payload and every
@@ -148,13 +149,13 @@ export function parseWork(work: OutcomeWork | null): ParsedWork | null {
 /** What a run judged with its calls read is kept as, per thread: by what judged it and where its calls stand. */
 const judged = new Map<string, RunJudged | null>();
 /** The most kept, the oldest going first: most are a run no golden of its family judges, kept as null. */
-const KEEP = 5_000;
+export const JUDGED_KEPT = 5_000;
 
 /** What judged a run (its own checks, or the work and a capture's kept rules) and where the run stands. */
 const keyOf = (by: string, r: IndexedRun) => `${by}|${r.runId}|${r.callEvents}|${r.status}|${String(r.endedAt)}`;
 
 function keep(key: string, value: RunJudged | null): RunJudged | null {
-  if (judged.size >= KEEP) judged.delete(judged.keys().next().value!);
+  if (judged.size >= JUDGED_KEPT) judged.delete(judged.keys().next().value!);
   judged.set(key, value);
   return value;
 }
@@ -354,6 +355,13 @@ export function judgedRows<R extends { runId: string; judged?: RunJudged | null 
     }
     return j === undefined ? row : { ...row, judged: j };
   });
+}
+
+/** What the run lists' `status:` judges a run by (runs-filter.ts `JudgeRun`): `judgeRun` with the work parsed once, `quick` reading no call. */
+export function judgeFor(store: Store, work: OutcomeWork | null): JudgeRun {
+  const index = loadRunIndex(store);
+  const w = parseWork(work);
+  return (runId, quick) => judgeRun(store, index, runId, w, { quick });
 }
 
 /** The job this module's table answers: one run's outcome by checks, whole, each check with it. */

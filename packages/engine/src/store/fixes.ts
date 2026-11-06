@@ -47,8 +47,13 @@ export interface FixData {
   titleEdited?: boolean;
   /** When the title was last given (ms): of two copies renamed apart, the later rename wins. */
   titleEditedAt?: number;
-  /** How it was applied: by `shadowlap fix apply`, or by `repair --apply`, which copies no goldens unless asked and runs no test. */
-  applied?: { patch: 'applied' | 'already' | 'none'; repairId: string | null; goldens: string[]; tests: 'passed' | 'failed' | 'skipped'; by?: string | null; via?: 'fix apply' | 'repair --apply' };
+  /**
+   * How it was applied: by `shadowlap fix apply`, or by `repair --apply`, which copies no goldens
+   * unless asked and runs no test. `from` gives, by a golden's path, the run whose recording it
+   * holds (its short id, as the repair's goldens/ names it): `fix apply` names a golden as it is
+   * told (`--name`), so a later apply finds each by it. One without it is named by its run.
+   */
+  applied?: { patch: 'applied' | 'already' | 'none'; repairId: string | null; goldens: string[]; tests: 'passed' | 'failed' | 'skipped'; by?: string | null; via?: 'fix apply' | 'repair --apply'; from?: Record<string, string> };
 }
 
 /**

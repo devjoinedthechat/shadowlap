@@ -1,10 +1,19 @@
 import { clock, isoDay, num, whenShort } from '../format.js';
 import { useNow } from '../hooks.js';
 import { storePath } from '../projects.js';
+import { lessPending, usePendingHidden, useStillCounted, withoutPending, type PendingRun } from '../pending-delete.js';
 import { isAttempt } from '../runs.js';
 import { useApp } from '../state.js';
 import { useTeamStore } from '../teamstore.js';
+import type { RunListItem } from '../types.js';
 import { JobChip } from './JobChip.js';
+
+/** The runs the store holds and the attempts bundled under them, less those a delete waits to take (pending-delete.ts). */
+function storeCounts(counts: { runs: number; attempts: number } | null | undefined, runs: readonly RunListItem[] | null, hidden: ReadonlySet<string>, gone: readonly PendingRun[]): { runs: number | null; attempts: number | null } {
+  const shown = runs ? withoutPending(runs, hidden) : null;
+  const listed = shown ? shown.filter((r) => !isAttempt(r)).length : null;
+  return { runs: lessPending(counts?.runs, gone) ?? listed, attempts: lessPending(counts?.attempts, gone, 'attempts') ?? (shown ? shown.length - (listed ?? 0) : null) };
+}
 
 /**
  * The status bar: the store, the counts (runs, then the attempts bundled under them), the sync state,
@@ -16,9 +25,7 @@ export function StatusBar() {
   const now = useNow(10_000);
   // With a team store set, the right side names it and when this machine last pushed or pulled.
   const store = useTeamStore();
-  const listed = runs ? runs.filter((r) => !isAttempt(r)).length : null;
-  const attempts = meta?.counts?.attempts ?? (runs ? runs.length - (listed ?? 0) : null);
-  const runCount = meta?.counts?.runs ?? listed;
+  const { runs: runCount, attempts } = storeCounts(meta?.counts, runs, usePendingHidden(), useStillCounted(meta));
   const readOnly = !!meta && !exported && (meta.readOnly === true || !meta.actions);
   let sync: React.ReactNode = 'connecting';
   if (conn === 'offline')

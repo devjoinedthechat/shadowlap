@@ -2,7 +2,7 @@ import { createElement, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Client, RunsQuery } from '../ui/api.js';
 import { RunsPage } from '../ui/pages/Runs.js';
-import { warmingLine, withFirstPage } from '../ui/runspage/rows.js';
+import { tableNote, warmingLine, withFirstPage } from '../ui/runspage/rows.js';
 import { WHOLE_UP_TO, type TableRun } from '../ui/runspage/RunsTable.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
@@ -63,6 +63,11 @@ describe('the rows after the first page is read again', () => {
     expect(warmingLine({ done: 120, total: 9000 }, { filtered: true, bySpent: false })).toMatch(/^The about lines of 120 of 9,000 runs are known so far/);
     expect(warmingLine({ done: 120, total: 9000 }, { filtered: false, bySpent: true })).toMatch(/^What 120 of 9,000 runs spent is added up so far/);
     expect(warmingLine(null, { filtered: true, bySpent: false })).toBeNull();
+    // Whose wait it is: `status:` waits for verdicts, whatever else the filter holds.
+    expect(warmingLine({ done: 60, total: 200, what: 'verdicts' }, { filtered: true, bySpent: false })).toBe('The verdicts of 60 of 200 runs are known so far: runs among the rest may match too. The table fills in as they are worked out.');
+    // Else what the search index has yet to read for the filter's words.
+    expect(tableNote({ warming: null, indexing: { runs: 3, of: 200 } }, { filtered: true, bySpent: false })).toBe('Still reading what 3 of 200 runs recorded: more matches may follow.');
+    expect(tableNote({ warming: { done: 1, total: 2 }, indexing: { runs: 3, of: 200 } }, { filtered: true, bySpent: false })).toMatch(/^The about lines of 1 of 2 runs/);
   });
 });
 
@@ -142,6 +147,6 @@ describe('the Runs page', () => {
     await r.until('the filter asked for', () => filters.includes('slow'));
     await r.wait(50);
     expect(r.one('table.runst').getAttribute('aria-rowcount')).toBe('251');
-    expect(r.all('section.panel .empty')).toHaveLength(0);
+    expect(r.all('section.panel .empty, section.panel .emptyline')).toHaveLength(0);
   });
 });

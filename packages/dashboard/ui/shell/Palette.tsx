@@ -5,17 +5,20 @@ import { fontOf, widthIn } from '../components/Copy.js';
 import { Modal } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { isMac } from '../dom.js';
+import { RECORDED_MIN_CHARS } from '../../src/links.js';
 import { dropRowScope, rowScopeNow, type RowScope, type RowStep } from '../list-keys.js';
 import { ACTIONS } from '../labels.js';
 import { callName, shortId } from '../format.js';
 import { jobRunning } from '../job-title.js';
-import { blameAsksOnItsPage, blameEntries, highlight, INDEXING_RETRY_MS, indexingNote, limitRecorded, matchPalette, palettePlaceholder, PAUSED_HINT, pickRefusal, RECORDED_MIN_CHARS, runsById, runsToAskFor, snippetParts, words } from '../palette.js';
+import { blameAsksOnItsPage, blameEntries, highlight, INDEXING_RETRY_MS, indexingNote, limitRecorded, matchPalette, palettePlaceholder, PAUSED_HINT, pickRefusal, runsById, runsToAskFor, snippetParts, words } from '../palette.js';
 import { addPaletteSource, onPaletteSourcesChanged, paletteSources } from '../palette-sources.js';
 import { href, type Route } from '../route.js';
 import { navigate } from '../router.js';
 import { normalizeRuns } from '../normalize.js';
 import { isAttempt, kindWord, runSource, type RunLike } from '../runs.js';
+import { pendingHidden, withoutPending } from '../pending-delete.js';
 import { rowStep } from '../run/row-step.js';
+import { lastViewOf } from '../runs-view.js';
 import { goKeyColumn, keyColumn } from '../shortcuts.js';
 import { singleKeysOn } from '../single-keys.js';
 import { useApp, type AppState, type PaletteCommand } from '../state.js';
@@ -204,7 +207,7 @@ function PaletteRow({ x, n, q, at, paused, id, moved, pick }: { x: PaletteComman
 // Run blame for the newest failures nobody blamed: the job, or what it asks first (your command on a capture, the check, a yes) on the run's own page.
 addPaletteSource(({ app, route, go }) => {
   const refused = (runId: string, err: unknown) => (blameAsksOnItsPage(err) ? go(href.run(runId)) : app.watchJob(Promise.reject(err)));
-  return blameEntries(app.runs ?? [], route.page === 'run' ? route.id : null).map(({ run, entry }) => ({
+  return blameEntries(withoutPending(app.runs ?? [], pendingHidden()), route.page === 'run' ? route.id : null).map(({ run, entry }) => ({
     ...entry,
     run: () =>
       run.next?.capture
@@ -256,7 +259,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
           ['Settings', href.settings()],
           [ACTIONS.addProject.label, href.newProject()],
         ];
-    for (const [label, to] of pages) out.push({ group: 'Go to', label, hint: '', key: goKeyColumn(to), run: () => navigate(to) });
+    for (const [label, to] of pages) out.push({ group: 'Go to', label, hint: '', key: goKeyColumn(to), run: () => navigate(lastViewOf(to)) });
     // Not a second session while one started here runs: Tests' own button says so meanwhile. One that
     // would run goldens live asks first, over whatever page is open, as Tests' Run tests does, with
     // the command read from Tests once the server asks (paletteTestsAsk).
@@ -270,7 +273,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
         // a source that fails leaves its group out
       }
     }
-    const runs = [...(app.runs ?? [])].filter((r) => !isAttempt(r)).sort((a, b) => b.startedAt - a.startedAt);
+    const runs = withoutPending(app.runs ?? [], pendingHidden()).filter((r) => !isAttempt(r)).sort((a, b) => b.startedAt - a.startedAt);
     for (const r of runs) out.push(runCommand(r));
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- built when the palette opens, and again only when a source says more arrived: the run list moving under it would move the selection
@@ -280,7 +283,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
   const byId = useRunsById(app, scope ? '' : q);
 
   const shown = useMemo(() => {
-    if (scope) return scopedRows(scope, q, rowStep(app.actionsOff, app.toast));
+    if (scope) return scopedRows(scope, q, rowStep(app.actionsOff, app.toast, { client: app.client, guard: app.guard, watchJob: app.watchJob }));
     const matched = matchPalette(items, q);
     const recorded: Array<PaletteCommand & { snippet?: string }> = hits.map((h) => ({
       group: 'In recorded data',
@@ -291,7 +294,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
       run: () => navigate(href.run(h.runId, h.callNo)),
     }));
     return [...matched, ...byId, ...recorded] as Array<PaletteCommand & { snippet?: string }>;
-  }, [items, q, hits, byId, scope, app.actionsOff, app.toast]);
+  }, [items, q, hits, byId, scope, app.actionsOff, app.toast, app.client, app.guard, app.watchJob]);
 
   const at = Math.min(i, Math.max(0, shown.length - 1));
   useEffect(() => {

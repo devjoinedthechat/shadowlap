@@ -222,6 +222,8 @@ describe('shadowlap import langfuse and langsmith', () => {
     try {
       const run = store.getRun(json.runs[0].runId)!;
       expect(run.meta?.covers).toEqual(['api', 'tool:lookup_order']);
+      // The trace's page in Langfuse, which the run's page links to.
+      expect(run.meta?.imported?.url).toBe(`${host}/project/cm1shopproject/traces/${LANGFUSE_ID}`);
       expect(store.listEvents({ kinds: ['capture.imported'] }).find((e) => e.runId === run.runId)).toMatchObject({ ref: 'langfuse:7f3a9c2e', data: { format: 'langfuse', modelCalls: 3, toolCalls: 1 } });
     } finally {
       store.close();

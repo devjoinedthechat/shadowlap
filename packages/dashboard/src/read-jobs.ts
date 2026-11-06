@@ -3,7 +3,7 @@ import { activity } from './activity.js';
 import { callDetail, lineage, listRuns, lookupRun, noSuchRun, provenance, runCallsPage, runDetail, showRunJson, type ReadOptions } from './api.js';
 import { fixAttemptGroups } from './attempt-groups.js';
 import { codeChangeCache, compareHead, compareView } from './compare.js';
-import { fixDetail, patchesToCheck } from './fixes.js';
+import { fixDetail, goldensFolderIn, patchesToCheck } from './fixes.js';
 import { forkDifferences } from './fork-differences.js';
 import { runInjection, toolTrust } from './injection.js';
 import { runUnrecorded } from './run-unrecorded.js';
@@ -17,10 +17,12 @@ import { loadRunIndex } from './run-index.js';
 import { ESTIMATE_READS } from './estimates.js';
 import { withExitCodes } from './exit-codes.js';
 import { NEXT_STEP_READS, nextStepRows, pageSteps, type NextStepWork } from './next-step.js';
-import { judgedRows, OUTCOME_READS, runJudged, type OutcomeWork } from './run-outcome.js';
+import { judgedRows, judgeFor, OUTCOME_READS, runJudged, type OutcomeWork } from './run-outcome.js';
+import { RUNS_FAILURES_READS } from './runs-failures.js';
 import { analyseRun } from './run-page.js';
 import { asksFor, asksOf, warmProgress, warmRunStats } from './run-stats.js';
 import type { RunsPageRow } from './routes/runs-list.js';
+import { fixedByOf } from './runs-filter.js';
 import { listRunsPage, ROW_CALLS_BUDGET, rowsWarming, runsByDay, type RunsByDayOptions, type RunsPageOptions } from './runs-list.js';
 import { searchBehind, searchRecorded, type SearchAnswer } from './search-hits.js';
 import { setupUnderWay } from './store-setup.js';
@@ -81,8 +83,8 @@ type CoreJob =
   | { kind: 'compare'; a: string; b: string; cwd: string | null }
   /** What Compare shows first while the whole comparison is worked out: the identical prefix and the first request that differs (compare.ts `compareHead`). */
   | { kind: 'compare-head'; a: string; b: string }
-  | { kind: 'runs-page'; options: Omit<RunsPageOptions, 'localRuns'>; team: TeamStoreInput | null; outcome?: OutcomeWork | null; next?: NextStepWork | null }
-  | { kind: 'runs-days'; options: Omit<RunsByDayOptions, 'localRuns'>; team: TeamStoreInput | null }
+  | { kind: 'runs-page'; options: Omit<RunsPageOptions, 'localRuns' | 'judge'>; team: TeamStoreInput | null; outcome?: OutcomeWork | null; next?: NextStepWork | null }
+  | { kind: 'runs-days'; options: Omit<RunsByDayOptions, 'localRuns' | 'judge'>; team: TeamStoreInput | null; outcome?: OutcomeWork | null }
   | { kind: 'recent'; read: ReadOptions; outcome?: OutcomeWork | null; next?: NextStepWork | null }
   /** What a fork did differently from its parent (fork-differences.ts), masked by the project's normalizers. */
   | { kind: 'differences'; runId: string; normalizers: Normalizer[] }
@@ -121,7 +123,7 @@ type CoreJob =
    * the config names, whether each patch the fix could apply is in the working tree, as git said on
    * the server's thread, and why `fix apply` refuses a pulled repair's patch there, by the repair.
    */
-  | { kind: 'fix'; fixId: string; repairer: string | null; inTree?: Array<[string, boolean | null]>; refusedHere?: Array<[string, string | null]> };
+  | { kind: 'fix'; fixId: string; repairer: string | null; inTree?: Array<[string, boolean | null]>; refusedHere?: Array<[string, string | null]>; project?: string };
 
 /** A run id that names no single run: several runs (409), or none (404). */
 function noRun(store: StoreOf<'readModels'>, id: string): ReadAnswer {
@@ -141,6 +143,9 @@ function eitherMissing(store: Store, a: string, b: string): ReadAnswer | null {
 
 /** For a long run answered from a part of its calls: its whole analysis (and its outcome by checks), beside the server once this is answered, for the page to ask again. */
 const analyseAfter = (runId: string, outcome?: OutcomeWork | null): Pick<ReadAnswer, 'then'> => ({ then: { kind: 'analyse', runId, ...(outcome ? { outcome } : {}) } });
+
+/** For a run whose verdict a list's `status:` waits for and whose calls are more than a read judges: judged beside the server once this is answered, kept on this thread for the page's next ask. */
+const judgeAfter = (runId: string | undefined, outcome: OutcomeWork | null): Pick<ReadAnswer, 'then'> => (runId ? { then: { kind: 'outcome', runId, work: outcome } } : {});
 
 /** What git said about the code between two revisions, kept for a minute per pair: one per thread. */
 const code = codeChangeCache();
@@ -169,9 +174,10 @@ async function summary(store: Store, w: SummaryWork, whole: boolean): Promise<Re
   return answer(overviewSummary(store, { ...when, ...budget, ...(w.prices ? { prices: w.prices } : {}), goldens: w.goldens, teamStore: status ? { name: status.name, onlyLocal: status.onlyLocal, setup } : null, ...(patchInTree ? { patchInTree } : {}), ...(w.next ? { next: w.next } : {}) }));
 }
 
-function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns'>, team: TeamStoreInput | null, whole: boolean, outcome: OutcomeWork | null, next: NextStepWork | null): ReadAnswer {
+function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns' | 'judge'>, team: TeamStoreInput | null, whole: boolean, outcome: OutcomeWork | null, next: NextStepWork | null): ReadAnswer {
   const key = teamKey(store, team);
-  const page = listRunsPage(store, { ...options, known: !whole, localRuns: key ? localRunSet(store, key) : null });
+  // `status:` judges the runs it reaches by the same work as the rows.
+  const { judgeAfter: later, ...page } = listRunsPage(store, { ...options, known: !whole, localRuns: key ? localRunSet(store, key) : null, judge: judgeFor(store, outcome) });
   // With a team store, each row says whether it, or an attempt bundled under it, is only here: the
   // `local` tag, and what Push in the bulk bar sends.
   let runs: RunsPageRow[] = page.runs;
@@ -185,14 +191,18 @@ function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns'>, tea
     });
   }
   // Each row's outcome by checks, those that read calls within the rows' budget, each check with it for Status's hover, a test replay's exit code (run-outcome.ts), and its next step (next-step.ts).
-  return answer({ ...page, runs: nextStepRows(store, withExitCodes(store, judgedRows(store, runs, outcome, whole ? Infinity : ROW_CALLS_BUDGET, { checks: true })), next) }, { tagged: true });
+  return { ...answer({ ...page, runs: nextStepRows(store, withExitCodes(store, judgedRows(store, runs, outcome, whole ? Infinity : ROW_CALLS_BUDGET, { checks: true })), next) }, { tagged: true }), ...judgeAfter(later, outcome) };
 }
 
-/** A fix's page, with what the server's thread found in the working tree: patches in it already, and pulled ones `fix apply` refuses there. */
+/**
+ * A fix's page, with what the server's thread found in the working tree: patches in it already, and
+ * pulled ones `fix apply` refuses there. The names the project's goldens folder holds, which the
+ * goldens Apply fix copies can't take, are read here, beside the server.
+ */
 function fixPage(store: Store, job: Extract<CoreJob, { kind: 'fix' }>): ReadAnswer {
   const inTree = job.inTree ? new Map(job.inTree) : null;
   const here = job.refusedHere ? new Map(job.refusedHere) : null;
-  const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}), ...(here ? { rewriteHere: (repairId: string) => here.get(repairId) ?? null } : {}) });
+  const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}), ...(here ? { rewriteHere: (repairId: string) => here.get(repairId) ?? null } : {}), ...(job.project ? { goldensFolder: goldensFolderIn(job.project) } : {}) });
   return d ? answer(d, { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
 }
 
@@ -243,7 +253,9 @@ const CORE_READS: ReadTable<CoreJob> = {
     const steps = await pageSteps(store, runId, job.next ?? null, { judged, kept: (id) => id === runId && !d.warming });
     // The route tags it by where the run stands (run-version.ts); a long run answered from its
     // first calls is analysed whole beside the server, for the page to ask again.
-    return { ...answer({ ...d, ...(judged === undefined ? {} : { judged }), ...steps }), ...(d.warming ? analyseAfter(runId, outcome) : {}) };
+    // A failed test replay its golden's next replay passed: the run that passed, as the lists name it.
+    const fixedBy = fixedByOf(store, loadRunIndex(store)).get(runId);
+    return { ...answer({ ...d, ...(judged === undefined ? {} : { judged }), ...(fixedBy ? { fixedBy } : {}), ...steps }), ...(d.warming ? analyseAfter(runId, outcome) : {}) };
   },
   calls: (store, job) => {
     const page = runCallsPage(store, job.runId, { from: job.from, limit: job.limit }, job.read, job.whole ? { whole: true } : {});
@@ -271,7 +283,8 @@ const CORE_READS: ReadTable<CoreJob> = {
   'runs-page': (store, job, { whole }) => runsPage(store, job.options, job.team, whole, job.outcome ?? null, job.next ?? null),
   'runs-days': (store, job, { whole }) => {
     const key = job.options.types?.includes('local') ? teamKey(store, job.team) : null;
-    return answer(runsByDay(store, { ...job.options, known: !whole, localRuns: key ? localRunSet(store, key) : null }), { tagged: true });
+    const { judgeAfter: later, ...days } = runsByDay(store, { ...job.options, known: !whole, localRuns: key ? localRunSet(store, key) : null, judge: judgeFor(store, job.outcome ?? null) });
+    return { ...answer(days, { tagged: true }), ...judgeAfter(later, job.outcome ?? null) };
   },
   recent: (store, job, { whole }) => {
     // The rows' totals as far as they are known: the sidebar asks again while some are warming.
@@ -325,7 +338,7 @@ const CORE_READS: ReadTable<CoreJob> = {
  * says how one is written). A feature's table is one line here, and a kind two of them register stops
  * the dashboard as it loads.
  */
-const READ_TABLES = [CORE_READS, OUTCOME_READS, NEXT_STEP_READS, ESTIMATE_READS] as const;
+const READ_TABLES = [CORE_READS, OUTCOME_READS, NEXT_STEP_READS, RUNS_FAILURES_READS, ESTIMATE_READS] as const;
 
 /** A job a read-model thread answers: of a kind a table registers, as that table's handler takes it. */
 export type ReadJob = JobOf<(typeof READ_TABLES)[number]>;

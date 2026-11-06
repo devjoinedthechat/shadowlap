@@ -179,6 +179,32 @@ export function sourceWords(from: string): string {
     .join(', ');
 }
 
+/** The trace an import read a run from: its page in the trace store, the store's name, the trace's id there. */
+export interface ImportedTrace {
+  url: string;
+  store: string;
+  id: string;
+}
+
+/**
+ * The trace an import read the run from, with its page in the store it came from
+ * (`meta.imported.url`): an http or https address only, read again here as a pack can carry
+ * anything. Null for a run from anywhere else, or with no page kept.
+ */
+export function importedTrace(run: { meta?: { imported?: unknown } | null }): ImportedTrace | null {
+  const imported = run.meta?.imported;
+  if (!isObject(imported) || typeof imported.from !== 'string' || typeof imported.url !== 'string') return null;
+  const store = /^(langfuse|langsmith|phoenix|logfire):(.+)$/i.exec(oneLine(imported.from));
+  let url: URL;
+  try {
+    url = new URL(imported.url);
+  } catch {
+    return null;
+  }
+  if (!store || (url.protocol !== 'http:' && url.protocol !== 'https:') || url.username || url.password) return null;
+  return { url: url.href, store: TRACE_STORES[store[1]!.toLowerCase()]!, id: typeof imported.key === 'string' && imported.key ? oneLine(imported.key) : store[2]!.trim() };
+}
+
 /** A golden by its name: the pack's folder without the goldens folder (`goldens/refund-in-limit` is `refund-in-limit`). */
 export function goldenWords(path: string): string {
   return path.replace(/^\.\//, '').replace(/^goldens\//, '');

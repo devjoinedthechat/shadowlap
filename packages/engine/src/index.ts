@@ -27,7 +27,7 @@ export type { SqlValue } from './store.js';
 export type { QueuedWrites } from './store.js';
 export { ulidNow } from './store/core.js';
 export type { FixData, FixLink, FixLinkKind, FixStatus, PulledFrom, PullRequestState, StepRerun, StoredBlame, StoredFix, StoredFixCheck, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
-export { FIX_STATUSES, FixIdError, GOOD_LABEL, applyLeft, checkKey, cleanTitle, coversCheck, fixCost, fixLabelInfo, fixLabels, fixOfRun, fixRecords, joinableFix, markFixApplied, newFixId, prNumber, recordBlame, recordRepair, recordVerdict, repairToApply, resolveFix, setFixTitle, settleAppliedFixes, verdictCounts } from './fixes.js';
+export { FIX_STATUSES, FixIdError, GOOD_LABEL, applyGoldens, applyLeft, checkKey, cleanTitle, coversCheck, fixCost, fixLabelInfo, fixLabels, fixOfRun, fixRecords, joinableFix, markFixApplied, newFixId, prNumber, recordBlame, recordRepair, recordVerdict, repairToApply, resolveFix, setFixTitle, settleAppliedFixes, verdictCounts } from './fixes.js';
 export type { BlameToRecord, FixCost, FixRecords, RecordedBlame, RecordedRepair, RecordedVerdict, RepairToRecord, VerdictToRecord } from './fixes.js';
 // A run by its full id or the unique prefix the CLI prints, for the dashboard's routes and the fix jobs.
 export { lookupRun } from './run-lookup.js';
@@ -204,8 +204,8 @@ export { inferInterventions, overrideSources, recordNotRecorded, redactRunFacts,
 // Tools the model called that a run recorded no call of, read from its answers (contract: name, count, firstCallNo, effect).
 export { FENCED_BUILT_INS, fromClaudeCode, mcpToolName, parseUnrecordedConfig, toolNameEffect, UNRECORDED_KEY, unrecordedEffect, unrecordedFix, unrecordedTools, type UnrecordedEffect, type UnrecordedFix, type UnrecordedOptions, type UnrecordedTool } from './unrecorded-tools.js';
 // A run's about line: one quiet line that says what the run was, worked out from it and never edited.
-export { ABOUT_FROM, ABOUT_MAX, aboutOf, batchInput, changeWords, firstSentence, goldenWords, sourceWords } from './about.js';
-export type { AboutFacts, AboutFrom, AboutIntervention, RunAbout, RunAsk } from './about.js';
+export { ABOUT_FROM, ABOUT_MAX, aboutOf, batchInput, changeWords, firstSentence, goldenWords, importedTrace, sourceWords } from './about.js';
+export type { AboutFacts, AboutFrom, AboutIntervention, ImportedTrace, RunAbout, RunAsk } from './about.js';
 export { runAsk, type RunAskOptions } from './about-ask.js';
 export type { InterventionFlag, OverrideSources } from './run-facts.js';
 export { showJson } from './show.js';
@@ -241,6 +241,9 @@ export { decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, m
 // preview's verify by verify's head, a fix's as its Verify step heads it.
 export { fixVerifyHead, goldensPassed, runOutcomeWord, verdictWord, verifyHead } from './verdict-words.js';
 export { ACTIONS, confirmWords, forceLiveLabel, STRONGER_MODEL, type ActionWords } from './action-words.js';
+// The names the goldens a fix's apply copies go by, for `fix apply --name` and the dashboard's Apply fix.
+export { asGoldenName, defaultGoldenNames, goldenNameArgs, goldenNamesProblem, type GoldenNameProblem } from './golden-names.js';
+export { goldensFolder, type GoldenThere } from './goldens-folder.js';
 export { longDate, replacementModels, retiredFields, retirementOf, retirementPlatform, retirementsOf, retirementTable, retirementTableProblems, tableModel } from './model-retirements.js';
 export type { FieldRetirement, ModelRetirement, RetirementNotice, RetirementPlatform, RetirementSource, RetirementTable } from './model-retirements.js';
 export type { DecisionRunRow, DecisionSessionRow, MigrationApplied, NewDecisionSession } from './store.js';

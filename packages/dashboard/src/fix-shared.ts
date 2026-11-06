@@ -70,10 +70,14 @@ export interface FixActions {
    * is in the working tree already (merged, or applied by hand), which applying only marks applied,
    * and the fix applied. `patchFile` is where the patch is, relative to the project folder.
    * `goldens`: how many recordings the fixed code made that applying copies into the goldens folder
-   * and tests. `change`: for a change of request fields (`--set`, `--model`) with no patch, what it
-   * set (`fieldChange`): marking it applied leaves making it in the agent to you.
+   * and tests. `names`: each of them it copies now (one copied before keeps where it went), by the
+   * run it is a recording of (its short id), with the name it takes unless the dialog gives another
+   * (`fix apply --name <run>=<name>`); `held`: the names the project's goldens folder holds, which
+   * none may take, or null where the folder wasn't read. `change`: for a change of request fields
+   * (`--set`, `--model`) with no patch, what it set (`fieldChange`): marking it applied leaves making
+   * it in the agent to you.
    */
-  apply: { kind: 'patch' | 'mark'; argv: string[]; gitApply: string | null; pending: string | null; pulled: boolean; files: string[]; diff: string | null; patchFile: string | null; refused: string | null; inTree: boolean; goldens: number; change: string | null } | null;
+  apply: { kind: 'patch' | 'mark'; argv: string[]; gitApply: string | null; pending: string | null; pulled: boolean; files: string[]; diff: string | null; patchFile: string | null; refused: string | null; inTree: boolean; goldens: number; names: Array<{ run: string; name: string }>; held: string[] | null; change: string | null } | null;
   applied: boolean;
   /**
    * An open fix whose blame couldn't settle where its run was lost (`unsettled`: its first probe
