@@ -8,6 +8,7 @@ import type { CallRow } from '../ui/types.js';
 import { keyCounts, keyItems, pendingMatches, shownFilter } from '../ui/run/call-filter.js';
 import { callKind, KIND_RANK, kindLabel, kindValue, ownKind, parseKinds, type Kind } from '../ui/run/kinds.js';
 import { RunStrip, type RunStripCall } from '../ui/run/RunStrip.js';
+import { MiniStrip } from '../ui/components/Strip.js';
 
 /**
  * The run page's strip: by kind on a recording, by origin elsewhere; ranges by the room it has, each
@@ -170,5 +171,16 @@ describe('the key, which is the call filter', () => {
     const ranges = stripRanges(recording(6, (n) => (n === 2 ? { effect: 'write' } : {})), null, BY_KIND);
     expect(dimRanges(ranges, null, 'k-write')).toEqual([true, false, true, true, true, true]);
     expect(dimRanges(ranges, (n) => n > 4)).toEqual([true, true, true, true, false, false]);
+  });
+});
+
+describe('the Runs table’s small strip', () => {
+  it('draws a long run’s ranges in the origin most of their calls have, a notch at each rarer failure', () => {
+    const origins: Origin7[] = Array.from({ length: 1200 }, (_, i) => (i % 100 === 49 ? 'fail' : 'live'));
+    const html = renderToStaticMarkup(createElement(MiniStrip, { origins }));
+    expect([...html.matchAll(/<i class="(\w+)"/g)].map((m) => m[1])).toEqual(Array(60).fill('live'));
+    expect([...html.matchAll(/class="tk fail" style="left:(\d+(?:\.\d+)?)%"/g)]).toHaveLength(12);
+    // A short run keeps a cell a call, and no notch.
+    expect(renderToStaticMarkup(createElement(MiniStrip, { origins: ['rep', 'fail'] }))).not.toContain('tk');
   });
 });

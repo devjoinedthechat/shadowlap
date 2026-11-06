@@ -19,8 +19,10 @@ export function MiniStrip({ origins, max = 60, className = 'ms' }: { origins: re
   const cells = useMemo(() => miniCells(origins, max), [origins, max]);
   return (
     <span className={className} style={{ gridTemplateColumns: `repeat(${Math.max(1, cells.length)}, minmax(0, 1fr))` }} aria-hidden="true">
-      {cells.map((o, i) => (
-        <i key={i} className={o} />
+      {cells.map((c, i) => (
+        <i key={i} className={c.origin}>
+          {c.tick ? <span className={`tk ${c.tick}`} style={{ left: `${c.tickAt * 100}%` }} /> : null}
+        </i>
       ))}
     </span>
   );

@@ -242,6 +242,13 @@ table.t th.num, table.calls th.num, table.calls th.n { font: 500 10px var(--mono
 .ms i.over { background: var(--o-over); }
 .ms i.inject { background: var(--o-inject); }
 .ms i.fail { background: var(--o-fail-fill); }
+/* a range's notch: its rarer notable call, at its place, a little above and below the range */
+.ms i { position: relative; }
+.ms .tk { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; border-radius: 1px; pointer-events: none; background: var(--ink); }
+.ms .tk.fail { background: var(--err); }
+.ms .tk.block { background: var(--o-block); }
+.ms .tk.stub { background: var(--o-stub); }
+.ms .tk.over, .ms .tk.inject { background: var(--o-over); }
 
 .org.inject { color: var(--o-over); }
 .org.inject i { background: transparent; box-shadow: inset 0 0 0 1.5px var(--o-over); }

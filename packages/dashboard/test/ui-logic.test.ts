@@ -214,9 +214,9 @@ describe('strip', () => {
   it('ranks the rarest origin highest and leaves short runs alone', () => {
     expect(binCalls(calls('rl'), 360)).toBeNull();
     expect(binCalls(calls('rlsboif'), 1)![0]).toMatchObject({ origin: 'fail', notable: 7, size: 7 });
-    expect(miniCells(parseOrigins('rrrr')!, 60)).toEqual(['rep', 'rep', 'rep', 'rep']);
+    expect(miniCells(parseOrigins('rrrr')!, 60).map((c) => c.origin)).toEqual(['rep', 'rep', 'rep', 'rep']);
     expect(miniCells(parseOrigins('r'.repeat(119) + 'b')!, 60)).toHaveLength(60);
-    expect(miniCells(parseOrigins('r'.repeat(119) + 'b')!, 60).at(-1)).toBe('block');
+    expect(miniCells(parseOrigins('r'.repeat(179) + 'b')!, 60).at(-1)).toEqual({ origin: 'rep', tick: 'block', tickAt: 1 });
   });
 
   it('reads origins as a compact string or as names, and refuses anything else', () => {

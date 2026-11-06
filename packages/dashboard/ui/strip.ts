@@ -198,13 +198,24 @@ export function stripStep(cells: readonly Pick<Cell, 'first' | 'last' | 'target'
   return binned || c.first !== c.last ? c.target : c.first;
 }
 
-/** A small strip's cells: each call's origin, or each range's most notable origin past `max` calls. */
-export function miniCells(origins: readonly Origin7[], max = MINI_CELLS): Origin7[] {
+/** A small strip's cell: its call's origin, or a range's, with the notch of its rarer notable call where it has one. */
+export interface MiniCell {
+  origin: Origin7;
+  tick: Origin7 | null;
+  tickAt: number;
+}
+
+/**
+ * A small strip's cells: each call's origin, or past `max` calls each range in the origin most of its
+ * calls have, its rarer notable call (a failure, what a fork changed or fenced) marked by a notch at
+ * its place, as the run page's strip marks it: a few failures among many calls read as a few marks.
+ */
+export function miniCells(origins: readonly Origin7[], max = MINI_CELLS): MiniCell[] {
   const bins = binCalls(
     origins.map((origin, i) => ({ n: i + 1, origin })),
     max,
   );
-  return bins ? bins.map((b) => b.origin) : [...origins];
+  return bins ? bins.map((b) => ({ origin: b.major as Origin7, tick: b.tick as Origin7 | null, tickAt: b.tickAt })) : origins.map((origin) => ({ origin, tick: null, tickAt: 0 }));
 }
 
 /** The Overview's family rows share one scale, at least this many calls wide, so a fork's prefix lines up under its parent. */
