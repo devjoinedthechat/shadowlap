@@ -121,7 +121,7 @@ describe("a fork's diff panel", () => {
     expect(html).toContain('<span>$.messages[2].content[0].content<span class="add">');
     expect(html).not.toMatch(/content\n<span/);
     expect(topRule('.diffpanel .val')).toMatch(/display: block/);
-    expect(topRule('.diffpanel .add')).toMatch(/display: block/);
+    expect(topRule('.diffpanel pre .add')).toMatch(/display: block/);
   });
 });
 

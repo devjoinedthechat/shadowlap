@@ -457,6 +457,8 @@ describe('forced colours', () => {
     expect(forced.get('table.calls tr[aria-selected="true"]')?.get('outline')).toBe('2px solid Highlight');
     for (const s of ['.seg button[aria-pressed="true"]', '.chips button[aria-pressed="true"]', '.legend.lfilter button[aria-pressed="true"]', '.runkey .rk[aria-pressed="true"]']) expect(forced.get(s)?.get('text-decoration'), s).toBe('underline 2px');
     expect(forced.get(':is(input, select, textarea, .drop):focus-visible')?.get('outline')).toBe('2px solid Highlight !important');
+    // The structural diff's marked words, which say what changed by their ground alone.
+    expect(forced.get('mark.jdw')?.get('text-decoration')).toBe('underline 2px');
   });
 
   it('outlines every overlay in the user’s text colour, since its edge is a shadow the theme drops', () => {
