@@ -88,7 +88,7 @@ export type { GoldenPathResult, ModelServer, RecordConfirmation, RecordPlan, Rec
 export type { CalibrationOutcome, EffectiveSetup, GoldenTestFact, Inspection, PackFact, RunFact, RunTotals, SetupFindings, SetupStage, SetupState, SetupTool, StoreFacts, WrapSnippet } from './projects/index.js';
 export { bringRequest, loadApiRequest, manifestRefs, storeApiRequest } from './manifest.js';
 export { ACCOUNT_HEADERS } from './account-headers.js';
-export { compareRuns, formatComparison, runChanges, runsDiffer, toolDefinitions, type RunCourse } from './compare.js';
+export { changedPathLabel, comparedRequest, compareRuns, formatComparison, requestReadRule, runChanges, runsDiffer, toolDefinitions, type RunCourse } from './compare.js';
 export { pathSetByCode, requestPathLabel } from './request-paths.js';
 export { describeChanges, type RunChanges } from './changes.js';
 export type { CallDifference, ComparedIntervention, RunComparison } from './compare.js';
