@@ -166,7 +166,7 @@ export function TestsPage() {
     <Page>
       {header(actions)}
       <Verdict view={view} running={running} lead={lead} press={press} />
-      <GoldensTable view={view} />
+      <GoldensTable view={view} press={press} />
       {view.divergences.map((d) => (
         <DivergencePanel key={d.golden} d={d} has={hasKind} updateLeads={view.steps?.[d.golden]?.key === 'update-golden'} wait={wait} live={bisectLive(view, d)} prices={prices} onNormalize={(e) => guard(() => normalize(d, e))} onUpdate={(e) => guard(() => setOpen({ kind: 'update', paths: [d.golden], estimate: e }))} onFind={() => findCommit(d)} />
       ))}

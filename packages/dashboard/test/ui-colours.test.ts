@@ -226,6 +226,7 @@ describe('lime', () => {
     '.attempts span i': 'an attempt that passed',
     '.attempts a i': 'an attempt that passed',
     '.st.ok i': 'a run that came out well',
+    '.evl .ed.end.ok': 'the last point of a gate’s evidence line that passed',
     '.st.ok': 'a status that passed: its word, in passed’s colour as its dot is',
     '.vw.ok': 'a verdict line’s word: passed',
     '.metric b.ok': 'a page’s fact that counts what passed (a fix verified)',
@@ -288,6 +289,8 @@ describe('amber', () => {
   const LOOK: Record<string, string> = {
     '.glyph.warn': 'a glyph that needs a look',
     '.verdict.tv p .tstale': 'Tests’ verdict tested a commit your working tree has moved on from: run them again',
+    '.evl .ed.y': 'an attempt the provider cut short, counted against either verdict, never the agent’s failure',
+    '.evl .ed.end.y': 'the last point of a gate’s evidence line that ran out between its bounds',
     '.glyph.fixinc': 'a fix whose verify couldn’t decide',
     '.glyph.amb': 'an event that couldn’t decide, stopped or needs a look, whatever its shape',
     '.pips i.unsure': 'an attempt that couldn’t decide',

@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import type { GoldenRow, TestsView } from '../api.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { rowOpen } from '../components/Table.js';
@@ -6,8 +7,9 @@ import { glued } from '../format.js';
 import { checkMark, sourceText } from '../goldens.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
-import { GateEvidence, gated } from './Evidence.js';
+import { EvidenceRow, EvidenceToggle, gated, useEvidenceOpen } from './Evidence.js';
 import { HistoryCells, HistoryKey, HistoryStrip, RevisionHeads } from './History.js';
+import type { LeadPress } from './Verdict.js';
 
 /**
  * Tests' table: each golden with its mode and where it came from, its checks marked by how its last
@@ -19,8 +21,9 @@ import { HistoryCells, HistoryKey, HistoryStrip, RevisionHeads } from './History
  * below 1000px of room the oldest revisions give way, below 820px the checks go under the golden's
  * name, and on a phone the revisions become a strip there too. Last result keeps its width.
  */
-export function GoldensTable({ view }: { view: TestsView }) {
+export function GoldensTable({ view, press }: { view: TestsView; press?: LeadPress }) {
   const history = view.revisions.length > 0;
+  const { open, toggle } = useEvidenceOpen(view.rows);
   return (
     <section className="panel sec gtw">
       <div className="tscroll">
@@ -35,7 +38,10 @@ export function GoldensTable({ view }: { view: TestsView }) {
           </thead>
           <tbody>
             {view.rows.map((row) => (
-              <GoldenTr key={row.path} row={row} showHistory={history} />
+              <Fragment key={row.path}>
+                <GoldenTr row={row} showHistory={history} open={open.has(row.path)} onToggle={() => toggle(row.path)} />
+                {open.has(row.path) && gated(row.last.gate) ? <EvidenceRow row={row} g={row.last.gate} span={history ? 4 : 3} press={press} inc={view.inconclusive.find((v) => v.golden === row.path)} /> : null}
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -45,7 +51,7 @@ export function GoldensTable({ view }: { view: TestsView }) {
   );
 }
 
-function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }) {
+function GoldenTr({ row, showHistory, open, onToggle }: { row: GoldenRow; showHistory: boolean; open: boolean; onToggle: () => void }) {
   const source = sourceText(row);
   const last = row.last;
   return (
@@ -81,7 +87,7 @@ function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }
       <td className="glast">
         <LastResult row={row} />
         {last.result !== null || row.error ? <span className="rsub">{gated(last.gate) ? <DotLine text={last.line} max={18} soft={24} /> : last.line}</span> : null}
-        {gated(last.gate) && last.gate.attempts ? <GateEvidence g={last.gate} verdict={last.verdict} /> : null}
+        {gated(last.gate) && last.gate.attempts ? <EvidenceToggle g={last.gate} name={row.name} open={open} onToggle={onToggle} /> : null}
         {row.presets ? <PresetsLine p={row.presets} only={last.result === null && !row.error} /> : null}
       </td>
     </tr>

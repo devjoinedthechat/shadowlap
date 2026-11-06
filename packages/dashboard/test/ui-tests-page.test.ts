@@ -1,7 +1,9 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { parseGate, Store, type StoredCheck } from '@shadowlap/engine';
+import { gateResult, parseGate, Store, type StoredCheck } from '@shadowlap/engine';
 import { testsView, type GoldenSource } from '../src/tests.js';
+import { evidenceWords } from '../src/tests-evidence.js';
+import { pageUp } from '../ui/focus-manager.js';
 import type { Client, TestsView } from '../ui/api.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -42,10 +44,16 @@ function view(goldens: GoldenSource[]): TestsView {
   return v;
 }
 
+const evidenceAsked: string[] = [];
+
 function page(started: Array<{ kind: string; fields: Record<string, unknown> }>, goldens: GoldenSource[], shape: (v: TestsView) => TestsView = (v) => v) {
   const v = shape(view(goldens));
   const client = {
     tests: () => Promise.resolve(v),
+    testEvidence: (golden: string) => {
+      evidenceAsked.push(golden);
+      return Promise.resolve({ attempts: [{ runId: 'run-a1', href: '#/run/run-a1', outcome: 'passed', note: null }], carried: 0, gone: 0 });
+    },
     jobs: () => Promise.resolve([]),
     startJob: (kind: string, fields: Record<string, unknown>) => {
       started.push({ kind, fields });
@@ -213,6 +221,35 @@ describe('the Tests page', () => {
       expect(one(strip, 'i').getAttribute('aria-label')).toBe(one(row, 'td.hist i').getAttribute('aria-label'));
     }
     expect(page.one('.gfoot .hkey').textContent).toBe('By revisionone attemptnot tested there');
+  });
+});
+
+describe('a gated golden’s evidence', () => {
+  it('opens from its bar under its row: why it stopped, the line between its bounds, its attempts, and Esc closes it, the focus back on the bar', async () => {
+    const decided = gateResult({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 }, Array<boolean>(12).fill(true));
+    const gate = { ...decided, tally: '12 of 12', perAttempt: null, more: null, words: evidenceWords(decided, 3) };
+    const page = await open([], GOLDENS, (v) => ({ ...v, rows: v.rows.map((row) => (row.path === 'goldens/passes' ? { ...row, last: { ...row.last, gate } } : row)) }));
+    const bar = page.one('button.gev');
+    expect([bar.getAttribute('aria-expanded'), bar.getAttribute('aria-label'), one(bar, 'small').textContent]).toEqual(['false', 'Show why it stopped at attempt 12', 'against .70 and .90']);
+    expect(JSON.parse(bar.getAttribute('data-tip')!)).toMatchObject({ t: 'passes · passed at attempt 12', s: 'the score after each attempt: a pass adds 0.25, a failure −1.10; it passes at +3.00 and fails at −3.00', rows: [['pass^5', gate.words!.passK, 'var(--faint)']] });
+    evidenceAsked.length = 0;
+    await page.click(bar);
+    await page.until('the attempts', () => page.all('tr.gevrow .alist').length === 1);
+    const row = page.one('tr.gevrow');
+    const why = 'Stopped at attempt 12: the score reached +3.02, past +3.00, where it passes.';
+    expect([one(row, 'p.lead').textContent, one(row, '.evl').getAttribute('aria-label'), one(row, 'td').props.colSpan]).toEqual([why, why, 4]);
+    expect(all(row, '.eb').map((e) => e.textContent)).toEqual(['passes at +3.00', 'fails at −3.00']);
+    expect(all(row, '.evx span').map((e) => e.textContent)).toEqual(['attempt 12']);
+    expect(one(row, 'p.receipt').textContent).toMatch(/^a pass adds 0\.25, a failure −1\.10 · pass\^5/);
+    expect(one(row, 'p.receipt').textContent).toContain('forked at call 3, each attempt live from there');
+    expect(evidenceAsked).toEqual(['goldens/passes']);
+    expect([page.one('button.gev').getAttribute('aria-expanded'), page.one('button.gev').getAttribute('aria-controls')]).toEqual(['true', one(row, 'section.gevx').getAttribute('id')]);
+    await page.focus(one(row, '.alist a'));
+    expect(pageUp.current?.()).toBe(true);
+    await page.until('the evidence to close', () => page.all('tr.gevrow').length === 0);
+    expect(page.one('button.gev').getAttribute('aria-expanded')).toBe('false');
+    expect(page.focused()).toBe(page.one("button.gev"));
+    expect(pageUp.current?.()).toBe(false);
   });
 });
 

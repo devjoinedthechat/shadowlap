@@ -143,9 +143,56 @@ table.gt td.glast .rsub { font: 11.5px/1.5 var(--mono); color: var(--faint); }
 
 .gfoot, table.gt td.glast .rsub { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
 
-table.gt .gev { display: flex; align-items: center; gap: 8px; margin-top: 6px; color: var(--faint); font-size: 11px; cursor: default; }
+/* a gated golden's interval bar: the toggle of the row under it that says why its gate stopped where it did, 24px tall for a
+   finger, its caret turned while that row is open */
+table.gt .gev { display: flex; align-items: center; gap: 8px; margin-top: 6px; color: var(--faint); font-size: 12px; }
 table.gt .gev .wib { margin: 0; width: 96px; }
+table.gt button.gev { border: 0; background: none; padding: 5px 4px 5px 0; margin: 1px 0 -5px; min-height: 24px; font: 12px var(--body); color: var(--faint); cursor: pointer; border-radius: 6px; text-align: left; }
+table.gt button.gev small { font-size: 12px; white-space: nowrap; }
+table.gt button.gev:hover, table.gt button.gev[aria-expanded="true"] { color: var(--ink); }
+table.gt button.gev .cr { width: 10px; height: 10px; flex: none; margin-left: -2px; transition: transform .15s; }
+table.gt button.gev[aria-expanded="true"] .cr { transform: rotate(180deg); }
 @media (max-width: 640px) { table.gt .gev small { display: none; } }
+
+/* the evidence under its golden's row: why its gate stopped, the line, the attempts, what each attempt weighs */
+table.gt tr.gevrow td { padding: 2px 18px 18px 12px; }
+.gevx { max-width: 760px; }
+.gevx .lead { margin: 0 0 14px; color: var(--ink); font-size: 13.5px; line-height: 1.5; text-wrap: pretty; }
+.gevx .receipt { margin-top: 10px; }
+.gevx .astrip { max-width: none; }
+.gevx .gevact { margin-top: 12px; }
+/* the evidence line: the plot stretches to its cell, the dots and labels are placed by percentage, each bound labelled in the
+   gutter to its right with what crossing it does; a failed attempt a red dot, one the provider cut short amber */
+.evw { margin: 0 0 16px; }
+.evl { position: relative; height: 96px; margin-right: 112px; }
+.evw.tall .evl { height: 120px; }
+.evl svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.evl .bd { stroke: var(--faint); stroke-width: 1; stroke-dasharray: 3 4; }
+.evl .z { stroke: var(--line2); stroke-width: 1; }
+.evl .pl { fill: none; stroke: var(--dim); stroke-width: 1.5; stroke-linejoin: round; }
+.evl .ed { position: absolute; width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px; border-radius: 50%; background: var(--cq-red); }
+.evl .ed.pt { background: var(--dim); }
+.evl .ed.y { background: var(--cq-amber); }
+.evl .ed.end { width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; box-shadow: 0 0 0 3px var(--panel); }
+.evl .ed.end.ok { background: var(--cq-lime); }
+.evl .ed.end.y { background: var(--cq-amber); }
+.evl .ed.end.no { background: var(--cq-red); }
+/* a history line's value at each attempt, under its dot (over it where .up); the first and the last keep inside the plot */
+.evl .ev { --tx: -50%; position: absolute; transform: translate(var(--tx), 0); margin-top: 6px; font: 10px/12px var(--mono); color: var(--faint); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.evl .ev.up { transform: translate(var(--tx), -100%); margin-top: -6px; }
+.evl .ev.l { --tx: -3px; }
+.evl .ev.r { --tx: calc(-100% + 3px); margin-top: 8px; color: var(--ink); }
+.evl .ev.r.up { margin-top: -8px; }
+.evl .eb { position: absolute; left: calc(100% + 14px); transform: translateY(-50%); font: 11px var(--mono); color: var(--faint); white-space: nowrap; font-variant-ligatures: none; }
+/* where Run more attempts took over: a hairline at the last attempt it carried, named on both sides above the plot */
+.evw.carried .evl { margin-top: 20px; }
+.evl .evc { position: absolute; top: -20px; bottom: 0; width: 0; border-left: 1px solid var(--line2); }
+.evl .evc span { position: absolute; top: -1px; font: 11px/12px var(--mono); color: var(--faint); white-space: nowrap; }
+.evl .evc .l { right: 7px; }
+.evl .evc .r { left: 7px; }
+.evx { position: relative; height: 15px; margin: 7px 112px 0 0; font: 11px var(--mono); color: var(--faint); }
+.evx span { position: absolute; top: 0; left: 0; white-space: nowrap; }
+.evx span.r { left: auto; right: 0; }
 .gfoot { padding: 10px 18px 12px; border-top: 1px solid var(--line); display: grid; gap: 6px; color: var(--faint); font-size: 12px; }
 .gfoot p { margin: 0; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .gfoot .chip { flex: none; }
@@ -192,4 +239,6 @@ table.gt td.glast a.gpre:hover { text-decoration: underline; text-underline-offs
   .hk.hk-dot::before, .hk.hk-bar::before { box-shadow: inset 0 0 0 1px CanvasText; }
   .hk.hk-none::before { background: CanvasText; }
   .hk.hk-upd::before { box-shadow: 0 0 0 1.5px CanvasText; }
+  /* the evidence line's dots keep their colours, edged in the text colour */
+  .evl .ed { forced-color-adjust: none; box-shadow: 0 0 0 1px CanvasText; }
 }
