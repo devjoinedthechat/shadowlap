@@ -208,7 +208,7 @@ describe('the tab Changes comes back to', () => {
     noteChangesTab('verdicts');
     expect(changesHref()).toBe('#/changes');
     expect(comparePairHref()).toBe(`#/compare/${REC}/${FORK}`);
-    // A pair Compare found gone is forgotten: the next Compare opens on its pickers.
+    // A pair Compare found gone is forgotten: the next Compare opens as #/compare does.
     noteChangesTab('compare');
     forgetComparePair();
     expect(changesHref()).toBe('#/compare');

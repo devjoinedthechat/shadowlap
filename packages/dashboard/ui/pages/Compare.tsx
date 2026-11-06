@@ -73,7 +73,7 @@ function CompareHead({ pickers = null }: { pickers?: ReactNode }) {
 
 /**
  * The pair shown, noted for Changes' Compare tab and the sidebar once both runs are in, and
- * forgotten once either read says its run is gone, so the next Compare opens on the pickers. An
+ * forgotten once either read says its run is gone, so the next Compare opens as `#/compare` does. An
  * exported copy has no tabs to note it for.
  */
 function useNotePair(ra: Loaded<RunDetail>, rb: Loaded<RunDetail>): void {
