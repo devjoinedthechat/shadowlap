@@ -1,3 +1,4 @@
+import type { HeldWhat, HoldingView } from '../src/cross-project.js';
 import type { AddProjectView, RemoveDialogView, SetupView, SwitcherView } from '../src/projects.js';
 
 /**
@@ -7,7 +8,7 @@ import type { AddProjectView, RemoveDialogView, SetupView, SwitcherView } from '
  * back to what they showed before. Types only from the server's read model (`src/projects.ts`).
  */
 
-export type { AddProjectView, RemoveDialogView, SetupView, SwitcherView };
+export type { AddProjectView, HoldingView, RemoveDialogView, SetupView, SwitcherView };
 export type { AddFolderItem, CalibrateStep, FindingRow, InspectStep, OnDiskRow, RecordStep, RemoveMode, StepState, SwitcherItem, TestStep, ToolRow } from '../src/projects.js';
 
 /** The switcher as `GET /api/projects` serves it: the projects, and why the list can't be changed when it can't. */
@@ -72,6 +73,11 @@ export interface ProjectsApi {
   checkGolden(project: string, golden: string): Promise<{ path: string; runId: string | null }>;
   /** Skip the rest, or Go to the overview: the project is set up. */
   finish(project: string): Promise<{ project: string; stage: string }>;
+  /**
+   * Which other project holds the run, fix, preview or migration a link names, which this one
+   * doesn't (pages/Elsewhere.tsx); null when the server serves one store. Fails as any read does.
+   */
+  holding(what: HeldWhat, ids: readonly string[]): Promise<HoldingView | null>;
 }
 
 /** The client's request function, as `createClient` has it: JSON in and out, an `ApiError` with the server's message. */
@@ -203,6 +209,7 @@ export function projectsApi(request: Request): ProjectsApi {
     planRecording: (project, command) => send('POST', 'setup/record', { project, command }),
     checkGolden: (project, golden) => send('POST', 'setup/golden', { project, golden }),
     finish: (project) => send('POST', 'setup/finish', { project }),
+    holding: (what, ids) => orNull(request<HoldingView>(`projects/holding?what=${what}${ids.map((x) => `&id=${id(x)}`).join('')}`)),
   };
 }
 
@@ -219,5 +226,6 @@ export function noProjects(refuse: () => Promise<never>): ProjectsApi {
     planRecording: refuse,
     checkGolden: refuse,
     finish: refuse,
+    holding: () => Promise.resolve(null),
   };
 }

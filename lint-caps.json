@@ -219,7 +219,7 @@
       "normalizeRunDetail": 36
     },
     "packages/dashboard/ui/pages/Compare.tsx": {
-      "Comparison": 51
+      "Comparison": 46
     },
     "packages/dashboard/ui/pages/NewProject.tsx": {
       "NewProjectPage": 36

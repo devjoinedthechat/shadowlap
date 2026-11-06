@@ -25,11 +25,12 @@ for (const stream of [process.stdout, process.stderr]) {
 // What a command throws ends it with the status the contract gives it (exit-codes.ts): the message
 // is what a person needs, and SHADOWLAP_DEBUG=1 adds the stack for a bug report. A stop signal ends
 // it with 128 + the signal's number, however the command wound down, one that came during its last
-// synchronous work too (runToEnd).
+// synchronous work too (runToEnd), or with an error nothing caught, as a closed terminal's SIGHUP
+// does (endUncaught).
 import('../dist/index.js').then(
   (cli) => {
     cli.watchStopSignals();
-    process.on('uncaughtException', (err) => process.exit(cli.reportError(err)));
+    process.on('uncaughtException', cli.endUncaught);
     cli.runToEnd(() => cli.main(process.argv));
   },
   (/** @type {unknown} */ err) => {

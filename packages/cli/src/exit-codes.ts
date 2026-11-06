@@ -133,6 +133,18 @@ export function runToEnd(command: () => Promise<unknown>): void {
   );
 }
 
+/**
+ * Ends the process on an error nothing caught, as the entry point does: what was thrown is reported
+ * with the status the contract gives it, once a signal that came meanwhile has been read
+ * (afterPendingSignals), so a signal ends it with 128 + n here too. A closed terminal sends one: its
+ * SIGHUP comes with the errors of a terminal that is gone (EIO, reading the keyboard or drawing the
+ * screen), and the process ending on the first of those at once ended with 2, not 129. The first
+ * error ends it: one more while it waits would end it later, so it is never reported.
+ */
+export function endUncaught(err: unknown): void {
+  afterPendingSignals(() => process.exit(reportError(err)));
+}
+
 /** The first stop signal this process got, or null. */
 export function stoppedBy(): NodeJS.Signals | null {
   return received;
