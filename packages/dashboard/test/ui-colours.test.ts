@@ -92,6 +92,10 @@ describe('where a call’s answer came from', () => {
   const MARKS = ['.cells button', '.ms i', '.gs i', '.segbar i', '.oleg i', '.tl-row .bar', '.legend i.lg', '.org'];
   const mark = (m: string, o: string) => (m === '.org' ? '.org.' + o + ' i' : `${m}.${o}`);
 
+  it('draws a recording’s calls by kind in the kind’s own token, in the strip, its key and the Timeline alike', () => {
+    for (const m of ['.cells button', '.legend i.lg', '.tl-row .bar']) for (const k of ['k-model', 'k-read', 'k-write', 'k-err']) expect(value(`${m}.${k}`, 'background'), `${m}.${k}`).toBe(`var(--${k})`);
+  });
+
   it('draws a blocked write as a neutral hatch, fenced by its outline where a mark is big enough to show one', () => {
     for (const m of MARKS) expect(value(mark(m, 'block'), 'background'), m).toBe('var(--o-block-fill)');
     for (const m of ['.cells button', '.segbar i', '.oleg i', '.tl-row .bar', '.legend i.lg', '.org']) expect(value(mark(m, 'block'), 'box-shadow'), m).toBe('inset 0 0 0 1px var(--o-block)');
