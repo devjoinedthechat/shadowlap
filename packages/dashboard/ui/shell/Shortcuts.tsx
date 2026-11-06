@@ -27,7 +27,7 @@ function Line({ line }: { line: SheetLine }) {
   return (
     <>
       <dt className={sk}>
-        {line.chips.map((c, i) => (c.join ? <span key={i} className={c.single ? 'then sk' : 'then'}>{c.text}</span> : <kbd key={i} className={c.single ? 'sk' : undefined}>{c.text}</kbd>))}
+        {line.chips.map((c, i) => (c.join ? <span key={i} className="then">{c.text}</span> : <kbd key={i}>{c.text}</kbd>))}
       </dt>
       <dd className={sk}>{line.label}</dd>
     </>

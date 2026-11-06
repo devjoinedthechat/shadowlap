@@ -35,8 +35,6 @@ interface Shortcut {
   label?: string | ((p: SheetPlace) => string);
   /** A card's title where the control has no words of its own for it. */
   card?: string;
-  /** A single key that does the same, drawn after `and`: faint, as a single key's line is, while the switch is off. */
-  also?: string;
   when?: (p: SheetPlace) => boolean;
 }
 
@@ -46,7 +44,10 @@ const TABLE = {
   palette: { group: 'Anywhere', chips: '⌘ K', label: 'Search or jump to anything', when: notCopy },
   filter: { group: 'Anywhere', chips: '/', label: (p) => (p.onRun ? 'Filter calls' : p.onRuns ? 'Filter runs' : 'Search or jump to anything'), when: (p) => !p.exported || p.onRun || p.onRuns },
   help: { group: 'Anywhere', chips: '?', aria: '?', label: 'Show these shortcuts' },
-  undo: { group: 'Anywhere', chips: '⌘ Z', also: 'u', label: 'Undo, while a toast offers it' },
+  // ⌘Z, and u while single keys are on: a line each, so the group's keys keep to their width. An
+  // exported copy changes nothing, so no toast there offers an Undo.
+  undo: { group: 'Anywhere', chips: '⌘ Z', label: 'Undo, while a toast offers it', when: notCopy },
+  undoKey: { group: 'Anywhere', chips: 'u', label: 'The same', when: notCopy },
   up: { group: 'Anywhere', chips: 'Esc', label: 'Close menu or dialog, then go up a level' },
 
   rows: { group: 'In a list', chips: 'j k', label: 'Next or previous row' },
@@ -101,8 +102,8 @@ function isSingle(chips: string): boolean {
 
 export interface SheetLine {
   id: ShortcutId;
-  /** Each key and what goes between them, in the order drawn; `single`, a key the switch turns off on a line it leaves on. */
-  chips: Array<{ text: string; join: boolean; single?: boolean }>;
+  /** Each key and what goes between them, in the order drawn. */
+  chips: Array<{ text: string; join: boolean }>;
   label: string;
   single: boolean;
 }
@@ -113,8 +114,7 @@ export function sheetLines(group: SheetGroup, place: SheetPlace, mac: boolean): 
   for (const id of Object.keys(TABLE) as ShortcutId[]) {
     const s: Shortcut = TABLE[id];
     if (s.group !== group || (s.when && !s.when(place))) continue;
-    const chips: SheetLine['chips'] = s.chips.split(' ').map((text) => ({ text: text === '⌘' && !mac ? 'Ctrl' : text, join: JOINS.has(text) }));
-    if (s.also) chips.push({ text: 'and', join: true, single: true }, { text: s.also, join: false, single: true });
+    const chips = s.chips.split(' ').map((text) => ({ text: text === '⌘' && !mac ? 'Ctrl' : text, join: JOINS.has(text) }));
     lines.push({ id, chips, label: typeof s.label === 'function' ? s.label(place) : (s.label ?? ''), single: isSingle(s.chips) });
   }
   return lines;
