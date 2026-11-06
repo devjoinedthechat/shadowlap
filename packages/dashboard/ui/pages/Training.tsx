@@ -59,7 +59,7 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
   const busy = useTreeBusy('reads', 'score');
   const action = tab === 'pairs' ? (canExport ? { label: ACTIONS.exportPairs.label, kind: 'export' as const, off: actionsOff } : null) : canScore ? { label: ACTIONS.scoreModel.label, kind: 'score' as const, off: actionsOff ?? busy } : null;
   return (
-    <Page>
+    <Page busy={!view && !loaded.error && !exported}>
       <PageHeader
         eyebrow="pairs · tasks · on this machine"
         title="Training"

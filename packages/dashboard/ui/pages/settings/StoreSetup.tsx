@@ -373,7 +373,7 @@ export function StoreSetupPage() {
   const name = projectOf(meta)?.name ?? 'this project';
   const header = <PageHeader eyebrow={`store · ${name}`} title={ACTIONS.setUpTeamStore.label} text={SETUP_TEXT} />;
   const view = loaded.data;
-  if (!view) return <Page>{header}{loaded.error ? <LoadProblem error={loaded.error} /> : <Loading title="Store" />}</Page>;
+  if (!view) return <Page busy={!loaded.error}>{header}{loaded.error ? <LoadProblem error={loaded.error} /> : <Loading title="Store" />}</Page>;
   const onChange = (job?: Promise<JobView>) => {
     if (job) {
       void job.then((j) => mine.current.add(j.id), () => undefined);

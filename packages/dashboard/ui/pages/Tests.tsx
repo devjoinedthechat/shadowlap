@@ -94,7 +94,7 @@ export function TestsPage() {
 
   if (!view) {
     return (
-      <Page>
+      <Page busy={!loaded.error}>
         {header()}
         {loaded.error ? <EmptyState title="Tests could not be loaded" text={loaded.error.message} /> : <div className="empty">Loading the goldens…</div>}
       </Page>

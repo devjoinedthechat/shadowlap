@@ -133,7 +133,17 @@ function landBack(b: BackNote): boolean {
 export function settleFocus(): void {
   const p = pending;
   if (!p) return;
-  if (!samePage(p.sig, lastSig) || Date.now() > p.until) {
+  if (!samePage(p.sig, lastSig)) {
+    pending = null;
+    return;
+  }
+  // A page still loading what it opened for waits for it, so Tab from its heading goes on into it: its
+  // wait starts again once the page has drawn it.
+  if (document.querySelector('#view .page[aria-busy="true"]')) {
+    p.until = Date.now() + PENDING_MS;
+    return;
+  }
+  if (Date.now() > p.until) {
     pending = null;
     return;
   }
