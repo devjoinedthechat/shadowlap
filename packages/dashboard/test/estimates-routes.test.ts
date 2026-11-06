@@ -139,6 +139,13 @@ describe('a run’s estimates', () => {
     expect(opus.actions.a).toEqual(at.actions.a);
   });
 
+  it('prices Force live from the tool’s first call, as the replay forces it there', async () => {
+    const rec = addRun(store, { startedAt: T0 + 3, calls: 'lolol' });
+    const later = await get(`runs/${rec}/estimates?at=4`);
+    expect(later.actions.l).toEqual(plain(forkEstimate(priced(rec), { at: 2, write: true })));
+    expect(later.actions.l.usd).toBeGreaterThan(plain(forkEstimate(priced(rec), { at: 4, write: true })).usd!);
+  });
+
   it('asks first on forcing a write live, and prices a fork’s replay with writes stubbed as one attempt', async () => {
     const parent = addRun(store, { startedAt: T0 + 1, calls: 'lllol' });
     const meta = { interventions: [{ flag: '--diverge-at 2', kind: 'diverge', args: ['--diverge-at', '2'] }] } as unknown as RunMeta;

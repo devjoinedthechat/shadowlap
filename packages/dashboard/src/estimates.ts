@@ -129,7 +129,12 @@ function rowPrice(key: string, run: RunRecord, call: CallRecord | undefined, job
   if (!call) return null;
   if (key === 'x') return (p) => plantEstimate(p.calls(run.runId), call.callNo);
   const change = forkChange(key, call, job.model);
-  return change ? (p) => forkEstimate(p.calls(run.runId), { at: call.callNo, ...change, ...o }) : null;
+  return change ? (p) => forkEstimate(p.calls(run.runId), { at: key === 'l' ? firstCallOf(p.raw(run.runId), call) : call.callNo, ...change, ...o }) : null;
+}
+
+/** Force <tool> live runs the tool for real from its first call (`--live-tool`), wherever the menu opened on it. */
+function firstCallOf(calls: readonly CallRecord[], call: CallRecord): number {
+  return calls.find((c) => c.kind === 'tool' && c.name === call.name)?.callNo ?? call.callNo;
 }
 
 async function runEstimates(store: Store, job: RunEstimatesJob): Promise<ReadAnswer> {
