@@ -5,11 +5,11 @@ import { dialogFocus, trapTab } from '../ui/focus.js';
 import { jobRunning } from '../ui/jobs.js';
 import { knownParent, noteParent, onParentNoted } from '../ui/parents.js';
 import { stripScroll } from '../ui/place.js';
-import { exportedLine } from '../ui/projects.js';
+import { exportedLine, exportedNote } from '../ui/projects.js';
 import { BULK_BATCH, DATASET_MAX, datasetOff, inBatches, joinDeleted, joinLabelled, RM_ALL, rmCommand } from '../ui/runspage/bulk.js';
 import { phoenixProjectNote, phoenixProjectOk, TRACE_COPY, traceIdOk } from '../ui/runspage/imports.js';
 import { copyCompares } from '../ui/runs.js';
-import { crumbLineage, crumbParent, liveChip, topPill } from '../ui/shell/top.js';
+import { crumbLineage, crumbParent, liveChip } from '../ui/shell/top.js';
 import { errorText, sentence, TOAST_MS } from '../ui/toast.js';
 
 describe('a tab strip on a narrow screen', () => {
@@ -33,10 +33,16 @@ describe('a tab strip on a narrow screen', () => {
 });
 
 describe('an exported copy’s project block', () => {
-  it('counts the runs it holds in words', () => {
-    expect(exportedLine(1)).toBe('1 run · nothing runs from here');
-    expect(exportedLine(2)).toBe('2 runs · nothing runs from here');
-    expect(exportedLine(0)).toBe('0 runs · nothing runs from here');
+  it('counts the runs it holds in words, says when it was made, and that it reads only with or without its redaction', () => {
+    const now = new Date(2026, 9, 16, 12, 0).getTime();
+    const made = new Date(2026, 9, 1, 10, 20).getTime();
+    expect(exportedLine(1, made, now)).toBe('1 run · Oct 1, 10:20');
+    expect(exportedLine(2, null, now)).toBe('2 runs');
+    expect(exportedLine(0, new Date(2025, 11, 30, 9, 5).getTime(), now)).toBe('0 runs · Dec 30, 2025, 09:05');
+    expect(exportedNote(true)).toBe('read-only · its redaction applied');
+    // A copy made with no redaction rules says so, where the design's line would claim its redaction.
+    expect(exportedNote(false)).toBe('read-only · as recorded, not redacted');
+    expect(exportedNote(undefined)).toBe('read-only · as recorded, not redacted');
   });
 
   it('has Compare only when it holds two runs or more', () => {
@@ -118,23 +124,6 @@ describe('dialogs', () => {
 });
 
 describe('the top bar', () => {
-  const RO = 'This dashboard is read-only (started with --read-only): it shows runs and changes nothing.';
-  const EMBEDDED = 'This dashboard is read-only: start it with shadowlap dashboard to change runs and run actions.';
-
-  it('says what kind of dashboard it is in the pill, with why on hover', () => {
-    expect(topPill({ exported: true, readOnly: false, actionsOff: 'This is an exported copy: nothing runs from here.', store: null })).toEqual({ word: 'exported', title: 'This is an exported copy: nothing runs from here.' });
-    expect(topPill({ exported: false, readOnly: true, actionsOff: RO, store: null })).toEqual({ word: 'read-only', title: RO });
-    // Embedded without the CLI: nothing was started with --read-only, and the title says what was.
-    expect(topPill({ exported: false, readOnly: true, actionsOff: EMBEDDED, store: null })).toEqual({ word: 'read-only', title: EMBEDDED });
-    // What it is, the store the project shares: never a word that reads as a plan tier.
-    expect(topPill({ exported: false, readOnly: false, actionsOff: null, store: 's3://northwind-agent-runs/support-agent' })).toEqual({ word: 'team store', title: 'Runs push to and pull from the team store s3://northwind-agent-runs/support-agent' });
-    // Read-only wins the word; the title still names the team store.
-    expect(topPill({ exported: false, readOnly: true, actionsOff: RO, store: 's3://northwind-agent-runs/support-agent' })).toEqual({ word: 'read-only', title: `${RO} · team store s3://northwind-agent-runs/support-agent` });
-    expect(topPill({ exported: false, readOnly: false, actionsOff: null, store: null })).toEqual({ word: 'dashboard', title: null });
-    // A link that expired turns actions off, but the dashboard is no less a dashboard.
-    expect(topPill({ exported: false, readOnly: false, actionsOff: 'This link has expired.', store: null }).word).toBe('dashboard');
-  });
-
   it('names a run’s parent from the run list, else from the detail its page loaded, and only runs a copy holds', () => {
     const holds = (id: string) => id === '01M51X7EDD';
     expect(crumbParent({ listed: { parentRunId: '01M51X7EDD' }, loaded: undefined, exported: false, holds })).toBe('01M51X7EDD');
@@ -184,12 +173,26 @@ describe('the top bar', () => {
     expect(heard).toBe(2);
   });
 
-  it('keeps a recording’s chip while offline, saying when it was last heard of, as the design does', () => {
+  it('says how far a recording has got on its chip, names it on its card, and keeps it while offline, saying when it was last heard of', () => {
     const at = new Date(2026, 9, 16, 14, 2).getTime();
-    expect(liveChip({ recording: '01M51XRN57', conn: 'ok', loadedAt: at })).toEqual({ runId: '01M51XRN57', title: null });
-    expect(liveChip({ recording: '01M51XRN57', conn: 'offline', loadedAt: at })).toEqual({ runId: '01M51XRN57', title: 'Recording when last heard of, at 14:02: live updates are paused' });
-    expect(liveChip({ recording: '01M51XRN57', conn: 'expired', loadedAt: at })).toBeNull();
-    expect(liveChip({ recording: null, conn: 'ok', loadedAt: at })).toBeNull();
+    const rec = [{ runId: '01M51XRN57ABCDEFGHJKMNPQRS', calls: 9 }];
+    const about = (id: string) => (id === rec[0].runId ? 'Ticket T-8812: the order arrived damaged' : null);
+    expect(liveChip({ recording: rec, open: null, conn: 'ok', loadedAt: at, aboutOf: about })).toEqual({ runId: rec[0].runId, words: 'recording · 9 calls', title: 'Recording 01M51XRN57', line: 'Ticket T-8812: the order arrived damaged' });
+    expect(liveChip({ recording: [{ runId: 'R1', calls: 1 }], open: null, conn: 'ok', loadedAt: at })?.words).toBe('recording · 1 call');
+    expect(liveChip({ recording: rec, open: null, conn: 'offline', loadedAt: at, aboutOf: about })?.line).toBe('Recording when last heard of, at 14:02: live updates are paused');
+    expect(liveChip({ recording: rec, open: null, conn: 'expired', loadedAt: at })).toBeNull();
+    expect(liveChip({ recording: [], open: null, conn: 'ok', loadedAt: at })).toBeNull();
+  });
+
+  it('leaves the chip off the recording’s own page, by its id or its short id, where the next recording takes it', () => {
+    const rec = [
+      { runId: '01M51XRN57ABCDEFGHJKMNPQRS', calls: 9 },
+      { runId: '01M52AAAAAABCDEFGHJKMNPQRS', calls: 3 },
+    ];
+    expect(liveChip({ recording: rec.slice(0, 1), open: rec[0].runId, conn: 'ok', loadedAt: null })).toBeNull();
+    expect(liveChip({ recording: rec.slice(0, 1), open: '01M51XRN57', conn: 'ok', loadedAt: null })).toBeNull();
+    expect(liveChip({ recording: rec, open: '01M51XRN57', conn: 'ok', loadedAt: null })?.runId).toBe(rec[1].runId);
+    expect(liveChip({ recording: rec, open: '01M51', conn: 'ok', loadedAt: null })?.runId).toBe(rec[0].runId);
   });
 });
 

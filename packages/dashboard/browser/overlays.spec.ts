@@ -258,12 +258,15 @@ test('another page closes what is open over the last, without asking, and the pa
 
 test('a dialog the palette asks for along with its page stays as the address settles', async ({ page }) => {
   await openPage(page, '/runs?q=refund', 'main#view .ph');
+  // From another page, Import capture opens Runs on the view it showed last, with the dialog over it.
+  await page.locator('nav.navlist a', { hasText: 'Fixes' }).first().click();
+  await expect.poll(() => page.evaluate(() => location.hash)).toMatch(/^#\/fixes/);
   await page.keyboard.press('Meta+k');
   await page.locator('.palette input').fill('Import capture');
   await page.keyboard.press('Enter');
   const dialog = page.locator(DIALOG);
   await expect(dialog).toBeVisible();
-  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/runs');
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/runs?q=refund');
   await page.evaluate(() => new Promise((done) => setTimeout(done, 50)));
   await expect(dialog).toBeVisible();
   await expect(page.locator('.dialog .drop')).toBeFocused();
@@ -670,7 +673,7 @@ test.describe('on a phone', () => {
     expect(await offCentre(px)).toBeLessThanOrEqual(1.5);
   });
 
-  test('the shortcuts are a sheet, and the palette stays centred, its opener in the closed sidebar handing the focus to the sidebar’s button', async ({ page }) => {
+  test('the shortcuts are a sheet, and the palette stays centred, opened from the top bar over the open sidebar, which closes, handing the focus to the sidebar’s button', async ({ page }) => {
     await openPage(page, '/runs', 'main#view table.runst tbody tr');
     await page.keyboard.press('?');
     const help = page.locator('.help');
@@ -680,7 +683,7 @@ test.describe('on a phone', () => {
     await page.keyboard.press('Escape');
     await page.locator('button.menu-toggle').click();
     await expect(page.locator('aside#side.open')).toBeVisible();
-    await page.locator('aside#side button.sbtn').click();
+    await page.locator('.top button.sbtn').click();
     const palette = page.locator('.palette');
     await expect(palette).toBeVisible();
     // The sidebar closes behind it.

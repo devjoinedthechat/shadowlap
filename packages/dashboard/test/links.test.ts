@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { isLink, links } from '../src/links.js';
+import { filterTerms, isLink, links } from '../src/links.js';
 import { href, parseRoute, routeHref, VIEWS } from '../ui/route.js';
 import { runsLinkQuery } from '../ui/runspage/query.js';
 
@@ -22,8 +22,13 @@ const built: string[] = [
   links.run(RUN, 17),
   links.run(RUN, 17, 'calls'),
   ...VIEWS.flatMap((v) => [links.run(RUN, null, v), links.run(RUN, 9, v)]),
+  links.changes(),
+  ...['d2e8a1f', 'd2e8a1f+dirty', 'no-revision'].map((rev) => links.changes(rev)),
+  ...(['decisions', 'migrate'] as const).flatMap((kind) => [links.changeSession(kind), links.changeSession(kind, kind === 'migrate' ? 'mg-01M5000000000000000000000B' : 'dc-01M5000000000000000000000A')]),
   links.compare(),
+  links.compare(RUN),
   links.compare(RUN, OTHER),
+  links.compare(RUN, OTHER, 17),
   links.fixes(),
   links.fixes('fx-01M5MXZ7H9'),
   ...(['blame', 'repair', 'verify'] as const).map((step) => links.fixes('fx-01M5MXZ7H9', step)),
@@ -38,6 +43,33 @@ const built: string[] = [
   links.setup(),
   links.storeSetup(),
 ];
+
+describe('the filter field’s terms', () => {
+  it('reads status:, type:, tool: and label: in any case, a quoted run as one word, and the rest as words', () => {
+    expect(filterTerms('Status:Failed TYPE:forks tool:Issue_Refund label:Good "refund flow" refund')).toEqual({ words: ['refund flow', 'refund'], labels: ['Good'], statuses: ['failed'], types: ['fork'], tools: ['issue_refund'] });
+  });
+
+  it('takes the short forms of a verdict, and a quoted one', () => {
+    expect(filterTerms('status:pass status:fail status:inc status:na status:n/a status:"not applicable" status:not-applicable status:live').statuses).toEqual(['passed', 'failed', 'inconclusive', 'not-applicable', 'not-applicable', 'not-applicable', 'not-applicable', 'live']);
+  });
+
+  it('takes each kind, plural too, a replay as the clean one', () => {
+    expect(filterTerms('type:recordings type:fork type:replay type:clean type:tests type:capture').types).toEqual(['recording', 'fork', 'clean', 'clean', 'test', 'capture']);
+  });
+
+  it('keeps a verdict or a kind it doesn’t know as one that matches no run', () => {
+    expect(filterTerms('status:great type:failed')).toMatchObject({ statuses: [''], types: [''], words: [] });
+  });
+
+  it('leaves out a key with nothing after it, and reads one it doesn’t know as a word', () => {
+    expect(filterTerms('status: label:"" tool: foo:bar xlabel:good')).toEqual({ words: ['foo:bar', 'xlabel:good'], labels: [], statuses: [], types: [], tools: [] });
+  });
+
+  it('keeps 20 terms at most', () => {
+    const t = filterTerms(Array.from({ length: 30 }, (_, i) => (i % 2 ? `w${i}` : `tool:t${i}`)).join(' '));
+    expect(t.words.length + t.tools.length).toBe(20);
+  });
+});
 
 describe('the link builder', () => {
   it('writes only links the page’s router opens, and reads back as it wrote them', () => {

@@ -11,7 +11,6 @@ import { useServerJobs } from '../fixes/tree.js';
 import { glued } from '../format.js';
 import { asksUpdate, checkMark, commandText, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, historyTip, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revLabel, sessionLine, sessionWait, sourceText, testsBusy, type ReportLine } from '../goldens.js';
 import { useLoad } from '../hooks.js';
-import { addPaletteSource, paletteSourcesChanged } from '../palette-sources.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
@@ -21,7 +20,7 @@ import type { TestsEstimates } from '../estimates-api.js';
 import { JobButton } from '../components/JobButton.js';
 import { sentEstimate } from '../spending.js';
 import { bisectLive, moreCard, normalizeCard, runTestsCard, testsJob, updateCard, updatesCard } from './tests-cards.js';
-import { keepTests, onTestsChanged, testsPaletteCommands } from '../tests-palette.js';
+import { keepTests } from '../tests-palette.js';
 import { FindCommitButton, FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from './TestsDialogs.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 
@@ -41,9 +40,6 @@ type Open =
   | { kind: 'bisect'; name: string; golden: string; range: { good: string; bad: string | null } | null; live: boolean; revisions: BisectRevision[]; tried: string | null }
   | { kind: 'normalize-update'; name: string; golden: string; steps: string[][]; estimate?: Price };
 
-// The palette's Tests group on every page (tests-palette.ts): an open palette reads it again once the goldens land.
-addPaletteSource(({ app, go }) => testsPaletteCommands(app, go, { update: app.hasKind(JOB_KINDS.testUpdate) }));
-onTestsChanged(paletteSourcesChanged);
 
 export function TestsPage() {
   const app = useApp();

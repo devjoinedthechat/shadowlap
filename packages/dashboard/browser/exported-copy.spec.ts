@@ -97,12 +97,35 @@ test('an exported copy lists its runs, compares them, and opens its runs for any
   await expect(page.locator('main#view .prefix')).toBeVisible();
   // A page a copy doesn't hold, from a link or the address bar, opens its runs; the Overview's
   // address, the run that was shared.
-  for (const other of ['#/fixes', '#/tests', '#/training', '#/settings/redaction']) {
+  for (const other of ['#/fixes', '#/changes', '#/changes/verdicts/d2e8a1f', '#/tests', '#/training', '#/settings/redaction']) {
     await page.evaluate((to) => void (location.hash = to), other);
     await expect.poll(() => hash(page), other).toBe('#/runs');
     await expect(rows).toHaveCount(2);
   }
   await page.evaluate(() => void (location.hash = '#/'));
   await expect.poll(() => hash(page)).toMatch(new RegExp(`^#/run/${fork}/\\d+$`));
+  expect(seen).toEqual([]);
+});
+
+test('an exported copy names itself in the sidebar and the status bar, and says which runs it doesn’t hold', async ({ page }) => {
+  const seen = await open(page);
+  const block = page.locator('#side .expblock');
+  await expect(block.locator('b')).toHaveText('Exported copy');
+  await expect(block.locator('span')).toHaveText(/^2 runs( · .+)?$/);
+  await expect(block.locator('small')).toHaveText(/^read-only · /);
+  await expect(page.locator('#side .skt')).toHaveText('In this copy');
+  // Nothing a copy can't do: no Settings, no search, no live chip, no link to every run.
+  await expect(page.locator('#side .side-foot, .top .search, .top .livechip, #side .side-k a')).toHaveCount(0);
+  const status = page.locator('footer.status');
+  await expect(status.locator('span.st-runs')).toHaveText('2 runs in this copy');
+  await expect(status.locator('span.st-sync')).toHaveText(/^exported( .+)? · read-only$/);
+  await expect(page.locator('.top .brand')).toHaveAttribute('aria-label', 'Shadowlap exported copy, the run it opens on');
+  // A run it doesn't hold: a page that says so, the crumbs naming only the section.
+  await page.evaluate(() => void (location.hash = '#/run/ZZZZZZZZZZZZ'));
+  await expect(page.locator('main#view h1')).toHaveText('Nothing here');
+  await expect(page.locator('main#view')).toContainText('No run ZZZZZZZZZZZZ in this copy.');
+  await expect(page.locator('main#view a', { hasText: 'Open Runs' })).toHaveAttribute('href', '#/runs');
+  await expect(page.locator('.top .crumbs')).not.toContainText('ZZZZ');
+  await expectAccessible(page);
   expect(seen).toEqual([]);
 });

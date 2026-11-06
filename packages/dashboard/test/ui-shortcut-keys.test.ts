@@ -41,6 +41,8 @@ describe('the table of keys', () => {
     expect(words('In a list')).toEqual(['Next or previous row', 'The same, on a row in focus', 'Open row', 'The row’s actions', 'Select row, on Runs', 'Label it good or bad, on Runs', 'Clear selection, then let go']);
     expect(words('Go to', { exported: true })).toEqual(['Runs']);
     expect(words('Go to', { exported: true, compares: true })).toEqual(['Runs', 'Compare']);
+    // g c opens Changes at the tab it last showed; a copy's opens its Compare.
+    expect(words('Go to')).toEqual(['Overview', 'Runs', 'Changes', 'Fixes', 'Tests', 'Training', 'Settings']);
     expect(words('On a run', { exported: true, compares: true })).toContain('Compare with parent');
     expect(words('On a run')).toContain('Replay');
     expect(words('On a run', { exported: true })).not.toContain('Replay');

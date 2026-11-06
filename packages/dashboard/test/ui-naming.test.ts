@@ -2,6 +2,7 @@ import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { RunPicker } from '../ui/compare/RunPicker.js';
+import { EventIcon } from '../ui/components/RunIcon.js';
 import { ResponseDifferences } from '../ui/pages/Compare.js';
 import { TodayCard, WeekGrid } from '../ui/overview/panels.js';
 import { matchPalette } from '../ui/palette.js';
@@ -147,10 +148,11 @@ describe('the lists name a run by its id, with its about line', () => {
     expect(sideStatus(forkRun)).toBeNull();
     expect(sideStatus(listed('L', { status: 'running', calls: 9 }))).toEqual({ text: '9 calls', tone: null });
     const html = renderToStaticMarkup(createElement(RecentRuns, { runs: [lostRun, listed(REC), forkRun], current: null, loading: false }));
-    expect(html).toContain('<span class="id">01M5GRYF9F</span>');
+    // The id in its list form, its first six characters quieter.
+    expect(html).toContain('<code class="rnm rl id">01M5GRYF9F</code>');
     expect(html).toContain('data-about="Order A-1150: the customer asks for a refund"');
-    // What needs a look gives way before a test replay's golden would (`fitAbouts`).
-    expect(html).toContain('<span class="r2s" data-gives=""><span class="dot">·</span><em>lost at #9</em></span>');
+    // What needs a look gives way before the about line would (`fitAbouts`): first to its word, then altogether.
+    expect(html).toContain('<span class="r2s" data-gives=""><span class="dot">·</span><em>lost<span class="sgw"> at #9</span></em></span>');
     // A fork under its recording: its about line is what it changed, never cut.
     expect(html).toContain('data-about="override #16" data-from="change"');
     // Nothing that says what kind of run it is: the icon says that.
@@ -162,9 +164,9 @@ describe('the lists name a run by its id, with its about line', () => {
     expect(html).toContain('<th class="abcol">About</th>');
     const row = html.slice(html.indexOf('01M5GRX8K4'));
     // Each label a chip that lists the runs labelled so.
-    expect(row).toMatch(/<td class="abcell"><span class="abw"><span class="rab" data-about="override #16"[^>]*>override #16<\/span><span class="labs"><a class="chip" href="#\/runs\?q=label%3Awhat-if"[^>]*>what-if<\/a><\/span><\/span><\/td>/);
-    // Under the id, where About gives way (a tablet, a phone), with what needs a look after it.
-    expect(html).toContain('<span class="rso"><span class="dot">·</span><em>lost at #9</em></span>');
+    expect(row).toMatch(/<td class="abcell"><span class="abw"><span class="rab" data-about="override #16"[^>]*>override #16<\/span><span class="labs"><a class="chip" href="#\/runs\?q=label:what-if"[^>]*>what-if<\/a><\/span><\/span><\/td>/);
+    // Under the id, where About gives way (a tablet, a phone), with what needs a look after it, its term marked for the glossary.
+    expect(html).toContain('<span class="rso" data-gives=""><span class="dot">·</span><em><span class="term" data-term="lost">lost</span> at #9</em></span>');
     // The id's hover has its kind, parent and command.
     expect(row).toContain('title="fork @17 of 01M5GRX4VY · node refund_agent.mjs T-8812"');
     // No column or line names a run by its kind and command.
@@ -423,5 +425,17 @@ describe('one name for each action, and its forms', () => {
     expect(shareItems({ can: () => true, team: null }).map((i) => i.label)).toEqual([ACTIONS.exportHtml.label, ACTIONS.pack.label, ACTIONS.exportDataset.label, ACTIONS.exportTrace.label, ACTIONS.exportHar.label]);
     expect(jobTitle({ args: ['bisect', 'R', '--good', 'x'], done: false, code: null })).toBe('Finding breaking commit');
     expect(jobTitle({ args: ['export', 'html', 'R', 'x.html'], done: false, code: null })).toBe('Exporting HTML report');
+  });
+});
+
+describe('an event’s icon', () => {
+  it('says what it was by its shape and how it came out by its colour', () => {
+    const html = (outcome?: 'err' | 'warn') => renderToStaticMarkup(createElement(EventIcon, { kind: 'blame', ...(outcome ? { outcome } : {}) }));
+    expect(html()).toContain('class="glyph blame ic"');
+    // A stopped blame: the loop, amber; one that failed, red.
+    expect(html('warn')).toContain('class="glyph blame ic amb"');
+    expect(html('err')).toContain('class="glyph blame ic err"');
+    expect(html('warn')).toContain('aria-label="Blame"');
+    expect(renderToStaticMarkup(createElement(EventIcon, { kind: 'fixinc' }))).toContain('aria-label="Fix inconclusive"');
   });
 });

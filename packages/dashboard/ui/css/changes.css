@@ -1,0 +1,45 @@
+/* Changes → Verdicts: every change checked, one row each; a revision's page. A row's title keeps its words whole, its
+   verdict wraps under its word, and When never breaks; a golden's name never breaks at its hyphens. */
+table.vdt { table-layout: auto; width: 100%; }
+table.vdt td { vertical-align: top; }
+table.vdt td.vdc { min-width: 220px; white-space: normal; padding-right: 18px; }
+table.vdt td.vdv { min-width: 200px; }
+table.vdt td.vdv .rsub, table.vdt td.vdc .rsub { white-space: normal; }
+table.vdt td.vdm { color: var(--dim); white-space: normal; }
+table.vdt td.vdm .sep { color: var(--faint); }
+table.vdt td.vdw { white-space: nowrap; color: var(--dim); }
+table.vdg td:first-child { white-space: nowrap; width: 1%; padding-right: 24px; }
+table.vdg td:first-child code { white-space: nowrap; }
+table.vdg .rsub { white-space: normal; }
+/* a row that leads nowhere yet (a preview's) is still: no pointer, and no hover saying the whole row opens */
+table.vdt tbody tr.still, table.vdg tbody tr.still { cursor: default; }
+table.vdt tbody tr.still:hover td, table.vdg tbody tr.still:hover td { background: none; }
+@media (max-width: 760px) {
+  table.vdt { table-layout: fixed; }
+  table.vdt th:first-child, table.vdt td.vdc { width: 56%; }
+  table.vdt td.vdc { min-width: 0; }
+  table.vdt td.vdv { width: auto; min-width: 0; }
+  .tscroll table.vdt { min-width: 0; }
+  table.vdg td:first-child { padding-right: 14px; }
+}
+/* on a narrow phone a change and its verdict stack, the verdict under what changed, as Runs' rows do; a golden's verdict goes
+   under its name, which keeps its line */
+@media (max-width: 420px) {
+  table.vdt thead { display: none; }
+  table.vdt, table.vdt tbody, table.vdt tr { display: block; width: 100%; }
+  table.vdt td.vdc, table.vdt td.vdv { display: block; width: auto; }
+  table.vdt td.vdc { border-bottom: 0; padding-bottom: 4px; padding-right: 0; }
+  table.vdt td.vdv { padding-top: 0; }
+  table.vdg, table.vdg tbody, table.vdg tr { display: block; width: 100%; }
+  table.vdg td { display: block; width: auto !important; }
+  table.vdg td:first-child { border-bottom: 0; padding-bottom: 2px; }
+  table.vdg td + td { padding-top: 0; }
+}
+/* two short columns side by side (a revision's goldens and its previews): they fit their half rather than scroll inside it */
+.tscroll table.t.fit { min-width: 0; }
+.tscroll table.t.fit td:first-child { white-space: normal; }
+/* the local note and the line past the window, under the list */
+.vdlocal { margin: 12px 0 0; font-size: 12.5px; }
+/* Compare's pickers on a row of their own under Changes' tabs; a revision's command under its sections */
+.pickers.chpick { margin-bottom: 16px; }
+.cmdline.chcmd { margin-top: 18px; }

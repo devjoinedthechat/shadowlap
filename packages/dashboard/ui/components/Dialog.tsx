@@ -371,6 +371,46 @@ export function Dialog({ title, lead, doc, warn, facts, children, factsUnder, ru
 
 const OTHER = '\u0000other';
 
+/** A field's `list`, naming its suggestions, where it has any. */
+const suggestedList = (id: string, values: readonly string[] | undefined) => (values?.length ? { list: id } : {});
+
+/** What a field offers as you type, for its `list`: none drawn where it has none. */
+function Suggestions({ id, values }: { id: string; values: readonly string[] | undefined }) {
+  if (!values?.length) return null;
+  return (
+    <datalist id={id}>
+      {values.map((v) => (
+        <option key={v} value={v} />
+      ))}
+    </datalist>
+  );
+}
+
+/** What `PromptDialog` takes: its field, its answers and its way on, and the anatomy's slots it passes through. */
+type PromptDialogProps = Pick<DialogProps, 'title' | 'lead' | 'doc' | 'warn' | 'facts' | 'factsUnder' | 'cost' | 'footNote' | 'onClose'> & {
+  ok: string;
+  label?: string;
+  /** The field's name for a screen reader, where no label shows. */
+  fieldName?: string;
+  /** A list that fills the field, which can then be edited or replaced. */
+  startFrom?: { label: string; choices: readonly PromptChoice[]; note: string };
+  initial?: string;
+  placeholder?: string;
+  multiline?: boolean;
+  /** The command it will run, shown under the field: as it is, or worked out from the answer so far. */
+  command?: string | ((answer: string) => string | CommandRowProps);
+  /** What follows the field, worked out from the answer so far: a gate's entry for the folder typed. */
+  after?: (answer: string) => ReactNode;
+  /** Told the answer as it changes: Switch model prices the model typed. */
+  onAnswer?: (answer: string) => void;
+  maxLength?: number;
+  /** Answers to pick from; any other answer is accepted too. */
+  choices?: readonly PromptChoice[];
+  /** Answers the field offers as you type (a datalist): the labels runs carry. Any other is typed. */
+  suggestions?: readonly string[];
+  onRun: (value: string) => unknown;
+};
+
 /**
  * A dialog that asks one thing before an action runs: a line of text, a longer one, or one of a few
  * answers (`choices`, a select like the mock's, with "Something else…" for an answer of your own).
@@ -390,30 +430,12 @@ export function PromptDialog({
   onAnswer,
   maxLength,
   choices,
+  suggestions,
   onRun,
   ...slots
-}: Pick<DialogProps, 'title' | 'lead' | 'doc' | 'warn' | 'facts' | 'factsUnder' | 'cost' | 'footNote' | 'onClose'> & {
-  ok: string;
-  label?: string;
-  /** The field's name for a screen reader, where no label shows. */
-  fieldName?: string;
-  /** A list that fills the field, which can then be edited or replaced. */
-  startFrom?: { label: string; choices: readonly PromptChoice[]; note: string };
-  initial?: string;
-  placeholder?: string;
-  multiline?: boolean;
-  /** The command it will run, shown under the field: as it is, or worked out from the answer so far. */
-  command?: string | ((answer: string) => string | CommandRowProps);
-  /** What follows the field, worked out from the answer so far: a gate's entry for the folder typed. */
-  after?: (answer: string) => ReactNode;
-  /** Told the answer as it changes: Switch model prices the model typed. */
-  onAnswer?: (answer: string) => void;
-  maxLength?: number;
-  /** Answers to pick from; any other answer is accepted too. */
-  choices?: readonly PromptChoice[];
-  onRun: (value: string) => unknown;
-}) {
+}: PromptDialogProps) {
   const [value, setValue] = useState(initial);
+  const suggested = useId();
   const listed = !!choices?.length;
   const [own, setOwn] = useState(listed && !choices.some((c) => c.value === initial));
   // The few words a picked choice asks for: the message of "error, with a message".
@@ -445,6 +467,7 @@ export function PromptDialog({
       spellCheck={false}
       autoFocus={listed}
       {...named}
+      {...suggestedList(suggested, suggestions)}
       {...(maxLength ? { maxLength } : {})}
       onChange={(e) => setValue(e.target.value)}
       onKeyDown={(e) => {
@@ -479,6 +502,7 @@ export function PromptDialog({
   const row = typeof command === 'function' ? command(answer) : command;
   return (
     <Dialog {...slots} command={row} okDisabled={!ready} onOk={() => onRun(answer)}>
+      <Suggestions id={suggested} values={suggestions} />
       {startFrom ? (
         <>
           <div className="form one">

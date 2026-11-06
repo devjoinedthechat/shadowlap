@@ -9,12 +9,11 @@ import { useTreeBusy } from '../fixes/tree.js';
 import { plural, shortId } from '../format.js';
 import { commandText } from '../goldens.js';
 import { useLoad } from '../hooks.js';
-import { addPaletteSource, paletteSourcesChanged } from '../palette-sources.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { redactsFact } from '../run/share.js';
 import { useApp } from '../state.js';
-import { ENDPOINT, exportCommand, filterGroups, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickNote, pickReplaces, pipClass, pipTip, scoreCard, scoreCommand, scoreCost, scoreEstimate, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type PairChip, type TrainingDialog } from '../training.js';
+import { ENDPOINT, exportCommand, filterGroups, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingDialog, pickNote, pickReplaces, pipClass, pipTip, scoreCard, scoreCommand, scoreCost, scoreEstimate, scoreFields, takeTrainingDialog, whenDone, type PairChip, type TrainingDialog } from '../training.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { JobButton } from '../components/JobButton.js';
@@ -32,9 +31,6 @@ import { testsJob } from './tests-cards.js';
  * `/api/models` for the picker; words and layout follow the mock.
  */
 
-addPaletteSource((ctx) => trainingPalette(ctx, JOB_KINDS));
-// New counts that change what the palette offers rebuild it while it is open.
-onTrainingCountsChange(paletteSourcesChanged);
 
 export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
   const { client, tick, exported, actionsOff, hasKind, guard } = useApp();

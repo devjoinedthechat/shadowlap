@@ -156,9 +156,11 @@ test('on a phone, the drawer takes the focus to its first item, and a click besi
   await menu.click();
   await expect(page.locator('aside#side.open')).toBeVisible();
   await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('aside#side'))).toBe(true);
+  // On a row of the table: the click closes the drawer and opens nothing.
   await page.mouse.click(700, 500);
   await expect(page.locator('aside#side.open')).toHaveCount(0);
   await expect(menu).toBeFocused();
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/runs');
   // A link in it closes it, and its page takes the focus.
   await menu.click();
   await page.locator('aside#side .navlist a', { hasText: 'Fixes' }).click();
@@ -204,8 +206,13 @@ test('a control’s hover card says its key, and Provenance’s card its name ov
   await openPage(page, `/run/${demoId('override')}`, 'run');
   await page.locator('#forkBtn').hover();
   await expect(page.locator('.tip .kbd')).toHaveText('f');
-  // Provenance's card is a name and a sentence; the tab v shows next says v.
-  while ((await page.locator('#vtab-forks').getAttribute('aria-selected')) !== 'true') await page.keyboard.press('v');
+  // Provenance's card is a name and a sentence; the tab v shows next says v. v shows its view through the
+  // address, after the key: each v is read once its view shows, or one still on its way takes the views past Forks.
+  const shown = page.locator('[id^="vtab-"][aria-selected="true"]');
+  for (let at = await shown.getAttribute('id'); at !== 'vtab-forks'; at = await shown.getAttribute('id')) {
+    await page.keyboard.press('v');
+    await expect(page.locator(`#${at}`)).toHaveAttribute('aria-selected', 'false');
+  }
   const card = JSON.parse((await page.locator('#vtab-provenance').getAttribute('data-tip'))!) as { t: string; s?: string };
   expect(card.t).toBe('Provenance');
   expect(card.s).toMatch(/^The run’s record/);
@@ -283,7 +290,7 @@ test('⌘K on a run in the sidebar offers its actions, with nothing to select th
   await expect(run).toBeFocused();
 });
 
-test('⌘K on a failed run’s row offers its next step after Open run, with its key, and picking it presses that button on the run’s page', async ({ page }) => {
+test('⌘K on a failed run’s row offers its next step after Open run, with no key, and picking Run blame starts it where you are', async ({ page }) => {
   const run = demoId('digestFailed');
   const job = { id: 'rowjob', kind: 'blame', title: 'Blaming', args: ['blame', run], worktree: { use: 'reads', doing: 'a blame is running your agent from your working tree', folder: '/x' }, runId: run, opensRun: false, startedAt: Date.now(), endedAt: Date.now(), done: true, stopped: false, code: 3, newRunId: null, runs: [], links: [], files: [], total: 0, lines: [], project: { id: 'support-agent', name: 'support-agent' } };
   const asked: unknown[] = [];
@@ -300,10 +307,12 @@ test('⌘K on a failed run’s row offers its next step after Open run, with its
   await page.locator('.palette').waitFor();
   expect((await page.locator('.palit .pl').allTextContents()).slice(0, 2)).toEqual(['Open run', 'Run blame']);
   const step = page.locator('.palit', { has: page.locator('.pl', { hasText: /^Run blame$/ }) });
-  await expect(step.locator('.palk kbd')).toHaveText('b');
+  // b presses it on the run's page only, so the row's step shows no key.
+  await expect(step.locator('.palk kbd')).toHaveCount(0);
+  const at = await hash(page);
   await step.click();
-  await expect.poll(() => hash(page)).toBe(`#/run/${run}`);
   await expect.poll(() => asked).toEqual([expect.objectContaining({ kind: 'blame', runId: run })]);
+  expect(await hash(page)).toBe(at);
 });
 
 test('the palette says “this row” where a row’s name doesn’t fit its field, measured again as the window changes', async ({ page }) => {

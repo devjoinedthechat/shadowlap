@@ -192,7 +192,9 @@ describe('what each colour may mean', () => {
   });
 
   it('draws what is inconclusive in the consequence amber', () => {
-    for (const s of ['.st.warn', '.glyph.warn', '.tag.inc', 'pre.report .y']) expect(value(s, 'color'), s).toBe('var(--cq-amber)');
+    for (const s of ['.st.warn', '.glyph.warn', '.glyph.fixinc', '.glyph.amb', '.tag.inc', 'pre.report .y']) expect(value(s, 'color'), s).toBe('var(--cq-amber)');
+    // An event that failed is red whatever its shape.
+    expect(value('.glyph.err', 'color')).toBe('var(--err)');
     expect(value('td.hist i.inc::before', 'background')).toBe('var(--cq-amber)');
   });
 
@@ -283,6 +285,8 @@ describe('amber', () => {
   /** Needs a look or inconclusive, wherever it is drawn: a word, dot, cell, mark, line or banner. */
   const LOOK: Record<string, string> = {
     '.glyph.warn': 'a glyph that needs a look',
+    '.glyph.fixinc': 'a fix whose verify couldn’t decide',
+    '.glyph.amb': 'an event that couldn’t decide, stopped or needs a look, whatever its shape',
     '.pips i.unsure': 'an attempt that couldn’t decide',
     '.pips i.part': 'an attempt that partly passed: inconclusive',
     '.legend i.lg.unsure': 'the probes’ key: an attempt that couldn’t decide',
@@ -342,6 +346,7 @@ describe('amber', () => {
     '.dialog .dwarn': 'a dialog’s one line: where it can’t help yet, or what to look at before pressing',
     '.dialog .dfacts .amber dt': 'a row of a dialog that runs someone else’s command: a look',
     '.connbar .cdot': 'the dashboard can’t be reached: a look',
+    '.paloff .cdot': 'the palette’s line saying the server can’t be reached: a look',
     '.status .off': 'the dashboard can’t be reached: a look',
   };
   /** Amber the design rules out that only a later slice can take away, each with the slice that does. */
@@ -384,6 +389,8 @@ describe('grounds, tints and lines', () => {
     '.cal .cd.l1': 'the Runs calendar’s ramp over its empty day',
     '.cal .cd.l2': 'the Runs calendar’s ramp over its empty day',
     '.cal .cd.l3': 'the Runs calendar’s ramp over its empty day',
+    '.cal .cd.hb .hn': 'a bar of Runs’ row of days, the ink faint over whatever ground it sits on',
+    '.cal button.cd.hb:hover .hn': 'a bar of Runs’ row of days under the pointer, the ink a step stronger',
     '.tag.live': 'a live run’s chip, ringed in the live colour',
     '.banner.live': 'a live run’s banner, faintly in the live colour',
     '.connblock': 'the page behind the offline bar, veiled in its own ground',
@@ -393,7 +400,6 @@ describe('grounds, tints and lines', () => {
     '.toast .tx:hover': 'on the toast’s ink ground, the page’s ground as its tint',
     '.toast .tx:focus-visible': 'on the toast’s ink ground, the page’s ground as its tint',
     '.toast .tbtn:hover': 'on the toast’s ink ground, the page’s ground as its tint',
-    '.hit mark': 'a search hit, marked in ink over any ground it sits on',
     '.pdiff mark': 'a prompt’s changed words, marked in ink over the code ground',
     '.grp:hover::before': 'a chart group under the pointer, over its bars',
     '.cbar:hover::before': 'a Context bar under the pointer, over its bars',

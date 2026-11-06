@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore, type ComponentType } from 'react';
 import { onShow } from '../components/OnShow.js';
 import { tabAbout } from '../about.js';
 import { HoverCardLayer } from '../components/HoverCard.js';
+import { useMedia } from '../hooks.js';
 import { Sprite } from '../components/Icon.js';
 import { ToastHost } from '../components/Toast.js';
 import { useFixTitle } from '../fixes/data.js';
@@ -20,6 +21,7 @@ import { SkipLink } from './SkipLink.js';
 import { StatusBar } from './StatusBar.js';
 import { TopBar } from './TopBar.js';
 import { loadSpending, spendingNow, watchSpending } from '../spending.js';
+import { unshownKey, useUnshown } from './unshown.js';
 
 /** The palette and the shortcuts sheet wait in scripts of their own, which load as the shell first draws, so they answer at once and with the server gone. */
 const Palette = onShow(() => import('./Palette.js').then((m) => m.Palette));
@@ -59,8 +61,12 @@ function SpendingWatch() {
 /** The app: top bar, sidebar, the page, the status bar, and what sits over them. */
 export function Shell({ pages: PageSlot }: { pages: Pages }) {
   const route = useRoute();
-  const { setSideOpen, closeJobs, conn } = useApp();
+  const { setSideOpen, closeJobs, conn, sideOpen } = useApp();
   useDocTitle(route);
+  // Behind the phone's open sidebar the page and the status bar are out of reach; the top bar stays,
+  // so its button can close it. Only where the sidebar is a drawer: a window widened past it shows both.
+  const drawer = useMedia('(max-width: 1000px)');
+  const behindSide = sideOpen && drawer;
 
   // The phone sidebar closes on navigation; a finished job's drawer closes when the page changes (not
   // when a call or a view is picked). A running one stays across pages.
@@ -80,10 +86,10 @@ export function Shell({ pages: PageSlot }: { pages: Pages }) {
           <OfflineBar />
         </div>
         <Sidebar route={route} />
-        <main className="view" id="view" tabIndex={-1}>
+        <main className="view" id="view" tabIndex={-1} inert={behindSide}>
           <PageSlot route={route} />
         </main>
-        <StatusBar />
+        <StatusBar inert={behindSide} />
       </div>
       <ExpiredCard />
       {/* Beside the app, so a modal can put the app out of reach: a menu, a modal and the job's drawer, each in a place of its own. */}
@@ -117,7 +123,8 @@ function useDocTitle(route: Route): void {
   // count, keeping the line's end, as the design's docTitle does.
   const about = tabAbout(shown ?? row?.about, TAB_ABOUT_MAX);
   const problem = meta?.project?.problem ? { name: meta.project.name } : null;
-  const title = docTitle(route, { setup, problem, fixTitle, about });
+  const unshown = useUnshown(unshownKey(route));
+  const title = docTitle(route, { setup, problem, fixTitle, about, unshown, exported });
   useEffect(() => {
     document.title = title;
   }, [title]);

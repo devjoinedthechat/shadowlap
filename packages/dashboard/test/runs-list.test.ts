@@ -3,8 +3,10 @@ import type { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { Store, summarizeRun, storedModelResolver } from '@shadowlap/engine';
+import { indexSearch, Store, summarizeRun, storedModelResolver } from '@shadowlap/engine';
 import { loadRunIndex } from '../src/run-index.js';
+import { judgedRows, judgeFor } from '../src/run-outcome.js';
+import { verdictOf } from '../src/run-verdict.js';
 import { countRuns, deleteRuns, filterTerms, labelRuns, listRunsPage, recentRuns, ROW_CALLS_BUDGET, rowsWarming, runsByDay, runsByDayOptions, runsPageOptions, runState, type RunRow, type RunType } from '../src/runs-list.js';
 import { callTotals } from '../src/run-stats.js';
 import { addDays, dayIndex, daysFrom, isTimeZone, localDay } from '../src/local-days.js';
@@ -158,6 +160,43 @@ describe('the Runs table', () => {
     expect(all({ q: 'injection' }).chipCounts.all).toBe(14);
   });
 
+  it('narrows by type: as a chip does, plural too, each narrowing the other, and a kind it doesn’t know to none', () => {
+    const ids = (q: string, types?: RunType[]) => all({ q, ...(types ? { types } : {}) }).runs.map((r) => r.runId);
+    expect(ids('type:capture')).toEqual([id.cap]);
+    expect(ids('type:forks').sort()).toEqual(ids('', ['fork']).sort());
+    expect(ids('type:replay')).toEqual(ids('', ['clean']));
+    expect(ids('type:fork', ['clean'])).toEqual([]);
+    expect(ids('type:fork injection')).toEqual([id.inj]);
+    expect(ids('type:test injection')).toEqual([]);
+    expect(ids('type:failed')).toEqual([]);
+  });
+
+  it('lists by status: the runs whose Status says that verdict, row by row, a short form too', () => {
+    const ids = (q: string) => all({ q, judge: judgeFor(store, null) }).runs.map((r) => r.runId);
+    const rows = judgedRows(store, all().runs, null, Infinity);
+    for (const v of ['passed', 'failed', 'inconclusive', 'not-applicable', 'live'] as const) expect(ids(`status:${v}`), v).toEqual(rows.filter((r) => verdictOf(r) === v).map((r) => r.runId));
+    expect(ids('status:failed')).toEqual(expect.arrayContaining([id.failed, id.test1, id.inj]));
+    // The test whose checks all passed, and the probe that rescued the failed run, whose check passed.
+    expect(ids('status:pass')).toEqual([id.test2, id.p1]);
+    expect(ids('status:live')).toEqual([id.live]);
+    expect(ids('STATUS:FAIL')).toEqual(ids('status:failed'));
+    expect(ids('status:failed injection')).toEqual([id.inj]);
+    // A word it doesn't know matches no run, and the runs of every verdict are known: nothing to wait for.
+    expect(ids('status:green')).toEqual([]);
+    expect(all({ q: 'status:failed', judge: judgeFor(store, null), known: true }).warming).toBeUndefined();
+    // The chips count the date range, not the filter field.
+    expect(all({ q: 'status:failed', judge: judgeFor(store, null) }).chipCounts.all).toBe(14);
+  });
+
+  it('lists by tool: the runs that called a tool whose name starts so, as recorded, the days too', () => {
+    const ids = (q: string) => all({ q }).runs.map((r) => r.runId);
+    expect(ids('tool:issue_refund')).toEqual([id.fork, id.inj]);
+    expect(ids('tool:ISSUE')).toEqual([id.fork, id.inj]);
+    expect(ids('tool:issue type:fork injection')).toEqual([id.inj]);
+    expect(ids('tool:refund')).toEqual([]);
+    expect(runsByDay(store, { tz: 'UTC', now: NOW, q: 'tool:issue' }).totals).toMatchObject({ runs: 2 });
+  });
+
   it('lists the runs with a label exactly, from label:<name>, as --keeps label:good takes them', () => {
     const ids = (q: string) => all({ q }).runs.map((r) => r.runId);
     // A word matches anywhere: `refund` finds both labels and more; label:refund finds no run, none being labelled just that.
@@ -169,12 +208,12 @@ describe('the Runs table', () => {
     expect(ids('label:Refund-Bug')).toEqual([]);
     expect(ids('agent.mjs label:refund-bug')).toEqual([id.failed]);
     expect(ids('refund_agent.py label:refund-bug')).toEqual([]);
-    expect(filterTerms('Refund label:good  label:Bad x')).toEqual({ words: ['refund', 'x'], labels: ['good', 'Bad'] });
+    expect(filterTerms('Refund label:good  label:Bad x')).toEqual({ words: ['refund', 'x'], labels: ['good', 'Bad'], statuses: [], types: [], tools: [] });
   });
 
   it('lists the runs with a label that has a space in it, quoted as its chip writes it', () => {
     const ids = (q: string) => all({ q }).runs.map((r) => r.runId);
-    expect(filterTerms('label:"needs  review" Refund label:good')).toEqual({ words: ['refund'], labels: ['needs review', 'good'] });
+    expect(filterTerms('label:"needs  review" Refund label:good')).toEqual({ words: ['refund'], labels: ['needs review', 'good'], statuses: [], types: [], tools: [] });
     labelRuns(store, [id.clean], ['needs review'], []);
     try {
       expect(ids('label:"needs review"')).toEqual([id.clean]);
@@ -683,6 +722,40 @@ describe('rows whose totals were never added up', () => {
       reads.mockRestore();
     } finally {
       store.close();
+    }
+  });
+});
+
+describe('the filter’s words in what runs recorded', () => {
+  it('match a whole word a run’s calls hold, each word apart, an attempt’s for its run, once the index has them', () => {
+    const local = Store.open(':memory:');
+    try {
+      const said = (...content: string[]) => [{ code: 'l', request: { messages: content.map((c, i) => ({ role: i % 2 ? 'assistant' : 'user', content: c })) } }];
+      const rec = addRun(local, { startedAt: NOW - HOUR, calls: said('Refund order A-1131.', 'Checking the ledger first', 'go on') });
+      const other = addRun(local, { startedAt: NOW - 2 * HOUR, calls: said('Cancel order B-2', 'Done') });
+      addRun(local, { parent: rec, startedAt: NOW - 30 * MIN, calls: said('Refund order A-1131.', 'A zebra crossing', 'go on'), meta: { repeat: { group: 'rp', attempt: 1, of: 1 } } });
+      const ids = (q: string, o: Parameters<typeof listRunsPage>[1] = {}) => listRunsPage(local, { limit: 50, q, ...o }).runs.map((r) => r.runId);
+      // Before the index has read them: no match, and how many runs it has yet to read.
+      expect(ids('ledger')).toEqual([]);
+      expect(listRunsPage(local, { q: 'ledger' }).indexing).toEqual({ runs: 3, of: 3 });
+      expect(runsByDay(local, { tz: 'UTC', now: NOW, q: 'ledger' }).indexing).toEqual({ runs: 3, of: 3 });
+      indexSearch(local);
+      expect(ids('ledger')).toEqual([rec]);
+      expect(listRunsPage(local, { q: 'ledger' }).indexing).toBeUndefined();
+      // Each word apart: one in the command, one in a prompt.
+      expect(ids('refund_agent.py ledger')).toEqual([rec]);
+      expect(ids('ledger done')).toEqual([]);
+      // Whole words only, from three characters, a quoted run in its order.
+      expect(ids('ledg')).toEqual([]);
+      expect(ids('go')).toEqual([]);
+      expect(ids('"cancel order"')).toEqual([other]);
+      expect(ids('"order cancel"')).toEqual([]);
+      // A bundled attempt's hit counts for the run it is bundled under, and for itself when attempts are listed.
+      expect(ids('zebra')).toEqual([rec]);
+      expect(ids('zebra', { includeAttempts: true })).toHaveLength(2);
+      expect(runsByDay(local, { tz: 'UTC', now: NOW, q: 'ledger' }).totals).toMatchObject({ runs: 1 });
+    } finally {
+      local.close();
     }
   });
 });

@@ -5,6 +5,8 @@ import { Tabs } from '../components/Tabs.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { useMenu } from '../components/Popover.js';
 import { Page } from '../components/Page.js';
+import { Unshown } from '../shell/unshown.js';
+import { NotFoundPage } from './NotFound.js';
 import { Strip, stripDetail, type StripCall } from '../components/Strip.js';
 import { callName, sameRun } from '../format.js';
 import { runRefresh } from '../connection.js';
@@ -40,6 +42,7 @@ import { RunNotes } from '../run/RunNotes.js';
 import { RunHeader } from '../run/RunHeader.js';
 import { useRunKeys } from '../run/run-keys.js';
 import { shortcut } from '../shortcuts.js';
+import { lastRunsHref } from '../runs-view.js';
 
 /**
  * A run: its header and numbers, a banner for how it forked, where it was lost or that it is
@@ -145,17 +148,29 @@ export function RunPage({ id, call, view }: { id: string; call: number | null; v
   if (run && had.current?.run !== run) had.current = { key: opened.current.key, run, part: null };
   if (run && opened.current.runId === null && sameRun(opened.current.key, run.run.runId)) opened.current.runId = run.run.runId;
   if (!run) {
-    if (loaded.error)
+    if (loaded.error) {
+      const several = /matches several runs/.test(loaded.error.message);
+      // A run that isn't there: the crumbs and the tab's title name only Runs (Unshown).
+      const missing = !several && /no run|not part of it|404/.test(loaded.error.message);
+      if (missing && client.exported)
+        return (
+          <>
+            <Unshown at={`run:${id}`} />
+            <NotFoundPage header what={`No run ${id} in this copy.`} back={[lastRunsHref(), 'Open Runs']} />
+          </>
+        );
       return (
         <Page>
+          {missing ? <Unshown at={`run:${id}`} /> : null}
           <div className="empty tall">
-            {/matches several runs/.test(loaded.error.message) ? `${id} matches several runs; use more of the id.` : /no run|not part of it|404/.test(loaded.error.message) ? `No run ${id} in ${client.exported ? 'this copy' : 'this store'}.` : `Could not load ${id}: ${loaded.error.message}`}{' '}
-            <a className="more" href={href.runs()}>
+            {several ? `${id} matches several runs; use more of the id.` : missing ? `No run ${id} in this store.` : `Could not load ${id}: ${loaded.error.message}`}{' '}
+            <a className="more" href={lastRunsHref()}>
               Back to Runs
             </a>
           </div>
         </Page>
       );
+    }
     return <RunLoading />;
   }
   return <Workspace run={run} id={id} call={call} view={view} />;

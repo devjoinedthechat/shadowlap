@@ -23,6 +23,7 @@ export type IconName =
   | 'folder'
   | 'copy'
   | 'plus'
+  | 'help'
   | 'keys'
   | 'share'
   | 'import'
@@ -145,6 +146,11 @@ export function Sprite() {
       </symbol>
       <symbol id="i-plus" viewBox="0 0 16 16">
         <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </symbol>
+      <symbol id="i-help" viewBox="0 0 16 16">
+        <circle cx="8" cy="8" r="5.75" fill="none" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M6.3 6.4a1.75 1.75 0 1 1 2.6 1.5c-.55.3-.9.7-.9 1.3v.2" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        <circle cx="8" cy="11.3" r=".85" fill="currentColor" />
       </symbol>
       <symbol id="i-keys" viewBox="0 0 16 16">
         <rect x="1.75" y="3.75" width="12.5" height="8.5" rx="2" fill="none" stroke="currentColor" strokeWidth="1.3" />

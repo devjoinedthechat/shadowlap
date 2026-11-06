@@ -161,7 +161,7 @@ test('a focus ring in a pane that scrolls is drawn inside the control, so the pa
 
 test('Search or jump to is a combobox, and hands the focus back when Esc closes it', async ({ page }) => {
   await openPage(page, '/runs', 'main#view table.runst tbody tr');
-  await page.focus('aside#side button.sbtn');
+  await page.focus('header.top button.sbtn');
   await page.keyboard.press('Enter');
   const field = page.locator('.palin input');
   await expect(field).toBeFocused();
@@ -260,6 +260,29 @@ test('every link the server writes opens a page the dashboard has', async ({ req
   }
 });
 
+test('a preview’s and a migration’s link opens Changes on Verdicts, and neither Verdicts nor a revision’s page scrolls sideways on a phone', async ({ page, request }) => {
+  const { origin, token } = dash();
+  const get = async (path: string) => (await request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token } })).json();
+  const { sessions } = (await get('decisions')) as { sessions: Array<{ kind: 'decisions' | 'migrate'; href: string }> };
+  for (const kind of ['decisions', 'migrate'] as const) {
+    const link = sessions.find((s) => s.kind === kind)?.href;
+    expect(link, `the demo's ${kind} session`).toMatch(new RegExp(`^#/changes/${kind}/`));
+    await openPage(page, link!.slice(1), 'main#view table.vdt tbody tr');
+    await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/changes');
+  }
+  const { lead } = (await get('verdicts')) as { lead: { key: string } | null };
+  expect(lead, 'the demo’s newest revision a session ran every golden at').not.toBeNull();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openPage(page, '/changes', 'main#view table.vdt tbody tr');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+  // A key can hold a `+`, which the token link stops at: the page goes there from Verdicts.
+  await page.evaluate((key) => {
+    location.hash = `#/changes/verdicts/${encodeURIComponent(key)}`;
+  }, lead!.key);
+  await page.waitForSelector('main#view table.vdg tbody tr', { state: 'visible' });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+});
+
 test('Runs keeps its filters in the address, Back goes back through them, and it has no serious axe violation', async ({ page }) => {
   await openPage(page, '/runs?types=recording&sort=calls', 'main#view table.runst tbody tr');
   const pressed = () => page.locator('main#view .tbar .chips button[aria-pressed="true"]');
@@ -273,6 +296,16 @@ test('Runs keeps its filters in the address, Back goes back through them, and it
   await page.goBack();
   await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/runs?types=recording&sort=calls');
   expect(await pressed().evaluate((b) => b.childNodes[0]?.textContent)).toBe('Recordings');
+  // The filter checks no spelling, and says how many runs its words match; Esc leaves it with its words kept, the
+  // search field's own clear never taking them.
+  const field = page.locator('main#view #runsQuery');
+  await expect(field).toHaveAttribute('spellcheck', 'false');
+  await expect(field).toHaveAttribute('placeholder', 'Filter: words, label:, status:, type: or tool:');
+  await field.fill('type:recording');
+  await expect(page.locator('main#view .rqw .qn[role="status"]')).toHaveText(/^\d[\d,]* runs? match(es)?$/);
+  await page.keyboard.press('Escape');
+  await expect(field).not.toBeFocused();
+  await expect(field).toHaveValue('type:recording');
 });
 
 test('the good/bad key labels a run in one press, says so with Undo, and has no serious axe violation', async ({ page }) => {

@@ -1,10 +1,11 @@
-import { abandonedRuns, checkStatus, hasRecordedCommand, isObject, storeView, type Normalizer, type RunRecord, type Store, type StoreOf, type TestResult } from '@shadowlap/engine';
+import { abandonedRuns, checkStatus, hasRecordedCommand, isObject, storeView, type Normalizer, type RunRecord, type Store, type StoreOf } from '@shadowlap/engine';
 import { parseStoreUrl, shortStoreName, storeKey, teamRunInStore } from '@shadowlap/remote';
 import { lookupRun } from './api.js';
 import { loadRunIndex } from './run-index.js';
 import { fixForRun, type FixForRun } from './fixes.js';
 import { copyRules, recordingNow, type CopyRules } from './run-exports.js';
 import { bisectChoices, testRunBanner, type BisectChoices, type GoldenSource, type TestRunBanner } from './tests.js';
+import { passedSince } from './runs-filter.js';
 import { runState } from './runs-list.js';
 
 /**
@@ -210,20 +211,6 @@ export function testOffer(store: StoreOf<'recording' | 'tests'>, run: RunRecord,
   const wanted = banner.values.values.map((v) => v.normalizer);
   const normalized = wanted.length > 0 && wanted.every((w) => rules.some((r) => sameRule(r, w)));
   return { ...banner, normalized, passingRun: normalized ? passedSince(store, run, banner.golden) : null, checks: goldens.find((g) => g.path === banner.golden)?.checks ?? null };
-}
-
-/**
- * The newest replay of a golden that passed since this run, made after it and still in the store;
- * null when none has. `results`: the golden's, newest first, where the caller has read them.
- */
-export function passedSince(store: StoreOf<'recording' | 'tests'>, run: RunRecord, golden: string, results: readonly TestResult[] = store.listTestResults({ golden, since: run.startedAt, limit: 50 })): string | null {
-  for (const r of results) {
-    if (r.at < run.startedAt) break;
-    if (!r.ok || !r.runId || r.runId === run.runId) continue;
-    const passed = store.getRun(r.runId);
-    if (passed && passed.startedAt >= run.startedAt) return passed.runId;
-  }
-  return null;
 }
 
 /**

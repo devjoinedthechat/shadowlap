@@ -1,11 +1,12 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyLeft, fixRecords, markFixApplied, messageOf, patchFiles, quoteArgv, recordEvent, repairPatchProblem, repairToApply, resolveAuthor, rewriteHere, safeLine, type Store, type StoreOf, type StoredFix, type StoredRepair } from '@shadowlap/engine';
 import { fieldChange } from '@shadowlap/dashboard';
 import { EXIT } from './exit-codes.js';
+import { planCopies, type GivenName, type GoldenCopy } from './fix-apply-names.js';
 import { outdatedGoldens, type OutdatedGolden } from './fix-outdated.js';
 import { physicalPath } from './real-path.js';
 
@@ -13,7 +14,8 @@ import { physicalPath } from './real-path.js';
  * `shadowlap fix apply <fix>`: hands a verified fix over to the working tree. It applies the patch
  * of the repair whose candidate was accepted with `git apply`, to the file's bytes as they are
  * (`applyToBytes`), copies the recordings that repair made with the fixed code into the project's
- * goldens folder, runs `shadowlap test` on them, and marks the fix applied. A patch already in the
+ * goldens folder, each under a name of its own (`--name <run>=<name>`, else the fix's label: see
+ * fix-apply-names.ts), runs `shadowlap test` on them, and marks the fix applied. A patch already in the
  * tree (applied by hand, committed, or by `repair --apply`) is recognised with `git apply --reverse
  * --check` and only marked. A tree whose changes conflict with the patch is left alone, with what
  * to do about it. A fix verified on the working tree itself, with no repair behind it, has no
@@ -50,6 +52,8 @@ export interface ApplyOptions {
   cwd: string;
   /** The project's goldens folder, relative to `cwd`. */
   goldens: string;
+  /** The names the recordings of the fixed runs are copied under (`--name <run>=<name>`); one not named takes the name the fix's label makes. */
+  names?: readonly GivenName[];
   /** Run `shadowlap test` on the goldens after copying them. */
   test: boolean;
   /** A command that rebuilds the agent before the test. */
@@ -68,8 +72,8 @@ export interface ApplyResult {
   /** What happened to the patch: applied now, found in the tree already, or none to apply. */
   patch: 'applied' | 'already' | 'none';
   repairId: string | null;
-  /** Each golden, where it was copied to, and whether it was copied or already there. */
-  goldens: Array<{ from: string; to: string; copied: boolean }>;
+  /** Each golden: the run it holds a recording of (its short id), where it was copied from and to, and whether it was copied or already there. */
+  goldens: Array<{ run: string; from: string; to: string; copied: boolean }>;
   tests: 'passed' | 'failed' | 'skipped';
   /**
    * The project's other goldens that now diverge on what the patch changed, each with the call and
@@ -236,6 +240,11 @@ function putIn(at: { root: string; file: string; patch: string; text: string; by
   if (applied.status !== 0) throw new ApplyError(`git apply failed: ${(applied.stderr || applied.stdout).trim()}`);
 }
 
+/** A --name on an apply that copies no recording names none: refused before anything changes, as `planCopies` refuses one. */
+function namesNone(o: ApplyOptions, why: string): void {
+  if (o.names?.length) throw new ApplyError(`${why}: --name names none`, EXIT.usage);
+}
+
 export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): Promise<ApplyResult> {
   const repair = acceptedRepair(store, fix);
   const pulled = cameWithPull(store, repair);
@@ -243,6 +252,7 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
   const again = fix.status === 'applied';
   const left = applyLeft(fix, repair, { pulled });
   if (again && !(left && (left.goldens || (left.test && o.test)))) {
+    namesNone(o, 'the fix is applied already, and apply has no recording left to copy');
     return { fixId: fix.fixId, status: 'already-applied', again: false, patch: before?.patch ?? 'none', repairId: before?.repairId ?? null, goldens: [], tests: before?.tests ?? 'skipped', outdated: [], update: null };
   }
   const result: ApplyResult = { fixId: fix.fixId, status: 'applied', again, patch: 'none', repairId: repair?.repairId ?? null, goldens: [], tests: 'skipped', outdated: [], update: null };
@@ -269,6 +279,9 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
     const patch = resolve(o.cwd, paths.dir, 'fix.patch');
     if (!existsSync(patch)) throw new ApplyError(`the repair's patch is not in this folder (${paths.dir}/fix.patch): run shadowlap fix apply in the folder ${repair.repairId} ran in`, EXIT.usage);
     if (readFileSync(patch, 'utf8') !== repair.report.patch) throw new ApplyError(`${paths.dir}/fix.patch is not the patch ${repair.repairId} verified: it changed since. Nothing was changed: apply it by hand if you changed it on purpose, or repair again`);
+    // Where each recording goes, under the name it is given: one that won't do changes nothing.
+    const plan = planCopies(store, fix, repair, { cwd: o.cwd, goldens: o.goldens, given: o.names ?? [], pulled, sources: paths.goldens.map((g) => g.path) });
+    if ('problem' in plan) throw new ApplyError(plan.problem, EXIT.usage);
 
     // The patch goes in on the file's bytes as they are, so the file is the one the repair verified. A
     // patch whose lines end otherwise than the file's (a teammate's, made in a checkout with LF, for a
@@ -289,23 +302,10 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
 
     // The recordings the repair made with the fixed code: replayed by `shadowlap test`, they fail the
     // build if the fix is ever undone. One copied before (by `repair --apply --goldens <dir>`, or an
-    // earlier run of this) is tested where it is.
-    const copiedBefore = (before?.goldens ?? []).map(slashes).filter((p) => !isAbsolute(p) && !/^[a-z]:/i.test(p) && !p.split('/').includes('..'));
-    // A teammate's repair, from the team store: its recordings are on the machine that ran it.
+    // earlier run of this) is tested where it is. A teammate's repair, from the team store: its
+    // recordings are on the machine that ran it, and none is copied.
     const elsewhere = pulled ? paths.goldens.length : 0;
-    for (const g of pulled ? [] : paths.goldens) {
-      const from = resolve(o.cwd, g.path);
-      const known = copiedBefore.find((p) => basename(p) === g.name);
-      const to = known ? resolve(o.cwd, known) : resolve(o.cwd, o.goldens, g.name);
-      if (!existsSync(from)) {
-        o.log(`  ! ${g.path} is gone, so it was not copied`);
-        continue;
-      }
-      const copied = !existsSync(to);
-      if (copied) cpSync(from, to, { recursive: true });
-      result.goldens.push({ from: shown(o.cwd, from), to: shown(o.cwd, to), copied });
-      o.log(`  ${copied ? 'copied' : 'already there:'} ${shown(o.cwd, to)}`);
-    }
+    result.goldens.push(...copyGoldens(plan.copies, o));
     if (elsewhere) o.log(`  ${elsewhere === 1 ? 'the recording' : `the ${elsewhere} recordings`} the fixed code made ${elsewhere === 1 ? 'stays' : 'stay'} on the machine that ran ${repair.repairId}, which came with a pull: commit ${elsewhere === 1 ? 'it' : 'them'} from there`);
     if (unread) o.log(`  it came with a pull from the team store, so nothing here runs it yet: read the change (git diff -- ${shownInRepo(o.cwd, root, file)}), then ${o.build ? `rebuild (${o.build}) and ` : ''}check your goldens against it with shadowlap test`);
 
@@ -316,16 +316,19 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
     }
     if (o.test && result.goldens.length) result.tests = (await runTests(result.goldens.map((x) => x.to), o)) ? 'passed' : 'failed';
   } else {
+    namesNone(o, 'the fix was verified with no repair behind it, so apply copies no recording');
     // A change of request fields (--set, --model) is in no file: making it in the agent is left to you.
     const change = fieldChange(fixRecords(store, fix));
     o.log(change ? `  verified with ${safeLine(change)}, a change to the requests no patch carries: make it in your agent` : '  verified on the working tree, with no repair behind it: there is no patch to apply');
   }
 
   const who = resolveAuthor({ cwd: o.cwd });
-  // Applied before: the goldens it had already are still there, and when no test ran now, the last one's result stands.
+  // Applied before: the goldens it had already are still there, and when no test ran now, the last
+  // one's result stands. Each is kept with the run it holds a recording of: its name may be any.
   const goldens = [...new Set([...(before?.goldens ?? []), ...result.goldens.map((x) => slashes(x.to))])];
+  const from = { ...before?.from, ...Object.fromEntries(result.goldens.map((x) => [slashes(x.to), x.run])) };
   const tests = result.tests === 'skipped' ? (before?.tests ?? 'skipped') : result.tests;
-  markFixApplied(store, fix.fixId, { patch: again && before ? before.patch : result.patch, repairId: result.repairId, goldens, tests, by: who, via: 'fix apply' });
+  markFixApplied(store, fix.fixId, { patch: again && before ? before.patch : result.patch, repairId: result.repairId, goldens, tests, by: who, via: 'fix apply', ...(Object.keys(from).length ? { from } : {}) });
   recordEvent(store, { kind: 'fix.applied', actor: who, ref: fix.fixId, data: { title: fix.title, repairId: result.repairId, patch: result.patch, goldens: result.goldens.length, tests: result.tests, ...(again ? { again: true } : {}) } });
 
   // The patch is in, and the fix is marked applied: what it changed in every request may leave the
@@ -342,6 +345,28 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
     } else if (check.checked) o.log('  none of them diverges on what the patch changed');
   }
   return result;
+}
+
+/**
+ * Copies each recording of the fixed runs where the plan puts it, unless one is there already
+ * (copied before, or by an apply stopped before it marked the fix applied), saying which: a golden
+ * named otherwise than its run says which run's recording it holds.
+ */
+function copyGoldens(copies: readonly GoldenCopy[], o: ApplyOptions): ApplyResult['goldens'] {
+  const done: ApplyResult['goldens'] = [];
+  for (const c of copies) {
+    const from = resolve(o.cwd, c.source);
+    const to = resolve(o.cwd, c.to);
+    if (!existsSync(from)) {
+      o.log(`  ! ${c.source} is gone, so it was not copied`);
+      continue;
+    }
+    const copied = !existsSync(to);
+    if (copied) cpSync(from, to, { recursive: true });
+    done.push({ run: c.run, from: shown(o.cwd, from), to: shown(o.cwd, to), copied });
+    o.log(copied ? `  copied ${shown(o.cwd, to)}${basename(to) === c.run ? '' : ` from ${c.run}`}` : `  already there: ${shown(o.cwd, to)}`);
+  }
+  return done;
 }
 
 /** `shadowlap test` on the goldens, its output passed on line by line. True when every one passed. */

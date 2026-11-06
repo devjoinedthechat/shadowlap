@@ -1,7 +1,8 @@
 import { Command, Option } from 'commander';
-import { ACTIONS, applyLeft, BLAME_DEFAULTS, describeBaselineRule, FIX_STATUSES, FixIdError, fixRecords, type FixStatus, KEPT_DEFAULTS, prNumber, type ReadPolicy, repairerProblem, resolveFix, setFixTitle, SPRT_DEFAULTS, type StoredFix, type StoreOf, verifyArgv } from '@shadowlap/engine';
-import { fieldChange, fixDetail, fixHref, fixList, ghReader, patchesInTree, patchesToCheck, prHost, pulledPatchesToCheck, readableHosts, rewritesHere, type PrRead } from '@shadowlap/dashboard';
+import { ACTIONS, applyLeft, BLAME_DEFAULTS, describeBaselineRule, FIX_STATUSES, FixIdError, fixRecords, type FixStatus, KEPT_DEFAULTS, NAME_MAX, prNumber, type ReadPolicy, repairerProblem, resolveFix, setFixTitle, SPRT_DEFAULTS, type StoredFix, type StoreOf, verifyArgv } from '@shadowlap/engine';
+import { fieldChange, fixDetail, fixHref, fixList, ghReader, goldensFolderIn, patchesInTree, patchesToCheck, prHost, pulledPatchesToCheck, readableHosts, rewritesHere, type PrRead } from '@shadowlap/dashboard';
 import { acceptedRepair, ApplyError, applyFix } from '../fix-apply.js';
+import { parseNameFlag } from '../fix-apply-names.js';
 import { formatFixDetail, formatFixList, repairLine, shortFixId } from '../fix-format.js';
 import { emitJobEvent } from '../job-events.js';
 import { EXIT } from '../exit-codes.js';
@@ -185,11 +186,12 @@ function registerFixes(program: Command): void {
         const repairer = configuredRepairer();
         // The repair it suggests next, whether its repairer can be asked from here (claude on the PATH),
         // whether a verified fix's patch is in this working tree already, which apply only marks applied,
-        // and why apply refuses a pulled repair's patch here, as the file it rewrites reads.
+        // why apply refuses a pulled repair's patch here, as the file it rewrites reads, and what the
+        // goldens folder holds, which the goldens apply copies can't be named.
         const fix = requireFix(store, arg);
         const patchInTree = await patchesInTree(process.cwd(), patchesToCheck(store, [fix]));
         const rewriteHere = await rewritesHere(process.cwd(), pulledPatchesToCheck(store, [fix]));
-        const detail = fixDetail(store, fix.fixId, { repairer, checkRepairer: repairerProblem, patchInTree, rewriteHere })!;
+        const detail = fixDetail(store, fix.fixId, { repairer, checkRepairer: repairerProblem, patchInTree, rewriteHere, goldensFolder: goldensFolderIn(process.cwd()) })!;
         process.stdout.write((flags.json ? JSON.stringify(detail, null, 2) : formatFixDetail(detail, p, { repairer })) + '\n');
       } catch (err) {
         fixIdFailed(err, arg, flags.json);
@@ -239,21 +241,23 @@ function registerFixes(program: Command): void {
 
   fix
     .command('apply')
-    .description("Apply a verified fix: git apply its repair's patch, copy the recordings the fixed code made into the goldens folder, run shadowlap test on them, and mark the fix applied. On an applied fix, finish what is left")
+    .description("Apply a verified fix: git apply its repair's patch, copy the recordings the fixed code made into the goldens folder, each a golden of its own, run shadowlap test on them, and mark the fix applied. On an applied fix, finish what is left")
     .argument('<fix>', 'a fix id or a unique prefix of it')
     .option('--goldens <dir>', "the project's goldens folder, where the repair's recordings go", 'goldens')
+    .option('--name <run=name>', `the name of the golden copied from a fixed run, its id or the start of it: lower-case letters, digits and hyphens, at most ${NAME_MAX} of them, not a name Windows keeps such as con or nul, one golden each, not one the folder holds (repeatable; default: the fix's label, numbered for several)`, collect)
     .option('--no-test', 'copy the recordings without running shadowlap test on them')
     .option('--build <command>', 'rebuild the agent after the patch is applied, before the test')
     .option('--json', 'print what was done as JSON (progress still goes to stderr)')
-    .action(async (arg: string, flags: { goldens: string; test: boolean; build?: string; json?: boolean }) => {
+    .action(async (arg: string, flags: { goldens: string; name?: string[]; test: boolean; build?: string; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       const store = readStore(opts);
       const log = (line: string) => process.stderr.write(`${line}\n`);
       try {
+        const names = (flags.name ?? []).map((v) => parseNameFlag(v) ?? badName(v));
         const found = requireFix(store, arg);
         if (found.status === 'open') throw openFixError(store, found);
         if (found.status !== 'applied') log(`${p.yellow('⑂')} Applying ${shortFixId(found.fixId)} · ${safe(found.title)}`);
-        const result = await applyFix(store, found, { cwd: process.cwd(), goldens: flags.goldens, test: flags.test, build: flags.build ?? null, db: opts.db, log });
+        const result = await applyFix(store, found, { cwd: process.cwd(), goldens: flags.goldens, names, test: flags.test, build: flags.build ?? null, db: opts.db, log });
         reportApplied(store, found, result, flags);
       } catch (err) {
         if (err instanceof FixIdError) return fixIdFailed(err, arg, flags.json);
@@ -265,6 +269,11 @@ function registerFixes(program: Command): void {
         store.close();
       }
     });
+}
+
+/** A `--name` that isn't `<run>=<name>`: said before anything is read or changed. */
+function badName(value: string): never {
+  throw new ApplyError(`--name ${safe(value)} is not <run>=<name>: give the run whose recording the golden holds, then its name, such as --name 01K5CQ2E8M=refund-over-limit`, EXIT.usage);
 }
 
 /** A pull request recorded for a fix, as `fix pr` prints it. */

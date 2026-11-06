@@ -69,6 +69,22 @@ const at = (page: Page, path: string, drawn = 'main#view') => async () => {
   await settled(page);
 };
 const run = (page: Page, id: string, view = '') => at(page, `/run/${id}${view ? `/${view}` : ''}`, 'run');
+/** Changes' Verdicts, drawn with its rows. */
+const VERDICTS = 'main#view table.vdt tbody tr';
+/**
+ * The page of the revision Verdicts leads with, by the key the API gives: a key can hold a `+`, which
+ * the token link's `open=` stops at, so the page goes there from Verdicts.
+ */
+const revision = (page: Page) => async () => {
+  const { origin, token } = dash();
+  const view = (await (await page.request.get(`${origin}/api/verdicts`, { headers: { 'x-shadowlap-token': token } })).json()) as { lead: { key: string } | null };
+  if (!view.lead) throw new Error('the demo store has no test session that ran every golden');
+  await at(page, '/changes', VERDICTS)();
+  await page.evaluate((key) => {
+    location.hash = `#/changes/verdicts/${encodeURIComponent(key)}`;
+  }, view.lead.key);
+  await settled(page, { shows: 'main#view table.vdg tbody tr' });
+};
 const click = (page: Page, selector: string, text?: string, o: { shows?: string } = {}) => async () => {
   apiRequests(page);
   await page.locator(selector, text ? { hasText: text } : {}).first().click();
@@ -87,7 +103,8 @@ test.describe.configure({ timeout: 300_000 });
 test('every page and Settings tab has no serious or critical axe violation', async ({ page }) => {
   const pages = ['/', '/runs', '/runs?types=capture', '/runs?types=test', '/runs?types=failed', '/runs?q=label%3Agood', '/fixes', '/tests', '/training', '/training/tasks', '/compare', '/new'];
   const settings = ['matching', 'redaction', 'alerts', 'agents', 'tools', 'project', 'store'];
-  expect(await sweep(page, [...pages.map((p): [string, () => Promise<void>] => [p, at(page, p)]), ...settings.map((t): [string, () => Promise<void>] => [`Settings → ${t}`, at(page, `/settings/${t}`)])])).toEqual([]);
+  const changes: Array<[string, () => Promise<void>]> = [['/changes', at(page, '/changes', VERDICTS)], ['a revision’s page', revision(page)]];
+  expect(await sweep(page, [...pages.map((p): [string, () => Promise<void>] => [p, at(page, p)]), ...changes, ...settings.map((t): [string, () => Promise<void>] => [`Settings → ${t}`, at(page, `/settings/${t}`)])])).toEqual([]);
 });
 
 test('every run of the demo, and every view of a few, has no serious or critical axe violation', async ({ page }) => {
@@ -212,9 +229,11 @@ test('Fixes and each fix’s steps, Tests’ dialogs, the palette, the shortcuts
   }], ['the palette closed', escape(page, '.palette')]);
   // From the run ticked above, its checkbox focused again once the palette closed.
   states.push(['the shortcuts', press(page, '?', { shows: '.help' })], ['the shortcuts closed', escape(page, '.help')]);
+  // The top bar's help menu: Keyboard shortcuts, Docs, Command line.
+  states.push(['the help menu', click(page, '#helpBtn', undefined, { shows: '.pop.helpmenu' })], ['the help menu closed', escape(page, '.pop.helpmenu')]);
   // The shortcuts on pages of each kind: the keys that don't apply there are listed apart.
   for (const [where, path, drawn] of [['the Overview', '/', 'overview'], ['Runs', '/runs', 'runs'], ['Fixes', '/fixes', 'main#view'], ['Settings', '/settings/alerts', 'main#view']] as const) {
-    states.push([where, at(page, path, drawn)], [`the shortcuts on ${where}`, click(page, '#helpBtn', undefined, { shows: '.help' })], [`the shortcuts on ${where} closed`, escape(page, '.help')]);
+    states.push([where, at(page, path, drawn)], [`the shortcuts on ${where}`, press(page, '?', { shows: '.help' })], [`the shortcuts on ${where} closed`, escape(page, '.help')]);
   }
   // A toast with Undo: the good/bad key pressed, then put back with u.
   states.push(['a run', run(page, dash().runs.ticket as string)], ['a toast with Undo', click(page, '.rhead .runkey button', 'good', { shows: '.toast button:has-text("Undo")' })]);
@@ -236,6 +255,7 @@ test('on a phone, every page, Settings tab, fix step and dialog has no serious o
   await page.setViewportSize({ width: 390, height: 844 });
   const states: Array<[string, () => Promise<void>]> = [];
   for (const p of ['/', '/runs', '/runs?types=failed', '/fixes', '/tests', '/training', '/compare', '/new', '/setup/store']) states.push([`${p} on a phone`, at(page, p)]);
+  states.push(['/changes on a phone', at(page, '/changes', VERDICTS)], ['a revision’s page on a phone', revision(page)]);
   for (const t of ['matching', 'redaction', 'alerts', 'agents', 'tools', 'project', 'store']) states.push([`Settings → ${t} on a phone`, at(page, `/settings/${t}`)]);
   for (const fx of fixes()) for (const step of ['', '/blame', '/repair', '/verify']) states.push([`fix ${fx}${step} on a phone`, at(page, `/fixes/${fx}${step}`, 'fix')]);
   for (const name of ['ticket', 'litellm', 'batchFork']) {

@@ -15,7 +15,8 @@ describe('a tab’s title', () => {
     expect(title('#/runs')).toBe('Runs — shadowlap');
     expect(title('#/fixes')).toBe('Fixes — shadowlap');
     expect(title('#/tests')).toBe('Tests — shadowlap');
-    expect(title('#/compare')).toBe('Compare — shadowlap');
+    expect(title('#/compare')).toBe('Compare · Changes — shadowlap');
+    expect(title('#/changes')).toBe('Verdicts · Changes — shadowlap');
     expect(title('#/training')).toBe('Pairs · Training — shadowlap');
     expect(title('#/training/tasks')).toBe('Tasks · Training — shadowlap');
     expect(title('#/new')).toBe('Add project — shadowlap');
@@ -46,8 +47,27 @@ describe('a tab’s title', () => {
     expect(title('#/run/01M5GHQ4770XBC2GET8V493QCY', { about: long })).toBe('01M5GHQ477 — shadowlap');
   });
 
-  it('names a comparison by its two runs', () => {
-    expect(title('#/compare/01M5GHNZDF0000000000000000/01M5GHQ4770XBC2GET8V493QCY')).toBe('01M5GHNZDF → 01M5GHQ477 · Compare — shadowlap');
+  it('names Compare as a tab of Changes whatever its pair, and an exported copy’s, a page of its own, as Compare', () => {
+    expect(title('#/compare/01M5GHNZDF0000000000000000/01M5GHQ4770XBC2GET8V493QCY')).toBe('Compare · Changes — shadowlap');
+    expect(title('#/compare/01M5GHNZDF0000000000000000/01M5GHQ4770XBC2GET8V493QCY', { exported: true })).toBe('Compare — shadowlap');
+  });
+
+  it('names Verdicts and a revision there by its key, and only the tab for one the page can’t show', () => {
+    expect(title('#/changes/verdicts')).toBe('Verdicts · Changes — shadowlap');
+    expect(title('#/changes/verdicts/d2e8a1f')).toBe('d2e8a1f · Verdicts · Changes — shadowlap');
+    expect(title('#/changes/verdicts/d2e8a1f%2Bdirty')).toBe('d2e8a1f+dirty · Verdicts · Changes — shadowlap');
+    expect(title('#/changes/verdicts/d2e8a1f', { unshown: true })).toBe('Verdicts · Changes — shadowlap');
+    // A preview's and a migration's addresses open Verdicts until their tabs land.
+    expect(title('#/changes/decisions/dc-01M5000000000000000000000A')).toBe('Verdicts · Changes — shadowlap');
+  });
+
+  it('names only the section for a run or a fix the page can’t show, or with the setup in its place, as the crumbs do', () => {
+    expect(title('#/run/01M5GHQ4770XBC2GET8V493QCY', { unshown: true, about: 'Order A-1131' })).toBe('Runs — shadowlap');
+    expect(title('#/fixes/fx-nope', { unshown: true })).toBe('Fixes — shadowlap');
+    expect(title('#/run/01M5GHQ4770XBC2GET8V493QCY', { setup: true })).toBe('Runs — shadowlap');
+    expect(title('#/fixes/fx-01M5GMZKCV', { setup: true })).toBe('Fixes — shadowlap');
+    // The list itself, and the Overview, say what shows: the setup.
+    expect(title('#/fixes', { setup: true })).toBe('Set up — shadowlap');
   });
 
   it('names a fix by its title once it is known, and by its id until then', () => {

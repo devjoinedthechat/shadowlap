@@ -525,7 +525,7 @@ describe('a `$` row', () => {
 });
 
 describe('a fix’s dialogs', () => {
-  const APPLY = { kind: 'patch', argv: [], gitApply: null, pending: null, pulled: null, files: ['agent.mjs'], diff: '--- a\n+++ b\n', patchFile: '.shadowlap/repairs/r/fix.patch', refused: null, inTree: false, goldens: 1, change: null };
+  const APPLY = { kind: 'patch', argv: [], gitApply: null, pending: null, pulled: null, files: ['agent.mjs'], diff: '--- a\n+++ b\n', patchFile: '.shadowlap/repairs/r/fix.patch', refused: null, inTree: false, goldens: 1, names: [], held: null, change: null };
   const fix = (over: Record<string, unknown> = {}, actions: Record<string, unknown> = {}) =>
     ({
       fixId: 'fx-1',
@@ -580,6 +580,10 @@ describe('a fix’s dialogs', () => {
     const page = await open(createElement(ApplyDialog, { fix: fix({}, { apply: APPLY }), label: 'Apply fix', onRun: () => true, ...closes }));
     holds(page, { title: 'Apply fix?', doc: 'repairHandover', first: OK, ok: 'Apply fix' });
     expect(page.all('.ondisk.steps li').map((l) => l.querySelectorAll('span')[0].textContent)).toEqual(['Patch applied', 'Recording copied', 'Golden replayed', 'Other goldens replayed']);
+    await page.unmount();
+    // A golden it copies asks its name, under the patch: the field takes the focus.
+    const named = await open(createElement(ApplyDialog, { fix: fix({}, { apply: { ...APPLY, names: [{ run: '01K5CQ2E8M', name: 'double-email' }], held: [] } }), label: 'Apply fix', onRun: () => true, ...closes }));
+    holds(named, { title: 'Apply fix?', doc: 'repairHandover', first: FIELD, ok: 'Apply fix' });
   });
   it('Mark fix applied, and Finish applying fix', async () => {
     const page = await open(createElement(ApplyDialog, { fix: fix({}, { apply: { ...APPLY, kind: 'mark', goldens: 0 } }), label: 'Mark applied', onRun: () => true, ...closes }));
@@ -679,7 +683,7 @@ describe('the bulk bar’s dialogs', () => {
 
   it('Add label', async () => {
     const page = await bar();
-    await page.click(page.byText('.bulkbar button', 'Label'));
+    await page.click(page.byText('.bulkbar button', 'Add label…'));
     holds(page, { title: 'Add label to 3 runs', doc: 'labels', first: 'input[type="text"]', ok: 'Add label' });
     expect(page.all('[role="dialog"] .cstep')).toHaveLength(3);
   });
@@ -690,7 +694,7 @@ describe('the bulk bar’s dialogs', () => {
       const six = ['A', 'B', 'C', 'D', 'E', 'F'].map((c) => ({ runId: `01M5H2DJ${c}${'0'.repeat(17)}`, status: 'completed', attempts: 0 }));
       const labelled = async (runs: typeof six) => {
         const page = await open(createElement(BulkBar, { runs: runs as never, store: false, clear: () => undefined, onDone: () => undefined }), appWith({ client: { offers: () => new Promise(() => undefined) } }));
-        await page.click(page.byText('.bulkbar button', 'Label'));
+        await page.click(page.byText('.bulkbar button', 'Add label…'));
         return page;
       };
       const many = await labelled(six);
@@ -709,7 +713,7 @@ describe('the bulk bar’s dialogs', () => {
   });
   it('Delete runs, leaving alone the one still recording', async () => {
     const page = await bar();
-    await page.click(page.byText('.bulkbar button', 'Delete'));
+    await page.click(page.byText('.bulkbar button', 'Delete 3 runs'));
     holds(page, { title: 'Delete 2 runs?', doc: 'deletingRuns', first: CANCEL, ok: 'Delete 2 runs', tone: 'danger' });
     expect(page.all('[role="dialog"] header p span')[0].textContent).toBe('Deletes the runs, their 3 attempts and the recorded data nothing else uses.');
     expect(page.all('.dfacts div').map((d) => d.textContent)).toEqual(['Forks, replayskeep their own datathey lose the link to them', 'Left alone01M5H2DJR4still recording']);

@@ -28,8 +28,8 @@ describe('routes', () => {
     expect(parseRoute('#/run/01K5CQ4P2R/call/9')).toEqual({ page: 'run', id: '01K5CQ4P2R', call: 9, view: null });
     expect(parseRoute('#/run/01K5CQ4P2R/0')).toMatchObject({ call: null });
     expect(parseRoute('#/run/not a run')).toMatchObject({ page: 'notfound' });
-    expect(parseRoute('#/compare')).toEqual({ page: 'compare', a: null, b: null });
-    expect(parseRoute('#/compare/01AAA/01BBB')).toEqual({ page: 'compare', a: '01AAA', b: '01BBB' });
+    expect(parseRoute('#/compare')).toEqual({ page: 'compare', a: null, b: null, call: null });
+    expect(parseRoute('#/compare/01AAA/01BBB/4')).toEqual({ page: 'compare', a: '01AAA', b: '01BBB', call: 4 });
     expect(parseRoute('#/fixes/fx-12/verify/vf-3')).toEqual({ page: 'fixes', id: 'fx-12', step: 'verify', sub: 'vf-3' });
     expect(parseRoute('#/training/tasks')).toEqual({ page: 'training', tab: 'tasks' });
     expect(parseRoute('#/training')).toEqual({ page: 'training', tab: 'pairs' });
@@ -45,7 +45,7 @@ describe('routes', () => {
     expect(href.run('01K5CQ4P2R', 17, 'calls')).toBe('#/run/01K5CQ4P2R/17');
     expect(href.run('01K5CQ4P2R', 17, 'forks')).toBe('#/run/01K5CQ4P2R/17/forks');
     expect(href.run('01K5CQ4P2R', null, 'context')).toBe('#/run/01K5CQ4P2R/context');
-    for (const h of ['#/', '#/runs', '#/run/01K5CQ4P2R/3/turns', '#/compare/01A/01B', '#/compare', '#/fixes/fx-1/repair', '#/tests', '#/training/tasks', '#/settings/project', '#/new', '#/setup']) {
+    for (const h of ['#/', '#/runs', '#/run/01K5CQ4P2R/3/turns', '#/compare/01A/01B', '#/compare/01A', '#/compare/01A/01B/9', '#/compare', '#/changes', '#/changes/verdicts/d2e8a1f%2Bdirty', '#/changes/migrate/mg-1', '#/fixes/fx-1/repair', '#/tests', '#/training/tasks', '#/settings/project', '#/new', '#/setup']) {
       expect(routeHref(parseRoute(h))).toBe(h);
     }
   });
@@ -465,9 +465,9 @@ describe('runs', () => {
     // Its checks passed, or it stopped before it ended: the outcome says so, as for any run.
     expect(runStatus({ ...fork, outcome: { kind: 'passed', checks: 1 }, failed: false })).toEqual({ tone: 'ok', text: '1 check passed' });
     expect(runStatus({ ...fork, ...none, status: 'crashed' })).toEqual({ tone: 'n', text: 'interrupted' });
-    // A fork that failed a check names it, in its own words.
+    // A fork that failed a check says so in one line: the check is on its hover.
     const failedFork = { ...fork, outcome: { kind: 'check-failed', check: 'send_email called 1 time' }, failed: true };
-    expect(runStatus(failedFork)).toEqual({ tone: 'err', text: 'check failed', check: 'send_email called 1 time' });
+    expect(runStatus(failedFork)).toEqual({ tone: 'err', text: 'check failed' });
     // The outcome stays in a word or two for the lists that say it beside other things; a recording names no check here.
     expect(runOutcome(failedFork)).toEqual({ tone: 'err', text: 'check failed' });
     expect(runStatus({ ...base, outcome: { kind: 'check-failed', check: 'issue_refund never called with {"amount":240}' }, failed: true })).toEqual({ tone: 'err', text: 'check failed' });

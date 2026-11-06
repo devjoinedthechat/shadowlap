@@ -79,7 +79,7 @@ describe('a fix', () => {
 
   it('offers Run repair on an open fix, Apply fix on a verified one, and Patch applied once it is in', () => {
     const repair = { argv: ['repair'], command: 'shadowlap repair', noFix: null, noFixWhy: null, candidates: 3 };
-    const patch = { kind: 'patch' as const, argv: ['fix', 'apply', 'fx-1'], gitApply: 'git apply x/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff: 'diff --git a/agent.mjs b/agent.mjs\n', patchFile: 'x/fix.patch', refused: null, inTree: false, goldens: 1, change: null };
+    const patch = { kind: 'patch' as const, argv: ['fix', 'apply', 'fx-1'], gitApply: 'git apply x/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff: 'diff --git a/agent.mjs b/agent.mjs\n', patchFile: 'x/fix.patch', refused: null, inTree: false, goldens: 1, names: [], held: null, change: null };
     expect(fixAction({ status: 'open', actions: actions({ repair }) })).toEqual({ kind: 'repair' });
     expect(fixAction({ status: 'open', actions: actions({}) })).toEqual({ kind: 'none', label: 'Run repair', why: expect.stringMatching(/nothing to repair from here/) });
     expect(fixAction({ status: 'verified', actions: actions({ apply: patch }) })).toEqual({ kind: 'apply', label: 'Apply fix' });
@@ -121,6 +121,12 @@ describe('a fix', () => {
       { what: 'Other goldens replayed', where: 'any that diverge are named' },
     ]);
     expect(applySteps({ files: ['agent.mjs'], pulled: false, goldens: 2 })[1].what).toBe('2 recordings copied');
+    // Of two, the one in goldens/ already is copied by no step; both are replayed.
+    expect(applySteps({ files: ['agent.mjs'], pulled: false, goldens: 2 }, { count: 1, to: 'goldens/refund-bug-1' }).slice(1, 3)).toEqual([
+      { what: 'Recording copied', where: 'goldens/refund-bug-1' },
+      { what: 'Goldens replayed', where: 'shadowlap test, offline' },
+    ]);
+    expect(applySteps({ files: ['agent.mjs'], pulled: false, goldens: 2 }, { count: 0, to: null }).map((s) => s.what)).toEqual(['Patch applied', 'Goldens replayed', 'Other goldens replayed']);
     // A teammate's patch runs nothing here: it goes in, and the rest is the amber line's.
     expect(applySteps({ files: ['agent.mjs', 'src/tools.mjs', 'prompt.txt'], pulled: true, goldens: 0 })).toEqual([{ what: 'Patch applied', where: 'agent.mjs, src/tools.mjs and prompt.txt, with git apply' }]);
     expect(patchLines('diff --git a/agent.mjs b/agent.mjs\n--- a/agent.mjs\n+++ b/agent.mjs\n@@ -1,2 +1,2 @@\n-old\n+new\n context\n--- removed dashes\n')).toEqual([

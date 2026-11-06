@@ -43,7 +43,9 @@ export function runLikeOf(d: RunDetail): RunLike {
     test: meta?.test ?? null,
     blame: blameOf(d),
     checks,
-    ...(state ? { kind: state.kind, outcome: state.outcome, failed: state.failed } : {}),
+    // A failed test replay its golden's next replay passed reads as the lists read it: fixed, not failed.
+    ...(state ? { kind: state.kind, outcome: state.outcome, failed: state.failed && !d.fixedBy } : {}),
+    ...(d.fixedBy ? { fixedBy: d.fixedBy } : {}),
     ...(d.judged !== undefined ? { judged: d.judged } : {}),
     ...(d.exitCode !== undefined ? { exitCode: d.exitCode } : {}),
   };

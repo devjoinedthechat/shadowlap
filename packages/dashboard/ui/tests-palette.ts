@@ -6,8 +6,8 @@ import type { TestsView } from './types.js';
  * Update goldens opens Tests with its dialog (`#/tests?update`). What it lists is the goldens as the
  * server last listed them: the Tests page keeps that current (`keepTests`), and opening the palette
  * loads it again, once at a time; when what it lists changes, `onTestsChanged` hears of it, so an
- * open palette gains the group as soon as the answer lands. Tests.tsx registers it. No DOM here, and
- * nothing that needs it: the tests drive it with a stand-in app.
+ * open palette gains the group as soon as the answer lands. `palette-actions.ts` registers it, and
+ * loads with the palette. No DOM here, and nothing that needs it: the tests drive it with a stand-in app.
  */
 
 /** What the source needs of the app (`AppState`). */

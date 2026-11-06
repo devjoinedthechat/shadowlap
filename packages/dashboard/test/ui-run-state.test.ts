@@ -60,6 +60,15 @@ describe('an interrupted run, everywhere it is shown', () => {
     expect(failedWord(blamed)).toBe('check failed');
   });
 
+  it('names a recording a check failed by its icon’s words, one that exited as failed, and a test that couldn’t decide in amber', () => {
+    const exited: RunLike = { ...base, status: 'failed', kind: 'recording', outcome: { kind: 'check-failed', check: null }, failed: true };
+    expect(runGlyph(exited)).toEqual({ kind: 'fail', label: 'Recording, failed' });
+    expect(runGlyph({ ...exited, outcome: { kind: 'check-failed', check: 'issue_refund never called' } })).toEqual({ kind: 'fail', label: 'Recording, check failed' });
+    const test: RunLike = { ...base, mode: 'replay', parentRunId: '01K5CQ4N7F0000000000000000', kind: 'test', test: { golden: 'refund-damaged' } };
+    expect(runGlyph({ ...test, outcome: { kind: 'inconclusive' } })).toEqual({ kind: 'warn', label: 'Test inconclusive' });
+    expect(runGlyph(test)).toEqual({ kind: 'test', label: 'Test replay' });
+  });
+
   it('fails as the server says when it failed something before it stopped', () => {
     const failed: RunLike = { ...cut, outcome: { kind: 'check-failed', check: 'send_email called once' }, failed: true };
     expect(isInterrupted(failed)).toBe(false);

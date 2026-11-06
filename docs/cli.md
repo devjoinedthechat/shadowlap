@@ -801,7 +801,7 @@ A run stopped before it ended, or left marked running by a recorder that went aw
 | --- | --- |
 | `forkedAt` | `{ callNo, type, kind, name, reason }` where the run forked, or `null` (below) |
 | `hasCommand` | `false` for a run with no command of its own (below) |
-| `imported` | `{ at, from }` for a run from a pack, a capture or the [team store](./team.md), or `null` |
+| `imported` | `{ at, from }` for a run from a pack, a capture or the [team store](./team.md), or `null` (below) |
 | `partial` | The kinds of call a partial recording covers (`["api"]` for a capture), or `null` |
 | `repeat` | `{ group, attempt, of }` for an attempt of `replay --repeat`, or `null` |
 | `checks` | `{ passed, total }` for a run from `shadowlap test` with [outcome checks](./ci.md#outcome-checks), or `null` (below) |
@@ -812,7 +812,8 @@ A run stopped before it ended, or left marked running by a recorder that went aw
   recorded by a test that gave no command (its command reads `<test>` and the test's name). It has no
   command, so replaying it needs yours after `--`.
 - **`imported`**: for a run from the team store, `from` is the store's URL: `s3://…`, `gs://…`,
-  `az://…` or `r2://…`.
+  `az://…` or `r2://…`. For a trace, `key` is its id in the trace store. A Langfuse trace also keeps
+  `url`, its page there.
 - **`checks`**: `passed` counts only the checks that passed. When there are any, `inconclusive` and
   `notApplicable` count those that
   [could not be decided or did not apply](./checks.md#how-a-check-comes-out); the rest of `total`
@@ -1209,7 +1210,7 @@ open, with every candidate tried and why it was dropped.
 shadowlap fix ls [--status open|verified|applied] [--json]
 shadowlap fix show <fix> [--json]
 shadowlap fix title <fix> <title...>
-shadowlap fix apply <fix> [--goldens <dir>] [--no-test] [--build <command>] [--json]
+shadowlap fix apply <fix> [--name <run>=<name>]... [--goldens <dir>] [--no-test] [--build <command>] [--json]
 shadowlap fix pr <fix> [<url>] [--json]
 ```
 
@@ -1227,13 +1228,14 @@ A fix is one failure, from the blame that reproduced it to a change that held.
 
 Its subcommands take these flags:
 
-| Flag                | What it does                                                              | Default   |
-| ------------------- | ------------------------------------------------------------------------- | --------- |
-| `--status <status>` | `fix ls`: only open, verified (applied ones too) or applied fixes         | —         |
-| `--goldens <dir>`   | `fix apply`: where the recordings go                                      | `goldens` |
-| `--no-test`         | `fix apply`: copy the recordings without running `shadowlap test` on them | —         |
-| `--build <command>` | `fix apply`: rebuild the agent after the patch, before the test           | —         |
-| `--json`            | Print it as JSON: the dashboard's read model of Fixes (below)             | —         |
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--status <status>` | `fix ls`: only open, verified (applied ones too) or applied fixes | — |
+| `--name <run>=<name>` | `fix apply`: the name of the golden copied from a fixed run, at most 64 characters and not a name Windows keeps (repeatable) | The fix's label |
+| `--goldens <dir>` | `fix apply`: where the recordings go | `goldens` |
+| `--no-test` | `fix apply`: copy the recordings without running `shadowlap test` on them | — |
+| `--build <command>` | `fix apply`: rebuild the agent after the patch, before the test | — |
+| `--json` | Print it as JSON: the dashboard's read model of Fixes (below) | — |
 
 With `--json`, each subcommand prints:
 
@@ -1378,6 +1380,9 @@ step.
   `patchFile`;
 - `inTree` when it is in the working tree already, which applying only marks;
 - how many recordings applying copies into the goldens folder, in `goldens`;
+- each recording it is still to copy, by its `run` (the short id), with the `name` it takes unless
+  `--name` gives another, in `names`; and the names the goldens folder holds, which none may take,
+  in `held` (`null` where the folder isn't read);
 - the request fields a change with no patch set, in `change`;
 - `refused`, saying why `fix apply` won't apply it, when the patch is more than the change its repair
   verified, or a teammate's is no rewrite a repair makes in this working tree. `gitApply` is `null`
@@ -1418,7 +1423,8 @@ Hands a verified fix over. Run it in the folder the repair ran in, where its dir
 `.shadowlap/repairs/` is.
 
 1. It runs `git apply` on the accepted repair's `fix.patch`.
-2. It copies the recordings the fixed code made into the goldens folder.
+2. It copies the recordings the fixed code made into the goldens folder, each a golden named as
+   below.
 3. It runs [`shadowlap test`](#test) on them, and marks the fix applied.
 4. It replays the project's other goldens, and names each that diverges on what the patch changed
    (below).
@@ -1430,8 +1436,32 @@ Hands a verified fix over. Run it in the folder the repair ran in, where its dir
 | `1` | It refuses the patch: not the change its repair verified, a file it may not write through, or `fix.patch` changed since |
 | `1` | The patch does not apply, or the test fails |
 | `2` | The fix is still open (nothing verified to apply), or it runs outside the repository and folder the repair ran in |
+| `2` | A golden's name won't do (below), and nothing is changed |
 
 A patch that applied stays applied.
+
+**The goldens' names.** Each recording of a fixed run becomes a golden of its own, a folder in the
+goldens folder named for what a test reads it by, never the run's id:
+
+- `--name <run>=<name>` names the one from that run, by its id or the start of it, such as
+  `--name 01K5CQ2E8M=double-email`. Give one for each golden you name.
+- A golden you don't name takes the fix's label, else its title, as a name: `refund-bug`, or
+  `refund-bug-1` and `refund-bug-2` for two. A label that makes a name Windows keeps gives way to
+  the title, and a title to `golden`.
+- A name takes lower-case letters, digits and hyphens, from a letter or a digit, at most 64 of
+  them. Each golden needs one of its own, and not one the goldens folder holds already, read without
+  case as macOS and Windows read a folder's name.
+- A name Windows keeps for itself won't do, whatever its case: `con`, `nul`, `prn`, `aux`, `com1`
+  to `com9` and `lpt1` to `lpt9`.
+
+A name that won't do changes nothing: `fix apply` says why and how to give another, and exits 2. So
+does a `--name` where it copies no recording: a fix with no repair behind it, one applied with none
+left to copy, or a teammate's repair, whose recordings stay on their machine. It prints where each
+golden went and the run it holds (`copied goldens/double-email from 01K5CQ2E8M`).
+
+A golden copied before keeps its name and takes no other: one `fix apply` copied, one
+`repair --goldens` copied under the run's id, and one an apply stopped part way left, the very
+recording under whatever name it gave it. A `--name` for one of them can give it only that name.
 
 **The project's other goldens.** Then `fix apply` replays the project's other goldens offline, in a
 store of their own that nothing keeps. A prompt or a tool description goes into every request, so they
@@ -1520,7 +1550,7 @@ re-recorded what another fix changed, say), which says the fix holds again.
 | `status` | `applied`, or `already-applied` when nothing was left to do |
 | `again` | Set when it finished a fix applied before |
 | `patch` | What became of the patch: `applied`, `already` in the tree, or `none` to apply |
-| `goldens` | Each golden's `from`, `to`, and whether it was `copied` |
+| `goldens` | Each golden's `run` (the fixed run it holds, by its short id), `from`, `to`, and whether it was `copied` |
 | `tests` | `passed`, `failed` or `skipped` |
 | `outdated` | The project's other goldens that diverge on what the patch changed, each with its `golden`, `callNo` and request field `path` |
 | `update` | The command that re-records them, or `null` |
@@ -3839,6 +3869,11 @@ When a framework's span wraps the client library's span for the same call, the i
 self-hosted Langfuse without it. Generations are model calls. TOOL observations, and spans named after a
 tool a generation asked for, are tool calls.
 
+The run keeps the trace's page in Langfuse, its `htmlPath` on the host the API answered from, for the
+dashboard's **Open in Langfuse ↗**. Read from the v2 API, the trace is asked for once more, after the
+observations, for five seconds at most. When it doesn't answer in time, the import stands without the
+page.
+
 **`langsmith`**: `llm` runs are model calls: LangChain's serialized messages, or the request and response
 themselves from LangSmith's wrapped OpenAI and Anthropic clients, which rebuild exactly. `tool` runs are
 tool calls.
@@ -4903,9 +4938,10 @@ These environment variables change what Shadowlap does:
 - **`SHADOWLAP_PR`** is for where Shadowlap doesn't recognise pull requests by itself; it does on GitHub
   Actions and GitLab CI. The build then writes only to that pull request's folder in the
   [team store](./team.md#pull-requests).
-- **`SHADOWLAP_HOME`**: a relative path is ignored, and `~/.shadowlap` holds all of these files. It holds your dashboard [Spending](./dashboard.md#spending) too, in `settings.json`
-  instead, as the dashboard says. Processes that find each other's files there need the same one, so
-  give it to `shadowlap mcp` in your MCP client's configuration too ([details](./mcp.md#finding-the-run)).
+- **`SHADOWLAP_HOME`**: a relative path is ignored, and `~/.shadowlap` holds all of these files
+  instead, as the dashboard says. It holds your dashboard [Spending](./dashboard.md#spending) too, in
+  `settings.json`. Processes that find each other's files there need the same one, so give it to
+  `shadowlap mcp` in your MCP client's configuration too ([details](./mcp.md#finding-the-run)).
 - **The proxy variables**: the agent never reaches the sidecar through one. `run`, `replay`, `test` and
   `serve --recordings` add `127.0.0.1`, `localhost` and `::1` to `NO_PROXY` and `no_proxy`.
 

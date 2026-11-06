@@ -82,7 +82,7 @@ export function useRunCommands(o: {
           if (btn) setTimeout(() => btn.click());
         },
       });
-    if (!exported && !actionsOff && !live && !run.source && hasKind(JOB_KINDS.bisect) && next?.key !== 'bisect') items.push({ group: 'This run', label: bisectLabel(offers?.bisect).label, hint: 'shadowlap bisect', job: true, run: () => now.current.actions.findCommit() });
+    if (!exported && !actionsOff && !live && !run.source && hasKind(JOB_KINDS.bisect) && next?.key !== 'bisect') items.push({ group: 'This run', label: bisectLabel(offers?.bisect).label, hint: 'shadowlap bisect', match: 'bisect', job: true, run: () => now.current.actions.findCommit() });
     // The good/bad key: what repair keeps working, and what it fixes.
     if (canMark)
       for (const m of MARKS) {
@@ -90,7 +90,7 @@ export function useRunCommands(o: {
         items.push({ group: 'This run', label: on ? `Take off ${m}` : `Label it ${m}`, hint: m === 'good' ? 'repair --keeps label:good' : 'repair --fixes label:bad', key: keyColumn(m === 'good' ? 'markGood' : 'markBad'), run: () => now.current.mark(m) });
       }
     items.push({ group: 'This run', label: 'Provenance', hint: 'the run’s record, call by call', run: () => now.current.setView('provenance') });
-    if (run.parent && next?.key !== 'compare') items.push({ group: 'This run', label: ACTIONS.compareWithParent.label, hint: shortId(run.parent.runId), key: keyColumn('compare'), run: () => navigate(href.compare(run.parent!.runId, runId)) });
+    if (run.parent && next?.key !== 'compare') items.push({ group: 'This run', label: ACTIONS.compareWithParent.label, hint: `shadowlap diff ${shortId(run.parent.runId)} ${shortId(runId)}`, short: `against ${shortId(run.parent.runId)}`, key: keyColumn('compare'), run: () => navigate(href.compare(run.parent!.runId, runId)) });
     setRunCommands(items);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the commands change with what they show; the functions they call are read when they run, and taking them in would register the commands again on every render
   }, [runId, selected, live, exported, actionsOff, canFork, run.parent?.runId, offers?.bisect?.failed, canMark, labels.join('\n'), next?.key, next?.label, next?.href, next?.command, run.replay?.label, wait]);
