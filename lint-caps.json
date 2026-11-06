@@ -263,9 +263,6 @@
       "Banner": 60,
       "DiffPanel": 32
     },
-    "packages/dashboard/ui/shell/StatusBar.tsx": {
-      "StatusBar": 41
-    },
     "packages/engine/src/about.ts": {
       "changeWords": 31
     },
