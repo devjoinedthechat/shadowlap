@@ -118,7 +118,7 @@ The about line quotes what the run recorded. So a copy that leaves the store (an
 - **The runs**: the newest 500, each by its id with its about line as the hint. Any other run is found by its id, typed in full or its first characters.
 - **The goldens**, each with its last verdict: *passed*, *failed* or *inconclusive*, a gate's with its tally and bound. When any diverged, **Update goldens** opens its dialog on Tests.
 - **What the runs recorded**, from three characters: prompts, responses, tool arguments and results, up to six matches, two per run.
-- **Run blame**, once something is typed, for the three newest failures whose next step it is, by what they were about or `failed`. What it asks first, your command, a check or a yes, it asks on the run's page.
+- **Run blame**, once something is typed, for the three newest failures whose next step it is, by what they were about or `failed`. It is priced as you pick it and goes by [Spending](#spending), asking over any page in *Run blame on* the run. Your command, a check or a yes it asks on the run's page.
 
 A row with a key of its own shows it at its right, while single-key shortcuts are on.
 
@@ -1060,6 +1060,7 @@ Training shows:
 
 - **Score model…** offers only the models that can answer a ready task, and names the ones it leaves out, with why. A recording on Bedrock, Vertex AI, Azure OpenAI or the Gemini API is translated for another provider's model.
 - **Score model… is off** while a repair or an applied patch changes the working tree.
+- **Its card** says what an attempt of the model its dialog starts on costs. The dialog's Cost line is what the picks cost together (`20 attempts on the Anthropic API`), and the drawer says that total.
 
 A task whose test forks before its takeover opens that test's run where it forked. It offers **Update golden**, which adds the normalizer a value that changes every run needs, and runs `test --update` on the golden.
 
@@ -1160,6 +1161,13 @@ Credentials in a copied config:
 ### Project
 
 *Project* shows the project's store, runs and attempts, size and address, with **Clean up old runs** and **Remove project…**. Beside the store's size, it shows any unused space that runs deleted since left in the store.
+
+**Spending** is the row that sets when a billed job asks first: **Always ask**, **$0.50**, **$2** or **Never ask**, or an amount typed in dollars, kept once you press Enter or leave the field. See [Spending](#spending).
+
+- **It is yours**, on every project on this machine, kept under `SHADOWLAP_HOME` in `settings.json`, never in the project.
+- **Each change is kept at once**, with **Undo** in its toast (`Asks above $2 · on this machine`).
+- **Its words follow the setting**: *Ask before spending more than $0.50.* and *A job with no estimate always asks.*
+- **Change**, in a dialog's footer, opens this row with the field focused.
 
 ### Store
 
@@ -1360,6 +1368,36 @@ Labels, notes and actions run only from a dashboard started with `shadowlap dash
 
 Each action has one name wherever it is offered: its button, its menu item and its entry in Search or jump to. Its dialog is titled and confirmed with that name, and its drawer heads it in the -ing form, then in the past tense once it has done it (**Run repair**, *Repairing*, *Repaired*). A name is verb and object in the CLI's words, with no article, and it ends in an ellipsis when the action asks for something before it runs (**Find breaking commit…**).
 
+### Spending
+
+A billed job, one that makes live model calls, starts or asks first by Spending: the most a job may spend before it asks. You set it in Settings → [Project](#project), and it holds on every project on this machine.
+
+- **At or under it**, the job starts on the click, and its drawer says its estimate beside *running* (`running · ≈$0.027`).
+- **Above it**, the job asks first. The dialog's footer says why, `Asks above $0.50 · Change`, and **Change** opens the Spending row.
+- **With no estimate**, as for a job with nothing recorded to price it from, the job always asks.
+
+Spending has four settings, and takes any amount in dollars:
+
+| Setting | A billed job with an estimate |
+| --- | --- |
+| **Always ask** | Asks first, its footer saying `Always asks · Change` |
+| **$0.50** | Starts at once at or under $0.50, the default |
+| **$2** | Starts at once at or under $2 |
+| **Never ask** | Starts at once |
+
+Some jobs ask on every setting, Never ask included, and their footer says nothing of Spending:
+
+- **A form**, an action that asks for something first, such as **Switch model from here…** or **Score model…**;
+- **Run repair**, **Update golden**, and **Force *tool* live** on a tool that writes, which say what they change before they run;
+- **A price per unit**, such as an attempt's;
+- **Someone else's command**, from a pack, the team store or a program that sent the sidecar its command. That yes is to the command, never Spending's.
+
+A job that bills nothing, such as a replay offline, starts at once on every setting.
+
+**Each billed control's card** says its price and what a click does: `≈$0.027 · starts at once`, `At most ≈$10.88 · asks first`, `no estimate · asks first`. *At most* is a ceiling: the job stops early when it can. Its dialog's Cost line says the estimate and what is billed (`≈$0.027 · live from #12, writes fenced`). The job keeps the estimate it started with, so its card, its dialog and its drawer say the same amount.
+
+**Spending is no budget.** No job stops at it, and the drawer's amount is the estimate, not what was spent. A budget still stops a job: `--budget`, an injection test's **Stop at $**, and CI's fix budget. Spending is the dashboard's: the CLI and the [terminal UI](./tui.md) don't read it.
+
 ### Actions on a run
 
 **Replay** re-runs the recorded command.
@@ -1375,7 +1413,7 @@ Each action has one name wherever it is offered: its button, its menu item and i
 
 The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An item that asks for something first ends in an ellipsis, and its dialog is titled and confirmed with its name: **Inject instruction…** opens *Inject instruction at #17*, confirmed with **Inject instruction**.
 
-- **Repeat 5 times** runs five attempts. On a recording they replay offline, and it starts at once. On a fork they run live from where it forks, so it asks first, in *Repeat fork 5 times*, confirmed with **Repeat 5 times**.
+- **Repeat 5 times** runs five attempts. On a recording they replay offline, and it starts at once. On a fork they run live from where it forks, so it goes by [Spending](#spending), asking in *Repeat fork 5 times*, confirmed with **Repeat 5 times**.
 - **A fork is made again** from its parent, with the flags, command and checks that made it.
 - **Force a tool live** on a tool that writes asks first, in red and starting on Cancel, since it acts on your systems. On any other tool it starts at once.
 - **An action that needs something from you** (the instruction to inject, the status to fail with, the model to switch to) asks for it in a dialog first. The dialog shows the command it runs, following what you type.
@@ -1387,7 +1425,7 @@ The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An 
 - It asks for a commit where the run still worked, and offers the ones its command was recorded at that this checkout has. It searches up to HEAD when the run failed at a commit it lacks, such as a teammate's.
 - On a run that passed, it reads **Find commit that changed it…**, and finds the first commit after its own that changed what it does, once there is a commit after it.
 - A run that failed at the repository's first commit, or the oldest a shallow clone has, has nothing before it to search, and the item says so instead.
-- A run that failed on its own is replayed with `--fork`. The dialog says that one live replay decides each commit, which a failure that doesn't happen every time can pass.
+- A run that failed on its own is replayed with `--fork`. One live replay decides each commit, which a failure that doesn't happen every time can pass, as the item's card says. The dialog's Cost line is the search's estimate from the commit you give.
 - A run that failed only the check of its fix (blame found it failing, though it exited 0), or a check given with its own `--expect`, is searched with that check (`--expect … --fork`), from a commit you pick.
 
 **A run imported from a capture** has no command, so its menu shows a note and one action, **Replay with your command…**. That replay records every kind of call, and every fork works on it.
@@ -1435,7 +1473,7 @@ A capture has no command to run again, so **Run blame** asks for yours, which ru
 - **Keeping** the fix's own good runs (those a repair or a verify of it kept), else the runs labelled `good` that run the same agent, else none. A good run of another agent checks nothing a change to this one touches.
 - **With** the repairer `repair.repairer` in `shadowlap.config.json` names, or else your own Claude Code (`--repairer claude-code`).
 
-It asks first, since it runs your agent live. It says that nothing in your working tree changes: each candidate is tried in a worktree of its own, made from your working tree as it is. So a file you change meanwhile is in the candidates made after it.
+It asks first on every setting of [Spending](#spending), since it runs your agent live. Its card and Cost line say how many candidates it tries, each verified up to twice, and what that is estimated to cost. It says that nothing in your working tree changes: each candidate is tried in a worktree of its own, made from your working tree as it is. So a file you change meanwhile is in the candidates made after it.
 
 **The repairer.** The dialog reads the config again as it opens and names the repairer it will ask, whose account pays. If the config names another by the time you confirm, nothing runs, and the job says which one the config names instead.
 
@@ -1451,7 +1489,9 @@ It asks first, since it runs your agent live. It says that nothing in your worki
 The dialog's cost line then reads *Free*, nothing runs, and the blame's own next step leads instead:
 
 - **Run blame again**, for a blame that couldn't settle (more attempts and a lower bar, as blame's report says), or that stopped part way (to the end, without its budget), under the fix's check.
-- **Run blame with stronger model…**, which asks for the model first, for one that asked the recorded model again and rescued the run from no call, unless blame found the model's answer isn't what lost the run.
+- **Run blame with stronger model…**, which asks for the model first, for one that asked the recorded model again and rescued the run from no call, unless blame found the model's answer isn't what lost the run. Its Cost line follows the model you type.
+
+Run blame again goes by [Spending](#spending), priced for its lower bar.
 
 Each is built from the blame's report and the flags kept beside it, as Run more attempts is. A blame a pull brought asks first, showing the exact command.
 
@@ -1495,12 +1535,12 @@ The server refuses another such job with the same words, from any tab, the palet
 
 **Run tests** runs `shadowlap test goldens/*` (plus each pack the config names elsewhere), with no shell: the CLI expands the pattern itself, as it does in CI. The page follows the session as each result lands. Its drawer ends on **Open Tests**, which isn't drawn on Tests itself, with the first three goldens that failed linked by name beside it, each opening its replay. A run of one golden ends on its replay.
 
-**A session that runs live asks first.** Before a session runs a golden live, **Run tests**, **Run more attempts**, **Re-run** and **Add normalizer and re-run** ask, on Tests and on a test replay's page, and so does the palette's *Run tests*. A test replays offline, except for two things that run live:
+**A session that runs live goes by [Spending](#spending).** Before a session runs a golden live, the server asks. The page answers by Spending for **Run tests**, **Run more attempts**, **Re-run** and **Add normalizer and re-run**, on Tests, on a test replay's page and from the palette's *Run tests*. At or under it, the session starts with its estimate; otherwise its dialog asks. A test replays offline, except for two things that run live:
 
 - **A golden marked `fork`** runs live from where it forks, writes blocked, and asks its judge checks live.
 - **An [injection gate](./injection.md#gate-ci-on-it)** runs live from each payload it plants, writes stubbed.
 
-The dialog says how many goldens go live and why, and shows the commands. It opens on its button, the only way to start the session. A session that only replays starts at once.
+The dialog says how many goldens go live and why, and shows the commands. Its Cost line says the session's estimate. It opens on its button, the only way to start the session. A session that only replays starts at once.
 
 **Update golden** (or **Update goldens** for every one that diverged) asks first, in a dialog that says what happens. It says when a normalizer is the lasting fix, or, once the rule is in the config, that a re-run passes without an update, and offers that as its way on, beside **Update anyway**. Then it runs `shadowlap test <golden> --update`, which re-records it live with writes stubbed.
 
@@ -1508,7 +1548,7 @@ The dialog says how many goldens go live and why, and shows the commands. It ope
 
 **Find breaking commit** runs `shadowlap bisect` from the newest revision where the golden passed under its checks as they stand. A pass from before a check was added may be a commit where it already fails that check.
 
-- **It asks first**, as **Find breaking commit…**, when there is no such revision, after a search from it named no first bad commit, or for a golden marked `fork` (its replays cost tokens). It lists the commits the golden was tested at, each with its subject and how it did there, and takes any other.
+- **It asks first**, as **Find breaking commit…**, when there is no such revision, after a search from it named no first bad commit, or for a golden marked `fork`, whose replays run live. Its Cost line is the search's estimate from the commit it opens on. It lists the commits the golden was tested at, each with its subject and how it did there, and takes any other.
 - **Another commit** is a field under the list, for any other: what it holds is searched from, and picking from the list again clears it.
 - **Only commits this checkout has**, as on Runs and a run's page. A golden that last passed at a commit it lacks (a pull request's merge commit in CI, say) asks for one, and one that failed at such a commit is searched up to HEAD.
 
