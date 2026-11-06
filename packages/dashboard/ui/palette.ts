@@ -133,9 +133,6 @@ export function matchPalette<T extends PaletteEntry>(items: readonly T[], query:
     .map((m) => m.x);
 }
 
-/** Recorded data is searched from this many characters. */
-export const RECORDED_MIN_CHARS = 3;
-
 /** While the server's index is behind, the palette asks again this often, so matches arrive as it catches up. */
 export const INDEXING_RETRY_MS = 1000;
 

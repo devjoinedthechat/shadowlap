@@ -514,6 +514,30 @@ export function applyLeft(fix: StoredFix, repair: StoredRepair | null, o: { pull
   return left.goldens || left.test ? left : null;
 }
 
+/** A path with forward slashes on every system. */
+const slashed = (p: string) => p.split(/[\\/]+/).join('/');
+/** A path's last part: a golden's name. */
+const lastPart = (p: string) => slashed(p).replace(/\/+$/, '').split('/').at(-1) ?? '';
+
+/**
+ * The recordings applying a fix copies into the goldens folder, one for each run its repair fixed:
+ * `run`, the short id its folder in the repair's goldens/ is named by, `source` that folder, and
+ * `copied` where a copy of it went before, else null: one `fix apply` made, under whatever name, by
+ * the run it kept beside it (`applied.from`), or one `repair --apply --goldens` made, named by the
+ * run. A path outside the project is no copy. None for a repair a pull brought: its recordings
+ * stayed on the machine that ran it.
+ */
+export function applyGoldens(fix: StoredFix, repair: StoredRepair | null, o: { pulled?: boolean } = {}): Array<{ run: string; source: string; copied: string | null }> {
+  if (!repair || o.pulled) return [];
+  const applied = fix.data.applied;
+  const from = applied?.from ?? {};
+  const before = (applied?.goldens ?? []).map(slashed).filter((p) => !p.startsWith('/') && !/^[a-z]:/i.test(p) && !p.split('/').includes('..'));
+  return repair.report.output.goldens.map((g) => {
+    const run = lastPart(g);
+    return { run, source: slashed(g), copied: before.find((p) => (from[p] ?? lastPart(p)) === run) ?? null };
+  });
+}
+
 export interface FixCost {
   /** Replays that ran something live: blame probes, verify attempts, and the attempts of candidates a repair rejected. */
   attempts: number;

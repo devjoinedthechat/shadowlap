@@ -15,6 +15,12 @@ export function authorTint(author: string | null): string {
   return TINTS[h % TINTS.length]!;
 }
 
+/** A person's colour on a hover card's row: their avatar's tint; CI's and an unknown author's the faint ink. Never lime, which is the primary action's and passed's. */
+export function authorColour(author: string | null): string {
+  const t = authorTint(author);
+  return t === 'bot' ? 'var(--faint)' : `var(--av${t.slice(1)})`;
+}
+
 /** The provider's name for "ci (GitHub Actions)". */
 export const CI_NAMES: Readonly<Record<string, string>> = { github: 'GitHub Actions', gitlab: 'GitLab CI', buildkite: 'Buildkite', circleci: 'CircleCI', azure: 'Azure Pipelines', bitbucket: 'Bitbucket Pipelines', jenkins: 'Jenkins', travis: 'Travis CI' };
 

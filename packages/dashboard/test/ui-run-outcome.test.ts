@@ -66,9 +66,9 @@ describe('Status, judged by checks', () => {
     expect(runOutcome({ ...BASE, outcome: { kind: 'diverged', callNo: 1 }, judged: j })).toEqual({ tone: 'err', text: 'diverged at #1', at: { words: 'diverged at', callNo: 1 } });
     expect(runOutcome({ ...BASE, status: 'failed', outcome: { kind: 'check-failed', check: null }, failed: true, judged: judged({ by: 'own', verdict: 'passed' }) }).text).toBe('exited with an error');
     expect(runOutcome({ ...BASE, status: 'failed', outcome: { kind: 'check-failed', check: null }, failed: true, exitCode: 1 }).text).toBe('exited 1');
-    // Its own check failed: the check named under the words on a fork's row, and the call it turned on.
+    // Its own check failed: the call it turned on, the check on its hover, in one line on a fork's row too.
     const own = { ...BASE, kind: 'fork', mode: 'replay' as const, divergence: { callNo: 3, type: 'request_changed' }, outcome: { kind: 'check-failed', check: 'send_email called 0 times' }, failed: true, judged: judged({ by: 'own', today: false }) };
-    expect(runStatus(own)).toEqual({ tone: 'err', text: 'check failed at #6', at: { words: 'check failed at', callNo: 6 }, check: 'send_email called 0 times' });
+    expect(runStatus(own)).toEqual({ tone: 'err', text: 'check failed at #6', at: { words: 'check failed at', callNo: 6 } });
   });
 
   it('says nothing for a clean replay no check judges: how faithful it was is no verdict', () => {

@@ -10,6 +10,7 @@ import { closeTopPanel } from '../overlays/slots.js';
 import { knownParent } from '../parents.js';
 import { GO_KEYS, GO_WINDOW_MS, href } from '../route.js';
 import { copyCompares } from '../runs.js';
+import { lastRunsHref, lastViewOf } from '../runs-view.js';
 import { currentRoute, navigate } from '../router.js';
 import { singleKeysOn, useSingleKeys } from '../single-keys.js';
 import { useApp, type AppState } from '../state.js';
@@ -50,7 +51,7 @@ function leaveField(e: KeyboardEvent): void {
 function upFrom(a: AppState, id: string): string {
   const listed = a.runs?.find((r) => r.runId === id) ?? null;
   const parent = crumbParent({ listed, loaded: knownParent(id), exported: a.exported, holds: (x) => !!a.runs?.some((r) => r.runId === x) });
-  return parent ? href.run(parent) : href.runs();
+  return parent ? href.run(parent) : lastRunsHref();
 }
 
 /** Esc with nothing open: a run's panel or Runs' selection (`pageUp`), then back the way you came, then the row in focus lets go. */
@@ -86,7 +87,7 @@ function goKey(a: AppState, e: KeyboardEvent, gAt: RefObject<number>): boolean {
       // An exported copy has Runs, and Compare when it holds two runs or more.
       if (to && (!a.exported || to === '#/runs' || (to === '#/compare' && copyCompares(a.meta?.runIds)))) {
         e.preventDefault();
-        navigate(to);
+        navigate(lastViewOf(to));
       }
       return true;
     }

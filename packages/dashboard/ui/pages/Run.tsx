@@ -42,6 +42,7 @@ import { RunNotes } from '../run/RunNotes.js';
 import { RunHeader } from '../run/RunHeader.js';
 import { useRunKeys } from '../run/run-keys.js';
 import { shortcut } from '../shortcuts.js';
+import { lastRunsHref } from '../runs-view.js';
 
 /**
  * A run: its header and numbers, a banner for how it forked, where it was lost or that it is
@@ -155,7 +156,7 @@ export function RunPage({ id, call, view }: { id: string; call: number | null; v
         return (
           <>
             <Unshown at={`run:${id}`} />
-            <NotFoundPage header what={`No run ${id} in this copy.`} back={[href.runs(), 'Open Runs']} />
+            <NotFoundPage header what={`No run ${id} in this copy.`} back={[lastRunsHref(), 'Open Runs']} />
           </>
         );
       return (
@@ -163,7 +164,7 @@ export function RunPage({ id, call, view }: { id: string; call: number | null; v
           {missing ? <Unshown at={`run:${id}`} /> : null}
           <div className="empty tall">
             {several ? `${id} matches several runs; use more of the id.` : missing ? `No run ${id} in this store.` : `Could not load ${id}: ${loaded.error.message}`}{' '}
-            <a className="more" href={href.runs()}>
+            <a className="more" href={lastRunsHref()}>
               Back to Runs
             </a>
           </div>

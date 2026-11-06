@@ -556,10 +556,10 @@ export function register(program: Command): void {
           unit: 'observation',
           sent: { host: new URL(host).host },
           list: (w) => listLangfuseTraces(keys, w),
-          read: async (t) => readLangfuse(await fetchLangfuseTrace(t.id, keys)),
+          read: async (t) => readLangfuse(await fetchLangfuseTrace(t.id, keys), host),
         }, window, flags.json === true);
       }
-      const trace = readLangfuse(await fetchLangfuseTrace(traceId!, keys));
+      const trace = readLangfuse(await fetchLangfuseTrace(traceId!, keys), host);
       const source = `langfuse:${traceId!.slice(0, 8)}`;
       const store = openStore(program.opts<GlobalOpts>());
       try {

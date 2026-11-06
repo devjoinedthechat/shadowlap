@@ -1,5 +1,4 @@
-import { commandIsImported, describeBaselineRule, describeGate, dropBound, footprintDelta, outcomeOf, rateBound, type DecisionsVerify, type Price, type Store, type VerifiedRun, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
-import { judgeRecording } from './attempts.js';
+import { commandIsImported, describeBaselineRule, describeGate, dropBound, footprintDelta, outcomeOf, rateBound, recordedRole, type DecisionsVerify, type Price, type Store, type VerifiedRun, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { type TestSpec } from './checks.js';
 import type { DecisionsSettings, DecisionTarget } from './decisions.js';
 import { recordVerifyFix, verifyCommand } from './fixes.js';
@@ -35,8 +34,7 @@ function planOf(g: ChecksGroup, input: VerifyRunsInput) {
   const s = input.settings;
   const v = s.thenVerify!;
   const runs = g.targets.map((t) => {
-    const judged = judgeRecording(input.store, t.run, input.store.getCalls(t.run.runId), g.spec, input.prices);
-    const role: VerifyRole = judged.passed === false ? 'target' : 'good';
+    const role = recordedRole(input.store, t.run, g.spec, input.prices);
     // A run whose command came from someone's pack (a golden's too, as importGolden marks one) is marked so later replays ask.
     return { parent: t.run, argv: s.argv ?? t.run.command.argv, commandFromImport: !s.argv && commandIsImported(t.run), role };
   });

@@ -6,12 +6,17 @@ import { num } from '../format.js';
  * "Show 50 more" under a long list.
  */
 
+/**
+ * A column the table sorts by, most first: only the column it is sorted by says so to a screen reader
+ * (`aria-sort`), the arrow left to the eye, and its button a 24px target.
+ */
 export function SortTh<K extends string>({ by, sort, onSort, children, className = 'num' }: { by: K; sort: K; onSort: (k: K) => void; children: ReactNode; className?: string }) {
+  const on = sort === by;
   return (
-    <th className={className} aria-sort={sort === by ? 'descending' : 'none'}>
-      <button type="button" onClick={() => onSort(by)}>
+    <th className={className} aria-sort={on ? 'descending' : undefined}>
+      <button type="button" data-sort={by} onClick={() => onSort(by)}>
         {children}
-        {sort === by ? ' ↓' : ''}
+        {on ? <span aria-hidden="true"> ↓</span> : null}
       </button>
     </th>
   );
@@ -27,7 +32,8 @@ export function ShowMore({ shown, total, step = 50, onMore }: { shown: number; t
 }
 
 /**
- * What a table row spreads to open a page, unless the click was on a control inside it. `data-acts`
+ * What a table row spreads to open a page, unless the click was on a control inside it, or in a
+ * checkbox's cell (`.selcell`, whose padding is part of its target). `data-acts`
  * says so to the hover cards: a tap on a fact in the row opens it, and shows no card over the next page.
  */
 export function rowOpen(go: () => void) {
@@ -35,7 +41,7 @@ export function rowOpen(go: () => void) {
     'data-acts': '',
     onClick: (e: React.MouseEvent) => {
       const t = e.target as HTMLElement;
-      if (t.closest('a, button, input, label, select')) return;
+      if (t.closest('a, button, input, label, select, .selcell')) return;
       if (e.metaKey || e.ctrlKey) return;
       go();
     },

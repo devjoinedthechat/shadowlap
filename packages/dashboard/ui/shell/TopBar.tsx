@@ -14,6 +14,7 @@ import { useFixCrumb } from '../fixes/data.js';
 import { HelpMenu } from './HelpMenu.js';
 import { crumbLineage, liveChip, parentCrumbKey } from './top.js';
 import { unshownKey, useUnshown } from './unshown.js';
+import { lastRunsHref } from '../runs-view.js';
 
 /**
  * A crumb. Its face: `rt` a run's id (mono), `code` a fix's label, `word` a part of the page in the
@@ -28,11 +29,11 @@ function crumbsFor(route: Route, lineageOf: (id: string) => Array<{ runId: strin
     case 'runs':
       return [{ label: 'Runs' }];
     case 'run': {
-      if (o.unshown) return [{ label: 'Runs', href: href.runs() }];
+      if (o.unshown) return [{ label: 'Runs', href: lastRunsHref() }];
       // The run's lineage by id, from its recording down to this run, each with its about line on hover.
       const lineage = lineageOf(route.id);
       const up = lineage.map((a, i): Crumb => ({ label: shortId(a.runId), href: href.run(a.runId), face: 'rt', anc: true, parent: i === lineage.length - 1, tip: a.about }));
-      return [{ label: 'Runs', href: href.runs() }, ...up, { label: shortId(route.id), face: 'rt', tip: o.aboutOf(route.id) }];
+      return [{ label: 'Runs', href: lastRunsHref() }, ...up, { label: shortId(route.id), face: 'rt', tip: o.aboutOf(route.id) }];
     }
     case 'compare':
       return [{ label: 'Compare' }];

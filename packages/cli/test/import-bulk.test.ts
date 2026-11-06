@@ -170,7 +170,10 @@ describe('shadowlap import langfuse, the traces in a window', () => {
     // The list asked for the root observations in the window with the trace's name, a page at a time;
     // the trace imported before was never fetched, and the one from before the window, which this
     // Langfuse lists anyway, was left out.
-    const lists = seen.filter((s) => !s.includes('traceId='));
+    // Each trace fetched was asked for once more, for its page in Langfuse, which this one doesn't answer.
+    const pages = seen.filter((s) => s.startsWith('GET /api/public/traces/'));
+    expect(pages).toEqual([`GET /api/public/traces/${T1}`, `GET /api/public/traces/${T3}`]);
+    const lists = seen.filter((s) => !s.includes('traceId=') && !pages.includes(s));
     expect(lists).toHaveLength(2);
     const q = new URL(lists[0].slice(4), 'http://x').searchParams;
     expect(q.get('fields')).toBe('core,basic,trace_context');

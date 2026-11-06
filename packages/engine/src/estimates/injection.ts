@@ -109,10 +109,11 @@ export function causeEstimate(calls: readonly PricedCall[], read: Pick<Untrusted
  * Re-run injection test, and a gate's Re-run test: what the test spent the last time, saying whose
  * attempts it counts (`≈$3.11, as the last test’s 72 attempts and 6 clean replays · live from each
  * read, writes stubbed`). None when that met a model with no price, or spent nothing live: neither
- * says what planting again bills.
+ * says what planting again bills; nor before the test has run once (`last` null).
  */
-export function injectionAgainEstimate(last: Pick<PlantReport, 'totals' | 'baselines' | 'cost'>): Estimate {
+export function injectionAgainEstimate(last: Pick<PlantReport, 'totals' | 'baselines' | 'cost'> | null): Estimate {
   const parts = [INJECTION_PART];
+  if (!last) return noEstimate('injection', 'no estimate until its injection test has run once', parts);
   if (last.cost.unknownModels.length) return noEstimate('injection', noPriceWords({ unpriced: last.cost.unknownModels }), parts);
   if (last.cost.spent <= 0) return noEstimate('injection', 'the last test spent nothing live, so what this one bills is unknown', parts);
   const attempts = last.totals.attempts;

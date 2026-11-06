@@ -3,9 +3,11 @@ import { CHAOS_PRESETS, OVERSIZE_CHARS, parsePresets, type ChaosPreset } from '.
 import { CONFIG_FILE, readConfigFile } from '../config-file.js';
 import { parseInjectionEntry } from '../injection.js';
 import { isObject } from '../is-object.js';
-import { testsEntryFor } from '../run-checks.js';
+import { recordingsOfRun, testsEntryFor } from '../run-checks.js';
 import { parseGate, type Gate } from '../stats.js';
+import type { StoreOf } from '../store.js';
 import { parseTaskFields } from '../tasks.js';
+import type { RunRecord } from '../types.js';
 import type { TestEntry, TestSpec } from './grammar.js';
 import { onlyKeys, parseExpect, parseExpectInto } from './parse.js';
 
@@ -88,6 +90,20 @@ export function parseTestSettings(raw: unknown): TestSettings {
  */
 export function specFor(entries: TestEntry[], recordingDir: string, configDir: string): TestSpec | null {
   return testsEntryFor(entries, resolve(recordingDir), configDir)?.spec ?? null;
+}
+
+/**
+ * The checks a run is judged by when none are given, and the folder whose entry gives them: a
+ * golden's (`golden`, the pack it was asked from), else those of the recording it comes from,
+ * through the run and its ancestors (recordingsOfRun), the first an entry names. Folders are
+ * relative to `configDir`, the folder shadowlap.config.json is in. Null when no entry names one.
+ */
+export function recordedChecks(entries: TestEntry[], store: StoreOf<'recording'>, run: RunRecord, configDir: string, golden: string | null = null): { spec: TestSpec; source: string } | null {
+  for (const dir of golden ? [golden] : recordingsOfRun(store, run)) {
+    const spec = specFor(entries, resolve(configDir, dir), configDir);
+    if (spec) return { spec, source: dir };
+  }
+  return null;
 }
 
 // ---- A golden's error-path presets ----------------------------------------------------------------
