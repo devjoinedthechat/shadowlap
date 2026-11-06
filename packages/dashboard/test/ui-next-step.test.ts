@@ -320,7 +320,7 @@ describe('the run page’s next step', () => {
     expect(started).toEqual([]);
     expect(page.one('.dialog h3').textContent).toContain('Update refund-in-limit?');
     await page.click(page.one('.dialog .dlg-ok'));
-    expect(started).toEqual([['test-update', { golden: GOLDEN }]]);
+    expect(started).toEqual([['test-update', { golden: GOLDEN, estimate: { usd: 0.03, ceiling: false } }]]);
   });
 
   it('updates a golden whose judge had no verdict, which no divergence explains, asking first what it bills', async () => {
@@ -349,7 +349,7 @@ describe('the run page’s next step', () => {
 
   it('finds a crash’s breaking commit on the click, free from where its golden passed, Run blame plain beside it', async () => {
     const estimate: NonNullable<NextStep['estimate']> = { kind: 'blame', usd: 16.16, ceiling: true, parts: ['up to 7 probes'] };
-    const next: NextStep = { key: 'bisect', label: 'Find breaking commit', golden: GOLDEN, starts: true, blame: { offer: OFFER.offer, sub: 'Whether an answer of the model’s lost the run', command: `shadowlap blame ${REC.slice(0, 10)}`, estimate }, command: `shadowlap bisect ${GOLDEN} --good aaaaaaa --bad bbbbbbb` };
+    const next: NextStep = { key: 'bisect', label: 'Find breaking commit', golden: GOLDEN, starts: true, blame: { offer: OFFER.offer, sub: 'Whether an answer of the model’s lost the run', command: `shadowlap blame ${REC.slice(0, 10)}`, estimate }, command: `shadowlap bisect ${GOLDEN} --good aaaaaaa --bad bbbbbbb`, estimate: { kind: 'bisect', usd: 0, ceiling: false, parts: ['bisect replays offline'] } };
     const offers = { blame: OFFER.offer, test: null, bisect: { target: { kind: 'golden', golden: GOLDEN }, failed: true, good: 'aaaaaaa', bad: 'bbbbbbb', revisions: [], fork: false, live: false, unavailable: null, args: [] } } as unknown as RunOffers;
     const { a, started } = jobs();
     const found = vi.fn();
@@ -365,7 +365,8 @@ describe('the run page’s next step', () => {
     // Once, in the header: the banner leaves it there.
     expect(page.all('.banner button').some((b) => b.textContent === 'Run blame')).toBe(false);
     await page.click(page.byText('.rhead .actions button', 'Find breaking commit'));
-    expect(started).toEqual([['bisect', { runId: REC, good: 'aaaaaaa' }]]);
+    // Free, so it starts by Spending on every setting, with the estimate its drawer says.
+    expect(started).toEqual([['bisect', { runId: REC, good: 'aaaaaaa', estimate: { usd: 0, ceiling: false } }]]);
     expect(found).not.toHaveBeenCalled();
   });
 

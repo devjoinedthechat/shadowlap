@@ -77,13 +77,23 @@ export const stepEstimate = (o: Pick<NextStep, 'estimate' | 'later'>, later: boo
 /** Run blame starts by Spending; it asks in a dialog on every setting where it needs its check or a capture's command. */
 const blameAsks = (o: { offer: { from: string }; capture?: boolean }): boolean => o.offer.from === 'ask' || !!o.capture;
 
+/** The steps that open a dialog asking what to run, on every setting: their card says the amount alone. */
+const FORM_STEPS: ReadonlySet<NextStep['key']> = new Set(['injection-test', 'injection-again', 'pack-gate']);
+
+/** Whether a step's press opens a dialog that asks what to run: Run blame's check, a commit to bisect from, an injection test's. */
+function stepForm(step: NextStep): boolean {
+  if (step.key === 'blame') return blameAsks(step);
+  return step.key === 'bisect' ? !step.starts : FORM_STEPS.has(step.key);
+}
+
 /**
- * What a step's hover says: its title, its sentence, and what it bills and runs. Run blame's line says
- * whether it starts at once; every other step's, the amount alone, as its own dialog or job says the rest.
+ * What a step's hover says: its title, its sentence, and what it bills and runs. A job's line says
+ * whether it starts at once or asks first as Spending stands; a form's, the amount alone, as its own
+ * dialog says the rest.
  */
 export function stepCard(step: NextStep): StepCard {
   const own = step.key === 'fix' ? fixStatusWords(step.status).why : step.key === 'blame' ? blameTitle(step.offer) : null;
-  return { title: step.title ?? confirmWords(step.label), sub: step.sub ?? own, ...billsAndRuns(step, step.key !== 'blame' || blameAsks(step)) };
+  return { title: step.title ?? confirmWords(step.label), sub: step.sub ?? own, ...billsAndRuns(step, stepForm(step)) };
 }
 
 /** What the Run blame beside a crash's Find breaking commit says on hover: none while the step's price is asked for alone. */

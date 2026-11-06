@@ -3,6 +3,7 @@ import { consentAsked } from '../actions.js';
 import { JOB_KINDS, type RunDetail, type RunOffers } from '../api.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { ConfirmDialog, ConsentDialog, PromptDialog } from '../components/Dialog.js';
+import { useBilledPress } from '../components/JobButton.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { Icon, type IconName } from '../components/Icon.js';
 import { namedIn } from '../components/Id.js';
@@ -15,6 +16,7 @@ import { ACTIONS, confirmWords } from '../labels.js';
 import { href } from '../route.js';
 import { compareTarget } from '../runs.js';
 import { shortcut } from '../shortcuts.js';
+import { sentEstimate } from '../spending.js';
 import { useApp } from '../state.js';
 import { gateAgainAsk, rerunAsk, startTestsJob } from '../tests-ask.js';
 import type { NextStep } from '../types.js';
@@ -123,7 +125,7 @@ function DivergedStep({ run, step, offers }: StepProps & { step: Extract<NextSte
   const app = useApp();
   // The server's, until the page's offers come.
   const test = offers?.test ?? step.test;
-  const jobs = useDivergedJobs(run, test, checksOf(run).length);
+  const jobs = useDivergedJobs(run, test, checksOf(run).length, step.key === 'normalizer' ? { normalize: stepEstimate(step) } : { update: stepEstimate(step) });
   return (
     <>
       <TestsJobButton className="btn lime" verb={stepJob(step)!.verb} off={app.actionsOff} tip={tipOf(stepCard(step))} lead={step.key} onClick={step.key === 'normalizer' ? jobs.normalize : jobs.update}>
@@ -159,28 +161,33 @@ function UpdateStep({ step }: { step: Extract<NextStep, { key: 'normalizer' | 'u
   );
 }
 
-/** Re-run test: the golden's test again, a gate's too, asking first where it runs live (tests-ask.ts). */
+/** Re-run test: the golden's test again, a gate's too, asking first where it runs live (tests-ask.ts), by Spending where its price is known. */
 function RerunStep({ step }: { step: Extract<NextStep, { key: 'rerun-test' | 'gate-again' }> }) {
   const app = useApp();
   const name = goldenName(step.golden);
+  const estimate = stepEstimate(step);
+  const say = { ...(step.key === 'gate-again' ? gateAgainAsk(name, step.golden) : rerunAsk(name, step.golden)), estimate };
   return (
-    <TestsJobButton className="btn lime" verb={stepJob(step)!.verb} off={app.actionsOff} tip={tipOf(stepCard(step))} lead={step.key} onClick={() => startTestsJob(app, JOB_KINDS.tests, { golden: step.golden }, step.key === 'gate-again' ? gateAgainAsk(name, step.golden) : rerunAsk(name, step.golden))}>
+    <TestsJobButton className="btn lime" verb={stepJob(step)!.verb} off={app.actionsOff} tip={tipOf(stepCard(step))} lead={step.key} onClick={() => startTestsJob(app, JOB_KINDS.tests, { golden: step.golden, ...sentEstimate(estimate) }, say)}>
       {step.label}
     </TestsJobButton>
   );
 }
 
 /**
- * Find breaking commit, for a test replay: from where its golden last passed, it starts on the click,
- * offline and free; else its dialog asks for a commit.
+ * Find breaking commit, for a test replay: from where its golden last passed, it starts on the click
+ * by Spending, offline and free, else its dialog asks; with no commit to start from, its dialog asks
+ * for one.
  */
 function BisectStep({ run, step, offers, onFindCommit }: StepProps & { step: Extract<NextStep, { key: 'bisect' }> }) {
   const app = useApp();
+  const press = useBilledPress();
   const runId = run.run.runId;
   const b = offers?.bisect ?? null;
   const good = step.starts && !b?.unavailable ? (b?.good ?? null) : null;
+  const start = (sent: Record<string, unknown>) => app.watchJob(app.client.startJob(JOB_KINDS.bisect, { runId, good, ...sent }));
   return (
-    <TestsJobButton className="btn lime" verb={stepJob(step)!.verb} off={app.actionsOff} tip={tipOf(stepCard(step))} lead="bisect" onClick={() => (good ? app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.bisect, { runId, good }))) : onFindCommit())}>
+    <TestsJobButton className="btn lime" verb={stepJob(step)!.verb} off={app.actionsOff} tip={tipOf(stepCard(step))} lead="bisect" onClick={() => (good ? press({ estimate: stepEstimate(step), start, ask: onFindCommit }) : onFindCommit())}>
       {step.label}
     </TestsJobButton>
   );
