@@ -9,7 +9,7 @@ import { shortId } from '../format.js';
 import type { ShortcutMark } from '../shortcuts.js';
 import { guardedWayOn, useApp } from '../state.js';
 import { errorText } from '../toast.js';
-import { parseCheck } from './model.js';
+import { parseCheck, type TreeJob } from './model.js';
 import { useTreeBusy } from './tree.js';
 import { ACTIONS } from '../labels.js';
 import { ActionButton } from '../components/ActionButton.js';
@@ -46,6 +46,7 @@ export function RunBlameButton({
   capture = false,
   line,
   mark,
+  jobs,
   ...priced
 }: {
   runId: string;
@@ -67,9 +68,11 @@ export function RunBlameButton({
   line?: string;
   /** Its key, where it is the run's next step. */
   mark?: ShortcutMark;
+  /** A list's jobs, read once for its rows, in place of its own read. */
+  jobs?: readonly TreeJob[];
 }) {
   const app = useApp();
-  const busy = useTreeBusy('reads', 'blame');
+  const busy = useTreeBusy('reads', 'blame', jobs);
   const [asking, setAsking] = useState<null | { kind: 'command' } | { kind: 'ask' } | { kind: 'check'; command: string | null } | { kind: 'consent'; why: string; confirm: string; fields: Record<string, unknown> }>(null);
   const own = useRunEstimates(runId, 'estimate' in priced ? undefined : null);
   const estimate: Estimate | null | undefined = 'estimate' in priced ? priced.estimate : own === undefined ? undefined : (own?.blame ?? null);

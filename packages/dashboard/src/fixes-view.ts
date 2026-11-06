@@ -8,6 +8,7 @@ import { listedStep, type NextStepRow, type NextStepWork, stepReads, stepRow } f
 import { patchesInTree, rewritesHere } from './patch-in-tree.js';
 import { answer, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { aboutsUpTo, SUMMARY_CALLS_BUDGET } from './run-about.js';
+import type { BlameOffer } from './run-offers.js';
 import { loadRunIndex, type RunIndex } from './run-index.js';
 
 /**
@@ -46,6 +47,8 @@ export interface UnblamedRow {
   failed: string | null;
   /** Every check it failed, for Run blame's dialog to ask which. */
   checks: string[];
+  /** Where Run blame finds its check (`ask`: its dialog asks for it), as its run page's would; null with no Run blame. */
+  from: BlameOffer['from'] | null;
   /** Its next step when that is Run blame, as Needs a look rules it; null otherwise. */
   next: NextStepRow | null;
 }
@@ -124,7 +127,7 @@ function unblamedRow(store: Store, index: RunIndex, key: string | null, o: Fixes
   const check = run.meta?.checks?.find((c) => !c.ok);
   // Run blame only where its page leads with it: blame can't take a run that made no model call, and a failed injection test's proof comes first.
   const step = listedStep(store, run.runId, o.next ?? null, { reads: stepReads(store, index) });
-  return { count: runs.length, runId: run.runId, about: about || null, failed: check ? checkWords(check, ', but ') : null, checks: failedCheckLabels(run), next: step?.key === 'blame' ? stepRow(step) : null };
+  return { count: runs.length, runId: run.runId, about: about || null, failed: check ? checkWords(check, ', but ') : null, checks: failedCheckLabels(run), ...(step?.key === 'blame' ? { from: step.offer.from, next: stepRow(step) } : { from: null, next: null }) };
 }
 
 const keeps = (status: FixStatus | 'all' | undefined, f: FixesViewRow): boolean => !status || status === 'all' || (status === 'verified' ? f.status !== 'open' : f.status === status);

@@ -382,7 +382,7 @@ export function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose:
 export function PatchDialog({ fix, diff, onClose }: { fix: FixDetail; diff: string; onClose: () => void }) {
   const file = fix.actions.apply?.patchFile;
   return (
-    <Dialog title="Show patch" lead="The fix as repair handed it over, in your working tree since you applied it." doc="repairHandover" facts={file ? [{ label: 'Path', value: <code>{file}</code>, wide: true }] : []} onClose={onClose}>
+    <Dialog title="Show patch" lead={fix.rung === 'merged' ? `The fix as repair handed it over, on main since ${fix.pr?.number == null ? 'its pull request' : `PR #${fix.pr.number}`} merged.` : 'The fix as repair handed it over, in your working tree since you applied it.'} doc="repairHandover" facts={file ? [{ label: 'Path', value: <code>{file}</code>, wide: true }] : []} onClose={onClose}>
       <pre className="fxcode fxpatch">
         {patchLines(diff).map((l, i) => (
           <span key={i} className={l.tone ?? undefined}>
@@ -410,6 +410,8 @@ export function ApplyDialog({ fix, label, onClose, onRun }: { fix: FixDetail; la
   if (apply.kind === 'mark' || (apply.inTree && !fix.actions.applied))
     return (
       <Dialog {...asks} title={apply.inTree && apply.goldens ? 'Mark fix applied?' : 'Mark fix applied'} lead={markLead(apply)} facts={apply.pulled ? [{ label: 'Recordings', value: 'stay on the machine that ran the repair' }] : []}>
+        {/* Merged in its pull request and in the tree already: the patch is left as it is, and the rest runs as applying would. */}
+        {fix.rung === 'merged' && apply.inTree ? <DialogSteps steps={applySteps(apply, { count: apply.held ? names.offered.length : apply.goldens, to: copiedTo(names) }, { pr: fix.pr?.number ?? null })} /> : null}
         {fields}
       </Dialog>
     );

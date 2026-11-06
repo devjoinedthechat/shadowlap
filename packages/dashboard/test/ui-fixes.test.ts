@@ -13,10 +13,10 @@ const verify = (verifyId: string, verdict: VerifyStep['verdict'] = 'accepted'): 
 const actions = (o: Partial<FixDetail['actions']>): FixDetail['actions'] => ({ repair: null, apply: null, applied: false, blameAgain: null, blameStronger: null, ...o });
 
 describe('the list', () => {
-  it('keeps applied fixes under Verified, as the counts do', () => {
-    expect(['open', 'verified', 'applied'].filter((status) => chipKeeps('verified', { status: status as 'open' }))).toEqual(['verified', 'applied']);
-    expect(['open', 'verified', 'applied'].filter((status) => chipKeeps('open', { status: status as 'open' }))).toEqual(['open']);
-    expect(['open', 'verified', 'applied'].filter((status) => chipKeeps('all', { status: status as 'open' }))).toHaveLength(3);
+  it('keeps each fix under its own bucket’s chip, and every fix under All', () => {
+    expect((['open', 'ready', 'applied'] as const).filter((bucket) => chipKeeps('ready', { bucket }))).toEqual(['ready']);
+    expect((['open', 'ready', 'applied'] as const).filter((bucket) => chipKeeps('applied', { bucket }))).toEqual(['applied']);
+    expect((['open', 'ready', 'applied'] as const).filter((bucket) => chipKeeps('all', { bucket }))).toEqual(['open', 'ready', 'applied']);
   });
 
   it('badges a fix by its status, and an applied one that doesn’t hold as broken', () => {

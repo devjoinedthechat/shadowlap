@@ -11,12 +11,13 @@ import { verifyMore } from './fix-verify-step.js';
  * what its card says. Null when the fix has no step to lead with: its row opens it.
  */
 export type FixLead =
-  | { key: 'blame-again'; label: string; command: string; use: 'reads'; stopped: boolean; gate: SprtGate | null }
+  /** As its ask says it: where the last search stopped (`soFar`), or the gate it raises and the last blame's rescue rate. */
+  | { key: 'blame-again'; label: string; command: string; use: 'reads'; stopped: boolean; gate: SprtGate | null; soFar: number | null; lastGood: number | null }
   | { key: 'blame-stronger'; label: string; command: string; use: 'reads' }
   /** `repairer`: the one shadowlap.config.json names, which its card says it asks; null for your own Claude Code. */
   | { key: 'repair'; label: string; command: string; use: 'writes'; repairer: string | null }
-  /** The verdict it settles, and how many attempts a run it goes up to. */
-  | { key: 'more' | 'again'; label: string; command: string; use: 'reads'; verifyId: string; max: number }
+  /** The verdict it settles, how many attempts a run it goes up to, and the attempts so far, which start over. */
+  | { key: 'more' | 'again'; label: string; command: string; use: 'reads'; verifyId: string; max: number; attempts: number }
   /** `pending`: what applying left undone, which Finish applying does; null otherwise. */
   | { key: 'apply'; label: string; command: string; use: 'writes'; pending: string | null };
 
@@ -36,14 +37,14 @@ function verifyLead(rec: FixRecords): FixLead | null {
   const v = counting(rec).at(-1);
   const more = v ? verifyMore(v) : null;
   if (!v || !more) return null;
-  return { key: more.kind, label: more.kind === 'more' ? ACTIONS.runMoreAttempts.label : ACTIONS.verifyAgain.label, command: more.command, use: 'reads', verifyId: v.verifyId, max: more.max };
+  return { key: more.kind, label: more.kind === 'more' ? ACTIONS.runMoreAttempts.label : ACTIONS.verifyAgain.label, command: more.command, use: 'reads', verifyId: v.verifyId, max: more.max, attempts: v.report.attempts };
 }
 
 /** An open fix's lead: what its spent repair's last verdict left, blame again or with a stronger model, or Run repair when it can run the agent. */
 function openLead(rec: FixRecords, actions: FixActions, repairer: string | null): FixLead | null {
   if (repairSpent(rec)) return verifyLead(rec);
   const again = actions.blameAgain;
-  if (again) return { key: 'blame-again', label: ACTIONS.runBlameAgain.label, command: again.command, use: 'reads', stopped: again.kind === 'stopped', gate: again.gate };
+  if (again) return { key: 'blame-again', label: ACTIONS.runBlameAgain.label, command: again.command, use: 'reads', stopped: again.kind === 'stopped', gate: again.gate, soFar: again.soFar, lastGood: again.lastGood };
   const stronger = actions.blameStronger;
   if (stronger) return { key: 'blame-stronger', label: ACTIONS.runBlameStronger.label, command: stronger.command, use: 'reads' };
   // A repair that would end "No fix to try" runs nothing: the row opens the fix, which says why.

@@ -118,8 +118,8 @@ describe('what failed', () => {
   it('says it on each row of the list, after how many runs failed', async () => {
     opened('Refunds above the limit issued without approval');
     r = await render(createElement(AppContext.Provider, { value: app() }, createElement(FixesPage, { id: null, step: null, sub: null })));
-    await r.until('the list to load', () => r!.all('.pslist a').length === 1);
-    expect(text(r.one('.pslist .rs .nw'))).toBe('1 failing run');
+    await r.until('the list to load', () => r!.all('.pslist a.rt').length === 1);
+    expect(text(r.one('.pslist .rs a.dlink'))).toBe('1 failing run');
     // The check no longer follows the count unlabelled, as if it were the failure.
     expect(text(r.one('.pslist .rs'))).not.toContain('never called');
     expect(r.all('.pslist .fm .fmu').map(text)).toEqual(['Failed: issue_refund called with amount 240', 'Must: issue_refund never called with {"amount":240}']);
@@ -677,8 +677,8 @@ describe('opening a fix', () => {
       return createElement('main', { id: 'view', tabIndex: -1 }, route.page === 'fixes' ? createElement(FixesPage, { id: route.id, step: route.step, sub: route.sub }) : null);
     }
     r = await render(createElement(AppContext.Provider, { value: app() }, createElement(Routed)));
-    await r.until('the list to load', () => r!.all('.pslist a').length === 1);
-    const link = r.one('.pslist a');
+    await r.until('the list to load', () => r!.all('.pslist a.rt').length === 1);
+    const link = r.one('.pslist a.rt');
     // Clicked (or Enter on it): the link has the focus, and the browser follows it.
     await r.click(link);
     location.hash = link.getAttribute('href')!;
