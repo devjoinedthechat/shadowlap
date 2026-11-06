@@ -239,10 +239,6 @@
     "packages/dashboard/ui/pages/settings/StoreSetup.tsx": {
       "StoreSetup": 65
     },
-    "packages/dashboard/ui/run/Inspector.tsx": {
-      "ConversationTab": 33,
-      "DetailsTab": 33
-    },
     "packages/dashboard/ui/run/ProvenanceView.tsx": {
       "ProvenanceView": 95
     },

@@ -17,6 +17,7 @@
     "packages/dashboard/test/ui-timeline-notch.test.ts",
     "packages/dashboard/test/ui-context-axis.test.ts",
     "packages/dashboard/test/ui-check-words.test.ts",
+    "packages/dashboard/test/ui-inspector-notes.test.ts",
     "packages/dashboard/test/ui-run-attempts.test.ts",
     "packages/dashboard/test/ui-next-step.test.ts",
     "packages/dashboard/test/ui-compare-states.test.ts",
