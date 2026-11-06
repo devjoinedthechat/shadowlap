@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { JOB_KINDS, type BisectRevision, type DivergenceView } from '../api.js';
 import { EmptyState, PageHeader } from '../components/bits.js';
+import { glossed } from '../components/Term.js';
+import { projectOf } from '../shell/ProjectBlock.js';
 import { Icon } from '../components/Icon.js';
 import { JobButton } from '../components/JobButton.js';
 import { Page } from '../components/Page.js';
@@ -91,7 +93,7 @@ export function TestsPage() {
     if (went !== false) setOpen(null);
     return went;
   };
-  const header = (actions?: ReactNode) => <PageHeader eyebrow="goldens · shadowlap test" title="Tests" text="Every golden CI runs, and how it did at each revision." actions={actions} />;
+  const header = (actions?: ReactNode) => <PageHeader eyebrow={`${projectOf(meta)?.name ?? 'this project'} · goldens`} title="Tests" text={glossed('Every golden CI runs, and how it did at each revision.')} actions={actions} />;
 
   if (!view) {
     return (
@@ -113,13 +115,15 @@ export function TestsPage() {
   const [runWait, updateWait, updateGoldenWait, findWait] = ['run the tests', 'update them', 'update it', 'find the breaking commit'].map((verb) => wait(verb));
   // The first failure's step leads, lime, and Run tests reads plain; none while a session runs.
   const lead = leadStep(view, hasKind, !!view.running);
+  // Settings → CI by the name the mock links it by, its tab opening; Update goldens only for several,
+  // as each has its own in its report.
   const actions = (
     <>
-      <a className="btn" href={href.settings('alerts')}>
-        <Icon name="bell" />
-        CI settings
+      <a className="btn" href="#/settings/ci">
+        <Icon name="gear" />
+        Open CI settings
       </a>
-      {view.diverged.length && hasKind(JOB_KINDS.testUpdate) ? (
+      {view.diverged.length > 1 && hasKind(JOB_KINDS.testUpdate) ? (
         <JobButton className="btn" why={updateWait} {...testsJob(updatesCard(view.diverged), updatesPrice(prices, view.diverged), (e) => guard(() => setOpen({ kind: 'update', paths: view.diverged, estimate: e })))}>
           {ACTIONS.updateGoldens.label}
         </JobButton>

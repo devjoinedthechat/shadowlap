@@ -121,7 +121,9 @@ describe('the Tests page', () => {
 
   it('says CI runs replay goldens offline and fork goldens live, with the one command docs/gating.md has, to copy', async () => {
     const page = await open();
-    expect(page.one('.ph p').textContent).toBe('Every golden CI runs, and how it did at each revision.');
+    // golden defined at its first use: its definition a hidden part of the paragraph.
+    expect(page.one('.ph p').textContent).toMatch(/^Every golden.+ CI runs, and how it did at each revision\.$/);
+    expect(all(page.one('.ph p'), '.term').map((t) => t.textContent.slice(0, 6))).toEqual(['golden']);
     expect(page.all('button').map((b) => b.textContent.trim())).not.toContain('Copy CI command');
     const ci = page.all('section.panel').find((s) => all(s, 'h2').some((h) => h.textContent === 'In CI'))!;
     expect(ci.textContent).toContain('Replay goldens run offline and need no key. A golden marked fork runs live from where it forks, and needs the providers’ keys. A divergence, a non-zero exit, no calls, or a check or gate that fails or can’t decide fails a golden.');
