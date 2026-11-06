@@ -15,6 +15,8 @@ export interface PaletteEntry {
   group: PaletteGroup;
   label: string;
   hint: string;
+  /** A shorter hint, where the whole one doesn't fit the row (`Compare with parent`'s `against <parent>`). */
+  short?: string;
   /** It starts a job, or opens what starts one: paused while the server can't be reached. */
   job?: boolean;
   /** Words it matches that don't show: a run's kind, command and labels, besides its id and about line. */

@@ -23,6 +23,8 @@ export interface PaletteCommand {
   group: PaletteGroup;
   label: string;
   hint: string;
+  /** A shorter hint, where the whole one doesn't fit the row (`Compare with parent`'s `against <parent>`). */
+  short?: string;
   mono?: boolean;
   /** It starts a job, or opens what starts one: dimmed and paused while the server can't be reached. */
   job?: boolean;

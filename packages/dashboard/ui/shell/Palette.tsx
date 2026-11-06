@@ -23,6 +23,7 @@ import { singleKeysOn } from '../single-keys.js';
 import { useApp, type AppState, type PaletteCommand } from '../state.js';
 import { announce } from '../toast.js';
 import { useMedia } from '../hooks.js';
+import { Id } from '../components/Id.js';
 import { paletteTestsAsk, startTestsJob } from '../tests-ask.js';
 
 /**
@@ -212,6 +213,9 @@ function PaletteRow({ x, n, q, at, paused, id, moved, pick }: { x: PaletteComman
             <mark>{mark[1]}</mark>
             {mark[2]}
           </>
+        ) : x.group === 'Runs' ? (
+          // A run's id in its list form, but where the search word is marked in it.
+          <Id id={x.label} list />
         ) : (
           x.label
         )}
@@ -472,7 +476,7 @@ function RowHint({ x, q }: { x: PaletteCommand & { snippet?: string }; q: string
   // A run's about line as its hint, fitted to the rest of the row, the search word marked where it still is.
   if (x.about) return <AboutLine about={x.about as { text: string; from: 'user' }} className="ph2" mark={words(q).find((w) => x.about!.text.toLowerCase().includes(w)) ?? null} />;
   // Any other hint (a command, a list) is cut only at its end after a whole word: an id in it is whole or left out.
-  if (!x.snippet && x.hint) return <FitHint text={x.hint} className="ph2" />;
+  if (!x.snippet && x.hint) return <FitHint text={x.hint} short={x.short ?? null} className="ph2" />;
   return (
     <span className="ph2">
       {x.hint}
