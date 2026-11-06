@@ -3,7 +3,7 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { markFixApplied, recordBlame, recordRepair, recordVerdict, Store, type VerifyReport } from '@shadowlap/engine';
+import { blameSteps, JUDGE_SCOPE, markFixApplied, recordBlame, recordRepair, recordVerdict, Store, type VerifyReport } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { fixDetail, type FixDetail } from '../src/fixes.js';
 import { fixesView } from '../src/fixes-view.js';
@@ -87,6 +87,25 @@ describe('the step a fix’s page leads with', () => {
     expect(detail(f.fixId)).toMatchObject({ actions: { repair: { spent: true } }, lead: null });
     recordBlame(store, { runId: f.run, report: blameReport(f.run), expect: SEND_ONCE, scope: null, command: 'shadowlap blame', title: 'send_email called twice', checkText: 'send_email called once', at: (at += DAY) });
     expect(detail(f.fixId)).toMatchObject({ actions: { repair: { spent: false } }, lead: { key: 'repair' } });
+  });
+});
+
+describe('the Blame step’s row of calls', () => {
+  it('draws the agent’s calls, the judge’s left out, and marks the model calls blame steps through, as many as the CLI’s blame header counts', () => {
+    const judge = { kind: 'api' as const, scope: JUDGE_SCOPE };
+    const run = makeRun(store, { labels: ['judged'], calls: ['api', 'tool', judge, 'api', judge, 'api'] });
+    const steps = blameSteps(store.getCalls(run), null).length;
+    const report = { ...blameReport(run), steps };
+    const { fix } = recordBlame(store, { runId: run, report, expect: SEND_ONCE, scope: null, command: 'shadowlap blame', title: 'send_email called twice', checkText: 'send_email called once', at: (at += DAY) });
+    const b = detail(fix.fixId).blame!;
+    expect(b.callRow.map((c) => [c.callNo, c.kind, c.probed])).toEqual([
+      [1, 'api', true],
+      [2, 'tool', false],
+      [4, 'api', true],
+      [6, 'api', true],
+    ]);
+    expect(steps).toBe(3);
+    expect(b.callRow.filter((c) => c.probed)).toHaveLength(b.steps);
   });
 });
 

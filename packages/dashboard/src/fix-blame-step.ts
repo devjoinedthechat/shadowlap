@@ -1,4 +1,4 @@
-import { type AttemptVerdict, BLAME_DEFAULTS, type BlameReport, probedInScope, describeBlocks, describeRescue, expectArgs, findPairs, type FixRecords, GATE_MAX_ATTEMPTS, hasRecordedCommand, keptAttemptVerdict, lostWords, pinWords, probeBound, probeFinding, probeTally, probeWord, type PulledFrom, rescueRule, scopeArg, type SprtGate, type StoredBlame, type StoreOf, unrescuedHead, unrescuedWhy, unsettledFirst } from '@shadowlap/engine';
+import { agentCallsOf, type AttemptVerdict, BLAME_DEFAULTS, type BlameReport, blameSteps, probedInScope, describeBlocks, describeRescue, expectArgs, findPairs, type FixRecords, GATE_MAX_ATTEMPTS, hasRecordedCommand, keptAttemptVerdict, lostWords, pinWords, probeBound, probeFinding, probeTally, probeWord, type PulledFrom, rescueRule, scopeArg, type SprtGate, type StoredBlame, type StoreOf, unrescuedHead, unrescuedWhy, unsettledFirst } from '@shadowlap/engine';
 import { blameEvidence, gateEvidence, type BlameEvidence, type GateEvidence } from './evidence.js';
 import { fieldArgs, rerunFlags, runIds, type RerunFlags } from './rerun.js';
 import { askedAgain, attemptNote, commandLine, countArgs, type FixActions, gateArg, noAnswerLost, PULLED_CAP, pulledGate, runHref, sprtGate } from './fix-shared.js';
@@ -45,8 +45,13 @@ export interface BlameStep {
   probes: Array<{ callNo: number; step: number; passes: number; attempts: number; inconclusive: number; verdict: 'rescued' | 'lost' | 'inconclusive' | 'rescued · blamed'; bound: string | null; blamed: boolean; href: string; gate: GateEvidence }>;
   /** The attempts, bundled per probe. */
   bundles: Array<{ callNo: number; title: string; blamed: boolean; passes: number; attempts: Array<{ runId: string; passed: boolean; verdict: AttemptVerdict; note: string; spent: number; href: string }> }>;
-  /** Every call of the run, for the row that shows where it was lost; `inScope` is false for a call blame doesn't probe, outside its scope or in a reserved one (the engine's probedInScope). */
-  callRow: Array<{ callNo: number; kind: string; inScope: boolean; verdict: 'rescued' | 'lost' | 'inconclusive' | 'blamed' | null; passes: number; attempts: number; inconclusive: number }>;
+  /**
+   * The agent's calls of the run, the judge's left out (the engine's `agentCallsOf`), for the row that
+   * shows where it was lost: `inScope` is false for a call outside the blame's scope or in a reserved
+   * one (`probedInScope`), and `probed` true for a model call blame's search steps through (`blameSteps`:
+   * one that ended, in scope), as many as `steps` and the CLI's blame header count.
+   */
+  callRow: Array<{ callNo: number; kind: string; inScope: boolean; probed: boolean; verdict: 'rescued' | 'lost' | 'inconclusive' | 'blamed' | null; passes: number; attempts: number; inconclusive: number }>;
   cost: { attempts: number; upstreamRequests: number; spent: number; unknownModels: string[] };
   oracle: string[];
   recordedFailures: string[];
@@ -130,10 +135,12 @@ export function blameStep(store: StoreOf<'recording' | 'readModels' | 'fixes'>, 
         : 'rescue stops cleanly at the boundary';
   const probeOf = new Map(r.probes.map((x) => [x.callNo, x]));
   const verdictOf = (x: Parameters<typeof probeWord>[0] & { callNo: number }) => (x.callNo === blamedCall ? 'rescued · blamed' : probeWord(x));
+  const calls = run ? agentCallsOf(store.getCalls(b.runId)) : [];
+  const probed = new Set(blameSteps(calls, b.scope).map((c) => c.callNo));
   const callRow = run
-    ? store.getCalls(b.runId).map((c) => {
+    ? calls.map((c) => {
         const p = probeOf.get(c.callNo);
-        return { callNo: c.callNo, kind: c.kind, inScope: probedInScope(c.meta.scope, b.scope), verdict: p ? (p.callNo === blamedCall ? ('blamed' as const) : probeWord(p)) : null, passes: p?.passes ?? 0, attempts: p?.attempts.length ?? 0, inconclusive: unsure(p) };
+        return { callNo: c.callNo, kind: c.kind, inScope: probedInScope(c.meta.scope, b.scope), probed: probed.has(c.callNo), verdict: p ? (p.callNo === blamedCall ? ('blamed' as const) : probeWord(p)) : null, passes: p?.passes ?? 0, attempts: p?.attempts.length ?? 0, inconclusive: unsure(p) };
       })
     : [];
   const contrast = r.contrast;

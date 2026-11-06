@@ -264,7 +264,7 @@ describe('the working tree', () => {
 });
 
 describe('the Blame step', () => {
-  const call = (callNo: number, kind: 'api' | 'tool', verdict: BlameStep['callRow'][number]['verdict'] = null): BlameStep['callRow'][number] => ({ callNo, kind, inScope: true, verdict, passes: verdict ? 2 : 0, attempts: verdict ? 4 : 0, inconclusive: 0 });
+  const call = (callNo: number, kind: 'api' | 'tool', verdict: BlameStep['callRow'][number]['verdict'] = null): BlameStep['callRow'][number] => ({ callNo, kind, inScope: true, probed: kind === 'api', verdict, passes: verdict ? 2 : 0, attempts: verdict ? 4 : 0, inconclusive: 0 });
 
   it('lines up every call of a short run', () => {
     const row = [call(1, 'api', 'rescued'), call(2, 'tool'), call(3, 'api', 'blamed'), call(4, 'tool'), call(5, 'api', 'lost')];
