@@ -45,6 +45,8 @@ td.hist i.meter.hdrop::after, td.hist i.meter.upd::after { width: 30px; height: 
 .gpanel .pbody > p.hintx.tnote { margin-top: 12px; }
 .gpanel .pbody > p.hintx code { font-size: 12px; color: var(--dim); }
 .gpanel p.muted.after { margin: 12px 0 0; }
+/* where the recordings pytest and Vitest keep run: one quiet line under In CI and Add a golden */
+p.muted.tfoot { margin: 14px 0 0; }
 
 pre.report .dim { color: var(--faint); }
 pre.report .y { color: var(--cq-amber); }
@@ -139,7 +141,9 @@ table.gt .chk .ck .cw { text-wrap: balance; }
 /* Find breaking commit named no first bad commit: where it looked and why, in the card's place */
 .bisect.miss .m { color: var(--dim); }
 
-table.gt td.glast .rsub { font: 11.5px/1.5 var(--mono); color: var(--faint); }
+table.gt td.glast .rsub { font: 12px/1.5 var(--body); color: var(--faint); }
+table.gt td.glast code.jp { white-space: nowrap; font-size: 11px; color: var(--dim); }
+@media (max-width: 640px) { table.gt td.glast code.jp { white-space: normal; } }
 
 .gfoot, table.gt td.glast .rsub { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
 

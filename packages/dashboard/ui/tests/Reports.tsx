@@ -53,10 +53,14 @@ function BisectMissLine({ missed }: { missed: BisectMiss }) {
   );
 }
 
-/** A failed golden's report, as the CLI prints it, with what Find breaking commit found (or that it found none) above the buttons. */
+/**
+ * A failed golden's report, as the CLI prints it, with what Find breaking commit found (or that it
+ * found none) above the buttons. Its id is the part a job started from it hands the focus back to,
+ * the step that took the button's place, and what a link to the report scrolls to.
+ */
 function ReportPanel({ name, runId, lines, found, missed, children }: { name: string; runId: string | null; lines: ReportLine[]; found: FoundCommit | null; missed: BisectMiss | null; children: ReactNode }) {
   return (
-    <section className="panel gpanel">
+    <section className="panel gpanel" id={`report-${name}`}>
       <header>
         <h2>{name}</h2>
         <span className="sub">as the report prints it</span>

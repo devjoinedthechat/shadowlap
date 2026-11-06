@@ -1,14 +1,17 @@
-import { Fragment } from 'react';
-import type { GoldenRow, TestsView } from '../api.js';
+import { Fragment, useRef } from 'react';
+import type { FollowedGolden, GoldenRow, TestsView } from '../api.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { rowOpen } from '../components/Table.js';
-import { DotLine, RuleText } from '../components/Verdict.js';
+import { glossed } from '../components/Term.js';
+import { dotParts, RuleText } from '../components/Verdict.js';
 import { glued } from '../format.js';
 import { checkMark, sourceText } from '../goldens.js';
+import { useListKeys } from '../list-keys.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { EvidenceRow, EvidenceToggle, gated, useEvidenceOpen } from './Evidence.js';
 import { HistoryCells, HistoryKey, HistoryStrip, RevisionHeads } from './History.js';
+import { goldenKeys, goldenRowScope } from './row-scope.js';
 import type { LeadPress } from './Verdict.js';
 
 /**
@@ -24,10 +27,22 @@ import type { LeadPress } from './Verdict.js';
 export function GoldensTable({ view, press }: { view: TestsView; press?: LeadPress }) {
   const history = view.revisions.length > 0;
   const { open, toggle } = useEvidenceOpen(view.rows);
+  // j and k walk the goldens, Enter opens one's run, ⌘K offers what its report offers.
+  const table = useRef<HTMLTableElement>(null);
+  const keyOf = goldenKeys(view.rows);
+  const inFocus = useListKeys({
+    rows: view.rows,
+    keyOf,
+    root: table,
+    open: (r) => {
+      if (r.runId) navigate(href.run(r.runId));
+    },
+    actions: (r) => goldenRowScope(r, () => table.current?.closest('.page') ?? document),
+  });
   return (
     <section className="panel sec gtw">
       <div className="tscroll">
-        <table className="t gt">
+        <table className="t gt" ref={table}>
           <thead>
             <tr>
               <th className="gg">Golden</th>
@@ -39,7 +54,7 @@ export function GoldensTable({ view, press }: { view: TestsView; press?: LeadPre
           <tbody>
             {view.rows.map((row) => (
               <Fragment key={row.path}>
-                <GoldenTr row={row} showHistory={history} open={open.has(row.path)} onToggle={() => toggle(row.path)} />
+                <GoldenTr row={row} rowKey={keyOf(row)} focused={inFocus === keyOf(row)} showHistory={history} open={open.has(row.path)} onToggle={() => toggle(row.path)} now={view.following?.goldens[row.path]} />
                 {open.has(row.path) && gated(row.last.gate) ? <EvidenceRow row={row} g={row.last.gate} span={history ? 4 : 3} press={press} inc={view.inconclusive.find((v) => v.golden === row.path)} /> : null}
               </Fragment>
             ))}
@@ -51,15 +66,15 @@ export function GoldensTable({ view, press }: { view: TestsView; press?: LeadPre
   );
 }
 
-function GoldenTr({ row, showHistory, open, onToggle }: { row: GoldenRow; showHistory: boolean; open: boolean; onToggle: () => void }) {
+function GoldenTr({ row, rowKey, focused, showHistory, open, onToggle, now }: { row: GoldenRow; rowKey: string; focused: boolean; showHistory: boolean; open: boolean; onToggle: () => void; now: FollowedGolden | undefined }) {
   const source = sourceText(row);
   const last = row.last;
   return (
-    <tr className={row.runId ? undefined : 'still'} {...(row.runId ? rowOpen(() => navigate(href.run(row.runId!))) : {})}>
+    <tr className={[row.runId ? '' : 'still', focused ? 'krow' : ''].join(' ').trim() || undefined} data-rowkey={rowKey} {...(row.runId ? rowOpen(() => navigate(href.run(row.runId!))) : {})}>
       <td className="gg">
         <code className="gn">{row.runId ? <a className="rowa" href={href.run(row.runId)}>{row.name}</a> : row.name}</code>
         <span className="gmeta">
-          <span className="chip" data-tip={tipText(row.modeHint)}>
+          <span className="chip" data-tip={tipCard(row.modeLabel, [], row.modeHint)}>
             {row.modeLabel}
           </span>
           {showHistory ? <HistoryStrip row={row} /> : null}
@@ -85,12 +100,82 @@ function GoldenTr({ row, showHistory, open, onToggle }: { row: GoldenRow; showHi
       </td>
       {showHistory ? <HistoryCells row={row} /> : null}
       <td className="glast">
-        <LastResult row={row} />
-        {last.result !== null || row.error ? <span className="rsub">{gated(last.gate) ? <DotLine text={last.line} max={18} soft={24} /> : last.line}</span> : null}
+        {now ? <SessionResult now={now} /> : null}
+        {/* While a session runs it: where it has got in place of the last result, whose evidence stays. */}
+        <span className="glastw" hidden={!!now}>
+          <LastResult row={row} />
+          {last.result !== null || row.error ? (
+            <span className="rsub">
+              <LastLine text={last.line} />
+            </span>
+          ) : null}
+        </span>
         {gated(last.gate) && last.gate.attempts ? <EvidenceToggle g={last.gate} name={row.name} open={open} onToggle={onToggle} /> : null}
         {row.presets ? <PresetsLine p={row.presets} only={last.result === null && !row.error} /> : null}
       </td>
     </tr>
+  );
+}
+
+/** A JSON path in a line, drawn as code that may break after each of its dots. */
+const JSON_PATH = /(\$\.[\w.[\]]+)/;
+
+/** One part of the line: its JSON paths as code, the rest through the glossary. */
+const partWords = (text: string) =>
+  text.split(JSON_PATH).map((x, i) =>
+    i % 2 ? (
+      <code key={i} className="jp">
+        {x.split(/(?<=\.)(?=\w)/).map((seg, j) => (
+          <Fragment key={j}>
+            {j ? <wbr /> : null}
+            {seg}
+          </Fragment>
+        ))}
+      </code>
+    ) : (
+      <Fragment key={i}>{glossed(x)}</Fragment>
+    ),
+  );
+
+/**
+ * The last result's line, broken only after a dot with its tally and bound kept whole, each part
+ * through the glossary, so the first bound on the page is a defined term (Term decides which is first).
+ */
+function LastLine({ text }: { text: string }) {
+  return (
+    <>
+      {dotParts(text, 18, 24).map((p, i) => (
+        <Fragment key={i}>
+          {i ? ' ' : null}
+          {p.keep ? <span className={p.keep === 'whole' ? 'nw' : 'kc'}>{partWords(p.text)}</span> : partWords(p.text)}
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
+/** Each state of a golden in a session that runs it: its word and tone, and when, as the mock says them. */
+const SESSION_STATES: Record<FollowedGolden, [word: string, tone: string, when: string]> = {
+  passed: ['passed', 'ok', 'this session, just now'],
+  failed: ['failed', 'err', 'this session, just now'],
+  inconclusive: ['inconclusive', 'warn', 'this session, just now'],
+  running: ['running', 'live', 'this session, now'],
+  // reached, its replays waiting for their turn: a session over several packs takes them in turns
+  between: ['running', 'live', 'this session, in progress'],
+  queued: ['queued', 'n', 'this session, next'],
+};
+
+/** Where the session that runs now is with a golden: running, queued, or its result as it landed. */
+function SessionResult({ now }: { now: FollowedGolden }) {
+  const [word, tone, when] = SESSION_STATES[now];
+  return (
+    <>
+      <span className={`st ${tone}`}>
+        <i />
+        {word}
+      </span>
+      <span className="rsub">{when}</span>
+    </>
   );
 }
 

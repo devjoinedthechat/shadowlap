@@ -1,4 +1,5 @@
-import type { DivergenceView, FailureView, InconclusiveView, TestsView } from '../api.js';
+import { useEffect } from 'react';
+import type { DivergenceView, FailureView, InconclusiveView, TestsSessionView, TestsView } from '../api.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { JobButton } from '../components/JobButton.js';
 import { VerdictLine } from '../components/VerdictLine.js';
@@ -8,6 +9,7 @@ import { commandText, sessionLine } from '../goldens.js';
 import { moreCard, normalizeCard, testsJob, updateCard } from '../pages/tests-cards.js';
 import { FindCommitButton } from '../pages/TestsDialogs.js';
 import { goldenPrice, type Price } from '../tests-estimates.js';
+import { keepLead } from './job-footer.js';
 import type { Lead } from './lead.js';
 
 /** What the lead step presses: the page's own jobs, as each golden's report presses them, and why one waits. */
@@ -63,6 +65,12 @@ const WORDS = { failing: ['failed', 'err'], inconclusive: ['inconclusive', 'warn
 /** Tests' verdict: how the goldens' last results came out, the session that tested them, and the step the first failure leads with. */
 export function Verdict({ view, running, lead, press }: { view: TestsView; running: boolean; lead: Lead | null; press: LeadPress }) {
   const v = view.verdict;
+  // What a test job's drawer ends on over Tests: this step, as each view the page reads leads with it.
+  const label = lead ? (lead.kind === 'blame' ? lead.step.label : lead.label) : null;
+  useEffect(() => keepLead(label), [view, label]);
+  useEffect(() => () => keepLead(null), []);
+  // A session that runs every golden: the verdict follows it, how far it has got, and no step.
+  if (view.following?.whole && view.running) return <RunningVerdict s={view.running} reached={view.following.reached} total={view.following.total} />;
   if (!v) {
     const command = commandText(view.commands.run);
     // No golden replayed yet, though its error-path presets may have run: then it has been tested, and says so.
@@ -104,6 +112,21 @@ export function Verdict({ view, running, lead, press }: { view: TestsView; runni
   return (
     <VerdictLine className="tv" word={word} tone={tone} facts={facts} actions={lead ? <LeadButton lead={lead} p={press} /> : undefined}>
       {v.title}
+    </VerdictLine>
+  );
+}
+
+/** The verdict while a session runs every golden: `running`, the goldens it has reached of those it runs, and its facts so far. */
+function RunningVerdict({ s, reached, total }: { s: TestsSessionView; reached: number; total: number }) {
+  const line = sessionLine({ verdict: { session: s, since: [] } }, true)!;
+  const facts = (
+    <>
+      <SessionCommand text={line.command} /> · {line.rest}
+    </>
+  );
+  return (
+    <VerdictLine className="tv" word="running" tone="mu" facts={facts}>
+      {`${reached} of ${total} ${total === 1 ? 'golden' : 'goldens'}`}
     </VerdictLine>
   );
 }

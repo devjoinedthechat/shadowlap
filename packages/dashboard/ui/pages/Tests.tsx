@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { JOB_KINDS, type BisectRevision, type DivergenceView } from '../api.js';
-import { EmptyState, PageHeader } from '../components/bits.js';
+import { PageHeader } from '../components/bits.js';
 import { glossed } from '../components/Term.js';
 import { projectOf } from '../shell/ProjectBlock.js';
 import { Icon } from '../components/Icon.js';
@@ -20,6 +20,7 @@ import { estimatesKey, runPrice, updatesPrice, useTestsEstimates, type Price } f
 import { keepTests } from '../tests-palette.js';
 import { FailurePanel, DivergencePanel, InconclusivePanel } from '../tests/Reports.js';
 import { CiSections } from '../tests/Sections.js';
+import { TestsEmpty, TestsFailed, TestsLoading } from '../tests/States.js';
 import { GoldensTable } from '../tests/Table.js';
 import { leadStep } from '../tests/lead.js';
 import { Verdict, type LeadPress } from '../tests/Verdict.js';
@@ -46,13 +47,14 @@ type Open =
 export function TestsPage() {
   const app = useApp();
   const { client, tick, feeds, hasKind, actionsOff, guard, jobs, toast, meta } = app;
-  // Read again when runs or calls move, and when a session of error-path presets starts or ends:
-  // that moves only their own count, and the actions wait for one on goldens (`chaosRunning`).
-  const loaded = useLoad(() => client.tests(), 'tests', `${tick}:${feeds.chaos ?? 0}`);
+  // Read again when runs or calls move, when a session of error-path presets starts or ends (that
+  // moves only their own count, and the actions wait for one on goldens: `chaosRunning`),
+  // and when one of this tab's test jobs starts or ends, so its drawer can end on the step it leaves.
+  const running = jobs.some((w) => !w.job.done && !w.lost && TEST_KINDS.has(w.job.kind ?? ''));
+  const loaded = useLoad(() => client.tests(), 'tests', `${tick}:${feeds.chaos ?? 0}:${running}`);
   const view = loaded.data;
   const prices = useTestsEstimates(view ? estimatesKey(view) : null, view?.diverged);
   const [open, setOpen] = useState<Open | null>(null);
-  const running = jobs.some((w) => !w.job.done && !w.lost && TEST_KINDS.has(w.job.kind ?? ''));
   // What the server is running, from every tab and terminal dashboard: a test job (Find breaking commit
   // on a golden among them), a test session started in a terminal, or a repair holding the working
   // tree makes it refuse an action that replays or rewrites the goldens.
@@ -95,26 +97,18 @@ export function TestsPage() {
   };
   const header = (actions?: ReactNode) => <PageHeader eyebrow={`${projectOf(meta)?.name ?? 'this project'} · goldens`} title="Tests" text={glossed('Every golden CI runs, and how it did at each revision.')} actions={actions} />;
 
-  if (!view) {
+  if (!view || view.empty) {
     return (
-      <Page busy={!loaded.error}>
+      <Page busy={!view && !loaded.error}>
         {header()}
-        {loaded.error ? <EmptyState title="Tests could not be loaded" text={loaded.error.message} /> : <div className="empty">Loading the goldens…</div>}
-      </Page>
-    );
-  }
-  if (view.empty) {
-    return (
-      <Page>
-        {header()}
-        <EmptyState title="No goldens yet" text="Pack a run you consider correct into the repository, and CI replays it offline on every commit." command={view.commands.pack} />
+        {view ? <TestsEmpty view={view} runs={app.runs} /> : loaded.error ? <TestsFailed error={loaded.error} retry={loaded.reload} /> : <TestsLoading />}
       </Page>
     );
   }
 
   const [runWait, updateWait, updateGoldenWait, findWait] = ['run the tests', 'update them', 'update it', 'find the breaking commit'].map((verb) => wait(verb));
-  // The first failure's step leads, lime, and Run tests reads plain; none while a session runs.
-  const lead = leadStep(view, hasKind, !!view.running);
+  // The first failure's step leads, lime, and Run tests reads plain; none while a session runs every golden.
+  const lead = leadStep(view, hasKind, !!view.following?.whole);
   // Settings → CI by the name the mock links it by, its tab opening; Update goldens only for several,
   // as each has its own in its report.
   const actions = (
@@ -187,7 +181,6 @@ export function TestsPage() {
         />
       ))}
       <CiSections view={view} />
-      <p className="hintx tfoot">{view.note}</p>
       {/* What it offers instead opens no dialog of its own, though a session that runs a golden live still asks first (tests-ask.ts). */}
       {open?.kind === 'update' ? (
         <UpdateGoldensDialog

@@ -1,11 +1,13 @@
-import { createElement } from 'react';
+import { createElement, type ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { gateResult, parseGate, Store, type StoredCheck } from '@shadowlap/engine';
 import { testsView, type GoldenSource } from '../src/tests.js';
 import { evidenceWords } from '../src/tests-evidence.js';
 import { pageUp } from '../ui/focus-manager.js';
-import type { Client, TestsView } from '../ui/api.js';
+import { ApiError, JOB_KINDS, type Client, type TestsView } from '../ui/api.js';
+import { jobFooter } from '../ui/job-actions.js';
 import { TestsPage } from '../ui/pages/Tests.js';
+import { goldenRowScope } from '../ui/tests/row-scope.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { sheet } from './css-sheet.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
@@ -46,10 +48,11 @@ function view(goldens: GoldenSource[]): TestsView {
 
 const evidenceAsked: string[] = [];
 
-function page(started: Array<{ kind: string; fields: Record<string, unknown> }>, goldens: GoldenSource[], shape: (v: TestsView) => TestsView = (v) => v) {
+/** `over`: what the app holds besides (its runs, its jobs), and how the read of the goldens answers. */
+function page(started: Array<{ kind: string; fields: Record<string, unknown> }>, goldens: GoldenSource[], shape: (v: TestsView) => TestsView = (v) => v, over: { app?: Record<string, unknown>; tests?: () => Promise<TestsView>; beside?: ReactNode } = {}) {
   const v = shape(view(goldens));
   const client = {
-    tests: () => Promise.resolve(v),
+    tests: over.tests ?? (() => Promise.resolve(v)),
     testEvidence: (golden: string) => {
       evidenceAsked.push(golden);
       return Promise.resolve({ attempts: [{ runId: 'run-a1', href: '#/run/run-a1', outcome: 'passed', note: null }], carried: 0, gone: 0 });
@@ -72,8 +75,9 @@ function page(started: Array<{ kind: string; fields: Record<string, unknown> }>,
     guard: (fn: () => void) => fn(),
     watchJob: () => undefined,
     toast: () => undefined,
+    ...over.app,
   };
-  return createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(TestsPage));
+  return createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(TestsPage), over.beside ?? null);
 }
 
 const g = globalThis as { location?: unknown };
@@ -250,6 +254,93 @@ describe('a gated golden’s evidence', () => {
     expect(page.one('button.gev').getAttribute('aria-expanded')).toBe('false');
     expect(page.focused()).toBe(page.one("button.gev"));
     expect(pageUp.current?.()).toBe(false);
+  });
+});
+
+describe('Tests\' states, parts and keys', () => {
+  const drawn = async (over: Parameters<typeof page>[3], goldens: GoldenSource[] = []) => {
+    await r?.unmount();
+    g.location = { hash: '#/tests' };
+    r = await render(page([], goldens, undefined, over));
+    return r;
+  };
+
+  it('loads in its final layout as bars, says a read that failed in one line with Retry, and offers the pack command only where there is a run to pack', async () => {
+    const loading = await drawn({ tests: () => new Promise<TestsView>(() => undefined) });
+    await loading.until('the bars', () => loading.all('.skel').length === 1);
+    expect([loading.one('.skel [role="status"]').textContent, loading.all('.skel .skin .verdict.tv').length, loading.all('.skel .skin table.gt tbody tr').length]).toEqual(['Loading the goldens…', 1, 3]);
+    const failed = await drawn({ tests: () => Promise.reject(new ApiError(500, 'boom')) });
+    await failed.until('the error', () => failed.all('.loaderr').length === 1);
+    expect([failed.one('.loaderr .st.err').textContent, failed.one('.loaderr p > span:not(.st)').textContent, failed.one('.loaderr button').textContent]).toEqual(['couldn’t load', 'The dashboard server answered 500 for this page’s data.', 'Retry']);
+    expect(failed.one('.ph h1').textContent).toBe('Tests');
+    const empty = await drawn({});
+    await empty.until('the empty state', () => empty.all('.stepempty').length === 1);
+    expect([empty.one('.stepempty h2').textContent, empty.all('.stepempty .cmdline').length]).toEqual(['No goldens yet', 1]);
+    const none = await drawn({ app: { runs: [] } });
+    await none.until('the empty state', () => none.all('.stepempty').length === 1);
+    expect(none.all('.stepempty .cmdline')).toHaveLength(0);
+  });
+
+  it('gives each report the id a job started from it hands the focus back to, the recordings line quiet under the sections, and the first bound its definition', async () => {
+    const line = 'passed · 12 of 12 · rate >= 0.78 (95%)';
+    const page = await open([], GOLDENS, (v) => ({ ...v, rows: v.rows.map((row) => (row.path === 'goldens/passes' ? { ...row, last: { ...row.last, line } } : row)) }));
+    expect(page.all('section.gpanel').map((s) => s.getAttribute('id'))).toEqual(['report-refunds', 'report-judged']);
+    expect([page.one('p.muted.tfoot').textContent, page.all('p.hintx.tfoot').length]).toEqual([expect.stringContaining('__recordings__/'), 0]);
+    await page.wait(0);
+    const passes = page.all('table.gt tbody tr').find((tr) => one(tr, 'code.gn').textContent === 'passes')!;
+    expect(all(passes, '.rsub .term').map((t) => [t.textContent, t.className, t.getAttribute('data-term')])).toEqual([['rate >= 0.78 (95%)', 'term on', 'bound']]);
+    // Each part kept whole, the bound's hidden definition aside.
+    expect(all(passes, '.rsub > .nw').map((p) => p.textContent.split('The tally')[0])).toEqual(['passed ·', '12 of 12 ·', 'rate >= 0.78 (95%)']);
+  });
+
+  it('keys each golden by where it leads, and offers on ⌘K what its report offers, pressing the report\'s own button', async () => {
+    const RUN = '01M5H2DKE9AAAAAAAAAAAAAAAA';
+    const page = await open([], GOLDENS, (v) => ({ ...v, rows: v.rows.map((row) => (row.path === 'goldens/judged' ? { ...row, runId: RUN } : row)) }));
+    expect(page.all('table.gt tbody tr').map((tr) => tr.getAttribute('data-rowkey'))).toEqual(['goldens/passes', 'goldens/refunds', `#/run/${RUN}`, 'goldens/budget']);
+    const scope = goldenRowScope({ name: 'judged', runId: RUN }, () => page.one('.page') as unknown as ParentNode);
+    const items = scope.items();
+    expect([scope.name, items.map((i) => [i.label, i.hint])]).toEqual(['judged', [['Open run', expect.stringMatching(/^01M5H2DKE9/)], ['Update golden', 'shadowlap test goldens/judged --update']]]);
+    items[1].run();
+    await page.until('the dialog', () => page.all('.dialog').length === 1);
+    expect(all(page.one('.dialog'), 'h2, h3')[0].textContent).toBe('Update judged?');
+    expect(goldenRowScope({ name: 'passes', runId: null }, () => page.one('.page') as unknown as ParentNode).items()).toEqual([]);
+  });
+
+  it('follows a session that runs every golden: running and how many it has reached, no step, and each row where the session has got', async () => {
+    const fix = { key: 'fix' as const, label: 'Open fix', fixId: 'fx-1', status: 'open' as const, href: '#/fixes/fx-1', title: 'Refunds skip the email' };
+    const following = { whole: true, total: 4, reached: 3, goldens: { 'goldens/passes': 'passed', 'goldens/refunds': 'running', 'goldens/judged': 'between', 'goldens/budget': 'queued' } as const };
+    const page = await open([], GOLDENS, (v) => ({ ...v, steps: { 'goldens/refunds': fix }, running: { ...v.verdict!.session, endedAt: null, live: true }, following }));
+    const verdict = page.one('.verdict.tv');
+    expect([one(verdict, '.vw').textContent, one(verdict, 'h2').textContent.replace(/\u00a0/g, ' '), all(verdict, '.actions').length]).toEqual(['running', 'running 3 of 4 goldens', 0]);
+    expect(one(verdict, 'p').textContent).toMatch(/ · rev d2e8a1f · just now · 1 passed, 1 failed, 1 inconclusive so far$/);
+    const rows = page.all('table.gt tbody tr').map((tr) => [one(tr, 'code.gn').textContent, all(tr, 'td.glast > .st').map((x) => `${x.className}: ${x.textContent}`)[0], all(tr, 'td.glast > .rsub')[0]?.textContent, one(tr, '.glastw').hasAttribute('hidden')]);
+    expect(rows).toEqual([
+      ['passes', 'st ok: passed', 'this session, just now', true],
+      ['refunds', 'st live: running', 'this session, now', true],
+      ['judged', 'st live: running', 'this session, in progress', true],
+      ['budget', 'st n: queued', 'this session, next', true],
+    ]);
+    await r!.unmount();
+    // A session that runs some of them moves only their rows, and the verdict stays as it was.
+    const some = await open([], GOLDENS, (v) => ({ ...v, steps: { 'goldens/refunds': fix }, running: { ...v.verdict!.session, endedAt: null, live: true }, following: { whole: false, total: 1, reached: 1, goldens: { 'goldens/refunds': 'running' } } }));
+    expect([one(some.one('.verdict.tv'), '.vw').textContent, all(some.one('.verdict.tv'), '.actions a').map((a) => a.textContent)]).toEqual(['failed', ['Open fix']]);
+    expect(some.all('.glastw[hidden]')).toHaveLength(1);
+  });
+
+  it('ends a test job\'s drawer over Tests on the step the page leads with once it has read what the job did, pressing the page\'s own', async () => {
+    const Footer = jobFooter(JOB_KINDS.tests)!;
+    expect(jobFooter(JOB_KINDS.testUpdate)).toBe(Footer);
+    const fix = { key: 'fix' as const, label: 'Open fix', fixId: 'fx-1', status: 'open' as const, href: '#/fixes/fx-1', title: 'Refunds skip the email' };
+    const job = (endedAt: number) => createElement(Footer, { job: { id: 'j1', kind: JOB_KINDS.tests, done: true, startedAt: 0, endedAt } as never, plain: true });
+    g.location = { hash: '#/tests' };
+    r = await render(page([], GOLDENS, (v) => ({ ...v, steps: { 'goldens/refunds': fix } }), { beside: createElement('div', { className: 'jkind' }, job(0), createElement('i', { className: 'later' }, job(Date.now() + 60_000))) }));
+    await r.until('the step', () => r!.all('.jkind > button').length === 1);
+    expect([r.one('.jkind > button').textContent, r.one('.jkind > button').className, r.all('.later button').length]).toEqual(['Open fix', 'btn', 0]);
+    const step = r.one('.verdict.tv .actions a');
+    let pressed = 0;
+    step.click = () => void pressed++;
+    await r.click(r.one('.jkind > button'));
+    expect(pressed).toBe(1);
   });
 });
 

@@ -38,7 +38,7 @@ export const n = (count: number, word: string) => `${count.toLocaleString('en-US
  * running while its process is (`live`, from the server, wherever it was started; `running`, a test
  * job of this tab's), and otherwise did not finish.
  */
-export function sessionLine(view: TestsView, running = false): { command: string; rest: string; since: string | null; sinceTip: string | null; live: boolean } | null {
+export function sessionLine(view: { verdict: Pick<NonNullable<TestsView['verdict']>, 'session' | 'since'> | null }, running = false): { command: string; rest: string; since: string | null; sinceTip: string | null; live: boolean } | null {
   const v = view.verdict;
   if (!v) return null;
   const s = v.session;
