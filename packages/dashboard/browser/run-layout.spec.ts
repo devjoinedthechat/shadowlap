@@ -213,6 +213,25 @@ test.describe('on a 390px phone', () => {
   });
 });
 
+test('the key’s rows are balanced again as the window narrows or widens, as a page opened at that width balances them', async ({ page }) => {
+  // Up to 1000px the strip around the key draws no box of its own: the run page's width is its room.
+  const key = () => page.evaluate(() => document.querySelector<HTMLElement>('#olegend')!.style.maxWidth);
+  for (const name of ['override', 'ticket']) {
+    const opened = new Map<number, string>();
+    for (const width of [360, 900]) {
+      await page.setViewportSize({ width, height: 800 });
+      await openPage(page, `/run/${demoId(name)}`, 'run');
+      opened.set(width, await key());
+    }
+    expect(opened.get(360), `${name}: its rows wrap at 360px and are balanced`).toMatch(/^\d+px$/);
+    expect(opened.get(900), `${name}: fewer rows at 900px`).not.toBe(opened.get(360));
+    for (const width of [360, 900]) {
+      await page.setViewportSize({ width, height: 800 });
+      await expect.poll(key, `${name} at ${width}px`).toBe(opened.get(width));
+    }
+  }
+});
+
 test('at 320×700 nothing scrolls sideways, the inspector’s tabs fitting or scrolling in their own row', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 700 });
   for (const name of ['ticket', 'override', 'batch']) {

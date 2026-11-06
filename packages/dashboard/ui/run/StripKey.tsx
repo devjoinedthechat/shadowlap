@@ -28,26 +28,34 @@ export function StripKey({ items, byKind, filter, onFilter }: { items: readonly 
   );
 }
 
-/** Balances the key's rows when its chips or its width change, never on a render that changed neither. */
+/**
+ * Balances the key's rows when its chips or its room change, never on a render that changed neither,
+ * and once the web fonts land, which can be wider than the fallback it was measured in. Its room is
+ * the run page's width (`.rv`): up to 1000px the strip around the key draws no box of its own
+ * (`display: contents`), so it has no width to read and never resizes.
+ */
 function useBalanced(box: RefObject<HTMLDivElement | null>, chips: string): void {
   const last = useRef({ chips: '', width: -1 });
   useLayoutEffect(() => {
     const el = box.current;
-    if (!el || typeof ResizeObserver !== 'function') return;
+    const room = el?.closest<HTMLElement>('.rv') ?? el?.parentElement;
+    if (!el || !room || typeof ResizeObserver !== 'function') return;
     let frame = 0;
-    const fit = () => {
-      frame = 0;
-      const width = el.parentElement?.clientWidth ?? 0;
-      if (last.current.chips === chips && last.current.width === width) return;
+    let gone = false;
+    const fit = (fonts = false) => {
+      const width = room.clientWidth;
+      if (!fonts && last.current.chips === chips && last.current.width === width) return;
       last.current = { chips, width };
       balanceRow(el);
     };
     fit();
     const ro = new ResizeObserver(() => {
-      if (!frame) frame = requestAnimationFrame(fit);
+      if (!frame) frame = requestAnimationFrame(() => ((frame = 0), fit()));
     });
-    if (el.parentElement) ro.observe(el.parentElement);
+    ro.observe(room);
+    if (document.fonts?.status === 'loading') void document.fonts.ready.then(() => gone || fit(true), () => undefined);
     return () => {
+      gone = true;
       ro.disconnect();
       if (frame) cancelAnimationFrame(frame);
     };
