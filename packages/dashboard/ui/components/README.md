@@ -145,7 +145,7 @@ palette from any page.
 Palette entries come from sources added with `addPaletteSource` from `palette-sources.ts`. A
 page's actions and Tests are added in `palette-actions.ts`, which loads with the palette, so a fresh
 dashboard lists them before their pages have opened; a row whose dialog is on its page opens the
-page and asks there. A source runs when the palette opens; one that loads what it lists answers
+page and asks there (`page-ask.ts`; Apply fix asks by the fix's id). A source runs when the palette opens; one that loads what it lists answers
 with what it has and calls `paletteSourcesChanged()` when more arrives, and an open palette reads
 its sources again. Pages a later version fills in each have their own file under `pages/`.
 
