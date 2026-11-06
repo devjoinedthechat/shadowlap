@@ -22,7 +22,7 @@ function Page({ run }: { run: RunDetail }) {
     { id: 'view' },
     createElement('button', { type: 'button', 'data-act': 'diff', onClick: p.onToggleDiff }, p.showDiff ? 'Hide diff' : 'Show diff'),
     createElement('button', { type: 'button', className: 'pick', onClick: p.close }, '#3'),
-    createElement(InspectorPlace, { kind: p.kind, run, test: null, onClose: p.close }, inspector),
+    createElement(InspectorPlace, { kind: p.kind, run, test: null, onClose: p.close, children: inspector }),
   );
 }
 
