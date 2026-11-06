@@ -21,7 +21,7 @@ const option = (id: string, o: Partial<ModelOptionView> = {}): ModelOptionView =
   request: { model: id, baseUrl: o.baseUrl ?? null, goldens: null },
   label: id,
   lastScore: null,
-  note: 'Anthropic API · about $0.004 an attempt',
+  note: '',
   ...o,
 });
 
