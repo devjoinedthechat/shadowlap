@@ -1366,6 +1366,8 @@ or `by hand` for one you made that a verdict checked.
 - each run's `role`, `attempts`, `outcome` and where it went (`note`), and the token and cost changes
   per run;
 - what it took to find out;
+- what answered the change's tool calls after the fork, and the baselines' apart, in `afterFork`, as
+  the report's line says it, or `null` when no attempt made a tool call after its fork;
 - its `reasons`, with those that say a run is inconclusive or not settled, rather than that the change
   failed it, in `unsettled`.
 

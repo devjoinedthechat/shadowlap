@@ -3,7 +3,7 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { blameSteps, JUDGE_SCOPE, markFixApplied, recordBlame, recordRepair, recordVerdict, Store, type VerifyReport } from '@shadowlap/engine';
+import { afterForkLines, blameSteps, JUDGE_SCOPE, markFixApplied, plain, recordBlame, recordRepair, recordVerdict, Store, type VerifyReport } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { fixDetail, type FixDetail } from '../src/fixes.js';
 import { fixesView } from '../src/fixes-view.js';
@@ -106,6 +106,21 @@ describe('the Blame step’s row of calls', () => {
     ]);
     expect(steps).toBe(3);
     expect(b.callRow.filter((c) => c.probed)).toHaveLength(b.steps);
+  });
+});
+
+describe('the Verify step’s line on what answered the tool calls after the fork', () => {
+  it('is the CLI report’s, in the engine’s words, and is none when no attempt made a tool call after its fork', () => {
+    const f = blamed();
+    const report = verifyReport([{ runId: f.run, role: 'target', pass: true }]);
+    report.runs[0].attempts = report.runs[0].attempts.map((a, i) => ({ ...a, afterFork: { recorded: 3, inOrder: 0, live: 0, stubbed: i, blocked: 0 } }));
+    recordVerdict(store, { report, expect: SEND_ONCE, command: 'shadowlap verify', at: (at += DAY) });
+    const shown = detail(f.fixId).verify[0].afterFork;
+    expect(shown).toBe(afterForkLines(report.runs, plain)[0].trim());
+    expect(shown).toBe("after the fork, the change's 4 attempts made 18 tool calls: 12 answered as recorded, 6 stubbed");
+    acceptedByHand([f.run]);
+    expect(afterForkLines(store.listVerdicts().at(-1)!.report.runs, plain)).toEqual([]);
+    expect(detail(f.fixId).verify[0].afterFork).toBeNull();
   });
 });
 

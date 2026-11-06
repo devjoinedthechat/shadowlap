@@ -1,6 +1,6 @@
 import { createElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { decideVerify, formatBlame, markFixApplied, recordBlame, recordEvent, recordRepair, recordVerdict, setFixTitle, Store, type BlameReport } from '@shadowlap/engine';
+import { afterForkLines, decideVerify, formatBlame, markFixApplied, plain, recordBlame, recordEvent, recordRepair, recordVerdict, setFixTitle, Store, type BlameReport } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { fixAttemptGroups } from '../src/attempt-groups.js';
 import { fixDetail } from '../src/fixes.js';
@@ -488,6 +488,20 @@ describe('the Verify step', () => {
     expect(r!.one('.verdict').className).toBe('verdict ok');
     expect(text(r!.one('.verdict h2'))).toBe('Fixes 1 of 1 target run');
     expect(text(r!.byText('nav.stepper a b', '1 fixed'))).toBe('1 fixed');
+  });
+
+  it('says what answered the tool calls after the fork in the CLI report’s words, and nothing when no attempt made one', async () => {
+    const run = newRun({ labels: ['refund-bug'] });
+    const { fixId } = blame(run).fix;
+    const report = verifyReport([{ runId: run, role: 'target', pass: true }]);
+    report.runs[0].attempts = report.runs[0].attempts.map((a) => ({ ...a, afterFork: { recorded: 2, inOrder: 0, live: 1, stubbed: 0, blocked: 0 } }));
+    recordVerdict(store, { report, expect: EXPECT, command: 'v', at: NOW + 1 });
+    await open(fixId, 'verify');
+    expect(text(r!.one('.fxreceipt.fxafter'))).toBe(afterForkLines(report.runs, plain)[0].trim());
+    recordVerdict(store, { report: verifyReport([{ runId: run, role: 'target', pass: true }]), expect: EXPECT, command: 'v', at: NOW + 2 });
+    await r!.unmount();
+    await open(fixId, 'verify');
+    expect(r!.all('.fxreceipt.fxafter')).toHaveLength(0);
   });
 });
 

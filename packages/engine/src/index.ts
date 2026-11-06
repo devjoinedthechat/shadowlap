@@ -149,7 +149,7 @@ export type { BlameAttempt, BlameContrast, BlameOutcome, BlameProbe, BlameReport
 export { reusedBlame, type ReusedBlame } from './blame-reuse.js';
 export { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateShort, gateVerdict, keptTally, keptVerdict, outcomeOf, runVerdict, unsettledReason, verifyRule } from './verify.js';
 // What answered an attempt's tool calls after its fork: verify's line on it and its warnings.
-export { afterForkLines, afterForkOf, afterForkWarnings, type AfterFork } from './after-fork.js';
+export { afterForkLines, afterForkOf, afterForkSentence, afterForkWarnings, type AfterFork } from './after-fork.js';
 // Blame's calibrated search (the risk spent across its probes, the range it reports and its bound),
 // verify's test of a good run against its own baseline, and the isotonic fit both read rates with.
 export { blameSpan, confidenceOf, confidenceWhy, decidePin, pinRisk, pinRule, pinWords, pooledRates, probeClaim, probeGate, probeRisk, unrescuedHead } from './blame.js';

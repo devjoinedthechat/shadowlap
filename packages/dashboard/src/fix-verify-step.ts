@@ -1,4 +1,4 @@
-import { describeGate, expectArgs, type FixRecords, fixVerifyHead, footprintDelta, GATE_MAX_ATTEMPTS, gateOdds, keptAttemptVerdict, outcomeOf, type PulledFrom, rateBound, SPRT_DEFAULTS, type SprtGate, type StoredVerdict, unsettledReason, type VerdictStanding, verdictWord, type VerifiedRun, type VerifyOutcome } from '@shadowlap/engine';
+import { afterForkSentence, describeGate, expectArgs, type FixRecords, fixVerifyHead, footprintDelta, GATE_MAX_ATTEMPTS, gateOdds, keptAttemptVerdict, outcomeOf, type PulledFrom, rateBound, SPRT_DEFAULTS, type SprtGate, type StoredVerdict, unsettledReason, type VerdictStanding, verdictWord, type VerifiedRun, type VerifyOutcome } from '@shadowlap/engine';
 import { verifyEvidence } from './evidence.js';
 import { fieldArgs, rerunFlags, runIds, type RerunFlags } from './rerun.js';
 import { changeName, commandLine, countArgs, finite, fixHref, gateArg, PULLED_CAP, pulledGate, ROLE, runHref, shortFailure, sprtGate, type VerifyRow } from './fix-shared.js';
@@ -47,6 +47,8 @@ export interface VerifyStep {
   /** Those of `reasons` that say a run is inconclusive or not settled, not that the change failed it: shown in amber, the rest in red. */
   unsettled: string[];
   warnings: string[];
+  /** What answered the change's tool calls after the fork, and the baselines' apart, in the engine's words (`afterForkSentence`), as the CLI's report prints it under its warnings; null when no attempt made one. */
+  afterFork: string | null;
   /**
    * The command it ran: as it ran, for a verdict given here; for one a pull brought (`pulled`), the
    * same verify made here from its checked fields, so a teammate's command line is never offered to
@@ -182,6 +184,7 @@ export function verifyStep(rec: FixRecords, v: StoredVerdict, fallback: string):
     reasons: r.reasons,
     unsettled: r.reasons.filter(unsettledReason),
     warnings: [...r.warnings, ...(r.replayWarnings ?? [])],
+    afterFork: afterForkSentence(r.runs),
     // A teammate's command line is never offered to copy: the same verify, made here from its checked fields.
     command: v.pulled ? sameVerify(v, fallback) : v.command,
     pulled: v.pulled ?? null,

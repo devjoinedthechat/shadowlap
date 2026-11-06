@@ -1041,6 +1041,7 @@ Then come:
 - **Each run's attempts grouped by what each did**, as on the Blame step.
 - **What the change does to input tokens and cost per run**, in one quiet line as verify prints it.
 - **What finding out cost**; for an inconclusive verdict, only what it spent.
+- **What answered the tool calls after the fork**, the change's and the baselines' apart, in the line verify prints under its warnings (*after the fork, the change's 9 attempts made 41 tool calls: 35 answered as recorded, 6 stubbed*). It shows only when an attempt made a tool call after its fork.
 
 The stepper counts the runs the verdicts that hold fixed and kept (*3 fixed · 1 kept*). A fix verified with a change of request fields has no patch: **Mark applied** says which fields, for you to set in your agent, and so does `fix apply`'s drawer.
 
