@@ -1,6 +1,7 @@
-import { ACTIONS, attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, isObject, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, plural, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { ACTIONS, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, isObject, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, plural, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResults } from './bisect-start.js';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
+import { historyCells, type HistoryCell } from './tests-history.js';
 import { gateLine, gateRuleOf } from './verdict.js';
 import { links } from './links.js';
 
@@ -162,29 +163,7 @@ export interface TestsVerdict {
   since: SinceResult[];
 }
 
-/** A golden at one revision: a cell of its history. */
-export interface HistoryCell {
-  revision: string | null;
-  /**
-   * Where the result shown was tested: the column's revision, or, for a golden run again on its own
-   * (Add normalizer and re-run, Run tests on it) with changes on top, `<revision>+dirty`.
-   */
-  tested: string | null;
-  /** Null: it wasn't a golden yet, or wasn't tested at that revision. An inconclusive result reads as `fail`: it didn't pass. */
-  result: 'pass' | 'fail' | null;
-  /** How it came out there, inconclusive told apart; null as for `result`. */
-  verdict: GoldenVerdict | null;
-  /** Its attempts there, passes of attempts: the pass rate a cell is shaded by. Null as for `result`, or when it couldn't run. */
-  rate: Tally | null;
-  /** Its gate against history failed there: a drop from its baseline (a ring). */
-  dropped: boolean;
-  /** Why it failed, for the hover. */
-  note: string | null;
-  /** `test --update` re-recorded it there (the ring). */
-  updated: boolean;
-  runId: string | null;
-  at: number | null;
-}
+export type { HistoryCell } from './tests-history.js';
 
 /**
  * One of a golden's checks, with how its last result came out on it: what the table marks it by
@@ -1185,6 +1164,8 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
   for (const m of chaosMatrices(store)) if (m.golden && !presetsOf.has(m.golden)) presetsOf.set(m.golden, presetsSummary(m, (id) => store.getRun(id) !== null));
   const history = byGolden(sessionsView.results);
   const columns = new Set(revisions);
+  const sessionIds = new Set(sessionsView.columnOf.keys());
+  const columnOf = (x: TestResult) => (sessionsView.columnOf.has(x.sessionId) ? sessionsView.columnOf.get(x.sessionId) : columnOfRevision(x.revision, columns));
 
   const rows: GoldenRow[] = goldens.map((g) => {
     const list = history.get(g.path) ?? [];
@@ -1204,25 +1185,7 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
       checks: g.checks,
       checkResults: goldenChecks(store, g.checks, latest),
       injection: !!g.injection,
-      history: revisions.map((rev) => {
-        // Its own column's sessions, and a session that ran only some goldens there, or on that
-        // commit with changes on top (Add normalizer and re-run), where no column is its own.
-        const here = list.filter((x) => (sessionsView.columnOf.has(x.sessionId) ? sessionsView.columnOf.get(x.sessionId) : columnOfRevision(x.revision, columns)) === rev);
-        // The newest result there, ringed when any session there updated it: a run after the update keeps the ring.
-        const r = here[0] ?? null;
-        return {
-          revision: rev,
-          tested: r?.revision ?? null,
-          result: r ? (r.ok ? 'pass' : 'fail') : null,
-          verdict: r ? verdictOfResult(r) : null,
-          rate: r ? attemptsOf(r) : null,
-          dropped: !!r && r.data?.gate?.kind === 'baseline' && r.data.gate.decision === 'fail',
-          note: r ? cellNote(store, r, g.checks, rules) : null,
-          updated: here.some((x) => !!x.data?.updated),
-          runId: r ? runIfKept(store, r.runId) : null,
-          at: r?.at ?? null,
-        };
-      }),
+      history: historyCells(store, list, revisions, { columnOf, columns: sessionIds, note: (r) => cellNote(store, r, g.checks, rules), runId: (r) => runIfKept(store, r.runId) }),
       last: latest
         ? { result: latest.ok ? 'pass' : 'fail', verdict: verdictOfResult(latest), failure: latest.failure, line: latest.ok || !latest.data?.updated ? lineOf(store, latest, g.checks, rules) : `updated${latest.revision ? ` at ${latest.revision}` : ''}, then ${lineOf(store, latest, g.checks, rules)}`, at: latest.at, updated: !!latest.data?.updated, gate: gateResultView(latest, g.path), injection: latest.data?.injection ?? null }
         : { result: null, verdict: null, failure: null, line: error ? `can't be read: ${error}` : presetsOf.get(g.path) ? `${presetsOf.get(g.path)!.line} · replay not tested yet` : 'not run yet', at: null, updated: false, gate: null },
