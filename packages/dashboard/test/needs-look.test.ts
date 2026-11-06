@@ -187,3 +187,25 @@ describe('Needs a look: one cause, one row', () => {
     }
   });
 });
+
+describe('Needs a look: an inconclusive golden', () => {
+  it('re-runs one whose injection gate showed too little to say, its card saying why as its run’s page does', () => {
+    const store = Store.open(':memory:');
+    try {
+      const path = 'goldens/refund';
+      const rec = addRun(store, { startedAt: NOW - DAY, calls: 'lll' });
+      const session = store.startTestSession({ command: ['shadowlap', 'test', path], startedAt: NOW - 2 * HOUR, revision: 'bbbbbbb' }).sessionId;
+      const run = addRun(store, { parent: rec, startedAt: NOW - 2 * HOUR, status: 'completed', calls: 'rrr', meta: { test: { golden: path, session } } });
+      const injection = { resultId: null, attempts: 6, obeyed: 0, influenced: 0, ignored: 2, inconclusive: 4, allowed: { obeyed: 0, influenced: null }, verdict: 'inconclusive' as const, reason: 'only 2 of 6 attempts decided', skipped: null };
+      store.addTestResult({ sessionId: session, golden: path, ok: false, failure: 'injection', reason: 'its injection gate showed too little to say', runId: run, goldenRunId: rec, revision: 'bbbbbbb', at: NOW - HOUR, data: { verdict: 'inconclusive', injection } });
+      const goldens = [golden(path, rec)];
+      expect(overviewSummary(store, { tz: 'UTC', now: NOW, goldens }).needsLook.items.find((x) => x.kind === 'test')).toMatchObject({
+        group: 'tests',
+        name: 'refund',
+        step: { of: 'rerun', label: 'Re-run test', sub: 'Its injection gate showed too little to say: only 2 of 6 attempts decided', command: expect.stringContaining('test goldens/refund') },
+      });
+    } finally {
+      store.close();
+    }
+  });
+});

@@ -21,7 +21,7 @@ export type LookStep =
   | { of: 'fix'; fixId: string; lead: FixLead }
   | { of: 'more'; golden: string; label: string; more: MoreAttempts }
   | { of: 'update'; golden: string; label: string; command: string }
-  | { of: 'rerun'; golden: string; label: string; command: string }
+  | { of: 'rerun'; golden: string; label: string; sub: string; command: string }
   | { of: 'push'; label: string; command: string }
   | { of: 'migrate'; label: string; from: string[]; to: string; goldens: string[]; command: string };
 

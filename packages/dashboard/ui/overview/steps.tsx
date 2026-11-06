@@ -123,7 +123,7 @@ export function stepWords(s: LookStep): { sub: string | null; command: string | 
     case 'migrate':
       return { sub: MIGRATE_SUB, command: `$ ${s.command}` };
     case 'rerun':
-      return { sub: null, command: `$ ${s.command}` };
+      return { sub: s.sub, command: `$ ${s.command}` };
   }
 }
 

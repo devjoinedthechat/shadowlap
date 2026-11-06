@@ -1,7 +1,7 @@
 import { ACTIONS } from '@shadowlap/engine';
 import { commandLine } from '../fix-shared.js';
 import { links } from '../links.js';
-import type { NextStep } from '../next-step.js';
+import { gateAgainSub, type NextStep } from '../next-step.js';
 import { type FailingTest, gateResultView } from '../tests.js';
 import { goldenName, type LookSource, type LookStep, type LookWork, type NeedsLookRow, plural } from './row.js';
 
@@ -44,7 +44,8 @@ export const failedGoldens: LookSource = {
 
 /**
  * Run more attempts where its gate ran out of them, Update golden where a judge check had no verdict
- * offline, Re-run test where its injection gate showed too little to say; else the row opens Tests.
+ * offline, Re-run test where its injection gate showed too little to say (its card saying why, as
+ * its run's page does); else the row opens Tests.
  */
 export const inconclusiveGoldens: LookSource = {
   id: 'inconclusiveGoldens',
@@ -52,7 +53,7 @@ export const inconclusiveGoldens: LookSource = {
   order: 10,
   rows: (w) => {
     const unsure = w.failing.filter((t) => t.verdict === 'inconclusive');
-    const latest = unsure.some((t) => t.next === 'run-more') ? new Map(w.store.latestTestResults().map((r) => [r.golden, r])) : null;
+    const latest = unsure.some((t) => t.next === 'run-more' || t.next === 'run-again') ? new Map(w.store.latestTestResults().map((r) => [r.golden, r])) : null;
     return unsure.map((t) => {
       const r = latest?.get(t.golden);
       const more = t.next === 'run-more' && r ? (gateResultView(r, r.golden)?.more ?? null) : null;
@@ -61,7 +62,7 @@ export const inconclusiveGoldens: LookSource = {
         : t.next === 'update'
           ? { of: 'update', golden: t.golden, label: ACTIONS.updateGolden.label, command: commandLine(['test', t.golden, '--update']) }
           : t.next === 'run-again'
-            ? { of: 'rerun', golden: t.golden, label: 'Re-run test', command: commandLine(['test', t.golden]) }
+            ? { of: 'rerun', golden: t.golden, label: ACTIONS.rerunTest.label, sub: gateAgainSub(r?.data?.injection?.reason), command: commandLine(['test', t.golden]) }
             : null;
       return { key: `attn:inconclusive:${t.golden}`, group: 'tests', kind: 'test', icon: 'warn', fixId: null, ...golden(t, step) };
     });
