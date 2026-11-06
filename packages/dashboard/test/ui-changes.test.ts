@@ -386,8 +386,16 @@ describe('Verdicts', () => {
     await open(() => Promise.resolve(view([], { counts: { all: 2, sessions: 0, previews: 1, verifies: 1 } })));
     await page!.until('the line', () => page!.all('p.emptyline').length === 1);
     expect(page!.one('p.emptyline').textContent).toBe('No change checked yet.');
-    expect(chipEmpty('sessions')).toBe('No test session yet. Each one CI runs on a pull request lands here.');
-    expect(chipEmpty('previews')).toBe('No preview yet. shadowlap decisions previews a change before it ships.');
+    await page!.click(chip('Test sessions'));
+    await page!.until('the sessions’ line', () => shown(page!.one('p.emptyline')).startsWith('No test session'));
+    expect(shown(page!.one('p.emptyline'))).toBe('No test session yet. Each one CI runs on a pull request lands here.');
+    // The command a line names is code, kept whole.
+    await page!.click(chip('Previews'));
+    await page!.until('the previews’ line', () => page!.all('p.emptyline code').length === 1);
+    expect(shown(page!.one('p.emptyline'))).toBe('No preview yet. shadowlap decisions previews a change before it ships.');
+    expect(page!.one('p.emptyline code').textContent).toBe('shadowlap decisions');
+    expect(chipEmpty('previews')).toEqual([{ words: 'No preview yet.' }, { code: 'shadowlap decisions' }, { words: 'previews a change before it ships.' }]);
+    await page!.click(chip('All'));
     await page!.unmount();
     await open(() => Promise.resolve(view([])));
     await page!.until('the empty state', () => page!.all('.stepempty h2').length === 1);

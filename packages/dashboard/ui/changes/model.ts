@@ -23,11 +23,11 @@ export const VERDICT_CHIPS: ReadonlyArray<{ key: VerdictsKind; label: string }> 
   { key: 'verifies', label: 'Verifies' },
 ];
 
-/** What a chip with no rows says. */
-export function chipEmpty(kind: Exclude<VerdictsKind, 'all'>): string {
-  if (kind === 'sessions') return 'No test session yet. Each one CI runs on a pull request lands here.';
-  if (kind === 'verifies') return 'No verify yet. A fix’s Verify step proves its change on the failing runs and the good ones.';
-  return 'No preview yet. shadowlap decisions previews a change before it ships.';
+/** What a chip with no rows says, in parts with a space between: a command it names is code. */
+export function chipEmpty(kind: Exclude<VerdictsKind, 'all'>): readonly LinePart[] {
+  if (kind === 'sessions') return [{ words: 'No test session yet. Each one CI runs on a pull request lands here.' }];
+  if (kind === 'verifies') return [{ words: 'No verify yet. A fix’s Verify step proves its change on the failing runs and the good ones.' }];
+  return [{ words: 'No preview yet.' }, { code: 'shadowlap decisions' }, { words: 'previews a change before it ships.' }];
 }
 
 /** A row's colour, as the API gives it (`ok` held, `no` didn't, `y` open, none for nothing to verify): never read off its word. */
@@ -48,7 +48,7 @@ export function verdictHref(row: VerdictRow): string | null {
 /** A session titled by its revision, git having no subject for it: the title is drawn as code, and its kind line leaves the revision out. */
 export const titledByRevision = (row: VerdictRow): boolean => row.kind === 'session' && row.subject === null && row.revision !== null;
 
-/** A part of a row's kind line, kept whole: words, then a revision in the code face (`on d2e8a1f`), or either alone. */
+/** A part of a line, kept whole: words, then a revision or a command in the code face (`on d2e8a1f`), or either alone. */
 export interface LinePart {
   words?: string;
   code?: string;

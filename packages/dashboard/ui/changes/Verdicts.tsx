@@ -90,7 +90,7 @@ function Rows({ view, chip, limit, onMore }: { view: VerdictsView; chip: Verdict
       if (to) navigate(to);
     },
   });
-  if (!view.rows.length) return <EmptyLine>{chip === 'all' ? 'No change checked yet.' : chipEmpty(chip)}</EmptyLine>;
+  if (!view.rows.length) return <EmptyLine>{chip === 'all' ? 'No change checked yet.' : <Parts parts={chipEmpty(chip)} />}</EmptyLine>;
   const next = moreLimit({ shown: view.rows.length, limit, count: view.counts[chip] });
   return (
     <>
@@ -125,6 +125,31 @@ function Rows({ view, chip, limit, onMore }: { view: VerdictsView; chip: Verdict
   );
 }
 
+/** A part of a line: its words, then its code in the code face. */
+function Part({ part }: { part: LinePart }) {
+  return (
+    <>
+      {part.words ?? null}
+      {part.words && part.code ? ' ' : null}
+      {part.code ? <code>{part.code}</code> : null}
+    </>
+  );
+}
+
+/** A line in parts, a space between each: a sentence that names a command. */
+function Parts({ parts }: { parts: readonly LinePart[] }) {
+  return (
+    <>
+      {parts.map((p, i) => (
+        <Fragment key={i}>
+          {i ? ' ' : null}
+          <Part part={p} />
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
 /** A row's kind line, each part kept whole, a revision in the code face. */
 function KindLine({ parts }: { parts: readonly LinePart[] }) {
   return (
@@ -133,9 +158,7 @@ function KindLine({ parts }: { parts: readonly LinePart[] }) {
         <Fragment key={i}>
           {i ? ' · ' : null}
           <span className="nw">
-            {p.words ?? null}
-            {p.words && p.code ? ' ' : null}
-            {p.code ? <code>{p.code}</code> : null}
+            <Part part={p} />
           </span>
         </Fragment>
       ))}
