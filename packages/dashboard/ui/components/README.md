@@ -151,7 +151,8 @@ page and asks there (`page-ask.ts`; Apply fix asks by the fix's id). A source ru
 with what it has and calls `paletteSourcesChanged()` when more arrives, and an open palette reads
 its sources again. Pages a later version fills in each have their own file under `pages/`.
 
-The Overview's sections are in `overview/` (`panels.tsx` and `Usage.tsx`, with what they say in `overview/model.ts`),
+The Overview's sections are in `overview/` (`NeedsLook.tsx` with its rows' steps in `steps.tsx`, `panels.tsx` and
+`Usage.tsx`, their words kept whole where a line wraps by `words.tsx`, with what they say in `overview/model.ts`),
 and the Runs page's parts in `runspage/`: the header's actions (`RunsActions.tsx`: Pull, Import
 capture… and Push local runs while runs are only here), the filter field (`FilterField.tsx`: its
 terms on hover, how many runs match, `onCommit` for Enter), the row of days (`DaysRow.tsx`, a bar a
