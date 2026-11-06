@@ -41,6 +41,17 @@ export interface StatusFacts {
   now: number;
 }
 
+/**
+ * Why nothing changes here, for the read-only part's hover, or null where the bar has no such part: a
+ * dashboard started with --read-only, or one with no actions to run (embedded, with no CLI behind
+ * it), each with the reason its controls give (`actionsOff`). An exported copy says it reads only in
+ * its own words. A link that expired turns actions off, but the dashboard is no less a dashboard: the
+ * connection part says what is wrong.
+ */
+export function readOnlyWhy(o: { meta: { readOnly?: boolean; actions: boolean } | null; exported: boolean; actionsOff: string | null }): string | null {
+  return o.meta && !o.exported && (o.meta.readOnly === true || !o.meta.actions) ? (o.actionsOff ?? 'This dashboard is read-only.') : null;
+}
+
 /** When the team store last synced: just now, 10:14 today, Oct 1 before that, or not yet. */
 function syncedWords(team: NonNullable<StatusFacts['team']>, now: number): string {
   if (team.settingUp) return 'setting up';

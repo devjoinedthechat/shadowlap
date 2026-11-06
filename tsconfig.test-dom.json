@@ -77,7 +77,8 @@
     "packages/dashboard/test/ui-run-views.test.ts",
     "packages/dashboard/test/ui-page-failed.test.ts",
     "packages/dashboard/test/ui-primitives.test.ts",
-    "packages/dashboard/test/primitives-page.tsx"
+    "packages/dashboard/test/primitives-page.tsx",
+    "packages/dashboard/test/ui-status-bar.test.ts"
   ],
   "exclude": []
 }

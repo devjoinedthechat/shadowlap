@@ -5,7 +5,7 @@ import { isAttempt } from '../runs.js';
 import { useApp } from '../state.js';
 import { useTeamStore } from '../teamstore.js';
 import { JobChip } from './JobChip.js';
-import { STATUS_GIVES_WAY, statusParts, type StatusPart } from './status.js';
+import { readOnlyWhy, STATUS_GIVES_WAY, statusParts, type StatusPart } from './status.js';
 
 /**
  * Fits the bar to its width, measured: while it overflows, what it can do without gives way whole,
@@ -71,7 +71,6 @@ export function StatusBar({ inert = false }: { inert?: boolean }) {
   const team = useTeamStore();
   const listed = runs ? runs.filter((r) => !isAttempt(r)).length : null;
   const attempts = meta?.counts?.attempts ?? (runs ? runs.length - (listed ?? 0) : null);
-  const readOnly = !!meta && !exported && (meta.readOnly === true || !meta.actions) ? (actionsOff ?? 'This dashboard is read-only.') : null;
   const { left, right } = statusParts({
     exported,
     store: meta?.dbPath ? { shown: storePath(meta), whole: meta.dbPath } : null,
@@ -79,7 +78,7 @@ export function StatusBar({ inert = false }: { inert?: boolean }) {
     attempts,
     exportedAt: meta?.exportedAt ?? null,
     conn,
-    readOnly,
+    readOnly: readOnlyWhy({ meta, exported, actionsOff }),
     address: meta?.address ?? location.host,
     team,
     version: meta?.version ?? null,
