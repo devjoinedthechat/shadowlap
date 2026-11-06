@@ -14,18 +14,19 @@ import { TestsJobButton } from '../fixes/TestsJobButton.js';
 import { useJobWait, useTreeBusy } from '../fixes/tree.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { href } from '../route.js';
-import { compareTarget } from '../runs.js';
+import { compareTarget, outcomeOf } from '../runs.js';
 import { shortcut } from '../shortcuts.js';
 import { sentEstimate } from '../spending.js';
-import { useApp } from '../state.js';
+import { guardedWayOn, useApp } from '../state.js';
 import { gateAgainAsk, rerunAsk, startTestsJob } from '../tests-ask.js';
+import { errorText } from '../toast.js';
 import type { NextStep } from '../types.js';
 import type { PendingAction } from './actions.js';
 import { useDivergedJobs } from './diverged.js';
-import { checksOf } from './model.js';
-import { blameBesideCard, gateEntry, replayAction, stepCard, stepCostLine, stepEstimate, stepJob, type StepCard } from './next-step.js';
+import { checksOf, runLikeOf } from './model.js';
+import { blameBesideCard, gateEntry, PACK_VERB, replayAction, stepCard, stepCostLine, stepEstimate, stepJob, type StepCard } from './next-step.js';
 import { blameTitle } from './offers.js';
-import { PACK_HOLDS, packRunCommand, redactsFact } from './share.js';
+import { PACK_HOLDS, packRunCommand, packTestCommands, redactsFact } from './share.js';
 
 /**
  * The header's one lime button, drawn from the step the server worked out (src/next-step.ts): a link
@@ -82,7 +83,7 @@ export function ReplayButton({ run, step, lime, onAction }: { run: RunDetail; st
       className={lime ? 'btn lime' : 'btn'}
       why={step?.off ?? action?.disabled}
       disabled={!action}
-      {...(lime ? { 'data-next': 'replay' } : {})}
+      {...(lime ? { 'data-next': 'replay' } : { 'data-fold': 'replay' })}
       {...(step ? { 'data-tip': tipOf(stepCard(step)) } : action ? { 'data-tip': tipText(ACTIONS.replay.label) } : {})}
       onClick={() => action && onAction({ action, callNo: null, ...target })}
       {...shortcut('replay')}
@@ -105,7 +106,7 @@ export function CompareButton({ run }: { run: RunDetail }) {
   if (!pair) {
     if (exported) return null;
     return (
-      <button className="btn" type="button" disabled title={r.status === 'running' ? 'Nothing to compare yet: replay or fork it once it finishes' : 'Nothing to compare yet: replay it or fork it first'} {...shortcut('compare')}>
+      <button className="btn" type="button" data-fold="compare" disabled title={r.status === 'running' ? 'Nothing to compare yet: replay or fork it once it finishes' : 'Nothing to compare yet: replay it or fork it first'} {...shortcut('compare')}>
         {ACTIONS.compare.label}
       </button>
     );
@@ -114,7 +115,7 @@ export function CompareButton({ run }: { run: RunDetail }) {
   const label = r.parentRunId ? ACTIONS.compareWithParent.label : run.children.find((c) => c.runId === other)?.kind === 'fork' ? ACTIONS.compareWithFork.label : ACTIONS.compareWithReplay.label;
   const tip = tipCard(`Against ${shortId(other)}`, [], runs?.find((x) => x.runId === other)?.about?.text, `$ shadowlap diff ${shortId(pair[0])} ${shortId(pair[1])}`);
   return (
-    <a className="btn" href={href.compare(pair[0], pair[1])} data-tip={tip} {...shortcut('compare')}>
+    <a className="btn" href={href.compare(pair[0], pair[1])} data-fold="compare" data-tip={tip} {...shortcut('compare')}>
       {label}
     </a>
   );
@@ -196,7 +197,7 @@ function BisectStep({ run, step, offers, onFindCommit }: StepProps & { step: Ext
 /** Run blame beside a crash's Find breaking commit, plain, with what it runs and bills on hover: whether an answer of the model's lost the run, until the commit is named. */
 export function BlameBesideButton({ runId, step }: { runId: string; step: NextStep | null }) {
   if (step?.key !== 'bisect' || !step.blame) return null;
-  return <RunBlameButton runId={runId} offer={step.blame.offer} estimate={stepEstimate(step.blame, step.later)} title={blameTitle(step.blame.offer)} tip={tipOf(blameBesideCard(step.blame, step.later))} className="btn" />;
+  return <RunBlameButton runId={runId} offer={step.blame.offer} estimate={stepEstimate(step.blame, step.later)} title={blameTitle(step.blame.offer)} tip={tipOf(blameBesideCard(step.blame, step.later))} className="btn" fold="blame" />;
 }
 
 /** Add normalizer on a replay: the run's own action, the rule its divergence proposes. */
@@ -263,12 +264,101 @@ function InjectionStep({ step }: { step: Extract<NextStep, { key: 'injection-tes
   );
 }
 
-/** Pack as golden… and Pack with injection gate…: the run packed into a folder of the goldens, named for the run; a gate's entry, which this leaves to you, goes under `tests` in the config, for the folder as you name it. */
+/**
+ * Pack as golden…, lime where it leads and plain beside another step: the run packed into a folder
+ * of the goldens, named for the run, then its test, as one job (`pack-test`), leaving the config as it
+ * is. It waits while a Tests job holds the goldens. A start the server refuses keeps the dialog open
+ * with its words, as a folder taken or a bad one is; a recording from elsewhere asks first, since its
+ * test runs the command it was recorded with, and a start refused after that yes opens the dialog
+ * again on the folder tried, with the server's words.
+ */
+export function PackAsGolden({ runId, folder, offers, lead, tip, fold }: { runId: string; folder: string; offers: RunOffers | null; lead: boolean; tip: string; fold?: string }) {
+  const app = useApp();
+  // The dialog, on the folder last tried, with the server's words where it refused it.
+  const [asking, setAsking] = useState<{ dir: string; refused: string | null } | null>(null);
+  const [consent, setConsent] = useState<{ why: string; confirm: string; golden: string } | null>(null);
+  const id = shortId(runId);
+  const start = (golden: string, yes?: string): Promise<boolean> =>
+    app.client.startJob(JOB_KINDS.keepGolden, { runId, golden, ...(yes ? { yes } : {}) }).then(
+      (job) => {
+        app.watchJob(Promise.resolve(job));
+        return true;
+      },
+      (err: unknown) => {
+        const asked = yes === undefined ? consentAsked(err) : null;
+        if (asked) setConsent({ why: asked.why, confirm: asked.confirm, golden });
+        else {
+          setConsent(null);
+          setAsking({ dir: golden, refused: errorText(err) });
+        }
+        return Boolean(asked);
+      },
+    );
+  return (
+    <>
+      <TestsJobButton verb={PACK_VERB} off={null} className={lead ? 'btn lime' : 'btn'} tip={tip} {...(lead ? { lead: 'pack' } : {})} {...(fold ? { fold } : {})} onClick={() => app.guard(() => setAsking({ dir: folder, refused: null }))}>
+        {ACTIONS.packAsGolden.label}
+      </TestsJobButton>
+      {asking ? (
+        <PromptDialog
+          title={namedIn(`Pack ${id} as golden?`, id)}
+          lead="Packs the run into goldens/ and tests it, for shadowlap test to replay on every commit."
+          doc="makeGolden"
+          {...(asking.refused ? { warn: { text: asking.refused } } : {})}
+          facts={[{ label: 'Changes', value: 'your working tree', quiet: 'the golden’s folder' }, PACK_HOLDS, redactsFact(offers?.copies.formats.find((f) => f.id === 'pack')?.rules ?? null)]}
+          label="Golden"
+          initial={asking.dir}
+          command={(dir) => ({ command: packTestCommands(runId, dir) })}
+          ok={confirmWords(ACTIONS.packAsGolden.label)}
+          onClose={() => setAsking(null)}
+          onRun={(dir) => guardedWayOn(app.guard, () => start(dir))}
+        />
+      ) : null}
+      {consent ? (
+        <ConsentDialog
+          why={consent.why}
+          ok={confirmWords(ACTIONS.packAsGolden.label)}
+          onOk={() => guardedWayOn(app.guard, () => start(consent.golden, consent.confirm))}
+          onClose={() => setConsent(null)}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * The folder a plain Pack as golden… packs into, where the header shows one: a recording a golden can
+ * be made from whose first fact is no failure by today's checks (`judged`, the page's: undefined while
+ * they judge it, when none shows yet), beside a step that isn't packing it already. A golden made
+ * from a failing run would pass on the failure.
+ */
+export function plainPackFolder(run: RunDetail, offers: RunOffers | null, next: NextStep | null, judged: RunDetail['judged']): string | null {
+  if (!offers?.keep || judged === undefined || next?.key === 'pack' || next?.key === 'pack-gate') return null;
+  return outcomeOf({ ...runLikeOf(run), judged }).tone === 'err' ? null : offers.keep.folder;
+}
+
+/** Its card where another step leads, as the lead's says it. */
+export function packTip(runId: string, folder: string): string {
+  return tipCard('Pack as golden', [], 'A golden that CI replays on every commit', `$ ${packRunCommand(runId, folder)}`);
+}
+
+/**
+ * Pack as golden… beside another step that leads, an injection test's or a preset's: plain, and the
+ * header folds it into … second, after Replay. None where `plainPackFolder` finds no folder.
+ */
+export function PlainPackAsGolden({ run, offers, next, judged }: { run: RunDetail; offers: RunOffers | null; next: NextStep | null; judged: RunDetail['judged'] }) {
+  const folder = plainPackFolder(run, offers, next, judged);
+  const runId = run.run.runId;
+  return folder ? <PackAsGolden runId={runId} folder={folder} offers={offers} lead={false} tip={packTip(runId, folder)} fold="pack" /> : null;
+}
+
+/** Pack as golden… where it leads, and Pack with injection gate…: the run packed into a folder of the goldens, named for the run; a gate's entry, which this leaves to you, goes under `tests` in the config, for the folder as you name it. */
 function PackStep({ step, offers }: { step: Extract<NextStep, { key: 'pack' | 'pack-gate' }>; offers: RunOffers | null }) {
   const app = useApp();
   const [asking, setAsking] = useState(false);
+  if (step.key === 'pack') return <PackAsGolden runId={step.runId} folder={step.folder} offers={offers} lead tip={tipOf(stepCard(step))} />;
   const id = shortId(step.runId);
-  const gate = step.key === 'pack-gate' ? step.gate : null;
+  const gate = step.gate;
   return (
     <>
       <ActionButton className="btn lime" data-next={step.key} data-tip={tipOf(stepCard(step))} onClick={() => app.guard(() => setAsking(true))}>
@@ -276,19 +366,19 @@ function PackStep({ step, offers }: { step: Extract<NextStep, { key: 'pack' | 'p
       </ActionButton>
       {asking ? (
         <PromptDialog
-          title={namedIn(gate ? `Pack ${id} with injection gate?` : `Pack ${id} as golden?`, id)}
-          lead={gate ? 'Packs the run as a golden that fails while a tool call carries a planted payload’s canary.' : 'Packs the run as a golden that CI replays on every commit.'}
-          doc={gate ? 'injectionGate' : 'makeGolden'}
+          title={namedIn(`Pack ${id} with injection gate?`, id)}
+          lead="Packs the run as a golden that fails while a tool call carries a planted payload’s canary."
+          doc="injectionGate"
           facts={[
             { label: 'Changes', value: 'your working tree', quiet: 'the golden’s folder' },
             PACK_HOLDS,
             redactsFact(offers?.copies.formats.find((f) => f.id === 'pack')?.rules ?? null),
-            gate ? { label: 'Then', value: 'you add the entry below to `shadowlap.config.json`', quiet: 'it gives the golden its gate' } : null,
+            { label: 'Then', value: 'you add the entry below to `shadowlap.config.json`', quiet: 'it gives the golden its gate' },
           ]}
           label="Folder, inside the project"
           initial={step.folder}
           command={(dir) => packRunCommand(step.runId, dir)}
-          {...(gate ? { after: (dir: string) => <pre className="codebox gateentry">{gateEntry(dir || '…', gate)}</pre> } : {})}
+          after={(dir: string) => <pre className="codebox gateentry">{gateEntry(dir || '…', gate)}</pre>}
           cost={stepCostLine(step)}
           ok={confirmWords(step.label)}
           onClose={() => setAsking(false)}

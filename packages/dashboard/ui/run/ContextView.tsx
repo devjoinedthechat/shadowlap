@@ -5,6 +5,7 @@ import { tipCard } from '../components/HoverCard.js';
 import { cacheMisses, cacheNote, cacheReadShare, missStat, usedCache, wholeInput } from '../cache.js';
 import { ktok, num } from '../format.js';
 import { INPUT_PARTS } from '../../../engine/src/tokens.js';
+import { inputTicks, outputTop, tickLabel } from './context-axis.js';
 import { useWindow } from './window-hook.js';
 
 /**
@@ -81,17 +82,7 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
   // Calls that never used the cache miss on every turn: the note says so once, not a label per bar.
   const labelMisses = usedCache(ms);
   const big = ms.reduce((a, b) => (wholeInput(b.usage!) > wholeInput(a.usage!) ? b : a));
-  const max = Math.max(1, wholeInput(big.usage!));
-  const bars = contextBars(ms, misses);
-  let outMax = 1;
-  for (const b of bars) outMax = Math.max(outMax, b.out);
   const share = cacheReadShare(ms);
-  const many = bars.length > 80;
-  // A label per bar while they fit (the design's thirty-call run); past that, every few, so they never run together.
-  const every = Math.max(1, Math.ceil(bars.length / (many ? 12 : 22)));
-  const modelNos = new Set(ms.map((c) => c.callNo));
-  const holds = (b: ContextBar) => selected !== null && selected >= b.first && selected <= b.last && modelNos.has(selected);
-  const h = (v: number) => `${((v / max) * 100).toFixed(2)}%`;
   return (
     <>
       <div className="cstats">
@@ -125,7 +116,7 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
             </span>
             <span>
               <i className="lc-out" />
-              output
+              output, on its own axis
             </span>
           </div>
           <Seg
@@ -174,48 +165,7 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
             </tbody>
           </table>
         ) : (
-          <>
-            <div className={`cbars${many ? ' many' : ''}`}>
-              {bars.map((b) => {
-                const c = b.call;
-                const u = c.usage!;
-                const range = b.size > 1;
-                const tip = tipCard(range ? `#${num(b.first)}–#${num(b.last)} · largest #${num(c.callNo)}, ${num(wholeInput(u))} input tokens` : `#${c.callNo} · ${num(wholeInput(u))} input tokens`, [
-                  { label: INPUT_PARTS.cacheRead, value: num(u.cacheRead), color: 'var(--c-read)' },
-                  { label: INPUT_PARTS.cacheCreation, value: num(u.cacheWrite), color: 'var(--c-write)' },
-                  { label: INPUT_PARTS.uncached, value: num(u.input), color: 'var(--c-unc)' },
-                  { label: 'output', value: num(u.output), color: 'var(--c-out)' },
-                  ...(b.miss ? [{ label: range ? 'sent again in the range' : 'sent again', value: num(b.miss.tokens), color: 'var(--warn)' }] : []),
-                ]);
-                // A range opens its miss, else the call picked in it, else its largest context.
-                const opens = b.miss?.callNo ?? (holds(b) ? selected! : c.callNo);
-                return (
-                  <div key={b.first} className={`cbar${holds(b) ? ' sel' : ''}`} data-tip={tip} data-acts="" onClick={() => onSelect(opens)}>
-                    {u.cacheRead ? <i className="seg-read" style={{ height: h(u.cacheRead) }} /> : null}
-                    <i className="seg-write" style={{ height: h(u.cacheWrite) }} />
-                    <i className="seg-unc" style={{ height: `max(2px, ${h(u.input)})` }} />
-                    {labelMisses && b.miss ? (
-                      <span className="miss" style={{ bottom: `calc(${h(wholeInput(u))} + 8px)` }}>
-                        cache miss
-                      </span>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-            <div className={`couts${many ? ' many' : ''}`}>
-              {bars.map((b) => (
-                <i key={b.first} style={{ height: `${((b.out / outMax) * 100).toFixed(2)}%` }} />
-              ))}
-            </div>
-            <div className={`clabels${many ? ' many' : ''}`}>
-              {bars.map((b, i) => (
-                <span key={b.first} className={holds(b) ? 'sel' : undefined}>
-                  {i % every === 0 ? `#${num(b.first)}` : ''}
-                </span>
-              ))}
-            </div>
-          </>
+          <ContextChart ms={ms} misses={misses} max={Math.max(1, wholeInput(big.usage!))} labelMisses={labelMisses} selected={selected} onSelect={onSelect} />
         )}
         <p className="cnote">
           {note.lead ? (
@@ -227,5 +177,83 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
         </p>
       </div>
     </>
+  );
+}
+
+/**
+ * The chart: the input's axis and gridlines beside the bars, the output's own axis running down from
+ * the baseline beside its bars (context-axis.ts), and the call numbers under both. The axes are drawn
+ * for the eye alone: each bar's card and the table say the numbers.
+ */
+function ContextChart({ ms, misses, max, labelMisses, selected, onSelect }: { ms: CallRow[]; misses: ReadonlyMap<number, number>; max: number; labelMisses: boolean; selected: number | null; onSelect: (n: number) => void }) {
+  const bars = contextBars(ms, misses);
+  let outMax = 0;
+  for (const b of bars) outMax = Math.max(outMax, b.out);
+  const top = outputTop(outMax);
+  const ticks = inputTicks(max);
+  const many = bars.length > 80;
+  // A label per bar while they fit (the design's thirty-call run); past that, every few, so they never run together.
+  const every = Math.max(1, Math.ceil(bars.length / (many ? 12 : 22)));
+  const modelNos = new Set(ms.map((c) => c.callNo));
+  const holds = (b: ContextBar) => selected !== null && selected >= b.first && selected <= b.last && modelNos.has(selected);
+  const h = (v: number) => `${((v / max) * 100).toFixed(2)}%`;
+  return (
+    <div className="cplot">
+      <div className="yaxis" aria-hidden="true">
+        {ticks.map((v) => (
+          <span key={v} style={{ bottom: h(v) }}>
+            {tickLabel(v)}
+          </span>
+        ))}
+      </div>
+      <div className={`cbars${many ? ' many' : ''}`}>
+        {ticks.slice(1).map((v) => (
+          <span key={`gl${v}`} className="gl" style={{ bottom: h(v) }} />
+        ))}
+        {bars.map((b) => {
+          const c = b.call;
+          const u = c.usage!;
+          const range = b.size > 1;
+          const tip = tipCard(range ? `#${num(b.first)}–#${num(b.last)} · largest #${num(c.callNo)}, ${num(wholeInput(u))} input tokens` : `#${c.callNo} · ${num(wholeInput(u))} input tokens`, [
+            { label: INPUT_PARTS.cacheRead, value: num(u.cacheRead), color: 'var(--c-read)' },
+            { label: INPUT_PARTS.cacheCreation, value: num(u.cacheWrite), color: 'var(--c-write)' },
+            { label: INPUT_PARTS.uncached, value: num(u.input), color: 'var(--c-unc)' },
+            { label: 'output', value: num(u.output), color: 'var(--c-out)' },
+            ...(b.miss ? [{ label: range ? 'sent again in the range' : 'sent again', value: num(b.miss.tokens), color: 'var(--warn)' }] : []),
+          ]);
+          // A range opens its miss, else the call picked in it, else its largest context.
+          const opens = b.miss?.callNo ?? (holds(b) ? selected! : c.callNo);
+          return (
+            <div key={b.first} className={`cbar${holds(b) ? ' sel' : ''}`} data-tip={tip} data-acts="" onClick={() => onSelect(opens)}>
+              {u.cacheRead ? <i className="seg-read" style={{ height: h(u.cacheRead) }} /> : null}
+              <i className="seg-write" style={{ height: h(u.cacheWrite) }} />
+              <i className="seg-unc" style={{ height: `max(2px, ${h(u.input)})` }} />
+              {labelMisses && b.miss ? (
+                <span className="miss" style={{ bottom: `calc(${h(wholeInput(u))} + 8px)` }}>
+                  cache miss
+                </span>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+      <div className="yaxis yout" aria-hidden="true">
+        <span style={{ bottom: '50%' }}>{top / 2}</span>
+        <span style={{ bottom: 0 }}>{top}</span>
+      </div>
+      <div className={`couts${many ? ' many' : ''}`}>
+        {bars.map((b) => (
+          <i key={b.first} style={{ height: `${((b.out / top) * 100).toFixed(2)}%` }} />
+        ))}
+      </div>
+      <span />
+      <div className={`clabels${many ? ' many' : ''}`}>
+        {bars.map((b, i) => (
+          <span key={b.first} className={holds(b) ? 'sel' : undefined}>
+            {i % every === 0 ? `#${num(b.first)}` : ''}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }

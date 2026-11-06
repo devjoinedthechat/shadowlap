@@ -392,7 +392,7 @@ The job runs [`shadowlap import`](./cli.md#import) under the name of the file yo
 
 ## A run's page
 
-A run's page shows one run: its header and banners, a strip of its calls, views of the run beside an inspector for the selected call, and its labels and notes. What you can do from it is under [Actions](#actions).
+A run's page shows one run: its header and findings, a strip of its calls, views of the run beside an inspector for the selected call, and its labels and notes. What you can do from it is under [Actions](#actions).
 
 ### The header
 
@@ -400,24 +400,24 @@ The header says each thing once:
 
 | Where | What it says |
 | --- | --- |
-| The line above the id | What kind of run it is (*recording*, *fork @17*, *blame attempt*) |
-| The chip beside the id | How it stands: *in progress*, *failed*, *inconclusive*, *interrupted*, or no chip when all is well |
-| The meta line, under it | Why it failed |
+| The muted line above the id | What kind of run it is (*recording*, *fork @17*, *blame attempt*) |
+| The first fact, under the id at the right | How it came out (*check failed at #6*, *passed*, *interrupted*) |
+| The id's card | Its command, revision, start and duration, and why it failed |
 
-The header shows what the run is and where it came from, its command, revision and timing, and why it failed:
+The id's card shows while the pointer is on the id, or when Tab reaches the id. Esc hides it. On a touch screen it is a line under the facts. It says why the run failed:
 
 - **The check it failed**, in the CLI's words, with the arguments it names and how a tool's calls were fenced, as `send_email called 1 time, but called 2 times (2 blocked)`.
 - **The agent's exit.**
 - **Where a test diverged.**
 
-How it came out comes first, as Runs' Status says it: *check failed at #6*, its call a link, or *no checks* ([Judged by checks](#judged-by-checks)). Then come its counts: calls, replayed, live, fenced, upstream requests and spent. Then comes what replaying saved: not re-spent, and the time not waited (each replayed call's duration where it was recorded).
+How it came out comes first, as Runs' Status says it: *check failed at #6*, its call a link, or *no checks* ([Judged by checks](#judged-by-checks)). An attempt says its verdict there: *passed*, *inconclusive*, *interrupted*, or a preset's *exited 1*. Then come its calls and, quieter, what it spent. A replay or a fork then shows what replaying saved: not re-spent, and the time not waited (each replayed call's duration where it was recorded). What made each fact up is on its hover: replayed, live and fenced calls, upstream requests, input tokens not sent again.
 
 - **A capture** whose file kept no times (nock, VCR) shows no duration. One of the model calls alone says its tool calls were not captured.
 - **A recording unpacked from someone's pack** says *recording · from a pack*.
 - **A teammate's run pulled from the [team store](./team.md)** is a recording like any. It shows the requests it sent and what it spent where it was recorded, by whom (*≈$0.0030 spent · by maya*, and the same in Provenance's Upstream row). Its replay asks first, as a pack's does.
 - **A trace imported from Langfuse** has **Open in Langfuse ↗** after Compare. It opens the trace's page there in a tab of its own, and its hover names the trace and the host. A pack doesn't carry the link.
 
-The meta line says why the run failed, and the agent's exit with its last line. It also says:
+The id's card says why the run failed, and the agent's exit with its last line. Under the header, the run also says:
 
 - how it forked, what the flag did and what came before it ("answered with HTTP 529 by `--fail-at 19=529` · nothing sent", "tool #16 overridden with `--override 16=@policy.json` · 15 replayed and #16 overridden before it");
 - where blame found it lost, with the fork it rescued and its fix;
@@ -452,11 +452,13 @@ The header's one lime button is the run's next step: the first of these that app
 | A recording that didn't fail, no golden made from it | **Pack as golden…** |
 | Anything else | **Replay**, as below |
 
-Every other action stays beside it, plain, and the banner doesn't offer the step again. Its hover says what it does, what it bills and the command it runs. Search or jump to lists it first under This run. While a job holds what it needs, it goes plain and says why, there too.
+Every other action stays beside it, plain, and no finding offers the step again. Its hover says what it does, what it bills and the command it runs. Search or jump to lists it first under This run. While a job holds what it needs, it goes plain and says why, there too.
+
+The lime button comes last, before **…**, which holds **Delete run**. From 1280px wide, where the buttons won't fit beside the id, the plain ones fold into **…** one at a time: Replay first, then Pack as golden…, Compare, Push and Run blame. Narrower, the buttons go under the header, the lime one first.
 
 What each step does:
 
-- **Open fix**: its hover names the fix, and the banner says how the fix stands, *fix open* or *fix verified*, where it linked it.
+- **Open fix**: its hover names the fix, and the failure's finding says how the fix stands, *fix open* or *fix verified*, where it linked it.
 - **Run blame** isn't offered on a run that made no model call, or on one that was stopped: blame needs a run that fails again as recorded. On a capture, it asks for your command first.
 - **Compare with parent** leads for a fork, and for an attempt: a blame probe's, a verify's, a `--repeat`'s, an injection test's, a model's scoring, an error-path preset's, or a golden's repeated replay in one test session, whose failure counts towards its golden's result.
 - **Update golden**: a change it was made for reads as a changed system prompt, a tool's definition or the model, which go into every request.
@@ -465,72 +467,89 @@ What each step does:
 - **A replay it can't start from**: one cut short, or one of a session its golden came out inconclusive in, says nothing of its golden, so the rows after it decide.
 - **Open proof** opens the first attempt that shows the verdict. Presets left inconclusive change nothing, since running them again finds the same.
 - **Pack as golden…** asks for a folder, `goldens/` and the run's short id in lower case unless you change it. A golden of a fork or a replay of the recording doesn't count as made from it.
+  - It packs the golden, then tests it, as one job, for any run. A recording from someone's pack or the team store asks first, since its test runs the command it was recorded with. So does a test that would run the golden live, in the same question.
+  - Where another step leads, a plain **Pack as golden…** comes after **Replay** and can fold into **…**. Search or jump to has it too.
 - **Pack with injection gate…** does the same, and names the entry to add under `tests`, for the folder as you type it, that gives the golden its gate.
 - **Replay** replays the run itself. On a capture it reads **Replay with your command…**, and asks what starts your agent.
 - **Replay recording**, on a clean or a test replay, replays the recording it came from, asking for your command where that is a capture.
 - **Compare**, plain beside another step, reads **Compare with parent**, **Compare with fork** or **Compare with replay**, with the `shadowlap diff` it matches on hover. With nothing to compare yet it stays, off, and says what would make something.
 
-A fork that failed, by its check or its agent's exit, says *failed* beside its id, as any run that failed does. It keeps the banner that says how it forked, and leads with **Run blame**, or **Open fix** once a fix holds it. Until it is blamed, it counts among the failures not blamed yet.
+A fork that failed, by its check or its agent's exit, says how as its first fact, *check failed at #6* or *exited 1*, as any run that failed does. Its findings keep how it forked, and it leads with **Run blame**, or **Open fix** once a fix holds it. Until it is blamed, it counts among the failures not blamed yet.
 
 ### Where a run opens
 
-Unless the link names a call, a run opens at:
+Unless the link names a call, a run opens at the first of these it has:
 
 | Run | Opens at |
 | --- | --- |
-| A fork | Its divergence |
-| A run blame found lost | The call that lost it |
-| Any other run that failed | Its first call that failed: a model call answered with an error, or a tool that threw; never a write fenced after a fork |
-| Any other run | Its first call, past any clock or random reads, which hold a value rather than a step of the agent's |
+| A recording still recording | Its newest call, following each new one |
+| A run you picked a call on earlier in the session | That call |
+| A run blame found lost | The call that lost it, where **Run blame**'s answer moves too |
+| A fork, or a test that diverged | Where it forked |
+| A run whose outcome names a call (*check failed at #6*) | That call |
+| Any other run | Its first call that failed, then its first write, then its last model call, then its first call |
 
-### Banners
+A call that failed is a model call answered with an error, or a tool that threw, never a write fenced after a fork. A run never opens on a clock or random read, which holds a value rather than a step of the agent's.
 
-Under the header, a banner says more about some kinds of run.
+### Findings
 
-**An attempt.** An attempt of blame, verify or `replay --repeat` says it is one: *blame attempt*, *verify attempt* or *repeat attempt* above its id. The fork blame rescued a run with is its *rescued fork*. Its banner says, in order:
+Under the header, one bar holds what the run's page found: how the run forked or failed, what the fork did differently, what Shadowlap did not record and the run's notes. A failure comes first, in red, then what needs a look, in amber, then the rest, each in the order they come.
 
-1. How it came out: *passed*, *failed*, *inconclusive* or *interrupted*.
-2. What was asked again, and which attempt it is of those made.
-3. How the writes after it went.
-4. For one that could not be decided, the check that couldn't be.
+The bar shows the most telling finding whole. **N findings** at its end opens the rest in place, its hover listing them while closed, and the focus stays on it. A lone finding with more to show, a note's tools or the fork's changes, has **Details** instead. The bar stays open or closed for each run until you reload.
 
-For example:
+A finding never says what the header's first fact already does, but for the run that fixed a test replay. Where that fact gives the verdict, the finding leads, in ink and with no label, with what the verdict stands on, then the rest:
 
-- *failed · resampled #5, attempt 2 of 4: the model was asked #5 again, the request as recorded · writes stubbed*
-- *passed · verify · target, attempt 1 of 12 · code 35034be: the change it verified is in the request (~ $.system)*, or the flag a `--model` or `--set` change was made with
+| Run | The finding leads with | Then |
+|---|---|---|
+| Failed a check | The check: *send_email called 0 times, but called 1 time* | *not blamed yet*, or how its fix stands |
+| A capture its import judged failed | The check that failed | *judged when it was imported*, then how its fix stands |
+| A test replay whose agent crashed | The last line the agent printed | *at call 19, 18 of 30 recorded calls replayed* |
+| A test that diverged | What the value looks like, or why it came | The request's name and the calls replayed before it |
+| A test left inconclusive | The check it couldn't judge, and why, in amber | *18 calls replayed* |
+| A test replay its golden passed since | What it failed, muted, with nothing to mend | *fixed by 01K5CQ7A3M*, as Runs' Status says it |
+
+A blame that placed the failure on no call says how it stands as the finding's label instead: *stopped* or *inconclusive* in amber, *not rescued* in red. A blame that found the call says *lost at #17*, with **Rescued fork →** where the fork that rescued the run is kept. Words the glossary defines, such as *lost*, *stubbed* and *fenced*, are underlined, with their meaning on hover.
+
+**An attempt.** An attempt of blame, verify, `replay --repeat` or a test says it is one: *blame attempt*, *verify attempt*, *repeat attempt* or *test attempt* above its id. A test attempt is a golden one `shadowlap test` session replayed more than once, other than the attempt its result shows. The fork blame rescued a run with is its *rescued fork*.
+
+Its first fact says how it came out. Its finding says what was asked again, which attempt it is of those made, how the writes after it went and, for one that could not be decided, the check that couldn't be. For example:
+
+- *resampled #5, attempt 2 of 4: the model was asked #5 again, the request as recorded · writes stubbed*
+- *verify · target, attempt 1 of 12 · code 35034be: the change it verified is in the request (~ $.system)*, or the flag a `--model` or `--set` change was made with
 - *replay --repeat 5 at #16, attempt 2 of 5: forced live with `--live-tool lookup_policy`*
+- *refund-over-limit, attempt 2 of 8 · test at d2e8a1f: live from where the golden may fork · writes blocked*
 
-A gate that settles makes fewer attempts than its limit, and the count is of the attempts made. The banner wraps rather than cut its words. It links back to the attempt's probe on its fix's Blame step, or to the verdict it counted towards, and to all its attempts in Forks. It offers no Run blame, since its failure counts towards what made it.
+A gate that settles makes fewer attempts than its limit, and the count is of the attempts made. The finding wraps rather than cut its words. It links back to the attempt's probe on its fix's Blame step, or to the verdict it counted towards, and to all its attempts in Forks. A test attempt links to Tests. It offers no Run blame, since its failure counts towards what made it.
 
-**An error-path preset's attempt.** One banner says how an [error-path preset](./error-paths.md)'s attempt came out, by the verdict of the session that decided it. An earlier session's attempt keeps its own once the presets run again. Then it names the preset and the golden it ran on, which attempt of the preset it was, and what the preset played in where, wrapping rather than cut:
+**An error-path preset's attempt.** Its first fact says how an [error-path preset](./error-paths.md)'s attempt came out, by the verdict of the session that decided it. An earlier session's attempt keeps its own once the presets run again. Its finding names the preset and the golden it ran on, which attempt of the preset it was, and what the preset played in where, wrapping rather than cut:
 
-*failed · tool timeout preset on goldens/list-inbox, attempt 1 of 1: list_inbox (#2) timed out, played in by the preset · writes stubbed*
+*tool timeout preset on goldens/list-inbox, attempt 1 of 1: list_inbox (#2) timed out, played in by the preset · writes stubbed*
 
-A golden's banner has **Tests →**. The attempt's status chip goes by that verdict.
+A golden's finding has **Tests →**.
 
-**A fork.** A replay an injection test, a model's scoring or an error-path preset made keeps its fork banner. A fork whose only flag is `--writes` forked where its request changed, and its banner says that.
+**A fork.** A replay an injection test, a model's scoring or an error-path preset made keeps its fork's finding. A fork whose only flag is `--writes` forked where its request changed, and its finding says that.
 
 **A test that diverged.** A test that diverged on a value made anew on every run says what the value looks like, and offers what its header doesn't lead with:
 
-- **Add normalizer and re-run**, which adds the rule and runs the golden again. Once the rule is in the config, the banner says *normalizer added* and links the replay that passed.
+- **Add normalizer and re-run**, which adds the rule and runs the golden again. Once the rule is in the config, the finding says *normalizer added* and links the replay that passed.
 - **Update golden**, which asks first, as on Tests.
 
-An id that may be a real change leads with neither: only you can tell, so **Find breaking commit…** leads, and both stay on the banner.
+An id that may be a real change leads with neither: only you can tell, so **Find breaking commit…** leads, and both stay in the finding.
 
 Sometimes the rule alone can't make the replay match: the request carries a field the recording never had, as a per-run id added since. The button then reads **Add normalizer and update**, and asks first too, in the Tests screen's dialog with both commands, since the golden is then re-recorded live after the rule. Once the rule is in, **Update golden** stays beside *normalizer added* until a replay of the golden passes.
 
-**Show diff** shows the request that changed, and the normalizer to add when the change is a date or an id. For a test that diverged, it shows the value its banner found made anew on every run, what it looks like and its normalizer. So the diff never says that no normalizer is suggested where the banner offers one.
+**Show diff** shows the request that changed, and the normalizer to add when the change is a date or an id. For a test that diverged, it shows the value its finding names as made anew on every run, what it looks like and its normalizer. So the diff never says that no normalizer is suggested where the finding offers one.
 
 ### How a run stands
 
 The server works out how a run stands once, for its page and every list:
 
-- **A test of a golden that may fork** is judged by its checks, not where it left the recording. Its banner lists the checks it passed and where it forked, or the check it failed.
+- **A test of a golden that may fork** is judged by its checks, not where it left the recording. Its finding lists the checks it passed, then where it went live, what that sent and spent, and its writes: *live from #3 · 14 upstream requests · ≈$0.420 · writes fenced*. Or it leads with the check it failed.
 - **A run a fix lists among its failing runs** (verify's target) fails that fix's check, here and in Runs, with how the fix stands.
 - **A run whose agent exited with an error** reads *failed*; one that failed a check reads *check failed*.
 - **A run that stopped before it ended** (Ctrl-C, a kill, a crash, a recorder that went away) reads *interrupted* in grey after what it is (*recording · interrupted*, *fork @3 · interrupted*), ended at its last call. It stopped; it did not fail.
 
-An interrupted run's page says so in a banner: a fork's banner says how it forked, and its header that it stopped. Open while it recorded, the page ends on *Recording interrupted*. Runs, the sidebar, the Forks view (a `--repeat`'s attempts too), Provenance's lineage, the Overview and the activity feed say *interrupted* too.
+An interrupted run's page says so: a fork's finding says how it forked, and its first fact says *interrupted*. Open while it recorded, the page ends on *Recording interrupted*. Runs, the sidebar, the Forks view (a `--repeat`'s attempts too), Provenance's lineage, the Overview and the activity feed say *interrupted* too.
 
 ### Judged by checks
 
@@ -565,7 +584,7 @@ An [exported copy](./cli.md#export-html) holds each run's own verdict and a capt
 
 ### What a fork did differently
 
-Under a fork's banner, from the call it left its parent at on, the page lists what changed.
+What a fork did differently is a finding in the bar, under **N findings** when another leads. From the call it left its parent at on, it lists what changed.
 
 **Its decisions** come first: the tool calls it made that its parent didn't and the other way round, those it made with other arguments, and how each run ended and its last words. Each shows the call it was in, in either run. They are ranked as [`decisions`](./decisions.md) ranks a changed decision:
 
@@ -583,7 +602,7 @@ An exported copy holds this list when the file holds the fork's parent too (`exp
 
 ### What Shadowlap did not record
 
-Under the banner, a line each, the most pressing first:
+What Shadowlap did not record is a finding in the bar, under **N findings** when another leads: a line each, the most pressing first.
 
 1. **Unrecorded tools**: the tools the model called whose calls the run never recorded.
 2. **No preload**: a run whose agent loaded no Shadowlap preload, so the network guard never watched it.
@@ -761,13 +780,15 @@ The inspector shows the selected call, in four tabs:
 **Conversation** works the same for Anthropic, OpenAI (Chat Completions and Responses) and Gemini requests.
 
 - **Format JSON** lays out tool results that are JSON.
-- **Jump to change**, on a fork, opens the message the fork changed.
-- **A call answered with `--fail-at`**: it says the request was never sent.
-- **A tool call** shows its arguments and its result, then the model call of its own conversation that asked for it (in a batch of many conversations, which one), with **Show its conversation**.
+- **Jump to change**, on a fork, opens the message the fork changed, which says *changed in this fork · first sent at #17*.
+- **A call that never got an answer** says why in a sentence over it: **Never sent.** for one answered with `--fail-at`, **Refused.** for a request an offline replay didn't have, **Failed.** and what the provider answered for one that failed.
+- **A tool call** shows *Its arguments, then its result:*, then the model call of its own conversation that asked for it (in a batch of many conversations, which one), with **Show its conversation**.
 
 **Response**: **Play** replays a streamed response at its recorded pacing (1×, 2×, 4× or instant). *Raw* shows the stream as recorded.
 
 **Details** lists origin, outcome and HTTP status, provider and the host it went through, model, whether it was an extra read, stop reason, token usage by cache tier, cost, latency and first token, size, retries, fingerprint and occurrence, response headers, and notes.
+
+On a failed model call, the input tokens are what its request held, `in the request; nothing was sent` where Shadowlap answered it or the replay refused it, and then its cost is `$0`. Its latency says who answered: `answered by Shadowlap`, `refused by the replay` or `answered by the provider`.
 
 ### Edit and fork
 
@@ -779,7 +800,7 @@ The inspector shows the selected call, in four tabs:
 
 ### Labels and notes
 
-Label a run from its header (`bug`, `good`, `refund-flow`), or several from Runs. Leave notes on a call in its details.
+Label a run with **Add label** in its header (`bug`, `good`, `refund-flow`), or several from Runs. Both offer the labels runs carry as you type, most used first. A label's **×** takes it off at once, with **Undo** in its toast, and the focus moves to **Add label**. Leave notes on a call with **Add note** in its details.
 
 The **good/bad key** labels a run `good` or `bad` in one press:
 
@@ -1528,7 +1549,7 @@ The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An 
 
 **A run imported from a capture** has no command, so its menu shows a note and one action, **Replay with your command…**. That replay records every kind of call, and every fork works on it.
 
-**Share** copies the run, each copy a job, its items named for the copies they make, in the order it lists them:
+**Share**'s menu is named for the run (*Share 01K5CQ4R1T*). It copies the run, each copy a job, its items named for the copies they make, in the order it lists them:
 
 | Copy                 | What it makes                                                                            |
 | -------------------- | ---------------------------------------------------------------------------------------- |
@@ -1537,11 +1558,12 @@ The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An 
 | Eval dataset…        | A dataset for evals, in a format and with the examples you pick                          |
 | OpenTelemetry trace… | A trace sent to a collector, or written to a file (a file only: it is sent nowhere else) |
 | HAR file             | The run's model calls; it also downloads                                                 |
+| Security report      | A kept injection result's report, the matrix and each proof; it only downloads           |
 
 - **Each dialog** says the verb for the copy it makes: *Export OpenTelemetry trace*, confirmed with **Export trace**; *Export eval dataset of* the run, confirmed with **Export dataset**; and Pack's, confirmed with **Pack run**.
 - **Where copies go**: into `.shadowlap/exports/` in the project, unless a pack names another folder, and never through a link that is already there.
-- **Redaction**: the menu says how many redaction rules each copy applies. A trace carries no prompt text, so only the rules without a path.
-- **When**: a run is copied once it has ended.
+- **Redaction**: the menu says how many redaction rules each copy applies, and links **Redaction settings →**. A trace carries no prompt text, so only the rules without a path.
+- **When**: a run is copied once it has ended. While it records, each item says it waits until the recording ends.
 - **A dataset** from **Share** takes up to 500 runs at once, from Runs; past that, `shadowlap export dataset --label`.
 
 A run whose recorder was killed reads *interrupted* in every copy, as it does on every screen. The pack, the HTML file (with the redaction rules or without) and the trace hold it ended at its last call, so whoever opens or unpacks it never sees it recording. The store is left as it is.
@@ -1550,7 +1572,9 @@ Where jobs can't run (a read-only dashboard), **Share → HTML report** comes st
 
 With a [team store](./team.md), a share link comes first, its drawer ending on **Copy link**. The report opens for anyone with the link until it expires, 7 days at most. A run only on this machine has **Push** in its header, as does a run in the store whose attempts aren't (Push sends them).
 
-**Delete** removes a run, with the attempts bundled under it, which its dialog and its toast count, as `shadowlap rm` does. It also removes the recorded data nothing else uses.
+**Delete run**, in the header's **…**, removes a run, with the attempts bundled under it, which its dialog and its toast count, as `shadowlap rm` does. It also removes the recorded data nothing else uses. It waits while the run records.
+
+On the run's page, the run leaves the lists at once and the page goes to Runs, as it was last shown. Its toast has **Undo**, and the run is removed once the toast goes.
 
 **Run blame** is on the page of a failed run that was never blamed. It blames the run with the check it failed, found the way a replay is judged, the first that applies:
 
@@ -1648,7 +1672,7 @@ The server refuses another such job with the same words, from any tab, the palet
 
 The dialog says how many goldens go live and why, and shows the commands. Its Cost line says the session's estimate. It opens on its button, the only way to start the session. A session that only replays starts at once.
 
-Setup's **Pack as a golden** asks every time its test would run a golden live, as nothing prices it. A task's **Update golden** asks in its own dialog, with what testing the golden again bills.
+Setup's **Pack as a golden** and a run's **Pack as golden…** ask every time their test would run a golden live, as nothing prices it. A task's **Update golden** asks in its own dialog, with what testing the golden again bills.
 
 **Update golden** (or **Update goldens** for every one that diverged) asks first, in a dialog that says what happens. It says when a normalizer is the lasting fix, or, once the rule is in the config, that a re-run passes without an update, and offers that as its way on, beside **Update anyway**. Then it runs `shadowlap test <golden> --update`, which re-records it live with writes stubbed.
 
@@ -2408,7 +2432,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `migrate { to, goldens?, runs?, from?, scope?, set? }` | A migration, every golden unless some are named |
 | `normalize-and-test { golden \| runId, path?, yes? }` | A normalizer for each value made anew on every run, then `test` on the golden |
 | `override { runId, callNo, uploadId, yes? }` | Edit and fork: `replay --override` of a tool's result or a person's answer, from an upload checked as untrusted data |
-| `pack-test { golden?, yes? }` | Pack, then test; the test alone once packed |
+| `pack-test { runId?, golden?, yes? }` | Pack, then test: with `runId`, any ended run into `golden`; `yes` answers a recording from elsewhere or a live test. Once packed, the test alone |
 | `pairs { format?, minConfidence? }` | Export pairs, written to `.shadowlap/exports/pairs.jsonl` |
 | `push { runIds }`, `pull` | Push runs to the team store, or `{ all: true }`; pull from it |
 | `repair { fixId, repairer?, yes? }` | An open fix, from its failing and good runs, by the repairer its confirm dialog named |
