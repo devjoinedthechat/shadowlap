@@ -102,21 +102,31 @@ describe('Needs a look and Activity', () => {
     expect(words(d.textContent)).toBe('newest 01M5GRZKRY · failed');
   });
 
-  it('gives a gate’s entry its rule on hover, and leaves an entry with nowhere to go a plain row', async () => {
+  it('gives a gate’s entry its rule on hover, names a run by its id with its about line, keeps a tally whole, and leaves an entry with nowhere to go a plain row', async () => {
     const items: ActivityItem[] = [
       { id: 'a', at: 3, kind: 'fail', text: 'Test failed · eval-pushy: failed · 4 of 8 · rate <= 0.78 (95%)', runId: '01M5GRZKRYAAAAAAAAAAAAAAAA', href: '#/run/01M5GRZKRYAAAAAAAAAAAAAAAA', rule: RULE },
       // A preview of a change: no page shows it, so it links nowhere, not back to the Overview.
       { id: 'b', at: 2, kind: 'fork', text: 'Previewed the model claude-haiku-4-5 on 1 run · 1 with a write, stop or judged change' },
       { id: 'c', at: 1, kind: 'rec', text: 'Recorded 9 calls', runId: '01M5GRZK3PG7SR16CB2T3CFE21' },
     ];
-    r = await render(createElement(ActivityCard, { items, now: 10, byPerson: false, live: [] }));
+    const app = { actionsOff: null, runs: [{ runId: '01M5GRZK3PG7SR16CB2T3CFE21', about: { text: 'Refund order 1042', from: 'user' } }] };
+    r = await render(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(ActivityCard, { items, now: 10, byPerson: false, live: [] })));
     const links = r.all('.feed a');
     expect(links.map((a) => a.getAttribute('href'))).toEqual(['#/run/01M5GRZKRYAAAAAAAAAAAAAAAA', '#/run/01M5GRZK3PG7SR16CB2T3CFE21']);
     expect(tip(links[0])?.t).toBe('Test failed · eval-pushy');
     expect(tip(links[0])?.s?.replace(/\u00a0/g, ' ')).toBe(RULE);
     expect(links[0].querySelector('.w')!.className).toBe('w gv');
+    // What an entry happened to ends it: a run by its id, its about line on hover, after a space it can wrap at.
+    expect(links.map((a) => [a.querySelector('code.rnm')?.textContent, a.querySelector('code.rnm')?.getAttribute('title') ?? null])).toEqual([
+      ['01M5GRZKRY', null],
+      ['01M5GRZK3P', 'Refund order 1042'],
+    ]);
+    expect(links[1].querySelector('.w')!.textContent).toBe('Recorded 9\u00a0calls 01M5GRZK3P');
     const rows = r.all('.feed .plain');
-    expect(rows.map((x) => x.textContent)).toEqual([expect.stringContaining('Previewed the model claude-haiku-4-5 on 1 run')]);
+    expect(rows.map((x) => words(x.textContent))).toEqual([expect.stringContaining('Previewed the model claude-haiku-4-5 on 1 run')]);
+    // A tally and what it counts stay one piece where the line wraps, and so does a hyphenated name.
+    expect(rows[0].textContent).toContain('1\u00a0run\u00a0· 1\u00a0with\u00a0a\u00a0write, stop or judged\u00a0change');
+    expect(rows[0].querySelectorAll('.nw').map((x) => x.textContent)).toContain('claude-haiku-4-5');
     expect(r.all('.feed a[href="#/"]')).toEqual([]);
   });
 });

@@ -50,11 +50,14 @@
 .feed a { display: grid; grid-template-columns: 64px 14px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 9px 18px; text-decoration: none; border-top: 1px solid var(--line); }
 .feed a:first-child { border-top: 0; }
 .feed a:hover { background: var(--hover); }
-.feed .at { font: 11.5px var(--mono); color: var(--faint); }
+.feed .at { font: 11px var(--mono); color: var(--faint); }
 .feed .ic { transform: translateY(3px); }
 .feed .w { color: var(--dim); }
-/* an entry is read whole, never cut to a few lines; what it happened to keeps to one piece */
-.feed .w code { font-size: 11.5px; color: var(--faint); margin-left: 6px; white-space: nowrap; }
+/* an entry is read whole, never cut to a few lines; its run's id, or the fix, verdict or file it names, wraps as one piece
+   after its words, so it never drags the last word down with it. At 320px (a 1280px window zoomed to 400%) a part kept
+   whole may wrap, so nothing scrolls sideways */
+.feed .w code { font-size: 11px; color: var(--faint); margin-left: 2px; white-space: nowrap; }
+@media (max-width: 340px) { .feed .w .nw { white-space: normal; } }
 
 @media (max-width: 640px) {
   .kpi b { font-size: 22px; }
@@ -156,9 +159,6 @@ table.daytable tbody tr:hover td { background: none; }
    add an empty column beside the one column below 760px, narrowing Activity */
 
 .attn .d.gv, .feed .w.gv { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
-
-/* Activity: a gate's verdict wraps whole after its dots, never clamped mid-figure; its rule is on hover */
-.feed .w.gv { display: block; -webkit-line-clamp: none; overflow: visible; overflow-wrap: normal; }
 
 /* an activity entry with nowhere to go reads as a plain row: never a link back to the page it is on */
 .feed > .plain { display: grid; grid-template-columns: 64px 14px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 9px 18px; border-top: 1px solid var(--line); cursor: default; }

@@ -100,19 +100,11 @@ export interface KeptPart {
 const NB = '\u00a0';
 
 /**
- * A Needs a look row's words in the pieces a wrapping line keeps together, as the mock keeps them: a
- * tally (`8 of 72`, `search called 3 times`), a model with what uses it (`used by`), a date with its
- * verb (`retires on Nov 30, 2026`) and a dot with the word before it, joined by no-break spaces; a
- * hyphenated name kept whole, so a golden's name never breaks at its hyphens; and a run's short id
- * as a piece of its own, for its about line on hover. No DOM here: the tests import it.
+ * Words cut into the pieces a wrapping line keeps whole: a hyphenated name (`nw`), so a golden's name
+ * never breaks at its hyphens, and a run's short id on its own (`id`), for its about line on hover.
+ * The rest is as it is, with the no-break spaces its caller put in.
  */
-export function keepParts(text: string): KeptPart[] {
-  const kept = text
-    .replace(/(\S+) called (\d+) (times?)\b/g, `$1${NB}called${NB}$2${NB}$3`)
-    .replace(/ · /g, `${NB}· `)
-    .replace(/\bused by /g, `used${NB}by `)
-    .replace(/(\d+) of (\d+)/g, `$1${NB}of${NB}$2`)
-    .replace(/([a-z]+) on ([A-Z][a-z]{2}) (\d{1,2})(, \d{4})?/g, (_m, w: string, mo: string, d: string, y?: string) => `${w}${NB}on${NB}${mo}${NB}${d}${y ? `,${NB}${y.slice(2)}` : ''}`);
+export function keepPieces(kept: string): KeptPart[] {
   const parts: KeptPart[] = [];
   let at = 0;
   for (const m of kept.matchAll(/\b01[0-9A-Z]{8}\b|[^\s(]*\w-\w[^\s)]*/g)) {
@@ -122,6 +114,39 @@ export function keepParts(text: string): KeptPart[] {
   }
   if (at < kept.length) parts.push({ text: kept.slice(at), kind: 'text' });
   return parts;
+}
+
+/**
+ * A Needs a look row's words in the pieces a wrapping line keeps together, as the mock keeps them: a
+ * tally (`8 of 72`, `search called 3 times`), a model with what uses it (`used by`), a date with its
+ * verb (`retires on Nov 30, 2026`) and a dot with the word before it, joined by no-break spaces; then
+ * cut as `keepPieces` cuts. No DOM here: the tests import it.
+ */
+export function keepParts(text: string): KeptPart[] {
+  return keepPieces(
+    text
+      .replace(/(\S+) called (\d+) (times?)\b/g, `$1${NB}called${NB}$2${NB}$3`)
+      .replace(/ · /g, `${NB}· `)
+      .replace(/\bused by /g, `used${NB}by `)
+      .replace(/(\d+) of (\d+)/g, `$1${NB}of${NB}$2`)
+      .replace(/([a-z]+) on ([A-Z][a-z]{2}) (\d{1,2})(, \d{4})?/g, (_m, w: string, mo: string, d: string, y?: string) => `${w}${NB}on${NB}${mo}${NB}${d}${y ? `,${NB}${y.slice(2)}` : ''}`),
+  );
+}
+
+/**
+ * An activity entry's words with what the mock keeps as one piece inside a longer part, joined by
+ * no-break spaces: why a preview settled nothing (`56 of 60 steps got no answer`, `2 of 3 runs could
+ * not be asked`, `1 step waits on a judge`), a tally (`5 of 5`, `3 runs`, `2 goldens`), `at call 4`,
+ * `2 with a write` and `judged change`. Its dots are left as they are, for `dotParts`.
+ */
+export function activityKeep(text: string): string {
+  return text
+    .replace(/\d+ of \d+ steps got no answer|\d+ of \d+ runs? could not be asked|\d+ steps? waits? on a judge/g, (m) => m.replace(/ /g, NB))
+    .replace(/(\d+) of (\d+)/g, `$1${NB}of${NB}$2`)
+    .replace(/(\d) (runs?|calls?|attempts?|goldens?|writes?)\b/g, `$1${NB}$2`)
+    .replace(/\bat call (\d+)/g, `at${NB}call${NB}$1`)
+    .replace(/(\d+) with a write/g, `$1${NB}with${NB}a${NB}write`)
+    .replace(/judged change/g, `judged${NB}change`);
 }
 
 /** A run's kind as Recent runs' hover names it, a test's attempt a test replay: `clean replay`, `fork @17`, `test replay`, `capture`, `recording`. */

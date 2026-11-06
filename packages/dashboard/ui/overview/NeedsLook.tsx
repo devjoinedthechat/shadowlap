@@ -1,10 +1,9 @@
-import { Fragment, memo, type RefObject, useMemo, useRef } from 'react';
+import { Fragment, memo, type RefObject, useRef } from 'react';
 import { LOOK_GROUPS } from '../../src/needs-look/groups.js';
-import { Id } from '../components/Id.js';
 import { EventIcon } from '../components/RunIcon.js';
 import { Section } from '../components/Section.js';
 import { EmptyLine } from '../components/States.js';
-import { dotParts, ruleTip } from '../components/Verdict.js';
+import { ruleTip } from '../components/Verdict.js';
 import { num, shortId } from '../format.js';
 import { type RowScope, useListKeys } from '../list-keys.js';
 import { navigate } from '../router.js';
@@ -12,6 +11,7 @@ import { useApp } from '../state.js';
 import type { NeedsLookRow } from '../types.js';
 import { keepParts } from './model.js';
 import { LookStepButton, type LookWait, stepRun, useLookWaits } from './steps.js';
+import { type AboutOf, DotPieces, Pieces, useAbouts } from './words.js';
 
 /**
  * Needs a look, the Overview's first column: every item, in its groups, as an inbox reads. A group's
@@ -23,47 +23,6 @@ import { LookStepButton, type LookWait, stepRun, useLookWaits } from './steps.js
 
 const HEADS = new Map<string, string>(LOOK_GROUPS);
 
-type AboutOf = (id: string) => string | null;
-
-/** A row's words, each piece kept as `keepParts` cuts it. */
-function Words({ text, aboutOf }: { text: string; aboutOf: AboutOf }) {
-  return (
-    <>
-      {keepParts(text).map((p, i) =>
-        p.kind === 'id' ? (
-          <Id key={i} id={p.text} about={aboutOf(p.text)} />
-        ) : p.kind === 'nw' ? (
-          <span key={i} className="nw">
-            {p.text}
-          </span>
-        ) : (
-          <Fragment key={i}>{p.text}</Fragment>
-        ),
-      )}
-    </>
-  );
-}
-
-/** A row's detail, broken only after a dot, each part of 32 characters or fewer kept whole. */
-function Detail({ text, aboutOf }: { text: string; aboutOf: AboutOf }) {
-  return (
-    <>
-      {dotParts(text, 32).map((p, i) => (
-        <Fragment key={i}>
-          {i ? ' ' : null}
-          {p.keep ? (
-            <span className={p.keep === 'whole' ? 'nw' : 'kc'}>
-              <Words text={p.text} aboutOf={aboutOf} />
-            </span>
-          ) : (
-            <Words text={p.text} aboutOf={aboutOf} />
-          )}
-        </Fragment>
-      ))}
-    </>
-  );
-}
-
 const LookRow = memo(function LookRow({ x, wait, aboutOf, focused }: { x: NeedsLookRow; wait: LookWait | null; aboutOf: AboutOf; focused: boolean }) {
   const own = x.runId && x.about?.text ? { id: shortId(x.runId), about: x.about.text } : null;
   const about: AboutOf = (id) => (own?.id === id ? own.about : aboutOf(id));
@@ -73,11 +32,11 @@ const LookRow = memo(function LookRow({ x, wait, aboutOf, focused }: { x: NeedsL
       {/* A gate's verdict says its word, tally and bound, whole, and its rule on hover. */}
       <a className="at" href={x.href} data-tip={x.rule ? ruleTip(x.title.replace(/^A test (?:failed|is inconclusive): /, ''), x.rule) : undefined}>
         <span className="t">
-          <Words text={x.title} aboutOf={about} />
+          <Pieces parts={keepParts(x.title)} aboutOf={about} />
         </span>
         {x.detail ? (
           <span className={`d${x.rule ? ' gv' : ''}`}>
-            <Detail text={x.detail} aboutOf={about} />
+            <DotPieces text={x.detail} max={32} cut={keepParts} aboutOf={about} />
           </span>
         ) : null}
       </a>
@@ -117,10 +76,8 @@ function lookScope(x: NeedsLookRow, box: RefObject<HTMLElement | null>): RowScop
 
 /** The rows, under their groups' heads; j and k walk them, Enter opens one, ⌘K offers its step. */
 function Rows({ items, wait }: { items: readonly NeedsLookRow[]; wait: LookWait | null }) {
-  const { runs } = useApp();
   const box = useRef<HTMLDivElement>(null);
-  const abouts = useMemo(() => new Map((runs ?? []).map((r) => [shortId(r.runId), r.about?.text ?? null])), [runs]);
-  const aboutOf = useMemo<AboutOf>(() => (id) => abouts.get(id) ?? null, [abouts]);
+  const aboutOf = useAbouts();
   const inFocus = useListKeys({ rows: items, keyOf: (x) => x.key, root: box, open: (x) => navigate(x.href), actions: (x) => lookScope(x, box) });
   // A group's count is its rows, a line for the rest of a source as many as it stands for.
   const counts = new Map<string, number>();

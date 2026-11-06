@@ -6,7 +6,7 @@ import { EventIcon, RunIcon } from '../components/RunIcon.js';
 import { Section } from '../components/Section.js';
 import { EmptyLine, ErrorState } from '../components/States.js';
 import { MiniStrip } from '../components/Strip.js';
-import { DotLine, ruleTip } from '../components/Verdict.js';
+import { ruleTip } from '../components/Verdict.js';
 import { clock, num, plural, shortId, whenShort } from '../format.js';
 import { ORIGIN_NAME } from '../origins.js';
 import { useListKeys } from '../list-keys.js';
@@ -17,7 +17,8 @@ import { isAttempt, kindWord, runOrigins, sideStatus } from '../runs.js';
 import { SideStatus } from '../shell/Sidebar.js';
 import { useApp } from '../state.js';
 import type { ActivityItem, LiveRun, RunListItem } from '../types.js';
-import { activityGlyph, activityLine, callsSaid, personName, recentKind, SHOW_ORIGINS } from './model.js';
+import { activityGlyph, activityKeep, activityLine, callsSaid, keepPieces, personName, recentKind, SHOW_ORIGINS } from './model.js';
+import { DotPieces, useAbouts } from './words.js';
 
 /**
  * The Overview's aside, as the mock draws it: the newest runs over the activity feed, and Watch live
@@ -112,12 +113,15 @@ export function RecentRuns({ runs, now }: { runs: readonly RunListItem[] | null;
 // ---------------------------------------------------------------------------------------------- activity
 
 /**
- * The five latest entries of the activity feed; with a team store each names who did it. A recording
- * pulses while something records it (`live`, as the top bar's chip has it): the feed goes by the
- * run's stored status, which a killed recorder leaves at running.
+ * The five latest entries of the activity feed; with a team store each names who did it. Each ends on
+ * what it happened to: a run by its id, with its about line on hover, else the fix, verdict, file or
+ * rule as it is. A tally or why a preview settled nothing stays one piece where the line wraps. A
+ * recording pulses while something records it (`live`, as the top bar's chip has it): the feed goes
+ * by the run's stored status, which a killed recorder leaves at running.
  */
 export function ActivityCard({ items, error = null, retry, now, byPerson, live }: { items: readonly ActivityItem[] | null; error?: Error | null; retry?: () => void; now: number; byPerson: boolean; live: readonly LiveRun[] }) {
   const recording = new Set(live.map((l) => l.runId));
+  const aboutOf = useAbouts();
   const box = useRef<HTMLDivElement>(null);
   // j and k walk the entries that lead somewhere, by the entry (two can lead to one run).
   const linked = useMemo(() => (items ?? []).filter((a) => activityHref(a)), [items]);
@@ -137,8 +141,10 @@ export function ActivityCard({ items, error = null, retry, now, byPerson, live }
               <span className={`w${a.rule ? ' gv' : ''}`}>
                 {byPerson && a.actor ? <b className="actor">{personName(a.actor)}</b> : null}
                 {byPerson && a.actor ? ' ' : null}
-                <DotLine text={line.text} max={a.rule ? 44 : 24} />
-                {line.code ? <code>{line.code}</code> : null}
+                <DotPieces text={activityKeep(line.text)} max={a.rule ? 44 : 24} cut={keepPieces} aboutOf={aboutOf} />
+                {/* What it happened to wraps as one piece after the words, never dragging the last word with it. */}
+                {line.code ? ' ' : null}
+                {line.code && a.runId ? <Id id={line.code} about={aboutOf(line.code)} /> : line.code ? <code>{line.code}</code> : null}
               </span>
             </>
           );
