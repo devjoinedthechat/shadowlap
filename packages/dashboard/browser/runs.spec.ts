@@ -90,12 +90,12 @@ test('x picks a row and the bar comes; Delete takes the run off the table and th
   await page.locator('.dialog button', { hasText: /^Delete run$/ }).click();
   await expect(page.locator(`main#view table.runst a.rowa[href="${link}"]`)).toHaveCount(0);
   await expect(nav).not.toHaveText(before!);
-  const toast = page.locator('.toasts .toast');
+  const toast = page.locator('.toast');
   await expect(toast).toContainText('Deleted');
   await toast.locator('button', { hasText: 'Undo' }).click();
   await expect(page.locator(`main#view table.runst a.rowa[href="${link}"]`)).toHaveCount(1);
   await expect(nav).toHaveText(before!);
-  await expect(page.locator('.toasts .toast')).toContainText('Restored');
+  await expect(page.locator('.toast')).toContainText('Restored');
 });
 
 test.describe('on a phone', () => {
