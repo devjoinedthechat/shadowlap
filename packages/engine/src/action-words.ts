@@ -56,6 +56,9 @@ export const ACTIONS = {
   runVerify: { label: 'Run verify', doing: 'Verifying' },
   runMoreAttempts: { label: 'Run more attempts', doing: 'Running more attempts' },
   verifyAgain: { label: 'Verify again', doing: 'Verifying again' },
+  // A verified fix's failing runs that no accepted verify checked, verified on the code as it is now.
+  verifyThisRun: { label: 'Verify this run', doing: 'Verifying' },
+  verifyTheseRuns: { label: 'Verify these runs', doing: 'Verifying' },
   applyFix: { label: 'Apply fix', doing: 'Applying fix' },
   // Tests.
   runTests: { label: 'Run tests', doing: 'Running tests' },

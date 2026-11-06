@@ -54,9 +54,11 @@ export interface FixActions {
    * caller adds (`repairJobArgv`); `command` is the whole command line, repairer included. `noFix`:
    * why the repair would end "No fix to try" without running the agent, in a sentence (`noFixToTry`),
    * or null when it would run it; `noFixWhy`, which of the estimate's two cases that is; `candidates`,
-   * how many it asks the repairer for.
+   * how many it asks the repairer for. `spent`: its last repair tried candidates and accepted none,
+   * under the fix's check as it is, with no blame since (fix-lead.ts `repairSpent`), so running it
+   * again would try the same: Run repair waits, and the fix leads with what that repair's verdict left.
    */
-  repair: { argv: string[]; command: string; noFix: string | null; noFixWhy: NoFixToTry | null; candidates: number } | null;
+  repair: { argv: string[]; command: string; noFix: string | null; noFixWhy: NoFixToTry | null; candidates: number; spent: boolean } | null;
   /**
    * A verified or applied fix: apply its repair's patch (`patch`), or mark a change verified in the
    * working tree applied (`mark`). Once `applied`, the button is "Patch applied" ("Marked applied"
@@ -97,6 +99,15 @@ export interface FixActions {
    * user says yes to its command, without what runs on no other machine (`left`).
    */
   blameStronger: { argv: string[]; command: string; attempts: number; spent: number; pulled: PulledFrom | null; left: string[] } | null;
+  /**
+   * A verified or applied fix whose change is in the working tree, with failing runs in the store
+   * that no accepted verdict that counts checked (`notVerified`): Verify this run, a verify of those
+   * runs (`runs`) on the code as it is now, under the fix's check and what the accepted verdict
+   * decided by (fix-verify-step.ts `verifyLeftArgs`). Built from the verdict's checked fields, never
+   * its command line; one a pull brought runs only once the user says yes to its command, without
+   * what runs on no other machine (`left`). Null otherwise.
+   */
+  verifyLeft: { runs: string[]; argv: string[]; command: string; pulled: PulledFrom | null; left: string[] } | null;
 }
 
 // Links come from the one builder (links.ts), which the page's route parser reads back.
@@ -127,6 +138,12 @@ export const counting = (rec: FixRecords) => rec.verdicts.filter((v) => verdictC
 
 export function acceptedVerdict(rec: FixRecords): StoredVerdict | null {
   return [...counting(rec)].reverse().find((v) => v.verdict === 'accepted') ?? null;
+}
+
+/** The fix's failing runs that no accepted verdict that counts has checked as failing runs. */
+export function notVerified(rec: FixRecords): string[] {
+  const checked = new Set(counting(rec).flatMap((v) => (v.verdict === 'accepted' ? v.report.runs.filter((x) => x.role !== 'good').map((x) => x.runId) : [])));
+  return rec.failing.filter((id) => !checked.has(id));
 }
 
 export const acceptedCandidate = (r: StoredRepair): RepairCandidate | null => (r.accepted ? (r.report.candidates.find((c) => c.id === r.report.accepted) ?? null) : null);

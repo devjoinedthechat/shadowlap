@@ -1313,6 +1313,7 @@ repairer from here (`claude` isn't on the PATH).
 | `defaultStep`, `defaultVerify` | The step the dashboard opens at, and the verdict it shows first: the newest that counts |
 | `attempts`, `spent`, `upstreamRequests` | What everything behind the fix took: the attempts that ran live, and what they and the repairer cost |
 | `actions` | What can be done next (below) |
+| `lead` | The step it leads with, as its dashboard page and row do: `key`, `label` and `command`, or `null` for none |
 | `commands` | The `blame`, `repair` and `verify` commands to run it again |
 | `repairer` | The repairer the config names (below) |
 | `applied` | Once applied, how: `patch`, `repairId`, the `goldens` copied, `tests`, `by`, `via` |
@@ -1371,10 +1372,14 @@ or `by hand` for one you made that a verdict checked.
 `actions` says what can be done next:
 
 - **`repair`**, for an open fix: `noFix` says why it would end *No fix to try* without running the
-  agent, or is `null`.
+  agent, or is `null`. `spent` is true when its last repair tried candidates and accepted none, with
+  no blame or check change since, so running it again would try the same.
 - **`apply`**, for a verified or applied one: `kind` is `patch`, or `mark` when there is no patch
   (below).
 - **`applied`**, once it is applied.
+- **`verifyLeft`**, for a verified or applied fix whose change is in the working tree: the failing
+  `runs` no accepted verdict checked, and the `command` that verifies the working tree's code on
+  them. It is `null` when every failing run was verified.
 
 `apply` has:
 

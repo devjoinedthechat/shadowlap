@@ -10,7 +10,7 @@ import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '..
 const verify = (verifyId: string, verdict: VerifyStep['verdict'] = 'accepted'): VerifyStep =>
   ({ verifyId, verdict, href: `#/fixes/fx-1/verify/${verifyId}`, label: `x · ${verdict}` }) as VerifyStep;
 
-const actions = (o: Partial<FixDetail['actions']>): FixDetail['actions'] => ({ repair: null, apply: null, applied: false, blameAgain: null, blameStronger: null, ...o });
+const actions = (o: Partial<FixDetail['actions']>): FixDetail['actions'] => ({ repair: null, apply: null, applied: false, blameAgain: null, blameStronger: null, verifyLeft: null, ...o });
 
 describe('the list', () => {
   it('keeps each fix under its own bucket’s chip, and every fix under All', () => {
@@ -78,7 +78,7 @@ describe('a fix', () => {
   });
 
   it('offers Run repair on an open fix, Apply fix on a verified one, and Patch applied once it is in', () => {
-    const repair = { argv: ['repair'], command: 'shadowlap repair', noFix: null, noFixWhy: null, candidates: 3 };
+    const repair = { argv: ['repair'], command: 'shadowlap repair', noFix: null, noFixWhy: null, candidates: 3, spent: false };
     const patch = { kind: 'patch' as const, argv: ['fix', 'apply', 'fx-1'], gitApply: 'git apply x/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff: 'diff --git a/agent.mjs b/agent.mjs\n', patchFile: 'x/fix.patch', refused: null, inTree: false, goldens: 1, names: [], held: null, change: null };
     expect(fixAction({ status: 'open', actions: actions({ repair }) })).toEqual({ kind: 'repair' });
     expect(fixAction({ status: 'open', actions: actions({}) })).toEqual({ kind: 'none', label: 'Run repair', why: expect.stringMatching(/nothing to repair from here/) });
@@ -144,15 +144,15 @@ describe('a fix', () => {
 
   it('keeps Run repair but not as the lead when the repair would end with no fix to try, and says why', () => {
     const noFix = 'No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.';
-    expect(repairAside({ actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair', noFix, noFixWhy: 'unrescued', candidates: 3 } }) })).toBe(noFix);
+    expect(repairAside({ actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair', noFix, noFixWhy: 'unrescued', candidates: 3, spent: false } }) })).toBe(noFix);
     // A blame that couldn't settle has a look of its own on the Blame step, which says nothing of a repair.
-    expect(repairAside({ actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair', noFix: null, noFixWhy: null, candidates: 3 } }), blame: { look: 'Inconclusive: resampled from #1…' } as FixDetail['blame'] } as FixDetail)).toBeNull();
+    expect(repairAside({ actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair', noFix: null, noFixWhy: null, candidates: 3, spent: false } }), blame: { look: 'Inconclusive: resampled from #1…' } as FixDetail['blame'] } as FixDetail)).toBeNull();
     expect(repairAside({ actions: actions({}) })).toBeNull();
   });
 
   it('names the repairer Run repair asks as the fix reads again, and sends that one', () => {
     const fix = (repairer: FixDetail['repairer'], o: Partial<FixDetail> = {}) =>
-      ({ status: 'open', repairer, actions: actions({ repair: { argv: ['repair'], command: `shadowlap repair${repairer.configured ? '' : ' --repairer claude-code'}`, noFix: null, noFixWhy: null, candidates: 3 } }), ...o }) as FixDetail;
+      ({ status: 'open', repairer, actions: actions({ repair: { argv: ['repair'], command: `shadowlap repair${repairer.configured ? '' : ' --repairer claude-code'}`, noFix: null, noFixWhy: null, candidates: 3, spent: false } }), ...o }) as FixDetail;
     // The page loaded before the config named a repairer; the dialog reads it again as it opens.
     const page = fix({ name: 'claude-code', configured: false, problem: null });
     const now = fix({ name: 'anthropic', configured: true, problem: null });
@@ -167,7 +167,7 @@ describe('a fix', () => {
   });
 
   it('keeps Repair off, saying why, when the repairer it would ask can’t be asked from here', () => {
-    const page = { status: 'open', repairer: { name: 'claude-code', configured: false, problem: null }, actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair --repairer claude-code', noFix: null, noFixWhy: null, candidates: 3 } }) } as FixDetail;
+    const page = { status: 'open', repairer: { name: 'claude-code', configured: false, problem: null }, actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair --repairer claude-code', noFix: null, noFixWhy: null, candidates: 3, spent: false } }) } as FixDetail;
     const problem = 'This repair asks your own Claude Code, and claude was not found on this machine: install Claude Code, or set SHADOWLAP_CLAUDE to its path, or name another repairer in shadowlap.config.json (repair.repairer).';
     // claude went missing since the page loaded: the dialog reads the fix again as it opens.
     expect(repairAsk(page, { fix: { ...page, repairer: { ...page.repairer, problem } } })).toEqual({ ready: false, who: null, repairer: null, command: 'shadowlap repair --repairer claude-code', why: problem });

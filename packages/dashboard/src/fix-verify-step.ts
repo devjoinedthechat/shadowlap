@@ -215,6 +215,52 @@ function verdictArgs(v: StoredVerdict, o: { gate?: SprtGate | null; drop?: Reado
   return { argv: ['verify', ...roles, ...check, ...fields, ...decide, ...rerun.flags, ...(rerun.command ? ['--', ...rerun.command] : [])], rerun };
 }
 
+/** What a verdict decided each run by: its gate, else its fixed count of attempts, each held to a pulled record's cap. */
+export function verdictRule(v: StoredVerdict): { gate: SprtGate | null; attempts: number } {
+  const pulled = !!v.pulled;
+  return { gate: pulledGate(sprtGate(v.report.gate), pulled, PULLED_CAP.verify), attempts: pulled ? Math.min(v.report.attemptsPerRun, PULLED_CAP.count) : v.report.attemptsPerRun };
+}
+
+/**
+ * What Verify this run is expected to take, worked out as `verifyMore` works its own: each of `runs`
+ * runs from the start at the rate the accepted verdict `v`'s failing runs passed at, by its gate,
+ * else its fixed count; and what that costs at what an attempt of `v` cost, null when it spent nothing.
+ */
+export function verifyLeftExpected(v: StoredVerdict, runs: number): { expected: number; cost: number | null } {
+  const r = v.report;
+  const { gate, attempts } = verdictRule(v);
+  const failing = r.runs.filter((x) => x.role !== 'good');
+  const tried = failing.reduce((n, x) => n + x.attempts.length, 0);
+  const rate = tried ? failing.reduce((n, x) => n + x.passes, 0) / tried : 0.5;
+  const expected = Math.round(runs * (gate ? gateOdds(gate, rate).attempts : attempts));
+  const spent = r.spent + (r.judge?.spent ?? 0);
+  return { expected, cost: spent > 0 && r.attempts > 0 ? (spent / r.attempts) * expected : null };
+}
+
+/** What a good run is kept against: Verify this run names no good run, so they have nothing to say. */
+const GOOD_RUN_FLAGS: ReadonlySet<string> = new Set(['--margin', '--baseline', '--base', '--build']);
+
+/**
+ * Verify this run (`FixActions['verifyLeft']`) as `shadowlap verify` arguments: `runs`, failing runs
+ * no accepted verdict checked, verified on the code as it is now under the fix's check as it is, by
+ * what `v`, the accepted verdict, decided: the request fields it set, its gate (held to a pulled
+ * record's cap) or fixed count, and its flags but `--budget` and what only a good run reads. A
+ * repair's verdict kept no flags, so its gate alone, as the CLI runs it. Null when any of them isn't
+ * of its shape.
+ */
+export function verifyLeftArgs(rec: FixRecords, v: StoredVerdict, runs: readonly string[]): { argv: string[]; pulled: PulledFrom | null; left: string[] } | null {
+  const r = v.report;
+  const pulled = !!v.pulled;
+  const rerun = v.rerun ? rerunFlags('verify', v.rerun, { pulled, drop: new Set(['--budget', ...GOOD_RUN_FLAGS]) }) : null;
+  const check = expectArgs(rec.fix.check.expect);
+  const fields = fieldArgs(r.fields);
+  if ((v.rerun && !rerun) || !check || !fields || !runs.length || !runIds(runs)) return null;
+  const { gate } = verdictRule(v);
+  const decide = gate ? gateArg(gate, SPRT_DEFAULTS) : countArgs(r.attemptsPerRun, r.needed, pulled);
+  if (!decide) return null;
+  return { argv: ['verify', '--fixes', ...runs, ...check, ...fields, ...decide, ...(rerun?.flags ?? []), ...(rerun?.command ? ['--', ...rerun.command] : [])], pulled: v.pulled ?? null, left: rerun?.left ?? [] };
+}
+
 /** A pulled verdict's verify as this machine would run it again, from its checked fields; `fallback` when they make none. */
 function sameVerify(v: StoredVerdict, fallback: string): string {
   const made = verdictArgs(v);

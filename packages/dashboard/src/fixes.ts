@@ -20,6 +20,7 @@ import { type FixRow, rowOf } from './fix-list.js';
 import { acceptedCandidate, commandLine, counting, type FixActions, type FixPr, type FixRung, type PatchCheck, patchToCheck, prOf, type RewriteCheck, rungOf, runHref, short, shownRepair, type StepKey } from './fix-shared.js';
 import { blameStep, type BlameStep } from './fix-blame-step.js';
 import { fixActions, type GoldensFolder } from './fix-actions.js';
+import { fixLead, type FixLead } from './fix-lead.js';
 import { repairStep, type RepairStep } from './fix-repair-step.js';
 import { verifyStep, type VerifyStep } from './fix-verify-step.js';
 export { type StepState, type FixStep, type FixRow, type FixList, fixList } from './fix-list.js';
@@ -31,6 +32,7 @@ export { type FixRef, type RunBlame, type FixForRun, fixForRun } from './fix-for
 export { type FixBundleAttempt, type FixBundle, fixBundles } from './fix-bundles.js';
 export { type StepKey, type VerifyRow, type FixActions, fixHref, shortFailure, type PatchCheck, type RewriteCheck, type FixRung, type FixPr } from './fix-shared.js';
 export { APPLY_GOLDENS, fieldChange, type GoldensFolder, goldensFolderIn } from './fix-actions.js';
+export { type FixLead } from './fix-lead.js';
 
 export interface FixRunRef {
   runId: string;
@@ -54,6 +56,8 @@ export interface FixDetail extends FixRow {
   /** The step a fix opens on without one in its URL: its last finished step. */
   defaultStep: StepKey;
   actions: FixActions;
+  /** The step its header leads with, in the words its Fixes row uses (fix-lead.ts `fixLead`), or null when it has none. */
+  lead: FixLead | null;
   /** Where it stands on the one ladder its header and its Fixes row say (`rungOf`): open, blamed, verified, applied or merged. */
   rung: FixRung;
   /** Its pull request, as the store keeps it, or null. */
@@ -165,6 +169,7 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
     verify: commandLine(verifyArgs.length ? shortIds(verifyArgs) : ['verify', '--fixes', '<runs>']),
   };
   const verify = [...rec.verdicts].reverse().map((v) => verifyStep(rec, v, commands.verify));
+  const actions = fixActions(store, rec, { label: row.label, repairer: configured, patchInTree: options.patchInTree, rewriteHere: options.rewriteHere, goldensFolder: options.goldensFolder ?? null, repairArgs });
   return {
     ...row,
     expect,
@@ -174,7 +179,8 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
     openedBy: fix.data.openedBy ?? null,
     upstreamRequests: cost.upstreamRequests,
     defaultStep: done.at(-1)?.key ?? 'blame',
-    actions: fixActions(store, rec, { label: row.label, repairer: configured, patchInTree: options.patchInTree, rewriteHere: options.rewriteHere, goldensFolder: options.goldensFolder ?? null, repairArgs }),
+    actions,
+    lead: fixLead(rec, actions, { repairer: configured }),
     rung: rungOf(rec),
     pr: prOf(rec),
     blame: b ? blameStep(store, b, commands.blame) : null,

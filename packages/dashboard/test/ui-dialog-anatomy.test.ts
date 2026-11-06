@@ -532,7 +532,7 @@ describe('a fix’s dialogs', () => {
       title: 'A fix',
       status: 'open',
       repairer: { name: 'claude-code', configured: false, problem: null },
-      actions: { repair: { argv: ['repair', '--fixes', 'a', '--keeps', 'b', 'c'], command: 'shadowlap repair --fixes a --keeps b c', noFix: null, noFixWhy: null, candidates: 3 }, apply: null, applied: false, blameAgain: null, ...actions },
+      actions: { repair: { argv: ['repair', '--fixes', 'a', '--keeps', 'b', 'c'], command: 'shadowlap repair --fixes a --keeps b c', noFix: null, noFixWhy: null, candidates: 3, spent: false }, apply: null, applied: false, blameAgain: null, ...actions },
       ...over,
     }) as unknown as FixDetail;
 
@@ -565,7 +565,7 @@ describe('a fix’s dialogs', () => {
     expect(page.focused(), 'the rows go, the focus stays').toBe(page.one('[role="dialog"] .dlg-cancel'));
   });
   it('Run repair that would end No fix to try', async () => {
-    const noFix = fix({}, { repair: { argv: [], command: 'c', noFix: 'Blame couldn’t settle', noFixWhy: 'unsettled', candidates: 3 } });
+    const noFix = fix({}, { repair: { argv: [], command: 'c', noFix: 'Blame couldn’t settle', noFixWhy: 'unsettled', candidates: 3, spent: false } });
     const page = await open(createElement(RepairDialog, { fix: noFix, onRun: () => true, ...closes }), appWith({ client: { fix: () => Promise.resolve(noFix) } }));
     await page.until('the fix to be read', () => !page.one('.dlg-ok').disabled);
     holds(page, { title: 'Run repair', doc: 'repair', first: OK, ok: 'Run repair', warn: 'Blame couldn’t settle' });

@@ -215,7 +215,7 @@ describe('a fix', () => {
     expect(d.steps[2]).toMatchObject({ title: '2 fixed · 1 kept', meta: '1 earlier change rejected' });
     const diff = store.getRepair('repair-munzln2i')!.report.patch;
     expect(diff).toContain('diff --git a/agent.mjs b/agent.mjs');
-    expect(d.actions).toEqual({ repair: null, apply: { kind: 'patch', argv: ['fix', 'apply', fixId], gitApply: 'git -c core.autocrlf=false apply .shadowlap/repairs/repair-munzln2i/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff, patchFile: '.shadowlap/repairs/repair-munzln2i/fix.patch', refused: null, inTree: false, goldens: 1, names: [{ run: failing.slice(0, 10), name: 'refund-bug' }], held: null, change: null }, applied: false, blameAgain: null, blameStronger: null });
+    expect(d.actions).toEqual({ repair: null, apply: { kind: 'patch', argv: ['fix', 'apply', fixId], gitApply: 'git -c core.autocrlf=false apply .shadowlap/repairs/repair-munzln2i/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff, patchFile: '.shadowlap/repairs/repair-munzln2i/fix.patch', refused: null, inTree: false, goldens: 1, names: [{ run: failing.slice(0, 10), name: 'refund-bug' }], held: null, change: null }, applied: false, blameAgain: null, blameStronger: null, verifyLeft: null });
     expect(d.commands.blame).toBe(`shadowlap blame ${failing.slice(0, 10)} --expect '${JSON.stringify(EXPECT)}'`);
     // The good run its verdicts kept: label:good would also take any run labelled good since.
     expect(d.commands.repair).toBe(`shadowlap repair --fixes label:refund-bug --keeps ${good.slice(0, 10)} --expect '${JSON.stringify(EXPECT)}' --repairer claude-code`);
@@ -560,7 +560,7 @@ describe('a fix', () => {
     const { fix } = blame(run, { expect: null });
     const d = fixDetail(store, fix.fixId)!;
     expect(d).toMatchObject({ defaultStep: 'blame', repair: null, verify: [], defaultVerify: null, applied: null });
-    expect(d.actions).toEqual({ repair: { argv: ['repair', '--fixes', run], command: `shadowlap repair --fixes ${run} --repairer claude-code`, noFix: null, noFixWhy: null, candidates: 3 }, apply: null, applied: false, blameAgain: null, blameStronger: null });
+    expect(d.actions).toEqual({ repair: { argv: ['repair', '--fixes', run], command: `shadowlap repair --fixes ${run} --repairer claude-code`, noFix: null, noFixWhy: null, candidates: 3, spent: false }, apply: null, applied: false, blameAgain: null, blameStronger: null, verifyLeft: null });
     expect(d.commands.verify).toBe(`shadowlap verify --fixes ${run.slice(0, 10)}`);
   });
 
@@ -637,8 +637,7 @@ describe('a fix', () => {
       repair: null,
       apply: { kind: 'patch', argv: ['fix', 'apply', fix.fixId], gitApply: null, pending: 'copy the recordings the fixed code made into the goldens folder, and run shadowlap test on them', pulled: false, files: ['agent.mjs'], diff: store.getRepair('repair-applied')!.report.patch, patchFile: '.shadowlap/repairs/repair-applied/fix.patch', refused: null, inTree: false, goldens: 1, names: [{ run: run.slice(0, 10), name: 'refund-bug' }], held: null, change: null },
       applied: true,
-      blameAgain: null,
-      blameStronger: null,
+      blameAgain: null, blameStronger: null, verifyLeft: null,
     });
     // fix apply copied them and the test failed: the fix doesn't hold, and Needs a look says so first.
     markFixApplied(store, fix.fixId, { patch: 'applied', repairId: 'repair-applied', goldens: [`goldens/${run.slice(0, 10)}`], tests: 'failed', via: 'fix apply' });
