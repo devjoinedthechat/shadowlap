@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it, vi } from 'vitest';
-import { judgeCapture, parseTests, rulesOnCalls, shadowlapHome, Store, type RunRecord } from '@shadowlap/engine';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { judgeCapture, parseTests, rulesOnCalls, shadowlapHome, Store, withLockFile, type RunRecord } from '@shadowlap/engine';
 import { RunBuilder, text, toolUse, usage, user } from '../../engine/test/run-fixtures.js';
 import { CHECKS_SEEN_FILE } from '../src/checks-seen.js';
 import type { RouteContext } from '../src/context.js';
@@ -26,6 +26,20 @@ import { recordLoop } from './long-run.js';
  * recording, by today's checks when it was recorded before them. Kept per config version, judged
  * within a budget on a list, whole on a run's page, and always beside the server.
  */
+
+// A Shadowlap home of the file's own: what its dashboards keep of the goldens' checks is looked at, so
+// no other file's dashboard may hold that file then. Writers that share a home race in checks-seen.test.ts.
+const runHome = process.env.SHADOWLAP_HOME;
+let home: string;
+beforeAll(() => {
+  home = realpathSync(mkdtempSync(join(tmpdir(), 'sl-outcome-home-')));
+  process.env.SHADOWLAP_HOME = home;
+});
+afterAll(() => {
+  if (runHome === undefined) delete process.env.SHADOWLAP_HOME;
+  else process.env.SHADOWLAP_HOME = runHome;
+  rmSync(home, { recursive: true, force: true });
+});
 
 const T0 = 1_760_000_000_000;
 const ASK = [user('Order A-1042 arrived damaged. Refund it, please.')];
@@ -262,6 +276,27 @@ describe('what the server reads of the project', () => {
     // Kept for this machine, for a dashboard started later.
     const kept = JSON.parse(readFileSync(join(shadowlapHome(), CHECKS_SEEN_FILE), 'utf8')) as { projects: Record<string, Record<string, { at: number | null }>> };
     expect(kept.projects[dir]?.['goldens/refund']?.at).toBe(T0 + 5000);
+  });
+
+  it('answers while another process writes what is kept of the checks, and keeps them on the next request', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-outcome-held-'));
+    dirs.push(dir);
+    writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/refund': { expect: { tools: { send_email: '<= 1' } } } } }));
+    let listed = 0;
+    const ctx = { project: { path: dir }, options: { goldens: () => (listed++, [golden(T0)]) }, read: {} } as unknown as RouteContext;
+    const file = join(shadowlapHome(), CHECKS_SEEN_FILE);
+    const keptFor = () => (existsSync(file) ? Object.keys((JSON.parse(readFileSync(file, 'utf8')) as { projects: object }).projects) : []);
+    // The lock held, as by another dashboard writing the file: the request is answered all the same.
+    const first = withLockFile(`${file}.lock`, { wait: 0, busy: () => new Error('held') }, () => outcomeWork(ctx)!);
+    expect(first.goldens).toEqual([{ path: 'goldens/refund', runId: '01K8RG00000000000000000001', packedAt: T0, checksAt: null }]);
+    expect(keptFor()).not.toContain(dir);
+    // The next request reads again, and keeps them; the one after answers from what that one read.
+    const next = outcomeWork(ctx)!;
+    expect(listed).toBe(2);
+    expect(next.goldens).toEqual(first.goldens);
+    expect(keptFor()).toContain(dir);
+    expect(outcomeWork(ctx)).toBe(next);
+    expect(listed).toBe(2);
   });
 
   it('hands a request that asks for what judges a run and what its next step reads both, from one look at the files', () => {
