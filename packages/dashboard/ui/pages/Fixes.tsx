@@ -230,7 +230,7 @@ function UnblamedListRow({ u, jobs, focused }: { u: UnblamedRow; jobs: readonly 
             runId={u.runId}
             offer={{ failed: u.checks, from: u.from ?? 'ask' }}
             className="btn sm"
-            tip={tipCard(ACTIONS.runBlame.label, [], unblamedBlameCard(u), u.next.command ? `$ ${u.next.command}` : null)}
+            title={unblamedBlameCard(u)}
             jobs={jobs}
             {...(u.next.capture ? { capture: true } : {})}
             {...(u.next.command ? { line: u.next.command } : {})}

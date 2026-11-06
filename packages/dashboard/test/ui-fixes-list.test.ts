@@ -7,11 +7,13 @@ import { fixesView } from '../src/fixes-view.js';
 import { JOB_KINDS, type Client } from '../ui/api.js';
 import { CHIP_EMPTY, ciCard, failingCard, fixFacts, leadCard, leadReadsFix, leadWait, rowCells, rungStatus, unblamedBlameCard, unblamedTitle } from '../ui/fixes/list.js';
 import { fixRowScope, unblamedScope } from '../ui/fixes/row-scope.js';
+import { forgetRunEstimates } from '../ui/run/estimates.js';
 import { FixesPage } from '../ui/pages/Fixes.js';
 import { resetSpending } from '../ui/spending.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { FixesView, FixLead, FixRow } from '../ui/types.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
+import type { Estimate } from '../../engine/src/estimates/estimate.js';
 
 /**
  * Fixes as a to-do list (#/fixes): the words ui/fixes/list.ts gives a row, then the page as it renders
@@ -20,7 +22,7 @@ import { render, type FakeElement, type Rendered } from './ui-render.js';
  */
 
 const text = (el: FakeElement) => el.textContent.replace(/\s+/g, ' ').trim();
-const tipOf = (el: FakeElement | undefined) => JSON.parse(String(el?.props['data-tip'])) as { t: string; s?: string; cmd?: string };
+const tipOf = (el: FakeElement | undefined) => JSON.parse(String(el?.props['data-tip'])) as { t: string; s?: string; cmd?: string; est?: unknown };
 
 // ---------------------------------------------------------------------------------------------- the words
 
@@ -132,6 +134,7 @@ let at = 10 * DAY;
 beforeEach(() => {
   store = Store.open(':memory:');
   resetSpending();
+  forgetRunEstimates();
 });
 afterEach(async () => {
   await r?.unmount();
@@ -178,9 +181,10 @@ interface Asked {
 
 /**
  * The app as the shell gives it, its server answering from the store: `leads` stands in for a fix's
- * next step where a test needs one the store can't give, `jobs` for what the server is running.
+ * next step where a test needs one the store can't give, `jobs` for what the server is running, `blame`
+ * for what a run's Run blame would cost (left out, a run's estimates never answer).
  */
-function app(o: { fixes?: () => Promise<FixesView>; jobs?: unknown[]; leads?: Record<string, FixLead | null> } = {}): { state: AppState; asked: Asked } {
+function app(o: { fixes?: () => Promise<FixesView>; jobs?: unknown[]; leads?: Record<string, FixLead | null>; blame?: Estimate } = {}): { state: AppState; asked: Asked } {
   const asked: Asked = { fixes: 0, jobs: 0, fix: [], priced: [], started: [] };
   const view = (): FixesView => {
     const v = fixesView(store);
@@ -190,8 +194,8 @@ function app(o: { fixes?: () => Promise<FixesView>; jobs?: unknown[]; leads?: Re
     fixes: () => (asked.fixes++, o.fixes ? o.fixes() : Promise.resolve(view())),
     fix: (id: string) => (asked.fix.push(id), Promise.resolve(fixDetail(store, id))),
     jobs: () => (asked.jobs++, Promise.resolve(o.jobs ?? [])),
-    // A fix's estimates price nothing; a run's (Run blame's) never answer.
-    estimates: { fixEstimates: (id: string) => (asked.priced.push(id), Promise.resolve({ repair: null, blameAgain: null, blameStronger: null, verify: {} })), runEstimates: () => new Promise(() => undefined) },
+    // A fix's estimates price nothing; a run's (Run blame's) are `blame`, else never answer.
+    estimates: { fixEstimates: (id: string) => (asked.priced.push(id), Promise.resolve({ repair: null, blameAgain: null, blameStronger: null, verify: {} })), runEstimates: () => (o.blame ? Promise.resolve({ blame: o.blame, actions: {} }) : new Promise(() => undefined)) },
     startJob: (kind: string, fields: Record<string, unknown>) => (asked.started.push([kind, fields]), new Promise(() => undefined)),
   } as unknown as Client;
   // A tick of its own: what a row priced under another test's answer is never this one's.
@@ -248,6 +252,15 @@ describe('the Fixes list', () => {
     await chip('Applied');
     expect(keys()).toEqual([applied.href, ci.href]);
     await chip('All');
+  });
+
+  it('says on the unblamed row’s Run blame card what it would cost, from the run’s own estimate', async () => {
+    const run = newRun({ calls: ['api', 'tool', 'api'] });
+    await list(app({ blame: { kind: 'blame', usd: 0.42, ceiling: true, parts: [] } }));
+    const blame = () => row('unblamed').querySelector('.psn button')!;
+    await r!.until('the estimate', () => !!tipOf(blame()).est);
+    const u = fixesView(store).unblamed!;
+    expect(tipOf(blame())).toEqual({ t: 'Run blame', s: `Blames ${run.slice(0, 10)}: finds the model call that lost it, and joins it to the fix its failure belongs to`, rows: [], cmd: `$ ${u.next!.command!}`, est: { usd: 0.42, ceiling: true } });
   });
 
   it('says on each row its rung, its chips, its failing runs and its day, its three steps, and Open → where it has no step', async () => {
