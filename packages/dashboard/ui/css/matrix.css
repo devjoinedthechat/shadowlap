@@ -4,7 +4,7 @@
    the red and the amber stand out. Columns that don't fit: a matrix of one row wraps them into bands that repeat its head,
    each band keeping its full number of columns, so cells line up from band to band; one of several rows scrolls (below).
    Named `matrix`, so its key's queries find it and no box around it; Changes' preview matrix takes the name too. */
-.rmx { container: matrix / inline-size; --rmx-ground: var(--bg2); }
+.rmx { container: matrix / inline-size; }
 .rmx-band { display: grid; grid-template-columns: minmax(var(--rh), max-content) repeat(var(--n), minmax(var(--cw), 180px)); column-gap: 4px; row-gap: 2px; justify-content: start; align-items: start; }
 .rmx-band + .rmx-band { margin-top: 18px; }
 .rmx-k { align-self: end; padding: 0 10px 8px 0; font: var(--fs-small) / 1.35 var(--body); color: var(--faint); }
@@ -32,11 +32,11 @@
 .rmx-r small .rab.rmxab, .rmx-chr small .rab.rmxab { display: block; white-space: nowrap; overflow: hidden; }
 .rmx-note { grid-column: 1 / -1; padding: 2px 0 10px 16px; font-size: var(--fs-small); color: var(--faint); }
 /* One band, each row head once: what doesn't fit scrolls sideways inside the matrix, under row heads that stay put on the
-   panel's ground (--rmx-ground); a fade at the right edge while columns run past it, a hairline beside the heads once cells
-   are under them. A note keeps its words in view as the band scrolls. */
+   ground of what holds it (--rmx-ground, the page's unless a panel sets its own); a fade at the right edge while columns
+   run past it, a hairline beside the heads once cells are under them. A note keeps its words in view as the band scrolls. */
 .rmx-in { overflow-x: auto; overscroll-behavior-x: contain; scroll-padding-right: 40px; }
-.rmx-k, .rmx-r { position: sticky; left: 0; z-index: 1; background: var(--rmx-ground); box-shadow: 4px 0 0 var(--rmx-ground); }
-.rmx-in.rmx-under .rmx-k, .rmx-in.rmx-under .rmx-r { box-shadow: 4px 0 0 var(--rmx-ground), 5px 0 0 var(--line); }
+.rmx-k, .rmx-r { position: sticky; left: 0; z-index: 1; background: var(--rmx-ground, var(--bg)); box-shadow: 4px 0 0 var(--rmx-ground, var(--bg)); }
+.rmx-in.rmx-under .rmx-k, .rmx-in.rmx-under .rmx-r { box-shadow: 4px 0 0 var(--rmx-ground, var(--bg)), 5px 0 0 var(--line); }
 .rmx-in.rmx-more { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
 .rmx-note > span { position: sticky; left: 16px; display: inline-block; }
 /* a cell holds its hidden name, so that name never stretches the page past the band's edge */
@@ -94,7 +94,7 @@ a.rmx-c:hover { background: var(--hover); }
 /* What a finding's Show results opens (components/FindingPanel.tsx): what was tried, where and when, the command at the
    right; the matrix with its key in its head over the cells; the rule and the checks on one line under it; a quiet receipt
    at its foot under a hairline. */
-.rmxp { border-top: 1px solid var(--line); padding: 14px 24px 14px; background: var(--bg2); }
+.rmxp { border-top: 1px solid var(--line); padding: 14px 24px 14px; background: var(--bg2); --rmx-ground: var(--bg2); }
 .rmxp-h { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 14px; }
 .rmxp-t { flex: none; font-size: var(--fs-body); font-weight: 500; color: var(--ink); }
 .rmxp-meta { font-size: var(--fs-small); color: var(--faint); }
@@ -113,8 +113,7 @@ a.rmx-c:hover { background: var(--hover); }
 }
 /* in the inspector's place: the column's width, no hairline and no ground of its own, so the heads stay put on the page's;
    16px in on a phone, as the rest of the page is */
-.insp.fpanel .rmxp { border-top: 0; padding: 14px 18px 16px; background: none; }
-.insp.fpanel .rmx { --rmx-ground: var(--bg); }
+.insp.fpanel .rmxp { border-top: 0; padding: 14px 18px 16px; background: none; --rmx-ground: var(--bg); }
 @media (max-width: 640px) { .insp.fpanel .rmxp { padding: 12px 16px 14px; } }
 
 /* A cell's bar and a key's swatch say what came of it by their colour alone: kept in a high-contrast theme, edged in its text
