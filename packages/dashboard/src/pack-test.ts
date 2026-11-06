@@ -5,6 +5,7 @@ import type { ProjectConfig, RouteContext } from './context.js';
 import type { JobBuildContext, JobBuildResult, JobKind, JobRequest } from './jobs.js';
 import { sessionBusy, testsBusy } from './routes/tests.js';
 import { copyableRun, projectRoot } from './run-exports.js';
+import { keptGoldenAsk } from './tests-live.js';
 
 /**
  * `pack-test`: a recording packed as a golden, then its test, as one job (`pack <run> <golden>`,
@@ -18,10 +19,12 @@ import { copyableRun, projectRoot } from './run-exports.js';
  * The golden's folder is the engine's rule (`goldenPath`): a bare name goes under goldens/, and a
  * folder that holds another golden, or anything else, is refused. One that holds this run already is
  * tested alone, to run it again. It replays a golden, so it waits as Tests' jobs do, for one of them
- * and for a test session started elsewhere. A recording this machine didn't make (pulled from the
- * team store, unpacked from someone's pack) runs its recorded command in the test, and the packed
- * folder is one no repository tracks yet, so the job asks first, as a replay of it does, and passes
- * the test --yes once the request says yes to that command (consent.ts).
+ * and for a test session started elsewhere. The setup's recording asks first where its golden's
+ * tests entry runs the test live, as Run tests does (tests-live.ts `keptGoldenAsk`). A recording
+ * this machine didn't make (pulled from the team store, unpacked from someone's pack) runs its
+ * recorded command in the test, and the packed folder is one no repository tracks yet, so the job
+ * asks first, as a replay of it does, and passes the test --yes once the request says yes to that
+ * command (consent.ts).
  */
 
 const KEEP_VERB = 'keep it as a test';
@@ -94,6 +97,7 @@ function setupRun(ctx: RouteContext, h: ProjectHost<ProjectConfig>, req: JobRequ
   const busy = testsBusy(ctx.jobs.list(), projectId, KEEP_VERB) ?? sessionBusy(store, KEEP_VERB);
   if (busy) return { error: busy, status: 409 };
   const packed = h.context(projectId).packs().some((p) => p.path === check.path && p.runIds.includes(run.runId));
-  if (packed) return { args: setupJobArgs.test(check.path), runId: run.runId, title: 'Testing the golden' };
-  return { args: setupJobArgs.pack(run.runId, check.path), then: [setupJobArgs.test(check.path)], runId: run.runId };
+  const job = packed ? { args: setupJobArgs.test(check.path), runId: run.runId, title: 'Testing the golden' } : { args: setupJobArgs.pack(run.runId, check.path), then: [setupJobArgs.test(check.path)], runId: run.runId };
+  // A test that runs the golden live (its tests entry marks it fork, or gives it an injection gate) asks first, as Run tests does.
+  return keptGoldenAsk(entry.path, check.path, [job.args, ...('then' in job ? job.then : [])], req.yes) ?? job;
 }

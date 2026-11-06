@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import {
   ACTIONS,
+  GOLDEN_JOB_WORDS,
   bisectEstimate,
   blameEstimate,
   callRuleLabel,
@@ -373,8 +374,7 @@ export function crashed(row: Pick<IndexedRun, 'status' | 'outcome'> | null, resu
   return !!row && row.status === 'failed' && row.outcome.kind === 'check-failed' && row.outcome.check === null;
 }
 
-const REMADE = 'It re-records the golden under the change';
-const JUDGE_ONCE = 'Asks the judge once, live, and keeps its verdict in the pack: every test after judges from the recording, free';
+const { remade: REMADE, judgeOnce: JUDGE_ONCE } = GOLDEN_JOB_WORDS;
 
 /** A golden's newest finished plant, as its report says it: what its injection gate spent the last time it ran; null before one has. */
 export function newestGate(store: Store, golden: string): PlantReport | null {
@@ -402,7 +402,7 @@ function valueStep(f: Facts, t: TestedGolden, offer: TestOffer): Decided | null 
   const { golden, source, result } = t;
   const all = offer.values.coversAll;
   const test = () => goldenRerunPrice(f.store, source, result);
-  if (offer.normalized) return all ? { key: 'rerun-test', label: ACTIONS.rerunTest.label, golden, command: commandLine(['test', golden]), sub: 'The rule is in shadowlap.config.json: it replays the golden again', price: test } : updateStep(f, golden, source);
+  if (offer.normalized) return all ? { key: 'rerun-test', label: ACTIONS.rerunTest.label, golden, command: commandLine(['test', golden]), sub: GOLDEN_JOB_WORDS.ruleIn, price: test } : updateStep(f, golden, source);
   if (offer.maybeReal) return null;
   return {
     key: 'normalizer',
@@ -410,7 +410,7 @@ function valueStep(f: Facts, t: TestedGolden, offer: TestOffer): Decided | null 
     golden,
     test: offer,
     command: (offer.normalizeAndTest ?? []).map((a) => commandLine(a)).join(' && '),
-    sub: all ? 'Masks the value at match time, then replays the golden offline' : 'Masks the value at match time, then re-records the golden',
+    sub: all ? GOLDEN_JOB_WORDS.masksThenReplays : GOLDEN_JOB_WORDS.masksThenRemakes,
     ...(all ? { price: test } : updatePrice(source)),
   };
 }
@@ -529,7 +529,7 @@ function crashStep(f: Facts): Decided | null {
     blame: blame ? { offer: blame, sub: 'Whether an answer of the model’s lost the run', command: blameCommand(row.runId, blame, false) } : null,
     ...(blame ? { beside: blamePrice(row.runId) } : {}),
     command: bisectCommand(t.golden, good, commitName(c.bad)),
-    sub: starts ? `Replays the golden at the commits since ${good}, where it passed, offline: no tokens` : 'Asks for a commit where it still worked, then replays it at the commits between',
+    sub: starts ? GOLDEN_JOB_WORDS.replaysSince(good) : 'Asks for a commit where it still worked, then replays it at the commits between',
     ...bisectPrice(f, t.source, t.result, c.good, c.bad),
   };
 }

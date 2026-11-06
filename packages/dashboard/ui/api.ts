@@ -9,6 +9,7 @@ import { noteParent } from './parents.js';
 import { noProjects, noteRefusal, projectHeader, projectsApi, showProject, type ProjectsApi } from './projects-api.js';
 import { readTokenLink } from './route.js';
 import { holdWhile, Revalidation } from './revalidate.js';
+import { estimatesApi, noEstimates, type EstimatesApi } from './estimates-api.js';
 import { changesApi, type ChangesApi } from './changes-api.js';
 import { noSettings, settingsApi, type Request, type SettingsApi } from './settings-api.js';
 import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js';
@@ -178,7 +179,8 @@ export interface Client extends ChangesApi {
    * `yes`: the command of a run from someone else's pack or the team store was confirmed, in the
    * step that showed it: the `confirm` of the 409 that named it, which ties the yes to that line.
    */
-  action(id: string, key: string, callNo: number | null, value?: string, yes?: string): Promise<JobView>;
+  /** A fork menu row's job; `sent`, what its start sends besides, such as the estimate its card showed. */
+  action(id: string, key: string, callNo: number | null, value?: string, yes?: string, sent?: Record<string, unknown>): Promise<JobView>;
   /** Starts a job of a registered kind (`POST /api/jobs`). */
   startJob(kind: string, fields: Record<string, unknown>): Promise<JobView>;
   job(jobId: string, after: number): Promise<JobView>;
@@ -244,6 +246,8 @@ export interface Client extends ChangesApi {
   // ---- Settings
   /** Settings: each tab's read and the edits to shadowlap.config.json (`settings-api.ts`). */
   settings: SettingsApi;
+  /** What billed jobs would cost, and Spending, the threshold above which one asks first. */
+  estimates: EstimatesApi;
   /** The team store's setup page (`#/setup/store`, `store-api.ts`). */
   storeSetup: StoreSetupApi;
 
@@ -440,7 +444,7 @@ export function createClient(token: string): Client {
     search: (q) => request<SearchAnswer>(`search?q=${id(q)}&limit=40`).then((r) => ({ hits: r.hits ?? [], ...(r.indexing ? { indexing: r.indexing } : {}) })),
     labels: (runId, add, remove = []) => request<{ labels: string[] }>(`runs/${id(runId)}/labels`, { method: 'POST', body: JSON.stringify({ add, remove }) }),
     note: (runId, callNo, text) => request<{ notes: RunNote[] }>(`runs/${id(runId)}/notes`, { method: 'POST', body: JSON.stringify({ callNo, text }) }),
-    action: (runId, key, callNo, value, yes) => request<JobView>(`runs/${id(runId)}/actions`, { method: 'POST', body: JSON.stringify({ key, callNo, ...(value !== undefined ? { value } : {}), ...(yes !== undefined ? { yes } : {}) }) }),
+    action: (runId, key, callNo, value, yes, sent) => request<JobView>(`runs/${id(runId)}/actions`, { method: 'POST', body: JSON.stringify({ ...sent, key, callNo, ...(value !== undefined ? { value } : {}), ...(yes !== undefined ? { yes } : {}) }) }),
     startJob: (kind, fields) => request<JobView>('jobs', { method: 'POST', body: JSON.stringify({ ...fields, kind }) }),
     job: (jobId, after) => request<JobView>(`jobs/${id(jobId)}?after=${after}`),
     stopJob: (jobId) => request<{ stopped: boolean }>(`jobs/${id(jobId)}/stop`, { method: 'POST', body: '{}' }),
@@ -500,9 +504,7 @@ export function createClient(token: string): Client {
     tests: () => request<TestsView>('tests'),
     testRun: (runId, before) => request<TestRunView>(`tests/runs/${id(runId)}${before !== undefined ? `?before=${before}` : ''}`),
     ciWorkflows: (o) => request<CiWorkflowsView>(`ci/workflows${ciQuery(o)}`),
-    settings: settingsApi(request),
-    storeSetup: storeSetupApi(request),
-    projects: projectsApi(request),
+    ...ownApis(request),
     training: () => request<TrainingView>('training'),
     models: () => request<ModelsView>('models'),
     ...changesApi(request),
@@ -515,6 +517,11 @@ export function createClient(token: string): Client {
     attemptGroups: (fixId) => request<FixAttemptGroups>(`fixes/${id(fixId)}/groups`),
     ...longRunReads(request),
   };
+}
+
+/** The parts of the client that are APIs of their own, each written beside its routes. */
+function ownApis(request: Request): Pick<Client, 'settings' | 'storeSetup' | 'projects' | 'estimates'> {
+  return { settings: settingsApi(request), storeSetup: storeSetupApi(request), projects: projectsApi(request), estimates: estimatesApi(request) };
 }
 
 /** What a long run's first answer leaves to reads of their own, as its analysis has them. */
@@ -605,6 +612,7 @@ export function createExportedClient(data: StaticPayload): Client {
     testRun: () => Promise.resolve({ banner: null, bisect: null }),
     ciWorkflows: () => get<CiWorkflowsView>('ci/workflows'),
     settings: noSettings(readOnly),
+    estimates: noEstimates(readOnly),
     storeSetup: noStoreSetup(readOnly),
     projects: noProjects(readOnly),
     training: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Training is not part of it')),

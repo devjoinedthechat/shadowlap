@@ -53,10 +53,10 @@ test('pressed from the palette, a step does what its button does: it asks, or op
 
 test('a step’s hover says what it does and runs, and what it bills where it does', async ({ page }) => {
   await openPage(page, `/run/${demoId('digestFailed')}`, 'run');
-  const tip = JSON.parse((await lime(page).getAttribute('data-tip'))!) as { t: string; rows: string[][]; cmd: string };
+  const tip = JSON.parse((await lime(page).getAttribute('data-tip'))!) as { t: string; rows: string[][]; cmd: string; est?: { usd: number | null; ceiling: boolean } };
   expect(tip.t).toBe('Run blame');
-  expect(tip.rows.map((r) => r[0])).toEqual(['Costs']);
-  expect(tip.rows[0]![1]).toMatch(/^At most ≈\$/);
+  expect(tip.rows).toEqual([]);
+  expect(tip.est).toMatchObject({ ceiling: true, usd: expect.any(Number) });
   expect(tip.cmd).toBe(`$ shadowlap blame ${demoId('digestFailed').slice(0, 10)}`);
   await lime(page).hover();
   await expect(page.locator('.tip')).toContainText('At most');

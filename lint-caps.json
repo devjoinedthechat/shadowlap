@@ -210,7 +210,7 @@
       "changeCards": 33
     },
     "packages/dashboard/ui/fixes/FixPage.tsx": {
-      "FixActions": 36
+      "FixActions": 34
     },
     "packages/dashboard/ui/fixes/model.ts": {
       "fixJobStatus": 37
@@ -444,7 +444,7 @@
       "trainingView": 168
     },
     "packages/dashboard/ui/api.ts": {
-      "createClient": 171
+      "createClient": 169
     },
     "packages/dashboard/ui/fixes/BlameStep.tsx": {
       "BlameStepView": 193
@@ -453,10 +453,10 @@
       "NewProjectPage": 162
     },
     "packages/dashboard/ui/pages/Tests.tsx": {
-      "TestsPage": 238
+      "TestsPage": 234
     },
     "packages/dashboard/ui/pages/Training.tsx": {
-      "TasksTab": 167
+      "TasksTab": 163
     },
     "packages/dashboard/ui/pages/settings/StoreSetup.tsx": {
       "StoreSetup": 284

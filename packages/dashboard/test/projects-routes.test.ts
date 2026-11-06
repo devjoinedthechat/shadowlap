@@ -763,6 +763,28 @@ describe('the setup', () => {
     expect(setup.body.test).toMatchObject({ button: { action: 'packgolden' }, golden: { value: 'goldens/research-agent' }, packed: null });
   });
 
+  it('asks first when the golden’s tests entry runs it live, as Run tests does, and packs and tests it on the yes', async () => {
+    const w = await world();
+    await w.api('projects', { method: 'POST', body: { path: w.research } });
+    w.registry.noteInspected('research-agent', findings({ tools: [], wrap: [] }));
+    const runId = recordInto(w.host.context('research-agent').store(), w.research, 3);
+    const config = join(w.research, 'shadowlap.config.json');
+    writeFileSync(config, JSON.stringify({ ...(existsSync(config) ? (JSON.parse(readFileSync(config, 'utf8')) as object) : {}), tests: { 'goldens/*': { fork: true } } }));
+    const body = { kind: 'pack-test', golden: 'goldens/x', project: 'research-agent' };
+    const asked = await w.api<{ error: string; confirm: string; live: unknown }>('jobs', { method: 'POST', body });
+    expect(asked.status).toBe(409);
+    expect(asked.body).toMatchObject({ error: 'goldens/x is marked fork, so it runs live from where it forks, writes blocked. Live calls are billed by your provider. Confirm it to run it', live: [{ path: 'goldens/x', why: [{ kind: 'fork' }] }] });
+    const kept = await w.api<{ id: string; args: string[] }>('jobs', { method: 'POST', body: { ...body, yes: asked.body.confirm } });
+    expect(kept.status).toBe(202);
+    expect(kept.body.args).toEqual(['pack', runId, 'goldens/x']);
+    expect((await w.waitJob(kept.body.id)).code).toBe(0);
+    // Packed: running its test again asks again, its yes being to the test alone.
+    const again = await w.api<{ confirm: string }>('jobs', { method: 'POST', body: { kind: 'pack-test', project: 'research-agent' } });
+    expect(again.status).toBe(409);
+    expect(again.body.confirm).not.toBe(asked.body.confirm);
+    expect((await w.api('jobs', { method: 'POST', body: { kind: 'pack-test', project: 'research-agent', yes: again.body.confirm } })).status).toBe(202);
+  });
+
   it('keeps a golden packed in a terminal open until its test passed, and runs only the test', async () => {
     const w = await world();
     await w.api('projects', { method: 'POST', body: { path: w.research } });

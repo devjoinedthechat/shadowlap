@@ -2,7 +2,7 @@ import { importedRecording, pulledRun } from '../../../engine/src/classify.js';
 import { canonicalModel, shortModel } from '../../../engine/src/prices.js';
 import { lostRange } from '../../../engine/src/run-verdicts.js';
 import { num } from '../format.js';
-import { personName } from '../overview/model.js';
+import { personName } from '../person.js';
 import type { BlameView, CallRow, CheckView, LineageNode, RunDetail, RunListItem } from '../types.js';
 import { href } from '../route.js';
 import { countChecks, type RunLike, type RunType } from '../runs.js';

@@ -4939,7 +4939,7 @@ These environment variables change what Shadowlap does:
   Actions and GitLab CI. The build then writes only to that pull request's folder in the
   [team store](./team.md#pull-requests).
 - **`SHADOWLAP_HOME`**: a relative path is ignored, and `~/.shadowlap` holds all of these files
-  instead, as the dashboard says. It holds your dashboard [Spending](./dashboard.md#settings) too, in
+  instead, as the dashboard says. It holds your dashboard [Spending](./dashboard.md#spending) too, in
   `settings.json`. Processes that find each other's files there need the same one, so give it to
   `shadowlap mcp` in your MCP client's configuration too ([details](./mcp.md#finding-the-run)).
 - **The proxy variables**: the agent never reaches the sidecar through one. `run`, `replay`, `test` and

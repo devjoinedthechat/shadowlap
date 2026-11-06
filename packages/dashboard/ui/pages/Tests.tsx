@@ -15,10 +15,14 @@ import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
 import { divergedAsk, moreAttemptsAsk, runTestsAsk, startTestsJob, type TestsAsk } from '../tests-ask.js';
+import { estimatesKey, goldenPrice, runPrice, updatesPrice, useTestsEstimates, type Price } from '../tests-estimates.js';
+import type { TestsEstimates } from '../estimates-api.js';
+import { JobButton } from '../components/JobButton.js';
+import { sentEstimate } from '../spending.js';
+import { bisectLive, moreCard, normalizeCard, runTestsCard, testsJob, updateCard, updatesCard } from './tests-cards.js';
 import { keepTests } from '../tests-palette.js';
-import { FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from './TestsDialogs.js';
+import { FindCommitButton, FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from './TestsDialogs.js';
 import { ACTIONS, confirmWords } from '../labels.js';
-import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * Tests (#/tests): every golden CI runs and how it did at each revision. The verdict for the goldens'
@@ -32,9 +36,9 @@ import { ActionButton } from '../components/ActionButton.js';
 const TEST_KINDS = new Set<string>([JOB_KINDS.tests, JOB_KINDS.testUpdate, JOB_KINDS.normalizeAndTest]);
 
 type Open =
-  | { kind: 'update'; paths: string[] }
+  | { kind: 'update'; paths: string[]; estimate?: Price }
   | { kind: 'bisect'; name: string; golden: string; range: { good: string; bad: string | null } | null; live: boolean; revisions: BisectRevision[]; tried: string | null }
-  | { kind: 'normalize-update'; name: string; golden: string; steps: string[][] };
+  | { kind: 'normalize-update'; name: string; golden: string; steps: string[][]; estimate?: Price };
 
 
 export function TestsPage() {
@@ -44,6 +48,7 @@ export function TestsPage() {
   // that moves only their own count, and the actions wait for one on goldens (`chaosRunning`).
   const loaded = useLoad(() => client.tests(), 'tests', `${tick}:${feeds.chaos ?? 0}`);
   const view = loaded.data;
+  const prices = useTestsEstimates(view ? estimatesKey(view) : null, view?.diverged);
   const [open, setOpen] = useState<Open | null>(null);
   const running = jobs.some((w) => !w.job.done && !w.lost && TEST_KINDS.has(w.job.kind ?? ''));
   // What the server is running, from every tab and terminal dashboard: a test job (Find breaking commit
@@ -81,8 +86,8 @@ export function TestsPage() {
 
   // A job that would run goldens live asks first, in the shell's dialog, saying `ask`'s words around
   // the server's; one that only replays starts on the click (tests-ask.ts).
-  const start = (kind: string, fields: Record<string, unknown>, ask?: TestsAsk) => {
-    const went = startTestsJob(app, kind, fields, ask);
+  const start = (kind: string, fields: Record<string, unknown>, ask?: TestsAsk, e?: Price) => {
+    const went = startTestsJob(app, kind, { ...fields, ...sentEstimate(e) }, ask && { ...ask, estimate: e });
     if (went !== false) setOpen(null);
     return went;
   };
@@ -105,10 +110,7 @@ export function TestsPage() {
     );
   }
 
-  const runWait = wait('run the tests');
-  const updateWait = wait('update them');
-  const updateGoldenWait = wait('update it');
-  const findWait = wait('find the breaking commit');
+  const [runWait, updateWait, updateGoldenWait, findWait] = ['run the tests', 'update them', 'update it', 'find the breaking commit'].map((verb) => wait(verb));
   // A gate against history needs the store kept between CI's runs.
   const historyGate = view.rows.some((r) => r.gate?.gate.kind === 'baseline');
   // An injection test runs live from each payload it plants, as a fork does: CI needs the keys for it.
@@ -120,29 +122,29 @@ export function TestsPage() {
         CI settings
       </a>
       {view.diverged.length && hasKind(JOB_KINDS.testUpdate) ? (
-        <ActionButton className="btn" why={updateWait} onClick={() => guard(() => setOpen({ kind: 'update', paths: view.diverged }))}>
+        <JobButton className="btn" why={updateWait} {...testsJob(updatesCard(view.diverged), updatesPrice(prices, view.diverged), (e) => guard(() => setOpen({ kind: 'update', paths: view.diverged, estimate: e })))}>
           {ACTIONS.updateGoldens.label}
-        </ActionButton>
+        </JobButton>
       ) : null}
       {hasKind(JOB_KINDS.tests) ? (
-        <ActionButton className="btn lime" why={runWait} onClick={() => start(JOB_KINDS.tests, {}, runTestsAsk(view))}>
+        <JobButton className="btn lime" why={runWait} {...testsJob(runTestsCard(view), runPrice(prices), (e) => start(JOB_KINDS.tests, {}, runTestsAsk(view), e))}>
           {ACTIONS.runTests.label}
-        </ActionButton>
+        </JobButton>
       ) : null}
     </>
   );
 
-  const normalize = (d: DivergenceView) => {
+  const normalize = (d: DivergenceView, e?: Price) => {
     const run = divergenceButtons(d, hasKind).normalize?.run;
-    if (run === 'rerun') start(JOB_KINDS.tests, { golden: d.golden }, divergedAsk(view, d.golden, run));
+    if (run === 'rerun') start(JOB_KINDS.tests, { golden: d.golden }, divergedAsk(view, d.golden, run), e);
     // The rules alone can't make it match: the golden is re-recorded after them, so it asks first.
-    else if (run === 'normalize-update' && d.normalizeAndTest) setOpen({ kind: 'normalize-update', name: d.name, golden: d.golden, steps: d.normalizeAndTest });
-    else if (run === 'normalize') start(JOB_KINDS.normalizeAndTest, { golden: d.golden }, divergedAsk(view, d.golden, run));
+    else if (run === 'normalize-update' && d.normalizeAndTest) setOpen({ kind: 'normalize-update', name: d.name, golden: d.golden, steps: d.normalizeAndTest, estimate: e });
+    else if (run === 'normalize') start(JOB_KINDS.normalizeAndTest, { golden: d.golden }, divergedAsk(view, d.golden, run), e);
   };
   const findCommit = (f: Pick<DivergenceView, 'name' | 'golden' | 'bisect' | 'missed' | 'revisions'>) => {
     // Once a search over the known range named no first bad commit, it asks for an older good one.
     const range = f.missed ? null : f.bisect;
-    const live = range?.live ?? view.rows.find((r) => r.path === f.golden)?.mode === 'fork';
+    const live = bisectLive(view, f);
     // Free replays over a known range start at once; a search that needs a good commit, or costs tokens, asks first.
     if (range && !live) start(JOB_KINDS.bisect, { golden: f.golden, good: range.good, ...(range.bad ? { bad: range.bad } : {}) });
     else setOpen({ kind: 'bisect', name: f.name, golden: f.golden, range: range ? { good: range.good, bad: range.bad } : null, live, revisions: f.revisions, tried: f.missed?.good ?? null });
@@ -201,27 +203,23 @@ export function TestsPage() {
             ) : null}
             <div className="actions">
               {b.normalize ? (
-                <ActionButton className={`btn${b.normalize.lead ? ' lime' : ''}`} why={normalizeWait} onClick={() => guard(() => normalize(d))}>
+                <JobButton className={`btn${b.normalize.lead ? ' lime' : ''}`} why={normalizeWait} {...testsJob(normalizeCard(d, b.normalize), goldenPrice(prices, d.golden, b.normalize.run === 'rerun' ? 'rerun' : 'normalize'), (e) => guard(() => normalize(d, e)))}>
                   {b.normalize.label}
-                </ActionButton>
+                </JobButton>
               ) : null}
               {b.update ? (
-                <ActionButton className="btn" why={goldenWait} onClick={() => guard(() => setOpen({ kind: 'update', paths: [d.golden] }))}>
+                <JobButton className="btn" why={goldenWait} {...testsJob(updateCard(d.golden), goldenPrice(prices, d.golden, 'update'), (e) => guard(() => setOpen({ kind: 'update', paths: [d.golden], estimate: e })))}>
                   {ACTIONS.updateGolden.label}
-                </ActionButton>
+                </JobButton>
               ) : null}
-              {b.bisect ? (
-                <ActionButton className="btn" why={findWait} onClick={() => guard(() => findCommit(d))}>
-                  {b.bisect.range && !b.bisect.live ? confirmWords(ACTIONS.findBreakingCommit.label) : ACTIONS.findBreakingCommit.label}
-                </ActionButton>
-              ) : null}
+              {b.bisect ? <FindCommitButton f={d} live={bisectLive(view, d)} why={findWait} onBisect={() => findCommit(d)} /> : null}
             </div>
             <p className="hintx">Normalizers apply at match time, so older goldens keep working. Update a golden only when the change was intended.</p>
           </ReportPanel>
         );
       })}
       {view.failures.map((f) => (
-        <FailurePanel key={f.golden} f={f} off={findWait ?? undefined} button={findCommitButton(f, hasKind)} onBisect={() => guard(() => findCommit(f))} />
+        <FailurePanel key={f.golden} f={f} off={findWait} live={bisectLive(view, f)} button={findCommitButton(f, hasKind)} onBisect={() => findCommit(f)} />
       ))}
       {view.inconclusive.map((v) => (
         <InconclusivePanel
@@ -229,10 +227,11 @@ export function TestsPage() {
           v={v}
           off={runWait ?? undefined}
           canRun={hasKind(JOB_KINDS.tests)}
-          onMore={(job, ask) => start(JOB_KINDS.tests, job, ask)}
+          onMore={(job, ask, e) => start(JOB_KINDS.tests, job, ask, e)}
+          prices={prices}
           updateOff={updateGoldenWait ?? undefined}
           canUpdate={hasKind(JOB_KINDS.testUpdate)}
-          onUpdate={() => guard(() => setOpen({ kind: 'update', paths: [v.golden] }))}
+          onUpdate={(e) => guard(() => setOpen({ kind: 'update', paths: [v.golden], estimate: e }))}
         />
       ))}
       <div className="grid2 gpanel">
@@ -277,8 +276,9 @@ export function TestsPage() {
           view={view}
           paths={open.paths}
           has={hasKind}
+          estimate={open.estimate}
           onClose={() => setOpen(null)}
-          onUpdate={() => start(JOB_KINDS.testUpdate, open.paths.length === 1 ? { golden: open.paths[0] } : { goldens: open.paths })}
+          onUpdate={() => start(JOB_KINDS.testUpdate, open.paths.length === 1 ? { golden: open.paths[0] } : { goldens: open.paths }, undefined, open.estimate)}
           onInstead={(i) => start(i.run === 'rerun' ? JOB_KINDS.tests : JOB_KINDS.normalizeAndTest, { golden: i.golden }, divergedAsk(view, i.golden, i.run))}
         />
       ) : null}
@@ -291,10 +291,10 @@ export function TestsPage() {
           revisions={open.revisions}
           tried={open.tried}
           onClose={() => setOpen(null)}
-          onRun={(good, bad) => start(JOB_KINDS.bisect, { golden: open.golden, good, ...(bad ? { bad } : {}) })}
+          onRun={(fields) => start(JOB_KINDS.bisect, { golden: open.golden, ...fields })}
         />
       ) : null}
-      {open?.kind === 'normalize-update' ? <NormalizeUpdateDialog name={open.name} steps={open.steps} onClose={() => setOpen(null)} onRun={() => start(JOB_KINDS.normalizeAndTest, { golden: open.golden }, divergedAsk(view, open.golden, 'normalize-update'))} /> : null}
+      {open?.kind === 'normalize-update' ? <NormalizeUpdateDialog name={open.name} steps={open.steps} estimate={open.estimate} onClose={() => setOpen(null)} onRun={() => start(JOB_KINDS.normalizeAndTest, { golden: open.golden }, divergedAsk(view, open.golden, 'normalize-update'), open.estimate)} /> : null}
     </Page>
   );
 }
@@ -645,22 +645,22 @@ function ReportPanel({ name, runId, lines, found, missed, children }: { name: st
  * that forks had no key for, the key, in the hint. More attempts of a golden that forks run live, so
  * they ask first: `ask` is what that question says besides the server's words, the command among it.
  */
-function InconclusivePanel({ v, off, canRun, onMore, updateOff, canUpdate, onUpdate }: { v: InconclusiveView; off: string | undefined; canRun: boolean; onMore: (job: { golden: string; maxAttempts: number; continue: true }, ask: TestsAsk) => void; updateOff: string | undefined; canUpdate: boolean; onUpdate: () => void }) {
+function InconclusivePanel({ v, off, canRun, onMore, prices, updateOff, canUpdate, onUpdate }: { v: InconclusiveView; off: string | undefined; canRun: boolean; onMore: (job: { golden: string; maxAttempts: number; continue: true }, ask: TestsAsk, e: Price) => void; prices: TestsEstimates | null | undefined; updateOff: string | undefined; canUpdate: boolean; onUpdate: (e: Price) => void }) {
   const more = v.gate?.more ?? null;
   const update = v.judge?.update ?? null;
   return (
     <ReportPanel name={v.name} runId={v.runId} lines={inconclusiveLines(v)} found={null} missed={null}>
       {more && canRun ? (
         <div className="actions">
-          <ActionButton className="btn lime" why={off} title={commandText(more.args)} onClick={() => onMore(more.job, moreAttemptsAsk(v.name, more))}>
+          <JobButton className="btn lime" why={off} {...testsJob(moreCard(more), goldenPrice(prices, v.golden, 'more'), (e) => onMore(more.job, moreAttemptsAsk(v.name, more), e))}>
             Run more attempts
-          </ActionButton>
+          </JobButton>
         </div>
       ) : update && canUpdate ? (
         <div className="actions">
-          <ActionButton className="btn" why={updateOff} title={commandText(update)} onClick={onUpdate}>
+          <JobButton className="btn" why={updateOff} {...testsJob(updateCard(v.golden, update), goldenPrice(prices, v.golden, 'update'), onUpdate)}>
             Update golden
-          </ActionButton>
+          </JobButton>
         </div>
       ) : null}
       <p className="hintx">{inconclusiveHint(v)}</p>
@@ -669,14 +669,12 @@ function InconclusivePanel({ v, off, canRun, onMore, updateOff, canUpdate, onUpd
 }
 
 /** A failed check, a non-zero exit, no calls: as `test --markdown` prints it, with no normalizer to offer. */
-function FailurePanel({ f, off, button, onBisect }: { f: FailureView; off: string | undefined; button: { range: boolean; live: boolean } | null; onBisect: () => void }) {
+function FailurePanel({ f, off, live, button, onBisect }: { f: FailureView; off: string | null | undefined; live: boolean; button: { range: boolean; live: boolean } | null; onBisect: () => void }) {
   return (
     <ReportPanel name={f.name} runId={f.runId} lines={failureLines(f)} found={f.found} missed={f.missed}>
       {button ? (
         <div className="actions">
-          <ActionButton className="btn" why={off} onClick={onBisect}>
-            {button.range && !button.live ? confirmWords(ACTIONS.findBreakingCommit.label) : ACTIONS.findBreakingCommit.label}
-          </ActionButton>
+          <FindCommitButton f={f} live={live} why={off} onBisect={onBisect} />
         </div>
       ) : null}
       <p className="hintx">{failureHint(f)}</p>

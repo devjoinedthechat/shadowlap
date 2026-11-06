@@ -372,8 +372,8 @@ describe('the Verify step', () => {
   it('leads an open fix with its blame’s next step while blame placed the failure on no call', () => {
     const none = actions({});
     const gate = { kind: 'sprt' as const, good: 0.4, bad: 0.1, risk: 0.05, max: 40 };
-    expect(blameNextStep({ status: 'open', actions: { ...none, blameAgain: { kind: 'unsettled', argv: [], command: 'shadowlap blame R --gate x', gate, pulled: null, left: [] } } })).toEqual({ kind: 'again', label: 'Run blame again', tip: 'More attempts and a lower bar: a rescue at 40% or more, up to 40 attempts', command: 'shadowlap blame R --gate x' });
-    expect(blameNextStep({ status: 'open', actions: { ...none, blameAgain: { kind: 'stopped', argv: [], command: 'c', gate: null, pulled: null, left: [] } } })).toMatchObject({ kind: 'again', tip: 'Runs the search to the end, without the budget that stopped it' });
+    expect(blameNextStep({ status: 'open', actions: { ...none, blameAgain: { kind: 'unsettled', argv: [], command: 'shadowlap blame R --gate x', gate, lastGood: 0.6, soFar: null, pulled: null, left: [] } } })).toEqual({ kind: 'again', label: 'Run blame again', tip: 'More attempts and a lower bar: a rescue at 40% or more, up to 40 attempts', command: 'shadowlap blame R --gate x' });
+    expect(blameNextStep({ status: 'open', actions: { ...none, blameAgain: { kind: 'stopped', argv: [], command: 'c', gate: null, lastGood: null, soFar: 3, pulled: null, left: [] } } })).toMatchObject({ kind: 'again', tip: 'Runs the search to the end, without the budget that stopped it' });
     expect(blameNextStep({ status: 'open', actions: { ...none, blameStronger: { argv: [], command: 'c --model <model>', attempts: 4, spent: 0.002, pulled: null, left: [] } } })).toMatchObject({ kind: 'stronger', label: 'Run blame with stronger model…' });
     expect(blameNextStep({ status: 'open', actions: none })).toBeNull();
     expect(blameNextStep({ status: 'verified', actions: { ...none, blameStronger: { argv: [], command: 'c', attempts: 4, spent: 0, pulled: null, left: [] } } })).toBeNull();

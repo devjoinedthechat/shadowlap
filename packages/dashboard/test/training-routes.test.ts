@@ -60,6 +60,8 @@ let dash: Dashboard;
 let readOnly: Dashboard;
 let bare: Dashboard;
 let broken: Dashboard;
+/** One whose CLI lists a golden that forks: a task's re-test of it asks first. */
+let forks: Dashboard;
 const spawned: string[][] = [];
 const asked: string[] = [];
 let project = '';
@@ -115,6 +117,7 @@ beforeAll(async () => {
   dash = await startDashboard({ store, spawnCli, project: { path: project }, training });
   readOnly = await startDashboard({ store, spawnCli, readOnly: true, project: { path: project }, training });
   bare = await startDashboard({ store, spawnCli, project: { path: project }, training: { env: { OLLAMA_HOST: '127.0.0.1:2' }, fetch: fakeFetch } });
+  forks = await startDashboard({ store, spawnCli, project: { path: project }, training, goldens: () => [{ path: 'goldens/refund-retest', runId: null, packedAt: null, mode: 'fork', repeat: 1, passes: 1, checks: [] }] });
   broken = await startDashboard({
     store,
     spawnCli,
@@ -128,7 +131,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await Promise.all([dash?.close(), readOnly?.close(), bare?.close(), broken?.close()]);
+  await Promise.all([dash?.close(), readOnly?.close(), bare?.close(), broken?.close(), forks?.close()]);
   store?.close();
   if (project) rmSync(project, { recursive: true, force: true });
 });
@@ -338,6 +341,30 @@ describe('the pairs and score jobs', () => {
       expect((await startJob(dash, { kind: 'task-update', golden: 'goldens/nowhere' })).status).toBe(400);
       expect((await startJob(readOnly, { kind: 'task-update', golden: 'goldens/refund-forked' })).status).toBe(403);
       expect(spawned).toHaveLength(2);
+    } finally {
+      tasks = saved;
+    }
+  });
+
+  it('asks first before a task’s re-test runs its golden live, as Run tests does, and runs it on the yes', async () => {
+    spawned.length = 0;
+    // The rule is the whole fix, so the job tests the golden again; the CLI lists that golden as one that forks.
+    const golden = recordRun(store, [LOOKUP, POLICY, ESCALATE, DONE], { user: 'Refund order A-5002.' }).run.runId;
+    const forked = recordRun(store, [LOOKUP, POLICY, ESCALATE, DONE], { parentRunId: golden, user: 'Refund order A-5002.' }).run.runId;
+    store.setDivergence(forked, { callNo: 3, kind: 'api', name: 'POST /v1/messages', type: 'request_changed', diff: [{ path: '$.metadata.user_id', op: 'changed', before: '1c2b3a4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d', after: '9b2f6c1e-4d7a-4c3b-9e8f-2a1b3c4d5e6f' }] } as never);
+    const saved = tasks;
+    tasks = [...saved, { ...task('goldens/refund-retest', 'blocked', 'escalate above the limit', golden), note: 'its test forks at #3, before the takeover: update the golden', fork: { callNo: 3, runId: forked } }];
+    try {
+      const res = await startJob(forks, { kind: 'task-update', golden: 'goldens/refund-retest' });
+      expect(res.status).toBe(409);
+      const q = (await res.json()) as { error: string; confirm: string };
+      expect(q.error).toBe('goldens/refund-retest is marked fork, so it runs live from where it forks, writes blocked. Live calls are billed by your provider. Confirm it to run it');
+      expect(spawned).toEqual([]);
+      const yes = await startJob(forks, { kind: 'task-update', golden: 'goldens/refund-retest', yes: q.confirm });
+      expect(yes.status).toBe(202);
+      for (let i = 0; i < 100 && spawned.length < 2; i++) await new Promise((r) => setTimeout(r, 50));
+      expect(spawned.map((args) => args[0])).toEqual(['normalize', 'test']);
+      expect(spawned[1]).toEqual(['test', 'goldens/refund-retest']);
     } finally {
       tasks = saved;
     }

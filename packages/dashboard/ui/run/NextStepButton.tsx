@@ -3,6 +3,7 @@ import { consentAsked } from '../actions.js';
 import { JOB_KINDS, type RunDetail, type RunOffers } from '../api.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { ConfirmDialog, ConsentDialog, PromptDialog } from '../components/Dialog.js';
+import { useBilledPress } from '../components/JobButton.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { Icon, type IconName } from '../components/Icon.js';
 import { namedIn } from '../components/Id.js';
@@ -15,6 +16,7 @@ import { ACTIONS, confirmWords } from '../labels.js';
 import { href } from '../route.js';
 import { compareTarget, outcomeOf } from '../runs.js';
 import { shortcut } from '../shortcuts.js';
+import { sentEstimate } from '../spending.js';
 import { guardedWayOn, useApp } from '../state.js';
 import { gateAgainAsk, rerunAsk, startTestsJob } from '../tests-ask.js';
 import { errorText } from '../toast.js';
@@ -22,7 +24,7 @@ import type { NextStep } from '../types.js';
 import type { PendingAction } from './actions.js';
 import { useDivergedJobs } from './diverged.js';
 import { checksOf, runLikeOf } from './model.js';
-import { blameBesideCard, gateEntry, PACK_VERB, replayAction, stepCard, stepCostLine, stepJob, type StepCard } from './next-step.js';
+import { blameBesideCard, gateEntry, PACK_VERB, replayAction, stepCard, stepCostLine, stepEstimate, stepJob, type StepCard } from './next-step.js';
 import { blameTitle } from './offers.js';
 import { PACK_HOLDS, packRunCommand, packTestCommands, redactsFact } from './share.js';
 
@@ -59,7 +61,7 @@ export function useStepWait(run: RunDetail, step: NextStep | null): string | nul
 
 /** A step's hover card. */
 function tipOf(card: StepCard): string {
-  return tipCard(card.title, card.rows, card.sub, card.cmd);
+  return tipCard(card.title, card.rows, card.sub, card.cmd, card.est);
 }
 
 const ICONS: Partial<Record<NextStep['key'], IconName>> = { compare: 'compare', fix: 'loop' };
@@ -124,7 +126,7 @@ function DivergedStep({ run, step, offers }: StepProps & { step: Extract<NextSte
   const app = useApp();
   // The server's, until the page's offers come.
   const test = offers?.test ?? step.test;
-  const jobs = useDivergedJobs(run, test, checksOf(run).length);
+  const jobs = useDivergedJobs(run, test, checksOf(run).length, step.key === 'normalizer' ? { normalize: stepEstimate(step) } : { update: stepEstimate(step) });
   return (
     <>
       <TestsJobButton className="btn lime" verb={stepJob(step)!.verb} off={app.actionsOff} tip={tipOf(stepCard(step))} lead={step.key} onClick={step.key === 'normalizer' ? jobs.normalize : jobs.update}>
@@ -160,28 +162,33 @@ function UpdateStep({ step }: { step: Extract<NextStep, { key: 'normalizer' | 'u
   );
 }
 
-/** Re-run test: the golden's test again, a gate's too, asking first where it runs live (tests-ask.ts). */
+/** Re-run test: the golden's test again, a gate's too, asking first where it runs live (tests-ask.ts), by Spending where its price is known. */
 function RerunStep({ step }: { step: Extract<NextStep, { key: 'rerun-test' | 'gate-again' }> }) {
   const app = useApp();
   const name = goldenName(step.golden);
+  const estimate = stepEstimate(step);
+  const say = { ...(step.key === 'gate-again' ? gateAgainAsk(name, step.golden) : rerunAsk(name, step.golden)), estimate };
   return (
-    <TestsJobButton className="btn lime" verb={stepJob(step)!.verb} off={app.actionsOff} tip={tipOf(stepCard(step))} lead={step.key} onClick={() => startTestsJob(app, JOB_KINDS.tests, { golden: step.golden }, step.key === 'gate-again' ? gateAgainAsk(name, step.golden) : rerunAsk(name, step.golden))}>
+    <TestsJobButton className="btn lime" verb={stepJob(step)!.verb} off={app.actionsOff} tip={tipOf(stepCard(step))} lead={step.key} onClick={() => startTestsJob(app, JOB_KINDS.tests, { golden: step.golden, ...sentEstimate(estimate) }, say)}>
       {step.label}
     </TestsJobButton>
   );
 }
 
 /**
- * Find breaking commit, for a test replay: from where its golden last passed, it starts on the click,
- * offline and free; else its dialog asks for a commit.
+ * Find breaking commit, for a test replay: from where its golden last passed, it starts on the click
+ * by Spending, offline and free, else its dialog asks; with no commit to start from, its dialog asks
+ * for one.
  */
 function BisectStep({ run, step, offers, onFindCommit }: StepProps & { step: Extract<NextStep, { key: 'bisect' }> }) {
   const app = useApp();
+  const press = useBilledPress();
   const runId = run.run.runId;
   const b = offers?.bisect ?? null;
   const good = step.starts && !b?.unavailable ? (b?.good ?? null) : null;
+  const start = (sent: Record<string, unknown>) => app.watchJob(app.client.startJob(JOB_KINDS.bisect, { runId, good, ...sent }));
   return (
-    <TestsJobButton className="btn lime" verb={stepJob(step)!.verb} off={app.actionsOff} tip={tipOf(stepCard(step))} lead="bisect" onClick={() => (good ? app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.bisect, { runId, good }))) : onFindCommit())}>
+    <TestsJobButton className="btn lime" verb={stepJob(step)!.verb} off={app.actionsOff} tip={tipOf(stepCard(step))} lead="bisect" onClick={() => (good ? press({ estimate: stepEstimate(step), start, ask: onFindCommit }) : onFindCommit())}>
       {step.label}
     </TestsJobButton>
   );
@@ -190,7 +197,7 @@ function BisectStep({ run, step, offers, onFindCommit }: StepProps & { step: Ext
 /** Run blame beside a crash's Find breaking commit, plain, with what it runs and bills on hover: whether an answer of the model's lost the run, until the commit is named. */
 export function BlameBesideButton({ runId, step }: { runId: string; step: NextStep | null }) {
   if (step?.key !== 'bisect' || !step.blame) return null;
-  return <RunBlameButton runId={runId} failed={step.blame.offer.failed} title={blameTitle(step.blame.offer)} tip={tipOf(blameBesideCard(step.blame))} className="btn" fold="blame" />;
+  return <RunBlameButton runId={runId} offer={step.blame.offer} estimate={stepEstimate(step.blame, step.later)} title={blameTitle(step.blame.offer)} tip={tipOf(blameBesideCard(step.blame, step.later))} className="btn" fold="blame" />;
 }
 
 /** Add normalizer on a replay: the run's own action, the rule its divergence proposes. */
@@ -221,7 +228,8 @@ function InjectionStep({ step }: { step: Extract<NextStep, { key: 'injection-tes
   const busy = useTreeBusy('reads', stepJob(step)!.verb);
   const title = confirmWords(step.label);
   const id = shortId(step.runId);
-  const fields = step.key === 'injection-again' ? { runId: step.runId, repeat: step.job.repeat, ...(step.job.templates.length ? { templates: step.job.templates } : {}), baselines: step.job.baselines, liveReads: step.job.liveReads } : { runId: step.runId };
+  // The job keeps the estimate its card and Cost line said, so its drawer says it too; the consent's yes sends it again.
+  const fields = { ...(step.key === 'injection-again' ? { runId: step.runId, repeat: step.job.repeat, ...(step.job.templates.length ? { templates: step.job.templates } : {}), baselines: step.job.baselines, liveReads: step.job.liveReads } : { runId: step.runId }), ...sentEstimate(stepEstimate(step)) };
   const start = (yes?: string) =>
     app.guard(() => {
       void app.client.startJob(JOB_KINDS.injection, yes === undefined ? fields : { ...fields, yes }).then(
@@ -396,7 +404,7 @@ export function NextStepButton(props: StepProps) {
     case 'replay':
       return <ReplayButton run={run} step={step} lime onAction={onAction} />;
     case 'blame':
-      return <RunBlameButton runId={run.run.runId} failed={step.offer.failed} title={blameTitle(step.offer)} tip={tipOf(stepCard(step))} className="btn lime" icon lead mark={shortcut('blame')} {...(step.capture ? { capture: true } : {})} {...(step.command ? { line: step.command } : {})} />;
+      return <RunBlameButton runId={run.run.runId} offer={step.offer} estimate={stepEstimate(step)} title={blameTitle(step.offer)} tip={tipOf(stepCard(step))} className="btn lime" icon lead mark={shortcut('blame')} {...(step.capture ? { capture: true } : {})} {...(step.command ? { line: step.command } : {})} />;
     case 'normalizer':
     case 'update-golden':
       return step.key === 'update-golden' && !(props.offers?.test ?? step.test) ? <UpdateStep step={step} /> : <DivergedStep {...props} step={step} />;

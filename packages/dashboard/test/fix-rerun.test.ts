@@ -181,6 +181,8 @@ describe('what one yes may spend running a pulled record again', () => {
     const again = fixDetail(store, fixId)!.actions.blameAgain!;
     expect(again.argv).toEqual(['blame', failing, '--expect', JSON.stringify(EXPECT), '--gate', JSON.stringify({ max: 40 }), '--scan', '2', '--writes', 'stub']);
     expect(again.command).toContain(`--gate '{"max":40}' --scan 2`);
+    // Its ask says how far the search got: the furthest call a probe rescued the run at, with no bar to lower.
+    expect([again.kind, again.soFar, again.lastGood]).toEqual(['stopped', 1, null]);
     // A fixed count of 100 a probe: 10.
     const counted = stoppedBlame({ attempts: 100, flags: [], pulled });
     expect(fixDetail(store, counted.fixId)!.actions.blameAgain!.argv).toEqual(['blame', counted.failing, '--expect', JSON.stringify(EXPECT), '--attempts', '10', '--passes', '10']);

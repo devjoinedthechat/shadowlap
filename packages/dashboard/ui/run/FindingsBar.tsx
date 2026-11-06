@@ -18,7 +18,8 @@ import { shortcut } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import type { PendingAction } from './actions.js';
 import { notRecordedBanner, ownBanner, type Banner as BannerView, type BannerInput } from './banner.js';
-import { useDivergedJobs } from './diverged.js';
+import { bannerCards, bannerJobsShown, useDivergedJobs } from './diverged.js';
+import { goldenPrice, useTestsEstimates } from '../tests-estimates.js';
 import { DifferencesPanel, useForkDifferences } from './ForkDifferences.js';
 import { bannerSeverity, runFindings, SEVERITY_COLOURS, type Finding } from './findings.js';
 import { attemptLinks, attemptOf, runLikeOf } from './model.js';
@@ -219,7 +220,7 @@ function bannerInput(run: RunDetail, p: Pick<BannerProps, 'blame' | 'rescued' | 
 function runBlame(x: Draw): ReactNode {
   const offer = x.offers?.blame ?? null;
   if (x.leads('blame') || x.blameBeside || !offer) return null;
-  return <RunBlameButton runId={x.run.run.runId} failed={offer.failed} title={blameTitle(offer)} />;
+  return <RunBlameButton runId={x.run.run.runId} offer={offer} title={blameTitle(offer)} />;
 }
 
 /** The fix, linked; where the header opens it already, how it stands instead (open, verified). */
@@ -515,6 +516,36 @@ export function Banner(p: BannerProps) {
 const NO_NOTES: readonly RunNote[] = [];
 
 /**
+ * A diverged test's jobs on its finding, priced where one of its buttons shows: each card says it,
+ * and each job keeps it. None is read for a test replay its golden passed since, which offers none.
+ */
+function useFindingJobs(x: Draw, fixed: boolean) {
+  const app = useApp();
+  const { run, test, leads } = x;
+  const golden = test?.golden ?? null;
+  const prices = useTestsEstimates(!fixed && bannerJobsShown(app, run, test, leads) ? golden : null);
+  const jobs = useDivergedJobs(run, test, x.checks, golden ? { normalize: goldenPrice(prices, golden, 'normalize'), update: goldenPrice(prices, golden, 'update') } : {});
+  return { jobs, cards: bannerCards(test, jobs.acts.normalizer) };
+}
+
+/** Its rule is in the config: that, and the replay that passed, where the header doesn't lead with it. */
+function NormalizerAdded({ passingRun, leads }: { passingRun: string | null; leads: Draw['leads'] }) {
+  return (
+    <>
+      <span className="st ok">
+        <i />
+        normalizer added
+      </span>
+      {passingRun && !leads('passing') ? (
+        <a className="more" href={href.run(passingRun)}>
+          Passing run →
+        </a>
+      ) : null}
+    </>
+  );
+}
+
+/**
  * A test that diverged: what the value that changed looks like or why it came, in ink (the outcome
  * says where), on what, its path, and its golden's jobs (useDivergedJobs) where the header doesn't
  * lead with them. Once the rule is in the config, the finding says so and links the replay that passed.
@@ -522,7 +553,7 @@ const NO_NOTES: readonly RunNote[] = [];
 function DivergedFinding({ b, x, s }: { b: Of<'diverged'>; x: Draw; s: Slot }) {
   const { run, test, leads, onAction } = x;
   const app = useApp();
-  const jobs = useDivergedJobs(run, test, x.checks);
+  const { jobs, cards } = useFindingJobs(x, !!b.fixedBy);
   const normalizer = run.actions.find((a) => a.key === 'n');
   // A test replay its golden passed since says so after what it diverged on, muted, and offers nothing to mend it.
   const add = b.fixedBy && jobs.acts.normalizer?.kind !== 'added' ? null : jobs.acts.normalizer;
@@ -532,19 +563,9 @@ function DivergedFinding({ b, x, s }: { b: Of<'diverged'>; x: Draw; s: Slot }) {
       {b.path ? <span className="path">~ {test?.volatile?.path ?? test?.cause ?? b.path}</span> : null}
       <span className="end">
         {add?.kind === 'added' ? (
-          <>
-            <span className="st ok">
-              <i />
-              normalizer added
-            </span>
-            {add.passingRun && !leads('passing') ? (
-              <a className="more" href={href.run(add.passingRun)}>
-                Passing run →
-              </a>
-            ) : null}
-          </>
+          <NormalizerAdded passingRun={add.passingRun} leads={leads} />
         ) : add?.kind === 'job' && !leads('normalizer') ? (
-          <TestsJobButton className="btn sm" verb="add the normalizer" off={add.off} title={add.title} onClick={jobs.normalize}>
+          <TestsJobButton className="btn sm" verb="add the normalizer" off={add.off} card={cards.normalize} estimate={jobs.prices.normalize} onClick={jobs.normalize}>
             {add.label}
           </TestsJobButton>
         ) : add?.kind === 'action' && normalizer && !leads('normalizer') ? (
@@ -553,7 +574,7 @@ function DivergedFinding({ b, x, s }: { b: Of<'diverged'>; x: Draw; s: Slot }) {
           </ActionButton>
         ) : null}
         {jobs.acts.update && !b.fixedBy && !leads('update-golden') ? (
-          <TestsJobButton className="btn sm" verb="update it" off={app.actionsOff} onClick={jobs.update}>
+          <TestsJobButton className="btn sm" verb="update it" off={app.actionsOff} card={cards.update} estimate={jobs.prices.update} onClick={jobs.update}>
             {ACTIONS.updateGolden.label}
           </TestsJobButton>
         ) : null}

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import { SPENDING_DEFAULT, SPENDING_REFUSED, spendingUsd, validSpending, type Spending } from './estimates/spending.js';
+import { SPENDING_DEFAULT, spendingUsd, validSpending, type Spending } from './estimates/spending.js';
+import { SPENDING_REFUSED } from './estimates/spending-row.js';
 import { isObject } from './is-object.js';
 import { messageOf } from './message-of.js';
 import { withFileLock, writeFileAtomic } from './projects/files.js';

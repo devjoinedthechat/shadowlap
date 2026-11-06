@@ -6,9 +6,11 @@ import { useApp } from '../../state.js';
 import { LoadProblem, Loading, useFolderGone, useSettingsData } from './common.js';
 import { bytesText, sizeNote } from './logic.js';
 import { ActionButton } from '../../components/ActionButton.js';
+import { SpendingRow } from './SpendingRow.js';
 
 /**
- * Project: its name, store, runs and attempts, the store's size and the dashboard's address; Clean
+ * Project: its name, store, runs and attempts, the store's size and the dashboard's address; Spending,
+ * when a billed job asks before it starts (SpendingRow); Clean
  * up old runs (a dry run first, then "Delete N runs" from the drawer, or with no run old enough
  * "Free X" for what deleted runs left unused); and Remove project…, which opens the projects
  * feature's own dialog, here in the page.
@@ -60,6 +62,7 @@ export function ProjectTab() {
           {data.address ?? location.host} <small>local only, refuses other hosts</small>
         </dd>
       </dl>
+      <SpendingRow />
       <div className="pbody setfoot">
         <ActionButton className="btn" why={canClean ? null : cleanTitle} title={cleanTitle} onClick={() => app.guard(() => app.watchJob(client.startJob(JOB_KINDS.gc, { olderThanDays: data.cleanup.olderThanDays })))}>
           Clean up old runs

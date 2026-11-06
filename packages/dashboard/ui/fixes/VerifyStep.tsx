@@ -1,5 +1,8 @@
+import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import { JOB_KINDS } from '../api.js';
+import { AskNote } from '../components/AskNote.js';
 import { Badge, CmdLine, EmptyState, Pips } from '../components/bits.js';
+import { ConfirmDialog } from '../components/Dialog.js';
 import { rowOpen } from '../components/Table.js';
 import { copyText } from '../dom.js';
 import { approx, GLUED_SEPARATOR, glued, num, shortId, wholeCounts } from '../format.js';
@@ -10,6 +13,7 @@ import type { VerifiedRunGroups } from '../../src/attempt-groups.js';
 import { runOutcomeWord, verdictWord } from '../../../engine/src/verdict-words.js';
 import { ACTIONS } from '../labels.js';
 import { AttemptGroups, useAttemptGroups } from './AttemptGroups.js';
+import { useFixEstimates, verifyPrice } from './estimates.js';
 import { FixJobButton } from './FixJobButton.js';
 import { keepAt, moreLine, outcomeTone, tokens, verdictTone, verifyFor } from './model.js';
 
@@ -23,6 +27,8 @@ import { keepAt, moreLine, outcomeTone, tokens, verdictTone, verifyFor } from '.
  */
 export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | null }) {
   const groups = useAttemptGroups(fix.fixId);
+  // What Run more attempts or Verify again would cost: the fix's estimates, one read with its header's.
+  const prices = useFixEstimates(fix);
   const v = verifyFor(fix, sub);
   if (!v)
     return (
@@ -44,7 +50,7 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
           ))}
         </div>
       ) : null}
-      <Verdict v={v} fixId={fix.fixId} />
+      <Verdict v={v} fixId={fix.fixId} estimate={verifyPrice(prices, v.verifyId)} />
       {/* What the lead step will do, in one line; the run's row and the drawer say the rest. */}
       {lead(v) ? (
         <p className="fxreceipt vmore">
@@ -143,7 +149,7 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
 /** Whether a verdict leads with what settles it: one that counts for the fix, left incomplete, that the page can settle. */
 const lead = (v: VerifyStep): boolean => v.counts && v.verdict === 'incomplete' && !!v.more;
 
-function Verdict({ v, fixId }: { v: VerifyStep; fixId: string }) {
+function Verdict({ v, fixId, estimate }: { v: VerifyStep; fixId: string; estimate: Estimate | null | undefined }) {
   const { toast } = useApp();
   // One that doesn't count for the fix is no verdict on it: plain, whatever it said of its own check.
   const tone = v.counts ? verdictTone(v.verdict) : 'n';
@@ -170,8 +176,10 @@ function Verdict({ v, fixId }: { v: VerifyStep; fixId: string }) {
             verb={more.kind === 'more' ? 'run more attempts' : 'verify again'}
             lead
             className="btn sm"
-            tip={more.kind === 'more' ? `Verifies the change again from the start, up to ${more.max} attempts a run` : 'Verifies the same runs again from the start, once the check can be judged'}
+            tip={verifyTip(more)}
             command={more.command}
+            estimate={estimate}
+            ask={(start, close) => <VerifyAsk more={more} attempts={v.attempts} estimate={estimate} onRun={() => start({})} onClose={close} />}
           />
         ) : null}
         <button className="btn sm" type="button" onClick={() => void copyText(v.command).then((ok) => toast(ok ? 'Copied the command' : 'Copying was refused by the browser'))}>
@@ -180,6 +188,19 @@ function Verdict({ v, fixId }: { v: VerifyStep; fixId: string }) {
       </div>
     </div>
   );
+}
+
+/** What Run more attempts or Verify again does, on its card and as its ask's lead. */
+const verifyTip = (more: NonNullable<VerifyStep['more']>): string => (more.kind === 'more' ? `Verifies the change again from the start, up to ${more.max} attempts a run` : 'Verifies the same runs again from the start, once the check can be judged');
+
+/** Run more attempts' lead: verify has no --continue, so the attempts so far start over. */
+const moreLead = (attempts: number): string => `Verifies the change again from the first attempt: the ${attempts.toLocaleString('en-US')} so far ${attempts === 1 ? 'doesn’t' : 'don’t'} carry over.`;
+
+/** Run more attempts' or Verify again's ask, above the threshold or with no estimate: what it runs, and its Cost line the estimate. */
+function VerifyAsk({ more, attempts, estimate, onRun, onClose }: { more: NonNullable<VerifyStep['more']>; attempts: number; estimate: Estimate | null | undefined; onRun: () => boolean; onClose: () => void }) {
+  const label = more.kind === 'more' ? ACTIONS.runMoreAttempts.label : ACTIONS.verifyAgain.label;
+  const lead = more.kind === 'more' ? moreLead(attempts) : 'Verifies the same runs again from the first attempt, once the judge answers.';
+  return <ConfirmDialog title={label} lead={lead} doc="verify" command={more.command} cost={{ price: 'Billed by your provider', estimate }} footNote={<AskNote estimate={estimate} />} ok={label} onOk={onRun} onClose={onClose} />;
 }
 
 /**

@@ -196,6 +196,9 @@ test('every overlay has no serious or critical axe violation: the switcher, a pi
 });
 
 test('Fixes and each fix’s steps, Tests’ dialogs, the palette, the shortcuts and a toast have no serious or critical axe violation', async ({ page }) => {
+  // Held to Always ask, as the dialog sweep is: Run tests' question then waits whatever the demo's last
+  // session spent, so pressing it starts no session (the suite's dashboards share one Spending).
+  await page.route('**/api/user/spending', (route) => (route.request().method() === 'GET' ? route.fulfill({ json: { askAbove: 0, set: true, problems: [] } }) : route.continue()));
   const states: Array<[string, () => Promise<void>]> = [];
   for (const fx of fixes()) for (const step of ['', '/blame', '/repair', '/verify']) states.push([`fix ${fx}${step}`, at(page, `/fixes/${fx}${step}`, 'fix')]);
   states.push(['Tests', at(page, '/tests')]);
@@ -272,6 +275,8 @@ test('on a phone, every page, Settings tab, fix step and dialog has no serious o
  */
 test('every dialog has no serious or critical axe violation, wide and as a phone’s sheet', async ({ page }) => {
   test.setTimeout(600_000);
+  // Every billed press asks on this page, whatever the suite's one Spending says, so opening a dialog runs nothing.
+  await page.route('**/api/user/spending', (route) => (route.request().method() === 'GET' ? route.fulfill({ json: { askAbove: 0, set: true, problems: [] } }) : route.continue()));
   const ids = dash().runs;
   const id = (name: string) => ids[name] as string;
   // A row or a button that isn't there says so soon: there is no waiting it out.

@@ -17,55 +17,16 @@ export type Spending = number | null;
 /** What Spending is until someone changes it: ask above $0.50. */
 export const SPENDING_DEFAULT = 0.5;
 
-/** The picks beside the amount: Always ask ($0), $0.50, $2, Never ask (no limit). */
-export const SPENDING_PICKS: ReadonlyArray<{ label: string; value: Spending }> = [
-  { label: 'Always ask', value: 0 },
-  { label: '$0.50', value: 0.5 },
-  { label: '$2', value: 2 },
-  { label: 'Never ask', value: null },
-];
-
-/** What the field says when an amount typed is none: "An amount in dollars, such as 0.50". */
-export const SPENDING_REFUSED = 'An amount in dollars, such as 0.50';
-
 /** Whether a value is a threshold Spending can hold: a whole number of cents, $0 or more, or null. */
 export function validSpending(v: unknown): v is Spending {
   if (v === null) return true;
   return typeof v === 'number' && Number.isFinite(v) && v >= 0 && Math.abs(Math.round(v * 100) - v * 100) < 1e-6;
 }
 
-/**
- * An amount as typed in the field: a `$`, spaces and commas ignored, digits with a point before the
- * last of them or none (`12`, `0.50`, `.5`), rounded to whole cents, a half cent up (`0.505` is
- * $0.51); an empty field is no limit (Never ask). Anything else is refused with what to type.
- */
-export function parseSpending(text: string): { ok: true; value: Spending } | { ok: false; why: string } {
-  const bare = text.replace(/[\s$,]/g, '');
-  if (!bare) return { ok: true, value: null };
-  if (!/^\d*\.?\d+$/.test(bare)) return { ok: false, why: SPENDING_REFUSED };
-  // Rounded from the digits as typed: 1.005 is $1.01, which 1.005 × 100 in floating point is not.
-  const [whole = '', frac = ''] = bare.split('.');
-  const cents = Number(whole) * 100 + Number(frac.slice(0, 2).padEnd(2, '0')) + (frac.charAt(2) >= '5' ? 1 : 0);
-  return Number.isFinite(cents) ? { ok: true, value: cents / 100 } : { ok: false, why: SPENDING_REFUSED };
-}
-
 /** A threshold in dollars, as the setting says it: `$0.50`, `$2`, `$1,000`. */
 export function spendingUsd(v: number): string {
   const whole = Math.abs(v - Math.round(v)) < 1e-9;
   return `$${v.toLocaleString('en-US', whole ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-/** The field's text for a threshold: `0.50`, `2`; empty for Never ask. */
-export function spendingField(v: Spending): string {
-  if (v === null) return '';
-  return Math.abs(v - Math.round(v)) < 1e-9 ? String(Math.round(v)) : v.toFixed(2);
-}
-
-/** The setting's words, a line a sentence: "Ask before spending more than $0.50." "A job with no estimate always asks." */
-export function spendingWords(v: Spending): string[] {
-  if (v === null) return ['Never ask before spending.', 'A job with no estimate still asks.'];
-  if (v === 0) return ['Always ask before spending.'];
-  return [`Ask before spending more than ${spendingUsd(v)}.`, 'A job with no estimate always asks.'];
 }
 
 /** Spending in an ask's footer and in its toast, short enough for one line on a phone: `Asks above $0.50`, `Always asks`, `Never asks`. */

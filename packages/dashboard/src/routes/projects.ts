@@ -29,7 +29,8 @@ import { countsOf, readTeamStoreInput } from '../team-store.js';
  * the project list), `record` (`shadowlap run -- <command>`, the one place the browser sends a
  * command line: the agent's own, which only ever goes after `--`, split without a shell, and
  * confirmed the first time it runs in a folder) and `pack-test` (a recording packed as a golden:
- * `pack <run> <golden>`, then `test <golden>`; only the test once it is packed: pack-test.ts). Setup
+ * `pack <run> <golden>`, then `test <golden>`; only the test once it is packed; asking first, as Run
+ * tests does, when its tests entry runs that test live, its `yes` the answer: pack-test.ts). Setup
  * requests may name the project the page shows (`project`): one that is no longer current is
  * refused, so a click never acts on a project switched to elsewhere. The routes that name a project
  * by its id (switching, adding, removing) take any page's.
