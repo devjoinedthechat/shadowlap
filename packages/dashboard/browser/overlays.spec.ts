@@ -670,7 +670,7 @@ test.describe('on a phone', () => {
     expect(await offCentre(px)).toBeLessThanOrEqual(1.5);
   });
 
-  test('the shortcuts are a sheet, and the palette stays centred, its opener in the closed sidebar handing the focus to the sidebar’s button', async ({ page }) => {
+  test('the shortcuts are a sheet, and the palette stays centred, opened from the top bar over the open sidebar, which closes, handing the focus to the sidebar’s button', async ({ page }) => {
     await openPage(page, '/runs', 'main#view table.runst tbody tr');
     await page.keyboard.press('?');
     const help = page.locator('.help');
@@ -680,7 +680,7 @@ test.describe('on a phone', () => {
     await page.keyboard.press('Escape');
     await page.locator('button.menu-toggle').click();
     await expect(page.locator('aside#side.open')).toBeVisible();
-    await page.locator('aside#side button.sbtn').click();
+    await page.locator('.top button.sbtn').click();
     const palette = page.locator('.palette');
     await expect(palette).toBeVisible();
     // The sidebar closes behind it.
