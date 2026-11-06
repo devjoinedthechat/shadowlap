@@ -283,7 +283,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
   const byId = useRunsById(app, scope ? '' : q);
 
   const shown = useMemo(() => {
-    if (scope) return scopedRows(scope, q, rowStep(app.actionsOff, app.toast));
+    if (scope) return scopedRows(scope, q, rowStep(app.actionsOff, app.toast, { client: app.client, guard: app.guard, watchJob: app.watchJob }));
     const matched = matchPalette(items, q);
     const recorded: Array<PaletteCommand & { snippet?: string }> = hits.map((h) => ({
       group: 'In recorded data',
@@ -294,7 +294,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
       run: () => navigate(href.run(h.runId, h.callNo)),
     }));
     return [...matched, ...byId, ...recorded] as Array<PaletteCommand & { snippet?: string }>;
-  }, [items, q, hits, byId, scope, app.actionsOff, app.toast]);
+  }, [items, q, hits, byId, scope, app.actionsOff, app.toast, app.client, app.guard, app.watchJob]);
 
   const at = Math.min(i, Math.max(0, shown.length - 1));
   useEffect(() => {

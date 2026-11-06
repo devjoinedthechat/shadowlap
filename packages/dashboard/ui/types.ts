@@ -84,6 +84,8 @@ export interface RunListExtras {
   fixedBy?: string;
   /** What its page leads with, in the light form a list carries; absent from an exported copy. */
   next?: NextStepRow | null;
+  /** What its page's Replay replays, where its next step is another: for ⌘K on its row. Absent from an exported copy. */
+  replay?: NextStepRow | null;
 }
 export type RunListItem = Omit<ServerRunListItem, 'about'> & RunListExtras;
 

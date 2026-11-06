@@ -1,6 +1,8 @@
+import { consentAsked } from '../actions.js';
 import type { RowStep } from '../list-keys.js';
 import { href } from '../route.js';
 import { currentRoute, navigate } from '../router.js';
+import type { AppState } from '../state.js';
 import { stepEntry } from './next-step.js';
 
 /**
@@ -41,15 +43,36 @@ export function openAndPress(runId: string, key: string, toast: (text: string) =
   setTimeout(look);
 }
 
+/** What starts a row's Replay where it is: the app's. */
+type Starts = Pick<AppState, 'client' | 'guard' | 'watchJob'>;
+
 /**
- * The palette's builder for a run row's next step: a link goes where it goes, any other step opens
- * the run and presses that button there. None while it can't start (`off`), nor a job while actions
- * are paused, as This run leaves it out then.
+ * Replay from a row, as the header's Replay starts it, on the run it replays (`target`): here, unless
+ * it asks first, for your command (its label's `…`) or whether to run someone else's (a 409 that
+ * asks), which the run's page does.
  */
-export function rowStep(actionsOff: string | null, toast: (text: string) => void): RowStep {
+function replayHere(app: Starts, target: string, label: string, onPage: () => void): void {
+  if (label.endsWith('…')) return onPage();
+  app.guard(
+    () =>
+      void app.client.action(target, 'r', null).then(
+        (job) => app.watchJob(Promise.resolve(job)),
+        (err: unknown) => (consentAsked(err) ? onPage() : app.watchJob(Promise.reject(err))),
+      ),
+  );
+}
+
+/**
+ * The palette's builder for a run row's next step and its Replay: a link goes where it goes, Replay
+ * starts where it is when `app` is given, and any other step opens the run and presses that button
+ * there. None while it can't start (`off`), nor a job while actions are paused, as This run leaves it
+ * out then.
+ */
+export function rowStep(actionsOff: string | null, toast: (text: string) => void, app?: Starts): RowStep {
   return (runId, next) => {
     if (next.off || (!next.href && actionsOff)) return null;
     const { group, key, ...entry } = stepEntry(next);
-    return { ...entry, run: () => (next.href ? navigate(next.href) : openAndPress(runId, next.key, toast)) };
+    const onPage = () => openAndPress(runId, next.key, toast);
+    return { ...entry, run: () => (next.href ? navigate(next.href) : next.key === 'replay' && app ? replayHere(app, next.runId ?? runId, next.label, onPage) : onPage()) };
   };
 }
