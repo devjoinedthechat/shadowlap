@@ -371,23 +371,23 @@ The header says each thing once:
 
 | Where | What it says |
 | --- | --- |
-| The line above the id | What kind of run it is (*recording*, *fork @17*, *blame attempt*) |
-| The chip beside the id | How it stands: *in progress*, *failed*, *inconclusive*, *interrupted*, or no chip when all is well |
-| The meta line, under it | Why it failed |
+| The muted line above the id | What kind of run it is (*recording*, *fork @17*, *blame attempt*) |
+| The first fact, under the id at the right | How it came out (*check failed at #6*, *passed*, *interrupted*) |
+| The id's card | Its command, revision, start and duration, and why it failed |
 
-The header shows what the run is and where it came from, its command, revision and timing, and why it failed:
+The id's card shows while the pointer is on the id, or when Tab reaches the id. Esc hides it. On a touch screen it is a line under the facts. It says why the run failed:
 
 - **The check it failed**, in the CLI's words, with the arguments it names and how a tool's calls were fenced, as `send_email called 1 time, but called 2 times (2 blocked)`.
 - **The agent's exit.**
 - **Where a test diverged.**
 
-How it came out comes first, as Runs' Status says it: *check failed at #6*, its call a link, or *no checks* ([Judged by checks](#judged-by-checks)). Then come its counts: calls, replayed, live, fenced, upstream requests and spent. Then comes what replaying saved: not re-spent, and the time not waited (each replayed call's duration where it was recorded).
+How it came out comes first, as Runs' Status says it: *check failed at #6*, its call a link, or *no checks* ([Judged by checks](#judged-by-checks)). An attempt says its verdict there: *passed*, *inconclusive*, *interrupted*, or a preset's *exited 1*. Then come its calls and, quieter, what it spent. A replay or a fork then shows what replaying saved: not re-spent, and the time not waited (each replayed call's duration where it was recorded). What made each fact up is on its hover: replayed, live and fenced calls, upstream requests, input tokens not sent again.
 
 - **A capture** whose file kept no times (nock, VCR) shows no duration. One of the model calls alone says its tool calls were not captured.
 - **A recording unpacked from someone's pack** says *recording · from a pack*.
 - **A teammate's run pulled from the [team store](./team.md)** is a recording like any. It shows the requests it sent and what it spent where it was recorded, by whom (*≈$0.0030 spent · by maya*, and the same in Provenance's Upstream row). Its replay asks first, as a pack's does.
 
-The meta line says why the run failed, and the agent's exit with its last line. It also says:
+The id's card says why the run failed, and the agent's exit with its last line. Under the header, the run also says:
 
 - how it forked, what the flag did and what came before it ("answered with HTTP 529 by `--fail-at 19=529` · nothing sent", "tool #16 overridden with `--override 16=@policy.json` · 15 replayed and #16 overridden before it");
 - where blame found it lost, with the fork it rescued and its fix;
@@ -423,6 +423,8 @@ The header's one lime button is the run's next step: the first of these that app
 | Anything else | **Replay**, as below |
 
 Every other action stays beside it, plain, and the banner doesn't offer the step again. Its hover says what it does, what it bills and the command it runs. Search or jump to lists it first under This run. While a job holds what it needs, it goes plain and says why, there too.
+
+The lime button comes last, before **…**, which holds **Delete run**. From 1280px wide, where the buttons won't fit beside the id, the plain ones fold into **…** one at a time: Replay first, then Pack as golden…, Compare, Push and Run blame. Narrower, the buttons go under the header, the lime one first.
 
 What each step does:
 
@@ -476,7 +478,7 @@ A gate that settles makes fewer attempts than its limit, and the count is of the
 
 *failed · tool timeout preset on goldens/list-inbox, attempt 1 of 1: list_inbox (#2) timed out, played in by the preset · writes stubbed*
 
-A golden's banner has **Tests →**. The attempt's status chip goes by that verdict.
+A golden's banner has **Tests →**. The attempt's first fact goes by that verdict.
 
 **A fork.** A replay an injection test, a model's scoring or an error-path preset made keeps its fork banner. A fork whose only flag is `--writes` forked where its request changed, and its banner says that.
 
@@ -1440,7 +1442,7 @@ Where jobs can't run (a read-only dashboard), **Share → HTML report** comes st
 
 With a [team store](./team.md), a share link comes first, its drawer ending on **Copy link**. The report opens for anyone with the link until it expires, 7 days at most. A run only on this machine has **Push** in its header, as does a run in the store whose attempts aren't (Push sends them).
 
-**Delete** removes a run, with the attempts bundled under it, which its dialog and its toast count, as `shadowlap rm` does. It also removes the recorded data nothing else uses.
+**Delete run**, in the header's **…**, removes a run, with the attempts bundled under it, which its dialog and its toast count, as `shadowlap rm` does. It also removes the recorded data nothing else uses. It waits while the run records.
 
 **Run blame** is on the page of a failed run that was never blamed. It blames the run with the check it failed, found the way a replay is judged, the first that applies:
 
