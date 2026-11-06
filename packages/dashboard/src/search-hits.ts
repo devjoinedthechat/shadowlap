@@ -111,24 +111,35 @@ export function searchRecorded(store: StoreOf<'readModels'>, query: string, limi
   return [...own, ...hits(store, ATTEMPTS_SQL, match, [...of.keys()], limit - own.length, (id) => of.get(id) ?? null)];
 }
 
-const recordedKept = new WeakMap<object, Map<string, ReadonlySet<string>>>();
+/** What a thread keeps of the runs each word was found in, per run index: one read whole again (after a delete) starts afresh. */
+const recordedKept = new WeakMap<RunIndex, Map<string, ReadonlySet<string>>>();
 /** The words a thread keeps the runs of, the last asked: the table and the row of days ask the same ones together. */
 const RECORDED_KEPT = 64;
 const NONE: ReadonlySet<string> = new Set();
 
 /**
+ * Where the search index stands, for what `recordedRuns` keeps: its newest document's row, which
+ * moves as the index takes in a run's calls, a run still recording's included, and the newest call
+ * recorded. One small read of each, once for every word a read asks.
+ */
+export function searchAt(store: StoreOf<'readModels' | 'activity'>): string {
+  const docs = Number(store.query(`SELECT COALESCE(MAX(rowid), 0) AS n FROM search_rows`)[0]?.n ?? 0);
+  return `${docs}:${store.changeCounts().calls ?? 0}`;
+}
+
+/**
  * Every run whose recorded content holds `word` (a quoted run of words, in that order), as the
  * palette's "In recorded data" finds it: whole words, from RECORDED_MIN_CHARS characters. A hit in an
  * attempt counts for the run it is bundled under too, as the palette shows it. Kept on this thread by
- * the word and where the index stands (`at`, with how far behind it is), so the Runs table and its
- * row of days asking the same words read the index once.
+ * the run index, its revision, the word and where the search index stands (`at`: how far behind it
+ * is and `searchAt`), so the Runs table and its row of days asking the same words read it once.
  */
 export function recordedRuns(store: StoreOf<'readModels'>, word: string, index: RunIndex, at = ''): ReadonlySet<string> {
   const text = word.replace(/"/g, ' ').trim();
   if (text.length < RECORDED_MIN_CHARS) return NONE;
   const key = `${index.revision}|${at}|${text}`;
-  let kept = recordedKept.get(store);
-  if (!kept) recordedKept.set(store, (kept = new Map<string, ReadonlySet<string>>()));
+  let kept = recordedKept.get(index);
+  if (!kept) recordedKept.set(index, (kept = new Map<string, ReadonlySet<string>>()));
   const had = kept.get(key);
   if (had) return had;
   const runs = new Set<string>();

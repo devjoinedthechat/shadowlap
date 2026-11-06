@@ -2,7 +2,7 @@ import type { RunRecord, Store, StoreOf, TestResult } from '@shadowlap/engine';
 import { filterTerms, RECORDED_MIN_CHARS } from './links.js';
 import type { IndexedRun, RunIndex } from './run-index.js';
 import { judgedCanChange, verdictOf, type RunVerdict, type VerdictJudged } from './run-verdict.js';
-import { recordedRuns, searchBehind } from './search-hits.js';
+import { recordedRuns, searchAt, searchBehind } from './search-hits.js';
 
 /**
  * What the run lists read besides the index's own fields. To say which runs failed: a test replay
@@ -177,10 +177,11 @@ export function termReads(store: Store, index: RunIndex, filter: { q?: string; j
   const asked = terms.statuses.length ? verdictsAsked(fixedByOf(store, index), filter.judge ?? null, budget) : null;
   const tools = terms.tools.length ? toolsCalled(store) : null;
   const behind = terms.words.some((w) => w.length >= RECORDED_MIN_CHARS) ? searchBehind(store, index) : null;
+  const at = behind === null ? '' : `${behind}|${searchAt(store)}`;
   return {
     ...asked,
     ...(tools ? { tools: (r: IndexedRun) => tools.get(r.runId) ?? [] } : {}),
-    ...(behind === null ? {} : { recorded: (w: string, r: IndexedRun) => recordedRuns(store, w, index, String(behind)).has(r.runId) }),
+    ...(behind === null ? {} : { recorded: (w: string, r: IndexedRun) => recordedRuns(store, w, index, at).has(r.runId) }),
     warming: asked?.warming ?? (() => null),
     judgeAfter: asked?.judgeAfter ?? (() => null),
     indexing: behind ? { runs: behind, of: index.runs.length } : null,

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { searchExpression, Store, updateSearchIndex } from '@shadowlap/engine';
+import { listRunsPage } from '../src/runs-list.js';
 import { catchUpSearch, indexRecordings, indexSearchSlice, PER_RUN, searchBehind, searchRecorded } from '../src/search-hits.js';
 import { addRun, DAY, HOUR, type CallSpec } from './read-model-store.js';
 
@@ -172,5 +173,41 @@ describe('the index behind the search', () => {
     expect(searchRecorded(store, 'refund', 40).map((h) => h.runId)).toEqual([rec]);
     expect(store.searchState(done)).toBeNull();
     expect(searchBehind(store)).toBe(1);
+  });
+});
+
+describe('the words Runs’ filter finds in what runs recorded', () => {
+  /** Runs' table for `q`, as a read beside the server lists it, the index caught up first unless `asIs`. */
+  const table = (q: string, o: { asIs?: boolean } = {}) => {
+    if (!o.asIs) updateSearchIndex(store);
+    return listRunsPage(store, { limit: 50, q, known: true }).runs.map((r) => r.runId);
+  };
+
+  it('finds them afresh once the runs are read whole again, as after a delete', () => {
+    // Said after what the user asked first, which the about line quotes: only the index has it.
+    const said = (text: string) => [say('l', 'Look at the order.', 's1'), say('l', text, 's2')];
+    const a = addRun(store, { startedAt: NOW - 3 * HOUR, calls: said('a lattice over the limit') });
+    const b = addRun(store, { startedAt: NOW - 2 * HOUR, calls: said('nothing here') });
+    expect(table('lattice')).toEqual([a]);
+    const c = addRun(store, { startedAt: NOW - HOUR, calls: said('another lattice') });
+    expect(table('lattice')).toEqual([c, a]);
+    store.deleteRun(b);
+    expect(table('lattice')).toEqual([c, a]);
+  });
+
+  it('finds a recording’s newest words once the index has taken them in, while it still records', () => {
+    const runId = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '/work' }, startedAt: NOW }).runId;
+    const call = (n: number, text: string) => {
+      const identity = { kind: 'tool' as const, name: 'lookup_order', fingerprint: `f${n}`, occurrence: 0 };
+      store.appendCallStart({ runId, callNo: n, ...identity, origin: 'live', effect: 'read', requestRef: store.putJson({ args: { text } }), meta: {}, at: NOW + n });
+      store.appendCallEnd(identity, { runId, callNo: n, attempt: 0, responseRef: store.putJson({ result: 'ok' }), outcome: 'ok', meta: {}, at: NOW + n });
+    };
+    call(1, 'look up order A-1042');
+    expect(table('invoice')).toEqual([]);
+    call(2, 'send the invoice');
+    // Asked before the index took the call in: not yet.
+    expect(table('invoice', { asIs: true })).toEqual([]);
+    while (indexSearchSlice(store).behind > 0);
+    expect(table('invoice', { asIs: true })).toEqual([runId]);
   });
 });
