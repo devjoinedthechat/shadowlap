@@ -134,6 +134,13 @@ describe('the verdict', () => {
     expect(sessionLine(v, false)).toMatchObject({ rest: 'rev d2e8a1f · just now · 3 passed, 1 failed so far', live: true });
     expect(sessionLine(view({ verdict: null }))).toBeNull();
   });
+
+  it('says just now for a minute after a session ends, as one watched in the browser ends, then its time', () => {
+    const v = view();
+    const ended = v.verdict!.session.endedAt!;
+    expect(sessionLine(v, false, ended + 59_000)!.rest).toBe('rev d2e8a1f · just now · 3 passed, 1 failed · 0 upstream requests');
+    expect(sessionLine(v, false, ended + 60_000)!.rest).toBe('rev d2e8a1f · Oct 1, 10:02 · 3 passed, 1 failed · 0 upstream requests');
+  });
 });
 
 describe('the verdict\'s step', () => {

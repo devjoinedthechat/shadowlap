@@ -1,4 +1,4 @@
-import { approx } from './format.js';
+import { approx, justNow } from './format.js';
 import { ACTIONS, confirmWords } from './labels.js';
 import { rateBound } from '../../engine/src/stats.js';
 import { twoDigits as pad } from '../../engine/src/words.js';
@@ -38,7 +38,7 @@ export const n = (count: number, word: string) => `${count.toLocaleString('en-US
  * running while its process is (`live`, from the server, wherever it was started; `running`, a test
  * job of this tab's), and otherwise did not finish.
  */
-export function sessionLine(view: { verdict: Pick<NonNullable<TestsView['verdict']>, 'session' | 'since'> | null }, running = false): { command: string; rest: string; since: string | null; sinceTip: string | null; live: boolean } | null {
+export function sessionLine(view: { verdict: Pick<NonNullable<TestsView['verdict']>, 'session' | 'since'> | null }, running = false, now = Date.now()): { command: string; rest: string; since: string | null; sinceTip: string | null; live: boolean } | null {
   const v = view.verdict;
   if (!v) return null;
   const s = v.session;
@@ -46,7 +46,9 @@ export function sessionLine(view: { verdict: Pick<NonNullable<TestsView['verdict
   // Inconclusive goldens count apart, as the verdict's badge counts them.
   const counts = `${s.passed} passed, ${s.failed} failed${s.inconclusive ? `, ${s.inconclusive} inconclusive` : ''}`;
   // While it runs: just now, so far, and no upstream requests, which a session counts as it ends; the verdict's word says it runs.
-  const parts = [s.revision ? `rev ${s.revision}` : 'no revision', live ? 'just now' : dayClock(s.endedAt ?? s.startedAt), `${counts}${live ? ' so far' : ''}`, ...(live ? [] : [n(s.upstreamRequests, 'upstream request')])];
+  // Ended within the minute (`now`), as one you just watched in the browser ends: still just now.
+  const recent = live || (s.endedAt !== null && justNow(s.endedAt, now));
+  const parts = [s.revision ? `rev ${s.revision}` : 'no revision', recent ? 'just now' : dayClock(s.endedAt ?? s.startedAt), `${counts}${live ? ' so far' : ''}`, ...(live ? [] : [n(s.upstreamRequests, 'upstream request')])];
   if (s.interrupted) parts.push('interrupted');
   else if (s.endedAt === null && !live) parts.push('did not finish');
   const since = v.since ?? [];

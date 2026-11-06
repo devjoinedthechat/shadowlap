@@ -6,6 +6,7 @@ import { VerdictLine } from '../components/VerdictLine.js';
 import type { TestsEstimates } from '../estimates-api.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
 import { commandText, sessionLine } from '../goldens.js';
+import { useNow } from '../hooks.js';
 import { moreCard, normalizeCard, testsJob, updateCard } from '../pages/tests-cards.js';
 import { FindCommitButton } from '../pages/TestsDialogs.js';
 import { goldenPrice, type Price } from '../tests-estimates.js';
@@ -69,6 +70,8 @@ export function Verdict({ view, running, lead, press }: { view: TestsView; runni
   const label = lead ? (lead.kind === 'blame' ? lead.step.label : lead.label) : null;
   useEffect(() => keepLead(label), [view, label]);
   useEffect(() => () => keepLead(null), []);
+  // A session that ended within the minute says just now, then its time.
+  const now = useNow();
   // A session that runs every golden: the verdict follows it, how far it has got, and no step.
   if (view.following?.whole && view.running) return <RunningVerdict s={view.running} reached={view.following.reached} total={view.following.total} />;
   if (!v) {
@@ -88,7 +91,7 @@ export function Verdict({ view, running, lead, press }: { view: TestsView; runni
       </VerdictLine>
     );
   }
-  const line = sessionLine(view, running)!;
+  const line = sessionLine(view, running, now)!;
   const [word, tone] = WORDS[v.state];
   const facts = (
     <>
