@@ -1,9 +1,15 @@
+import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { expect, type Page } from '@playwright/test';
+import { createServer } from 'node:net';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { expect, type APIRequestContext, type Page } from '@playwright/test';
 import type { BrowserState } from './global-setup.js';
 
-/** What the browser tests share: the dashboard global-setup.ts started, and how to read a page. */
+/** What the browser tests share: the dashboard global-setup.ts started, how to start another, and how to read a page. */
+
+const cli = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'cli', 'bin', 'shadowlap.js');
 
 let cached: BrowserState | null = null;
 
@@ -24,6 +30,75 @@ export function demoId(name: string): string {
   return id;
 }
 
+function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+/** A dashboard's address and session token. */
+export interface Served {
+  origin: string;
+  token: string;
+}
+
+/**
+ * Starts `shadowlap dashboard` in one of the demo's projects as a user would, on a free port, with
+ * the demo's machine (its home and its project list), and gives the address and token of the link it
+ * prints, with how to stop it. Global setup starts the one every test reads, in support-agent.
+ */
+export async function serveDashboard(demo: string, project: string): Promise<Served & { stop: () => Promise<void> }> {
+  const port = await freePort();
+  const env = { ...process.env, SHADOWLAP_HOME: join(demo, 'home'), SHADOWLAP_PROJECT_ROOTS: demo, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0' };
+  const child = spawn(process.execPath, [cli, 'dashboard', '--no-open', '--port', String(port)], { cwd: join(demo, project), env, stdio: ['ignore', 'ignore', 'pipe'] });
+  const link = await new Promise<string>((resolve, reject) => {
+    let said = '';
+    const timer = setTimeout(() => reject(new Error(`the dashboard printed no link in 30 s:\n${said}`)), 30_000);
+    child.stderr.on('data', (chunk: Buffer) => {
+      said += chunk.toString('utf8');
+      const m = /(http:\/\/127\.0\.0\.1:\d+\/#token=[\w-]+)/.exec(said);
+      if (m) {
+        clearTimeout(timer);
+        resolve(m[1]!);
+      }
+    });
+    child.once('exit', (code) => {
+      clearTimeout(timer);
+      reject(new Error(`the dashboard exited (${code}) before printing its link:\n${said}`));
+    });
+  });
+  const url = new URL(link);
+  const stop = async () => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const ended = new Promise((resolve) => child.once('exit', resolve));
+    child.kill('SIGTERM');
+    await Promise.race([ended, new Promise((resolve) => setTimeout(resolve, 10_000))]);
+  };
+  return { origin: url.origin, token: /token=([\w-]+)/.exec(url.hash)![1]!, stop };
+}
+
+/** Every link (`#/…`) the shared dashboard's answers write, read from the pages' reads that name runs, fixes and the rest. */
+export async function serverLinks(request: APIRequestContext): Promise<Set<string>> {
+  const { origin, token } = dash();
+  const get = async (path: string) => (await request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token } })).json();
+  const fix = demoId('refundFix');
+  const answers = await Promise.all(['summary?tz=UTC', 'activity?limit=200', 'fixes', `fixes/${fix}`, `fixes/${fix}/groups`, 'training', 'tests', `runs/${demoId('override')}/differences`, 'setup', 'projects', 'decisions', `runs/${demoId('refundBug')}/decisions`].map(get));
+  const links = new Set<string>();
+  const walk = (v: unknown) => {
+    if (typeof v === 'string' && v.startsWith('#/')) links.add(v);
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === 'object') Object.values(v).forEach(walk);
+  };
+  answers.forEach(walk);
+  return links;
+}
+
 /** The selector that says a page has drawn what it shows. */
 const DRAWN: Record<string, string> = {
   overview: 'main#view .ov, main#view .ph',
@@ -32,9 +107,9 @@ const DRAWN: Record<string, string> = {
   fix: 'main#view .stepper',
 };
 
-/** Opens a page of the dashboard with the session token, as its printed link does, and waits for it to draw. */
-export async function openPage(page: Page, path: string, drawn: string): Promise<void> {
-  const { origin, token } = dash();
+/** Opens a page of the dashboard (global setup's, or `at`) with the session token, as its printed link does, and waits for it to draw. */
+export async function openPage(page: Page, path: string, drawn: string, at: Served = dash()): Promise<void> {
+  const { origin, token } = at;
   await page.goto(`${origin}/#token=${token}&open=${path}`);
   await page.waitForSelector(DRAWN[drawn] ?? drawn, { state: 'visible' });
   // Fonts settle the layout that the fitted lines (about lines, hints) are measured against.
