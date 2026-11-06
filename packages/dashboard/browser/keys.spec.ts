@@ -206,8 +206,13 @@ test('a control’s hover card says its key, and Provenance’s card its name ov
   await openPage(page, `/run/${demoId('override')}`, 'run');
   await page.locator('#forkBtn').hover();
   await expect(page.locator('.tip .kbd')).toHaveText('f');
-  // Provenance's card is a name and a sentence; the tab v shows next says v.
-  while ((await page.locator('#vtab-forks').getAttribute('aria-selected')) !== 'true') await page.keyboard.press('v');
+  // Provenance's card is a name and a sentence; the tab v shows next says v. v shows its view through the
+  // address, after the key: each v is read once its view shows, or one still on its way takes the views past Forks.
+  const shown = page.locator('[id^="vtab-"][aria-selected="true"]');
+  for (let at = await shown.getAttribute('id'); at !== 'vtab-forks'; at = await shown.getAttribute('id')) {
+    await page.keyboard.press('v');
+    await expect(page.locator(`#${at}`)).toHaveAttribute('aria-selected', 'false');
+  }
   const card = JSON.parse((await page.locator('#vtab-provenance').getAttribute('data-tip'))!) as { t: string; s?: string };
   expect(card.t).toBe('Provenance');
   expect(card.s).toMatch(/^The run’s record/);

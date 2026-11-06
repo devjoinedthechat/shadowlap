@@ -282,4 +282,3 @@ export function noPriceWords(cost: { unpriced?: readonly string[]; uncounted?: r
   if (unanswered.length) words.push(`${few(unanswered.map((c) => `#${c}`))} got no answer when recorded, so what ${unanswered.length === 1 ? 'it costs' : 'they cost'} is unknown`);
   return words.join('; ');
 }
-

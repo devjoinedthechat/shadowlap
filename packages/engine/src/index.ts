@@ -75,8 +75,8 @@ export type { ConfigEvent, ConfigFile, EditOptions, RuleAdded, RuleList } from '
 export { LOCK_STALE_MS, releaseLock, takeLock, withLockFile, type HeldLock, type LockOptions } from './lock-file.js';
 // Shadowlap's folder for this machine's files (SHADOWLAP_HOME, else ~/.shadowlap): the project list, and the agents and proxies registered while they run.
 export { shadowlapHome } from './projects/index.js';
-// A small file replaced in one step, never half written: for a file kept for this machine beside the project list.
-export { writeFileAtomic } from './projects/files.js';
+// A small file kept for this machine beside the project list: replaced in one step, never half written, and changed under its lock as the list is.
+export { FileLockBusyError, withFileLock, writeFileAtomic } from './projects/files.js';
 // Projects: the list of folders opened in the dashboard, folder suggestions, setup and recording from it.
 export { ProjectError, ProjectHost, ProjectRegistry, emptySetup, nameConfirms, projectDbPath, setupRunOf, tildePath } from './projects/index.js';
 export { checkFolder, describeFolder, suggestFolders } from './projects/index.js';
@@ -241,8 +241,10 @@ export { decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, m
 // preview's verify by verify's head, a fix's as its Verify step heads it.
 export { fixVerifyHead, goldensPassed, runOutcomeWord, verdictWord, verifyHead } from './verdict-words.js';
 export { ACTIONS, confirmWords, forceLiveLabel, STRONGER_MODEL, type ActionWords } from './action-words.js';
-// The names the goldens a fix's apply copies go by, for `fix apply --name` and the dashboard's Apply fix.
+// The names the goldens a fix's apply copies go by, for `fix apply --name` and the dashboard's Apply fix,
+// and the most characters one takes, as a judge's name in a check does.
 export { asGoldenName, defaultGoldenNames, goldenNameArgs, goldenNamesProblem, type GoldenNameProblem } from './golden-names.js';
+export { NAME_MAX } from './name-max.js';
 export { goldensFolder, type GoldenThere } from './goldens-folder.js';
 export { longDate, replacementModels, retiredFields, retirementOf, retirementPlatform, retirementsOf, retirementTable, retirementTableProblems, tableModel } from './model-retirements.js';
 export type { FieldRetirement, ModelRetirement, RetirementNotice, RetirementPlatform, RetirementSource, RetirementTable } from './model-retirements.js';

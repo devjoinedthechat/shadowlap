@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { applyGoldens, asGoldenName, defaultGoldenNames, goldenNameArgs, goldenNamesProblem, goldensFolder, type StoredFix, type StoredRepair } from '../src/index.js';
+import { applyGoldens, asGoldenName, defaultGoldenNames, goldenNameArgs, goldenNamesProblem, goldensFolder, NAME_MAX, parseJudge, type StoredFix, type StoredRepair } from '../src/index.js';
 
 /**
  * The names the goldens a fix's apply copies go by (`fix apply --name <run>=<name>`, the dashboard's
@@ -37,12 +37,47 @@ describe('a golden’s name', () => {
     expect(goldenNamesProblem([''], ok)).toEqual({ at: 0, text: 'Give the golden a name.' });
     expect(goldenNamesProblem(['refund-bug-1', ''], ok)).toEqual({ at: 1, text: 'Give each golden a name.' });
     for (const bad of ['Double-Email', 'double_email', 'double email', '-double', 'goldens/x', '..']) expect(goldenNamesProblem([bad], ok)).toEqual({ at: 0, text: 'A golden’s name takes lower-case letters, digits and hyphens.' });
-    // No more to it than that: E28's rule, as the mock's dialog keeps it.
-    expect(goldenNamesProblem(['a'.repeat(100), '0-refund--twice-'], ok)).toBeNull();
+    expect(goldenNamesProblem(['a'.repeat(64), '0-refund--twice-'], ok)).toBeNull();
     expect(goldenNamesProblem(['refund-bug', 'refund-bug'], ok)).toEqual({ at: 1, text: 'Each golden needs a name of its own.' });
     // Taken in the folder, read without case as macOS and Windows read a folder's name.
     expect(goldenNamesProblem(['refund-bug', 'confirmation-email'], { folder: 'goldens/', held: ['Confirmation-Email'] })).toEqual({ at: 1, text: 'goldens/confirmation-email is taken: pick another name.' });
     expect(goldenNamesProblem(['refund-bug'], { folder: 'tests/goldens', held: ['refund-bug'] })).toEqual({ at: 0, text: 'tests/goldens/refund-bug is taken: pick another name.' });
+  });
+
+  it('is at most 64 characters, as a judge’s name in a check is, so none the rule takes is too long for a folder', () => {
+    const ok = { folder: 'goldens', held: [] };
+    expect(NAME_MAX).toBe(64);
+    expect(goldenNamesProblem(['a'.repeat(NAME_MAX)], ok)).toBeNull();
+    expect(goldenNamesProblem(['refund-bug', 'a'.repeat(NAME_MAX + 1)], ok)).toEqual({ at: 1, text: 'A golden’s name is at most 64 characters.' });
+    // What once passed the rule and then failed at mkdir with ENAMETOOLONG.
+    expect(goldenNamesProblem(['a'.repeat(300)], ok)).toEqual({ at: 0, text: 'A golden’s name is at most 64 characters.' });
+    const judge = (name: string) => () => parseJudge({ name, question: 'Does the reply say why?', model: 'claude-haiku-4-5' }, 'judge[0]');
+    expect(judge('a'.repeat(NAME_MAX))).not.toThrow();
+    expect(judge('a'.repeat(NAME_MAX + 1))).toThrow('judge[0].name must be a short name');
+    // A label or a title, however long, makes a name within it, numbered or not.
+    const long = 'Escalate every refund above the policy limit it sets '.repeat(6);
+    for (const count of [1, 12]) {
+      const names = defaultGoldenNames({ label: long, title: long }, count);
+      expect(names.every((n) => n.length <= NAME_MAX)).toBe(true);
+      expect(goldenNamesProblem(names, ok)).toBeNull();
+    }
+    expect(defaultGoldenNames({ label: null, title: long }, 1)).toEqual(['escalate-every-refund-above-the-policy']);
+  });
+
+  it('is none of the names Windows keeps for itself, read without case, nor one a label or a title makes', () => {
+    const ok = { folder: 'goldens', held: [] };
+    const devices = ['con', 'nul', 'prn', 'aux', ...Array.from({ length: 9 }, (_, i) => [`com${i + 1}`, `lpt${i + 1}`]).flat()];
+    for (const name of [...devices, 'CON', 'Nul', 'cOm3', 'LPT9']) {
+      expect(goldenNamesProblem(['refund-bug', name], ok)).toEqual({ at: 1, text: `${name} is a name Windows keeps for itself: pick another.` });
+      expect(asGoldenName(name)).toBe('');
+    }
+    expect(goldenNamesProblem(['console', 'com10', 'con-1', 'nul-amount', 'lpt1x'], ok)).toBeNull();
+    // A label of one gives way to the title, and a title of one to golden, numbered or not.
+    expect(defaultGoldenNames({ label: 'con', title: 'Crashes on a null amount' }, 1)).toEqual(['crashes-on-a-null-amount']);
+    expect(defaultGoldenNames({ label: 'AUX', title: 'Prn' }, 1)).toEqual(['golden']);
+    expect(defaultGoldenNames({ label: null, title: 'nul' }, 2)).toEqual(['golden-1', 'golden-2']);
+    // Cut at a word's end to one, it makes none either.
+    expect(asGoldenName(`Con ${'x'.repeat(40)}`)).toBe('');
   });
 
   it('goes to fix apply as one --name for each golden', () => {

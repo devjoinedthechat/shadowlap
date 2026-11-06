@@ -44,7 +44,7 @@ import { fixForRun, type FixForRun } from './fix-for-run.js';
 import { injectionLine } from './injection.js';
 import { links } from './links.js';
 import { gitAsync } from './patch-in-tree.js';
-import { blameOffer, passedSince, testOffer, type BlameOffer, type TestOffer } from './run-offers.js';
+import { blameOffer, testOffer, type BlameOffer, type TestOffer } from './run-offers.js';
 import { aboutsWithin } from './run-about.js';
 import { runCalls } from './run-calls.js';
 import { loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
@@ -53,6 +53,7 @@ import { estimateOf, pricingOf, type Priced, type Pricing } from './pricing.js';
 import { answer, failed, type ReadTable } from './read-registry.js';
 import { runJudged, type OutcomeWork, type RunJudged } from './run-outcome.js';
 import { callTotals, priced as pricedTotals } from './run-stats.js';
+import { fixedBy } from './runs-filter.js';
 import { runStates, type RunRow, type RunState } from './runs-list.js';
 import { liveReasons } from './tests-live.js';
 import { bisectAnswers, bisectChoices, standingAnswer, underChecks, unjudgedOffline, unreadable, verdictOfResult, type BisectAnswer, type BisectChoices, type GoldenSource } from './tests.js';
@@ -63,7 +64,8 @@ import { bisectAnswers, bisectChoices, standingAnswer, underChecks, unjudgedOffl
  * that applies:
  *
  * - still recording: Replay, off until it ends;
- * - a test replay whose golden passed when it ran again: Open passing run;
+ * - a failed test replay whose golden passed when it ran again, whatever way it failed: Open passing
+ *   run, as Runs' Status says `fixed by <run>`;
  * - a test that diverged: on a value that changes every run, Add normalizer and re-run (or Re-run test
  *   once the rule is in the config); on what a patch or a config change changed, Update golden; on
  *   anything else, Find breaking commit…, unless it can't start from this replay (one cut short, or an
@@ -416,17 +418,23 @@ function divergedStep(f: Facts, t: TestedGolden): Decided | null {
   return { key: 'bisect', label: ACTIONS.findBreakingCommit.label, golden, starts: false, blame: null, command: bisectCommand(golden, null, commitName(c?.bad)), sub: 'Asks for a commit where it still worked, then replays it at the commits between', ...bisectPrice(f, source, result, c?.good ?? null, c?.bad ?? null) };
 }
 
-/** What a test replay of its own leads with while its golden is on disk: its passing run, or by how it diverged, or its judge's verdict. */
+/**
+ * A failed test replay a later replay of its golden passed, whatever way it failed: the run that
+ * passed, which Runs' Status names (`fixed by <run>`), by the rule both read (runs-filter.ts
+ * `fixedBy`) on the run as the index has it.
+ */
+function passingStep(f: Facts): Decided | null {
+  const run = f.index.byId.get(f.row.runId);
+  const passing = run ? fixedBy(f.store, run, f.reads.results) : null;
+  return passing ? { key: 'passing', label: ACTIONS.openPassingRun.label, runId: passing, href: links.run(passing), title: `Opens ${short(passing)}`, about: passing } : null;
+}
+
+/** What a test replay of its own leads with while its golden is on disk: by how it diverged, or its judge's verdict. */
 function testStep(f: Facts): Decided | null {
   const t = f.tested();
   if (!t) return null;
-  const { row, store } = f;
-  const diverged = row.failed && row.outcome.kind === 'diverged';
-  if (diverged || (row.failed && crashed(row, t.result))) {
-    const passing = passedSince(store, f.record, t.golden, f.reads.results(t.golden));
-    if (passing) return { key: 'passing', label: ACTIONS.openPassingRun.label, runId: passing, href: links.run(passing), title: `Opens ${short(passing)}`, about: passing };
-  }
-  const lead = diverged ? divergedStep(f, t) : null;
+  const { row } = f;
+  const lead = row.failed && row.outcome.kind === 'diverged' ? divergedStep(f, t) : null;
   if (lead) return lead;
   const only = judgeOnly(t.source, t.result);
   return only ? { ...updateStep(f, t.golden, t.source), sub: JUDGE_ONCE, reads: [], price: () => updateEstimate([{ calls: [], judge: only.judge }]) } : null;
@@ -700,6 +708,7 @@ function decide(f: Facts): Decided {
   const { row, record, index } = f;
   if (row.status === 'running') return { ...replayStep(f.store, row, record, index), label: ACTIONS.replay.label, off: 'Replay once the recording finishes' };
   return (
+    passingStep(f) ??
     testStep(f) ??
     attemptStep(f) ??
     crashStep(f) ??

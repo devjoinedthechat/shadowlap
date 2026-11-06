@@ -213,9 +213,6 @@ export function testOffer(store: StoreOf<'recording' | 'tests'>, run: RunRecord,
   return { ...banner, normalized, passingRun: normalized ? passedSince(store, run, banner.golden) : null, checks: goldens.find((g) => g.path === banner.golden)?.checks ?? null };
 }
 
-/** The newest replay of a golden that passed since a run (runs-filter.ts), which the lists' `fixed by` reads too. */
-export { passedSince };
-
 /**
  * Find breaking commit for a run blame found failing when this store holds no fix to say which check: one
  * that exited 0 and kept no checks of its own failed the check blame was given. With the run's fix

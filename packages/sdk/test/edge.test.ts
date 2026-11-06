@@ -45,7 +45,7 @@ async function inEdge(body: string): Promise<{ stdout: string; stderr: string }>
     const sdk = await import(${JSON.stringify(pathToFileURL(join(DIST, 'index.js')).href)});
     ${body}`,
   );
-  return run(process.execPath, ['--import', pathToFileURL(register).href, app], { encoding: 'utf8', env: { PATH: process.env.PATH ?? '' } });
+  return run(process.execPath, ['--import', pathToFileURL(register).href, app], { encoding: 'utf8', env: { PATH: process.env.PATH ?? '', SHADOWLAP_HOME: process.env.SHADOWLAP_HOME } });
 }
 
 describe('the SDK where Node modules do not exist', () => {
