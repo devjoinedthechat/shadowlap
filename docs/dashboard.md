@@ -437,6 +437,8 @@ What each step does:
 - **A replay it can't start from**: one cut short, or one of a session its golden came out inconclusive in, says nothing of its golden, so the rows after it decide.
 - **Open proof** opens the first attempt that shows the verdict. Presets left inconclusive change nothing, since running them again finds the same.
 - **Pack as golden…** asks for a folder, `goldens/` and the run's short id in lower case unless you change it. A golden of a fork or a replay of the recording doesn't count as made from it.
+  - It packs the golden, then tests it, as one job, for any run. A recording from someone's pack or the team store asks first, since its test runs the command it was recorded with.
+  - Where another step leads, a plain **Pack as golden…** comes after **Replay** and can fold into **…**. Search or jump to has it too.
 - **Pack with injection gate…** does the same, and names the entry to add under `tests`, for the folder as you type it, that gives the golden its gate.
 - **Replay** replays the run itself. On a capture it reads **Replay with your command…**, and asks what starts your agent.
 - **Replay recording**, on a clean or a test replay, replays the recording it came from, asking for your command where that is a capture.
@@ -446,14 +448,18 @@ A fork that failed, by its check or its agent's exit, says *failed* beside its i
 
 ### Where a run opens
 
-Unless the link names a call, a run opens at:
+Unless the link names a call, a run opens at the first of these it has:
 
 | Run | Opens at |
 | --- | --- |
-| A fork | Its divergence |
-| A run blame found lost | The call that lost it |
-| Any other run that failed | Its first call that failed: a model call answered with an error, or a tool that threw; never a write fenced after a fork |
-| Any other run | Its first call, past any clock or random reads, which hold a value rather than a step of the agent's |
+| A recording still recording | Its newest call, following each new one |
+| A run you picked a call on earlier in the session | That call |
+| A run blame found lost | The call that lost it, where **Run blame**'s answer moves too |
+| A fork, or a test that diverged | Where it forked |
+| A run whose outcome names a call (*check failed at #6*) | That call |
+| Any other run | Its first call that failed, then its first write, then its last model call, then its first call |
+
+A call that failed is a model call answered with an error, or a tool that threw, never a write fenced after a fork. A run never opens on a clock or random read, which holds a value rather than a step of the agent's.
 
 ### Findings
 
@@ -473,13 +479,16 @@ A finding never says what the header's first fact already does. Where that fact 
 
 A blame that placed the failure on no call says how it stands as the finding's label instead: *stopped* or *inconclusive* in amber, *not rescued* in red. A blame that found the call says *lost at #17*, with **Rescued fork →** where the fork that rescued the run is kept. Words the glossary defines, such as *lost*, *stubbed* and *fenced*, are underlined, with their meaning on hover.
 
-**An attempt.** An attempt of blame, verify or `replay --repeat` says it is one: *blame attempt*, *verify attempt* or *repeat attempt* above its id. The fork blame rescued a run with is its *rescued fork*. Its first fact says how it came out. Its finding says what was asked again, which attempt it is of those made, how the writes after it went and, for one that could not be decided, the check that couldn't be. For example:
+**An attempt.** An attempt of blame, verify, `replay --repeat` or a test says it is one: *blame attempt*, *verify attempt*, *repeat attempt* or *test attempt* above its id. A test attempt is a golden one `shadowlap test` session replayed more than once, other than the attempt its result shows. The fork blame rescued a run with is its *rescued fork*.
+
+Its first fact says how it came out. Its finding says what was asked again, which attempt it is of those made, how the writes after it went and, for one that could not be decided, the check that couldn't be. For example:
 
 - *resampled #5, attempt 2 of 4: the model was asked #5 again, the request as recorded · writes stubbed*
 - *verify · target, attempt 1 of 12 · code 35034be: the change it verified is in the request (~ $.system)*, or the flag a `--model` or `--set` change was made with
 - *replay --repeat 5 at #16, attempt 2 of 5: forced live with `--live-tool lookup_policy`*
+- *refund-over-limit, attempt 2 of 8 · test at d2e8a1f: live from where the golden may fork · writes blocked*
 
-A gate that settles makes fewer attempts than its limit, and the count is of the attempts made. The finding wraps rather than cut its words. It links back to the attempt's probe on its fix's Blame step, or to the verdict it counted towards, and to all its attempts in Forks. It offers no Run blame, since its failure counts towards what made it.
+A gate that settles makes fewer attempts than its limit, and the count is of the attempts made. The finding wraps rather than cut its words. It links back to the attempt's probe on its fix's Blame step, or to the verdict it counted towards, and to all its attempts in Forks. A test attempt links to Tests. It offers no Run blame, since its failure counts towards what made it.
 
 **An error-path preset's attempt.** Its first fact says how an [error-path preset](./error-paths.md)'s attempt came out, by the verdict of the session that decided it. An earlier session's attempt keeps its own once the presets run again. Its finding names the preset and the golden it ran on, which attempt of the preset it was, and what the preset played in where, wrapping rather than cut:
 
@@ -739,9 +748,9 @@ The inspector shows the selected call, in four tabs:
 **Conversation** works the same for Anthropic, OpenAI (Chat Completions and Responses) and Gemini requests.
 
 - **Format JSON** lays out tool results that are JSON.
-- **Jump to change**, on a fork, opens the message the fork changed.
-- **A call answered with `--fail-at`**: it says the request was never sent.
-- **A tool call** shows its arguments and its result, then the model call of its own conversation that asked for it (in a batch of many conversations, which one), with **Show its conversation**.
+- **Jump to change**, on a fork, opens the message the fork changed, which says *changed in this fork · first sent at #17*.
+- **A call that never got an answer** says why in a sentence over it: **Never sent.** for one answered with `--fail-at`, **Refused.** for a request an offline replay didn't have, **Failed.** and what the provider answered for one that failed.
+- **A tool call** shows *Its arguments, then its result:*, then the model call of its own conversation that asked for it (in a batch of many conversations, which one), with **Show its conversation**.
 
 **Response**: **Play** replays a streamed response at its recorded pacing (1×, 2×, 4× or instant). *Raw* shows the stream as recorded.
 
@@ -757,7 +766,7 @@ The inspector shows the selected call, in four tabs:
 
 ### Labels and notes
 
-Label a run from its header (`bug`, `good`, `refund-flow`), or several from Runs. Leave notes on a call in its details.
+Label a run with **Add label** in its header (`bug`, `good`, `refund-flow`), or several from Runs. A label's **×** takes it off at once, with **Undo** in its toast, and the focus moves to **Add label**. Leave notes on a call with **Add note** in its details.
 
 The **good/bad key** labels a run `good` or `bad` in one press:
 
@@ -1427,7 +1436,7 @@ The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An 
 
 **A run imported from a capture** has no command, so its menu shows a note and one action, **Replay with your command…**. That replay records every kind of call, and every fork works on it.
 
-**Share** copies the run, each copy a job, its items named for the copies they make, in the order it lists them:
+**Share**'s menu is named for the run (*Share 01K5CQ4R1T*). It copies the run, each copy a job, its items named for the copies they make, in the order it lists them:
 
 | Copy                 | What it makes                                                                            |
 | -------------------- | ---------------------------------------------------------------------------------------- |
@@ -1436,11 +1445,12 @@ The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An 
 | Eval dataset…        | A dataset for evals, in a format and with the examples you pick                          |
 | OpenTelemetry trace… | A trace sent to a collector, or written to a file (a file only: it is sent nowhere else) |
 | HAR file             | The run's model calls; it also downloads                                                 |
+| Security report      | A kept injection result's report, the matrix and each proof; it only downloads           |
 
 - **Each dialog** says the verb for the copy it makes: *Export OpenTelemetry trace*, confirmed with **Export trace**; *Export eval dataset of* the run, confirmed with **Export dataset**; and Pack's, confirmed with **Pack run**.
 - **Where copies go**: into `.shadowlap/exports/` in the project, unless a pack names another folder, and never through a link that is already there.
-- **Redaction**: the menu says how many redaction rules each copy applies. A trace carries no prompt text, so only the rules without a path.
-- **When**: a run is copied once it has ended.
+- **Redaction**: the menu says how many redaction rules each copy applies, and links **Redaction settings →**. A trace carries no prompt text, so only the rules without a path.
+- **When**: a run is copied once it has ended. While it records, each item says it waits until the recording ends.
 - **A dataset** from **Share** takes up to 500 runs at once, from Runs; past that, `shadowlap export dataset --label`.
 
 A run whose recorder was killed reads *interrupted* in every copy, as it does on every screen. The pack, the HTML file (with the redaction rules or without) and the trace hold it ended at its last call, so whoever opens or unpacks it never sees it recording. The store is left as it is.
@@ -1450,6 +1460,8 @@ Where jobs can't run (a read-only dashboard), **Share → HTML report** comes st
 With a [team store](./team.md), a share link comes first, its drawer ending on **Copy link**. The report opens for anyone with the link until it expires, 7 days at most. A run only on this machine has **Push** in its header, as does a run in the store whose attempts aren't (Push sends them).
 
 **Delete run**, in the header's **…**, removes a run, with the attempts bundled under it, which its dialog and its toast count, as `shadowlap rm` does. It also removes the recorded data nothing else uses. It waits while the run records.
+
+On the run's page, the run leaves the lists at once and the page goes to Runs. Its toast has **Undo**, and the run is removed once the toast goes.
 
 **Run blame** is on the page of a failed run that was never blamed. It blames the run with the check it failed, found the way a replay is judged, the first that applies:
 
