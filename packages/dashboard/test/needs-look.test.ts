@@ -124,6 +124,21 @@ describe('Needs a look: a model the goldens use that retires', () => {
       store.close();
     }
   });
+
+  it('names a model once where its goldens called it through two platforms, with its goldens together', () => {
+    const store = Store.open(':memory:');
+    try {
+      const call = (provider: string) => ({ code: 'l', model: 'gemini-2.0-flash', endMeta: { provider } });
+      const api = addRun(store, { startedAt: NOW - DAY, calls: [call('gemini')] });
+      const vertex = addRun(store, { startedAt: NOW - DAY, calls: [call('vertex')] });
+      const goldens = [golden('goldens/forecast', api), golden('goldens/digest', vertex)];
+      const rows = overviewSummary(store, { tz: 'UTC', now: NOW, goldens }).needsLook.items.filter((r) => r.kind === 'retire');
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ key: 'attn:retire:gemini-2.0-flash', title: expect.stringMatching(/^gemini-2\.0-flash, used by 2 goldens, /) });
+    } finally {
+      store.close();
+    }
+  });
 });
 
 describe('Needs a look: one cause, one row', () => {
