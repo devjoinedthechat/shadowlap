@@ -8,7 +8,7 @@ import { messageOf } from '../../../../engine/src/message-of.js';
 import type { RuleRow } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import { CONFIG_FILE, editErrorText } from './common.js';
-import { emptyRuleForm, ruleCommand, ruleFacts, ruleInput, ruleProblem, ruleWarning, suggestedReplace, type PatternMode, type RuleFormState, type RuleListName } from './logic.js';
+import { emptyRuleForm, ruleCommand, ruleFacts, ruleInput, ruleProblem, ruleScope, ruleWarning, suggestedReplace, type PatternMode, type RuleFormState, type RuleListName } from './logic.js';
 import { ActionButton } from '../../components/ActionButton.js';
 
 /**
@@ -59,13 +59,11 @@ export function RuleTable({ list, rows, off, onRemove, unreadable = null }: { li
               </tr>
             ) : (
               <tr key={r.n}>
-                <td>{r.scope === 'every call' ? <span className="muted">every call</span> : <span className="chip">{r.scope}</span>}</td>
                 <td>
-                  <code>{r.path ?? 'any string'}</code>
+                  <Scope rule={r.rule ?? {}} />
                 </td>
-                <td>
-                  <code className={r.patternType === 'regex' ? 'rx' : undefined}>{r.pattern ?? 'whole value'}</code>
-                </td>
+                <td>{r.path ? <code>{r.path}</code> : <span className="rscope">any string</span>}</td>
+                <td>{r.pattern ? <code className={r.patternType === 'regex' ? 'rx' : undefined}>{r.pattern}</code> : <span className="rscope">the whole value</span>}</td>
                 <td>
                   <code>{r.replace}</code>
                 </td>
@@ -78,6 +76,22 @@ export function RuleTable({ list, rows, off, onRemove, unreadable = null }: { li
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** A rule's scope in words (`ruleScope`), its call's name as code. */
+function Scope({ rule }: { rule: Parameters<typeof ruleScope>[0] }) {
+  const { words, name } = ruleScope(rule);
+  return (
+    <span className="rscope">
+      {words}
+      {name ? (
+        <>
+          {' to '}
+          <code>{name}</code>
+        </>
+      ) : null}
+    </span>
   );
 }
 

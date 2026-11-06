@@ -6,10 +6,12 @@ import { useApp } from '../../state.js';
 import { LoadProblem, Loading, useFolderGone, useSettingsData } from './common.js';
 import { bytesText, sizeNote } from './logic.js';
 import { ActionButton } from '../../components/ActionButton.js';
+import { Section } from '../../components/Section.js';
 import { SpendingRow } from './SpendingRow.js';
 
 /**
- * Project: its name, store, runs and attempts, the store's size and the dashboard's address; Spending,
+ * Project: what Shadowlap is here (its version, its licence, no account), then the project's name,
+ * store, runs and attempts, the store's size and the dashboard's address, what is data as code; Spending,
  * when a billed job asks before it starts (SpendingRow); Clean
  * up old runs (a dry run first, then "Delete N runs" from the drawer, or with no run old enough
  * "Free X" for what deleted runs left unused); and Remove project…, which opens the projects
@@ -27,24 +29,29 @@ export function ProjectTab() {
   const current = removal?.current() ?? null;
   const blocked = current ? current.blocked : ONLY_PROJECT;
   const canClean = !app.actionsOff && !gone && app.hasKind(JOB_KINDS.gc);
-  const cleanTitle = app.actionsOff ?? gone ?? (!app.hasKind(JOB_KINDS.gc) ? 'This dashboard doesn’t run gc: shadowlap gc --older-than 30 --dry-run in a terminal' : `shadowlap gc --older-than ${data.cleanup.olderThanDays} --dry-run: shows what it would free, then asks before deleting`);
+  const cleanTitle = app.actionsOff ?? gone ?? (!app.hasKind(JOB_KINDS.gc) ? 'This dashboard doesn’t run gc: shadowlap gc --older-than 30 --dry-run in a terminal' : null);
+  const version = app.meta?.version ?? null;
   return (
-    <section className="panel set">
-      <header>
-        <h2>Project</h2>
-      </header>
+    <Section className="set" title="Project">
       <dl className="kvs">
+        <dt>Shadowlap</dt>
+        <dd>
+          {version ? `${version} ` : null}
+          <small>{version ? '· ' : ''}open source, Apache-2.0 · no account, no limits on runs</small>
+        </dd>
         <dt>Name</dt>
-        <dd>{data.name}</dd>
+        <dd>
+          <code>{data.name}</code>
+        </dd>
         <dt>Store</dt>
-        <dd title={data.store.path ?? undefined}>{data.shown.store ?? 'in memory: nothing is kept'}</dd>
+        <dd title={data.store.path ?? undefined}>{data.shown.store ? <code>{data.shown.store}</code> : 'in memory: nothing is kept'}</dd>
         {/* With the folder gone there is no store to count: the store shown is an empty stand-in. */}
         <dt>Runs</dt>
         {gone ? (
           <dd className="muted">not read: the folder is gone</dd>
         ) : (
           <dd>
-            {num(data.runs)} {data.attempts ? <small>and {num(data.attempts)} {data.attempts === 1 ? 'attempt' : 'attempts'}</small> : null}
+            {num(data.runs)} <small>and {num(data.attempts)} {data.attempts === 1 ? 'attempt' : 'attempts'}</small>
             {data.running ? <small> · {data.running} recording now</small> : null}
             {data.abandoned ? <small className="warn"> · {data.abandoned} left recording by a process that stopped; Clean up marks {data.abandoned === 1 ? 'it' : 'them'} interrupted</small> : null}
           </dd>
@@ -59,12 +66,19 @@ export function ProjectTab() {
         )}
         <dt>Dashboard</dt>
         <dd>
-          {data.address ?? location.host} <small>local only, refuses other hosts</small>
+          <code>{data.address ?? location.host}</code> <small>local only, refuses other hosts</small>
         </dd>
       </dl>
       <SpendingRow />
       <div className="pbody setfoot">
-        <ActionButton className="btn" why={canClean ? null : cleanTitle} title={cleanTitle} onClick={() => app.guard(() => app.watchJob(client.startJob(JOB_KINDS.gc, { olderThanDays: data.cleanup.olderThanDays })))}>
+        <ActionButton
+          className="btn"
+          why={canClean ? null : cleanTitle}
+          tip="Clean up old runs"
+          sub="Shows what it would free, then asks before deleting"
+          command={`shadowlap gc --older-than ${data.cleanup.olderThanDays} --dry-run`}
+          onClick={() => app.guard(() => app.watchJob(client.startJob(JOB_KINDS.gc, { olderThanDays: data.cleanup.olderThanDays })))}
+        >
           Clean up old runs
         </ActionButton>
         {/* A read-only dashboard's reason first: it changes nothing, whichever project it shows. */}
@@ -73,6 +87,6 @@ export function ProjectTab() {
         </ActionButton>
       </div>
       {removing && removal && current ? <removal.Dialog id={current.id} onClose={() => setRemoving(false)} /> : null}
-    </section>
+    </Section>
   );
 }
