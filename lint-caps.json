@@ -198,7 +198,7 @@
     "packages/dashboard/src/tests.ts": {
       "bisectChoices": 64,
       "resultLine": 38,
-      "testsView": 56
+      "testsView": 55
     },
     "packages/dashboard/src/training.ts": {
       "trainingView": 83

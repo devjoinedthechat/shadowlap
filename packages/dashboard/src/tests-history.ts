@@ -1,4 +1,4 @@
-import { attemptsOf, gateHistory, rateBound, testResultVerdict, type StoreOf, type Tally, type TestResult } from '@shadowlap/engine';
+import { attemptsOf, gateHistory, rateBound, testResultVerdict, type StoreOf, type Tally, type TestResult, type TestSession } from '@shadowlap/engine';
 import { gitAsync, HEX } from './patch-in-tree.js';
 import type { GoldenVerdict } from './tests.js';
 
@@ -193,4 +193,45 @@ export async function treeNow(root: string, rev: string, now = Date.now()): Prom
   if (trees.size > 100) trees.clear();
   trees.set(key, { at: now, tree });
   return tree;
+}
+
+/** A golden in a session that runs: its result once it landed, else running now, between its turns, or yet to come. */
+export type FollowedGolden = GoldenVerdict | 'running' | 'between' | 'queued';
+
+/** Where a test session running now is with the goldens it runs (GET /api/tests' `following`). */
+export interface SessionFollowing {
+  /** It runs every golden, as Run tests does: the verdict follows it. */
+  whole: boolean;
+  /** How many goldens it runs. */
+  total: number;
+  /** How many it has reached: those with a result, or with a run of its own. */
+  reached: number;
+  /** Each golden it runs, by path. */
+  goldens: Record<string, FollowedGolden>;
+}
+
+/**
+ * Where a session running now is with each golden it runs (`runs`, as its command asks for them).
+ * Results land late: a session over several packs replays every golden in turns and keeps their
+ * results as it ends, so how far it has got is read from its runs: the golden recording now, and
+ * those it has started on, read by key from the run ids after the session's own (both ULIDs, made
+ * from the clock as each starts), never a scan of every run.
+ */
+export function sessionProgress(store: StoreOf<'tests' | 'recording' | 'readModels'>, session: Pick<TestSession, 'sessionId'>, runs: readonly string[], whole: boolean): SessionFollowing {
+  const id = session.sessionId;
+  const landed = new Map(store.listTestResults({ sessionId: id, limit: 100_000 }).map((r) => [r.golden, testResultVerdict(r)] as const));
+  const now = new Set(store.recordingRuns().live.flatMap(({ run }) => (run.meta?.test?.session === id ? [run.meta.test.golden] : [])));
+  const started = new Set(store.query(`SELECT DISTINCT json_extract(meta, '$.test.golden') AS golden FROM runs WHERE run_id > ? AND json_extract(meta, '$.test.session') = ?`, id, id).map((r) => String(r.golden)));
+  const goldens = Object.fromEntries(runs.map((p) => [p, landed.get(p) ?? (now.has(p) ? 'running' : started.has(p) ? 'between' : 'queued')] as const));
+  return { whole, total: runs.length, reached: runs.filter((p) => goldens[p] !== 'queued').length, goldens };
+}
+
+/**
+ * The screen's fields for the session running now, if one is: how it reads (`view`, as the screen
+ * reads every session) and where it is with the goldens its command asks for (`asks`, the rule that
+ * tells a full session), the verdict following it when that is every golden.
+ */
+export function liveSessionFields<S>(store: StoreOf<'tests' | 'recording' | 'readModels'>, live: TestSession | null, paths: readonly string[], o: { view: (s: TestSession) => S; asks: (command: readonly string[], need: readonly string[]) => boolean }): { running: S | null; following: SessionFollowing | null } {
+  if (!live) return { running: null, following: null };
+  return { running: o.view(live), following: sessionProgress(store, live, paths.filter((p) => o.asks(live.command, [p])), o.asks(live.command, paths)) };
 }

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { gateResult, Store, type TestResultData } from '@shadowlap/engine';
-import { historyCells, olderThanTree, treeNow, withRevisionFacts } from '../src/tests-history.js';
+import { historyCells, olderThanTree, sessionProgress, treeNow, withRevisionFacts } from '../src/tests-history.js';
 import { testsView, type GoldenSource } from '../src/tests.js';
 
 /**
@@ -160,5 +160,28 @@ describe('the revisions as git has them', () => {
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
+  });
+});
+
+describe('a session that runs', () => {
+  it('follows each golden it runs: its result once kept, the one recording now, one reached between its turns, and the rest queued', () => {
+    const s = Store.open(':memory:');
+    const session = s.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'd2e8a1f', startedAt: Date.now() });
+    const run = (golden: string) => s.createRun({ mode: 'replay', command: { argv: ['node', 'agent.mjs'], cwd: '.' }, meta: { test: { golden, session: session.sessionId } } });
+    s.addTestResult({ sessionId: session.sessionId, golden: 'goldens/a', ok: false, failure: 'check', reason: 'failed', runId: null, revision: 'd2e8a1f', at: Date.now(), data: { mode: 'replay', verdict: 'failed' } });
+    s.endRun(run('goldens/c').runId, 'completed');
+    run('goldens/b');
+    // Another session's run names a golden too, and isn't this one's.
+    s.createRun({ mode: 'replay', command: { argv: ['node', 'agent.mjs'], cwd: '.' }, meta: { test: { golden: 'goldens/d', session: 'another' } } });
+    const paths = ['goldens/a', 'goldens/b', 'goldens/c', 'goldens/d'];
+    expect(sessionProgress(s, session, paths, true)).toEqual({ whole: true, total: 4, reached: 3, goldens: { 'goldens/a': 'failed', 'goldens/b': 'running', 'goldens/c': 'between', 'goldens/d': 'queued' } });
+    // The screen follows the live session, over every golden its command asks for.
+    const golden = (path: string): GoldenSource => ({ path, runId: null, packedAt: T0, mode: 'replay', repeat: 1, passes: 1, checks: [] });
+    const view = testsView(s, [...paths.map(golden), golden('elsewhere/e')]);
+    expect(view.following).toEqual({ whole: false, total: 4, reached: 3, goldens: { 'goldens/a': 'failed', 'goldens/b': 'running', 'goldens/c': 'between', 'goldens/d': 'queued' } });
+    expect(testsView(s, paths.map(golden)).following?.whole).toBe(true);
+    s.finishTestSession(session.sessionId, { passed: 0, failed: 1, upstreamRequests: 0, endedAt: Date.now() });
+    expect(testsView(s, paths.map(golden)).following).toBeNull();
+    s.close();
   });
 });

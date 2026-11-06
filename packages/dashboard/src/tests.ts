@@ -1,7 +1,7 @@
 import { ACTIONS, attemptsToFail, goldensPassed, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, isObject, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, plural, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResults } from './bisect-start.js';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
-import { historyCells, type HistoryCell, type RevisionFact } from './tests-history.js';
+import { historyCells, liveSessionFields, type HistoryCell, type RevisionFact, type SessionFollowing } from './tests-history.js';
 import { evidenceWords, type EvidenceWords } from './tests-evidence.js';
 import type { NextStep } from './next-step.js';
 import { gateLine, gateRuleOf } from './verdict.js';
@@ -167,7 +167,7 @@ export interface TestsVerdict {
   since: SinceResult[];
 }
 
-export type { HistoryCell, HistoryDrop, RevisionFact } from './tests-history.js';
+export type { FollowedGolden, HistoryCell, HistoryDrop, RevisionFact, SessionFollowing } from './tests-history.js';
 
 /**
  * One of a golden's checks, with how its last result came out on it: what the table marks it by
@@ -444,6 +444,11 @@ export interface TestsView {
    * this one. The actions that replay or rewrite the goldens wait for it, as the server does.
    */
   running: TestsSessionView | null;
+  /**
+   * Where the session running now is with each golden it runs: its result once kept, else running,
+   * between its turns, or queued; `whole` when it runs every golden, so the verdict follows it.
+   */
+  following?: SessionFollowing | null;
   /**
    * Error-path presets on goldens (`test --chaos`) running now, wherever they were started: they
    * replay the goldens' packs, so the same actions wait for them too, as the server does.
@@ -1182,7 +1187,7 @@ function byGolden(results: readonly TestResult[]): Map<string, TestResult[]> {
  * count here takes the results of every session, one still running (or whose process was killed)
  * included; only a session's own totals wait for its end.
  */
-export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'chaos'>, goldens: readonly GoldenSource[], options: TestsOptions = {}): TestsView {
+export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'chaos' | 'readModels'>, goldens: readonly GoldenSource[], options: TestsOptions = {}): TestsView {
   const folder = options.folder ?? 'goldens';
   const rules = options.normalizers ?? [];
   const sessionsView = testSessions(store, goldens, options.revisions ?? 6);
@@ -1309,7 +1314,6 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
 
   const diverged = divergences.map((d) => d.golden);
   const patterns = testPatterns(goldens, folder);
-  const live = liveTestSession(store);
   const presets = liveChaosSession(store);
   return {
     empty: goldens.length === 0,
@@ -1321,7 +1325,7 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
     failures,
     inconclusive,
     diverged,
-    running: live ? sessionView(store, live) : null,
+    ...liveSessionFields(store, liveTestSession(store), goldens.map((g) => g.path), { view: (s) => sessionView(store, s), asks: asksForAll }),
     chaosRunning: presets ? { id: presets.sessionId, command: presets.command.join(' '), startedAt: presets.startedAt } : null,
     commands: {
       ci: `shadowlap test ${patterns.map(ciWord).join(' ')} --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`,
