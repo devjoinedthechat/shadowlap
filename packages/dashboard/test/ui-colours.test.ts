@@ -393,7 +393,6 @@ describe('grounds, tints and lines', () => {
     '.toast .tx:hover': 'on the toast’s ink ground, the page’s ground as its tint',
     '.toast .tx:focus-visible': 'on the toast’s ink ground, the page’s ground as its tint',
     '.toast .tbtn:hover': 'on the toast’s ink ground, the page’s ground as its tint',
-    '.hit mark': 'a search hit, marked in ink over any ground it sits on',
     '.pdiff mark': 'a prompt’s changed words, marked in ink over the code ground',
     '.grp:hover::before': 'a chart group under the pointer, over its bars',
     '.cbar:hover::before': 'a Context bar under the pointer, over its bars',

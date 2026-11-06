@@ -161,7 +161,7 @@ test('a focus ring in a pane that scrolls is drawn inside the control, so the pa
 
 test('Search or jump to is a combobox, and hands the focus back when Esc closes it', async ({ page }) => {
   await openPage(page, '/runs', 'main#view table.runst tbody tr');
-  await page.focus('aside#side button.sbtn');
+  await page.focus('header.top button.sbtn');
   await page.keyboard.press('Enter');
   const field = page.locator('.palin input');
   await expect(field).toBeFocused();

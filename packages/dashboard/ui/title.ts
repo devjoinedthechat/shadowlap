@@ -31,6 +31,10 @@ export interface TitleFacts {
   fixTitle?: string | null;
   /** The run's about line (decision 10), when the server sends one. */
   about?: string | null;
+  /** The page has found it can't show the run or the fix it opened for (shell/unshown.ts). */
+  unshown?: boolean;
+  /** An exported copy: its Compare is its only pair, so the pair isn't named. */
+  exported?: boolean;
 }
 
 /**
@@ -59,6 +63,9 @@ export function onOpenRunAbout(f: () => void): () => void {
 
 /** What the route's page is, before the product's name. */
 export function pageTitle(route: Route, facts: TitleFacts = {}): string {
+  // A run or a fix the page can't show, or the setup in its place, goes by its section, as the crumbs name it.
+  const names = route.page === 'run' || (route.page === 'fixes' && !!route.id);
+  if (names && (facts.unshown || facts.setup)) return route.page === 'run' ? 'Runs' : 'Fixes';
   if (facts.setup) return facts.problem ? `Can’t open ${facts.problem.name}` : 'Set up';
   switch (route.page) {
     case 'overview':
@@ -70,7 +77,7 @@ export function pageTitle(route: Route, facts: TitleFacts = {}): string {
       return `${shortId(route.id)}${about && about.length <= TAB_ABOUT_MAX ? ` · ${about}` : ''}`;
     }
     case 'compare':
-      return route.a && route.b ? `${shortId(route.a)} → ${shortId(route.b)} · Compare` : 'Compare';
+      return route.a && route.b && !facts.exported ? `${shortId(route.a)} → ${shortId(route.b)} · Compare` : 'Compare';
     case 'fixes':
       return route.id ? `${facts.fixTitle?.trim() || route.id} · Fix` : 'Fixes';
     case 'tests':

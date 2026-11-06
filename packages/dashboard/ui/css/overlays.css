@@ -209,7 +209,6 @@
 .hkeys .switch { color: var(--ink); font-weight: 500; }
 .help kbd + kbd { margin-left: 4px; }
 @media (max-width: 640px) { .hgrid { grid-template-columns: minmax(0, 1fr); } .hcol:last-child .hgroup dl { grid-template-columns: max-content minmax(0, 1fr); } }
-@media (hover: none) and (pointer: coarse) { #helpBtn { display: none; } }
 
 .dialog .check { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; color: var(--dim); line-height: 1.5; cursor: pointer; }
 .dialog .check input { margin-top: 3px; accent-color: var(--err); }

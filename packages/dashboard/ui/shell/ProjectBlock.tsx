@@ -8,7 +8,7 @@ import { confirmWords } from '../labels.js';
 import { addPaletteSource } from '../palette-sources.js';
 import { ONLY_PROJECT, provideProjectRemoval } from '../project-actions.js';
 import { expectProject, onProjectSwitched, takeDialogDropped, takeLanding, type ProjectsView } from '../projects-api.js';
-import { exportedLine, keepsPageOnSwitch, switchedText } from '../projects.js';
+import { exportedLine, exportedNote, keepsPageOnSwitch, switchedText } from '../projects.js';
 import { projectInitial as initial } from '../../src/project-initial.js';
 import { href, parseRoute } from '../route.js';
 import { navigate } from '../router.js';
@@ -66,14 +66,13 @@ addPaletteSource(({ app }) =>
 
 export function ProjectBlock({ meta }: { meta: Meta | null }) {
   const p = projectOf(meta);
+  // An exported copy says what it is in the switcher's place: what it holds, when it was made, that it reads only.
   if (meta?.static) {
     return (
-      <div className="proj is-static">
-        <span className="pa">S</span>
-        <span className="pn">
-          <b>Exported copy</b>
-          <small>{exportedLine(meta.runIds?.length ?? 0)}</small>
-        </span>
+      <div className="expblock">
+        <b>Exported copy</b>
+        <span>{exportedLine(meta.counts?.runs ?? meta.runIds?.length ?? 0, meta.exportedAt ?? null)}</span>
+        <small>{exportedNote(meta.redacted)}</small>
       </div>
     );
   }

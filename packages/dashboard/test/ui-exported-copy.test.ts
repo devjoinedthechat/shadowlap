@@ -101,8 +101,12 @@ describe('an exported copy', () => {
     expect(runOpen()).toEqual([runId]);
     await r!.unmount();
     await open([forkId], `#/run/${runId}`);
-    await r!.until('what the copy says', () => r!.all('.empty').length > 0);
-    expect(r!.one('.empty').textContent).toContain(`No run ${runId} in this copy.`);
+    // The page's header, as any page has it: not found, Nothing here, what was missing and the way back.
+    await r!.until('what the copy says', () => r!.all('.ph h1').length > 0);
+    expect(r!.one('.ph h1').textContent).toBe('Nothing here');
+    expect(r!.one('.ph .eyebrow').textContent).toBe('not found');
+    expect(r!.one('.ph').textContent).toContain(`No run ${runId} in this copy. Open Runs`);
+    expect(r!.one('.ph a.more').getAttribute('href')).toBe('#/runs');
   });
 
   it('lists its runs, and only those', async () => {

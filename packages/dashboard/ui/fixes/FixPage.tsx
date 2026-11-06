@@ -9,6 +9,7 @@ import { UpdateGoldenDialog } from '../components/UpdateGolden.js';
 import { headingRef } from '../focus-manager.js';
 import { Page } from '../components/Page.js';
 import { NotFoundPage } from '../pages/NotFound.js';
+import { Unshown } from '../shell/unshown.js';
 import { copyText } from '../dom.js';
 import { approx, GLUED_SEPARATOR } from '../format.js';
 import { useLoad } from '../hooks.js';
@@ -43,7 +44,13 @@ export function FixPage({ id, step, sub }: { id: string; step: string | null; su
     if (fix) rememberFix(fix, id);
   }, [fix, id]);
   if (!fix) {
-    if (loaded.error instanceof ApiError && loaded.error.status === 404) return <NotFoundPage what={`No fix ${id}.`} />;
+    if (loaded.error instanceof ApiError && loaded.error.status === 404)
+      return (
+        <>
+          <Unshown at={`fixes:${id}`} />
+          <NotFoundPage what={`No fix ${id}.`} />
+        </>
+      );
     return (
       <Page>
         <div className="empty tall">
