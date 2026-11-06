@@ -9,6 +9,7 @@ import { noteParent } from './parents.js';
 import { noProjects, noteRefusal, projectHeader, projectsApi, showProject, type ProjectsApi } from './projects-api.js';
 import { readTokenLink } from './route.js';
 import { holdWhile, Revalidation } from './revalidate.js';
+import { estimatesApi, noEstimates, type EstimatesApi } from './estimates-api.js';
 import { noSettings, settingsApi, type Request, type SettingsApi } from './settings-api.js';
 import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js';
 import type { CallDetail, CallsPage, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView, TrainingView } from './types.js';
@@ -241,6 +242,8 @@ export interface Client {
   // ---- Settings
   /** Settings: each tab's read and the edits to shadowlap.config.json (`settings-api.ts`). */
   settings: SettingsApi;
+  /** What billed jobs would cost, and Spending, the threshold above which one asks first. */
+  estimates: EstimatesApi;
   /** The team store's setup page (`#/setup/store`, `store-api.ts`). */
   storeSetup: StoreSetupApi;
 
@@ -502,9 +505,7 @@ export function createClient(token: string): Client {
     tests: () => request<TestsView>('tests'),
     testRun: (runId, before) => request<TestRunView>(`tests/runs/${id(runId)}${before !== undefined ? `?before=${before}` : ''}`),
     ciWorkflows: (o) => request<CiWorkflowsView>(`ci/workflows${ciQuery(o)}`),
-    settings: settingsApi(request),
-    storeSetup: storeSetupApi(request),
-    projects: projectsApi(request),
+    ...ownApis(request),
     training: () => request<TrainingView>('training'),
     models: () => request<ModelsView>('models'),
     decisionSessions: (kind) => request<DecisionsListView>(`decisions${kind ? `?kind=${kind}` : ''}`),
@@ -520,6 +521,11 @@ export function createClient(token: string): Client {
     attemptGroups: (fixId) => request<FixAttemptGroups>(`fixes/${id(fixId)}/groups`),
     ...longRunReads(request),
   };
+}
+
+/** The parts of the client that are APIs of their own, each written beside its routes. */
+function ownApis(request: Request): Pick<Client, 'settings' | 'storeSetup' | 'projects' | 'estimates'> {
+  return { settings: settingsApi(request), storeSetup: storeSetupApi(request), projects: projectsApi(request), estimates: estimatesApi(request) };
 }
 
 /** What a long run's first answer leaves to reads of their own, as its analysis has them. */
@@ -609,6 +615,7 @@ export function createExportedClient(data: StaticPayload): Client {
     testRun: () => Promise.resolve({ banner: null, bisect: null }),
     ciWorkflows: () => get<CiWorkflowsView>('ci/workflows'),
     settings: noSettings(readOnly),
+    estimates: noEstimates(readOnly),
     storeSetup: noStoreSetup(readOnly),
     projects: noProjects(readOnly),
     training: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Training is not part of it')),
