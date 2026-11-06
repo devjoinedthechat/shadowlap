@@ -90,7 +90,7 @@ describe('the Overview', () => {
   it('answers in the viewer’s days, and refuses a time zone it does not know', async () => {
     const s = await get<OverviewSummary>(dash, 'summary?tz=Europe%2FBerlin');
     expect(s.tz).toBe('Europe/Berlin');
-    expect(s.grid.runs).toBe(3);
+    expect(s.sums.week.runs).toBe(3);
     expect(s.counts).toEqual({ runs: 4, attempts: 0 });
     // A golden on disk that has not run yet: none passing, none failed, one not run yet.
     expect(s.outcomes.testsPassing).toEqual({ goldens: 1, passing: 0, inconclusive: 0, untested: 1, lastWeek: null, regressions: 0, lastRunAt: null });

@@ -242,8 +242,7 @@ describe('read models at scale', () => {
 
     expect(summary.out).toEqual(first.out);
     expect(summary.out.sums.week.runs + summary.out.sums.lastWeek.runs).toBeGreaterThan(4500);
-    expect(summary.out.grid.families.length).toBeGreaterThan(0);
-    expect(summary.out.grid.shown).toBeLessThanOrEqual(40);
+    expect(summary.out.sums.week.runs).toBeGreaterThan(0);
     expect(page.out.runs).toHaveLength(50);
     expect(page.out.total).toBeGreaterThan(4500);
     expect(page.out.runs.every((r) => r.origins.length === r.calls)).toBe(true);

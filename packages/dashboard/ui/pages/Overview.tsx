@@ -4,7 +4,7 @@ import { PageHeader, StepList } from '../components/bits.js';
 import { Page } from '../components/Page.js';
 import { viewerTimeZone } from '../format.js';
 import { useLoad } from '../hooks.js';
-import { ActivityCard, CacheCard, DailyCard, FixesCard, NeedsLook, OriginCard, Outcomes, TodayCard, WatchLive, WeekGrid } from '../overview/panels.js';
+import { ActivityCard, CacheCard, DailyCard, FixesCard, NeedsLook, OriginCard, Outcomes, WatchLive } from '../overview/panels.js';
 import { isAttempt } from '../runs.js';
 import { projectOf } from '../shell/ProjectBlock.js';
 import { useApp } from '../state.js';
@@ -86,14 +86,10 @@ export function OverviewPage() {
       <PageHeader eyebrow={`${name} · this week`} title="Overview" text="What failed, what got fixed and proven, and what it cost." actions={recording ? <WatchLive runId={recording.runId} command={recording.command} calls={liveCalls} /> : null} />
       <Outcomes o={s.outcomes} now={s.now} />
       <div className="ovg">
-        <WeekGrid grid={s.grid} now={s.now} />
-        <div className="ovside">
-          <NeedsLook items={s.needsLook.items} total={s.needsLook.total} />
-          <TodayCard today={s.today} live={live} tests={s.outcomes.testsPassing} />
-        </div>
+        <NeedsLook items={s.needsLook.items} total={s.needsLook.total} />
       </div>
       <div className="ovg">
-        <OriginCard origins={s.grid.origins} />
+        <OriginCard origins={s.sums.week.origins} />
         <CacheCard cache={s.cache} />
         <FixesCard fixes={s.fixes} />
       </div>

@@ -1,6 +1,4 @@
-import { unrescuedWords } from '../../../engine/src/blame-words.js';
-import { lostWords } from '../../../engine/src/run-verdicts.js';
-import { cents, durLong, num, plural } from '../format.js';
+import { cents, durLong, num } from '../format.js';
 import { ORIGIN_CODE, type Origin7 } from '../origins.js';
 import type { GlyphKind } from '../runs.js';
 import type { ActivityIcon, NeedsLookRow, OverviewSummary, TestsTile } from '../types.js';
@@ -42,28 +40,6 @@ export function reproducedNote(o: OverviewSummary['outcomes']['reproduced']): st
   return `replayed exactly · ${o.open ? `${num(o.open)} still open` : 'none open'}`;
 }
 
-/**
- * How a blame on Today's line came out, in the words Needs a look and the fix use: where the run
- * was lost (at a call, or around or between two), that no model call rescued it (or, when its first
- * probe couldn't tell, that it is inconclusive at the first model call), or that it stopped early; while it still probes, that
- * nothing is placed yet.
- */
-export function blameWords(b: Pick<OverviewSummary['today']['blame']['runs'][number], 'outcome' | 'lostAt'> & { unsettled?: boolean; range?: unknown }): string {
-  if (b.outcome === 'blamed' && b.lostAt) return lostWords(b.lostAt, b.range);
-  if (b.outcome === 'unrescuable') return unrescuedWords(b.unsettled === true);
-  if (b.outcome === 'stopped') return 'blame stopped part way';
-  return 'not placed yet';
-}
-
-/** How Today's newest failed test replay came out, in the words Runs uses: where it diverged, was lost or what failed. */
-export function outcomeWords(o: { kind: string; callNo?: number; range?: unknown }): string {
-  if (o.kind === 'diverged' && o.callNo) return `diverged at #${o.callNo}`;
-  if (o.kind === 'lost' && o.callNo) return lostWords(o.callNo, o.range);
-  if (o.kind === 'check-failed') return 'check failed';
-  if (o.kind === 'inconclusive') return 'inconclusive';
-  return 'failed';
-}
-
 /** The line under Fixes verified. */
 export function verifiedNote(o: OverviewSummary['outcomes']['fixesVerified']): string {
   return o.rejected ? `${num(o.rejected)} rejected before ${o.rejected === 1 ? 'it' : 'they'} shipped` : 'none rejected';
@@ -101,27 +77,6 @@ export function testsKpi(t: TestsTile | null, now: number): { value: string; not
   const not = goldensNotPassing(t);
   const how = not.length ? not : [t.goldens === 1 ? 'passed' : 'all passed'];
   return { value: `${num(t.passing)} / ${num(t.goldens)}`, note: dotLine([...how, ...(t.lastRunAt ? [`last run ${lastRunText(t.lastRunAt, now)}`] : [])]), tone: t.regressions ? 'err' : t.inconclusive ? 'warn' : '' };
-}
-
-/**
- * Today's Tests line: each golden by its newest result, as Tests passing counts them ("1 failed · 1
- * not run yet", or "all passed"), how many goldens there are on the right, and the test replays that
- * ran today on hover, with how many failed and the newest failure.
- */
-export function todayTestsLine(t: TestsTile | null, replays: { count: number; failed: number; inconclusive?: number }, failure: string | null): { text: string; icon: 'fail' | 'warn' | 'test'; count: string; title: string } {
-  const unsure = replays.inconclusive ?? 0;
-  const title = replays.count ? `${plural(replays.count, 'test replay')} today${replays.failed ? ` · ${num(replays.failed)} failed${failure ? `, the newest ${failure}` : ''}` : ''}${unsure ? ` · ${num(unsure)} inconclusive` : ''}` : 'No test replays today';
-  if (!t || !t.goldens) return { text: 'no goldens yet', icon: 'test', count: plural(0, 'golden'), title };
-  const not = goldensNotPassing(t);
-  return { text: not.length ? dotLine(not) : t.goldens === 1 ? 'passed' : 'all passed', icon: t.regressions ? 'fail' : t.inconclusive ? 'warn' : 'test', count: plural(t.goldens, 'golden'), title };
-}
-
-/**
- * Today's Blame line, on the right: the blames that ran today, counted as the lines beside it count
- * replays and forks; on hover, the model calls they probed and their attempts.
- */
-export function todayBlameCount(b: Pick<OverviewSummary['today']['blame'], 'blames' | 'probes' | 'attempts'>): { count: string; title: string } {
-  return { count: `${num(b.blames)} today`, title: `${plural(b.probes, 'probe')} · ${plural(b.attempts, 'attempt')}` };
 }
 
 /** The word before a Needs a look line's arrow: where it leads, or Open on a dashboard that runs nothing (read-only). */

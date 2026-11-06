@@ -1,20 +1,19 @@
-import { memo, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { AboutLine, useFitAbouts } from '../components/About.js';
 import { useApp } from '../state.js';
-import { DeltaPill, Kpi, Legend, Seg } from '../components/bits.js';
+import { DeltaPill, Kpi, Seg } from '../components/bits.js';
 import { tipCard } from '../components/HoverCard.js';
 import { EventIcon, Glyph } from '../components/RunIcon.js';
 import { DotLine, ruleTip } from '../components/Verdict.js';
 import { useStored } from '../hooks.js';
 import { cents, clock, ktok, money, num, plural, shortId, whenShort } from '../format.js';
-import { ORIGIN_CODE, ORIGIN_COLOR, ORIGIN_NAME } from '../origins.js';
+import { ORIGIN_NAME } from '../origins.js';
 import { href } from '../route.js';
-import type { ActivityItem, CacheUse, DaySums, FixesFunnel, GridFamily, GridRow, LiveRun, NeedsLookRow, OverviewSummary, RunGrid, TestsTile, TodayPanel as Today } from '../types.js';
-import { activityGlyph, activityLine, blameWords, chartScale, dayText, kindGlyph, needsLookAction, needsLookKey, needsLookShown, originCounts, originRows, outcomeWords, personName, reproducedNote, share, SHOW_ORIGINS, spentNote, testsKpi, tickText, todayBlameCount, todayTestsLine, verifiedNote } from './model.js';
+import type { ActivityItem, CacheUse, DaySums, FixesFunnel, LiveRun, NeedsLookRow, OverviewSummary } from '../types.js';
+import { activityGlyph, activityLine, chartScale, dayText, kindGlyph, needsLookAction, needsLookKey, needsLookShown, originCounts, originRows, personName, reproducedNote, share, spentNote, testsKpi, tickText, verifiedNote } from './model.js';
 
 /**
- * The Overview's panels, as the mock draws them: the outcome strip, this week's runs as rows of
- * calls, Needs a look, Today, Calls by origin, the prompt cache, the fixes funnel, what was spent and
+ * The Overview's panels, as the mock draws them: the outcome strip, Needs a look, Calls by origin, the prompt cache, the fixes funnel, what was spent and
  * not re-spent per day, and the activity feed. Each takes its part of the server's summary.
  */
 
@@ -45,95 +44,10 @@ export function WatchLive({ runId, command, calls }: { runId: string; command: s
   );
 }
 
-// ---------------------------------------------------------------------------------------------- this week's runs
-
-/** One row's cells on its family's scale: its calls (a cell a range past 60 calls), a pulsing one for a recording's next call, then empty ones. */
-function GridCells({ row, family, live }: { row: GridRow; family: GridFamily; live: boolean }) {
-  const cells: Array<{ cls: string }> = [];
-  for (let i = 0; i < family.cols; i++) {
-    const code = row.cells[i];
-    const origin = code ? ORIGIN_CODE[code] : undefined;
-    const fork = row.forkCell === i;
-    if (origin) cells.push({ cls: `${origin}${fork ? ' fk' : ''}` });
-    else if (live && i === row.cells.length) cells.push({ cls: 'pend nextcell' });
-    else cells.push({ cls: fork ? 'fk' : '' });
-  }
-  return (
-    <span className="gs" style={{ gridTemplateColumns: `repeat(${Math.max(1, family.cols)}, minmax(0, 1fr))` }} aria-hidden="true">
-      {cells.map((c, i) => (
-        <i key={i} className={c.cls || undefined} />
-      ))}
-    </span>
-  );
-}
-
-const GridFamilyRows = memo(function GridFamilyRows({ family, now }: { family: GridFamily; now: number }) {
-  return (
-    <div className="gfam">
-      {family.rows.map((r) => {
-        const live = r.status === 'running';
-        const g = kindGlyph(r.kind, { failed: r.failed, live });
-        // Interrupted (stopped before it ended, failing nothing else): said in grey, as on the run's page and in Runs.
-        const cut = r.status === 'crashed' && !r.failed ? ' · interrupted' : '';
-        const counts = originCounts(r.origins);
-        const rows = SHOW_ORIGINS.filter((o) => counts[o]).map((o) => ({ label: ORIGIN_NAME[o], value: num(counts[o]), color: ORIGIN_COLOR[o] }));
-        // The hover card: the run's id and kind, what it was about under them, then its calls by origin.
-        const tip = tipCard(`${shortId(r.runId)} · ${r.label}${cut}${r.context ? ' · before this week' : ''}`, rows.length ? rows : [{ label: 'calls', value: num(r.calls) }], r.about?.text ?? null);
-        return (
-          <a key={r.runId} className={`grow${r.context ? ' ctx' : ''}`} href={href.run(r.runId)} data-tip={tip}>
-            <span className="gid" style={{ paddingLeft: r.depth * 14 }}>
-              <Glyph kind={g.kind} label={cut ? `${g.label}, interrupted` : g.label} className="ri" />
-              <code>{shortId(r.runId)}</code>
-            </span>
-            <GridCells row={r} family={family} live={live} />
-            <span className="gw">{live ? 'now' : whenShort(r.startedAt, now)}</span>
-          </a>
-        );
-      })}
-    </div>
-  );
-});
-
-/** Every run this week as a row of calls coloured by origin, grouped under the recording it came from. */
-export function WeekGrid({ grid, now }: { grid: RunGrid; now: number }) {
-  const counts = originCounts(grid.origins);
-  const present = SHOW_ORIGINS.filter((o) => counts[o] > 0);
-  return (
-    <section className="panel ovgrid">
-      <header>
-        <h2>This week’s runs</h2>
-        <span className="sub">every call, by what happened to it</span>
-        <span className="sp" />
-        <a className="more" href={href.runs()}>
-          All runs
-        </a>
-      </header>
-      <div className="pbody">
-        <div className="gtop">
-          <div className="ovbig">
-            <b>{num(grid.calls)}</b>
-            <span>calls in {plural(grid.runs, 'run')}</span>
-          </div>
-          {present.length ? <Legend origins={present} /> : null}
-        </div>
-        {grid.families.length === 0 ? <div className="empty">No runs this week. The newest are on Runs.</div> : null}
-        {grid.families.map((f) => (
-          <GridFamilyRows key={f.rows[0]!.runId} family={f} now={now} />
-        ))}
-      </div>
-      {grid.more > 0 ? (
-        <a className="attn-more" href={href.runs()}>
-          {plural(grid.more, 'more run')} this week on Runs
-        </a>
-      ) : null}
-    </section>
-  );
-}
-
 // ---------------------------------------------------------------------------------------------- needs a look
 
 /**
- * Most urgent first; three, then "Show N more". A recording in progress shows under Today instead.
+ * Most urgent first; three, then "Show N more". A recording in progress is Watch live's.
  * Each line's word says where it leads; where nothing runs (a read-only dashboard) every line opens.
  */
 export function NeedsLook({ items, total }: { items: readonly NeedsLookRow[]; total: number }) {
@@ -184,96 +98,6 @@ export function NeedsLook({ items, total }: { items: readonly NeedsLookRow[]; to
           <button className="attn-more" type="button" onClick={() => setOpen(!open)}>
             {shown.more}
           </button>
-        ) : null}
-      </div>
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------------------------- today
-
-/**
- * What ran today: one line each, with a count or a status on the right. Tests counts each golden by
- * its newest result, as Tests passing does, with today's test replays on hover; Blame counts the
- * blames, with their probes on hover.
- */
-export function TodayCard({ today, live, tests: tile }: { today: Today; live: readonly LiveRun[]; tests: TestsTile | null }) {
-  const tests = today.tests;
-  const blamed = today.blame.runs[0];
-  const testsLine = todayTestsLine(tile, tests, tests.latestFailure ? outcomeWords(tests.latestFailure.outcome) : null);
-  const blames = todayBlameCount(today.blame);
-  // A recording's about line takes the room its count leaves, fitted again as the count grows a digit.
-  const box = useRef<HTMLElement>(null);
-  useFitAbouts(box);
-  return (
-    <section className="panel ovtoday" ref={box}>
-      <header>
-        <h2>Today</h2>
-        <span className="sub">{dayText(today.day)}</span>
-      </header>
-      <div className="pbody">
-        <div className="ovbig">
-          <b>{num(today.served)}</b>
-          <span>
-            calls served from recordings · <em>{cents(today.notRespent)}</em> not re-spent
-          </span>
-        </div>
-      </div>
-      <div className="attn">
-        {today.recording.map((r) => {
-          const calls = live.find((l) => l.runId === r.runId)?.calls ?? r.calls;
-          return (
-            <a key={r.runId} href={href.run(r.runId)}>
-              <EventIcon kind="live" live />
-              <span>
-                <span className="t">
-                  Recording <code>{shortId(r.runId)}</code>
-                </span>
-                {/* What it is about, on one line fitted at whole words: its first user message, once it sent one. */}
-                <AboutLine about={r.about ?? { text: r.command, from: 'command' }} className="d" />
-              </span>
-              <span className="go">
-                <span className="now">{plural(calls, 'call')}…</span>
-              </span>
-            </a>
-          );
-        })}
-        <a href={href.runs()}>
-          <EventIcon kind="clean" />
-          <span>
-            <span className="t">Replays</span>
-            <span className="d">{today.replays ? 'every call matched the recording' : 'none yet today'}</span>
-          </span>
-          <span className="go">{num(today.replays)} today</span>
-        </a>
-        <a href={href.runs()}>
-          <EventIcon kind="fork" />
-          <span>
-            <span className="t">Forks</span>
-            <span className="d">{today.forks.count ? `${plural(today.forks.live, 'call')} went live · ${plural(today.forks.blocked, 'write')} blocked` : 'none yet today'}</span>
-          </span>
-          <span className="go">{num(today.forks.count)} today</span>
-        </a>
-        <a href={href.tests()} title={testsLine.title}>
-          <EventIcon kind={testsLine.icon} />
-          <span>
-            <span className="t">Tests</span>
-            <span className="d">{testsLine.text}</span>
-          </span>
-          <span className="go">{testsLine.count}</span>
-        </a>
-        {today.blame.probes && blamed ? (
-          <a href={blamed.fixId ? href.fixes(blamed.fixId, 'blame') : href.run(blamed.runId)} title={blames.title}>
-            <EventIcon kind="blame" />
-            <span>
-              <span className="t">Blame</span>
-              <span className="d">
-                {blamed.title ? `${blamed.title.charAt(0).toLowerCase()}${blamed.title.slice(1)} · ` : `${shortId(blamed.runId)} · `}
-                {blameWords(blamed)}
-              </span>
-            </span>
-            <span className="go">{blames.count}</span>
-          </a>
         ) : null}
       </div>
     </section>
