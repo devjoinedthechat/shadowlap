@@ -96,8 +96,10 @@ a.kcell:hover { background: var(--hover); }
 .kstrip > :last-child { border-radius: 0 15px 15px 0; }
 .leaknote { margin-top: auto !important; padding-top: 10px; }
 .ovbig { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
-.ovbig b { font: 700 26px/1.05 var(--disp); letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
-.ovbig span { color: var(--faint); font-size: 13px; text-wrap: balance; }
+/* a section's figure is in the run page's stat style, never larger than the page's title: Usage's, Runs' calendar's and a
+   model card's on Training */
+.ovbig b { font: 700 17px/1 var(--disp); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.ovbig span { color: var(--faint); font-size: 13.5px; text-wrap: balance; }
 .ovbig em { font-style: normal; color: var(--dim); }
 .segbar i.rep, .oleg i.rep { background: var(--o-rep); }
 .segbar i.live, .oleg i.live { background: var(--o-live); }
