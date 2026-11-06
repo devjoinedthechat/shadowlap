@@ -5,19 +5,39 @@
 .fnode .f2 em, .lineage small em { font-style: normal; color: var(--err); }
 
 .rv { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.rhead { display: flex; align-items: flex-start; gap: 20px; padding: 16px 24px 12px; }
-.rtitle { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+/* The run's header, as every page's: the eyebrow over the id at the left, the buttons at the right (order), and under the id
+   its about line with the facts at its right. A break follows the buttons. In the DOM the buttons come last, so Tab reaches
+   them after the facts and a stacked header reads as it is drawn. */
+.rhead { position: relative; display: flex; flex-wrap: wrap; align-items: center; column-gap: 20px; padding: 26px 24px 8px; }
+.rhead::after { content: ""; order: 2; flex: 0 0 100%; }
+.rtitle { order: 0; flex: 1 1 auto; align-self: flex-start; display: flex; align-items: baseline; gap: 6px 10px; flex-wrap: wrap; min-width: 0; }
+.rtitle .eyebrow.ek { flex: 0 0 100%; }
 /* A run's id, in the face every other id is set in: the display face draws 0 and O alike. */
 .rtitle h1 { margin: 0; font: 700 24px/1.1 var(--mono); letter-spacing: -.02em; }
 .meta { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--faint); font-size: 12.5px; }
 .meta code { color: var(--dim); font-size: 12px; }
+/* a run's start and its duration are one piece, so the duration never stands alone on a line */
+.meta .mwhen { display: inline-flex; gap: 14px; }
 .labelbar { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .labelbar .chip button { border: 0; background: none; padding: 0; cursor: pointer; color: var(--faint); line-height: 1; }
 .labelbar .chip button:hover { color: var(--err); }
 
 .labelbar input { height: 22px; width: 140px; border-radius: 6px; border: 1px solid var(--accent-line); background: var(--panel); color: var(--ink); font: 11.5px var(--mono); padding: 0 8px; outline: none; }
-.rhead .actions { margin-left: auto; justify-content: flex-end; }
+.rhead .actions { order: 1; flex: none; align-self: flex-start; margin-left: auto; justify-content: flex-end; }
+/* a button folded into … stays in the page, for its key, the palette and its own dialog (fit-head.ts) */
+.rhead .actions [data-folded] { display: none; }
 .metrics { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 26px; padding: 10px 24px 12px; border-top: 1px solid var(--line); }
+/* the run's facts sit at its about line's right, how it came out first */
+.rhead .metrics { order: 4; flex: none; flex-wrap: nowrap; gap: 6px 22px; margin: 6px 0 0 auto; padding: 0; border: 0; min-width: 0; }
+.rtitle + .metrics { margin-left: 0; }
+/* where the buttons would wrap under the title they go under it all, the next step first (fitHead below 1280px always); where
+   the about line leaves the facts no room beside it, they go under it, from the left */
+.rhead.stack .actions { order: 6; flex: 1 1 100%; margin: 10px 0 0; justify-content: flex-start; flex-wrap: wrap; }
+.rhead.stack .actions .btn.lime { order: -1; }
+.rhead.fstack .metrics { flex: 1 1 100%; margin-left: 0; flex-wrap: wrap; }
+/* Delete waits in the … menu, with the buttons the header folded */
+.btn.more { width: 34px; padding: 0; justify-content: center; }
+.btn.more svg { width: 16px; height: 16px; }
 .metric { display: flex; align-items: baseline; gap: 7px; white-space: nowrap; min-width: 0; max-width: 100%; }
 .metric b { font: 700 17px/1 var(--disp); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
 /* the run's replayed calls, a figure in the replayed colour (metrics.ts names it lime) */
@@ -340,7 +360,7 @@ table.ctab tr.miss td { color: var(--warn); }
 
 @media (max-width: 1000px) {
   .diffpanel { grid-template-columns: minmax(0, 1fr); }
-  .rhead { flex-direction: column; }
+  .rhead { padding: 16px 16px 12px; }
   .rhead .actions { margin-left: 0; justify-content: flex-start; }
   .strip .legend { display: none; }
   .rv { flex: none; }
@@ -380,12 +400,6 @@ table.calls .det.err { color: var(--err); }
 .rawsse { margin: 0; padding: 12px 14px; border-radius: 10px; background: var(--bg2); border: 1px solid var(--line); font: 11.5px/1.55 var(--mono); color: var(--dim); white-space: pre-wrap; word-break: break-all; max-height: 62vh; overflow: auto; }
 .rawsse .ev { color: var(--ink); }
 .kvs.hdrs dt { font-family: var(--mono); font-size: 11.5px; }
-
-/* Beside a run's id its buttons hold one row, and wrap rather than reach the id's column. */
-@media (min-width: 1001px) {
-  .rhead .rmain { flex: 1 1 0; min-width: 240px; }
-  .rhead .actions { flex: 0 1 auto; flex-wrap: wrap; }
-}
 
 /* scopes */
 .scopebar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 24px; border-bottom: 1px solid var(--line); }
@@ -462,7 +476,6 @@ table.ledger code { font-size: 11.5px; color: var(--dim); }
 @media (max-width: 640px) { .views .tabs { overflow-x: auto; scrollbar-width: none; } .views .tabs::-webkit-scrollbar { display: none; } .views .tabs button { flex: none; } .views .tabs [aria-selected="true"]::after { bottom: 0; } }
 @media (max-width: 640px) { .rhead > div { max-width: 100%; } .rhead .meta code { white-space: normal; overflow-wrap: anywhere; } }
 
-.rmain { min-width: 0; }
 .rv.loading { flex: 1; }
 
 table.calls tr.wspace td, table.ctab tr.wspace td { padding: 0; border: 0; }
@@ -470,7 +483,7 @@ table.calls tbody tr.wspace { cursor: default; }
 
 table.calls tbody tr.wspace:hover td { background: none; }
 
-.meta .bad { color: var(--err); }
+.meta .mfail { color: var(--err); }
 
 .ihead.isumrow { padding-top: 2px; }
 .ihead .iedit { margin-left: auto; flex: none; padding-left: 10px; font-size: 12px; }
@@ -499,9 +512,6 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 .ibar.convlink { margin-top: 12px; }
 /* its link sits on the text's line, or under the text's start when the line wraps */
 .ibar.convlink .linkbtn { margin-left: -7px; }
-/* the run header's eyebrow wraps a golden's long path onto a line of its own rather than running under the actions */
-.rhead .eyebrow { flex-wrap: wrap; row-gap: 4px; }
-.rhead .eyebrow code { overflow-wrap: anywhere; }
 
 .attempts span i.n { background: var(--faint); }
 .banner.n { background: color-mix(in srgb, var(--dim) 4%, transparent); }
@@ -538,7 +548,7 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 /* a run's page at a phone's width: the origin filters wrap under each other, why a run failed
    wraps like the sentence it is, and so do a banner's buttons (a diverged test's Add normalizer and
    update…, Update golden and Show diff) rather than run off the screen */
-.rhead .meta > span.bad { white-space: normal; }
+.rhead .meta > span.mfail { white-space: normal; }
 
 @media (max-width: 640px) {
   .toolbar .ofilter { flex-wrap: wrap; row-gap: 4px; }
@@ -555,27 +565,42 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 .attempts .t { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fnode > .attempts.fxwide { grid-column: 2 / -1; margin-top: -2px; }
 
-/* the header: the id is the heading, in mono so it reads exactly (its zero is dotted, never an O), with its status chip and
-   Copy ID beside it. Under it the about line, muted, on one line, and the labels after it as chips: the line shrinks
+/* the header: the id is the heading, in mono so it reads exactly (its zero is dotted, never an O), with Copy ID beside it. Under it the about line, muted, on one line, and the labels after it as chips: the line shrinks
    before the labels move under it, and they move only when it would have less than 160px. On a phone a run's labels go
    under it whenever it wouldn't fit whole beside them, so a narrower screen never shows less; + Label alone stays beside
    it. A run with no about line of its own (a clean replay) keeps its labels on the id's row, after Copy ID. */
 .rtitle h1.rnm { flex: none; margin: 0; font: 500 24px/1.15 var(--mono); letter-spacing: 0; color: var(--ink); }
-.rtitle .tag { flex: none; }
-.rabout { display: flex; flex-wrap: wrap; align-items: center; column-gap: 14px; row-gap: 6px; margin-top: 6px; min-width: 0; font-size: 13.5px; }
+/* the id is a Tab stop for its meta card: Tab draws its ring (metaon), and the page putting the focus there draws none */
+.rtitle h1.rnm:focus { outline: none; }
+.rhead.metaon .rtitle h1.rnm:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 3px; border-radius: 4px; }
+/* the meta (command, revision, time, what failed) is a card under the title, shown while the pointer is on the id or on the
+   card, or while the id has the focus Tab gave it (metaon), never for a focus the page moved there; Esc hides it (metaoff).
+   It is the id's description, so a screen reader reads it with the id. On a touch screen it is a line of its own under the facts. */
+.rhead .meta { position: absolute; z-index: 30; width: max-content; max-width: min(620px, calc(100vw - 32px)); margin: 0; padding: 9px 12px; border-radius: 10px; background: var(--pop); box-shadow: var(--shadow-pop); font-size: 12px; color: var(--dim); visibility: hidden; transition: visibility 0s .2s; }
+.rhead:not(.metaoff):has(h1.rnm:hover) .meta, .rhead:not(.metaoff) .meta:hover, .rhead.metaon .meta { visibility: visible; transition-delay: 0s; }
+.rhead.metaoff .meta { transition: none; }
+@media (hover: none) {
+  .rhead .meta { order: 5; position: static; flex: 0 0 100%; width: auto; max-width: none; margin-top: 8px; padding: 0; border-radius: 0; background: none; box-shadow: none; font-size: 12.5px; color: var(--faint); visibility: visible; }
+}
+.rtitle > .linkbtn { margin: -3px 0 -3px -2px; padding-left: 5px; padding-right: 5px; }
+.rabout { order: 3; flex: 1 1 auto; display: flex; flex-wrap: wrap; align-items: center; column-gap: 14px; row-gap: 6px; margin-top: 6px; min-width: 0; font-size: 13.5px; }
 .rabout .rab { flex: 1 1 160px; max-width: max-content; }
 @media (max-width: 640px) { .rabout:has(.labelbar .chip) .rab { flex: 0 1 auto; max-width: none; } }
 .rabout .labelbar { flex: none; max-width: 100%; }
 .rtitle .labelbar { flex: 0 1 auto; max-width: 100%; }
-/* the eyebrow says what kind of run it is; the lineage is in the crumbs. A phone has no crumbs: there the eyebrow names
-   the parent too, by its id, as a link, on the same line */
-.eyebrow .ebk { flex: none; }
-.eyebrow .ebp { display: none; }
+/* the eyebrow says what kind of run it is, muted, on one line; the lineage is in the crumbs. A phone has no crumbs: there the
+   eyebrow names the parent too, by its id, as a link, on the same line */
+.rhead .eyebrow.ek { white-space: nowrap; overflow: hidden; min-width: 0; }
+.eyebrow.ek .ebk { flex: none; }
+.eyebrow.ek .ebp { display: none; }
 
 @media (max-width: 640px) {
-  .eyebrow .ebp { display: inline-flex; align-items: baseline; gap: .6em; flex: none; }
-  .eyebrow .ebp a { color: inherit; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, currentColor 55%, transparent); }
-  .eyebrow .ebp code { font: inherit; letter-spacing: .04em; text-transform: none; }
+  .rhead .eyebrow.ek { padding-bottom: 4px; margin-bottom: -4px; }
+  .rhead .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, max-content)); column-gap: 28px; row-gap: 8px; }
+  .rhead .metric.rout { grid-column: 1 / -1; flex-wrap: wrap; row-gap: 2px; }
+  .eyebrow.ek .ebp { display: inline-flex; align-items: baseline; gap: .6em; flex: none; }
+  .eyebrow.ek .ebp a { color: var(--dim); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, currentColor 55%, transparent); }
+  .eyebrow.ek .ebp code { font: inherit; letter-spacing: .04em; text-transform: none; }
 }
 
 /* Provenance: the about line whole, where it comes from under it; the lineage, each run by its id and its about line */

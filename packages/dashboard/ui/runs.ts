@@ -218,20 +218,6 @@ export function runTag(r: RunLike): { cls: string; text: string } {
 }
 
 /**
- * The chip beside a run's id on its page: its status only, since the eyebrow above it names what kind
- * of run it is and the meta line under it why it failed. In progress, failed, inconclusive (amber) or
- * interrupted (neutral); none for a run with nothing to report, so no word in the header says twice
- * what another says.
- */
-export function headerStatus(r: RunLike): { cls: string; text: string } | null {
-  if (isLive(r)) return { cls: 'live', text: 'in progress' };
-  if (isFailed(r)) return { cls: 'fail', text: 'failed' };
-  if (runOutcome(r).tone === 'warn') return { cls: 'inc', text: 'inconclusive' };
-  if (isInterrupted(r)) return { cls: '', text: 'interrupted' };
-  return null;
-}
-
-/**
  * The tag Compare's path headers give each side, as the design's `typeTag` does: what kind of run it
  * is, a fork by where it forked (`fork @7`) whether or not it failed, since the paths under it show
  * what it did; a recording or a test that failed says FAILED, as on its page.

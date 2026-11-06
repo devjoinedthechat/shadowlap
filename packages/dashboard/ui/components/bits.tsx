@@ -25,8 +25,8 @@ export { EmptyState } from './States.js';
  * never red (what went wrong is the title's and its line's to say), never a tagline. `tone`, a run
  * page's mark of a fork, names it and draws nothing else.
  */
-export function Eyebrow({ tone, children }: { tone?: 'fork' | undefined; children: ReactNode }) {
-  return <div className={`eyebrow${tone ? ` ${tone}` : ''}`}>{children}</div>;
+export function Eyebrow({ className, children }: { className?: string | undefined; children: ReactNode }) {
+  return <div className={`eyebrow${className ? ` ${className}` : ''}`}>{children}</div>;
 }
 
 /**

@@ -243,7 +243,7 @@
       "ProvenanceView": 95
     },
     "packages/dashboard/ui/run/RunHeader.tsx": {
-      "RunHeader": 71
+      "RunHeader": 65
     },
     "packages/dashboard/ui/run/banner.ts": {
       "attemptBanner": 52,
@@ -464,7 +464,7 @@
       "NewProjectPage": 162
     },
     "packages/dashboard/ui/pages/Run.tsx": {
-      "Workspace": 193
+      "Workspace": 192
     },
     "packages/dashboard/ui/pages/Runs.tsx": {
       "ServerRuns": 178

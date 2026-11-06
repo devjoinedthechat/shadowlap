@@ -81,7 +81,7 @@ export function ReplayButton({ run, step, lime, onAction }: { run: RunDetail; st
       className={lime ? 'btn lime' : 'btn'}
       why={step?.off ?? action?.disabled}
       disabled={!action}
-      {...(lime ? { 'data-next': 'replay' } : {})}
+      {...(lime ? { 'data-next': 'replay' } : { 'data-fold': 'replay' })}
       {...(step ? { 'data-tip': tipOf(stepCard(step)) } : action ? { 'data-tip': tipText(ACTIONS.replay.label) } : {})}
       onClick={() => action && onAction({ action, callNo: null, ...target })}
       {...shortcut('replay')}
@@ -104,7 +104,7 @@ export function CompareButton({ run }: { run: RunDetail }) {
   if (!pair) {
     if (exported) return null;
     return (
-      <button className="btn" type="button" disabled title={r.status === 'running' ? 'Nothing to compare yet: replay or fork it once it finishes' : 'Nothing to compare yet: replay it or fork it first'} {...shortcut('compare')}>
+      <button className="btn" type="button" data-fold="compare" disabled title={r.status === 'running' ? 'Nothing to compare yet: replay or fork it once it finishes' : 'Nothing to compare yet: replay it or fork it first'} {...shortcut('compare')}>
         {ACTIONS.compare.label}
       </button>
     );
@@ -113,7 +113,7 @@ export function CompareButton({ run }: { run: RunDetail }) {
   const label = r.parentRunId ? ACTIONS.compareWithParent.label : run.children.find((c) => c.runId === other)?.kind === 'fork' ? ACTIONS.compareWithFork.label : ACTIONS.compareWithReplay.label;
   const tip = tipCard(`Against ${shortId(other)}`, [], runs?.find((x) => x.runId === other)?.about?.text, `$ shadowlap diff ${shortId(pair[0])} ${shortId(pair[1])}`);
   return (
-    <a className="btn" href={href.compare(pair[0], pair[1])} data-tip={tip} {...shortcut('compare')}>
+    <a className="btn" href={href.compare(pair[0], pair[1])} data-fold="compare" data-tip={tip} {...shortcut('compare')}>
       {label}
     </a>
   );
@@ -190,7 +190,7 @@ function BisectStep({ run, step, offers, onFindCommit }: StepProps & { step: Ext
 /** Run blame beside a crash's Find breaking commit, plain, with what it runs and bills on hover: whether an answer of the model's lost the run, until the commit is named. */
 export function BlameBesideButton({ runId, step }: { runId: string; step: NextStep | null }) {
   if (step?.key !== 'bisect' || !step.blame) return null;
-  return <RunBlameButton runId={runId} failed={step.blame.offer.failed} title={blameTitle(step.blame.offer)} tip={tipOf(blameBesideCard(step.blame))} className="btn" />;
+  return <RunBlameButton runId={runId} failed={step.blame.offer.failed} title={blameTitle(step.blame.offer)} tip={tipOf(blameBesideCard(step.blame))} className="btn" fold="blame" />;
 }
 
 /** Add normalizer on a replay: the run's own action, the rule its divergence proposes. */

@@ -34,6 +34,7 @@ export function RunBlameButton({
   capture = false,
   line,
   mark,
+  fold,
 }: {
   runId: string;
   failed?: readonly string[];
@@ -51,6 +52,8 @@ export function RunBlameButton({
   line?: string;
   /** Its key, where it is the run's next step. */
   mark?: ShortcutMark;
+  /** A run header's plain button, which folds into its … menu by this name. */
+  fold?: string;
 }) {
   const app = useApp();
   const busy = useTreeBusy('reads', 'blame');
@@ -92,6 +95,7 @@ export function RunBlameButton({
         why={busy}
         {...(tip ? { 'data-tip': tip } : { title })}
         {...(lead ? { 'data-next': 'blame' } : {})}
+        {...(fold ? { 'data-fold': fold } : {})}
         onClick={() => app.guard(() => (capture ? setAsking({ kind: 'command' }) : void start({})))}
         {...mark}
       >

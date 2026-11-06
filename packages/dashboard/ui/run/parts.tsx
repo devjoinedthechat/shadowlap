@@ -70,7 +70,7 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown, judged = run.judge
   // How it came out leads: the verdict of the checks that judged it, as Runs' Status says it.
   const fact = outcomeFact({ ...runLikeOf(run), judged: judged ?? null }, { tools: s.byKind.tool, pending });
   return (
-    <section className="metrics" title={notWaitedUnknown ? `${notWaitedUnknown} replayed calls’ recorded durations were not found` : undefined}>
+    <section className="metrics" aria-label="How it went" title={notWaitedUnknown ? `${notWaitedUnknown} replayed calls’ recorded durations were not found` : undefined}>
       <Outcome fact={fact} runId={run.run.runId} />
       {items.map(([v, label, cls], i) => (
         <span className="metric" key={i}>
