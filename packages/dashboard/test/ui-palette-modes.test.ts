@@ -1,10 +1,13 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Client } from '../ui/api.js';
+import { JOB_KINDS, type Client } from '../ui/api.js';
+import { rememberList } from '../ui/fixes/data.js';
+import { APPLY_ASK } from '../ui/page-ask.js';
 import { palettePlaceholder } from '../ui/palette.js';
-import type { Route } from '../ui/route.js';
+import { href, type Route } from '../ui/route.js';
 import { Palette } from '../ui/shell/Palette.js';
 import { AppContext, type AppState } from '../ui/state.js';
+import type { FixRow } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -103,6 +106,27 @@ describe('Search or jump to, as the dashboard stands', () => {
     await r.click(r.all('.palit').find((el) => el.textContent.startsWith('Run tests'))!);
     expect(startJob).not.toHaveBeenCalled();
     expect(toast).toHaveBeenCalledWith(why);
+  });
+
+  it('offers Apply fix for each verified fix once something is typed, by its label too, and opens its page asking there', async () => {
+    const location = { hash: '#/', search: '', pathname: '/' };
+    vi.stubGlobal('location', location);
+    const fix = (fixId: string, status: FixRow['status'], title: string) => ({ fixId, status, title, label: 'refund-bug' }) as FixRow;
+    rememberList({ fixes: [fix('fx-open', 'open', 'Refunds sent twice'), fix('fx-ready', 'verified', 'Escalate refunds above the limit'), fix('fx-done', 'applied', 'Refunds in cents')], counts: { all: 3, open: 1, verified: 2 } });
+    try {
+      r = await render(createElement(AppContext.Provider, { value: app({ client: { jobs: async () => [] } as unknown as Client, hasKind: (k: string) => k === JOB_KINDS.applyFix }) }, createElement(Palette, { route: OVERVIEW })));
+      const applies = () => r!.all('.palit').filter((el) => el.querySelector('.pl')!.textContent === 'Apply fix');
+      // Found only once something is typed: never on the open palette.
+      expect(applies()).toEqual([]);
+      await r.type(r.one('.palin input'), 'patch refund-bug');
+      expect(applies().map((el) => el.querySelector('.ph2')!.textContent)).toEqual(['Escalate refunds above the limit']);
+      await r.click(applies()[0]);
+      expect(location.hash).toBe(href.fixes('fx-ready'));
+      expect(APPLY_ASK.take('fx-ready')).toBe(true);
+    } finally {
+      rememberList({ fixes: [], counts: { all: 0, open: 0, verified: 0 } });
+      vi.unstubAllGlobals();
+    }
   });
 
   it('promises no actions on a dashboard that runs none', async () => {

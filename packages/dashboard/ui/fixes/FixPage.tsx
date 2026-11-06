@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { probesPart } from '../../../engine/src/cost-words.js';
 import { consentAsked } from '../actions.js';
 import { JOB_KINDS, ApiError, type JobView } from '../api.js';
@@ -9,6 +9,7 @@ import { UpdateGoldenDialog } from '../components/UpdateGolden.js';
 import { headingRef } from '../focus-manager.js';
 import { Page } from '../components/Page.js';
 import { NotFoundPage } from '../pages/NotFound.js';
+import { APPLY_ASK } from '../page-ask.js';
 import { Unshown } from '../shell/unshown.js';
 import { copyText } from '../dom.js';
 import { approx, GLUED_SEPARATOR } from '../format.js';
@@ -201,8 +202,24 @@ export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boo
   const busy = useTreeBusy('writes', fix.status === 'open' ? 'repair' : 'apply the patch');
   const [asking, setAsking] = useState<'repair' | 'apply' | 'patch' | null>(null);
   const [consent, setConsent] = useState<{ why: string; confirm: string; kind: string; fields: Record<string, unknown> } | null>(null);
-  if (app.exported) return null;
   const off = app.actionsOff;
+  const kind = action.kind === 'repair' ? JOB_KINDS.repair : JOB_KINDS.applyFix;
+  const missing = app.hasKind(kind) ? null : `This dashboard doesn’t run ${action.kind === 'repair' ? 'repair' : 'fix apply'}: run it in a terminal.`;
+  const why = off ?? missing ?? busy;
+  // Asked from the palette's Apply fix, on this page already or arriving on it: its dialog opens as
+  // a press of the button would, or a toast says why it can't.
+  const asked = useRef(() => {});
+  asked.current = () => {
+    const cant = action.kind === 'apply' ? why : action.kind === 'none' ? (off ?? action.why) : null;
+    if (cant) app.toast(cant);
+    else if (action.kind === 'apply') setAsking('apply');
+  };
+  useEffect(() => {
+    const open = () => asked.current();
+    if (APPLY_ASK.take(fix.fixId)) open();
+    return APPLY_ASK.on(open, fix.fixId);
+  }, [fix.fixId]);
+  if (app.exported) return null;
   const gitApply = fix.actions.apply?.gitApply ?? null;
   const diff = fix.actions.applied ? (fix.actions.apply?.diff ?? null) : null;
   const copy = gitApply ? (
@@ -244,11 +261,8 @@ export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boo
       </>
     );
   }
-  const kind = action.kind === 'repair' ? JOB_KINDS.repair : JOB_KINDS.applyFix;
   const aside = action.kind === 'repair' ? repairAside(fix) : null;
   const blameNext = action.kind === 'repair' ? blameNextStep(fix) : null;
-  const missing = app.hasKind(kind) ? null : `This dashboard doesn’t run ${action.kind === 'repair' ? 'repair' : 'fix apply'}: run it in a terminal.`;
-  const why = off ?? missing ?? busy;
   const start = (jobKind: string, fields: Record<string, unknown>) =>
     app.client.startJob(jobKind, fields).then(
       (job) => app.watchJob(Promise.resolve(job)),

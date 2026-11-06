@@ -1,9 +1,10 @@
 import { JOB_KINDS } from './api.js';
 import { mergeTreeJobs, treeBusy, type TreeJob } from './fixes/model.js';
 import { ACTIONS } from './labels.js';
-import { addPaletteSource, paletteSourcesChanged } from './palette-sources.js';
+import { knownFixes } from './fixes/data.js';
+import { addPaletteSource, type PaletteContext, paletteSourcesChanged } from './palette-sources.js';
 import { href } from './route.js';
-import { IMPORT_ASK, NORMALIZER_ASK, REDACTION_ASK, type PageAsk } from './page-ask.js';
+import { APPLY_ASK, IMPORT_ASK, NORMALIZER_ASK, REDACTION_ASK, type PageAsk } from './page-ask.js';
 import { SETTINGS_TABS, type SettingsTab } from './pages/settings/tabs.js';
 import type { StoreSetupView } from './store-api.js';
 import { onTestsChanged, testsPaletteCommands } from './tests-palette.js';
@@ -13,8 +14,8 @@ import { stepWords } from '../src/store-steps.js';
 /**
  * The palette's Actions and Tests that belong to pages, listed on a fresh dashboard before any of
  * those pages has opened: the Tests group and Update goldens…, Import capture…, Export pairs… and
- * Score model…, Calibrate, the team store's setup, the Settings tabs by what they hold, and Add
- * normalizer… and Add redaction rule…. They load with the palette, so a page's code waits for its
+ * Score model…, Calibrate, the team store's setup, the Settings tabs by what they hold, Apply fix,
+ * and Add normalizer… and Add redaction rule…. They load with the palette, so a page's code waits for its
  * page. A row whose dialog lives on its page opens the page and asks there (`page-ask.ts`). Each
  * answers nothing in an exported copy, which runs nothing.
  */
@@ -50,26 +51,40 @@ addPaletteSource(({ app, go }) =>
 
 /** The jobs the server last listed (every tab's and the terminal's): whether a repair holds the working tree. */
 let listedJobs: TreeJob[] | null = null;
+let listing: Promise<void> | null = null;
+
+/**
+ * Why a job that `use`s the project's working tree would wait now, as the jobs last listed and this
+ * tab's own say, or null. The list is read again as the palette opens, once at a time, and an open
+ * palette reads its sources again when what it says changed.
+ */
+function treeWait(app: PaletteContext['app'], use: 'reads' | 'writes', verb: string): string | null {
+  const held = () => treeBusy(mergeTreeJobs(listedJobs, app.jobs), use, verb, app.meta?.project?.path ?? null);
+  const before = held();
+  if (!app.actionsOff) {
+    listing ??= app.client.jobs().then(
+      (list) => {
+        listedJobs = list;
+        listing = null;
+      },
+      () => {
+        listing = null;
+      },
+    );
+    void listing.then(() => {
+      if (held() !== before) paletteSourcesChanged();
+    });
+  }
+  return before;
+}
 
 // Calibrate replays the agent from the project's working tree: like its button on Matching, the
 // palette's entry waits while a repair or an apply holds the tree, dimmed, saying why. It is left out
-// on a read-only dashboard. The list is read again as the palette opens; an open palette reads its
-// sources again when what it says changed.
+// on a read-only dashboard.
 addPaletteSource(({ app }) => {
   if (app.exported || !app.hasKind(JOB_KINDS.calibrate)) return [];
-  const folder = app.meta?.project?.path ?? null;
-  const held = () => treeBusy(mergeTreeJobs(listedJobs, app.jobs), 'reads', 'calibrate', folder);
-  const before = held();
-  if (!app.actionsOff) {
-    app.client.jobs().then(
-      (list) => {
-        listedJobs = list;
-        if (held() !== before) paletteSourcesChanged();
-      },
-      () => undefined,
-    );
-  }
-  return [{ group: 'Actions', label: ACTIONS.calibrate.label, hint: before ?? 'propose normalizers', job: true, ...(before ? { wait: before } : {}), run: () => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.calibrate, {}))) }];
+  const held = treeWait(app, 'reads', 'calibrate');
+  return [{ group: 'Actions', label: ACTIONS.calibrate.label, hint: held ?? 'propose normalizers', job: true, ...(held ? { wait: held } : {}), run: () => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.calibrate, {}))) }];
 });
 
 // The way to the team store's setup: Set up the team store while the project has none, Continue
@@ -108,6 +123,29 @@ const SETTINGS_FOUND: Record<SettingsTab, { hint: string; match: string }> = {
 addPaletteSource(({ app, go }) =>
   app.exported ? [] : SETTINGS_TABS.map((t) => ({ group: 'Settings' as const, label: t.label, ...SETTINGS_FOUND[t.key], typed: true, run: () => go(href.settings(t.key)) })),
 );
+
+// Apply fix for each verified fix not yet applied, typed only, found by its label too: its page
+// opens and asks there, as its button does. Like the button, it waits while a job holds the working
+// tree, dimmed, saying why.
+addPaletteSource(({ app, go }) => {
+  if (app.exported || app.actionsOff || !app.hasKind(JOB_KINDS.applyFix)) return [];
+  const verified = knownFixes().filter((f) => f.status === 'verified');
+  const held = verified.length ? treeWait(app, 'writes', 'apply the patch') : null;
+  return verified.map((f) => ({
+    group: 'Actions' as const,
+    label: ACTIONS.applyFix.label,
+    hint: held ?? f.title,
+    match: `fix patch ${f.label ?? ''}`,
+    typed: true,
+    job: true,
+    ...(held ? { wait: held } : {}),
+    run: () =>
+      app.guard(() => {
+        APPLY_ASK.ask(f.fixId);
+        go(href.fixes(f.fixId));
+      }),
+  }));
+});
 
 // A rule added from the palette: its tab opens and asks in its own dialog. Typed only; left out
 // where nothing is written.
