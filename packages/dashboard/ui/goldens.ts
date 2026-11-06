@@ -361,7 +361,7 @@ export function divergenceButtons(d: DivergenceView, has: (kind: string) => bool
   const updates = !!steps && (steps.at(-1) ?? []).includes('--update');
   const lead = d.normalizerFixes && !d.maybeReal;
   let normalize: DivergenceButtons['normalize'] = null;
-  if (steps && d.rulesAdded) normalize = updates || !has('test') ? null : { label: 'Re-run', lead, run: 'rerun' };
+  if (steps && d.rulesAdded) normalize = updates || !has('test') ? null : { label: ACTIONS.rerunTest.label, lead, run: 'rerun' };
   else if (steps && has('normalize-and-test')) normalize = updates ? { label: ACTIONS.addNormalizerAndUpdate.label, lead, run: 'normalize-update' } : { label: ACTIONS.addNormalizerAndRerun.label, lead, run: 'normalize' };
   return {
     normalize,

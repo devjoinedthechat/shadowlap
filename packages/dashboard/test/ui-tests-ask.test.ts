@@ -225,11 +225,11 @@ describe('a Tests job that would run goldens live', () => {
 });
 
 describe('the same question from Tests’ other buttons, on a golden that diverged', () => {
-  it('asks before Re-run, once the golden’s normalizer is in the config, with the command it runs', async () => {
+  it('asks before Re-run test, once the golden’s normalizer is in the config, with the command it runs', async () => {
     const sent: Sent[] = [];
     const watched: Array<Promise<JobView>> = [];
     const page = await tests(app(sent, watched, { live: true, tests: diverged({ rulesAdded: true }) }));
-    await page.click(page.byText('button', 'Re-run'));
+    await page.click(page.byText('button', 'Re-run test'));
     await page.until('the question', () => dialog(page) !== null);
     expect(said(dialog(page)!)).toEqual({ title: 'Re-run refund-in-limit', lead: 'Replays refund-in-limit again, live from where it forks.', commands: ['$shadowlap test goldens/refund-in-limit'], ok: 'Re-run' });
     await page.click(page.one('.dialog .dlg-ok'));

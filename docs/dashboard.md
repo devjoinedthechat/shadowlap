@@ -1128,7 +1128,7 @@ The table fits its panel at every width. With less room the oldest revisions giv
 
 Each failure follows as the CLI prints it. A divergence offers:
 
-- **Add normalizer and re-run**, which leads when a value made anew on every run is all that changed. It becomes **Re-run** once the rule is in the config.
+- **Add normalizer and re-run**, which leads when a value made anew on every run is all that changed. It becomes **Re-run test** once the rule is in the config.
 - **Update golden.**
 - **Find breaking commit**, whose answer then shows above the buttons while the golden keeps failing as it did when the search started.
 
@@ -1674,7 +1674,7 @@ The server refuses another such job with the same words, from any tab, the palet
 
 **Run tests** runs `shadowlap test goldens/*` (plus each pack the config names elsewhere), with no shell: the CLI expands the pattern itself, as it does in CI. The page follows the session as each result lands. Its drawer ends on **Open Tests**, with the first three goldens that failed linked by name beside it, each opening its replay. Over Tests itself, it ends on the step the page leads with once the page has read what the job did. A run of one golden ends on its replay.
 
-**A session that runs live goes by [Spending](#spending).** Before a session runs a golden live, the server asks. The page answers by Spending for **Run tests**, **Run more attempts**, **Re-run** and **Add normalizer and re-run**, on Tests, on a test replay's page and from the palette's *Run tests*. At or under it, the session starts with its estimate; otherwise its dialog asks. A test replays offline, except for two things that run live:
+**A session that runs live goes by [Spending](#spending).** Before a session runs a golden live, the server asks. The page answers by Spending for **Run tests**, **Run more attempts**, **Re-run test** and **Add normalizer and re-run**, on Tests, on a test replay's page and from the palette's *Run tests*. At or under it, the session starts with its estimate; otherwise its dialog asks. A test replays offline, except for two things that run live:
 
 - **A golden marked `fork`** runs live from where it forks, writes blocked, and asks its judge checks live.
 - **An [injection gate](./injection.md#gate-ci-on-it)** runs live from each payload it plants, writes stubbed.

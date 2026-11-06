@@ -384,7 +384,7 @@ describe('the buttons under a divergence', () => {
   });
 
   it('only re-run once the rule is in the config, and say why', () => {
-    expect(divergenceButtons(divergence('a', { rulesAdded: true }), all)).toMatchObject({ normalize: { label: 'Re-run', lead: true, run: 'rerun' }, note: 'rules-added' });
+    expect(divergenceButtons(divergence('a', { rulesAdded: true }), all)).toMatchObject({ normalize: { label: 'Re-run test', lead: true, run: 'rerun' }, note: 'rules-added' });
     const updates = divergence('a', { rulesAdded: true, normalizerFixes: false, normalizeAndTest: [['normalize', 'add', '--path', '$.id', '--replace', '<ID>'], ['test', 'goldens/a', '--update']] });
     expect(divergenceButtons(updates, all)).toMatchObject({ normalize: null, note: 'rules-added-update' });
   });
