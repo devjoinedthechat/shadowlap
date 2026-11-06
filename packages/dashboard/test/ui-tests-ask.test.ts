@@ -465,9 +465,9 @@ describe('a live session’s question, answered by Spending', () => {
     const state = app(sent, shell);
     const page = await shown(state, createElement('div'));
     const setup: Array<Promise<JobView>> = [];
-    startTestsJob({ client: state.client, guard: state.guard, watchJob: (p) => void setup.push(p) }, 'pack-test', { project: 'p', golden: 'goldens/first-run' }, keepAsk('Pack as a golden', 'goldens/first-run', true));
+    startTestsJob({ client: state.client, guard: state.guard, watchJob: (p) => void setup.push(p) }, 'pack-test', { project: 'p', golden: 'goldens/first-run' }, keepAsk('Pack as golden', 'goldens/first-run', true));
     await page.until('the question asked', () => !!dialog(page));
-    expect(dialog(page)?.querySelectorAll('h3')[0].textContent).toBe('Pack as a golden');
+    expect(dialog(page)?.querySelectorAll('h3')[0].textContent).toBe('Pack as golden');
     expect(dialog(page)?.textContent).toContain('Packs the run as goldens/first-run, then runs its test.');
     expect(dialog(page)?.textContent).toContain('shadowlap test goldens/first-run');
     expect(yeses(sent)).toEqual([]);
