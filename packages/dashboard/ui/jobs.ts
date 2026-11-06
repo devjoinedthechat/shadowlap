@@ -4,6 +4,7 @@ import { fixJobStatus } from './fixes/model.js';
 import { jobEnding, type JobWords } from './job-ending.js';
 import { isPlainReplay, jobTitle, ownArgs, type JobChipView, type JobLike, type RunningJob } from './job-title.js';
 import { doneWords, type JobEnd } from './labels.js';
+import { cutClean } from './format.js';
 
 export { afterPollError, draftCommand, isPlainReplay, jobCommand, jobRunning, jobTitle, quoteArg, type AfterPollError, type JobLike, type RunningJob } from './job-title.js';
 
@@ -194,14 +195,6 @@ export function jobStatus(job: JobLike, lines: readonly string[], lost = false):
   if (/Diverged at call/.test(all) && !/Forked at call/.test(all)) return { text: `diverged · ${exit}`, tone: 'err' };
   if (/the agent process exited with an error|--fail-at/.test(all)) return { text: `agent exited ${code}`, tone: 'warn' };
   return { text: exit, tone: 'err' };
-}
-
-/** A line kept to `max` characters: its first sentence where that fits, else cut after a whole word, with nothing dangling before the `…`. */
-function cutClean(line: string, max: number): string {
-  const first = /^(.+?[.!?])(\s|$)/.exec(line)?.[1];
-  const s = first && first.length <= max ? first : line;
-  const cut = s.length > max ? `${s.slice(0, Math.max(1, s.slice(0, max + 1).lastIndexOf(' '))).replace(/[\s,;:·…–—-]+$/, '')}…` : s;
-  return cut.replace(/\.$/, '');
 }
 
 /** The last line worth repeating in a toast when a job finishes behind a closed drawer. */
