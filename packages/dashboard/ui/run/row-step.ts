@@ -18,7 +18,8 @@ const LOOK_MS = 100;
 /**
  * Opens the run and presses its lime button once the page draws it, as This run's entry presses it,
  * so the step asks and waits as its button does, and one that is off says why. It presses nothing
- * where the page leads with another step by then, and gives up on another page or after the wait.
+ * where the page leads with another step by then, and gives up on another page or after the wait. The
+ * page is drawn once its heading names the run (`data-run`).
  */
 export function openAndPress(runId: string, key: string, toast: (text: string) => void): void {
   navigate(href.run(runId));
@@ -26,7 +27,7 @@ export function openAndPress(runId: string, key: string, toast: (text: string) =
   const look = (): void => {
     const route = currentRoute();
     if (route.page !== 'run' || route.id !== runId) return;
-    const drawn = document.querySelector('.rhead h1.rnm')?.getAttribute('title') === runId;
+    const drawn = document.querySelector('.rhead h1.rnm')?.getAttribute('data-run') === runId;
     const lead = drawn ? document.querySelector<HTMLButtonElement>('.rhead [data-next]') : null;
     if (!lead) {
       if (Date.now() < until) setTimeout(look, LOOK_MS);
