@@ -1,5 +1,6 @@
 import { Fragment, useEffect, type ReactNode, type RefObject } from 'react';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
+import { FORK_LIVE } from '../../../engine/src/cost-words.js';
 import { costLine } from '../../../engine/src/estimates/spending.js';
 import { inCode } from './DialogFacts.js';
 import { tipCard } from './HoverCard.js';
@@ -25,7 +26,20 @@ export type CostEstimate = Pick<Estimate, 'usd' | 'ceiling' | 'note' | 'parts' |
 /** An estimate's line: its price in ink, then its parts. */
 function estimateParts(e: CostEstimate): ReactNode[] {
   const [price = '', ...parts] = costLine(e);
-  return [<b key="price">{priceOf(e, price)}</b>, ...parts.map(inCode)];
+  return [<b key="price">{priceOf(e, price)}</b>, ...parts.map(partOf)];
+}
+
+/** A part as the line says it: `live where a replay forks` on a card of its own, saying what a run whose replay doesn't fork costs. */
+function partOf(part: ReactNode): ReactNode {
+  if (typeof part !== 'string' || !part.startsWith(FORK_LIVE.part)) return inCode(part);
+  return (
+    <>
+      <span className="dtip" tabIndex={0} data-tip={tipCard(FORK_LIVE.card.title, [], FORK_LIVE.card.line)}>
+        {FORK_LIVE.part}
+      </span>
+      {inCode(part.slice(FORK_LIVE.part.length))}
+    </>
+  );
 }
 
 /** The price as the line says it: on a card of its own, a Tab stop, where the estimate has one. */
@@ -43,7 +57,7 @@ function priceOf(e: CostEstimate, price: string): ReactNode {
  * for all of it breaks after a dot. It holds the foot of the body while the body scrolls.
  */
 export function CostLine({ price, parts = [], flow = false, estimate }: CostLineProps) {
-  const all = estimate ? estimateParts(estimate) : [<b key="price">{price}</b>, ...parts.map(inCode)];
+  const all = estimate ? estimateParts(estimate) : [<b key="price">{price}</b>, ...parts.map(partOf)];
   return (
     <p className={`dlgnote dcost${flow ? ' flow' : ''}`}>
       {all.map((part, i) => (

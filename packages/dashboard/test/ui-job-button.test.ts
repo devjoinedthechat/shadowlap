@@ -2,6 +2,7 @@ import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Spending } from '../../engine/src/estimates/spending.js';
 import { ApiError, type Client, type JobView } from '../ui/api.js';
+import { CostLine } from '../ui/components/CostLine.js';
 import { tipCostLine, type TipEst } from '../ui/components/HoverCard.js';
 import { JobButton, tipEst } from '../ui/components/JobButton.js';
 import { FixJobButton } from '../ui/fixes/FixJobButton.js';
@@ -165,5 +166,22 @@ describe('JobButton and FixJobButton', () => {
       { runId: 'r1', estimate: { usd: 0.2, ceiling: false } },
       { runId: 'r1', estimate: { usd: 0.2, ceiling: false }, yes: 'ok-1' },
     ]);
+  });
+});
+
+describe("a dialog's Cost line", () => {
+  it('puts `live where a replay forks` on a card of its own, saying what a run whose replay doesn’t fork costs', async () => {
+    const parts = ['up to 80 attempts a failing run', 'live where a replay forks, writes stubbed'];
+    for (const line of [{ price: 'Billed by your provider', parts }, { price: '', estimate: { usd: 0.4, ceiling: true, parts } }]) {
+      const r = await render(createElement(CostLine, line));
+      try {
+        const tip = r.one('.dcost .dtip');
+        expect(tip.textContent).toBe('live where a replay forks');
+        expect(JSON.parse(String(tip.props['data-tip']))).toMatchObject({ t: 'A run whose replay doesn’t fork', s: 'settles in one free attempt' });
+        expect((r.one('.dcost').textContent ?? '').replace(/\s+/g, ' ')).toMatch(/ · up to 80 attempts a failing run · live where a replay forks, writes stubbed$/);
+      } finally {
+        await r.unmount();
+      }
+    }
   });
 });
