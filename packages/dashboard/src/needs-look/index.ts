@@ -1,6 +1,6 @@
 import type { Store } from '@shadowlap/engine';
 import { needsLookFixes } from '../fix-summary.js';
-import type { PatchCheck } from '../fix-shared.js';
+import type { PatchCheck, RewriteCheck } from '../fix-shared.js';
 import { coverage, decisions, injection, presetsFailed, presetsUnsure } from '../looks.js';
 import { listedStep, type NextStep, type NextStepWork, type StepReads, stepReads } from '../next-step.js';
 import type { StoreNote } from '../overview.js';
@@ -61,7 +61,7 @@ export function needsLook(w: LookWork, sources: readonly LookSource[] = ORDERED)
  * step, and the goldens each open fix holds, a golden being held when its failing run is the fix's
  * and its step is that fix's, or a crash's Find breaking commit.
  */
-export function lookWork(store: Store, o: { goldens: GoldenList; teamStore: StoreNote | null; patchInTree?: PatchCheck | undefined; repairer?: string | null; budget?: number | undefined; next: NextStepWork | null; now: number; week: LookWork['week']; index: RunIndex }): LookWork {
+export function lookWork(store: Store, o: { goldens: GoldenList; teamStore: StoreNote | null; patchInTree?: PatchCheck | undefined; rewriteHere?: RewriteCheck | undefined; repairer?: string | null; budget?: number | undefined; next: NextStepWork | null; now: number; week: LookWork['week']; index: RunIndex }): LookWork {
   let reads: StepReads | null = null;
   const readsOnce = () => (reads ??= stepReads(store, o.index));
   const fixes = needsLookFixes(store, o.patchInTree ? { patchInTree: o.patchInTree } : {});
@@ -80,6 +80,7 @@ export function lookWork(store: Store, o: { goldens: GoldenList; teamStore: Stor
     goldens: o.goldens,
     teamStore: o.teamStore,
     patchInTree: o.patchInTree,
+    rewriteHere: o.rewriteHere,
     repairer: o.repairer ?? null,
     budget: o.budget,
     next: o.next,

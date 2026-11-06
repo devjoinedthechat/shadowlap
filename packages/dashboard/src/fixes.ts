@@ -146,7 +146,7 @@ function repairOffer(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords, sco
  * candidate's one rewrite (`repairPatchProblem`), or, for one a pull brought, a rewrite repair itself
  * doesn't make in this working tree, as `here` read it (`rewriteHere`).
  */
-function refusedOf(store: StoreOf<'team'>, r: StoredRepair | null, here: RewriteCheck | undefined): string | null {
+export function refusedOf(store: StoreOf<'team'>, r: StoredRepair | null, here: RewriteCheck | undefined): string | null {
   if (!r) return null;
   return repairPatchProblem(r.report) ?? (here && store.repairPulled(r.repairId) !== null ? here(r.repairId) : null);
 }

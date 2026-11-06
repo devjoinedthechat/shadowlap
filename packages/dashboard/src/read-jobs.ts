@@ -3,12 +3,12 @@ import { activity } from './activity.js';
 import { callDetail, lineage, listRuns, lookupRun, noSuchRun, provenance, runCallsPage, runDetail, showRunJson, type ReadOptions } from './api.js';
 import { fixAttemptGroups } from './attempt-groups.js';
 import { codeChangeCache, compareHead, compareView } from './compare.js';
-import { fixDetail, goldensFolderIn, patchesToCheck } from './fixes.js';
+import { fixDetail, goldensFolderIn, patchesToCheck, pulledPatchesToCheck } from './fixes.js';
 import { forkDifferences } from './fork-differences.js';
 import { runInjection, toolTrust } from './injection.js';
 import { runUnrecorded } from './run-unrecorded.js';
 import { overviewKnown, overviewSummary } from './overview.js';
-import { patchesInTree } from './patch-in-tree.js';
+import { patchesInTree, rewritesHere } from './patch-in-tree.js';
 import { answer, failed, readRegistry, type JobOf, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { localRunIds } from './routes/store.js';
 import type { MaskCount } from './run-mask.js';
@@ -172,8 +172,10 @@ async function summary(store: Store, w: SummaryWork, whole: boolean): Promise<Re
   // A setup of the store left unfinished leads back to its page.
   const setup = status && w.team && w.project ? setupUnderWay(store, w.team) : null;
   const patchInTree = w.project ? await patchesInTree(w.project, patchesToCheck(store)) : null;
+  // A pulled patch `fix apply` refuses here gets no step on Needs a look, as its fix's page applies none.
+  const rewriteHere = w.project ? await rewritesHere(w.project, pulledPatchesToCheck(store)) : null;
   // It names the time it was worked out at, so it is never the same twice: no ETag.
-  return answer(overviewSummary(store, { ...when, ...budget, ...(w.prices ? { prices: w.prices } : {}), goldens: w.goldens, teamStore: status ? { name: status.name, onlyLocal: status.onlyLocal, setup } : null, ...(patchInTree ? { patchInTree } : {}), ...(w.next ? { next: w.next } : {}), ...(w.repairer ? { repairer: w.repairer } : {}) }));
+  return answer(overviewSummary(store, { ...when, ...budget, ...(w.prices ? { prices: w.prices } : {}), goldens: w.goldens, teamStore: status ? { name: status.name, onlyLocal: status.onlyLocal, setup } : null, ...(patchInTree ? { patchInTree } : {}), ...(rewriteHere ? { rewriteHere } : {}), ...(w.next ? { next: w.next } : {}), ...(w.repairer ? { repairer: w.repairer } : {}) }));
 }
 
 function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns' | 'judge'>, team: TeamStoreInput | null, whole: boolean, outcome: OutcomeWork | null, next: NextStepWork | null): ReadAnswer {

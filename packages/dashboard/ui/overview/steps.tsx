@@ -7,7 +7,7 @@ import { ConfirmDialog, ConsentDialog } from '../components/Dialog.js';
 import { tipCard } from '../components/HoverCard.js';
 import { JobButton, type StepHooks, useBilledPress } from '../components/JobButton.js';
 import { pressBilled } from '../spending.js';
-import { treeBusy } from '../fixes/model.js';
+import { fixAction, treeBusy } from '../fixes/model.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
 import { useServerJobs } from '../fixes/tree.js';
 import { goldenName } from '../format.js';
@@ -217,12 +217,15 @@ function FixStep({ s, why }: { s: Extract<LookStep, { of: 'fix' }>; why: string 
   const open = (e: Price) =>
     show(async (close) => {
       const fix = await app.client.fix(fixId);
+      // As the fix's page leads (fixAction): a patch `fix apply` refuses is applied from nowhere, its page saying why.
+      const act = applies ? fixAction(fix) : null;
+      if (act?.kind === 'none') throw new Error(act.why);
       if (lead.key === 'repair' || applies) {
         const m = await import('../fixes/FixPage.js');
         return lead.key === 'repair' ? (
           <m.RepairDialog fix={fix} onClose={close} onRun={(repairer, sent) => app.guard(() => post({ fixId, repairer, ...sent }))} />
         ) : (
-          <m.ApplyDialog fix={fix} label={lead.label} onClose={close} onRun={(names) => app.guard(() => post({ fixId, ...(names ? { names } : {}) }))} />
+          <m.ApplyDialog fix={fix} label={act?.kind === 'apply' ? act.label : lead.label} onClose={close} onRun={(names) => app.guard(() => post({ fixId, ...(names ? { names } : {}) }))} />
         );
       }
       const m = await import('../fixes/BlameAgain.js');

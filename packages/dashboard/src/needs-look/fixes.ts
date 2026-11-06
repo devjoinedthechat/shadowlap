@@ -112,7 +112,7 @@ export const openFixes: LookSource = {
       const b = shownBlame(rec);
       const held: HeldGolden[] = w.held.get(f.fixId!) ?? [];
       const bisect = held.find((h) => h.step.key === 'bisect');
-      const lead = noAnswerLost(b) ? null : fixLead(w.store, rec, { patchInTree: w.patchInTree, repairer: w.repairer ?? null });
+      const lead = noAnswerLost(b) ? null : fixLead(w.store, rec, { patchInTree: w.patchInTree, rewriteHere: w.rewriteHere, repairer: w.repairer ?? null });
       const step: LookStep | null = bisect ? { of: 'run', runId: bisect.runId, step: bisect.step } : lead ? { of: 'fix', fixId: f.fixId!, lead } : null;
       const found = b?.outcome === 'blamed' && !!b.report.blamed;
       const row: NeedsLookRow = { key: `attn:fix:${fixHref(f.fixId!)}`, group: 'failing', kind: 'open', icon: 'blame', title: f.title, detail: openFixWords(rec) + held.map((h) => ` · ${h.name} fails on Tests`).join(''), step, href: found ? fixHref(f.fixId!) : fixHref(f.fixId!, 'blame'), runId: null, fixId: f.fixId, at: f.at };
@@ -129,7 +129,7 @@ export const ready: LookSource = {
   rows: (w) =>
     of(w, 'ready').map((f) => {
       const rec = recordsOf(w, f.fixId!);
-      const lead = rec ? fixLead(w.store, rec, { patchInTree: w.patchInTree, repairer: w.repairer ?? null }) : null;
+      const lead = rec ? fixLead(w.store, rec, { patchInTree: w.patchInTree, rewriteHere: w.rewriteHere, repairer: w.repairer ?? null }) : null;
       return { key: `attn:verified:${fixHref(f.fixId!)}`, group: 'ship', kind: 'ready', icon: 'fixok', title: f.title, detail: f.detail, step: lead ? { of: 'fix', fixId: f.fixId!, lead } : null, href: f.href, runId: null, fixId: f.fixId, at: f.at };
     }),
   rest: (n) => ({ icon: 'fixok', title: `${plural(n, 'more verified fix', 'more verified fixes')} ${n === 1 ? 'is' : 'are'} ready`, detail: 'each on Fixes', href: links.fixes() }),

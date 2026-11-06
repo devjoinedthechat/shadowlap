@@ -206,6 +206,28 @@ describe('Needs a look: a fix’s row, worded and led as its page has it', () =>
       store.close();
     }
   });
+
+  it('gives a verified fix whose patch `fix apply` refuses no step to apply it with, as its page applies none', () => {
+    const lead = (file: string | null) => {
+      const store = Store.open(':memory:');
+      try {
+        const { failing, fixId } = opened(store);
+        const held = makeRun(store, { labels: ['refund-bug'], startedAt: NOW - 4 * HOUR });
+        const good = makeRun(store, { labels: ['good'], status: 'completed', startedAt: NOW - 4 * HOUR });
+        const report = repairReport({ targets: [failing], holdout: [held], good: [good] });
+        // A patch whose candidate names a path outside the repository: `fix apply` refuses it.
+        if (file) report.candidates.find((c) => c.id === report.accepted)!.file = file;
+        recordRepair(store, { repairId: 'repair-nl', dir: '.shadowlap/repairs/repair-nl', report, expect: EXPECT, command: 'r', at: NOW - HOUR });
+        const row = look(store).find((x) => x.fixId === fixId);
+        expect(row).toMatchObject({ kind: 'ready', group: 'ship' });
+        return row!.step;
+      } finally {
+        store.close();
+      }
+    };
+    expect(lead(null)).toMatchObject({ of: 'fix', lead: { key: 'apply', label: 'Apply fix' } });
+    expect(lead('../agent.mjs')).toBeNull();
+  });
 });
 
 describe('Needs a look: an inconclusive golden', () => {

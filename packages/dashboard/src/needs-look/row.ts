@@ -1,7 +1,7 @@
 import type { RunAbout, Store } from '@shadowlap/engine';
 import type { FixLead } from '../fix-lead.js';
 import type { NeedsLookItem } from '../fix-summary.js';
-import type { PatchCheck } from '../fix-shared.js';
+import type { PatchCheck, RewriteCheck } from '../fix-shared.js';
 import type { NextStep, NextStepWork, StepReads } from '../next-step.js';
 import type { StoreNote } from '../overview.js';
 import type { RunIndex } from '../run-index.js';
@@ -77,6 +77,8 @@ export interface LookWork {
   goldens: GoldenList;
   teamStore: StoreNote | null;
   patchInTree?: PatchCheck | undefined;
+  /** Why `fix apply` refuses a pulled patch in this working tree (patch-in-tree.ts), as the fix's page reads it. */
+  rewriteHere?: RewriteCheck | undefined;
   /** The configured repairer, which Run repair's card names. */
   repairer?: string | null;
   budget?: number | undefined;

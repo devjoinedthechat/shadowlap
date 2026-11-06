@@ -6,6 +6,9 @@
 /** A verified fix with no patch to apply, or one whose patch is in the tree already: nothing runs, so no ACTIONS entry. */
 export const MARK_APPLIED = 'Mark applied';
 
+/** A fix applied part way, its goldens not copied or not tested yet: applying it again does the rest. */
+export const FINISH_APPLYING = 'Finish applying';
+
 /** Apply fix's card: what pressing it does to your files. */
 export const APPLY_SUB = 'It changes your working tree';
 

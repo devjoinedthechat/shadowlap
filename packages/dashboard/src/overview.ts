@@ -1,5 +1,5 @@
 import { emptyOriginCounts, importedRecording, sumCacheUse, type OriginCounts, type RunAbout, type RunKind, type Store } from '@shadowlap/engine';
-import { fixesSummary, type PatchCheck } from './fixes.js';
+import { fixesSummary, type PatchCheck, type RewriteCheck } from './fixes.js';
 import { lookWork, needsLook } from './needs-look/index.js';
 import type { NextStepWork } from './next-step.js';
 import { aboutsOf, aboutsWithin } from './run-about.js';
@@ -171,6 +171,8 @@ export interface OverviewOptions extends StatsOptions {
   teamStore?: StoreNote | null;
   /** Whether a verified fix's patch is in the working tree already (merged, or applied by hand): such a fix is no more ready to apply. */
   patchInTree?: PatchCheck;
+  /** Why `fix apply` refuses a pulled patch in the working tree: such a fix has no step on Needs a look, as its page applies none. */
+  rewriteHere?: RewriteCheck;
   /**
    * Answering a request beside the server (read-jobs.ts), after `overviewKnown` found the finished
    * runs' totals known: what isn't known yet is worked out only while the calls read for it stay
@@ -299,7 +301,7 @@ export function overviewSummary(store: Store, options: OverviewOptions = {}): Ov
     },
     cache: weekCache(store, index, week.from, options.budget),
     fixes: { ...fixes.funnel, open: fixes.open, readyToApply: fixes.readyToApply, broken: fixes.broken, attempts: fixes.attempts, spent: fixes.spent },
-    needsLook: needsLook(lookWork(store, { goldens, teamStore: options.teamStore ?? null, patchInTree: options.patchInTree, repairer: options.repairer ?? null, budget: options.budget, next: options.next ?? null, now, week: { ...week, first: weekDays[0]!.key, last: today.key }, index })),
+    needsLook: needsLook(lookWork(store, { goldens, teamStore: options.teamStore ?? null, patchInTree: options.patchInTree, rewriteHere: options.rewriteHere, repairer: options.repairer ?? null, budget: options.budget, next: options.next ?? null, now, week: { ...week, first: weekDays[0]!.key, last: today.key }, index })),
   };
 }
 
