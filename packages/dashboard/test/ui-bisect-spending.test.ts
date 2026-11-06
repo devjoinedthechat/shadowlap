@@ -4,7 +4,7 @@ import type { Estimate } from '../../engine/src/estimates/estimate.js';
 import type { ActionLike } from '../ui/actions.js';
 import type { BisectOffer, CallDetail, Client, JobView } from '../ui/api.js';
 import type { BisectQuery } from '../ui/estimates-api.js';
-import { FindCommitDialog as TestsFindCommit } from '../ui/pages/TestsDialogs.js';
+import { FindCommitButton, FindCommitDialog as TestsFindCommit } from '../ui/pages/TestsDialogs.js';
 import { ForkMenu } from '../ui/run/actions.js';
 import { BisectDialog } from '../ui/run/RunDialogs.js';
 import { forgetBisectEstimates } from '../ui/runspage/bisect-estimate.js';
@@ -93,6 +93,31 @@ describe('Find breaking commit, priced from its commit', () => {
     expect(asked).toEqual([{ golden: 'goldens/flaky', good: 'aaaaaaa', bad: 'bbbbbbb' }]);
     await r!.click(r!.one('.dialog .dlg-ok'));
     expect(ran).toEqual([{ good: 'aaaaaaa', bad: 'bbbbbbb', estimate: { usd: 5.27, ceiling: true } }]);
+  });
+
+  it('gives each golden’s Find breaking commit on Tests its card: a form at the amount alone where it runs live, free where it replays', async () => {
+    const pressed: string[] = [];
+    const golden = (over: Record<string, unknown>, live: boolean) => createElement(FindCommitButton, { f: { golden: 'goldens/flaky', bisect: { good: 'aaaaaaa', bad: 'bbbbbbb', live }, missed: null, revisions: [], ...over } as never, live, why: null, onBisect: () => pressed.push('bisect') });
+    const card = () => JSON.parse(String(r!.one('button').props['data-tip'])) as { t?: string; s?: string; cmd?: string; est?: unknown };
+    const { asked, started } = await shown(golden({}, true));
+    expect(r!.one('button').textContent).toBe('Find breaking commit…');
+    expect(card()).toMatchObject({ t: 'Find breaking commit', s: 'Runs live at each commit, so it costs tokens', cmd: 'shadowlap bisect goldens/flaky --good aaaaaaa --bad bbbbbbb' });
+    expect(card().est).toBeUndefined();
+    await r!.wait(300);
+    expect(asked).toEqual([{ golden: 'goldens/flaky', good: 'aaaaaaa', bad: 'bbbbbbb' }]);
+    expect(card().est).toEqual({ usd: 5.27, ceiling: true, form: true });
+    // A form asks on every setting: the press opens its dialog, and nothing starts.
+    await r!.click(r!.one('button'));
+    expect([pressed, started]).toEqual([['bisect'], []]);
+    await r!.unmount();
+    const replays = await shown(golden({}, false));
+    await r!.wait(300);
+    expect(r!.one('button').textContent).toBe('Find breaking commit');
+    expect(card()).toMatchObject({ s: 'Replays the golden at the commits since aaaaaaa, where it passed, offline: no tokens', cmd: 'shadowlap bisect goldens/flaky --good aaaaaaa --bad bbbbbbb' });
+    expect([card().est, replays.asked]).toEqual([undefined, []]);
+    await r!.unmount();
+    await shown(golden({ missed: { why: 'It already failed at aaaaaaa', good: 'aaaaaaa', bad: 'bbbbbbb', outcome: 'fails-at-good' } }, false));
+    expect(card()).toMatchObject({ s: 'Asks for an older commit: the last search found it failing at aaaaaaa', cmd: 'shadowlap bisect goldens/flaky --good <commit>' });
   });
 
   it('says the amount alone on the fork menu’s row, from the commit its offer starts at, and no estimate with none yet', async () => {

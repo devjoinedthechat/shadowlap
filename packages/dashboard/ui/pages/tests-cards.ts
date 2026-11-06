@@ -3,7 +3,7 @@ import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import type { DivergenceView, MoreAttempts, TestsView } from '../api.js';
 import type { TestsCard } from '../fixes/TestsJobButton.js';
 import { commandText } from '../goldens.js';
-import { ACTIONS } from '../labels.js';
+import { ACTIONS, confirmWords } from '../labels.js';
 
 type Price = Estimate | null | undefined;
 
@@ -45,4 +45,23 @@ export function moreCard(more: Pick<MoreAttempts, 'args' | 'attempts' | 'most' |
 /** Update goldens…' card: the command that re-records every diverged golden. */
 export function updatesCard(paths: readonly string[]): TestsCard {
   return { tip: ACTIONS.updateGoldens.label, command: commandText(['test', ...paths, '--update']) };
+}
+
+type Bisected = Pick<DivergenceView, 'golden' | 'bisect' | 'missed'>;
+
+/** Whether a golden's Find breaking commit runs live at each commit: as its range says, else as the golden is marked. */
+export function bisectLive(view: Pick<TestsView, 'rows'>, f: Bisected): boolean {
+  const range = f.missed ? null : f.bisect;
+  return range?.live ?? view.rows.find((r) => r.path === f.golden)?.mode === 'fork';
+}
+
+/**
+ * Find breaking commit's card, a golden's: it asks for an older commit once a search named none, for
+ * one where it worked with no range known, or runs live at each commit for a golden marked fork;
+ * otherwise it replays the commits since the one it passed at, offline. Its command is the dialog's.
+ */
+export function bisectCard(f: Bisected, live: boolean): TestsCard {
+  const range = f.missed ? null : f.bisect;
+  const sub = f.missed ? `Asks for an older commit${f.missed.good ? `: the last search found it failing at ${f.missed.good}` : ''}` : live ? 'Runs live at each commit, so it costs tokens' : range ? `Replays the golden at the commits since ${range.good}, where it passed, offline: no tokens` : 'Asks for a commit where it worked';
+  return { tip: confirmWords(ACTIONS.findBreakingCommit.label), sub, command: commandText(['bisect', f.golden, '--good', range?.good ?? '<commit>', ...(range?.bad ? ['--bad', range.bad] : [])]) };
 }

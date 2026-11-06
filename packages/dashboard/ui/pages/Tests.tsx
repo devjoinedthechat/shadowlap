@@ -20,11 +20,10 @@ import { goldenPrice, runPrice, updatesPrice, useTestsEstimates, type Price } fr
 import type { TestsEstimates } from '../estimates-api.js';
 import { JobButton } from '../components/JobButton.js';
 import { sentEstimate } from '../spending.js';
-import { moreCard, normalizeCard, runTestsCard, testsJob, updateCard, updatesCard } from './tests-cards.js';
+import { bisectLive, moreCard, normalizeCard, runTestsCard, testsJob, updateCard, updatesCard } from './tests-cards.js';
 import { keepTests, onTestsChanged, testsPaletteCommands } from '../tests-palette.js';
-import { FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from './TestsDialogs.js';
+import { FindCommitButton, FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from './TestsDialogs.js';
 import { ACTIONS, confirmWords } from '../labels.js';
-import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * Tests (#/tests): every golden CI runs and how it did at each revision. The verdict for the goldens'
@@ -149,7 +148,7 @@ export function TestsPage() {
   const findCommit = (f: Pick<DivergenceView, 'name' | 'golden' | 'bisect' | 'missed' | 'revisions'>) => {
     // Once a search over the known range named no first bad commit, it asks for an older good one.
     const range = f.missed ? null : f.bisect;
-    const live = range?.live ?? view.rows.find((r) => r.path === f.golden)?.mode === 'fork';
+    const live = bisectLive(view, f);
     // Free replays over a known range start at once; a search that needs a good commit, or costs tokens, asks first.
     if (range && !live) start(JOB_KINDS.bisect, { golden: f.golden, good: range.good, ...(range.bad ? { bad: range.bad } : {}) });
     else setOpen({ kind: 'bisect', name: f.name, golden: f.golden, range: range ? { good: range.good, bad: range.bad } : null, live, revisions: f.revisions, tried: f.missed?.good ?? null });
@@ -217,18 +216,14 @@ export function TestsPage() {
                   {ACTIONS.updateGolden.label}
                 </JobButton>
               ) : null}
-              {b.bisect ? (
-                <ActionButton className="btn" why={findWait} onClick={() => guard(() => findCommit(d))}>
-                  {b.bisect.range && !b.bisect.live ? confirmWords(ACTIONS.findBreakingCommit.label) : ACTIONS.findBreakingCommit.label}
-                </ActionButton>
-              ) : null}
+              {b.bisect ? <FindCommitButton f={d} live={bisectLive(view, d)} why={findWait} onBisect={() => findCommit(d)} /> : null}
             </div>
             <p className="hintx">Normalizers apply at match time, so older goldens keep working. Update a golden only when the change was intended.</p>
           </ReportPanel>
         );
       })}
       {view.failures.map((f) => (
-        <FailurePanel key={f.golden} f={f} off={findWait ?? undefined} button={findCommitButton(f, hasKind)} onBisect={() => guard(() => findCommit(f))} />
+        <FailurePanel key={f.golden} f={f} off={findWait} live={bisectLive(view, f)} button={findCommitButton(f, hasKind)} onBisect={() => findCommit(f)} />
       ))}
       {view.inconclusive.map((v) => (
         <InconclusivePanel
@@ -678,14 +673,12 @@ function InconclusivePanel({ v, off, canRun, onMore, prices, updateOff, canUpdat
 }
 
 /** A failed check, a non-zero exit, no calls: as `test --markdown` prints it, with no normalizer to offer. */
-function FailurePanel({ f, off, button, onBisect }: { f: FailureView; off: string | undefined; button: { range: boolean; live: boolean } | null; onBisect: () => void }) {
+function FailurePanel({ f, off, live, button, onBisect }: { f: FailureView; off: string | null | undefined; live: boolean; button: { range: boolean; live: boolean } | null; onBisect: () => void }) {
   return (
     <ReportPanel name={f.name} runId={f.runId} lines={failureLines(f)} found={f.found} missed={f.missed}>
       {button ? (
         <div className="actions">
-          <ActionButton className="btn" why={off} onClick={onBisect}>
-            {button.range && !button.live ? confirmWords(ACTIONS.findBreakingCommit.label) : ACTIONS.findBreakingCommit.label}
-          </ActionButton>
+          <FindCommitButton f={f} live={live} why={off} onBisect={onBisect} />
         </div>
       ) : null}
       <p className="hintx">{failureHint(f)}</p>

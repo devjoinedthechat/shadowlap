@@ -1,7 +1,8 @@
 import { useId, useState } from 'react';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
-import type { BisectRevision, TestsView } from '../api.js';
+import type { BisectRevision, DivergenceView, TestsView } from '../api.js';
 import { Dialog } from '../components/Dialog.js';
+import { JobButton } from '../components/JobButton.js';
 import { DialogSteps } from '../components/DialogFacts.js';
 import { COMMIT_NAME, GoodCommitField } from '../components/GoodCommit.js';
 import { namedIn } from '../components/Id.js';
@@ -12,6 +13,7 @@ import { ACTIONS, confirmWords } from '../labels.js';
 import { useBisectEstimate } from '../runspage/bisect-estimate.js';
 import { bisectCost } from '../runspage/find-commit.js';
 import { sentEstimate } from '../spending.js';
+import { bisectCard } from './tests-cards.js';
 
 /**
  * The Tests screen's dialogs: Update golden (one or several), Find the commit when it needs a good
@@ -59,6 +61,22 @@ export function FindCommitDialog({ name, golden, range, live, revisions, tried, 
     >
       {range ? null : <GoodCommitField id={id} choices={choices.options} picked={picked} typed={typed} onPick={setPicked} onType={setTyped} />}
     </Dialog>
+  );
+}
+
+/**
+ * Find breaking commit under a golden's report. Over a range it replays offline it starts on the press,
+ * billing nothing; where it asks for a commit it opens its dialog. For a golden marked fork it is a
+ * form, its card the search's estimate from the commit its dialog opens on (`GET /api/estimates/bisect`).
+ */
+export function FindCommitButton({ f, live, why, onBisect }: { f: Pick<DivergenceView, 'golden' | 'bisect' | 'missed' | 'revisions'>; live: boolean; why: string | null | undefined; onBisect: () => void }) {
+  const range = f.missed ? null : f.bisect;
+  const good = range ? range.good : revisionChoices(f.revisions, f.missed?.good ?? null).initial;
+  const estimate = useBisectEstimate(live ? { golden: f.golden, good, ...(range?.bad ? { bad: range.bad } : {}) } : { good: '' });
+  return (
+    <JobButton className="btn" why={why} {...bisectCard(f, live)} {...(live ? { form: true, estimate } : { bills: false })} start={onBisect} ask={onBisect}>
+      {live || !range ? ACTIONS.findBreakingCommit.label : confirmWords(ACTIONS.findBreakingCommit.label)}
+    </JobButton>
   );
 }
 
