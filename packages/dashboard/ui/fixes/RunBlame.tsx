@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { probesPart } from '../../../engine/src/cost-words.js';
 import { consentAsked } from '../actions.js';
 import { ApiError, JOB_KINDS } from '../api.js';
-import { ConsentDialog, Dialog, PromptDialog, pressWayOn } from '../components/Dialog.js';
+import { ConfirmDialog, ConsentDialog, Dialog, PromptDialog, pressWayOn } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { namedIn } from '../components/Id.js';
 import { shortId } from '../format.js';
@@ -13,6 +13,14 @@ import { parseCheck } from './model.js';
 import { useTreeBusy } from './tree.js';
 import { ACTIONS } from '../labels.js';
 import { ActionButton } from '../components/ActionButton.js';
+import { AskNote } from '../components/AskNote.js';
+import { tipCard } from '../components/HoverCard.js';
+import type { CostLineProps } from '../components/CostLine.js';
+import { useBilledPress } from '../components/JobButton.js';
+import { sentEstimate, tipEst } from '../spending.js';
+import type { Estimate } from '../../../engine/src/estimates/estimate.js';
+import type { BlameOffer } from '../types.js';
+import { useRunEstimates } from '../run/estimates.js';
 
 /**
  * Run blame, for a failed run never blamed: a job that finds the model call where the run was lost
@@ -22,10 +30,14 @@ import { ActionButton } from '../components/ActionButton.js';
  * the run failed (`failed`). A run whose command came from someone else's pack runs only once
  * confirmed; a capture, which has none, asks for yours first (`capture`). Disabled, with the reason,
  * where nothing runs or while a repair or an apply changes the working tree the agent would run from.
+ * It starts by Spending, with the estimate it was given or, given none (the banner's), the run's own
+ * from the server: at or under the threshold at once, else it asks, `Run blame on <id>`. A blame
+ * that needs its check, or a capture's command, asks for it in that one dialog, priced, and starts
+ * from it; a check the server asks for after all opens that dialog with the estimate kept.
  */
 export function RunBlameButton({
   runId,
-  failed = [],
+  offer,
   className = 'linkbtn',
   title = 'Find the model call where this run was lost',
   tip,
@@ -34,9 +46,13 @@ export function RunBlameButton({
   capture = false,
   line,
   mark,
+  ...priced
 }: {
   runId: string;
-  failed?: readonly string[];
+  /** Which checks the run failed, and whether the check must be asked for (`from: 'ask'`). */
+  offer: Pick<BlameOffer, 'failed' | 'from'>;
+  /** What it bills, as its card said it; left out, the run's estimates are asked for as it shows. */
+  estimate?: Estimate | null | undefined;
   className?: string;
   /** The hover when nothing stops it. */
   title?: string;
@@ -54,14 +70,22 @@ export function RunBlameButton({
 }) {
   const app = useApp();
   const busy = useTreeBusy('reads', 'blame');
-  const [asking, setAsking] = useState<null | { kind: 'command' } | { kind: 'check'; command: string | null } | { kind: 'consent'; why: string; confirm: string; fields: Record<string, unknown> }>(null);
+  const [asking, setAsking] = useState<null | { kind: 'command' } | { kind: 'ask' } | { kind: 'check'; command: string | null } | { kind: 'consent'; why: string; confirm: string; fields: Record<string, unknown> }>(null);
+  const own = useRunEstimates(runId, 'estimate' in priced ? undefined : null);
+  const estimate: Estimate | null | undefined = 'estimate' in priced ? priced.estimate : own === undefined ? undefined : (own?.blame ?? null);
+  const failed = offer.failed;
+  const form = capture || offer.from === 'ask';
+  const press = useBilledPress();
+  const blameLine = line ?? `shadowlap blame ${shortId(runId)}`;
+  const cost: CostLineProps = { price: 'Billed by your provider', parts: [probesPart()], ...(estimate ? { estimate } : {}) };
+  const note = <AskNote estimate={estimate} form={form} />;
   /**
    * Starts the blame. What the check dialog should show instead comes back: why the server refused
    * the check it was given. Anything else closes the dialog: the job, the consent it needs, or its
    * failure in the drawer.
    */
   const start = (fields: Record<string, unknown>): Promise<string | null> =>
-    app.client.startJob(JOB_KINDS.blame, { runId, ...fields }).then(
+    app.client.startJob(JOB_KINDS.blame, { runId, ...sentEstimate(estimate), ...fields }).then(
       (job) => {
         setAsking(null);
         app.watchJob(Promise.resolve(job));
@@ -90,9 +114,9 @@ export function RunBlameButton({
       <ActionButton
         className={className}
         why={busy}
-        {...(tip ? { 'data-tip': tip } : { title })}
+        data-tip={tip ?? tipCard(ACTIONS.runBlame.label, [], title, `$ ${blameLine}`, tipEst(estimate, form))}
         {...(lead ? { 'data-next': 'blame' } : {})}
-        onClick={() => app.guard(() => (capture ? setAsking({ kind: 'command' }) : void start({})))}
+        onClick={() => (form ? app.guard(() => setAsking(capture ? { kind: 'command' } : { kind: 'check', command: null })) : press({ estimate, start: () => void start({}), ask: () => setAsking({ kind: 'ask' }) }))}
         {...mark}
       >
         {icon ? <Icon name="loop" /> : null}
@@ -106,10 +130,23 @@ export function RunBlameButton({
           label={`${shortId(runId)} came from a capture and has no command. What starts your agent?`}
           placeholder="python agent.py"
           command={(command) => (line ?? `shadowlap blame ${shortId(runId)} -- <your command>`).replace('<your command>', () => command || '<your command>')}
-          cost={{ price: 'Billed by your provider', parts: [probesPart()] }}
+          cost={cost}
           ok={ACTIONS.runBlame.label}
           onClose={() => setAsking(null)}
           onRun={(command) => app.guard(() => void start({ command }))}
+        />
+      ) : null}
+      {asking?.kind === 'ask' ? (
+        <ConfirmDialog
+          title={namedIn(`${ACTIONS.runBlame.label} on ${shortId(runId)}`, shortId(runId))}
+          lead="Finds the model call that lost the run."
+          doc="blame"
+          command={blameLine}
+          cost={cost}
+          footNote={note}
+          ok={ACTIONS.runBlame.label}
+          onClose={() => setAsking(null)}
+          onOk={() => app.guard(() => void start({}))}
         />
       ) : null}
       {asking?.kind === 'check' ? (
@@ -117,6 +154,7 @@ export function RunBlameButton({
           runId={runId}
           line={failedLine}
           command={asking.command}
+          cost={cost}
           onClose={() => setAsking(null)}
           onRun={(expect) => guardedWayOn(app.guard, () => start({ expect, ...(asking.command ? { command: asking.command } : {}) })) || Promise.resolve(null)}
         />
@@ -138,7 +176,7 @@ export function RunBlameButton({
  * open, with what was typed, until the job has started: a check that isn't an object, or one the
  * server refuses, says why under the field.
  */
-export function CheckDialog({ runId, line, command = null, onClose, onRun }: { runId: string; line: string | null; /** A capture's, which it runs the blame with. */ command?: string | null; onClose: () => void; onRun: (expect: Record<string, unknown>) => Promise<string | null> }) {
+export function CheckDialog({ runId, line, command = null, cost = { price: 'Billed by your provider', parts: [probesPart()] }, onClose, onRun }: { runId: string; line: string | null; /** A capture's, which it runs the blame with. */ command?: string | null; cost?: CostLineProps; onClose: () => void; onRun: (expect: Record<string, unknown>) => Promise<string | null> }) {
   const [value, setValue] = useState('');
   const [error, setError] = useState<string | null>(null);
   const submit = () => {
@@ -160,7 +198,7 @@ export function CheckDialog({ runId, line, command = null, onClose, onRun }: { r
       doc="blame"
       warn={line ? { text: line } : null}
       command={`shadowlap blame ${shortId(runId)} --expect ${value.trim() ? `'${value.trim().replace(/'/g, `'\\''`)}'` : `'<check>'`}${command ? ` -- ${command}` : ''}`}
-      cost={{ price: 'Billed by your provider', parts: [probesPart()] }}
+      cost={cost}
       ok={ACTIONS.runBlame.label}
       okDisabled={!value.trim()}
       onOk={submit}

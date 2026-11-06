@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import type { Estimate } from '../../engine/src/estimates/estimate.js';
 import { asksFirst, type Spending } from '../../engine/src/estimates/spending.js';
 import type { EstimatesApi } from './estimates-api.js';
+import type { TipEst } from './components/HoverCard.js';
 
 /**
  * Spending in the browser: the person's threshold for when a billed job asks before it starts, as the
@@ -95,6 +96,14 @@ export function sentEstimate(e: Priced): Record<string, unknown> {
   if (!e || e.usd === null) return {};
   const { usd, ceiling, per, stops } = e;
   return { estimate: { usd, ceiling, ...(per === undefined ? {} : { per }), ...(stops === undefined ? {} : { stops }) } };
+}
+
+/** A job's estimate as its control's card holds it; none while it is worked out, so the card has no line until it is. */
+export function tipEst(e: Priced, form = false): TipEst | null {
+  if (e === undefined) return null;
+  const none: NonNullable<Priced> = { usd: null, ceiling: false };
+  const { usd, ceiling, always, per, stops } = e ?? none;
+  return { usd, ceiling, ...(always ? { always } : {}), ...(per ? { per } : {}), ...(stops === undefined ? {} : { stops }), ...(form ? { form } : {}) };
 }
 
 /** A press of a billed control: its estimate, whether it opens a form, and what starting it and asking first do. */

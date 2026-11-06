@@ -287,7 +287,7 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
     if (leads('blame') || (next?.key === 'bisect' && next.blame)) return null;
     const offer = offers?.blame ?? null;
     // The server picks the check, as the CLI judges the run; disabled with why on a read-only dashboard or while a repair holds the tree.
-    return offer ? <RunBlameButton runId={r.runId} failed={offer.failed} title={blameTitle(offer)} /> : null;
+    return offer ? <RunBlameButton runId={r.runId} offer={offer} title={blameTitle(offer)} /> : null;
   };
   // The fix, linked; where the header opens it already, how it stands instead (open, verified).
   const fixLink = (step?: string) => {

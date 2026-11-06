@@ -1,4 +1,6 @@
-import { costLine, costWords } from '../../../engine/src/estimates/spending.js';
+import { costLine } from '../../../engine/src/estimates/spending.js';
+import type { TipEst } from '../components/HoverCard.js';
+import { tipEst } from '../spending.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { normalizeAction } from '../normalize.js';
 import type { PaletteEntry } from '../palette.js';
@@ -56,26 +58,37 @@ export interface StepCard {
   sub: string | null;
   rows: Array<{ label: string; value: string }>;
   cmd: string | null;
+  /** What it bills, as the card's line says it: none for a step that bills nothing, or while its price is asked for alone (`later`). */
+  est: TipEst | null;
 }
 
 /**
- * What a job's hover says of what it bills and runs: the amount alone until Spending says whether it
- * asks first, none for what bills nothing. A job's dialog says the rest.
+ * What a job's hover says of what it bills and runs: its estimate, worked out as the card shows by
+ * Spending, the amount alone for one that asks in a dialog (`form`); none for what bills nothing. A
+ * job's dialog says the rest.
  */
-function billsAndRuns(o: Pick<NextStep, 'estimate' | 'command'>): Pick<StepCard, 'rows' | 'cmd'> {
-  const cost = o.estimate ? costWords(o.estimate, null, { form: true }) : null;
-  return { rows: cost ? [{ label: 'Costs', value: cost }] : [], cmd: o.command ? `$ ${o.command}` : null };
+function billsAndRuns(o: Pick<NextStep, 'estimate' | 'command' | 'later'>, form: boolean): Pick<StepCard, 'rows' | 'cmd' | 'est'> {
+  return { rows: [], cmd: o.command ? `$ ${o.command}` : null, est: o.estimate && !o.later ? tipEst(o.estimate, form) : null };
 }
 
-/** What a step's hover says: its title, its sentence, and what it bills and runs. */
+/** What a step's press is priced at: undefined while its price is asked for alone (`later`), null for none. */
+export const stepEstimate = (o: Pick<NextStep, 'estimate' | 'later'>, later: boolean | undefined = o.later): NextStep['estimate'] | null => (later ? undefined : (o.estimate ?? null));
+
+/** Run blame starts by Spending; it asks in a dialog on every setting where it needs its check or a capture's command. */
+const blameAsks = (o: { offer: { from: string }; capture?: boolean }): boolean => o.offer.from === 'ask' || !!o.capture;
+
+/**
+ * What a step's hover says: its title, its sentence, and what it bills and runs. Run blame's line says
+ * whether it starts at once; every other step's, the amount alone, as its own dialog or job says the rest.
+ */
 export function stepCard(step: NextStep): StepCard {
   const own = step.key === 'fix' ? fixStatusWords(step.status).why : step.key === 'blame' ? blameTitle(step.offer) : null;
-  return { title: step.title ?? confirmWords(step.label), sub: step.sub ?? own, ...billsAndRuns(step) };
+  return { title: step.title ?? confirmWords(step.label), sub: step.sub ?? own, ...billsAndRuns(step, step.key !== 'blame' || blameAsks(step)) };
 }
 
-/** What the Run blame beside a crash's Find breaking commit says on hover. */
-export function blameBesideCard(blame: BlameBeside): StepCard {
-  return { title: ACTIONS.runBlame.label, sub: blame.sub, ...billsAndRuns(blame) };
+/** What the Run blame beside a crash's Find breaking commit says on hover: none while the step's price is asked for alone. */
+export function blameBesideCard(blame: BlameBeside, later = false): StepCard {
+  return { title: ACTIONS.runBlame.label, sub: blame.sub, ...billsAndRuns({ ...blame, ...(later ? { later } : {}) }, blameAsks(blame)) };
 }
 
 /** What a step's dialog bills, as an ask's cost line says it, the price first: `≈$3.11, as the last test’s 6 attempts · live from each read, writes stubbed`; none for a step that bills nothing. */

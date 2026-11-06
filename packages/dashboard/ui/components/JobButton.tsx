@@ -1,7 +1,8 @@
 import { useApp } from '../state.js';
-import { pressBilled, type BilledPress, type Priced } from '../spending.js';
+import { pressBilled, tipEst, type BilledPress, type Priced } from '../spending.js';
 import { ActionButton, type ActionButtonProps } from './ActionButton.js';
-import type { TipEst } from './HoverCard.js';
+
+export { tipEst };
 
 /**
  * The button every billed job starts from. Its card says the job's estimate under its sentence, and
@@ -31,13 +32,6 @@ export function useBilledPress(): (p: BilledPress) => boolean {
   return (p) => guard(() => void pressBilled(p));
 }
 
-/** A job's estimate as its control's card holds it; none while it is worked out, so the card has no line until it is. */
-export function tipEst(e: Priced, form = false): TipEst | null {
-  if (e === undefined) return null;
-  const none: NonNullable<Priced> = { usd: null, ceiling: false };
-  const { usd, ceiling, always, per, stops } = e ?? none;
-  return { usd, ceiling, ...(always ? { always } : {}), ...(per ? { per } : {}), ...(stops === undefined ? {} : { stops }), ...(form ? { form } : {}) };
-}
 
 export function JobButton(props: JobButtonProps) {
   const { estimate, bills = true, form = false, start, ask, ...rest } = props;

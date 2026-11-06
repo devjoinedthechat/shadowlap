@@ -33,6 +33,7 @@ import { packRunCommand } from '../ui/run/share.js';
 import { importWords } from '../ui/runspage/imports.js';
 import { ApiError, type BisectOffer, type TestsView } from '../ui/api.js';
 import { render, type Rendered } from './ui-render.js';
+import { resetSpending } from '../ui/spending.js';
 
 /**
  * One dialog anatomy: every dialog and every ask before a job, drawn as the page draws it, read for
@@ -291,7 +292,9 @@ describe('a run’s dialogs', () => {
       },
     };
     const app = appWith({ client: { ...client, jobs: () => Promise.resolve([]) }, feeds: {} });
-    const page = await open(createElement(RunBlameButton, { runId: RUN, failed: ['x'] }), app);
+    // Under Spending it starts at once; a check the server asks for after all is asked in its place.
+    resetSpending(0.5);
+    const page = await open(createElement(RunBlameButton, { runId: RUN, offer: { failed: ['x'], from: 'exit' }, estimate: { kind: 'blame', usd: 0.1, ceiling: true, parts: [] } }), app);
     await page.click(page.byText('button', 'Run blame'));
     await page.until('its check to be asked', () => page.all('[role="dialog"] textarea').length === 1);
     await page.type(page.one('[role="dialog"] textarea'), '{"tools":{"a":1}}');
@@ -300,8 +303,9 @@ describe('a run’s dialogs', () => {
     holds(page, { title: 'Run command from imported pack', doc: 'commandsFromSomeoneElse', first: CANCEL, ok: 'Run blame', warn: why });
     await page.click(page.one('[role="dialog"] .dlg-ok'));
     await page.until('the job', () => sent.length === 3);
-    expect(sent.at(-1)).toMatchObject({ expect: { tools: { a: 1 } }, yes: confirm });
+    expect(sent.at(-1)).toMatchObject({ expect: { tools: { a: 1 } }, yes: confirm, estimate: { usd: 0.1, ceiling: true } });
     await page.until('it to go', () => page.all('[role="dialog"]').length === 0);
+    resetSpending();
   });
   it('Import capture', async () => {
     const client = { importSources: () => new Promise(() => undefined) };
@@ -327,9 +331,27 @@ describe('a run’s next steps that ask first', () => {
   const estimate = { kind: 'injection', usd: 3.11, ceiling: false, note: 'as the last test’s 6 attempts', parts: ['live from each read, writes stubbed'] } as NonNullable<NextStep['estimate']>;
 
   it('Run blame on a capture asks for your command first', async () => {
-    const page = await open(createElement(RunBlameButton, { runId: RUN, capture: true, line: `shadowlap blame ${RUN.slice(0, 10)} --expect '{"calls":[]}' -- <your command>` }), served());
+    const page = await open(createElement(RunBlameButton, { runId: RUN, offer: { failed: [], from: 'exit' }, capture: true, line: `shadowlap blame ${RUN.slice(0, 10)} --expect '{"calls":[]}' -- <your command>` }), served());
     await page.click(page.byText('button', 'Run blame'));
     holds(page, { title: 'Run blame on 01K5CQ4N7G', doc: 'blame', first: FIELD, ok: 'Run blame' });
+  });
+  it('Run blame above Spending, asked on its id with its command, its price and why it asks; one that needs its check asks for it alone', async () => {
+    resetSpending(0.5);
+    const estimate = { kind: 'blame', usd: 10.88, ceiling: true, parts: ['up to 7 probes of 33 attempts and a check of the call found', 'live from each probe, writes stubbed'] } as NonNullable<NextStep['estimate']>;
+    let page = await open(createElement(RunBlameButton, { runId: RUN, offer: { failed: [], from: 'exit' }, estimate }), served());
+    expect(JSON.parse(String(page.byText('button', 'Run blame').props['data-tip']))).toMatchObject({ est: { usd: 10.88, ceiling: true } });
+    await page.click(page.byText('button', 'Run blame'));
+    holds(page, { title: 'Run blame on 01K5CQ4N7G', doc: 'blame', first: OK, ok: 'Run blame' });
+    expect(page.one('[role="dialog"] .dcost').textContent).toContain('At most ≈$10.88');
+    expect(page.one('[role="dialog"] .dlgcost').textContent).toContain('Asks above $0.50');
+    expect(page.one('[role="dialog"]').textContent).toContain(`shadowlap blame ${RUN.slice(0, 10)}`);
+    await page.unmount();
+    page = await open(createElement(RunBlameButton, { runId: RUN, offer: { failed: ['x'], from: 'ask' }, estimate: { ...estimate, usd: 0.1 } }), served());
+    await page.click(page.byText('button', 'Run blame'));
+    expect([page.all('[role="dialog"]').length, page.all('[role="dialog"] textarea').length, page.all('[role="dialog"] .dlgcost').length]).toEqual([1, 1, 0]);
+    expect(page.one('[role="dialog"] .dcost').textContent).toContain('At most ≈$0.100');
+    await page.unmount();
+    resetSpending();
   });
   it('Update golden whose judge had no verdict', async () => {
     const step: NextStep = { key: 'update-golden', label: 'Update golden', golden: GOLDEN, test: null, sub: 'Asks the judge once, live, and keeps its verdict in the pack: every test after judges from the recording, free', command: `shadowlap test ${GOLDEN} --update` };
