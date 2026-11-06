@@ -213,9 +213,14 @@ const FORKS: Record<string, (c: ForkContext) => Partial<DialogCopy>> = {
     lead: typeof ctx.forkAt === 'number' ? `Runs this fork’s change five times from #${ctx.forkAt} and compares the paths they take.` : 'Runs this fork’s change five times and compares the paths they take.',
     doc: 'repeatFork',
     ok: confirmWords(ACTIONS.repeat.label),
-    // The server's command names the run whole; the row shows it short, as every fork's does.
-    ...(a.command ? { command: () => a.command!.replace(/\b[0-9A-HJKMNP-TV-Z]{26}\b/g, (id) => shortId(id)) } : {}),
-    cost: billed(attemptsPart(5, typeof ctx.forkAt === 'number' ? `#${ctx.forkAt}` : 'the fork')),
+    ...serverCommand(a),
+    cost: billed(attemptsPart(5, forkFrom(ctx))),
+  }),
+  // On a fork it is made again from its parent, live from where it forks, so it asks by Spending as Repeat does; its lead is the server's hint.
+  s: ({ a, ctx }) => ({
+    doc: 'repeatFork',
+    ...serverCommand(a),
+    cost: billed(attemptsPart(1, forkFrom(ctx))),
   }),
   // The forks with nothing to fill in ask by Spending, as they run live: their title and way on are the row's name.
   a: ({ ctx, at }) => ({
@@ -259,6 +264,17 @@ const FORKS: Record<string, (c: ForkContext) => Partial<DialogCopy>> = {
 
 function withCommand(command: ((answer: string) => string) | undefined): { command?: (answer: string) => string } {
   return command ? { command } : {};
+}
+
+/** The command the server runs for a fork with nothing to fill in: it names runs whole, and the row shows them short, as every fork's does. */
+function serverCommand(a: ActionLike): { command?: () => string } {
+  const line = a.command?.replace(/\b[0-9A-HJKMNP-TV-Z]{26}\b/g, (id) => shortId(id));
+  return line ? { command: () => line } : {};
+}
+
+/** Where a fork's attempts run live from: `#15`, or `the fork` where the run doesn't say. */
+function forkFrom(ctx: DialogContext): string {
+  return typeof ctx.forkAt === 'number' ? `#${ctx.forkAt}` : 'the fork';
 }
 
 /** The words a server's key doesn't say: a flag or a label names an inject, an override and the rest. */

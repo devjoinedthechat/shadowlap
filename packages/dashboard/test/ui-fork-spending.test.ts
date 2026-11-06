@@ -19,6 +19,8 @@ import { render, type FakeElement, type Rendered } from './ui-render.js';
  */
 
 const RUN = '01M50J6C69T0S34ZZX4WBXJKD1';
+/** The recording a fork was made from: its stubbed replay is made again from it. */
+const PARENT = '01M50HZZ4Q3X1R8T0V5BWN2KD7';
 const a = (key: string, label: string, over: Partial<ActionLike> = {}): ActionLike => ({ key, label, opensRun: true, prompt: null, disabled: null, group: 'call', ...over });
 const ROWS = [a('a', 'Run live from #17', { flag: '--diverge-at 17' }), a('l', 'Force issue_refund live', { flag: '--live-tool issue_refund' }), a('e', 'Repeat 5 times', { group: 'run' }), a('s', 'Replay with writes stubbed', { group: 'run' })];
 const run = { run: { runId: RUN, status: 'completed' }, actions: [], source: null } as unknown as RunDetail;
@@ -108,6 +110,27 @@ describe('the asks of the forks that run live', () => {
     expect(text(r!.one('.dialog .dlgcost'))).toBe('Asks above $0.50 · Change');
     await r!.click(r!.byText('.dialog footer button', 'Run live from #17'));
     expect(p.sent).toEqual([{ key: 'a', sent: { estimate: { usd: 0.51, ceiling: false } } }]);
+  });
+
+  it('asks a fork’s stubbed replay with its command and what runs live, then its estimate and why, and starts with what it said', async () => {
+    const hint = 'Write tools after the fork return their stub instead of being blocked, so the agent goes on as if they had worked.';
+    // A fork's menu: its Repeat asks first, which is how the menu knows the run is one.
+    const rows = [a('e', 'Repeat 5 times', { group: 'run', asksFirst: true }), a('s', 'Replay with writes stubbed', { group: 'run', hint, command: `shadowlap replay ${PARENT} --inject 15=Be\\ brief. --writes stub` })];
+    let p = await page(0.5, 'never', { rows, forkAt: 15 });
+    await r!.click(p.row('Replay with writes stubbed'));
+    expect(text(r!.one('.dialog header'))).toContain(hint);
+    expect(r!.one('.dialog header a').getAttribute('href')).toContain('interventions.md#repeat-a-fork');
+    expect(text(r!.one('.dialog .db'))).toContain('shadowlap replay 01M50HZZ4Q --inject 15=Be\\ brief. --writes stub');
+    expect(text(r!.one('.dialog .dcost'))).toBe('Billed by your provider · 1 attempt, live from #15, writes fenced');
+    await r!.unmount();
+    forgetRunEstimates();
+    p = await page(0.5, { blame: null, actions: { s: price(0.6, { kind: 'repeat', attempts: 1, each: 0.6, parts: ['1 attempt, live from #16, writes fenced'] }) } }, { rows, forkAt: 15 });
+    await r!.click(p.row('Replay with writes stubbed'));
+    expect(text(r!.one('.dialog .dcost'))).toBe('≈$0.600 · 1 attempt, live from #16, writes fenced');
+    expect(text(r!.one('.dialog .dlgcost'))).toBe('Asks above $0.50 · Change');
+    expect(text(r!.one('.dialog .db'))).toContain('--writes stub');
+    await r!.click(r!.byText('.dialog footer button', text(r!.one('.dialog h3'))));
+    expect(p.sent).toEqual([{ key: 's', sent: { estimate: { usd: 0.6, ceiling: false } } }]);
   });
 
   it('words Use changed prompt’s ask, and a write forced live asks at Never ask with no footer', async () => {
