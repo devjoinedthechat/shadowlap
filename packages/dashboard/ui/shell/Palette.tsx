@@ -36,8 +36,6 @@ import { paletteTestsAsk, startTestsJob } from '../tests-ask.js';
  * key of its own shows it while single-key shortcuts are on. Opened on a row in focus (⌘K in a list),
  * it offers that row's actions under its name, and ⌫ in its empty field goes back to everything.
  */
-
-
 export function Palette({ route }: { route: Route }) {
   const app = useApp();
   const { palette, setPalette } = app;

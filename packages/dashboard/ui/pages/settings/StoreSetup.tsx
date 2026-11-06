@@ -406,4 +406,3 @@ function SetUpAlready({ view }: { view: StoreSetupView }) {
     </div>
   );
 }
-

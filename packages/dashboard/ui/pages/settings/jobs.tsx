@@ -99,4 +99,3 @@ export function CleanupDialog({ dry, label, onOk, onClose }: { dry: GcDryRun; la
 
 addJobFooter(JOB_KINDS.calibrate, CalibrateFooter);
 addJobFooter(JOB_KINDS.gc, CleanupFooter);
-

@@ -59,7 +59,6 @@ export function pickRefusal(x: Pick<PaletteEntry, 'job' | 'wait'>, offline: bool
   return offline && x.job ? PAUSED : (x.wait ?? null);
 }
 
-
 /**
  * What the palette's field says it searches, as the dashboard stands: an exported copy holds runs
  * and pages; without the server (offline) the same, since recorded data is searched there and jobs
