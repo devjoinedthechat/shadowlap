@@ -46,7 +46,7 @@ export { CHECK_STATUSES, STATUS_WORDS, checkOutcome, checkStatus, countStatuses,
 // Outcome checks (checks/): the grammar, its parser, and each check's label and a result's line, none
 // of which needs Node, so the dashboard's pages can bundle them; a run judged by them, a judge check
 // with no verdict inconclusive; and the tests entries in the config. The CLI's checks.ts re-exports them.
-export { EXPECT_KEYS, JUDGE_MODEL, OPERATORS, OPERATOR_ALIASES, aliasOf, hasChecks, judgeChecksOf, pathsNamed, readsMoreThanAStep, readsOutput, toolsNamed, withoutOutput } from './checks/grammar.js';
+export { EXPECT_KEYS, JUDGE_MODEL, OPERATORS, OPERATOR_ALIASES, aliasOf, hasChecks, judgeChecksOf, pathsNamed, readsMoreThanAStep, readsOutput, testLive, toolsNamed, withoutOutput } from './checks/grammar.js';
 export type { CallCondition, CallRule, CheckResult, CountRange, ExpectSpec, JudgeCheck, Matcher, NamedPath, NamedTool, Operand, Operator, Reference, TestEntry, TestSpec, TextCheck, ToolCheck, WhenRule } from './checks/grammar.js';
 export { parseAmount, parseCallRule, parseCount, parseExpect, parseJudge, parsePredicate, parseWhen } from './checks/parse.js';
 export { CHECK_MARKS, RULES_ON_CALLS, callRuleLabel, checkLabels, checkLine, checkWords, conditionLabel, costLabel, countLabel, formatAmount, formatCount, judgeLabel, judgeSource, passedWords, showValue, textLabels, toolCheckLabel, whenLabel, type CountKey, type TextKey } from './checks/labels.js';
