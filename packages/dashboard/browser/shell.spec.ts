@@ -48,6 +48,16 @@ test('on a laptop the sidebar holds the project, the pages, Recent runs and Sett
   await expect(pages.getByRole('link')).toHaveText([/^Overview/, /^Runs\s*\d/, /^Compare/, /^Fixes/, /^Tests/, /^Training/]);
   expect(await pages.locator('hr').evaluate((hr) => [hr.previousElementSibling?.textContent, hr.nextElementSibling?.textContent])).toEqual([expect.stringMatching(/^Tests/), expect.stringMatching(/^Training/)]);
   await expect(page.getByRole('navigation', { name: 'Project settings' }).getByRole('link')).toHaveText(['Settings']);
+  // Recent runs: two lines a run, 52px tall, and eight of them whole at 1440×900, the search being in the top bar.
+  const rows = await page.locator('#side .runs a.run').evaluateAll((els) => {
+    const box = document.querySelector('#side .runs')!.getBoundingClientRect();
+    const whole = els.filter((el) => {
+      const r = el.getBoundingClientRect();
+      return r.top >= box.top - 0.5 && r.bottom <= box.bottom + 0.5;
+    });
+    return { heights: [...new Set(whole.map((el) => Math.round(el.getBoundingClientRect().height)))], whole: whole.length };
+  });
+  expect(rows).toEqual({ heights: [52], whole: 8 });
   // Search sits in the top bar, 248px wide, saying its key; the sidebar's top is the project alone.
   const search = page.locator('.top .search.sbtn');
   expect((await search.boundingBox())!.width).toBe(248);
@@ -132,18 +142,46 @@ test.describe('at 1000px', () => {
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test('the open sidebar puts the page and the status bar out of reach until Esc closes it, and the crumbs are left out', async ({ page }) => {
+  test('the open sidebar takes the focus and puts the page and the status bar out of reach; Esc, a click beside it, ⌘K or a link closes it; the crumbs are left out, and no word in the status bar is cut', async ({ page }) => {
     await openPage(page, `/run/${demoId('override')}`, 'run');
     await expect(page.locator('.top .crumbs')).toBeHidden();
-    await page.locator('.top .menu-toggle').click();
-    await expect(page.locator('#side')).toBeVisible();
+    await expectGivenWay(page);
+    const toggle = page.locator('.top .menu-toggle');
+    const side = page.locator('#side');
+    /** Opens the drawer from Menu: its first item, the project switcher, has the focus. */
+    const open = async () => {
+      await toggle.click();
+      await expect(side).toBeVisible();
+      await expect(side.locator('.proj')).toBeFocused();
+    };
+    await open();
     await expect(page.locator('main#view')).toHaveAttribute('inert', '');
     await expect(page.locator('footer.status')).toHaveAttribute('inert', '');
     await expectAccessible(page);
     await page.keyboard.press('Escape');
-    await expect(page.locator('#side')).toBeHidden();
+    await expect(side).toBeHidden();
     await expect(page.locator('main#view')).not.toHaveAttribute('inert', '');
     await expect(page.locator('footer.status')).not.toHaveAttribute('inert', '');
+    await expect(toggle).toBeFocused();
+    // A click beside it closes it, the focus back on Menu.
+    await open();
+    await page.mouse.click(360, 500);
+    await expect(side).toBeHidden();
+    await expect(toggle).toBeFocused();
+    // ⌘K from a run in it closes it; once the palette closes, the focus goes to Menu, the run being out of sight.
+    await open();
+    await side.locator('a.run').first().focus();
+    await page.keyboard.press('ControlOrMeta+k');
+    await expect(page.locator('.palette')).toBeVisible();
+    await expect(side).toBeHidden();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.palette')).toBeHidden();
+    await expect(toggle).toBeFocused();
+    // A link in it closes it as it goes.
+    await open();
+    await side.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: /^Runs/ }).click();
+    await expect(side).toBeHidden();
+    await expect.poll(() => page.evaluate(() => location.hash)).toMatch(/^#\/runs/);
   });
 });
 
@@ -162,10 +200,11 @@ test.describe('at 320px', () => {
 test.describe('on a touch screen', () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
 
-  test('Help leaves out Keyboard shortcuts, and the palette’s field says Search or jump to', async ({ page }) => {
+  test('Help leaves out Keyboard shortcuts, its focus starting on Docs, and the palette’s field says Search or jump to', async ({ page }) => {
     await openPage(page, '/', 'overview');
-    await page.getByRole('button', { name: 'Help' }).click();
+    await page.getByRole('button', { name: 'Help' }).tap();
     await expect(page.getByRole('menuitem')).toHaveText([/^Docs/, /^Command line/]);
+    await expect(page.getByRole('menuitem', { name: /^Docs/ })).toBeFocused();
     await page.keyboard.press('Escape');
     await page.keyboard.press('ControlOrMeta+k');
     await expect(page.locator('.palin input')).toHaveAttribute('placeholder', 'Search or jump to');
