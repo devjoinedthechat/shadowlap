@@ -1,7 +1,8 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ApiError, type CallDetail, type CallRow, type JobView } from '../ui/api.js';
-import { EDIT_LIMIT, EditAndFork, editBody, editStart } from '../ui/run/EditAndFork.js';
+import { EditAndFork } from '../ui/run/EditAndFork.js';
+import { EDIT_LIMIT, editBody, editStart } from '../ui/run/EditDialog.js';
 import { Inspector } from '../ui/run/Inspector.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';

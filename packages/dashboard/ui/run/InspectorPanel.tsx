@@ -2,7 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import type { RunDetail } from '../api.js';
 import { focusQuiet } from '../focus-manager.js';
 import type { TestBannerOffer } from '../types.js';
-import { DiffPanel } from './parts.js';
+import { LoadFailed } from '../components/bits.js';
+import { onShow } from '../components/OnShow.js';
 
 /**
  * What a finding opens takes the inspector's place beside the calls, so the list keeps its place and
@@ -12,6 +13,9 @@ import { DiffPanel } from './parts.js';
  */
 
 export type PanelKind = 'diff';
+
+/** The diff a finding shows here, a part of its own: it loads the first time it shows (OnShow.tsx). */
+const DiffPanel = onShow(() => import('./DiffPanel.js').then((m) => m.DiffPanel), { failed: <LoadFailed what="diff" /> });
 
 /**
  * Where the focus goes as a panel closes from inside it: the finding's toggle that opened it, or,

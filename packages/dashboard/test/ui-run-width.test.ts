@@ -5,7 +5,7 @@ import type { CallRow } from '../ui/types.js';
 import { glued } from '../ui/format.js';
 import { bannerFor } from '../ui/run/banner.js';
 import { Inspector } from '../ui/run/Inspector.js';
-import { DiffPanel } from '../ui/run/parts.js';
+import { DiffPanel } from '../ui/run/DiffPanel.js';
 import { sheet, styleRules } from './css-sheet.js';
 
 /**

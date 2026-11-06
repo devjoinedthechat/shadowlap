@@ -15,7 +15,6 @@ import { dur, shortId, stamp, wholeCounts } from '../format.js';
 import { href } from '../route.js';
 import { isFailed, runType } from '../runs.js';
 import { labelSuggestions } from '../runspage/bulk.js';
-import { DeleteRunDialog } from './RunDialogs.js';
 import { pendingRunOf, useDeleteRun } from './delete-run.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
@@ -31,6 +30,10 @@ import { ShareMenu } from './ShareMenu.js';
 import { ActionButton, useWhenFree } from '../components/ActionButton.js';
 import { fitHead, moreRows, useMetaCard, type MoreRow } from './fit-head.js';
 import { fitWork } from './fit-work.js';
+import { onShow } from '../components/OnShow.js';
+
+/** Delete run's dialog, which the page rarely opens, a part of its own as Find breaking commit's is (actions.tsx): the run page keeps within its budget. */
+const DeleteRunDialog = onShow(() => import('./RunDialogs.js').then((m) => m.DeleteRunDialog));
 
 /**
  * The run's header, as every page's: what kind of run it is, muted, over its id (decision 10: the id

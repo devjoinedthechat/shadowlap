@@ -6,7 +6,7 @@ import { attemptOutcome, bannerFor, type BannerInput } from '../ui/run/banner.js
 import { ForksView } from '../ui/run/ForksView.js';
 import { attemptLinks, attemptOf, forkKindWords } from '../ui/run/model.js';
 import { Banner, type BannerProps } from '../ui/run/FindingsBar.js';
-import { DiffPanel } from '../ui/run/parts.js';
+import { DiffPanel } from '../ui/run/DiffPanel.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { familyLine, kindTag, runTag, type RunLike } from '../ui/runs.js';
 import { AppContext, type AppState } from '../ui/state.js';

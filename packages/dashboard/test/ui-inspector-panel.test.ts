@@ -48,7 +48,8 @@ describe('a finding’s diff in the inspector’s place', () => {
     const body = page.one('#ibody');
     expect(body.getAttribute('role')).toBeNull();
     expect(body.getAttribute('aria-labelledby')).toBeNull();
-    expect(page.all('#ibody .diffpanel')).toHaveLength(1);
+    // The diff is a part of its own, in once its script comes.
+    await page.until('the diff', () => page!.all('#ibody .diffpanel').length === 1);
   });
 
   it('gives the inspector back on a pick of a call', async () => {

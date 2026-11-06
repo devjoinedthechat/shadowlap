@@ -8,7 +8,6 @@ import { callName, shortId } from '../format.js';
 import { confirmWords } from '../labels.js';
 import { useApp } from '../state.js';
 import { bisectBlocked, bisectCardCommand, bisectLabel } from './offers.js';
-import { BisectDialog } from './RunDialogs.js';
 import { ActionButton } from '../components/ActionButton.js';
 import type { TipEst } from '../components/HoverCard.js';
 import { tipEst, useBilledPress } from '../components/JobButton.js';
@@ -19,6 +18,8 @@ import { onShow } from '../components/OnShow.js';
 
 /** The dialog an action asks in, a part of its own: it loads the first time an action asks something first (OnShow.tsx). */
 const ActionDialog = onShow(() => import('./ActionDialog.js').then((m) => m.ActionDialog));
+/** Find breaking commit's dialog, which the page rarely opens, a part of its own as Delete run's is (RunHeader.tsx): the run page keeps within its budget. */
+const BisectDialog = onShow(() => import('./RunDialogs.js').then((m) => m.BisectDialog));
 
 /**
  * Running a run's actions: the fork menu at a call, and the dialog an action asks its one thing in.
