@@ -78,7 +78,7 @@ export function UpdateGoldenDialog({ plan, estimate, onUpdate, onInstead, onClos
                 <code>{plan.advise.path}</code>{' '}
               </>
             ) : null}
-            {plan.advise.text}
+            <Advice text={plan.advise.text} name={instead?.label ?? null} />
           </p>
         </div>
       ) : null}
@@ -97,5 +97,18 @@ export function UpdateGoldenDialog({ plan, estimate, onUpdate, onInstead, onClos
       ) : null}
       {instead ? <CommandName name={plan.ok} controls={`${id}update`} open={shown.update} onToggle={() => setShown({ ...shown, update: !shown.update })} /> : null}
     </Dialog>
+  );
+}
+
+/** The advice's words, the action it names (`name`, Add normalizer and update, say) kept whole on its line. */
+function Advice({ text, name }: { text: string; name: string | null }) {
+  const at = name ? text.indexOf(name) : -1;
+  if (!name || at < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, at)}
+      <span className="nw">{name}</span>
+      {text.slice(at + name.length)}
+    </>
   );
 }

@@ -441,6 +441,9 @@ describe('a golden’s dialogs', () => {
     holds(page, { title: 'Update 2 diverged goldens?', doc: 'goldenUpdates', first: '.dlg-alt', ok: 'Update anyway', tone: 'plain' });
     expect(page.all('[role="dialog"] footer button').map((x) => x.textContent)).toEqual(['Cancel', 'Update anyway', 'Add normalizer and update']);
     expect(page.all('.cmdlbl').map((c) => c.textContent)).toEqual(['Add normalizer and updateShow command', 'Update anywayShow command']);
+    // The advice names the action whole, never broken across its line.
+    expect(page.all('.advise p .nw').map((x) => x.textContent)).toEqual(['Add normalizer and update']);
+    expect(page.one('.advise p').textContent).toBe('a diverged on a value that is new every run. Add normalizer and update masks it first.');
     expect(page.all('.dcost')).toHaveLength(1);
     expect(page.one('.dcost').textContent).toMatch(/^Billed by your provider\W+either way, as their recordings cost$/);
   });
