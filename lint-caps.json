@@ -449,9 +449,6 @@
     "packages/dashboard/src/routes/projects.ts": {
       "register": 239
     },
-    "packages/dashboard/src/routes/settings.ts": {
-      "register": 206
-    },
     "packages/dashboard/src/training.ts": {
       "trainingView": 168
     },

@@ -19,6 +19,7 @@ import * as runs from './runs.js';
 import * as runPage from './run-page.js';
 import * as search from './search.js';
 import * as settings from './settings.js';
+import * as settingsEdits from './settings-edits.js';
 import * as tests from './tests.js';
 import * as training from './training.js';
 import * as uploads from './uploads.js';
@@ -69,6 +70,8 @@ export const ROUTE_MODULES: RouteModule[] = [
   fixes,
   tests,
   settings,
+  // Settings' edits to shadowlap.config.json, and their Undo.
+  settingsEdits,
   // Settings → Coding agents' install: the skill-install job kind.
   codingAgents,
   // Several projects behind one dashboard: the switcher, Add project, the setup, removing one.
