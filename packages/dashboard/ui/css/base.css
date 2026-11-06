@@ -17,10 +17,10 @@ b, strong { font-weight: 600; }
 /* Chrome makes a scrolling pane focusable on its own; the selected row already shows where you are, so the pane draws no ring */
 main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visible, .ibody:focus-visible, .pallist:focus-visible, .pklist:focus-visible, .rawsse:focus-visible { outline: none; }
 /* A pane that takes the focus to be scrolled by keyboard (it holds no control of its own) says it has it. */
-.vbody[tabindex="0"]:focus-visible, .tscroll[tabindex="0"]:focus-visible, .hbody[tabindex="0"]:focus-visible, .dialog > .db[tabindex="0"]:focus-visible, .drawer pre:focus-visible, .codebox:focus-visible, pre.report:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
+.vbody[tabindex="0"]:focus-visible, .tscroll[tabindex="0"]:focus-visible, .rmx-in[tabindex="0"]:focus-visible, .hbody[tabindex="0"]:focus-visible, .dialog > .db[tabindex="0"]:focus-visible, .drawer pre:focus-visible, .codebox:focus-visible, pre.report:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
 /* A pane that scrolls cuts off what is drawn past its edge, a control's ring among them: inside one, the ring is drawn
    inside the control, so it shows whole wherever the control sits. The page itself keeps its padding clear of rings. */
-:is(.runs, .vbody, .ibody, .pallist, .pallist > [role="listbox"], .pop, .help, .help .hbody, .pklist, .dialog .db, .dialog > .db, .dialog pre.fxpatch, .drawer pre, .drawer .jfiles, .tscroll, .fxtable, .stabs, .views .tabs, .insp .tabs, .bulkbar, .rawsse, .codebox, .cmdline, pre.report, .diffpanel pre) :focus-visible { outline-offset: -2px; }
+:is(.runs, .vbody, .ibody, .pallist, .pallist > [role="listbox"], .pop, .help, .help .hbody, .pklist, .dialog .db, .dialog > .db, .dialog pre.fxpatch, .drawer pre, .drawer .jfiles, .tscroll, .rmx-in, .fxtable, .stabs, .views .tabs, .insp .tabs, .bulkbar, .rawsse, .codebox, .cmdline, pre.report, .diffpanel pre) :focus-visible { outline-offset: -2px; }
 /* Skip to content: the first stop for Tab, out of sight until it has the focus; it shows as an overlay does, the page's
    own ground set apart by an edge and a shadow, never lime, which means the primary action and passed. */
 .skip { position: fixed; z-index: 70; left: 12px; top: 10px; padding: 7px 12px; border: 1px solid transparent; border-radius: var(--r-control); color: var(--ink); font-weight: 600; text-decoration: none; transform: translateY(-200%); }
