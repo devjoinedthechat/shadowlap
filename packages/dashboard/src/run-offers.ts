@@ -3,6 +3,7 @@ import { parseStoreUrl, shortStoreName, storeKey, teamRunInStore } from '@shadow
 import { lookupRun } from './api.js';
 import { loadRunIndex } from './run-index.js';
 import { fixForRun, type FixForRun } from './fixes.js';
+import { goldenFolder, keepable } from './next-step.js';
 import { copyRules, recordingNow, type CopyRules } from './run-exports.js';
 import { bisectChoices, testRunBanner, type BisectChoices, type GoldenSource, type TestRunBanner } from './tests.js';
 import { runState } from './runs-list.js';
@@ -65,6 +66,11 @@ export interface RunOffers {
   bisect: BisectChoices | null;
   /** A replay made by `shadowlap test` whose golden diverged: Add normalizer and Update golden, or that the normalizer was added. */
   test: TestOffer | null;
+  /**
+   * Pack as golden…, whatever step leads: a recording a golden can be made from (next-step.ts's
+   * `keepable`), with the folder the dialog offers; null otherwise, and with no project to pack into.
+   */
+  keep: { folder: string } | null;
 }
 
 export interface RunOffersInput {
@@ -76,6 +82,14 @@ export interface RunOffersInput {
   goldens?: readonly GoldenSource[];
   /** The commit the project's HEAD is at, for Find breaking commit on a run that passed; null outside git. */
   head?: string | null;
+  /** The project's folder, which goldens are packed into; none packs nothing. */
+  dir?: string | null;
+}
+
+/** Pack as golden… for a recording a golden can be made from: from the run index, reading no call. */
+function keepOffer(store: Store, run: RunRecord, input: RunOffersInput): RunOffers['keep'] {
+  const row = loadRunIndex(store).byId.get(run.runId);
+  return row && keepable(row, run, input.dir, input.goldens ?? []) ? { folder: goldenFolder(run.runId) } : null;
 }
 
 function teamOf(store: StoreOf<'recording' | 'readModels' | 'team'>, run: RunRecord, raw: unknown): RunOffers['team'] {
@@ -290,5 +304,6 @@ export function runOffers(store: Store, idOrPrefix: string, input: RunOffersInpu
     blame: blameOffer(store, run, input.config?.tests),
     bisect: passingBisect(blamedBisect(run, bisectChoices(asListed(store, run), run.runId, { goldens: input.goldens ?? [] })), input.head),
     test: testOffer(store, run, input.config?.normalize, input.goldens ?? []),
+    keep: keepOffer(store, run, input),
   };
 }

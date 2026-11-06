@@ -324,12 +324,22 @@ function blameStep(runId: string, offer: BlameOffer, capture = false): Decided {
  * is made from it, one whose pack holds it or one it was unpacked from. One of a fork or a replay of
  * it says nothing of this one.
  */
-function packable(f: Facts, run: RunRecord): boolean {
-  const dir = f.work?.dir;
+export function packableIn(dir: string | null | undefined, goldens: readonly Pick<GoldenSource, 'runId' | 'path'>[], run: RunRecord): boolean {
   if (!dir) return false;
   const from: unknown = run.meta?.imported?.from;
   const unpacked = typeof from === 'string' && from ? resolve(dir, from) : null;
-  return !f.work!.goldens.some((g) => g.runId === run.runId || resolve(dir, g.path) === unpacked);
+  return !goldens.some((g) => g.runId === run.runId || resolve(dir, g.path) === unpacked);
+}
+const packable = (f: Facts, run: RunRecord): boolean => packableIn(f.work?.dir, f.work?.goldens ?? [], run);
+
+/**
+ * A recording a golden can be made from, as Pack as golden… takes one: it ended, didn't fail, holds
+ * calls and the command it was recorded with, and no golden is made from it yet. A golden from a
+ * failed run would pass on the failure and diverge once the fix ships. Its outcome by today's checks
+ * is the page's to add.
+ */
+export function keepable(row: Pick<IndexedRun, 'kind' | 'status' | 'failed' | 'calls'>, run: RunRecord, dir: string | null | undefined, goldens: readonly Pick<GoldenSource, 'runId' | 'path'>[]): boolean {
+  return row.kind === 'recording' && row.status === 'completed' && !row.failed && row.calls > 0 && hasRecordedCommand(run) && packableIn(dir, goldens, run);
 }
 
 /** The payloads every template plants, as a test with none picked plants them. */
@@ -667,11 +677,10 @@ function ruleStep(f: Facts): Decided | null {
   return rule ? { key: 'rule', label: ACTIONS.addNormalizer.label, command: commandLine(normalizeAddArgs(rule)), sub: 'Masks the value made anew on every run, at match time' } : null;
 }
 
-/** A recording that didn't fail, no golden made from it yet: a golden from a failed run would pass on the failure and diverge once the fix ships. */
+/** Pack as golden…, where nothing else leads: a recording a golden can be made from (`keepable`), not failed by today's checks either. */
 function packStep(f: Facts): Decided | null {
   const { row } = f;
-  if (row.kind !== 'recording' || row.status !== 'completed' || row.failed || !row.calls) return null;
-  if (f.judged?.verdict === 'failed' || !hasRecordedCommand(f.record) || !packable(f, f.record)) return null;
+  if (f.judged?.verdict === 'failed' || !keepable(row, f.record, f.work?.dir, f.work?.goldens ?? [])) return null;
   const folder = goldenFolder(row.runId);
   return { key: 'pack', label: ACTIONS.packAsGolden.label, runId: row.runId, folder, title: 'Pack as golden', sub: 'A golden that CI replays on every commit', command: commandLine(['pack', short(row.runId), folder]) };
 }

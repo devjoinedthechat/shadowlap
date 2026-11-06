@@ -357,6 +357,20 @@ describe('what the run page offers', () => {
     expect(o.test).toBeNull();
   });
 
+  it('offers Pack as golden… for a recording a golden can be made from, whatever step leads', () => {
+    const id = addRun(store, { startedAt: T0 + 31, calls: 'll' });
+    const keep = (runId: string, over: Partial<Parameters<typeof runOffers>[2]> = {}) => runOffers(store, runId, { redact: [], config: null, dir: project, ...over })!.keep;
+    expect(keep(id)).toEqual({ folder: `goldens/${id.slice(0, 10).toLowerCase()}` });
+    // No project to pack into; a golden made from it already; a failed run; a run still recording; no command of its own.
+    expect(keep(id, { dir: null })).toBeNull();
+    expect(keep(id, { goldens: [{ path: 'goldens/kept', runId: id, packedAt: 1, mode: 'replay', repeat: 1, passes: 1, checks: [] }] })).toBeNull();
+    expect(keep(addRun(store, { startedAt: T0 + 33, calls: 'lf', status: 'failed' }))).toBeNull();
+    expect(keep(addRun(store, { startedAt: Date.now(), calls: 'l', status: 'running' }))).toBeNull();
+    expect(keep(addRun(store, { startedAt: T0 + 34, calls: 'l', argv: [NO_COMMAND] }))).toBeNull();
+    // A replay is no recording: its recording is what a golden is made from.
+    expect(keep(addRun(store, { startedAt: T0 + 35, calls: 'r', parent: id }))).toBeNull();
+  });
+
   it('offers no search after a run that passed at HEAD: there is no later commit yet', () => {
     // Made at a7b3c2e, and it passed: bisect would look from there up to HEAD.
     const id = addRun(store, { startedAt: T0 + 32, calls: 'l' });
