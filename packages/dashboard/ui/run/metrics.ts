@@ -5,9 +5,10 @@ import { outcomeTip, type OutcomeTip } from '../outcome-tip.js';
 import { outcomeOf, type RunLike, type RunOutcomeWords } from '../runs.js';
 
 /**
- * The run's numbers, in the order the page shows them: the counts lead; what replaying saved comes
- * last, as a quieter receipt (not re-spent, its tokens, and the time not waited). No DOM here: the
- * tests import it, and `parts.tsx` draws it.
+ * The run's facts after how it came out, in the order the header shows them: its calls, then, quieter,
+ * what it spent, and on a replay or a fork the receipts (not re-spent, not waited). What made each up
+ * is on its card: the calls' kinds and origins, the upstream requests, the input tokens not sent
+ * again. No DOM here: the tests import it, and `parts.tsx` draws it.
  */
 
 export interface MetricInput {
@@ -30,45 +31,54 @@ export interface MetricInput {
   live: boolean;
   /** Every replayed call's recorded duration, summed. */
   notWaitedMs: number | null;
+  /** Replayed calls whose recorded duration wasn't found, which `notWaitedMs` leaves out. */
+  notWaitedUnknown?: number;
   /** Of the failed calls, those an offline replay refused (not in the recording: HTTP 503, nothing sent). */
   refused?: number;
 }
 
-/** A number (or its words), what it counts, and its tone: `lime`, `err`, or `q` for the quiet receipt. */
-export type MetricItem = [string | number, string, string?];
+/** What a fact's card says: a title, rows of what made it up, and a line under them. */
+export interface MetricCard {
+  title: string;
+  rows: Array<[string, string | number]>;
+  sub?: string;
+}
+
+/** A number (or its words), what it counts, its tone (`q` for a quieter one), and what made it up, on its card. */
+export interface MetricItem {
+  value: string | number;
+  label: string;
+  cls: '' | 'q';
+  tip: MetricCard;
+}
+
+const plural = (n: number, one: string, many = `${one}s`) => (n === 1 ? one : many);
+
+/** What the calls were, each kind or origin it had any of: the calls' card's rows. */
+function callRows(m: MetricInput): MetricCard['rows'] {
+  const n = m.counts;
+  // Calls an offline replay refused are "refused", as the design says; any other failure, "failed".
+  const failed: [string, number] = [n.fail && m.refused === n.fail ? 'refused' : 'failed', n.fail];
+  const made: MetricCard['rows'] =
+    n.rep || n.block || n.stub || n.inject || n.over
+      ? [['replayed', n.rep], ['live', n.live], ['overridden', n.over], ['injected', n.inject], ['blocked', n.block], ['stubbed', n.stub], failed]
+      : // A capture of the model calls alone never saw the tools: none were captured, which is no count of them.
+        [['model calls', m.byKind.api], m.toolsCaptured === false && !m.byKind.tool ? ['tool calls not captured', '—'] : ['tool calls', m.byKind.tool], failed];
+  return made.filter(([, v]) => v !== 0);
+}
 
 export function metricItems(m: MetricInput): MetricItem[] {
-  const n = m.counts;
   const unpriced = m.cost.spent === 0 && m.cost.unknownModels.length > 0;
   const by = m.spentBy ? ` · by ${m.spentBy}` : '';
-  const spent: MetricItem = m.capture ? [money(m.cost.captured), 'as captured'] : unpriced ? ['—', `spent${by} · no price for ${m.cost.unknownModels[0]!}`] : [approx(m.cost.spent), `spent${by}`];
-  const upstream: MetricItem = [m.upstreamRequests, m.upstreamRequests === 1 ? 'upstream request' : 'upstream requests'];
-  const plain = !n.rep && !n.block && !n.stub && !n.inject && !n.over;
-  // Calls an offline replay refused are "refused", as the design says; any other failure, "failed".
-  const failed: MetricItem = [n.fail, n.fail && m.refused === n.fail ? 'refused' : 'failed', 'err'];
-  if (plain) {
-    const items: MetricItem[] = [
-      [m.total, m.live ? (m.total === 1 ? 'call so far' : 'calls so far') : m.total === 1 ? 'call' : 'calls'],
-      [m.byKind.api, m.byKind.api === 1 ? 'model call' : 'model calls'],
-      // A capture of the model calls alone never saw the tools: none were captured, which is no count of them.
-      m.toolsCaptured === false && !m.byKind.tool ? ['—', 'tool calls not captured'] : [m.byKind.tool, m.byKind.tool === 1 ? 'tool call' : 'tool calls'],
-    ];
-    if (n.fail) items.push(failed);
-    items.push(upstream, spent);
-    return items;
-  }
+  const upstream: MetricCard['rows'] = [[plural(m.upstreamRequests, 'upstream request'), m.upstreamRequests]];
   const items: MetricItem[] = [
-    [m.total, m.total === 1 ? 'call' : 'calls'],
-    [n.rep, 'replayed', n.rep ? 'lime' : ''],
-    [n.live, 'live'],
+    { value: m.total, label: m.live ? plural(m.total, 'call so far', 'calls so far') : plural(m.total, 'call'), cls: '', tip: { title: `${m.total.toLocaleString('en-US')} ${plural(m.total, 'call')}`, rows: callRows(m) } },
+    m.capture
+      ? { value: money(m.cost.captured), label: 'as captured', cls: 'q', tip: { title: 'As the capture recorded it', rows: upstream } }
+      : { value: unpriced ? '—' : approx(m.cost.spent), label: unpriced ? `spent${by} · no price for ${m.cost.unknownModels[0]!}` : `spent${by}`, cls: 'q', tip: { title: 'Spent live', rows: upstream } },
   ];
-  if (n.over) items.push([n.over, 'overridden']);
-  if (n.inject) items.push([n.inject, 'injected']);
-  if (n.fail) items.push(failed);
-  if (n.block + n.stub) items.push([n.block + n.stub, n.block && n.stub ? 'fenced' : n.stub ? 'stubbed' : 'blocked']);
-  items.push(upstream, spent);
-  if (m.cost.saved || m.tokensNotRespent) items.push([money(m.cost.saved), `not re-spent${m.tokensNotRespent ? ` · ${ktok(m.tokensNotRespent)} input tokens` : ''}`, 'q']);
-  if (m.notWaitedMs) items.push([receiptDuration(m.notWaitedMs), 'not waited', 'q']);
+  if (m.cost.saved || m.tokensNotRespent) items.push({ value: money(m.cost.saved), label: 'not re-spent', cls: 'q', tip: { title: 'Replayed from the recording', rows: m.tokensNotRespent ? [['input tokens not sent again', ktok(m.tokensNotRespent)]] : [] } });
+  if (m.notWaitedMs) items.push({ value: receiptDuration(m.notWaitedMs), label: 'not waited', cls: 'q', tip: { title: 'The recorded time of the replayed calls', rows: [], ...(m.notWaitedUnknown ? { sub: `${m.notWaitedUnknown} replayed calls’ recorded durations were not found` } : {}) } });
   return items;
 }
 

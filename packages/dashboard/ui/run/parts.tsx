@@ -65,17 +65,19 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown, judged = run.judge
     ...spentBy(run),
     live: run.run.status === 'running',
     notWaitedMs,
+    notWaitedUnknown,
     refused: run.calls.filter((c) => c.outcome === 'error' && refusedOffline(c)).length,
   });
   // How it came out leads: the verdict of the checks that judged it, as Runs' Status says it.
   const fact = outcomeFact({ ...runLikeOf(run), judged: judged ?? null }, { tools: s.byKind.tool, pending });
   return (
-    <section className="metrics" aria-label="How it went" title={notWaitedUnknown ? `${notWaitedUnknown} replayed calls’ recorded durations were not found` : undefined}>
+    <section className="metrics" aria-label="How it went">
       <Outcome fact={fact} runId={run.run.runId} />
-      {items.map(([v, label, cls], i) => (
-        <span className="metric" key={i}>
-          <b className={cls || undefined}>{typeof v === 'number' ? num(v) : v}</b>
-          <span title={label}>{label}</span>
+      {/* Each fact's make-up is on its card: the calls' kinds, the upstream requests, the tokens not sent again. */}
+      {items.map((m) => (
+        <span className="metric" key={m.label} data-tip={tipCard(m.tip.title, m.tip.rows.map(([label, value]) => ({ label, value: typeof value === 'number' ? num(value) : value })), m.tip.sub)}>
+          <b className={m.cls || undefined}>{typeof m.value === 'number' ? num(m.value) : m.value}</b>
+          <span>{m.label}</span>
         </span>
       ))}
     </section>

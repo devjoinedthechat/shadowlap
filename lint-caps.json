@@ -249,9 +249,6 @@
       "attemptBanner": 52,
       "bannerFor": 73
     },
-    "packages/dashboard/ui/run/metrics.ts": {
-      "metricItems": 34
-    },
     "packages/dashboard/ui/run/paged-run.ts": {
       "usePagedRun": 31
     },

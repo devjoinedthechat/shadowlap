@@ -220,8 +220,9 @@ describe('a long run’s page', () => {
     expect(r.one('table.calls').getAttribute('aria-rowcount')).toBe('1201');
     expect(r.one('[role="tablist"] [aria-selected="true"] .count').textContent).toBe('1,200');
     expect(r.byText('.toolbar[role="status"]', '200 of 1,200 calls read so far; the rest are on their way.')).toBeTruthy();
-    // The run's numbers count every call's origin, not those of the calls read: 200, all replayed.
-    expect(r.all('.metrics .metric').map((m) => m.textContent)).toEqual(expect.arrayContaining(['600replayed', '600live']));
+    // The run's numbers count every call's origin, not those of the calls read: the calls' card says so.
+    const calls = JSON.parse(r.all('.metrics .metric[data-tip]')[0].getAttribute('data-tip')!) as { rows: Array<[string, string]> };
+    expect(calls.rows).toEqual(expect.arrayContaining([['replayed', '600', ''], ['live', '600', '']]));
     // The pages after it, after a moment, in order.
     expect(asked).toEqual([]);
     await r.wait(PAGES_AFTER_MS + 50);

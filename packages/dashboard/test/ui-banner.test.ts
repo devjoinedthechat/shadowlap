@@ -24,38 +24,40 @@ describe('the run’s numbers', () => {
     ...over,
   });
 
-  it('leads a recording with its counts, then upstream requests and what it spent', () => {
-    expect(metricItems(input())).toEqual([
-      [30, 'calls'],
-      [15, 'model calls'],
-      [15, 'tool calls'],
-      [15, 'upstream requests'],
-      ['≈$0.042', 'spent'],
+  /** Each fact's value, words and tone, as the header draws them. */
+  const facts = (m: MetricInput) => metricItems(m).map((f) => [f.value, f.label, f.cls]);
+  const card = (m: MetricInput, label: string) => metricItems(m).find((f) => f.label.startsWith(label))?.tip;
+
+  it('leads a recording with its calls, then what it spent, quieter, each one’s make-up on its card', () => {
+    expect(facts(input())).toEqual([
+      [30, 'calls', ''],
+      ['≈$0.042', 'spent', 'q'],
     ]);
-    expect(metricItems(input({ live: true, total: 9 }))[0]).toEqual([9, 'calls so far']);
-    expect(metricItems(input({ capture: true, cost: { spent: 0, saved: 0, captured: 0.12, unknownModels: [] } })).at(-1)).toEqual(['$0.12', 'as captured']);
-    expect(metricItems(input({ cost: { spent: 0, saved: 0, captured: 0, unknownModels: ['local-llama'] } })).at(-1)).toEqual(['—', 'spent · no price for local-llama']);
+    expect(card(input(), 'calls')).toEqual({ title: '30 calls', rows: [['model calls', 15], ['tool calls', 15]] });
+    expect(card(input(), 'spent')).toEqual({ title: 'Spent live', rows: [['upstream requests', 15]] });
+    expect(facts(input({ live: true, total: 9 }))[0]).toEqual([9, 'calls so far', '']);
+    expect(metricItems(input({ capture: true, cost: { spent: 0, saved: 0, captured: 0.12, unknownModels: [] } })).at(-1)).toMatchObject({ value: '$0.12', label: 'as captured', tip: { title: 'As the capture recorded it' } });
+    expect(facts(input({ cost: { spent: 0, saved: 0, captured: 0, unknownModels: ['local-llama'] } })).at(-1)).toEqual(['—', 'spent · no price for local-llama', 'q']);
   });
 
-  it('says refused for calls an offline replay refused, and failed for any other failure', () => {
+  it('says refused on the calls’ card for calls an offline replay refused, and failed for any other failure', () => {
     const test = input({ counts: counts('rrfff'), total: 5, upstreamRequests: 0, cost: { spent: 0, saved: 0, captured: 0, unknownModels: [] } });
-    expect(metricItems({ ...test, refused: 3 })).toContainEqual([3, 'refused', 'err']);
-    expect(metricItems({ ...test, refused: 2 })).toContainEqual([3, 'failed', 'err']);
-    expect(metricItems(test)).toContainEqual([3, 'failed', 'err']);
+    expect(card({ ...test, refused: 3 }, 'calls')?.rows).toContainEqual(['refused', 3]);
+    expect(card({ ...test, refused: 2 }, 'calls')?.rows).toContainEqual(['failed', 3]);
+    expect(card(test, 'calls')?.rows).toContainEqual(['failed', 3]);
   });
 
-  it('ends a fork on what replaying saved, as a quiet receipt, with short times that never read 0s', () => {
-    const items = metricItems(input({ counts: counts(`${'r'.repeat(16)}${'l'.repeat(13)}b`), upstreamRequests: 7, cost: { spent: 0.03, saved: 0.021, captured: 0, unknownModels: [] }, tokensNotRespent: 41_200, notWaitedMs: 340 }));
-    expect(items).toEqual([
-      [30, 'calls'],
-      [16, 'replayed', 'lime'],
-      [13, 'live'],
-      [1, 'blocked'],
-      [7, 'upstream requests'],
-      ['≈$0.030', 'spent'],
-      ['$0.021', 'not re-spent · 41.2k input tokens', 'q'],
+  it('ends a fork on what replaying saved, as quiet receipts, with short times that never read 0s', () => {
+    const fork = input({ counts: counts(`${'r'.repeat(16)}${'l'.repeat(13)}b`), upstreamRequests: 7, cost: { spent: 0.03, saved: 0.021, captured: 0, unknownModels: [] }, tokensNotRespent: 41_200, notWaitedMs: 340, notWaitedUnknown: 2 });
+    expect(facts(fork)).toEqual([
+      [30, 'calls', ''],
+      ['≈$0.030', 'spent', 'q'],
+      ['$0.021', 'not re-spent', 'q'],
       ['340 ms', 'not waited', 'q'],
     ]);
+    expect(card(fork, 'calls')?.rows).toEqual([['replayed', 16], ['live', 13], ['blocked', 1]]);
+    expect(card(fork, 'not re-spent')).toEqual({ title: 'Replayed from the recording', rows: [['input tokens not sent again', '41.2k']] });
+    expect(card(fork, 'not waited')).toEqual({ title: 'The recorded time of the replayed calls', rows: [], sub: '2 replayed calls’ recorded durations were not found' });
     expect(receiptDuration(2_900)).toBe('2.9 s');
     expect(receiptDuration(28 * 60_000)).toBe('28m');
     expect(receiptDuration(65 * 60_000)).toBe('1h 5m');
