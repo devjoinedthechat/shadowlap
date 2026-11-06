@@ -97,3 +97,42 @@ test.describe('on a phone', () => {
     expect((Date.parse(to!) - Date.parse(from!)) / 86_400_000).toBe(6);
   });
 });
+
+test('Enter makes the words a step that Back undoes with them; the nav’s Runs opens the last view where its list was left, and all every run', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 560 });
+  await openPage(page, '/runs?types=recording', 'main#view table.runst tbody tr');
+  const field = page.locator('main#view #runsQuery');
+  await field.fill('ticket');
+  await expect.poll(() => hash(page)).toBe('#/runs?q=ticket&types=recording');
+  await field.press('Enter');
+  await page.goBack();
+  await expect.poll(() => hash(page)).toBe('#/runs?types=recording');
+  await expect(field).toHaveValue('');
+  await page.goForward();
+  await expect(field).toHaveValue('ticket');
+  // Every run, scrolled down, then a run opened from it.
+  await page.locator('main#view .tbar .chips button', { hasText: /^All/ }).click();
+  await expect.poll(() => hash(page)).toBe('#/runs?q=ticket');
+  await field.fill('');
+  await expect.poll(() => hash(page)).toBe('#/runs');
+  await page.locator('main#view .tbar .chips button', { hasText: /^Recordings/ }).click();
+  await expect.poll(() => hash(page)).toBe('#/runs?types=recording');
+  const pane = page.locator('main#view .page');
+  const y = await pane.evaluate((el) => {
+    el.scrollTop = 240;
+    return el.scrollTop;
+  });
+  expect(y).toBeGreaterThan(100);
+  await page.locator('main#view table.runst tbody tr a.rowa').nth(4).click();
+  await expect.poll(() => hash(page)).toMatch(/^#\/run\//);
+  // The nav's Runs: the view it showed, where it was.
+  const nav = page.locator('nav.navlist[aria-label="Sections"] a', { hasText: 'Runs' });
+  await expect(nav).toHaveAttribute('href', '#/runs?types=recording');
+  await nav.click();
+  await expect.poll(() => hash(page)).toBe('#/runs?types=recording');
+  await expect.poll(() => pane.evaluate((el) => el.scrollTop)).toBe(y);
+  // The sidebar's all: every run.
+  await page.locator('.side-k a', { hasText: 'all' }).click();
+  await expect.poll(() => hash(page)).toBe('#/runs');
+  await expect(page.locator('main#view .tbar .chips button[aria-pressed="true"]')).toHaveText(/^All/);
+});

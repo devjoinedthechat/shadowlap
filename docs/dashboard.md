@@ -319,9 +319,12 @@ The **Local** chip lists the runs only on this machine, as Needs a look counts t
 
 What the table shows is in the address: the filter's words, the chip, the sort and the days picked, the days the viewer's own (`#/runs?q=refund&types=failed&sort=spent&from=2026-10-20&to=2026-10-22`). So a view of Runs keeps through a reload, can be kept as a bookmark, and opens from the link the dashboard prints, with the view at the end (`#token=…&open=/runs?types=failed`).
 
-- Picking a chip, a sort or days is a step of its own, which Back goes back through.
-- The words typed take the place of the step they were typed in, once they settle.
-- Runs opened on `#/runs` alone from another page shows what it showed last while the dashboard is open, and says so in the address.
+- Picking a chip, a sort or days, or pressing Enter in the filter, is a step of its own, which Back goes back through.
+- The words typed take the place of the step they were typed in, once they settle. So Back undoes the words and the step after them together.
+- Each view comes back scrolled where its list was left.
+- `#/runs` alone is every run, as the sidebar's **all** and the Overview open it. The nav's **Runs**, the crumbs, `g r`, Search or jump to's Runs and Esc from a run opened cold open the view Runs showed last while the dashboard is open.
+
+The address says a view one way, a space as `+` (`#/runs?q=refund+label:good`), and Runs writes it so in its place. It reads keys and a chip's word in any case, and a chip's word in the plural too (`#/runs?TYPES=Forks` is `#/runs?types=fork`). A value it can't read, such as a day there isn't, is left out.
 
 ### Import a capture or a trace
 

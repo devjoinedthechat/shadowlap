@@ -50,11 +50,23 @@ export interface RunsFilterRead {
 
 const enc = encodeURIComponent;
 
-/** Words for a query string, as a browser's URLSearchParams writes them, with the characters it leaves alone escaped too. */
-const queryValue = (v: string) => enc(v).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+/**
+ * Words for a query string, as they read: a space as `+`, and `:` `,` `/` `@` as typed
+ * (`q=status:failed+label:refund`); the rest escaped, `!'()*` too, so a link a command prints keeps
+ * them.
+ */
+const queryValue = (v: string) =>
+  enc(v)
+    .replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+    .replace(/%20/g, '+')
+    .replace(/%(3A|2C|2F|40)/g, (c) => decodeURIComponent(c));
 
-/** A day's key, `2026-10-20`, as the calendar keys its days. */
-const DAY = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+/** A day's key, `2026-10-20`, as the calendar keys its days: a day there is, not February's 30th. */
+const DAY = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+const isDay = (key: string): boolean => {
+  const m = DAY.exec(key);
+  return !!m && new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDate() === Number(m[3]);
+};
 
 /** The most words a link's filter keeps, as the field takes them. */
 export const RUNS_QUERY_MAX = 200;
@@ -80,6 +92,8 @@ export interface FilterTerms {
 const STATUS_WORDS: Readonly<Record<string, string>> = { passed: 'passed', pass: 'passed', failed: 'failed', fail: 'failed', inconclusive: 'inconclusive', inc: 'inconclusive', 'not-applicable': 'not-applicable', 'not applicable': 'not-applicable', na: 'not-applicable', 'n/a': 'not-applicable', live: 'live' };
 /** What `type:` takes, a plural too: each kind as the chips name it, a replay the clean one. */
 const TYPE_WORDS: Readonly<Record<string, string>> = { recording: 'recording', fork: 'fork', replay: 'clean', clean: 'clean', test: 'test', capture: 'capture' };
+/** A word's entry in one of those, never what every object has (`constructor`). */
+const wordIn = (words: Readonly<Record<string, string>>, w: string): string | undefined => (Object.hasOwn(words, w) ? words[w] : undefined);
 
 /**
  * The filter field's terms: its words, lowercased, and its `label:`, `status:`, `type:` and `tool:`
@@ -100,8 +114,8 @@ export function filterTerms(q: string | null | undefined): FilterTerms {
       if (!v) continue;
       n++;
       if (key === 'label') t.labels.push(v);
-      else if (key === 'status') t.statuses.push(STATUS_WORDS[v.toLowerCase()] ?? '');
-      else if (key === 'type') t.types.push(TYPE_WORDS[v.toLowerCase().replace(/s$/, '')] ?? '');
+      else if (key === 'status') t.statuses.push(wordIn(STATUS_WORDS, v.toLowerCase()) ?? '');
+      else if (key === 'type') t.types.push(wordIn(TYPE_WORDS, v.toLowerCase().replace(/s$/, '')) ?? '');
       else t.tools.push(v.toLowerCase());
       continue;
     }
@@ -123,8 +137,8 @@ export function runsFilter(f: RunsFilter = {}): RunsFilterRead {
   const q = (f.q ?? '').slice(0, RUNS_QUERY_MAX);
   const types = f.types ?? f.type ?? 'all';
   const sort = f.sort ?? 'when';
-  const from = f.from && DAY.test(f.from) ? f.from : null;
-  const to = f.to && DAY.test(f.to) ? f.to : null;
+  const from = f.from && isDay(f.from.trim()) ? f.from.trim() : null;
+  const to = f.to && isDay(f.to.trim()) ? f.to.trim() : null;
   const a = from ?? to;
   const b = to ?? from;
   return { q, types: RUNS_LINK_TYPES.includes(types) ? types : 'all', sort: sort === 'calls' || sort === 'spent' ? sort : 'when', days: a && b ? (a <= b ? { from: a, to: b } : { from: b, to: a }) : null };
@@ -135,26 +149,39 @@ export function isAllRuns(f: RunsFilterRead): boolean {
   return !f.q.trim() && f.types === 'all' && f.sort === 'when' && !f.days;
 }
 
+/** A chip as a link may name it: in any case, singular or plural, or as the `type:` term's word (`replay` is the clean ones). */
+function chipOf(word: string | undefined): RunsLinkType | null {
+  const w = word?.trim().toLowerCase().replace(/s$/, '');
+  if (!w) return null;
+  if (w === 'all' || w === 'failed' || w === 'local') return w;
+  return (wordIn(TYPE_WORDS, w) as RunsLinkType | undefined) ?? null;
+}
+
 /**
  * The filter a query string asks for (what follows `#/runs?`), as the page reads it: words, a chip
- * (`types`, or `type` as links wrote it before), a sort and days. Values it doesn't know are left
- * out. Null when it asks for nothing.
+ * (`types`, or `type` as links wrote it before), a sort and days, keys and words in any case. A value
+ * it doesn't know, or can't read (a broken escape, a day there isn't), is left out. Null when it asks
+ * for nothing.
  */
 export function parseRunsQuery(query: string): RunsFilterRead | null {
-  let p: URLSearchParams;
-  try {
-    p = new URLSearchParams(query);
-  } catch {
-    return null;
+  const asked = new Map<string, string | null>();
+  for (const part of query.split('&')) {
+    const i = part.indexOf('=');
+    const key = part.slice(0, i).toLowerCase();
+    if (i < 0 || asked.has(key)) continue;
+    try {
+      asked.set(key, decodeURIComponent(part.slice(i + 1).replace(/\+/g, ' ')));
+    } catch {
+      asked.set(key, null);
+    }
   }
-  const chip = p.get('types') ?? p.get('type');
-  const sort = p.get('sort');
+  const sort = asked.get('sort')?.trim().toLowerCase();
   const f = runsFilter({
-    q: p.get('q'),
-    types: RUNS_LINK_TYPES.find((t) => t === chip) ?? null,
+    q: asked.get('q') ?? null,
+    types: chipOf(asked.get('types') ?? asked.get('type') ?? undefined),
     sort: sort === 'calls' || sort === 'spent' ? sort : null,
-    from: p.get('from'),
-    to: p.get('to'),
+    from: asked.get('from') ?? null,
+    to: asked.get('to') ?? null,
   });
   return isAllRuns(f) ? null : f;
 }

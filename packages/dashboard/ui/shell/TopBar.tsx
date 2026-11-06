@@ -13,6 +13,7 @@ import { useServerJobs } from '../fixes/tree.js';
 import { runningChip } from '../jobs.js';
 import { useTeamStore } from '../teamstore.js';
 import { crumbLineage, liveChip, topPill } from './top.js';
+import { lastRunsHref } from '../runs-view.js';
 
 /** A crumb; `run` for a run's id (its about line on hover), `anc` for an ancestor, which gives way first. */
 type Crumb = { label: string; href?: string; mono?: boolean; run?: boolean; anc?: boolean; tip?: string | null };
@@ -23,7 +24,7 @@ function crumbsFor(route: Route, lineageOf: (id: string) => Array<{ runId: strin
       return [{ label: 'Runs' }];
     case 'run':
       // The run's lineage by id, from its recording down to this run, each with its about line on hover.
-      return [{ label: 'Runs', href: href.runs() }, ...lineageOf(route.id).map((a) => ({ label: shortId(a.runId), href: href.run(a.runId), mono: true, run: true, anc: true, tip: a.about })), { label: shortId(route.id), mono: true, run: true, tip: aboutOf(route.id) }];
+      return [{ label: 'Runs', href: lastRunsHref() }, ...lineageOf(route.id).map((a) => ({ label: shortId(a.runId), href: href.run(a.runId), mono: true, run: true, anc: true, tip: a.about })), { label: shortId(route.id), mono: true, run: true, tip: aboutOf(route.id) }];
     case 'compare':
       return [{ label: 'Compare' }];
     case 'fixes':

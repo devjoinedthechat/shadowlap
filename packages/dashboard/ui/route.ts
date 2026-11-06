@@ -147,7 +147,7 @@ export function readTokenLink(hash: string): { token: string; open: string } | n
   if (!token) return null;
   const path = /&open=(\/[A-Za-z0-9/_-]*)/.exec(hash)?.[1];
   // A view of Runs with its filter: what follows the path, as long as it is a route's own characters.
-  const query = path === '/runs' ? /&open=\/runs(\?[\w\-.~%=&+:@,!*$]*)$/.exec(hash)?.[1] : undefined;
+  const query = path === '/runs' ? /&open=\/runs(\?[\w\-./~%=&+:@,!*$]*)$/.exec(hash)?.[1] : undefined;
   return { token, open: `#${path ?? '/'}${query ?? ''}` };
 }
 

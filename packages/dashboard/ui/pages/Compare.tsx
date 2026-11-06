@@ -13,6 +13,7 @@ import { navigate } from '../router.js';
 import { runLikeOf } from '../run/model.js';
 import { defaultComparePair, isAttempt, kindTag } from '../runs.js';
 import { useApp } from '../state.js';
+import { lastRunsHref } from '../runs-view.js';
 
 /**
  * Compare: what changed between two runs (code, system prompt, tools, model), then call by call: the
@@ -109,7 +110,7 @@ function OneRun({ id }: { id: string }) {
             <a className="btn" href={href.compare()}>
               Compare other runs
             </a>
-            <a className="btn" href={href.runs()}>
+            <a className="btn" href={lastRunsHref()}>
               Open Runs
             </a>
           </div>

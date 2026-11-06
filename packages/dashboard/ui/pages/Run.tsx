@@ -40,6 +40,7 @@ import { RunNotes } from '../run/RunNotes.js';
 import { RunHeader } from '../run/RunHeader.js';
 import { useRunKeys } from '../run/run-keys.js';
 import { shortcut } from '../shortcuts.js';
+import { lastRunsHref } from '../runs-view.js';
 
 /**
  * A run: its header and numbers, a banner for how it forked, where it was lost or that it is
@@ -150,7 +151,7 @@ export function RunPage({ id, call, view }: { id: string; call: number | null; v
         <Page>
           <div className="empty tall">
             {/matches several runs/.test(loaded.error.message) ? `${id} matches several runs; use more of the id.` : /no run|not part of it|404/.test(loaded.error.message) ? `No run ${id} in ${client.exported ? 'this copy' : 'this store'}.` : `Could not load ${id}: ${loaded.error.message}`}{' '}
-            <a className="more" href={href.runs()}>
+            <a className="more" href={lastRunsHref()}>
               Back to Runs
             </a>
           </div>

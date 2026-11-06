@@ -336,11 +336,11 @@ describe('the key on a row of Runs', () => {
     // Its column says what the marks mean, where anyone sees it, each word listing the runs labelled so; a label lists its runs too.
     const head = r.one('table.runst thead th.keycell');
     expect(head.querySelectorAll('a').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
-      ['good', '#/runs?q=label%3Agood'],
-      ['bad', '#/runs?q=label%3Abad'],
+      ['good', '#/runs?q=label:good'],
+      ['bad', '#/runs?q=label:bad'],
     ]);
     expect(head.querySelectorAll('.sr')).toHaveLength(0);
-    expect(r.all('table.runst tbody tr')[0].querySelector('.labs a.chip')!.getAttribute('href')).toBe('#/runs?q=label%3Anightly');
+    expect(r.all('table.runst tbody tr')[0].querySelector('.labs a.chip')!.getAttribute('href')).toBe('#/runs?q=label:nightly');
     await r.click(r.all('table.runst tbody tr')[1].querySelectorAll('.runkey button')[1]);
     expect(marked).toEqual([[rows[1].runId, 'bad']]);
     // + on the row's checkbox: that row, good.

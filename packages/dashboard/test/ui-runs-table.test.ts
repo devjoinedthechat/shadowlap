@@ -122,7 +122,7 @@ describe('the table’s section', () => {
 
 describe('the filter', () => {
   const field = async (props: Partial<Parameters<typeof RunsFilterField>[0]>) => {
-    r = await render(createElement(RunsFilterField, { value: '', onChange: () => undefined, settled: '', total: 207, loaded: true, ...props }));
+    r = await render(createElement(RunsFilterField, { value: '', onChange: () => undefined, onCommit: () => undefined, settled: '', total: 207, loaded: true, ...props }));
     return r;
   };
 

@@ -26,6 +26,7 @@ import { exitWords, presetTag, type PresetAttempt } from './preset.js';
 import { checksOf, forkKindWords, recordingWords, runDuration, runLikeOf } from './model.js';
 import { canPush, pushTitle } from './share.js';
 import { ShareMenu } from './ShareMenu.js';
+import { lastRunsHref } from '../runs-view.js';
 
 /**
  * The run's header: what kind of run it is, its id as its heading (decision 10: the id is the run's
@@ -229,7 +230,7 @@ export function RunHeader({
               (out) => {
                 toast(bulkToast({ verb: 'Deleted', done: [r.runId], of: 1, skipped: [], attempts: out.attempts?.length ?? 0 }));
                 refresh();
-                navigate(href.runs());
+                navigate(lastRunsHref());
               },
               (err: unknown) => toast(errorText(err), 'error'),
             );

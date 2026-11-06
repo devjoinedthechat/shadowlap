@@ -22,17 +22,18 @@ export function hasTerms(q: string): boolean {
 }
 
 /**
- * Runs' filter field (`/` reaches it; Esc leaves it with its words kept, for the row in focus) and,
- * while the words it settled on hold a term, how many runs match them. The count's live region stays
- * while it is empty, so a screen reader hears each change. `copy`: an exported copy's own words.
+ * Runs' filter field (`/` reaches it; Enter makes its words a step in the history, `onCommit`; Esc
+ * leaves it with its words kept, for the row in focus) and, while the words it settled on hold a
+ * term, how many runs match them. The count's live region stays while it is empty, so a screen
+ * reader hears each change. `copy`: an exported copy's own words.
  */
-export function RunsFilterField({ value, onChange, settled, total, loaded, copy = false }: { value: string; onChange: (v: string) => void; settled: string; total: number; loaded: boolean; copy?: boolean }) {
+export function RunsFilterField({ value, onChange, onCommit, settled, total, loaded, copy = false }: { value: string; onChange: (v: string) => void; onCommit: () => void; settled: string; total: number; loaded: boolean; copy?: boolean }) {
   const counted = loaded && hasTerms(settled);
   return (
     <div className="rqw">
       <label className="tin rq">
         <span className="sr">Filter runs</span>
-        <input id="runsQuery" type="search" spellCheck={false} placeholder={copy ? COPY_FILTER_PLACEHOLDER : FILTER_PLACEHOLDER} data-tip={copy ? COPY_FILTER_TIP : FILTER_TIP} value={value} onChange={(e) => onChange(e.target.value)} />
+        <input id="runsQuery" type="search" spellCheck={false} placeholder={copy ? COPY_FILTER_PLACEHOLDER : FILTER_PLACEHOLDER} data-tip={copy ? COPY_FILTER_TIP : FILTER_TIP} value={value} onChange={(e) => onChange(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && onCommit()} />
       </label>
       <span className="qn" role="status">
         {counted ? matchWords(total) : ''}

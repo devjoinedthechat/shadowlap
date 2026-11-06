@@ -13,6 +13,7 @@ import { copyCompares, isAttempt, RECENT_RUNS, runTree, sideLine, sideStatus, tr
 import { useApp } from '../state.js';
 import { lessPending, usePendingHidden, useStillCounted, withoutPending } from '../pending-delete.js';
 import { ProjectBlock } from './ProjectBlock.js';
+import { useLastRunsHref } from '../runs-view.js';
 
 /** How long the drawer takes to show: it slides in hidden from the focus, and a hidden element can't take it. */
 const DRAWER_SHOWS_MS = 40;
@@ -53,11 +54,13 @@ export function Sidebar({ route }: { route: Route }) {
   const rowActions = useCallback((r: RunListItem) => (exported ? null : runRowScope(r, { runs: runsNow.current ?? [], toast })), [exported, runsNow, toast]);
   const section = navSection(route);
   const count = lessPending(meta?.counts?.runs, gone) ?? listed.length;
+  // The nav's Runs opens the view Runs showed last; the list's `all` below, every run.
+  const runsTo = useLastRunsHref();
   const items: Array<[string, IconName, string, string, number | null]> = exported
-    ? [['runs', 'runs', 'Runs', href.runs(), count], ...(copyCompares(meta?.runIds) ? [['compare', 'compare', 'Compare', href.compare(), null] as [string, IconName, string, string, number | null]] : [])]
+    ? [['runs', 'runs', 'Runs', runsTo, count], ...(copyCompares(meta?.runIds) ? [['compare', 'compare', 'Compare', href.compare(), null] as [string, IconName, string, string, number | null]] : [])]
     : [
         ['overview', 'home', 'Overview', href.overview(), null],
-        ['runs', 'runs', 'Runs', href.runs(), count],
+        ['runs', 'runs', 'Runs', runsTo, count],
         ['compare', 'compare', 'Compare', href.compare(), null],
         ['fixes', 'loop', 'Fixes', href.fixes(), null],
         ['tests', 'tests', 'Tests', href.tests(), null],

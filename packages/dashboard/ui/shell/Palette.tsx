@@ -18,6 +18,7 @@ import { normalizeRuns } from '../normalize.js';
 import { isAttempt, kindWord, runSource, type RunLike } from '../runs.js';
 import { pendingHidden, withoutPending } from '../pending-delete.js';
 import { rowStep } from '../run/row-step.js';
+import { lastViewOf } from '../runs-view.js';
 import { goKeyColumn, keyColumn } from '../shortcuts.js';
 import { singleKeysOn } from '../single-keys.js';
 import { useApp, type AppState, type PaletteCommand } from '../state.js';
@@ -258,7 +259,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
           ['Settings', href.settings()],
           [ACTIONS.addProject.label, href.newProject()],
         ];
-    for (const [label, to] of pages) out.push({ group: 'Go to', label, hint: '', key: goKeyColumn(to), run: () => navigate(to) });
+    for (const [label, to] of pages) out.push({ group: 'Go to', label, hint: '', key: goKeyColumn(to), run: () => navigate(lastViewOf(to)) });
     // Not a second session while one started here runs: Tests' own button says so meanwhile. One that
     // would run goldens live asks first, over whatever page is open, as Tests' Run tests does, with
     // the command read from Tests once the server asks (paletteTestsAsk).
