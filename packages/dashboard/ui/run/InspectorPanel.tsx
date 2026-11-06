@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { RunDetail } from '../api.js';
 import { focusQuiet } from '../focus-manager.js';
+import { useLatest } from '../hooks.js';
 import type { TestBannerOffer } from '../types.js';
 import { LoadFailed } from '../components/bits.js';
 import { onShow } from '../components/OnShow.js';
@@ -42,10 +43,13 @@ export function inspectorInView(): void {
  * there and once its details have come. They change the inspector's height, and with it how far the
  * page scrolls: brought into view before them, a short call's inspector stopped short of where it goes.
  * Only for the call clicked, until its details come or another call is picked once it has drawn.
+ * The function keeps one identity whatever is selected, reading the selection as a row is clicked, so
+ * a row draws again only when its own selection changes (CallsView.tsx's rows are memo'd).
  */
 export function usePickInView(select: (n: number) => void, selected: number | null, detail: { data: { call: { callNo: number } } | null; error: Error | null }): (n: number) => void {
   const want = useRef<{ n: number; seen: boolean } | null>(null);
   const settled = detail.data?.call.callNo === selected || !!detail.error;
+  const now = useLatest({ selected, settled });
   useLayoutEffect(() => {
     const w = want.current;
     if (!w) return;
@@ -59,11 +63,12 @@ export function usePickInView(select: (n: number) => void, selected: number | nu
   }, [selected, settled]);
   return useCallback(
     (n: number) => {
+      const was = now.current;
       select(n);
       inspectorInView();
-      want.current = n === selected && settled ? null : { n, seen: false };
+      want.current = n === was.selected && was.settled ? null : { n, seen: false };
     },
-    [select, selected, settled],
+    [select, now],
   );
 }
 
