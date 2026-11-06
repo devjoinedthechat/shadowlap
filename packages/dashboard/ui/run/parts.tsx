@@ -23,7 +23,7 @@ import { bannerFor, DIVERGED } from './banner.js';
 import { refusedOffline } from './calls.js';
 import { metricItems, outcomeFact, type MetricInput, type OutcomeFact } from './metrics.js';
 import { attemptLinks, attemptOf, originOf, pulledSpender, runLikeOf } from './model.js';
-import { bannerCards, useDivergedJobs } from './diverged.js';
+import { bannerCards, bannerJobsShown, useDivergedJobs } from './diverged.js';
 import { goldenPrice, useTestsEstimates } from '../tests-estimates.js';
 import { fixStatusWords, nextStepOf } from './next-step.js';
 import { blameTitle, goldenName, updatesAfterRules } from './offers.js';
@@ -453,8 +453,8 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
 function DivergedBanner({ run, test, leads, checks, call, path, why, callNo, diff, onAction }: { run: RunDetail; test: TestBannerOffer | null; leads: (key: NextStepKey) => boolean; checks: number; call: (n: number) => ReactNode; path: string | null; why: string; callNo: number; diff: ReactNode; onAction: (p: PendingAction) => void }) {
   const app = useApp();
   const golden = test?.golden ?? null;
-  // What its golden's jobs bill, where its buttons show: each card says it, and each job keeps it.
-  const prices = useTestsEstimates(golden);
+  // What its golden's jobs bill, read only where one of its buttons shows: each card says it, and each job keeps it.
+  const prices = useTestsEstimates(bannerJobsShown(app, run, test, leads) ? golden : null);
   const jobs = useDivergedJobs(run, test, checks, golden ? { normalize: goldenPrice(prices, golden, 'normalize'), update: goldenPrice(prices, golden, 'update') } : {});
   const cards = bannerCards(test, jobs.acts.normalizer);
   const normalizer = run.actions.find((a) => a.key === 'n');

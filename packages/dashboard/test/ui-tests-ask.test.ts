@@ -1,4 +1,4 @@
-import { createElement, type ReactElement } from 'react';
+import { createElement, useState, type ReactElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { gateResult, Store, type TestResultData } from '@shadowlap/engine';
 import type { Estimate } from '../../engine/src/estimates/estimate.js';
@@ -8,6 +8,8 @@ import { ApiError, type Client, type JobView, type TestsView } from '../ui/api.j
 import { TestsAskHost } from '../ui/fixes/TestsAskHost.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { Banner } from '../ui/run/parts.js';
+import { bannerJobsShown } from '../ui/run/diverged.js';
+import { estimatesKey, useTestsEstimates } from '../ui/tests-estimates.js';
 import { Palette } from '../ui/shell/Palette.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { resetSpending, sentEstimate } from '../ui/spending.js';
@@ -353,6 +355,15 @@ describe('the same question from elsewhere', () => {
     resetSpending();
   });
 
+  it('reads a banner’s estimates only where one of its job buttons shows, not where the header leads with them', () => {
+    const run = { actions: [] } as unknown as RunDetail;
+    const test = { golden: 'goldens/refund-in-limit', normalizeAndTest: STEPS } as unknown as RunOffers['test'];
+    const all = { hasKind: () => true, actionsOff: null };
+    const leads = (key: string) => key === 'normalizer' || key === 'update-golden';
+    expect([bannerJobsShown(all, run, test, () => false), bannerJobsShown(all, run, test, (key) => key === 'normalizer'), bannerJobsShown(all, run, test, leads)]).toEqual([true, true, false]);
+    expect(bannerJobsShown({ hasKind: (k: string) => k !== 'test-update', actionsOff: null }, run, test, (key) => key === 'normalizer')).toBe(false);
+  });
+
   it('asks over whatever page is open when the palette runs the tests, with the command Tests lists', async () => {
     const sent: Sent[] = [];
     const watched: Array<Promise<JobView>> = [];
@@ -485,6 +496,27 @@ describe('Tests’ buttons, priced from the page’s estimates', () => {
   }
   const tests_ = tests;
   const card = (page: Rendered, label: string) => JSON.parse(page.byText('button', label).getAttribute('data-tip') ?? '{}') as { t?: string; s?: string; cmd?: string; est?: Record<string, unknown> };
+
+  it('reads the estimates again only as what they are worked out from changes, not each time the page loads again', async () => {
+    const reads: Array<readonly string[] | undefined> = [];
+    const state = app([], []);
+    Object.assign(state.client, { estimates: { testsEstimates: (update?: readonly string[]) => (reads.push(update), Promise.resolve({ run: RUN, goldens: {} })) } });
+    function Reader() {
+      const [loads, setLoads] = useState(0);
+      // Each load is a new view and a new list of the same goldens; the third's first golden has a newer result.
+      const rows = view().rows.map((row, i) => (loads > 1 && !i ? { ...row, runId: 'R-newer' } : row));
+      useTestsEstimates(estimatesKey({ rows }), ['goldens/refund-in-limit']);
+      return createElement('button', { type: 'button', onClick: () => setLoads(loads + 1) }, 'Load again');
+    }
+    const page = await shown(state, createElement(Reader));
+    await page.until('the first read', () => reads.length === 1);
+    await page.click(page.byText('button', 'Load again'));
+    await page.wait(0);
+    expect(reads).toHaveLength(1);
+    await page.click(page.byText('button', 'Load again'));
+    await page.until('a read for the newer result', () => reads.length === 2);
+    expect(reads).toEqual([['goldens/refund-in-limit'], ['goldens/refund-in-limit']]);
+  });
 
   it('says Run tests’ estimate on its card, and answers the server’s question with it by Spending, posting first either way', async () => {
     const { page, sent } = await priced(0.5);

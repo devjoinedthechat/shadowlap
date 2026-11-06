@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { NextStepKey } from '../../src/next-step.js';
 import { GOLDEN_JOB_WORDS } from '../../../engine/src/golden-job-words.js';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import { JOB_KINDS, type RunDetail } from '../api.js';
@@ -9,7 +10,7 @@ import { goldenName } from '../format.js';
 import { ACTIONS } from '../labels.js';
 import { NormalizeUpdateDialog } from '../pages/TestsDialogs.js';
 import { sentEstimate } from '../spending.js';
-import { useApp } from '../state.js';
+import { useApp, type AppState } from '../state.js';
 import { bannerNormalizerAsk, startTestsJob } from '../tests-ask.js';
 import type { TestBannerOffer } from '../types.js';
 import { divergedActions, updateGoldenCopy, type NormalizerChoice } from './offers.js';
@@ -18,6 +19,17 @@ import { divergedActions, updateGoldenCopy, type NormalizerChoice } from './offe
 export interface DivergedPrices {
   normalize?: Estimate | null | undefined;
   update?: Estimate | null | undefined;
+}
+
+/** What a test that diverged offers, by the jobs this server runs. */
+function jobsOffered(app: Pick<AppState, 'hasKind' | 'actionsOff'>, run: RunDetail, test: TestBannerOffer | null) {
+  return divergedActions({ test, hasNormalizeJob: app.hasKind(JOB_KINDS.normalizeAndTest), hasUpdateJob: app.hasKind(JOB_KINDS.testUpdate), action: run.actions.some((a) => a.key === 'n'), actionsOff: app.actionsOff });
+}
+
+/** Whether the banner of a test that diverged draws a job's button: one the header's next step doesn't lead with. */
+export function bannerJobsShown(app: Pick<AppState, 'hasKind' | 'actionsOff'>, run: RunDetail, test: TestBannerOffer | null, leads: (key: NextStepKey) => boolean): boolean {
+  const acts = jobsOffered(app, run, test);
+  return (acts.normalizer?.kind === 'job' && !leads('normalizer')) || (!!acts.update && !leads('update-golden'));
 }
 
 /**
@@ -33,7 +45,7 @@ export function useDivergedJobs(run: RunDetail, test: TestBannerOffer | null, re
   const app = useApp();
   const [dialog, setDialog] = useState<'update' | 'normalize' | null>(null);
   const r = run.run;
-  const acts = divergedActions({ test, hasNormalizeJob: app.hasKind(JOB_KINDS.normalizeAndTest), hasUpdateJob: app.hasKind(JOB_KINDS.testUpdate), action: run.actions.some((a) => a.key === 'n'), actionsOff: app.actionsOff });
+  const acts = jobsOffered(app, run, test);
   const add = acts.normalizer;
   const addNormalizer = () => startTestsJob(app, JOB_KINDS.normalizeAndTest, { runId: r.runId, ...sentEstimate(prices.normalize) }, { ...bannerNormalizerAsk(test), estimate: prices.normalize });
   const dialogs = (
