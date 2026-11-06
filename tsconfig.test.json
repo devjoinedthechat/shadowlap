@@ -45,7 +45,11 @@
     "packages/dashboard/test/ui-strip.test.ts",
     "packages/dashboard/test/ui-run-width.test.ts",
     "packages/dashboard/test/ui-run-scale.test.ts",
+    "packages/dashboard/test/ui-timeline-notch.test.ts",
+    "packages/dashboard/test/ui-context-axis.test.ts",
     "packages/dashboard/test/ui-check-words.test.ts",
+    "packages/dashboard/test/ui-inspector-notes.test.ts",
+    "packages/dashboard/test/ui-run-undo.test.ts",
     "packages/dashboard/test/ui-run-attempts.test.ts",
     "packages/dashboard/test/ui-next-step.test.ts",
     "packages/dashboard/test/ui-compare-states.test.ts",
@@ -105,6 +109,7 @@
     "packages/dashboard/test/ui-presets.test.ts",
     // These render the run header and read which runs are attempts through the run page's modules.
     "packages/dashboard/test/ui-run-header.test.ts",
+    "packages/dashboard/test/ui-run-kinds.test.ts",
     "packages/dashboard/test/run-roles.test.ts",
     // This renders the skip link, the palette, a menu, a dialog and the card a refused link shows.
     "packages/dashboard/test/ui-focus.test.ts",
@@ -138,6 +143,8 @@
     "packages/dashboard/test/ui-run-key.test.ts",
     "packages/dashboard/test/ui-shortcut-keys.test.ts",
     "packages/dashboard/test/ui-run-notes.test.ts",
+    "packages/dashboard/test/ui-findings.test.ts",
+    "packages/dashboard/test/ui-findings-status.test.ts",
     "packages/dashboard/test/ui-calls-grouping.test.ts",
     // These render a run's views as their scripts load, and a page or a view whose script didn't come.
     "packages/dashboard/test/ui-run-views.test.ts",

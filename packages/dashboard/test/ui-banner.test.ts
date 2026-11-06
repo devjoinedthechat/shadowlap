@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { INCONCLUSIVE_FIRST, unrescuedWords } from '../../engine/src/blame-words.js';
 import { receiptDuration } from '../ui/format.js';
 import { countOrigins, type Origin7 } from '../ui/origins.js';
 import { bannerFor, failedCheckText, failureText, fixCheckText, flagText, flagWhy, writesWord, type BannerInput } from '../ui/run/banner.js';
@@ -24,38 +25,40 @@ describe('the run’s numbers', () => {
     ...over,
   });
 
-  it('leads a recording with its counts, then upstream requests and what it spent', () => {
-    expect(metricItems(input())).toEqual([
-      [30, 'calls'],
-      [15, 'model calls'],
-      [15, 'tool calls'],
-      [15, 'upstream requests'],
-      ['≈$0.042', 'spent'],
+  /** Each fact's value, words and tone, as the header draws them. */
+  const facts = (m: MetricInput) => metricItems(m).map((f) => [f.value, f.label, f.cls]);
+  const card = (m: MetricInput, label: string) => metricItems(m).find((f) => f.label.startsWith(label))?.tip;
+
+  it('leads a recording with its calls, then what it spent, quieter, each one’s make-up on its card', () => {
+    expect(facts(input())).toEqual([
+      [30, 'calls', ''],
+      ['≈$0.042', 'spent', 'q'],
     ]);
-    expect(metricItems(input({ live: true, total: 9 }))[0]).toEqual([9, 'calls so far']);
-    expect(metricItems(input({ capture: true, cost: { spent: 0, saved: 0, captured: 0.12, unknownModels: [] } })).at(-1)).toEqual(['$0.12', 'as captured']);
-    expect(metricItems(input({ cost: { spent: 0, saved: 0, captured: 0, unknownModels: ['local-llama'] } })).at(-1)).toEqual(['—', 'spent · no price for local-llama']);
+    expect(card(input(), 'calls')).toEqual({ title: '30 calls', rows: [['model calls', 15], ['tool calls', 15]] });
+    expect(card(input(), 'spent')).toEqual({ title: 'Spent live', rows: [['upstream requests', 15]] });
+    expect(facts(input({ live: true, total: 9 }))[0]).toEqual([9, 'calls so far', '']);
+    expect(metricItems(input({ capture: true, cost: { spent: 0, saved: 0, captured: 0.12, unknownModels: [] } })).at(-1)).toMatchObject({ value: '$0.12', label: 'as captured', tip: { title: 'As the capture recorded it' } });
+    expect(facts(input({ cost: { spent: 0, saved: 0, captured: 0, unknownModels: ['local-llama'] } })).at(-1)).toEqual(['—', 'spent · no price for local-llama', 'q']);
   });
 
-  it('says refused for calls an offline replay refused, and failed for any other failure', () => {
+  it('says refused on the calls’ card for calls an offline replay refused, and failed for any other failure', () => {
     const test = input({ counts: counts('rrfff'), total: 5, upstreamRequests: 0, cost: { spent: 0, saved: 0, captured: 0, unknownModels: [] } });
-    expect(metricItems({ ...test, refused: 3 })).toContainEqual([3, 'refused', 'err']);
-    expect(metricItems({ ...test, refused: 2 })).toContainEqual([3, 'failed', 'err']);
-    expect(metricItems(test)).toContainEqual([3, 'failed', 'err']);
+    expect(card({ ...test, refused: 3 }, 'calls')?.rows).toContainEqual(['refused', 3]);
+    expect(card({ ...test, refused: 2 }, 'calls')?.rows).toContainEqual(['failed', 3]);
+    expect(card(test, 'calls')?.rows).toContainEqual(['failed', 3]);
   });
 
-  it('ends a fork on what replaying saved, as a quiet receipt, with short times that never read 0s', () => {
-    const items = metricItems(input({ counts: counts(`${'r'.repeat(16)}${'l'.repeat(13)}b`), upstreamRequests: 7, cost: { spent: 0.03, saved: 0.021, captured: 0, unknownModels: [] }, tokensNotRespent: 41_200, notWaitedMs: 340 }));
-    expect(items).toEqual([
-      [30, 'calls'],
-      [16, 'replayed', 'lime'],
-      [13, 'live'],
-      [1, 'blocked'],
-      [7, 'upstream requests'],
-      ['≈$0.030', 'spent'],
-      ['$0.021', 'not re-spent · 41.2k input tokens', 'q'],
+  it('ends a fork on what replaying saved, as quiet receipts, with short times that never read 0s', () => {
+    const fork = input({ counts: counts(`${'r'.repeat(16)}${'l'.repeat(13)}b`), upstreamRequests: 7, cost: { spent: 0.03, saved: 0.021, captured: 0, unknownModels: [] }, tokensNotRespent: 41_200, notWaitedMs: 340, notWaitedUnknown: 2 });
+    expect(facts(fork)).toEqual([
+      [30, 'calls', ''],
+      ['≈$0.030', 'spent', 'q'],
+      ['$0.021', 'not re-spent', 'q'],
       ['340 ms', 'not waited', 'q'],
     ]);
+    expect(card(fork, 'calls')?.rows).toEqual([['replayed', 16], ['live', 13], ['blocked', 1]]);
+    expect(card(fork, 'not re-spent')).toEqual({ title: 'Replayed from the recording', rows: [['input tokens not sent again', '41.2k']] });
+    expect(card(fork, 'not waited')).toEqual({ title: 'The recorded time of the replayed calls', rows: [], sub: '2 replayed calls’ recorded durations were not found' });
     expect(receiptDuration(2_900)).toBe('2.9 s');
     expect(receiptDuration(28 * 60_000)).toBe('28m');
     expect(receiptDuration(65 * 60_000)).toBe('1h 5m');
@@ -94,8 +97,8 @@ describe('the run’s banner', () => {
   });
 
   it('says what a diverged test looks like, and what a failed check found', () => {
-    expect(bannerFor({ ...base, type: 'test', divergence: { ...fork, callNo: 3, replayedBefore: 2 }, volatile: { looks: 'a date' } })).toMatchObject({ kind: 'diverged', why: '2 calls replayed before it · this looks like a date' });
-    expect(bannerFor({ ...base, checks: [{ label: 'send_email called 0 times', ok: false, detail: 'called 1 time' }] })).toMatchObject({ kind: 'failed', why: 'check failed: send_email called 0 times, but called 1 time · not blamed yet' });
+    expect(bannerFor({ ...base, type: 'test', divergence: { ...fork, callNo: 3, replayedBefore: 2 }, volatile: { looks: 'a date' } })).toMatchObject({ kind: 'diverged', lead: 'this looks like a date', why: '2 calls replayed before it' });
+    expect(bannerFor({ ...base, checks: [{ label: 'send_email called 0 times', ok: false, detail: 'called 1 time' }] })).toMatchObject({ kind: 'failed', lead: 'send_email called 0 times, but called 1 time', why: 'not blamed yet' });
     expect(failedCheckText({ label: 'at most 12 model calls' })).toBe('check failed: at most 12 model calls');
     // The line under the run's id and the banner say it as the CLI does: what was expected, but what happened.
     expect(failureText({ status: 'completed', checks: [{ label: 'send_email called 0 times', ok: false, detail: 'called 1 time' }], blame: null })).toBe('check failed: send_email called 0 times, but called 1 time');
@@ -112,10 +115,10 @@ describe('the run’s banner', () => {
     expect(fixCheckText('send_email called twice', calls)).toBe('check failed: “send_email called twice”');
     expect(failureText({ status: 'crashed', checks: [], blame: null })).toBe('the run was interrupted');
     // A run that made no model call has nothing for blame to ask again.
-    expect(bannerFor({ ...base, status: 'failed', modelCalls: 0 })).toMatchObject({ kind: 'failed', why: 'the agent exited with an error · no model call to blame' });
-    expect(bannerFor({ ...base, status: 'failed', modelCalls: 3 })).toMatchObject({ kind: 'failed', why: 'the agent exited with an error · not blamed yet' });
+    expect(bannerFor({ ...base, status: 'failed', modelCalls: 0 })).toMatchObject({ kind: 'failed', lead: 'the agent exited with an error', why: 'no model call to blame' });
+    expect(bannerFor({ ...base, status: 'failed', modelCalls: 3 })).toMatchObject({ kind: 'failed', lead: 'the agent exited with an error', why: 'not blamed yet' });
     // Nor has a run that was stopped: blame needs one that fails again as recorded.
-    expect(bannerFor({ ...base, status: 'crashed', modelCalls: 3 })).toMatchObject({ kind: 'failed', why: 'the run was interrupted · blame needs a run that ended on its own' });
+    expect(bannerFor({ ...base, status: 'crashed', modelCalls: 3 })).toMatchObject({ kind: 'failed', lead: 'the run was interrupted', why: 'blame needs a run that ended on its own' });
     expect(failureText({ status: 'completed', checks: [{ label: 'x', ok: true }], blame: null })).toBeNull();
   });
 
@@ -124,7 +127,7 @@ describe('the run’s banner', () => {
     expect(bannerFor({ ...base, type: 'fork', divergence: fork, rescued: { callNo: 5 } })).toEqual({ kind: 'attempt', of: 'rescued', callNo: 5, outcome: { tone: 'ok', text: 'passed' }, why: 'rescued #5: the model was asked #5 again, the request as recorded · writes stubbed', flag: null, diff: true });
     // A rescue that names no call asked again the call it forked at.
     expect(bannerFor({ ...base, type: 'fork', divergence: fork, rescued: { callNo: null } })).toMatchObject({ kind: 'attempt', of: 'rescued', callNo: fork.callNo, why: `rescued #${fork.callNo}: the model was asked #${fork.callNo} again, the request as recorded · writes stubbed` });
-    expect(bannerFor({ ...base, type: 'test', divergence: { ...fork, callNo: 1, replayedBefore: 0, hints: [{ message: 'this looks like a per-run id', normalizer: {} }] } })).toMatchObject({ kind: 'diverged', callNo: 1, why: '0 calls replayed before it · this looks like a per-run id', normalizer: true });
+    expect(bannerFor({ ...base, type: 'test', divergence: { ...fork, callNo: 1, replayedBefore: 0, hints: [{ message: 'this looks like a per-run id', normalizer: {} }] } })).toMatchObject({ kind: 'diverged', callNo: 1, lead: 'this looks like a per-run id', why: '0 calls replayed before it', normalizer: true });
   });
 
   it('says where blame lost a run, as model call k of m in its scope', () => {
@@ -156,15 +159,41 @@ describe('the run’s banner', () => {
     });
   });
 
-  it('says a run failed: with its fix, not blamed yet, or blamed without a call to name', () => {
-    expect(bannerFor({ ...base, checks: [{ label: 'send_email called once', ok: false }] })).toEqual({ kind: 'failed', why: 'check failed: send_email called once · not blamed yet', fix: null, blamed: false });
+  it('says a capture its import judged failed leads with the check, judged when it was imported, and how its fix stands', () => {
+    const judged = 'send_email called at most 1 time, but called 2 times';
+    const capture = { ...base, type: 'capture' as const, failed: false, judged };
+    expect(bannerFor(capture)).toEqual({ kind: 'failed', lead: judged, why: 'judged when it was imported · not blamed yet', fix: null, blamed: false });
     const fix = { id: 'fx-2', status: 'open', title: 'Confirmation email sent twice' };
-    expect(bannerFor({ ...base, status: 'failed', fix })).toMatchObject({ why: 'the agent exited with an error · no change yet for “Confirmation email sent twice”', fix });
-    expect(bannerFor({ ...base, status: 'failed', fix: { ...fix, status: 'verified' } })).toMatchObject({ why: 'the agent exited with an error · fixed: “Confirmation email sent twice”, verified' });
-    expect(bannerFor({ ...base, status: 'crashed', blame: { callNo: null, outcome: 'unrescuable' } })).toEqual({ kind: 'failed', why: 'the run was interrupted · blame found no call whose answer, asked again, saves the run', fix: null, blamed: true });
-    expect(bannerFor({ ...base, blame: { callNo: null, outcome: 'stopped' } })).toMatchObject({ why: 'blame confirmed it fails · blame stopped before it found the call', blamed: true });
+    expect(bannerFor({ ...capture, fix })).toMatchObject({ lead: judged, why: 'judged when it was imported · no change yet for “Confirmation email sent twice”', fix });
+    expect(bannerFor({ ...capture, judged: null })).toBeNull();
+  });
+
+  it('leads a test replay that crashed with the last line its agent printed, then where it stopped', () => {
+    const crash = { line: "KeyError: 'total'", at: 19, of: 30 };
+    const replay = { ...base, type: 'test' as const, status: 'failed' as const, modelCalls: 3, crash };
+    expect(bannerFor(replay)).toEqual({ kind: 'failed', lead: "KeyError: 'total'", why: 'at call 19, 18 of 30 recorded calls replayed', fix: null, blamed: false });
+    // Where the replay kept no place, how its blame stands follows the line.
+    expect(bannerFor({ ...replay, crash: { ...crash, at: null, of: null } })).toMatchObject({ lead: "KeyError: 'total'", why: 'not blamed yet' });
+    // A check it failed leads instead: the crash was not what failed it.
+    expect(bannerFor({ ...replay, checks: [{ label: 'send_email called once', ok: false }] })).toMatchObject({ lead: 'send_email called once' });
+  });
+
+  it('says a run failed: with its fix, not blamed yet, or blamed without a call to name', () => {
+    expect(bannerFor({ ...base, checks: [{ label: 'send_email called once', ok: false }] })).toEqual({ kind: 'failed', lead: 'send_email called once', why: 'not blamed yet', fix: null, blamed: false });
+    const fix = { id: 'fx-2', status: 'open', title: 'Confirmation email sent twice' };
+    expect(bannerFor({ ...base, status: 'failed', fix })).toMatchObject({ lead: 'the agent exited with an error', why: 'no change yet for “Confirmation email sent twice”', fix });
+    expect(bannerFor({ ...base, status: 'failed', fix: { ...fix, status: 'verified' } })).toMatchObject({ lead: 'the agent exited with an error', why: 'fixed: “Confirmation email sent twice”, verified' });
+    // A blame that placed it on no call says how it stands as its label, in the engine's word, and what that stands on.
+    expect(bannerFor({ ...base, status: 'crashed', blame: { callNo: null, outcome: 'unrescuable' } })).toEqual({ kind: 'failed', why: 'from any model call · the run was interrupted', fix: null, blamed: true, label: 'not rescued' });
+    expect(bannerFor({ ...base, blame: { callNo: null, outcome: 'stopped' } })).toMatchObject({ why: 'blame confirmed it fails · before it found the call', blamed: true, label: 'stopped' });
     // Its first probe couldn't tell: inconclusive, which is no finding that no call saves the run.
-    expect(bannerFor({ ...base, status: 'crashed', blame: { callNo: null, outcome: 'unrescuable', unsettled: true } })).toEqual({ kind: 'failed', why: 'the run was interrupted · blame inconclusive at the first model call', fix: null, blamed: true });
+    expect(bannerFor({ ...base, status: 'crashed', blame: { callNo: null, outcome: 'unrescuable', unsettled: true } })).toEqual({ kind: 'failed', why: 'the run was interrupted · at the first model call', fix: null, blamed: true, label: 'inconclusive' });
+    // The label and where blame got to read as the engine's words, which the CLI and the TUI say.
+    const said = (blame: Record<string, unknown>, at: number) => {
+      const f = bannerFor({ ...base, status: 'crashed', blame: { callNo: null, ...blame } }) as { label: string; why: string };
+      return `${f.label} ${f.why.split(' · ').at(at)!}`;
+    };
+    expect([said({ outcome: 'unrescuable' }, 0), said({ outcome: 'unrescuable', unsettled: true }, -1)]).toEqual([unrescuedWords(false), INCONCLUSIVE_FIRST]);
   });
 
   it('shows nothing for a run with nothing to say', () => {
@@ -182,23 +211,25 @@ describe('the run’s banner, from the state the run list shares', () => {
     expect(bannerFor({ ...cut, callCount: 1 })).toMatchObject({ why: 'stopped before it ended: Ctrl-C, a kill or a crash · the call it made is kept' });
     expect(bannerFor({ ...cut, callCount: 0 })).toMatchObject({ why: 'stopped before it ended: Ctrl-C, a kill or a crash · no call made yet' });
     // One that failed a check before it stopped failed: that comes first.
-    expect(bannerFor({ ...cut, interrupted: false, failed: true, outcome: { kind: 'check-failed', check: 'send_email called once' }, checks: [{ label: 'send_email called once', ok: false }] })).toMatchObject({ kind: 'failed', why: 'check failed: send_email called once · not blamed yet' });
+    expect(bannerFor({ ...cut, interrupted: false, failed: true, outcome: { kind: 'check-failed', check: 'send_email called once' }, checks: [{ label: 'send_email called once', ok: false }] })).toMatchObject({ kind: 'failed', lead: 'send_email called once', why: 'not blamed yet' });
   });
 
   it('shows no failure the server does not count, such as an agent that exited 1 on an answer --fail-at injected', () => {
     expect(bannerFor({ ...base, status: 'failed', outcome: { kind: 'none' }, failed: false })).toBeNull();
   });
 
-  it('judges a test of a golden that may fork by its checks, saying where it forked', () => {
+  it('judges a test of a golden that may fork by its checks, saying where it went live, what that sent and spent, and its writes fenced', () => {
     const forked = { ...base, type: 'test' as const, divergence: { callNo: 3, type: 'request_changed', name: 'POST /v1/messages', replayedBefore: 2, diff: [{ path: '$.metadata' }] }, upstreamRequests: 14 };
     expect(bannerFor({ ...forked, outcome: { kind: 'passed' }, failed: false, checks: [{ label: 'at most 29000 input tokens', ok: true, count: 1, of: 1 }] })).toEqual({
       kind: 'checks',
       checks: [{ label: 'at most 29000 input tokens', text: 'at most 29000 input tokens · 1 of 1' }],
-      why: 'forked at #3, as its golden may · 14 upstream',
+      why: 'live from #3 · 14 upstream requests · writes fenced',
     });
+    expect(bannerFor({ ...forked, spent: 0.42, outcome: { kind: 'passed' }, failed: false, checks: [{ label: 'exits 0', ok: true }] })).toMatchObject({ why: 'live from #3 · 14 upstream requests · ≈$0.420 · writes fenced' });
+    expect(bannerFor({ ...forked, interventions: [{ flag: '--writes', value: 'allow' }], outcome: { kind: 'passed' }, failed: false, checks: [{ label: 'exits 0', ok: true }] })).toMatchObject({ why: 'live from #3 · 14 upstream requests · writes allowed' });
     expect(bannerFor({ ...forked, outcome: { kind: 'check-failed', check: 'at most 29000 input tokens' }, failed: true, modelCalls: 14, checks: [{ label: 'at most 29000 input tokens', ok: false, detail: '38337 input tokens' }] })).toMatchObject({
       kind: 'failed',
-      why: 'check failed: at most 29000 input tokens, but 38337 input tokens · not blamed yet',
+      lead: 'at most 29000 input tokens, but 38337 input tokens', why: 'not blamed yet',
     });
     // Held to its recording, where it diverged is what it failed on.
     expect(bannerFor({ ...forked, outcome: { kind: 'diverged' }, failed: true })).toMatchObject({ kind: 'diverged', callNo: 3 });
@@ -209,7 +240,7 @@ describe('the run’s banner, from the state the run list shares', () => {
     const fix = { id: 'fx-1', status: 'verified', title: 'Refunds above the limit issued without approval' };
     expect(bannerFor({ ...base, outcome: { kind: 'check-failed', check: 'issue_refund never called with {"amount":240}' }, failed: true, fix, calls })).toEqual({
       kind: 'failed',
-      why: 'check failed: issue_refund with {"amount":240} called 0 times, but called 1 time · fixed: “Refunds above the limit issued without approval”, verified',
+      lead: 'issue_refund with {"amount":240} called 0 times, but called 1 time', why: 'fixed: “Refunds above the limit issued without approval”, verified',
       fix,
       blamed: false,
     });

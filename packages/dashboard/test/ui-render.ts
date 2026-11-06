@@ -695,3 +695,8 @@ export async function render(element: ReactElement): Promise<Rendered> {
   };
   return r;
 }
+
+/** What an element shows: its text but a hidden element's, such as a glossary term's definition for a screen reader. */
+export function shownText(el: FakeElement): string {
+  return el.childNodes.map((n) => (n instanceof FakeElement ? (n.hasAttribute('hidden') ? '' : shownText(n)) : n.textContent)).join('');
+}

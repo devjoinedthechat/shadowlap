@@ -4,21 +4,22 @@ import { num } from '../format.js';
 import type { NotePart, RunNote } from './notes.js';
 
 /**
- * Under a run's banner, a line for each thing the run did that Shadowlap did not record, or answered
- * as it went (notes.ts): the tools the model called that it never recorded, with how to have them
- * recorded and the config's lines to copy; no preload loaded, or a process the guard couldn't watch,
- * with what to do; WebSockets gone to a provider live; a replay's extra reads. Each call it names
- * opens on a click. Nothing at all when there is none.
+ * A thing the run did that Shadowlap did not record, or answered as it went (notes.ts), as one of the
+ * run's findings (FindingsBar.tsx): the tools the model called that it never recorded, with how to
+ * have them recorded and the config's lines to copy; no preload loaded, or a process the guard
+ * couldn't watch, with what to do; WebSockets gone to a provider live; a replay's extra reads. Its
+ * label and words on its line, wrapping, never cut, `more` (the bar's toggle) at its end; its tools
+ * and hint under it (`.fbody`), which a closed bar hides. Each call it names opens on a click. `fx`:
+ * a finding the closed bar folds away.
  */
-export function RunNotes({ notes, onSelect }: { notes: readonly RunNote[]; onSelect: (callNo: number) => void }) {
-  if (!notes.length) return null;
+export function NoteFinding({ n, fx, more, onSelect }: { n: RunNote; fx: boolean; more: ReactNode; onSelect: (callNo: number) => void }) {
   return (
-    <section className="rnotes" aria-label="What Shadowlap did not record">
-      {notes.map((n, i) => (
-        <div className={`rnote ${n.tone}`} key={`${n.kind}:${i}`}>
-          <span className="bk">{n.label}</span>
-          <div className="rnw">
-            <p className="why">{said(n.parts, onSelect)}</p>
+    <section className={`rnote ${n.tone}${fx ? ' fx' : ''}`}>
+      <span className="bk">{n.label}</span>
+      <div className="rnw">
+        <p className="why">{said(n.parts, onSelect)}</p>
+        {n.tools?.length || n.hint ? (
+          <div className="fbody">
             {n.tools?.length ? (
               <ul className="rntools">
                 {n.tools.map((t) => (
@@ -49,8 +50,9 @@ export function RunNotes({ notes, onSelect }: { notes: readonly RunNote[]; onSel
               </p>
             ) : null}
           </div>
-        </div>
-      ))}
+        ) : null}
+      </div>
+      {more}
     </section>
   );
 }

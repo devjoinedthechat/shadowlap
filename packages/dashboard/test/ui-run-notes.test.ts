@@ -4,6 +4,10 @@ import type { CallRow, Client, RunDetail } from '../ui/api.js';
 import { RunPage } from '../ui/pages/Run.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
+import { forgetPickedCalls } from '../ui/run/open-at.js';
+
+// A call picked on a run's page is remembered for the session: each test opens its runs afresh.
+afterEach(forgetPickedCalls);
 
 /**
  * A run's page draws, under its banner, what the run did that Shadowlap did not record (the tools
@@ -76,12 +80,13 @@ describe('the notes on a run’s page', () => {
   it('says what the run did that Shadowlap did not record, the most pressing first, each call opening on a click', async () => {
     const bar = addressBar(`#/run/${RUN}/1`);
     r = await render(createElement(AppContext.Provider, { value: app }, createElement(RunPage, { id: RUN, call: 1, view: null })));
-    await r.until('the notes', () => r!.all('.rnotes .rnote').length === 4);
-    expect(r.all('.rnotes .rnote').map((n) => [n.className, n.querySelector('.bk')!.textContent])).toEqual([
+    // Each note a finding, the most pressing first, the others folded until `4 findings` opens them.
+    await r.until('the notes', () => r!.all('.findings .rnote').length === 4);
+    expect(r.all('.findings .rnote').map((n) => [n.className, n.querySelector('.bk')!.textContent])).toEqual([
       ['rnote err', 'not recorded'],
-      ['rnote warn', 'no preload'],
-      ['rnote warn', 'websocket'],
-      ['rnote n', 'extra reads'],
+      ['rnote warn fx', 'no preload'],
+      ['rnote warn fx', 'websocket'],
+      ['rnote n fx', 'extra reads'],
     ]);
     // The tool, with the model call that first asked for it, which opens on a click.
     const tool = r.one('.rntools li');

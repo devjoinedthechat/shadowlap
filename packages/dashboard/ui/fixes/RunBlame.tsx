@@ -48,6 +48,7 @@ export function RunBlameButton({
   mark,
   busy,
   on,
+  fold,
   ...priced
 }: {
   runId: string;
@@ -73,6 +74,8 @@ export function RunBlameButton({
   busy?: string | null;
   /** A list row's handlers: its estimate asked for as the pointer or the focus reaches it. */
   on?: StepHooks;
+  /** A run header's plain button, which folds into its … menu by this name. */
+  fold?: string;
 }) {
   const app = useApp();
   const waits = useTreeBusy('reads', 'blame', busy);
@@ -122,6 +125,7 @@ export function RunBlameButton({
         why={waits}
         data-tip={tip ?? tipCard(ACTIONS.runBlame.label, [], title, `$ ${blameLine}`, tipEst(estimate, form))}
         {...(lead ? { 'data-next': 'blame' } : {})}
+        {...(fold ? { 'data-fold': fold } : {})}
         onClick={() => (form ? app.guard(() => setAsking(capture ? { kind: 'command' } : { kind: 'check', command: null })) : press({ estimate, start: () => void start({}), ask: () => setAsking({ kind: 'ask' }) }))}
         {...mark}
         {...on}

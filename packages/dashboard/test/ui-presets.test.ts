@@ -7,8 +7,8 @@ import type { Client, TestsView } from '../ui/api.js';
 import { testsPalette } from '../ui/goldens.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { bannerFor, type BannerInput } from '../ui/run/banner.js';
-import { Banner } from '../ui/run/parts.js';
-import { exitWords, presetAttempt, presetTag, presetWhy } from '../ui/run/preset.js';
+import { Banner } from '../ui/run/FindingsBar.js';
+import { exitWords, presetAttempt, presetWhy } from '../ui/run/preset.js';
 import { ForksView } from '../ui/run/ForksView.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -51,7 +51,6 @@ describe('a preset’s attempt', () => {
     expect(presetWhy(p)).toBe('tool timeout preset on goldens/list-inbox, attempt 1 of 1: list_inbox (#2) timed out, played in by the preset');
     // A run's own presets, which no golden made, name none.
     expect(presetWhy({ ...p, golden: null })).toBe('tool timeout, attempt 1 of 1: list_inbox (#2) timed out, played in by the preset');
-    expect(presetTag(p)).toEqual({ cls: 'fail', text: 'failed' });
     // Why it failed is the header's red line, which the banner leaves to it.
     expect(exitWords('failed', p)).toBe(WHY);
     expect(presetWhy(presetAttempt(matrix, PASSED)!)).toBe('empty result preset on goldens/list-inbox, attempt 1 of 1: list_inbox (#2) answered with nothing, played in by the preset');
@@ -61,9 +60,7 @@ describe('a preset’s attempt', () => {
     // One that couldn't say claims nothing played in: why goes at the banner's end.
     const unsure = presetAttempt(matrix, UNSURE)!;
     expect([presetWhy(unsure), unsure.outcome]).toEqual(['provider 500 preset on goldens/list-inbox, attempt 1 of 1', 'the replay never reached #3, so the preset was never played in']);
-    expect(presetTag(unsure)).toEqual({ cls: 'inc', text: 'inconclusive' });
-    // One that passed keeps its kind's chip; a run no preset made has none.
-    expect(presetTag(presetAttempt(matrix, PASSED))).toBeNull();
+    // A run no preset made has none.
     expect(presetAttempt(matrix, REC)).toBeNull();
     expect(presetAttempt(null, ATTEMPT)).toBeNull();
     // A fork that exited with an error: its code when a preset kept it, else said without one.
@@ -99,27 +96,27 @@ describe('a preset’s attempt', () => {
     expect(bannerFor({ ...input, preset: presetAttempt(matrix, UNSURE) })!).toMatchObject({ verdict: 'inconclusive', why: 'provider 500 preset on goldens/list-inbox, attempt 1 of 1 · writes stubbed · the replay never reached #3, so the preset was never played in' });
   });
 
-  it('draws the banner whole: it wraps rather than cut its words, the verdict word first in its colour', () => {
+  it('draws the banner whole: it wraps rather than cut its words, and leaves its verdict to the first fact', () => {
     const run = attemptRun();
     const html = renderToStaticMarkup(
       createElement(AppContext.Provider, { value: appState() }, createElement(Banner, { run, blame: null, rescued: null, checks: [], offers: null, showDiff: false, onToggleDiff: () => undefined, onSelect: () => undefined, onAction: () => undefined, preset: presetAttempt(matrix, ATTEMPT) })),
     );
     expect(html).toContain('<section class="banner fork wrap"><span class="bk">forked at</span><button class="bn" type="button">#2</button>');
     // Its tally kept whole where the line wraps.
-    expect(html).toContain('<span class="why"><em class="no">failed</em> · tool timeout preset on goldens/list-inbox, attempt 1\u00a0of\u00a01: list_inbox (#2) timed out, played in by the preset · writes stubbed</span>');
+    expect(html).toContain('<span class="why">tool timeout preset on goldens/list-inbox, attempt 1\u00a0of\u00a01: list_inbox (#2) timed out, played in by the preset · writes stubbed</span>');
     expect(html).toContain('<a class="more" href="#/tests" title="list-inbox on Tests">Tests →</a>');
     // Never a line cut at the banner's end.
     expect(html).not.toContain('…');
   });
 
-  it('gives its header the preset’s status chip, and why it failed as the red line', () => {
+  it('says why its preset failed it in red on the id’s card, with no chip: the first fact says the verdict', () => {
     const run = attemptRun();
     const header = (preset: ReturnType<typeof presetAttempt>) =>
       renderToStaticMarkup(createElement(AppContext.Provider, { value: appState() }, createElement(RunHeader, { run, call: null, selected: 2, rescued: false, offers: null, forkMenu: { open: false, anchor: null, toggle: () => undefined, close: () => undefined } as never, onAction: () => undefined, onFindCommit: () => undefined, preset })));
     const failed = header(presetAttempt(matrix, ATTEMPT));
-    expect(failed).toContain('<span class="tag fail">failed</span>');
-    expect(failed).toContain(`<span class="bad">${WHY}</span>`);
-    // Before the presets are read: no chip, its eyebrow naming it a fork, and that it exited with an error, plainly.
+    expect(failed).not.toContain('class="tag');
+    expect(failed).toContain(`<span class="mfail">${WHY}</span>`);
+    // Before the presets are read: its eyebrow naming it a fork, and that it exited with an error, plainly.
     const plain = header(null);
     expect(plain).not.toContain('class="tag');
     expect(plain).toContain('<span class="ebk">fork @2</span>');

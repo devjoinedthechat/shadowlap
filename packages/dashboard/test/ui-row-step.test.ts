@@ -139,7 +139,7 @@ function Pages({ late, lead }: { late: number; lead: { key: string; disabled?: b
   return createElement(
     'main',
     { id: 'view' },
-    createElement('section', { className: 'rhead' }, createElement('h1', { className: 'rnm', title: id }, id.slice(0, 10)), createElement('button', { type: 'button', 'data-next': lead.key, disabled: lead.disabled, title: lead.title, onClick: lead.onClick }, 'Lead')),
+    createElement('section', { className: 'rhead' }, createElement('h1', { className: 'rnm', 'data-run': id }, id.slice(0, 10)), createElement('button', { type: 'button', 'data-next': lead.key, disabled: lead.disabled, title: lead.title, onClick: lead.onClick }, 'Lead')),
   );
 }
 

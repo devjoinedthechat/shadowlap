@@ -41,11 +41,11 @@ const PAGES = ['Changes', 'Compare', 'Fixes', 'NewProject', 'Overview', 'Run', '
  * The parts of pages, and the shell's palette, shortcuts sheet and Remove project dialog, in scripts of their own, by their chunk's name: the list grows as parts land.
  * The dialogs a Needs a look row's step asks in (a fix's, Find breaking commit's, Update golden's) load as the step first asks.
  */
-const PARTS = ['BlameAgain', 'ContextView', 'Drawer', 'FixPage', 'ForksView', 'Palette', 'ProvenanceView', 'RemoveProject', 'RevisionPage', 'RunDialogs', 'Shortcuts', 'TimelineView', 'TurnsView', 'UpdateGolden', 'Verdicts', 'jobs'];
+const PARTS = ['ActionDialog', 'BlameAgain', 'ContextView', 'DatasetDialog', 'DivergedDialogs', 'Drawer', 'FixPage', 'ForksView', 'Palette', 'ProvenanceView', 'RemoveProject', 'RevisionPage', 'RunDialogs', 'Shortcuts', 'TimelineView', 'TurnsView', 'UpdateGolden', 'Verdicts', 'jobs'];
 /** The pages an exported copy shows (ui/pages/copy.tsx). */
 const COPY_PAGES = ['Compare', 'Run', 'Runs'];
 /** The parts the copy shows, in its one script: a run's views but Calls, and what its shell holds. */
-const COPY_PARTS = ['ContextView', 'Drawer', 'ForksView', 'Palette', 'ProvenanceView', 'RemoveProject', 'Shortcuts', 'TimelineView', 'TurnsView', 'jobs'];
+const COPY_PARTS = ['ActionDialog', 'ContextView', 'DatasetDialog', 'DivergedDialogs', 'Drawer', 'ForksView', 'Palette', 'ProvenanceView', 'RemoveProject', 'Shortcuts', 'TimelineView', 'TurnsView', 'jobs'];
 
 /**
  * The parts heavy enough that they must wait for a script of their own (`onShow`), by their modules:
