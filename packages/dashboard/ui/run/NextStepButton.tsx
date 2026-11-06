@@ -13,7 +13,7 @@ import { TestsJobButton } from '../fixes/TestsJobButton.js';
 import { useJobWait, useTreeBusy } from '../fixes/tree.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { href } from '../route.js';
-import { compareTarget } from '../runs.js';
+import { compareTarget, isFailed } from '../runs.js';
 import { shortcut } from '../shortcuts.js';
 import { guardedWayOn, useApp } from '../state.js';
 import { gateAgainAsk, rerunAsk, startTestsJob } from '../tests-ask.js';
@@ -21,7 +21,7 @@ import { errorText } from '../toast.js';
 import type { NextStep } from '../types.js';
 import type { PendingAction } from './actions.js';
 import { useDivergedJobs } from './diverged.js';
-import { checksOf } from './model.js';
+import { checksOf, runLikeOf } from './model.js';
 import { blameBesideCard, gateEntry, PACK_VERB, replayAction, stepCard, stepCostLine, stepJob, type StepCard } from './next-step.js';
 import { blameTitle } from './offers.js';
 import { PACK_HOLDS, packRunCommand, packTestCommands, redactsFact } from './share.js';
@@ -263,7 +263,7 @@ function InjectionStep({ step }: { step: Extract<NextStep, { key: 'injection-tes
  * with its words, as a folder taken or a bad one is; a recording from elsewhere asks first, since its
  * test runs the command it was recorded with.
  */
-export function PackAsGolden({ runId, folder, offers, lead, tip }: { runId: string; folder: string; offers: RunOffers | null; lead: boolean; tip: string }) {
+export function PackAsGolden({ runId, folder, offers, lead, tip, fold }: { runId: string; folder: string; offers: RunOffers | null; lead: boolean; tip: string; fold?: string }) {
   const app = useApp();
   const [asking, setAsking] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
@@ -284,7 +284,7 @@ export function PackAsGolden({ runId, folder, offers, lead, tip }: { runId: stri
     );
   return (
     <>
-      <TestsJobButton verb={PACK_VERB} off={null} className={lead ? 'btn lime' : 'btn'} tip={tip} {...(lead ? { lead: 'pack' } : {})} onClick={() => app.guard(() => setAsking(true))}>
+      <TestsJobButton verb={PACK_VERB} off={null} className={lead ? 'btn lime' : 'btn'} tip={tip} {...(lead ? { lead: 'pack' } : {})} {...(fold ? { fold } : {})} onClick={() => app.guard(() => setAsking(true))}>
         {ACTIONS.packAsGolden.label}
       </TestsJobButton>
       {asking ? (
@@ -318,6 +318,29 @@ export function PackAsGolden({ runId, folder, offers, lead, tip }: { runId: stri
 }
 
 /** Pack with injection gate…: the run packed into a folder of the goldens, named for the run; a gate's entry, which this leaves to you, goes under `tests` in the config, for the folder as you name it. */
+/**
+ * The folder a plain Pack as golden… packs into, where the header shows one: a recording a golden can
+ * be made from that didn't fail by today's checks, beside a step that isn't packing it already.
+ */
+export function plainPackFolder(run: RunDetail, offers: RunOffers | null, next: NextStep | null): string | null {
+  return offers?.keep && !isFailed(runLikeOf(run)) && next?.key !== 'pack' && next?.key !== 'pack-gate' ? offers.keep.folder : null;
+}
+
+/** Its card where another step leads, as the lead's says it. */
+export function packTip(runId: string, folder: string): string {
+  return tipCard('Pack as golden', [], 'A golden that CI replays on every commit', `$ ${packRunCommand(runId, folder)}`);
+}
+
+/**
+ * Pack as golden… beside another step that leads, an injection test's or a preset's: plain, and the
+ * header folds it into … second, after Replay. None where `plainPackFolder` finds no folder.
+ */
+export function PlainPackAsGolden({ run, offers, next }: { run: RunDetail; offers: RunOffers | null; next: NextStep | null }) {
+  const folder = plainPackFolder(run, offers, next);
+  const runId = run.run.runId;
+  return folder ? <PackAsGolden runId={runId} folder={folder} offers={offers} lead={false} tip={packTip(runId, folder)} fold="pack" /> : null;
+}
+
 function PackStep({ step, offers }: { step: Extract<NextStep, { key: 'pack' | 'pack-gate' }>; offers: RunOffers | null }) {
   const app = useApp();
   const [asking, setAsking] = useState(false);

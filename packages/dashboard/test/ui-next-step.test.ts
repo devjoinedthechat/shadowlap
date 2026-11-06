@@ -436,6 +436,29 @@ describe('the run page’s next step', () => {
     expect(started).toEqual([['pack-test', { runId: REC, golden: folder }]]);
   });
 
+  it('offers a plain Pack as golden… after Replay where another step leads, folding by its name, and none where it leads or the run failed', async () => {
+    const folder = `goldens/${REC.slice(0, 10).toLowerCase()}`;
+    const offers = { keep: { folder }, copies: { formats: [] } } as unknown as RunOffers;
+    const injection = { key: 'injection-test', label: 'Run injection test…', runId: REC } as NextStep;
+    const { a, started } = jobs();
+    page = await render(both(detail({ state: passedState, next: injection }), offers, a));
+    const names = page.all('.rhead .actions button').map((b) => b.textContent);
+    expect(names.indexOf('Pack as golden…')).toBe(names.indexOf('Replay') + 1);
+    const plain = page.byText('.rhead .actions button', 'Pack as golden…');
+    expect([plain.className, plain.getAttribute('data-fold'), plain.getAttribute('data-next')]).toEqual(['btn', 'pack', null]);
+    expect(JSON.parse(plain.getAttribute('data-tip')!)).toMatchObject({ t: 'Pack as golden', s: 'A golden that CI replays on every commit', cmd: `$ shadowlap pack ${REC.slice(0, 10)} ${folder}` });
+    await page.click(plain);
+    await page.click(page.one('.dialog .dlg-ok'));
+    expect(started).toEqual([['pack-test', { runId: REC, golden: folder }]]);
+    await page.unmount();
+    for (const [state, next] of [[failedState, injection], [passedState, { key: 'pack', label: 'Pack as golden…', runId: REC, folder } as NextStep]] as const) {
+      page = await render(both(detail({ state, next }), offers, app()));
+      expect(page.all('.rhead [data-fold="pack"]')).toHaveLength(0);
+      await page.unmount();
+    }
+    page = null;
+  });
+
   it('keeps Pack as golden…’s dialog open with the server’s words when it refuses the folder, and asks first of a recording from elsewhere', async () => {
     const folder = `goldens/${REC.slice(0, 10).toLowerCase()}`;
     const next: NextStep = { key: 'pack', label: 'Pack as golden…', runId: REC, folder, title: 'Pack as golden', sub: 'A golden that CI replays on every commit', command: `shadowlap pack ${REC.slice(0, 10)} ${folder}` };

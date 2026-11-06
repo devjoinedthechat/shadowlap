@@ -21,7 +21,7 @@ import { errorText } from '../toast.js';
 import { ForkMenu, type PendingAction } from './actions.js';
 import { failureText, fixCheckText } from './banner.js';
 import { nextStepOf } from './next-step.js';
-import { BlameBesideButton, CompareButton, NextStepButton, ReplayButton } from './NextStepButton.js';
+import { BlameBesideButton, CompareButton, NextStepButton, PlainPackAsGolden, ReplayButton } from './NextStepButton.js';
 import { exitWords, presetTag, type PresetAttempt } from './preset.js';
 import { checksOf, forkKindWords, recordingWords, runDuration, runLikeOf } from './model.js';
 import { canPush, pushTitle } from './share.js';
@@ -36,20 +36,7 @@ import { ActionButton, useWhenFree } from '../components/ActionButton.js';
  * one lime button is the run's next step, as the server works it out (src/next-step.ts); every other
  * action stays, plain.
  */
-export function RunHeader({
-  run,
-  call,
-  selected,
-  rescued,
-  offers,
-  forkMenu,
-  onAction,
-  onFindCommit,
-  preset = null,
-  labels: given,
-  setLabels: setGiven,
-  onMark = null,
-}: {
+export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAction, onFindCommit, preset = null, labels: given, setLabels: setGiven, onMark = null }: {
   run: RunDetail;
   call: CallDetail | null;
   selected: number | null;
@@ -183,6 +170,7 @@ export function RunHeader({
               </ActionButton>
             ) : null}
             {next?.key === 'replay' ? null : <ReplayButton run={run} step={run.replay ?? null} lime={false} onAction={onAction} />}
+            <PlainPackAsGolden run={run} offers={offers} next={next} />
             <BlameBesideButton runId={r.runId} step={next} />
             <ActionButton className="btn" id="forkBtn" aria-haspopup="menu" aria-expanded={forkMenu.open} disabled={live || selected === null} {...offOrCard(live ? 'Fork once the recording finishes' : undefined, selected === null, 'Each change in the menu shows the flag it runs')} onClick={(e) => forkMenu.toggle(e.currentTarget)} {...shortcut('fork')}>
               <Icon name="fork" />

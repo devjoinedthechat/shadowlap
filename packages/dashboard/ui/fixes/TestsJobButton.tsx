@@ -13,13 +13,13 @@ import { ActionButton } from '../components/ActionButton.js';
  * dashboard); `title` is the hover while it can start, or `tip`, a hover card. `lead`: it is the
  * run's next step, which the palette presses by that name. A job that would run goldens live asks
  * first (TestsAskHost). A lime one goes plain while it waits: the page never offers a lime button
- * that can't start.
+ * that can't start. `fold`: a run header's button that folds into its … menu by that name.
  */
-export function TestsJobButton({ verb, off, title, tip, lead, className, onClick, children }: { verb: string; off: string | null; title?: string | null; tip?: string; lead?: string; className: string; onClick: () => void; children: ReactNode }) {
+export function TestsJobButton({ verb, off, title, tip, lead, fold, className, onClick, children }: { verb: string; off: string | null; title?: string | null; tip?: string; lead?: string; fold?: string; className: string; onClick: () => void; children: ReactNode }) {
   const wait = useTestsWait(verb);
   const why = off ?? wait;
   return (
-    <ActionButton className={className} why={why} title={title ?? undefined} {...(tip ? { 'data-tip': tip } : {})} {...(lead ? { 'data-next': lead } : {})} onClick={onClick}>
+    <ActionButton className={className} why={why} title={title ?? undefined} {...(tip ? { 'data-tip': tip } : {})} {...(lead ? { 'data-next': lead } : {})} {...(fold ? { 'data-fold': fold } : {})} onClick={onClick}>
       {children}
     </ActionButton>
   );
