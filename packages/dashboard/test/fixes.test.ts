@@ -555,7 +555,7 @@ describe('a fix', () => {
     expect(fixDetail(store, fixId)!.verify.find((v) => v.verifyId === rejected)!.headline).toBe('The change did not fix the failing runs it checked');
   });
 
-  it('offers Repair from here on an open fix, and an empty Repair and Verify step', () => {
+  it('offers Run repair on an open fix, and an empty Repair and Verify step', () => {
     const run = makeRun(store);
     const { fix } = blame(run, { expect: null });
     const d = fixDetail(store, fix.fixId)!;
@@ -902,7 +902,7 @@ describe('fixes for the other views', () => {
       [fix.fixId, 'Open', 'not rescued from any model call · look at the tools, the harness or the command'],
       [other.fixId, 'Fix it', 'not rescued from any model call · no change yet'],
     ]);
-    // The fix's page still offers Repair from here, and its Blame step says why the prompt is not the place to look.
+    // The fix's page still offers Run repair, and its Blame step says why the prompt is not the place to look.
     const d = fixDetail(store, fix.fixId)!;
     expect(d.actions.repair).not.toBeNull();
     expect(d.blame?.look).toBe("No answer of the model's lost this run: look at the tools, the harness or the command.");
