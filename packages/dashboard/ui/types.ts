@@ -508,8 +508,9 @@ export interface LabelRunsResult {
 
 /** `GET /api/tests`: the goldens on disk and how each did, with the reports as the CLI prints them. */
 export type { BisectChoices, BisectMiss, BisectRange, BisectRevision, DivergenceView, FailureView, FollowedGolden, FoundCommit, GatePreview, GateResultView, GateView, GoldenCheck, GoldenRow, GoldenVerdict, HistoryCell, HistoryDrop, InconclusiveView, MoreAttempts, RevisionFact, SinceResult, TestRunBanner, TestsSessionView, TestsVerdict, TestsView, UnjudgedCheck, UntestedCommit } from '../src/tests.js';
-/** `GET /api/tests/runs/:id`: what a run's page offers about a test replay, and Find breaking commit's choices. */
+/** `GET /api/tests/evidence`: a gated golden's attempts, each judged from its own run, and the words its evidence says why its gate stopped with. */
 export type { EvidenceAttempt, EvidenceWords, TestEvidence } from '../src/tests-evidence.js';
+/** `GET /api/tests/runs/:id`: what a run's page offers about a test replay, and Find breaking commit's choices. */
 export interface TestRunView {
   banner: import('../src/tests.js').TestRunBanner | null;
   bisect: import('../src/tests.js').BisectChoices | null;
