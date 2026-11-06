@@ -15,9 +15,10 @@ import { FileLockBusyError, isObject, shadowlapHome, withFileLock, writeFileAtom
  * the project list's), and replaces the file in one step; and the file is read again once it has
  * changed. A write never waits, and never writes over what it couldn't read: while another process
  * holds the lock, while the file can't be read, or when the write fails, it is skipped, and the next
- * request makes it (outcome-work.ts). A file that is no JSON is as none, and one a newer Shadowlap
- * wrote is read as none and never written over; where the folder can't be written, the times are
- * kept for as long as the process runs.
+ * request makes it (outcome-work.ts). A read that fails answers with what was read of the file last,
+ * and nothing is kept from it. A file that is no JSON is as none, and one a newer Shadowlap wrote is
+ * read as none and never written over; where the folder can't be written, the times are kept for as
+ * long as the process runs.
  */
 
 export const CHECKS_SEEN_FILE = 'checks-seen.json';
@@ -29,6 +30,13 @@ const PROJECTS = 200;
 export interface SeenChecks {
   key: string;
   at: number | null;
+}
+
+/** A project's goldens' checks as last seen, by the golden's folder, and whether that is the file as it is now. */
+export interface Seen {
+  seen: ReadonlyMap<string, SeenChecks>;
+  /** False when the file couldn't be read just now: `seen` is what was read of it last, to answer with, and never to keep from. */
+  current: boolean;
 }
 
 type Projects = Map<string, Map<string, SeenChecks>>;
@@ -76,26 +84,33 @@ function parse(file: string): Projects | typeof NEWER | null {
   return out;
 }
 
-/** The file as stat sees it, so that a write shows: each one replaces it, so its inode changes with its time and size. Null without one. */
-function statOf(file: string): string | null {
-  try {
-    const s = statSync(file);
-    return `${s.mtimeMs}:${s.size}:${s.ino}`;
-  } catch {
-    return null;
-  }
+/** The file as stat sees it, so that a write shows: each one replaces it, so its inode changes with its time and size. */
+function statOf(file: string): string {
+  const s = statSync(file);
+  return `${s.mtimeMs}:${s.size}:${s.ino}`;
 }
 
-/** The file as it is now: as last read while stat says it is unchanged, else read again. */
-function current(file: string): Projects {
-  const stat = statOf(file);
+/**
+ * The file as it is now: as last read while stat says it is unchanged, else read again. One that
+ * can't be read just then is read again by the next call, and until then is what was read of it last.
+ */
+function projectsNow(file: string): { projects: Projects; current: boolean } {
   const was = files.get(file);
-  if (stat !== null && was?.stat === stat) return was.projects;
+  const last = { projects: was?.projects ?? empty(), current: false };
+  let stat: string;
+  try {
+    stat = statOf(file);
+  } catch (err) {
+    if (!missing(err)) return last;
+    files.delete(file);
+    return { projects: empty(), current: true };
+  }
+  if (was?.stat === stat) return { projects: was.projects, current: true };
   const read = parse(file);
-  const projects = read === null || read === NEWER ? empty() : read;
-  if (stat === null) files.delete(file);
-  else files.set(file, { stat, projects });
-  return projects;
+  if (read === null) return last;
+  const projects = read === NEWER ? empty() : read;
+  files.set(file, { stat, projects });
+  return { projects, current: true };
 }
 
 function text(projects: Projects): string {
@@ -106,10 +121,13 @@ function text(projects: Projects): string {
 
 const fileOf = (env: NodeJS.ProcessEnv) => join(shadowlapHome(env), CHECKS_SEEN_FILE);
 
-/** Each golden's checks as last seen in the project, by the golden's folder. */
-export function seenChecks(dir: string, env: NodeJS.ProcessEnv = process.env): ReadonlyMap<string, SeenChecks> {
+/** Each golden's checks as last seen in the project, by the golden's folder, and whether the file could be read for them just now. */
+export function seenChecks(dir: string, env: NodeJS.ProcessEnv = process.env): Seen {
   const file = fileOf(env);
-  return unwritten.get(file)?.get(dir) ?? current(file).get(dir) ?? new Map();
+  const mine = unwritten.get(file)?.get(dir);
+  if (mine) return { seen: mine, current: true };
+  const { projects, current } = projectsNow(file);
+  return { seen: projects.get(dir) ?? new Map(), current };
 }
 
 /** Under the file's lock: the project's entry written into the file as read afresh, but never over one it couldn't read, nor a newer Shadowlap's. */

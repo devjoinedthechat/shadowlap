@@ -21,8 +21,8 @@ import type { GoldenSource } from './tests.js';
  * its tests entries name, and the run.json of each pack, and of each folder under goldens/ whether it
  * has one yet or not: a pack copied in by hand or by git checkout makes its folder first. A request
  * pays a stat of each; the same work, and so its key, answers until then. When what it saw of the
- * goldens' checks couldn't be kept, as another process was writing that file (checks-seen.ts), the
- * next request reads it all again, and keeps them.
+ * goldens' checks couldn't be kept, as another process was writing that file, or it couldn't be read
+ * just then (checks-seen.ts), the next request reads it all again, and keeps them.
  */
 
 /** The folder the CLI lists goldens in (its GOLDENS_FOLDER): a pack added there or taken out changes it. */
@@ -32,7 +32,7 @@ interface Kept {
   /** The files the work was read from, and what stat said of each before it was read. */
   watched: string[];
   stats: string;
-  /** Read again by the next request whatever stat says: the goldens' checks as seen weren't kept yet (checks-seen.ts). */
+  /** Read again by the next request whatever stat says: the goldens' checks as seen weren't kept yet, or weren't read just now (checks-seen.ts). */
   again: boolean;
   prices: unknown;
   work: OutcomeWork | null;
@@ -128,7 +128,7 @@ function readWork(ctx: RouteContext, dir: string): Omit<Kept, 'prices'> {
     // the read model's thread parses them again, and says why they can't be read
   }
   const changedAt = file.exists ? writtenAt(file.path) : null;
-  const seen = seenChecks(dir);
+  const { seen, current } = seenChecks(dir);
   const now = new Map<string, SeenChecks>();
   const steps = stepsWork(ctx, dir, isObject(file.data) ? file.data : null);
   const goldens = steps.goldens.map((g) => {
@@ -140,8 +140,9 @@ function readWork(ctx: RouteContext, dir: string): Omit<Kept, 'prices'> {
     return { path: g.path, runId: g.runId, packedAt: g.packedAt, checksAt: at };
   });
   const changed = now.size !== seen.size || [...now].some(([path, v]) => seen.get(path)?.key !== v.key);
-  // Not kept while another process writes the file: the next request reads again, and keeps them.
-  const again = changed && !keepSeenChecks(dir, now);
+  // Not kept from a read of the file that failed, which would reset the times it holds, nor while
+  // another process writes it: the next request reads again, and keeps them.
+  const again = !current || (changed && !keepSeenChecks(dir, now));
   const others = [...new Set([...entries.map((e) => dirname(resolve(dir, e.recording))), ...goldens.map((g) => join(resolve(dir, g.path), 'run.json'))])].filter((p) => !packs.includes(p));
   return {
     watched: [...watched, ...others],

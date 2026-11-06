@@ -6,8 +6,10 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
-import { LOCK_STALE_MS, releaseLock, takeLock } from '@shadowlap/engine';
+import { LOCK_STALE_MS, releaseLock, shadowlapHome, takeLock } from '@shadowlap/engine';
 import { CHECKS_SEEN_FILE, keepSeenChecks, seenChecks, type SeenChecks } from '../src/checks-seen.js';
+import type { RouteContext } from '../src/context.js';
+import type { GoldenSource } from '../src/tests.js';
 
 /**
  * The goldens' checks as seen (checks-seen.ts): one file in Shadowlap's folder for this machine that
@@ -16,10 +18,10 @@ import { CHECKS_SEEN_FILE, keepSeenChecks, seenChecks, type SeenChecks } from '.
  * dashboard with other files' now and then.
  */
 
-// Each read, open, flush and rename of a file goes as it would, but the next one armed here fails
-// once with its code: as a process out of file handles fails it (EMFILE), a disk that drops a write
-// (EIO), or Windows refusing to replace a file another program has open (EPERM). One armed with a
-// path fails the next call on that path; one without, the next call.
+// Each read, stat, open, flush and rename of a file goes as it would, but the next one armed here
+// fails once with its code: as a process out of file handles fails it (EMFILE), a disk that drops a
+// write (EIO), or Windows refusing to replace a file another program has open (EPERM). One armed
+// with a path fails the next call on that path; one without, the next call.
 const failing: Array<{ call: string; path?: string; code: string }> = [];
 vi.mock('node:fs', async (importOriginal) => {
   const real = await importOriginal<typeof import('node:fs')>();
@@ -35,6 +37,10 @@ vi.mock('node:fs', async (importOriginal) => {
       fail('readFileSync', path);
       return real.readFileSync(path, options);
     }) as typeof real.readFileSync,
+    statSync: ((path: fs.PathLike, options?: never) => {
+      fail('statSync', path);
+      return real.statSync(path, options);
+    }) as typeof real.statSync,
     openSync: ((path: fs.PathLike, flags: fs.OpenMode, mode?: fs.Mode | null) => {
       fail('openSync', path);
       return real.openSync(path, flags, mode);
@@ -87,13 +93,13 @@ describe('the checks seen, kept by every dashboard on this machine in one file',
     const a = await writer();
     const b = await writer();
     // Each has read the file, as a dashboard has once it has judged a run, before either writes.
-    expect(a.seenChecks('/work/a', env).size).toBe(0);
-    expect(b.seenChecks('/work/b', env).size).toBe(0);
+    expect(a.seenChecks('/work/a', env).seen.size).toBe(0);
+    expect(b.seenChecks('/work/b', env).seen.size).toBe(0);
     a.keepSeenChecks('/work/a', seen('k1'), env);
     b.keepSeenChecks('/work/b', seen('k2', T), env);
     expect(Object.keys(kept(env)).sort()).toEqual(['/work/a', '/work/b']);
     // What one timed, the other reads: it sees no golden there first, which would lose the time.
-    expect(a.seenChecks('/work/b', env).get('goldens/refund')).toEqual({ key: 'k2', at: T });
+    expect(a.seenChecks('/work/b', env).seen.get('goldens/refund')).toEqual({ key: 'k2', at: T });
     // Each changes its own project's entry alone.
     b.keepSeenChecks('/work/b', seen('k3', T + 1), env);
     a.keepSeenChecks('/work/a', seen('k4', T + 2), env);
@@ -147,7 +153,7 @@ describe('the checks seen, kept by every dashboard on this machine in one file',
     writeFileSync(join(at, 'home'), '');
     const env = { SHADOWLAP_HOME: join(at, 'home') };
     expect(keepSeenChecks('/work/a', seen('k1', T), env)).toBe(true);
-    expect(seenChecks('/work/a', env).get('goldens/refund')).toEqual({ key: 'k1', at: T });
+    expect(seenChecks('/work/a', env).seen.get('goldens/refund')).toEqual({ key: 'k1', at: T });
   });
 
   it("never writes over a file it couldn't read under the lock: every other project's entry stays, and a later call writes its own", () => {
@@ -184,10 +190,28 @@ describe('the checks seen, kept by every dashboard on this machine in one file',
       expect(kept(env)).toEqual(before);
       expect(readdirSync(env.SHADOWLAP_HOME!)).toEqual([CHECKS_SEEN_FILE]);
       // Not kept in this process alone, where no other dashboard would see it.
-      expect(seenChecks('/work/b', env).size).toBe(0);
+      expect(seenChecks('/work/b', env).seen.size).toBe(0);
     }
     expect(keepSeenChecks('/work/b', seen('k2', T + 1), env)).toBe(true);
     expect(kept(env)).toEqual({ ...before, '/work/b': { 'goldens/refund': { key: 'k2', at: T + 1 } } });
+  });
+
+  it('reads a file it couldn’t read again on the next call, answering until then with what it read of it last, as not current', async () => {
+    const env = home();
+    keepSeenChecks('/work/a', seen('k1', T), env);
+    const dashboard = await writer();
+    // Its first read fails: nothing read yet to answer with.
+    failing.push({ call: 'readFileSync', path: fileIn(env), code: 'EMFILE' });
+    expect(dashboard.seenChecks('/work/a', env)).toEqual({ seen: new Map(), current: false });
+    // Read again, though stat says the file is as it was.
+    expect(dashboard.seenChecks('/work/a', env)).toEqual({ seen: seen('k1', T), current: true });
+    // Changed by another process, and its read again fails, or the stat before it: what it read last.
+    keepSeenChecks('/work/a', seen('k2', T + 1), env);
+    failing.push({ call: 'readFileSync', path: fileIn(env), code: 'EIO' });
+    expect(dashboard.seenChecks('/work/a', env)).toEqual({ seen: seen('k1', T), current: false });
+    failing.push({ call: 'statSync', path: fileIn(env), code: 'EIO' });
+    expect(dashboard.seenChecks('/work/a', env)).toEqual({ seen: seen('k1', T), current: false });
+    expect(dashboard.seenChecks('/work/a', env)).toEqual({ seen: seen('k2', T + 1), current: true });
   });
 
   it("never writes over a newer Shadowlap's file, keeping what it saw for as long as it runs", () => {
@@ -197,8 +221,39 @@ describe('the checks seen, kept by every dashboard on this machine in one file',
     expect(keepSeenChecks('/work/b', seen('k1', T), env)).toBe(true);
     expect(readFileSync(fileIn(env), 'utf8')).toBe(newer);
     // Read as none, but for what this process saw.
-    expect(seenChecks('/work/a', env).size).toBe(0);
-    expect(seenChecks('/work/b', env).get('goldens/refund')).toEqual({ key: 'k1', at: T });
+    expect(seenChecks('/work/a', env)).toEqual({ seen: new Map(), current: true });
+    expect(seenChecks('/work/b', env).seen.get('goldens/refund')).toEqual({ key: 'k1', at: T });
+  });
+});
+
+describe("what a dashboard answers while it can't read the checks seen", () => {
+  const golden: GoldenSource = { path: 'goldens/refund', runId: '01K8RG00000000000000000001', packedAt: T, mode: 'replay', repeat: 1, passes: 1, checks: [] };
+  /** A dashboard of its own: the server's modules loaded afresh, with nothing of the file read yet. */
+  async function dashboard(): Promise<typeof import('../src/outcome-work.js')> {
+    vi.resetModules();
+    return import('../src/outcome-work.js');
+  }
+
+  it("answers without keeping what it saw, so that no golden's time is reset, and with the time on the next request", async () => {
+    const dir = temp('project');
+    writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/refund': { expect: { tools: { send_email: '<= 1' } } } } }));
+    const ctx = () => ({ project: { path: dir }, options: { goldens: () => [golden] }, read: {} }) as unknown as RouteContext;
+    const file = join(shadowlapHome(), CHECKS_SEEN_FILE);
+    // Kept by a dashboard before: the golden's checks seen to change at T + 5.
+    (await dashboard()).outcomeWork(ctx());
+    const was = JSON.parse(readFileSync(file, 'utf8')) as { projects: Record<string, Record<string, SeenChecks>> };
+    was.projects[dir]['goldens/refund'].at = T + 5;
+    writeFileSync(file, JSON.stringify(was));
+    // A dashboard started since, whose first read of the file fails.
+    const { outcomeWork } = await dashboard();
+    const request = ctx();
+    failing.push({ call: 'readFileSync', path: file, code: 'EMFILE' });
+    expect(outcomeWork(request)!.goldens[0]?.checksAt).toBeNull();
+    expect(failing).toEqual([]);
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual(was);
+    // The next request reads it again.
+    expect(outcomeWork(request)!.goldens[0]?.checksAt).toBe(T + 5);
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual(was);
   });
 });
 
