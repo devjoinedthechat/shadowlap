@@ -1,7 +1,7 @@
 import { isObject } from '@shadowlap/engine';
 import type { StoreOf } from '@shadowlap/engine';
 import { chaosMatrices, presetsSummary } from './chaos.js';
-import { coverageLook } from './coverage.js';
+import { coverageNewest } from './coverage.js';
 import { injectionNeedsLook } from './injection.js';
 import { links } from './links.js';
 import type { LookSource, LookWork, NeedsLookRow } from './needs-look/row.js';
@@ -174,16 +174,16 @@ export const presetsUnsure: LookSource = {
   rest: (n) => ({ icon: 'warn', title: `${plural(n, 'more error-path test')} inconclusive`, detail: 'each on its run, under Runs', href: links.runs() }),
 };
 
-/** `/api/coverage` serves the look in its own shape, `action` included: the row takes the rest of it. */
+/** `/api/coverage` serves the look in its own shape, `action` included: the row takes the rest of it, keyed by the newest behaviour no golden covers. */
 export const coverage: LookSource = {
   id: 'coverage',
   group: 'tests',
   order: 30,
   rows: (w) => {
-    const look = coverageLook(w.store);
-    if (!look) return [];
-    const { kind, icon, title, detail, href, runId, fixId, at } = look;
-    return [{ key: `attn:coverage:${runId ?? at}`, group: 'tests', kind, icon, title, detail, step: null, href, runId, fixId, at }];
+    const newest = coverageNewest(w.store);
+    if (!newest) return [];
+    const { kind, icon, title, detail, href, runId, fixId, at } = newest.look;
+    return [{ key: `attn:coverage:${newest.key}`, group: 'tests', kind, icon, title, detail, step: null, href, runId, fixId, at }];
   },
 };
 
