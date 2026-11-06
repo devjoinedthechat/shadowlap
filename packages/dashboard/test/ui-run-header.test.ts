@@ -102,5 +102,8 @@ describe('a run’s header', () => {
     expect(eyebrow(live)).toBe('recording');
     expect(live).not.toContain('class="tag');
     expect(text(card(live))).toContain('recording…');
+    // The eyebrow names only the kind: a replay still being made is a replay, never a recording.
+    const replaying = header(detail({ parent: true, status: 'running', state: { status: 'running', kind: 'clean', outcome: { kind: 'running' }, failed: false } }));
+    expect(eyebrow(replaying)).toBe('clean replay of 01M5GRX4VY');
   });
 });

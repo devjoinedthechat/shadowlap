@@ -97,7 +97,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   // changed are its about line, under the id; how it stands is the first fact, and why it failed the
   // id's card. An attempt says it is one (its finding says which); a fork, where it forked.
   const forkWords = forkKindWords(run, type, rescued);
-  const kind = live ? 'recording' : forkWords ? forkWords : type === 'clean' ? 'clean replay' : type === 'replay' ? 'replay' : type === 'test' ? 'test replay' : type === 'capture' ? 'capture' : recordingWords(r);
+  const kind = forkWords ? forkWords : type === 'clean' ? 'clean replay' : type === 'replay' ? 'replay' : type === 'test' ? 'test replay' : type === 'capture' ? 'capture' : recordingWords(r);
   const eyebrow = (
     <Eyebrow className="ek">
       <span className="ebk">{kind}</span>
