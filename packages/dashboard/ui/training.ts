@@ -2,10 +2,13 @@ import type { CostWords } from './actions.js';
 import { approx } from './format.js';
 import { commandText } from './goldens.js';
 import { ACTIONS, confirmWords } from './labels.js';
-import type { Priced } from './spending.js';
+import type { Estimate } from '../../engine/src/estimates/estimate.js';
 import { href } from './route.js';
 import type { ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, TrainingView } from './types.js';
 import { twoDigits as pad } from '../../engine/src/words.js';
+
+/** A job's price as a control holds it (spending.ts's Priced, kept apart so this file loads no browser code): an estimate, null for none, undefined until known. */
+type Priced = Pick<Estimate, 'usd' | 'ceiling' | 'per'> | null | undefined;
 
 /**
  * Training's logic (`pages/Training.tsx`), without the DOM so the tests import it: which pair groups a
