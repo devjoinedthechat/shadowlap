@@ -9,8 +9,9 @@ import { useApp, type AppState } from './state.js';
  * figure; the last answer stays while the next is read. Undefined until the server answers, and where
  * nothing can start (an exported copy, a read-only dashboard, a stand-in with no client), so a card has
  * no line; null after a read that failed, so each billed job asks. A `key` of null asks nothing.
+ * `update`: the goldens Update goldens… re-records, priced together.
  */
-export function useTestsEstimates(key: unknown): TestsEstimates | null | undefined {
+export function useTestsEstimates(key: unknown, update?: readonly string[]): TestsEstimates | null | undefined {
   const app = useApp() as Partial<AppState>;
   const api = app.client?.estimates;
   const off = !api || !!app.exported || !!app.actionsOff;
@@ -18,14 +19,14 @@ export function useTestsEstimates(key: unknown): TestsEstimates | null | undefin
   useEffect(() => {
     if (off || key === null || key === undefined) return;
     let live = true;
-    api.testsEstimates().then(
+    api.testsEstimates(update).then(
       (e) => live && setGot({ e }),
       () => live && setGot({ e: null }),
     );
     return () => {
       live = false;
     };
-  }, [api, off, key]);
+  }, [api, off, key, update]);
   return off || !got ? undefined : got.e;
 }
 
@@ -42,11 +43,8 @@ export function runPrice(e: TestsEstimates | null | undefined): Price {
   return e === undefined ? undefined : (e?.run ?? null);
 }
 
-/**
- * Update golden's for the goldens it updates: one golden's from its own. Several are not priced here
- * yet (none of the server's answers adds them up), so the card has no line until they are; the dialog
- * asks either way, since it replaces goldens.
- */
+/** Update golden's for the goldens it updates: one golden's own, or several's together as the read named them. It asks either way, since it replaces goldens. */
 export function updatesPrice(e: TestsEstimates | null | undefined, paths: readonly string[]): Price {
-  return paths.length === 1 ? goldenPrice(e, paths[0]!, 'update') : undefined;
+  if (paths.length === 1) return goldenPrice(e, paths[0]!, 'update');
+  return e === undefined ? undefined : (e?.update ?? null);
 }

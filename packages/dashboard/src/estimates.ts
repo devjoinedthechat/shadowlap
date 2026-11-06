@@ -44,8 +44,8 @@ import { decisionSession, runsToVerify, sessionReport } from './decisions.js';
 import { nextBlameRule } from './fix-blame-step.js';
 import { sprtGate } from './fix-shared.js';
 import { fixDetail } from './fixes.js';
-import { attemptSpends, blamePrice, goldenBisectEstimate, goldenRerunPrice, judgeOnly, newestGate, updatePrice } from './next-step.js';
-import { estimateOf, pricingOf, type Pricing } from './pricing.js';
+import { attemptSpends, blamePrice, goldenBisectEstimate, goldenRerunPrice, judgeOnly, newestGate } from './next-step.js';
+import { estimateOf, pricingOf, type Priced, type Pricing } from './pricing.js';
 import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { loadRunIndex, type RunIndex } from './run-index.js';
 import { parseWork, type OutcomeWork } from './run-outcome.js';
@@ -72,9 +72,9 @@ export type RunEstimatesJob = { kind: 'run-estimates'; runId: string; at: number
 /**
  * Tests' estimates (`GET /api/tests/estimates`): Run tests', and each golden's on disk by its path, as
  * the Tests screen offers them. `goldens` are the packs on disk and `folder` their folder, as the
- * server lists them.
+ * server lists them; `update`, the goldens Update goldens… would re-record together, by path.
  */
-export type TestsEstimatesJob = { kind: 'tests-estimates'; goldens: GoldenSource[]; folder: string; prices?: Record<string, Price> };
+export type TestsEstimatesJob = { kind: 'tests-estimates'; goldens: GoldenSource[]; folder: string; update?: string[]; prices?: Record<string, Price> };
 
 /**
  * Find breaking commit's (`GET /api/estimates/bisect`), `commits` apart as git counted them on the
@@ -244,18 +244,24 @@ export interface GoldenEstimates {
   normalize?: Estimate;
 }
 
-/** Tests' answer: Run tests', and each golden's by its path. */
+/** Tests' answer: Run tests', each golden's by its path, and Update goldens…' for the goldens the read named. */
 export interface TestsEstimates {
   run: Estimate | null;
   goldens: Record<string, GoldenEstimates>;
+  update?: Estimate | null;
+}
+
+/** Update golden(s) for these goldens, one update: each recorded again, or a golden that only lacks a judge's verdict asking that judge once. */
+function updateOf(store: Store, sources: readonly GoldenSource[]): NonNullable<Priced['price']> {
+  const each = sources.map((source) => ({ source, only: judgeOnly(source, store.listTestResults({ golden: source.path, limit: 1 })[0] ?? null) }));
+  return (p) => updateEstimate(each.map(({ source, only }) => (only ? { calls: [], judge: only.judge } : { calls: source.runId ? p.calls(source.runId) : [] })));
 }
 
 async function goldenEstimates(store: Store, index: RunIndex, source: GoldenSource, pricing: Pricing, job: TestsEstimatesJob): Promise<GoldenEstimates> {
   const r = store.listTestResults({ golden: source.path, limit: 1 })[0] ?? null;
   const rerun = await estimateOf(() => goldenRerunPrice(store, source, r), pricing);
   // A verdict the pack lacks is one call of its judge; anything else, the golden recorded again.
-  const only = judgeOnly(source, r);
-  const update = await estimateOf(only ? () => updateEstimate([{ calls: [], judge: only.judge }]) : updatePrice(source).price!, pricing);
+  const update = await estimateOf(updateOf(store, [source]), pricing);
   const figure = r ? gateResultView(r, source.path)?.more : null;
   const more = r && figure ? await estimateOf((p) => moreEstimate(figure, attemptSpends(store, index, r.data?.attempts?.runs ?? [], p.prices)), pricing) : null;
   // Add normalizer and re-run tests the golden again, or updates it where the rules alone can't make it match.
@@ -284,7 +290,9 @@ async function testsEstimates(store: Store, job: TestsEstimatesJob): Promise<Rea
   const goldens: Record<string, GoldenEstimates> = {};
   // A pack that can't be read, or named as an option, can't be tested: it has none.
   for (const source of job.goldens) if (!unreadable(source)) goldens[source.path] = await goldenEstimates(store, index, source, pricing, job);
-  const body: TestsEstimates = { run: await estimateOf(() => runTestsEstimate(store, job), pricing), goldens };
+  const updating = job.goldens.filter((g) => job.update?.includes(g.path) && !unreadable(g));
+  const update = updating.length ? { update: await estimateOf(updateOf(store, updating), pricing) } : {};
+  const body: TestsEstimates = { run: await estimateOf(() => runTestsEstimate(store, job), pricing), goldens, ...update };
   return answer(body, { tagged: true });
 }
 

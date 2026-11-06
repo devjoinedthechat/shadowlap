@@ -33,7 +33,8 @@ export interface EstimatesApi {
   runEstimates(runId: string, at?: number | null, model?: string | null): Promise<RunEstimates>;
   /** Run repair's, Run blame again's and stronger's at `model`, and each Verify step's. */
   fixEstimates(fixId: string, model?: string | null): Promise<FixEstimates>;
-  testsEstimates(): Promise<TestsEstimates>;
+  /** Run tests' and each golden's, with Update goldens…' for `update` together where it names goldens. */
+  testsEstimates(update?: readonly string[]): Promise<TestsEstimates>;
   bisectEstimate(q: BisectQuery): Promise<Estimate>;
 }
 
@@ -48,7 +49,7 @@ export function estimatesApi(request: Request): EstimatesApi {
     setSpending: (v) => request('user/spending', { method: 'PUT', body: JSON.stringify({ askAbove: v }) }),
     runEstimates: (runId, at, model) => request(`runs/${q(runId)}/estimates${query({ at, model })}`),
     fixEstimates: (fixId, model) => request(`fixes/${q(fixId)}/estimates${query({ model })}`),
-    testsEstimates: () => request('tests/estimates'),
+    testsEstimates: (update) => request(`tests/estimates${update?.length ? `?${update.map((p) => `update=${q(p)}`).join('&')}` : ''}`),
     bisectEstimate: (b) => request<{ estimate: Estimate }>(`estimates/bisect${query({ runId: b.runId, golden: b.golden, good: b.good, bad: b.bad })}`).then((r) => r.estimate),
   };
 }

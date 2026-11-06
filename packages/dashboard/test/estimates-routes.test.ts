@@ -208,6 +208,11 @@ describe('Tests’ estimates', () => {
     expect(before.goldens['goldens/both'].rerun).toMatchObject({ kind: 'tests', none: 'no estimate until it has run once' });
     expect(before.goldens['goldens/replay'].update).toEqual(plain(updateEstimate([{ calls: priced(replay) }])));
     expect(before.goldens['goldens/replay'].more).toBeUndefined();
+    // Update goldens… for the goldens named, as one update; a path that is no golden on disk is left out.
+    expect(before.update).toBeUndefined();
+    const several = await get<TestsEstimates>('tests/estimates?update=goldens/replay&update=goldens/fork&update=goldens/nosuch');
+    expect(several.update).toEqual(plain(updateEstimate([{ calls: priced(replay) }, { calls: priced(fork) }])));
+    expect(several.update).toMatchObject({ always: 'it replaces goldens', parts: ['as their recordings cost'] });
 
     const session = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], startedAt: T0 + 20 }).sessionId;
     for (const [path, runId, spent] of [['goldens/replay', replay, 0], ['goldens/fork', fork, 0.02], ['goldens/gated', gated, 0], ['goldens/both', both, 0.03]] as const) store.addTestResult({ sessionId: session, golden: path, ok: true, runId, at: T0 + 21, data: { checks: [], spent } });
