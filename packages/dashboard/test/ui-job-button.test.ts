@@ -157,7 +157,7 @@ describe('JobButton and FixJobButton', () => {
   it('resends the estimate with the yes a consent asks for', async () => {
     resetSpending(0.5);
     const sent: Sent[] = [];
-    r = await render(createElement(AppContext.Provider, { value: app(sent, { consent: true }) }, createElement(FixJobButton, { kind: 'blame', fields: { runId: 'r1' }, label: 'Run blame again', verb: 'blame again', lead: false, tip: 'Blames the run again', command: 'shadowlap blame r1', estimate: AT })));
+    r = await render(createElement(AppContext.Provider, { value: app(sent, { consent: true }) }, createElement(FixJobButton, { kind: 'blame', fields: { runId: 'r1' }, label: 'Run blame again', verb: 'blame again', lead: false, tip: 'Blames the run again', command: 'shadowlap blame r1', estimate: AT, ask: () => null })));
     await r.click(r.one('button'));
     await r.until('the consent', () => r!.all('.dialog').length === 1);
     await r.click(r.byText('.dialog button', 'Run command'));
@@ -166,6 +166,20 @@ describe('JobButton and FixJobButton', () => {
       { runId: 'r1', estimate: { usd: 0.2, ceiling: false } },
       { runId: 'r1', estimate: { usd: 0.2, ceiling: false }, yes: 'ok-1' },
     ]);
+  });
+});
+
+describe("FixJobButton's props", () => {
+  it('give a billed job or a form its ask, so a press that asks never starts it instead', () => {
+    const base = { kind: 'blame', fields: {}, label: 'Run blame again', verb: 'blame again', lead: false, tip: 'Blames the run again', command: 'shadowlap blame r1' };
+    type Props = Parameters<typeof FixJobButton>[0];
+    // @ts-expect-error an estimate with no ask
+    const priced: Props = { ...base, estimate: AT };
+    // @ts-expect-error a form with no ask
+    const form: Props = { ...base, form: true };
+    const free: Props = base;
+    const asks: Props = { ...base, estimate: undefined, ask: () => null };
+    expect([priced, form, free, asks].map((p) => 'ask' in p)).toEqual([false, false, false, true]);
   });
 });
 
