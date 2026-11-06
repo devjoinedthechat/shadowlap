@@ -267,14 +267,14 @@ function MoreMenu({ run, offers, live }: { run: RunDetail; offers: RunOffers | n
   );
 }
 
+/** The run page's calls list, fitted to the room the header leaves it. */
+const fitWorkUnder = (head: HTMLElement) => fitWork(head.closest<HTMLElement>('.rv'));
+
 /**
  * A button's card, which says its key; none where it is off with no words for why (`idle`, no call
  * picked). Why it waits (a run still recording) is ActionButton's `why`: a card, a toast on a press,
  * and a focus, which a disabled button's title never reaches from the keyboard or a touch screen.
  */
-/** The run page's calls list, fitted to the room the header leaves it. */
-const fitWorkUnder = (head: HTMLElement) => fitWork(head.closest<HTMLElement>('.rv'));
-
 const cardUnlessIdle = (idle: boolean, card: string) => (idle ? {} : { 'data-tip': tipText(card) });
 
 /**

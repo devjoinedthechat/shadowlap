@@ -22,7 +22,6 @@ import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import type { BlameOffer } from '../types.js';
 import { useRunEstimates } from '../run/estimates.js';
 
-
 /** The check a blame needs, asked for in a dialog the run page rarely opens: a part of its own (CheckDialog.tsx). */
 const CheckDialog = onShow(() => import('./CheckDialog.js').then((m) => m.CheckDialog));
 
