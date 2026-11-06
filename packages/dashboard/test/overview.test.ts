@@ -268,11 +268,13 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       session(NOW - HOUR, false);
       const s = overviewSummary(local, { tz: 'UTC', now: NOW, goldens });
       expect(s.outcomes.testsPassing).toEqual({ goldens: 2, passing: 1, inconclusive: 0, untested: 0, lastWeek: 2, regressions: 1, lastRunAt: NOW - HOUR + 10 });
-      // No fix holds the failure yet: the line opens the failing run, and says so.
-      expect(s.needsLook.items[0]).toMatchObject({ kind: 'test', icon: 'fail', title: 'A golden failed: refund-in-limit', action: 'Open', runId: failed, href: `#/run/${failed}` });
-      // Blamed, the failure has a fix: Fix leads to it.
+      // No fix holds the failure yet: the row opens Tests at the golden's report, its step what its run's page leads with.
+      expect(s.needsLook.items[0]).toMatchObject({ key: expect.stringMatching(/^attn:failed:.*refund-in-limit$/), group: 'failing', kind: 'test', icon: 'fail', title: 'A golden failed: refund-in-limit', runId: failed, href: '#/tests', report: 'report-refund-in-limit' });
       const { fix } = recordBlame(local, { runId: failed, report: blameReport(failed), expect: EXPECT, scope: null, command: 'c', title: 'refund-in-limit diverged', checkText: 'x', at: NOW - HOUR / 2 });
-      expect(overviewSummary(local, { tz: 'UTC', now: NOW, goldens }).needsLook.items.find((i) => i.kind === 'test')).toMatchObject({ action: 'Fix', runId: failed, fixId: fix.fixId, href: `#/fixes/${fix.fixId}` });
+      // Its failure is the fix's: one cause, one row, the fix's, which names the golden.
+      const blamed = overviewSummary(local, { tz: 'UTC', now: NOW, goldens }).needsLook.items;
+      expect(blamed.find((i) => i.kind === 'test')).toBeUndefined();
+      expect(blamed.find((i) => i.fixId === fix.fixId)).toMatchObject({ kind: 'open', detail: expect.stringMatching(/ · refund-in-limit fails on Tests$/) });
       expect(overviewSummary(local, { tz: 'UTC', now: NOW }).outcomes.testsPassing).toBeNull();
       expect(overviewSummary(local, { tz: 'UTC', now: NOW }).needsLook.items.some((i) => i.kind === 'test')).toBe(false);
     } finally {
@@ -296,19 +298,19 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
     }
   });
 
-  it('puts runs only on this machine last, when a team store is set', () => {
+  it('puts runs only on this machine under Housekeeping, with Push local runs, when a team store is set', () => {
     const local = Store.open(':memory:');
     try {
       story(local);
       const s = overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'northwind-agent-runs/support-agent', onlyLocal: 7 } });
       // On Runs, as the design has it: the local tags show which, and the bulk bar pushes them.
-      // Push leads to those runs: Runs with Local picked.
-      expect(s.needsLook.items.at(-1)).toEqual({ kind: 'local', icon: 'rec', title: '7 runs are only on this machine', detail: 'push them so the team can open them', action: 'Push', href: '#/runs?types=local', runId: null, fixId: null, at: 0 });
+      // The row opens those runs: Runs with Local picked; its step pushes them all.
+      expect(s.needsLook.items.at(-1)).toEqual({ key: 'attn:local', group: 'housekeeping', kind: 'local', icon: 'rec', title: '7 runs are only on this machine', detail: 'push them so the team can open them', step: { of: 'push', label: 'Push local runs', command: 'shadowlap push --all' }, href: '#/runs?types=local', runId: null, fixId: null, at: 0 });
       expect(overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 1 } }).needsLook.items.at(-1)).toMatchObject({ title: '1 run is only on this machine', detail: 'push it so the team can open it' });
       expect(overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 0 } }).needsLook.items.some((i) => i.kind === 'local')).toBe(false);
       // A store's setup left unfinished leads back to it, first.
       const setup = overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 7, setup: { step: 3, title: 'Push from CI' } } }).needsLook;
-      expect(setup.items[0]).toEqual({ kind: 'store-setup', icon: 'setting', title: 'The team store’s setup isn’t finished', detail: 'step 3 of 4: push from CI', action: 'Continue', href: '#/setup/store', runId: null, fixId: null, at: 0 });
+      expect(setup.items[0]).toEqual({ key: 'attn:setup:store', group: 'setup', kind: 'store-setup', icon: 'setting', title: 'The team store’s setup isn’t finished', detail: 'step 3 of 4: push from CI', step: { of: 'link', label: 'Continue setup', href: '#/setup/store' }, href: '#/setup/store', runId: null, fixId: null, at: 0 });
       expect(setup.total).toBe(s.needsLook.total + 1);
     } finally {
       local.close();

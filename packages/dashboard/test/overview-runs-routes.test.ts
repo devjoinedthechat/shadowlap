@@ -103,8 +103,8 @@ describe('the Overview', () => {
   it('lists runs only on this machine in Needs a look once a team store is set', async () => {
     setConfig({ store: 's3://northwind-agent-runs/support-agent?region=eu-central-1' });
     const s = await get<OverviewSummary>(dash, 'summary');
-    // Push leads to the runs it means: Runs with Local picked, which lists those four and counts them.
-    expect(s.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '4 runs are only on this machine', action: 'Push', href: '#/runs?types=local' });
+    // The row opens the runs it means: Runs with Local picked, which lists those four and counts them; its step pushes them all.
+    expect(s.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '4 runs are only on this machine', step: { of: 'push', label: 'Push local runs' }, href: '#/runs?types=local' });
     const page = await get<Omit<RunsPage, 'runs'> & { runs: RunsPageRow[] }>(dash, 'runs/page?types=local');
     expect(page.runs.map((r) => r.runId)).toEqual([ids.failed, ids.fork, ids.rec, ids.old]);
     expect(page.runs.every((r) => r.local)).toBe(true);
