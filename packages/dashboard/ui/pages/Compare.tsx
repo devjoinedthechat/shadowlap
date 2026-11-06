@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo } from 'react';
+import { Fragment, useEffect, useMemo, type ReactNode } from 'react';
 import type { CompareHead } from '../../src/compare.js';
 import { ApiError, type CallRow, type CompareView, type RunDetail, type RunListItem } from '../api.js';
 import { CmdLine, Org, PageHeader, Tag } from '../components/bits.js';
@@ -13,6 +13,7 @@ import { navigate } from '../router.js';
 import { runLikeOf } from '../run/model.js';
 import { defaultComparePair, isAttempt, kindTag } from '../runs.js';
 import { useApp } from '../state.js';
+import { Elsewhere } from './held-elsewhere.js';
 import { lastRunsHref } from '../runs-view.js';
 
 /**
@@ -36,8 +37,8 @@ export function ComparePage({ a, b }: { a: string | null; b: string | null }) {
 
   // One run named: it is paired with what it was replayed into, or what it came from.
   if (a && !b) return <OneRun key={a} id={a} />;
-  if (runs !== null && listed.length < 2)
-    return (
+  if (runs !== null && listed.length < 2) {
+    const page = (
       <Page>
         <PageHeader eyebrow="compare" title="What changed between two runs" />
         <section className="panel stepempty">
@@ -47,6 +48,9 @@ export function ComparePage({ a, b }: { a: string | null; b: string | null }) {
         </section>
       </Page>
     );
+    // A pair this project can't hold: another project may.
+    return a && b ? <Elsewhere ask={{ what: 'run', ids: [a, b] }} waiting={<Page>{null}</Page>} fallback={page} /> : page;
+  }
   if (!a || !b) return <Page>{null}</Page>;
   // Not keyed on the pair: another run picked keeps the pickers, and the focus on the one used,
   // while what the comparison reads starts anew for the new pair (useLoad's keys).
@@ -87,36 +91,10 @@ function OneRun({ id }: { id: string }) {
     if (mateA !== undefined && mateB !== undefined) navigate(href.compare(mateA, mateB), true);
   }, [mateA, mateB]);
   const where = exported ? 'this copy' : 'this store';
-  if (run.error)
-    return (
-      <Page>
-        <PageHeader eyebrow="compare" title="What changed between two runs" text={INTRO} />
-        <section className="panel stepempty">
-          <h3>{ambiguous(run.error) ? 'More than one run' : notHeld(run.error) ? `Not in ${where}` : 'Could not load the run'}</h3>
-          <p>
-            {ambiguous(run.error) ? (
-              <>
-                <code>{id}</code> matches several runs; use more of the id. Pick two runs to compare, or open Runs to find the one you meant.
-              </>
-            ) : notHeld(run.error) ? (
-              <>
-                No run <code>{id}</code> in {where}. Pick two runs to compare, or open Runs to find the one you meant.
-              </>
-            ) : (
-              `${id}: ${run.error.message}`
-            )}
-          </p>
-          <div className="actions">
-            <a className="btn" href={href.compare()}>
-              Compare other runs
-            </a>
-            <a className="btn" href={lastRunsHref()}>
-              Open Runs
-            </a>
-          </div>
-        </section>
-      </Page>
-    );
+  // A run not in this store: another project may hold it.
+  if (notHeld(run.error))
+    return <Elsewhere ask={{ what: 'run', ids: [id] }} error={run.error} waiting={COMPARING} retry={run.reload} fallback={<OneRunMissing id={id} error={run.error!} where={where} />} />;
+  if (run.error) return <OneRunMissing id={id} error={run.error} where={where} />;
   if (!run.data || mate) return <Page>{run.data ? null : <div className="empty">Comparing…</div>}</Page>;
   const r = run.data;
   return (
@@ -134,6 +112,46 @@ function OneRun({ id }: { id: string }) {
           </a>
           <a className="btn" href={href.compare()}>
             Compare other runs
+          </a>
+        </div>
+      </section>
+    </Page>
+  );
+}
+
+/** What a page waits on while Compare reads. */
+const COMPARING = (
+  <Page>
+    <div className="empty">Comparing…</div>
+  </Page>
+);
+
+/** `#/compare/<id>` with a run that can't be read here: none in the store, several it could be, or the read failed. */
+function OneRunMissing({ id, error, where }: { id: string; error: Error; where: string }) {
+  return (
+    <Page>
+      <PageHeader eyebrow="compare" title="What changed between two runs" text={INTRO} />
+      <section className="panel stepempty">
+        <h3>{ambiguous(error) ? 'More than one run' : notHeld(error) ? `Not in ${where}` : 'Could not load the run'}</h3>
+        <p>
+          {ambiguous(error) ? (
+            <>
+              <code>{id}</code> matches several runs; use more of the id. Pick two runs to compare, or open Runs to find the one you meant.
+            </>
+          ) : notHeld(error) ? (
+            <>
+              No run <code>{id}</code> in {where}. Pick two runs to compare, or open Runs to find the one you meant.
+            </>
+          ) : (
+            `${id}: ${error.message}`
+          )}
+        </p>
+        <div className="actions">
+          <a className="btn" href={href.compare()}>
+            Compare other runs
+          </a>
+          <a className="btn" href={lastRunsHref()}>
+            Open Runs
           </a>
         </div>
       </section>
@@ -177,37 +195,19 @@ function Comparison({ a, b, runs }: { a: string; b: string; runs: RunListItem[] 
   const where = exported ? 'this copy' : 'this store';
   const missing = [notHeld(ra.error) ? { id: a, side: 'A' } : null, !same && notHeld(rb.error) ? { id: b, side: 'B' } : null].filter((m) => m !== null);
   const several = [ambiguous(ra.error) ? { id: a, side: 'A' } : null, !same && ambiguous(rb.error) ? { id: b, side: 'B' } : null].filter((m) => m !== null);
-  const ids = (list: ReadonlyArray<{ id: string; side: string }>) =>
-    list.map((m, i) => (
-      <Fragment key={m.side}>
-        {i ? (list === missing ? ' or ' : ' and ') : null}
-        <code>{m.id}</code>
-      </Fragment>
-    ));
   const sides = same && (missing.length || several.length) ? ['A', 'B'] : [...missing, ...several].map((m) => m.side);
-  if (sides.length)
-    return (
+  if (sides.length) {
+    const page = <PairMissing header={header} missing={missing} several={several} sides={sides} where={where} />;
+    // A side not in this store: another project may hold it, though never one that starts several runs' ids here.
+    const retry = () => [cmp, head, ra, rb].forEach((l) => l.reload());
+    const waiting = (
       <Page>
         {header}
-        <section className="panel stepempty">
-          <h3>{missing.length ? `Not in ${where}` : 'More than one run'}</h3>
-          <p>
-            {missing.length ? (
-              <>
-                No run {ids(missing)} in {where}
-                {several.length ? '; ' : '. '}
-              </>
-            ) : null}
-            {several.length ? (
-              <>
-                {ids(several)} {several.length === 2 ? 'each match' : 'matches'} several runs; use more of the id, or{' '}
-              </>
-            ) : null}
-            {several.length ? 'pick' : 'Pick'} another run for {sides.length === 2 ? 'A and for B' : sides[0]}.
-          </p>
-        </section>
+        <div className="empty">Comparing…</div>
       </Page>
     );
+    return missing.length ? <Elsewhere ask={{ what: 'run', ids: missing.map((m) => m.id) }} error={ra.error ?? rb.error} waiting={waiting} retry={retry} fallback={page} /> : page;
+  }
   const c = cmp.data;
   const error = cmp.error ? (hub ? `This copy compares each run with ${shortId(hub)} only: pick it on one side.` : `Could not compare these runs: ${cmp.error.message}`) : null;
   // The rest of a long pair that couldn't be worked out (a 503: it ran past the time a request is
@@ -233,6 +233,42 @@ function Comparison({ a, b, runs }: { a: string; b: string; runs: RunListItem[] 
     </Page>
   );
 }
+
+/** A pair with a side this store can't name: a run it doesn't hold, or an id that starts several runs' ids, with the side to pick again. */
+function PairMissing({ header, missing, several, sides, where }: { header: ReactNode; missing: Side[]; several: Side[]; sides: string[]; where: string }) {
+  const ids = (list: readonly Side[]) =>
+    list.map((m, i) => (
+      <Fragment key={m.side}>
+        {i ? (list === missing ? ' or ' : ' and ') : null}
+        <code>{m.id}</code>
+      </Fragment>
+    ));
+  return (
+    <Page>
+      {header}
+      <section className="panel stepempty">
+        <h3>{missing.length ? `Not in ${where}` : 'More than one run'}</h3>
+        <p>
+          {missing.length ? (
+            <>
+              No run {ids(missing)} in {where}
+              {several.length ? '; ' : '. '}
+            </>
+          ) : null}
+          {several.length ? (
+            <>
+              {ids(several)} {several.length === 2 ? 'each match' : 'matches'} several runs; use more of the id, or{' '}
+            </>
+          ) : null}
+          {several.length ? 'pick' : 'Pick'} another run for {sides.length === 2 ? 'A and for B' : sides[0]}.
+        </p>
+      </section>
+    </Page>
+  );
+}
+
+/** A side of the pair, by its letter, and the id the address gives it. */
+type Side = { id: string; side: string };
 
 function Pickers({ a, b, runs, hub }: { a: string; b: string; runs: RunListItem[]; hub: string | null }) {
   // Each side a run picker: the run's id, its about line fitted beside it, and the runs it can be compared with.

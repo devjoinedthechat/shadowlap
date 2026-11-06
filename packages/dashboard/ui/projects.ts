@@ -186,6 +186,11 @@ export function keepsPageOnSwitch(route: Route): boolean {
   }
 }
 
+/** The one name of switching to a project: the palette's row, and the button of a page another project's link opened (pages/Elsewhere.tsx). */
+export function switchToLabel(name: string): string {
+  return `Switch to ${name}`;
+}
+
 /** What the page says once it has turned to the project switched to elsewhere: `refused` when a change it asked for was refused for it. */
 export function switchedText(o: { from: string | null; to: string; refused: boolean }): string {
   if (o.refused && o.from) return `Nothing was done in ${o.from}: the dashboard switched to ${o.to} elsewhere, and this page shows ${o.to} now.`;

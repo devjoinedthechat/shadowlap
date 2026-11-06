@@ -20,7 +20,7 @@ import { Sidebar } from './Sidebar.js';
 import { SkipLink } from './SkipLink.js';
 import { StatusBar } from './StatusBar.js';
 import { TopBar } from './TopBar.js';
-import { unshownKey, useUnshown } from './unshown.js';
+import { unshownKey, useHeldBy, useUnshown } from './unshown.js';
 
 /** The palette and the shortcuts sheet wait in scripts of their own, which load as the shell first draws, so they answer at once and with the server gone. */
 const Palette = onShow(() => import('./Palette.js').then((m) => m.Palette));
@@ -108,7 +108,9 @@ function useDocTitle(route: Route): void {
   const about = tabAbout(shown ?? row?.about, TAB_ABOUT_MAX);
   const problem = meta?.project?.problem ? { name: meta.project.name } : null;
   const unshown = useUnshown(unshownKey(route));
-  const title = docTitle(route, { setup, problem, fixTitle, about, unshown, exported });
+  // A link another project's store holds goes by that project (pages/Elsewhere.tsx).
+  const heldBy = useHeldBy(unshownKey(route));
+  const title = docTitle(route, { setup, problem, fixTitle, about, unshown, heldBy, exported });
   useEffect(() => {
     document.title = title;
   }, [title]);

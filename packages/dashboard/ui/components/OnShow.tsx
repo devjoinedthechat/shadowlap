@@ -21,8 +21,10 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * (checks/) and each Changes tab (changes/): test/ui-bundle-size.test.ts fails when one of them is in
  * the first look or loads with a page. A part is declared beside the page that shows it, never in
  * pages/lazy.tsx: an exported copy, one script with the pages it shows (main-copy.tsx), then holds
- * the parts they show and none of the dashboard's other pages. The bundle size test holds each
- * page's and each part's script to a budget of its own.
+ * the parts they show and none of the dashboard's other pages. The one part the page list shows
+ * itself, the page that says another project holds what a link names, is declared in a module of its
+ * own that the pages showing it import too (pages/held-elsewhere.tsx), and the bundle size test pins
+ * it. The bundle size test holds each page's and each part's script to a budget of its own.
  */
 export interface OnShow<P> {
   (props: P): JSX.Element;

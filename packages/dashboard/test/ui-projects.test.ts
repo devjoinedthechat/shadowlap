@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { dialogFocus } from '../ui/focus.js';
-import { aroundRunId, aroundWord, asksForSetup, codeParts, confirmedRecording, exportedLine, keepsPageOnSwitch, liveCalls, nameMatches, recordingLine, setupPageShows, setupShowsOn, stepClass, storePath, switchedText, terminalLine } from '../ui/projects.js';
+import { heldAsk } from '../ui/held.js';
+import { elsewhereWords, lineText } from '../ui/held-words.js';
+import { aroundRunId, aroundWord, asksForSetup, codeParts, confirmedRecording, exportedLine, keepsPageOnSwitch, liveCalls, nameMatches, recordingLine, setupPageShows, setupShowsOn, stepClass, storePath, switchedText, switchToLabel, terminalLine } from '../ui/projects.js';
 import { dialogOnSwitch, expectProject, noteDialogDropped, noteRefusal, onProjectSwitched, onShownProject, projectHeader, showProject, shownProject, takeDialogDropped, takeLanding } from '../ui/projects-api.js';
 import { parseRoute } from '../ui/route.js';
 import type { RunLike } from '../ui/runs.js';
@@ -238,5 +240,33 @@ describe('a switch made elsewhere', () => {
     expectProject('triage-bot', '#/tests');
     expect(takeLanding('triage-bot')).toBe('#/tests');
     expect(takeLanding('triage-bot')).toBeNull();
+  });
+});
+
+describe('a link into another project', () => {
+  it('asks about the run, the fix or the runs of a pair the address names, at any call, view or step', () => {
+    expect(heldAsk(parseRoute('#/run/01M51X7HV4'))).toEqual({ what: 'run', ids: ['01M51X7HV4'] });
+    expect(heldAsk(parseRoute('#/run/01M51X7HV4/3/context'))).toEqual({ what: 'run', ids: ['01M51X7HV4'] });
+    expect(heldAsk(parseRoute('#/fixes/fx-01M51X6N0C/verify/2'))).toEqual({ what: 'fix', ids: ['fx-01M51X6N0C'] });
+    expect(heldAsk(parseRoute('#/compare/01M51X7HV4/01M51X7HR0'))).toEqual({ what: 'run', ids: ['01M51X7HV4', '01M51X7HR0'] });
+    expect(heldAsk(parseRoute('#/compare/01M51X7HV4'))).toEqual({ what: 'run', ids: ['01M51X7HV4'] });
+    expect(heldAsk(parseRoute('#/compare/01M51X7HV4/01M51X7HV4'))).toEqual({ what: 'run', ids: ['01M51X7HV4'] });
+    // A page every project has names nothing of its own.
+    for (const hash of ['#/', '#/runs', '#/compare', '#/fixes', '#/tests', '#/training', '#/settings/redaction', '#/new', '#/setup', '#/setup/store', '#/nowhere']) expect(heldAsk(parseRoute(hash)), hash).toBeNull();
+  });
+
+  it('says which project holds it and which doesn’t, each name whole, with the one name of switching', () => {
+    const words = elsewhereWords({ what: 'fix', id: 'fx-email-first', holder: 'support-agent', current: 'triage-bot' });
+    expect(words.eyebrow).toBe('triage-bot · in another project');
+    expect(lineText(words.title)).toBe('In support-agent');
+    expect(words.title.filter((p) => p.face === 'nw').map((p) => p.text)).toEqual(['support-agent']);
+    expect(lineText(words.line)).toBe('The fix fx-email-first is in support-agent’s store, not triage-bot’s.');
+    expect(words.line.filter((p) => p.face).map((p) => [p.face, p.text])).toEqual([
+      ['id', 'fx-email-first'],
+      ['nw', 'support-agent’s'],
+      ['nw', 'triage-bot’s'],
+    ]);
+    for (const what of ['run', 'preview', 'migration'] as const) expect(lineText(elsewhereWords({ what, id: 'x', holder: 'a', current: 'b' }).line)).toBe(`The ${what} x is in a’s store, not b’s.`);
+    expect(switchToLabel('support-agent')).toBe('Switch to support-agent');
   });
 });

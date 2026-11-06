@@ -33,6 +33,8 @@ export interface TitleFacts {
   about?: string | null;
   /** The page has found it can't show the run or the fix it opened for (shell/unshown.ts). */
   unshown?: boolean;
+  /** Another project holds what the page opened for, and the page says so (pages/Elsewhere.tsx): its name. */
+  heldBy?: string | null;
   /** An exported copy: its Compare is its only pair, so the pair isn't named. */
   exported?: boolean;
 }
@@ -70,6 +72,7 @@ function sectionOnly(route: Route, facts: TitleFacts): string | null {
 
 /** What the route's page is, before the product's name. */
 export function pageTitle(route: Route, facts: TitleFacts = {}): string {
+  if (facts.heldBy) return `In ${facts.heldBy}`;
   const section = sectionOnly(route, facts);
   if (section) return section;
   if (facts.setup) return facts.problem ? `Can’t open ${facts.problem.name}` : 'Set up';
