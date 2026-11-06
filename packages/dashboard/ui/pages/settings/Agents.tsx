@@ -7,6 +7,7 @@ import { useApp } from '../../state.js';
 import { CommandLine, FILES_GONE, LoadProblem, Loading, useFolderGone, useSettingsData } from './common.js';
 import { agentFileWords, orList, sharedSkillsWords, SKILL_INSTALL_KIND, skillWords, type AgentAction } from './logic.js';
 import { ActionButton } from '../../components/ActionButton.js';
+import { Section } from '../../components/Section.js';
 
 /**
  * Coding agents, as the design has it (codingAgentsPanel): coding agents need no MCP server, the CLI
@@ -93,11 +94,7 @@ export function AgentsTab() {
     </>
   );
   return (
-    <section className="panel set">
-      <header>
-        <h2>Coding agents</h2>
-        <span className="sub">Claude Code, Codex, Cursor and others</span>
-      </header>
+    <Section className="set" title="Coding agents" sub="Claude Code, Codex, Cursor and others">
       {/* The skills' row only once the owner has published the plugin: before that, no install it can't complete, and nothing said about one. */}
       {skill?.published ? (
         <>
@@ -112,7 +109,7 @@ export function AgentsTab() {
         </div>
       )}
       {asking ? <ReplaceSkillsDialog {...asking} command={asking.install.command} onClose={() => setAsking(null)} onOk={() => start(asking.install)} /> : null}
-    </section>
+    </Section>
   );
 }
 

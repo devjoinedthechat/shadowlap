@@ -27,7 +27,7 @@
   .effects div .muted { display: none; }
 }
 
-.egrp { padding: 12px 18px 14px; border-top: 1px solid var(--line); }
+.egrp { padding: 12px 0 14px; border-top: 1px solid var(--line); }
 .egrp .k { display: block; margin-bottom: 8px; }
 .tchips { display: flex; flex-wrap: wrap; gap: 6px; }
 .tchip { display: inline-flex; align-items: center; gap: 7px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--raise); font: 12px var(--mono); }
@@ -100,7 +100,30 @@ ul.fails { margin: 0; padding-left: 18px; color: var(--dim); font-size: 13px; li
 .rule .switch, .setrow .switch { display: inline-flex; flex: none; margin: 0; color: inherit; }
 
 .settab > .panel:first-child { margin-top: 0 !important; }
-.settab > .panel + .panel { margin-top: 16px !important; }
+/* Under the tabs, one hairline: a tab's first section draws no second line under the tabs' own, nor does an empty state
+   that opens a tab (Store with no store yet). Sections after it sit 40px apart, each under its own hairline. */
+.settab > .panel.sec:first-child { border-top: 0; padding-top: 0; }
+.settab > .stepempty:first-child { border-top: 0; padding-top: 6px; }
+.settab > .panel + .panel, .settab > .panel + .panel.sec { margin-top: 40px !important; }
+/* A section's parts are headed in words, as sentences start, never small capitals in mono (column heads keep those). The
+   source keeps them lowercase; the first letter is raised here. */
+.settab .k { font: 600 12.5px var(--body); letter-spacing: 0; text-transform: none; color: var(--dim); }
+.settab .k::first-letter { text-transform: uppercase; }
+/* Values read in the UI face; a path, a command or an id keeps its code. */
+.settab .kvs dd { font: 13.5px var(--body); word-break: normal; overflow-wrap: anywhere; }
+.settab .kvs dd code { font: 12.5px var(--mono); }
+/* A setting under a list of values starts on the list's last hairline, not a second one under it (Store, Project). */
+.settab dl.kvs + .setrow { border-top: 0; }
+/* Rows run the section's full width: sections sit between hairlines, not in boxes. */
+.panel.sec.set .setrow { padding-left: 0; padding-right: 0; }
+.panel.sec.set dl.kvs { padding-left: 0 !important; padding-right: 0 !important; }
+.panel.sec.set > .pbody.preview, .panel.sec.set > .pbody.setfoot { padding: 14px 0 4px; }
+.panel.sec .alertgrid > .pbody { padding: 4px 28px 18px 0; }
+.panel.sec .alertgrid > .pbody.teamside { padding: 4px 0 18px 28px; }
+.panel.sec > .pbody.cicode { padding: 16px 0 4px; }
+@media (max-width: 1100px) { .panel.sec .alertgrid > .pbody, .panel.sec .alertgrid > .pbody.teamside { padding: 16px 0 18px; } .panel.sec .alertgrid > .pbody:first-child { padding-top: 4px; } }
+/* A rule's scope in words, every row alike; its path and pattern as code, or in words where it has none. */
+.set .rscope { color: var(--dim); }
 
 .setrow > div > span { text-wrap: pretty; }
 
@@ -109,7 +132,6 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 @media (max-width: 640px) { code.mcpt { max-width: 150px; } }
 
 /* Settings → CI: settings left, what lands where right; the workflow file reads as a file, with its own copy button. */
-.cip + .cip { margin-top: 16px; }
 .cip .cimain > p.muted { margin: 0 0 6px; }
 .cip .offnote { display: block; margin-top: 6px; font-weight: 500; color: var(--warn); }
 /* What a feature turned off would do: the faint ink, never faded, which fell under AA's contrast (2.0 to 4.0:1). */
@@ -166,10 +188,7 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 @media (max-width: 640px) { .cip .cistore .linkbtn { margin-left: -7px; } }
 
 /* ---- Settings: the spacing the mock wrote inline, and what the real tabs add ---- */
-.set > .kvs { padding: 4px 18px 0; }
-.set > .pbody + .kvs { padding: 0 18px 6px; }
 .set > .pbody.lead p.muted { margin: 0; }
-.set > .kvs dd.prose { word-break: normal; }
 .set > .kvs dd small.warn { color: var(--warn); }
 .set table.t tbody tr.still, .set table.ruletable tbody tr { cursor: default; }
 .set table.ruletable td.none { color: var(--faint); font-size: 12.5px; white-space: normal; }
@@ -178,7 +197,6 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .set table.ruletable .rerr { color: var(--err); font-size: 12.5px; }
 .set table.ruletable td.num .linkbtn[disabled], .set table.ruletable td.num .linkbtn[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
 .set table.ruletable td.num .linkbtn[disabled]:hover, .set table.ruletable td.num .linkbtn[aria-disabled="true"]:hover { background: none; color: var(--dim); }
-.settab > .verdict + .panel { margin-top: 0 !important; }
 
 .preview .pvnone, .preview .pvfoot { margin: 10px 0 0; }
 .preview .fieldnote { margin-top: 10px; }

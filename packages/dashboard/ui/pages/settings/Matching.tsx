@@ -7,6 +7,7 @@ import { useApp } from '../../state.js';
 import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, rulesUnreadable, SAVING, useEditor, useFolderGone, useSettingsData } from './common.js';
 import { RuleDialog, RuleTable, addedText, removedText } from './RuleTable.js';
 import { ActionButton } from '../../components/ActionButton.js';
+import { Section } from '../../components/Section.js';
 
 /**
  * Matching: the normalizers (what isn't part of a request's identity), the clock that lets dates
@@ -39,15 +40,16 @@ export function MatchingTab() {
   return (
     <>
       {data.config.error ? <ConfigProblem error={data.config.error} /> : null}
-      <section className="panel set">
-        <header>
-          <h2>Matching</h2>
-          <span className="sub">what is not part of a request’s identity</span>
-          <span className="sp" />
+      <Section
+        className="set"
+        title="Matching"
+        sub="what is not part of a request’s identity"
+        actions={
           <ActionButton className="btn sm" why={off} onClick={() => app.guard(() => setAdding(true))}>
             {ACTIONS.addNormalizerRule.label}
           </ActionButton>
-        </header>
+        }
+      >
         <div className="pbody">
           <p className="muted">A replay forks at the first request that differs. Normalizers mask values the agent makes anew on every run before matching, and never touch what is stored.</p>
         </div>
@@ -60,10 +62,10 @@ export function MatchingTab() {
         />
         <div className="setrow">
           <div>
-            <b>Dates and times</b>
-            <span>Dates within about a day of each run’s start match across days, so a golden recorded in June still replays in September.</span>
+            <b id="clock-name">Dates and times</b>
+            <span id="clock-help">Dates within about a day of each run’s start match across days, so a golden recorded in June still replays in September.</span>
           </div>
-          <div className="seg" role="group" aria-label="Clock">
+          <div className="seg" role="group" aria-labelledby="clock-name" aria-describedby="clock-help">
             {(['auto', 'exact'] as const).map((k) => (
               <ActionButton
                 key={k}
@@ -86,14 +88,14 @@ export function MatchingTab() {
           <div className="setrow">
             <div>
               <b>Calibrate</b>
-              <span>Replays a recording offline with the same code until it is clean, and proposes a normalizer for every value that changed. No model calls; writes are blocked.</span>
+              <span id="calibrate-help">Replays a recording offline with the same code until it is clean, and proposes a normalizer for every value that changed. No model calls; writes are blocked.</span>
             </div>
-            <ActionButton className="btn" why={canCalibrate ? null : calibrateTitle} title={calibrateTitle} onClick={() => app.guard(() => app.watchJob(client.startJob(JOB_KINDS.calibrate, { runId: cal.runId })))}>
+            <ActionButton className="btn" aria-describedby="calibrate-help" why={canCalibrate ? null : calibrateTitle} title={calibrateTitle} onClick={() => app.guard(() => app.watchJob(client.startJob(JOB_KINDS.calibrate, { runId: cal.runId })))}>
               {cal.label}
             </ActionButton>
           </div>
         )}
-      </section>
+      </Section>
       {adding ? (
         <RuleDialog
           list="normalize"

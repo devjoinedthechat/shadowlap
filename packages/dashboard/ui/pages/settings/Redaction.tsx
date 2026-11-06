@@ -13,6 +13,7 @@ import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, rulesUnreadable, SAVI
 import { maskedLine, partialLine, previewChip, redactionNotes, returnedLine, unmaskedLine } from './logic.js';
 import { RuleDialog, RuleTable, addedText, removedText } from './RuleTable.js';
 import { ActionButton } from '../../components/ActionButton.js';
+import { Section } from '../../components/Section.js';
 
 /**
  * Redaction: the rules applied to every export, pack and share link of a run, where each applies
@@ -47,15 +48,16 @@ export function RedactionTab() {
   return (
     <>
       {data.config.error ? <ConfigProblem error={data.config.error} /> : null}
-      <section className="panel set">
-        <header>
-          <h2>Redaction</h2>
-          <span className="sub">what leaves your machine</span>
-          <span className="sp" />
+      <Section
+        className="set"
+        title="Redaction"
+        sub="what leaves your machine"
+        actions={
           <ActionButton className="btn sm" why={off} onClick={() => app.guard(() => setAdding(true))}>
             {ACTIONS.addRedactionRule.label}
           </ActionButton>
-        </header>
+        }
+      >
         <div className="pbody">
           <p className="muted">
             Applied to every export, pack and share link: <Where where={data.where} />. {redactionNotes(teamStore)}
@@ -73,7 +75,7 @@ export function RedactionTab() {
             }}
           />
         )}
-      </section>
+      </Section>
       {adding ? (
         <RuleDialog
           list="redact"

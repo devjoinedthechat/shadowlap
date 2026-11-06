@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CodeBlock, CopyButton, Seg } from '../../components/bits.js';
 import { Dialog } from '../../components/Dialog.js';
+import { Section } from '../../components/Section.js';
 import { DialogFacts } from '../../components/DialogFacts.js';
 import { tipCard, tipText, type TipRow } from '../../components/HoverCard.js';
 import { copyText } from '../../dom.js';
@@ -25,14 +26,10 @@ export function ToolsTab() {
   const [adding, setAdding] = useState(false);
   const gone = useFolderGone();
   if (error && !data) return <LoadProblem error={error} />;
-  if (!data) return <Loading title="Tool effects" />;
+  if (!data) return <Loading title="Tools" />;
   const none = !data.live.length && !data.fenced.length;
   return (
-    <section className="panel set">
-      <header>
-        <h2>Tool effects</h2>
-        <span className="sub">what runs again after a fork</span>
-      </header>
+    <Section className="set" title="Tools" sub="what a fork runs again">
       <div className="pbody">
         <p className="muted">Declared in the agent’s code. After a fork, reads run live and writes are blocked or stubbed unless you allow them, so by default a replay never acts on the world twice.</p>
       </div>
@@ -75,7 +72,7 @@ export function ToolsTab() {
       ) : null}
       <McpBlock data={data} gone={!!gone} onAdd={() => setAdding(true)} />
       {adding ? <AddServerDialog files={data.mcp.files} onClose={() => setAdding(false)} /> : null}
-    </section>
+    </Section>
   );
 }
 

@@ -1,6 +1,8 @@
 import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { CodeBlock } from '../../components/bits.js';
 import { Tile } from '../../components/Icon.js';
+import { Section } from '../../components/Section.js';
+import { Switch } from '../../components/Switch.js';
 import { shortFixId } from '../../fixes/model.js';
 import { clock } from '../../format.js';
 import { useLatest } from '../../hooks.js';
@@ -13,7 +15,7 @@ import { onSettingsChanged } from './events.js';
 import { ciShown, typedSecret } from './logic.js';
 
 /**
- * CI (`#/settings/alerts`, as Alerts had it): your workflow first, one job in which the action runs
+ * CI (`#/settings/ci`; `#/settings/alerts`, as Alerts had it, opens it too): your workflow first, one job in which the action runs
  * the goldens once and the parts you turn on follow it, built from its switches (fix pull requests,
  * Slack, the team store, which follows Push from CI, and what an inconclusive golden does), with
  * what it needs, what fails a golden, and the workflow file across the bottom with Copy. Then a
@@ -136,37 +138,16 @@ function CiList({ rows, tone = '' }: { rows: readonly CiListRow[]; tone?: '' | '
   );
 }
 
-function Select({ label, value, options, onChange }: { label: string; value: string; options: ReadonlyArray<{ value: string; label: string }>; onChange: (value: string) => void }) {
+/** A row's select, named by the row's label and described by its line (`<id>-name`, `<id>-help`). */
+function Select({ id, value, options, onChange }: { id: string; value: string; options: ReadonlyArray<{ value: string; label: string }>; onChange: (value: string) => void }) {
   return (
-    <select className="sel" aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>
+    <select className="sel" aria-labelledby={`${id}-name`} aria-describedby={`${id}-help`} value={value} onChange={(e) => onChange(e.target.value)}>
       {options.map((x) => (
         <option key={x.value} value={x.value}>
           {x.label}
         </option>
       ))}
     </select>
-  );
-}
-
-/** A switch, as the design draws one: a pill that takes Space and Enter as a click. */
-function Switch({ on, label, onChange }: { on: boolean; label: string; onChange: (on: boolean) => void }) {
-  return (
-    <span
-      className="switch"
-      role="switch"
-      tabIndex={0}
-      aria-checked={on}
-      aria-label={label}
-      onClick={() => onChange(!on)}
-      onKeyDown={(e) => {
-        if (e.key === ' ' || e.key === 'Enter') {
-          e.preventDefault();
-          onChange(!on);
-        }
-      }}
-    >
-      <i />
-    </span>
   );
 }
 
@@ -179,34 +160,30 @@ function Workflow({ o, view, set, onFix, onAlerts }: { o: CiWorkflowOptions; vie
   const { toast } = useApp();
   const w = view.workflow;
   return (
-    <section className="panel set cip" id="workflow">
-      <header>
-        <h2>Your workflow</h2>
-        <span className="sub">one job: the action runs your goldens once, then what you turn on</span>
-      </header>
+    <Section className="set cip" id="workflow" title="Your workflow" sub="one job: the action runs your goldens once, then what you turn on">
       <div className="alertgrid">
         <div className="pbody cimain">
           <div className="setrow tight">
             <div>
-              <b>Fix pull requests</b>
-              <span>When an outcome check fails, CI runs blame, repair and verify, and opens a pull request with the fix verify accepted.</span>
+              <b id="fix-name">Fix pull requests</b>
+              <span id="fix-help">When an outcome check fails, CI runs blame, repair and verify, and opens a pull request with the fix verify accepted.</span>
             </div>
-            <Switch on={o.fix} label="Fix pull requests" onChange={onFix} />
+            <Switch on={o.fix} labelledBy="fix-name" describedBy="fix-help" onChange={onFix} />
           </div>
           <div className="setrow tight">
             <div>
-              <b>Tell Slack</b>
-              <span>The action counts the goldens that failed; Slack hears of them, then the job fails.</span>
+              <b id="alerts-name">Tell Slack</b>
+              <span id="alerts-help">The action counts the goldens that failed; Slack hears of them, then the job fails.</span>
             </div>
-            <Switch on={o.alerts} label="Tell Slack" onChange={onAlerts} />
+            <Switch on={o.alerts} labelledBy="alerts-name" describedBy="alerts-help" onChange={onAlerts} />
           </div>
           {view.fixOnFailure.teamStore ? <TeamStoreRow store={view.fixOnFailure.teamStore} /> : null}
           <div className="setrow tight">
             <div>
-              <b>An inconclusive golden</b>
-              <span>{INCONCLUSIVE_WORDS[o.inconclusive ?? 'fail']}</span>
+              <b id="inconclusive-name">An inconclusive golden</b>
+              <span id="inconclusive-help">{INCONCLUSIVE_WORDS[o.inconclusive ?? 'fail']}</span>
             </div>
-            <div className="seg" role="group" aria-label="An inconclusive golden in CI">
+            <div className="seg" role="group" aria-labelledby="inconclusive-name" aria-describedby="inconclusive-help">
               {(['fail', 'warn'] as const).map((k) => (
                 <button
                   key={k}
@@ -240,18 +217,14 @@ function Workflow({ o, view, set, onFix, onAlerts }: { o: CiWorkflowOptions; vie
       <div className="pbody cicode">
         <CodeBlock file={view.file} code={w.yaml} copyLabel="your workflow’s steps" />
       </div>
-    </section>
+    </Section>
   );
 }
 
 function FixOnFailure({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflowsView; set: (patch: Partial<CiWorkflowOptions>) => void }) {
   const f = view.fixOnFailure;
   return (
-    <section className={`panel set cip${o.fix ? '' : ' off'}`} id="fix-on-failure">
-      <header>
-        <h2>Fix on failure</h2>
-        <span className="sub">a fix pull request when a rule breaks in CI</span>
-      </header>
+    <Section className={`set cip${o.fix ? '' : ' off'}`} id="fix-on-failure" title="Fix on failure" sub="a fix pull request when a rule breaks in CI">
       <div className="alertgrid">
         <div className="pbody cimain">
           <p className="muted">
@@ -260,17 +233,17 @@ function FixOnFailure({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflow
           </p>
           <div className="setrow tight">
             <div>
-              <b>Budget per failing golden</b>
-              <span>Repair stops once it’s spent.</span>
+              <b id="cifixBudget-name">Budget per failing golden</b>
+              <span id="cifixBudget-help">Repair stops once it’s spent.</span>
             </div>
-            <Select label="Budget per failing golden" value={o.budget} options={f.budgets} onChange={(budget) => set({ budget })} />
+            <Select id="cifixBudget" value={o.budget} options={f.budgets} onChange={(budget) => set({ budget })} />
           </div>
           <div className="setrow tight">
             <div>
-              <b>Repairer</b>
-              <span>Proposes fixes; verify decides.</span>
+              <b id="cifixRepairer-name">Repairer</b>
+              <span id="cifixRepairer-help">Proposes fixes; verify decides.</span>
             </div>
-            <Select label="Repairer" value={o.repairer} options={f.repairers} onChange={(repairer) => set({ repairer })} />
+            <Select id="cifixRepairer" value={o.repairer} options={f.repairers} onChange={(repairer) => set({ repairer })} />
           </div>
         </div>
         <div className="pbody teamside">
@@ -280,7 +253,7 @@ function FixOnFailure({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflow
           <CiList rows={f.never} />
         </div>
       </div>
-    </section>
+    </Section>
   );
 }
 
@@ -368,11 +341,7 @@ const INCONCLUSIVE_TOAST: Record<'fail' | 'warn', string> = {
 function Alerts({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflowsView; set: (patch: Partial<CiWorkflowOptions>) => void }) {
   const a = view.alerts;
   return (
-    <section className={`panel set cip${o.alerts ? '' : ' off'}`} id="alerts">
-      <header>
-        <h2>Alerts</h2>
-        <span className="sub">a message in Slack when a golden fails in CI</span>
-      </header>
+    <Section className={`set cip${o.alerts ? '' : ' off'}`} id="alerts" title="Alerts" sub="a message in Slack when a golden fails in CI">
       <div className="alertgrid">
         <div className="pbody cimain">
           <p className="muted">
@@ -381,10 +350,10 @@ function Alerts({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflowsView;
           </p>
           <div className="setrow tight">
             <div>
-              <b>Only for the {a.branch} branch</b>
-              <span>Pull requests stay quiet; their checks already show it.</span>
+              <b id="onlyMain-name">Only for the {a.branch} branch</b>
+              <span id="onlyMain-help">Pull requests stay quiet; their checks already show it.</span>
             </div>
-            <Switch on={o.onlyMain} label={`Only for the ${a.branch} branch`} onChange={(onlyMain) => set({ onlyMain })} />
+            <Switch on={o.onlyMain} labelledBy="onlyMain-name" describedBy="onlyMain-help" onChange={(onlyMain) => set({ onlyMain })} />
           </div>
           <div className="setrow tight">
             <div>
@@ -410,6 +379,6 @@ function Alerts({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflowsView;
           </div>
         </div>
       </div>
-    </section>
+    </Section>
   );
 }

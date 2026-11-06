@@ -332,7 +332,7 @@ describe('the rest of Settings while its file or folder can’t be read', () => 
   });
 
   it('shows no clock mode as chosen while the file can’t be read, or the folder is gone', async () => {
-    const pressed = (x: Rendered) => x.all('.settab .seg[aria-label="Clock"] button').map((b) => b.getAttribute('aria-pressed'));
+    const pressed = (x: Rendered) => x.all('.settab .seg[aria-labelledby="clock-name"] button').map((b) => b.getAttribute('aria-pressed'));
     r = await page(app({ client: { matching: async () => matching(BROKEN) } }), 'matching');
     await r.until('the tab', () => r!.all('.ruletable').length > 0);
     expect(pressed(r)).toEqual(['false', 'false']);

@@ -10,6 +10,8 @@ import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, SAVING, useEditor, us
 import { stepWords } from '../../../src/store-steps.js';
 import { shareLinksLine, syncText } from './logic.js';
 import { ActionButton } from '../../components/ActionButton.js';
+import { Section } from '../../components/Section.js';
+import { Switch } from '../../components/Switch.js';
 
 /**
  * Store: the team store, the project's runs in a bucket you own. Free, with nothing hosted: push
@@ -48,23 +50,26 @@ export function StoreTab() {
   return (
     <>
       {data.config.error ? <ConfigProblem error={data.config.error} /> : null}
-      <section className="panel set">
-        <header>
-          <h2>Store</h2>
-          <span className="sub">your team’s runs, in a bucket you own</span>
-          <span className="sp" />
-          <ActionButton className="btn sm" why={pull} title={`Bring the team’s runs from ${s.name}`} onClick={() => app.guard(() => app.watchJob(client.startJob(JOB_KINDS.pull, {})))}>
-            Pull
-          </ActionButton>
-          <ActionButton
-            className="btn sm lime"
-            why={push}
-            title={s.onlyLocal ? `Copy ${num(s.onlyLocal)} ${s.onlyLocal === 1 ? 'run' : 'runs'} to ${s.name}` : 'Every finished run is in the store'}
-            onClick={() => app.guard(() => (s.onlyLocal ? app.watchJob(client.startJob(JOB_KINDS.push, { all: true })) : app.toast('Every finished run is in the store.')))}
-          >
-            Push local runs
-          </ActionButton>
-        </header>
+      <Section
+        className="set"
+        title="Store"
+        sub="your team’s runs, in a bucket you own"
+        actions={
+          <>
+            <ActionButton className="btn sm" why={pull} title={`Bring the team’s runs from ${s.name}`} onClick={() => app.guard(() => app.watchJob(client.startJob(JOB_KINDS.pull, {})))}>
+              Pull
+            </ActionButton>
+            <ActionButton
+              className="btn sm lime"
+              why={push}
+              title={s.onlyLocal ? `Copy ${num(s.onlyLocal)} ${s.onlyLocal === 1 ? 'run' : 'runs'} to ${s.name}` : 'Every finished run is in the store'}
+              onClick={() => app.guard(() => (s.onlyLocal ? app.watchJob(client.startJob(JOB_KINDS.push, { all: true })) : app.toast('Every finished run is in the store.')))}
+            >
+              Push local runs
+            </ActionButton>
+          </>
+        }
+      >
         <div className="pbody lead">
           <p className="muted">
             Each machine keeps its runs in <code>.shadowlap/</code>. Push copies yours to the store, so teammates and CI can open them; pull brings theirs to you. Nothing passes through Shadowlap.
@@ -89,11 +94,11 @@ export function StoreTab() {
             {s.url} {s.region ? <small>{s.region}</small> : null} <small>{s.providerName}</small>
           </dd>
           <dt>Who has access</dt>
-          <dd className="prose">
+          <dd>
             Whoever your cloud admin gives access to this bucket <small>people and CI, through your cloud’s own permissions; Shadowlap has no accounts</small>
           </dd>
           <dt>Your access</dt>
-          <dd className={s.access.length > 60 ? 'prose' : undefined}>
+          <dd>
             {s.access} <small>your own credentials, used on this machine</small>
           </dd>
           <dt>Last sync</dt>
@@ -114,26 +119,19 @@ export function StoreTab() {
         </dl>
         <div className="setrow">
           <div>
-            <b>Push from CI</b>
-            <span>CI pushes every test run, its report and each fix it opens, so history covers every pull request.</span>
+            <b id="ciPush-name">Push from CI</b>
+            <span id="ciPush-help">CI pushes every test run, its report and each fix it opens, so history covers every pull request.</span>
           </div>
           {ci ? <CiStepButton step={ci} /> : null}
-          <div className="seg" role="group" aria-label="Push from CI">
-            {[true, false].map((on) => (
-              <ActionButton
-                key={String(on)}
-                aria-pressed={s.ciPush === on}
-                why={off}
-                title={`shadowlap store push-from-ci ${on ? 'on' : 'off'}`}
-                onClick={() => {
-                  if (s.ciPush === on) return;
-                  void editor.run(() => client.settings.setCiPush(on, version), () => `Push from CI ${on ? 'on' : 'off'} · written to ${CONFIG_FILE}; commit it for CI to see it`);
-                }}
-              >
-                {on ? 'On' : 'Off'}
-              </ActionButton>
-            ))}
-          </div>
+          <Switch
+            action
+            why={off}
+            on={s.ciPush}
+            labelledBy="ciPush-name"
+            describedBy="ciPush-help"
+            title={`shadowlap store push-from-ci ${s.ciPush ? 'off' : 'on'}`}
+            onChange={(on) => void editor.run(() => client.settings.setCiPush(on, version), () => `Push from CI ${on ? 'on' : 'off'} · written to ${CONFIG_FILE}; commit it for CI to see it`)}
+          />
         </div>
         <div className="setrow">
           <div>
@@ -149,7 +147,7 @@ export function StoreTab() {
             ) : null}
           </div>
         </div>
-      </section>
+      </Section>
     </>
   );
 }
