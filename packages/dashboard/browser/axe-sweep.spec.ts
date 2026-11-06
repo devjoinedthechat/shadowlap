@@ -108,7 +108,7 @@ test('a run’s inspector tabs, menus and dialogs have no serious or critical ax
     for (const tab of ['Response', 'Request', 'Details', 'Conversation']) states.push([`run ${name} · inspector ${tab}`, click(page, '.insp [role="tablist"] button', tab, { shows: `.insp [role="tab"][aria-selected="true"]:has-text("${tab}")` })]);
     states.push([`run ${name} · Share`, click(page, '.rhead .actions button', 'Share', { shows: MENU })], [`run ${name} · Share closed`, escape(page, MENU)]);
     states.push([`run ${name} · the fork menu`, click(page, '#forkBtn', undefined, { shows: MENU })], [`run ${name} · the fork menu closed`, escape(page, MENU)]);
-    states.push([`run ${name} · Delete`, click(page, '.rhead .actions button', 'Delete', { shows: DIALOG })], [`run ${name} · Delete closed`, escape(page)]);
+    states.push([`run ${name} · More`, click(page, '#moreBtn', undefined, { shows: MENU })], [`run ${name} · Delete`, click(page, `${MENU} [role="menuitem"]`, 'Delete run', { shows: DIALOG })], [`run ${name} · Delete closed`, escape(page)]);
   }
   // Edit and fork's dialog, from the inspector of the tool call the run failed at, which it opens on.
   states.push(['run failTool', run(page, dash().runs.failTool as string)], ['run failTool · Edit and fork', click(page, '.insp button', 'Edit and fork', { shows: DIALOG })], ['run failTool · Edit and fork closed', escape(page)]);
@@ -146,7 +146,8 @@ test('every overlay has no serious or critical axe violation: the switcher, a pi
     [`Share closed${where}`, escape(page, MENU)],
     [`the fork menu${where}`, click(page, '#forkBtn', undefined, { shows: MENU })],
     [`the fork menu closed${where}`, escape(page, MENU)],
-    [`Delete${where}`, click(page, '.rhead .actions button', 'Delete', { shows: DIALOG })],
+    [`More${where}`, click(page, '#moreBtn', undefined, { shows: MENU })],
+    [`Delete${where}`, click(page, `${MENU} [role="menuitem"]`, 'Delete run', { shows: DIALOG })],
     [`Delete closed${where}`, escape(page)],
     [`the shortcuts${where}`, press(page, '?', { shows: '.help' })],
     [`the shortcuts closed${where}`, escape(page, '.help')],
@@ -276,7 +277,7 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
   const bulk = (name: string, text: string) => opened(name, at(page, '/runs', 'main#view table.runst tbody tr'), tick, button('.bulkbar button', text));
   const onFix = (name: string, of: string, text: string) => opened(name, at(page, `/fixes/${id(of)}`, 'fix'), button('.ph .actions button', text));
   const states = (): Array<[string, () => Promise<void>]> => [
-    ...onRun('Delete run', 'ticket', 'Delete'),
+    ...opened('Delete run', run(page, id('ticket')), click(page, '#moreBtn', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, 'Delete run')),
     ...onRun('The consent question', 'packed', 'Replay'),
     ...onRun('Pack as golden', 'digest', 'Pack as golden'),
     ...fork('Inject instruction', 'ticket', 'Inject instruction'),

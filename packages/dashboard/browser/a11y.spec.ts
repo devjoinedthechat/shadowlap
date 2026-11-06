@@ -190,8 +190,10 @@ test('a menu closes on Esc to its button; a dialog keeps Tab in it and hands the
   await page.keyboard.press('Escape');
   await expect(page.locator('.pop[role="menu"]')).toHaveCount(0);
   await expect(share).toBeFocused();
-  const del = page.locator('.rhead .actions button', { hasText: 'Delete' });
+  // Delete run waits in …, which the dialog hands the focus back to.
+  const del = page.locator('#moreBtn');
   await del.click();
+  await page.locator('.pop[role="menu"] [role="menuitem"]', { hasText: 'Delete run' }).click();
   const dialog = page.locator('[role="dialog"][aria-modal="true"]');
   await expect(dialog).toBeVisible();
   for (let i = 0; i < 4; i++) {
@@ -213,8 +215,10 @@ test('on a phone, a menu’s sheet closes on Esc to its button, a dialog’s she
   await page.keyboard.press('Escape');
   await expect(sheet).toHaveCount(0);
   await expect(share).toBeFocused();
-  const del = page.locator('.rhead .actions button', { hasText: 'Delete' });
+  // Delete run waits in …, which the dialog hands the focus back to.
+  const del = page.locator('#moreBtn');
   await del.click();
+  await page.locator('.pop[role="menu"] [role="menuitem"]', { hasText: 'Delete run' }).click();
   const dialog = page.locator('[role="dialog"][aria-modal="true"]');
   await expect(dialog).toBeVisible();
   for (let i = 0; i < 4; i++) {

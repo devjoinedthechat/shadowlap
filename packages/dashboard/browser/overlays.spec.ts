@@ -12,6 +12,11 @@ import { demoId, focusedLabel, openPage, seriousViolations } from './dashboard.j
 const MENU = '.pop[role="menu"]';
 const DIALOG = '[role="dialog"][aria-modal="true"]';
 const shareButton = (page: Page) => page.locator('.rhead .actions button', { hasText: 'Share' });
+/** Delete run, from the header's …: the dialog hands the focus back to … when it closes. */
+const deleteRun = async (page: Page) => {
+  await page.locator('#moreBtn').click();
+  await page.locator(`${MENU} [role="menuitem"]`, { hasText: 'Delete run' }).click();
+};
 const box = async (l: Locator) => (await l.boundingBox())!;
 /** Add redaction rule's field a person fills first: it holds its own default, so a change is an edit. */
 const replaceWith = (dialog: Locator) => dialog.locator('label', { hasText: 'Replace with' }).locator('input');
@@ -348,7 +353,7 @@ test('a modal fits the window: its header and footer stay in view, its body scro
 
 test('a dialog’s body that scrolls and holds no control takes the focus, so the keyboard can scroll it, only while it scrolls', async ({ page }) => {
   await openPage(page, `/run/${demoId('ticket')}`, 'run');
-  await page.locator('.rhead .actions button', { hasText: 'Delete' }).click();
+  await deleteRun(page);
   const body = page.locator('.dialog > .db');
   await expect(body).toBeVisible();
   expect(await body.getAttribute('tabindex')).toBeNull();
@@ -363,8 +368,7 @@ test('a dialog’s body that scrolls and holds no control takes the focus, so th
 
 test('a modal’s scrim closes it only on a press that starts and ends on it', async ({ page }) => {
   await openPage(page, `/run/${demoId('ticket')}`, 'run');
-  const del = page.locator('.rhead .actions button', { hasText: 'Delete' });
-  await del.click();
+  await deleteRun(page);
   const dialog = page.locator(DIALOG);
   await expect(dialog).toBeVisible();
   // Red, so it starts on Cancel: a second Enter never deletes.
@@ -385,7 +389,7 @@ test('a modal’s scrim closes it only on a press that starts and ends on it', a
   // A press on the scrim.
   await page.mouse.click(40, 40);
   await expect(dialog).toHaveCount(0);
-  await expect(del).toBeFocused();
+  await expect(page.locator('#moreBtn')).toBeFocused();
 });
 
 test('Esc or the scrim on a dialog with edits asks first, and Cancel never does', async ({ page }) => {
@@ -427,15 +431,14 @@ test('Esc or the scrim on a dialog with edits asks first, and Cancel never does'
 
 test('a page drawn anew just after a modal closes hands the focus to the opener’s counterpart', async ({ page }) => {
   await openPage(page, `/run/${demoId('ticket')}`, 'run');
-  const del = page.locator('.rhead .actions button', { hasText: 'Delete' });
-  await del.click();
+  await deleteRun(page);
   await expect(page.locator(DIALOG)).toBeVisible();
   // The close, then the button drawn anew straight after it, in the page, so a loaded machine can't outrun the second it has.
   const same = await page.evaluate(async () => {
     document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
     await new Promise((done) => requestAnimationFrame(() => setTimeout(done)));
     const was = document.activeElement as HTMLElement;
-    if (!was.textContent?.includes('Delete')) return `the focus went to ${was.tagName}`;
+    if (was.id !== 'moreBtn') return `the focus went to ${was.tagName}`;
     const anew = was.cloneNode(true) as HTMLElement;
     anew.classList.add('anew');
     was.replaceWith(anew);
@@ -446,7 +449,7 @@ test('a page drawn anew just after a modal closes hands the focus to the opener�
   // Focus let go on blank space stays away, whatever the page draws meanwhile.
   await page.goto('about:blank');
   await openPage(page, `/run/${demoId('ticket')}`, 'run');
-  await del.click();
+  await deleteRun(page);
   await expect(page.locator(DIALOG)).toBeVisible();
   const left = await page.evaluate(async () => {
     document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
@@ -548,7 +551,7 @@ test('a term’s card keeps each clause whole, with a space between two on a lin
 
 test('a hover card in a dialog goes over its element rather than over the dialog’s buttons', async ({ page }) => {
   await openPage(page, `/run/${demoId('ticket')}`, 'run');
-  await page.locator('.rhead .actions button', { hasText: 'Delete' }).click();
+  await deleteRun(page);
   await expect(page.locator(DIALOG)).toBeVisible();
   await page.evaluate(() => {
     const fact = document.createElement('p');
@@ -598,7 +601,7 @@ test('forced colours keep each overlay’s edge, which is a shadow they drop', a
   const outline = (sel: string) => page.locator(sel).evaluate((el) => getComputedStyle(el).outlineStyle);
   expect(await outline(MENU)).toBe('solid');
   await page.keyboard.press('Escape');
-  await page.locator('.rhead .actions button', { hasText: 'Delete' }).click();
+  await deleteRun(page);
   expect(await outline('.dialog')).toBe('solid');
   await page.keyboard.press('Escape');
   await page.keyboard.press('?');
