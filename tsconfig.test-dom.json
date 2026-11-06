@@ -99,6 +99,7 @@
     "packages/dashboard/test/ui-primitives.test.ts",
     "packages/dashboard/test/primitives-page.tsx",
     "packages/dashboard/test/ui-matrix.test.ts",
+    "packages/dashboard/test/matrix-page.tsx",
     "packages/dashboard/test/ui-status-bar.test.ts",
     "packages/dashboard/test/ui-changes.test.ts"
   ],
