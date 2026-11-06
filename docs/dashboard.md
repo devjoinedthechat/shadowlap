@@ -166,11 +166,11 @@ The dashboard keeps the search index up to date on a thread of its own, with its
 
 ## Overview
 
-The Overview is this week at a glance, in your own days: this week is the last seven, today included. It leads with what needs doing. The header says the week's outcomes in four facts, and **Needs a look** lists every item to act on, each with its step. Beside it are the newest runs and what happened. **Usage**, folded under both, says what the week's calls cost.
+The Overview is this week at a glance, in your own days: this week is the last seven, today included. It leads with what needs doing: the header says the week's outcomes in four facts, and **Needs a look** lists every item to act on, each with its step. Beside it are the newest runs and what happened. **Usage**, folded under both, says what the week's calls cost.
 
 ### Outcomes
 
-The header says the week in four facts, each a link: *4 failures reproduced · 1 fix verified · 2 of 7 goldens passing · $16.24 spent live*. Hover one for what it is made of and last week's figure.
+The header says the week in four facts, the first three each a link: *4 failures reproduced · 1 fix verified · 2 of 7 goldens passing · $16.24 spent live*. Hover one for what it is made of and last week's figure.
 
 | Fact | What it counts | Its hover adds |
 | --- | --- | --- |
@@ -195,7 +195,7 @@ The header says the week in four facts, each a link: *4 failures reproduced · 1
 | Failing | A golden that failed, as its gate says it | What its run's page leads with, such as **Find breaking commit**, **Add normalizer** or **Update golden** |
 | Failing | [Error-path presets](./error-paths.md) that failed | **Open →**, to the attempt that shows it |
 | Failing | This week's failed runs nobody has blamed, as one row | **Run blame** on the newest |
-| Failing | An open fix, with each golden it holds | Its lead: **Run repair**, **Run blame again** or **Run blame with stronger model…**, else a held crash's **Find breaking commit** |
+| Failing | An open fix, with each golden it holds | A held crash's **Find breaking commit**, else its lead: **Run repair**, **Run blame again** or **Run blame with stronger model…** |
 | Ready to ship | A verified fix not applied yet | **Apply fix**, or **Mark applied** for one with no patch |
 | Tests | An inconclusive golden, and presets left inconclusive | **Run more attempts**, **Update golden** or **Re-run test** |
 | Tests | How many behaviours seen in production no golden [covers](./coverage.md) | **Open →**, to a run of the newest |
@@ -217,7 +217,7 @@ What the rows mean:
 - **Runs only on this machine** are counted as Settings → Store and `shadowlap store show` count them, by run. **Push local runs** pushes them all, as `shadowlap push --all` does. The row opens Runs with those runs alone, each with the `local` tag.
 - **A model that retires**: its name, how many goldens use it, and when it goes (*retires on Nov 30, 2026*, *retired on*, or *is deprecated*). **Migrate to** asks first, then runs `shadowlap migrate --to <model> <goldens> --from <model>` on those goldens. A model with nothing to migrate to has no step.
 
-A step that bills names its price on hover, asked for once the pointer or the focus reaches it, and asks first as [Spending](#spending) says. On a read-only dashboard each step says **Open →**, since nothing runs there. Past 50 rows of a kind, one line says how many more there are and opens the page that lists them.
+A step that bills names its price on hover, asked for once the pointer or the focus reaches it, and asks first as [Spending](#spending) says. On a read-only dashboard a step that runs a job says **Open →**, since nothing runs there. Past 50 rows of a kind, one line says how many more there are and opens the page that lists them.
 
 ### Recent runs
 
@@ -229,7 +229,7 @@ A step that bills names its price on hover, asked for once the pointer or the fo
 
 ### Activity
 
-The activity feed is what happened in the project, newest first: the Overview shows its five latest entries. Each has a glyph for its kind, red when it failed and amber when a check couldn't decide or it stopped. Each ends on what it happened to: a run by its id, with what it was about on hover, else the fix, verdict or file it names. With a [team store](./team.md), each entry names who did it. Most of it comes from the runs themselves:
+The activity feed is what happened in the project, newest first: the Overview shows its five latest entries. Each has a glyph for its kind, red when it failed and amber when a check couldn't decide or it stopped. Each ends on what it happened to (a run by its id, with what it was about on hover, else the fix, verdict or file it names), and with a [team store](./team.md) names who did it. Most of it comes from the runs themselves:
 
 - Recordings started and finished, and clean replays.
 - Forks, with the flags that made them as the replay kept them on the run (`--fail-at 19=529`, `--model 15:claude-opus-5`).
