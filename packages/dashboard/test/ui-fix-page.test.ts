@@ -1,11 +1,12 @@
 import { createElement } from 'react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { decideVerify, formatBlame, markFixApplied, recordBlame, recordEvent, recordRepair, recordVerdict, setFixTitle, Store, type BlameReport } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { fixAttemptGroups } from '../src/attempt-groups.js';
 import { fixDetail, fixList } from '../src/fixes.js';
 import type { Client } from '../ui/api.js';
 import { FixPage } from '../ui/fixes/FixPage.js';
+import { APPLY_ASK } from '../ui/page-ask.js';
 import { FixesPage } from '../ui/pages/Fixes.js';
 import { useRoute } from '../ui/router.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -591,5 +592,33 @@ describe('opening a fix', () => {
     // Not the document's body, from where Tab would start again at the top bar: the page's heading, as a target Tab never stops at.
     expect(r.focused().tagName).toBe('H1');
     expect(r.focused().getAttribute('tabindex')).toBe('-1');
+  });
+});
+
+describe('Apply fix from the palette', () => {
+  it('opens its dialog for the fix asked for, arriving on its page or on it already, and for no other', async () => {
+    const run = newRun({ labels: ['refund-bug'] });
+    const { fix } = blame(run);
+    recordRepair(store, { repairId: 'repair-munzln2i', dir: '.shadowlap/repairs/repair-munzln2i', report: repairReport({ targets: [run] }), expect: EXPECT, command: 'shadowlap repair --fixes label:refund-bug', at: NOW + 1 });
+    const dialogs = () => r!.all('.dialog h3').map(text);
+    // Asked before the page shows, as the palette asks before it opens the page.
+    const asked = (fixId: string) => {
+      vi.stubGlobal('window', { dispatchEvent: () => true });
+      APPLY_ASK.ask(fixId);
+      vi.unstubAllGlobals();
+    };
+    asked('another-fix');
+    await open(fix.fixId);
+    expect(dialogs()).toEqual([]);
+    await r!.unmount();
+    asked(fix.fixId);
+    await open(fix.fixId);
+    expect(dialogs()).toEqual(['Apply fix?']);
+    await r!.click(r!.byText('.dialog footer button', 'Cancel'));
+    expect(dialogs()).toEqual([]);
+    APPLY_ASK.ask('another-fix');
+    APPLY_ASK.ask(fix.fixId);
+    await r!.until('the dialog to open again', () => dialogs().length === 1);
+    expect(dialogs()).toEqual(['Apply fix?']);
   });
 });

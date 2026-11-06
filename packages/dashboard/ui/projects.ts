@@ -1,4 +1,4 @@
-import { plural, tildePath } from './format.js';
+import { minuteStamp, plural, tildePath } from './format.js';
 import type { Route } from './route.js';
 import { isAttempt, type RunLike } from './runs.js';
 import type { LiveRun, Meta } from './types.js';
@@ -151,9 +151,17 @@ export function storePath(meta: Pick<Meta, 'dbPath' | 'project'>): string {
   return tildePath(dbPath);
 }
 
-/** The line under an exported copy's project block: `1 run · nothing runs from here`. */
-export function exportedLine(runs: number): string {
-  return `${plural(runs, 'run')} · nothing runs from here`;
+/**
+ * The lines of an exported copy's block, in the switcher's place: what it holds and when it was
+ * made (`1 run · Oct 1, 10:20`), then that it reads only and whether its redaction rules applied.
+ * A copy names no project: its folder is stripped, and whoever it is sent to needn't learn it.
+ */
+export function exportedLine(runs: number, exportedAt: number | null = null, now = Date.now()): string {
+  return `${plural(runs, 'run')}${exportedAt ? ` · ${minuteStamp(exportedAt, now)}` : ''}`;
+}
+
+export function exportedNote(redacted: boolean | null | undefined): string {
+  return `read-only · ${redacted ? 'its redaction applied' : 'as recorded, not redacted'}`;
 }
 
 /**

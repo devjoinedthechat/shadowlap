@@ -3,7 +3,7 @@ import type { Client } from '../api.js';
 import { addPaletteSource } from '../palette-sources.js';
 import { href } from '../route.js';
 import { useApp } from '../state.js';
-import type { FixDetail, FixList } from '../types.js';
+import type { FixDetail, FixList, FixRow } from '../types.js';
 import { fixName } from './model.js';
 
 /**
@@ -31,6 +31,11 @@ export function rememberFix(d: Pick<FixDetail, 'fixId' | 'label' | 'title'>, ask
     titles.set(id, d.title);
   }
   changed();
+}
+
+/** The fixes the list last read, for the palette's Apply fix. */
+export function knownFixes(): readonly FixRow[] {
+  return list?.fixes ?? [];
 }
 
 export function rememberList(l: FixList): void {
@@ -91,5 +96,5 @@ function useFixesKnown(): void {
 addPaletteSource(({ app, go }) => {
   if (app.exported) return [];
   void refreshFixes(app.client);
-  return (list?.fixes ?? []).map((f) => ({ group: 'Fixes' as const, label: f.title, hint: `${fixName(f)} · ${f.status}`, run: () => go(href.fixes(f.fixId)) }));
+  return (list?.fixes ?? []).map((f) => ({ group: 'Fixes' as const, label: f.title, hint: `${fixName(f)} · ${f.status}`, match: 'blame repair verify apply', run: () => go(href.fixes(f.fixId)) }));
 });

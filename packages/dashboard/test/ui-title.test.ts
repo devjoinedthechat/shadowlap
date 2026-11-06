@@ -46,8 +46,18 @@ describe('a tab’s title', () => {
     expect(title('#/run/01M5GHQ4770XBC2GET8V493QCY', { about: long })).toBe('01M5GHQ477 — shadowlap');
   });
 
-  it('names a comparison by its two runs', () => {
+  it('names a comparison by its two runs, and an exported copy’s, its only pair, as Compare', () => {
     expect(title('#/compare/01M5GHNZDF0000000000000000/01M5GHQ4770XBC2GET8V493QCY')).toBe('01M5GHNZDF → 01M5GHQ477 · Compare — shadowlap');
+    expect(title('#/compare/01M5GHNZDF0000000000000000/01M5GHQ4770XBC2GET8V493QCY', { exported: true })).toBe('Compare — shadowlap');
+  });
+
+  it('names only the section for a run or a fix the page can’t show, or with the setup in its place, as the crumbs do', () => {
+    expect(title('#/run/01M5GHQ4770XBC2GET8V493QCY', { unshown: true, about: 'Order A-1131' })).toBe('Runs — shadowlap');
+    expect(title('#/fixes/fx-nope', { unshown: true })).toBe('Fixes — shadowlap');
+    expect(title('#/run/01M5GHQ4770XBC2GET8V493QCY', { setup: true })).toBe('Runs — shadowlap');
+    expect(title('#/fixes/fx-01M5GMZKCV', { setup: true })).toBe('Fixes — shadowlap');
+    // The list itself, and the Overview, say what shows: the setup.
+    expect(title('#/fixes', { setup: true })).toBe('Set up — shadowlap');
   });
 
   it('names a fix by its title once it is known, and by its id until then', () => {

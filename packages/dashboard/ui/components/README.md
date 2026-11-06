@@ -130,8 +130,9 @@ call's recorded duration), `cache.ts` (where the cache stopped hitting, and what
 says about it), `scopes.ts` (scopes and their chips), `backoff.ts` and
 `connection.ts` (offline, the retry schedule, the `?state=offline` preview), `live.ts` (following a
 recording, and which ended between two loads of the run list, for the shell's toast), `actions.ts` (the fork menu and each action's dialog words), `jobs.ts` (a job's title and status, where a Replay diverged, the recording Calibrate takes), `place.ts`,
-`focus.ts` (what a dialog focuses first), `shell/top.ts` (the top bar's pill, a run's parent in its
-crumbs, the live chip), `parents.ts` (each run's parent, from the run details loaded so far, so the
+`focus.ts` (what a dialog focuses first), `shell/top.ts` (a run's parent in its
+crumbs, the help menu's key, and the live chip), `shell/status.ts` (the status bar's parts, which give
+way first, and when it names read-only), `parents.ts` (each run's parent, from the run details loaded so far, so the
 crumbs never load a run twice),
 `normalize.ts`, `format.ts`, and on the run page `run/banner.ts` (which banner, and what it says),
 `run/metrics.ts`, `run/model.ts` and `run/calls.ts`; for Compare, `compare/model.ts` (what the four
@@ -142,8 +143,10 @@ verdict's line, a check's name in the table, the reports as the CLI prints them,
 failure gets and what the Update golden dialog says; `tests-palette.ts` lists the goldens in the
 palette from any page.
 
-A page adds palette entries (its Fixes, its goldens, its actions) with `addPaletteSource` from
-`palette-sources.ts`. A source runs when the palette opens; one that loads what it lists answers
+Palette entries come from sources added with `addPaletteSource` from `palette-sources.ts`. A
+page's actions and Tests are added in `palette-actions.ts`, which loads with the palette, so a fresh
+dashboard lists them before their pages have opened; a row whose dialog is on its page opens the
+page and asks there (`page-ask.ts`; Apply fix asks by the fix's id). A source runs when the palette opens; one that loads what it lists answers
 with what it has and calls `paletteSourcesChanged()` when more arrives, and an open palette reads
 its sources again. Pages a later version fills in each have their own file under `pages/`.
 
@@ -166,9 +169,9 @@ in `src/links.ts`), so any screen can link to a filtered list. `runspage/history
 as they settle). `runspage/scroll.ts` gives each view back where its list was left, and
 `ui/runs-view.ts` keeps the view Runs showed last, which the nav's Runs, the crumbs, `g r` and a
 cold Esc open. `teamstore.ts` has `useTeamStore()`, the team store as `GET /api/store` reports it, for any
-screen that changes with one (the top bar's *team* label among them); it reads again when the change
+screen that changes with one (the status bar's part that names it among them); it reads again when the change
 feed's `team` counter moves (a push, a pull, a step of the setup). The store's setup is a page of its
-own, `#/setup/store` (`pages/settings/StoreSetup.tsx`, with its palette entry), its steps worked out in
+own, `#/setup/store` (`pages/settings/StoreSetup.tsx`; its palette rows are added in `palette-actions.ts`), its steps worked out in
 `store-logic.ts` from `src/store-steps.ts` (which Needs a look reads too) and its requests in
 `store-api.ts` (`client.storeSetup`).
 

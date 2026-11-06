@@ -3,9 +3,11 @@ import type { AppState, PaletteCommand } from './state.js';
 
 /**
  * Where the palette's entries come from besides the shell's own (This run, Go to, the runs, and what
- * runs recorded). A page adds its group here when it loads: Fixes adds its fixes, Tests its goldens,
- * Projects the projects to switch to, and a feature its actions ("Import a capture…"). A source runs
- * each time the palette opens, so it reads what it needs from the app state it is handed.
+ * runs recorded). A module adds its group here as it loads: `fixes/data.ts` the fixes, the project
+ * switcher the projects to switch to, and `palette-actions.ts`, which loads with the palette, the
+ * pages' actions ("Import capture…") and Tests; a row whose dialog is on its page asks for it there
+ * through `page-ask.ts`. A source runs each time the palette opens, so it reads what it needs from
+ * the app state it is handed.
  */
 
 export interface PaletteContext {

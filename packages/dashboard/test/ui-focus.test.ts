@@ -11,6 +11,7 @@ import { Palette } from '../ui/shell/Palette.js';
 import { SkipLink } from '../ui/shell/SkipLink.js';
 import { setSingleKeys } from '../ui/shortcuts.js';
 import { AppContext, type AppState } from '../ui/state.js';
+import { setAnnouncer } from '../ui/toast.js';
 import { sheet } from './css-sheet.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 
@@ -211,6 +212,25 @@ describe('Search or jump to', () => {
     expect(field.getAttribute('aria-expanded')).toBe('false');
     expect(field.hasAttribute('aria-activedescendant')).toBe(false);
     expect(r.one('.pallist [role="status"]').textContent).toContain('Nothing matches');
+  });
+
+  it('says how many rows each word found, once, and leaves none found to the list’s own status', async () => {
+    const said: string[] = [];
+    setAnnouncer((t) => said.push(t));
+    try {
+      r = await render(createElement(PaletteOpener, { base: app() }));
+      await r.click(r.one('#opener'));
+      // Opening it says nothing.
+      expect(said).toEqual([]);
+      const field = r.one('.palin input');
+      await r.type(field, 'Keyboard');
+      expect(said.at(-1)).toMatch(/^\d+ results?$/);
+      const before = said.length;
+      await r.type(field, 'zzzz nothing like it');
+      expect(said.length).toBe(before);
+    } finally {
+      setAnnouncer(null);
+    }
   });
 });
 

@@ -35,11 +35,11 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 ::-webkit-scrollbar-track { background: transparent; }
 
 .sp { flex: 1; }
-.ibtn { width: 32px; height: 32px; display: inline-grid; place-items: center; border-radius: 9px; border: 1px solid var(--line2); background: none; color: var(--dim); cursor: pointer; flex: none; }
+.ibtn { width: 32px; height: 32px; display: inline-grid; place-items: center; border-radius: var(--r-control); border: 1px solid var(--line2); background: none; color: var(--dim); cursor: pointer; flex: none; }
 .ibtn:hover { color: var(--ink); border-color: var(--dim); }
 .ibtn svg { width: 15px; height: 15px; }
 
-.kbd { font: 500 10.5px var(--mono); color: var(--faint); border: 1px solid var(--line2); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; }
+.kbd { font: 500 var(--fs-label) var(--mono); color: var(--faint); border: 1px solid var(--line2); border-bottom-width: 2px; border-radius: var(--r-chip); padding: 0 5px; }
 
 .dotlive { width: 7px; height: 7px; border-radius: 50%; background: var(--o-live); box-shadow: 0 0 0 3px color-mix(in srgb, var(--o-live) 22%, transparent); animation: pulse 1.6s ease-in-out infinite; flex: none; }
 @keyframes pulse { 50% { opacity: .35; } }
@@ -56,7 +56,10 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .glyph.fork, .glyph.blame { color: var(--dim); }
 .glyph.cap { color: var(--dim); }
 .glyph.fail, .glyph.fixbad { color: var(--err); }
-.glyph.warn { color: var(--cq-amber); }
+.glyph.warn, .glyph.fixinc { color: var(--cq-amber); }
+/* An event that came out inconclusive, stopped or needing a look is amber whatever its shape, one that failed red. */
+.glyph.amb { color: var(--cq-amber); }
+.glyph.err { color: var(--err); }
 /* A verify's attempts under a verdict that doesn't count for the fix: no verdict on it, so no verdict's colour. */
 .glyph.plain { color: var(--dim); }
 
@@ -470,7 +473,7 @@ code.rnm { white-space: nowrap; }
    size adds. */
 @media (max-width: 640px) {
   :is(#root, body) :is(
-    .eyebrow, .side-k, .k, .sec-k, .banner .bk, .rnote .bk, .hgroup h4, .pop .pk, .palg, .pill, .eff, .tag, .tag-local, .badge,
+    .eyebrow, .k, .sec-k, .banner .bk, .rnote .bk, .hgroup h4, .pop .pk, .palg, .eff, .tag, .tag-local, .badge,
     .tchip em, .bmk, .cells button .flag, .cbar .miss, table.t th:not(.mh), table.calls th, table.calls .n .fk, th.hist span,
     .fxtable th, .msg .role, .msg .role small, .msg .chg, .think .tlab, .callrow .pl, .diffpanel h4,
     .paths h4, .fdiff h2, .prov h3, .slackmsg .sh .sapp, .kbd, .palfoot kbd, .palit .palk kbd, .clabels, .tl-axis, .yaxis, .xlabels, .calwd

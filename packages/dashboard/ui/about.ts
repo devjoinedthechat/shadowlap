@@ -248,18 +248,39 @@ function markIn(el: HTMLElement, word: string): void {
 }
 
 /**
+ * A line that gave up its place for the status after it (`[data-gives]`) has it back, the status
+ * giving way instead: first to its word (`data-give="1"` hides its `.sgw` part: "check failed"
+ * keeps "failed", "lost at #9" keeps "lost"), then altogether (`"2"`), its icon still saying it,
+ * the line fitted again after each. A status with no shorter word goes whole at once.
+ */
+function giveWay(lines: ReadonlyArray<FitLine & { el: HTMLElement }>): void {
+  const gaveUp = (x: { el: HTMLElement }) => x.el.textContent === '';
+  let open = lines.flatMap((x) => {
+    const st = x.forms.length > 1 && gaveUp(x) ? x.el.parentElement?.querySelector<HTMLElement>(':scope > [data-gives]') : null;
+    return st ? [{ x, st }] : [];
+  });
+  for (const step of ['1', '2']) {
+    const now = step === '1' ? open.filter(({ st }) => st.querySelector('.sgw')) : open;
+    if (!now.length) continue;
+    for (const { st } of now) st.dataset.give = step;
+    fitLines(now.map(({ x }) => x));
+    open = open.filter(({ x }) => gaveUp(x));
+  }
+}
+
+/**
  * Fits every about line and command hint in `scope`: `[data-about]` lines take their about line's
  * forms (`data-from` says where it comes from: a change is never cut), `[data-fit]` hints are cut at
  * their end, or take `data-short`. A line `data-mark` names a search word in is marked where the
  * word still is. Lines not laid out (a hidden column) are left as they are. A status beside a line
- * that may give way (`[data-gives]`, the sidebar's "· check failed") does, before a test replay's
- * golden would: a golden's name can't be cut, and the run reads by it.
+ * (`[data-gives]`, the sidebar's "· check failed") gives way before the line would give up its
+ * place (`giveWay`).
  */
 export function fitAbouts(scope: ParentNode): void {
   // Only a page that lays itself out can be measured (a test's document without layout is left whole).
   if (typeof getComputedStyle !== 'function' || typeof document === 'undefined' || typeof document.createRange !== 'function') return;
   // A status that gave way last time is back, until this fit finds it must give way again.
-  for (const el of scope.querySelectorAll<HTMLElement>('[data-gives]')) if (el.style) el.style.display = '';
+  for (const el of scope.querySelectorAll<HTMLElement>('[data-gives]')) el.removeAttribute('data-give');
   const lines: Array<FitLine & { el: HTMLElement }> = [];
   for (const el of scope.querySelectorAll<HTMLElement>('[data-about], [data-fit]')) {
     if (!el.dataset || typeof el.getBoundingClientRect !== 'function' || !el.getClientRects().length) continue;
@@ -270,12 +291,6 @@ export function fitAbouts(scope: ParentNode): void {
     lines.push({ el, forms: ordered, write: (t) => (el.textContent = t), overflows: () => overflowing(el), room: () => boxWidth(el) });
   }
   fitLines(lines);
-  // A golden that gave up its place: the status beside it gives way instead, and the golden is fitted again.
-  const yielded = lines.filter((x) => x.el.dataset.from === 'golden' && x.el.textContent === '' && x.forms.length > 1);
-  const statuses = yielded.map((x) => x.el.parentElement?.querySelector<HTMLElement>(':scope > [data-gives]') ?? null);
-  if (statuses.some(Boolean)) {
-    for (const st of statuses) if (st) st.style.display = 'none';
-    fitLines(yielded.filter((_, i) => statuses[i]));
-  }
+  giveWay(lines);
   for (const x of lines) if (x.el.dataset.mark) markIn(x.el, x.el.dataset.mark);
 }
