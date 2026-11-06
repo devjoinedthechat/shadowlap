@@ -6,7 +6,7 @@ import { Banner } from '../ui/run/parts.js';
 import { useWholeStep } from '../ui/run/NextStepButton.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import { TestsAskHost } from '../ui/fixes/TestsJobButton.js';
+import { TestsAskHost } from '../ui/fixes/TestsAskHost.js';
 import type { NextStep, RunDetail, RunOffers, TestBannerOffer } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 import { resetSpending } from '../ui/spending.js';

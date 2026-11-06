@@ -27,7 +27,7 @@ import { FindCommitDialog as RunsFindCommit } from '../ui/runspage/FindCommit.js
 import { ImportDialog } from '../ui/runspage/ImportDialog.js';
 import { RemoveProjectDialog } from '../ui/shell/RemoveProject.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import { TestsAskHost } from '../ui/fixes/TestsJobButton.js';
+import { TestsAskHost } from '../ui/fixes/TestsAskHost.js';
 import { answerTestsQuestion, moreAttemptsAsk, startTestsJob, type TestsAsk } from '../ui/tests-ask.js';
 import { packRunCommand } from '../ui/run/share.js';
 import { importWords } from '../ui/runspage/imports.js';

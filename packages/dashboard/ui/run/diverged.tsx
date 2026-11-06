@@ -1,14 +1,18 @@
 import { useState } from 'react';
+import { GOLDEN_JOB_WORDS } from '../../../engine/src/action-words.js';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import { JOB_KINDS, type RunDetail } from '../api.js';
+import type { TestsCard } from '../fixes/TestsJobButton.js';
+import { commandText } from '../goldens.js';
 import { UpdateGoldenDialog } from '../components/UpdateGolden.js';
 import { goldenName } from '../format.js';
+import { ACTIONS } from '../labels.js';
 import { NormalizeUpdateDialog } from '../pages/TestsDialogs.js';
 import { sentEstimate } from '../spending.js';
 import { useApp } from '../state.js';
 import { bannerNormalizerAsk, startTestsJob } from '../tests-ask.js';
 import type { TestBannerOffer } from '../types.js';
-import { divergedActions, updateGoldenCopy } from './offers.js';
+import { divergedActions, updateGoldenCopy, type NormalizerChoice } from './offers.js';
 
 /** What a diverged test's jobs bill, where the page knows: none, or undefined while it is worked out, and each asks. */
 export interface DivergedPrices {
@@ -37,6 +41,7 @@ export function useDivergedJobs(run: RunDetail, test: TestBannerOffer | null, re
       {dialog === 'update' && test ? (
         <UpdateGoldenDialog
           plan={updateGoldenCopy(test, r.divergence?.callNo ?? 1, add?.kind === 'job', replayChecks)}
+          estimate={prices.update}
           onInstead={addNormalizer}
           onClose={() => setDialog(null)}
           onUpdate={() => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.testUpdate, { golden: test.golden, ...sentEstimate(prices.update) })))}
@@ -46,6 +51,7 @@ export function useDivergedJobs(run: RunDetail, test: TestBannerOffer | null, re
         <NormalizeUpdateDialog
           name={goldenName(test.golden)}
           steps={add.asks}
+          estimate={prices.normalize}
           onClose={() => setDialog(null)}
           onRun={addNormalizer}
         />
@@ -54,10 +60,24 @@ export function useDivergedJobs(run: RunDetail, test: TestBannerOffer | null, re
   );
   return {
     acts,
+    /** What its jobs bill, as their cards say it and they keep it. */
+    prices,
     /** Add normalizer, asking first where it re-records the golden after the rule. */
     normalize: () => (add?.kind === 'job' && add.asks ? app.guard(() => setDialog('normalize')) : addNormalizer()),
     /** Update golden, which always asks. */
     update: () => app.guard(() => setDialog('update')),
     dialogs,
   };
+}
+
+/**
+ * The cards of a diverged test's buttons on its banner, in the run's next step's words: what Add
+ * normalizer does, by whether its rule alone makes the replay match, and Update golden, each with the
+ * command it runs.
+ */
+export function bannerCards(test: TestBannerOffer | null, add: NormalizerChoice): { normalize?: TestsCard; update?: TestsCard } {
+  if (!test) return {};
+  const remakes = add?.kind === 'job' && !!add.asks;
+  const normalize = { tip: add?.kind === 'job' ? add.label : ACTIONS.addNormalizer.label, sub: remakes ? GOLDEN_JOB_WORDS.masksThenRemakes : GOLDEN_JOB_WORDS.masksThenReplays, command: (test.normalizeAndTest ?? []).map(commandText).join(' && ') };
+  return { normalize, update: { tip: ACTIONS.updateGolden.label, sub: GOLDEN_JOB_WORDS.remade, command: commandText(['test', test.golden, '--update']) } };
 }

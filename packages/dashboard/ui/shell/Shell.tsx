@@ -5,7 +5,7 @@ import { HoverCardLayer } from '../components/HoverCard.js';
 import { Sprite } from '../components/Icon.js';
 import { ToastHost } from '../components/Toast.js';
 import { useFixTitle } from '../fixes/data.js';
-import { TestsAskHost } from '../fixes/TestsJobButton.js';
+import { TestsAskHost } from '../fixes/TestsAskHost.js';
 import { drawnJob } from '../job-store.js';
 import { OverlaySlots } from '../overlays/slots.js';
 import { setupShowsOn } from '../projects.js';

@@ -5,7 +5,7 @@ import type { Estimate } from '../../engine/src/estimates/estimate.js';
 import type { Spending } from '../../engine/src/estimates/spending.js';
 import { testsView, type DivergenceView, type GoldenSource } from '../src/tests.js';
 import { ApiError, type Client, type JobView, type TestsView } from '../ui/api.js';
-import { TestsAskHost } from '../ui/fixes/TestsJobButton.js';
+import { TestsAskHost } from '../ui/fixes/TestsAskHost.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { Banner } from '../ui/run/parts.js';
 import { Palette } from '../ui/shell/Palette.js';
@@ -418,5 +418,61 @@ describe('a live session’s question, answered by Spending', () => {
     const injection = await rerun(null, PRICED, 'injection');
     expect(dialog(injection.page)).not.toBeNull();
     expect(yeses(injection.sent)).toEqual([]);
+  });
+});
+
+describe('Tests’ buttons, priced from the page’s estimates', () => {
+  const RUN: Estimate = { kind: 'tests', usd: 0.3, ceiling: false, parts: ['what the last session spent live'] };
+  const UPDATE: Estimate = { kind: 'update', usd: 0.2, ceiling: false, always: 'it replaces goldens', parts: ['as its recording cost'] };
+  const RERUN: Estimate = { kind: 'tests', usd: 0, ceiling: false, parts: ['replays offline'] };
+  afterEach(() => resetSpending());
+
+  /** Tests at the threshold `v`, its server pricing Run tests and refund-in-limit's jobs as above. */
+  async function priced(v: Spending, tests?: TestsView) {
+    resetSpending(v);
+    const sent: Sent[] = [];
+    const watched: Array<Promise<JobView>> = [];
+    const state = app(sent, watched, { live: true, ...(tests ? { tests } : {}) });
+    const reads: string[] = [];
+    const goldens = { 'goldens/refund-in-limit': { rerun: RERUN, update: UPDATE, normalize: RERUN } };
+    Object.assign(state.client, { estimates: { testsEstimates: () => (reads.push('tests'), Promise.resolve({ run: RUN, goldens })) } });
+    const page = await tests_(state);
+    await page.until('the estimates', () => reads.length > 0 && !!card(page, 'Run tests').est);
+    return { page, sent, watched, reads };
+  }
+  const tests_ = tests;
+  const card = (page: Rendered, label: string) => JSON.parse(page.byText('button', label).getAttribute('data-tip') ?? '{}') as { t?: string; s?: string; cmd?: string; est?: Record<string, unknown> };
+
+  it('says Run tests’ estimate on its card, and answers the server’s question with it by Spending, posting first either way', async () => {
+    const { page, sent } = await priced(0.5);
+    expect(card(page, 'Run tests')).toMatchObject({ s: 'Replays every golden offline; a golden marked fork runs live from where it forks', est: { usd: 0.3, ceiling: false } });
+    await page.click(page.byText('button', 'Run tests'));
+    await page.until('the yes', () => sent.length === 2);
+    expect(sent.map((s) => s.fields)).toEqual([{ estimate: { usd: 0.3, ceiling: false } }, { estimate: { usd: 0.3, ceiling: false }, yes: CONFIRM }]);
+    expect(dialog(page)).toBeNull();
+  });
+
+  it('asks above the threshold in the server’s question only, once, its Cost line the estimate', async () => {
+    const { page, sent } = await priced(0.1);
+    await page.click(page.byText('button', 'Run tests'));
+    await page.until('the question', () => dialog(page) !== null);
+    expect(sent).toHaveLength(1);
+    expect(dialog(page)!.querySelectorAll('.dcost')[0].textContent).toContain('≈$0.30');
+  });
+
+  it('says Update golden’s estimate and asks first on every setting, its dialog’s Cost line the estimate and its job keeping it', async () => {
+    const { page, sent } = await priced(null, diverged());
+    expect(card(page, 'Update golden')).toMatchObject({ s: 'It re-records the golden under the change', cmd: 'shadowlap test goldens/refund-in-limit --update', est: { usd: 0.2, always: 'it replaces goldens' } });
+    expect(card(page, 'Add normalizer and re-run').est).toEqual({ usd: 0, ceiling: false });
+    await page.click(page.byText('button', 'Update golden'));
+    await page.until('its dialog', () => dialog(page) !== null);
+    // The lime way on, Add normalizer, keeps its own line beside Update anyway's estimate.
+    const lines = dialog(page)!.querySelectorAll('.dcost').map((c) => (c.textContent ?? '').replace(/\s+/g, ' '));
+    expect(lines[0]).toBe('Free · replays offline');
+    expect(lines[1]).toContain('≈$0.20');
+    expect(sent).toEqual([]);
+    await page.click(page.one('.dialog .dlg-ok'));
+    await page.until('the job', () => sent.length === 1);
+    expect(sent[0]).toEqual({ kind: 'test-update', fields: { golden: 'goldens/refund-in-limit', estimate: { usd: 0.2, ceiling: false } } });
   });
 });

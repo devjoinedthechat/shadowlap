@@ -1,4 +1,5 @@
 import { useId, useState } from 'react';
+import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import type { BisectRevision, TestsView } from '../api.js';
 import { Dialog } from '../components/Dialog.js';
 import { DialogSteps } from '../components/DialogFacts.js';
@@ -22,9 +23,9 @@ import { sentEstimate } from '../spending.js';
  * Update golden, or Update goldens for every diverged one. `has` says which jobs the server runs;
  * `onInstead` runs the lime way on beside Update anyway, when there is one.
  */
-export function UpdateGoldensDialog({ view, paths, has, onUpdate, onInstead, onClose }: { view: TestsView; paths: string[]; has: (kind: string) => boolean; onUpdate: () => unknown; onInstead: (instead: NonNullable<UpdatePlan['instead']>) => unknown; onClose: () => void }) {
+export function UpdateGoldensDialog({ view, paths, has, estimate, onUpdate, onInstead, onClose }: { view: TestsView; paths: string[]; has: (kind: string) => boolean; estimate?: Estimate | null | undefined; onUpdate: () => unknown; onInstead: (instead: NonNullable<UpdatePlan['instead']>) => unknown; onClose: () => void }) {
   const plan = updatePlan(view, paths, has);
-  return <UpdateGoldenDialog plan={plan} onUpdate={onUpdate} {...(plan.instead ? { onInstead: () => onInstead(plan.instead!) } : {})} onClose={onClose} />;
+  return <UpdateGoldenDialog plan={plan} estimate={estimate} onUpdate={onUpdate} {...(plan.instead ? { onInstead: () => onInstead(plan.instead!) } : {})} onClose={onClose} />;
 }
 
 /**
@@ -66,14 +67,14 @@ export function FindCommitDialog({ name, golden, range, live, revisions, tried, 
  * recording never had, or more changed): the rules are added, then the golden is updated, which
  * re-records it live. It asks first, as Update golden does, with each command.
  */
-export function NormalizeUpdateDialog({ name, steps, onRun, onClose }: { name: string; steps: string[][]; onRun: () => unknown; onClose: () => void }) {
+export function NormalizeUpdateDialog({ name, steps, estimate, onRun, onClose }: { name: string; steps: string[][]; estimate?: Estimate | null | undefined; onRun: () => unknown; onClose: () => void }) {
   return (
     <Dialog
       title={`${ACTIONS.addNormalizerAndUpdate.label} ${name}?`}
       lead={`Masks the value, then re-records ${name}, for a change you meant.`}
       doc="goldenUpdates"
       command={{ command: steps.map((s) => commandText(s)) }}
-      cost={{ price: 'Billed by your provider', parts: ['as its recording cost'] }}
+      cost={{ price: 'Billed by your provider', parts: ['as its recording cost'], estimate }}
       ok={ACTIONS.addNormalizerAndUpdate.label}
       onOk={onRun}
       onClose={onClose}

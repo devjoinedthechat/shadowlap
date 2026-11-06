@@ -23,7 +23,8 @@ import { bannerFor, DIVERGED } from './banner.js';
 import { refusedOffline } from './calls.js';
 import { metricItems, outcomeFact, type MetricInput, type OutcomeFact } from './metrics.js';
 import { attemptLinks, attemptOf, originOf, pulledSpender, runLikeOf } from './model.js';
-import { useDivergedJobs } from './diverged.js';
+import { bannerCards, useDivergedJobs } from './diverged.js';
+import { goldenPrice, useTestsEstimates } from '../tests-estimates.js';
 import { fixStatusWords, nextStepOf } from './next-step.js';
 import { blameTitle, goldenName, updatesAfterRules } from './offers.js';
 import { ActionButton } from '../components/ActionButton.js';
@@ -451,7 +452,11 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
  */
 function DivergedBanner({ run, test, leads, checks, call, path, why, callNo, diff, onAction }: { run: RunDetail; test: TestBannerOffer | null; leads: (key: NextStepKey) => boolean; checks: number; call: (n: number) => ReactNode; path: string | null; why: string; callNo: number; diff: ReactNode; onAction: (p: PendingAction) => void }) {
   const app = useApp();
-  const jobs = useDivergedJobs(run, test, checks);
+  const golden = test?.golden ?? null;
+  // What its golden's jobs bill, where its buttons show: each card says it, and each job keeps it.
+  const prices = useTestsEstimates(golden);
+  const jobs = useDivergedJobs(run, test, checks, golden ? { normalize: goldenPrice(prices, golden, 'normalize'), update: goldenPrice(prices, golden, 'update') } : {});
+  const cards = bannerCards(test, jobs.acts.normalizer);
   const normalizer = run.actions.find((a) => a.key === 'n');
   const add = jobs.acts.normalizer;
   return (
@@ -475,7 +480,7 @@ function DivergedBanner({ run, test, leads, checks, call, path, why, callNo, dif
             ) : null}
           </>
         ) : add?.kind === 'job' && !leads('normalizer') ? (
-          <TestsJobButton className="btn sm" verb="add the normalizer" off={add.off} title={add.title} onClick={jobs.normalize}>
+          <TestsJobButton className="btn sm" verb="add the normalizer" off={add.off} card={cards.normalize} estimate={jobs.prices.normalize} onClick={jobs.normalize}>
             {add.label}
           </TestsJobButton>
         ) : add?.kind === 'action' && normalizer && !leads('normalizer') ? (
@@ -484,7 +489,7 @@ function DivergedBanner({ run, test, leads, checks, call, path, why, callNo, dif
           </ActionButton>
         ) : null}
         {jobs.acts.update && !leads('update-golden') ? (
-          <TestsJobButton className="btn sm" verb="update it" off={app.actionsOff} onClick={jobs.update}>
+          <TestsJobButton className="btn sm" verb="update it" off={app.actionsOff} card={cards.update} estimate={jobs.prices.update} onClick={jobs.update}>
             {ACTIONS.updateGolden.label}
           </TestsJobButton>
         ) : null}

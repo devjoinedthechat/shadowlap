@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import {
   ACTIONS,
+  GOLDEN_JOB_WORDS,
   bisectEstimate,
   blameEstimate,
   callRuleLabel,
@@ -359,8 +360,7 @@ function crashed(row: IndexedRun, result: TestResult | null): boolean {
   return row.status === 'failed' && row.outcome.kind === 'check-failed' && row.outcome.check === null;
 }
 
-const REMADE = 'It re-records the golden under the change';
-const JUDGE_ONCE = 'Asks the judge once, live, and keeps its verdict in the pack: every test after judges from the recording, free';
+const { remade: REMADE, judgeOnce: JUDGE_ONCE } = GOLDEN_JOB_WORDS;
 
 /** A golden's newest finished plant, as its report says it: what its injection gate spent the last time it ran; null before one has. */
 export function newestGate(store: Store, golden: string): PlantReport | null {
@@ -388,7 +388,7 @@ function valueStep(f: Facts, t: TestedGolden, offer: TestOffer): Decided | null 
   const { golden, source, result } = t;
   const all = offer.values.coversAll;
   const test = () => goldenRerunPrice(f.store, source, result);
-  if (offer.normalized) return all ? { key: 'rerun-test', label: ACTIONS.rerunTest.label, golden, command: commandLine(['test', golden]), sub: 'The rule is in shadowlap.config.json: it replays the golden again', price: test } : updateStep(f, golden, source);
+  if (offer.normalized) return all ? { key: 'rerun-test', label: ACTIONS.rerunTest.label, golden, command: commandLine(['test', golden]), sub: GOLDEN_JOB_WORDS.ruleIn, price: test } : updateStep(f, golden, source);
   if (offer.maybeReal) return null;
   return {
     key: 'normalizer',
@@ -396,7 +396,7 @@ function valueStep(f: Facts, t: TestedGolden, offer: TestOffer): Decided | null 
     golden,
     test: offer,
     command: (offer.normalizeAndTest ?? []).map((a) => commandLine(a)).join(' && '),
-    sub: all ? 'Masks the value at match time, then replays the golden offline' : 'Masks the value at match time, then re-records the golden',
+    sub: all ? GOLDEN_JOB_WORDS.masksThenReplays : GOLDEN_JOB_WORDS.masksThenRemakes,
     ...(all ? { price: test } : updatePrice(source)),
   };
 }
