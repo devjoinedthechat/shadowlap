@@ -14,7 +14,7 @@ import { BlameAgainDialog, StrongerDialog } from './BlameAgain.js';
 import { blameNextPrice, verifyPrice } from './estimates.js';
 import { ApplyDialog, RepairDialog } from './FixPage.js';
 import { LEAD_KIND, leadCard, leadReadsFix } from './list.js';
-import { VerifyAsk } from './VerifyStep.js';
+import { VerifyAsk, VerifyLeftAsk } from './VerifyStep.js';
 
 /**
  * Each fix's estimates, asked the first time a row's card shows or its step is pressed, once per
@@ -41,11 +41,16 @@ function priceOf(lead: FixLead, e: FixEstimates | null | undefined): Estimate | 
   if (e === undefined) return undefined;
   if (lead.key === 'repair') return e?.repair ?? null;
   if (lead.key === 'more' || lead.key === 'again') return verifyPrice(e, lead.verifyId);
+  if (lead.key === 'verify-left') return e?.verifyLeft ?? null;
   return blameNextPrice(lead.key === 'blame-again' ? 'again' : 'stronger', e);
 }
 
 /** The fields a lead's job starts with, beside the fix. */
-const fieldsOf = (lead: FixLead): Record<string, unknown> => (lead.key === 'blame-again' ? { again: true } : lead.key === 'more' || lead.key === 'again' ? { verifyId: lead.verifyId } : {});
+function fieldsOf(lead: FixLead): Record<string, unknown> {
+  if (lead.key === 'blame-again') return { again: true };
+  if (lead.key === 'more' || lead.key === 'again') return { verifyId: lead.verifyId };
+  return lead.key === 'verify-left' ? { left: true } : {};
+}
 
 type Open = { kind: 'ask'; estimate: Estimate | null | undefined } | { kind: 'fix'; fix: FixDetail; estimate: Estimate | null | undefined };
 
@@ -53,7 +58,7 @@ type Open = { kind: 'ask'; estimate: Estimate | null | undefined } | { kind: 'fi
  * A fix's next step on its Fixes row (`fixLead`), small and plain: it runs or asks as the same button on
  * the fix's page does. A press asks the fix's estimates, and the fix's detail for a step whose dialog
  * shows it (Run blame with stronger model…, Run repair, Apply fix, Mark applied, Finish applying), then
- * opens that dialog; Run blame again, Run more attempts and Verify again follow Spending from the lead's
+ * opens that dialog; Run blame again, Run more attempts, Verify again and Verify this run follow Spending from the lead's
  * own fields, starting at or under the threshold, else asking. While a read is out the button is busy
  * and another press does nothing. `why` is the list's: one jobs read for every row.
  */
@@ -146,5 +151,6 @@ function LeadDialog({ lead, open, run, close }: { lead: FixLead; open: Open; run
   if (lead.key === 'blame-again')
     return <BlameAgainDialog again={{ kind: lead.stopped ? 'stopped' : 'unsettled', gate: lead.gate, soFar: lead.soFar, lastGood: lead.lastGood, command: lead.command }} estimate={open.estimate} onRun={() => run(sent)} onClose={close} />;
   if (lead.key === 'more' || lead.key === 'again') return <VerifyAsk more={{ kind: lead.key, command: lead.command }} attempts={lead.attempts} estimate={open.estimate} onRun={() => run(sent)} onClose={close} />;
+  if (lead.key === 'verify-left') return <VerifyLeftAsk left={lead} estimate={open.estimate} onRun={() => run(sent)} onClose={close} />;
   return null;
 }

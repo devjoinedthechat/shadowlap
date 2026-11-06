@@ -204,6 +204,25 @@ export function VerifyAsk({ more, attempts, estimate, onRun, onClose }: { more: 
 }
 
 /**
+ * Verify this run's ask, above the threshold or with no estimate (`Verify change on <run>`): the
+ * failing runs no accepted verify checked, verified on the code as it is now, its Cost line the
+ * estimate, and its way on the first focus.
+ */
+export function VerifyLeftAsk({ left, estimate, onRun, onClose }: { left: { runs: readonly string[]; command: string }; estimate: Estimate | null | undefined; onRun: () => boolean; onClose: () => void }) {
+  const one = left.runs.length === 1;
+  const title = one ? (
+    <>
+      Verify change on <code>{shortId(left.runs[0]!)}</code>
+    </>
+  ) : (
+    `Verify change on ${left.runs.length} runs`
+  );
+  const label = (one ? ACTIONS.verifyThisRun : ACTIONS.verifyTheseRuns).label;
+  const lead = one ? 'Verifies the code as it is now on the failing run the change wasn’t verified on.' : 'Verifies the code as it is now on the failing runs the change wasn’t verified on.';
+  return <ConfirmDialog title={title} lead={lead} doc="verify" command={left.command} cost={{ price: 'Billed by your provider', estimate }} footNote={<AskNote estimate={estimate} />} ok={label} onOk={onRun} onClose={onClose} />;
+}
+
+/**
  * Tokens and cost per run, as it would run live, as verify prints them: one quiet receipt line, never
  * figures bigger than the verdict ("per run, as it would run live: 4,329 → 5,193 input tokens (+20%)
  * · ≈$0.015 → ≈$0.018 (+16%)").
