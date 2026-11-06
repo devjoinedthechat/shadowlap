@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { consentAsked } from '../actions.js';
 import { JOB_KINDS, ApiError, type JobView } from '../api.js';
 import { Badge } from '../components/bits.js';
@@ -32,6 +32,9 @@ export { StrongerDialog } from './BlameAgain.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { sentEstimate } from '../spending.js';
+import { JobButton } from '../components/JobButton.js';
+import { testsJob } from '../pages/tests-cards.js';
+import { updatesPrice, useTestsEstimates, type Price } from '../tests-estimates.js';
 
 /**
  * A fix (#/fixes/<id>[/<step>[/<sub>]]): its title, check and runs; the stepper (Blame, Repair,
@@ -409,25 +412,33 @@ export function ApplyDialog({ fix, label, onClose, onRun }: { fix: FixDetail; la
 /**
  * The apply drawer's last word when the patch made other goldens diverge: Update goldens re-records
  * them (`shadowlap test <goldens> --update`), asking first, as the Tests screen's Update goldens does.
+ * Its card and its dialog's Cost line say what re-recording them together would bill (`GET
+ * /api/tests/estimates`, read once the apply has ended), and the job keeps the estimate shown.
  */
 function ApplyFooter({ job, plain }: { job: JobView; plain?: boolean }) {
   const app = useApp();
-  const [asking, setAsking] = useState(false);
+  const [asking, setAsking] = useState<Price | false>(false);
   const [started, setStarted] = useState(false);
   const outdated = outdatedOf(job.result);
-  if (!job.done || !outdated.length || !app.hasKind(JOB_KINDS.testUpdate)) return null;
+  const names = outdated.map((g) => g.golden).join('\n');
+  const paths = useMemo(() => (names ? names.split('\n') : []), [names]);
+  const shows = job.done && paths.length > 0 && app.hasKind(JOB_KINDS.testUpdate);
+  const prices = useTestsEstimates(shows ? job.id : null, paths);
+  if (!shows) return null;
   const ask = updateOutdatedAsk(outdated);
+  const card = { tip: ACTIONS.updateGoldens.label, command: ask.command };
   return (
     <>
-      <ActionButton className={plain ? 'btn' : 'btn lime'} disabled={started} title={ask.command} onClick={() => app.guard(() => setAsking(true))}>
-        Update goldens
-      </ActionButton>
-      {asking ? (
+      <JobButton className={plain ? 'btn' : 'btn lime'} disabled={started} {...testsJob(card, updatesPrice(prices, paths), (e) => app.guard(() => setAsking(e)))}>
+        {ACTIONS.updateGoldens.label}
+      </JobButton>
+      {asking !== false ? (
         <UpdateGoldenDialog
           plan={ask}
+          estimate={asking}
           onClose={() => setAsking(false)}
           onUpdate={() => {
-            const went = app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.testUpdate, ask.fields)));
+            const went = app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.testUpdate, { ...ask.fields, ...sentEstimate(asking) })));
             if (went) setStarted(true);
             return went;
           }}

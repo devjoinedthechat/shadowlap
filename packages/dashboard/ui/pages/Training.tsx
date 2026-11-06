@@ -17,6 +17,10 @@ import { useApp } from '../state.js';
 import { ENDPOINT, exportCommand, filterGroups, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickNote, pickReplaces, pipClass, pipTip, scoreCommand, scoreCost, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type PairChip, type TrainingDialog } from '../training.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { ActionButton } from '../components/ActionButton.js';
+import { JobButton } from '../components/JobButton.js';
+import { sentEstimate } from '../spending.js';
+import { goldenPrice, useTestsEstimates, type Price } from '../tests-estimates.js';
+import { testsJob } from './tests-cards.js';
 
 /**
  * Training (#/training, #/training/tasks): preference pairs read from the attempts blame, verify and
@@ -261,7 +265,7 @@ function PairGroup({ g }: { g: PairGroupView }) {
 
 function TasksTab({ view }: { view: TrainingView }) {
   const { actionsOff, hasKind, guard } = useApp();
-  const [updating, setUpdating] = useState<{ update: TaskUpdate; name: string } | null>(null);
+  const [updating, setUpdating] = useState<{ update: TaskUpdate; name: string; estimate: Price } | null>(null);
   // Updating a golden runs the agent from the working tree: not while a repair or an apply changes it.
   const busy = useTreeBusy('reads', 'update the golden');
   const t = view.tasks;
@@ -271,11 +275,7 @@ function TasksTab({ view }: { view: TrainingView }) {
   // A task its test's early fork blocks: Update golden, off with the reason when nothing can run.
   const canUpdate = hasKind(JOB_KINDS.taskUpdate);
   const updateOff = actionsOff ?? busy;
-  const updateButton = (u: TaskUpdate, name: string, cls: string) => (
-    <ActionButton className={cls} why={updateOff} title={`Re-record ${name} as your agent runs now, so its test replays up to the takeover`} onClick={() => guard(() => setUpdating({ update: u, name }))}>
-      {ACTIONS.updateGolden.label}
-    </ActionButton>
-  );
+  const updateButton = (u: TaskUpdate, name: string, cls: string) => <TaskUpdateButton className={cls} why={updateOff} update={u} name={name} onOpen={(estimate) => guard(() => setUpdating({ update: u, name, estimate }))} />;
   return (
     <>
       {w ? (
@@ -366,7 +366,7 @@ function TasksTab({ view }: { view: TrainingView }) {
           </table>
         </div>
       </section>
-      {updating ? <TaskUpdateDialog name={updating.name} update={updating.update} busy={updateOff} onClose={() => setUpdating(null)} /> : null}
+      {updating ? <TaskUpdateDialog name={updating.name} update={updating.update} estimate={updating.estimate} busy={updateOff} onClose={() => setUpdating(null)} /> : null}
       <Scores view={view} />
       <div className="grid2 trgap">
         <section className="panel">
@@ -574,11 +574,30 @@ export function ExportPairsDialog({ view, onClose }: { view: TrainingView; onClo
 }
 
 /**
+ * A blocked task's Update golden: its card says what it runs and, where it re-records the golden, what
+ * that bills (`GET /api/tests/estimates`), asking first whatever Spending says, since it replaces the
+ * golden. Where it only adds normalizers and tests the golden again, it replays: nothing billed. A
+ * press opens its dialog either way, with the estimate the card showed.
+ */
+export function TaskUpdateButton({ update, name, onOpen, ...rest }: { className: string; why: string | null; update: TaskUpdate; name: string; onOpen: (e: Price) => void }) {
+  const prices = useTestsEstimates(update.rerecords ? update.golden : null);
+  const rules = update.normalizers.length === 1 ? 'normalizer' : 'normalizers';
+  const card = { tip: ACTIONS.updateGolden.label, sub: update.rerecords ? `Re-records ${name} as your agent runs now, so its test replays up to the takeover` : `Adds the ${rules} and tests ${name} again, so it replays up to the takeover`, command: update.steps.map((step) => commandText(step)).join(' && ') };
+  const priced = update.rerecords ? testsJob(card, goldenPrice(prices, update.golden, 'update'), onOpen) : { ...card, bills: false, start: () => onOpen(null), ask: () => onOpen(null) };
+  return (
+    <JobButton {...rest} {...priced}>
+      {ACTIONS.updateGolden.label}
+    </JobButton>
+  );
+}
+
+/**
  * Update the golden of a task whose test forks before its takeover: what it runs and why, then the
  * job. The server builds the commands again from the store and the config; these are shown so the
- * change to the config and the working tree is plain before it is made.
+ * change to the config and the working tree is plain before it is made. Its Cost line is the estimate
+ * its button showed, once there is one, and the job keeps it.
  */
-export function TaskUpdateDialog({ name, update, busy, onClose }: { name: string; update: TaskUpdate; /** Why nothing can run now, or null. */ busy: string | null; onClose: () => void }) {
+export function TaskUpdateDialog({ name, update, estimate, busy, onClose }: { name: string; update: TaskUpdate; estimate?: Price; /** Why nothing can run now, or null. */ busy: string | null; onClose: () => void }) {
   const { client, watchJob, guard } = useApp();
   const rules = update.normalizers.length;
   const values = update.normalizers.join(', ');
@@ -590,10 +609,10 @@ export function TaskUpdateDialog({ name, update, busy, onClose }: { name: string
       doc={update.rerecords ? 'goldenUpdates' : 'tasks'}
       warn={{ text: busy ? busy.replace(/\.$/, '') : fork }}
       command={{ command: update.steps.map((step) => commandText(step)) }}
-      cost={update.rerecords ? { price: 'Billed by your provider', parts: ['as its recording cost'] } : null}
+      cost={update.rerecords ? { price: 'Billed by your provider', parts: ['as its recording cost'], estimate } : null}
       ok={update.rerecords ? (rules ? ACTIONS.addNormalizerAndUpdate.label : confirmWords(ACTIONS.updateGolden.label)) : ACTIONS.addNormalizerAndRerun.label}
       okDisabled={!!busy}
-      onOk={() => (busy ? false : guard(() => watchJob(client.startJob(JOB_KINDS.taskUpdate, { golden: update.golden }))))}
+      onOk={() => (busy ? false : guard(() => watchJob(client.startJob(JOB_KINDS.taskUpdate, { golden: update.golden, ...(update.rerecords ? sentEstimate(estimate) : {}) }))))}
       onClose={onClose}
     >
       {rules && update.rerecords ? (

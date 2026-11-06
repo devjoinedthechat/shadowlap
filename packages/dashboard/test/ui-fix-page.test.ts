@@ -4,11 +4,13 @@ import { decideVerify, formatBlame, markFixApplied, recordBlame, recordEvent, re
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { fixAttemptGroups } from '../src/attempt-groups.js';
 import { fixDetail, fixList } from '../src/fixes.js';
-import type { Client } from '../ui/api.js';
+import { JOB_KINDS, type Client } from '../ui/api.js';
+import { jobFooter } from '../ui/job-actions.js';
 import type { FixEstimates } from '../ui/estimates-api.js';
 import { resetSpending } from '../ui/spending.js';
 import { FixPage } from '../ui/fixes/FixPage.js';
 import { FixesPage } from '../ui/pages/Fixes.js';
+import { TaskUpdateButton } from '../ui/pages/Training.js';
 import { useRoute } from '../ui/router.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
@@ -563,5 +565,55 @@ describe('opening a fix', () => {
     // Not the document's body, from where Tab would start again at the top bar: the page's heading, as a target Tab never stops at.
     expect(r.focused().tagName).toBe('H1');
     expect(r.focused().getAttribute('tabindex')).toBe('-1');
+  });
+});
+
+describe('Update’s estimates: the apply drawer’s and a task’s', () => {
+  it('says what re-recording the goldens the patch made diverge would bill, asks with it, and starts with it', async () => {
+    resetSpending(null);
+    const asked: unknown[] = [];
+    const started: Array<[string, unknown]> = [];
+    const update = { kind: 'update', usd: 0.4, ceiling: false, always: 'it replaces goldens', parts: ['2 goldens', 'live, as their recordings cost'] };
+    const a = app({ started });
+    Object.assign(a.client, { estimates: { testsEstimates: (paths?: readonly string[]) => (asked.push(paths), Promise.resolve({ run: null, goldens: {}, update })) } });
+    const outdated = [
+      { golden: 'goldens/refund', callNo: 4, path: '$.messages[1]' },
+      { golden: 'goldens/cancel', callNo: 2, path: '$.model' },
+    ];
+    const Footer = jobFooter(JOB_KINDS.applyFix)!;
+    r = await render(createElement(AppContext.Provider, { value: a }, createElement(Footer, { job: { id: 'j1', kind: JOB_KINDS.applyFix, done: true, result: { outdated } } as never })));
+    const card = () => JSON.parse(String(r!.one('button').props['data-tip'])) as { t?: string; cmd?: string; est?: unknown };
+    await r.until('the estimate', () => !!card().est);
+    expect(asked).toEqual([['goldens/refund', 'goldens/cancel']]);
+    expect(card()).toMatchObject({ t: 'Update goldens', cmd: 'shadowlap test goldens/refund goldens/cancel --update', est: { usd: 0.4, ceiling: false, always: 'it replaces goldens' } });
+    // It asks whatever Spending says, Never ask included, since it replaces goldens.
+    await r.click(r.one('button'));
+    expect(started).toEqual([]);
+    expect(text(r.one('.dialog .dcost'))).toBe('≈$0.400 · 2 goldens · live, as their recordings cost');
+    await r.click(r.one('.dialog .dlg-ok'));
+    expect(started).toEqual([[JOB_KINDS.testUpdate, { goldens: ['goldens/refund', 'goldens/cancel'], estimate: { usd: 0.4, ceiling: false } }]]);
+  });
+
+  it('prices a task’s Update where it re-records the golden, asking first, and bills nothing where it only tests it again', async () => {
+    resetSpending(null);
+    const opened: unknown[] = [];
+    const a = app();
+    const update = { kind: 'update', usd: 0.2, ceiling: false, always: 'it replaces goldens', parts: ['live, as its recording cost'] };
+    Object.assign(a.client, { estimates: { testsEstimates: () => Promise.resolve({ run: null, goldens: { 'goldens/a': { update } } }) } });
+    const task = (rerecords: boolean) => ({ golden: 'goldens/a', forkedAt: 3, takeover: 5, rerecords, normalizers: ['uuid'], steps: rerecords ? [['normalize', 'add', 'uuid'], ['test', 'goldens/a', '--update']] : [['normalize', 'add', 'uuid'], ['test', 'goldens/a']] });
+    const button = (rerecords: boolean) => createElement(AppContext.Provider, { value: a }, createElement(TaskUpdateButton, { className: 'btn sm', why: null, update: task(rerecords), name: 'a', onOpen: (e: unknown) => opened.push(e) }));
+    const card = () => JSON.parse(String(r!.one('button').props['data-tip'])) as { t?: string; s?: string; cmd?: string; est?: unknown };
+    r = await render(button(true));
+    await r.until('the estimate', () => !!card().est);
+    expect(card()).toMatchObject({ t: 'Update golden', s: 'Re-records a as your agent runs now, so its test replays up to the takeover', cmd: 'shadowlap normalize add uuid && shadowlap test goldens/a --update', est: { usd: 0.2, always: 'it replaces goldens' } });
+    await r.click(r.one('button'));
+    expect(opened).toEqual([update]);
+    await r.unmount();
+    r = await render(button(false));
+    await r.wait(0);
+    expect(card()).toMatchObject({ s: 'Adds the normalizer and tests a again, so it replays up to the takeover', cmd: 'shadowlap normalize add uuid && shadowlap test goldens/a' });
+    expect(card().est).toBeUndefined();
+    await r.click(r.one('button'));
+    expect(opened).toEqual([update, null]);
   });
 });
