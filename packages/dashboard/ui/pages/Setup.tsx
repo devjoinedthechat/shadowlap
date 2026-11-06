@@ -19,6 +19,7 @@ import { errorText } from '../toast.js';
 import { SETUP_INTRO } from '../../src/setup-words.js';
 import { NotFoundPage } from './NotFound.js';
 import { ActionButton } from '../components/ActionButton.js';
+import { tipEst } from '../spending.js';
 
 /**
  * Setting a project up (#/setup, and in place of the pages of a project with no runs, or of the
@@ -549,7 +550,8 @@ function RecordBody({
         {step.command ? <CommandField value={value} enabled={enabled} onChange={setCommand} onEnter={go} /> : null}
         {step.button ? (
           <div className="actions">
-            <ActionButton className="btn lime" disabled={!step.button.enabled || !value.trim()} why={why} onClick={go}>
+            {/* The first recording in a folder asks on every setting, as no estimate prices what a command does. */}
+            <ActionButton className="btn lime" disabled={!step.button.enabled || !value.trim()} why={why} tip={step.button.label} est={tipEst(null)} onClick={go}>
               {step.button.label}
             </ActionButton>
           </div>
@@ -572,7 +574,7 @@ function RecordBody({
         <div className="again">
           <CommandField value={value} enabled={step.again.command.enabled} onChange={setCommand} onEnter={go} />
           <div className="actions">
-            <ActionButton className="btn" disabled={!step.again.command.enabled || !value.trim()} why={why} onClick={go}>
+            <ActionButton className="btn" disabled={!step.again.command.enabled || !value.trim()} why={why} tip={step.again.label} est={tipEst(null, true)} onClick={go}>
               {step.again.label}
             </ActionButton>
           </div>
