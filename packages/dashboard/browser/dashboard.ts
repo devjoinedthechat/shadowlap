@@ -59,15 +59,23 @@ export async function serveDashboard(demo: string, project: string): Promise<Ser
   const child = spawn(process.execPath, [cli, 'dashboard', '--no-open', '--port', String(port)], { cwd: join(demo, project), env, stdio: ['ignore', 'ignore', 'pipe'] });
   const link = await new Promise<string>((resolve, reject) => {
     let said = '';
-    const timer = setTimeout(() => reject(new Error(`the dashboard printed no link in 30 s:\n${said}`)), 30_000);
-    child.stderr.on('data', (chunk: Buffer) => {
+    // One that prints no link is stopped before the run hears so: no test holds it to stop it later.
+    const timer = setTimeout(() => {
+      child.kill('SIGTERM');
+      reject(new Error(`the dashboard printed no link in 30 s:\n${said}`));
+    }, 30_000);
+    const hear = (chunk: Buffer) => {
       said += chunk.toString('utf8');
       const m = /(http:\/\/127\.0\.0\.1:\d+\/#token=[\w-]+)/.exec(said);
       if (m) {
         clearTimeout(timer);
+        // What it says from then on isn't kept: its stream still flows, so it never waits on a full pipe.
+        child.stderr.off('data', hear);
+        child.stderr.resume();
         resolve(m[1]!);
       }
-    });
+    };
+    child.stderr.on('data', hear);
     child.once('exit', (code) => {
       clearTimeout(timer);
       reject(new Error(`the dashboard exited (${code}) before printing its link:\n${said}`));
