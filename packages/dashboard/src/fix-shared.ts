@@ -22,6 +22,22 @@ export function sprtGate(g: unknown): SprtGate | null {
 
 export type StepKey = 'blame' | 'repair' | 'verify';
 
+/**
+ * A step's verdict line, as the step opens on it (StepLead): its word in its tone (`done` ink,
+ * `ok` lime, `warn` amber, `err` red), its head in parts, each kept whole where the head wraps
+ * (a probe's tally, `3 of 4 rescued from #5`), and the finding sentence under it, in the engine's
+ * words; null where the step has none.
+ */
+export interface StepLine {
+  word: string;
+  tone: 'done' | 'ok' | 'warn' | 'err';
+  head: string[];
+  finding: string | null;
+}
+
+/** A gate's two marks on a 0 to 1 scale, `[bad, good]`, for the bars of the intervals it decided (IntervalBar); null without a gate. */
+export const gateMarks = (g: SprtGate | null): [number, number] | null => (g ? [g.bad, g.good] : null);
+
 export interface VerifyRow {
   role: 'target' | 'held-out' | 'good';
   runId: string;
@@ -41,6 +57,17 @@ export interface VerifyRow {
   rate: { decision: string; lo: number; hi: number; confidence: number; sentence: string; bound: string | null } | null;
   /** Where it went: where it forked, or why it failed. */
   note: string;
+  /**
+   * Its tally and the bound beside it, as its verdict reads (src/verdict.ts `verifiedParts`): `12 of
+   * 12` and `rate >= 0.73 (95%)`; `2 of 2 passed, attempt 3 not judged`; `38 of 38, baseline 38 of 38`
+   * and `drop <= 0.10 (95%)`; `clean replay`. `bound` is null where there is none.
+   */
+  tally: string;
+  bound: string | null;
+  /** The interval its gate decided it on, for its bar against the step's `marks`: null for a fixed count, a clean replay, and a run kept against its baseline, whose drop bound says it. */
+  interval: { lo: number; hi: number } | null;
+  /** Each attempt, in the order it ran: how it came out, and where it went or why it failed. `attempts` is how many. */
+  tries: Array<{ runId: string; href: string; outcome: AttemptVerdict; note: string | null }>;
   /** Input tokens and cost per run, as recorded and under the change (the mean of its attempts). */
   tokens: { recorded: number; now: number } | null;
   cost: { recorded: number | null; now: number | null } | null;

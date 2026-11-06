@@ -3,9 +3,9 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { afterForkLines, blameSteps, JUDGE_SCOPE, markFixApplied, plain, recordBlame, recordRepair, recordVerdict, Store, type VerifyReport } from '@shadowlap/engine';
+import { afterForkLines, blameSteps, JUDGE_SCOPE, markFixApplied, plain, probeBound, probeInterval, recordBlame, recordRepair, recordVerdict, Store, type BlameReport, type VerifyReport } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
-import { fixDetail, type FixDetail } from '../src/fixes.js';
+import { fixDetail, type FixDetail, withLeftAbouts } from '../src/fixes.js';
 import { fixesView } from '../src/fixes-view.js';
 import { startDashboard, type Dashboard, type JobView } from '../src/index.js';
 
@@ -214,5 +214,84 @@ describe('the Verify this run job', () => {
     expect(e.verifyLeft).toMatchObject({ kind: 'verify' });
     expect(e.verifyLeft!.card.lines[0]).toMatch(/^An attempt costs about /);
     expect(((await (await api(`fixes/${none.fixId}/estimates`)).json()) as { verifyLeft: unknown }).verifyLeft).toBeNull();
+  });
+});
+
+/** A run blamed under the fix's check with `report` changed as given. */
+function blamedWith(report: (run: string) => BlameReport, label = 'double-email') {
+  const run = makeRun(store, { labels: [label] });
+  const { fix } = recordBlame(store, { runId: run, report: report(run), expect: SEND_ONCE, scope: null, command: 'shadowlap blame', title: 'send_email called twice', checkText: 'send_email called once', at: (at += DAY) });
+  return detail(fix.fixId).blame!;
+}
+
+describe('each step’s verdict line', () => {
+  it('heads a blame by its probes’ tallies, a part each, with its word and the finding the page has said all along', () => {
+    const b = blamedWith((run) => blameReport(run));
+    expect(b.line).toEqual({ word: 'blamed', tone: 'done', head: ['2 of 4 rescued from #5', '0 of 4 from #7'], finding: b.boundary });
+    const stronger = blamedWith((run) => ({ ...blameReport(run, 'unrescuable'), rescue: { fields: { model: 'claude-opus-5-5' } } }), 'lookup');
+    expect(stronger.line).toEqual({ word: 'not rescued', tone: 'warn', head: ['1 of 4 rescued from #1 by claude-opus-5-5'], finding: stronger.boundary });
+    const stopped = blamedWith((run) => blameReport(run, 'stopped'), 'refund');
+    expect(stopped.line).toMatchObject({ word: 'stopped', tone: 'warn', head: ['Rescued up to #1 so far'], finding: stopped.boundary });
+    const none = blamedWith((run) => ({ ...blameReport(run, 'stopped'), blamed: null }), 'other');
+    expect(none.line.head).toEqual(['No probe settled before it stopped']);
+  });
+
+  it('gives each probe its tally, bound and interval from the engine, the gate’s marks, each probed call its tally, and the judge’s cost apart', () => {
+    const gate = { kind: 'sprt' as const, good: 0.6, bad: 0.1, risk: 0.05, max: 20 };
+    const b = blamedWith((run) => {
+      const r = blameReport(run);
+      return { ...r, gate, probes: r.probes.map((x) => ({ ...x, decision: x.rescued ? ('pass' as const) : ('fail' as const) })), judge: { spent: 0.0047, upstreamRequests: 9 } };
+    });
+    const report = store.blamesOfRun(b.runId).at(-1)!.report;
+    expect(b.marks).toEqual([0.1, 0.6]);
+    expect(b.cost.judge).toEqual({ upstreamRequests: 9, spent: 0.0047 });
+    for (const [i, p] of b.probes.entries()) {
+      const x = report.probes[i];
+      const interval = probeInterval(x, gate)!;
+      expect(p).toMatchObject({ tally: `${x.passes} of ${x.attempts.length}`, bound: probeBound(x, gate), interval: { lo: interval.lo, hi: interval.hi } });
+    }
+    const plainCount = blamedWith((run) => blameReport(run), 'lookup');
+    expect(plainCount.marks).toBeNull();
+    expect(plainCount.cost.judge).toBeNull();
+    expect(plainCount.probes.every((p) => p.interval === null && p.bound === null)).toBe(true);
+  });
+
+  it('heads an accepted repair as its verdict on the Verify step is headed, and one that accepted nothing by why, with the gate’s rule once', () => {
+    const { fixId } = repaired();
+    const d = detail(fixId);
+    const verdict = d.verify.find((v) => v.repairId === d.repair!.repairId)!;
+    expect(d.repair!.line).toEqual({ word: 'accepted', tone: 'ok', head: [verdict.headline], finding: null });
+    expect(d.repair!.again).toBe('verified twice, the second time with fresh attempts');
+    const run = makeRun(store, { labels: ['lookup'] });
+    const { fix } = recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: (at += DAY) });
+    recordRepair(store, { repairId: 'repair-none', dir: '.shadowlap/repairs/repair-none', report: repairReport({ targets: [run], accepted: false }), expect: EXPECT, command: 'shadowlap repair', at: (at += DAY) });
+    const none = detail(fix.fixId).repair!;
+    expect(none.line).toEqual({ word: 'rejected', tone: 'err', head: ['The gate accepted none of the 1 candidate tried'], finding: 'The fix stays open, with each candidate and why it was dropped. Repairing again would try the same: change the prompt yourself and verify it.' });
+    expect(none.again).toBeNull();
+    expect(none.rule).toMatch(/^each at \d+ of \d+ attempts/);
+  });
+});
+
+describe('the Verify step’s runs', () => {
+  it('gives each run its tally and bound in the verdict’s words, its attempts apart from their count, and the failing runs the verdict left out', () => {
+    const { fixId, verified, left } = oneLeft({ report: { judge: { spent: 0.002, upstreamRequests: 3 } } });
+    const d = detail(fixId);
+    const v = d.verify[0];
+    const row = v.rows.find((x) => x.runId === verified)!;
+    expect(row).toMatchObject({ tally: '4 of 4', bound: null, interval: null, attempts: 4 });
+    expect(row.tries).toHaveLength(4);
+    expect(row.tries.every((t) => t.outcome === 'passed' && t.href.endsWith(t.runId))).toBe(true);
+    expect(v.marks).toBeNull();
+    expect(v.judge).toEqual({ upstreamRequests: 3, spent: 0.002 });
+    expect(v.left).toEqual([{ runId: left, href: expect.stringContaining(left), about: null }]);
+    // Its about line is read in the fix's pooled read, as the Fixes list reads its unblamed run's.
+    const read = withLeftAbouts(store, d).verify[0].left[0];
+    expect(read.runId).toBe(left);
+    expect(read.about === null || typeof read.about === 'string').toBe(true);
+    const patched = repaired();
+    expect(detail(patched.fixId).verify[0].left.map((x) => x.runId)).toEqual([patched.other]);
+    const all = blamed('lookup');
+    acceptedByHand([all.run]);
+    expect(detail(all.fixId).verify[0].left).toEqual([]);
   });
 });

@@ -15,7 +15,7 @@
  * buttons run, and exports the rest.
  */
 
-import { commitTitle, DEFAULT_REPAIRER, expectArgs, fixCost, type FixData, FixIdError, fixRecords, type FixRecords, lostRange, repairArgv, repairJobArgv, type RepairOutcome, repairPatchProblem, repairToApply, resolveFix, type RunRecord, shownBlame, type StoredBlame, type StoredFix, type StoredRepair, type StoreOf, unsettledFirst, verifyArgv } from '@shadowlap/engine';
+import { commitTitle, DEFAULT_REPAIRER, expectArgs, fixCost, type FixData, FixIdError, fixRecords, type FixRecords, lostRange, repairArgv, repairJobArgv, type RepairOutcome, repairPatchProblem, repairToApply, resolveFix, type RunRecord, shownBlame, type Store, type StoredBlame, type StoredFix, type StoredRepair, type StoreOf, unsettledFirst, verifyArgv } from '@shadowlap/engine';
 import { type FixRow, rowOf } from './fix-list.js';
 import { acceptedCandidate, commandLine, counting, type FixActions, type FixPr, type FixRung, type PatchCheck, patchToCheck, prOf, type RewriteCheck, rungOf, runHref, short, shownRepair, type StepKey } from './fix-shared.js';
 import { blameStep, type BlameStep } from './fix-blame-step.js';
@@ -23,6 +23,8 @@ import { fixActions, type GoldensFolder } from './fix-actions.js';
 import { fixLead, type FixLead } from './fix-lead.js';
 import { repairStep, type RepairStep } from './fix-repair-step.js';
 import { verifyStep, type VerifyStep } from './fix-verify-step.js';
+import { aboutsUpTo, SUMMARY_CALLS_BUDGET } from './run-about.js';
+import { loadRunIndex } from './run-index.js';
 export { type StepState, type FixStep, type FixRow, type FixList, fixList } from './fix-list.js';
 export { type BlameStep } from './fix-blame-step.js';
 export { type CandidateVerdict, type RepairStep } from './fix-repair-step.js';
@@ -127,6 +129,19 @@ export function pulledPatchOf(store: StoreOf<'team'>, rec: FixRecords): StoredRe
   if (rec.fix.status !== 'verified') return null;
   const r = repairToApply(rec);
   return r?.report.patch && store.repairPulled(r.repairId) !== null && !repairPatchProblem(r.report) ? r : null;
+}
+
+/**
+ * A fix's page with the about line of each run its verdicts left out (`VerifyStep['left']`), read
+ * as the Fixes list reads its unblamed run's (`aboutsUpTo`, within the Overview's budget of calls):
+ * in the pooled `fix` read alone, so a job built from `fixDetail` on the server's thread reads none.
+ */
+export function withLeftAbouts(store: Store, d: FixDetail): FixDetail {
+  const ids = new Set(d.verify.flatMap((v) => v.left.map((x) => x.runId)));
+  if (!ids.size) return d;
+  const index = loadRunIndex(store);
+  const abouts = aboutsUpTo(store, index, [...ids].flatMap((id) => index.byId.get(id) ?? []), SUMMARY_CALLS_BUDGET);
+  return { ...d, verify: d.verify.map((v) => (v.left.length ? { ...v, left: v.left.map((x) => ({ ...x, about: abouts.get(x.runId)?.text || null })) } : v)) };
 }
 
 /**

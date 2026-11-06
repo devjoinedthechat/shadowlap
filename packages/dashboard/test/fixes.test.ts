@@ -248,7 +248,7 @@ describe('a fix', () => {
       [6, 'tool', null, true],
       [7, 'api', 'lost', true],
     ]);
-    expect(b.cost).toEqual({ attempts: 11, upstreamRequests: 22, spent: expect.closeTo(0.11, 10), unknownModels: [] });
+    expect(b.cost).toEqual({ attempts: 11, upstreamRequests: 22, spent: expect.closeTo(0.11, 10), unknownModels: [], judge: null });
   });
 
   it('shows a probe that an attempt it could not judge stopped as inconclusive, never lost, and marks that attempt apart', () => {

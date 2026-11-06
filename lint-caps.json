@@ -155,9 +155,6 @@
     "packages/dashboard/src/ci-yaml.ts": {
       "workflowYaml": 31
     },
-    "packages/dashboard/src/fix-blame-step.ts": {
-      "blameStep": 40
-    },
     "packages/dashboard/src/fix-bundles.ts": {
       "fixBundles": 82
     },

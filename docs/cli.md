@@ -1335,16 +1335,22 @@ or `by hand` for one you made that a verdict checked.
 
 `blame` has:
 
+- its verdict `line`: the `word`, its `tone`, the `head` in parts (a probe's tally each) and the
+  `finding`;
 - the call where the run was lost (`lostAt`, model call `step` of `steps`), `confidence`, the
   `boundary` sentence and both `answers`;
-- `probes` with their verdicts, and the attempts per probe (`bundles`);
-- every call of the run, with whether it is in the blame's scope (`callRow`);
-- `cost` and `command`.
+- `probes` with their verdicts, each with its `tally`, `bound` and `interval`, the gate's `marks`,
+  and the attempts per probe (`bundles`);
+- the agent's calls of the run, with whether each is in the blame's scope and probed, and a probed
+  call's `tally` (`callRow`);
+- `cost`, with what the judge's checks cost apart (`judge`), and `command`.
 
 `repair` has:
 
+- its verdict `line`, as `blame`'s, and `again` when the accepted change was verified twice;
 - the `change`, with the text it `added`; the result per role (`roles`); and whether its verification
   `counts`;
+- the gate's `rule`, from the first candidate it verified when none was accepted;
 - who proposed it (`repairer`), or why no repairer did (`noRepairer`: its `text`, and the `warning`
   that says what to do);
 - where each run was `lost`, and the `diagnosis`;
@@ -1365,7 +1371,9 @@ or `by hand` for one you made that a verdict checked.
 - `oracle`;
 - each run's `role`, `attempts`, `outcome` and where it went (`note`), and the token and cost changes
   per run;
-- what it took to find out;
+- each run's `tally`, `bound` and `interval` against the gate's `marks`, and its attempts (`tries`);
+- the failing runs an accepted verdict left out, that no other has checked (`left`);
+- what it took to find out, with the judge's checks apart (`judge`);
 - what answered the change's tool calls after the fork, and the baselines' apart, in `afterFork`, as
   the report's line says it, or `null` when no attempt made a tool call after its fork;
 - its `reasons`, with those that say a run is inconclusive or not settled, rather than that the change

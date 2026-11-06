@@ -65,13 +65,24 @@ export function probeLine(p: BlameProbe, r: Pick<BlameReport, 'needed' | 'attemp
  * verify stopped first (verify's report says unsettled).
  */
 export function verifiedLine(x: VerifiedRun): { line: string; tone: VerdictTone } {
+  const p = verifiedParts(x);
+  return { line: [p.word, p.tally, p.bound].filter(Boolean).join(' · '), tone: p.tone };
+}
+
+/**
+ * A run verify took, as its verdict reads (`verifiedLine`), in its parts, for a cell that draws the
+ * tally and its bound apart (a fix's Verify step): the word and its tone; the tally, `12 of 12`,
+ * `2 of 2 passed, attempt 3 not judged`, `38 of 38, baseline 38 of 38` or `clean replay`; and the
+ * bound beside it, `rate >= 0.76 (95%)` or `drop <= 0.10 (95%)`, null where there is none.
+ */
+export function verifiedParts(x: VerifiedRun): { word: string; tone: VerdictTone; tally: string; bound: string | null } {
   const word = runOutcomeWord(outcomeOf(x));
   const tone = toneOf(word);
   if (x.undecided) {
     const judged = x.attempts.filter((a) => a.verdict !== 'inconclusive').length;
-    return { line: `${word} · ${judged ? `${x.passes} of ${judged} passed, ` : ''}attempt ${x.attempts.length} not judged`, tone };
+    return { word, tone, tally: `${judged ? `${x.passes} of ${judged} passed, ` : ''}attempt ${x.attempts.length} not judged`, bound: null };
   }
-  if (x.deterministic) return { line: `${word} · clean replay`, tone };
+  if (x.deterministic) return { word, tone, tally: 'clean replay', bound: null };
   // Against its baseline, its pass rate says nothing alone: both tallies, and the bound on the drop.
   if (x.baseline) {
     let drop: string | null;
@@ -80,7 +91,7 @@ export function verifiedLine(x: VerifiedRun): { line: string; tone: VerdictTone 
     } catch {
       drop = null;
     }
-    return { line: [word, `${x.passes} of ${x.attempts.length}, baseline ${x.baseline.passes} of ${x.baseline.attempts}`, drop].filter(Boolean).join(' · '), tone };
+    return { word, tone, tally: `${x.passes} of ${x.attempts.length}, baseline ${x.baseline.passes} of ${x.baseline.attempts}`, bound: drop };
   }
   let bound: string | null;
   try {
@@ -88,7 +99,7 @@ export function verifiedLine(x: VerifiedRun): { line: string; tone: VerdictTone 
   } catch {
     bound = null;
   }
-  return { line: [word, `${x.passes} of ${x.attempts.length}`, bound].filter(Boolean).join(' · '), tone };
+  return { word, tone, tally: `${x.passes} of ${x.attempts.length}`, bound };
 }
 
 /**
