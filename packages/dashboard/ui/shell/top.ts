@@ -1,17 +1,26 @@
 import { clock, plural, shortId } from '../format.js';
 
 /**
- * What the top bar says: the parent in a run's crumbs, and the chip of a run recording. No DOM here:
- * the tests import it.
+ * What the top bar says: the parent in a run's crumbs, the help menu's key, and the chip of a run
+ * recording. No DOM here: the tests import it.
  */
 
 /**
  * What the parent's crumb spreads to say its key, p, as the keys' table has it (`shortcut('parent')`,
- * which test/ui-shell.test.ts holds this to): said here so the table stays out of the first look. p is
- * a single key, so none while they're off. The run page's keys open the parent; the crumb only says so.
+ * which test/ui-list-keys.test.ts holds this to): said here so the table stays out of the first look. p
+ * is a single key, so none while they're off. The run page's keys open the parent; the crumb only says so.
  */
 export function parentCrumbKey(singleKeys: boolean): { 'aria-keyshortcuts'?: string } {
   return singleKeys ? { 'aria-keyshortcuts': 'p' } : {};
+}
+
+/**
+ * The key the help menu's Keyboard shortcuts row shows at its right, ?, as the keys' table has it
+ * (`keyColumn('help')`, which test/ui-list-keys.test.ts holds this to): said here so the table stays
+ * out of the first look. ? is a single key, so none while they're off.
+ */
+export function helpRowKey(singleKeys: boolean): string | null {
+  return singleKeys ? '?' : null;
 }
 
 /**

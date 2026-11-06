@@ -7,6 +7,7 @@ import { useMedia } from '../hooks.js';
 import { ACTIONS } from '../labels.js';
 import { useSingleKeys } from '../single-keys.js';
 import { useApp } from '../state.js';
+import { helpRowKey } from './top.js';
 
 /** A touch screen, with no keys to press: the shortcuts' row is left out there, so the focus starts on Docs. */
 const TOUCH = '(hover: none) and (pointer: coarse)';
@@ -50,7 +51,7 @@ export function HelpMenu() {
       </button>
       {menu.open ? (
         <Popover anchor={menu.anchor} onClose={menu.close} align="end" label="Help" className="fkm narrow helpmenu">
-          {touch ? null : <MenuItem label={ACTIONS.keyboardShortcuts.label} note={singleKeys ? '?' : null} onPick={pick(() => setHelp(true))} />}
+          {touch ? null : <MenuItem label={ACTIONS.keyboardShortcuts.label} note={helpRowKey(singleKeys)} onPick={pick(() => setHelp(true))} />}
           <MenuItem label="Docs" note="github.com" onPick={pick(() => openDocs(DOCS.dashboard))} />
           <MenuItem label="Command line" note="shadowlap --help" onPick={pick(() => openDocs(DOCS.cli))} />
         </Popover>
