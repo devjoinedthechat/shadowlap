@@ -255,7 +255,7 @@ export function register(router: Router, ctx: RouteContext): void {
   // ---- jobs
 
   ctx.jobs.registerJobKind('init', {
-    title: (req) => (req.again === true ? 'Checking again' : 'Inspecting the folder'),
+    title: (req) => (req.again === true ? 'Checking again' : 'Inspecting folder'),
     build: (req, { projectId, project }) => {
       if (!project || !projectId) return { error: ONE_STORE, status: 501 };
       if (typeof req.project === 'string' && req.project && req.project !== projectId) return { error: `The dashboard switched to ${projectId}. Open ${req.project} again to inspect it.`, status: 409 };

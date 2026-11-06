@@ -1,7 +1,8 @@
 /**
  * Where a dialog's lead ends: the docs page that says how the job works, at its section's anchor
  * where the page is long, and the words its link reads, the page's title or the subject of that
- * section. A dialog names a key; test/ui-docs-links.test.ts holds every anchor to a heading.
+ * section. A dialog names a key, as the connection's expired card does; test/ui-docs-links.test.ts
+ * holds every anchor to a heading.
  */
 export const DOCS_AT = 'https://github.com/devjoinedthechat/shadowlap/blob/main/docs/';
 
@@ -23,12 +24,15 @@ export const DOCS = {
   plantInstruction: { page: 'interventions#plant-an-instruction-in-a-tool-result', what: 'Interventions' },
   repeatFork: { page: 'interventions#repeat-a-fork', what: 'Interventions' },
   forceLive: { page: 'interventions#force-a-tool-live', what: 'Interventions' },
+  injectionTests: { page: 'injection#what-a-test-does', what: 'Injection tests' },
+  injectionGate: { page: 'injection#gate-ci-on-it', what: 'Injection tests' },
   imports: { page: 'cli#import', what: 'Imports' },
   packs: { page: 'cli#pack-unpack', what: 'Packs' },
   datasets: { page: 'cli#export-dataset', what: 'Datasets' },
   traces: { page: 'cli#export-otel', what: 'Traces' },
   labels: { page: 'cli#label-note', what: 'Labels' },
   bisect: { page: 'cli#bisect', what: 'Bisect' },
+  makeGolden: { page: 'ci#make-a-golden', what: 'Goldens' },
   goldenUpdates: { page: 'ci#update-a-golden-after-an-intended-change', what: 'Golden updates' },
   judgeChecks: { page: 'judges#recorded-once-judged-free-after', what: 'Judge checks' },
   ciMode: { page: 'ci#run-it', what: 'CI mode' },
@@ -48,6 +52,7 @@ export const DOCS = {
   removingProject: { page: 'dashboard#removing-a-project', what: 'Projects' },
   quickstart: { page: 'quickstart', what: 'Quickstart' },
   jobs: { page: 'dashboard#jobs', what: 'Jobs' },
+  sessionTokens: { page: 'dashboard#security-and-consent', what: 'Session tokens' },
 } as const satisfies Record<string, DocsLink>;
 
 export type DocKey = keyof typeof DOCS;

@@ -1,6 +1,6 @@
 import { createElement, type ReactElement } from 'react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { ActionItem, BisectChoices, CallDetail, FixDetail, ScoreDialogView, TrainingView } from '../ui/types.js';
+import type { ActionItem, BisectChoices, CallDetail, FixDetail, NextStep, RunDetail, ScoreDialogView, TrainingView } from '../ui/types.js';
 import { DatasetDialog } from '../ui/components/DatasetDialog.js';
 import { ConsentDialog, Dialog, PromptDialog } from '../ui/components/Dialog.js';
 import { StopJobDialog } from '../ui/components/Drawer.js';
@@ -18,6 +18,7 @@ import { CleanupDialog } from '../ui/pages/settings/jobs.js';
 import { RuleDialog } from '../ui/pages/settings/RuleTable.js';
 import { AddServerDialog } from '../ui/pages/settings/Tools.js';
 import { ActionDialog } from '../ui/run/actions.js';
+import { NextStepButton } from '../ui/run/NextStepButton.js';
 import { EditDialog } from '../ui/run/EditAndFork.js';
 import { BisectDialog, DeleteRunDialog } from '../ui/run/RunDialogs.js';
 import { OtelDialog } from '../ui/run/ShareMenu.js';
@@ -309,6 +310,64 @@ describe('a run’s dialogs', () => {
     // The drop zone, what it does on replay, the sample, then the command, as the mock draws them.
     expect(page.one('[role="dialog"] .impbody').children.map((c) => c.className)).toEqual(['drop', 'dfacts', 'impsamples']);
     expect(page.all('[role="dialog"] .dfacts dt').map((d) => d.textContent)).toEqual(['On replay']);
+  });
+});
+
+describe('a run’s next steps that ask first', () => {
+  const RUN = '01K5CQ4N7G0000000000000000';
+  const GOLDEN = 'goldens/refund-in-limit';
+  const run = { run: { runId: RUN, parentRunId: null, status: 'completed', meta: {} }, actions: [], children: [], calls: [] } as unknown as RunDetail;
+  const served = (client: Record<string, unknown> = {}) => appWith({ client: { jobs: () => Promise.resolve([]), ...client }, feeds: {}, live: [], runs: [] });
+  /** The step's lime button, pressed: the dialog it asks in. */
+  async function pressed(step: NextStep, app = served()): Promise<Rendered> {
+    const page = await open(createElement('div', null, createElement(NextStepButton, { run, step, offers: null, onAction: () => undefined, onFindCommit: () => undefined }), createElement(TestsAskHost)), app);
+    await page.click(page.byText('button', step.label));
+    return page;
+  }
+  const estimate = { kind: 'injection', usd: 3.11, ceiling: false, note: 'as the last test’s 6 attempts', parts: ['live from each read, writes stubbed'] } as NonNullable<NextStep['estimate']>;
+
+  it('Run blame on a capture asks for your command first', async () => {
+    const page = await open(createElement(RunBlameButton, { runId: RUN, capture: true, line: `shadowlap blame ${RUN.slice(0, 10)} --expect '{"calls":[]}' -- <your command>` }), served());
+    await page.click(page.byText('button', 'Run blame'));
+    holds(page, { title: 'Run blame on 01K5CQ4N7G', doc: 'blame', first: FIELD, ok: 'Run blame' });
+  });
+  it('Update golden whose judge had no verdict', async () => {
+    const step: NextStep = { key: 'update-golden', label: 'Update golden', golden: GOLDEN, test: null, sub: 'Asks the judge once, live, and keeps its verdict in the pack: every test after judges from the recording, free', command: `shadowlap test ${GOLDEN} --update` };
+    holds(await pressed(step), { title: 'Update refund-in-limit?', doc: 'goldenUpdates', first: OK, ok: 'Update golden' });
+  });
+  it.each<[string, NextStep, Expect]>([
+    ['Run injection test', { key: 'injection-test', label: 'Run injection test…', runId: RUN, command: `shadowlap injection ${RUN.slice(0, 10)}`, sub: 'It stopped early' }, { title: 'Run injection test on 01K5CQ4N7G', doc: 'injectionTests', first: OK, ok: 'Run injection test', warn: 'It stopped early' }],
+    ['Re-run injection test', { key: 'injection-again', label: 'Re-run injection test', runId: RUN, job: { repeat: 2, templates: [], baselines: 3, liveReads: false }, command: `shadowlap injection ${RUN.slice(0, 10)} --repeat 2`, sub: 'It showed too little to say: no model read it', estimate }, { title: 'Re-run injection test on 01K5CQ4N7G', doc: 'injectionTests', first: OK, ok: 'Re-run injection test', warn: 'It showed too little to say: no model read it' }],
+    ['Pack as golden', { key: 'pack', label: 'Pack as golden…', runId: RUN, folder: 'goldens/01k5cq4n7g', command: `shadowlap pack ${RUN.slice(0, 10)} goldens/01k5cq4n7g` }, { title: 'Pack 01K5CQ4N7G as golden?', doc: 'makeGolden', first: FIELD, ok: 'Pack as golden' }],
+    ['Pack with injection gate', { key: 'pack-gate', label: 'Pack with injection gate…', runId: RUN, folder: 'goldens/01k5cq4n7g', gate: { obeyed: 0, repeat: 3 }, command: `shadowlap pack ${RUN.slice(0, 10)} goldens/01k5cq4n7g`, estimate }, { title: 'Pack 01K5CQ4N7G with injection gate?', doc: 'injectionGate', first: FIELD, ok: 'Pack with injection gate' }],
+  ])('%s', async (_name, step, want) => {
+    holds(await pressed(step), want);
+  });
+  it('Run injection test asks for a command someone else recorded as every such command is asked, Cancel first', async () => {
+    const why = '01K5CQ4N7G came from an imported pack: this runs the command it was recorded with (node a.mjs). Confirm it to run it';
+    const sent: Array<Record<string, unknown>> = [];
+    const startJob = (_kind: string, fields: Record<string, unknown>) => {
+      sent.push(fields);
+      return fields.yes ? Promise.resolve({ id: 'j' }) : Promise.reject(new ApiError(409, why, 'ab'.repeat(16)));
+    };
+    const page = await pressed({ key: 'injection-test', label: 'Run injection test…', runId: RUN, command: `shadowlap injection ${RUN.slice(0, 10)}` }, served({ startJob }));
+    await page.click(page.one('[role="dialog"] .dlg-ok'));
+    await page.until('the question', () => page.all('[role="dialog"] .dwarn').some((w) => w.textContent === why));
+    holds(page, { title: 'Run command from imported pack', doc: 'commandsFromSomeoneElse', first: CANCEL, ok: 'Run injection test', warn: why });
+    await page.click(page.one('[role="dialog"] .dlg-ok'));
+    await page.until('the job', () => sent.length === 2);
+    expect(sent.at(-1)).toMatchObject({ runId: RUN, yes: 'ab'.repeat(16) });
+  });
+  it('Re-run test on an injection gate, asked through the Tests ask with the golden in mono', async () => {
+    const startJob = () => Promise.reject(new ApiError(409, 'goldens/refund-in-limit has an injection gate. Confirm it to run it', 'c'.repeat(32), [{ path: GOLDEN, why: [{ kind: 'injection' }] }]));
+    const app = served({ startJob });
+    const page = await pressed({ key: 'gate-again', label: 'Re-run test', golden: GOLDEN, command: `shadowlap test ${GOLDEN}` }, app);
+    await page.until('the question', () => page.all('[role="dialog"]').length === 1);
+    holds(page, { title: 'Re-run refund-in-limit', doc: 'injectionTests', first: OK, ok: 'Re-run' });
+    expect(page.one('[role="dialog"] h3 code').textContent).toBe('refund-in-limit');
+    expect(page.one('[role="dialog"] .dcost').textContent).toContain('live from each read, writes stubbed');
+    answerTestsQuestion(app, false);
+    await page.until('it to go', () => page.all('[role="dialog"]').length === 0);
   });
 });
 

@@ -199,3 +199,16 @@ export function requestPathLabel(body: unknown, path: string): string | null {
   const rest = path.slice(at.path.length).replace(at.inner ?? /^$/, '').replace(/^\./, '');
   return rest ? `${at.what} · ${rest}` : at.what;
 }
+
+/** What every request of a run sends as its code or its config set it: the system prompt, the tools and the model. */
+const SET_BY_CODE = /^\$\.(?:system|instructions|systemInstruction|system_instruction|model|tools|toolConfig|tool_choice)(?=$|[.[])/;
+
+/**
+ * Whether a path into a model request points at what a patch or a config change changes, and goes
+ * into every request: the system prompt, a tool's definition, the model. Read from the path alone, as
+ * a divergence keeps no body: Chat Completions keeps its system prompt as its first message (`name`,
+ * the call's `POST /v1/chat/completions`), where Anthropic's first message is the user's.
+ */
+export function pathSetByCode(path: string, name = ''): boolean {
+  return SET_BY_CODE.test(path) || (name.includes('chat/completions') && /^\$\.messages\[0\](?=$|[.[])/.test(path));
+}

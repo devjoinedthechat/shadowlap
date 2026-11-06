@@ -151,10 +151,14 @@ describe('what each colour may mean', () => {
     // The shortcuts a page doesn't offer, and a CI feature turned off: faded, they fell to 2.2 and 4.0:1.
     expect(value('.hgroup.off dd', 'color')).toBe('var(--faint)');
     expect(value('.hgroup.off dd', 'opacity')).toBeNull();
+    // A line single-key shortcuts turned off dims the same way, its key too.
+    expect(value('.nosk .help .hgroup:not(.off) .sk', 'color')).toBe('var(--faint)');
+    expect(value('.nosk .help .hgroup:not(.off) .sk', 'opacity')).toBeNull();
+    expect(value('.nosk .help .hgroup:not(.off) .sk kbd', 'color')).toBe('var(--faint)');
     const faded = rules().filter((r) => r.selectors.some((x) => x.startsWith('.cip.off') || x.startsWith('.hgroup.off')) && /(^|;)\s*opacity\s*:/.test(r.body));
     expect(faded.map((r) => r.selectors.join(', '))).toEqual([]);
     // On the connection bar's amber wash the faint ink is 4.4:1: the dim one.
-    expect(value('.connbar .cr', 'color')).toBe('var(--dim)');
+    expect(value('.connbar .cr', 'color')).toBe('var(--faint)');
   });
 
   it('keeps a segment, a fix step’s switch and an attempt’s line 24 px tall at least, as WCAG 2.5.8 asks of a target', () => {
@@ -235,6 +239,7 @@ describe('lime', () => {
     '.fdiff em.ok': 'how an attempt came out: passed',
     '.banner .why em.ok': 'how an attempt came out: passed',
     '.drawer .st2.ok': 'a job that ended well',
+    '.status .jobchip.ok i': 'a hidden job that ended well',
     '.drawer pre .ok': 'a job that ended well',
     '.prl i.ok': 'the pull request comment’s line that passed',
     '.recline .ic': 'a setup step’s run that came back',
@@ -313,6 +318,7 @@ describe('amber', () => {
     'table.gt td.glast .gpre.warn': 'a golden whose last test needs a look',
     'pre.report .y': 'a report’s inconclusive line',
     '.drawer .st2.warn': 'a job that ended needing a look',
+    '.status .jobchip.warn i': 'a hidden job that ended needing a look',
     '.drawer pre .y': 'a job’s inconclusive line',
     '.cilist li i.warn': 'an inconclusive CI run',
     '.kpi b.warn': 'a count of goldens that need a look',
@@ -340,7 +346,6 @@ describe('amber', () => {
   };
   /** Amber the design rules out that only a later slice can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
-    '.connbar': 'port/dock: the offline bar on the page’s ground, only its dot amber',
     '.badge.y': 'port/primitives, then each page’s slice: Status draws a status as a dot and a word, never a tinted badge',
     '.warnbox': 'port/setup-states: a warning in a step is a plain line, its first words in amber, never a tinted box',
     '.changes div.diff': 'port/compare: what changed is one quiet line, in place of Compare’s tiles',
@@ -370,8 +375,8 @@ describe('grounds, tints and lines', () => {
   const MIX = /color-mix\((?:[^()]|\([^()]*\))*\)/g;
   /** The tints that remain outside the tokens, each with its reason: later slices shrink this list. */
   const TINTS: Record<string, string> = {
-    '.btn.danger:hover:not([disabled])': 'the red button under the pointer, a step darker',
-    '.btn.lime:hover:not([disabled])': 'the lime button under the pointer, a step lighter',
+    '.btn.danger:hover:not([disabled], [aria-disabled="true"])': 'the red button under the pointer, a step darker',
+    '.btn.lime:hover:not([disabled], [aria-disabled="true"])': 'the lime button under the pointer, a step lighter',
     '.av.t1': 'an avatar’s colour on the raised ground',
     '.av.t2': 'an avatar’s colour on the raised ground',
     '.av.t3': 'an avatar’s colour on the raised ground',
@@ -387,8 +392,7 @@ describe('grounds, tints and lines', () => {
     '.prbody.clamp::after': 'report.md fading into its panel where it is cut',
     '.toast .tx:hover': 'on the toast’s ink ground, the page’s ground as its tint',
     '.toast .tx:focus-visible': 'on the toast’s ink ground, the page’s ground as its tint',
-    '.toast .tact:hover': 'on the toast’s ink ground, the page’s ground as its tint',
-    '.toast .tkey': 'on the toast’s ink ground, the page’s ground as its line',
+    '.toast .tbtn:hover': 'on the toast’s ink ground, the page’s ground as its tint',
     '.hit mark': 'a search hit, marked in ink over any ground it sits on',
     '.pdiff mark': 'a prompt’s changed words, marked in ink over the code ground',
     '.grp:hover::before': 'a chart group under the pointer, over its bars',
@@ -398,7 +402,6 @@ describe('grounds, tints and lines', () => {
   };
   /** Tints the design drops with the part they draw, each with the slice that does. */
   const UNTIL: Record<string, string> = {
-    '.connbar': 'port/dock: the offline bar on the page’s ground',
     '.dp': 'port/overview: the delta pills go with the KPI tiles',
     '.dp.good': 'port/overview: the delta pills go with the KPI tiles',
     '.fstep .fb': 'port/overview: a fix step’s share goes with the Overview’s Fixes card',
@@ -454,7 +457,7 @@ describe('forced colours', () => {
     }
     for (const sel of ['.bulkbar', '.connblock .cb', '.skip']) expect(rule(sel).get('border'), sel).toBe('1px solid transparent');
     // A row's own tint, as the page's rows: the pointer's, then where you are, with the keyboard's ring inside it.
-    expect(rule('.pop button:hover:not([disabled])').get('background')).toBe('var(--hover)');
+    expect(rule('.pop button:hover:not([disabled], [aria-disabled="true"])').get('background')).toBe('var(--hover)');
     expect(rule('.pop button:focus-visible').get('background')).toBe('var(--sel)');
     expect(rule('.pop button:focus-visible').get('outline-offset')).toBe('-2px');
     // Two menu widths only, and the figures on a card as the CLI prints them.

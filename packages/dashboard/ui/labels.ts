@@ -1,4 +1,4 @@
-import { ACTIONS, confirmWords, forceLiveLabel } from '../../engine/src/action-words.js';
+import { ACTIONS, confirmWords, forceLiveLabel, STRONGER_MODEL } from '../../engine/src/action-words.js';
 
 /**
  * The dashboard's words for its actions, read by every place that offers one: its buttons, menu
@@ -8,7 +8,7 @@ import { ACTIONS, confirmWords, forceLiveLabel } from '../../engine/src/action-w
  * and its toast in the past tense. No DOM here: the tests import it.
  */
 
-export { ACTIONS, confirmWords, forceLiveLabel };
+export { ACTIONS, confirmWords, forceLiveLabel, STRONGER_MODEL };
 
 /** Each -ing word a job's title starts with, and its past tense: `Running tests` ends as `Ran tests`. */
 const PAST: Readonly<Record<string, string>> = {
@@ -26,6 +26,7 @@ const PAST: Readonly<Record<string, string>> = {
   Importing: 'Imported',
   Finishing: 'Finished',
   Inspecting: 'Inspected',
+  Installing: 'Installed',
   Marking: 'Marked',
   Migrating: 'Migrated',
   Packing: 'Packed',

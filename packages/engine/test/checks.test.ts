@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { createContext, runInContext } from 'node:vm';
 import { build } from 'esbuild';
 import { describe, expect, it } from 'vitest';
-import { checkLabels, checkLine, evaluateChecks, LABEL_INPUT, notJudgedWhy, parseExpect, parseTests, Store, storedCheckInput, type JudgeCheck } from '../src/index.js';
+import { checkLabels, checkLine, evaluateChecks, LABEL_INPUT, notJudgedWhy, parseExpect, parseTests, Store, storedCheckInput, type JudgeCheck, readsMoreThanAStep } from '../src/index.js';
 import type * as labels from '../src/checks/labels.js';
 import { RunBuilder, text, toolUse, usage, user } from './run-fixtures.js';
 
@@ -187,5 +187,19 @@ describe('the browser bundle', () => {
     expect(checks.whenLabel(when.if, checks.toolCheckLabel(when.then.tools[0]))).toBe(reported[11]);
     expect(checks.whenLabel(when.if, checks.judgeLabel(when.then.judge![0]))).toBe(reported[16]);
     expect(checks.judgeLabel(spec.judge![0])).toBe(reported[18]);
+  });
+});
+
+describe('readsMoreThanAStep', () => {
+  const empty = { tools: [] };
+  const judge = (of: 'answer' | 'output' | 'run') => ({ name: 'j', question: 'q', of, model: 'm', pass: 'yes' as const });
+
+  it('holds of a check on what the run did or printed, and not of a judge of a model call\'s words', () => {
+    expect(readsMoreThanAStep(empty)).toBe(false);
+    expect(readsMoreThanAStep({ ...empty, judge: [judge('answer')] })).toBe(false);
+    expect(readsMoreThanAStep({ ...empty, judge: [judge('run')] })).toBe(false);
+    expect(readsMoreThanAStep({ ...empty, judge: [judge('output')] })).toBe(true);
+    expect(readsMoreThanAStep({ ...empty, answer: { includes: ['x'], excludes: [] } })).toBe(true);
+    expect(readsMoreThanAStep({ tools: [{ name: 't' }] as never })).toBe(true);
   });
 });

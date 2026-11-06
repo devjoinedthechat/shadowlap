@@ -1,5 +1,6 @@
 import { Fragment, type ReactNode } from 'react';
 import { cmdParts } from '../cmdline.js';
+import { headingRef } from '../focus-manager.js';
 import { shellWords } from '../format.js';
 import { ORIGIN_NAME, type Origin7 } from '../origins.js';
 import { CopyButton } from './CodeBox.js';
@@ -56,7 +57,7 @@ export function PageHeader({
       <div className={`ph${className ? ` ${className}` : ''}`}>
         <div className="phl">
           {eyebrow ? <Eyebrow>{eyebrow}</Eyebrow> : null}
-          <h1>{title}</h1>
+          <h1 ref={headingRef}>{title}</h1>
           {text ? <p>{text}</p> : null}
         </div>
         {actions ? <div className="actions">{actions}</div> : null}
@@ -136,20 +137,6 @@ export function Chips<K extends string>({ items, value, onChange, hideEmpty = fa
           </button>
         ),
       )}
-    </div>
-  );
-}
-
-/** Underlined tabs with optional counts. */
-export function Tabs<K extends string>({ items, value, onChange, label }: { items: ReadonlyArray<{ key: K; label: string; count?: number | undefined }>; value: K; onChange: (k: K) => void; label?: string }) {
-  return (
-    <div className="tabs" role="tablist" aria-label={label}>
-      {items.map((t) => (
-        <button key={t.key} type="button" role="tab" aria-selected={value === t.key} onClick={() => onChange(t.key)}>
-          {t.label}
-          {t.count !== undefined ? <span className="count">{t.count.toLocaleString('en-US')}</span> : null}
-        </button>
-      ))}
     </div>
   );
 }

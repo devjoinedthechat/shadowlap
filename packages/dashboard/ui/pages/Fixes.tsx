@@ -47,7 +47,7 @@ function FixList() {
     );
   if (!list)
     return (
-      <Page>
+      <Page busy={!exported}>
         {header}
         <div className="empty">{exported ? 'Fixes are not part of an exported copy.' : 'Loading the fixes…'}</div>
       </Page>

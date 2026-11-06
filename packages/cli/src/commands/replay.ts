@@ -319,7 +319,7 @@ async function replayRepeated(opts: GlobalOpts, { parent, checks, argv }: Replay
   // Each attempt's status as the replay counts it: one the guard never watched under --guard block failed.
   if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ attempts: attempts.map((a, i) => ({ exitCode: agentStatus(a.code, a.preloads), summary: a.summary, ...(checks ? { checks: judged[i] } : {}), unrecordedTools: unrecorded[i] ?? [] })), report }, null, 2) + '\n');
   emitJobEvent({ type: 'result', data: { attempts: attempts.map((a, i) => ({ runId: a.run.runId, exitCode: agentStatus(a.code, a.preloads), summary: a.summary, ...(checks ? { checks: judged[i] } : {}) })), report } });
-  emitJobEvent({ type: 'link', label: 'Open the attempts', href: links.run(parent.runId, first?.callNo ?? 1, 'forks') });
+  emitJobEvent({ type: 'link', label: 'Open attempts', href: links.run(parent.runId, first?.callNo ?? 1, 'forks') });
   // One that stopped before its recording did is among them: its divergence says so.
   const anyDiverged = attempts.some((a) => a.summary.divergence);
   // A signal ends it with the signal's status; then a divergence under --strict, an attempt that

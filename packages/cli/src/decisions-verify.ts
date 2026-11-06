@@ -4,14 +4,15 @@ import { commandIsImported, goldenNeedsConsent, importedCommandSource, messageOf
 import { judgeRecording } from './attempts.js';
 import { specFor } from './checks.js';
 import { loadConfig, loadTests } from './config.js';
-import { codeChangeNeeded, DecisionsError, storeTarget, verifyFields, verifyFlagged, type DecisionsSettings, type DecisionTarget } from './decisions.js';
+import { codeChangeNeeded, DecisionsError, storeTarget, verifyFields, type DecisionsSettings, type DecisionTarget } from './decisions.js';
+import { verifyRuns } from './decisions-verify-runs.js';
 import { importGolden } from './golden-test.js';
 import { rawExpectFor } from './goldens.js';
 import { passesOf, type MigrateRunPass } from './migrate.js';
 import { openStore, type GlobalOpts } from './shared.js';
 
 /**
- * `shadowlap decisions --verify <session>`: verify the runs a kept session flagged, without asking
+ * `shadowlap decisions --verify <session>`: verify the runs a kept session could not clear, without asking
  * their model calls again: the dashboard's "Verify the changed runs". Each run is verified as
  * `--then-verify` verifies it: under its checks from the config, its golden's, or for a run named by
  * id those of the recording it comes from (one verify per set of checks), in the role its recording
@@ -59,7 +60,8 @@ export function mergeVerify(previous: DecisionsVerify | null, now: DecisionsVeri
   const settled = runs.every((r) => r.outcome === 'fixed' || r.outcome === 'kept');
   const verdict: DecisionsVerify['verdict'] = runs.some((r) => r.outcome === 'broken' || r.outcome === 'not-fixed') ? 'rejected' : !settled || now.verdict === 'incomplete' ? 'incomplete' : 'accepted';
   const rules = new Set(runs.map((r) => r.rule));
-  return { verdict, verifyIds: [...previous.verifyIds, ...now.verifyIds], runs, rule: rules.size === 1 ? [...rules][0]! : null, commands: [...previous.commands, ...now.commands], spent: previous.spent + now.spent, upstreamRequests: previous.upstreamRequests + now.upstreamRequests, reasons: [...previous.reasons, ...now.reasons] };
+  const warnings = [...(previous.warnings ?? []), ...(now.warnings ?? [])];
+  return { ...(warnings.length ? { warnings } : {}), verdict, verifyIds: [...previous.verifyIds, ...now.verifyIds], runs, rule: rules.size === 1 ? [...rules][0]! : null, commands: [...previous.commands, ...now.commands], spent: previous.spent + now.spent, upstreamRequests: previous.upstreamRequests + now.upstreamRequests, reasons: [...previous.reasons, ...now.reasons] };
 }
 
 export async function verifySession(input: { opts: GlobalOpts; sessionId: string; runs: readonly string[]; settings: Pick<DecisionsSettings, 'thenVerify' | 'argv' | 'timeoutMs' | 'guard'>; budget: number | null; yes: boolean; log: (line: string) => void }): Promise<SessionVerify> {
@@ -76,14 +78,15 @@ export async function verifySession(input: { opts: GlobalOpts; sessionId: string
     const session = findSession(store, input.sessionId);
     if (!session) throw new DecisionsError(`no session ${input.sessionId}: decisions and migrate print the id of the session they keep (dc-…, mg-…)`);
     const data = session.data;
-    const report = (session.kind === 'migrate' ? data.decisions : data) as { flagged?: string[]; change?: DecisionsChange; remedies?: DecisionRemedy[]; verify?: DecisionsVerify | null } | undefined;
-    const flagged = report?.flagged ?? [];
+    const report = (session.kind === 'migrate' ? data.decisions : data) as { flagged?: string[]; toVerify?: string[]; change?: DecisionsChange; remedies?: DecisionRemedy[]; verify?: DecisionsVerify | null } | undefined;
+    // The runs it could not clear; a session kept before it said which, the ones it flagged.
+    const toVerify = report?.toVerify ?? report?.flagged ?? [];
     const change: Pick<DecisionsChange, 'model' | 'fields' | 'from'> = { model: report?.change?.model ?? null, fields: report?.change?.fields ?? {}, from: report?.change?.from ?? null };
     const named = (id: string, given: string) => id === given || (given.length >= 6 && id.startsWith(given));
-    const missing = input.runs.filter((r) => !flagged.some((id) => named(id, r)));
-    if (missing.length) throw new DecisionsError(`${missing.join(', ')}: no run ${session.sessionId} flagged has that id (it flags the runs with a write, stop or judged change: ${flagged.map((id) => id.slice(0, 10)).join(', ') || 'none'})`);
-    const chosen = input.runs.length ? flagged.filter((id) => input.runs.some((r) => named(id, r))) : flagged;
-    if (!chosen.length) throw new DecisionsError(`no run in ${session.sessionId} has a write, stop or judged change: there is nothing to verify`);
+    const missing = input.runs.filter((r) => !toVerify.some((id) => named(id, r)));
+    if (missing.length) throw new DecisionsError(`${missing.join(', ')}: no run ${session.sessionId} left to verify has that id (it leaves the runs a preview can't clear: ${toVerify.map((id) => id.slice(0, 10)).join(', ') || 'none'})`);
+    const chosen = input.runs.length ? toVerify.filter((id) => input.runs.some((r) => named(id, r))) : toVerify;
+    if (!chosen.length) throw new DecisionsError(`${session.sessionId} cleared every run: there is nothing to verify`);
 
     // Each run as the session asked it: a golden from its pack, with its checks from the config.
     const goldenOf = new Map(session.runRows.map((r) => [r.runId, r.golden]));
@@ -108,10 +111,10 @@ export async function verifySession(input: { opts: GlobalOpts; sessionId: string
     const imported = input.settings.argv ? [] : targets.filter((t) => (t.golden === null ? commandIsImported(t.run) : goldenNeedsConsent(t.run, resolve(cwd, t.golden), cwd)));
     if (imported.length && !input.yes) throw new DecisionsError(`${imported.map((t) => (t.golden === null ? `${t.run.runId.slice(0, 10)} came from ${importedCommandSource(t.run)}` : `${t.golden} is from a pack this repository doesn't track`)).join('; ')}: verifying runs the command it was recorded with (${quoteArgv(imported[0]!.run.command.argv)}). Give --yes to run it, or your own command after --`);
     const remedies = report?.remedies ?? [];
-    const verify = await verifyFlagged({
+    const verify = await verifyRuns({
       opts: input.opts,
       store,
-      flagged: targets,
+      targets,
       fields: verifyFields(change, remedies),
       from: change.from,
       settings: input.settings,
@@ -135,7 +138,7 @@ export async function verifySession(input: { opts: GlobalOpts; sessionId: string
           return null;
         }
       };
-      passes = passesOf(runs, flagged, merged, recorded);
+      passes = passesOf(runs, toVerify, merged, recorded);
       next = { ...data, decisions: { ...(data.decisions as Record<string, unknown>), verify: merged }, passes: { verdict: merged.verdict, runs: passes } };
     } else next = { ...data, verify: merged };
     store.putDecisionSession({ sessionId: session.sessionId, kind: session.kind, at: session.at, change: session.change, actor: session.actor, revision: session.revision, data: next, runs: session.runRows.map((r) => ({ runId: r.runId, golden: r.golden, rank: r.rank, changed: r.changed, data: r.data })) });

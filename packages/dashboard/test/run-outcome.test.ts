@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -9,7 +9,7 @@ import type { RouteContext } from '../src/context.js';
 import { runJob } from '../src/read-jobs.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import { exportHtml } from '../src/static.js';
-import { outcomeWork } from '../src/outcome-work.js';
+import { nextStepWork, outcomeWork, projectWork } from '../src/outcome-work.js';
 import { judgedRows, runJudged, type OutcomeWork, type RunJudged } from '../src/run-outcome.js';
 import { normalizeRunDetail } from '../ui/normalize.js';
 import { outcomeFact } from '../ui/run/metrics.js';
@@ -262,6 +262,35 @@ describe('what the server reads of the project', () => {
     // Kept for this machine, for a dashboard started later.
     const kept = JSON.parse(readFileSync(join(shadowlapHome(), CHECKS_SEEN_FILE), 'utf8')) as { projects: Record<string, Record<string, { at: number | null }>> };
     expect(kept.projects[dir]?.['goldens/refund']?.at).toBe(T0 + 5000);
+  });
+
+  it('hands a request that asks for what judges a run and what its next step reads both, from one look at the files', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-outcome-both-'));
+    dirs.push(dir);
+    writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify({ tests: {} }));
+    const ctx = { project: { path: dir }, options: { goldens: () => [] }, read: {} } as unknown as RouteContext;
+    const both = projectWork(ctx);
+    expect(both.outcome).toBe(outcomeWork(ctx));
+    expect(both.next).toBe(nextStepWork(ctx));
+    // Outside a project, only the goldens it was given.
+    expect(projectWork({ project: null, options: { goldens: () => [golden(T0)] }, read: {} } as unknown as RouteContext)).toMatchObject({ outcome: null, next: { goldens: [golden(T0)], dir: null } });
+  });
+
+  it('picks up a pack whose run.json arrives after its folder, as one copied in by hand or by git checkout does', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-outcome-pack-'));
+    dirs.push(dir);
+    const folder = join(dir, 'goldens', 'refund');
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify({ tests: {} }));
+    // As the CLI lists them: a pack is a folder with its run.json in it.
+    const list = () => (existsSync(join(folder, 'run.json')) ? [golden(T0)] : []);
+    const ctx = { project: { path: dir }, options: { goldens: list }, read: {} } as unknown as RouteContext;
+    expect(outcomeWork(ctx)!.goldens).toEqual([]);
+    // Nothing else moves: the goldens folder's own time doesn't, as the pack's folder is there already.
+    const at = statSync(join(dir, 'goldens')).mtimeMs;
+    writeFileSync(join(folder, 'run.json'), '{}');
+    expect(statSync(join(dir, 'goldens')).mtimeMs).toBe(at);
+    expect(outcomeWork(ctx)!.goldens).toEqual([{ path: 'goldens/refund', runId: '01K8RG00000000000000000001', packedAt: T0, checksAt: null }]);
   });
 });
 

@@ -77,15 +77,17 @@ describe('Tab in a modal dialog', () => {
     expect(focus(r)).toBe('button Cancel');
   });
 
-  it('stays on the shortcuts’ Close, the panel’s only control, and Esc closes the panel', async () => {
+  it('goes round the shortcuts’ switch and Close, the panel’s only controls, and Esc closes the panel', async () => {
     const setHelp = vi.fn();
     r = await render(createElement(AppContext.Provider, { value: app({ help: true, setHelp }) }, createElement(Keyboard), ...page(), createElement(Shortcuts, { key: 'help', onRun: false })));
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 2; i++) {
+      await r.press('Tab');
+      expect(focus(r)).toBe('button Single-key shortcuts');
       await r.press('Tab');
       expect(focus(r)).toBe('button Close');
     }
     await r.press('Tab', { shiftKey: true });
-    expect(focus(r)).toBe('button Close');
+    expect(focus(r)).toBe('button Single-key shortcuts');
     await r.press('Escape');
     expect(setHelp).toHaveBeenCalledExactlyOnceWith(false);
   });

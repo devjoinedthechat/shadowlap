@@ -27,6 +27,11 @@ export function paletteKeyLabel(): string {
   return isMac() ? '⌘K' : 'Ctrl K';
 }
 
+/** The undo key's chord, as the shortcuts sheet's foot names it. */
+export function undoKeyLabel(): string {
+  return isMac() ? '⌘Z' : 'Ctrl Z';
+}
+
 /** Inputs that take no key a shortcut uses: ticked or pressed with Space or Enter. */
 const KEYLESS_INPUTS = new Set(['checkbox', 'button', 'submit', 'reset', 'image']);
 
@@ -52,4 +57,27 @@ export function addressNow(): string {
 /** Whether the page is used by a finger: what would open a phone's keyboard waits to be tapped. */
 export function coarsePointer(): boolean {
   return typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+}
+
+/** Whether the page leads with a lime step of its own: one lime at a time. */
+export function pageLeads(): boolean {
+  return typeof document !== 'undefined' && !!document.querySelector('#view .btn.lime');
+}
+
+/** The way on a job's end offers, where several show: its primary link, then what its kind adds, then a file, then a link beside them. */
+export function wayOnControl(root: ParentNode | null): HTMLElement | null {
+  if (!root) return null;
+  return root.querySelector<HTMLElement>('.jfoot a.btn') ?? root.querySelector<HTMLElement>('.jfoot .jkind .btn') ?? root.querySelector<HTMLElement>('.jfoot .jfile') ?? root.querySelector<HTMLElement>('.jfoot .jlinks a');
+}
+
+/** The job's drawer's own place for the focus: its log while it shows, else the button that shows it, else Close. */
+export function dockFocusTarget(): HTMLElement | null {
+  return ['#jout', '#jlog', '#jx'].map((s) => document.querySelector<HTMLElement>(s)).find((x): x is HTMLElement => !!x && x.getClientRects().length > 0 && !x.closest('[inert]')) ?? null;
+}
+
+/** Gives the job's drawer's own place the focus (`dockFocusTarget`): whether there was one. */
+export function dockFocus(): boolean {
+  const to = dockFocusTarget();
+  to?.focus({ preventScroll: true });
+  return !!to;
 }

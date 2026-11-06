@@ -7,6 +7,7 @@ import { ConsentDialog, Dialog } from '../components/Dialog.js';
 import { shortId } from '../format.js';
 import { messageOf } from '../../../engine/src/message-of.js';
 import { useApp } from '../state.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * Edit this result and fork, from the inspector: a tool's recorded result, or what a person answered
@@ -61,7 +62,7 @@ export function EditAndFork({ runId, detail, live }: { runId: string; detail: Ca
   const [consent, setConsent] = useState<{ fields: Record<string, unknown>; why: string; confirm: string } | null>(null);
   const action = overrideAction(detail);
   if (app.exported || !action || !app.hasKind(JOB_KINDS.override)) return null;
-  const off = live ? 'Fork once the recording finishes' : (app.actionsOff ?? action.disabled ?? null);
+  const off = live ? 'Fork once the recording finishes' : (action.disabled ?? null);
   // The fork, once the edited result is uploaded; a 409 that names someone else's command asks first.
   const start = (fields: Record<string, unknown>) =>
     app.client.startJob(JOB_KINDS.override, fields).then(
@@ -74,9 +75,9 @@ export function EditAndFork({ runId, detail, live }: { runId: string; detail: Ca
     );
   return (
     <>
-      <button className="linkbtn" type="button" disabled={!!off} title={off ?? 'Fork with this result edited: every call before it replays'} onClick={() => app.guard(() => setOpen(true))}>
+      <ActionButton className="linkbtn" why={off} title="Fork with this result edited: every call before it replays" onClick={() => app.guard(() => setOpen(true))}>
         Edit and fork…
-      </button>
+      </ActionButton>
       {open ? <EditDialog runId={runId} detail={detail} action={action} onFork={start} onClose={() => setOpen(false)} /> : null}
       {consent ? (
         <ConsentDialog why={consent.why} ok="Run command" onClose={() => setConsent(null)} onOk={() => app.guard(() => void start({ ...consent.fields, yes: consent.confirm }))} />

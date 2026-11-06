@@ -16,8 +16,6 @@ import { links, parseRunsQuery, type LinkView, type RunsFilterRead } from '../sr
 
 export type View = LinkView;
 export const VIEWS: readonly View[] = ['calls', 'turns', 'context', 'timeline', 'forks', 'provenance'];
-/** What `v` cycles through: Provenance is reached by its tab or the palette. */
-export const CYCLE_VIEWS: readonly View[] = ['calls', 'turns', 'context', 'timeline', 'forks'];
 
 export type Route =
   | { page: 'overview' }
@@ -55,6 +53,14 @@ function callNumber(s: string | undefined): number | null {
 
 export function isView(s: unknown): s is View {
   return typeof s === 'string' && (VIEWS as readonly string[]).includes(s);
+}
+
+/** Whether two routes show one page: picking a call, a view or a fix's step stays on it, and Runs is the page its filter shows. */
+export function samePage(a: Route, b: Route): boolean {
+  if (a.page !== b.page) return false;
+  if (a.page === 'runs') return JSON.stringify(a) === JSON.stringify(b);
+  if ((a.page === 'run' || a.page === 'fixes') && a.id !== (b as typeof a).id) return false;
+  return (a.page !== 'settings' && a.page !== 'training') || a.tab === (b as typeof a).tab;
 }
 
 export function parseRoute(hash: string): Route {
@@ -169,10 +175,10 @@ export function tokenLinkStep(hash: string, inUse: string | null): { kind: 'open
 export const GO_KEYS: Readonly<Record<string, string>> = { o: '#/', r: '#/runs', c: '#/compare', f: '#/fixes', t: '#/tests', a: '#/training', s: '#/settings' };
 export const GO_WINDOW_MS = 900;
 
-/** The next view `v` moves to. */
+/** The next view `v` moves to: it goes through every view. */
 export function nextView(v: View | null): View {
-  const i = CYCLE_VIEWS.indexOf(v ?? 'calls');
-  return CYCLE_VIEWS[(i + 1) % CYCLE_VIEWS.length]!;
+  const i = VIEWS.indexOf(v ?? 'calls');
+  return VIEWS[(i + 1) % VIEWS.length]!;
 }
 
 /** Which nav entry a route sits under. */

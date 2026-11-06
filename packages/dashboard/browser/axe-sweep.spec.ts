@@ -200,7 +200,9 @@ test('Fixes and each fix’s steps, Tests’ dialogs, the palette, the shortcuts
   states.push(['Runs', at(page, '/runs', 'main#view table.runst tbody tr')], ['Runs · Import capture…', click(page, 'main#view button', 'Import capture…', { shows: DIALOG })], ['Runs · import closed', escape(page)]);
   states.push(['Runs · a run ticked', click(page, 'main#view table.runst tbody tr input[type="checkbox"]')]);
   // The palette's hits in what was recorded come from the server: swept once they have come.
-  states.push(['the palette', press(page, 'Meta+k', { shows: '.palette' })], ['the palette with results', async () => {
+  // With the focus in the row, ⌘K opens on the row's actions; ⌫ goes back to everything.
+  states.push(['the palette on a row’s actions', press(page, 'Meta+k', { shows: '.palette' })], ['the palette with results', async () => {
+    await page.keyboard.press('Backspace');
     await page.keyboard.type('refund');
     await page.locator('#palList', { hasText: 'In recorded data' }).waitFor();
     await settled(page);
@@ -274,6 +276,7 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
   const states = (): Array<[string, () => Promise<void>]> => [
     ...onRun('Delete run', 'ticket', 'Delete'),
     ...onRun('The consent question', 'packed', 'Replay'),
+    ...onRun('Pack as golden', 'digest', 'Pack as golden'),
     ...fork('Inject instruction', 'ticket', 'Inject instruction'),
     ...fork('Switch model', 'ticket', 'Switch model'),
     ...fork('Fail with HTTP status', 'ticket', 'Fail with HTTP status'),

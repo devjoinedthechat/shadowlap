@@ -249,7 +249,8 @@ describe('shadowlap migrate', () => {
     expect(report.pullRequest.body).toContain('- `thinking` = `{"type":"adaptive"}`: claude-sonnet-5-5 is among Claude 4.7 and later models');
     // Every request asked adaptively, never refused, with the earlier turns' reasoning sent as recorded.
     const sent = mock.requests.slice(before).map((q) => q.body as unknown as { model: string; thinking?: unknown; messages: Array<{ role: string; content: unknown }> });
-    expect(sent).toHaveLength(11);
+    // Each model call asked once, then again in the one attempt verify runs of a run that writes.
+    expect(sent).toHaveLength(22);
     expect(sent.every((q) => q.model === 'claude-sonnet-5-5' && JSON.stringify(q.thinking) === '{"type":"adaptive"}')).toBe(true);
     expect(sent.every((q) => q.messages.filter((m) => m.role === 'assistant').every((m) => Array.isArray(m.content) && (m.content[0] as { type?: string }).type === 'thinking'))).toBe(true);
   }, 240_000);
@@ -363,7 +364,7 @@ describe("migrate's first line", () => {
     expect(first(report([kept], { verdict: 'accepted', flagged: 1 }))).toBe('✓ claude-new keeps every run passing: claude-old → claude-new, 1 run');
     // A run that failed as recorded is not one the switch keeps passing.
     expect(first(report([kept, { verdict: 'failed', outcome: 'unchanged', verified: false }], { verdict: 'accepted', flagged: 1 }))).toBe('✓ claude-new keeps every run that passed passing: claude-old → claude-new, 2 runs');
-    expect(first(report([{ verdict: 'passed', outcome: 'unchanged', verified: false }]))).toBe('✓ No write, stop or judged change under claude-new: claude-old → claude-new, 1 run');
+    expect(first(report([{ verdict: 'passed', outcome: 'unchanged', verified: false }]))).toBe('✓ claude-new decided the same in the preview: claude-old → claude-new, 1 run');
     expect(first(report([{ verdict: 'failed', outcome: 'broken', verified: true }, { verdict: 'inconclusive', outcome: 'not-asked', verified: false }], { verdict: 'rejected', flagged: 1 }))).toBe('✗ claude-new breaks runs: claude-old → claude-new, 2 runs, 1 inconclusive');
   });
 

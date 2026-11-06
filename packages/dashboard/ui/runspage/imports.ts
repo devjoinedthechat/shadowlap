@@ -1,5 +1,5 @@
 import type { FactWords } from '../actions.js';
-import { quoteArg } from '../jobs.js';
+import { quoteArg } from '../job-title.js';
 import { guessImportFormat, IMPORT_FILE_FORMATS, type ImportFileFormat } from '../../../engine/src/import-format.js';
 import { OTEL_SAMPLE, OTEL_SAMPLE_NAME, type OtlpSpan, type OtlpTrace } from './sample-otel.js';
 

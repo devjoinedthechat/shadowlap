@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
-import { argsDelta, byRule, controlOpen, credentialFreeCommandLine, fieldValue, formatUsd, judgeOpen, RANK_LABELS, safeLine, decisionLine, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type RetirementNotice, type SprtGate, type Store, type StoreOf } from '@shadowlap/engine';
+import { argsDelta, byRule, controlOpen, credentialFreeCommandLine, fieldValue, formatUsd, judgeOpen, RANK_LABELS, safeLine, decisionLine, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type Footprint, type RetirementNotice, type SprtGate, type Store, type StoreOf } from '@shadowlap/engine';
 import { judgeRecording } from './attempts.js';
 import { type TestSpec } from './checks.js';
 import { loadConfig } from './config.js';
@@ -16,7 +16,7 @@ import { palette as p, shortId } from './ui.js';
  * a retirement date forces. It asks the agent's model calls of the goldens again under the new model
  * (those made with the models `--from` names, else the ones that retire, else the one used most),
  * with the fields it refuses changed to what it takes (by the providers' pages and its own
- * refusals); verifies the runs with a write, stop or judged change end to end; compares what a run costs;
+ * refusals); runs end to end every run that preview can't clear (needsVerify); compares what a run costs;
  * and ends in one report: what changes, what still passes, what it costs, what to set, with the
  * change to the project's files that name the model and a pull request body to go with it.
  */
@@ -46,13 +46,13 @@ export interface MigrateSettings {
 /** The only verdict words a report uses. */
 export type Verdict = 'passed' | 'failed' | 'inconclusive' | 'not-applicable';
 
-/** How each run fares after the switch: verified (kept, fixed, broken…), unchanged decisions, or not asked. */
+/** How each run fares after the switch: verified (kept, fixed, broken…), cleared by the preview (`unchanged`), or not asked. */
 export interface MigrateRunPass {
   runId: string;
   golden: string | null;
   /** passed, failed or inconclusive: what the run's outcome comes to. */
   verdict: Verdict;
-  /** kept, broken, fixed, not-fixed, inconclusive, unsettled (verified, in verify's own words); unchanged (no write, stop or judged change, so not re-run); not-asked; not-judged (it waits on a judge: a text-only change a judge check reads could not be judged). */
+  /** kept, broken, fixed, not-fixed, inconclusive, unsettled (verified, in verify's own words); unchanged (the preview cleared it, needsVerify, so not run end to end); not-asked; not-judged (it waits on a judge: a text-only change a judge check reads could not be judged). */
   outcome: string;
   verified: boolean;
   /**
@@ -87,8 +87,13 @@ export interface MigrateReport {
   changes: { runs: number; flagged: number; steps: Array<{ runId: string; golden: string | null; callNo: number; rank: number; detail: string; recorded: string; now: string; arguments: string[] }> };
   /** What still passes. */
   passes: { verdict: DecisionsVerify['verdict']; runs: MigrateRunPass[] };
-  /** What it costs: per run (the mean), and for the goldens all together, before and after; and what checking cost: asking, judging the text-only changes, verifying. */
-  costs: { perRun: { before: number | null; after: number | null }; total: { before: number | null; after: number | null }; tokensPerRun: { before: number; after: number }; checking: { decisions: number; judge: number; verify: number } };
+  /**
+   * What it costs: per run (the mean), and for the goldens all together, before and after, by the
+   * recorded steps; `endToEnd`, what the runs verified cost a run by what their attempts did, which sees
+   * a run that takes more steps (null when none was); and what checking cost: asking, judging the
+   * text-only changes, verifying.
+   */
+  costs: { perRun: { before: number | null; after: number | null }; total: { before: number | null; after: number | null }; tokensPerRun: { before: number; after: number }; endToEnd: { recorded: Footprint; now: Footprint } | null; checking: { decisions: number; judge: number; verify: number } };
   /** What to set: the flags verify took, the fields the switch needs and why, and those given with `--set`. */
   set: { flags: string[]; fields: DecisionRemedy[]; given: Record<string, unknown> };
   /**
@@ -120,6 +125,31 @@ const tallyWords = (x: Pick<MigrateRunPass, 'tally'>): string => {
 
 /** How verify found a run, after its verdict: `kept, verified · 12 of 12 · rate >= 0.76 (95%)`; an outcome that is the verdict word (inconclusive) is said once. */
 const verifiedWords = (x: Pick<MigrateRunPass, 'verdict' | 'outcome' | 'tally'>): string => `${x.outcome === x.verdict ? '' : `${x.outcome}, `}verified${tallyWords(x)}`;
+
+/** How many of the runs were run end to end, for What still passes: `3 of 4 runs verified end to end`. */
+const verifiedCount = (r: Pick<MigrateReport, 'passes'>): string => {
+  const all = r.passes.runs.length;
+  return `${r.passes.runs.filter((x) => x.verified).length} of ${all} run${all === 1 ? '' : 's'} verified end to end`;
+};
+
+/** What the runs verified cost a run end to end, in words: `4,000 → 5,000 input tokens (+25%) · ≈$0.014 → ≈$0.018 (+29%)`. */
+const endToEndWords = (e: NonNullable<MigrateReport['costs']['endToEnd']>): string => {
+  const tokens = (n: number) => Math.round(n).toLocaleString('en-US');
+  const moved = pct(e.recorded.inputTokens, e.now.inputTokens);
+  return `${tokens(e.recorded.inputTokens)} → ${tokens(e.now.inputTokens)} input tokens${/^ \([+−]0%\)$/.test(moved) ? '' : moved}${e.recorded.cost !== null && e.now.cost !== null ? ` · ${usd(e.recorded.cost)} → ${usd(e.now.cost)}${pct(e.recorded.cost, e.now.cost)}` : ''}`;
+};
+
+/** What it costs, for the pull request. */
+const costsSentence = (r: Omit<MigrateReport, 'pullRequest' | 'files'>): string => {
+  const { perRun, endToEnd, checking } = r.costs;
+  return `Per run: ${usd(perRun.before)} → ${usd(perRun.after)}${pct(perRun.before, perRun.after)}. ${endToEnd ? `End to end: ${endToEndWords(endToEnd)}. ` : ''}Checking it cost ${usd(checking.decisions + checking.judge + checking.verify)}.`;
+};
+
+/** What a run the preview cleared rests on, in words. */
+const CLEARED = "the same decisions, no write and no check it can't read: not run end to end";
+
+/** How a run came to its verdict, in words. */
+const passWords = (x: MigrateRunPass): string => (x.verified ? verifiedWords(x) : x.outcome === 'unchanged' ? CLEARED : x.outcome);
 
 /** The changes besides writes, stops and judged ones, counted: `1 read added or removed, 2 text only (1 judged as recorded, 1 not judged)`. */
 function besides(r: Pick<MigrateReport, 'decisions'>): string {
@@ -320,7 +350,7 @@ export function pullRequestBody(r: Omit<MigrateReport, 'pullRequest' | 'files'>)
   const title = r.from.length === 1 ? `Switch ${r.from[0]!} to ${r.to}` : `Switch the model to ${r.to}`;
   const runs = r.decisions.runs.length;
   const tick = (s: string) => `\`${s}\``;
-  const lines: string[] = [`## ${title}`, '', `Checked with \`${credentialFreeCommandLine(r.command)}\`: the model calls of ${runs} recording${runs === 1 ? '' : 's'} made with ${r.from.join(', ') || 'its model'} asked again under ${r.to}, and the ${r.changes.flagged} with a write, stop or judged change verified end to end.`];
+  const lines: string[] = [`## ${title}`, '', `Checked with \`${credentialFreeCommandLine(r.command)}\`: the model calls of ${runs} recording${runs === 1 ? '' : 's'} made with ${r.from.join(', ') || 'its model'} asked again under ${r.to}, and ${verifiedCount(r)}.`];
   for (const n of r.retirements.filter((x) => r.from.includes(x.model))) lines.push('', `> ${n.text} ([source](${n.source}))`);
   lines.push('', '### What changes', '');
   if (!r.changes.steps.length) lines.push(`No write, stop or judged change${r.decisions.counts.notAsked ? ' in the steps asked' : ''}.`);
@@ -329,13 +359,15 @@ export function pullRequestBody(r: Omit<MigrateReport, 'pullRequest' | 'files'>)
   const c = r.decisions.counts;
   if (c[3] + c[4] + c[5]) lines.push('', `Besides: ${besides(r)}.`);
   lines.push('', '### What still passes', '');
-  for (const x of r.passes.runs) lines.push(`- ${name(x)}: ${x.verdict}${x.verified ? ` (${verifiedWords(x)})` : x.outcome === 'unchanged' ? ' (no write, stop or judged change, so not re-run)' : ` (${x.outcome})`}`);
+  for (const x of r.passes.runs) lines.push(`- ${name(x)}: ${x.verdict} (${passWords(x)})`);
   // The rule verify decided them by, said once; each over its own runs when more than one did.
   const rules = verifiedRules(r);
   if (rules.length === 1) lines.push('', `Verified by ${tick('shadowlap verify')}, ${rules[0]!.rule}.`);
   else if (rules.length) lines.push('', `Verified by ${tick('shadowlap verify')}, each run under the rule that decided it:`, '', ...rules.map((g) => `- ${g.runs.map(name).join(', ')}: ${g.rule}`));
+  lines.push('', `${verifiedCount(r)}.`);
   if (r.decisions.verify?.verdict === 'not-run' && r.decisions.verify.reasons.length) lines.push('', `Not verified yet: ${r.decisions.verify.reasons.join('; ')}.`);
-  lines.push('', '### What it costs', '', `Per run: ${usd(r.costs.perRun.before)} → ${usd(r.costs.perRun.after)}${pct(r.costs.perRun.before, r.costs.perRun.after)}. Checking it cost ${usd(r.costs.checking.decisions + r.costs.checking.judge + r.costs.checking.verify)}.`);
+  for (const w of r.decisions.verify?.warnings ?? []) lines.push('', `Note: ${w}.`);
+  lines.push('', '### What it costs', '', costsSentence(r));
   lines.push('', '### What to set', '');
   if (!r.set.fields.length && !Object.keys(r.set.given).length) lines.push(`Only the model: ${r.to}.`);
   for (const f of r.set.fields) lines.push(`- ${remedyText(f, tick)}: ${f.why}`);
@@ -347,21 +379,21 @@ export function pullRequestBody(r: Omit<MigrateReport, 'pullRequest' | 'files'>)
 
 /**
  * How each run fares: a run verified by verify's outcome, with its tally under the rule that decided
- * it; a run with no write, stop or judged change by how its recording fares under its checks (it is
- * not re-run); a run some step of which got no answer, as changed or, for a step it changed, as
- * recorded (controlOpen), that was flagged and not verified, or with a step that waits on a judge
+ * it; a run the preview cleared by how its recording fares under its checks (it is not run end to
+ * end); a run some step of which got no answer, as changed or, for a step it changed, as recorded
+ * (controlOpen), that needed verify and did not get it, or with a step that waits on a judge
  * (judgeOpen: the words of a sample a judge check reads could not be judged, and might read
  * otherwise), is inconclusive.
  */
-export function passesOf(runs: readonly DecisionRun[], flagged: readonly string[], verify: DecisionsVerify | null, recorded: (runId: string) => boolean | null): MigrateRunPass[] {
+export function passesOf(runs: readonly DecisionRun[], toVerify: readonly string[], verify: DecisionsVerify | null, recorded: (runId: string) => boolean | null): MigrateRunPass[] {
   const verified = new Map((verify?.runs ?? []).map((r) => [r.runId, r]));
   return runs.map((r): MigrateRunPass => {
     const v = verified.get(r.runId);
     if (v) return { runId: r.runId, golden: r.golden, verdict: v.outcome === 'kept' || v.outcome === 'fixed' ? 'passed' : v.outcome === 'broken' || v.outcome === 'not-fixed' ? 'failed' : 'inconclusive', outcome: v.outcome, verified: true, tally: { passes: v.passes, attempts: v.attempts, bound: v.bound ?? null, rule: v.rule ?? verify?.rule ?? null, undecided: v.undecided ?? null, ...(v.baseline ? { baseline: v.baseline } : {}) } };
     // A step whose request as recorded got no answer for now waits on it (controlOpen): its change is not told from the model's own.
-    const unanswered = r.decisions.some((x) => x.samples.asked > 0 && !x.samples.answered) || r.decisions.some((x) => x.error && !x.samples.asked) || (!flagged.includes(r.runId) && r.decisions.some((x) => controlOpen(x)));
+    const unanswered = r.decisions.some((x) => x.samples.asked > 0 && !x.samples.answered) || r.decisions.some((x) => x.error && !x.samples.asked) || (!toVerify.includes(r.runId) && r.decisions.some((x) => controlOpen(x)));
     if (unanswered) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'not-asked', verified: false, tally: null };
-    if (flagged.includes(r.runId)) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'unsettled', verified: false, tally: null };
+    if (toVerify.includes(r.runId)) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'unsettled', verified: false, tally: null };
     if (r.decisions.some((x) => judgeOpen(x))) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'not-judged', verified: false, tally: null };
     const passed = recorded(r.runId);
     return { runId: r.runId, golden: r.golden, verdict: passed === true ? 'passed' : passed === false ? 'failed' : 'inconclusive', outcome: 'unchanged', verified: false, tally: null };
@@ -398,7 +430,7 @@ export async function runMigrate(input: { opts: GlobalOpts; targets: DecisionTar
       const t = input.targets.find((x) => x.run.runId === runId);
       return t ? judgeRecording(store, t.run, store.getCalls(runId), s.expect?.spec ?? t.spec, prices).passed : null;
     };
-    passes = passesOf(decisions.runs, decisions.flagged, decisions.verify, recorded);
+    passes = passesOf(decisions.runs, decisions.toVerify, decisions.verify, recorded);
   } finally {
     store.close();
   }
@@ -437,6 +469,7 @@ export async function runMigrate(input: { opts: GlobalOpts; targets: DecisionTar
     costs: {
       perRun: { before: decisions.cost.before, after: decisions.cost.after },
       total: { before: sum('before'), after: sum('after') },
+      endToEnd: decisions.verify?.footprint ?? null,
       tokensPerRun: { before: runsAsked.length ? Math.round(runsAsked.reduce((n, r) => n + tokens(r.tokens.before), 0) / runsAsked.length) : 0, after: runsAsked.length ? Math.round(runsAsked.reduce((n, r) => n + tokens(r.tokens.after), 0) / runsAsked.length) : 0 },
       checking: { decisions: decisions.cost.spent, judge: decisions.judge?.spent ?? 0, verify: decisions.verify?.spent ?? 0 },
     },
@@ -480,26 +513,36 @@ function writeMigrateFiles(r: MigrateReport, id: string): MigrateReport['files']
   }
 }
 
-/** The report as the terminal shows it: the four blocks in order. */
-export function formatMigrate(r: MigrateReport): string {
-  const lines: string[] = [];
+/**
+ * The report's first line. It claims nothing What still passes doesn't: a run that is inconclusive there
+ * (a step not answered, a run that needed verify and did not get it, a recording its checks can't
+ * settle) leaves it not settled, and a run that failed as recorded is not one the switch keeps passing.
+ * It claims only what ran: a run the preview cleared decided the same there, which is all that is known of it.
+ */
+function firstLine(r: MigrateReport): string {
   const v = r.passes.verdict;
-  // The head claims nothing What still passes doesn't: a run that is inconclusive there (a step not
-  // answered, a flagged run not verified, a recording its checks can't settle) leaves it not settled,
-  // and a run that failed as recorded is not one the switch keeps passing.
   const unsure = r.passes.runs.filter((x) => x.verdict === 'inconclusive').length;
   const failing = r.passes.runs.some((x) => x.verdict === 'failed');
+  const verified = r.passes.runs.filter((x) => x.verified).length;
+  const cleared = r.passes.runs.some((x) => !x.verified && x.verdict === 'passed');
+  const kept = !cleared ? `every run${failing ? ' that passed' : ''}` : verified === 1 ? 'the run it verified' : `the ${verified} runs it verified`;
   const head =
     v === 'rejected'
       ? `${p.red('✗')} ${p.bold(`${r.to} breaks runs`)}`
       : unsure
         ? `${p.yellow('!')} ${p.bold('Not settled')}`
-        : r.changes.flagged === 0
-          ? `${p.green('✓')} ${p.bold(`No write, stop or judged change under ${r.to}`)}`
-          : v === 'accepted'
-            ? `${p.green('✓')} ${p.bold(`${r.to} keeps every run${failing ? ' that passed' : ''} passing`)}`
+        : v === 'accepted'
+          ? `${p.green('✓')} ${p.bold(`${r.to} keeps ${kept} passing`)}`
+          : verified === 0 && v === 'not-run'
+            ? `${p.green('✓')} ${p.bold(`${r.to} decided the same in the preview`)}`
             : `${p.yellow('!')} ${p.bold('Not settled')}`;
-  lines.push(`${head}: ${r.from.length ? `${r.from.join(', ')} → ` : ''}${r.to}, ${r.decisions.runs.length} run${r.decisions.runs.length === 1 ? '' : 's'}${unsure ? `, ${unsure} inconclusive` : ''}`);
+  return `${head}: ${r.from.length ? `${r.from.join(', ')} → ` : ''}${r.to}, ${r.decisions.runs.length} run${r.decisions.runs.length === 1 ? '' : 's'}${unsure ? `, ${unsure} inconclusive` : ''}`;
+}
+
+/** The report as the terminal shows it: the four blocks in order. */
+export function formatMigrate(r: MigrateReport): string {
+  const lines: string[] = [];
+  lines.push(firstLine(r));
   for (const n of r.retirements) lines.push(p.dim(`  ${safeLine(n.text)}`));
   lines.push('', p.bold('What changes'));
   if (!r.changes.steps.length) lines.push(`  no write, stop or judged change${r.decisions.counts.notAsked ? ' in the steps asked' : ''}`);
@@ -509,14 +552,16 @@ export function formatMigrate(r: MigrateReport): string {
   lines.push('', p.bold('What still passes'));
   for (const x of r.passes.runs) {
     const word = x.verdict === 'passed' ? p.green(x.verdict) : x.verdict === 'failed' ? p.red(x.verdict) : p.yellow(x.verdict);
-    lines.push(`  ${safeLine(name(x)).padEnd(28)} ${word}${p.dim(x.verified ? ` · ${verifiedWords(x)}` : x.outcome === 'unchanged' ? ' · no write, stop or judged change, not re-run' : ` · ${x.outcome}`)}`);
+    lines.push(`  ${safeLine(name(x)).padEnd(28)} ${word}${p.dim(` · ${passWords(x)}`)}`);
   }
   // The rule the verified runs were decided by, said once under them; each with its own runs when more than one did.
   const rules = verifiedRules(r);
   if (rules.length === 1) lines.push(p.dim(`  ${safeLine(rules[0]!.rule)}`));
   else for (const g of rules) lines.push(p.dim(`  ${safeLine(g.rule)}: ${g.runs.map((x) => safeLine(name(x))).join(', ')}`));
+  lines.push(p.dim(`  ${verifiedCount(r)}`));
   lines.push('', p.bold('What it costs'));
   lines.push(`  per run      ${usd(r.costs.perRun.before)} → ${usd(r.costs.perRun.after)}${pct(r.costs.perRun.before, r.costs.perRun.after)} · ${r.costs.tokensPerRun.before.toLocaleString('en-US')} → ${r.costs.tokensPerRun.after.toLocaleString('en-US')} tokens`);
+  if (r.costs.endToEnd) lines.push(`  end to end   ${endToEndWords(r.costs.endToEnd)}`);
   // Asking's models and the judge's with no price: what they cost is not in the figures.
   const unknown = [...new Set([...r.decisions.cost.unknownModels, ...(r.decisions.judge?.unknownModels ?? [])])];
   const unpriced = unknown.length ? ` (no price for ${unknown.join(', ')}: add it under "prices" in shadowlap.config.json)` : '';

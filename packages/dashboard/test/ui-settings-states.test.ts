@@ -138,9 +138,9 @@ describe('Settings for a project whose folder is gone', () => {
     expect(r.byText('.ph button', 'Remove project…').disabled).toBe(false);
     const why = 'research-agent’s folder is gone: put it back or remove the project';
     const add = r.byText('.settab header button', 'Add normalizer…');
-    expect(add.disabled).toBe(true);
-    expect(add.getAttribute('title')).toBe(why);
-    for (const b of r.all('.settab .seg button')) expect(b.getAttribute('title')).toBe(why);
+    expect(add.getAttribute('aria-disabled')).toBe('true');
+    expect(add.getAttribute('data-why')).toBe(why);
+    for (const b of r.all('.settab .seg button')) expect(b.getAttribute('data-why')).toBe(why);
     // Not a healthy project with no normalizers yet, and nothing to calibrate.
     expect(r.one('.ruletable td.none').textContent).toBe('The rules can’t be read while the folder is gone.');
     expect(r.all('.setrow b').map((b) => b.textContent)).toEqual(['Dates and times']);
@@ -151,7 +151,7 @@ describe('Settings for a project whose folder is gone', () => {
     await r.until('the tab', () => r!.all('.ruletable').length > 0);
     expect(r.one('.ruletable td.none').textContent).toBe('The rules can’t be read while the folder is gone.');
     expect(r.all('.preview')).toHaveLength(0);
-    expect(r.byText('.settab header button', 'Add redaction rule…').disabled).toBe(true);
+    expect(r.byText('.settab header button', 'Add redaction rule…').getAttribute('aria-disabled')).toBe('true');
   });
 
   it('offers no store setup there', async () => {

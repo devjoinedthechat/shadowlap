@@ -1,3 +1,4 @@
+import { dockFocus } from '../dom.js';
 /**
  * Where the focus goes as an overlay opens and closes, in the page as it stands: what Tab stops at,
  * which of a dialog's elements takes it first (`dialogFocus` in focus.ts says by what rule), and how
@@ -48,15 +49,15 @@ export interface ControlKey {
 }
 
 /** What changes as a control's state does, or says nothing of what it is. */
-const FLEETING = /^data-(tip|why|fit|short|mark|about|from)$/;
+const FLEETING = /^data-(tip|why|fit|short|mark|about|from|shortcut)$/;
+
+/** A list's row is known by its key alone: its words and its place change while it stays the row. */
+const rowKeyOf = (el: Element) => el.getAttribute('data-rowkey');
 
 const attrsOf = (el: Element) =>
-  el
-    .getAttributeNames()
-    .filter((a) => (a.startsWith('data-') && !FLEETING.test(a)) || a === 'href' || a === 'aria-label')
-    .map((a) => [a, el.getAttribute(a) ?? ''] as const);
+  (rowKeyOf(el) !== null ? ['data-rowkey'] : el.getAttributeNames().filter((a) => (a.startsWith('data-') && !FLEETING.test(a)) || a === 'href' || a === 'aria-label')).map((a) => [a, el.getAttribute(a) ?? ''] as const);
 
-const wordsOf = (el: Element) => (el.textContent ?? '').trim();
+const wordsOf = (el: Element) => (rowKeyOf(el) !== null ? '' : (el.textContent ?? '').trim());
 
 function isLike(el: Element, key: ControlKey): boolean {
   const attrs = attrsOf(el);
@@ -127,9 +128,11 @@ function watchRedraw(key: ControlKey, given: HTMLElement, onPage: boolean): void
 export interface Opener {
   el: HTMLElement | null;
   key: ControlKey | null;
+  /** It sat in a job's drawer: gone with that drawer, the drawer that replaced it takes the focus. */
+  docked?: boolean;
 }
 
-export const openerOf = (el: HTMLElement | null): Opener => ({ el, key: controlKey(el) });
+export const openerOf = (el: HTMLElement | null): Opener => ({ el, key: controlKey(el), ...(el?.closest?.('#dock') ? { docked: true } : {}) });
 
 /**
  * Gives the focus back to what opened an overlay, or to the control drawn in its place: the first of
@@ -150,6 +153,7 @@ export function focusBack(...openers: readonly Opener[]): void {
     const toggle = document.querySelector<HTMLElement>('.menu-toggle');
     if (toggle && reachable(toggle)) return toggle.focus();
   }
+  if (first?.docked && dockFocus()) return;
   const page = document.querySelector<HTMLElement>('#view');
   if (!page) return;
   focusOn(page);

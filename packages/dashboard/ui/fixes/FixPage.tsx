@@ -6,6 +6,7 @@ import { Badge } from '../components/bits.js';
 import { ConsentDialog, Dialog, PromptDialog } from '../components/Dialog.js';
 import { DialogSteps, DialogTip } from '../components/DialogFacts.js';
 import { UpdateGoldenDialog } from '../components/UpdateGolden.js';
+import { headingRef } from '../focus-manager.js';
 import { Page } from '../components/Page.js';
 import { NotFoundPage } from '../pages/NotFound.js';
 import { copyText } from '../dom.js';
@@ -26,7 +27,8 @@ import { FailedMust, Flagged } from './parts.js';
 import { RepairStepView } from './RepairStep.js';
 import { useTreeBusy } from './tree.js';
 import { VerifyStepView } from './VerifyStep.js';
-import { ACTIONS, confirmWords } from '../labels.js';
+import { ACTIONS, confirmWords, STRONGER_MODEL } from '../labels.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * A fix (#/fixes/<id>[/<step>[/<sub>]]): its title, check and runs; the stepper (Blame, Repair,
@@ -91,7 +93,7 @@ function FixHeader({ fix, reload, leads }: { fix: FixDetail; reload: () => void;
           <i />
           fix · <code>{fixName(fix)}</code>
         </div>
-        <h1>{fix.title}</h1>
+        <h1 ref={headingRef}>{fix.title}</h1>
         <p className="pmeta">
           {/* Each separator is held to the item before it, so a wrapped line never starts with one. */}
           <Badge tone={badge.tone}>{badge.text}</Badge> <span>{`${fix.failing} failing run${s(fix.failing)}`}</span>
@@ -118,9 +120,9 @@ function FixHeader({ fix, reload, leads }: { fix: FixDetail; reload: () => void;
             </>
           ) : null}
           {app.exported ? null : (
-            <button className="linkbtn fxrename" type="button" disabled={!!app.actionsOff} title={app.actionsOff ?? 'Give this fix a title of your own'} onClick={() => app.guard(() => setRenaming(true))}>
+            <ActionButton className="linkbtn fxrename" title="Give this fix a title of your own" onClick={() => app.guard(() => setRenaming(true))}>
               Rename
-            </button>
+            </ActionButton>
           )}
         </p>
         {/* What failed and what it must do, as the list says it: the title says what failed until someone renames it. */}
@@ -219,9 +221,9 @@ export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boo
     return (
       <>
         {copy}
-        <button className="btn lime" type="button" disabled title={off ?? action.why}>
+        <ActionButton className="btn lime" why={off ?? action.why}>
           {action.label}
-        </button>
+        </ActionButton>
       </>
     );
   if (action.kind === 'applied') {
@@ -253,9 +255,9 @@ export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boo
   return (
     <>
       {copy}
-      <button className={aside || blameNext || leads ? 'btn' : 'btn lime'} type="button" disabled={!!why} title={why ?? aside ?? undefined} onClick={() => app.guard(() => setAsking(action.kind === 'repair' ? 'repair' : 'apply'))}>
+      <ActionButton className={aside || blameNext || leads ? 'btn' : 'btn lime'} why={why} title={aside ?? undefined} onClick={() => app.guard(() => setAsking(action.kind === 'repair' ? 'repair' : 'apply'))}>
         {action.kind === 'repair' ? ACTIONS.runRepair.label : action.label}
-      </button>
+      </ActionButton>
       {blameNext ? (
         <FixJobButton
           kind={JOB_KINDS.blame}
@@ -356,7 +358,7 @@ export function StrongerDialog({ fix, onRun, onClose }: { fix: FixDetail; onRun:
       lead="Probes the run again with the model you name answering from each probed call."
       doc="blame"
       label="Model"
-      placeholder="claude-opus-5-5"
+      placeholder={STRONGER_MODEL}
       ok={confirmWords(ACTIONS.runBlameStronger.label)}
       command={(model) => `${base} --model ${model.trim() || '<model>'}`}
       cost={{ price: 'Billed by your provider', parts: [...(s ? [`the last blame took ${s.attempts} attempts, ${approx(s.spent)}`] : []), probesPart()] }}
@@ -431,7 +433,7 @@ export function ApplyDialog({ fix, label, onClose, onRun }: { fix: FixDetail; la
  * The apply drawer's last word when the patch made other goldens diverge: Update goldens re-records
  * them (`shadowlap test <goldens> --update`), asking first, as the Tests screen's Update goldens does.
  */
-function ApplyFooter({ job }: { job: JobView }) {
+function ApplyFooter({ job, plain }: { job: JobView; plain?: boolean }) {
   const app = useApp();
   const [asking, setAsking] = useState(false);
   const [started, setStarted] = useState(false);
@@ -440,9 +442,9 @@ function ApplyFooter({ job }: { job: JobView }) {
   const ask = updateOutdatedAsk(outdated);
   return (
     <>
-      <button className="btn lime" type="button" disabled={started || !!app.actionsOff} title={app.actionsOff ?? ask.command} onClick={() => app.guard(() => setAsking(true))}>
+      <ActionButton className={plain ? 'btn' : 'btn lime'} disabled={started} title={ask.command} onClick={() => app.guard(() => setAsking(true))}>
         Update goldens
-      </button>
+      </ActionButton>
       {asking ? (
         <UpdateGoldenDialog
           plan={ask}

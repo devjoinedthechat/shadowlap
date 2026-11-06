@@ -7,6 +7,8 @@ import * as checks from './checks.js';
 import * as codingAgents from './coding-agents.js';
 import * as compare from './compare.js';
 import * as decisions from './decisions.js';
+// What the billed jobs a page offers would cost, each a pooled read (estimates.ts).
+import * as estimates from './estimates.js';
 import * as files from './files.js';
 import * as fixes from './fixes.js';
 import * as jobs from './jobs.js';
@@ -36,6 +38,8 @@ import * as forks from './forks.js';
 import * as attemptGroups from './attempt-groups.js';
 // Changes › Verdicts: every change checked, and the verdict it got.
 import * as verdicts from './verdicts.js';
+// The person's own settings on this machine, on every project: Spending.
+import * as userSettings from './user-settings.js';
 
 /** A feature's routes (and job kinds): `routes/<feature>.ts` exports `register(router, ctx)`. */
 export interface RouteModule {
@@ -82,6 +86,8 @@ export const ROUTE_MODULES: RouteModule[] = [
   forks,
   attemptGroups,
   verdicts,
+  userSettings,
+  estimates,
 ];
 
 export function registerRoutes(router: Router, ctx: RouteContext): void {

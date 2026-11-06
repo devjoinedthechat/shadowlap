@@ -6,7 +6,7 @@ import type { Readable } from 'node:stream';
 import { messageOf, type Store } from '@shadowlap/engine';
 import { HttpError } from './http.js';
 import { isLink } from './links.js';
-import type { JobFile, JobLink, JobListItem, JobView, ProjectView } from './views.js';
+import type { JobEstimate, JobFile, JobLink, JobListItem, JobView, ProjectView } from './views.js';
 import { jobCommands, treeClash, treeFolder, treeUse, type JobTree } from './worktree.js';
 
 /**
@@ -31,7 +31,7 @@ import { jobCommands, treeClash, treeFolder, treeUse, type JobTree } from './wor
  *                                                    marks an attempt, which is listed but not opened;
  *                                                    any other ("new", "passing", "failing", "imported")
  *                                                    is a run to open, and the last becomes newRunId
- *   {"type":"link","label":"Open the fix","href":"#/fixes/fx-…"}   where to go next (dashboard routes only)
+ *   {"type":"link","label":"Open fix","href":"#/fixes/fx-…"}   where to go next (dashboard routes only)
  *   {"type":"file","path":".shadowlap/exports/x.jsonl","label":"Dataset"}   a file or folder it wrote
  *   {"type":"result","data":{…}}                     its outcome (what --json prints); the last one is kept
  *
@@ -154,6 +154,22 @@ export interface JobBuild {
   started?: () => void;
 }
 
+/**
+ * The estimate a job starts with, as the page showed it on its card and its ask (the request's
+ * `estimate`), so its drawer says the same whatever the store does after: only its shape is checked,
+ * `usd` a finite amount or null, `ceiling` true or false, `per` a short unit, `stops` a finite
+ * amount. Anything else is none, and the job still starts: nothing reads it to decide what runs, and
+ * it never reaches the command line.
+ */
+export function shownEstimate(v: unknown): JobEstimate | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const { usd, ceiling, per, stops } = v as Record<string, unknown>;
+  const amount = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x) && x >= 0;
+  if (!(usd === null || amount(usd)) || typeof ceiling !== 'boolean') return null;
+  if (!(per === undefined || (typeof per === 'string' && per.length <= 40)) || !(stops === undefined || amount(stops))) return null;
+  return { usd, ceiling, ...(per === undefined ? {} : { per }), ...(stops === undefined ? {} : { stops }) };
+}
+
 /** A job built, or why not: a question asking a yes to a command line carries its `confirm` (consent.ts). */
 export type JobBuildResult = JobBuild | { error: string; status?: number; confirm?: string; live?: unknown };
 
@@ -236,6 +252,8 @@ interface Job {
   kind: string;
   title: string;
   args: string[];
+  /** What the page showed it would bill as it started it (`shownEstimate`); null for none. */
+  estimate: JobEstimate | null;
   /** How it uses its working tree (worktree.ts), while it runs, and that tree's folder through links. */
   worktree: JobTree | null;
   treeAt: string | null;
@@ -522,6 +540,7 @@ export class JobManager {
       kind,
       title,
       args: [...built.args],
+      estimate: shownEstimate(req.estimate),
       worktree: tree,
       treeAt,
       rest: (built.then ?? []).map((a) => [...a]),
@@ -852,6 +871,7 @@ export class JobManager {
       kind: job.kind,
       title: job.title,
       args: [...job.args],
+      ...(job.estimate ? { estimate: { ...job.estimate } } : {}),
       worktree: job.worktree,
       runId: job.runId,
       opensRun: job.opensRun,

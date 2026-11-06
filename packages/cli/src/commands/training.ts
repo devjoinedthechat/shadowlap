@@ -366,7 +366,7 @@ export function register(program: Command): void {
         else process.stdout.write(`${judged}\n`);
       }
       // The scores show something new only when an attempt was scored: a job that scored none ends on its reason.
-      if (done.length) emitJobEvent({ type: 'link', label: 'Open the scores', href: links.training('tasks') });
+      if (done.length) emitJobEvent({ type: 'link', label: 'Open scores', href: links.training('tasks') });
       emitJobEvent({ type: 'result', data: report });
       if (flags.json) process.stdout.write(JSON.stringify(report, null, 2) + '\n');
       // Every task scored in full, 0; cut short by a signal, its status; by the budget, 3; a task skipped or stopped, 1.

@@ -1,12 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
 import { ApiError, JOB_KINDS, type Client, type JobView, type LiveRun, type Meta, type RunListItem } from './api.js';
 import { isUnreachable } from './backoff.js';
-import { connStart, connStep, feedCursor, feedMoves, onTick, secondsLeft, withLiveCalls, type Conn } from './connection.js';
+import { connStart, connStep, feedCursor, feedMoves, onTick, PAUSED, secondsLeft, withLiveCalls, type Conn } from './connection.js';
 import { useLatest } from './hooks.js';
-import { afterPollError, endToast, jobStatus, jobTitle } from './jobs.js';
+import { JobStore, type JobWatch, type WatchedJob } from './job-store.js';
+import { jobTitle } from './job-title.js';
 import { endedRecordings, recordingToast } from './live.js';
 import type { PaletteGroup } from './palette.js';
-import { previewState } from './router.js';
+import { parseRoute, samePage } from './route.js';
+import { currentRoute, navigate, previewState } from './router.js';
 import { errorText, type ToastAction, type ToastKind } from './toast.js';
 
 /**
@@ -28,16 +30,16 @@ export interface PaletteCommand {
   about?: { text: string; from: string } | null;
   /** Words it matches that don't show (a run's kind, command and labels). */
   match?: string;
+  /** Found only once something is typed, never listed on the open palette. */
+  typed?: boolean;
+  /** Its own key, one word per key (`g o`, `f`), set by what the row does: shown while single-key shortcuts are on. */
+  key?: string | undefined;
+  /** Why it can't start now, a job holding what it needs: its hint says so, dimmed, and so does picking it. */
+  wait?: string;
   run: () => void;
 }
 
-export interface WatchedJob {
-  job: JobView;
-  lines: string[];
-  open: boolean;
-  /** The server no longer has it (it was restarted): its end is unknown. */
-  lost?: boolean;
-}
+export type { WatchedJob } from './job-store.js';
 
 export interface AppState {
   client: Client;
@@ -82,17 +84,20 @@ export interface AppState {
   guard: (fn: () => void) => boolean;
   /** A notice at the bottom of the window; `error` for a refusal or a failure, which stays until dismissed (`toast.ts`). */
   toast: (text: string, kind?: ToastKind, action?: ToastAction) => void;
+  /** Takes away the toast that offers `action`, if it still shows: its job's drawer says the same now. */
+  dropToast: (action: ToastAction) => void;
   toastText: { id: number; text: string; kind: ToastKind; action?: ToastAction } | null;
   /** Shows a started job in the drawer and follows it to the end. */
   watchJob: (p: Promise<JobView>) => void;
   jobs: WatchedJob[];
   /**
    * Opens a job's drawer again: one this page follows, or one it doesn't (started in another tab, or
-   * before the page loaded), which it then follows to its end.
+   * before the page loaded), which it then follows to its end. `focus`: the drawer takes the focus.
    */
-  openJob: (id: string) => void;
+  openJob: (id: string, focus?: boolean) => void;
+  /** Esc, the chevron, ×: hides a running job behind the status bar's chip, and closes one that is over. */
   closeJob: (id: string) => void;
-  /** Closes every job's drawer, as leaving a page does; running jobs go on and say when they finish. */
+  /** Closes a finished job's drawer, as leaving a page does; a running job's drawer stays across pages. */
   closeJobs: () => void;
   /** The open run's keys (j, k, 1–4, v, n, p, f, /): true when it handled one. */
   runKeys: RefObject<((e: KeyboardEvent) => boolean) | null>;
@@ -225,9 +230,16 @@ const POLL_MS = 2000;
 /** How soon the run list is asked again while some of its rows' totals are being added up. */
 export const RUNS_WARMING_MS = 1500;
 
+/** A job a newer one took the drawer from ended: its way on from what it reported, unless that is in another project, else Show. */
+async function sayReplacedEnd(job: JobView, lines: readonly string[], here: string | undefined, toast: AppState['toast'], show: (id: string) => void): Promise<void> {
+  const { endToast, jobStatus, wayOnOf } = await import('./jobs.js');
+  const way = job.project && job.project.id !== here ? null : wayOnOf(job, (to) => samePage(parseRoute(to), currentRoute()));
+  toast(endToast(job, lines), jobStatus(job, lines).tone === 'err' ? 'error' : 'notice', way ? { label: way.label, run: () => navigate(way.href) } : { label: 'Show', run: () => show(job.id) });
+}
+
 /** Runs `fn` unless the server is out of reach, which it says in a toast; whether it ran. */
 function guarded(paused: boolean, toast: (text: string) => void, fn: () => void): boolean {
-  if (paused) toast('Actions are paused until the dashboard server is back.');
+  if (paused) toast(PAUSED);
   else fn();
   return !paused;
 }
@@ -248,7 +260,8 @@ export function AppProvider({ client, children }: { client: Client; children: Re
   const [feeds, setFeeds] = useState<Readonly<Record<string, number>>>({});
   const [live, setLive] = useState<LiveRun[]>([]);
   const [toastText, setToastText] = useState<{ id: number; text: string; kind: ToastKind; action?: ToastAction } | null>(null);
-  const [jobs, setJobs] = useState<WatchedJob[]>([]);
+  const [jobStore] = useState(() => new JobStore());
+  const jobs = useSyncExternalStore(jobStore.subscribe, jobStore.get, jobStore.get);
   const [sideOpen, setSideOpen] = useState(false);
   const [palette, setPalette] = useState(false);
   const [help, setHelp] = useState(false);
@@ -258,6 +271,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
   const previewOffline = useRef(preview === 'offline');
 
   const toast = useCallback((text: string, kind: ToastKind = 'notice', action?: ToastAction) => setToastText({ id: Date.now() + Math.random(), text, kind, ...(action ? { action } : {}) }), []);
+  const dropToast = useCallback((action: ToastAction) => setToastText((t) => (t?.action === action ? null : t)), []);
 
   const goOffline = useCallback(() => dispatch({ type: 'unreachable', now: Date.now() }), []);
 
@@ -492,66 +506,30 @@ export function AppProvider({ client, children }: { client: Client; children: Re
   const hasKind = useCallback((kind: string) => (meta?.jobKinds ? meta.jobKinds.includes(kind) : false), [meta]);
   const guard = useCallback((fn: () => void) => guarded(connRef.current === 'offline', toast, fn), [connRef, toast]);
 
-  // ---- jobs: each is followed to its end, whether or not its drawer is open. While the server is
-  // unreachable the polls wait, and pick up once it is back; a job the server no longer has is lost.
-  const following = useRef(new Map<string, string[]>());
-  const follow = useCallback(
-    (first: JobView) => {
-      if (following.current.has(first.id)) return;
-      following.current.set(first.id, first.lines);
-      let count = first.total;
-      let failures = 0;
-      const lose = () => {
-        following.current.delete(first.id);
-        setJobs((list) => list.map((w) => (w.job.id === first.id ? { ...w, lost: true } : w)));
-        const shown = jobsNow.current.find((w) => w.job.id === first.id);
-        if (!shown?.open) toast(`${jobTitle(first)}: the dashboard server no longer has this job`, 'error');
-      };
-      const step = async () => {
-        if (!following.current.has(first.id)) return;
-        if (connRef.current === 'expired') return void following.current.delete(first.id);
-        if (connRef.current !== 'ok') return void setTimeout(() => void step(), 1000);
-        let next: JobView;
-        try {
-          next = await client.job(first.id, count);
-          failures = 0;
-        } catch (err) {
-          failures += 1;
-          fail(err);
-          const what = afterPollError({ status: err instanceof ApiError ? err.status : null, unreachable: isUnreachable(err), failures });
-          if (what === 'stop') following.current.delete(first.id);
-          else if (what === 'lost') lose();
-          else setTimeout(() => void step(), what === 'wait' ? 1000 : Math.min(8000, 500 * 2 ** failures));
-          return;
-        }
-        count = next.total;
-        const all = [...(following.current.get(first.id) ?? []), ...next.lines].slice(-2000);
-        following.current.set(first.id, all);
-        setJobs((list) => list.map((w) => (w.job.id === first.id ? { ...w, job: next, lines: all } : w)));
-        if (!next.done) {
-          setTimeout(() => void step(), 300);
-          return;
-        }
-        following.current.delete(first.id);
-        refresh();
-        // An HTML copy and a HAR download as well as being written into the project (decision 5).
-        if (next.code === 0 && (next.kind === JOB_KINDS.har || next.kind === JOB_KINDS.exportHtml)) for (const f of next.files ?? []) if (!f.directory) void client.downloadFile(f).catch(() => undefined);
-        // A job whose drawer was closed early still says how it ended.
-        const shown = jobsNow.current.find((w) => w.job.id === first.id);
-        if (!shown?.open) toast(endToast(next, all), jobStatus(next, all).tone === 'err' ? 'error' : 'notice');
-      };
-      setTimeout(() => void step(), 200);
+  // ---- jobs: each is followed to its end (job-store.ts), whatever its drawer does.
+  const jobEvents = useLatest<JobWatch>({
+    poll: (id, from) => client.job(id, from),
+    conn: () => connRef.current,
+    failed: fail,
+    ended: (job, lines, watched) => {
+      refresh();
+      // An HTML copy and a HAR download as well as being written into the project (decision 5).
+      if (job.code === 0 && (job.kind === JOB_KINDS.har || job.kind === JOB_KINDS.exportHtml)) for (const f of job.files ?? []) if (!f.directory) void client.downloadFile(f).catch(() => undefined);
+      // On the screen, its drawer says how it ended; hidden, its drawer raises the toast, its way on there to take.
+      if (watched?.open || watched?.hidden) return;
+      void sayReplacedEnd(job, lines, meta?.project?.id, toast, (id) => openJobNow.current(id, true));
     },
-    [client, refresh, toast, jobsNow, connRef, fail],
-  );
+    lost: (job, watched) => {
+      if (!watched?.open) toast(`${jobTitle(job)}: the dashboard server no longer has this job`, 'error');
+    },
+  });
 
-  const watchJob = useCallback(
-    (p: Promise<JobView>) => {
-      p.then(
-        (job) => {
-          setJobs((list) => [...list.filter((w) => w.job.id !== job.id && !((w.job.done || w.lost) && !w.open)).map((w) => ({ ...w, open: false })), { job, lines: job.lines, open: true }].slice(-8));
-          follow(job);
-        },
+  const watch = useCallback(
+    (p: Promise<JobView>, focus = false) => {
+      jobStore.starting(
+        p,
+        jobEvents,
+        focus,
         // The server refused to start it (the repairer changed, a fix moved on, a bad request): its
         // reason stays on screen, as an error.
         (err: unknown) => {
@@ -560,18 +538,19 @@ export function AppProvider({ client, children }: { client: Client; children: Re
         },
       );
     },
-    [follow, fail, toast],
+    [jobStore, jobEvents, fail, toast],
   );
-
+  const watchJob = useCallback((p: Promise<JobView>) => watch(p), [watch]);
   const openJob = useCallback(
-    (id: string) => {
-      if (jobsNow.current.some((w) => w.job.id === id)) setJobs((list) => list.map((w) => ({ ...w, open: w.job.id === id })));
-      else watchJob(client.job(id, 0));
+    (id: string, focus = false) => {
+      // One only another tab follows needs the server: while it is out of reach, why in a toast.
+      if (!jobStore.open(id, focus)) guard(() => watch(client.job(id, 0), focus));
     },
-    [client, jobsNow, watchJob],
+    [client, jobStore, watch, guard],
   );
-  const closeJob = useCallback((id: string) => setJobs((list) => list.map((w) => (w.job.id === id ? { ...w, open: false } : w)).filter((w) => w.open || (!w.job.done && !w.lost))), []);
-  const closeJobs = useCallback(() => setJobs((list) => (list.some((w) => w.open) ? list.filter((w) => !w.job.done && !w.lost).map((w) => ({ ...w, open: false })) : list)), []);
+  const openJobNow = useLatest(openJob);
+  const closeJob = useCallback((id: string) => jobStore.close(id), [jobStore]);
+  const closeJobs = useCallback(() => jobStore.closeFinished(), [jobStore]);
 
   const runKeys = useRef<((e: KeyboardEvent) => boolean) | null>(null);
 
@@ -597,6 +576,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       hasKind,
       guard,
       toast,
+      dropToast,
       toastText,
       watchJob,
       jobs,
@@ -613,7 +593,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       runCommands,
       setRunCommands,
     }),
-    [client, meta, runs, loadedAt, syncedAt, conn, retryIn, retrying, retryNow, tick, runsTick, feeds, live, refresh, reload, actionsOff, hasKind, guard, toast, toastText, watchJob, jobs, openJob, closeJob, closeJobs, sideOpen, palette, help, runCommands],
+    [client, meta, runs, loadedAt, syncedAt, conn, retryIn, retrying, retryNow, tick, runsTick, feeds, live, refresh, reload, actionsOff, hasKind, guard, toast, dropToast, toastText, watchJob, jobs, openJob, closeJob, closeJobs, sideOpen, palette, help, runCommands],
   );
   // The state goes to the store, which tells the components that read what changed: the page
   // below is given once, so the provider's own re-render redraws none of it.

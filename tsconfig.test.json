@@ -52,7 +52,12 @@
     // These render the shell's dialogs and palette, or ask through the page's client.
     "packages/dashboard/test/ui-dialog-tab.test.ts",
     "packages/dashboard/test/ui-dialog-anatomy.test.ts",
+    "packages/dashboard/test/ui-job-end.test.ts",
+    "packages/dashboard/test/ui-route-helpers.ts",
+    "packages/dashboard/test/ui-list-keys.test.ts",
+    "packages/dashboard/test/ui-row-step.test.ts",
     "packages/dashboard/test/ui-palette-ids.test.ts",
+    "packages/dashboard/test/ui-palette-step.test.ts",
     "packages/dashboard/test/ui-client-cache.test.ts",
     // These render the Runs page's bulk bar, the Overview's panels and the lists of runs.
     "packages/dashboard/test/ui-runs-bulk.test.ts",
@@ -73,6 +78,8 @@
     // These render the job drawer and the top bar, the palette, the card a refused link shows and
     // an exported copy's Provenance.
     "packages/dashboard/test/ui-job-stop.test.ts",
+    "packages/dashboard/test/ui-dock.test.ts",
+    "packages/dashboard/test/ui-toast.test.ts",
     "packages/dashboard/test/ui-palette-modes.test.ts",
     "packages/dashboard/test/ui-token-card.test.ts",
     "packages/dashboard/test/ui-exported-provenance.test.ts",
@@ -94,6 +101,8 @@
     "packages/dashboard/test/run-roles.test.ts",
     // This renders the skip link, the palette, a menu, a dialog and the card a refused link shows.
     "packages/dashboard/test/ui-focus.test.ts",
+    // This opens Fixes and Tests, and follows where the focus goes as they load.
+    "packages/dashboard/test/ui-page-heading.test.ts",
     "packages/dashboard/test/ui-overlays.test.ts",
     "packages/dashboard/test/ui-overlays-route.test.ts",
     "packages/dashboard/test/ui-menu-cards.test.ts",

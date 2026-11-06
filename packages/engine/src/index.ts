@@ -46,16 +46,16 @@ export { CHECK_STATUSES, STATUS_WORDS, checkOutcome, checkStatus, countStatuses,
 // Outcome checks (checks/): the grammar, its parser, and each check's label and a result's line, none
 // of which needs Node, so the dashboard's pages can bundle them; a run judged by them, a judge check
 // with no verdict inconclusive; and the tests entries in the config. The CLI's checks.ts re-exports them.
-export { EXPECT_KEYS, JUDGE_MODEL, OPERATORS, OPERATOR_ALIASES, aliasOf, hasChecks, judgeChecksOf, pathsNamed, readsOutput, toolsNamed, withoutOutput } from './checks/grammar.js';
+export { EXPECT_KEYS, JUDGE_MODEL, OPERATORS, OPERATOR_ALIASES, aliasOf, hasChecks, judgeChecksOf, pathsNamed, readsMoreThanAStep, readsOutput, toolsNamed, withoutOutput } from './checks/grammar.js';
 export type { CallCondition, CallRule, CheckResult, CountRange, ExpectSpec, JudgeCheck, Matcher, NamedPath, NamedTool, Operand, Operator, Reference, TestEntry, TestSpec, TextCheck, ToolCheck, WhenRule } from './checks/grammar.js';
 export { parseAmount, parseCallRule, parseCount, parseExpect, parseJudge, parsePredicate, parseWhen } from './checks/parse.js';
 export { CHECK_MARKS, RULES_ON_CALLS, callRuleLabel, checkLabels, checkLine, checkWords, conditionLabel, costLabel, countLabel, formatAmount, formatCount, judgeLabel, judgeSource, passedWords, showValue, textLabels, toolCheckLabel, whenLabel, type CountKey, type TextKey } from './checks/labels.js';
 export { LABEL_INPUT, argsMatch, closestName, evaluateChecks, judgeProvider, judgeResults, notJudgedWhy, storedCalls, storedCheckInput, unreadPaths } from './checks/evaluate.js';
 export type { CheckInput, EvaluateOptions, JudgeCheckVerdict, RecordedCalls, UnreadPath } from './checks/evaluate.js';
-export { CHAOS_TIMEOUT, DEFAULT_CHAOS, TEST_SETTINGS, chaosFor, parseChaosFields, parseTestSettings, parseTests, specFor } from './checks/tests-entry.js';
+export { CHAOS_TIMEOUT, DEFAULT_CHAOS, TEST_SETTINGS, chaosFor, parseChaosFields, parseTestSettings, parseTests, recordedChecks, specFor } from './checks/tests-entry.js';
 export type { ChaosSpec, ExpectParser, TestSettings } from './checks/tests-entry.js';
 // A recording judged from what it holds, a judge check by the verdict it recorded: `shadowlap check`'s, and the dashboard's for a run judged by its family's checks.
-export { NO_OUTPUT_KEPT, READS_OUTPUT, checkFailures, heldVerdict, judgeMaterialFor, judgeRecording, judgedOptions, outputUnjudged, recordedVerdicts } from './checks/recorded.js';
+export { NO_OUTPUT_KEPT, READS_OUTPUT, checkFailures, heldVerdict, judgeMaterialFor, judgeRecording, judgedOptions, outputUnjudged, recordedRole, recordedVerdicts } from './checks/recorded.js';
 export type { Judged, JudgeMaterialSource, RecordingJudged } from './checks/recorded.js';
 export type { NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession, TestSessionComment, TestSessionPullRequest } from './store.js';
 export { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, unmaskedHints, valueHints, volatileValue, volatileValues, type VolatileValue, type VolatileValues } from './volatile.js';
@@ -89,7 +89,7 @@ export type { CalibrationOutcome, EffectiveSetup, GoldenTestFact, Inspection, Pa
 export { bringRequest, loadApiRequest, manifestRefs, storeApiRequest } from './manifest.js';
 export { ACCOUNT_HEADERS } from './account-headers.js';
 export { compareRuns, formatComparison, runChanges, runsDiffer, toolDefinitions, type RunCourse } from './compare.js';
-export { requestPathLabel } from './request-paths.js';
+export { pathSetByCode, requestPathLabel } from './request-paths.js';
 export { describeChanges, type RunChanges } from './changes.js';
 export type { CallDifference, ComparedIntervention, RunComparison } from './compare.js';
 export type { RequestManifest } from './manifest.js';
@@ -145,6 +145,8 @@ export { LABEL_MAX, NOTE_MAX, cleanLabel, withLabels, withNote } from './labels-
 export { formatRepeats, pathOf, summarizeRepeats } from './repeat.js';
 export { blameStateWord, describeBlocks, describeRescue, formatBlame, INCONCLUSIVE_FIRST, INCONCLUSIVE_FIRST_HEAD, lostWhere, maxProbes, notTheAnswer, probeBound, probeFinding, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedWhy, unrescuedWords, unsettledFirst } from './blame.js';
 export type { BlameAttempt, BlameContrast, BlameOutcome, BlameProbe, BlameReport, BlameSearchOptions, BlameSearchResult, Confidence, PinCheck, ProbeVerdict } from './blame.js';
+// The blame a repair reuses on a failing run rather than search again, as the CLI and Run repair's estimate read it.
+export { reusedBlame, type ReusedBlame } from './blame-reuse.js';
 export { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateShort, gateVerdict, keptTally, keptVerdict, outcomeOf, runVerdict, unsettledReason, verifyRule } from './verify.js';
 // What answered an attempt's tool calls after its fork: verify's line on it and its warnings.
 export { afterForkLines, afterForkOf, afterForkWarnings, type AfterFork } from './after-fork.js';
@@ -152,10 +154,10 @@ export { afterForkLines, afterForkOf, afterForkWarnings, type AfterFork } from '
 // verify's test of a good run against its own baseline, and the isotonic fit both read rates with.
 export { blameSpan, confidenceOf, confidenceWhy, decidePin, pinRisk, pinRule, pinWords, pooledRates, probeClaim, probeGate, probeRisk, unrescuedHead } from './blame.js';
 export { antitonic, type Fitted } from './isotonic.js';
-export { addPair, baselineShort, clopperPearsonBound, decideAgainstHistory, decideAgainstHistoryAround, decidePaired, decidePairedAround, describeBaselineRule, dropBound, dropEndsRisk, historyBounds, historyDrop, historyOdds, KEPT_DEFAULTS, KEPT_MAX, NO_PAIRS, pairedBrokenLog, pairedDrop, pairedKeptLog, pairedOdds, pairedWorstCase, pairsOf } from './noninferiority.js';
+export { addPair, baselineSaysNothing, baselineShort, clopperPearsonBound, decideAgainstHistory, decideAgainstHistoryAround, decidePaired, decidePairedAround, describeBaselineRule, dropBound, dropEndsRisk, historyBounds, historyDrop, historyOdds, KEPT_DEFAULTS, KEPT_MAX, NO_PAIRS, pairedBrokenLog, pairedDrop, pairedKeptLog, pairedOdds, pairedWorstCase, pairsOf } from './noninferiority.js';
 export type { BaselineDecision, BaselineOdds, BaselineRule, BaselineSource, DropBound, PairCounts } from './noninferiority.js';
 // decisions' control arm: a change ranked only beyond the model's own variation, by exact tests.
-export { consequence, CONTROL_MIN_SAMPLES, CONTROL_RISK, rankBeyondNoise } from './control-arm.js';
+export { chanceRanked, consequence, CONTROL_MIN_SAMPLES, CONTROL_RISK, rankBeyondNoise } from './control-arm.js';
 export { fisherGreater, permutationGreater } from './exact-tests.js';
 // Statistical gating: verdicts with stated error rates on attempts that vary (test's gate, verify, blame).
 export { BASELINE_DEFAULTS, BASELINE_PASS_AT, BLAME_DEFAULTS, GATE_MAX_ATTEMPTS, PASS_K_SHOWN, RECORDING_BASELINE, SPRT_DEFAULTS, atLeast, atMost, attemptsToFail, attemptsToPass, baselineOf, betaCdf, betaPdf, binomialTail, countOdds, decide, decideCount, decideCountUnavailable, decideUnavailable, decisionWord, describeGate, dropProbability, formatPassK, formatTally, gateLimit, gateOdds, gateOddsAt, gateOf, gateResult, gateSentence, lnGamma, normalQuantile, parseGate, passesPerFailure, passHatK, percent, runsRed, sprtBounds, sprtScore, sprtStep, verdictLine, wilson } from './stats.js';
@@ -166,12 +168,13 @@ export type { BaselineEvidence, BaselineGate, Gate, GateDecision, GateHistory, G
 export { boundOf, clopperPearson, confidencePercent, confidenceSequence, countInterval, gateInterval, rateBound, riskPercent, stagewiseInterval, tallyInterval } from './stats.js';
 export type { BoundMethod, GateStop, RateBound, RateInterval, SprtFigures } from './stats.js';
 // A provider that can't answer says nothing about the agent: retried, never counted (rv-gates).
-export { UNAVAILABLE_RETRY, attemptsInARow, providerUnavailable, retryAfter, retryDelay, sessionInARow, sessionUnavailableReason, unavailableReason, unavailableStatus, unavailableStop, type Unavailable } from './unavailable.js';
+export { UNAVAILABLE_RETRY, attemptsInARow, providerRefused, providerUnavailable, retryAfter, retryDelay, sessionInARow, sessionUnavailableReason, unavailableReason, unavailableStatus, unavailableStop, type Unavailable } from './unavailable.js';
 // A golden's baseline for a gate against its history, pooled from the store's test history.
 export { attemptsOf, gateHistory, judgedUnder, notBaseline, recentAttempts, sessionAttempts, testResultVerdict, type HistoryFilter, type HistorySession, type PooledHistory } from './gate-history.js';
 // One risk for a test session, split across its gated goldens (rv-gates).
 export { COUNTS_AT, DECLINE_AT, INCONCLUSIVE_AT_GOOD, RECORD_WINDOWS, SUITE_RISK, planSuite, predictive, type PlannedGolden, type SuiteGolden, type SuitePlan } from './suite.js';
 export { applyEdit, caseDetails, checkEdit, commitTitle, editSize, findAnchors, forbiddenDetails, formatRepair, gitApplyCommand, NO_REPAIRER, noRepairerOf, REPAIR_FILE_LIMIT, repairMarkdown, targetWhere, unifiedDiff } from './repair.js';
+export { repairOutcomeWord } from './repair-words.js';
 export type { Anchor, CandidateState, EditCheck, ProposedEdit, RepairCandidate, RepairOutcome, RepairRange, RepairReport, RepairTarget, SourceFile, Surface } from './repair.js';
 // What a repair's patch may change, and where a repair rewrites text: a pulled one is held to it in the working tree.
 export { fileThatRuns, modelSwitch, patchFiles, repairNeverRewrites, repairNeverRewritesAt, repairPatchProblem, rewritableAnchors, rewriteHere, rewriteKind, type RewriteKind } from './repair-patch.js';
@@ -233,11 +236,11 @@ export { DECISIONS_ID, JUDGED_IN_RECORDED_STATE, MIGRATE_ID, NO_TOKENS, RANK_LAB
 export type { DecisionCall, DecisionChange, DecisionChangeKind, DecisionComparison, DecisionCounts, DecisionJudge, DecisionJudgeSide, DecisionOptions, DecisionRank, DecisionRemedy, DecisionRun, DecisionStep, DecisionStop, DecisionsChange, DecisionsJudged, DecisionsReport, DecisionsVerify, DecisionView, EffectOf, FromCodeChange, ModelDecision, TokenCount } from './decisions.js';
 // A session's headline, its name and what it moved, and why a preview or a migration settles nothing,
 // in the words and by the rules the CLI and the dashboard's Verdicts share.
-export { decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, migrateBreaks, migrateUnsettled, unsettledRun, type DecisionsHeadline, type MigratePasses, type UnsettledRun } from './decisions.js';
+export { decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, migrateBreaks, migrateUnsettled, needsVerify, unsettledRun, type DecisionsHeadline, type MigratePasses, type UnsettledRun } from './decisions.js';
 // What a test session and a verify came to, as the dashboard's pages say it beside the verdict: a
 // preview's verify by verify's head, a fix's as its Verify step heads it.
 export { fixVerifyHead, goldensPassed, runOutcomeWord, verdictWord, verifyHead } from './verdict-words.js';
-export { ACTIONS, confirmWords, forceLiveLabel, type ActionWords } from './action-words.js';
+export { ACTIONS, confirmWords, forceLiveLabel, STRONGER_MODEL, type ActionWords } from './action-words.js';
 // The names the goldens a fix's apply copies go by, for `fix apply --name` and the dashboard's Apply fix.
 export { asGoldenName, defaultGoldenNames, goldenNameArgs, goldenNamesProblem, type GoldenNameProblem } from './golden-names.js';
 export { goldensFolder, type GoldenThere } from './goldens-folder.js';
@@ -261,12 +264,12 @@ export type { ChaosResult, ChaosResultData, ChaosSession, ChaosVerdict, NewChaos
 // Each billed job's estimate before it runs, one helper per kind (A15), and Spending, the rule for when a job asks
 // first, kept in this machine's settings: the dashboard's server works them out, its pages and the terminal UI say them.
 export { CUT_SHORT_LINE, liveFrom, liveSums, modelFactor, noEstimate, noPriceWords, pricedCalls, recordEstimate, spentLive, timesWords, type Estimate, type EstimateKind, type ExpectedFigure, type LiveCost, type PriceOptions, type PricedCall, type Prices } from './estimates/estimate.js';
-export { amountWords, askWords, asksFirst, centsWords, costLine, costWords, drawerCost, heldAmount, parseSpending, priceWords, SPENDING_DEFAULT, SPENDING_PICKS, SPENDING_REFUSED, spendingField, spendingUsd, spendingWords, validSpending, type CostShown, type Spending } from './estimates/spending.js';
+export { amountWords, askedOverThreshold, askWords, asksFirst, centsWords, costLine, costWords, drawerCost, heldAmount, parseSpending, priceWords, SPENDING_DEFAULT, SPENDING_PICKS, SPENDING_REFUSED, spendingField, spendingUsd, spendingWords, validSpending, type CostShown, type Spending } from './estimates/spending.js';
 export { forkEstimate, plantEstimate, PLANT_REPEAT, repeatEstimate, REPEAT_TIMES, type ForkEstimateChange } from './estimates/fork.js';
 export { BLAME_SCAN, blameBound, blameEstimate, blameRules, blameSteps, probedCalls, probedInScope, type BlameBound, type BlameEstimateOptions, type BlameRule, type BlameRules } from './estimates/blame.js';
 export { keptMaxOf, lastVerify, VERIFY_LIVE, verifyCeiling, verifyEstimate, verifyLimits, verifyMoreEstimate, verifyParts, verifyRunCosts, type LastVerify, type VerifyEstimateOptions, type VerifyLimits, type VerifyRule, type VerifyRunCost } from './estimates/verify.js';
-export { REPAIR_CANDIDATES, REPAIRER_LIMITS, repairerBound, repairEstimate, splitHoldout, type NoFixToTry, type RepairPlan, type RepairRun } from './estimates/repair.js';
-export { bisectCommits, bisectEstimate, goldenTestEstimate, moreEstimate, runBisectEstimate, testsEstimate, updateEstimate, type GateSpend, type MoreFigure, type SessionResult } from './estimates/tests.js';
+export { REPAIR_CANDIDATES, REPAIR_VERIFIES, REPAIRER_LIMITS, repairerBound, repairEstimate, splitHoldout, type NoFixToTry, type RepairPlan, type RepairRun } from './estimates/repair.js';
+export { bisectCommits, bisectEstimate, goldenRerunEstimate, goldenTestEstimate, moreEstimate, runBisectEstimate, testsEstimate, updateEstimate, type GateSpend, type MoreFigure, type SessionResult } from './estimates/tests.js';
 export { CLEAN_GATE, causeEstimate, GATE_REPEAT, injectionAgainEstimate, injectionEstimate, injectionGateEstimate, presetsEstimate, type InjectionPlan } from './estimates/injection.js';
 export { decisionRunCost, MIGRATE_SAMPLES, migrateEstimate, PREVIEW_SAMPLES, previewEstimate, type MigratePlan, type PreviewChange, type PreviewOptions } from './estimates/changes.js';
 export { askedInScope, defaultFrom, modelUse, type ModelUse } from './switch-from.js';

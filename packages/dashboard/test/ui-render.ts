@@ -101,6 +101,9 @@ export class FakeElement {
   get disabled(): boolean {
     return this.attributes.has('disabled');
   }
+  get id(): string {
+    return this.attributes.get('id') ?? '';
+  }
   get isConnected(): boolean {
     for (let n: FakeElement | null = this; n; n = n.parentNode) if (n === this.ownerDocument.body) return true;
     return false;
@@ -170,6 +173,7 @@ export class FakeInput extends FakeElement {}
 export class FakeTextArea extends FakeElement {}
 
 export class FakeDocument {
+  readonly documentElement: FakeElement;
   readonly body: FakeElement;
   activeElement: FakeElement;
   /** How an element sends an event of its own (`click()`), once it is in a page. */
@@ -179,6 +183,7 @@ export class FakeDocument {
   /** Those it adds for the capture phase, which hear an event before anything in the page does. */
   private readonly capturing: FakeElement;
   constructor() {
+    this.documentElement = new FakeElement('HTML', this);
     this.body = new FakeElement('BODY', this);
     this.activeElement = this.body;
     this.own = new FakeElement('#document', this);
@@ -220,8 +225,8 @@ function walk(el: FakeElement, visit: (el: FakeElement) => void): void {
   for (const c of el.children) walk(c, visit);
 }
 
-// ---- selectors: tags, classes, ids, attributes and :not() of those, one inside another, in
-// lists. Nothing else: anything more is refused rather than matched wrongly.
+// ---- selectors: tags, classes, ids, attributes and :not() of those, one inside another or
+// directly inside (`>`), in lists. Nothing else: anything more is refused rather than matched wrongly.
 
 interface Compound {
   tag: string | null;
@@ -231,6 +236,8 @@ interface Compound {
   nots: Compound[];
   /** `:focus-visible`: here, the element that has the focus, as a key moves it. */
   focused: boolean;
+  /** Written after `>`: directly inside the one before it. */
+  child: boolean;
 }
 
 /** `s` cut where `at` says, outside brackets and parentheses. */
@@ -252,7 +259,7 @@ function splitTop(s: string, at: (ch: string) => boolean): string[] {
 }
 
 function parseCompound(s: string): Compound {
-  const c: Compound = { tag: null, classes: [], ids: [], attrs: [], nots: [], focused: false };
+  const c: Compound = { tag: null, classes: [], ids: [], attrs: [], nots: [], focused: false, child: false };
   let i = 0;
   const tag = /^[a-zA-Z][a-zA-Z0-9-]*/.exec(s);
   if (tag) {
@@ -273,11 +280,25 @@ function parseCompound(s: string): Compound {
   return c;
 }
 
+/** One selector of a list, as the compounds it nests. */
+function parseChain(one: string): Compound[] {
+  const chain: Compound[] = [];
+  let child = false;
+  for (const part of splitTop(one, (ch) => /\s/.test(ch))) {
+    if (part === '>') child = true;
+    else {
+      chain.push({ ...parseCompound(part), child });
+      child = false;
+    }
+  }
+  return chain;
+}
+
 /** Each selector of a list, as the compounds it nests, outermost first. */
 const parsed = new Map<string, Compound[][]>();
 function parseSelector(selector: string): Compound[][] {
   let list = parsed.get(selector);
-  if (!list) parsed.set(selector, (list = splitTop(selector, (ch) => ch === ',').map((one) => splitTop(one, (ch) => /\s/.test(ch)).map(parseCompound))));
+  if (!list) parsed.set(selector, (list = splitTop(selector, (ch) => ch === ',').map(parseChain)));
   return list;
 }
 
@@ -292,11 +313,13 @@ function matchCompound(el: FakeElement, c: Compound): boolean {
 }
 
 /** Whether `el` is what the last compound says, inside what each one before it says. */
-function matchNested(el: FakeElement, chain: Compound[]): boolean {
-  if (!matchCompound(el, chain.at(-1)!)) return false;
-  let i = chain.length - 2;
-  for (let n = el.parentNode; n && i >= 0; n = n.parentNode) if (matchCompound(n, chain[i])) i--;
-  return i < 0;
+function matchNested(el: FakeElement, chain: Compound[], at = chain.length - 1): boolean {
+  const c = chain[at];
+  if (!matchCompound(el, c)) return false;
+  if (at === 0) return true;
+  if (c.child) return !!el.parentNode && matchNested(el.parentNode, chain, at - 1);
+  for (let n = el.parentNode; n; n = n.parentNode) if (matchNested(n, chain, at - 1)) return true;
+  return false;
 }
 
 // ---- props as attributes, as React DOM sets them

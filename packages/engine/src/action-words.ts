@@ -24,6 +24,9 @@ export interface ActionWords {
   doing?: string;
 }
 
+/** The model Run blame with stronger model's field suggests before one is typed, and so the model its price is worked out at until one is. */
+export const STRONGER_MODEL = 'claude-opus-5-5';
+
 export const ACTIONS = {
   // The fork menu at a call, in the CLI's verbs, as the terminal UI and the dashboard offer it
   // (run-actions.ts); Force <tool> live names its tool.
@@ -66,6 +69,20 @@ export const ACTIONS = {
   addNormalizerAndUpdate: { label: 'Add normalizer and update', doing: 'Adding normalizer and updating golden' },
   addNormalizerRule: { label: 'Add normalizer…' },
   findBreakingCommit: { label: 'Find breaking commit…', doing: 'Finding breaking commit' },
+  // What a run's page leads with besides those: a page to open, a test run again, a pack made a golden.
+  openFix: { label: 'Open fix' },
+  openProof: { label: 'Open proof' },
+  openPassingRun: { label: 'Open passing run' },
+  compareWithParent: { label: 'Compare with parent' },
+  compareWithFork: { label: 'Compare with fork' },
+  compareWithReplay: { label: 'Compare with replay' },
+  compare: { label: 'Compare' },
+  replayRecording: { label: 'Replay recording', doing: 'Replaying' },
+  rerunTest: { label: 'Re-run test', doing: 'Re-running test' },
+  runInjectionTest: { label: 'Run injection test…', doing: 'Testing for injection' },
+  rerunInjectionTest: { label: 'Re-run injection test', doing: 'Testing for injection' },
+  packAsGolden: { label: 'Pack as golden…', doing: 'Packing as golden' },
+  packWithGate: { label: 'Pack with injection gate…', doing: 'Packing with injection gate' },
   // Runs and Training. Import capture… takes a trace from a store too, which Activity names.
   importCapture: { label: 'Import capture…', doing: 'Importing capture' },
   exportPairs: { label: 'Export pairs…', doing: 'Exporting pairs' },

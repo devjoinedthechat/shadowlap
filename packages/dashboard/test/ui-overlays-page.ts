@@ -23,9 +23,9 @@ export function noMedia(): void {
   delete (globalThis as { matchMedia?: unknown }).matchMedia;
 }
 
-/** A page in the shell's frame: the skip link, the app, the connection bar's place, the three slots and the key handler. */
+/** A page in the shell's frame: the skip link, the app with the connection bar's place in it, the three slots and the key handler. */
 export const shell = (over: Partial<AppState>, ...parts: ReactNode[]) =>
-  createElement(AppContext.Provider, { value: app(over) }, createElement('a', { className: 'skip', href: '#view' }, 'Skip'), createElement('div', { id: 'app' }, ...parts), createElement('div', { id: 'conn' }), createElement(OverlaySlots), createElement(Keyboard));
+  createElement(AppContext.Provider, { value: app(over) }, createElement('a', { className: 'skip', href: '#view' }, 'Skip'), createElement('div', { id: 'app' }, createElement('div', { id: 'conn' }), ...parts), createElement(OverlaySlots), createElement(Keyboard));
 
 /** A menu as a page draws one, its rows under it. */
 export const menuOf = (props: Omit<PopoverProps, 'children'>, ...rows: ReactNode[]) => createElement(Popover, { ...props, children: createElement(Fragment, null, ...rows) });

@@ -289,6 +289,7 @@ export function AddServerDialog({ files, onClose }: { files: ToolsSettings['mcp'
       ok="Copy entry"
       okDisabled={!shown}
       keepOnSwitch
+      local
       onClose={onClose}
       onOk={() =>
         copyText(copied).then((ok) => {

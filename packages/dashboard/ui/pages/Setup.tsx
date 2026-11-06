@@ -5,6 +5,7 @@ import { Eyebrow, PageHeader, StepList, type Step } from '../components/bits.js'
 import { Page } from '../components/Page.js';
 import { copyText } from '../dom.js';
 import { RECORD_PART } from '../../../engine/src/cost-words.js';
+import { headingRef } from '../focus-manager.js';
 import { messageOf } from '../../../engine/src/message-of.js';
 import type { CalibrateStep, InspectStep, RecordConfirmation, RecordStep, SetupView, TestStep } from '../projects-api.js';
 import { RECORD_PLACEHOLDER, aroundRunId, aroundWord, asksForSetup, codeParts, confirmedRecording, liveCalls, recordingLine, setupPageShows, stepClass, terminalLine } from '../projects.js';
@@ -17,6 +18,7 @@ import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { SETUP_INTRO } from '../../src/setup-words.js';
 import { NotFoundPage } from './NotFound.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * Setting a project up (#/setup, and in place of the pages of a project with no runs, or of the
@@ -262,9 +264,9 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
             <b>{view.done.title}</b>
             <span>{view.done.text}</span>
           </div>
-          <button className="btn lime" type="button" disabled={!!off} title={off ?? undefined} onClick={finish}>
+          <ActionButton className="btn lime" why={off} onClick={finish}>
             {view.done.button.label}
-          </button>
+          </ActionButton>
         </div>
       ) : null}
       {asking ? <RecordRunDialog confirm={asking.confirm} onClose={() => setAsking(null)} onOk={() => guard(() => start(client.startJob(JOB_KINDS.record, confirmedRecording(asking))))} /> : null}
@@ -312,7 +314,6 @@ function ProjectProblem({ id, name, problem }: { id: string; name: string; probl
  * above its tabs, which it can still show.
  */
 export function ProblemHeader({ id, name, problem }: { id: string; name: string; problem: string }) {
-  const { actionsOff } = useApp();
   const [removing, setRemoving] = useState(false);
   return (
     <>
@@ -321,9 +322,9 @@ export function ProblemHeader({ id, name, problem }: { id: string; name: string;
         title={`Can’t open ${name}`}
         text={problem}
         actions={
-          <button className="btn" type="button" disabled={!!actionsOff} title={actionsOff ?? undefined} onClick={() => setRemoving(true)}>
+          <ActionButton className="btn" onClick={() => setRemoving(true)}>
             Remove project…
-          </button>
+          </ActionButton>
         }
       />
       {removing ? <RemoveProjectDialog id={id} onClose={() => setRemoving(false)} /> : null}
@@ -338,14 +339,14 @@ function SetupHeader({ view, onSkip }: { view: SetupView; onSkip: (() => void) |
         <Eyebrow>
           {view.project.name} · <code>{view.project.path}</code>
         </Eyebrow>
-        <h1>{view.title}</h1>
+        <h1 ref={headingRef}>{view.title}</h1>
         <p>{view.intro}</p>
       </div>
       {view.skip ? (
         <div className="actions">
-          <button className="btn quiet" type="button" disabled={!onSkip} onClick={() => onSkip?.()}>
+          <ActionButton className="btn quiet" disabled={!onSkip} onClick={() => onSkip?.()}>
             {view.skip.label}
-          </button>
+          </ActionButton>
         </div>
       ) : null}
     </div>
@@ -389,9 +390,9 @@ function InspectBody({ step, off, canInspect, onInspect }: { step: InspectStep; 
       {step.text ? <p>{step.text}</p> : null}
       {step.button ? (
         <div className="actions">
-          <button className="btn lime" type="button" disabled={!!why} title={why ?? undefined} onClick={() => onInspect(false)}>
+          <ActionButton className="btn lime" why={why} onClick={() => onInspect(false)}>
             {step.button.label}
-          </button>
+          </ActionButton>
         </div>
       ) : null}
       {found && step.folded ? (
@@ -420,9 +421,9 @@ function InspectBody({ step, off, canInspect, onInspect }: { step: InspectStep; 
                 {step.warning.copy}
               </button>
             ) : null}
-            <button className="btn" type="button" disabled={!!why} title={why ?? undefined} onClick={() => onInspect(true)}>
+            <ActionButton className="btn" why={why} onClick={() => onInspect(true)}>
               {step.warning.recheck.label}
-            </button>
+            </ActionButton>
           </div>
         </div>
       ) : null}
@@ -430,9 +431,9 @@ function InspectBody({ step, off, canInspect, onInspect }: { step: InspectStep; 
         <div className="warnbox">
           <b>{step.node.title}</b> {step.node.text}
           <div className="actions">
-            <button className="btn" type="button" disabled={!!why} title={why ?? undefined} onClick={() => onInspect(true)}>
+            <ActionButton className="btn" why={why} onClick={() => onInspect(true)}>
               {step.node.recheck.label}
-            </button>
+            </ActionButton>
           </div>
         </div>
       ) : null}
@@ -548,9 +549,9 @@ function RecordBody({
         {step.command ? <CommandField value={value} enabled={enabled} onChange={setCommand} onEnter={go} /> : null}
         {step.button ? (
           <div className="actions">
-            <button className="btn lime" type="button" disabled={!step.button.enabled || !!why || !value.trim()} title={why ?? undefined} onClick={go}>
+            <ActionButton className="btn lime" disabled={!step.button.enabled || !value.trim()} why={why} onClick={go}>
               {step.button.label}
-            </button>
+            </ActionButton>
           </div>
         ) : null}
       </>
@@ -571,9 +572,9 @@ function RecordBody({
         <div className="again">
           <CommandField value={value} enabled={step.again.command.enabled} onChange={setCommand} onEnter={go} />
           <div className="actions">
-            <button className="btn" type="button" disabled={!step.again.command.enabled || !!why || !value.trim()} title={why ?? undefined} onClick={go}>
+            <ActionButton className="btn" disabled={!step.again.command.enabled || !value.trim()} why={why} onClick={go}>
               {step.again.label}
-            </button>
+            </ActionButton>
           </div>
         </div>
       ) : null}
@@ -593,9 +594,9 @@ function CalibrateBody({ step, off, tree, busy, canCalibrate, runId, onCalibrate
       </p>
       {button ? (
         <div className="actions">
-          <button className="btn lime" type="button" disabled={!button.enabled || !runId || !!why} title={why ?? undefined} onClick={() => runId && onCalibrate(runId, button.action === 'calibratewrite')}>
+          <ActionButton className="btn lime" disabled={!button.enabled || !runId} why={why} onClick={() => runId && onCalibrate(runId, button.action === 'calibratewrite')}>
             {button.label}
-          </button>
+          </ActionButton>
         </div>
       ) : null}
     </SetupStep>
@@ -691,9 +692,9 @@ function TestBody({
       ) : null}
       {step.button ? (
         <div className="actions">
-          <button className="btn lime" type="button" disabled={!step.button.enabled || !!why || (!testing && !value.trim())} title={why ?? undefined} onClick={go}>
+          <ActionButton className="btn lime" disabled={!step.button.enabled || (!testing && !value.trim())} why={why} onClick={go}>
             {step.button.label}
-          </button>
+          </ActionButton>
         </div>
       ) : null}
       {step.result ? (

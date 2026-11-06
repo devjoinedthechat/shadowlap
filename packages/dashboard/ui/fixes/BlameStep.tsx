@@ -7,6 +7,7 @@ import type { BlameStep, FixDetail } from '../types.js';
 import { attemptMark, blameWhere, callRowCells, otherBlameWords, probeBadge, probeVerdictWords } from './model.js';
 import { AttemptGroups, useAttemptGroups } from './AttemptGroups.js';
 import { StepHead } from './parts.js';
+import { useOfflineLink } from '../components/ActionButton.js';
 
 /**
  * The Blame step: where the run was lost (the probed calls on the run's row of calls), the answers
@@ -97,7 +98,7 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
                 {b.probes.map((p) => (
                   <tr key={p.callNo} className={p.blamed ? 'hot' : undefined} {...rowOpen(() => navigate(p.href))}>
                     <td>
-                      <a className="fxcall" href={p.href}>
+                      <a className="rowa" href={p.href}>
                         <code>#{p.callNo}</code>
                       </a>
                     </td>
@@ -143,12 +144,7 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
                   {probeGroups(x.callNo) ? <AttemptGroups groups={probeGroups(x.callNo)!.groups} attempts={probeGroups(x.callNo)!.attempts} label={`probe #${x.callNo}`} /> : null}
                   <div className="attempts">
                     {x.attempts.map((a) => (
-                      <a key={a.runId} href={a.href} title={`${shortId(a.runId)} · ${a.note}`}>
-                        <i className={attemptMark(a)} />
-                        <span className="t">
-                          {shortId(a.runId)} · {a.note}
-                        </span>
-                      </a>
+                      <AttemptRow key={a.runId} a={a} />
                     ))}
                   </div>
                 </div>
@@ -211,6 +207,19 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
         </ul>
       ) : null}
     </>
+  );
+}
+
+/** A probe's attempt, a link that waits while the server is out of reach: no list the page holds has it. */
+function AttemptRow({ a }: { a: Parameters<typeof attemptMark>[0] & { runId: string; href: string; note: string } }) {
+  const attemptLink = useOfflineLink();
+  return (
+    <a href={a.href} title={`${shortId(a.runId)} · ${a.note}`} onClick={attemptLink}>
+      <i className={attemptMark(a)} />
+      <span className="t">
+        {shortId(a.runId)} · {a.note}
+      </span>
+    </a>
   );
 }
 

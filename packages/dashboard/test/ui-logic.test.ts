@@ -5,7 +5,7 @@ import { forkMenu, forkMenuTitle, menuFlag, menuLabel, type ActionLike } from '.
 import { backoffSeconds, isUnreachable } from '../ui/backoff.js';
 import { cacheMisses, cacheNote, cacheReadShare, missStat, type UsageCall } from '../ui/cache.js';
 import { approx, compactPath, dur, durLong, ktok, money, projectOfStore, shortFingerprint, shortHash, tildePath, whenShort } from '../ui/format.js';
-import { calibrationTarget, endToast, forkDivergedEarly, forkTarget, isPlainReplay, jobStatus, jobTitle, lastLine, lineTone, replayDivergence, runningChip, stopAsk, type RunLink } from '../ui/jobs.js';
+import { calibrationTarget, endToast, forkDivergedEarly, forkTarget, isPlainReplay, jobStatus, jobTitle, lastLine, lineTone, replayDivergence, stopAsk, type RunLink } from '../ui/jobs.js';
 import { displayOrigin, parseOrigins } from '../ui/origins.js';
 import { ACTION_ORDER, highlight, indexingNote, limitRecorded, matchPalette, runIdPrefix, runsById, runsToAskFor, snippetParts, type PaletteEntry } from '../ui/palette.js';
 import { callDetail, modelCallOf, resultLine, ticksFor, timelineOf, timeOf, tokensText, turnCalls, turnsOf, type CallLike } from '../ui/run/calls.js';
@@ -72,10 +72,10 @@ describe('routes', () => {
     expect(tokenLinkStep('#/runs', 'same')).toBeNull();
   });
 
-  it('has a g-key for every page and cycles the five views without Provenance', () => {
+  it('has a g-key for every page and cycles every view', () => {
     expect(Object.keys(GO_KEYS).sort()).toEqual(['a', 'c', 'f', 'o', 'r', 's', 't']);
     expect(nextView('calls')).toBe('turns');
-    expect(nextView('forks')).toBe('calls');
+    expect(nextView('forks')).toBe('provenance');
     expect(nextView('provenance')).toBe('calls');
     expect(nextView(null)).toBe('turns');
   });
@@ -665,7 +665,7 @@ describe('job drawer', () => {
 
   it('says how a job ended when its drawer was closed: the outcome, or its last line when that is all the exit code says', () => {
     const tests = { args: ['test', 'goldens/a', 'goldens/b'], done: true, code: 1 };
-    expect(endToast(tests, ['✗ refund-in-limit diverged at call 3', '5 passed, 1 failed', 'If the change was intended, update it: shadowlap test goldens/refund-in-limit --update'])).toBe('Ran tests · 1 failed · exit 1');
+    expect(endToast(tests, ['✗ refund-in-limit diverged at call 3', '5 passed, 1 failed', 'If the change was intended, update it: shadowlap test goldens/refund-in-limit --update'])).toBe('Ran tests · failed · 5 of 6 goldens passed · exit 1');
     expect(endToast({ args: ['replay', 'X'], done: true, code: 0 }, ['⑂ Forked at call 1: 0 calls replayed, then 6 live', '  shadowlap show 01M51XXYH5'])).toBe('Replayed · diverged at #1 · went live · exit 0');
     expect(endToast({ args: ['replay', 'X', '--inject', '1=Escalate it'], done: true, code: 0 }, ['⑂ Forked at call 1: 0 calls replayed, then 6 live', '  shadowlap show 01M51XXYH5'])).toBe('Forked · exit 0');
     expect(endToast({ args: ['pack', 'X', 'share/x'], done: true, code: 0 }, ['✓ packed share/x · 14 calls'])).toBe('Packed share/x · 14 calls');
@@ -695,7 +695,7 @@ describe('job drawer', () => {
     expect(jobStatus({ ...tests, code: null }, [])).toEqual({ text: 'stopped', tone: 'warn' });
     expect(endToast(tests, ['1 passed, 0 failed, 1 not run: interrupted'])).toBe('Running tests stopped');
     // A job that ended on its own still says how it came out.
-    expect(jobStatus({ ...tests, stopped: false, code: 1 }, ['5 passed, 1 failed'])).toEqual({ text: '1 failed · exit 1', tone: 'err' });
+    expect(jobStatus({ ...tests, stopped: false, code: 1 }, ['5 passed, 1 failed'])).toEqual({ text: 'failed · 5 of 6 goldens passed · exit 1', tone: 'err' });
   });
 
   it('asks before stopping a job that changes the working tree, and stops any other at once', () => {
@@ -708,21 +708,6 @@ describe('job drawer', () => {
     expect(stopAsk({ id: 'j3', done: false, args: ['test', 'goldens/a'], worktree: tree('reads', 'a test is running your agent from your working tree') })).toBeNull();
     expect(stopAsk({ id: 'j4', done: false, args: ['gc', '--dry-run'], worktree: null })).toBeNull();
     expect(stopAsk({ id: 'j5', done: true, args: ['repair'], worktree: tree('writes', 'a repair is verifying candidates made from your working tree') })).toBeNull();
-  });
-
-  it('counts the jobs running in the top bar, and reopens the newest whose drawer is closed', () => {
-    const job = (id: string, args: string[], done = false, startedAt = 0) => ({ id, args, done, startedAt });
-    const list = [job('j3', ['test', 'goldens/a'], false, 3), job('j2', ['repair', '--fixes', 'X'], false, 2), job('j1', ['replay', 'X'], true, 1)];
-    expect(runningChip(list, null)).toEqual({ count: 2, label: '2 jobs running', opens: 'j3', title: 'Running tests, Repairing: open the newest one’s drawer' });
-    // The newest has its drawer open: the chip opens the other.
-    expect(runningChip(list, 'j3')?.opens).toBe('j2');
-    // A job this tab has just started comes after the server's list until it is read again: still the newest.
-    expect(runningChip([...list, job('j4', ['blame', 'X'], false, 4)], null)?.opens).toBe('j4');
-    // One job running, its drawer open: nothing to find again.
-    expect(runningChip([job('j2', ['repair'])], 'j2')).toBeNull();
-    expect(runningChip([job('j2', ['repair'])], null)).toMatchObject({ count: 1, label: '1 job running', opens: 'j2' });
-    expect(runningChip([job('j1', ['replay', 'X'], true)], null)).toBeNull();
-    expect(runningChip([], null)).toBeNull();
   });
 
   // What `shadowlap replay` printed for a recording made before the agent sent a per-run user id.

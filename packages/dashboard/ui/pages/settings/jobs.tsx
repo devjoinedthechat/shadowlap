@@ -11,15 +11,16 @@ import { CONFIG_FILE, editErrorText } from './common.js';
 import { bytesText, gcDeleteCommand, gcDryRun, gcGivesBack, proposedCount, type GcDryRun } from './logic.js';
 import { settingsChanged } from './events.js';
 import { ACTIONS } from '../../labels.js';
+import { ActionButton } from '../../components/ActionButton.js';
 
 /**
- * What Settings' jobs offer once they end, in the job drawer's footer: calibrate's "Add it
- * (--write)", which adds exactly the normalizers it proposed, and a clean-up's "Delete N runs",
+ * What Settings' jobs offer once they end, in the job drawer's way on: calibrate's "Add
+ * normalizer", which adds exactly the normalizers it proposed, and a clean-up's "Delete N runs",
  * which confirms its dry run and deletes exactly the runs it listed. Plus Calibrate in the
  * palette's actions. Registered when the app loads, so they work from any page.
  */
 
-function CalibrateFooter({ job }: { job: JobView }) {
+function CalibrateFooter({ job, plain, done }: { job: JobView; plain?: boolean; done?: () => void }) {
   const app = useApp();
   const [state, setState] = useState<'idle' | 'busy' | 'done'>('idle');
   const n = proposedCount(job);
@@ -30,6 +31,7 @@ function CalibrateFooter({ job }: { job: JobView }) {
       const r = await app.client.settings.writeCalibration(job.id);
       setState('done');
       settingsChanged();
+      done?.();
       app.toast(r.added.length ? `Added to ${CONFIG_FILE} · normalizer${r.added.length === 1 ? '' : 's'} ${r.added.map((x) => `#${x}`).join(', ')}` : `Already in ${CONFIG_FILE} · ${r.already.map((x) => `#${x}`).join(', ')}`);
     } catch (err) {
       setState('idle');
@@ -37,9 +39,9 @@ function CalibrateFooter({ job }: { job: JobView }) {
     }
   };
   return (
-    <button className="btn lime" type="button" disabled={state !== 'idle' || !!app.actionsOff} title={app.actionsOff ?? `Adds ${n === 1 ? 'the normalizer' : `the ${n} normalizers`} it found to ${CONFIG_FILE}, as --write does`} onClick={() => app.guard(() => void add())}>
-      {state === 'done' ? 'Added' : n === 1 ? 'Add it (--write)' : 'Add them (--write)'}
-    </button>
+    <ActionButton className={plain ? 'btn' : 'btn lime'} disabled={state !== 'idle'} title={`Adds ${n === 1 ? 'the normalizer' : `the ${n} normalizers`} it found to ${CONFIG_FILE}, as --write does`} onClick={() => app.guard(() => void add())}>
+      {state === 'done' ? 'Added' : n === 1 ? 'Add normalizer' : `Add ${n} normalizers`}
+    </ActionButton>
   );
 }
 
@@ -55,9 +57,9 @@ function CleanupFooter({ job }: { job: JobView }) {
   const label = freeOnly ? `Free ${bytesText(gcGivesBack(dry))}` : `Delete ${runs}`;
   return (
     <>
-      <button className="btn" type="button" disabled={started || !!app.actionsOff} title={app.actionsOff ?? undefined} onClick={() => app.guard(() => setAsking(true))}>
+      <ActionButton className="btn" disabled={started} onClick={() => app.guard(() => setAsking(true))}>
         {label}
-      </button>
+      </ActionButton>
       {asking ? (
         <CleanupDialog
           dry={dry}

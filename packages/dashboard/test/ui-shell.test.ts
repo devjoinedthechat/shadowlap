@@ -245,7 +245,7 @@ describe('a toast that reports an error', () => {
   });
 
   it('stays on screen longer than a notice', () => {
-    expect(TOAST_MS.notice).toBe(2600);
+    expect(TOAST_MS.notice).toBe(5000);
     expect(TOAST_MS.error).toBeGreaterThanOrEqual(8000);
   });
 });

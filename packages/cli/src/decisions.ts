@@ -4,6 +4,7 @@ import {
   applyNormalizers,
   askedInScope,
   byConsequence,
+  chanceRanked,
   CONTROL_MIN_SAMPLES,
   CONTROL_RISK,
   messageOf,
@@ -25,10 +26,11 @@ import {
   judgeOpen,
   loadApiRequest,
   majorityRank,
+  needsVerify,
+  readsMoreThanAStep,
   modelFamily,
   modelUse,
   NO_TOKENS,
-  outcomeOf,
   placeFields,
   promoteByJudge,
   promptOf,
@@ -49,9 +51,6 @@ import {
   shownSample,
   unjudgedSample,
   unavailableStatus,
-  describeBaselineRule,
-  describeGate,
-  dropBound,
   SPRT_DEFAULTS,
   switchModel,
   ulid,
@@ -67,7 +66,6 @@ import {
   type DecisionsChange,
   type DecisionsReport,
   type DecisionStep,
-  type DecisionsVerify,
   type DecisionView,
   type Effect,
   type FromCodeChange,
@@ -82,17 +80,14 @@ import {
   type StoreOf,
   type TokenCount,
   type Usage,
-  type VerifyRole,
-  rateBound,
 } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
-import { judgeRecording } from './attempts.js';
 import { specFor, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, loadTests, upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { captureFromCode, type FromCodeCapture } from './decisions-capture.js';
 import { TextJudge } from './decisions-judge.js';
 import { azureApiVersion, azureDeploymentCall, ModelSender, providerById, type ModelAnswer } from './decisions-send.js';
-import { gateFlags, recordVerifyFix, verifyCommand } from './fixes.js';
+import { gateFlags } from './fixes.js';
 import { importGolden } from './golden-test.js';
 import { expandRecordings, goldenName, rawExpectFor } from './goldens.js';
 import { checksOfRun } from './interventions.js';
@@ -101,7 +96,7 @@ import { cannotJudge } from './judge.js';
 import { type GuardMode } from './run-agent.js';
 import { openStore, requireRun, type GlobalOpts } from './shared.js';
 import { palette as p, shortId } from './ui.js';
-import { runVerify } from './verify.js';
+import { verifyRuns } from './decisions-verify-runs.js';
 
 /**
  * `shadowlap decisions`: what a change decides differently on recorded runs, without running the
@@ -111,7 +106,7 @@ import { runVerify } from './verify.js';
  * recorded one and ranked by consequence (engine decisions.ts); a text-only change that a judge check
  * of the run reads is judged (decisions-judge.ts), and one it reads otherwise ranks with a changed
  * stop. No tool runs, and a step doesn't depend on the one before, so the steps go in parallel.
- * `--then-verify` hands the runs with a write, stop or judged change to `shadowlap verify`, the
+ * `--then-verify` hands the runs a preview can't clear (needsVerify) to `shadowlap verify`, the
  * end-to-end check, and only those.
  *
  * A model switch changes the agent's calls, not every call a recording holds: those made with the
@@ -972,75 +967,20 @@ export function verifyFields(change: Pick<DecisionsChange, 'model' | 'fields'>, 
   return { ...(change.model ? { model: change.model } : {}), ...change.fields, ...Object.fromEntries(remedies.filter((r) => r.value !== null && r.renamedTo === null).map((r) => [r.field, r.value])) };
 }
 
-/**
- * Verifies the runs with a write, stop or judged change, as `shadowlap verify` would: each under its
- * own checks (a golden's from the config, those of the recording a run named by id comes from, or
- * `--expect`), one verify per set of checks, each run in the role its recording plays under them (a
- * run that fails them must now pass; one that passes must keep passing), and each with the rule that
- * decided it. With `blocked`, nothing runs: the verdict is not-run, with why, and the commands.
- */
-export async function verifyFlagged(input: { opts: GlobalOpts; store: Store; flagged: DecisionTarget[]; fields: Record<string, unknown>; from: string[] | null; settings: Pick<DecisionsSettings, 'thenVerify' | 'argv' | 'timeoutMs' | 'guard'>; prices: Record<string, Price> | undefined; budget: number | null; log: (line: string) => void; blocked?: string | null }): Promise<DecisionsVerify> {
-  const { flagged, settings: s, log } = input;
-  const v = s.thenVerify!;
-  // The rule every run is decided by, said once over them.
-  const rule = v.gate ? `gate: ${describeGate(v.gate)}` : `${v.needed} of ${v.attempts} attempts must pass`;
-  const empty: DecisionsVerify = { verdict: 'not-run', verifyIds: [], runs: [], rule, commands: [], spent: 0, upstreamRequests: 0, reasons: [] };
-  if (!flagged.length) return empty;
-  // Grouped by the checks they are judged by: one verify per check.
-  const groups = new Map<string, { spec: TestSpec | null; json: unknown; targets: DecisionTarget[] }>();
-  for (const t of flagged) {
-    const spec = v.expect?.spec ?? t.spec;
-    const json = v.expect?.json ?? t.expect;
-    const key = JSON.stringify(json ?? null);
-    const g = groups.get(key) ?? { spec, json, targets: [] };
-    g.targets.push(t);
-    groups.set(key, g);
-  }
-  const plans = [...groups.values()].map((g) => {
-    const runs = g.targets.map((t) => {
-      const judged = judgeRecording(input.store, t.run, input.store.getCalls(t.run.runId), g.spec, input.prices);
-      const role: VerifyRole = judged.passed === false ? 'target' : 'good';
-      // A run whose command came from someone's pack (a golden's too, as importGolden marks one) is marked so later replays ask.
-      return { parent: t.run, argv: s.argv ?? t.run.command.argv, commandFromImport: !s.argv && commandIsImported(t.run), role };
-    });
-    const role = (r: VerifyRole) => runs.filter((x) => x.role === r).map((x) => x.parent.runId);
-    const line = verifyCommand({ fixes: role('target').map((id) => shortId(id)), keeps: role('good').map((id) => shortId(id)) }, { expect: g.json ?? null, attempts: v.attempts, passes: !v.gate && v.needed !== Math.ceil(0.8 * v.attempts) ? v.needed : undefined, gate: v.gate, fields: input.fields, from: input.from ?? undefined, liveTools: [], writes: v.writes, reads: 'live', budget: null, timeoutMs: s.timeoutMs, argv: s.argv });
-    return { g, runs, line };
-  });
-  if (input.blocked) return { ...empty, commands: plans.map((x) => x.line), reasons: [input.blocked] };
-  const out: DecisionsVerify = { ...empty, verdict: 'accepted' };
-  for (const { g, runs, line } of plans) {
-    const remaining = input.budget === null ? null : Math.max(0, input.budget - out.spent);
-    log(`${p.yellow('⑂')} Verifying ${runs.length} run${runs.length === 1 ? '' : 's'} with a write, stop or judged change: ${runs.map((r) => shortId(r.parent.runId)).join(', ')}`);
-    const report = await runVerify({
-      opts: input.opts,
-      runs,
-      settings: { attempts: v.attempts, needed: v.needed, gate: v.gate, concurrency: 1, fields: input.fields, ...(input.from?.length ? { fromModels: input.from } : {}), failFast: false, spec: g.spec, expect: g.json ?? null, writes: v.writes, reads: 'live', liveTools: [], budget: remaining, timeoutMs: s.timeoutMs, guard: s.guard },
-      log,
-    });
-    const kept = recordVerifyFix(input.opts, report, { expect: g.json ?? null, command: line });
-    if (kept) out.verifyIds.push(kept.verdict.verifyId);
-    out.commands.push(line);
-    out.spent += report.spent;
-    out.upstreamRequests += report.upstreamRequests;
-    out.reasons.push(...report.reasons);
-    // In verify --json's words: fixed, not-fixed, kept, broken, inconclusive, unsettled; with why its
-    // last attempt could not be judged, when one stopped it (no bound then, as verify gives none), and
-    // the rule that decided it.
-    // A good run kept against its baseline reads under the baseline test's rule, its bound the drop's.
-    const keptRule = report.kept ? describeBaselineRule({ ...report.kept, revision: report.kept.label ?? report.kept.revision ?? null }) : null;
-    for (const r of report.runs) {
-      const against = r.baseline && keptRule;
-      const bound = r.undecided || r.deterministic ? null : against ? (r.drop ? dropBound(r.drop, r.decision) : null) : r.gate ? rateBound(r.gate) : null;
-      out.runs.push({ runId: r.runId, role: r.role, outcome: outcomeOf(r).replace(' ', '-'), passes: r.passes, attempts: r.attempts.length, ...(against ? { baseline: { passes: r.baseline!.passes, attempts: r.baseline!.attempts } } : {}), bound, undecided: r.undecided ?? null, rule: against ? keptRule : rule });
-    }
-    if (report.verdict === 'rejected') out.verdict = 'rejected';
-    else if (report.verdict === 'incomplete' && out.verdict !== 'rejected') out.verdict = 'incomplete';
-  }
-  // The rule stated once is the one every run was decided by: the gate's, or a good run's baseline test.
-  const rules = new Set(out.runs.map((r) => r.rule ?? rule));
-  out.rule = rules.size === 1 ? [...rules][0]! : rules.size ? null : rule;
-  return out;
+/** The runs a preview can't clear, by the checks each is judged by: `--expect`, else its own. */
+function runsToVerify(runs: readonly DecisionRun[], targets: readonly DecisionTarget[], s: Pick<DecisionsSettings, 'thenVerify'>): string[] {
+  const checks = (runId: string) => s.thenVerify?.expect?.spec ?? targets.find((t) => t.run.runId === runId)?.spec ?? null;
+  const unread = (runId: string) => {
+    const spec = checks(runId);
+    return !!spec && readsMoreThanAStep(spec);
+  };
+  return runs.filter((r) => needsVerify(r, unread(r.runId))).map((r) => r.runId);
+}
+
+/** What the report says of what verify did: that no run needed it, and any run its gate judged alone. */
+function sayWhatVerifyFound(report: Pick<DecisionsReport, 'notes' | 'warnings'>, v: NonNullable<DecisionsReport['verify']>): void {
+  if (v.verdict === 'not-run' && !v.reasons.length) report.notes.push("No run needs verify: none acts on the world, decided otherwise, or has a check a preview can't read.");
+  report.warnings.push(...(v.warnings ?? []));
 }
 
 /** Why a run's command can't be run (for --from-code and --then-verify), or null. */
@@ -1106,6 +1046,7 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
     for (const r of runs) for (const k of Object.keys(counts) as Array<keyof DecisionCounts>) counts[k] = (counts[k] ?? 0) + (r.counts[k] ?? 0);
     // Flagged by what most samples show: a change in fewer than half of them is listed, not flagged.
     const flagged = runs.filter((r) => r.majority !== null && r.majority <= 2).map((r) => r.runId);
+    const toVerify = runsToVerify(runs, input.targets, s);
     // Per run, each side over the runs it has a price for: a model with no price leaves its side unknown.
     const mean = (side: 'before' | 'after') => {
       const priced = runs.filter((r) => r.asked && r.cost[side] !== null);
@@ -1134,6 +1075,7 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
       runs,
       counts,
       flagged,
+      toVerify,
       cost: { before: mean('before'), after: mean('after'), spent: asked.spent, upstreamRequests: asked.upstreamRequests, unknownModels: [...asked.unknownModels] },
       tokens: { before: runs.reduce((t, r) => addTokens(t, r.tokens.before), NO_TOKENS), after: runs.reduce((t, r) => addTokens(t, r.tokens.after), NO_TOKENS) },
       retirements,
@@ -1146,10 +1088,10 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
     };
 
     if (s.thenVerify && !asked.stopReason) {
-      report.verify = await verifyFlagged({
+      report.verify = await verifyRuns({
         opts: input.opts,
         store,
-        flagged: input.targets.filter((t) => flagged.includes(t.run.runId)),
+        targets: input.targets.filter((t) => toVerify.includes(t.run.runId)),
         fields: verifyFields(change, report.remedies),
         from,
         settings: s,
@@ -1159,7 +1101,7 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
         // A Ctrl-C while the judge was asked starts no verify: what it would run is said, with the commands.
         blocked: interrupted ? 'it was interrupted before verify started' : codeChangeNeeded(report.remedies, s.model),
       });
-      if (report.verify.verdict === 'not-run' && !report.verify.reasons.length) report.notes.push('No run has a write, stop or judged change, so none needs verify.');
+      sayWhatVerifyFound(report, report.verify);
     }
     if (input.kind !== 'migrate') report.decisionsId = keepDecisions(store, report, 'decisions');
     return report;
@@ -1306,6 +1248,11 @@ function controlNotes(said: Said, s: DecisionsSettings, counts: DecisionCounts, 
     if (unasked.length) warnings.push(`${unasked.length} step${unasked.length === 1 ? '' : 's'} could not be asked as recorded any more (${why(unasked)}): ranked by the change's samples alone, not told from the model's own variation`);
   } else if (counts[1] || counts[2] || counts[3] || counts[4]) {
     notes.push(s.samples === 1 ? 'Each step was asked once, and a model varies from one answer to the next: --samples 3 asks each step as recorded as often too, and ranks a change only beyond what the model does on its own.' : `Each step was asked ${s.samples} times, too few to tell a change from the model's own variation: from --samples 3, each step is asked as recorded as often too, and a change ranked only beyond it.`);
+  }
+  // What a step that reads the same is worth, at the samples it was asked with.
+  if (counts.same) {
+    const seen = chanceRanked(s.samples, 0.2) * 100;
+    notes.push(`A step that reads the same can still decide otherwise some of the time: at ${s.samples} sample${s.samples === 1 ? '' : 's'}, one that does so 1 time in 5 is ranked ${seen < 10 ? seen.toFixed(1) : Math.round(seen)}% of the time.`);
   }
 }
 

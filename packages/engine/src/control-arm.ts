@@ -28,6 +28,25 @@ export const CONTROL_RISK = 0.05;
 /** The fewest samples a side for which any split of the scores can reach `CONTROL_RISK`: 3, where the least is 1/20. */
 export const CONTROL_MIN_SAMPLES = 3;
 
+/**
+ * The chance a step is ranked when the change has it decide otherwise `rate` of the time and it never
+ * does as recorded, the easiest case there is: what a step that reads the same is worth. With fewer than
+ * `CONTROL_MIN_SAMPLES` no control is asked, and more than half its samples must show the change.
+ * More samples are not always better: the control's test is built against false alarms, so at 3 a side
+ * every changed sample must show it.
+ */
+export function chanceRanked(samples: number, rate: number): number {
+  const none: number[] = new Array<number>(samples).fill(0);
+  let chance = 0;
+  let ways = 1;
+  for (let k = 0; k <= samples; k++) {
+    const ranked = samples < CONTROL_MIN_SAMPLES ? k > samples / 2 : rankBeyondNoise(none.map((_, i) => (i < k ? 1 : 0)), none).rank !== null;
+    if (ranked) chance += ways * rate ** k * (1 - rate) ** (samples - k);
+    ways = (ways * (samples - k)) / (k + 1);
+  }
+  return chance;
+}
+
 /** A decision's consequence as a score: 5 for a write (rank 1) down to 1 for text only (rank 5); 0 when it decided as recorded. */
 export const consequence = (rank: number): number => (rank >= 1 && rank <= 5 ? 6 - rank : 0);
 

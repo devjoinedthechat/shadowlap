@@ -4,20 +4,24 @@ import { Dialog } from '../components/Dialog.js';
 import { useApp } from '../state.js';
 import { answerTestsQuestion, liveFacts, onTestsQuestion, testsQuestion } from '../tests-ask.js';
 import { useTestsWait } from './tree.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * A button that starts a Tests job from another page (Add normalizer and Update golden on a test
- * replay's page): disabled, with the reason on hover, while the server would refuse it, as the Tests
- * page's own buttons are. `off` is the page's reason first (a read-only dashboard); `title` is the
- * hover while it can start. A job that would run goldens live asks first (TestsAskHost).
+ * replay's page): it waits as an ActionButton does, its reason on its card, while the server would
+ * refuse it, as the Tests page's own buttons do. `off` is the page's reason first (a read-only
+ * dashboard); `title` is the hover while it can start, or `tip`, a hover card. `lead`: it is the
+ * run's next step, which the palette presses by that name. A job that would run goldens live asks
+ * first (TestsAskHost). A lime one goes plain while it waits: the page never offers a lime button
+ * that can't start.
  */
-export function TestsJobButton({ verb, off, title, className, onClick, children }: { verb: string; off: string | null; title?: string | null; className: string; onClick: () => void; children: ReactNode }) {
+export function TestsJobButton({ verb, off, title, tip, lead, className, onClick, children }: { verb: string; off: string | null; title?: string | null; tip?: string; lead?: string; className: string; onClick: () => void; children: ReactNode }) {
   const wait = useTestsWait(verb);
   const why = off ?? wait;
   return (
-    <button className={className} type="button" disabled={!!why} title={why ?? title ?? undefined} onClick={onClick}>
+    <ActionButton className={className} why={why} title={title ?? undefined} {...(tip ? { 'data-tip': tip } : {})} {...(lead ? { 'data-next': lead } : {})} onClick={onClick}>
       {children}
-    </button>
+    </ActionButton>
   );
 }
 

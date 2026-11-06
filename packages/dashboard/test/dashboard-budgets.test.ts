@@ -596,6 +596,26 @@ describe('a run of twenty thousand calls', () => {
     }
   }, TIMEOUT);
 
+  it('works out what its fork menu, its Run blame and its fix’s buttons would bill beside the server', async () => {
+    const store = Store.open(dbPath);
+    const d = await startDashboard({ store, dbPath, port: 0 });
+    try {
+      await ask(d, 'meta');
+      await wait(300);
+      for (const path of [`runs/${big.runId}/estimates?at=${CALLS - 1}`, `fixes/${fixId}/estimates`]) {
+        const t = await onServerThread(() => ask(d, path));
+        said(`${path.replace(big.runId, '<run>')} answered in ${t.out.ms.toFixed(0)} ms`, t);
+        expect(t.out.status, path).toBe(200);
+        // Each prices the run from every call of it: none of it on the server's thread.
+        beside(path, t);
+      }
+      expect((await ask(d, `runs/${big.runId}/estimates?at=${CALLS - 1}`)).body).toMatchObject({ blame: { kind: 'blame' }, actions: expect.any(Object) });
+    } finally {
+      await d.close();
+      store.close();
+    }
+  }, TIMEOUT);
+
   // Last: it deletes the fork the others compare.
   it('deletes its fork of twenty thousand calls beside the server', async () => {
     const store = Store.open(dbPath);

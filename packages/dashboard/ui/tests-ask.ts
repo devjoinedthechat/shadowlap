@@ -1,4 +1,4 @@
-import { moreAttemptsParts, updatePart } from '../../engine/src/cost-words.js';
+import { INJECTION_PART, moreAttemptsParts, updatePart } from '../../engine/src/cost-words.js';
 import { consentAsked, type FactWords, type LiveGolden } from './actions.js';
 import type { DocKey } from './docs-links.js';
 import type { JobView } from './api.js';
@@ -176,11 +176,21 @@ function normalizerAsk(name: string, steps: readonly (readonly string[])[] | nul
   };
 }
 
+/** Re-run on a golden that diverged, from Tests or a test replay's next step: its test again, live from where it forks. */
+export function rerunAsk(name: string, golden: string): TestsAsk {
+  return { title: `Re-run ${name}`, lead: `Replays ${name} again, live from where it forks.`, doc: 'goldensThatFork', ok: 'Re-run', commands: [commandText(['test', golden])], parts: ['only what runs live'] };
+}
+
+/** Re-run test on a golden whose injection gate showed too little to say: its test again, which plants its payloads again, live. */
+export function gateAgainAsk(name: string, golden: string): TestsAsk {
+  return { title: `Re-run ${name}`, name, lead: 'Plants the same payloads in the same reads again.', doc: 'injectionTests', ok: 'Re-run', commands: [commandText(['test', golden])], parts: [INJECTION_PART] };
+}
+
 /** Re-run, or Add normalizer and re-run (or update), on a golden that diverged, as Tests offers it: by what the button runs. */
 export function divergedAsk(view: Pick<TestsView, 'divergences' | 'rows'>, golden: string, run: 'rerun' | 'normalize' | 'normalize-update'): TestsAsk {
   const d = view.divergences.find((x) => x.golden === golden);
   const name = d?.name ?? view.rows.find((r) => r.path === golden)?.name ?? golden;
-  if (run === 'rerun') return { title: `Re-run ${name}`, lead: `Replays ${name} again, live from where it forks.`, doc: 'goldensThatFork', ok: 'Re-run', commands: [commandText(['test', golden])], parts: ['only what runs live'] };
+  if (run === 'rerun') return rerunAsk(name, golden);
   return normalizerAsk(name, d?.normalizeAndTest);
 }
 

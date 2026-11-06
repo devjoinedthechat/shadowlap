@@ -39,6 +39,17 @@ table.runst .rsub { display: block; max-width: 100%; overflow: hidden; text-over
 table.runst tr.picked td { background: var(--sel); }
 
 /* bulk actions */
+/* while the selection bar shows, a row j or k brings into view stops above it: the page's scroller, or below 1000px the window's, at the bar's measured height (BulkBar's --bulk-h) */
+.page:has(.bulkbar) { scroll-padding-bottom: 70px; }
+@media (max-width: 1000px) { html:has(.bulkbar) { scroll-padding-bottom: calc(var(--bulk-h, 46px) + 52px); } }
+/* below 1000px it stops above a docked drawer too (--dock-h), and above the bar where dock.css stacks it, over the drawer or over a
+   hidden job's pill; above 1000px the page's scroller already ends over the drawer */
+@media (max-width: 1000px) {
+  html:has(body.docked) { scroll-padding-bottom: calc(var(--dock-h) + 12px); }
+  html:has(body.docked .bulkbar) { scroll-padding-bottom: calc(var(--bulk-h, 46px) + 24px + var(--dock-h)); }
+  html:has(body.jobmin .bulkbar) { scroll-padding-bottom: calc(var(--bulk-h, 46px) + 72px); }
+  html:has(body.jobmin.docked .bulkbar) { scroll-padding-bottom: calc(var(--bulk-h, 46px) + 72px + var(--dock-h)); }
+}
 .bulkbar { position: fixed; z-index: 15; left: calc(var(--side) + 50%); bottom: 44px; transform: translateX(calc(-50% - var(--side) / 2)); display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 16px; border-radius: var(--r-overlay); border: 1px solid transparent; }
 .bulkbar b { font-weight: 500; font-size: 13px; white-space: nowrap; }
 .bulkbar .sep { width: 1px; height: 18px; background: var(--line2); margin: 0 4px; }
@@ -96,8 +107,8 @@ table.runst tr.picked td { background: var(--sel); }
 .calgrid button.cd:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
 
 /* Find breaking commit on a dashboard that changes nothing: off, saying why on hover */
-.calside .linkbtn[disabled] { opacity: .5; cursor: not-allowed; }
-.calside .linkbtn[disabled]:hover { background: none; color: var(--ink); }
+.calside .linkbtn[disabled], .calside .linkbtn[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
+.calside .linkbtn[disabled]:hover, .calside .linkbtn[aria-disabled="true"]:hover { background: none; color: var(--ink); }
 
 /* on a phone the run cell is narrow: the local tag becomes a dot beside the id, saying the same on hover */
 @media (max-width: 640px) {

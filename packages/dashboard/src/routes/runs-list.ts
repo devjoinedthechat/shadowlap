@@ -7,8 +7,7 @@ import { deleteRunsApart } from '../delete-apart.js';
 import { knownRuns, labelRuns, matchingRuns, runsByDayOptions, runsPageOptions, type RunRow } from '../runs-list.js';
 import { bisectChoices, type BisectChoices } from '../tests.js';
 import { readTeamStoreInput, type TeamStoreInput } from '../team-store.js';
-import { goldensOf } from './overview.js';
-import { outcomeWork } from '../outcome-work.js';
+import { goldensOf, projectWork } from '../outcome-work.js';
 
 /**
  * The Runs page: the table a page at a time, the 12-week calendar above it, Find breaking commit for the
@@ -62,7 +61,7 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/runs/page', async (r) => {
     const o = runsPageOptions(r.query);
     if ('error' in o) throw new HttpError(400, o.error);
-    const a = await ctx.reads.run({ kind: 'runs-page', options: { ...o, ...ctx.read }, team: teamOf(ctx), outcome: outcomeWork(ctx) });
+    const a = await ctx.reads.run({ kind: 'runs-page', options: { ...o, ...ctx.read }, team: teamOf(ctx), ...projectWork(ctx) });
     if (a.warming) ctx.reads.warm();
     sendAnswer(r, a);
   });

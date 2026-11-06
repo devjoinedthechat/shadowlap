@@ -12,6 +12,8 @@ code, pre, .mono { font-family: var(--mono); }
 code { font-size: min(1em, var(--fs-quiet)); }
 b, strong { font-weight: 600; }
 :focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+/* a page's heading takes the focus as -1, as a place for the keyboard to start from: no ring round it */
+#view h1[tabindex="-1"]:focus { outline: none; }
 /* Chrome makes a scrolling pane focusable on its own; the selected row already shows where you are, so the pane draws no ring */
 main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visible, .ibody:focus-visible, .pallist:focus-visible, .pklist:focus-visible, .rawsse:focus-visible { outline: none; }
 /* A pane that takes the focus to be scrolled by keyboard (it holds no control of its own) says it has it. */
@@ -19,7 +21,7 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 /* A pane that scrolls cuts off what is drawn past its edge, a control's ring among them: inside one, the ring is drawn
    inside the control, so it shows whole wherever the control sits. The page itself keeps its padding clear of rings. */
 :is(.runs, .vbody, .ibody, .pallist, .pallist > [role="listbox"], .pop, .help, .help .hbody, .pklist, .dialog .db, .dialog > .db, .dialog pre.fxpatch, .drawer pre, .drawer .jfiles, .tscroll, .fxtable, .stabs, .views .tabs, .bulkbar, .rawsse, .codebox, .cmdline, pre.report, .diffpanel pre) :focus-visible { outline-offset: -2px; }
-/* Skip to the page: the first stop for Tab, out of sight until it has the focus; it shows as an overlay does, the page's
+/* Skip to content: the first stop for Tab, out of sight until it has the focus; it shows as an overlay does, the page's
    own ground set apart by an edge and a shadow, never lime, which means the primary action and passed. */
 .skip { position: fixed; z-index: 70; left: 12px; top: 10px; padding: 7px 12px; border: 1px solid transparent; border-radius: var(--r-control); color: var(--ink); font-weight: 600; text-decoration: none; transform: translateY(-200%); }
 .skip:focus { transform: none; }
@@ -73,15 +75,15 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .btn.sm { height: 28px; padding: 0 10px; font-size: 12px; border-radius: 8px; }
 .btn.lime { background: var(--lime); border-color: var(--lime); color: var(--tar); font-weight: 600; box-shadow: inset 0 1px 0 rgba(255,255,255,.45); }
 .btn.quiet { border-color: transparent; color: var(--faint); }
-.btn.quiet:hover:not([disabled]) { color: var(--ink); background: var(--hover); }
-.btn.quiet.dz:hover:not([disabled]) { color: var(--err); background: color-mix(in srgb, var(--err) 10%, transparent); }
+.btn.quiet:hover:not([disabled], [aria-disabled="true"]) { color: var(--ink); background: var(--hover); }
+.btn.quiet.dz:hover:not([disabled], [aria-disabled="true"]) { color: var(--err); background: color-mix(in srgb, var(--err) 10%, transparent); }
 .btn.push { margin-left: auto; }
 .btn.danger { background: var(--err); border-color: var(--err); color: var(--tar); font-weight: 600; }
-.btn.danger:hover:not([disabled]) { background: color-mix(in srgb, var(--err) 88%, #000); border-color: color-mix(in srgb, var(--err) 88%, #000); }
-.btn[disabled] { opacity: .5; cursor: not-allowed; }
+.btn.danger:hover:not([disabled], [aria-disabled="true"]) { background: color-mix(in srgb, var(--err) 88%, #000); border-color: color-mix(in srgb, var(--err) 88%, #000); }
+.btn[disabled], .btn[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
 .btn.lime[disabled] { opacity: 1; background: var(--raise); border-color: var(--line2); color: var(--faint); box-shadow: none; }
-.btn[disabled]:hover { border-color: var(--line2); }
-.btn.lime:hover:not([disabled]) { background: color-mix(in srgb, var(--lime) 88%, #fff); border-color: color-mix(in srgb, var(--lime) 88%, #fff); }
+.btn[disabled]:hover, .btn[aria-disabled="true"]:hover { border-color: var(--line2); }
+.btn.lime:hover:not([disabled], [aria-disabled="true"]) { background: color-mix(in srgb, var(--lime) 88%, #fff); border-color: color-mix(in srgb, var(--lime) 88%, #fff); }
 .btn .caret { width: 10px; height: 10px; }
 .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .linkbtn { display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; padding: 3px 7px; margin: -3px 0; border-radius: 6px; cursor: pointer; font: 500 12px var(--body); letter-spacing: 0; text-transform: none; color: var(--dim); text-decoration: none; white-space: nowrap; }
@@ -175,11 +177,11 @@ table.t th.num, table.calls th.num, table.calls th.n { font: 500 10px var(--mono
 .runkey { display: inline-flex; gap: 3px; }
 .runkey .rk { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px; border: 1px solid var(--line2); border-radius: 6px; background: none; color: var(--dim); font: 11px var(--mono); cursor: pointer; }
 .runkey .rk svg { width: 11px; height: 11px; flex: none; }
-.runkey .rk:hover:not(:disabled) { color: var(--ink); background: var(--hover); }
+.runkey .rk:hover:not(:disabled, [aria-disabled="true"]) { color: var(--ink); background: var(--hover); }
 /* the label a run has is a choice, not a verdict: ink on a raised ground with a hairline ring, as every picker's chosen
    option, its ✓ or ✗ saying which */
 .runkey .rk[aria-pressed="true"] { color: var(--ink); border-color: var(--line2); background: var(--raise); }
-.runkey .rk:disabled { cursor: default; }
+.runkey .rk:disabled, .runkey .rk[aria-disabled="true"] { cursor: default; }
 .runkey.sm .rk { width: 22px; padding: 0; justify-content: center; }
 
 
@@ -396,8 +398,8 @@ table.t tbody tr.wspace { cursor: default; }
 
 table.t tbody tr.wspace:hover td { background: none; }
 
-.rid a.rlink { text-decoration: none; color: inherit; }
-.rid a.rlink:hover code { text-decoration: underline; text-underline-offset: 3px; }
+/* a row's link names what the row opens, for the keyboard, a screen reader and a new tab: it looks as its words would */
+a.rowa { color: inherit; text-decoration: none; }
 
 .num.left, table.t td.num.left { text-align: left; }
 
@@ -408,7 +410,7 @@ table.t tbody tr.wspace:hover td { background: none; }
 
 
 /* a link button that can't run here (no job for it, read-only, a working tree held) looks off, and says why on hover */
-.linkbtn[disabled], .linkbtn[disabled]:hover { opacity: .45; cursor: not-allowed; color: var(--dim); background: none; }
+.linkbtn[disabled], .linkbtn[disabled]:hover, .linkbtn[aria-disabled="true"], .linkbtn[aria-disabled="true"]:hover { opacity: .45; cursor: not-allowed; color: var(--dim); background: none; }
 
 /* A command-line flag in running text (`--stronger <model>`): one piece, never broken after its first hyphen. */
 code.flag { white-space: nowrap; font-size: .92em; }
@@ -465,7 +467,7 @@ code.rnm { white-space: nowrap; }
     .eyebrow, .side-k, .k, .sec-k, .banner .bk, .rnote .bk, .hgroup h4, .pop .pk, .palg, .pill, .eff, .tag, .tag-local, .badge,
     .tchip em, .bmk, .cells button .flag, .cbar .miss, table.t th:not(.mh), table.calls th, table.calls .n .fk, th.hist span,
     .fxtable th, .msg .role, .msg .role small, .msg .chg, .think .tlab, .callrow .pl, .diffpanel h4,
-    .paths h4, .fdiff h2, .prov h3, .slackmsg .sh .sapp, .kbd, .palfoot kbd, .clabels, .tl-axis, .yaxis, .xlabels, .calwd
+    .paths h4, .fdiff h2, .prov h3, .slackmsg .sh .sapp, .kbd, .palfoot kbd, .palit .palk kbd, .clabels, .tl-axis, .yaxis, .xlabels, .calwd
   ) { font-size: var(--fs-label); }
   /* a pseudo-element can't sit in :is(): report.md's labels over its values on a narrow panel */
   :is(#root, body) .fxtable td::before { font-size: var(--fs-label); }

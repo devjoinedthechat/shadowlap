@@ -277,7 +277,7 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
     recordRepair(local, { repairId: 'repair-ov', dir: '.shadowlap/repairs/repair-ov', report: repairReport({ targets: [failing], holdout: [held], good: [good] }), expect: EXPECT, command: 'r', at: NOW - DAY });
     const old = makeRun(local, { labels: ['double-email'], startedAt: NOW - 11 * DAY });
     const { fix: oldFix } = blame(old, NOW - 10 * DAY, 'send_email called twice, not once');
-    const never = makeRun(local, { status: 'failed', startedAt: NOW - HOUR });
+    const never = makeRun(local, { status: 'failed', startedAt: NOW - HOUR, calls: ['api'] });
     return { fixId: fix.fixId, oldFix: oldFix.fixId, never };
   };
 
@@ -367,7 +367,7 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
     // One past ten is listed as itself: a line for one more would say less.
     const eleven = Store.open(':memory:');
     try {
-      for (let i = 0; i < 11; i++) makeRun(eleven, { status: 'failed', startedAt: NOW - HOUR - i * 60_000 });
+      for (let i = 0; i < 11; i++) makeRun(eleven, { status: 'failed', startedAt: NOW - HOUR - i * 60_000, calls: ['api'] });
       const items = overviewSummary(eleven, { tz: 'UTC', now: NOW }).needsLook.items;
       expect(items).toHaveLength(11);
       expect(items.every((i) => i.kind === 'unblamed' && i.action === 'Run blame' && i.more === undefined)).toBe(true);

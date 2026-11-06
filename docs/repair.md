@@ -56,7 +56,7 @@ Your working tree is as it was. The fix is a patch, a report written for a pull 
 The repairer is asked for candidates, and that is all it does. Everything that decides what is kept is deterministic: where the run was lost, whether an edit may be applied, the replays, and the verdict. A model that grades its own fixes is lenient with them; here it never sees the verdict until the gate has given it.
 
 1. **Localize**, with `shadowlap blame`: for each failing run, the model call where it was lost, and a fork from that call that passed.
-2. **Propose**, by the repairer: rewrites of the system prompt or a tool description, each with a different strategy.
+2. **Propose**, by the repairer: rewrites of the system prompt or a tool description, each with a different strategy. It is asked for `--candidates` of them, 3 by default, and only its first that many are tried.
 3. **Screen**, by Shadowlap: it sets aside any rewrite that can't be applied safely or that names a detail of the failing runs.
 4. **Verify**, with `shadowlap verify`: it tries each remaining rewrite, smallest first, and keeps the first the gate accepts twice, the second time with fresh attempts.
 5. **Hand over**, by Shadowlap: a patch and a report; on request the fix applied, a branch, a pull request.
@@ -444,7 +444,7 @@ These are the flags this page covers. [The CLI reference](./cli.md#repair) lists
 | `--expect <json\|@file>` | What a passing run must do besides exiting 0 ([outcome checks](./ci.md#outcome-checks)) | The exit code alone |
 | `--repairer <provider:model>` | The model that proposes fixes ([the repairer](#the-repairer)) | `repair.repairer` in the config |
 | `--repairer-timeout <seconds>` | How long the repairer may take to answer | `repair.timeout` in the config, else 600 |
-| `--candidates <n>` | Rewrites to ask for | 3 |
+| `--candidates <n>` | Rewrites to ask for, and the most it tries | 3 |
 | `--stronger <model>` | Rescue with this model when the recorded one can't be, and try switching to it | — |
 | `--scope <name>` | Blame only the model calls of this scope: the agent's, not a simulated user's | — |
 | `--set <key=value>` | Blame's probes set this request field, such as `temperature=1` for an agent recorded at 0, whose answers don't vary when asked again | — |

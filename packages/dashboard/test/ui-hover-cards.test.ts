@@ -175,6 +175,7 @@ describe('a hover card', () => {
 
   it('hides on the shell’s Esc with no panel or sidebar open, and then Esc has nothing left to do', async () => {
     const setSideOpen = vi.fn();
+    vi.stubGlobal('location', { hash: '#/', search: '', pathname: '/' });
     r = await render(shell({ sideOpen: false, setSideOpen }, createElement(HoverCardLayer, { key: 'cards' }), fact({ key: 'fact' })));
     await r.focus(r.one('#fact'));
     expect(card().hasAttribute('hidden')).toBe(false);
