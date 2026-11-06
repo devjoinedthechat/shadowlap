@@ -223,11 +223,13 @@ describe('read models at scale', () => {
     // fails a first look that read the whole store again for each run.
     expect(first.cpu, `the first look took ${ms(first)}, ${(first.cpu / plain).toFixed(1)} times a plain read of every call`).toBeLessThan(8 * plain);
     // A run is named by its id with its about line, which for a recording quotes what its user asked
-    // first: a first look works that out only for the runs it shows (the Overview's grid and the
-    // failed runs Needs a look lists), and the lists for those they show or filter (a word in the
-    // filter field reads every run's), each keeping it with the run's totals, reading no calls again.
-    expect(first.asks).toBeGreaterThan(0);
-    expect(first.asks).toBeLessThanOrEqual(40 + 11);
+    // first: a first look works that out only for the runs it shows (the newest failing run nobody
+    // has blamed, which Needs a look names, here a replay, which quotes no ask), and the lists for
+    // those they show or filter (a word in the filter field reads every run's), each keeping it with
+    // the run's totals, reading no calls again.
+    const unblamed = first.out.needsLook.items.find((r) => r.kind === 'unblamed');
+    expect(unblamed?.about?.text).toBeTruthy();
+    expect(first.asks).toBeLessThanOrEqual(1);
     const lists = timed((s) => [listRunsPage(s, { q: 'agent' }), recentRuns(s)], 1);
     expect(lists.read).toBe(0);
     expect(first.asks + lists.asks).toBe(recordingCount);
