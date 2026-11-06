@@ -34,10 +34,12 @@ export function GoldensTable({ view, press }: { view: TestsView; press?: LeadPre
     rows: view.rows,
     keyOf,
     root: table,
+    // A golden with no run leads nowhere of its own: Enter offers its actions, as ⌘K does.
     open: (r) => {
-      if (r.runId) navigate(href.run(r.runId));
+      if (!r.runId) return false;
+      navigate(href.run(r.runId));
     },
-    actions: (r) => goldenRowScope(r, () => table.current?.closest('.page') ?? document),
+    actions: (r) => goldenRowScope(r, () => table.current?.closest('.page') ?? document, r.path === view.verdict?.first?.golden),
   });
   return (
     <section className="panel sec gtw">

@@ -176,12 +176,18 @@ describe('the Tests page', () => {
   });
 
   it('leads with the step the first failure leads with on its run\'s page, lime, Run tests plain while it does, and none for a step Tests has no button for', async () => {
-    const fix = { key: 'fix' as const, label: 'Open fix', fixId: 'fx-1', status: 'open' as const, href: '#/fixes/fx-1', title: '“Refunds skip the email”' };
+    const fix = { key: 'fix' as const, label: 'Open fix', fixId: 'fx-1', status: 'open' as const, check: 'no refund without an email', href: '#/fixes/fx-1', title: '“Refunds skip the email”' };
     const page = await open([], GOLDENS, (v) => ({ ...v, steps: { 'goldens/refunds': fix } }));
     const verdict = page.one('.verdict.tv');
     expect([one(verdict, '.vw').textContent, one(verdict, 'h2').textContent.replace(/\u00a0/g, ' ')]).toEqual(['failed', 'failed 1 of 4 goldens passed · refunds failed · 1 golden not tested yet']);
     expect(all(verdict, '.actions .btn.lime').map((b) => [b.textContent, b.getAttribute('href')])).toEqual([['Open fix', '#/fixes/fx-1']]);
+    const sub = 'The fix for this failure: no refund without an email';
+    expect(JSON.parse(one(verdict, '.actions .btn.lime').getAttribute('data-tip')!)).toMatchObject({ t: '“Refunds skip the email”', s: sub });
     expect(page.all('.ph .btn').filter((b) => b.className.includes('lime'))).toEqual([]);
+    // ⌘K on the golden it leads with offers that step too, which its report has no button for.
+    const scope = (leads: boolean) => goldenRowScope({ name: 'refunds', runId: null }, () => page.one('.page') as unknown as ParentNode, leads);
+    expect(scope(true)!.items()[0]).toMatchObject({ label: 'Open fix', hint: sub });
+    expect(scope(false)?.items().map((i) => i.label) ?? []).not.toContain('Open fix');
     await r!.unmount();
     const plain = await open([], GOLDENS, (v) => ({ ...v, steps: { 'goldens/refunds': { key: 'compare', label: 'Compare with parent', parent: 'R1' } } }));
     expect(all(plain.one('.verdict.tv'), '.actions')).toHaveLength(0);
@@ -318,17 +324,18 @@ describe('Tests\' states, parts and keys', () => {
     const RUN = '01M5H2DKE9AAAAAAAAAAAAAAAA';
     const page = await open([], GOLDENS, (v) => ({ ...v, rows: v.rows.map((row) => (row.path === 'goldens/judged' ? { ...row, runId: RUN } : row)) }));
     expect(page.all('table.gt tbody tr').map((tr) => tr.getAttribute('data-rowkey'))).toEqual(['goldens/passes', 'goldens/refunds', `#/run/${RUN}`, 'goldens/budget']);
-    const scope = goldenRowScope({ name: 'judged', runId: RUN }, () => page.one('.page') as unknown as ParentNode);
+    const scope = goldenRowScope({ name: 'judged', runId: RUN }, () => page.one('.page') as unknown as ParentNode)!;
     const items = scope.items();
     expect([scope.name, items.map((i) => [i.label, i.hint])]).toEqual(['judged', [['Open run', expect.stringMatching(/^01M5H2DKE9/)], ['Update golden', 'shadowlap test goldens/judged --update']]]);
     items[1].run();
     await page.until('the dialog', () => page.all('.dialog').length === 1);
     expect(all(page.one('.dialog'), 'h2, h3')[0].textContent).toBe('Update judged?');
-    expect(goldenRowScope({ name: 'passes', runId: null }, () => page.one('.page') as unknown as ParentNode).items()).toEqual([]);
+    // One with no run and no report has nothing to offer: ⌘K opens the whole palette, and Enter nothing.
+    expect(goldenRowScope({ name: 'passes', runId: null }, () => page.one('.page') as unknown as ParentNode)).toBeNull();
   });
 
   it('follows a session that runs every golden: running and how many it has reached, no step, and each row where the session has got', async () => {
-    const fix = { key: 'fix' as const, label: 'Open fix', fixId: 'fx-1', status: 'open' as const, href: '#/fixes/fx-1', title: 'Refunds skip the email' };
+    const fix = { key: 'fix' as const, label: 'Open fix', fixId: 'fx-1', status: 'open' as const, check: 'no refund without an email', href: '#/fixes/fx-1', title: 'Refunds skip the email' };
     const following = { whole: true, total: 4, reached: 3, goldens: { 'goldens/passes': 'passed', 'goldens/refunds': 'running', 'goldens/judged': 'between', 'goldens/budget': 'queued' } as const };
     const page = await open([], GOLDENS, (v) => ({ ...v, steps: { 'goldens/refunds': fix }, running: { ...v.verdict!.session, endedAt: null, live: true }, following }));
     const verdict = page.one('.verdict.tv');
@@ -351,7 +358,7 @@ describe('Tests\' states, parts and keys', () => {
   it('ends a test job\'s drawer over Tests on the step the page leads with once it has read what the job did, pressing the page\'s own', async () => {
     const Footer = jobFooter(JOB_KINDS.tests)!;
     expect(jobFooter(JOB_KINDS.testUpdate)).toBe(Footer);
-    const fix = { key: 'fix' as const, label: 'Open fix', fixId: 'fx-1', status: 'open' as const, href: '#/fixes/fx-1', title: 'Refunds skip the email' };
+    const fix = { key: 'fix' as const, label: 'Open fix', fixId: 'fx-1', status: 'open' as const, check: 'no refund without an email', href: '#/fixes/fx-1', title: 'Refunds skip the email' };
     const job = (endedAt: number) => createElement(Footer, { job: { id: 'j1', kind: JOB_KINDS.tests, done: true, startedAt: 0, endedAt } as never, plain: true });
     g.location = { hash: '#/tests' };
     r = await render(page([], GOLDENS, (v) => ({ ...v, steps: { 'goldens/refunds': fix } }), { beside: createElement('div', { className: 'jkind' }, job(0), createElement('i', { className: 'later' }, job(Date.now() + 60_000))) }));

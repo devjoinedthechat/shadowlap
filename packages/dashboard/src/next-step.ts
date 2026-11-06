@@ -148,7 +148,7 @@ export type NextStep = StepWords &
     | { key: 'replay'; runId: string; action?: ActionItem }
     | { key: 'passing' | 'injection-proof' | 'preset-proof'; runId: string }
     | { key: 'compare'; parent: string }
-    | { key: 'fix'; fixId: string; status: FixStatus }
+    | { key: 'fix'; fixId: string; status: FixStatus; /** The fix's check, as its page states it. */ check: string }
     | { key: 'blame'; offer: BlameOffer }
     | { key: 'normalizer' | 'update-golden'; golden: string; test: TestOffer | null }
     | { key: 'rerun-test' | 'gate-again'; golden: string }
@@ -291,8 +291,8 @@ function compareStep(parent: string, runId: string): Decided {
   return { key: 'compare', label: ACTIONS.compareWithParent.label, parent, href: links.compare(parent, runId), title: `Against ${short(parent)}`, about: parent, command: commandLine(['diff', short(parent), short(runId)]) };
 }
 
-function fixStep(fix: { fixId: string; title: string; status: FixStatus }, href = links.fixes(fix.fixId)): Decided {
-  return { key: 'fix', label: ACTIONS.openFix.label, fixId: fix.fixId, status: fix.status, href, title: `“${fix.title}”` };
+function fixStep(fix: { fixId: string; title: string; status: FixStatus }, check: string, href = links.fixes(fix.fixId)): Decided {
+  return { key: 'fix', label: ACTIONS.openFix.label, fixId: fix.fixId, status: fix.status, check, href, title: `“${fix.title}”` };
 }
 
 function blameCommand(runId: string, offer: BlameOffer, capture: boolean): string {
@@ -639,7 +639,7 @@ function captureStep(f: Facts): Decided | null {
   if (f.row.kind !== 'capture' || j?.by !== 'import' || j.verdict !== 'failed') return null;
   const first = j.first?.label;
   const fix = first ? fixByFailure(f.reads.fixes(), first) : null;
-  if (fix) return fixStep(fix);
+  if (fix) return fixStep(fix, fix.check.text);
   const failed = (j.checks ?? []).filter((c) => c.status === 'failed').map((c) => c.label);
   const expect = captureExpect(f.record, f.work?.tests);
   return blameStep(f.row.runId, expect ? { from: 'golden', expect, failed: failed.length ? failed : first ? [first] : [] } : { from: 'ask', failed: failed.length ? failed : first ? [first] : [] }, true);
@@ -662,7 +662,7 @@ function attemptStep(f: Facts): Decided | null {
 function coveredStep(f: Facts): Decided | null {
   if (!f.row.failed) return null;
   const fix = f.fix()?.fix;
-  return fix ? fixStep(fix, fix.href) : null;
+  return fix ? fixStep(fix, fix.check, fix.href) : null;
 }
 
 /** Failed, and nobody blamed it: blame, where blame can take it. */

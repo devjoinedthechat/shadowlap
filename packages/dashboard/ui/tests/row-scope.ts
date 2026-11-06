@@ -5,11 +5,13 @@ import { navigate } from '../router.js';
 import type { GoldenRow } from '../types.js';
 
 /**
- * A golden's row on Tests, for ⌘K on it: what its report opens (its run), then the report's buttons
- * as the page draws them (its next step, Update golden, Find breaking commit…), each waiting as its
- * button waits and pressing that very button, so it asks and starts as the button does. They are
- * read from the page when the palette opens, so none of the report's rules is written twice. A golden
- * with no report (it passed, or hasn't run) opens its run.
+ * A golden's row on Tests, for ⌘K on it, and for Enter on one that leads nowhere of its own: what its
+ * report opens (its run), its next step where only the verdict draws it (Open fix, Run blame), then
+ * the report's buttons as the page draws them (its next step, Update golden, Find breaking
+ * commit…), each waiting as its button waits and pressing that very button, so it asks and starts
+ * as the button does. They are read from the page when the palette opens, so none of the report's
+ * rules is written twice. A golden with no report (it passed, or hasn't run) opens its run, and one
+ * with nothing to offer has no actions.
  */
 
 type Item = ReturnType<RowScope['items']>[number];
@@ -27,8 +29,11 @@ function cardHint(b: Element): string {
   }
 }
 
-/** One of the report's buttons as the palette offers it: found again when picked, as the page may have drawn the report anew. */
-function buttonItem(page: () => ParentNode | null, name: string, b: Element, i: number): Item {
+/** The buttons a part of the page draws in its action slot. */
+const buttonsIn = (part: ParentNode | null | undefined): HTMLElement[] => [...(part?.querySelectorAll<HTMLElement>('.actions .btn') ?? [])];
+
+/** A button as the palette offers it: found again in its part (`again`) when picked, as the page may have drawn it anew. */
+function buttonItem(again: () => HTMLElement[], b: Element, i: number): Item {
   const label = b.textContent?.trim() ?? '';
   const why = b.getAttribute('data-why');
   return {
@@ -36,24 +41,30 @@ function buttonItem(page: () => ParentNode | null, name: string, b: Element, i: 
     hint: why ?? cardHint(b),
     ...(why ? { wait: why } : {}),
     run: () => {
-      const report = page() && reportOf(page()!, name);
-      const again = [...(report?.querySelectorAll<HTMLElement>('.actions .btn') ?? [])];
-      (again.find((x) => x.textContent?.trim() === label) ?? again[i])?.click();
+      const now = again();
+      (now.find((x) => x.textContent?.trim() === label) ?? now[i])?.click();
     },
   };
 }
 
-export function goldenRowScope(row: Pick<GoldenRow, 'name' | 'runId'>, page: () => ParentNode | null): RowScope {
-  return {
-    name: row.name,
-    items: () => {
+/**
+ * `leads`: the golden is the one the verdict leads with, whose step the verdict draws. That step is
+ * offered where its report has no button of that name: Open fix and Run blame, which only the verdict draws.
+ */
+export function goldenRowScope(row: Pick<GoldenRow, 'name' | 'runId'>, page: () => ParentNode | null, leads = false): RowScope | null {
+  const items = (): Item[] => {
+    const report = () => {
       const root = page();
-      const report = root && reportOf(root, row.name);
-      const open: Item[] = row.runId ? [{ label: 'Open run', hint: shortId(row.runId), run: () => navigate(href.run(row.runId!)) }] : [];
-      if (!report) return open;
-      return [...open, ...[...report.querySelectorAll('.actions .btn')].map((b, i) => buttonItem(page, row.name, b, i))];
-    },
+      return buttonsIn(root && reportOf(root, row.name));
+    };
+    const verdict = () => buttonsIn(page()?.querySelector('.verdict.tv'));
+    const open: Item[] = row.runId ? [{ label: 'Open run', hint: shortId(row.runId), run: () => navigate(href.run(row.runId!)) }] : [];
+    const own = report();
+    const labels = new Set(own.map((b) => b.textContent?.trim()));
+    const step = leads ? verdict().filter((b) => !labels.has(b.textContent?.trim())) : [];
+    return [...open, ...step.map((b, i) => buttonItem(verdict, b, i)), ...own.map((b, i) => buttonItem(report, b, i))];
   };
+  return items().length ? { name: row.name, items } : null;
 }
 
 /**

@@ -13,7 +13,7 @@ export type Lead =
   | { kind: 'update'; label: string; golden: string; judge: readonly string[] | null }
   | { kind: 'bisect'; label: string; f: DivergenceView | FailureView }
   | { kind: 'more'; label: string; v: InconclusiveView; more: MoreAttempts }
-  | { kind: 'fix'; label: string; href: string; title: string | null }
+  | { kind: 'fix'; label: string; href: string; title: string | null; check: string }
   | { kind: 'blame'; runId: string; step: Extract<NextStep, { key: 'blame' }> };
 
 /** The golden whose step leads, and that step as the server sent it; null without one. */
@@ -26,7 +26,7 @@ export function leadingStep(view: Pick<TestsView, 'verdict' | 'steps'>): NextSte
 export function leadStep(view: Pick<TestsView, 'verdict' | 'steps' | 'divergences' | 'failures' | 'inconclusive'>, has: (kind: string) => boolean, whole = false): Lead | null {
   const step = whole ? null : leadingStep(view);
   if (!step) return null;
-  if (step.key === 'fix') return step.href ? { kind: 'fix', label: step.label, href: step.href, title: step.title ?? null } : null;
+  if (step.key === 'fix') return step.href ? { kind: 'fix', label: step.label, href: step.href, title: step.title ?? null, check: step.check } : null;
   if (step.key === 'blame') {
     const runId = view.verdict?.first?.runId;
     return runId && has('blame') ? { kind: 'blame', runId, step } : null;

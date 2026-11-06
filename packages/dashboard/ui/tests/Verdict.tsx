@@ -50,7 +50,7 @@ function LeadButton({ lead, p }: { lead: Lead; p: LeadPress }) {
       );
     case 'fix':
       return (
-        <a className="btn lime" href={lead.href} data-tip={lead.title ? tipText(lead.title) : undefined}>
+        <a className="btn lime" href={lead.href} data-tip={tipCard(lead.title ?? lead.label, [], `The fix for this failure: ${lead.check}`)}>
           {lead.label}
         </a>
       );

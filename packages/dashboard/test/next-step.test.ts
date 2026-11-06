@@ -297,7 +297,7 @@ describe('a run’s next step', () => {
     expect(step(forked)).toMatchObject({ key: 'blame', offer: { from: 'ask', failed: ['send_email called 1 time'] }, command: `shadowlap blame ${forked.slice(0, 10)} --expect '<what it must do>'` });
     const held = makeRun(store, { labels: ['refund-bug'], calls: ['api', 'tool', 'api'] });
     const { fix } = recordBlame(store, { runId: held, report: blameReport(held), expect: EXPECT, scope: null, command: 'shadowlap blame x', title: 'Refunds above the limit', checkText: 'issue_refund never called', at: T0 });
-    expect(step(held)).toMatchObject({ key: 'fix', label: 'Open fix', fixId: fix.fixId, status: 'open', title: '“Refunds above the limit”', href: expect.stringContaining(fix.fixId) });
+    expect(step(held)).toMatchObject({ key: 'fix', label: 'Open fix', fixId: fix.fixId, status: 'open', check: fix.check.text, title: '“Refunds above the limit”', href: expect.stringContaining(fix.fixId) });
     // Blame needs a model call to ask again, and a run that was only stopped has nothing to blame.
     expect(step(recording(T0 + MIN, { status: 'failed', calls: 'b' })).key).toBe('replay');
   });
@@ -356,7 +356,7 @@ describe('a run’s next step', () => {
     // A fix that holds the same failure, whatever its call numbers and amounts: Open fix.
     const held = makeRun(store, { labels: ['refund-bug'], calls: ['api'] });
     const { fix } = recordBlame(store, { runId: held, report: { ...blameReport(held), oracle: ['every issue_refund call: amount <= 250'] }, expect: EXPECT, scope: null, command: 'shadowlap blame x', title: 'Refunds above the limit', checkText: 'send_email called once', at: T0 });
-    expect(step(capture, w, { judged: { ...judged!, first: { label: 'every issue_refund call: amount <= 100', detail: null } } })).toMatchObject({ key: 'fix', fixId: fix.fixId });
+    expect(step(capture, w, { judged: { ...judged!, first: { label: 'every issue_refund call: amount <= 100', detail: null } } })).toMatchObject({ key: 'fix', fixId: fix.fixId, check: fix.check.text });
   });
 
   it('shows commands that paste: every word quoted where it needs it, and only what you fill in left as it is', () => {
