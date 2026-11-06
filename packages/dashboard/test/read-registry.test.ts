@@ -18,10 +18,11 @@ import { addRun, DAY, HOUR } from './read-model-store.js';
  */
 
 const NOW = Date.UTC(2026, 9, 20, 12);
-/** The recording, its fork and the fix it fails in, by the same ids in either store. */
+/** The recording, its fork, the fix it fails in and a preview of it, by the same ids in either store. */
 const REC = '01K8RG00000000000000000001';
 const FORK = '01K8RG00000000000000000002';
 const FIX = 'fx-01K8RG00000000000000000003';
+const SESSION = 'dc-01K8RG00000000000000000004';
 
 /** A job of every kind the tables register, about the runs and the fix below; the warm-up and an analysis last, as they keep what they work out. */
 const JOBS: { [K in ReadJob['kind']]: Extract<ReadJob, { kind: K }> } = {
@@ -50,6 +51,11 @@ const JOBS: { [K in ReadJob['kind']]: Extract<ReadJob, { kind: K }> } = {
   fix: { kind: 'fix', fixId: FIX, repairer: null },
   outcome: { kind: 'outcome', runId: FORK, work: null },
   next: { kind: 'next', runId: FORK, outcome: null, next: null },
+  'run-estimates': { kind: 'run-estimates', runId: FORK, at: 1, model: null },
+  'fix-estimates': { kind: 'fix-estimates', fixId: FIX, repairer: null, rule: { keptMax: null, baseline: 'paired' }, model: null },
+  'tests-estimates': { kind: 'tests-estimates', goldens: [{ path: 'goldens/refund', runId: REC, packedAt: null, mode: 'fork', repeat: 1, passes: 1, checks: [] }], folder: 'goldens' },
+  'bisect-estimate': { kind: 'bisect-estimate', commits: 6, target: { runId: FORK, fork: true } },
+  'decision-estimates': { kind: 'decision-estimates', sessionId: SESSION, runId: null, work: null, rule: { keptMax: null, baseline: 'paired' } },
   warm: { kind: 'warm', budgetMs: 50 },
   analyse: { kind: 'analyse', runId: REC },
 };
@@ -74,6 +80,9 @@ beforeAll(() => {
     const check = { expect: { tools: { issue_refund: { count: 0 } } }, key: 'check:x', oracle: ['issue_refund never called'], text: 'issue_refund never called' };
     store.insertFix({ fixId: FIX, title: 'Refunds issued without approval', labels: [], check, status: 'open', openedAt: NOW - HOUR, verifiedAt: null, appliedAt: null, data: {} });
     store.addFixLink(FIX, 'failing', REC, NOW - HOUR);
+    // A preview that couldn't clear the recording.
+    const decided = { runId: REC, golden: null, steps: 2, asked: 2, rank: 1, majority: 1, counts: {}, cost: { before: 0.004, after: 0.002, spent: 0.001 }, tokens: {}, thinkingStripped: 0, refused: null, decisions: [], warnings: [] };
+    store.putDecisionSession({ sessionId: SESSION, kind: 'decisions', at: NOW - HOUR, change: 'the model claude-haiku-4-5', actor: null, revision: null, data: { change: { model: 'claude-haiku-4-5', fields: {}, from: null, fromCode: null, text: 'the model claude-haiku-4-5' }, flagged: [REC], toVerify: [REC], verify: null }, runs: [{ runId: REC, golden: null, rank: 1, changed: 1, data: decided }] });
   }
   pool = new ReadPool({ dbPath, keep: { stats: (rows) => void file.saveRunStats(rows), asks: (rows) => void file.saveRunAsks(rows) } });
   local = new LocalReads(() => memory);

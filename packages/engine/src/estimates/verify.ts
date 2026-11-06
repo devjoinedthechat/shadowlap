@@ -119,6 +119,8 @@ export interface VerifyEstimateOptions {
    * with no verify of those runs before it): for the price's card, when there is no `last`.
    */
   expected?: ExpectedFigure | null;
+  /** `--budget`, as Verify again runs with the verdict's: no attempt starts once it is spent, so under the ceiling it is what the verify is held to. */
+  budget?: number | null;
 }
 
 /** The price's card lines from what a verify is expected to take: what an attempt costs, then the attempts and their cost. */
@@ -139,7 +141,8 @@ export function lastVerify(last: LastVerify | null | undefined): { usd: number; 
  * A verify's estimate: every run it checks at its gate's limit (`At most ≈$20.11 · up to 80 attempts
  * a failing run, 200 pairs a good one · live where a replay forks, writes stubbed`). The last verify
  * of the same runs, and what it spent, are the price's card (Verify again); with none, what the
- * verify it runs is expected to take (Verify this run).
+ * verify it runs is expected to take (Verify this run). A `--budget` under the ceiling stops it
+ * there (`Stops at $0.01`).
  */
 export function verifyEstimate(runs: readonly VerifyRunCost[], o: VerifyEstimateOptions = {}): Estimate {
   if (!runs.length) return noEstimate('verify', 'there is no run to verify');
@@ -164,6 +167,8 @@ export function verifyEstimate(runs: readonly VerifyRunCost[], o: VerifyEstimate
     attempts: ceiling.attempts,
     ...(last ? { last: { usd: last.usd, attempts: last.attempts } } : {}),
     ...(expected && expected.cost !== null ? { expected: { usd: expected.cost, attempts: Math.round(expected.expected) } } : {}),
+    // A budget under the ceiling stops the verify there: what it bills is then that much.
+    ...(o.budget && o.budget < ceiling.usd ? { stops: o.budget } : {}),
   };
 }
 

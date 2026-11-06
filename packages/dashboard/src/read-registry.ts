@@ -10,29 +10,28 @@ import type { ReadJob } from './read-jobs.js';
  * Each feature registers its reads from its own module, as a table: each kind of job it answers,
  * with the handler that answers it. read-jobs.ts lists the tables, its own first. Adding a read is
  * its job and its handler in the feature's table, and the route that asks it; a feature's table is
- * one line in that list:
+ * one line in that list. A run's estimates, as estimates.ts answers them, in short:
  *
  *   // estimates.ts
- *   import { lookupRun } from './api.js';
- *   import { answer, failed, type ReadTable } from './read-registry.js';
+ *   export type RunEstimatesJob = { kind: 'run-estimates'; runId: string; at: number | null; model: string | null };
  *
- *   export type EstimateJob = { kind: 'estimate'; runId: string; what: string };
+ *   async function runEstimates(store: Store, job: RunEstimatesJob): Promise<ReadAnswer> {
+ *     const run = lookupRun(store, job.runId);
+ *     if (!run) return failed(404, `no run ${job.runId}`);
+ *     // … each fork menu row's estimate at call `at`, from the run's calls
+ *     return answer(body, { tagged: true });
+ *   }
  *
- *   export const ESTIMATE_READS: ReadTable<EstimateJob> = {
- *     estimate: (store, job) => {
- *       const run = lookupRun(store, job.runId);
- *       if (!run) return failed(404, `no run ${job.runId}`);
- *       return answer(estimateOf(store, run, job.what), { tagged: true });
- *     },
- *   };
+ *   export const ESTIMATE_READS: ReadTable<EstimateJob> = { 'run-estimates': (store, job) => runEstimates(store, job), … };
  *
  *   // read-jobs.ts
- *   const READ_TABLES = [CORE_READS, ESTIMATE_READS] as const;
+ *   const READ_TABLES = [CORE_READS, …, ESTIMATE_READS] as const;
  *
  *   // routes/estimates.ts
  *   const run = lookupRun(ctx.store, r.params.id!);
  *   if (!run) throw new HttpError(404, `no run ${r.params.id!}`);
- *   sendAnswer(r, await ctx.reads.run({ kind: 'estimate', runId: run.runId, what }, runAffinity(ctx.store, run.runId)));
+ *   const job = { kind: 'run-estimates' as const, runId: run.runId, at, model };
+ *   sendAnswer(r, await ctx.reads.run(job, runAffinity(ctx.store, run.runId)));
  *
  * test/read-registry.test.ts asks a job of every kind on a thread and on a store in memory, and wants
  * the same answer from both: a kind registered without a job there fails the tests' type check.

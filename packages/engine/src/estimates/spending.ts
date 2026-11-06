@@ -133,6 +133,17 @@ export function asksFirst(e: Pick<Estimate, 'usd' | 'always' | 'per' | 'stops'> 
 }
 
 /**
+ * Whether the threshold is why a job asks, so its ask says so beside the way to change it (`Asks above
+ * $0.50 · Change`): it asks at this threshold for its amount alone. Not for a job with no estimate, one
+ * that asks for what it does (`always`), one priced by the unit (`per`) or a form, which ask on every
+ * setting, nor for one that starts on click.
+ */
+export function askedOverThreshold(e: Pick<Estimate, 'usd' | 'always' | 'per' | 'stops'> | null | undefined, threshold: Spending, o: CostShown = {}): boolean {
+  if (!e || e.usd === null || e.always || e.per || o.form) return false;
+  return asksFirst(e, threshold, o);
+}
+
+/**
  * The line a button's card says under its sentence: `≈$0.027 · starts at once`, `At most ≈$10.88 ·
  * asks first`, `Free · asks first`, `no estimate · asks first`; a form's, or a button's that waits,
  * the amount alone. Null for a job that bills nothing and asks nothing first: it has no line.

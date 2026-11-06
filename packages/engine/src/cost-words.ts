@@ -9,11 +9,28 @@ import { pluralS } from './words.js';
 /** A number and its noun: `1 attempt`, `6 candidates`, `1,200 calls`. */
 export const counted = (n: number, noun: string): string => `${n.toLocaleString('en-US')} ${noun}${pluralS(n)}`;
 
+/**
+ * A factor in words, as an ask says what calls cost asked of another model: `twice`, `half`, `1.7
+ * times`, under a tenth to two figures (`0.048 times`); null for about the same, or none to give.
+ */
+export function timesWords(k: number): string | null {
+  if (!Number.isFinite(k) || k <= 0) return null;
+  const small = k < 0.1;
+  const r = small ? Number(k.toPrecision(2)) : Math.round(k * 10) / 10;
+  if (r === 1) return null;
+  if (r === 2) return 'twice';
+  if (r === 0.5) return 'half';
+  return `${r.toLocaleString('en-US', small ? { maximumSignificantDigits: 2 } : { maximumFractionDigits: 1 })} times`;
+}
+
+/** The most verifies of one candidate: the first the gate accepts is verified once more, with fresh attempts, and kept only if it passes again (cli/src/repair-pick.ts). */
+export const REPAIR_VERIFIES = 2;
+
 /** Why Run repair runs nothing where it would end "No fix to try": the blame it reuses didn't settle, or rescued no call. */
 export const repairRunsNothing = (why: 'unsettled' | 'unrescued'): string => `nothing runs: the blame it reuses ${why === 'unsettled' ? 'didn’t settle' : 'rescued no call'}`;
 
 /** Run repair's parts: its candidates, after a new blame when it can't reuse one, each verified, and where each run goes live. */
-export const repairParts = (candidates: number, newBlame: boolean): string[] => [`${newBlame ? 'a new blame, then up' : 'up'} to ${counted(candidates, 'candidate')}`, 'each verified up to twice', 'live from each run’s first model call, writes stubbed'];
+export const repairParts = (candidates: number, newBlame: boolean): string[] => [`${newBlame ? 'a new blame, then up' : 'up'} to ${counted(candidates, 'candidate')}`, `each verified up to ${timesWords(REPAIR_VERIFIES) ?? 'once'}`, 'live from each run’s first model call, writes stubbed'];
 
 /** Where a fork runs live from (`#17`, `the next model call`), the writes after it fenced; `other writes` when one is forced live. */
 export const liveFromPart = (from: string, otherWrites = false): string => `live from ${from}, ${otherWrites ? 'other writes' : 'writes'} fenced`;

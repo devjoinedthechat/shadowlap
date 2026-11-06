@@ -114,6 +114,14 @@ export abstract class Decisions extends StorePart {
     return { ...this.decisionSessionRow(row), data: JSON.parse(String(row.data)) as Record<string, unknown>, runRows };
   }
 
+  /** The ids of the runs a session asked again, in its order, none of their parts read. */
+  decisionRunIds(sessionId: string): string[] {
+    return this.db
+      .prepare(`SELECT run_id FROM decision_runs WHERE session_id = ? ORDER BY position`)
+      .all(sessionId)
+      .map((r) => String(r.run_id));
+  }
+
   /** Sessions, newest first; `kind` keeps one kind. */
   listDecisionSessions(options: { limit?: number; kind?: 'decisions' | 'migrate' } = {}): DecisionSessionRow[] {
     const limit = Math.max(1, Math.min(10_000, options.limit ?? 50));

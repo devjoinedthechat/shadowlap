@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { recordingsOfRun, Store, testsEntryFor } from '../src/index.js';
+import { parseTests, recordedChecks, recordedRole, recordingsOfRun, Store, testsEntryFor } from '../src/index.js';
 import { makeRun } from './fix-fixtures.js';
 
 // The tests entry a run is judged by when it was given no --expect: the CLI's replays and the
@@ -34,5 +34,27 @@ describe('a recording’s entry under tests', () => {
     expect(testsEntryFor(entries, 'goldens/refund-x/inner', project)).toBeNull();
     expect(testsEntryFor(entries, 'other/refund-once', project)).toBeNull();
     expect(testsEntryFor([], 'goldens/refund-once', project)).toBeNull();
+  });
+});
+
+describe('the checks a run is judged by, and the role it plays in a verify', () => {
+  const project = join('/work', 'agent');
+  const entries = parseTests({ 'goldens/refund-*': { expect: { tools: { lookup_order: { count: 0 } } } } });
+
+  it('takes a golden’s own entry, else the nearest recording’s, and makes a run that fails them as recorded the one that must now pass', () => {
+    const store = Store.open(':memory:');
+    const pack = makeRun(store, { status: 'completed', calls: ['api', 'tool'], meta: { imported: { at: 1, from: 'goldens/refund-over-limit' } } });
+    const replay = makeRun(store, { mode: 'replay', parent: pack, status: 'completed', calls: ['api'] });
+    const run = (id: string) => store.getRun(id)!;
+    expect(recordedChecks(entries, store, run(replay), project)?.source).toBe('goldens/refund-over-limit');
+    expect(recordedChecks(entries, store, run(replay), project, 'goldens/email')).toBeNull();
+    // The pack's recording looked up an order, which its checks forbid: it must now pass. Its replay didn't, so it must keep passing.
+    const spec = recordedChecks(entries, store, run(pack), project)!.spec;
+    expect(recordedRole(store, run(pack), spec)).toBe('target');
+    expect(recordedRole(store, run(replay), spec)).toBe('good');
+    // With no checks, its exit alone says.
+    expect(recordedRole(store, run(makeRun(store, { status: 'failed' })), null)).toBe('target');
+    expect(recordedRole(store, run(pack), null)).toBe('good');
+    store.close();
   });
 });

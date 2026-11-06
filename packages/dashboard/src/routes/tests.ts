@@ -1,5 +1,6 @@
-import { ACTIONS, confirmWords, messageOf, type Normalizer, type StoreOf } from '@shadowlap/engine';
+import { ACTIONS, confirmWords, messageOf, noEstimate, type Normalizer, type StoreOf } from '@shadowlap/engine';
 import { describeEvent } from '../activity.js';
+import { lookupRun, noSuchRun } from '../api.js';
 import { liveChaosSession } from '../chaos.js';
 import { ciWorkflows, fixPreview, gitFacts, goldenProviders, parseCiOptions } from '../ci-workflows.js';
 import { choicesInCheckout, commitsHere, commitSubjects, rangeHere, revisionsHere } from '../commits-here.js';
@@ -7,18 +8,23 @@ import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult } from '../jobs.js';
 import { links } from '../links.js';
+import { searchedCommits } from '../next-step.js';
+import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
+import { loadRunIndex, runAffinity, type RunIndex } from '../run-index.js';
 import { configFileError } from '../settings.js';
 import { readTeamStoreInput } from '../team-store.js';
 import { liveAsk } from '../tests-live.js';
-import { bisectChoices, bisectJob, gatePreview, liveTestSession, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type BisectRange, type GoldenSource, type TestsJob, type TestsView } from '../tests.js';
+import { bisectChoices, bisectJob, checkedRevision, gatePreview, liveTestSession, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type BisectRange, type GoldenSource, type TestsJob, type TestsView } from '../tests.js';
 
 /**
  * Tests: the goldens and how they did (`GET /api/tests`), what a run's page offers about a test
  * replay and Find breaking commit (`GET /api/tests/runs/:id`), what a gate's figures would do
  * (`GET /api/tests/gate?good=&bad=&risk=&max=`, or `?baseline=history&drop=&window=&min=&max=`
  * figured against `&history=47/50`), the
- * workflow steps Settings → CI shows (`GET /api/ci/workflows`), and the jobs the Tests screen starts:
+ * workflow steps Settings → CI shows (`GET /api/ci/workflows`), what Tests' buttons and Find breaking
+ * commit would bill (`GET /api/tests/estimates`, `GET /api/estimates/bisect`, worked out beside the
+ * server: estimates.ts), and the jobs the Tests screen starts:
  *
  *   test                 { golden?, maxAttempts?,       every golden on disk (the goldens folder's pattern, which the CLI
  *                          continue?, yes? }            expands without a shell, and each pack named elsewhere), or one;
@@ -135,8 +141,39 @@ async function rangesInCheckout(view: TestsView, root: string | null | undefined
 // starts elsewhere. A golden's answer opens Tests, which shows it; a run's, the run.
 describeEvent('bisect.none', (e, d) => ({ kind: 'test', text: `No first bad commit · ${e.ref ?? confirmWords(ACTIONS.findBreakingCommit.label)}${typeof d.why === 'string' && d.why ? `: ${d.why}` : ''}`, href: e.runId ? links.run(e.runId) : links.tests() }));
 
+/**
+ * Find breaking commit's job as `req` asks it: whether this checkout has the commit a run's search
+ * would end at is asked of git in `project` first, beside the server, as bisectJob looks it up.
+ */
+async function bisectHere(store: StoreOf<'recording' | 'fixes' | 'tests'>, goldens: readonly GoldenSource[], req: Record<string, unknown>, project: string | null): Promise<TestsJob> {
+  let here: ((revs: string[]) => ReadonlySet<string> | null) | undefined;
+  if (project && typeof req.runId === 'string' && /^[0-9A-Z]{26}$/.test(req.runId)) {
+    const end = bisectChoices(store, req.runId, { goldens })?.bad ?? null;
+    const known = await commitsHere(project, [end]);
+    here = (revs) => (known ? new Set(revs.filter((rev) => known.has(rev))) : null);
+  }
+  return bisectJob(store, goldens, req, here ? { here } : {});
+}
+
+/** The calls of the attempts of each golden's newest test, as the run index counts them: what Tests' estimates price an attempt from. */
+function attemptCalls(store: StoreOf<'tests'>, byId: RunIndex['byId'], goldens: readonly GoldenSource[]): number {
+  let n = 0;
+  for (const g of goldens) for (const id of store.listTestResults({ golden: g.path, limit: 1 })[0]?.data?.attempts?.runs ?? []) n += byId.get(id)?.calls ?? 0;
+  return n;
+}
+
+/** What a Find breaking commit job searches, as its arguments say (tests.ts `bisectArgs`): what it replays, from and up to which revision, and whether live. */
+function searched(args: readonly string[]): { ref: string; good: string | null; bad: string | null; fork: boolean } {
+  const after = (flag: string): string | null => {
+    const at = args.indexOf(flag);
+    return at > 1 ? (args[at + 1] ?? null) : null;
+  };
+  return { ref: args[1] ?? '', good: after('--good'), bad: after('--bad'), fork: args.includes('--fork') };
+}
+
 export function register(router: Router, ctx: RouteContext): void {
   const goldens = (): GoldenSource[] => ctx.options.goldens?.() ?? [];
+  const prices = () => (ctx.read.prices ? { prices: ctx.read.prices } : {});
   // The rules in the config now: a divergence they already mask needs only a re-run. A config that
   // can't be read leaves that out rather than the whole screen.
   const normalizers = (): Normalizer[] => {
@@ -163,6 +200,42 @@ export function register(router: Router, ctx: RouteContext): void {
     if (before !== undefined && !Number.isFinite(before)) throw new HttpError(400, 'before is a time in milliseconds');
     const bisect = bisectChoices(ctx.store, run.runId, { goldens: goldens(), ...(before !== undefined ? { before } : {}) });
     r.tagged({ banner: testRunBanner(ctx.store, run.runId, { normalizers: normalizers() }), bisect: bisect && (await choicesInCheckout(ctx.project?.path, bisect)) });
+  });
+
+  // What Run tests and each golden's buttons would bill, worked out beside the server: they read the
+  // goldens' recordings, and the attempts of their last sessions.
+  router.get('/tests/estimates', async (r) => {
+    const list = goldens();
+    const { byId } = loadRunIndex(ctx.store);
+    const calls = list.reduce((n, g) => n + (g.runId ? (byId.get(g.runId)?.calls ?? 0) : 0), 0) + attemptCalls(ctx.store, byId, list);
+    sendAnswer(r, await ctx.reads.run({ kind: 'tests-estimates', goldens: list, folder: FOLDER, ...prices() }, { calls }));
+  });
+
+  // Find breaking commit's, as its dialog's revisions are typed: the job its build would start, the
+  // commits between counted by git here, then priced beside the server. None until it has a commit
+  // to start from; a job it would refuse, priced as nothing with why.
+  router.get('/estimates/bisect', async (r) => {
+    const param = (key: string) => r.query.get(key)?.trim() || null;
+    const [runId, golden, good, bad] = [param('runId'), param('golden'), param('good'), param('bad')];
+    if ((runId === null) === (golden === null)) throw new HttpError(400, 'name a run (runId) or a golden (golden)');
+    if ((good !== null && !checkedRevision(good)) || (bad !== null && !checkedRevision(bad))) throw new HttpError(400, 'good and bad are commits: a sha, a tag or a branch');
+    const list = goldens();
+    const run = runId === null ? null : lookupRun(ctx.store, runId);
+    if (runId !== null && !run) {
+      const no = noSuchRun(ctx.store, runId);
+      throw new HttpError(no.status, no.message);
+    }
+    if (golden !== null && !list.some((g) => g.path === golden)) throw new HttpError(404, `no golden ${golden.slice(0, 80)}`);
+    const job = good === null ? null : await bisectHere(ctx.store, list, { ...(run ? { runId: run.runId } : { golden }), good, bad }, ctx.project?.path ?? null);
+    if (job && !('args' in job)) return r.json({ estimate: noEstimate('bisect', 'error' in job ? job.error : 'it runs nothing') });
+    const plan = job ? searched(job.args) : null;
+    const commits = await searchedCommits(ctx.project?.path, plan?.good ?? null, plan?.bad ?? 'HEAD');
+    if (!plan || typeof commits !== 'number') return r.json({ estimate: commits });
+    const source = list.find((g) => g.path === plan.ref);
+    const target = source ? { golden: source } : { runId: plan.ref, fork: plan.fork };
+    // A golden's search is priced from its newest test's attempts, each as dear as the costliest.
+    const reads = source ? { calls: attemptCalls(ctx.store, loadRunIndex(ctx.store).byId, [source]) } : runAffinity(ctx.store, plan.ref);
+    sendAnswer(r, await ctx.reads.run({ kind: 'bisect-estimate', commits, target, ...prices() }, reads));
   });
 
   // A gate's figures, previewed before they are saved: what it means, what it costs, and its odds.
@@ -219,15 +292,7 @@ export function register(router: Router, ctx: RouteContext): void {
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.bisect, {
     title: () => ACTIONS.findBreakingCommit.doing,
     build: async (req, { store, project, projectId }) => {
-      // Whether this checkout has the commit a run's search would end at, asked of git beside the
-      // server before the job is built: bisectJob looks the answer up.
-      let here: ((revs: string[]) => ReadonlySet<string> | null) | undefined;
-      if (project && typeof req.runId === 'string' && /^[0-9A-Z]{26}$/.test(req.runId)) {
-        const end = bisectChoices(store, req.runId, { goldens: goldens() })?.bad ?? null;
-        const known = await commitsHere(project.path, [end]);
-        here = (revs) => (known ? new Set(revs.filter((rev) => known.has(rev))) : null);
-      }
-      const job = bisectJob(store, goldens(), req, here ? { here } : {});
+      const job = await bisectHere(store, goldens(), req, project?.path ?? null);
       return testsBuild(job, 'args' in job && inTestFamily({ kind: TEST_JOB_KINDS.bisect, args: job.args }) ? busy(store, projectId, 'find the breaking commit') : null);
     },
   });
