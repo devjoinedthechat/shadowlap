@@ -7,6 +7,7 @@ import { ACTIONS } from '../labels.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { lostWords } from '../../../engine/src/run-verdicts.js';
 import { pluralS as s, shortFixId, twoDigits as pad } from '../../../engine/src/words.js';
+import { BLAME_STRONGER_SUB, blameAgainSub, MARK_APPLIED } from '../../src/fix-lead-words.js';
 
 /**
  * How the Fixes pages read a fix: which rows a filter keeps, which step and verdict a URL opens, the
@@ -134,11 +135,10 @@ export function blameNextStep(f: Pick<FixDetail, 'status' | 'actions'>): { kind:
   if (f.status !== 'open') return null;
   const again = f.actions.blameAgain;
   if (again) {
-    const tip = again.kind === 'stopped' ? 'Runs the search to the end, without the budget that stopped it' : `More attempts and a lower bar: a rescue at ${Math.round((again.gate?.good ?? 0.4) * 100)}% or more, up to ${again.gate?.max ?? 40} attempts`;
-    return { kind: 'again', label: ACTIONS.runBlameAgain.label, tip, command: again.command };
+    return { kind: 'again', label: ACTIONS.runBlameAgain.label, tip: blameAgainSub(again), command: again.command };
   }
   const stronger = f.actions.blameStronger;
-  if (stronger) return { kind: 'stronger', label: ACTIONS.runBlameStronger.label, tip: 'Another model answers from each probed call instead of the recorded one', command: stronger.command };
+  if (stronger) return { kind: 'stronger', label: ACTIONS.runBlameStronger.label, tip: BLAME_STRONGER_SUB, command: stronger.command };
   return null;
 }
 
@@ -168,7 +168,7 @@ export function fixAction(f: Pick<FixDetail, 'status' | 'actions'>): FixAction {
   if (apply.refused) return { kind: 'none', label: ACTIONS.applyFix.label, why: `This patch is not the change its repair verified: ${apply.refused}. Nothing applies it from here.` };
   if (f.actions.applied) return { kind: 'apply', label: 'Finish applying' };
   // Its patch is in the working tree already (merged, or applied by hand): applying only marks it applied.
-  return { kind: 'apply', label: apply.kind === 'mark' || apply.inTree ? 'Mark applied' : ACTIONS.applyFix.label };
+  return { kind: 'apply', label: apply.kind === 'mark' || apply.inTree ? MARK_APPLIED : ACTIONS.applyFix.label };
 }
 
 /**
