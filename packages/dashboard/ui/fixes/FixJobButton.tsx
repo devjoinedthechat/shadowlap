@@ -26,6 +26,7 @@ export function FixJobButton({
   command,
   className = 'btn',
   ask,
+  form,
   ...priced
 }: {
   kind: string;
@@ -41,6 +42,8 @@ export function FixJobButton({
   ask?: (start: (more: Record<string, unknown>) => boolean, close: () => void) => ReactNode;
   /** What the job bills, when the page knows it (JobButton's `estimate`). */
   estimate?: Priced;
+  /** `ask` asks what to run on every setting, priced or not (JobButton's `form`): with no `estimate`, whenever there is an `ask`. */
+  form?: boolean;
 }) {
   const app = useApp();
   const busy = useTreeBusy('reads', verb);
@@ -60,7 +63,7 @@ export function FixJobButton({
     );
   return (
     <>
-      <JobButton {...priced} form={!('estimate' in priced) && !!ask} className={`${className}${lead ? ' lime' : ''}`} why={why} tip={tip} command={`$ ${command}`} start={(sent) => void start(sent)} ask={() => (ask ? setAsking(true) : void start(sentEstimate(priced.estimate)))}>
+      <JobButton {...priced} form={form ?? (!('estimate' in priced) && !!ask)} className={`${className}${lead ? ' lime' : ''}`} why={why} tip={tip} command={`$ ${command}`} start={(sent) => void start(sent)} ask={() => (ask ? setAsking(true) : void start(sentEstimate(priced.estimate)))}>
         {label}
       </JobButton>
       {asking && ask

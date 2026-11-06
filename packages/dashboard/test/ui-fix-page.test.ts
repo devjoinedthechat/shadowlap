@@ -5,6 +5,8 @@ import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../
 import { fixAttemptGroups } from '../src/attempt-groups.js';
 import { fixDetail, fixList } from '../src/fixes.js';
 import type { Client } from '../ui/api.js';
+import type { FixEstimates } from '../ui/estimates-api.js';
+import { resetSpending } from '../ui/spending.js';
 import { FixPage } from '../ui/fixes/FixPage.js';
 import { FixesPage } from '../ui/pages/Fixes.js';
 import { useRoute } from '../ui/router.js';
@@ -32,8 +34,10 @@ afterEach(async () => {
 });
 
 /** The app as the shell gives it, its server answering from the store; `inTree` stands for git saying a patch is in the working tree. */
-function app(o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?: string } = {}): AppState {
+function app(o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?: string; estimates?: Partial<FixEstimates> } = {}): AppState {
   const client = {
+    // The fix's estimates, where a test gives them; else none can be read, and each billed button asks.
+    ...(o.estimates ? { estimates: { fixEstimates: () => Promise.resolve({ repair: null, blameAgain: null, blameStronger: null, verify: {}, ...o.estimates }) } } : {}),
     fix: (id: string) => Promise.resolve(fixDetail(store, id, { ...(o.inTree ? { patchInTree: () => true } : {}), ...(o.problem ? { checkRepairer: () => o.problem! } : {}) })),
     fixes: () => Promise.resolve(fixList(store)),
     attemptGroups: (id: string) => Promise.resolve(fixAttemptGroups(store, id)),
@@ -59,7 +63,7 @@ function app(o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?
 }
 
 /** The fix's page, opened at a step, once it has loaded. */
-async function open(fixId: string, step: string | null = null, sub: string | null = null, o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?: string } = {}): Promise<Rendered> {
+async function open(fixId: string, step: string | null = null, sub: string | null = null, o: Parameters<typeof app>[0] = {}): Promise<Rendered> {
   r = await render(createElement(AppContext.Provider, { value: app(o) }, createElement(FixPage, { id: fixId, step, sub })));
   await r.until('the fix to load', () => r!.all('h1').length === 1);
   return r;
@@ -217,6 +221,26 @@ describe('the Repair step', () => {
 });
 
 describe('Run repair', () => {
+  it('says on its card and its Cost line what a repair would cost, asking first on every setting, and the job keeps it', async () => {
+    const run = newRun({ labels: ['refund-bug'] });
+    const { fix } = blame(run);
+    const repair = { kind: 'repair' as const, usd: 37.16, ceiling: true, always: 'it makes its candidates from your working tree', parts: ['a new blame, then up to 3 candidates', 'each verified up to twice'] };
+    const started: Array<[string, unknown]> = [];
+    resetSpending(null);
+    await open(fix.fixId, null, null, { started, estimates: { repair } });
+    await r!.wait(0);
+    const button = r!.byText('.ph .actions button', 'Run repair');
+    const card = JSON.parse(String(button.props['data-tip'])) as { t: string; s: string; cmd: string; est: unknown };
+    expect(card).toMatchObject({ t: 'Run repair', s: expect.stringMatching(/^Asks .+ for rewrites; each is tried in a worktree of its own$/), cmd: expect.stringMatching(/^\$ shadowlap repair /), est: { usd: 37.16, ceiling: true, always: repair.always } });
+    // Never ask still asks: it opens its dialog, for what it does.
+    await r!.click(button);
+    await r!.until('the dialog to read the fix again', () => r!.all('.dialog .dlg-ok').some((b) => !b.props.disabled));
+    expect(text(r!.one('.dialog .dcost'))).toBe('At most ≈$37.16 · a new blame, then up to 3 candidates · each verified up to twice');
+    await r!.click(r!.one('.dialog .dlg-ok'));
+    expect(started).toEqual([['repair', expect.objectContaining({ fixId: fix.fixId, estimate: { usd: 37.16, ceiling: true } })]]);
+    resetSpending();
+  });
+
   it('says a repair that would reuse blames that rescued no run ends with no fix to try, and bills nothing', async () => {
     const run = newRun({ labels: ['digest'] });
     const report = blameReport(run, 'unrescuable');
@@ -226,7 +250,7 @@ describe('Run repair', () => {
     const button = r!.byText('.ph .actions button', 'Run repair');
     // Still there, but no longer the lead, with why on hover.
     expect(button.className).toBe('btn');
-    expect(button.props.title).toBe('No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.');
+    expect((JSON.parse(String(button.props['data-tip'])) as { s?: string }).s).toBe('No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.');
     await r!.click(button);
     await r!.until('the dialog to read the fix again', () => r!.all('.dialog .dwarn').length > 0);
     expect(text(r!.one('.dialog .dwarn'))).toBe('No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.');
@@ -403,8 +427,23 @@ describe('what settles a fix left unsettled', () => {
       ['Run repair', 'btn'],
       ['Run blame again', 'btn lime'],
     ]);
+    // No estimate read, so it asks, with the lower bar it passes.
     await r!.click(r!.byText('.ph .actions button', 'Run blame again'));
+    expect(text(r!.one('.dialog h3'))).toBe('Run blame again');
+    // The last blame's gate asked for 60%; again asks for less.
+    expect(text(r!.one('.dialog dl'))).toBe('Gatea rescue at 40% or more');
+    expect(started).toEqual([]);
+    await r!.click(r!.one('.dialog .dlg-ok'));
     expect(started).toEqual([['blame', { fixId: fix.fixId, again: true }]]);
+    await r!.unmount();
+    // Priced at or under the threshold, it starts on the click, keeping the estimate.
+    resetSpending(0.5);
+    started.length = 0;
+    await open(fix.fixId, null, null, { started, estimates: { blameAgain: { kind: 'blame', usd: 0.2, ceiling: true, parts: [] } } });
+    await r!.wait(0);
+    await r!.click(r!.byText('.ph .actions button', 'Run blame again'));
+    expect(started).toEqual([['blame', { fixId: fix.fixId, again: true, estimate: { usd: 0.2, ceiling: true } }]]);
+    resetSpending();
     await r!.unmount();
     const other = newRun({ labels: ['digest'] });
     const { fix: plain } = blame(other, { report: blameReport(other, 'unrescuable'), title: 'The agent exited with code 1' });
@@ -418,6 +457,26 @@ describe('what settles a fix left unsettled', () => {
     expect(text(r!.one('.dialog .dlg-ok'))).toBe('Run blame with stronger model');
     expect(text(r!.one('.dialog .dcost'))).toContain('the last blame took 4 attempts');
     expect(started).toEqual([]);
+  });
+
+  it('prices Run blame with stronger model at the model typed once the field rests, its card at the placeholder’s, opening on every setting', async () => {
+    const other = newRun({ labels: ['digest'] });
+    const { fix } = blame(other, { report: blameReport(other, 'unrescuable'), title: 'The agent exited with code 1' });
+    const started: Array<[string, unknown]> = [];
+    resetSpending(null);
+    await open(fix.fixId, null, null, { started, estimates: { blameStronger: { kind: 'blame', usd: 2.8, ceiling: true, parts: ['up to 7 probes'] } } });
+    await r!.wait(0);
+    const stronger = r!.byText('.ph .actions button', 'Run blame with stronger model…');
+    // A form: the amount alone on its card, and Never ask still opens it.
+    expect((JSON.parse(String(stronger.props['data-tip'])) as { est?: unknown }).est).toEqual({ usd: 2.8, ceiling: true, form: true });
+    await r!.click(stronger);
+    expect(text(r!.one('.dialog .dcost'))).toContain('Billed by your provider');
+    await r!.type(r!.one('.dialog input'), 'claude-opus-5');
+    await r!.wait(300);
+    expect(text(r!.one('.dialog .dcost'))).toBe('At most ≈$2.80 · up to 7 probes');
+    await r!.click(r!.one('.dialog .dlg-ok'));
+    expect(started).toEqual([['blame', { fixId: fix.fixId, model: 'claude-opus-5', estimate: { usd: 2.8, ceiling: true } }]]);
+    resetSpending();
   });
 });
 
