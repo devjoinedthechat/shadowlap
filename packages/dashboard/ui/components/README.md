@@ -21,6 +21,7 @@ that draws one has.
 | Component | File | Use it for |
 |---|---|---|
 | `PageHeader`, `Eyebrow` | `bits.tsx` | One header on every page (`.ph`): the eyebrow, a muted line for what the page is (the project and a noun for what it shows, or a thing's kind and its name; never lime), the title at 24/600 in the display face, at most one short line of context, the actions at the top right (under the title on a phone, the lime one first), then `facts`. |
+| `ChangesHead` | `changes/Head.tsx` | Changes' head on each of its tabs: `PageHeader` with the project and `diffs`, the title and its one line, then the tabs (`.stabs`), one word each, with the command each matches on hover. It has no button: each tab's next step keeps the lime. It notes the tab it shows for the project (`changes-tab.ts`); an exported copy's Compare has a `PageHeader` of its own. |
 | `Facts`, `Fact` | `Facts.tsx` | A page's facts under its header (`.metrics.pfacts`): each figure in the display face, its words muted, money last and quieter (`money`), a figure that leads somewhere a link in ink (`href`). What it is made of and what it was before (`tip`, `was`) are on its hover, never beside it. Three across on a phone, two when there are two or four. |
 | `Row` | `Row.tsx` | A row of a list in a section (`.srow`): its hover 12px past its text on both sides, and where you are (`sel`) on the selected ground, which wins over the pointer's; a link with `href`. A table's row takes the same with `className="sel"`. |
 | `Section` | `Section.tsx` | A part of a page in place of a card (`.panel.sec`): a hairline above, its heading (14px, 600) and a muted sub, its rows full width between hairlines, a row's hover 12px past its text on both sides (`--bleed`). Sections are 32px apart, two side by side (`.grid2.secs`) 40px. Only what is not the page keeps a box: a dialog, a drawer, a menu, code. |
@@ -131,13 +132,13 @@ says about it), `scopes.ts` (scopes and their chips), `backoff.ts` and
 `connection.ts` (offline, the retry schedule, the `?state=offline` preview), `live.ts` (following a
 recording, and which ended between two loads of the run list, for the shell's toast), `actions.ts` (the fork menu and each action's dialog words), `jobs.ts` (a job's title and status, where a Replay diverged, the recording Calibrate takes), `place.ts`,
 `focus.ts` (what a dialog focuses first), `shell/top.ts` (a run's parent in its
-crumbs, the help menu's key, and the live chip), `shell/status.ts` (the status bar's parts, which give
+crumbs, Changes' crumbs by tab, the help menu's key, and the live chip), `shell/status.ts` (the status bar's parts, which give
 way first, and when it names read-only), `parents.ts` (each run's parent, from the run details loaded so far, so the
 crumbs never load a run twice),
 `normalize.ts`, `format.ts`, and on the run page `run/banner.ts` (which banner, and what it says),
 `run/metrics.ts`, `run/model.ts` and `run/calls.ts`; for Compare, `compare/model.ts` (what the four
 change cards say, which calls after the fork the other run made too, the prefix line, which runs the
-pickers offer); for Training, `training.ts` (what a pairs filter
+pickers offer); for Changes, `changes-tab.ts` (the tab and the pair last shown, per project, outside `changes/` so the shell can hold it) and `changes/model.ts` (each Verdicts row's colour, kind line and link, a chip's empty line, how far Show more reads); for Training, `training.ts` (what a pairs filter
 shows, what Score a model sends, and the palette's Training actions). Tests has `goldens.ts`: the
 verdict's line, a check's name in the table, the reports as the CLI prints them, which buttons a
 failure gets and what the Update golden dialog says; `tests-palette.ts` lists the goldens in the
