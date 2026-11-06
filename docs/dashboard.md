@@ -195,7 +195,7 @@ The header says the week in four facts, each a link: *4 failures reproduced · 1
 | Failing | A golden that failed, as its gate says it | What its run's page leads with, such as **Find breaking commit**, **Add normalizer** or **Update golden** |
 | Failing | [Error-path presets](./error-paths.md) that failed | **Open →**, to the attempt that shows it |
 | Failing | This week's failed runs nobody has blamed, as one row | **Run blame** on the newest |
-| Failing | An open fix, with each golden it holds | Its lead: **Run repair**, **Run blame again** or a stronger model's blame, else a held crash's **Find breaking commit** |
+| Failing | An open fix, with each golden it holds | Its lead: **Run repair**, **Run blame again** or **Run blame with stronger model…**, else a held crash's **Find breaking commit** |
 | Ready to ship | A verified fix not applied yet | **Apply fix**, or **Mark applied** for one with no patch |
 | Tests | An inconclusive golden, and presets left inconclusive | **Run more attempts**, **Update golden** or **Re-run test** |
 | Tests | How many behaviours seen in production no golden [covers](./coverage.md) | **Open →**, to a run of the newest |
