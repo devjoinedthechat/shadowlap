@@ -1416,7 +1416,8 @@ The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An 
 
 - **Repeat 5 times** runs five attempts. On a recording they replay offline, and it starts at once. On a fork they run live from where it forks, so it goes by [Spending](#spending), asking in *Repeat fork 5 times*, confirmed with **Repeat 5 times**.
 - **A fork is made again** from its parent, with the flags, command and checks that made it.
-- **Force a tool live** on a tool that writes asks first, in red and starting on Cancel, since it acts on your systems. On any other tool it starts at once.
+- **Force a tool live** on a tool that writes asks first, in red and starting on Cancel, since it acts on your systems. On any other tool it goes by [Spending](#spending), as **Run live from here** and **Use changed prompt from here** do.
+- **Replay with writes stubbed** replays a recording offline, and starts at once. On a fork it runs live from where it forks, so it goes by [Spending](#spending).
 - **An action that needs something from you** (the instruction to inject, the status to fail with, the model to switch to) asks for it in a dialog first. The dialog shows the command it runs, following what you type.
 - **What you type** is passed as text, never read as a file. See [Interventions](./interventions.md).
 - **Plant instruction…** starts from a few sample instructions, or takes your own or a red-teaming tool's payload as text.
@@ -1426,7 +1427,7 @@ The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An 
 - It asks for a commit where the run still worked, and offers the ones its command was recorded at that this checkout has. It searches up to HEAD when the run failed at a commit it lacks, such as a teammate's.
 - On a run that passed, it reads **Find commit that changed it…**, and finds the first commit after its own that changed what it does, once there is a commit after it.
 - A run that failed at the repository's first commit, or the oldest a shallow clone has, has nothing before it to search, and the item says so instead.
-- A run that failed on its own is replayed with `--fork`. One live replay decides each commit, which a failure that doesn't happen every time can pass, as the item's card says. The dialog's Cost line is the search's estimate from the commit you give.
+- A run that failed on its own is replayed with `--fork`. One live replay decides each commit, which a failure that doesn't happen every time can pass. The dialog's Cost line is the search's estimate from the commit you give, and the card on its price says what one replay can't settle.
 - A run that failed only the check of its fix (blame found it failing, though it exited 0), or a check given with its own `--expect`, is searched with that check (`--expect … --fork`), from a commit you pick.
 
 **A run imported from a capture** has no command, so its menu shows a note and one action, **Replay with your command…**. That replay records every kind of call, and every fork works on it.
