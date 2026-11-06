@@ -178,6 +178,9 @@ test('every overlay has no serious or critical axe violation: the switcher, a pi
 });
 
 test('Fixes and each fix’s steps, Tests’ dialogs, the palette, the shortcuts and a toast have no serious or critical axe violation', async ({ page }) => {
+  // Held to Always ask, as the dialog sweep is: Run tests' question then waits whatever the demo's last
+  // session spent, so pressing it starts no session (the suite's dashboards share one Spending).
+  await page.route('**/api/user/spending', (route) => (route.request().method() === 'GET' ? route.fulfill({ json: { askAbove: 0, set: true, problems: [] } }) : route.continue()));
   const states: Array<[string, () => Promise<void>]> = [];
   for (const fx of fixes()) for (const step of ['', '/blame', '/repair', '/verify']) states.push([`fix ${fx}${step}`, at(page, `/fixes/${fx}${step}`, 'fix')]);
   states.push(['Tests', at(page, '/tests')]);
