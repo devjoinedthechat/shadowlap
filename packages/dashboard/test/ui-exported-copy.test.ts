@@ -129,7 +129,7 @@ describe('an exported copy', () => {
       [[forkId, runId], '#/fixes'],
       [[forkId, runId], '#/changes'],
       [[forkId, runId], '#/tests'],
-      [[forkId, runId], '#/settings/alerts'],
+      [[forkId, runId], '#/settings/ci'],
       [[forkId], '#/compare'],
     ] as const) {
       const bar = await open([...runIds], hash);

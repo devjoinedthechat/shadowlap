@@ -117,7 +117,7 @@ export function TestsPage() {
   const injection = view.rows.some((r) => r.injection);
   const actions = (
     <>
-      <a className="btn" href={href.settings('alerts')}>
+      <a className="btn" href={href.settings('ci')}>
         <Icon name="bell" />
         CI settings
       </a>
