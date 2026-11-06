@@ -23,13 +23,14 @@ import { onShow } from '../components/OnShow.js';
 import { Inspector, TABS, type InspectorTab } from '../run/Inspector.js';
 import { flagText } from '../run/banner.js';
 import { blameOf, checksOf, forkAtOf, forkMarkOf, withModelNames } from '../run/model.js';
+import { inspectorInView, InspectorPlace, useFindingPanel } from '../run/InspectorPanel.js';
 import { byKind } from '../run/kinds.js';
 import { useStripCalls } from '../run/RunStrip.js';
 import { StripBar } from '../run/StripKey.js';
 import { firstFailedCall } from '../run/open-at.js';
 import { useMarkRun, useRunLabels } from '../components/RunKey.js';
 import type { RunMark } from '../runkey.js';
-import { DiffPanel, RunLoading, RunMetrics, ScopeBar, useJudgedAt } from '../run/parts.js';
+import { RunLoading, RunMetrics, ScopeBar, useJudgedAt } from '../run/parts.js';
 import { FindingsBar } from '../run/FindingsBar.js';
 import { usePagedRun } from '../run/paged-run.js';
 import { followPages } from '../run/paging.js';
@@ -270,7 +271,8 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
     lastTab = t;
     setTabState(t);
   };
-  const [showDiff, setShowDiff] = useState(false);
+  // A finding's diff in the inspector's place, until it is hidden or a call is picked (InspectorPanel.tsx).
+  const { kind: panel, showDiff, setShowDiff, onToggleDiff, close: closePanel } = useFindingPanel(runId);
   const filterRef = useRef<HTMLInputElement>(null);
   // `/` filters the calls: from another view it opens Calls first, and the field takes focus once it is there.
   const [filterWanted, setFilterWanted] = useState(false);
@@ -302,7 +304,9 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const ancestors = useMemo<CallIndex[]>(() => chain.map((d) => indexCalls(d.calls)), [chain]);
   const waited = useMemo(() => (typeof run.notWaitedMs === 'number' ? { ms: run.notWaitedMs, unknown: 0 } : notWaited(calls, ancestors)), [run.notWaitedMs, calls, ancestors]);
 
-  const select = useCallback((n: number) => navigate(href.run(runId, n, v), true), [runId, v]);
+  const select = useCallback((n: number) => (closePanel(), navigate(href.run(runId, n, v), true)), [runId, v, closePanel]);
+  // A row picked below 1160px brings the inspector, under the calls, into view.
+  const pickRow = useCallback((n: number) => (select(n), inspectorInView()), [select]);
   const setView = (next: View) => (warmViews(), navigate(href.run(runId, selected, next), true));
   // A pick in the key, or a word typed in Filter calls, shows Calls from another view.
   const toCalls = () => (v === 'calls' ? undefined : setView('calls'));
@@ -349,8 +353,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   return (
     <div className="rv">
       <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} facts={<RunMetrics run={run} judged={judged} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} preset={preset} rescued={!!rescued} />} judged={judged} />
-      <FindingsBar run={run} judged={judged} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={() => setShowDiff(!showDiff)} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} />
-      {showDiff ? <DiffPanel run={run} test={offers?.test ?? null} /> : null}
+      <FindingsBar run={run} judged={judged} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={onToggleDiff} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} />
       <StripBar strip={{ calls: stripCalls, byKind: kinds, selected, forkAt: forkMark, lostAt, inScope: inScopeFn, live, onSelect: select }} counts={counts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} toCalls={toCalls} />
       {scoped ? <ScopeBar run={run} scopes={scopeTree} scope={scope} onScope={setScope} /> : null}
       <div className="work">
@@ -369,7 +372,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
               run whose model called no tool and Context hold nothing that takes the focus, so the
               view takes it itself, to be scrolled by keyboard. */}
           <div className="vbody" id="vbody" key={v} role="tabpanel" aria-labelledby={`vtab-${v}`} tabIndex={PANE_VIEWS.includes(v) ? 0 : -1}>
-            {v === 'calls' ? <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={select} onFork={openForkAt} onNeed={need} tree={tree} folded={folded} onFold={fold} /> : null}
+            {v === 'calls' ? <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={pickRow} onFork={openForkAt} onNeed={need} tree={tree} folded={folded} onFold={fold} /> : null}
             {v === 'turns' ? <TurnsView calls={scopedCalls} selected={selected} scoped={scoped} onSelect={select} /> : null}
             {v === 'context' ? <ContextView run={run} calls={scopedCalls} selected={selected} onSelect={select} /> : null}
             {v === 'timeline' ? <TimelineView calls={scopedCalls} selected={selected} scoped={scoped} byKind={kinds} onSelect={select} /> : null}
@@ -377,7 +380,9 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
             {v === 'provenance' ? <ProvenanceView run={run} selected={selected} /> : null}
           </div>
         </section>
-        <Inspector runId={runId} call={selectedRow} calls={calls} models={run.models} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} flag={flagText(run.intervention ?? null)} onSelect={select} />
+        <InspectorPlace kind={panel} run={run} test={offers?.test ?? null} onClose={closePanel}>
+          <Inspector runId={runId} call={selectedRow} calls={calls} models={run.models} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} flag={flagText(run.intervention ?? null)} onSelect={select} />
+        </InspectorPlace>
       </div>
       {actions.dialog}
     </div>

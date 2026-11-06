@@ -27,21 +27,21 @@ afterEach(async () => {
 });
 
 const RUN = [call(1, 'live', null), tool(2, 'read'), tool(3, 'write'), tool(4, 'read', true)];
-const timeline = (calls: CallRow[], byKind?: boolean) => render(createElement(TimelineView, { calls, selected: null, scoped: false, byKind, onSelect: () => {} }));
+const timeline = (calls: CallRow[], byKind = false) => render(createElement(TimelineView, { calls, selected: null, scoped: false, byKind, onSelect: () => {} }));
 const bars = (p: Rendered) => p.all('.tl-row .bar').map((b) => b.getAttribute('class'));
-const card = (p: Rendered, i: number) => JSON.parse(p.all('.tl-row .bar')[i]!.getAttribute('data-tip')!) as { rows: [string, string, string][] };
+const card = (p: Rendered, i: number) => JSON.parse(p.all('.tl-row .bar')[i].getAttribute('data-tip')!) as { rows: [string, string, string][] };
 
 describe('a recording’s Timeline by kind', () => {
   it('draws each bar in its kind’s colour and names the kind in its card', async () => {
     page = await timeline(RUN, true);
     expect(bars(page)).toEqual(['bar k-model', 'bar k-read', 'bar k-write', 'bar k-err']);
     expect(card(page, 2).rows[0]).toEqual(['write', '900 ms', 'var(--k-write)']);
-    expect(card(page, 3).rows[0]![0]).toBe('error');
+    expect(card(page, 3).rows[0][0]).toBe('error');
   });
 
   it('draws a replay’s or a fork’s bars by origin, as it did', async () => {
     page = await timeline([call(1, 'replayed', null), call(2, 'live', null)]);
     expect(bars(page)).toEqual(['bar rep', 'bar live']);
-    expect(card(page, 0).rows[0]![0]).toBe('replayed');
+    expect(card(page, 0).rows[0][0]).toBe('replayed');
   });
 });

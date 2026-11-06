@@ -10,6 +10,7 @@ import { recentRunIds, type RunLike } from '../runs.js';
 import { pressShortcut, useSingleKeys, type ShortcutId } from '../shortcuts.js';
 import { errorText, type ToastKind } from '../toast.js';
 import type { CallTree } from './groups.js';
+import { panelToggle } from './InspectorPanel.js';
 
 /**
  * A run's keys, while its page is open, as `shell/Keyboard.tsx` hands them on: j and k from anywhere
@@ -86,13 +87,16 @@ async function stepRun(runId: string, d: 1 | -1, runs: readonly RunLike[] | null
   navigate(href.run(to));
 }
 
-/** Esc on a run: the diff panel closes first, its toggle taking the focus if the focus was inside. */
+/**
+ * Esc on a run: the diff in the inspector's place closes first, the finding's toggle taking the focus
+ * if the focus was inside it (InspectorPanel.tsx).
+ */
 function closeDiff(k: { showDiff: boolean; setShowDiff: (on: boolean) => void }): boolean {
   if (!k.showDiff || !document.querySelector('.diffpanel')) return false;
   const a = document.activeElement;
-  const lost = !a || a === document.body || !!a.closest('.diffpanel');
+  const lost = !a || a === document.body || !!a.closest('.diffpanel, .fpanel');
+  const toggle = lost ? panelToggle() : null;
   k.setShowDiff(false);
-  const toggle = lost ? document.querySelector<HTMLElement>('#view [data-act="diff"]') : null;
   if (toggle) focusQuiet(toggle);
   return true;
 }
@@ -109,7 +113,8 @@ export function useRunKeys<C extends { callNo: number }>(runKeys: RefObject<((e:
       const inViews = !!(e.target as Partial<Element> | null)?.closest?.('.vbody');
       if (e.key === 'j' || (e.key === 'ArrowDown' && inViews)) return wantCallFocus(k.step(1)), true;
       if (e.key === 'k' || (e.key === 'ArrowUp' && inViews)) return wantCallFocus(k.step(-1)), true;
-      if (/^[1-4]$/.test(e.key)) return k.setTab(Number(e.key) - 1), true;
+      // The inspector's tabs, which give it back from a panel in its place.
+      if (/^[1-4]$/.test(e.key)) return k.setShowDiff(false), k.setTab(Number(e.key) - 1), true;
       const jumpTo = k.forkAt ?? k.lostAt ?? k.failedAt;
       if (e.key === 'n' && jumpTo !== null) return k.select(jumpTo), true;
       if (e.key === 'p' && k.parentId) return navigate(href.run(k.parentId)), true;
