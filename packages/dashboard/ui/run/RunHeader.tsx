@@ -368,7 +368,7 @@ function Labels({ run, labels: shown, setLabels, onMark }: { run: RunDetail; lab
       ) : enabled ? (
         <ActionButton ref={addRef} className="linkbtn" onClick={() => setAdding(true)}>
           <Icon name="plus" />
-          Label
+          Add label
         </ActionButton>
       ) : null}
     </span>

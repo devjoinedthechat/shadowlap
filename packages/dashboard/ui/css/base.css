@@ -90,6 +90,9 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .btn .caret { width: 10px; height: 10px; }
 .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .linkbtn { display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; padding: 3px 7px; margin: -3px 0; border-radius: 6px; cursor: pointer; font: 500 12px var(--body); letter-spacing: 0; text-transform: none; color: var(--dim); text-decoration: none; white-space: nowrap; }
+/* a link-like button takes taps 4px above and below what it draws, for a finger's 24px */
+.linkbtn { position: relative; }
+.linkbtn::after { content: ""; position: absolute; inset: -4px 0; }
 .linkbtn:hover { color: var(--ink); background: var(--hover); }
 .linkbtn svg { width: 12px; height: 12px; flex: none; }
 /* a link reads in ink, at 500, underlined on hover */

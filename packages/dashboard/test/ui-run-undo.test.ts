@@ -74,7 +74,7 @@ describe('a label’s ×', () => {
     await page!.focus(x);
     await page!.click(x);
     expect(h.chips()).toEqual(['refund']);
-    expect(page!.focused().textContent).toContain('Label');
+    expect(page!.focused().textContent).toContain('Add label');
     expect(h.sent).toEqual([[[], ['what-if']]]);
     const removed = h.said.at(-1)!;
     expect(removed.text).toBe('Removed what-if from 01M5JEQWA2');
