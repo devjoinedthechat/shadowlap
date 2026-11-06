@@ -220,6 +220,8 @@ test('the key’s rows are balanced again as the window narrows or widens, as a 
     const opened = new Map<number, string>();
     for (const width of [360, 900]) {
       await page.setViewportSize({ width, height: 800 });
+      // A page loaded anew at that width: an address that differs only in its hash would stay in the page.
+      await page.goto('about:blank');
       await openPage(page, `/run/${demoId(name)}`, 'run');
       opened.set(width, await key());
     }
