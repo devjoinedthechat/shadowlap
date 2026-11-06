@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import { JOB_KINDS, type RecordedHit } from '../api.js';
+import { changesHref } from '../changes-tab.js';
 import { AboutLine, FitHint, useFitAbouts } from '../components/About.js';
 import { fontOf, widthIn } from '../components/Copy.js';
 import { Modal } from '../components/Dialog.js';
@@ -263,22 +264,22 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
 
   const items = useMemo<PaletteCommand[]>(() => {
     const out: PaletteCommand[] = [...app.runCommands];
-    const pages: Array<[string, string]> = app.exported
+    const pages: Array<[label: string, to: string, hint?: string, key?: string | undefined]> = app.exported
       ? [
           ['Runs', href.runs()],
-          ['Compare', href.compare()],
+          ['Compare', href.compare(), '', goKeyColumn(href.changes())],
         ]
       : [
           ['Overview', href.overview()],
           ['Runs', href.runs()],
-          ['Compare', href.compare()],
+          ['Changes', changesHref(), 'verdicts, compare', goKeyColumn(href.changes())],
           ['Fixes', href.fixes()],
           ['Tests', href.tests()],
           ['Training', href.training()],
           ['Settings', href.settings()],
           [ACTIONS.addProject.label, href.newProject()],
         ];
-    for (const [label, to] of pages) out.push({ group: 'Go to', label, hint: '', key: goKeyColumn(to), run: () => navigate(to) });
+    for (const [label, to, hint = '', key = goKeyColumn(to)] of pages) out.push({ group: 'Go to', label, hint, key, run: () => navigate(to) });
     // Not a second session while one runs: the row stays, dimmed, and says why, as Tests' own button
     // does (until the server's list comes, a start reads its refusal). One that would run goldens live
     // asks first, over whatever page is open, as Tests' Run tests does, with the command read from

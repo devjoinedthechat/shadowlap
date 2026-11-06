@@ -1,4 +1,5 @@
 import { useEffect, useRef, type RefObject } from 'react';
+import { changesHref } from '../changes-tab.js';
 import { hideTip, tipShowing } from '../components/HoverCard.js';
 import { isTyping } from '../dom.js';
 import { isDetail } from '../focus.js';
@@ -53,13 +54,13 @@ function upFrom(a: AppState, id: string): string {
   return parent ? href.run(parent) : href.runs();
 }
 
-/** Esc with nothing open: a run's panel or Runs' selection (`pageUp`), then back the way you came, then the row in focus lets go. */
+/** Esc with nothing open: a run's panel or Runs' selection (`pageUp`), then back the way you came (opened cold, a fix's and a revision's lists), then the row in focus lets go. */
 function goUp(a: AppState): boolean {
   if (inBesideList()) return letGoOfRow();
   if (pageUp.current?.()) return true;
   const route = currentRoute();
   if (!isDetail(route)) return letGoOfRow();
-  navigate(stepBack(route.page === 'run' ? upFrom(a, route.id) : href.fixes()));
+  navigate(stepBack(route.page === 'run' ? upFrom(a, route.id) : route.page === 'changes' ? href.changes() : href.fixes()));
   return true;
 }
 
@@ -76,20 +77,28 @@ function escapeKey(a: AppState, e: KeyboardEvent): void {
   } else if (!overlayOpen() && goUp(a)) e.preventDefault();
 }
 
+/**
+ * Where g then this key goes: Changes at the tab it last showed in the project (Compare at its pair);
+ * an exported copy has Runs, and Compare when it holds two runs or more. Null for none.
+ */
+function goTarget(a: AppState, key: string): string | null {
+  const to = GO_KEYS[key];
+  if (!to) return null;
+  if (key === 'c') return !a.exported ? changesHref() : copyCompares(a.meta?.runIds) ? href.compare() : null;
+  return !a.exported || to === href.runs() ? to : null;
+}
+
 /** A pending g takes this key, whatever it is, within its window; a g starts one. True when the key was theirs. */
 function goKey(a: AppState, e: KeyboardEvent, gAt: RefObject<number>): boolean {
   if (gAt.current) {
     const fresh = Date.now() - gAt.current <= GO_WINDOW_MS;
     gAt.current = 0;
-    if (fresh) {
-      const to = GO_KEYS[e.key];
-      // An exported copy has Runs, and Compare when it holds two runs or more.
-      if (to && (!a.exported || to === '#/runs' || (to === '#/compare' && copyCompares(a.meta?.runIds)))) {
-        e.preventDefault();
-        navigate(to);
-      }
-      return true;
+    const to = fresh ? goTarget(a, e.key) : null;
+    if (to) {
+      e.preventDefault();
+      navigate(to);
     }
+    if (fresh) return true;
   }
   if (e.key !== 'g') return false;
   gAt.current = Date.now();
