@@ -12,7 +12,7 @@ import { RunBlameButton } from '../fixes/RunBlame.js';
 import { useServerJobs } from '../fixes/tree.js';
 import { goldenName } from '../format.js';
 import { testsBusy } from '../goldens.js';
-import { ACTIONS } from '../labels.js';
+import { ACTIONS, PUSH_LOCAL } from '../labels.js';
 import { moreCard } from '../pages/tests-cards.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
@@ -34,9 +34,6 @@ import { updatePlan } from '../update-plan.js';
  * section reads the server's jobs once, for every row (`useLookWaits`). The dialogs a step asks in
  * load as it first asks: the Overview's script holds none of a fix's page.
  */
-
-/** Push local runs' card: how the runs get to the team store. */
-export const PUSH_SUB = 'Copies them to the store with your credentials; nothing passes through Shadowlap';
 
 /** Migrate to <model>'s card, until the Migrate dialog of Changes words it. */
 export const MIGRATE_SUB = 'Verify runs the agent live from the switched calls, writes stubbed';
@@ -119,7 +116,7 @@ export function stepWords(s: LookStep): { sub: string | null; command: string | 
     case 'update':
       return { sub: GOLDEN_JOB_WORDS.judgeOnce, command: `$ ${s.command}` };
     case 'push':
-      return { sub: PUSH_SUB, command: `$ ${s.command}` };
+      return { sub: PUSH_LOCAL.sub, command: `$ ${s.command}` };
     case 'migrate':
       return { sub: MIGRATE_SUB, command: `$ ${s.command}` };
     case 'rerun':

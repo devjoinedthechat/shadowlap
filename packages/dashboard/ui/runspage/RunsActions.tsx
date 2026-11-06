@@ -3,13 +3,13 @@ import { JOB_KINDS } from '../api.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
-import { ACTIONS } from '../labels.js';
+import { ACTIONS, PUSH_LOCAL } from '../labels.js';
 import { useApp } from '../state.js';
 import type { TeamStoreView } from '../types.js';
 
 /** Pull's and Push's cards: what each brings or sends, and the command its job runs. */
 const PULL = { tip: 'Pull', sub: 'Teammates’ runs from the store', command: '$ shadowlap pull' };
-const PUSH = { tip: 'Push local runs', sub: 'Copies them to the store with your credentials; nothing passes through Shadowlap', command: '$ shadowlap push --all' };
+const PUSH = { tip: PUSH_LOCAL.label, sub: PUSH_LOCAL.sub, command: `$ ${PUSH_LOCAL.command}` };
 export const PULL_TIP = tipCard(PULL.tip, [], PULL.sub, PULL.command);
 export const PUSH_TIP = tipCard(PUSH.tip, [], PUSH.sub, PUSH.command);
 
