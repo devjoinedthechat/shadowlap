@@ -579,6 +579,7 @@ describe('events as each feature records them', () => {
     recordEvent(store, { kind: 'repair.empty', ref: 'fx-budget', data: { repairId: 'r-2', outcome: 'empty', fixes: ['fx-budget'], why: 'no candidate passed its replays', candidates: 3 }, at: 3110 });
     recordEvent(store, { kind: 'verify.rejected', ref: 'fx-refund-limit', data: { verifyId: 'v-370712a', fixes: ['fx-refund-limit'], counts: [], code: 'c91d0f4', reasons: ['good run 01K5CQ4N9A broken: 2 of 5 passed (refund issued twice)'] }, at: 3200 });
     recordEvent(store, { kind: 'verify.rejected', ref: 'fx-budget', data: { verifyId: 'v-2', fixes: ['fx-budget'], counts: [], code: 'c91d0f4', reasons: ['failing run 01K5CQ2E8M not fixed: 1 of 5 passed'] }, at: 3210 });
+    recordEvent(store, { kind: 'verify.incomplete', ref: 'fx-lost', data: { verifyId: 'v-3', fixes: ['fx-lost'], counts: [], code: 'c91d0f4', reasons: ['target run 01K5CQ2E8M inconclusive: provider unavailable: 3 attempts in a row ended on HTTP 529'] }, at: 3220 });
     recordEvent(store, { kind: 'fix.applied', ref: 'fx-refund-limit', data: { title: 'Escalate refunds above the policy limit', repairId: 'r-munzln2i', patch: 'applied', goldens: 1, tests: 'passed' }, at: 3300 });
     // A fix with no patch, verified with temperature=1: only marked applied.
     recordEvent(store, { kind: 'fix.applied', ref: 'fx-double-email', data: { title: 'Confirmation email sent twice', repairId: null, patch: 'none', goldens: 0, tests: 'skipped' }, at: 3310 });
@@ -621,6 +622,8 @@ describe('events as each feature records them', () => {
     expect(at(3110)).toMatchObject({ kind: 'fixbad', text: 'Repair found no fix · no candidate passed its replays' });
     expect(at(3200)).toMatchObject({ kind: 'fixbad', text: 'Verify rejected · breaks a good run', href: '#/fixes/fx-refund-limit/verify/v-370712a' });
     expect(at(3210)?.text).toBe('Verify rejected · failing run 01K5CQ2E8M not fixed: 1 of 5 passed');
+    // One that settled nothing says why, in the shape of an inconclusive fix.
+    expect(at(3220)).toMatchObject({ kind: 'fixinc', text: 'Verify inconclusive · target run 01K5CQ2E8M inconclusive: provider unavailable: 3 attempts in a row ended on HTTP 529', href: '#/fixes/fx-lost/verify/v-3' });
     expect(at(3300)).toMatchObject({ kind: 'fixok', text: 'Patch applied · Escalate refunds above the policy limit', href: '#/fixes/fx-refund-limit' });
     expect(at(3310)).toMatchObject({ kind: 'fixok', text: 'Marked applied · Confirmation email sent twice', href: '#/fixes/fx-double-email' });
     expect(at(4000)).toMatchObject({ kind: 'fail', text: 'Tests ran · 3 passed, 1 failed', actor: 'ci' });

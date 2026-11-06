@@ -31,7 +31,8 @@ import type { NewStoredEvent, StoreOf, StoredEvent } from './store.js';
  *   'unrescuable' or 'stopped'), callNo, confidence, title, range? { from, to, gradual? }: the calls
  *   it was lost between, two `gradual` ones when it was lost gradually around them }
  * - `repair.accepted`, `repair.empty`: ref the fix; data { repairId, title (accepted), why (empty) }
- * - `verify.accepted`, `verify.rejected`: ref the fix; data { verifyId, reasons }
+ * - `verify.accepted`, `verify.rejected`, `verify.incomplete` (it settled nothing): ref the fix
+ *   (its verdict's id when it is no fix's); data { verifyId, fixes, counts, code, reasons }
  * - `fix.applied`: ref the fix; data { title }
  * - `pairs.exported`: ref the file; data { count }; `model.scored`: ref the model; data { model, tasks, mean }
  * - `project.added`, `project.removed`: ref the project; data { path, name, again? }

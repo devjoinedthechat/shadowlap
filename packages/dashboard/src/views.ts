@@ -171,7 +171,7 @@ export interface MetaView {
 
 /** The icon an activity entry shows, as in the mock (each comes with its words beside it or on hover). */
 /** `warn`: neither passed nor failed, as an inconclusive test. */
-export type ActivityIcon = 'live' | 'rec' | 'fail' | 'warn' | 'clean' | 'fork' | 'cap' | 'test' | 'blame' | 'fixok' | 'fixbad' | 'project' | 'setting' | 'train';
+export type ActivityIcon = 'live' | 'rec' | 'fail' | 'warn' | 'clean' | 'fork' | 'cap' | 'test' | 'blame' | 'fixok' | 'fixbad' | 'fixinc' | 'project' | 'setting' | 'train';
 
 /** One entry of the activity feed. */
 export interface ActivityItem {
