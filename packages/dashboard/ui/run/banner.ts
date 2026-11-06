@@ -1,5 +1,5 @@
 import { approx, goldenName, num, plural } from '../format.js';
-import { blameStateWord } from '../../../engine/src/blame-words.js';
+import { blameStateWord, INCONCLUSIVE_FIRST, unrescuedWords } from '../../../engine/src/blame-words.js';
 import { fencedLabel, toolCheckLabel, toolCountDetail } from '../../../engine/src/checks/labels.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { attemptVerdict, checkFailed, FAILURE_WORDS, failureReason, lostWords } from '../../../engine/src/run-verdicts.js';
@@ -600,11 +600,14 @@ function checksBanner(i: BannerInput): Banner | null {
   return { kind: 'checks', checks: [...checks.filter((c) => c.status === 'inconclusive'), ...checks.filter((c) => c.status !== 'inconclusive')], why };
 }
 
+/** What the engine's words for a blame that placed nothing say after its label (blame-words.ts), so the label and its line read as the CLI and the TUI say it. */
+const afterLabel = (label: BlameState, words: string): string => (words.startsWith(`${label} `) ? words.slice(label.length + 1) : words);
+
 /** How a blame that placed the failure on no call says what it stands on, by its word: the failure, and where blame got to. */
 const UNPLACED: Readonly<Record<BlameState, (failure: string) => string>> = {
   stopped: (f) => `${f} · before it found the call`,
-  inconclusive: (f) => `${f} · at the first model call`,
-  'not rescued': (f) => `from any model call · ${f}`,
+  inconclusive: (f) => `${f} · ${afterLabel('inconclusive', INCONCLUSIVE_FIRST)}`,
+  'not rescued': (f) => `${afterLabel('not rescued', unrescuedWords(false))} · ${f}`,
 };
 
 /**

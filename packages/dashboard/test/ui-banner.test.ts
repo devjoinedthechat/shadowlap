@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { INCONCLUSIVE_FIRST, unrescuedWords } from '../../engine/src/blame-words.js';
 import { receiptDuration } from '../ui/format.js';
 import { countOrigins, type Origin7 } from '../ui/origins.js';
 import { bannerFor, failedCheckText, failureText, fixCheckText, flagText, flagWhy, writesWord, type BannerInput } from '../ui/run/banner.js';
@@ -187,6 +188,12 @@ describe('the run’s banner', () => {
     expect(bannerFor({ ...base, blame: { callNo: null, outcome: 'stopped' } })).toMatchObject({ why: 'blame confirmed it fails · before it found the call', blamed: true, label: 'stopped' });
     // Its first probe couldn't tell: inconclusive, which is no finding that no call saves the run.
     expect(bannerFor({ ...base, status: 'crashed', blame: { callNo: null, outcome: 'unrescuable', unsettled: true } })).toEqual({ kind: 'failed', why: 'the run was interrupted · at the first model call', fix: null, blamed: true, label: 'inconclusive' });
+    // The label and where blame got to read as the engine's words, which the CLI and the TUI say.
+    const said = (blame: Record<string, unknown>, at: number) => {
+      const f = bannerFor({ ...base, status: 'crashed', blame: { callNo: null, ...blame } }) as { label: string; why: string };
+      return `${f.label} ${f.why.split(' · ').at(at)!}`;
+    };
+    expect([said({ outcome: 'unrescuable' }, 0), said({ outcome: 'unrescuable', unsettled: true }, -1)]).toEqual([unrescuedWords(false), INCONCLUSIVE_FIRST]);
   });
 
   it('shows nothing for a run with nothing to say', () => {
