@@ -5,10 +5,12 @@ import type { GoldenSource, TestsJob } from './tests.js';
  * What a Tests job runs live, so that it asks before it does. `shadowlap test` replays a golden
  * offline, at no cost, but for what its tests entry may give it (`liveReasons`): a golden marked
  * `fork` runs live from where its replay forks, writes blocked, asking its judge checks live too, and
- * an injection gate runs live from each payload it plants, writes stubbed. Until Spending decides it
- * by the job's estimate, a job that would run any of them answers 409 with the question (`liveAsk`):
- * the goldens that go live and why, and the `confirm` of the lines it names, which the request sends
- * back as `yes`. A job that only replays starts at once, whatever `yes` it sent.
+ * an injection gate runs live from each payload it plants, writes stubbed. A job that would run any
+ * of them answers 409 with the question (`liveAsk`): the goldens that go live and why, and the
+ * `confirm` of the lines it names, which the request sends back as `yes`. The dashboard answers it by
+ * Spending (ui/tests-ask.ts): Run tests or Add normalizer at or under the threshold sends that yes at
+ * once, with the estimate its card said; otherwise the person answers it. A job that only replays
+ * starts at once, whatever `yes` it sent.
  *
  * Re-recording a golden that diverged (`--update`) runs live too: Update golden and Add normalizer
  * and update say so in their own dialogs before they send the job, so that alone asks nothing here.
