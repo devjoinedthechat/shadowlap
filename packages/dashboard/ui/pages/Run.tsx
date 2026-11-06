@@ -384,7 +384,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
             {v === 'provenance' ? <ProvenanceView run={run} selected={selected} /> : null}
           </div>
         </section>
-        <InspectorPlace kind={panel} run={run} test={offers?.test ?? null} onClose={closePanel}>
+        <InspectorPlace kind={panel} run={run} onClose={closePanel}>
           <Inspector runId={runId} call={selectedRow} calls={calls} models={run.models} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} flag={flagText(run.intervention ?? null)} onSelect={select} />
         </InspectorPlace>
       </div>

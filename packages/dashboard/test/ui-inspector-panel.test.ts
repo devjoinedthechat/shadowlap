@@ -1,7 +1,9 @@
 import { createElement, useCallback, useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { RunDetail } from '../ui/api.js';
+import type { Client, RunDetail } from '../ui/api.js';
+import type { RequestDiff } from '../src/request-diff.js';
 import { InspectorPlace, useFindingPanel, usePickInView } from '../ui/run/InspectorPanel.js';
+import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -12,10 +14,23 @@ import { render, type Rendered } from './ui-render.js';
  */
 
 const at7 = { type: 'request_changed', callNo: 7, name: 'POST /v1/messages', replayedBefore: 6, diff: [{ path: '$.messages[4].content', op: 'changed', before: 'refund', after: 'refund now' }] };
-const fork = (runId: string, divergence: unknown = at7) => ({ run: { runId, parentRunId: 'P', divergence }, parent: null }) as unknown as RunDetail;
+const fork = (runId: string, divergence: unknown = at7) => ({ run: { runId, parentRunId: 'P', divergence, status: 'completed' }, parent: null }) as unknown as RunDetail;
+
+/** The server's answer for a run: its request #7 as recorded and as sent, or the call `at` where the diff shows another. */
+const answer = (at = 7): RequestDiff => ({ at, what: 'request', call: { kind: 'api', name: 'POST /v1/messages' }, against: { runId: 'P', callNo: at }, was: { a: 1 }, now: { a: 2 }, whole: true, type: 'request_changed', path: '$.a', paths: [{ path: '$.a', what: null, fix: null }], updates: false, masked: [], outside: [], hints: [], flag: null, tool: null, next: null, test: false });
+
+/** The app a page sits in: a client that answers Show diff's read, counting what it was asked. */
+function app(asked: string[], at = 7): AppState {
+  const requestDiff = (runId: string) => (asked.push(runId), Promise.resolve(answer(at)));
+  return { client: { requestDiff } as unknown as Client, exported: false, meta: null, tick: 0, runsTick: 0, feeds: {}, jobs: [], live: [], runs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined } as unknown as AppState;
+}
 
 /** A run page's part that matters here: the finding's toggle, a call to pick and the inspector's place. */
-function Page({ run }: { run: RunDetail }) {
+function Page({ run, asked = [], at = 7 }: { run: RunDetail; asked?: string[]; at?: number }) {
+  return createElement(AppContext.Provider, { value: app(asked, at) }, createElement(Place, { run }));
+}
+
+function Place({ run }: { run: RunDetail }) {
   const p = useFindingPanel(run.run.runId);
   const inspector = createElement('section', { className: 'insp', id: 'insp', 'aria-label': 'Call 7' }, createElement('div', { className: 'ibody', id: 'ibody', role: 'tabpanel' }));
   return createElement(
@@ -23,7 +38,7 @@ function Page({ run }: { run: RunDetail }) {
     { id: 'view' },
     createElement('button', { type: 'button', 'data-act': 'diff', onClick: p.onToggleDiff }, p.showDiff ? 'Hide diff' : 'Show diff'),
     createElement('button', { type: 'button', className: 'pick', onClick: p.close }, '#3'),
-    createElement(InspectorPlace, { kind: p.kind, run, test: null, onClose: p.close, children: inspector }),
+    createElement(InspectorPlace, { kind: p.kind, run, onClose: p.close, children: inspector }),
   );
 }
 
@@ -49,8 +64,23 @@ describe('a finding’s diff in the inspector’s place', () => {
     const body = page.one('#ibody');
     expect(body.getAttribute('role')).toBeNull();
     expect(body.getAttribute('aria-labelledby')).toBeNull();
-    // The diff is a part of its own, in once its script comes.
-    await page.until('the diff', () => page!.all('#ibody .diffpanel').length === 1);
+    // The diff is a part of its own, in once its script comes, and so is its drawing.
+    await page.until('the diff', () => page!.all('#ibody .diffpanel .jd').length === 1);
+    expect(page.one('#ibody .jdh').textContent).toBe('−Recorded request #7\u00a0· P+This run’s request #7');
+  });
+
+  it('names the call its answer shows, and asks a finished run’s answer once for the page’s life', async () => {
+    const asked: string[] = [];
+    page = await render(createElement(Page, { run: fork('T'), asked, at: 8 }));
+    await page.click(page.one('[data-act="diff"]'));
+    // After a tool a fork changed, the diff shows the next model call: the head says so once it is known.
+    await page.until('the answer', () => page!.one('.fhead .ct').textContent === 'Diff at #8');
+    expect(page.one('#insp').getAttribute('aria-label')).toBe('Diff at #8');
+    await page.until('the diff', () => page!.all('#ibody .jd').length === 1);
+    await page.click(page.one('.fhead .nav button'));
+    await page.click(page.one('[data-act="diff"]'));
+    await page.until('the diff again', () => page!.all('#ibody .jd').length === 1);
+    expect(asked).toEqual(['T']);
   });
 
   it('gives the inspector back on a pick of a call', async () => {

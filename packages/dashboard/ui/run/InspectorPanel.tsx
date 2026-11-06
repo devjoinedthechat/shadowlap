@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import type { RunDetail } from '../api.js';
+import type { Client, RunDetail } from '../api.js';
 import { focusQuiet } from '../focus-manager.js';
 import { useLatest } from '../hooks.js';
-import type { TestBannerOffer } from '../types.js';
 import { LoadFailed } from '../components/bits.js';
 import { onShow } from '../components/OnShow.js';
+import { Skeleton } from '../components/States.js';
 
 /**
  * What a finding opens takes the inspector's place beside the calls, so the list keeps its place and
@@ -15,8 +15,27 @@ import { onShow } from '../components/OnShow.js';
 
 export type PanelKind = 'diff';
 
-/** The diff a finding shows here, a part of its own: it loads the first time it shows (OnShow.tsx). */
-const DiffPanel = onShow(() => import('./DiffPanel.js').then((m) => m.DiffPanel), { failed: <LoadFailed what="diff" /> });
+/**
+ * The diff a finding shows here, a part of its own: it loads the first time it shows (OnShow.tsx), and
+ * asks for the diff's drawing, a part of its own too, as its script comes.
+ */
+const RequestDiff = onShow(
+  () =>
+    import('./RequestDiff.js').then((m) => {
+      m.JsonDiffPart.preload();
+      return m.RequestDiff;
+    }),
+  { waiting: <Skeleton what="diff" lines={6} />, failed: <LoadFailed what="diff" /> },
+);
+
+/**
+ * Show diff about to be pressed (the pointer or the focus on it): its scripts and, for a run that
+ * ended, its answer are asked for now, so the panel draws at once.
+ */
+export function warmDiff(client: Pick<Client, 'requestDiff'>, runId: string, live: boolean): void {
+  RequestDiff.preload();
+  if (!live) import('./RequestDiff.js').then((m) => m.askDiff(client, runId, false)).catch(() => undefined);
+}
 
 /**
  * Where the focus goes as a panel closes from inside it: the finding's toggle that opened it, or,
@@ -89,12 +108,17 @@ export function useFindingPanel(runId: string) {
 
 /**
  * The inspector (`children`), or in its place the panel a finding opened: its title and Hide over the
- * diff, one column at the inspector's width. Hide hands the focus to the toggle, as Esc does.
+ * diff, one column at the inspector's width. Hide hands the focus to the toggle, as Esc does. The
+ * title names the call the diff shows: the divergence's, or once the answer came the one it shows
+ * (after a tool a fork changed, the next model call).
  */
-export function InspectorPlace({ kind, run, test, onClose, children }: { kind: PanelKind | null; run: RunDetail; test: TestBannerOffer | null; onClose: () => void; children: ReactNode }) {
+export function InspectorPlace({ kind, run, onClose, children }: { kind: PanelKind | null; run: RunDetail; onClose: () => void; children: ReactNode }) {
   const d = run.run.divergence;
+  const runId = run.run.runId;
+  const [shown, setShown] = useState<{ runId: string; at: number } | null>(null);
+  const onAt = useCallback((at: number) => setShown({ runId, at }), [runId]);
   if (kind !== 'diff' || !d) return <>{children}</>;
-  const title = `Diff at #${d.callNo}`;
+  const title = `Diff at #${shown?.runId === runId ? shown.at : d.callNo}`;
   const hide = () => {
     const toggle = panelToggle();
     onClose();
@@ -112,7 +136,7 @@ export function InspectorPlace({ kind, run, test, onClose, children }: { kind: P
       </div>
       {/* No tab shows here to label it: the body is the panel's alone. */}
       <div className="ibody fbody" id="ibody" tabIndex={-1}>
-        <DiffPanel run={run} test={test} />
+        <RequestDiff run={run} onAt={onAt} />
       </div>
     </section>
   );

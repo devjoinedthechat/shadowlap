@@ -28,6 +28,7 @@ import type { RunNote } from './notes.js';
 import { blameTitle, goldenName } from './offers.js';
 import type { PresetAttempt } from './preset.js';
 import { NoteFinding } from './RunNotes.js';
+import { warmDiff } from './InspectorPanel.js';
 
 /**
  * What a run's page found, as one bar under its header (findings.ts): the most telling finding whole,
@@ -435,8 +436,10 @@ function useDraw(p: BannerProps, test: TestBannerOffer | null): Draw {
       #{n}
     </button>
   );
+  // The pointer or the focus on Show diff asks for its scripts and its answer, so it opens at once.
+  const warm = () => warmDiff(app.client, p.run.run.runId, p.run.run.status === 'running');
   const diffToggle = (
-    <button className="linkbtn" type="button" data-act="diff" onClick={p.onToggleDiff}>
+    <button className="linkbtn" type="button" data-act="diff" onClick={p.onToggleDiff} onPointerEnter={warm} onFocus={warm}>
       {p.showDiff ? 'Hide diff' : 'Show diff'}
     </button>
   );

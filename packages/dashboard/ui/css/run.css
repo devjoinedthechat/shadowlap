@@ -123,13 +123,11 @@
 .diffpanel h4 { margin: 0 0 8px; font: 500 10.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
 .diffpanel pre { margin: 0; padding: 12px 14px; border-radius: 10px; background: var(--code); border: 1px solid var(--line); font: 12px/1.7 var(--mono); color: var(--dim); overflow-x: auto; }
 .diffpanel pre .add { color: var(--add); background: var(--add-bg); display: block; margin: 0 -14px; padding: 0 14px; }
-.diffpanel .val { display: block; }
 
 /* Where the two requests stack, a value too long for its pane wraps in it, after a comma where it can,
    and goes on under its own start, so the line that changed is read whole without scrolling. */
 @media (max-width: 1000px) {
   .diffpanel pre { white-space: pre-wrap; overflow-wrap: anywhere; }
-  .diffpanel .val { padding-left: 2ch; text-indent: -2ch; }
   .diffpanel pre .add { padding-left: calc(14px + 2ch); text-indent: -2ch; }
 }
 .diffpanel .hint { grid-column: 1 / -1; font-size: 12.5px; color: var(--faint); }

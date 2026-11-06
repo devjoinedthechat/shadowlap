@@ -225,7 +225,7 @@
       "NewProjectPage": 36
     },
     "packages/dashboard/ui/pages/Run.tsx": {
-      "Workspace": 45
+      "Workspace": 43
     },
     "packages/dashboard/ui/pages/Training.tsx": {
       "ScoreDialog": 34
