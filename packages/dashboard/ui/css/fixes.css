@@ -83,9 +83,9 @@ table.probes tr.hot td { background: var(--sel); }
 .pslist .rs { display: flex; align-items: center; gap: 4px 8px; flex-wrap: wrap; margin-top: 4px; color: var(--faint); font-size: var(--fs-quiet); }
 /* the dot between two parts ends the first, so a wrapped line never starts on it */
 .pslist .rs > .nw:has(+ .nw)::after { content: " ·"; }
-/* a chip with a hover card of its own, and the failing runs' link into Runs' Failed view, sit above the row's link, as the
-   next step does, so a card shows and a click goes where it says */
-.pslist .rs .chip[data-tip], .pslist .rs a.dlink { position: relative; z-index: 1; }
+/* a chip with a hover card of its own, a run's id with its about line, and the failing runs' link into Runs' Failed view,
+   sit above the row's link, as the next step does, so a card or an about line shows and a click goes where it says */
+.pslist .rs .chip[data-tip], .pslist .rs code.rnm[title], .pslist .rs a.dlink { position: relative; z-index: 1; }
 .pslist .rs .fxbad { color: var(--cq-red); }
 /* a step: a dot and its word, faint with a hollow dot until it ran; its name said to a screen reader, shown on a phone */
 .psk { font-size: var(--fs-quiet); color: var(--faint); min-width: 0; }

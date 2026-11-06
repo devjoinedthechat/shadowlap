@@ -3,8 +3,9 @@ import { demoId, openPage } from './dashboard.js';
 
 /**
  * Fixes as a to-do list in Chromium over the demo store: j and k over its rows, Enter opening a fix and
- * Esc coming back to its row, a fix's failing runs opening under Failed, the focus on a row's next
- * step when the job it started ends, and no sideways scroll at a phone's or a tablet's width.
+ * Esc coming back to its row, a fix's failing runs opening under Failed, the newest unblamed run's id
+ * under the pointer rather than its row's link, the focus on a row's next step when the job it started
+ * ends, and no sideways scroll at a phone's or a tablet's width.
  */
 
 /** A row as drawn: the bars drawn while the list loads are rows too, with no key. */
@@ -65,6 +66,22 @@ test('a fix’s failing-runs link opens Runs under Failed', async ({ page }) => 
   await page.keyboard.press('Enter');
   await expect.poll(() => hash(page)).toBe('#/runs?types=failed');
   await page.locator('main#view table tbody tr').first().waitFor();
+});
+
+test('the newest unblamed run’s id sits above its row’s link, so the pointer gets its about line, at 1440px and 390px', async ({ page }) => {
+  await openFixes(page);
+  const id = page.locator(`${ROWS}[data-rowkey="unblamed"] .rs code.rnm`);
+  await expect(id).toHaveAttribute('title', /\S/);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await id.scrollIntoViewIfNeeded();
+    const hit = await id.evaluate((el) => {
+      const box = el.getBoundingClientRect();
+      const at = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      return at && (at === el || el.contains(at)) ? 'the id' : (at?.className ?? null);
+    });
+    expect(hit, `at ${width}px`).toBe('the id');
+  }
 });
 
 test('a job started from a row’s next step hands the focus to that row’s step when it ends', async ({ page }) => {
