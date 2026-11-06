@@ -32,8 +32,8 @@ export interface ListOptions<T> {
   keyOf: (row: T) => string;
   /** The box that holds the rows. */
   root: RefObject<HTMLElement | null>;
-  /** Enter on the row; false where the row leads nowhere of its own. A row with none offers its actions instead. */
-  open?: ((row: T) => void | false) | null;
+  /** Enter on the row; it answers false where the row leads nowhere of its own. A row with none offers its actions instead. */
+  open?: ((row: T) => unknown) | null;
   /** `x`, where rows have a checkbox. */
   pick?: ((row: T) => void) | null;
   /** ⌘K on the row. */
