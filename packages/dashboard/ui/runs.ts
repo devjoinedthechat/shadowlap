@@ -320,6 +320,18 @@ export function sideStatus(r: RunLike & { lostAt?: number | null }): { text: str
   return null;
 }
 
+/**
+ * Where a status after an about line gives way to its word before it goes altogether (`fitAbouts`):
+ * `check failed` keeps `failed`, `diverged at #1` keeps `diverged`, and every lost form (`lost at
+ * #9`, `lost between #3 and #5`) keeps `lost`; `lead` and `tail` are the words that go first. Null
+ * for a status with no shorter word (`exited 1`, `inconclusive`, `9 calls`), which goes whole.
+ */
+export function statusGivesWay(text: string): { lead: string; word: string; tail: string } | null {
+  if (text === 'check failed') return { lead: 'check ', word: 'failed', tail: '' };
+  const m = /^(lost|diverged)( .+)$/.exec(text);
+  return m ? { lead: '', word: m[1]!, tail: m[2]! } : null;
+}
+
 /** What a fork's fence did to the writes after it, as the sidebar counts them: `2 writes blocked`, `1 write stubbed`, `3 writes fenced` (both), `no writes fenced`. */
 export function fencedText(c: Pick<OriginCounts, 'block' | 'stub'>): string {
   if (c.block && c.stub) return `${plural(c.block + c.stub, 'write')} fenced`;

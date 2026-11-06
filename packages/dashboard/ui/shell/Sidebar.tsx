@@ -1,15 +1,16 @@
-import { memo, useCallback, useEffect, useMemo, useRef, type RefObject } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, type MouseEvent, type RefObject } from 'react';
 import type { RunListItem } from '../api.js';
 import { AboutLine, useFitAbouts } from '../components/About.js';
 import { RunIcon } from '../components/RunIcon.js';
 import { Icon, type IconName } from '../components/Icon.js';
-import { cssVars, paletteKeyLabel } from '../dom.js';
+import { Id } from '../components/Id.js';
+import { cssVars } from '../dom.js';
 import { num, shortId, whenShort } from '../format.js';
-import { useLatest } from '../hooks.js';
+import { useLatest, useStored } from '../hooks.js';
 import { useListKeys, type RowScope } from '../list-keys.js';
 import { runRowScope } from '../run-row.js';
 import { href, navSection, type Route } from '../route.js';
-import { copyCompares, isAttempt, RECENT_RUNS, runTree, sideLine, sideStatus, treeLines } from '../runs.js';
+import { copyCompares, isAttempt, RECENT_RUNS, runTree, sideLine, sideStatus, statusGivesWay, treeLines } from '../runs.js';
 import { useApp } from '../state.js';
 import { ProjectBlock } from './ProjectBlock.js';
 
@@ -31,8 +32,15 @@ function drawerOpened(aside: RefObject<HTMLElement | null>, close: () => void): 
   };
 }
 
+/** A page in the sidebar's nav: its key, icon, label and address, and the count beside it. */
+type NavItem = [key: string, icon: IconName, label: string, to: string, n: number | null];
+
+/** Recent runs, shown or folded at its heading's caret, as this browser last left it. */
+type Fold = 'open' | 'closed';
+const isFold = (v: string): v is Fold => v === 'open' || v === 'closed';
+
 export function Sidebar({ route }: { route: Route }) {
-  const { meta, runs, exported, sideOpen, setPalette, setSideOpen, conn, toast } = useApp();
+  const { meta, runs, exported, sideOpen, setSideOpen, toast } = useApp();
   const listed = useMemo(() => (runs ?? []).filter((r) => !isAttempt(r)), [runs]);
   // On a phone the sidebar is a drawer: closed while the focus was in it (Esc, a pick), the focus goes
   // back to the menu button that opened it, rather than to nothing once the drawer is hidden.
@@ -47,50 +55,57 @@ export function Sidebar({ route }: { route: Route }) {
   // ⌘K on a run here offers its actions, as on a row of Runs, with nothing to select.
   const runsNow = useLatest(runs);
   const rowActions = useCallback((r: RunListItem) => (exported ? null : runRowScope(r, { runs: runsNow.current ?? [], toast })), [exported, runsNow, toast]);
+  const [fold, setFold] = useStored<Fold>('shadowlap-recent-runs', 'open', isFold);
   const section = navSection(route);
   const count = meta?.counts?.runs ?? listed.length;
-  const items: Array<[string, IconName, string, string, number | null]> = exported
-    ? [['runs', 'runs', 'Runs', href.runs(), count], ...(copyCompares(meta?.runIds) ? [['compare', 'compare', 'Compare', href.compare(), null] as [string, IconName, string, string, number | null]] : [])]
+  // The loop (what was run and what needs a look), a hairline, then the tools: a later page joins either list.
+  const loop: NavItem[] = exported
+    ? [['runs', 'runs', 'Runs', href.runs(), count], ...(copyCompares(meta?.runIds) ? [['compare', 'compare', 'Compare', href.compare(), null] as NavItem] : [])]
     : [
         ['overview', 'home', 'Overview', href.overview(), null],
         ['runs', 'runs', 'Runs', href.runs(), count],
         ['compare', 'compare', 'Compare', href.compare(), null],
         ['fixes', 'loop', 'Fixes', href.fixes(), null],
         ['tests', 'tests', 'Tests', href.tests(), null],
-        ['training', 'target', 'Training', href.training(), null],
       ];
+  const tools: NavItem[] = exported ? [] : [['training', 'target', 'Training', href.training(), null]];
+  const link = ([key, icon, label, to, n]: NavItem) => (
+    <a key={key} href={to} aria-current={section === key ? 'page' : undefined}>
+      <Icon name={icon} />
+      {label}
+      {n !== null ? <span className="count">{num(n)}</span> : null}
+    </a>
+  );
+  // A link picked in the phone's drawer closes it, the page it opens already open too.
+  const picked = (e: MouseEvent) => {
+    if (sideOpen && (e.target as Element | null)?.closest?.('a[href]')) setSideOpen(false);
+  };
   return (
-    <aside className={`side${sideOpen ? ' open' : ''}`} id="side" aria-label="Navigation" ref={aside}>
+    <aside className={`side${sideOpen ? ' open' : ''}`} id="side" aria-label="Navigation" ref={aside} onClick={picked}>
       <div className="side-top">
         <ProjectBlock meta={meta} />
-        {exported ? null : (
-          <button className="search sbtn" type="button" aria-label={`Search or jump to (${paletteKeyLabel()})`} aria-keyshortcuts="Meta+K Control+K" onClick={() => conn !== 'expired' && setPalette(true)}>
-            <Icon name="search" />
-            <span className="st">Search or jump to…</span>
-            <span className="kbd">{paletteKeyLabel()}</span>
-          </button>
-        )}
       </div>
       <nav className="navlist" aria-label="Sections">
-        {items.map(([key, icon, label, to, n]) => (
-          <a key={key} href={to} aria-current={section === key ? 'page' : undefined}>
-            <Icon name={icon} />
-            {label}
-            {n !== null ? <span className="count">{num(n)}</span> : null}
-          </a>
-        ))}
+        {loop.map(link)}
+        {tools.length ? (
+          <>
+            <hr className="navsep" />
+            {tools.map(link)}
+          </>
+        ) : null}
       </nav>
       <div className="side-k">
-        Recent runs<a href={href.runs()}>all</a>
+        <button className="skt" type="button" aria-expanded={fold === 'open'} aria-controls="runs" onClick={() => setFold(fold === 'open' ? 'closed' : 'open')}>
+          {exported ? 'In this copy' : 'Recent runs'}
+          <Icon name="caret" />
+        </button>
+        {exported ? null : <a href={href.runs()}>all</a>}
       </div>
-      <RecentRuns runs={listed} current={route.page === 'run' ? route.id : null} loading={runs === null} rowActions={rowActions} />
+      <RecentRuns runs={listed} current={route.page === 'run' ? route.id : null} loading={runs === null} rowActions={rowActions} folded={fold === 'closed'} />
       {exported ? null : (
         <div className="side-foot">
           <nav className="navlist" aria-label="Project settings">
-            <a href={href.settings()} aria-current={section === 'settings' ? 'page' : undefined}>
-              <Icon name="gear" />
-              Settings
-            </a>
+            {link(['settings', 'gear', 'Settings', href.settings(), null])}
           </nav>
         </div>
       )}
@@ -122,22 +137,23 @@ function TreeLines({ depth, on, kids }: { depth: number; on: readonly boolean[];
  * room it gets, followed only by what needs a look or how far a recording has got. Under a parent,
  * a run's about line is what it changed. A server that sends no about line gets the old line.
  */
-export const RecentRuns = memo(function RecentRuns({ runs, current, loading, rowActions }: { runs: RunListItem[]; current: string | null; loading: boolean; rowActions?: (r: RunListItem) => RowScope | null }) {
+export const RecentRuns = memo(function RecentRuns({ runs, current, loading, rowActions, folded = false }: { runs: RunListItem[]; current: string | null; loading: boolean; rowActions?: (r: RunListItem) => RowScope | null; folded?: boolean }) {
   const tree = useMemo(() => treeLines(runTree(runs).slice(0, RECENT_RUNS)), [runs]);
   const now = Date.now();
   const box = useRef<HTMLDivElement>(null);
   useFitAbouts(box);
   // The arrows and j and k walk these with the focus on one; each stays its own Tab stop, Enter its link's.
   useListKeys({ rows: tree, keyOf: (x) => href.run(x.run.runId), root: box, actions: rowActions ? (x) => rowActions(x.run) : null, beside: true });
-  if (loading) return <div className="runs" />;
+  // `id` on each: the heading's caret names it (aria-controls).
+  if (loading) return <div className="runs" id="runs" hidden={folded} />;
   if (!runs.length)
     return (
-      <div className="runs">
+      <div className="runs" id="runs" hidden={folded}>
         <div className="empty">No runs yet.</div>
       </div>
     );
   return (
-    <div className="runs" tabIndex={-1} ref={box}>
+    <div className="runs" id="runs" hidden={folded} tabIndex={-1} ref={box}>
       {tree.map(({ run: r, depth, on, kids }) => {
         const here = current !== null && (r.runId === current || (current.length >= 10 && r.runId.startsWith(current)));
         const st = r.about ? sideStatus(r) : null;
@@ -147,7 +163,7 @@ export const RecentRuns = memo(function RecentRuns({ runs, current, loading, row
             <TreeLines depth={depth} on={on} kids={kids} />
             <RunIcon run={r} />
             <span className="r1">
-              <span className="id">{shortId(r.runId)}</span>
+              <Id id={shortId(r.runId)} list className="id" />
               <span className="when">{whenShort(r.startedAt, now)}</span>
             </span>
             {line ? (
@@ -158,12 +174,7 @@ export const RecentRuns = memo(function RecentRuns({ runs, current, loading, row
             ) : (
               <span className="r2">
                 <AboutLine about={r.about} className="ra" />
-                {st ? (
-                  <span className="r2s" data-gives="">
-                    <span className="dot">·</span>
-                    {st.tone ? <em className={st.tone === 'warn' ? 'inc' : undefined}>{st.text}</em> : st.text}
-                  </span>
-                ) : null}
+                {st ? <SideStatus st={st} /> : null}
               </span>
             )}
           </a>
@@ -172,3 +183,27 @@ export const RecentRuns = memo(function RecentRuns({ runs, current, loading, row
     </div>
   );
 });
+
+/**
+ * What a run's row says after its about line, giving way before the line does (`fitAbouts`): first
+ * to its word, its `.sgw` part going ("check failed" keeps "failed", "lost at #9" keeps "lost"),
+ * then altogether, the row's icon still saying it.
+ */
+function SideStatus({ st }: { st: { text: string; tone: 'err' | 'warn' | null } }) {
+  const p = statusGivesWay(st.text);
+  const words = p ? (
+    <>
+      {p.lead ? <span className="sgw">{p.lead}</span> : null}
+      {p.word}
+      {p.tail ? <span className="sgw">{p.tail}</span> : null}
+    </>
+  ) : (
+    st.text
+  );
+  return (
+    <span className="r2s" data-gives="">
+      <span className="dot">·</span>
+      {st.tone ? <em className={st.tone === 'warn' ? 'inc' : undefined}>{words}</em> : words}
+    </span>
+  );
+}

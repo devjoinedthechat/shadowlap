@@ -147,10 +147,11 @@ describe('the lists name a run by its id, with its about line', () => {
     expect(sideStatus(forkRun)).toBeNull();
     expect(sideStatus(listed('L', { status: 'running', calls: 9 }))).toEqual({ text: '9 calls', tone: null });
     const html = renderToStaticMarkup(createElement(RecentRuns, { runs: [lostRun, listed(REC), forkRun], current: null, loading: false }));
-    expect(html).toContain('<span class="id">01M5GRYF9F</span>');
+    // The id in its list form, its first six characters quieter.
+    expect(html).toContain('<code class="rnm rl id">01M5GRYF9F</code>');
     expect(html).toContain('data-about="Order A-1150: the customer asks for a refund"');
-    // What needs a look gives way before a test replay's golden would (`fitAbouts`).
-    expect(html).toContain('<span class="r2s" data-gives=""><span class="dot">·</span><em>lost at #9</em></span>');
+    // What needs a look gives way before the about line would (`fitAbouts`): first to its word, then altogether.
+    expect(html).toContain('<span class="r2s" data-gives=""><span class="dot">·</span><em>lost<span class="sgw"> at #9</span></em></span>');
     // A fork under its recording: its about line is what it changed, never cut.
     expect(html).toContain('data-about="override #16" data-from="change"');
     // Nothing that says what kind of run it is: the icon says that.
