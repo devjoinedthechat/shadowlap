@@ -8,7 +8,7 @@ import { isMac } from '../dom.js';
 import { dropRowScope, rowScopeNow, type RowScope, type RowStep } from '../list-keys.js';
 import { ACTIONS } from '../labels.js';
 import { callName, plural, shortId } from '../format.js';
-import { jobRunning } from '../job-title.js';
+import { testsBusy } from '../goldens.js';
 import { blameAsksOnItsPage, blameEntries, highlight, INDEXING_RETRY_MS, indexingNote, limitRecorded, matchPalette, palettePlaceholder, pickRefusal, RECORDED_MIN_CHARS, runsById, runsToAskFor, snippetParts, words } from '../palette.js';
 import { addPaletteSource, onPaletteSourcesChanged, paletteSources } from '../palette-sources.js';
 // The pages' actions and Tests, so a fresh palette lists them before their pages have loaded.
@@ -37,8 +37,6 @@ import { paletteTestsAsk, startTestsJob } from '../tests-ask.js';
  * it offers that row's actions under its name, and ⌫ in its empty field goes back to everything.
  */
 
-/** The jobs that run the goldens: while one runs, the palette offers no second session. */
-const TEST_KINDS: ReadonlySet<string> = new Set<string>([JOB_KINDS.tests, JOB_KINDS.testUpdate, JOB_KINDS.normalizeAndTest]);
 
 export function Palette({ route }: { route: Route }) {
   const app = useApp();
@@ -283,11 +281,12 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
           [ACTIONS.addProject.label, href.newProject()],
         ];
     for (const [label, to] of pages) out.push({ group: 'Go to', label, hint: '', key: goKeyColumn(to), run: () => navigate(to) });
-    // Not a second session while one started here runs: Tests' own button says so meanwhile. One that
-    // would run goldens live asks first, over whatever page is open, as Tests' Run tests does, with
-    // the command read from Tests once the server asks (paletteTestsAsk).
-    if (!app.actionsOff && app.hasKind(JOB_KINDS.tests) && !jobRunning(app.jobs, TEST_KINDS))
-      out.push({ group: 'Actions', label: ACTIONS.runTests.label, hint: 'shadowlap test goldens/*', job: true, run: () => startTestsJob(app, JOB_KINDS.tests, {}, paletteTestsAsk(app)) });
+    // Not a second session while one runs: the row stays, dimmed, and says why, as Tests' own button
+    // does (until the server's list comes, a start reads its refusal). One that would run goldens live
+    // asks first, over whatever page is open, as Tests' Run tests does, with the command read from
+    // Tests once the server asks (paletteTestsAsk).
+    const testsWait = testsBusy(app.jobs.map((w) => w.job), 'run the tests', app.meta?.project?.id ?? null);
+    if (!app.actionsOff && app.hasKind(JOB_KINDS.tests)) out.push({ group: 'Actions', label: ACTIONS.runTests.label, hint: testsWait ?? 'shadowlap test goldens/*', job: true, ...(testsWait ? { wait: testsWait } : {}), run: () => startTestsJob(app, JOB_KINDS.tests, {}, paletteTestsAsk(app)) });
     out.push({ group: 'Actions', label: ACTIONS.keyboardShortcuts.label, hint: 'every key, by where it works', key: keyColumn('help'), run: () => app.setHelp(true) });
     for (const source of paletteSources()) {
       try {

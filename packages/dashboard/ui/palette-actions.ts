@@ -52,9 +52,9 @@ addPaletteSource(({ app, go }) =>
 let listedJobs: TreeJob[] | null = null;
 
 // Calibrate replays the agent from the project's working tree: like its button on Matching, the
-// palette's entry waits while a repair or an apply holds the tree, and is left out until then, as
-// it is on a read-only dashboard. The list is read again as the palette opens; an open palette
-// reads its sources again when what it says changed.
+// palette's entry waits while a repair or an apply holds the tree, dimmed, saying why. It is left out
+// on a read-only dashboard. The list is read again as the palette opens; an open palette reads its
+// sources again when what it says changed.
 addPaletteSource(({ app }) => {
   if (app.exported || !app.hasKind(JOB_KINDS.calibrate)) return [];
   const folder = app.meta?.project?.path ?? null;
@@ -69,8 +69,7 @@ addPaletteSource(({ app }) => {
       () => undefined,
     );
   }
-  if (before) return [];
-  return [{ group: 'Actions', label: ACTIONS.calibrate.label, hint: 'propose normalizers', job: true, run: () => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.calibrate, {}))) }];
+  return [{ group: 'Actions', label: ACTIONS.calibrate.label, hint: before ?? 'propose normalizers', job: true, ...(before ? { wait: before } : {}), run: () => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.calibrate, {}))) }];
 });
 
 // The way to the team store's setup: Set up the team store while the project has none, Continue

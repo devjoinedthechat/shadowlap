@@ -93,6 +93,18 @@ describe('Search or jump to, as the dashboard stands', () => {
     expect(setPalette).not.toHaveBeenCalled();
   });
 
+  it('keeps Run tests listed while a test session runs, dimmed, saying why, and says it again when picked', async () => {
+    const startJob = vi.fn(async () => ({}));
+    const toast = vi.fn();
+    const running = { job: { id: 'j1', kind: 'test', args: ['test'], done: false }, lines: [], open: false };
+    r = await render(createElement(AppContext.Provider, { value: app({ client: { startJob } as unknown as Client, toast, jobs: [running] as unknown as AppState['jobs'] }) }, createElement(Palette, { route: OVERVIEW })));
+    const why = 'A test session is running: run the tests once it is done.';
+    expect(actions(r)).toContainEqual(['Run tests', why, true]);
+    await r.click(r.all('.palit').find((el) => el.textContent.startsWith('Run tests'))!);
+    expect(startJob).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith(why);
+  });
+
   it('promises no actions on a dashboard that runs none', async () => {
     r = await render(createElement(AppContext.Provider, { value: app({ actionsOff: 'This dashboard is read-only: it was started with --read-only.' }) }, createElement(Palette, { route: OVERVIEW })));
     expect(placeholder(r)).toBe('Search runs, pages and what runs recorded');
