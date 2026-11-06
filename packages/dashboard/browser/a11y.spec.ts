@@ -26,6 +26,23 @@ for (const p of PAGES) {
   });
 }
 
+test('the Overview has no serious or critical axe violation on a laptop or a phone, Usage folded or open, and a phone never scrolls it sideways', async ({ page }) => {
+  const usage = page.locator('main#view .ovuse > header button.linkbtn');
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await openPage(page, '/', 'main#view .ovg');
+    // Usage is kept open for the session once asked for: each width starts it folded.
+    if ((await usage.getAttribute('aria-expanded')) === 'true') await usage.click();
+    await expect(usage).toHaveText('Show');
+    expect(await seriousViolations(page)).toEqual([]);
+    await usage.click();
+    await page.waitForSelector('main#view .ovuse .ugrid');
+    expect(await usage.getAttribute('aria-expanded')).toBe('true');
+    expect(await seriousViolations(page)).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `at ${width}px`).toBe(0);
+  }
+});
+
 test('a fork’s page says what it did differently, and has no serious or critical axe violation with it', async ({ page }) => {
   await openPage(page, `/run/${demoId('override')}`, 'run');
   await page.waitForSelector('.fdiff h2');
