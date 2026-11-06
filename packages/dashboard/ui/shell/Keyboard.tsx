@@ -81,7 +81,7 @@ function escapeKey(a: AppState, e: KeyboardEvent): void {
  * Where g then this key goes: Changes at the tab it last showed in the project (Compare at its pair);
  * an exported copy has Runs, and Compare when it holds two runs or more. Null for none.
  */
-function goTarget(a: AppState, key: string): string | null {
+export function goTarget(a: Pick<AppState, 'exported' | 'meta'>, key: string): string | null {
   const to = GO_KEYS[key];
   if (!to) return null;
   if (key === 'c') return !a.exported ? changesHref() : copyCompares(a.meta?.runIds) ? href.compare() : null;
