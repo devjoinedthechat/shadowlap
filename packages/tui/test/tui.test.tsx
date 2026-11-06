@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { normalizeConversation, normalizeResponse, Store, storeApiRequest, unpackRun } from '@shadowlap/engine';
+import { normalizeConversation, normalizeResponse, Store, storeApiRequest, unpackRun, type Normalizer } from '@shadowlap/engine';
 import { App } from '../src/app.js';
 import { diffLines } from '../src/diff.js';
 import { Help } from '../src/components/Help.js';
@@ -684,6 +684,14 @@ describe('render helpers', () => {
     const lines = diffLines({ type: 'forced', callNo: 4, kind: 'tool', name: 'search_web', replayedBefore: 3 }, 80).map((l) => l.text);
     expect(lines[0]).toContain('Diverged at call 4 (tool search_web)');
     expect(lines[1]).toContain('forced live');
+  });
+
+  it('prints the normalizer a hint proposes as the command the CLI runs, its replacement included', () => {
+    const printed = (normalizer: Normalizer) =>
+      diffLines({ type: 'request_changed', callNo: 3, kind: normalizer.kind ?? 'api', name: 'x', replayedBefore: 2, hints: [{ message: 'made anew on every run', normalizer }] }, 200).map((l) => l.text);
+    // Without --replace, the command would mask with <MASKED>, not the <UUID> the hint proposes.
+    expect(printed({ kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' })).toContain("shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'");
+    expect(printed({ kind: 'tool', name: 'lookup', path: '$.args.request_id', replace: '<ID>' })).toContain("shadowlap normalize add --kind tool --name lookup --path '$.args.request_id' --replace '<ID>'");
   });
 });
 
