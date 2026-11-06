@@ -49,7 +49,7 @@ See [`dashboard`](./cli.md#dashboard) in the CLI reference.
 
 Every page shares one frame: a sidebar, a top bar and a status bar. The dashboard is dark only.
 
-Below 1000px the sidebar is a drawer behind the menu button. Opening it puts the focus on its first item, and the page and the status bar can't be reached until it closes. Esc, a click beside it, a link in it or ⌘K closes it.
+At 1000px and below the sidebar is a drawer behind the menu button. Opening it puts the focus on its first item, and the page and the status bar can't be reached until it closes. Esc, a click beside it, a link in it or ⌘K closes it.
 
 ### Sidebar
 
@@ -75,7 +75,7 @@ The top bar shows:
 - **Search or jump to** (⌘K or Ctrl K), which opens [the palette](#search-or-jump-to). At 1000px and below it shows its icon alone.
 - **Help**: Keyboard shortcuts, Docs and Command line. A touch screen leaves out Keyboard shortcuts.
 
-A page that can't show what its address names, such as a run the store doesn't hold, names only its section in its crumbs and its tab's title. Below 640px the crumbs are left out, and below 1000px the live chip.
+A page that can't show what its address names, such as a run the store doesn't hold, names only its section in its crumbs and its tab's title. At 640px and below the crumbs are left out, and at 1000px and below the live chip.
 
 When a recording ends, a toast says so on whatever page is open, whether it was recorded from a terminal or anywhere else: *Recording finished · 01M53JE2Q0 · 32 calls*, or *interrupted* when it stopped before its end. A run that a dashboard job made says how it ended in the job's drawer instead.
 
@@ -92,7 +92,7 @@ The status bar says, from the left:
 
 When the window is too narrow, a part gives way whole: the version first, then where it runs, then the store. The runs, the connection and *read-only* stay.
 
-A job off the screen leads its right-hand side: what it is doing (*Forking · running*), how many run from every tab (*2 jobs running*), or what a hidden one did (*Replayed · reproduced · exit 0*). A click opens it. Below 1000px it floats at the window's foot as a pill.
+A job off the screen leads its right-hand side: what it is doing (*Forking · running*), how many run from every tab (*2 jobs running*), or what a hidden one did (*Replayed · reproduced · exit 0*). A click opens it. At 1000px and below it floats at the window's foot as a pill.
 
 ### Toasts
 
@@ -2309,7 +2309,7 @@ Outside a dashboard job the variable is unset, and nothing is written.
 **Browser tests.** `npm run test:browser` (from `packages/dashboard`) opens the dashboard in Chromium over the whole demo store, built by real commands (`scripts/demo-store.mjs`, or the one `SHADOWLAP_DEMO_DIR` names). It checks it with axe-core for no serious or critical violation:
 
 - on any page, Settings tab, run, view, inspector tab, menu or dialog;
-- on Fixes and each fix's steps, the palette, and the shortcuts on Overview, Runs, Fixes and Settings;
+- on Fixes and each fix's steps, the palette, the help menu, and the shortcuts on Overview, Runs, Fixes and Settings;
 - on a toast with Undo, or the bar that says the dashboard can't be reached;
 - on a page, and a run's view, whose code couldn't be loaded;
 - on an exported copy's run, opened from a file;
