@@ -672,7 +672,7 @@ HTTP. It runs until stopped.
 shadowlap dashboard [run] [--call <n>] [--port 4777] [--no-open] [--read-only]
 ```
 
-A local web UI over the store: runs and forks, a timeline of calls by origin, the conversation at any
+A local web UI over the store: runs and forks, a strip of calls by kind or origin, the conversation at any
 call, playback of streamed responses, fork diffs, comparison, the activity feed, and replay and fork
 actions. See [Dashboard](./dashboard.md).
 

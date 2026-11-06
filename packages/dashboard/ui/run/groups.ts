@@ -186,7 +186,7 @@ export function ancestorsOf(tree: CallTree, callNo: number): number[] {
   return out;
 }
 
-/** Every call that heads a group: what Fold all folds. */
+/** Every call that heads a group. */
 export function heads(calls: readonly { callNo: number }[], tree: CallTree): number[] {
   const out: number[] = [];
   for (let i = 0; i < calls.length; i++) if (tree.kids[i]! > 0) out.push(calls[i]!.callNo);
