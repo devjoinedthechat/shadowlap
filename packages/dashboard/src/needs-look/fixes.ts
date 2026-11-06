@@ -1,6 +1,6 @@
 import { type FixRecords, fixRecords, lostWords, shownBlame, unrescuedWords, unsettledFirst } from '@shadowlap/engine';
 import { fixLead } from '../fix-lead.js';
-import { stepsOf } from '../fix-list.js';
+import { changeWords } from '../fix-list.js';
 import { fixHref, noAnswerLost, short } from '../fix-shared.js';
 import { type NeedsLookItem, repairLeft } from '../fix-summary.js';
 import { links } from '../links.js';
@@ -74,8 +74,8 @@ export const unblamed: LookSource = {
 /**
  * Where an open fix's blame left it, then what changed and what verify made of it, from the same
  * steps as its stepper and its row on Fixes: `lost at model call #9 · prompt change, not verified
- * yet`, `blame stopped part way · rescued up to #5 so far · no change yet`, `not rescued from any
- * model call`. Where no answer of the model's lost it, it says where to look instead.
+ * yet`, `lost at model call #9 · changed by hand, verify inconclusive` (`changeWords`), `blame
+ * stopped part way · rescued up to #5 so far · no change yet`, `not rescued from any model call`. Where no answer of the model's lost it, it says where to look instead.
  */
 export function openFixWords(rec: FixRecords): string {
   const b = shownBlame(rec);
@@ -87,11 +87,8 @@ export function openFixWords(rec: FixRecords): string {
         ? unrescuedWords(unsettledFirst(b.report))
         : `blame stopped part way${b.report.blamed ? ` · rescued up to #${b.report.blamed.callNo} so far` : ''}`;
   if (noAnswerLost(b)) return `${where} · look at the tools, the harness or the command`;
-  const [, repair, verify] = stepsOf(rec);
-  if (repair!.state === 'done') {
-    const verdict = verify!.state === 'warn' ? ', verify inconclusive' : verify!.state === 'no' ? ', verify rejected it' : verify!.state === 'todo' ? ', not verified yet' : '';
-    return `${where} · ${repair!.short}${verdict}`;
-  }
+  const change = changeWords(rec);
+  if (change) return `${where} · ${change}`;
   // A blame that found no call rescues the run, with no change tried, says nothing more.
   const last = rec.repairs.at(-1);
   const then = last ? repairLeft(last) : b?.outcome === 'unrescuable' && !unsettledFirst(b.report) ? '' : 'no change yet';

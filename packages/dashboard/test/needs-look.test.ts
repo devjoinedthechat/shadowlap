@@ -1,6 +1,6 @@
-import { recordBlame, recordRepair, Store } from '@shadowlap/engine';
+import { recordBlame, recordRepair, recordVerdict, Store } from '@shadowlap/engine';
 import { describe, expect, it } from 'vitest';
-import { blameReport, EXPECT, makeRun, repairReport } from '../../engine/test/fix-fixtures.js';
+import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { LOOK_GROUPS } from '../src/needs-look/groups.js';
 import { LOOK_CAP, type LookSource, type LookWork, needsLook, type NeedsLookRow, ordered, SOURCES } from '../src/needs-look/index.js';
 import { overviewSummary } from '../src/overview.js';
@@ -182,6 +182,26 @@ describe('Needs a look: one cause, one row', () => {
       expect(items.find((x) => x.fixId === fixId && x.kind !== 'test')).toMatchObject({ kind: 'ready', group: 'ship' });
       expect(items.find((x) => x.fixId === fixId && x.kind !== 'test')?.detail).not.toContain('fails on Tests');
       expect(items.find((x) => x.kind === 'test')).toMatchObject({ key: `attn:failed:${GOLDEN}`, runId: crash });
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe('Needs a look: a fix’s row, worded and led as its page has it', () => {
+  const look = (store: Store) => overviewSummary(store, { tz: 'UTC', now: NOW }).needsLook.items;
+  const opened = (store: Store) => {
+    const failing = makeRun(store, { labels: ['refund-bug'], startedAt: NOW - 4 * HOUR });
+    const fixId = recordBlame(store, { runId: failing, report: blameReport(failing), expect: EXPECT, scope: null, command: 'c', title: 'Refunds above the limit issued without approval', checkText: 'x', at: NOW - 3 * HOUR }).fix.fixId;
+    return { failing, fixId };
+  };
+
+  it('says a change made by hand, which no repair names, with what verify made of it', () => {
+    const store = Store.open(':memory:');
+    try {
+      const { failing, fixId } = opened(store);
+      recordVerdict(store, { report: { ...verifyReport([{ runId: failing, role: 'target', pass: true }]), verdict: 'incomplete' }, expect: EXPECT, command: 'shadowlap verify --fix x', at: NOW - HOUR, fixIds: [fixId] });
+      expect(look(store).find((x) => x.fixId === fixId)).toMatchObject({ kind: 'open', detail: expect.stringMatching(/^lost at model call #\d+ · changed by hand, verify inconclusive$/) });
     } finally {
       store.close();
     }

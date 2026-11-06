@@ -158,6 +158,21 @@ export function stepsOf(rec: FixRecords): FixStep[] {
 }
 
 /**
+ * What changed on a fix and what verify made of it, as Needs a look words an open fix after where
+ * blame left it, and Fixes' list can: the accepted change's kind (`prompt change, not verified
+ * yet`), or `changed by hand` where the newest verdict that counts names no repair (a change made by
+ * hand, then verified with `verify --fix`), then `, verify inconclusive` or `, verify rejected it`
+ * from the Verify step's state. Null where nothing changed yet.
+ */
+export function changeWords(rec: FixRecords, steps: readonly FixStep[] = stepsOf(rec)): string | null {
+  const [, repair, verify] = steps;
+  const byHand = counting(rec).at(-1)?.repairId === null;
+  if (!byHand && repair?.state !== 'done') return null;
+  const verdict = verify?.state === 'warn' ? ', verify inconclusive' : verify?.state === 'no' ? ', verify rejected it' : verify?.state === 'todo' ? ', not verified yet' : '';
+  return `${byHand ? 'changed by hand' : repair!.short}${verdict}`;
+}
+
+/**
  * The title each fix was opened with, by fix id: what its failing run did, as blame titled the fix
  * when it opened it (`blame.done`, `opened`). Read once per answer, and only once a fix was renamed.
  */
