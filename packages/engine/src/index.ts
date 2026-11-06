@@ -75,8 +75,8 @@ export type { ConfigEvent, ConfigFile, EditOptions, RuleAdded, RuleList } from '
 export { LOCK_STALE_MS, releaseLock, takeLock, withLockFile, type HeldLock, type LockOptions } from './lock-file.js';
 // Shadowlap's folder for this machine's files (SHADOWLAP_HOME, else ~/.shadowlap): the project list, and the agents and proxies registered while they run.
 export { shadowlapHome } from './projects/index.js';
-// A small file replaced in one step, never half written: for a file kept for this machine beside the project list.
-export { writeFileAtomic } from './projects/files.js';
+// A small file kept for this machine beside the project list: replaced in one step, never half written, and changed under its lock as the list is.
+export { FileLockBusyError, withFileLock, writeFileAtomic } from './projects/files.js';
 // Projects: the list of folders opened in the dashboard, folder suggestions, setup and recording from it.
 export { ProjectError, ProjectHost, ProjectRegistry, emptySetup, nameConfirms, projectDbPath, setupRunOf, tildePath } from './projects/index.js';
 export { checkFolder, describeFolder, suggestFolders } from './projects/index.js';

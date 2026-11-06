@@ -29,14 +29,20 @@ export function writeFileAtomic(file: string, text: string): void {
   }
 }
 
+/** What withFileLock throws while another process still holds the lock once its wait is up: for a caller that skips its write rather than fail. */
+export class FileLockBusyError extends Error {
+  override readonly name = 'FileLockBusyError';
+}
+
 /**
  * Runs `fn` holding `<file>.lock`, so the CLI and the dashboard changing the list at the same time
  * don't lose each other's change (lock-file.ts: a lock whose process is gone is taken over at once,
  * and one whose process runs on this machine is not, but on Windows after ten seconds). A lock is
- * held for the time it takes to read and write a small file, so waiting for one is rare and short.
+ * held for the time it takes to read and write a small file, so waiting for one is rare and short;
+ * a `timeoutMs` of 0 tries once.
  */
 export function withFileLock<T>(file: string, timeoutMs: number, fn: () => T): T {
   const lock = `${file}.lock`;
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-  return withLockFile(lock, { wait: timeoutMs, mode: 0o600, busy: () => new Error(`${lock} is held by another Shadowlap process. If none is running, delete it.`) }, fn);
+  return withLockFile(lock, { wait: timeoutMs, mode: 0o600, busy: () => new FileLockBusyError(`${lock} is held by another Shadowlap process. If none is running, delete it.`) }, fn);
 }
