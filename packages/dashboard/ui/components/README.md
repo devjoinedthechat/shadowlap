@@ -90,12 +90,12 @@ project in the job, so a server switched since refuses it.
 
 | Component | File | Notes |
 |---|---|---|
-| `Strip` | `Strip.tsx` | A run's calls by origin; past 360 calls a cell stands for a range and takes its most notable origin, and hovering it counts each origin. Flags the fork and the lost call; a live run grows a pending cell. |
-| `MiniStrip` | `Strip.tsx` | The small strip in tables (`.ms`), grouped past 60 cells. |
+| `RunStrip`, `StripKey`, `StripBar` | `../run/RunStrip.tsx`, `../run/StripKey.tsx` | The run page's strip: a recording's or a capture's calls by kind (`../run/kinds.ts`), any other run's by origin. Where the calls don't fit a cell of 6px (24px to a finger), a cell is a range, by the strip's measured width, in what most of its calls are, with a notch at its rarer notable call; hovering it counts each kind or origin. Flags the fork and the lost call; a live run grows a pending cell. One Tab stop, a listbox: ← → select at once, a range at a time where grouped. Its key is the call filter (`../run/call-filter.ts`), with counts and rows balanced where it wraps, beside Filter calls. |
+| `MiniStrip` | `Strip.tsx` | The small strip in tables (`.ms`): past 60 calls a cell is a range, in the origin most of its calls have, with a notch at its rarer notable call, as the run page's strip draws it. |
 | `GridStrip` | `Strip.tsx` | A row of a family on one scale (`.gs`), for the Overview's grid. |
 | `RunIcon`, `EventIcon`, `Glyph` | `RunIcon.tsx` | One set of icons, each with its words on hover: recording now (pulsing), recording, failed, replay, fork, capture, test, and for events Fixes, project, settings and training. |
 | `Icon`, `Sprite`, `Brand`, `Tile` | `Icon.tsx` | The icon sprite (drawn once by the app) and the logo. |
-| `Org`, `Legend` | `bits.tsx` | An origin's colour and word; a legend of the origins present. |
+| `Org`, `Legend`, `SrSpace` | `bits.tsx` | An origin's colour and word; a legend of the origins present; a space a screen reader says between two words a margin draws apart, as a chip's word and its count (`.srsp`). |
 | `Tag`, `Badge`, `Pips`, `Kbd` | `bits.tsx` | A run's kind beside its id; a tinted status badge, until its pages draw `Status`; one square per attempt; a key. |
 | `Chips` | `bits.tsx` | Filter chips with counts (empty ones can hide). |
 | `Tabs` | `Tabs.tsx` | Underlined tabs with counts, as the pattern has them: one Tab stop, ← → round the ends, Home and End, a count read apart. `idPrefix` and `panelId` tie them to their `tabpanel`; each tab takes a card (`tip`) and a key (`mark`, `shortcut(id)`). Pages switched with links stay `nav.stabs`. |
