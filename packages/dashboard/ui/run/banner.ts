@@ -1,5 +1,6 @@
 import { num } from '../format.js';
 import { INCONCLUSIVE_FIRST } from '../../../engine/src/blame-words.js';
+import { fencedLabel, toolCheckLabel, toolCountDetail } from '../../../engine/src/checks/labels.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { attemptVerdict, checkFailed, FAILURE_WORDS, failureReason, lostWords } from '../../../engine/src/run-verdicts.js';
 import { toolFailure } from '../../../engine/src/words.js';
@@ -296,9 +297,7 @@ function countedCalls(calls: readonly CheckCall[], name: string, args: Record<st
 
 /** A tool's calls fenced after a fork, said exactly: `2 blocked`, `1 stubbed`, `1 blocked, 1 stubbed`; null for none. */
 export function fencedWords(calls: ReadonlyArray<Pick<CheckCall, 'origin'>>): string | null {
-  const blocked = calls.filter((c) => c.origin === 'blocked').length;
-  const stubbed = calls.filter((c) => c.origin === 'stubbed').length;
-  return [blocked ? `${num(blocked)} blocked` : '', stubbed ? `${num(stubbed)} stubbed` : ''].filter(Boolean).join(', ') || null;
+  return fencedLabel(calls.filter((c) => c.origin === 'blocked').length, calls.filter((c) => c.origin === 'stubbed').length) || null;
 }
 
 /**
@@ -348,15 +347,6 @@ function countRange(words: string): { min: number; max: number } | null {
   return n === null ? null : { min: n, max: n };
 }
 
-/** A count as the CLI's checks write it: `0 times`, `1 time`, `at least 2 times`, `at most 3 times`, `1 to 3 times`. */
-function countText(r: { min: number; max: number }): string {
-  const times = (n: number) => `${num(n)} ${n === 1 ? 'time' : 'times'}`;
-  if (r.min === r.max) return times(r.min);
-  if (r.max === Infinity) return `at least ${times(r.min)}`;
-  if (r.min === 0) return `at most ${times(r.max)}`;
-  return `${num(r.min)} to ${times(r.max)}`;
-}
-
 /**
  * The check of the fix a failed run belongs to (`issue_refund never called with {"amount":240}`,
  * `send_email called once`), when the run kept none of its own, in the CLI's words for a check a run
@@ -375,11 +365,16 @@ export function fixCheckText(check: string, calls: readonly CheckCall[]): string
   if (!counted) return quoted;
   const n = counted.length;
   if (n >= range.min && n <= range.max) return quoted;
-  const fenced = fencedWords(counted);
-  const named = calls.filter((c) => c.kind === 'tool' && c.name === m[1]).length;
-  const tools = [...new Set(calls.filter((c) => c.kind === 'tool').map((c) => c.name))];
-  const more = m[3] && named > n ? `; ${num(named - n)} ${named - n === 1 ? 'call' : 'calls'} with other arguments` : !named && tools.length ? `; tools called: ${tools.join(', ')}` : '';
-  return `check failed: ${m[1]!}${m[3] ? ` with ${m[3]}` : ''} called ${countText(range)}, but called ${countText({ min: n, max: n })}${fenced ? ` (${fenced})` : ''}${more}`;
+  const args = argsOf(m[3]);
+  const detail = toolCountDetail({
+    count: n,
+    blocked: counted.filter((c) => c.origin === 'blocked').length,
+    stubbed: counted.filter((c) => c.origin === 'stubbed').length,
+    named: calls.filter((c) => c.kind === 'tool' && c.name === m[1]).length,
+    args: Boolean(args),
+    tools: [...new Set(calls.filter((c) => c.kind === 'tool').map((c) => c.name))],
+  });
+  return failedCheckText({ label: toolCheckLabel({ name: m[1]!, count: range, ...(args ? { args } : {}) }), detail });
 }
 
 /**
