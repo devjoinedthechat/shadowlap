@@ -30,10 +30,10 @@ import type { ElsewhereProps } from './held-elsewhere.js';
  *
  * Once Switch is pressed the page holds, busy, until the page it opens has drawn: the item, or its
  * own read failing anew there, which asks again (a pair split across two projects names the first
- * one back). A read that fails before the switch lands is the project the page showed, and the
- * page holds on: a fix's page reads again with each call a recording there makes. A switch refused
- * (the project left the list meanwhile) says why in a toast and asks again, which finds nothing
- * now. The opened page's heading takes the focus.
+ * one back). A read that fails before the switch lands was made in the project the page showed,
+ * and the page holds on: a fix's page reads again with each call a recording there makes. A switch
+ * refused (the project left the list meanwhile) says why in a toast and asks again, which finds
+ * nothing now. The opened page's heading takes the focus.
  */
 
 /** What an answer was asked for: the kind, the ids and the project the page showed. */
