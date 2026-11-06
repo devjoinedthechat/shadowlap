@@ -1,6 +1,7 @@
-import { createElement, useState } from 'react';
+import { act, createElement, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Client } from '../ui/api.js';
+import { ToastHost } from '../ui/components/Toast.js';
 import { pendingHidden } from '../ui/pending-delete.js';
 import { href } from '../ui/route.js';
 import { navigate } from '../ui/router.js';
@@ -120,7 +121,8 @@ describe('a run page’s Delete', () => {
   async function deleter(answer: () => Promise<{ deleted: string; attempts?: string[] }>) {
     const said: Said[] = [];
     const sent: string[] = [];
-    const client = { remove: (id: string) => (sent.push(id), answer()) } as unknown as Client;
+    const kept: Array<{ keepalive?: boolean } | undefined> = [];
+    const client = { remove: (id: string, o?: { keepalive?: boolean }) => (sent.push(id), kept.push(o), answer()) } as unknown as Client;
     const app = { client, refresh: () => undefined, toast: (text: string, _tone?: string, action?: ToastAction) => void said.push({ text, action }) } as unknown as AppState;
     let del: ReturnType<typeof useDeleteRun> | null = null;
     const Host = () => {
@@ -128,7 +130,7 @@ describe('a run page’s Delete', () => {
       return null;
     };
     page = await render(createElement(AppContext.Provider, { value: app }, createElement(Host)));
-    return { said, sent, del: del! };
+    return { said, sent, kept, del: del! };
   }
   const pending = (runId: string) => ({ runId, chips: ['recording'], attempts: 2, startedAt: 1 });
 
@@ -146,7 +148,42 @@ describe('a run page’s Delete', () => {
     toast.action!.onGone!(false);
     await page!.until('the delete sent', () => d.sent.length === 1);
     expect(d.sent).toEqual([id]);
+    expect(d.kept).toEqual([undefined]);
     expect(d.said).toHaveLength(1);
+  });
+
+  it('sends a delete that waits with keepalive as the page goes, so the browser sees it out', async () => {
+    const id = '01M5JEQWB3QMJ3NYD1C687WP08';
+    const d = await deleter(() => Promise.resolve({ deleted: id }));
+    d.del(pending(id));
+    window.dispatchEvent(new Event('pagehide'));
+    await page!.until('the delete sent', () => d.sent.length === 1);
+    expect([d.sent, d.kept]).toEqual([[id], [{ keepalive: true }]]);
+  });
+
+  it('answers ⌘Z as its toast’s Undo, sending nothing and putting the run back', async () => {
+    const id = '01M5JEQWB4QMJ3NYD1C687WP08';
+    const sent: string[] = [];
+    let n = 0;
+    let del: ReturnType<typeof useDeleteRun> | null = null;
+    const Deleter = () => {
+      del = useDeleteRun();
+      return null;
+    };
+    const Host = () => {
+      const [toastText, setToastText] = useState<AppState['toastText']>(null);
+      const client = { remove: (runId: string) => (sent.push(runId), Promise.resolve({ deleted: runId })) } as unknown as Client;
+      const toast = (text: string, kind = 'notice', action?: ToastAction) => setToastText({ id: ++n, text, kind, ...(action ? { action } : {}) } as AppState['toastText']);
+      return createElement(AppContext.Provider, { value: { client, refresh: () => undefined, toast, toastText, conn: 'ok', jobs: [] } as unknown as AppState }, createElement(Deleter), createElement(ToastHost));
+    };
+    page = await render(createElement(Host));
+    await act(async () => del!(pending(id)));
+    expect(page.one('.toast').textContent).toContain('Deleted 01M5JEQWB4');
+    await page.press('z', { metaKey: true }, page.document.body);
+    await page.until('the run back', () => !pendingHidden().has(id));
+    await page.wait(10);
+    expect(sent).toEqual([]);
+    expect(page.one('.toast').textContent).toContain('Restored 01M5JEQWB4');
   });
 
   it('sends nothing after Undo, and puts the run back', async () => {

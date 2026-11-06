@@ -185,8 +185,8 @@ export interface Client {
   stopJob(jobId: string): Promise<{ stopped: boolean }>;
   /** The jobs the server remembers, newest first, running ones included, without their output. */
   jobs(): Promise<JobListItem[]>;
-  /** Deletes a run, with the attempts bundled under it (`attempts`, their ids), as `shadowlap rm` does. */
-  remove(id: string): Promise<{ deleted: string; attempts?: string[] }>;
+  /** Deletes a run, with the attempts bundled under it (`attempts`, their ids), as `shadowlap rm` does. `keepalive`: sent as the page goes, so the browser sees it out (`pending-delete.ts`); with no body, it takes none of keepalive's 64 KiB. */
+  remove(id: string, o?: { keepalive?: boolean }): Promise<{ deleted: string; attempts?: string[] }>;
   /** Saves a run, with the runs it came from, as one HTML file. */
   exportHtml(id: string): Promise<{ filename: string; redacted: boolean }>;
   /** Saves a kept injection result's report as one HTML file, as Share's Security report does. */
@@ -453,7 +453,7 @@ export function createClient(token: string): Client {
     job: (jobId, after) => request<JobView>(`jobs/${id(jobId)}?after=${after}`),
     stopJob: (jobId) => request<{ stopped: boolean }>(`jobs/${id(jobId)}/stop`, { method: 'POST', body: '{}' }),
     jobs: async () => (await request<{ jobs: JobListItem[] }>('jobs')).jobs,
-    remove: (runId) => request<{ deleted: string; attempts?: string[] }>(`runs/${id(runId)}`, { method: 'DELETE' }),
+    remove: (runId, o) => request<{ deleted: string; attempts?: string[] }>(`runs/${id(runId)}`, { method: 'DELETE', ...(o?.keepalive ? { keepalive: true } : {}) }),
     // The API authenticates with a header, which a plain link cannot send, and a token in a URL would
     // end up in history and logs: so a file is fetched here and handed to the browser to save.
     exportHtml: (runId) => savedReport(fetchFile(`runs/${id(runId)}/export`, `shadowlap-${runId.slice(0, 10).toLowerCase()}.html`)),

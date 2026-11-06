@@ -19,7 +19,8 @@ export function pendingRunOf(run: RunDetail, offers: RunOffers | null): PendingR
  * A run page's Delete, once its dialog is confirmed, as Runs' bulk Delete: the run leaves the lists
  * at once (`pending-delete.ts`), the page goes to Runs, and the toast says so, with Undo (⌘Z). The
  * delete goes to the server when the toast goes, however it goes (its time out, its ×, a newer toast),
- * or before, as the page or the project changes, the toast then saying the same with no Undo. Undo
+ * or before, as the page or the project changes, the toast then saying the same with no Undo; as the
+ * page goes, it is sent with keepalive, so the browser sees it out. Undo
  * before then puts the run back, as nothing was deleted. A delete the server refuses says why, and
  * the run comes back.
  */
@@ -29,10 +30,10 @@ export function useDeleteRun(): (run: PendingRun, from?: HTMLElement | null) => 
     const ids = [run.runId];
     const said = bulkToast({ verb: 'Deleted', done: ids, of: 1, skipped: [], attempts: run.attempts });
     let toastGone = false;
-    const send = async (): Promise<readonly string[] | null> => {
+    const send = async (keepalive: boolean): Promise<readonly string[] | null> => {
       if (!toastGone) toast(said);
       try {
-        const out = await client.remove(run.runId);
+        const out = await client.remove(run.runId, keepalive ? { keepalive } : undefined);
         return [out.deleted, ...(out.attempts ?? [])];
       } catch (err) {
         toast(errorText(err), 'error');
