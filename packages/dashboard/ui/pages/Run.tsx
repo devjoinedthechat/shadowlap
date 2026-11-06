@@ -276,7 +276,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
     setTabState(t);
   };
   // A finding's diff in the inspector's place, until it is hidden or a call is picked (InspectorPanel.tsx).
-  const { kind: panel, showDiff, setShowDiff, onToggleDiff, close: closePanel } = useFindingPanel(runId);
+  const { panel, showDiff, onToggleDiff, close: closePanel } = useFindingPanel(runId);
   const filterRef = useRef<HTMLInputElement>(null);
   // `/` filters the calls: from another view it opens Calls first, and the field takes focus once it is there.
   const [filterWanted, setFilterWanted] = useState(false);
@@ -339,7 +339,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   );
 
   // The run's keys, while this page is open.
-  useRunKeys(runKeys, { runId, v, selected, step, setTab: (n) => setTab(TABS[n]!), select, setView, setFilterWanted, forkAt, lostAt, failedAt, parentId: run.run.parentRunId, canMark, mark: (m) => mark(m), tree, folded, listed, fold, showDiff, setShowDiff, runs: app.runs, toast: app.toast });
+  useRunKeys(runKeys, { runId, v, selected, step, setTab: (n) => setTab(TABS[n]!), select, setView, setFilterWanted, forkAt, lostAt, failedAt, parentId: run.run.parentRunId, canMark, mark: (m) => mark(m), tree, folded, listed, fold, runs: app.runs, toast: app.toast });
 
   // This run, in the palette.
   useRunCommands({ run, selected, canFork, canMark, labels, mark, offers, judged, actions, forkMenu, setView });
@@ -384,7 +384,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
             {v === 'provenance' ? <ProvenanceView run={run} selected={selected} /> : null}
           </div>
         </section>
-        <InspectorPlace kind={panel} run={run} test={offers?.test ?? null} onClose={closePanel}>
+        <InspectorPlace panel={panel} run={run} test={offers?.test ?? null} onClose={closePanel}>
           <Inspector runId={runId} call={selectedRow} calls={calls} models={run.models} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} flag={flagText(run.intervention ?? null)} onSelect={select} />
         </InspectorPlace>
       </div>
