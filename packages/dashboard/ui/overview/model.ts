@@ -149,9 +149,13 @@ export function activityKeep(text: string): string {
     .replace(/judged change/g, `judged${NB}change`);
 }
 
-/** A run's kind as Recent runs' hover names it, a test's attempt a test replay: `clean replay`, `fork @17`, `test replay`, `capture`, `recording`. */
-export function recentKind(kind: string): string {
-  return kind === 'test' ? 'test replay' : kind;
+/**
+ * A run's kind as Recent runs' hover names it, a test's replay a test replay and the fork blame
+ * rescued a run with a rescued fork: `clean replay`, `fork @17`, `rescued fork`, `test replay`,
+ * `capture`, `recording`.
+ */
+export function recentKind(kind: string, rescues?: string | null): string {
+  return rescues ? 'rescued fork' : kind === 'test' ? 'test replay' : kind;
 }
 
 /** What a run's mini strip says to a screen reader: `30 calls: 16 replayed, 13 live, 1 blocked`. */

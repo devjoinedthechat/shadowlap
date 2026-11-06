@@ -54,7 +54,7 @@ const RecentRow = memo(function RecentRow({ r, now, focused }: { r: RunListItem;
   const st = sideStatus(r);
   const id = shortId(r.runId);
   return (
-    <a className={`rrow${focused ? ' krow' : ''}`} href={href.run(r.runId)} data-rowkey={href.run(r.runId)} data-tip={tipCard(`${id} · ${recentKind(kindWord(r))}`, originTip(origins), r.about?.text ?? null)}>
+    <a className={`rrow${focused ? ' krow' : ''}`} href={href.run(r.runId)} data-rowkey={href.run(r.runId)} data-tip={tipCard(`${id} · ${recentKind(kindWord(r), r.rescues)}`, originTip(origins), r.about?.text ?? null)}>
       <RunIcon run={r} />
       <span className="rr1">
         <Id id={id} list />

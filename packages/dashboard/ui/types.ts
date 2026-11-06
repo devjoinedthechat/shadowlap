@@ -59,6 +59,8 @@ export interface RunListExtras {
   /** The run an attempt is bundled under, and what made it one (`repeat`, `probe`, `verify`). */
   attemptOf?: string | null;
   attemptKind?: string | null;
+  /** The fork blame rescued a run with: the run it rescued. A run of its own, though blame made it as a probe. */
+  rescues?: string | null;
   /** Where blame found the run lost: `range`, the two calls it was lost around or between, when no one call is pinned. */
   blame?: { callNo: number | null; range?: { from: number; to: number; gradual?: true } | null } | null;
   /** Where blame found the run was lost, as the Runs table's rows say it. */

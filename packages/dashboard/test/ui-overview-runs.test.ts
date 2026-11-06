@@ -113,6 +113,7 @@ describe('the Overview’s words', () => {
     expect(callsSaid(['live'])).toBe('1 call: 1 live');
     expect(recentKind('test')).toBe('test replay');
     expect(recentKind('fork @17')).toBe('fork @17');
+    expect(recentKind('fork @17', '01K5CQ2E8MABCDEFGHJKMNPQRS')).toBe('rescued fork');
   });
 
   it('names days, run kinds, activity icons and people the way the panels show them', () => {
