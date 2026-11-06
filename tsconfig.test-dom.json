@@ -54,6 +54,7 @@
     "packages/dashboard/test/ui-run-outcome.test.ts",
     "packages/dashboard/test/ui-settings-states.test.ts",
     "packages/dashboard/test/ui-settings-shell.test.ts",
+    "packages/dashboard/test/ui-settings-undo.test.ts",
     "packages/dashboard/test/ui-ci-tab.test.ts",
     "packages/dashboard/test/ui-about.test.ts",
     "packages/dashboard/test/ui-naming.test.ts",

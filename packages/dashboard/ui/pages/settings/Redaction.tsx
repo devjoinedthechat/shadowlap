@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api.js';
 import { CopyButton } from '../../components/bits.js';
 import { tipCard, tipText } from '../../components/HoverCard.js';
@@ -11,7 +11,7 @@ import { useApp } from '../../state.js';
 import { useTeamStore } from '../../teamstore.js';
 import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, rulesUnreadable, SAVING, useEditor, useFolderGone, useSettingsData } from './common.js';
 import { maskedLine, partialLine, previewChip, redactionNotes, returnedLine, unmaskedLine } from './logic.js';
-import { RuleDialog, RuleTable, addedText, removedText } from './RuleTable.js';
+import { RuleDialog, RuleTable, addedText, removeRule } from './RuleTable.js';
 import { ActionButton } from '../../components/ActionButton.js';
 import { Section } from '../../components/Section.js';
 
@@ -37,6 +37,8 @@ export function RedactionTab() {
   useEffect(() => REDACTION_ASK.on(() => setAdding(true)), []);
   const [run, setRun] = useState<string | null>(kept.run);
   const editor = useEditor(data?.config.version ?? null, reload);
+  // A rule an Undo put back: its Remove takes the focus once the table shows it.
+  const putBack = useRef<number | null>(null);
   const teamStore = !!useTeamStore();
   const gone = useFolderGone();
   if (error && !data) return <LoadProblem error={error} />;
@@ -63,7 +65,7 @@ export function RedactionTab() {
             Applied to every export, pack and share link: <Where where={data.where} />. {redactionNotes(teamStore)}
           </p>
         </div>
-        <RuleTable list="redact" rows={data.rules} off={off} unreadable={unreadable} onRemove={(row) => void editor.run(() => client.settings.removeRule('redact', row.n, version), (r) => removedText('redact', r.n))} />
+        <RuleTable list="redact" rows={data.rules} off={off} unreadable={unreadable} onRemove={removeRule(app, editor, 'redact', version, putBack)} focus={putBack} />
         {/* No rules to preview while the file can't be read or the folder is gone: the table says so. */}
         {unreadable ? null : (
           <Preview

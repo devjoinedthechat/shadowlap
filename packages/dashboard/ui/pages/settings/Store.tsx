@@ -130,7 +130,14 @@ export function StoreTab() {
             labelledBy="ciPush-name"
             describedBy="ciPush-help"
             title={`shadowlap store push-from-ci ${s.ciPush ? 'off' : 'on'}`}
-            onChange={(on) => void editor.run(() => client.settings.setCiPush(on, version), () => `Push from CI ${on ? 'on' : 'off'} · written to ${CONFIG_FILE}; commit it for CI to see it`)}
+            onChange={(on) =>
+              void editor.run(
+                () => client.settings.setCiPush(on, version),
+                (r) => ciPushText(r.ciPush),
+                // Back to what the file said, or to saying nothing, which is on.
+                (r) => (r.changed ? { edit: () => client.settings.setCiPush(r.was, r.version), ok: ciPushText(r.was !== false) } : null),
+              )
+            }
           />
         </div>
         <div className="setrow">
@@ -151,6 +158,9 @@ export function StoreTab() {
     </>
   );
 }
+
+/** A Push from CI write's toast, for the value now in force. */
+const ciPushText = (on: boolean) => `Push from CI ${on ? 'on' : 'off'} · written to ${CONFIG_FILE}; commit it for CI to see it`;
 
 /** Why a store job's button can't run here, or null: actions off, or a dashboard that doesn't run it yet. */
 function jobButton(app: ReturnType<typeof useApp>, kind: string, command: string): string | null {

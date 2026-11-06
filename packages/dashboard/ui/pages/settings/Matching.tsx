@@ -1,13 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { JOB_KINDS } from '../../api.js';
 import { useTreeBusy } from '../../fixes/tree.js';
 import { ACTIONS } from '../../labels.js';
 import { NORMALIZER_ASK } from '../../page-ask.js';
 import { useApp } from '../../state.js';
 import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, rulesUnreadable, SAVING, useEditor, useFolderGone, useSettingsData } from './common.js';
-import { RuleDialog, RuleTable, addedText, removedText } from './RuleTable.js';
+import { RuleDialog, RuleTable, addedText, removeRule } from './RuleTable.js';
 import { ActionButton } from '../../components/ActionButton.js';
 import { Section } from '../../components/Section.js';
+
+/** A clock write's toast, naming the mode now in force. */
+const clockText = (mode: string) => `clock: ${mode} · written to ${CONFIG_FILE}`;
 
 /**
  * Matching: the normalizers (what isn't part of a request's identity), the clock that lets dates
@@ -25,6 +28,8 @@ export function MatchingTab() {
   const [adding, setAdding] = useState(() => NORMALIZER_ASK.take());
   useEffect(() => NORMALIZER_ASK.on(() => setAdding(true)), []);
   const editor = useEditor(data?.config.version ?? null, reload);
+  // A rule an Undo put back: its Remove takes the focus once the table shows it.
+  const putBack = useRef<number | null>(null);
   // Calibrate replays the agent from the project's working tree: not while a repair or an apply changes it.
   const tree = useTreeBusy('reads', 'calibrate');
   const gone = useFolderGone();
@@ -58,7 +63,8 @@ export function MatchingTab() {
           rows={data.rules}
           off={off}
           unreadable={unreadable}
-          onRemove={(row) => void editor.run(() => client.settings.removeRule('normalize', row.n, version), (r) => removedText('normalize', r.n))}
+          onRemove={removeRule(app, editor, 'normalize', version, putBack)}
+          focus={putBack}
         />
         <div className="setrow">
           <div>
@@ -76,7 +82,12 @@ export function MatchingTab() {
                 onClick={() => {
                   // The mode it has already, written or not (auto is what a file without one means): nothing to write.
                   if (data.clock.mode === k) return;
-                  void editor.run(() => client.settings.setClock(k, version), (r) => `clock: ${r.clock} · written to ${CONFIG_FILE}`);
+                  void editor.run(
+                    () => client.settings.setClock(k, version),
+                    (r) => clockText(r.clock),
+                    // Back to what the file said, or to saying nothing (auto) where it had no clock.
+                    (r) => (r.changed ? { edit: () => client.settings.setClock(r.was, r.version), ok: clockText(r.was ?? 'auto') } : null),
+                  );
                 }}
               >
                 {k}
