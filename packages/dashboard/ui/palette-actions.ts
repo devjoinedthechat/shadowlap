@@ -3,7 +3,8 @@ import { mergeTreeJobs, treeBusy, type TreeJob } from './fixes/model.js';
 import { ACTIONS } from './labels.js';
 import { addPaletteSource, paletteSourcesChanged } from './palette-sources.js';
 import { href } from './route.js';
-import { askImport } from './runspage/import-ask.js';
+import { IMPORT_ASK, NORMALIZER_ASK, REDACTION_ASK, type PageAsk } from './page-ask.js';
+import { SETTINGS_TABS, type SettingsTab } from './pages/settings/tabs.js';
 import type { StoreSetupView } from './store-api.js';
 import { onTestsChanged, testsPaletteCommands } from './tests-palette.js';
 import { onTrainingCountsChange, trainingPalette } from './training.js';
@@ -12,8 +13,9 @@ import { stepWords } from '../src/store-steps.js';
 /**
  * The palette's Actions and Tests that belong to pages, listed on a fresh dashboard before any of
  * those pages has opened: the Tests group and Update goldens…, Import capture…, Export pairs… and
- * Score model…, Calibrate, and the team store's setup. They load with the palette, so a page's code
- * waits for its page. A row whose dialog lives on its page opens the page and asks there. Each
+ * Score model…, Calibrate, the team store's setup, the Settings tabs by what they hold, and Add
+ * normalizer… and Add redaction rule…. They load with the palette, so a page's code waits for its
+ * page. A row whose dialog lives on its page opens the page and asks there (`page-ask.ts`). Each
  * answers nothing in an exported copy, which runs nothing.
  */
 
@@ -39,7 +41,7 @@ addPaletteSource(({ app, go }) =>
           job: true,
           run: () =>
             app.guard(() => {
-              askImport();
+              IMPORT_ASK.ask();
               go(href.runs());
             }),
         },
@@ -90,4 +92,35 @@ addPaletteSource(({ app, go }) => {
   if (!v.store) return [{ group: 'Actions', label: ACTIONS.setUpTeamStore.label, hint: 'your team’s runs, in a bucket you own', run: () => go(href.storeSetup()) }];
   if (v.active && v.next) return [{ group: 'Actions', label: ACTIONS.continueTeamStoreSetup.label, hint: `step ${v.next.step} of 4: ${stepWords(v.next.title)}`, run: () => go(href.storeSetup()) }];
   return [];
+});
+
+/** Each Settings tab by what it holds, found once something is typed: `settings` finds every one. */
+const SETTINGS_FOUND: Record<SettingsTab, { hint: string; match: string }> = {
+  matching: { hint: 'normalizers, dates and times, calibrate', match: 'settings' },
+  redaction: { hint: 'what leaves your machine', match: 'settings' },
+  alerts: { hint: 'gates, the pull request comment, fix on failure, alerts', match: 'settings alerts' },
+  agents: { hint: 'Claude Code, Cursor, Codex', match: 'settings' },
+  tools: { hint: 'what a fork runs again, and what brings outside text in', match: 'settings trusted untrusted security prompt injection mcp' },
+  project: { hint: 'spending, its store, its size, clean up old runs', match: 'settings spending ask before spending cost threshold budget' },
+  store: { hint: 'the team store', match: 'settings' },
+};
+
+// Settings by what each tab holds: typed only, as the tabs are a click away in the sidebar.
+addPaletteSource(({ app, go }) =>
+  app.exported ? [] : SETTINGS_TABS.map((t) => ({ group: 'Settings' as const, label: t.label, ...SETTINGS_FOUND[t.key], typed: true, run: () => go(href.settings(t.key)) })),
+);
+
+// A rule added from the palette: its tab opens and asks in its own dialog. Typed only; left out
+// where nothing is written.
+addPaletteSource(({ app, go }) => {
+  if (app.exported || app.actionsOff) return [];
+  const asks = (tab: SettingsTab, ask: PageAsk) => () =>
+    app.guard(() => {
+      ask.ask();
+      go(href.settings(tab));
+    });
+  return [
+    { group: 'Actions', label: ACTIONS.addNormalizerRule.label, hint: 'shadowlap normalize add', match: 'matching mask', typed: true, run: asks('matching', NORMALIZER_ASK) },
+    { group: 'Actions', label: ACTIONS.addRedactionRule.label, hint: 'shadowlap redact add', match: 'redaction mask', typed: true, run: asks('redaction', REDACTION_ASK) },
+  ];
 });

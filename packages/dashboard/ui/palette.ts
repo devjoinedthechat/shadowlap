@@ -7,9 +7,9 @@ import { ACTIONS } from './labels.js';
  * tests import it. The palette itself is `shell/Palette.tsx`.
  */
 
-export type PaletteGroup = 'This run' | 'Go to' | 'Actions' | 'Runs' | 'Fixes' | 'Tests' | 'Projects' | 'In recorded data';
+export type PaletteGroup = 'This run' | 'Go to' | 'Settings' | 'Actions' | 'Runs' | 'Fixes' | 'Tests' | 'Projects' | 'In recorded data';
 
-export const GROUP_ORDER: readonly PaletteGroup[] = ['This run', 'Go to', 'Actions', 'Runs', 'Fixes', 'Tests', 'Projects', 'In recorded data'];
+export const GROUP_ORDER: readonly PaletteGroup[] = ['This run', 'Go to', 'Settings', 'Actions', 'Runs', 'Fixes', 'Tests', 'Projects', 'In recorded data'];
 
 export interface PaletteEntry {
   group: PaletteGroup;
@@ -84,6 +84,9 @@ export function actionRank(label: string): number {
   return i < 0 ? ACTION_ORDER.length : i;
 }
 
+/** A hint that is a command, which a typed word never matches but on a run's or a page's row. */
+const COMMAND_HINT = /^(\$ )?(shadowlap|git) /;
+
 /** With nothing typed: This run, Go to, Actions, this many of the newest runs, and Projects. */
 export const EMPTY_RUNS = 5;
 /** Typed items shown at most, before what runs recorded. */
@@ -97,7 +100,10 @@ export function words(query: string): string[] {
  * The items a query shows. Every typed word must appear in the label, the hint or what it matches unseen. Groups keep their
  * order; within a group, a label that starts with the first word comes first, then one that
  * contains it, then the rest. Actions keep the design's order (`ACTION_ORDER`) among equals; runs
- * come in the order given (newest first).
+ * come in the order given (newest first). An action is found by its label and its words, never by
+ * the command in its hint, so an id finds its run alone (a run's hint and a page's are searched);
+ * and one word of three letters or digits or more that is part of a listed run's id puts Runs
+ * first, as an id does in an issue tracker.
  */
 export function matchPalette<T extends PaletteEntry>(items: readonly T[], query: string, limit = MAX_ITEMS): T[] {
   const w = words(query);
@@ -112,15 +118,18 @@ export function matchPalette<T extends PaletteEntry>(items: readonly T[], query:
       .map((m) => m.x);
   }
   const first = w[0]!;
+  const byId = w.length === 1 && /^[0-9a-z]{3,}$/.test(first) && items.some((x) => x.group === 'Runs' && x.label.toLowerCase().includes(first));
+  const rank = (g: PaletteGroup) => (byId && g === 'Runs' ? -1 : order(g));
   return items
     .map((x, i) => {
       const label = x.label.toLowerCase();
-      const hay = `${label} ${x.hint.toLowerCase()}${x.match ? ` ${x.match.toLowerCase()}` : ''}`;
+      const hint = x.group === 'Runs' || x.group === 'Go to' || !COMMAND_HINT.test(x.hint) ? x.hint.toLowerCase() : '';
+      const hay = `${label} ${hint}${x.match ? ` ${x.match.toLowerCase()}` : ''}`;
       if (!w.every((word) => hay.includes(word))) return null;
       return { x, i, score: label.startsWith(first) ? 0 : label.includes(first) ? 1 : 2 };
     })
     .filter((m): m is { x: T; i: number; score: number } => m !== null)
-    .sort((a, b) => order(a.x.group) - order(b.x.group) || a.score - b.score || action(a.x) - action(b.x) || a.i - b.i)
+    .sort((a, b) => rank(a.x.group) - rank(b.x.group) || a.score - b.score || action(a.x) - action(b.x) || a.i - b.i)
     .slice(0, limit)
     .map((m) => m.x);
 }

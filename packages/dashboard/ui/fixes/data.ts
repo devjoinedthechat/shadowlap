@@ -91,5 +91,5 @@ function useFixesKnown(): void {
 addPaletteSource(({ app, go }) => {
   if (app.exported) return [];
   void refreshFixes(app.client);
-  return (list?.fixes ?? []).map((f) => ({ group: 'Fixes' as const, label: f.title, hint: `${fixName(f)} · ${f.status}`, run: () => go(href.fixes(f.fixId)) }));
+  return (list?.fixes ?? []).map((f) => ({ group: 'Fixes' as const, label: f.title, hint: `${fixName(f)} · ${f.status}`, match: 'blame repair verify apply', run: () => go(href.fixes(f.fixId)) }));
 });

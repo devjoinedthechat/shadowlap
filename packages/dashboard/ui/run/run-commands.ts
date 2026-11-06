@@ -82,7 +82,7 @@ export function useRunCommands(o: {
           if (btn) setTimeout(() => btn.click());
         },
       });
-    if (!exported && !actionsOff && !live && !run.source && hasKind(JOB_KINDS.bisect) && next?.key !== 'bisect') items.push({ group: 'This run', label: bisectLabel(offers?.bisect).label, hint: 'shadowlap bisect', job: true, run: () => now.current.actions.findCommit() });
+    if (!exported && !actionsOff && !live && !run.source && hasKind(JOB_KINDS.bisect) && next?.key !== 'bisect') items.push({ group: 'This run', label: bisectLabel(offers?.bisect).label, hint: 'shadowlap bisect', match: 'bisect', job: true, run: () => now.current.actions.findCommit() });
     // The good/bad key: what repair keeps working, and what it fixes.
     if (canMark)
       for (const m of MARKS) {

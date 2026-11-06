@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { JOB_KINDS } from '../../api.js';
 import { useTreeBusy } from '../../fixes/tree.js';
 import { ACTIONS } from '../../labels.js';
+import { NORMALIZER_ASK } from '../../page-ask.js';
 import { useApp } from '../../state.js';
 import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, rulesUnreadable, SAVING, useEditor, useFolderGone, useSettingsData } from './common.js';
 import { RuleDialog, RuleTable, addedText, removedText } from './RuleTable.js';
@@ -19,7 +20,9 @@ export function MatchingTab() {
   const app = useApp();
   const { client } = app;
   const { data, error, reload } = useSettingsData(() => client.settings.matching(), 'settings:matching');
-  const [adding, setAdding] = useState(false);
+  // Asked for from the palette too, which opens this tab first.
+  const [adding, setAdding] = useState(() => NORMALIZER_ASK.take());
+  useEffect(() => NORMALIZER_ASK.on(() => setAdding(true)), []);
   const editor = useEditor(data?.config.version ?? null, reload);
   // Calibrate replays the agent from the project's working tree: not while a repair or an apply changes it.
   const tree = useTreeBusy('reads', 'calibrate');

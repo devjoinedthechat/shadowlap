@@ -9,13 +9,13 @@ import { compactPath, viewerTimeZone } from '../format.js';
 import { useLatest, useLoad } from '../hooks.js';
 import { shownRuns } from '../list-keys.js';
 import { sentence } from '../normalize.js';
+import { IMPORT_ASK } from '../page-ask.js';
 import { runRowScope } from '../run-row.js';
 import { BulkBar, type PickedRun } from '../runspage/BulkBar.js';
 import { Calendar } from '../runspage/Calendar.js';
 import { pickedOf, pickedRange, rangeTimes } from '../runspage/calendar-model.js';
 import { FindCommitDialog } from '../runspage/FindCommit.js';
 import { ImportDialog } from '../runspage/ImportDialog.js';
-import { onImportAsked, takeImportAsked } from '../runspage/import-ask.js';
 import { ALL_RUNS, dayTimes, runsHref } from '../runspage/query.js';
 import { navigate } from '../router.js';
 import { isAllRuns, type RunsFilterRead } from '../../src/links.js';
@@ -242,8 +242,8 @@ function pickedRun(r: TableRun): PickedRun {
 /** Asked from the palette: on this page already, or arriving on it. */
 function useImportAsked(open: () => void): void {
   useEffect(() => {
-    takeImportAsked();
-    return onImportAsked(open);
+    IMPORT_ASK.take();
+    return IMPORT_ASK.on(open);
   }, [open]);
 }
 
@@ -285,7 +285,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   const [query, setQuery, q] = useFilterField(f, 250);
   const [limit, setLimitState] = useState(kept.limit);
   const [picked, setPickedState] = useState(() => new Map(kept.picked));
-  const [dialog, setDialog] = useState<null | 'import' | { runId: string; choices: BisectChoices; earlier: { runId: string; why: string } | null }>(() => (takeImportAsked() ? 'import' : null));
+  const [dialog, setDialog] = useState<null | 'import' | { runId: string; choices: BisectChoices; earlier: { runId: string; why: string } | null }>(() => (IMPORT_ASK.take() ? 'import' : null));
   const now = Date.now();
   useImportAsked(useCallback(() => setDialog('import'), []));
 
