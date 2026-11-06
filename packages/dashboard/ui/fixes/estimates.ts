@@ -92,3 +92,8 @@ export function repairCard(f: Pick<FixDetail, 'actions' | 'repairer'>, kind: str
   const command = f.actions.repair?.command;
   return { tip: ACTIONS.runRepair.label, sub: aside ?? `Asks ${who} for rewrites; each is tried in a worktree of its own`, ...(command ? { command: `$ ${command}` } : {}), est: tipEst(e === undefined ? undefined : (e?.repair ?? null)) };
 }
+
+/** A Verify step's Run more attempts or Verify again, as the fix's estimates price it: none for a step they don't price. */
+export function verifyPrice(e: FixEstimates | null | undefined, verifyId: string): Estimate | null | undefined {
+  return e === undefined ? undefined : (e?.verify[verifyId] ?? null);
+}

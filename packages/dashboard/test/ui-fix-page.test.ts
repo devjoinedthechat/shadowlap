@@ -407,8 +407,21 @@ describe('what settles a fix left unsettled', () => {
     expect(text(r!.one('.fxreceipt.vmore'))).toBe(`${run.slice(0, 10)} is inconclusive: the budget of $0.01 is spent. Run more attempts verifies again from the start (verify has no --continue), up to 80 a run, without its --budget 0.012: about 12 attempts, ≈$0.144.`);
     // The reasons say nothing the line doesn't.
     expect(r!.all('ul.fxwarn.bad')).toEqual([]);
+    // No estimate read, so it asks first, with what it runs.
     await r!.click(more);
+    expect(text(r!.one('.dialog h3'))).toBe('Run more attempts');
+    expect(started).toEqual([]);
+    await r!.click(r!.one('.dialog .dlg-ok'));
     expect(started).toEqual([['verify', { fixId: fix.fixId, verifyId: verdict.verifyId }]]);
+    await r!.unmount();
+    // Priced at or under the threshold, it starts on the click, keeping the estimate.
+    resetSpending(0.5);
+    started.length = 0;
+    await open(fix.fixId, 'verify', null, { started, estimates: { verify: { [verdict.verifyId]: { kind: 'verify', usd: 0.3, ceiling: true, parts: [] } } } });
+    await r!.wait(0);
+    await r!.click(r!.byText('.verdict .actions button', 'Run more attempts'));
+    expect(started).toEqual([['verify', { fixId: fix.fixId, verifyId: verdict.verifyId, estimate: { usd: 0.3, ceiling: true } }]]);
+    resetSpending();
     await r!.unmount();
     // On the Blame step, the fix's own lead is back.
     await open(fix.fixId, 'blame');

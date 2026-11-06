@@ -41,6 +41,7 @@ export const DOCS = {
   goldensThatFork: { page: 'ci#recordings-that-fork-on-purpose', what: 'Goldens that fork' },
   blame: { page: 'blame', what: 'Blame' },
   repair: { page: 'repair', what: 'Repair' },
+  verify: { page: 'verify', what: 'Verify' },
   repairHandover: { page: 'repair#handing-it-over', what: 'Repair' },
   fixTitles: { page: 'cli#fix-title', what: 'Fix titles' },
   pairs: { page: 'training#exporting-pairs', what: 'Pairs' },
