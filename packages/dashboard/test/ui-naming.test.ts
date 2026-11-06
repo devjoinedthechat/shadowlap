@@ -162,9 +162,9 @@ describe('the lists name a run by its id, with its about line', () => {
     expect(html).toContain('<th class="abcol">About</th>');
     const row = html.slice(html.indexOf('01M5GRX8K4'));
     // Each label a chip that lists the runs labelled so.
-    expect(row).toMatch(/<td class="abcell"><span class="abw"><span class="rab" data-about="override #16"[^>]*>override #16<\/span><span class="labs"><a class="chip" href="#\/runs\?q=label%3Awhat-if"[^>]*>what-if<\/a><\/span><\/span><\/td>/);
-    // Under the id, where About gives way (a tablet, a phone), with what needs a look after it.
-    expect(html).toContain('<span class="rso"><span class="dot">·</span><em>lost at #9</em></span>');
+    expect(row).toMatch(/<td class="abcell"><span class="abw"><span class="rab" data-about="override #16"[^>]*>override #16<\/span><span class="labs"><a class="chip" href="#\/runs\?q=label:what-if"[^>]*>what-if<\/a><\/span><\/span><\/td>/);
+    // Under the id, where About gives way (a tablet, a phone), with what needs a look after it, its term marked for the glossary.
+    expect(html).toContain('<span class="rso" data-gives=""><span class="dot">·</span><em><span class="term" data-term="lost">lost</span> at #9</em></span>');
     // The id's hover has its kind, parent and command.
     expect(row).toContain('title="fork @17 of 01M5GRX4VY · node refund_agent.mjs T-8812"');
     // No column or line names a run by its kind and command.

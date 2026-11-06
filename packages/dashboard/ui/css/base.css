@@ -27,6 +27,9 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .skip:focus { transform: none; }
 .skip:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+/* a space only a screen reader says, between two words drawn apart by a margin (a chip's word and its count) */
+.srsp { position: relative; }
+.srsp > .sr { white-space: pre; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 10px; border: 3px solid var(--bg); }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -139,16 +142,19 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .legend i { width: 10px; height: 10px; border-radius: 3px; }
 
 .chips { display: flex; gap: 4px; flex-wrap: wrap; }
-.chips button { border: 1px solid var(--line); background: none; border-radius: 999px; padding: 4px 11px; cursor: pointer; font: 500 12px var(--body); color: var(--faint); }
+/* a filter's chips read as the run page's call filter (.ofilter): plain words, the one picked on a raised ground, never lime */
+.chips button { border: 0; background: none; border-radius: 6px; padding: 4px 9px; cursor: pointer; font: 500 12px var(--body); color: var(--faint); white-space: nowrap; }
 .chips button b { font: 500 11px var(--mono); margin-left: 5px; color: var(--faint); }
-.chips button:hover { color: var(--ink); border-color: var(--line2); }
+.chips button:hover { color: var(--ink); }
 /* the chosen chip: ink on a raised ground with a hairline ring, as every picker's chosen option */
-.chips button[aria-pressed="true"] { color: var(--ink); border-color: var(--line2); background: var(--raise); }
+.chips button[aria-pressed="true"] { color: var(--ink); background: var(--raise); box-shadow: 0 0 0 1px var(--line2); }
 
 table.t { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.t th { position: sticky; top: 0; z-index: 1; background: var(--panel); text-align: left; font: 500 10px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 table.t th button { border: 0; background: none; padding: 0; cursor: pointer; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; }
 table.t th button:hover { color: var(--ink); }
+/* a column's sort is a 24px target, the header's height unchanged */
+table.t th button[data-sort] { min-height: 24px; padding: 4px 0; margin: -4px 0; }
 table.t td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 table.t tbody tr { cursor: pointer; }
 table.t tbody tr:hover td { background: var(--hover); }

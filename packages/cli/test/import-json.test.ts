@@ -160,13 +160,13 @@ describe('import --json', () => {
     const json = JSON.parse(r.out);
     expect(json.runs).toHaveLength(5);
     const links = r.events.filter((e) => e.type === 'link');
-    expect(links).toEqual([{ type: 'link', label: 'All 5 on Runs', href: '#/runs?q=imported%20gateway%20%282%29.jsonl' }]);
+    expect(links).toEqual([{ type: 'link', label: 'All 5 on Runs', href: '#/runs?q=imported+gateway+%282%29.jsonl' }]);
     // As a dashboard takes a job's links: a fragment of these characters only.
     expect(links[0].href).toMatch(/^#\/[\w\-./~%?=&+:@,!*$]*$/);
     expect(new URLSearchParams(String(links[0].href).split('?')[1]).get('q')).toBe('imported gateway (2).jsonl');
     // Runs from files of different names share only the label.
     expect(importedRunsLink([{ source: 'a.jsonl' }, { source: 'b.jsonl' }])).toBe('#/runs?q=imported');
-    expect(importedRunsLink([{ source: "it's *new*!.har" }])).toBe('#/runs?q=imported%20it%27s%20%2Anew%2A%21.har');
+    expect(importedRunsLink([{ source: "it's *new*!.har" }])).toBe('#/runs?q=imported+it%27s+%2Anew%2A%21.har');
   });
 
   it('records the name given with --name as the source: a dashboard upload is kept under another', async () => {

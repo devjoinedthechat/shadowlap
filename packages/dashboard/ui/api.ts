@@ -205,8 +205,8 @@ export interface Client {
   daysBisect(q: RunsQuery & { from: number; to: number }): Promise<DaysBisect>;
   /** Labels several runs at once, by their full ids. */
   labelRuns(ids: readonly string[], add: readonly string[], remove?: readonly string[]): Promise<LabelRunsResult>;
-  /** Deletes several runs at once, by their full ids; runs that can't go now are skipped with why. */
-  deleteRuns(ids: readonly string[]): Promise<DeleteResult>;
+  /** Deletes several runs at once, by their full ids; runs that can't go now are skipped with why. `keepalive`: sent as the page goes, so the browser sees it out (`pending-delete.ts`). */
+  deleteRuns(ids: readonly string[], o?: { keepalive?: boolean }): Promise<DeleteResult>;
   /** Which of these runs are still in the store, for a selection to let go of runs deleted elsewhere. */
   knownRuns(ids: readonly string[]): Promise<string[]>;
   /** The team store the project's config names and who this machine records as, or null without one (or on a server without the route). */
@@ -461,7 +461,7 @@ export function createClient(token: string): Client {
     runsByDay: (q) => request<RunsByDay>(`runs/days${runsQueryString(q)}`),
     daysBisect: (q) => request<DaysBisect>(`runs/bisect${runsQueryString(q)}`),
     labelRuns: (ids, add, remove = []) => request<LabelRunsResult>('runs/labels', { method: 'POST', body: JSON.stringify({ ids, add, remove }) }),
-    deleteRuns: (ids) => request<DeleteResult>('runs/delete', { method: 'POST', body: JSON.stringify({ ids }) }),
+    deleteRuns: (ids, o) => request<DeleteResult>('runs/delete', { method: 'POST', body: JSON.stringify({ ids }), ...(o?.keepalive ? { keepalive: true } : {}) }),
     knownRuns: (ids) => request<{ known: string[] }>('runs/known', { method: 'POST', body: JSON.stringify({ ids }) }).then((r) => r.known),
     // The status bar, Runs and the Overview ask at once when runs change: one request answers them all.
     teamStore: () => (storeLoading ??= loadStore().finally(() => (storeLoading = null))),

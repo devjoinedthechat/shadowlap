@@ -121,6 +121,8 @@ export interface NextStepRow {
   command?: string;
   /** A capture's Run blame, which first asks for your command, as only its page can. */
   capture?: true;
+  /** Replay's run: the recording a clean or a test replay came from, else the run itself. */
+  runId?: string;
 }
 
 /** A step on a run's page: the row's, and the rest of what its hover says, what it bills. */
@@ -792,8 +794,7 @@ export async function pricedNextStep(store: Store, runId: string, work: NextStep
 }
 
 /** The Replay a run's header keeps beside its next step: on a clean or a test replay, its recording's. Null for a run the store doesn't have. */
-export function replayStepOf(store: Store, runId: string): NextStep | null {
-  const index = loadRunIndex(store);
+export function replayStepOf(store: Store, runId: string, index: RunIndex = loadRunIndex(store)): NextStep | null {
   const row = index.byId.get(runId);
   const record = row ? store.getRun(runId) : null;
   return row && record ? replayStep(store, row, record, index) : null;
@@ -851,7 +852,7 @@ export function copyNextStep(store: Store, runId: string, held: readonly string[
 
 /** A step as a list's row carries it. */
 export function stepRow(step: NextStep): NextStepRow {
-  return { key: step.key, label: step.label, ...(step.href ? { href: step.href } : {}), ...(step.off ? { off: step.off } : {}), ...(step.title ? { title: step.title } : {}), ...(step.command ? { command: step.command } : {}), ...(step.capture ? { capture: true as const } : {}) };
+  return { key: step.key, label: step.label, ...(step.href ? { href: step.href } : {}), ...(step.off ? { off: step.off } : {}), ...(step.title ? { title: step.title } : {}), ...(step.command ? { command: step.command } : {}), ...(step.capture ? { capture: true as const } : {}), ...(step.key === 'replay' ? { runId: step.runId } : {}) };
 }
 
 /**
@@ -867,13 +868,29 @@ export function listedStep(store: Store, runId: string, work: NextStepWork | nul
   }
 }
 
-/** Each row with its next step, its light form: what needs no run's calls read, with what several rows read, read once for all of them (`StepReads`). */
-export function nextStepRows<R extends Pick<RunRow, 'runId'> & { judged?: RunJudged | null }>(store: Store, rows: readonly R[], work: NextStepWork | null): Array<R & { next?: NextStepRow }> {
+/** A run's Replay for a list, as its page keeps it beside its next step: undefined for a record it can't be read from. */
+function listedReplay(store: Store, index: RunIndex, runId: string): NextStepRow | undefined {
+  try {
+    const step = replayStepOf(store, runId, index);
+    return step ? stepRow(step) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Each row with its next step, its light form: what needs no run's calls read, with what several
+ * rows read, read once for all of them (`StepReads`). And its Replay, for ⌘K on its row, where the
+ * next step is another: it reads the run's record, as the step does, and no call.
+ */
+export function nextStepRows<R extends Pick<RunRow, 'runId'> & { judged?: RunJudged | null }>(store: Store, rows: readonly R[], work: NextStepWork | null): Array<R & { next?: NextStepRow; replay?: NextStepRow }> {
   const index = loadRunIndex(store);
   const reads = stepReads(store, index);
   return rows.map((row) => {
     const step = listedStep(store, row.runId, work, { judged: row.judged, reads });
-    return step ? { ...row, next: stepRow(step) } : row;
+    if (!step) return row;
+    const replay = step.key === 'replay' ? undefined : listedReplay(store, index, row.runId);
+    return { ...row, next: stepRow(step), ...(replay ? { replay } : {}) };
   });
 }
 

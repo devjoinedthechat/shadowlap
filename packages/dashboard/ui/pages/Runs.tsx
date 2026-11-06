@@ -1,39 +1,42 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { JOB_KINDS, type Client } from '../api.js';
 import { Chips, PageHeader } from '../components/bits.js';
-import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
+import { EmptyLine } from '../components/States.js';
 import { ShowMore } from '../components/Table.js';
 import { pageUp } from '../focus-manager.js';
-import { compactPath, viewerTimeZone } from '../format.js';
-import { useLatest, useLoad } from '../hooks.js';
+import { viewerTimeZone } from '../format.js';
+import { useLatest, useLoad, type Loaded } from '../hooks.js';
 import { shownRuns } from '../list-keys.js';
 import { sentence } from '../normalize.js';
 import { addPaletteSource } from '../palette-sources.js';
-import { href } from '../route.js';
 import { runRowScope } from '../run-row.js';
 import { BulkBar, type PickedRun } from '../runspage/BulkBar.js';
-import { Calendar } from '../runspage/Calendar.js';
+import { TwelveWeeks } from '../runspage/DaysRow.js';
 import { pickedOf, pickedRange, rangeTimes } from '../runspage/calendar-model.js';
+import { RunsActions } from '../runspage/RunsActions.js';
+import { RunsFilterField } from '../runspage/FilterField.js';
 import { FindCommitDialog } from '../runspage/FindCommit.js';
 import { ImportDialog } from '../runspage/ImportDialog.js';
 import { ALL_RUNS, dayTimes, runsHref } from '../runspage/query.js';
-import { navigate } from '../router.js';
-import { isAllRuns, type RunsFilterRead } from '../../src/links.js';
+import { commitRuns, replaceRuns, useRunsAddress } from '../runspage/history.js';
+import { useKeptScroll } from '../runspage/scroll.js';
+import { lastRunsHref } from '../runs-view.js';
+import type { RunsFilterRead } from '../../src/links.js';
 import { useMarkRun } from '../components/RunKey.js';
 import type { RunMark } from '../runkey.js';
-import { RunsTable, type TableRun } from '../runspage/RunsTable.js';
+import { RunsTable, RunsTableEmpty, type TableRun } from '../runspage/RunsTable.js';
 import { noteShownRuns } from '../runspage/shown-runs.js';
-import { warmingLine, withFirstPage } from '../runspage/rows.js';
+import { goneFromCounts, lessChips, tableNote, withFirstPage } from '../runspage/rows.js';
+import { lessPending, usePendingHidden, useStillCounted, withoutPending } from '../pending-delete.js';
 import { bundlesAttempts, isAttempt, matchesChip, matchesText, RUN_CHIPS, sortRuns, type RunChip, type RunSort } from '../runs.js';
 import { projectOf } from '../shell/ProjectBlock.js';
 import { keyColumn } from '../shortcuts.js';
 import { useApp } from '../state.js';
-import { useTeamStore } from '../teamstore.js';
+import { useTeamStoreState } from '../teamstore.js';
 import { errorText } from '../toast.js';
-import type { BisectChoices, ChipCounts, RunsPage as RunsPageView, RunsPageRow, RunsQuery } from '../types.js';
+import type { BisectChoices, ChipCounts, RunsByDay, RunsPage as RunsPageView, RunsPageRow, RunsQuery, TeamStoreView } from '../types.js';
 import { ACTIONS } from '../labels.js';
-import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * Runs: every run in a table, a page at a time from the server, with the 12-week calendar above it,
@@ -42,13 +45,15 @@ import { ActionButton } from '../components/ActionButton.js';
  * in the header and Push in the bulk bar.
  *
  * What it shows is its address's: the words the filter holds, the chip, the sort and the days picked
- * (`#/runs?q=refund&types=failed&sort=spent&from=2026-10-20&to=2026-10-22`, route.ts), so a view of
- * Runs can be shared and bookmarked, and Back and Forward go through the views it showed. A chip, a
- * sort or days picked is a step of its own in the history; the words typed take the place of the
- * step they were typed in, once they settle. `#/runs` alone, from another page, shows what Runs
- * showed last while the dashboard is open, so a run opened and closed lands back on the same view;
- * the selection survives filter changes, and lets go of a run deleted elsewhere. An exported copy
- * lists the runs it holds, worked out in the page, and reads the same address.
+ * (`#/runs?q=refund+label:good&types=failed&sort=spent&from=2026-10-20&to=2026-10-22`, route.ts), so
+ * a view of Runs can be shared and bookmarked, and Back and Forward go through the views it showed.
+ * A chip, a sort, days picked or Enter in the filter is a step of its own in the history; the words
+ * typed take the place of the step they were typed in, once they settle (runspage/history.ts). Each
+ * view is given back where its list was left (runspage/scroll.ts). `#/runs` alone is every run; the
+ * nav's Runs opens the view Runs showed last while the dashboard is open (runs-view.ts), so a run
+ * opened and closed lands back on the same view. The selection survives filter changes, and lets go
+ * of a run deleted elsewhere. An exported copy lists the runs it holds, worked out in the page, and
+ * reads the same address.
  */
 
 const PAGE = 50;
@@ -59,39 +64,18 @@ const PAGE = 50;
  */
 export const RUNS_TEXT = 'Recordings, and the replays and forks made from them. Attempts are bundled under the run they came from.';
 
-/** What Runs showed last while the dashboard is open, and how far down it was read, and the runs picked. */
+/** While the dashboard is open: how far down a view of Runs was read (`at`), and the runs picked. */
 const kept = {
-  filter: ALL_RUNS,
   limit: PAGE,
+  at: '',
   picked: new Map<string, PickedRun>(),
 };
 
-/**
- * What the page shows: the address's filter, else, when Runs opens on `#/runs` alone, what it showed
- * last (and the address says so in its place). Once open, `#/runs` alone is every run: Back to it is
- * Back to them. `restore` is the filter the page opened with, until the address holds it.
- */
+/** What the page shows: the address's filter, `#/runs` alone every run; the address in the one form the page writes. */
 function useRunsFilter(filter: RunsFilterRead | undefined): RunsFilterRead {
-  const restore = useRef<RunsFilterRead | null>(filter === undefined && !isAllRuns(kept.filter) ? kept.filter : null);
-  // Held until the address moves: then what it says is what shows, #/runs alone every run.
-  const opened = useRef(filter);
-  if (opened.current !== filter) {
-    opened.current = filter;
-    restore.current = null;
-  }
-  useEffect(() => {
-    if (restore.current) navigate(runsHref(restore.current), true);
-  }, []);
-  const f = filter ?? restore.current ?? ALL_RUNS;
-  // Kept for the next time Runs opens on #/runs alone.
-  kept.filter = f;
+  const f = filter ?? ALL_RUNS;
+  useRunsAddress(f);
   return f;
-}
-
-/** Shows `next` in place of what Runs shows now: a step of its own in the history, or in place of this one (`replace`). */
-function showRuns(next: RunsFilterRead, replace = false): void {
-  kept.filter = next;
-  navigate(runsHref(next), replace);
 }
 
 export function RunsPage({ filter }: { filter?: RunsFilterRead | undefined }) {
@@ -114,7 +98,7 @@ function useFilterField(f: RunsFilterRead, ms: number): [string, (v: string) => 
   }, [f.q]);
   useEffect(() => {
     const now = fNow.current;
-    if (settled.trim() !== now.q.trim()) showRuns({ ...now, q: settled }, true);
+    if (settled.trim() !== now.q.trim()) replaceRuns({ ...now, q: settled });
   }, [settled, fNow]);
   return [text, setText, settled];
 }
@@ -138,11 +122,32 @@ addPaletteSource(({ app, go }) =>
             app.guard(() => {
               importAsked = true;
               window.dispatchEvent(new Event(IMPORT_ASKED));
-              go(href.runs());
+              go(lastRunsHref());
             }),
         },
       ],
 );
+
+/**
+ * How far down the table reads: as far as it was read when this view was last shown while the
+ * dashboard is open, so a run opened and closed lands back on the rows it was among; from its top
+ * again when the view changes.
+ */
+function useReadTo(shown: string): [number, (n: number) => void] {
+  const [limit, setLimitState] = useState(() => (kept.at === shown ? kept.limit : PAGE));
+  const setLimit = useCallback((n: number) => {
+    kept.limit = n;
+    setLimitState(n);
+  }, []);
+  const shownWas = useRef(shown);
+  useEffect(() => {
+    kept.at = shown;
+    if (shownWas.current === shown) return;
+    shownWas.current = shown;
+    setLimit(PAGE);
+  }, [shown, setLimit]);
+  return [limit, setLimit];
+}
 
 /** The text a field holds once it has stopped changing for `ms`. */
 function useSettled<T>(value: T, ms: number): T {
@@ -174,12 +179,14 @@ interface TableState {
   next: string | null;
   total: number;
   chipCounts: ChipCounts | null;
-  warming: { done: number; total: number } | null;
+  warming: NonNullable<RunsPageView['warming']> | null;
+  /** While the search index is behind for the filter's words: how many runs it has yet to read. */
+  indexing: NonNullable<RunsPageView['indexing']> | null;
   error: Error | null;
   loaded: boolean;
 }
 
-const emptyTable = (key: string): TableState => ({ key, rows: [], next: null, total: 0, chipCounts: null, warming: null, error: null, loaded: false });
+const emptyTable = (key: string): TableState => ({ key, rows: [], next: null, total: 0, chipCounts: null, warming: null, indexing: null, error: null, loaded: false });
 const asError = (err: unknown) => (err instanceof Error ? err : new Error(String(err)));
 
 /**
@@ -197,7 +204,7 @@ function useRunsTable(client: Client, query: RunsQuery, key: string, refresh: st
   useEffect(() => {
     let alive = true;
     loadRows(client, queryNow.current, limitNow.current).then(
-      (p) => alive && setState({ key, rows: p.runs, next: p.next, total: p.total, chipCounts: p.chipCounts, warming: p.warming ?? null, error: null, loaded: true }),
+      (p) => alive && setState({ key, rows: p.runs, next: p.next, total: p.total, chipCounts: p.chipCounts, warming: p.warming ?? null, indexing: p.indexing ?? null, error: null, loaded: true }),
       (err: unknown) => alive && setState((s) => ({ ...s, error: asError(err), loaded: true })),
     );
     return () => {
@@ -216,7 +223,7 @@ function useRunsTable(client: Client, query: RunsQuery, key: string, refresh: st
       (first) =>
         alive &&
         setState((s) => {
-          const fresh = { total: first.total, chipCounts: first.chipCounts, warming: first.warming ?? null, error: null, loaded: true };
+          const fresh = { total: first.total, chipCounts: first.chipCounts, warming: first.warming ?? null, indexing: first.indexing ?? null, error: null, loaded: true };
           // The rows held are another's (their own read failed, or is still on its way): the first page stands for them.
           if (s.key !== key) return { ...s, ...fresh, key, rows: first.runs, next: first.next };
           const merged = withFirstPage(s.rows, first.runs);
@@ -249,20 +256,86 @@ function useRunsTable(client: Client, query: RunsQuery, key: string, refresh: st
   }, [client, key, limit, state.loaded, state.key, state.next, state.rows.length, queryNow]);
 
   useEffect(() => {
-    if (!state.warming) return;
-    const t = setTimeout(() => setNudge((n) => n + 1), 1500);
+    if (!state.warming && !state.indexing) return;
+    const t = setTimeout(() => setNudge((n) => n + 1), ASK_AGAIN_MS);
     return () => clearTimeout(t);
-  }, [state.warming]);
+  }, [state.warming, state.indexing]);
   return state;
 }
 
+/** While the server is still working out what the filter reads, or the search index is behind: how often what is shown is asked for again. */
+const ASK_AGAIN_MS = 1500;
+
+/**
+ * The runs per day for the twelve weeks, read for the same filter as the table, and asked for again
+ * while what that filter reads is still being worked out, as the table is (`useRunsTable`): the two
+ * count the same runs once both are.
+ */
+function useRunsDays(client: Client, q: { tz: string; types: readonly string[]; q: string }, refresh: string): Loaded<RunsByDay> {
+  const load = useLoad(() => client.runsByDay({ ...q, weeks: 12 }), 'runs-days', refresh);
+  const behind = load.data?.warming ?? load.data?.indexing ?? null;
+  const { reload } = load;
+  useEffect(() => {
+    if (!behind) return;
+    const t = setTimeout(reload, ASK_AGAIN_MS);
+    return () => clearTimeout(t);
+  }, [behind, reload]);
+  return load;
+}
+
 const CHIP_TYPES: Readonly<Record<RunChip, readonly string[]>> = { all: [], recording: ['recording'], fork: ['fork'], clean: ['clean'], test: ['test'], capture: ['capture'], failed: ['failed'], local: ['local'] };
+
+/**
+ * The twelve weeks for the table's filter, the days picked kept to them, and the instants the table
+ * filters by: the calendar's own once it is in, else worked out from the address, so the table asks
+ * for them from a link before the calendar has come. Once it has, days in the address running past
+ * the twelve weeks are written back as the days inside, in place of the step, and days wholly
+ * outside them are let go (`pickedRange`). Picking days is a step of its own, with the words as
+ * typed so far.
+ */
+function useWeeks(client: Client, o: { f: RunsFilterRead; query: string; q: string; tz: string }, tick: number) {
+  const { f, q } = o;
+  const types = CHIP_TYPES[f.types];
+  const cal = useRunsDays(client, { tz: o.tz, types, q }, `${tick}|${f.types}|${q}`);
+  const calDays = cal.data?.days ?? null;
+  const range = calDays ? pickedRange(calDays, f.days) : null;
+  const times = calDays ? rangeTimes(calDays, range) : f.days ? dayTimes(f.days) : null;
+  const fNow = useLatest(f);
+  const queryNow = useLatest(o.query);
+  const pickDays = useCallback((r: [number, number] | null) => commitRuns({ ...fNow.current, q: queryNow.current, days: calDays ? pickedOf(calDays, r) : null }), [calDays, fNow, queryNow]);
+  const inside = calDays ? pickedOf(calDays, range) : undefined;
+  const insideNow = useLatest(inside);
+  const past = inside !== undefined && (inside?.from !== f.days?.from || inside?.to !== f.days?.to);
+  useEffect(() => {
+    if (past) replaceRuns({ ...fNow.current, q: queryNow.current, days: insideNow.current ?? null });
+  }, [past, fNow, queryNow, insideNow]);
+  return { cal, calDays, range, times, pickDays, types };
+}
 
 /** The table's rows for the filter, from the top: what makes it read them again. */
 const rowsKey = (f: RunsFilterRead, q: string, times: { from: number; to: number } | null) => `${f.types}|${q}|${f.sort}|${times?.from ?? ''}|${times?.to ?? ''}`;
 
 function pickedRun(r: TableRun): PickedRun {
-  return { runId: r.runId, status: r.status, startedAt: r.startedAt, attempts: r.attempts ?? 0, ...(r.local !== undefined ? { local: r.local } : {}) };
+  const chips = RUN_CHIPS.flatMap(([k]) => (k !== 'all' && (k === 'local' ? r.local === true : matchesChip(r, k)) ? [k] : []));
+  return { runId: r.runId, status: r.status, startedAt: r.startedAt, attempts: r.attempts ?? 0, chips, ...(r.local !== undefined ? { local: r.local } : {}) };
+}
+
+/**
+ * The table as it shows while a delete waits out its toast (`pending-delete.ts`): without the runs it
+ * takes, its total and its chips' counts less them (`goneFromCounts`) until the table is read again
+ * after the delete lands. The days above aren't adjusted: they catch up once the delete lands.
+ */
+function useShownTable(table: TableState, o: { chip: RunChip; q: string; times: { from: number; to: number } | null }): TableState {
+  const hidden = usePendingHidden();
+  const counted = useStillCounted(table.chipCounts);
+  const { chip, q } = o;
+  const from = o.times?.from ?? -Infinity;
+  const to = o.times?.to ?? Infinity;
+  return useMemo(() => {
+    if (!hidden.size) return table;
+    const gone = goneFromCounts(counted, { held: new Set(table.rows.map((r) => r.runId)), chip, q, from, to });
+    return { ...table, rows: withoutPending(table.rows, hidden), total: lessPending(table.total, gone.total) ?? 0, chipCounts: lessChips(table.chipCounts, gone.chips) };
+  }, [table, hidden, counted, chip, q, from, to]);
 }
 
 /** Asked from the palette: on this page already, or arriving on it. */
@@ -305,56 +378,44 @@ function useRunsKeyNotes(o: { client: Client; query: RunsQuery; rows: readonly T
   }, [rows, next, now]);
 }
 
+/** The page's eyebrow: the project, and which store its runs are kept in once that is known (a team's never reads `local store` first); `runs` without a project. */
+function runsEyebrow(p: { name: string } | null, store: TeamStoreView | null, known: boolean): string {
+  if (!p) return 'runs';
+  return known ? `${p.name} · ${store ? 'team store' : 'local store'}` : p.name;
+}
+
 function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
-  const { client, meta, tick, feeds, actionsOff, hasKind, guard, watchJob, toast, refresh, runs: appRuns } = useApp();
-  const store = useTeamStore();
+  const { client, meta, tick, feeds, actionsOff, hasKind, guard, toast, refresh, runs: appRuns } = useApp();
+  const { store, known: storeKnown } = useTeamStoreState();
   const tz = useMemo(viewerTimeZone, []);
   const f = useRunsFilter(filter);
   const chip = f.types;
   const sort = f.sort;
   const days = f.days;
   const [query, setQuery, q] = useFilterField(f, 250);
-  const [limit, setLimitState] = useState(kept.limit);
+  // What the table shows (a chip, the words, the sort, the days, or Back to another view).
+  const shownKey = runsHref({ ...f, q });
+  const [limit, setLimit] = useReadTo(shownKey);
   const [picked, setPickedState] = useState(() => new Map(kept.picked));
   const [dialog, setDialog] = useState<null | 'import' | { runId: string; choices: BisectChoices; earlier: { runId: string; why: string } | null }>(() => (importAsked ? 'import' : null));
   const now = Date.now();
   useImportAsked(useCallback(() => setDialog('import'), []));
 
-  const setLimit = (n: number) => {
-    kept.limit = n;
-    setLimitState(n);
-  };
-  // What the table shows changed (a chip, the words, the sort, the days, or Back to another view): from its top again.
-  const shownKey = runsHref({ ...f, q });
-  const shownWas = useRef(shownKey);
-  useEffect(() => {
-    if (shownWas.current === shownKey) return;
-    shownWas.current = shownKey;
-    setLimit(PAGE);
-  }, [shownKey]);
-  // A chip or a sort is a step of its own, as are the days picked, with the words as typed so far.
-  const setChip = (c: RunChip) => showRuns({ ...f, q: query, types: c });
-  const setSort = (s: RunSort) => showRuns({ ...f, q: query, sort: s });
+  // A chip or a sort is a step of its own, as are the days picked and Enter, with the words as typed so far.
+  const setChip = (c: RunChip) => commitRuns({ ...f, q: query, types: c });
+  const setSort = (s: RunSort) => commitRuns({ ...f, q: query, sort: s });
   const setPicked = useCallback((m: Map<string, PickedRun>) => {
     kept.picked = m;
     setPickedState(m);
   }, []);
 
-  const types = CHIP_TYPES[chip];
-  const cal = useLoad(() => client.runsByDay({ tz, weeks: 12, types, q }), 'runs-days', `${tick}|${chip}|${q}`);
-  const calDays = cal.data?.days ?? null;
-  const range = calDays ? pickedRange(calDays, days) : null;
-  // The instants the days picked span: the calendar's own once it is in, else worked out here, so the
-  // table asks for them from a link before the calendar has come.
-  const times = (calDays && range ? rangeTimes(calDays, range) : null) ?? (days ? dayTimes(days) : null);
-
-  const fNow = useLatest(f);
-  const queryNow = useLatest(query);
-  const pickDays = useCallback((r: [number, number] | null) => showRuns({ ...fNow.current, q: queryNow.current, days: calDays ? pickedOf(calDays, r) : null }), [calDays, fNow, queryNow]);
+  const { cal, calDays, range, times, pickDays, types } = useWeeks(client, { f, query, q, tz }, tick);
 
   // Its first page read again when runs change, and when a push or a pull changes what is only here (the local tags).
   const tableQuery: RunsQuery = { types, q, sort, from: times?.from ?? null, to: times?.to ?? null };
-  const table = useRunsTable(client, tableQuery, rowsKey(f, q, times), `${tick}:${feeds.team ?? 0}`, limit);
+  const key = rowsKey(f, q, times);
+  const table = useShownTable(useRunsTable(client, tableQuery, key, `${tick}:${feeds.team ?? 0}`, limit), { chip, q, times });
+  useKeptScroll(shownKey, table.loaded && table.key === key);
   // The good/bad key: a row shows the labels a press gave it until the table's own say otherwise.
   const [marks, setMarks] = useState<ReadonlyMap<string, { base: string; labels: string[] }>>(() => new Map());
   const byId = useLatest(new Map(table.rows.map((r) => [r.runId, r])));
@@ -373,7 +434,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   const onMark = useCallback((r: TableRun, m: RunMark, from?: HTMLElement) => markRun(r.runId, rowsNow.current.get(r.runId)?.labels ?? r.labels, m, from), [markRun, rowsNow]);
   useRunsKeyNotes({ client, query: tableQuery, rows, next: table.next, picked: picked.size, clear: () => setPicked(new Map()) });
   const counts: ChipCounts | null = table.loaded ? table.chipCounts : null;
-  const warming = warmingLine(table.warming, { filtered: !!q.trim(), bySpent: sort === 'spent' });
+  const warming = tableNote(table, { filtered: !!q.trim(), bySpent: sort === 'spent' });
 
   // What the bar knows of a run picked follows the table: a recording that ends can then be deleted,
   // and a delete names the attempts a blame added meanwhile.
@@ -449,47 +510,24 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   return (
     <Page>
       <PageHeader
-        eyebrow={p ? compactPath(p.path) : 'runs'}
+        eyebrow={runsEyebrow(p, store, storeKnown)}
         title="Runs"
         text={RUNS_TEXT}
-        actions={
-          <>
-            {store && hasKind(JOB_KINDS.pull) ? (
-              <ActionButton className="btn" title={`Bring the team’s runs from ${store.name}`} onClick={() => guard(() => watchJob(client.startJob(JOB_KINDS.pull, {})))}>
-                Pull
-              </ActionButton>
-            ) : null}
-            {hasKind(JOB_KINDS.importCapture) ? (
-              <ActionButton className="btn" onClick={() => guard(() => setDialog('import'))}>
-                <Icon name="import" />
-                {ACTIONS.importCapture.label}
-              </ActionButton>
-            ) : null}
-          </>
-        }
+        actions={<RunsActions store={store} onImport={() => setDialog('import')} />}
       />
-      {cal.data ? <Calendar data={cal.data} chip={chip} range={range} onPick={pickDays} byPerson={!!store} onFindCommit={hasKind(JOB_KINDS.bisect) ? findCommit : null} /> : null}
+      <TwelveWeeks load={cal} chip={chip} range={range} onPick={pickDays} byPerson={!!store} onFindCommit={hasKind(JOB_KINDS.bisect) ? findCommit : null} />
       <div className="tbar">
         <Chips label="Kind of run" items={RUN_CHIPS.filter(([key]) => key !== 'local' || store || chip === 'local').map(([key, label]) => ({ key, label, ...(counts ? { count: counts[key] } : {}) }))} value={chip} onChange={setChip} />
-        <label className="tin">
-          <span className="sr">Filter runs</span>
-          <input id="runsQuery" type="search" placeholder="Filter by id, about or label" title="Every word must be in a run’s id, about line, labels, command or revision; label:good lists the runs labelled good" value={query} onChange={(e) => setQuery(e.target.value)} />
-        </label>
+        <RunsFilterField value={query} onChange={setQuery} onCommit={() => commitRuns({ ...f, q: query })} settled={q} total={table.total} loaded={table.loaded} />
       </div>
       {warming ? (
         <p className="muted" role="status">
           {warming}
         </p>
       ) : null}
-      <section className="panel tscroll">
+      <section className="panel sec tscroll runsec">
         <RunsTable rows={rows} picked={picked} selectable byColumn={!!store} you={store?.you ?? null} sort={sort} onSort={setSort} onPick={onPick} onPickAll={onPickAll} now={now} onMark={onMark} markOff={actionsOff ?? null} rowActions={(r) => runRowScope(r, { runs: appRuns ?? [], toast, pick: () => onPick(r, !picked.has(r.runId)), picked: picked.has(r.runId), pickKey: keyColumn('rowPick') })} />
-        {table.error && !rows.length ? (
-          <div className="empty">The runs could not be read: {table.error.message}</div>
-        ) : !table.loaded ? (
-          <div className="empty">Loading runs…</div>
-        ) : rows.length === 0 ? (
-          <div className="empty">{counts?.all ? 'No runs match.' : days ? 'No runs on the days picked.' : 'No runs yet. Record one with shadowlap run -- <command>.'}</div>
-        ) : null}
+        <RunsTableEmpty error={table.error} loaded={table.loaded} shown={rows.length} counts={counts} days={days} />
         <ShowMore shown={rows.length} total={table.total} onMore={() => setLimit(limit + PAGE)} />
       </section>
       {runs.length ? (
@@ -511,8 +549,9 @@ function ExportedRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   const chip = f.types;
   const sort = f.sort;
   const [query, setQuery] = useFilterField(f, 150);
-  const setChip = (c: RunChip) => showRuns({ ...f, q: query, types: c });
-  const setSort = (s: RunSort) => showRuns({ ...f, q: query, sort: s });
+  const setChip = (c: RunChip) => commitRuns({ ...f, q: query, types: c });
+  const setSort = (s: RunSort) => commitRuns({ ...f, q: query, sort: s });
+  useKeptScroll(runsHref(f), runs !== null);
   const [limit, setLimit] = useState(PAGE);
   const listed = useMemo(() => (runs ?? []).filter((r) => !isAttempt(r)), [runs]);
   const counts = useMemo(() => Object.fromEntries(RUN_CHIPS.map(([k]) => [k, listed.filter((r) => matchesChip(r, k)).length])) as Record<RunChip, number>, [listed]);
@@ -530,14 +569,11 @@ function ExportedRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
       />
       <div className="tbar">
         <Chips label="Kind of run" items={RUN_CHIPS.map(([key, label]) => ({ key, label, count: counts[key] }))} value={chip} onChange={setChip} hideEmpty />
-        <label className="tin">
-          <span className="sr">Filter runs</span>
-          <input id="runsQuery" type="search" placeholder="Filter by id, about or label" title="Every word must be in a run’s id, about line, labels, command or revision; label:good lists the runs labelled good" value={query} onChange={(e) => setQuery(e.target.value)} />
-        </label>
+        <RunsFilterField value={query} onChange={setQuery} onCommit={() => commitRuns({ ...f, q: query })} settled={query} total={matched.length} loaded={runs !== null} copy />
       </div>
-      <section className="panel tscroll">
+      <section className="panel sec tscroll runsec">
         <RunsTable rows={shown} picked={new Set()} selectable={false} byColumn={false} sort={sort} onSort={setSort} onPick={() => undefined} onPickAll={() => undefined} now={Date.now()} />
-        {runs === null ? <div className="empty">Loading runs…</div> : shown.length === 0 ? <div className="empty">No runs match.</div> : null}
+        {runs === null ? <div className="empty">Loading runs…</div> : shown.length === 0 ? <EmptyLine>No runs match.</EmptyLine> : null}
         <ShowMore shown={shown.length} total={matched.length} onMore={() => setLimit(limit + PAGE)} />
       </section>
     </Page>

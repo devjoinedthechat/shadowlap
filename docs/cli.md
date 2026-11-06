@@ -801,7 +801,7 @@ A run stopped before it ended, or left marked running by a recorder that went aw
 | --- | --- |
 | `forkedAt` | `{ callNo, type, kind, name, reason }` where the run forked, or `null` (below) |
 | `hasCommand` | `false` for a run with no command of its own (below) |
-| `imported` | `{ at, from }` for a run from a pack, a capture or the [team store](./team.md), or `null` |
+| `imported` | `{ at, from }` for a run from a pack, a capture or the [team store](./team.md), or `null` (below) |
 | `partial` | The kinds of call a partial recording covers (`["api"]` for a capture), or `null` |
 | `repeat` | `{ group, attempt, of }` for an attempt of `replay --repeat`, or `null` |
 | `checks` | `{ passed, total }` for a run from `shadowlap test` with [outcome checks](./ci.md#outcome-checks), or `null` (below) |
@@ -812,7 +812,8 @@ A run stopped before it ended, or left marked running by a recorder that went aw
   recorded by a test that gave no command (its command reads `<test>` and the test's name). It has no
   command, so replaying it needs yours after `--`.
 - **`imported`**: for a run from the team store, `from` is the store's URL: `s3://…`, `gs://…`,
-  `az://…` or `r2://…`.
+  `az://…` or `r2://…`. For a trace, `key` is its id in the trace store. A Langfuse trace also keeps
+  `url`, its page there.
 - **`checks`**: `passed` counts only the checks that passed. When there are any, `inconclusive` and
   `notApplicable` count those that
   [could not be decided or did not apply](./checks.md#how-a-check-comes-out); the rest of `total`
@@ -3864,6 +3865,11 @@ When a framework's span wraps the client library's span for the same call, the i
 (`GET /api/public/v2/observations`, a page of 1,000 at a time), or `GET /api/public/traces/<id>` from a
 self-hosted Langfuse without it. Generations are model calls. TOOL observations, and spans named after a
 tool a generation asked for, are tool calls.
+
+The run keeps the trace's page in Langfuse, its `htmlPath` on the host the API answered from, for the
+dashboard's **Open in Langfuse ↗**. Read from the v2 API, the trace is asked for once more, after the
+observations, for five seconds at most. When it doesn't answer in time, the import stands without the
+page.
 
 **`langsmith`**: `llm` runs are model calls: LangChain's serialized messages, or the request and response
 themselves from LangSmith's wrapped OpenAI and Anthropic clients, which rebuild exactly. `tool` runs are

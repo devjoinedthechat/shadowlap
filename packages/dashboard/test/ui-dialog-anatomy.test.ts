@@ -661,7 +661,7 @@ describe('the bulk bar’s dialogs', () => {
 
   it('Add label', async () => {
     const page = await bar();
-    await page.click(page.byText('.bulkbar button', 'Label'));
+    await page.click(page.byText('.bulkbar button', 'Add label…'));
     holds(page, { title: 'Add label to 3 runs', doc: 'labels', first: 'input[type="text"]', ok: 'Add label' });
     expect(page.all('[role="dialog"] .cstep')).toHaveLength(3);
   });
@@ -672,7 +672,7 @@ describe('the bulk bar’s dialogs', () => {
       const six = ['A', 'B', 'C', 'D', 'E', 'F'].map((c) => ({ runId: `01M5H2DJ${c}${'0'.repeat(17)}`, status: 'completed', attempts: 0 }));
       const labelled = async (runs: typeof six) => {
         const page = await open(createElement(BulkBar, { runs: runs as never, store: false, clear: () => undefined, onDone: () => undefined }), appWith({ client: { offers: () => new Promise(() => undefined) } }));
-        await page.click(page.byText('.bulkbar button', 'Label'));
+        await page.click(page.byText('.bulkbar button', 'Add label…'));
         return page;
       };
       const many = await labelled(six);
@@ -691,7 +691,7 @@ describe('the bulk bar’s dialogs', () => {
   });
   it('Delete runs, leaving alone the one still recording', async () => {
     const page = await bar();
-    await page.click(page.byText('.bulkbar button', 'Delete'));
+    await page.click(page.byText('.bulkbar button', 'Delete 3 runs'));
     holds(page, { title: 'Delete 2 runs?', doc: 'deletingRuns', first: CANCEL, ok: 'Delete 2 runs', tone: 'danger' });
     expect(page.all('[role="dialog"] header p span')[0].textContent).toBe('Deletes the runs, their 3 attempts and the recorded data nothing else uses.');
     expect(page.all('.dfacts div').map((d) => d.textContent)).toEqual(['Forks, replayskeep their own datathey lose the link to them', 'Left alone01M5H2DJR4still recording']);

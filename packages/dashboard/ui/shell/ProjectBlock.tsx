@@ -15,6 +15,7 @@ import { navigate } from '../router.js';
 import { useApp, type AppState } from '../state.js';
 import { errorText } from '../toast.js';
 import { RemoveProjectDialog } from './RemoveProject.js';
+import { flush } from '../pending-delete.js';
 import { ActionButton, useActionWait } from '../components/ActionButton.js';
 
 /**
@@ -46,6 +47,8 @@ export async function switchProject(app: AppState, id: string, to: string = href
   const current = app.meta?.project?.id;
   if (id !== current) {
     try {
+      // A delete waiting out its toast goes to this project's store first.
+      await flush();
       await app.client.projects.select(id);
     } catch (err) {
       app.toast(errorText(err), 'error');

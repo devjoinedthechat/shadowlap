@@ -227,9 +227,6 @@
     "packages/dashboard/ui/pages/Run.tsx": {
       "Workspace": 79
     },
-    "packages/dashboard/ui/pages/Runs.tsx": {
-      "ServerRuns": 35
-    },
     "packages/dashboard/ui/pages/Training.tsx": {
       "ScoreDialog": 34
     },
@@ -264,7 +261,7 @@
       "DiffPanel": 32
     },
     "packages/dashboard/ui/shell/StatusBar.tsx": {
-      "StatusBar": 41
+      "StatusBar": 33
     },
     "packages/engine/src/about.ts": {
       "changeWords": 31
@@ -473,9 +470,6 @@
     "packages/dashboard/ui/pages/Run.tsx": {
       "Workspace": 195
     },
-    "packages/dashboard/ui/pages/Runs.tsx": {
-      "ServerRuns": 178
-    },
     "packages/dashboard/ui/pages/Tests.tsx": {
       "TestsPage": 238
     },
@@ -496,9 +490,6 @@
     },
     "packages/dashboard/ui/run/parts.tsx": {
       "Banner": 194
-    },
-    "packages/dashboard/ui/runspage/Calendar.tsx": {
-      "Calendar": 206
     },
     "packages/dashboard/ui/shell/Palette.tsx": {
       "PaletteDialog": 178

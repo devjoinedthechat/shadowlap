@@ -11,10 +11,11 @@ import type { ReactNode } from 'react';
  * A status's tone: `ok` passed (lime), `err` failed or changed for real (red), `warn` inconclusive
  * or needs a look (amber), `mu` not applicable or nothing yet (muted), `done` a step that finished,
  * which is no verdict (ink, a grey dot), `live` a run still recording (the live colour, pulsing),
- * and the two words a fork's write keeps wherever it shows: `stub` stubbed (steel blue) and `block`
- * blocked (the neutral hatch).
+ * `fk` what came of a fork's writes where no check judges it (quiet, a neutral dot), and the two
+ * words a fork's write keeps wherever it shows: `stub` stubbed (steel blue) and `block` blocked (the
+ * neutral hatch).
  */
-export type Tone = 'ok' | 'err' | 'warn' | 'mu' | 'done' | 'live' | 'stub' | 'block';
+export type Tone = 'ok' | 'err' | 'warn' | 'mu' | 'done' | 'live' | 'fk' | 'stub' | 'block';
 
 /** Each verdict word's tone, decision 9's vocabulary and the two words a fork's writes keep. */
 const VERDICT_TONE: Readonly<Record<string, Tone>> = {
