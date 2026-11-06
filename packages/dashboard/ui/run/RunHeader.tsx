@@ -1,7 +1,8 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useId, useRef, useState, type ReactNode } from 'react';
 import { JOB_KINDS, type CallDetail, type RunDetail, type RunOffers } from '../api.js';
 import { AboutLine, useFitAbouts } from '../components/About.js';
 import { Eyebrow } from '../components/bits.js';
+import { suggestedList, Suggestions } from '../components/Dialog.js';
 import { RunKey } from '../components/RunKey.js';
 import { MARKS, type RunMark } from '../runkey.js';
 import { tipText } from '../components/HoverCard.js';
@@ -13,6 +14,7 @@ import { shortcut } from '../shortcuts.js';
 import { dur, shortId, stamp, wholeCounts } from '../format.js';
 import { href } from '../route.js';
 import { isFailed, runType } from '../runs.js';
+import { labelSuggestions } from '../runspage/bulk.js';
 import { DeleteRunDialog } from './RunDialogs.js';
 import { pendingRunOf, useDeleteRun } from './delete-run.js';
 import { useApp } from '../state.js';
@@ -308,12 +310,15 @@ function useRemoveLabel(runId: string, shown: readonly string[], setLabels: (lab
 
 /**
  * Labels: the good/bad key first (good and bad are its, so no chip says them again), then the other
- * labels as chips with ×, and Add label for a new one (Enter adds, Esc cancels).
+ * labels as chips with ×, and Add label for a new one (Enter adds, Esc cancels), offering as you type
+ * the labels the runs carry, most used first, as Runs' Add label… does.
  */
 function Labels({ run, labels: shown, setLabels, onMark }: { run: RunDetail; labels: readonly string[]; setLabels: (labels: string[]) => void; onMark: ((m: RunMark, from?: HTMLElement) => void) | null }) {
-  const { client, actionsOff, exported, toast, refresh, guard } = useApp();
+  const { client, actionsOff, exported, toast, refresh, guard, runs } = useApp();
   const [adding, setAdding] = useState(false);
   const [value, setValue] = useState('');
+  const listId = useId();
+  const suggestions = adding ? labelSuggestions(runs) : undefined;
   const enabled = !exported && !actionsOff;
   // Enter while the server is out of reach says why, the field kept open with what was typed.
   const whenFree = useWhenFree();
@@ -351,6 +356,7 @@ function Labels({ run, labels: shown, setLabels, onMark }: { run: RunDetail; lab
           maxLength={40}
           value={value}
           aria-label="New label"
+          {...suggestedList(listId, suggestions)}
           onChange={(e) => setValue(e.target.value)}
           onBlur={() => !value.trim() && setAdding(false)}
           onKeyDown={(e) => {
@@ -374,6 +380,7 @@ function Labels({ run, labels: shown, setLabels, onMark }: { run: RunDetail; lab
           Add label
         </ActionButton>
       ) : null}
+      <Suggestions id={listId} values={suggestions} />
     </span>
   );
 }

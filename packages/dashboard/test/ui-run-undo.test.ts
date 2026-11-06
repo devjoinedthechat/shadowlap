@@ -19,7 +19,8 @@ vi.mock('../ui/router.js', async (original) => ({ ...(await original<typeof impo
  * Undo on a run's page: Delete takes the run off the lists and goes to Runs as it was last shown,
  * sending the delete only once its toast goes, so Undo sends nothing; a label's × takes the label off
  * at once, hands the focus to Add label where the × had it, and its toast's Undo puts the label back;
- * a removal the server refuses puts the labels back as they were.
+ * a removal the server refuses puts the labels back as they were. Add label offers the labels the
+ * runs carry.
  */
 
 const RUN = '01M5JEQWA2QMJ3NYD1C687WP08';
@@ -95,6 +96,20 @@ describe('a label’s ×', () => {
     await page!.until('the labels back', () => h.chips().length === 2);
     expect(h.chips()).toEqual(['what-if', 'refund']);
     expect(h.said.at(-1)!.text).toBe('The store is read-only');
+  });
+});
+
+describe('Add label', () => {
+  it('offers the labels the runs carry as you type, most used first, good and bad among them', async () => {
+    const client = { jobs: () => Promise.resolve([]), labels: () => Promise.resolve({ labels: [] }) } as unknown as Client;
+    const runs = [{ labels: ['refund', 'good'] }, { labels: ['good'] }, { labels: ['bad', 'refund'] }, { labels: [] }];
+    const app = { client, exported: false, meta: null, tick: 0, runsTick: 0, feeds: {}, jobs: [], live: [], runs, actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, refresh: () => undefined, toast: () => undefined } as unknown as AppState;
+    page = await render(createElement(AppContext.Provider, { value: app }, createElement(RunHeader, { run: detail([]), call: null, selected: null, rescued: false, offers: null, forkMenu: { open: false, anchor: null, toggle: () => undefined, close: () => undefined } as never, onAction: () => undefined, onFindCommit: () => undefined, labels: [], setLabels: () => undefined })));
+    expect(page.all('datalist')).toEqual([]);
+    await page.click(page.one('.labelbar .linkbtn'));
+    const list = page.one('.labelbar datalist');
+    expect(page.one('.labelbar input').getAttribute('list')).toBe(list.getAttribute('id'));
+    expect(page.all('.labelbar datalist option').map((o) => o.value)).toEqual(['good', 'refund', 'bad']);
   });
 });
 

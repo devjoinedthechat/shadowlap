@@ -800,7 +800,7 @@ On a failed model call, the input tokens are what its request held, `in the requ
 
 ### Labels and notes
 
-Label a run with **Add label** in its header (`bug`, `good`, `refund-flow`), or several from Runs. A label's **×** takes it off at once, with **Undo** in its toast, and the focus moves to **Add label**. Leave notes on a call with **Add note** in its details.
+Label a run with **Add label** in its header (`bug`, `good`, `refund-flow`), or several from Runs. Both offer the labels runs carry as you type, most used first. A label's **×** takes it off at once, with **Undo** in its toast, and the focus moves to **Add label**. Leave notes on a call with **Add note** in its details.
 
 The **good/bad key** labels a run `good` or `bad` in one press:
 
