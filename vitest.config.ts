@@ -33,6 +33,8 @@ export default defineConfig({
     // or anything in the checkout that git lists and the run didn't build. Gives the run a Shadowlap
     // home of its own (SHADOWLAP_HOME), and under CI fails it when a test writes in the real ~/.shadowlap.
     globalSetup: ['./testing/no-stray-stores.mjs'],
+    // Each test file a home of its own in the run's, which the processes it starts inherit.
+    setupFiles: ['./testing/file-home.mjs'],
     // Python, which the guard's and the SDK's tests start, writes no __pycache__ beside what it imports.
     env: { PYTHONDONTWRITEBYTECODE: '1' },
     // A JUnit report alongside the usual output, so a failure survives the run. Test files execute

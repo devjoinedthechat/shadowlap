@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { judgeCapture, parseTests, rulesOnCalls, shadowlapHome, Store, withLockFile, type RunRecord } from '@shadowlap/engine';
 import { RunBuilder, text, toolUse, usage, user } from '../../engine/test/run-fixtures.js';
 import { CHECKS_SEEN_FILE } from '../src/checks-seen.js';
@@ -26,20 +26,6 @@ import { recordLoop } from './long-run.js';
  * recording, by today's checks when it was recorded before them. Kept per config version, judged
  * within a budget on a list, whole on a run's page, and always beside the server.
  */
-
-// A Shadowlap home of the file's own: what its dashboards keep of the goldens' checks is looked at, so
-// no other file's dashboard may hold that file then. Writers that share a home race in checks-seen.test.ts.
-const runHome = process.env.SHADOWLAP_HOME;
-let home: string;
-beforeAll(() => {
-  home = realpathSync(mkdtempSync(join(tmpdir(), 'sl-outcome-home-')));
-  process.env.SHADOWLAP_HOME = home;
-});
-afterAll(() => {
-  if (runHome === undefined) delete process.env.SHADOWLAP_HOME;
-  else process.env.SHADOWLAP_HOME = runHome;
-  rmSync(home, { recursive: true, force: true });
-});
 
 const T0 = 1_760_000_000_000;
 const ASK = [user('Order A-1042 arrived damaged. Refund it, please.')];

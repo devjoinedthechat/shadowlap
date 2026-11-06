@@ -7,7 +7,7 @@ export type Listing = Map<string, string> | null;
 export const WATCHED: readonly string[];
 /** The real home's Shadowlap folder, the owner's: watched around the suites, which keep their files in a home of their own. */
 export const REAL_HOME: string;
-/** A Shadowlap home of the run's own: a temporary folder set as SHADOWLAP_HOME, which `remove` takes away, putting back what was set. */
+/** A Shadowlap home of the run's own: a temporary folder set as SHADOWLAP_HOME, and as SHADOWLAP_TESTS_HOME for each test file's own in it, which `remove` takes away, putting back what was set. */
 export function ownHome(): { dir: string; remove: () => void };
 /** What each of `dirs` holds now. */
 export function snapshot(dirs?: readonly string[]): Map<string, Listing>;
