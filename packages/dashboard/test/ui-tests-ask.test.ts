@@ -452,19 +452,20 @@ describe('a live session’s question, answered by Spending', () => {
     expect(yeses(injection.sent)).toEqual([]);
   });
 
-  it('answers Keep it as a test’s and a task’s re-test question as a session’s, and asks it in the step’s words with no estimate', async () => {
-    for (const kind of ['pack-test', 'task-update']) {
-      const priced = await rerun(null, PRICED, kind);
-      expect(dialog(priced.page)).toBeNull();
-      expect(yeses(priced.sent)).toHaveLength(1);
-      await r?.unmount();
-      r = null;
-    }
-    resetSpending(null);
+  it('asks Keep it as a test’s question on every setting, in the step’s words, its yes going through the page that asked', async () => {
+    // Nothing prices it: even one that came with a price, at Never ask, waits for its dialog.
+    const priced = await rerun(null, PRICED, 'pack-test');
+    expect(dialog(priced.page)).not.toBeNull();
+    expect(yeses(priced.sent)).toEqual([]);
+    await priced.page.click(priced.page.one('.dialog .dlg-cancel'));
+    await r?.unmount();
+    r = null;
     const sent: Sent[] = [];
-    const state = app(sent, []);
+    const shell: Array<Promise<JobView>> = [];
+    const state = app(sent, shell);
     const page = await shown(state, createElement('div'));
-    startTestsJob(state, 'pack-test', { project: 'p', golden: 'goldens/first-run' }, keepAsk('Pack as a golden', 'goldens/first-run', true));
+    const setup: Array<Promise<JobView>> = [];
+    startTestsJob({ client: state.client, guard: state.guard, watchJob: (p) => void setup.push(p) }, 'pack-test', { project: 'p', golden: 'goldens/first-run' }, keepAsk('Pack as a golden', 'goldens/first-run', true));
     await page.until('the question asked', () => !!dialog(page));
     expect(dialog(page)?.querySelectorAll('h3')[0].textContent).toBe('Pack as a golden');
     expect(dialog(page)?.textContent).toContain('Packs the run as goldens/first-run, then runs its test.');
@@ -472,6 +473,9 @@ describe('a live session’s question, answered by Spending', () => {
     expect(yeses(sent)).toEqual([]);
     await page.click(page.one('.dialog .dlg-ok'));
     expect(yeses(sent).map((x) => x.fields)).toEqual([{ project: 'p', golden: 'goldens/first-run', yes: CONFIRM }]);
+    // Setup follows the job its yes started, as it follows those it starts itself, not the shell.
+    await page.until('the page following its job', () => setup.length === 1);
+    expect([await setup[0], shell]).toMatchObject([{ id: 'j2' }, []]);
   });
 });
 

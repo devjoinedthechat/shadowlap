@@ -57,6 +57,8 @@ export interface TestsQuestion extends TestsAsk {
   live?: readonly LiveGolden[];
   kind: string;
   fields: Record<string, unknown>;
+  /** How the page that asked starts and follows its job: its yes goes through it, so Setup follows the job it started. */
+  app?: TestsJobApp;
   /**
    * What its button runs in place of sending the job again, for an ask with no 409 behind it: a
    * billed job Spending asks first over any page (the palette's Run blame). False while it can't start.
@@ -119,11 +121,12 @@ export function startTestsJob(app: TestsJobApp, kind: string, fields: Record<str
 
 /**
  * The kinds whose one 409 asking a yes is the server's question before a session runs live
- * (src/tests-live.ts), which Spending may answer: Tests' sessions, and Setup's Keep it as a test and
- * a task's Update where they test a golden again. Any other kind's is consent to a command someone
- * else recorded (an injection test's), which waits as the question on every setting.
+ * (src/tests-live.ts), which Spending may answer: Tests' sessions, priced from Tests' estimates.
+ * Setup's Keep it as a test asks the same question, but nothing prices it, so it is asked on every
+ * setting. Any other kind's is consent to a command someone else recorded (an injection test's),
+ * which waits as the question on every setting too.
  */
-const SPENDING_ANSWERS: ReadonlySet<string> = new Set([JOB_KINDS.tests, JOB_KINDS.normalizeAndTest, JOB_KINDS.keepGolden, JOB_KINDS.taskUpdate]);
+const SPENDING_ANSWERS: ReadonlySet<string> = new Set([JOB_KINDS.tests, JOB_KINDS.normalizeAndTest]);
 
 /**
  * A question come: Spending answers yes at once where it holds the session's estimate at or under the
@@ -134,7 +137,7 @@ const SPENDING_ANSWERS: ReadonlySet<string> = new Set([JOB_KINDS.tests, JOB_KIND
 function answer(app: TestsJobApp, q: TestsQuestion): void {
   const estimate = q.estimate?.usd === 0 ? null : (q.estimate ?? null);
   if (estimate && SPENDING_ANSWERS.has(q.kind) && !asksFirst(estimate, heldTo())) startTestsJob(app, q.kind, { ...q.fields, ...sentEstimate(estimate), yes: q.confirm }, q);
-  else askQuestion({ ...q, estimate });
+  else askQuestion({ ...q, estimate, app });
 }
 
 /**
@@ -144,7 +147,7 @@ function answer(app: TestsJobApp, q: TestsQuestion): void {
  */
 export function answerTestsQuestion(app: TestsJobApp, yes: boolean): boolean {
   const q = asking;
-  const sent = !q || !yes || (q.start ? q.start() : startTestsJob(app, q.kind, { ...q.fields, ...sentEstimate(q.estimate), yes: q.confirm }, q));
+  const sent = !q || !yes || (q.start ? q.start() : startTestsJob(q.app ?? app, q.kind, { ...q.fields, ...sentEstimate(q.estimate), yes: q.confirm }, q));
   if (sent) askQuestion(null);
   return sent;
 }
