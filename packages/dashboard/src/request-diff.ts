@@ -11,6 +11,7 @@ import {
   requestReadRule,
   runInterventions,
   unmaskedHints,
+  valueHintMessage,
   volatileValues,
   type CallKind,
   type CallRecord,
@@ -45,8 +46,11 @@ import { testOf, testRunBanner } from './tests.js';
 
 export type RequestDiffJob = { kind: 'request-diff'; runId: string; callNo: number | null; normalizers: Normalizer[] };
 
-/** What fixes a path that changed: a normalizer for a value made anew on every run, or Update golden for what code or config sets. */
-export type PathFix = { kind: 'normalizer'; looks: string; op: 'changed' | 'added'; certain: boolean; args: string[]; command: string } | { kind: 'update' };
+/**
+ * What fixes a path that changed: a normalizer for a value made anew on every run, with what the CLI
+ * says of it (`message`, the engine's words), or Update golden for what code or config sets.
+ */
+export type PathFix = { kind: 'normalizer'; looks: string; op: 'changed' | 'added'; certain: boolean; message: string; args: string[]; command: string } | { kind: 'update' };
 
 /** A change that made the call diverge, at its path. */
 export interface ChangedPath {
@@ -202,7 +206,7 @@ function findingPath(store: Store, run: RunRecord, d: DivergenceReport | null): 
 
 /** What fixes one value made anew on every run: its normalizer, with the command that adds it. */
 function normalizerFix(v: VolatileValues['values'][number]): PathFix {
-  return { kind: 'normalizer', looks: v.looks, op: v.op, certain: v.certain, args: normalizeAddArgs(v.normalizer), command: normalizeAddCommand(v.normalizer) };
+  return { kind: 'normalizer', looks: v.looks, op: v.op, certain: v.certain, message: valueHintMessage(v), args: normalizeAddArgs(v.normalizer), command: normalizeAddCommand(v.normalizer) };
 }
 
 /**

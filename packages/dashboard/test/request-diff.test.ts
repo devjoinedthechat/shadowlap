@@ -226,7 +226,7 @@ describe('a test that diverged', () => {
       {
         path: '$.metadata.user_id',
         what: 'metadata.user_id',
-        fix: { kind: 'normalizer', looks: 'a UUID', op: 'changed', certain: true, args: expect.arrayContaining(['normalize', 'add']) as string[], command: "shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'" },
+        fix: { kind: 'normalizer', looks: 'a UUID', op: 'changed', certain: true, message: '$.metadata.user_id looks like a UUID, made anew on every run; to ignore it in matching, add a normalizer', args: expect.arrayContaining(['normalize', 'add']) as string[], command: "shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'" },
       },
     ]);
   });
