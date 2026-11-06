@@ -22,7 +22,7 @@ import { HistoryCells, HistoryKey, HistoryStrip, RevisionHeads } from './History
 export function GoldensTable({ view }: { view: TestsView }) {
   const history = view.revisions.length > 0;
   return (
-    <section className="panel gtw">
+    <section className="panel sec gtw">
       <div className="tscroll">
         <table className="t gt">
           <thead>
