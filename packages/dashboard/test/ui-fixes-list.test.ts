@@ -139,9 +139,12 @@ afterEach(async () => {
   store.close();
 });
 
+/** A run in the store, as the engine's fixtures make one (their Store is the engine's source, this test's the built one). */
+const newRun = (o: Parameters<typeof makeRun>[1] = {}): string => makeRun(store as unknown as Parameters<typeof makeRun>[0], o);
+
 /** A failing run blamed under its own check, opening a fix of its own. */
 function opened(tool: string) {
-  const run = makeRun(store, { labels: [tool] });
+  const run = newRun({ labels: [tool] });
   const expect = { tools: { [tool]: 1 } };
   const { fix } = recordBlame(store, { runId: run, report: blameReport(run), expect, scope: null, command: 'shadowlap blame', title: `${tool} called twice`, checkText: `${tool} called once`, at: (at += DAY) });
   return { run, expect, fixId: fix.fixId, href: `#/fixes/${fix.fixId}` };
@@ -156,8 +159,8 @@ function byHand(tool: string) {
 
 /** A fix CI repaired and verified, its pull request merged. */
 function merged() {
-  const run = makeRun(store, { labels: ['refund-bug'] });
-  const good = makeRun(store, { labels: ['good'], status: 'completed' });
+  const run = newRun({ labels: ['refund-bug'] });
+  const good = newRun({ labels: ['good'], status: 'completed' });
   const { fix } = recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: (at += DAY) });
   recordRepair(store, { repairId: 'repair-munzln2i', dir: '.shadowlap/repairs/repair-munzln2i', report: repairReport({ targets: [run], good: [good] }), expect: EXPECT, command: 'shadowlap repair', at: (at += DAY) });
   store.mergeFixData(fix.fixId, { source: { ci: 'github', pr: { url: 'https://github.com/acme/agent/pull/138', number: 138, state: 'merged' } } });
@@ -220,8 +223,8 @@ describe('the Fixes list', () => {
     const applied = byHand('lookup');
     markFixApplied(store, applied.fixId, { patch: 'none', repairId: null, goldens: [], tests: 'failed', via: 'fix apply' });
     const ci = merged();
-    makeRun(store, { calls: ['api', 'tool', 'api'], startedAt: 1_000 });
-    const newest = makeRun(store, { calls: ['api', 'tool', 'api'], startedAt: 2_000 });
+    newRun({ calls: ['api', 'tool', 'api'], startedAt: 1_000 });
+    const newest = newRun({ calls: ['api', 'tool', 'api'], startedAt: 2_000 });
     await list();
     expect(text(r!.one('.ph .eyebrow'))).toBe('this project · failures');
     expect(r!.all('.chips button').map(text)).toEqual(['All 4', 'Open 1', 'Ready to apply 1', 'Applied 2']);
@@ -292,7 +295,7 @@ describe('the Fixes list', () => {
   });
 
   it('shows the failing runs nobody has blamed alone, with no chip, while there is no fix; and the empty page with blame’s command when there is neither', async () => {
-    makeRun(store, { calls: ['api', 'tool', 'api'] });
+    newRun({ calls: ['api', 'tool', 'api'] });
     await list();
     expect(r!.all('.chips')).toEqual([]);
     expect(r!.all('.pfacts')).toEqual([]);
@@ -326,7 +329,7 @@ describe('the Fixes list', () => {
     const a = opened('send_email');
     const b = opened('escalate');
     const c = opened('lookup');
-    makeRun(store, { calls: ['api', 'tool', 'api'] });
+    newRun({ calls: ['api', 'tool', 'api'] });
     const running = { id: 'j1', kind: JOB_KINDS.repair, title: 'Repairing', fixId: a.fixId, done: false, startedAt: 1, endedAt: null, worktree: { use: 'writes', doing: 'a repair is running', folder: null } };
     const repair = (fixId: string): FixLead => ({ key: 'repair', label: 'Run repair', command: `shadowlap repair --fixes ${fixId}`, use: 'writes', repairer: null });
     const more: FixLead = { key: 'more', label: 'Run more attempts', command: 'shadowlap verify --fixes r', use: 'reads', verifyId: 'v1', max: 80, attempts: 20 };
