@@ -131,17 +131,14 @@ describe('the Overview: recordings in progress', () => {
 });
 
 describe('the Overview: what a run is about', () => {
-  it('names a failed run by its id with its about line, and a recording by its first request', () => {
+  // Needs a look's tests name a failed run by its id with its about line.
+  it('names a recording in progress by its first request', () => {
     const local = Store.open(':memory:');
     try {
       const ask = (text: string) => ({ system: 'You are a support agent.', messages: [{ role: 'user', content: text }] });
       addRun(local, { startedAt: NOW - DAY, calls: [{ code: 'l', request: ask('Ticket T-8812: order A-1042 arrived damaged. Please refund it.') }, { code: 'l', kind: 'tool' }] });
       const live = addRun(local, { startedAt: NOW - 60_000, status: 'running', calls: [{ code: 'l', request: ask('My blender arrived broken. What now?') }] });
-      const failed = addRun(local, { startedAt: NOW - 3 * HOUR, status: 'failed', meta: { labels: ['digest'] }, calls: [{ code: 'l', request: ask("Write this week's refund digest and post it to #refunds.") }] });
       const out = overviewSummary(local, { tz: TZ, now: NOW });
-      // Needs a look names a failed run by its id, and says what it was about: its label is no name.
-      // The page fits the about line to one line, then what is left to do, kept whole.
-      expect(out.needsLook.items.find((x) => x.runId === failed)).toMatchObject({ kind: 'unblamed', title: '1 failing run nobody has blamed', about: { text: "Write this week's refund digest and post it to #refunds", from: 'user' }, detail: `${failed.slice(0, 10)} · failed` });
       // A recording in progress says what it is about from its first request on, for Watch live's hover.
       expect(out.today.recording).toEqual([expect.objectContaining({ runId: live, about: { text: 'My blender arrived broken', from: 'user' } })]);
     } finally {

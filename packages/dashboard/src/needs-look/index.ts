@@ -22,22 +22,27 @@ export type { HeldGolden, LookSource, LookStep, LookWork, NeedsLook, NeedsLookRo
  */
 export const SOURCES: readonly LookSource[] = [setup, broken, failedGoldens, presetsFailed, unblamed, openFixes, ready, inconclusiveGoldens, presetsUnsure, coverage, decisions, injection, local, retire];
 
-const ids = new Set<string>();
-for (const s of SOURCES) {
-  if (ids.has(s.id)) throw new Error(`Needs a look has two sources named ${s.id}`);
-  ids.add(s.id);
-}
-
 /** Rows one source lists one by one; past them (and one more), a line stands for the rest. */
 export const LOOK_CAP = 50;
 
 const groupAt = new Map<string, number>(LOOK_GROUPS.map(([g], i) => [g, i]));
-const ORDERED = [...SOURCES].sort((a, b) => groupAt.get(a.group)! - groupAt.get(b.group)! || a.order - b.order);
+
+/** Sources in the list's order, by group, then by their order in it; two sources with one id throw, at load. */
+export function ordered(sources: readonly LookSource[]): LookSource[] {
+  const ids = new Set<string>();
+  for (const s of sources) {
+    if (ids.has(s.id)) throw new Error(`Needs a look has two sources named ${s.id}`);
+    ids.add(s.id);
+  }
+  return [...sources].sort((a, b) => groupAt.get(a.group)! - groupAt.get(b.group)! || a.order - b.order);
+}
+
+const ORDERED = ordered(SOURCES);
 
 /** Every row, by group, then by its source's order, each source's rows in its own order: past the cap, one line for the rest. */
-export function needsLook(w: LookWork): NeedsLook {
+export function needsLook(w: LookWork, sources: readonly LookSource[] = ORDERED): NeedsLook {
   const items: NeedsLookRow[] = [];
-  for (const s of ORDERED) {
+  for (const s of sources) {
     const rows = s.rows(w);
     if (rows.length <= LOOK_CAP + 1) {
       items.push(...rows);
@@ -45,7 +50,7 @@ export function needsLook(w: LookWork): NeedsLook {
     }
     const n = rows.length - LOOK_CAP;
     const first = rows[0]!;
-    const rest = s.rest ? s.rest(n, rows.slice(LOOK_CAP)) : { icon: first.icon, title: `${plural(n, 'more')} like these`, detail: '', href: first.href };
+    const rest = s.rest ? s.rest(n, rows.slice(LOOK_CAP)) : { icon: first.icon, title: `${plural(n, 'more row')} like these`, detail: '', href: first.href };
     items.push(...rows.slice(0, LOOK_CAP), { key: `attn:rest:${s.id}`, group: s.group, kind: first.kind, step: null, runId: null, fixId: null, at: rows[LOOK_CAP]!.at, more: n, ...rest });
   }
   return { items, total: items.reduce((t, x) => t + (x.more ?? 1), 0) };
