@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fixRecords, markFixApplied, recordBlame, recordRepair, recordVerdict, type BlameReport, Store } from '@shadowlap/engine';
+import { decideVerify, fixRecords, gateResult, markFixApplied, recordBlame, recordRepair, recordVerdict, type BlameReport, type SprtGate, Store } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { fixLead } from '../src/fix-lead.js';
 import { type FixActions } from '../src/fix-shared.js';
@@ -169,6 +169,36 @@ describe('the step a fix leads with', () => {
     expect(fixLead(recOf(f.fixId), actions({ repair }), { repairer: null })).toBeNull();
     recordBlame(store, { runId: f.run, report: blameReport(f.run), expect: f.expect, scope: null, command: 'shadowlap blame', title: 'send_email called twice', checkText: 'send_email called once', at: (at += DAY) });
     expect(fixLead(recOf(f.fixId), actions({ repair }), { repairer: null })).toMatchObject({ key: 'repair' });
+  });
+
+  it('leads after a repair that accepted nothing with what its newest incomplete verdict left: Run more attempts or Verify again, until the fix is blamed again', () => {
+    const gate: SprtGate = { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 };
+    // A change made by hand, verified on the fix's failing run under its check, which stopped part way with its budget of $0.012: by that budget, or at an attempt it couldn't judge.
+    const cases = [
+      { tool: 'send_email', undecided: null, key: 'more', label: 'Run more attempts' },
+      { tool: 'escalate', undecided: 'judge "sent-once" could not answer: no key for anthropic', key: 'again', label: 'Verify again' },
+    ] as const;
+    for (const c of cases) {
+      const f = opened(c.tool);
+      recordRepair(store, { repairId: `repair-${c.tool}`, dir: `.shadowlap/repairs/repair-${c.tool}`, report: repairReport({ targets: [f.run], accepted: false }), expect: f.expect, command: 'shadowlap repair', at: (at += DAY) });
+      const report = verifyReport([{ runId: f.run, role: 'target', pass: true }]);
+      report.runs[0] = { ...report.runs[0]!, passes: 4, verdict: 'open', decision: 'continue', gate: gateResult(gate, [true, true, true, true], {}), ...(c.undecided ? { undecided: c.undecided } : {}) };
+      const stopReason = c.undecided ? null : 'the budget of $0.01 is spent';
+      Object.assign(report, decideVerify(report.runs, stopReason), { gate, attemptsPerRun: gate.max, stopReason, attempts: 5, spent: 0.016 });
+      const { verdict } = recordVerdict(store, { report, expect: f.expect, command: `shadowlap verify --fixes label:${c.tool} --budget 0.012`, rerun: { flags: ['--budget', '0.012'], command: null }, at: (at += DAY) });
+      // What the fix's own Verify step offers for that verdict, and what its row leads with.
+      const more = fixDetail(store, f.fixId)!.verify[0]!.more!;
+      const lead = { key: c.key, label: c.label, command: more.command, use: 'reads', verifyId: verdict.verifyId, max: 80, attempts: 5 };
+      expect(more.kind).toBe(c.key);
+      expect(fixLead(recOf(f.fixId), actions({ repair }), { repairer: null })).toEqual(lead);
+      expect(rowOf(f.fixId).next).toEqual(lead);
+      // Run more attempts leaves out the budget that stopped it; Verify again runs as it ran.
+      expect(more.command).toMatch(/^shadowlap verify /);
+      expect(more.command.includes('--budget 0.012')).toBe(c.key === 'again');
+      // A blame since the repair: the fix goes back to Run repair.
+      recordBlame(store, { runId: f.run, report: blameReport(f.run), expect: f.expect, scope: null, command: 'shadowlap blame', title: `${c.tool} called twice`, checkText: `${c.tool} called once`, at: (at += DAY) });
+      expect(fixLead(recOf(f.fixId), actions({ repair }), { repairer: null })).toMatchObject({ key: 'repair', label: 'Run repair' });
+    }
   });
 
   it('leads a verified fix with Apply fix, Mark applied or Finish applying, and a merged, refused or applied one with nothing', () => {
