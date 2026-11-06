@@ -363,7 +363,7 @@ The job runs [`shadowlap import`](./cli.md#import) under the name of the file yo
 
 ## A run's page
 
-A run's page shows one run: its header and banners, a strip of its calls, views of the run beside an inspector for the selected call, and its labels and notes. What you can do from it is under [Actions](#actions).
+A run's page shows one run: its header and findings, a strip of its calls, views of the run beside an inspector for the selected call, and its labels and notes. What you can do from it is under [Actions](#actions).
 
 ### The header
 
@@ -422,13 +422,13 @@ The header's one lime button is the run's next step: the first of these that app
 | A recording that didn't fail, no golden made from it | **Pack as golden…** |
 | Anything else | **Replay**, as below |
 
-Every other action stays beside it, plain, and the banner doesn't offer the step again. Its hover says what it does, what it bills and the command it runs. Search or jump to lists it first under This run. While a job holds what it needs, it goes plain and says why, there too.
+Every other action stays beside it, plain, and no finding offers the step again. Its hover says what it does, what it bills and the command it runs. Search or jump to lists it first under This run. While a job holds what it needs, it goes plain and says why, there too.
 
 The lime button comes last, before **…**, which holds **Delete run**. From 1280px wide, where the buttons won't fit beside the id, the plain ones fold into **…** one at a time: Replay first, then Pack as golden…, Compare, Push and Run blame. Narrower, the buttons go under the header, the lime one first.
 
 What each step does:
 
-- **Open fix**: its hover names the fix, and the banner says how the fix stands, *fix open* or *fix verified*, where it linked it.
+- **Open fix**: its hover names the fix, and the failure's finding says how the fix stands, *fix open* or *fix verified*, where it linked it.
 - **Run blame** isn't offered on a run that made no model call, or on one that was stopped: blame needs a run that fails again as recorded. On a capture, it asks for your command first.
 - **Compare with parent** leads for a fork, and for an attempt: a blame probe's, a verify's, a `--repeat`'s, an injection test's, a model's scoring, an error-path preset's, or a golden's repeated replay in one test session, whose failure counts towards its golden's result.
 - **Update golden**: a change it was made for reads as a changed system prompt, a tool's definition or the model, which go into every request.
@@ -444,7 +444,7 @@ What each step does:
 - **Replay recording**, on a clean or a test replay, replays the recording it came from, asking for your command where that is a capture.
 - **Compare**, plain beside another step, reads **Compare with parent**, **Compare with fork** or **Compare with replay**, with the `shadowlap diff` it matches on hover. With nothing to compare yet it stays, off, and says what would make something.
 
-A fork that failed, by its check or its agent's exit, says *failed* beside its id, as any run that failed does. It keeps the banner that says how it forked, and leads with **Run blame**, or **Open fix** once a fix holds it. Until it is blamed, it counts among the failures not blamed yet.
+A fork that failed, by its check or its agent's exit, says how as its first fact, *check failed at #6* or *exited 1*, as any run that failed does. Its findings keep how it forked, and it leads with **Run blame**, or **Open fix** once a fix holds it. Until it is blamed, it counts among the failures not blamed yet.
 
 ### Where a run opens
 
@@ -463,7 +463,7 @@ A call that failed is a model call answered with an error, or a tool that threw,
 
 ### Findings
 
-Under the header, one bar holds what the run's page found: the run's own banner, what the fork did differently, what Shadowlap did not record and the run's notes. A failure comes first, in red, then what needs a look, in amber, then the rest, each in the order they come.
+Under the header, one bar holds what the run's page found: how the run forked or failed, what the fork did differently, what Shadowlap did not record and the run's notes. A failure comes first, in red, then what needs a look, in amber, then the rest, each in the order they come.
 
 The bar shows the most telling finding whole. **N findings** at its end opens the rest in place, its hover listing them while closed, and the focus stays on it. A lone finding with more to show, a note's tools or the fork's changes, has **Details** instead. The bar stays open or closed for each run until you reload.
 
@@ -496,18 +496,18 @@ A gate that settles makes fewer attempts than its limit, and the count is of the
 
 A golden's finding has **Tests →**.
 
-**A fork.** A replay an injection test, a model's scoring or an error-path preset made keeps its fork banner. A fork whose only flag is `--writes` forked where its request changed, and its banner says that.
+**A fork.** A replay an injection test, a model's scoring or an error-path preset made keeps its fork's finding. A fork whose only flag is `--writes` forked where its request changed, and its finding says that.
 
 **A test that diverged.** A test that diverged on a value made anew on every run says what the value looks like, and offers what its header doesn't lead with:
 
-- **Add normalizer and re-run**, which adds the rule and runs the golden again. Once the rule is in the config, the banner says *normalizer added* and links the replay that passed.
+- **Add normalizer and re-run**, which adds the rule and runs the golden again. Once the rule is in the config, the finding says *normalizer added* and links the replay that passed.
 - **Update golden**, which asks first, as on Tests.
 
-An id that may be a real change leads with neither: only you can tell, so **Find breaking commit…** leads, and both stay on the banner.
+An id that may be a real change leads with neither: only you can tell, so **Find breaking commit…** leads, and both stay in the finding.
 
 Sometimes the rule alone can't make the replay match: the request carries a field the recording never had, as a per-run id added since. The button then reads **Add normalizer and update**, and asks first too, in the Tests screen's dialog with both commands, since the golden is then re-recorded live after the rule. Once the rule is in, **Update golden** stays beside *normalizer added* until a replay of the golden passes.
 
-**Show diff** shows the request that changed, and the normalizer to add when the change is a date or an id. For a test that diverged, it shows the value its banner found made anew on every run, what it looks like and its normalizer. So the diff never says that no normalizer is suggested where the banner offers one.
+**Show diff** shows the request that changed, and the normalizer to add when the change is a date or an id. For a test that diverged, it shows the value its finding names as made anew on every run, what it looks like and its normalizer. So the diff never says that no normalizer is suggested where the finding offers one.
 
 ### How a run stands
 
@@ -518,7 +518,7 @@ The server works out how a run stands once, for its page and every list:
 - **A run whose agent exited with an error** reads *failed*; one that failed a check reads *check failed*.
 - **A run that stopped before it ended** (Ctrl-C, a kill, a crash, a recorder that went away) reads *interrupted* in grey after what it is (*recording · interrupted*, *fork @3 · interrupted*), ended at its last call. It stopped; it did not fail.
 
-An interrupted run's page says so in a banner: a fork's banner says how it forked, and its header that it stopped. Open while it recorded, the page ends on *Recording interrupted*. Runs, the sidebar, the Forks view (a `--repeat`'s attempts too), Provenance's lineage, the Overview and the activity feed say *interrupted* too.
+An interrupted run's page says so: a fork's finding says how it forked, and its first fact says *interrupted*. Open while it recorded, the page ends on *Recording interrupted*. Runs, the sidebar, the Forks view (a `--repeat`'s attempts too), Provenance's lineage, the Overview and the activity feed say *interrupted* too.
 
 ### Judged by checks
 
@@ -552,7 +552,7 @@ An [exported copy](./cli.md#export-html) holds each run's own verdict and a capt
 
 ### What a fork did differently
 
-Under a fork's banner, from the call it left its parent at on, the page lists what changed.
+What a fork did differently is a finding in the bar, under **N findings** when another leads. From the call it left its parent at on, it lists what changed.
 
 **Its decisions** come first: the tool calls it made that its parent didn't and the other way round, those it made with other arguments, and how each run ended and its last words. Each shows the call it was in, in either run. They are ranked as [`decisions`](./decisions.md) ranks a changed decision:
 
@@ -570,7 +570,7 @@ An exported copy holds this list when the file holds the fork's parent too (`exp
 
 ### What Shadowlap did not record
 
-Under the banner, a line each, the most pressing first:
+What Shadowlap did not record is a finding in the bar, under **N findings** when another leads: a line each, the most pressing first.
 
 1. **Unrecorded tools**: the tools the model called whose calls the run never recorded.
 2. **No preload**: a run whose agent loaded no Shadowlap preload, so the network guard never watched it.
@@ -2287,7 +2287,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `migrate { to, goldens?, runs?, from?, scope?, set? }` | A migration, every golden unless some are named |
 | `normalize-and-test { golden \| runId, path?, yes? }` | A normalizer for each value made anew on every run, then `test` on the golden |
 | `override { runId, callNo, uploadId, yes? }` | Edit and fork: `replay --override` of a tool's result or a person's answer, from an upload checked as untrusted data |
-| `pack-test { golden? }` | Pack, then test; the test alone once packed |
+| `pack-test { runId?, golden?, yes? }` | Pack, then test: with `runId`, any ended run into `golden` (Pack as golden…), `yes` answering a recording from elsewhere; without, the test alone once packed |
 | `pairs { format?, minConfidence? }` | Export pairs, written to `.shadowlap/exports/pairs.jsonl` |
 | `push { runIds }`, `pull` | Push runs to the team store, or `{ all: true }`; pull from it |
 | `repair { fixId, repairer?, yes? }` | An open fix, from its failing and good runs, by the repairer its confirm dialog named |
