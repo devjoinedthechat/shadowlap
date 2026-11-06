@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import type * as fs from 'node:fs';
-import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -16,9 +16,10 @@ import { CHECKS_SEEN_FILE, keepSeenChecks, seenChecks, type SeenChecks } from '.
  * dashboard with other files' now and then.
  */
 
-// Each read of a file goes as it would, but the next one armed here fails once with its code: as a
-// process out of file handles fails it (EMFILE). One armed with a path fails the next call on that
-// path; one without, the next call.
+// Each read, open, flush and rename of a file goes as it would, but the next one armed here fails
+// once with its code: as a process out of file handles fails it (EMFILE), a disk that drops a write
+// (EIO), or Windows refusing to replace a file another program has open (EPERM). One armed with a
+// path fails the next call on that path; one without, the next call.
 const failing: Array<{ call: string; path?: string; code: string }> = [];
 vi.mock('node:fs', async (importOriginal) => {
   const real = await importOriginal<typeof import('node:fs')>();
@@ -34,6 +35,18 @@ vi.mock('node:fs', async (importOriginal) => {
       fail('readFileSync', path);
       return real.readFileSync(path, options);
     }) as typeof real.readFileSync,
+    openSync: ((path: fs.PathLike, flags: fs.OpenMode, mode?: fs.Mode | null) => {
+      fail('openSync', path);
+      return real.openSync(path, flags, mode);
+    }) as typeof real.openSync,
+    fsyncSync: (fd: number) => {
+      fail('fsyncSync', fd);
+      real.fsyncSync(fd);
+    },
+    renameSync: (from: fs.PathLike, to: fs.PathLike) => {
+      fail('renameSync', to);
+      real.renameSync(from, to);
+    },
   };
 });
 afterEach(() => {
@@ -150,6 +163,31 @@ describe('the checks seen, kept by every dashboard on this machine in one file',
     // The next request's write.
     expect(keepSeenChecks('/work/c', seen('k3'), env)).toBe(true);
     expect(kept(env)).toEqual({ ...before, '/work/c': { 'goldens/refund': { key: 'k3', at: null } } });
+  });
+
+  it('leaves a write that failed to a later call, from making the lock to replacing the file, and nothing beside the file', () => {
+    const env = home();
+    keepSeenChecks('/work/a', seen('k1', T), env);
+    const before = kept(env);
+    const fails = [
+      // Out of file handles as the lock is made.
+      { call: 'openSync', code: 'EMFILE' },
+      // A disk that drops the write.
+      { call: 'fsyncSync', code: 'EIO' },
+      // Windows refusing to replace a file another program has open, in a folder that can be written.
+      { call: 'renameSync', path: fileIn(env), code: 'EPERM' },
+    ];
+    for (const fail of fails) {
+      failing.push(fail);
+      expect(keepSeenChecks('/work/b', seen('k2', T + 1), env)).toBe(false);
+      expect(failing).toEqual([]);
+      expect(kept(env)).toEqual(before);
+      expect(readdirSync(env.SHADOWLAP_HOME!)).toEqual([CHECKS_SEEN_FILE]);
+      // Not kept in this process alone, where no other dashboard would see it.
+      expect(seenChecks('/work/b', env).size).toBe(0);
+    }
+    expect(keepSeenChecks('/work/b', seen('k2', T + 1), env)).toBe(true);
+    expect(kept(env)).toEqual({ ...before, '/work/b': { 'goldens/refund': { key: 'k2', at: T + 1 } } });
   });
 
   it("never writes over a newer Shadowlap's file, keeping what it saw for as long as it runs", () => {

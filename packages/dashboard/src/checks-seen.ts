@@ -14,10 +14,10 @@ import { FileLockBusyError, isObject, shadowlapHome, withFileLock, writeFileAtom
  * project's entry alone, in the file as read afresh under its lock (the engine's, as Spending's and
  * the project list's), and replaces the file in one step; and the file is read again once it has
  * changed. A write never waits, and never writes over what it couldn't read: while another process
- * holds the lock, or while the file can't be read, it is skipped, and the next request makes it
- * (outcome-work.ts). A file that is no JSON is as none, and one a newer Shadowlap wrote is read as
- * none and never written over; where the folder can't be written, the times are kept for as long as
- * the process runs.
+ * holds the lock, while the file can't be read, or when the write fails, it is skipped, and the next
+ * request makes it (outcome-work.ts). A file that is no JSON is as none, and one a newer Shadowlap
+ * wrote is read as none and never written over; where the folder can't be written, the times are
+ * kept for as long as the process runs.
  */
 
 export const CHECKS_SEEN_FILE = 'checks-seen.json';
@@ -122,16 +122,26 @@ function writeEntry(file: string, dir: string, entry: Map<string, SeenChecks>): 
   projects.delete(dir);
   projects.set(dir, entry);
   while (projects.size > PROJECTS) projects.delete(projects.keys().next().value!);
-  writeFileAtomic(file, text(projects));
+  try {
+    writeFileAtomic(file, text(projects));
+  } catch {
+    // The lock was made in the folder, so it can be written: a write that fails there (a full disk, or
+    // Windows refusing to replace a file another program has open, which it says with EPERM) is made
+    // again by a later call.
+    return 'later';
+  }
   return 'written';
 }
+
+/** What making the lock says when the folder can't be written: kept in this process, as no later call writes it either. */
+const UNWRITABLE = new Set(['EACCES', 'EPERM', 'EROFS', 'ENOTDIR', 'EEXIST']);
 
 /**
  * Keeps each golden's checks as seen now in the project, the goldens no longer there left out: the
  * project's entry alone, written into the file as it is then. False when nothing was written, for a
- * later call to write it: another process held the file, or it couldn't be read. Where it can't be
- * written, in a folder that can't be or over a newer Shadowlap's file, the entry is kept for as long
- * as this process runs.
+ * later call to write it: another process held the file, it couldn't be read, or the write failed.
+ * Where it can't be written at all, in a folder that can't be or over a newer Shadowlap's file, the
+ * entry is kept for as long as this process runs.
  */
 export function keepSeenChecks(dir: string, seen: ReadonlyMap<string, SeenChecks>, env: NodeJS.ProcessEnv = process.env): boolean {
   const file = fileOf(env);
@@ -141,8 +151,8 @@ export function keepSeenChecks(dir: string, seen: ReadonlyMap<string, SeenChecks
     // Tried once: a request never waits for another process's write.
     kept = withFileLock(file, 0, () => writeEntry(file, dir, entry));
   } catch (err) {
-    if (err instanceof FileLockBusyError) return false;
-    // a folder that can't be written
+    // Another process writing it, or a lock that couldn't be made just then (out of file handles).
+    if (err instanceof FileLockBusyError || !UNWRITABLE.has(codeOf(err))) return false;
     kept = 'never';
   }
   if (kept === 'later') return false;
