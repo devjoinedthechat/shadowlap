@@ -204,3 +204,36 @@ describe('a run’s views but Calls', () => {
     expect(r!.one('.vbody').childNodes.length, 'turns draws').toBeGreaterThan(0);
   });
 });
+
+describe('the strip’s key and Filter calls, from another view', () => {
+  const callsShown = () => tablist().querySelectorAll('[role="tab"]')[0].getAttribute('aria-selected') === 'true';
+  const rows = () => r!.all('table.calls tbody tr[data-wi]').map((tr) => Number(tr.querySelector('td.n')!.childNodes.at(-1)!.textContent));
+
+  it('show Calls, where the calls they keep are listed: a kind picked in the key, or a word typed', async () => {
+    const m = await fresh();
+    const bar = await open(m);
+    const timeline = async () => {
+      await r!.click(viewTabs()[VIEWS.indexOf('timeline') - 1]);
+      expect(bar.hash).toBe(`#/run/${RUN}/2/timeline`);
+      expect(callsShown()).toBe(false);
+    };
+    await timeline();
+    // all keeps the view: it filters nothing.
+    await r!.click(r!.byText('.lfilter button', 'all 4'));
+    expect(bar.hash).toBe(`#/run/${RUN}/2/timeline`);
+    const model = r!.one('.lfilter button[data-of="k-model"]');
+    expect(model.textContent).toBe('model calls 2');
+    await r!.click(model);
+    expect(bar.hash).toBe(`#/run/${RUN}/2`);
+    expect(callsShown()).toBe(true);
+    expect(model.getAttribute('aria-pressed')).toBe('true');
+    await r!.until('the model calls alone', () => rows().join() === '2,4');
+    await r!.click(r!.byText('.lfilter button', 'all 4'));
+    await timeline();
+    const field = r!.one('.strip .filter-in input[type="search"]');
+    await r!.type(field, 'lookup');
+    expect(callsShown()).toBe(true);
+    expect(field.value).toBe('lookup');
+    await r!.until('the calls that name it', () => rows().includes(3) && !rows().includes(1));
+  });
+});
