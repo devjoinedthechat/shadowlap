@@ -41,7 +41,7 @@ export function ComparePage({ a, b }: { a: string | null; b: string | null }) {
   if (runs !== null && listed.length < 2)
     return (
       <Page>
-        <CompareHead />
+        <CompareTop />
         <section className="panel stepempty">
           <h3>Compare needs two runs</h3>
           <p>Replay or fork the run you have, and compare the two call by call.</p>
@@ -52,7 +52,7 @@ export function ComparePage({ a, b }: { a: string | null; b: string | null }) {
   if (!a || !b)
     return (
       <Page>
-        <CompareHead />
+        <CompareTop />
       </Page>
     );
   // Not keyed on the pair: another run picked keeps the pickers, and the focus on the one used,
@@ -61,7 +61,7 @@ export function ComparePage({ a, b }: { a: string | null; b: string | null }) {
 }
 
 /** Compare's head: Changes', with its tabs, or an exported copy's own; then the pickers, when given, on a row under it. */
-function CompareHead({ pickers = null }: { pickers?: ReactNode }) {
+function CompareTop({ pickers = null }: { pickers?: ReactNode }) {
   const { exported } = useApp();
   return (
     <>
@@ -122,7 +122,7 @@ function OneRun({ id }: { id: string }) {
   if (run.error)
     return (
       <Page>
-        <CompareHead />
+        <CompareTop />
         <section className="panel stepempty">
           <h3>{ambiguous(run.error) ? 'More than one run' : notHeld(run.error) ? `Not in ${where}` : 'Could not load the run'}</h3>
           <p>
@@ -152,14 +152,14 @@ function OneRun({ id }: { id: string }) {
   if (!run.data || mate)
     return (
       <Page>
-        <CompareHead />
+        <CompareTop />
         {run.data ? null : <div className="empty">Comparing…</div>}
       </Page>
     );
   const r = run.data;
   return (
     <Page>
-      <CompareHead />
+      <CompareTop />
       <section className="panel stepempty">
         <h3>Nothing to compare yet</h3>
         <p>
@@ -197,7 +197,7 @@ function Comparison({ a, b, runs }: { a: string; b: string; runs: RunListItem[] 
   const rb = useLoad(() => client.run(b), b, refresh);
   useNotePair(ra, rb);
   const hub = exported ? (meta?.compareWith ?? null) : null;
-  const header = <CompareHead pickers={<Pickers a={a} b={b} runs={runs} hub={hub} />} />;
+  const header = <CompareTop pickers={<Pickers a={a} b={b} runs={runs} hub={hub} />} />;
   // The same id twice names the same run, unless it names none: then that is what the page says.
   const unnamed = (err: Error | null | undefined) => notHeld(err) || ambiguous(err);
   if ((same && !unnamed(ra.error)) || (ra.data && rb.data && ra.data.run.runId === rb.data.run.runId))
