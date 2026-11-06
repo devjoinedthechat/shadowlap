@@ -4,12 +4,13 @@ import { useMemo, useSyncExternalStore } from 'react';
  * Runs deleted from Runs' bulk bar, waiting out their toast. Until the toast goes they are gone from
  * Runs' table and its counts, the nav, the status bar, the sidebar and the palette, but still in the
  * store, so Undo needs nothing put back: it only takes them off the list (`cancel`). The days over
- * the table and the other pages keep them until the delete lands and they are read again. The toast going sends the delete (`sendNow`). Leaving the page, or another project,
- * sends what waits first (`flush`), with keepalive as the page goes, so a request the page can't see
- * out still lands; a crash leaves the runs, the safe side. Once the server answers, the runs it
- * deleted stay off the lists until those are read again, and the counts the server gave before stop
- * taking them only once they are read again too (`useStillCounted`). No DOM here but the window's
- * pagehide: the tests import it.
+ * the table and the other pages keep them until the delete lands and they are read again. The toast
+ * going sends the delete (`sendNow`). Leaving the page, or another project, sends what waits first
+ * (`flush`), with keepalive as the page goes, so a request the page can't see out still lands; a
+ * crash leaves the runs, the safe side. Once the server answers, the runs it deleted stay off the
+ * lists until those are read again, and the counts the server gave before stop taking them only
+ * once they are read again too (`useStillCounted`). No DOM here but the window's pagehide: the
+ * tests import it.
  */
 
 /** A run a delete waits to take: the counts it takes from while it waits. */
