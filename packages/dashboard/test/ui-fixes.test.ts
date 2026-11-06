@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applySteps, markLead, updateOutdatedAsk } from '../ui/fixes/dialog-words.js';
-import { appliedButton, attemptMark, blameNextStep, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, keepAt, laterStamp, mergeTreeJobs, moreLine, nothingAcceptedWhy, otherBlameWords, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, probeVerdictWords, repairAside, repairAsk, repairBy, repairReceipt, roleBadges, sameFolder, statusBadge, stepFor, stepLeads, treeBusy, verdictTone, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
+import { appliedButton, attemptMark, blameNextStep, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, keepAt, laterStamp, mergeTreeJobs, moreLine, nothingAcceptedWhy, otherBlameWords, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, probeVerdictWords, repairAside, repairAsk, repairBy, repairReceipt, roleBadges, sameFolder, stepFor, leadingVerdict, treeBusy, verdictTone, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '../ui/types.js';
 
@@ -17,13 +17,6 @@ describe('the list', () => {
     expect((['open', 'ready', 'applied'] as const).filter((bucket) => chipKeeps('ready', { bucket }))).toEqual(['ready']);
     expect((['open', 'ready', 'applied'] as const).filter((bucket) => chipKeeps('applied', { bucket }))).toEqual(['applied']);
     expect((['open', 'ready', 'applied'] as const).filter((bucket) => chipKeeps('all', { bucket }))).toEqual(['open', 'ready', 'applied']);
-  });
-
-  it('badges a fix by its status, and an applied one that doesn’t hold as broken', () => {
-    expect(statusBadge({ status: 'open', broken: null })).toEqual({ tone: 'y', text: 'open' });
-    expect(statusBadge({ status: 'verified', broken: null })).toEqual({ tone: 'ok', text: 'verified' });
-    expect(statusBadge({ status: 'applied', broken: null })).toEqual({ tone: 'ok', text: 'applied' });
-    expect(statusBadge({ status: 'applied', broken: 'shadowlap test failed on its goldens' })).toEqual({ tone: 'no', text: 'broken' });
   });
 
   it('says what the failing runs did and what they must do, labelled, and what failed only when the title doesn’t say it', () => {
@@ -104,13 +97,13 @@ describe('a fix', () => {
   });
 
   it('says a fix with no patch was marked applied, naming the change its agent makes, never that a patch went in', () => {
-    expect(appliedButton({ kind: 'patch', pulled: false, change: null })).toEqual({ label: 'Patch applied', title: 'The patch is in the working tree and its goldens pass' });
-    expect(appliedButton({ kind: 'patch', pulled: true, change: null }).title).toBe('The patch is in the working tree; its goldens are on the machine that ran the repair');
-    const field = appliedButton({ kind: 'mark', pulled: false, change: "temperature=1 from each run's first model call" });
+    // A patch has no such button: the header offers Show patch, whose card says where the patch is (test/ui-fix-head.test.ts).
+    expect(appliedButton({ kind: 'patch', change: null })).toBeNull();
+    const field = appliedButton({ kind: 'mark', change: "temperature=1 from each run's first model call" });
     expect(field).toEqual({ label: 'Marked applied', title: "Verified with temperature=1 from each run's first model call, a change to the requests that your agent makes, not to your files" });
-    const tree = appliedButton({ kind: 'mark', pulled: false, change: null });
+    const tree = appliedButton({ kind: 'mark', change: null });
     expect(tree).toEqual({ label: 'Marked applied', title: 'Verified on your working tree as it was, and marked applied' });
-    for (const b of [field, tree]) expect(b.title).not.toMatch(/patch/);
+    for (const b of [field, tree]) expect(b?.title).not.toMatch(/patch/);
   });
 
   it('asks before applying with every file the patch changes and the patch itself, and runs nothing from a teammate’s', () => {
@@ -361,12 +354,13 @@ describe('the Verify step', () => {
     const more = { kind: 'more', run: { runId: 'R', state: 'stopped', why: null, attempt: null }, max: 80, expected: 12, cost: null, budget: null, argv: [], command: '' };
     const v = (o: Partial<VerifyStep>) => ({ verifyId: 'vf-1', counts: true, verdict: 'incomplete', more, ...o }) as VerifyStep;
     const f = (verify: VerifyStep[]) => ({ defaultStep: 'blame' as const, verify, defaultVerify: verify[0]?.verifyId ?? null });
-    expect(stepLeads(f([v({})]), 'verify', null)).toBe(true);
-    expect(stepLeads(f([v({})]), null, null)).toBe(false);
-    expect(stepLeads(f([v({})]), 'blame', null)).toBe(false);
-    expect(stepLeads(f([v({ more: null })]), 'verify', null)).toBe(false);
-    expect(stepLeads(f([v({ counts: false })]), 'verify', null)).toBe(false);
-    expect(stepLeads(f([v({ verdict: 'accepted' })]), 'verify', null)).toBe(false);
+    const shown = v({});
+    expect(leadingVerdict(f([shown]), 'verify', null)).toBe(shown);
+    expect(leadingVerdict(f([v({})]), null, null)).toBeNull();
+    expect(leadingVerdict(f([v({})]), 'blame', null)).toBeNull();
+    expect(leadingVerdict(f([v({ more: null })]), 'verify', null)).toBeNull();
+    expect(leadingVerdict(f([v({ counts: false })]), 'verify', null)).toBeNull();
+    expect(leadingVerdict(f([v({ verdict: 'accepted' })]), 'verify', null)).toBeNull();
   });
 
   it('leads an open fix with its blame’s next step while blame placed the failure on no call', () => {

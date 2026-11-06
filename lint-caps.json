@@ -200,9 +200,6 @@
     "packages/dashboard/ui/compare/model.ts": {
       "changeCards": 33
     },
-    "packages/dashboard/ui/fixes/FixPage.tsx": {
-      "FixActions": 34
-    },
     "packages/dashboard/ui/fixes/model.ts": {
       "fixJobStatus": 37
     },

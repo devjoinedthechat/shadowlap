@@ -121,15 +121,18 @@ table.probes tr.hot td { background: var(--sel); }
 .stepper { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 22px; border-bottom: 1px solid var(--line); }
 .stepper a { position: relative; display: block; padding: 4px 18px 16px 0; text-decoration: none; }
 .stepper a + a { padding-left: 18px; border-left: 1px solid var(--line); }
-.stepper .k { display: flex; align-items: center; gap: 8px; font: 500 10.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+.stepper .k { display: flex; align-items: center; gap: 8px; font: 500 12.5px var(--body); letter-spacing: 0; text-transform: none; color: var(--faint); }
 .stepper .k i { width: 9px; height: 9px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line2); }
 .stepper .done .k i { background: var(--dim); box-shadow: none; }
+.stepper .done.s-verify .k i { background: var(--cq-lime); }
 .stepper .no .k i { background: var(--err); box-shadow: none; }
 .stepper .warn .k i { background: var(--cq-amber); box-shadow: none; }
-.stepper b { display: block; margin-top: 8px; font: 600 15px/1.3 var(--disp); letter-spacing: -.02em; color: var(--ink); }
+/* a step a job of the fix runs: its dot pulses */
+.stepper .busy .k i { box-shadow: inset 0 0 0 1.5px var(--ink); animation: pulse 1.6s infinite; }
+.stepper b { display: block; margin-top: 6px; font: 600 15px/1.35 var(--body); letter-spacing: -.01em; color: var(--ink); }
 .stepper .todo b { color: var(--faint); }
 .stepper .m { display: block; margin-top: 4px; color: var(--faint); font-size: 12.5px; }
-.stepper a:hover b { color: var(--ink); }
+.stepper a:hover .k, .stepper a:hover b { color: var(--ink); }
 .stepper a[aria-current="step"]::after { content: ""; position: absolute; left: 0; right: 18px; bottom: -1px; height: 2px; background: var(--ink); }
 .stepper a + a[aria-current="step"]::after { left: 18px; }
 
@@ -264,6 +267,23 @@ table.t td.fxwhere { color: var(--faint); }
   .callrow .cn:focus-visible { outline-color: Highlight; }
   /* a step's dot keeps its colour, edged in the text colour; one not started is the edge alone */
   .psk i, .psk.done i, .psk.no i, .psk.warn i, .stepper .k i, .stepper .done .k i, .stepper .no .k i, .stepper .warn .k i { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText; }
-  .psk.busy i { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText, inset 0 0 0 2.5px Highlight; }
+  .psk.busy i, .stepper .busy .k i { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText, inset 0 0 0 2.5px Highlight; }
   .stepper a[aria-current="step"]::after { background: CanvasText; }
 }
+/* A fix's header: the title, a sentence, in the UI face; beside it the buttons, the title keeping 520px. At 1280px and below
+   it always stacks (the title and its lines across the page, then the buttons, the lime one first); wider, where the buttons
+   would leave the title less than 520px (head.tsx useFitFixHead). The lime one goes first on the screen only: Tab follows the page. */
+.ph.fxh { flex-wrap: nowrap; }
+.ph.fxh h1 { font: 600 24px/1.25 var(--body); letter-spacing: -.015em; }
+.ph.fxh > div:first-child { flex: 1 1 520px; min-width: 0; }
+.ph.fxh .actions { flex: none; flex-wrap: nowrap; }
+@media (max-width: 1280px) {
+  .ph.fxh { flex-direction: column; flex-wrap: wrap; align-items: flex-start; row-gap: 14px; }
+  .ph.fxh > div:first-child { flex: none; width: 100%; }
+  .ph.fxh .actions { flex-wrap: wrap; margin-left: 0; justify-content: flex-start; }
+  .ph.fxh .actions .btn.lime { order: -1; }
+}
+.ph.fxh.stack { flex-direction: column; flex-wrap: wrap; align-items: flex-start; row-gap: 14px; }
+.ph.fxh.stack > div:first-child { flex: none; width: 100%; }
+.ph.fxh.stack .actions { flex-wrap: wrap; margin-left: 0; justify-content: flex-start; }
+.ph.fxh.stack .actions .btn.lime { order: -1; }

@@ -32,13 +32,6 @@ export function chipKeeps(chip: FixChip, f: { bucket: FixChip }): boolean {
   return chip === 'all' || f.bucket === chip;
 }
 
-/** The status badge: open in amber, verified and applied in lime, an applied fix that doesn't hold in red. */
-export function statusBadge(f: Pick<FixRow, 'status' | 'broken'>): { tone: 'y' | 'ok' | 'no'; text: string } {
-  if (f.status === 'open') return { tone: 'y', text: 'open' };
-  if (f.status === 'applied' && f.broken) return { tone: 'no', text: 'broken' };
-  return { tone: 'ok', text: f.status };
-}
-
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
@@ -114,14 +107,15 @@ export function verifyFor(f: Pick<FixDetail, 'verify' | 'defaultVerify'>, sub: s
 }
 
 /**
- * Whether the step open on a fix's page leads with its own next step, as the design's fixActions()
- * reads it: the Verify step, showing a verdict that counts for the fix left incomplete, with what
- * settles it (Run more attempts, Verify again). The header's buttons read plain while it does.
+ * The verdict the step open on a fix's page leads with, as the design's fixActions() reads it: on the
+ * Verify step, the verdict it shows when that counts for the fix and was left incomplete, with what
+ * settles it (Run more attempts, Verify again); else null. The header draws its step as the lime
+ * button, rightmost, and its own plain.
  */
-export function stepLeads(f: Pick<FixDetail, 'defaultStep' | 'verify' | 'defaultVerify'>, step: string | null, sub: string | null): boolean {
-  if (stepFor(f, step) !== 'verify') return false;
+export function leadingVerdict(f: Pick<FixDetail, 'defaultStep' | 'verify' | 'defaultVerify'>, step: string | null, sub: string | null): VerifyStep | null {
+  if (stepFor(f, step) !== 'verify') return null;
   const v = verifyFor(f, sub);
-  return !!v && v.counts && v.verdict === 'incomplete' && !!v.more;
+  return v && v.counts && v.verdict === 'incomplete' && v.more ? v : null;
 }
 
 /** Run blame again's card, on the fix's header and its Fixes row alike. */
@@ -178,14 +172,14 @@ export function fixAction(f: Pick<FixDetail, 'status' | 'actions'>): FixAction {
 }
 
 /**
- * The plain button an applied fix shows in place of its action, and its hover. A fix applied with a
- * patch reads "Patch applied"; one with no patch was only marked applied, so it reads "Marked
- * applied", and its hover names the change of request fields it was verified with, which the agent
- * makes, or says it was verified on the working tree as it was: never "the patch", which it hasn't got.
+ * The plain button an applied fix with no patch shows in place of its action, and its hover: it was
+ * only marked applied, so it reads "Marked applied", and its hover names the change of request fields
+ * it was verified with, which the agent makes, or says it was verified on the working tree as it was:
+ * never "the patch", which it hasn't got. None for a patch, which Show patch offers to read.
  */
-export function appliedButton(apply: Pick<NonNullable<FixDetail['actions']['apply']>, 'kind' | 'pulled' | 'change'> | null): { label: 'Patch applied' | 'Marked applied'; title: string } {
-  if (apply?.kind === 'mark') return { label: 'Marked applied', title: apply.change ? `Verified with ${apply.change}, a change to the requests that your agent makes, not to your files` : 'Verified on your working tree as it was, and marked applied' };
-  return { label: 'Patch applied', title: apply?.pulled ? 'The patch is in the working tree; its goldens are on the machine that ran the repair' : 'The patch is in the working tree and its goldens pass' };
+export function appliedButton(apply: Pick<NonNullable<FixDetail['actions']['apply']>, 'kind' | 'change'> | null): { label: 'Marked applied'; title: string } | null {
+  if (apply?.kind !== 'mark') return null;
+  return { label: 'Marked applied', title: apply.change ? `Verified with ${apply.change}, a change to the requests that your agent makes, not to your files` : 'Verified on your working tree as it was, and marked applied' };
 }
 
 /** A patch's lines as the dialog shows them, each line a hunk adds or removes marked; the headers are neither. */

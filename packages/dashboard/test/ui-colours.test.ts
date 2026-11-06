@@ -248,6 +248,7 @@ describe('lime', () => {
     '.glyph.fixok': 'a fix that was accepted',
     '.psk.done.s-verify': 'a fix’s Verify step that passed, on its Fixes row',
     '.psk.done.s-verify i': 'a fix’s Verify step that passed, on its Fixes row',
+    '.stepper .done.s-verify .k i': 'a fix’s Verify step that passed, its dot in the stepper of the fix’s page',
     '.plist.checks li.met::before': 'a requirement met',
   };
   /** Lime the design rules out that only a later slice's markup can take away, each with the slice that does. */

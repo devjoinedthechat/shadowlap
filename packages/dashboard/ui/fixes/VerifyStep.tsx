@@ -1,5 +1,4 @@
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
-import { JOB_KINDS } from '../api.js';
 import { AskNote } from '../components/AskNote.js';
 import { Badge, CmdLine, EmptyState, Pips } from '../components/bits.js';
 import { ConfirmDialog } from '../components/Dialog.js';
@@ -13,8 +12,6 @@ import type { VerifiedRunGroups } from '../../src/attempt-groups.js';
 import { runOutcomeWord, verdictWord } from '../../../engine/src/verdict-words.js';
 import { ACTIONS } from '../labels.js';
 import { AttemptGroups, useAttemptGroups } from './AttemptGroups.js';
-import { useFixEstimates, verifyPrice } from './estimates.js';
-import { FixJobButton } from './FixJobButton.js';
 import { keepAt, moreLine, outcomeTone, tokens, verdictTone, verifyFor } from './model.js';
 
 /**
@@ -22,13 +19,12 @@ import { keepAt, moreLine, outcomeTone, tokens, verdictTone, verifyFor } from '.
  * named by what changed), its verdict and oracle, each run's role and outcome, what the change does
  * to tokens and cost per run, and what finding out took. It opens on the newest verdict that counts
  * for the fix; one that doesn't is drawn plain, headed with why, and marked so in the switch. A
- * verdict left incomplete is amber, as inconclusive is everywhere, and leads with what settles it:
- * Run more attempts, or Verify again, the line under it saying what that takes.
+ * verdict left incomplete is amber, as inconclusive is everywhere, and the page leads with what
+ * settles it (Run more attempts, or Verify again: the header's lime button), the line under it
+ * saying what that takes.
  */
 export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | null }) {
   const groups = useAttemptGroups(fix.fixId);
-  // What Run more attempts or Verify again would cost: the fix's estimates, one read with its header's.
-  const prices = useFixEstimates(fix);
   const v = verifyFor(fix, sub);
   if (!v)
     return (
@@ -50,7 +46,7 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
           ))}
         </div>
       ) : null}
-      <Verdict v={v} fixId={fix.fixId} estimate={verifyPrice(prices, v.verifyId)} />
+      <Verdict v={v} />
       {/* What the lead step will do, in one line; the run's row and the drawer say the rest. */}
       {lead(v) ? (
         <p className="fxreceipt vmore">
@@ -151,11 +147,11 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
 /** Whether a verdict leads with what settles it: one that counts for the fix, left incomplete, that the page can settle. */
 const lead = (v: VerifyStep): boolean => v.counts && v.verdict === 'incomplete' && !!v.more;
 
-function Verdict({ v, fixId, estimate }: { v: VerifyStep; fixId: string; estimate: Estimate | null | undefined }) {
+/** The verdict, its word and headline over its command and what it checked; what settles one left incomplete is the header's lime button (FixPage.tsx `FixActions`). */
+function Verdict({ v }: { v: VerifyStep }) {
   const { toast } = useApp();
   // One that doesn't count for the fix is no verdict on it: plain, whatever it said of its own check.
   const tone = v.counts ? verdictTone(v.verdict) : 'n';
-  const more = lead(v) ? v.more! : null;
   return (
     <div className={`verdict ${tone}`}>
       <Badge tone={tone === 'warn' ? 'y' : tone}>{verdictWord(v.verdict)}</Badge>
@@ -170,20 +166,6 @@ function Verdict({ v, fixId, estimate }: { v: VerifyStep; fixId: string; estimat
         {v.note ? <p className="fxbad">{v.note}</p> : null}
       </div>
       <div className="actions">
-        {more ? (
-          <FixJobButton
-            kind={JOB_KINDS.verify}
-            fields={{ fixId, verifyId: v.verifyId }}
-            label={more.kind === 'more' ? ACTIONS.runMoreAttempts.label : ACTIONS.verifyAgain.label}
-            verb={more.kind === 'more' ? 'run more attempts' : 'verify again'}
-            lead
-            className="btn sm"
-            tip={verifyTip(more)}
-            command={more.command}
-            estimate={estimate}
-            ask={(start, close) => <VerifyAsk more={more} attempts={v.attempts} estimate={estimate} onRun={() => start({})} onClose={close} />}
-          />
-        ) : null}
         <button className="btn sm" type="button" onClick={() => void copyText(v.command).then((ok) => toast(ok ? 'Copied the command' : 'Copying was refused by the browser'))}>
           Copy command
         </button>

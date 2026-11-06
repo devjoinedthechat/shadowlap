@@ -423,7 +423,8 @@ describe('Apply fix', () => {
     const fixId = verified();
     markFixApplied(store, fixId, { patch: 'applied', repairId: 'repair-munzln2i', goldens: ['goldens/01M3RZ0001'], tests: 'passed', via: 'fix apply' });
     await open(fixId);
-    expect(buttons()).toEqual(['Show patch', 'Patch applied']);
+    // The status says applied: no Patch applied beside it.
+    expect(buttons()).toEqual(['Show patch']);
     await r!.click(r!.byText('.ph .actions button', 'Show patch'));
     expect(text(r!.one('.dialog h3'))).toBe('Show patch');
     expect(text(r!.one('.dialog header p'))).toContain('The fix as repair handed it over, in your working tree since you applied it.');
@@ -506,7 +507,7 @@ describe('the Verify step', () => {
 });
 
 describe('what settles a fix left unsettled', () => {
-  it('leads the Verify step of a verdict a budget stopped with Run more attempts, its header plain, and says what that takes', async () => {
+  it('leads the Verify step of a verdict a budget stopped with Run more attempts, the header’s lime button, rightmost, its others plain, and says what that takes', async () => {
     const run = newRun({ labels: ['double-email'] });
     const { fix } = blame(run);
     const gate = { kind: 'sprt' as const, good: 0.9, bad: 0.7, risk: 0.05, max: 80 };
@@ -517,8 +518,11 @@ describe('what settles a fix left unsettled', () => {
     const { verdict } = recordVerdict(store, { report, expect: EXPECT, command: `shadowlap verify --fixes label:double-email --expect '${JSON.stringify(EXPECT)}' --set temperature=1 --budget 0.012`, rerun: { flags: ['--budget', '0.012'], command: null }, at: NOW + 1 });
     const started: Array<[string, unknown]> = [];
     await open(fix.fixId, 'verify', null, { started });
-    const more = r!.byText('.verdict .actions button', 'Run more attempts');
-    expect(more.className).toBe('btn sm lime');
+    // The step's own next step is the header's lime button, rightmost; the verdict line has none.
+    const more = r!.byText('.ph .actions button', 'Run more attempts');
+    expect(more.className).toBe('btn lime');
+    expect(r!.all('.ph .actions button').map(text)).toEqual(['Run repair', 'Run more attempts']);
+    expect(r!.all('.verdict .actions button').map(text)).toEqual(['Copy command']);
     expect(JSON.parse(String(more.props['data-tip']))).toMatchObject({ t: 'Verifies the change again from the start, up to 80 attempts a run', cmd: `$ shadowlap verify --fixes ${run} --expect '${JSON.stringify(EXPECT)}' --set temperature=1` });
     // The header's Run repair reads plain while the step leads.
     expect(r!.byText('.ph .actions button', 'Run repair').className).toBe('btn');
@@ -538,7 +542,7 @@ describe('what settles a fix left unsettled', () => {
     started.length = 0;
     await open(fix.fixId, 'verify', null, { started, estimates: { verify: { [verdict.verifyId]: { kind: 'verify', usd: 0.3, ceiling: true, parts: [] } } } });
     await r!.wait(0);
-    await r!.click(r!.byText('.verdict .actions button', 'Run more attempts'));
+    await r!.click(r!.byText('.ph .actions button', 'Run more attempts'));
     expect(started).toEqual([['verify', { fixId: fix.fixId, verifyId: verdict.verifyId, estimate: { usd: 0.3, ceiling: true } }]]);
     resetSpending();
     await r!.unmount();
@@ -555,7 +559,7 @@ describe('what settles a fix left unsettled', () => {
     Object.assign(report, decideVerify(report.runs, null), { gate: { kind: 'sprt' as const, good: 0.9, bad: 0.7, risk: 0.05, max: 80 }, stopReason: null, attemptsPerRun: 80 });
     recordVerdict(store, { report, expect: EXPECT, command: `shadowlap verify --fixes label:double-email --expect '${JSON.stringify(EXPECT)}'`, rerun: { flags: [], command: null }, at: NOW + 1 });
     await open(fix.fixId, 'verify');
-    await r!.click(r!.byText('.verdict .actions button', 'Verify again'));
+    await r!.click(r!.byText('.ph .actions button', 'Verify again'));
     expect(text(r!.one('.dialog h3'))).toBe('Verify again');
     expect(text(r!.one('.dialog header'))).toContain('Verifies the same runs again from the first attempt, once the judge answers.');
   });
