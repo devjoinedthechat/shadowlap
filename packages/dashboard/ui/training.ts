@@ -1,7 +1,8 @@
 import type { CostWords } from './actions.js';
 import { approx } from './format.js';
 import { commandText } from './goldens.js';
-import { ACTIONS } from './labels.js';
+import { ACTIONS, confirmWords } from './labels.js';
+import type { Priced } from './spending.js';
 import { href } from './route.js';
 import type { ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, TrainingView } from './types.js';
 import { twoDigits as pad } from '../../engine/src/words.js';
@@ -110,12 +111,40 @@ export function pickReplaces(dialog: ScoreDialogView | null, pick: string, endpo
 }
 
 /** What scoring bills: a model on this machine or your own endpoint nothing, a priced model about so much an attempt, one with no price by its provider. */
-export function scoreCost(dialog: ScoreDialogView | null, pick: string): CostWords | null {
+export function scoreCost(dialog: ScoreDialogView | null, pick: string, attempts = 1, ready = 1): CostWords | null {
   if (pick === ENDPOINT) return { price: 'Free', parts: ['runs at your endpoint, writes stubbed'] };
   const o = dialog ? pickedOption(dialog, pick) : null;
   if (!o) return null;
   if (o.local) return { price: 'Free', parts: [`runs at ${o.baseUrl ? `\`${o.baseUrl}\`` : 'this machine'}, writes stubbed`] };
-  return { price: o.perAttempt === null ? 'Billed by your provider' : `${approx(o.perAttempt)} an attempt`, parts: ['live from each takeover, writes stubbed'] };
+  if (o.perAttempt === null) return { price: 'Billed by your provider', parts: ['live from each takeover, writes stubbed'] };
+  const n = scoreRuns(o, attempts, ready);
+  return { price: approx(o.perAttempt * n), parts: [`${n} ${n === 1 ? 'attempt' : 'attempts'} on the ${o.where}`, 'live from each takeover, writes stubbed'] };
+}
+
+/** How many attempts scoring runs: the attempts picked, for each task the model answers, or for each ready one. */
+function scoreRuns(o: ModelOptionView, attempts: number, ready: number): number {
+  return attempts * (o.request.goldens?.length ?? ready);
+}
+
+/** The estimate Score model's job is sent, so its drawer says the picks' total: none for your own endpoint, a local server or a model with no price. */
+export function scoreEstimate(dialog: ScoreDialogView | null, pick: string, attempts: number, ready: number): Priced {
+  const o = dialog && pick !== ENDPOINT ? pickedOption(dialog, pick) : null;
+  return o && !o.local && o.perAttempt !== null ? { usd: o.perAttempt * scoreRuns(o, attempts, ready), ceiling: false } : null;
+}
+
+/**
+ * Score model…'s card, as a form's says it: what an attempt costs on the model its dialog starts on
+ * (firstPick), once the models are listed; no line for a local server or your own endpoint, and no
+ * estimate for a model with no price.
+ */
+export function scoreCard(models: ModelsView | null): { tip: string; sub: string; command: string; estimate: Priced } {
+  const d = models?.dialog ?? null;
+  const pick = firstPick(d);
+  const o = pickedOption(d, pick);
+  // A local server or your own endpoint bills nothing: no line, as a form's card says nothing it doesn't bill.
+  const free = pick === ENDPOINT || !!o?.local;
+  const estimate: Priced = !models || free ? undefined : o ? { usd: o.perAttempt, ceiling: false, per: 'an attempt' } : null;
+  return { tip: confirmWords(ACTIONS.scoreModel.label), sub: 'Asks which model first', command: commandText(['tasks', 'score']), estimate };
 }
 
 /**

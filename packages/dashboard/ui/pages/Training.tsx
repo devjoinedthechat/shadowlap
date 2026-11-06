@@ -14,7 +14,7 @@ import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { redactsFact } from '../run/share.js';
 import { useApp } from '../state.js';
-import { ENDPOINT, exportCommand, filterGroups, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickNote, pickReplaces, pipClass, pipTip, scoreCommand, scoreCost, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type PairChip, type TrainingDialog } from '../training.js';
+import { ENDPOINT, exportCommand, filterGroups, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickNote, pickReplaces, pipClass, pipTip, scoreCard, scoreCommand, scoreCost, scoreEstimate, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type PairChip, type TrainingDialog } from '../training.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { JobButton } from '../components/JobButton.js';
@@ -54,11 +54,6 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
 
   const canExport = !!view?.actions.exportPairs && hasKind(JOB_KINDS.pairs);
   const canScore = !!view?.actions.scoreModel && hasKind(JOB_KINDS.score);
-  // The picker asks providers for their models: asked while the tab is open, the dialog opens on a list.
-  useEffect(() => {
-    if (tab === 'tasks' && canScore && !actionsOff) void client.models().catch(() => undefined);
-  }, [tab, canScore, actionsOff, client]);
-
   // Scoring runs the agent from the project's working tree: not while a repair or an apply changes it.
   const busy = useTreeBusy('reads', 'score');
   const action = tab === 'pairs' ? (canExport ? { label: ACTIONS.exportPairs.label, kind: 'export' as const, off: actionsOff } : null) : canScore ? { label: ACTIONS.scoreModel.label, kind: 'score' as const, off: actionsOff ?? busy } : null;
@@ -73,7 +68,9 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
           </>
         }
         actions={
-          action ? (
+          action?.kind === 'score' ? (
+            <ScoreModelButton why={action.off} onOpen={() => guard(() => setDialog('score'))} />
+          ) : action ? (
             <ActionButton className="btn lime" why={action.off} onClick={() => guard(() => setDialog(action.kind))}>
               {action.label}
             </ActionButton>
@@ -574,6 +571,21 @@ export function ExportPairsDialog({ view, onClose }: { view: TrainingView; onClo
 }
 
 /**
+ * Score model…: a form, as it asks which model first. Its card says what an attempt costs on the model
+ * its dialog starts on. It asks providers for their models as the tab shows it, so the dialog opens on a list.
+ */
+function ScoreModelButton({ why, onOpen }: { why: string | null; onOpen: () => void }) {
+  const { client, actionsOff } = useApp();
+  const models = useLoad<ModelsView>(() => (actionsOff ? null : client.models()), 'models');
+  const { estimate, ...card } = scoreCard(models.data);
+  return (
+    <JobButton className="btn lime" why={why} form estimate={estimate} {...card} start={onOpen} ask={onOpen}>
+      {ACTIONS.scoreModel.label}
+    </JobButton>
+  );
+}
+
+/**
  * A blocked task's Update golden: its card says what it runs and, where it re-records the golden, what
  * that bills (`GET /api/tests/estimates`), asking first whatever Spending says, since it replaces the
  * golden. Where it only adds normalizers and tests the golden again, it replays: nothing billed. A
@@ -651,7 +663,8 @@ export function ScoreDialog({ view, busy, onClose }: { view: TrainingView; /** W
   const current = pick ?? '';
   const fields = pick === null ? null : scoreFields(d, current, endpoint, attempts);
   // What the job runs: the tasks the picked model can answer, else every ready one.
-  const command = scoreCommand(fields, view.tasks.rows.filter((r) => r.status.key === 'ready').map((r) => r.golden));
+  const ready = view.tasks.rows.filter((r) => r.status.key === 'ready').map((r) => r.golden);
+  const command = scoreCommand(fields, ready);
   const notes = models.data ? notesLine(models.data.notes) : null;
   const leftOut = d ? leftOutLine(d.leftOut) : null;
   const note = models.error ? `The models couldn’t be listed (${models.error.message}). Your own endpoint still works.` : !listed ? 'Asking each provider for its models…' : pickNote(d, current);
@@ -664,10 +677,10 @@ export function ScoreDialog({ view, busy, onClose }: { view: TrainingView; /** W
       warn={busy ? { text: busy.replace(/\.$/, '') } : null}
       factsUnder={replaces !== null ? [{ label: 'Replaces', value: `its score of ${replaces.toFixed(2)}` }] : []}
       command={command}
-      cost={scoreCost(d, current)}
+      cost={scoreCost(d, current, attempts, ready.length)}
       ok={confirmWords(ACTIONS.scoreModel.label)}
       okDisabled={!fields || !!busy}
-      onOk={() => (!fields || busy ? false : guard(() => watchJob(client.startJob(JOB_KINDS.score, { model: fields.model, baseUrl: fields.baseUrl, attempts: fields.attempts, ...(fields.goldens ? { goldens: fields.goldens } : {}) }))))}
+      onOk={() => (!fields || busy ? false : guard(() => watchJob(client.startJob(JOB_KINDS.score, { model: fields.model, baseUrl: fields.baseUrl, attempts: fields.attempts, ...(fields.goldens ? { goldens: fields.goldens } : {}), ...sentEstimate(scoreEstimate(d, current, attempts, ready.length)) }))))}
       onClose={onClose}
     >
       <div className="form">
