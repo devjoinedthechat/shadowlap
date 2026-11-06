@@ -186,7 +186,7 @@ export function ActivityCard({ items, error = null, retry, now, byPerson, live }
               <span className={`w${a.rule ? ' gv' : ''}`}>
                 {byPerson && a.actor ? <b className="actor">{personName(a.actor)}</b> : null}
                 {byPerson && a.actor ? ' ' : null}
-                {a.rule ? <DotLine text={line.text} /> : line.text}
+                <DotLine text={line.text} max={a.rule ? 44 : 24} />
                 {line.code ? <code>{line.code}</code> : null}
               </span>
             </>
