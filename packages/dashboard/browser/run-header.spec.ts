@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { demoId, openPage } from './dashboard.js';
+import { demoId, openPage, seriousViolations } from './dashboard.js';
 
 /**
  * A run's header as the design fits it (ui/run/fit-head.ts): from 1280px the buttons sit beside the id,
@@ -124,4 +124,30 @@ test.describe('with a finger', () => {
     expect(c.y).toBeGreaterThanOrEqual(i.y + i.height);
     expect(c.x + c.width).toBeLessThanOrEqual(390);
   });
+});
+
+test('a run’s id sits where a list page’s title does at 1440px, under the eyebrow as the title is', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPage(page, '/runs', 'runs');
+  const title = (await page.locator('main#view h1').first().boundingBox())!;
+  await openPage(page, `/run/${demoId('digestFailed')}`, 'run');
+  const id = (await page.locator('main#view .rhead h1.rnm').boundingBox())!;
+  expect(Math.abs(id.x - title.x), `x ${id.x} against ${title.x}`).toBeLessThanOrEqual(1);
+  expect(Math.abs(id.y - title.y), `y ${id.y} against ${title.y}`).toBeLessThanOrEqual(1);
+});
+
+test('a fork’s header with its findings open, then with … open, has no serious or critical axe violation 390 and 320px wide', async ({ page }) => {
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 800 });
+    await openPage(page, `/run/${demoId('override')}`, 'run');
+    // The bar stays open for the session once opened, so it is opened only where it is shut.
+    const more = page.locator('main#view .findings .fmore');
+    if ((await more.getAttribute('aria-expanded')) !== 'true') await more.click();
+    await expect(more).toHaveAttribute('aria-expanded', 'true');
+    expect(await seriousViolations(page), `${width}px, findings open`).toEqual([]);
+    await page.click('main#view #moreBtn');
+    await page.waitForSelector('.pop[role="menu"]', { state: 'visible' });
+    expect(await seriousViolations(page), `${width}px, … open`).toEqual([]);
+    await page.keyboard.press('Escape');
+  }
 });
