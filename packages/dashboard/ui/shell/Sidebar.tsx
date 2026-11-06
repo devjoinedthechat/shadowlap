@@ -23,13 +23,15 @@ const DRAWER_SHOWS_MS = 40;
  * The phone's drawer has opened: its first item takes the focus once it shows, and a click beside it
  * closes it, its button taking the focus. A tap or a mouse's click there does nothing else (a row
  * beside it doesn't open); a key's (Enter on what Tab reached past the drawer) still does what it
- * says. Hands back what undoes that.
+ * says, and so does any click on the top bar, which stays in reach while the page can't be (Search or
+ * jump to opens over the drawer it closes). Hands back what undoes that.
  */
 function drawerOpened(aside: RefObject<HTMLElement | null>, close: () => void): () => void {
   const timer = setTimeout(() => aside.current?.querySelector<HTMLElement>('a[href], button')?.focus({ preventScroll: true }), DRAWER_SHOWS_MS);
   const beside = (e: Event) => {
-    if ((e.target as Element | null)?.closest?.('#side, .menu-toggle, #menu, #layer')) return;
-    if ((e as UIEvent).detail > 0) {
+    const at = e.target as Element | null;
+    if (at?.closest?.('#side, .menu-toggle, #menu, #layer')) return;
+    if ((e as UIEvent).detail > 0 && !at?.closest?.('header.top')) {
       e.preventDefault();
       e.stopPropagation();
     }
