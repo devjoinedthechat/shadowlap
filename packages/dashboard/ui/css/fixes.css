@@ -26,6 +26,8 @@
 /* the recorded answer and a rescued one, each under its label: ink, under a hairline, no coloured rules */
 .ans div { border-top: 1px solid var(--line); padding-top: 10px; }
 .ans code { display: block; margin-top: 6px; font-size: 12.5px; line-height: 1.6; color: var(--ink); overflow-wrap: anywhere; }
+/* a model's answer wraps pretty, never balanced: balancing it once its words were each a nowrap piece crashed Chromium's renderer on a phone */
+.ans code { text-wrap: pretty; }
 table.probes td, table.probes th { padding: 10px 12px; }
 table.probes tr.hot td { background: var(--sel); }
 .bmk { margin-left: 8px; font: 600 10.5px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink); }
