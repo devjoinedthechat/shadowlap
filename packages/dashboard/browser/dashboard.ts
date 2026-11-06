@@ -123,3 +123,31 @@ export async function tabUntil(page: Page, match: () => boolean, max = 80): Prom
 export async function expectAccessible(page: Page): Promise<void> {
   expect(await seriousViolations(page)).toEqual([]);
 }
+
+const JOB_ID = 'feedfacefeedface';
+
+/**
+ * Starts a replay from `ticket`'s page, the job routes answering for it, so nothing runs: `end` says
+ * how the job the page follows ended. Its Replay shows at 1440px; set a narrower window after.
+ */
+export async function startJob(page: Page, title = 'Replaying') {
+  const run = demoId('ticket');
+  const job = { id: JOB_ID, kind: 'action', title, args: ['replay', run], worktree: null, runId: run, opensRun: true, startedAt: Date.now(), done: false, stopped: false, code: null as number | null, newRunId: null as string | null, lines: [] as string[], total: 0 };
+  const now = { job, started: false };
+  await page.route(/\/api\/jobs(\?.*)?$/, (route) => route.fulfill({ json: { jobs: now.started ? [{ ...now.job, lines: undefined }] : [] } }));
+  await page.route(/\/api\/runs\/[^/]+\/actions$/, (route) => {
+    now.started = true;
+    return route.fulfill({ json: now.job });
+  });
+  await page.route(new RegExp(`/api/jobs/${JOB_ID}/stop`), (route) => route.fulfill({ json: { stopped: false } }));
+  await page.route(new RegExp(`/api/jobs/${JOB_ID}(\\?.*)?$`), (route) => route.fulfill({ json: now.job }));
+  await openPage(page, `/run/${run}`, 'run');
+  await page.locator('.rhead .actions button', { hasText: /^Replay$/ }).click();
+  await page.locator('section.drawer').waitFor();
+  return {
+    run,
+    end: (lines: string[], over: Partial<typeof job> = {}) => {
+      now.job = { ...job, done: true, code: 0, lines, total: lines.length, ...over };
+    },
+  };
+}

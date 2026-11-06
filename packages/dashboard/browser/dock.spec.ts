@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { dash, demoId, openPage, seriousViolations } from './dashboard.js';
+import { dash, demoId, openPage, seriousViolations, startJob } from './dashboard.js';
 
 /**
  * The job's drawer docked across the content's foot, its chip and pill, and toasts over all of it, in
@@ -7,31 +7,7 @@ import { dash, demoId, openPage, seriousViolations } from './dashboard.js';
  * routes, so nothing runs: `end` says how the job the page follows ended.
  */
 
-const ID = 'feedfacefeedface';
 const box = async (page: Page, selector: string) => (await page.locator(selector).boundingBox())!;
-
-/** Starts a replay from the run's page, its routes answering for the job. */
-async function startJob(page: Page, title = 'Replaying') {
-  const run = demoId('ticket');
-  const job = { id: ID, kind: 'action', title, args: ['replay', run], worktree: null, runId: run, opensRun: true, startedAt: Date.now(), done: false, stopped: false, code: null as number | null, newRunId: null as string | null, lines: [] as string[], total: 0 };
-  const now = { job, started: false };
-  await page.route(/\/api\/jobs(\?.*)?$/, (route) => route.fulfill({ json: { jobs: now.started ? [{ ...now.job, lines: undefined }] : [] } }));
-  await page.route(/\/api\/runs\/[^/]+\/actions$/, (route) => {
-    now.started = true;
-    return route.fulfill({ json: now.job });
-  });
-  await page.route(new RegExp(`/api/jobs/${ID}/stop`), (route) => route.fulfill({ json: { stopped: false } }));
-  await page.route(new RegExp(`/api/jobs/${ID}(\\?.*)?$`), (route) => route.fulfill({ json: now.job }));
-  await openPage(page, `/run/${run}`, 'run');
-  await page.locator('.rhead .actions button', { hasText: /^Replay$/ }).click();
-  await page.locator('section.drawer').waitFor();
-  return {
-    run,
-    end: (lines: string[], over: Partial<typeof job> = {}) => {
-      now.job = { ...job, done: true, code: 0, lines, total: lines.length, ...over };
-    },
-  };
-}
 
 /** j along Runs with a drawer docked: each row it brings into view stops above the drawer, and once one is picked, above the bulk bar over it. */
 async function rowsClearOfTheDock(page: Page, width: number) {
