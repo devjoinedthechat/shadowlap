@@ -199,12 +199,16 @@ for (const [width, height] of [
     const rv = page.locator('.rv');
     await expect.poll(() => rv.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
     await rv.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+    // The list at its top, the rows whole between its sticky head and the drawer: centred on the
+    // selected call, the list would cut a row at each end.
+    await page.locator('#vbody').evaluate((el) => el.scrollTo(0, 0));
     const shown = await page.evaluate(() => {
       const top = document.querySelector('section.drawer')!.getBoundingClientRect().top;
       const box = document.querySelector('#vbody')!.getBoundingClientRect();
+      const head = document.querySelector('#vbody table.calls thead')!.getBoundingClientRect().bottom;
       return [...document.querySelectorAll('#vbody table.calls tbody tr[data-wi]')].filter((tr) => {
         const r = tr.getBoundingClientRect();
-        return r.top >= box.top - 1 && r.bottom <= Math.min(top, box.bottom) + 1;
+        return r.top >= head - 1 && r.bottom <= Math.min(top, box.bottom) + 1;
       }).length;
     });
     expect(shown).toBeGreaterThanOrEqual(4);
