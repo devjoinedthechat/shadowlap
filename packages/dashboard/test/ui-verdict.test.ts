@@ -163,8 +163,11 @@ describe('Tests’ Last result', () => {
       await r.until('the goldens to load', () => r!.all('td.glast').length === 3);
       const [escalates, flaky, plain] = r.all('td.glast');
       expect(escalates.querySelector('.st')!.textContent).toBe('passed');
-      expect(escalates.querySelector('.rsub')!.textContent).toBe('12 of 12 · rate >= 0.73 (95%)');
-      expect(escalates.querySelectorAll('.rsub .nw').map((s) => s.textContent)).toEqual(['12 of 12 ·', 'rate >= 0.73 (95%)']);
+      // The first bound on the page is a defined term: its definition is hidden in the line, after it.
+      const shown = (el: { textContent: string }) => el.textContent.split('The tally’s bound')[0];
+      expect(shown(escalates.querySelector('.rsub')!)).toBe('12 of 12 · rate >= 0.73 (95%)');
+      expect(escalates.querySelectorAll('.rsub .nw').map(shown)).toEqual(['12 of 12 ·', 'rate >= 0.73 (95%)']);
+      expect(escalates.querySelectorAll('.rsub .term.on').map((t) => t.getAttribute('data-term'))).toEqual(['bound']);
       expect(flaky.querySelectorAll('.rsub .kc').map((s) => s.textContent)).toEqual(['rate 0.56 to 0.95 (95%)']);
       expect(escalates.querySelector('.gev .wib')!.className).toBe('wib ok');
       expect(escalates.querySelector('.gev small')!.textContent).toBe('against .70 and .90');
