@@ -6,10 +6,10 @@ import { render, type Rendered } from './ui-render.js';
 
 /**
  * Every screen reads what the dashboard shares (the client, the server's meta, the run list, the
- * connection, the jobs) from one state the shell polls every two seconds. Each poll moves when the
- * page last heard from the server, and the run list moves whenever runs do. A component re-renders
- * when a field it reads changes, and for no other: the pages, which never read when the shell last
- * synced, don't redraw on every poll.
+ * connection, the jobs) from one state the shell polls every two seconds. Each poll sets the live
+ * recordings again, and the run list moves whenever runs do. A component re-renders when a field it
+ * reads changes, and for no other: the pages, which never read the live recordings, don't redraw on
+ * every poll.
  */
 
 let r: Rendered | null = null;
@@ -46,7 +46,7 @@ function quietClient(): { client: Client; polls: () => number } {
 describe('re-rendering on what the shell polls', () => {
   it('redraws a component when a field it reads changes, and for no other', async () => {
     vi.stubGlobal('location', { search: '', hash: '#/', pathname: '/', host: '127.0.0.1:4777' });
-    const renders = { actions: 0, synced: 0, runs: 0, loaded: 0 };
+    const renders = { actions: 0, live: 0, runs: 0, loaded: 0 };
     // A page that only acts: it reads the client and toast, which never change.
     function Actions() {
       const { client, toast } = useApp();
@@ -55,11 +55,11 @@ describe('re-rendering on what the shell polls', () => {
       void toast;
       return null;
     }
-    // The status bar's sync time: it moves on every poll.
-    function Synced() {
-      const { syncedAt } = useApp();
-      renders.synced++;
-      return createElement('span', { className: 'synced' }, String(syncedAt));
+    // The live chip's recordings: each poll sets them again.
+    function Live() {
+      const { live } = useApp();
+      renders.live++;
+      return createElement('span', { className: 'live' }, String(live.length));
     }
     // A list of runs, through a selector.
     function Runs() {
@@ -75,11 +75,11 @@ describe('re-rendering on what the shell polls', () => {
       return null;
     }
     const { client, polls } = quietClient();
-    r = await render(createElement(AppProvider, { client, children: createElement(Fragment, null, createElement(Actions), createElement(Synced), createElement(Runs), createElement(Loaded)) }));
+    r = await render(createElement(AppProvider, { client, children: createElement(Fragment, null, createElement(Actions), createElement(Live), createElement(Runs), createElement(Loaded)) }));
     await r.until('the first look and two polls', () => polls() >= 2);
     await r.wait(50);
-    // The first look moved the meta, the runs, when they loaded and when the page synced; each poll moved the sync time.
-    expect(renders.synced).toBeGreaterThanOrEqual(3);
+    // The first look moved the meta, the runs and when they loaded; each poll set the live recordings again.
+    expect(renders.live).toBeGreaterThanOrEqual(3);
     expect(r.one('.runs').textContent).toBe('1');
     // The run list loaded once: drawn empty, then with it.
     expect(renders.runs).toBe(2);

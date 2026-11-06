@@ -501,7 +501,7 @@
       "PaletteDialog": 175
     },
     "packages/dashboard/ui/state.tsx": {
-      "AppProvider": 304
+      "AppProvider": 300
     },
     "packages/engine/src/json-doc.ts": {
       "scan": 217
