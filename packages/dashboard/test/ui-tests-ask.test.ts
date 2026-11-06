@@ -1,6 +1,8 @@
 import { createElement, type ReactElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { gateResult, Store, type TestResultData } from '@shadowlap/engine';
+import type { Estimate } from '../../engine/src/estimates/estimate.js';
+import type { Spending } from '../../engine/src/estimates/spending.js';
 import { testsView, type DivergenceView, type GoldenSource } from '../src/tests.js';
 import { ApiError, type Client, type JobView, type TestsView } from '../ui/api.js';
 import { TestsAskHost } from '../ui/fixes/TestsJobButton.js';
@@ -8,7 +10,8 @@ import { TestsPage } from '../ui/pages/Tests.js';
 import { Banner } from '../ui/run/parts.js';
 import { Palette } from '../ui/shell/Palette.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import { moreAttemptsAsk, testsQuestion } from '../ui/tests-ask.js';
+import { resetSpending, sentEstimate } from '../ui/spending.js';
+import { moreAttemptsAsk, rerunAsk, startTestsJob, testsQuestion } from '../ui/tests-ask.js';
 import type { RunDetail, RunOffers } from '../ui/types.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 
@@ -352,5 +355,68 @@ describe('the same question from elsewhere', () => {
     expect(testsQuestion()).toBeNull();
     expect(((await watched[0]) as unknown as { error: Error }).error.message).toBe('A repair is verifying candidates made from your working tree: run the tests once it is done.');
     expect(sent.map((s) => s.fields)).toEqual([{}]);
+  });
+});
+
+describe('a live session’s question, answered by Spending', () => {
+  const PRICED: Estimate = { kind: 'tests', usd: 0.3, ceiling: false, parts: ['what the last session spent live'] };
+  const FREE: Estimate = { kind: 'tests', usd: 0, ceiling: false, parts: ['replays offline'] };
+  afterEach(() => resetSpending());
+
+  /** Re-run on a golden marked fork, the page knowing its price as `estimate`, at the threshold `v`. */
+  async function rerun(v: Spending | undefined, estimate: Estimate | null | undefined, kind = 'test') {
+    resetSpending(v);
+    const sent: Sent[] = [];
+    const watched: Array<Promise<JobView>> = [];
+    const state = app(sent, watched);
+    const page = await shown(state, createElement('div'));
+    startTestsJob(state, kind, { golden: 'goldens/flaky', ...sentEstimate(estimate) }, { ...rerunAsk('flaky', 'goldens/flaky'), estimate });
+    await page.until('the question answered or asked', () => sent.length === 2 || !!dialog(page));
+    return { page, sent, watched };
+  }
+  const yeses = (sent: Sent[]) => sent.filter((s) => s.fields.yes !== undefined);
+
+  it('says yes at once at or under the threshold, the job keeping the estimate its drawer says', async () => {
+    const { page, sent, watched } = await rerun(0.5, PRICED);
+    expect(dialog(page)).toBeNull();
+    expect(sent.map((s) => s.fields)).toEqual([
+      { golden: 'goldens/flaky', estimate: { usd: 0.3, ceiling: false } },
+      { golden: 'goldens/flaky', estimate: { usd: 0.3, ceiling: false }, yes: CONFIRM },
+    ]);
+    expect(await watched[0]).toMatchObject({ id: 'j2' });
+  });
+
+  it('asks above the threshold, its Cost line the estimate and its footer why it asks', async () => {
+    const { page, sent } = await rerun(0.1, PRICED);
+    const d = dialog(page)!;
+    expect(d.querySelectorAll('.dcost')[0].textContent).toContain('≈$0.30');
+    expect(d.querySelectorAll('.dlgcost')[0].textContent).toBe('Asks above $0.10 · Change');
+    expect(yeses(sent)).toEqual([]);
+    await page.click(page.one('.dialog .dlg-ok'));
+    expect(yeses(sent).map((s) => s.fields)).toEqual([{ golden: 'goldens/flaky', estimate: { usd: 0.3, ceiling: false }, yes: CONFIRM }]);
+  });
+
+  it('asks on every setting with no estimate, and where the page said Free as the server says it runs live', async () => {
+    for (const estimate of [null, undefined, FREE]) {
+      const { page, sent } = await rerun(null, estimate);
+      expect(dialog(page)?.querySelectorAll('h3')[0].textContent).toBe('Re-run flaky');
+      expect(dialog(page)?.querySelectorAll('.dcost')[0].textContent).toContain('Billed by your provider');
+      expect(page.all('.dialog .dlgcost')).toHaveLength(0);
+      expect(yeses(sent)).toEqual([]);
+      await page.click(page.one('.dialog .dlg-cancel'));
+      await r?.unmount();
+      r = null;
+    }
+  });
+
+  it('says yes at once on Never ask with an estimate, but never to an injection test’s question, a command someone else recorded', async () => {
+    const plain = await rerun(null, PRICED);
+    expect(dialog(plain.page)).toBeNull();
+    expect(yeses(plain.sent)).toHaveLength(1);
+    await r?.unmount();
+    r = null;
+    const injection = await rerun(null, PRICED, 'injection');
+    expect(dialog(injection.page)).not.toBeNull();
+    expect(yeses(injection.sent)).toEqual([]);
   });
 });

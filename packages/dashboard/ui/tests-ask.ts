@@ -1,20 +1,25 @@
 import { INJECTION_PART, moreAttemptsParts, updatePart } from '../../engine/src/cost-words.js';
+import type { Estimate } from '../../engine/src/estimates/estimate.js';
+import { asksFirst } from '../../engine/src/estimates/spending.js';
 import { consentAsked, type FactWords, type LiveGolden } from './actions.js';
 import type { DocKey } from './docs-links.js';
-import type { JobView } from './api.js';
+import { JOB_KINDS, type JobView } from './api.js';
 import { mergeTreeJobs, treeBusy, type TreeJob } from './fixes/model.js';
 import { goldenName } from './format.js';
 import { commandText } from './goldens.js';
 import type { MoreAttempts, TestBannerOffer, TestsView } from './types.js';
 import { ACTIONS } from './labels.js';
+import { heldTo, sentEstimate } from './spending.js';
 
 /**
  * A Tests job that would run anything live asks first, wherever it was started: Tests' Run tests,
  * Run more attempts and Re-run, Add normalizer there and on a test replay's banner, the palette's Run
  * the tests. The server decides (src/tests-live.ts): a session that runs a golden marked fork or an
  * injection gate answers 409, naming the goldens that go live and why, with the `confirm` that says
- * yes to it. The question then waits here until the dialog the shell draws for it (`TestsAskHost`)
- * is answered: its button sends the same job again with that `confirm` as `yes`, Cancel or Esc drops
+ * yes to it. Spending answers it where it can: a Run tests or Add normalizer session whose estimate
+ * is at or under the threshold is sent again with that yes at once, its drawer saying the estimate.
+ * Otherwise the question waits here until the dialog the shell draws for it (`TestsAskHost`) is
+ * answered: its button sends the same job again with that `confirm` as `yes`, Cancel or Esc drops
  * it, and nothing runs meanwhile. A session that only replays starts on the click. No DOM here: the
  * tests drive it with a stand-in app.
  */
@@ -33,6 +38,8 @@ export interface TestsAsk {
   facts?: readonly FactWords[];
   /** What it bills, past `Billed by your provider`. */
   parts?: readonly string[];
+  /** What the session bills, where the page that starts it knows: its dialog's Cost line, and what Spending holds it to. */
+  estimate?: Estimate | null | undefined;
 }
 
 /**
@@ -80,8 +87,8 @@ function ask(q: TestsQuestion | null): void {
 
 /**
  * Starts a Tests job, its drawer showing it once the server has taken it. A 409 that asks a yes
- * (`consentAsked`) waits as the question, with `say`'s title, button and commands, read then when
- * `say` reads them. Any other refusal shows as every refused job's does, in an error toast, and so
+ * (`consentAsked`) is answered by Spending where `say`'s estimate lets it (`answer`), else waits as
+ * the question, with `say`'s title, button, commands and estimate, read then when `say` reads them. Any other refusal shows as every refused job's does, in an error toast, and so
  * does a question `say` can't be read for (the reason it gives), one to a job started without `say`,
  * and a second one to a job that already sent a yes (a session that changed under it: asked again
  * in its own words, never in a loop).
@@ -94,10 +101,29 @@ export function startTestsJob(app: TestsJobApp, kind: string, fields: Record<str
       (err: unknown) => {
         const asked = fields.yes === undefined ? consentAsked(err) : null;
         if (!asked || !say) refused(err);
-        else void (typeof say === 'function' ? say() : Promise.resolve(say)).then((s) => ask({ ...s, ...asked, kind, fields }), refused);
+        else void (typeof say === 'function' ? say() : Promise.resolve(say)).then((s) => answer(app, { ...s, ...asked, kind, fields }), refused);
       },
     );
   });
+}
+
+/**
+ * The kinds whose one 409 asking a yes is the server's question before a session runs live
+ * (src/tests-live.ts), which Spending may answer. Any other kind's is consent to a command someone
+ * else recorded (an injection test's), which waits as the question on every setting.
+ */
+const SPENDING_ANSWERS: ReadonlySet<string> = new Set([JOB_KINDS.tests, JOB_KINDS.normalizeAndTest]);
+
+/**
+ * A question come: Spending answers yes at once where it holds the session's estimate at or under the
+ * threshold, the yes the second request sends, so a second question is a refusal as after any yes.
+ * Else it waits for its dialog. An estimate of Free is no estimate here, as the server says something
+ * goes live.
+ */
+function answer(app: TestsJobApp, q: TestsQuestion): void {
+  const estimate = q.estimate?.usd === 0 ? null : (q.estimate ?? null);
+  if (estimate && SPENDING_ANSWERS.has(q.kind) && !asksFirst(estimate, heldTo())) startTestsJob(app, q.kind, { ...q.fields, ...sentEstimate(estimate), yes: q.confirm }, q);
+  else ask({ ...q, estimate });
 }
 
 /**
@@ -107,7 +133,7 @@ export function startTestsJob(app: TestsJobApp, kind: string, fields: Record<str
  */
 export function answerTestsQuestion(app: TestsJobApp, yes: boolean): boolean {
   const q = asking;
-  const sent = !q || !yes || startTestsJob(app, q.kind, { ...q.fields, yes: q.confirm }, q);
+  const sent = !q || !yes || startTestsJob(app, q.kind, { ...q.fields, ...sentEstimate(q.estimate), yes: q.confirm }, q);
   if (sent) ask(null);
   return sent;
 }
