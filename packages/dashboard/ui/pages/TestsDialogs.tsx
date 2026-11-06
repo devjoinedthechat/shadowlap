@@ -69,12 +69,12 @@ export function FindCommitDialog({ name, golden, range, live, revisions, tried, 
  * billing nothing; where it asks for a commit it opens its dialog. For a golden marked fork it is a
  * form, its card the search's estimate from the commit its dialog opens on (`GET /api/estimates/bisect`).
  */
-export function FindCommitButton({ f, live, why, onBisect }: { f: Pick<DivergenceView, 'golden' | 'bisect' | 'missed' | 'revisions'>; live: boolean; why: string | null | undefined; onBisect: () => void }) {
+export function FindCommitButton({ f, live, why, lime = false, onBisect }: { f: Pick<DivergenceView, 'golden' | 'bisect' | 'missed' | 'revisions'>; live: boolean; why: string | null | undefined; lime?: boolean; onBisect: () => void }) {
   const range = f.missed ? null : f.bisect;
   const good = range ? range.good : revisionChoices(f.revisions, f.missed?.good ?? null).initial;
   const estimate = useBisectEstimate(live ? { golden: f.golden, good, ...(range?.bad ? { bad: range.bad } : {}) } : { good: '' });
   return (
-    <JobButton className="btn" why={why} {...bisectCard(f, live)} {...(live ? { form: true, estimate } : { bills: false })} start={onBisect} ask={onBisect}>
+    <JobButton className={lime ? 'btn lime' : 'btn'} why={why} {...bisectCard(f, live)} {...(live ? { form: true, estimate } : { bills: false })} start={onBisect} ask={onBisect}>
       {live || !range ? ACTIONS.findBreakingCommit.label : confirmWords(ACTIONS.findBreakingCommit.label)}
     </JobButton>
   );

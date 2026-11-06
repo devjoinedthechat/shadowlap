@@ -1,51 +1,110 @@
-import type { TestsView } from '../api.js';
-import { Badge } from '../components/bits.js';
-import { tipText } from '../components/HoverCard.js';
+import type { DivergenceView, FailureView, InconclusiveView, TestsView } from '../api.js';
+import { tipCard, tipText } from '../components/HoverCard.js';
+import { JobButton } from '../components/JobButton.js';
+import { VerdictLine } from '../components/VerdictLine.js';
+import type { TestsEstimates } from '../estimates-api.js';
+import { RunBlameButton } from '../fixes/RunBlame.js';
 import { commandText, sessionLine } from '../goldens.js';
+import { moreCard, normalizeCard, testsJob, updateCard } from '../pages/tests-cards.js';
+import { FindCommitButton } from '../pages/TestsDialogs.js';
+import { goldenPrice, type Price } from '../tests-estimates.js';
+import type { Lead } from './lead.js';
 
-/** Tests' verdict: how the goldens' last results came out, and the session that tested them. */
-export function Verdict({ view, running }: { view: TestsView; running: boolean }) {
+/** What the lead step presses: the page's own jobs, as each golden's report presses them, and why one waits. */
+export interface LeadPress {
+  wait: (verb: string) => string | null;
+  prices: TestsEstimates | null | undefined;
+  live: (f: DivergenceView | FailureView) => boolean;
+  onNormalize: (d: DivergenceView, e: Price) => void;
+  onUpdate: (golden: string, e: Price) => void;
+  onFind: (f: DivergenceView | FailureView) => void;
+  onMore: (v: InconclusiveView, e: Price) => void;
+}
+
+/** The verdict's step, lime: the page's one lime button while it leads (`leadStep`). */
+function LeadButton({ lead, p }: { lead: Lead; p: LeadPress }) {
+  switch (lead.kind) {
+    case 'normalize': {
+      const { d, n } = lead;
+      return (
+        <JobButton className="btn lime" why={p.wait(n.run === 'rerun' ? 'run it again' : 'add the normalizer')} {...testsJob(normalizeCard(d, n), goldenPrice(p.prices, d.golden, n.run === 'rerun' ? 'rerun' : 'normalize'), (e) => p.onNormalize(d, e))}>
+          {lead.label}
+        </JobButton>
+      );
+    }
+    case 'update':
+      return (
+        <JobButton className="btn lime" why={p.wait('update it')} {...testsJob(updateCard(lead.golden, lead.judge), goldenPrice(p.prices, lead.golden, 'update'), (e) => p.onUpdate(lead.golden, e))}>
+          {lead.label}
+        </JobButton>
+      );
+    case 'bisect':
+      return <FindCommitButton f={lead.f} live={p.live(lead.f)} why={p.wait('find the breaking commit')} lime onBisect={() => p.onFind(lead.f)} />;
+    case 'more':
+      return (
+        <JobButton className="btn lime" why={p.wait('run the tests')} {...testsJob(moreCard(lead.more), goldenPrice(p.prices, lead.v.golden, 'more'), (e) => p.onMore(lead.v, e))}>
+          {lead.label}
+        </JobButton>
+      );
+    case 'fix':
+      return (
+        <a className="btn lime" href={lead.href} data-tip={lead.title ? tipText(lead.title) : undefined}>
+          {lead.label}
+        </a>
+      );
+    case 'blame':
+      return <RunBlameButton runId={lead.runId} offer={lead.step.offer} className="btn lime" lead {...(lead.step.capture ? { capture: true } : {})} {...(lead.step.command ? { line: lead.step.command } : {})} />;
+  }
+}
+
+/** A word for each verdict, in its colour, as the mock says it: never a count in a tinted badge. */
+const WORDS = { failing: ['failed', 'err'], inconclusive: ['inconclusive', 'warn'], passing: ['passed', 'ok'] } as const;
+
+/** Tests' verdict: how the goldens' last results came out, the session that tested them, and the step the first failure leads with. */
+export function Verdict({ view, running, lead, press }: { view: TestsView; running: boolean; lead: Lead | null; press: LeadPress }) {
   const v = view.verdict;
   if (!v) {
     const command = commandText(view.commands.run);
     // No golden replayed yet, though its error-path presets may have run: then it has been tested, and says so.
     const presets = view.rows.filter((r) => r.presets).length;
     const one = view.goldens === 1;
+    const facts = (
+      <>
+        {presets ? `Error-path presets ran on ${presets === view.goldens ? (one ? 'it' : 'every one') : `${presets} of them`}. ` : null}
+        {view.rows.some((r) => r.mode === 'fork') ? 'Run tests replays each one, those marked fork live from where they fork' : 'Run tests replays each one offline'}: <SessionCommand text={command} />
+      </>
+    );
     return (
-      <div className="verdict tv n">
-        <Badge tone="n">{presets ? 'not replayed yet' : 'not run yet'}</Badge>
-        <div>
-          <h2>{presets ? (one ? 'One golden, not replayed yet' : `${view.goldens} goldens, none replayed yet`) : one ? 'One golden, not tested yet' : `${view.goldens} goldens, none tested yet`}</h2>
-          <p>
-            {presets ? `Error-path presets ran on ${presets === view.goldens ? (one ? 'it' : 'every one') : `${presets} of them`}. ` : null}
-            {view.rows.some((r) => r.mode === 'fork') ? 'Run tests replays each one, those marked fork live from where they fork' : 'Run tests replays each one offline'}: <SessionCommand text={command} />
-          </p>
-        </div>
-      </div>
+      <VerdictLine className="tv" word={presets ? 'not replayed yet' : 'not run yet'} tone="mu" facts={facts}>
+        {presets ? (one ? 'One golden, not replayed yet' : `${view.goldens} goldens, none replayed yet`) : one ? 'One golden, not tested yet' : `${view.goldens} goldens, none tested yet`}
+      </VerdictLine>
     );
   }
   const line = sessionLine(view, running)!;
-  const failing = v.state === 'failing';
-  // Inconclusive goldens, and none failing: amber, neither passing nor failing.
-  const unsure = v.state === 'inconclusive';
+  const [word, tone] = WORDS[v.state];
+  const facts = (
+    <>
+      <SessionCommand text={line.command} /> · {line.rest}
+      {view.older && !line.live ? (
+        <>
+          {' · '}
+          <span className="tstale">older than your working tree</span>
+        </>
+      ) : null}
+      {line.since ? (
+        <>
+          {' · '}
+          <span className="tsince" data-tip={line.sinceTip ? tipCard('run again on its own since', [], line.sinceTip) : undefined}>
+            {line.since}
+          </span>
+        </>
+      ) : null}
+    </>
+  );
   return (
-    <div className={`verdict tv ${failing ? 'no' : unsure ? 'warn' : 'ok'}`}>
-      <Badge tone={failing ? 'no' : unsure ? 'y' : 'ok'}>{failing ? `${v.failing} failing` : unsure ? `${v.inconclusive} inconclusive` : 'passing'}</Badge>
-      <div>
-        <h2>{v.title}</h2>
-        <p>
-          <SessionCommand text={line.command} /> · {line.rest}
-          {line.since ? (
-            <>
-              {' · '}
-              <span className="tsince" data-tip={line.sinceTip ? tipText(line.sinceTip) : undefined}>
-                {line.since}
-              </span>
-            </>
-          ) : null}
-        </p>
-      </div>
-    </div>
+    <VerdictLine className="tv" word={word} tone={tone} facts={facts} actions={lead ? <LeadButton lead={lead} p={press} /> : undefined}>
+      {v.title}
+    </VerdictLine>
   );
 }
 

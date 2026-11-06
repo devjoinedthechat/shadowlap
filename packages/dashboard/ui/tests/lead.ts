@@ -1,0 +1,59 @@
+import { divergenceButtons, findCommitButton, type DivergenceButtons } from '../goldens.js';
+import type { DivergenceView, FailureView, InconclusiveView, MoreAttempts, NextStep, TestsView } from '../types.js';
+
+/**
+ * The verdict's step: what the golden that leads it (its first failure, else its first inconclusive
+ * one) leads with, as the server works it out for that golden's replay (next-step.ts `goldenSteps`,
+ * the run page's own rule), mapped by its key onto what the golden's report presses. None while a
+ * whole session runs, for a key Tests has no button for (a replay, a comparison, a pack), or for a
+ * job the server doesn't run: then Run tests is the page's lime button. No DOM here: the tests import it.
+ */
+export type Lead =
+  | { kind: 'normalize'; label: string; d: DivergenceView; n: NonNullable<DivergenceButtons['normalize']> }
+  | { kind: 'update'; label: string; golden: string; judge: readonly string[] | null }
+  | { kind: 'bisect'; label: string; f: DivergenceView | FailureView }
+  | { kind: 'more'; label: string; v: InconclusiveView; more: MoreAttempts }
+  | { kind: 'fix'; label: string; href: string; title: string | null }
+  | { kind: 'blame'; runId: string; step: Extract<NextStep, { key: 'blame' }> };
+
+/** The golden whose step leads, and that step as the server sent it; null without one. */
+export function leadingStep(view: Pick<TestsView, 'verdict' | 'steps'>): NextStep | null {
+  const golden = view.verdict?.first?.golden;
+  return (golden && view.steps?.[golden]) || null;
+}
+
+/** The lead step as Tests draws it; `whole` while a session that runs every golden is running. */
+export function leadStep(view: Pick<TestsView, 'verdict' | 'steps' | 'divergences' | 'failures' | 'inconclusive'>, has: (kind: string) => boolean, whole = false): Lead | null {
+  const step = whole ? null : leadingStep(view);
+  if (!step) return null;
+  if (step.key === 'fix') return step.href ? { kind: 'fix', label: step.label, href: step.href, title: step.title ?? null } : null;
+  if (step.key === 'blame') {
+    const runId = view.verdict?.first?.runId;
+    return runId && has('blame') ? { kind: 'blame', runId, step } : null;
+  }
+  return 'golden' in step ? goldenLead(view, step, has) : null;
+}
+
+/** A step that runs one of the golden's jobs, as its report runs it: none where its report has no such button. */
+function goldenLead(view: Pick<TestsView, 'divergences' | 'failures' | 'inconclusive'>, step: Extract<NextStep, { golden: string }>, has: (kind: string) => boolean): Lead | null {
+  const { golden, label } = step;
+  const d = view.divergences.find((x) => x.golden === golden);
+  const v = view.inconclusive.find((x) => x.golden === golden);
+  switch (step.key) {
+    case 'normalizer':
+    case 'rerun-test': {
+      const n = d ? divergenceButtons(d, has).normalize : null;
+      return d && n ? { kind: 'normalize', label, d, n } : null;
+    }
+    case 'update-golden':
+      return has('test-update') ? { kind: 'update', label, golden, judge: v?.judge?.update ?? null } : null;
+    case 'bisect': {
+      const report = d ?? view.failures.find((x) => x.golden === golden);
+      return report && findCommitButton(report, has) ? { kind: 'bisect', label, f: report } : null;
+    }
+    case 'more-attempts':
+      return v?.gate?.more && has('test') ? { kind: 'more', label, v, more: v.gate.more } : null;
+    default:
+      return null;
+  }
+}

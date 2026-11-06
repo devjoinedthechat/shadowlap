@@ -287,6 +287,7 @@ describe('amber', () => {
   /** Needs a look or inconclusive, wherever it is drawn: a word, dot, cell, mark, line or banner. */
   const LOOK: Record<string, string> = {
     '.glyph.warn': 'a glyph that needs a look',
+    '.verdict.tv p .tstale': 'Tests’ verdict tested a commit your working tree has moved on from: run them again',
     '.glyph.fixinc': 'a fix whose verify couldn’t decide',
     '.glyph.amb': 'an event that couldn’t decide, stopped or needs a look, whatever its shape',
     '.pips i.unsure': 'an attempt that couldn’t decide',

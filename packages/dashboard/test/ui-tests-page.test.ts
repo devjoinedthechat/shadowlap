@@ -160,6 +160,19 @@ describe('the Tests page', () => {
     expect(started).toEqual([{ kind: 'test-update', fields: { golden: 'goldens/judged' } }]);
   });
 
+  it('leads with the step the first failure leads with on its run\'s page, lime, Run tests plain while it does, and none for a step Tests has no button for', async () => {
+    const fix = { key: 'fix' as const, label: 'Open fix', fixId: 'fx-1', status: 'open' as const, href: '#/fixes/fx-1', title: '“Refunds skip the email”' };
+    const page = await open([], GOLDENS, (v) => ({ ...v, steps: { 'goldens/refunds': fix } }));
+    const verdict = page.one('.verdict.tv');
+    expect([one(verdict, '.vw').textContent, one(verdict, 'h2').textContent.replace(/\u00a0/g, ' ')]).toEqual(['failed', 'failed 1 of 4 goldens passed · refunds failed · 1 golden not tested yet']);
+    expect(all(verdict, '.actions .btn.lime').map((b) => [b.textContent, b.getAttribute('href')])).toEqual([['Open fix', '#/fixes/fx-1']]);
+    expect(page.all('.ph .btn').filter((b) => b.className.includes('lime'))).toEqual([]);
+    await r!.unmount();
+    const plain = await open([], GOLDENS, (v) => ({ ...v, steps: { 'goldens/refunds': { key: 'compare', label: 'Compare with parent', parent: 'R1' } } }));
+    expect(all(plain.one('.verdict.tv'), '.actions')).toHaveLength(0);
+    expect(plain.all('.ph .btn.lime').map((b) => b.textContent)).toEqual(['Run tests']);
+  });
+
   it('names what a row opens with a real link to the same place, and a row that opens nothing with none', async () => {
     const page = await open([], GOLDENS, (v) => ({ ...v, rows: v.rows.map((row, i) => (i ? row : { ...row, runId: '01M5H2DKE9AAAAAAAAAAAAAAAA' })) }));
     const rows = page.all('table.gt tbody tr');

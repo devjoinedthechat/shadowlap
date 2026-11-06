@@ -38,16 +38,17 @@ export const n = (count: number, word: string) => `${count.toLocaleString('en-US
  * running while its process is (`live`, from the server, wherever it was started; `running`, a test
  * job of this tab's), and otherwise did not finish.
  */
-export function sessionLine(view: TestsView, running = false): { command: string; rest: string; since: string | null; sinceTip: string | null } | null {
+export function sessionLine(view: TestsView, running = false): { command: string; rest: string; since: string | null; sinceTip: string | null; live: boolean } | null {
   const v = view.verdict;
   if (!v) return null;
   const s = v.session;
   const live = s.endedAt === null && !s.interrupted && (s.live || running);
   // Inconclusive goldens count apart, as the verdict's badge counts them.
   const counts = `${s.passed} passed, ${s.failed} failed${s.inconclusive ? `, ${s.inconclusive} inconclusive` : ''}`;
-  const parts = [s.revision ? `rev ${s.revision}` : 'no revision', dayClock(s.endedAt ?? s.startedAt), `${counts}${live ? ' so far' : ''}`, n(s.upstreamRequests, 'upstream request')];
+  // While it runs: just now, so far, and no upstream requests, which a session counts as it ends; the verdict's word says it runs.
+  const parts = [s.revision ? `rev ${s.revision}` : 'no revision', live ? 'just now' : dayClock(s.endedAt ?? s.startedAt), `${counts}${live ? ' so far' : ''}`, ...(live ? [] : [n(s.upstreamRequests, 'upstream request')])];
   if (s.interrupted) parts.push('interrupted');
-  else if (s.endedAt === null) parts.push(live ? 'running' : 'did not finish');
+  else if (s.endedAt === null && !live) parts.push('did not finish');
   const since = v.since ?? [];
   // Each as it came out: an inconclusive one is neither passed nor failed (a result from before verdicts reads by `ok`).
   const word = (x: (typeof since)[number]) => x.verdict ?? (x.ok ? 'passed' : 'failed');
@@ -55,8 +56,8 @@ export function sessionLine(view: TestsView, running = false): { command: string
   const unsure = since.filter((x) => word(x) === 'inconclusive').length;
   const notPassed = [failed ? `${failed} failed` : '', unsure ? `${unsure} inconclusive` : ''].filter(Boolean).join(', ');
   const sinceText = !since.length ? null : since.length === 1 ? `since: ${since[0]!.name} ${word(since[0]!)}` : `since: ${since.length} goldens ran again, ${notPassed || 'all passed'}`;
-  const sinceTip = since.length ? since.map((x) => `${x.name} ${word(x)}${x.revision ? ` at ${x.revision}` : ''}, ${dayClock(x.at)}`).join('\n') : null;
-  return { command: s.command, rest: parts.join(' · '), since: sinceText, sinceTip };
+  const sinceTip = since.length ? since.map((x) => `${x.name} ${word(x)}${x.revision ? ` at ${x.revision}` : ''}, ${dayClock(x.at)}`).join(' · ') : null;
+  return { command: s.command, rest: parts.join(' · '), since: sinceText, sinceTip, live };
 }
 
 /**

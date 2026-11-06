@@ -13,13 +13,14 @@ import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { sentEstimate } from '../spending.js';
 import { useApp } from '../state.js';
-import { divergedAsk, runTestsAsk, startTestsJob, type TestsAsk } from '../tests-ask.js';
+import { divergedAsk, moreAttemptsAsk, runTestsAsk, startTestsJob, type TestsAsk } from '../tests-ask.js';
 import { estimatesKey, runPrice, updatesPrice, useTestsEstimates, type Price } from '../tests-estimates.js';
 import { keepTests } from '../tests-palette.js';
 import { FailurePanel, DivergencePanel, InconclusivePanel } from '../tests/Reports.js';
 import { CiSections } from '../tests/Sections.js';
 import { GoldensTable } from '../tests/Table.js';
-import { Verdict } from '../tests/Verdict.js';
+import { leadStep } from '../tests/lead.js';
+import { Verdict, type LeadPress } from '../tests/Verdict.js';
 import { bisectLive, runTestsCard, testsJob, updatesCard } from './tests-cards.js';
 import { FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from './TestsDialogs.js';
 
@@ -110,6 +111,8 @@ export function TestsPage() {
   }
 
   const [runWait, updateWait, updateGoldenWait, findWait] = ['run the tests', 'update them', 'update it', 'find the breaking commit'].map((verb) => wait(verb));
+  // The first failure's step leads, lime, and Run tests reads plain; none while a session runs.
+  const lead = leadStep(view, hasKind, !!view.running);
   const actions = (
     <>
       <a className="btn" href={href.settings('alerts')}>
@@ -122,7 +125,7 @@ export function TestsPage() {
         </JobButton>
       ) : null}
       {hasKind(JOB_KINDS.tests) ? (
-        <JobButton className="btn lime" why={runWait} {...testsJob(runTestsCard(view), runPrice(prices), (e) => start(JOB_KINDS.tests, {}, runTestsAsk(view), e))}>
+        <JobButton className={lead ? 'btn' : 'btn lime'} why={runWait} {...testsJob(runTestsCard(view), runPrice(prices), (e) => start(JOB_KINDS.tests, {}, runTestsAsk(view), e))}>
           {ACTIONS.runTests.label}
         </JobButton>
       ) : null}
@@ -145,13 +148,23 @@ export function TestsPage() {
     else setOpen({ kind: 'bisect', name: f.name, golden: f.golden, range: range ? { good: range.good, bad: range.bad } : null, live, revisions: f.revisions, tried: f.missed?.good ?? null });
   };
 
+  const press: LeadPress = {
+    wait,
+    prices,
+    live: (f) => bisectLive(view, f),
+    onNormalize: (d, e) => guard(() => normalize(d, e)),
+    onUpdate: (golden, e) => guard(() => setOpen({ kind: 'update', paths: [golden], estimate: e })),
+    onFind: findCommit,
+    onMore: (v, e) => v.gate?.more && start(JOB_KINDS.tests, v.gate.more.job, moreAttemptsAsk(v.name, v.gate.more), e),
+  };
+
   return (
     <Page>
       {header(actions)}
-      <Verdict view={view} running={running} />
+      <Verdict view={view} running={running} lead={lead} press={press} />
       <GoldensTable view={view} />
       {view.divergences.map((d) => (
-        <DivergencePanel key={d.golden} d={d} has={hasKind} wait={wait} live={bisectLive(view, d)} prices={prices} onNormalize={(e) => guard(() => normalize(d, e))} onUpdate={(e) => guard(() => setOpen({ kind: 'update', paths: [d.golden], estimate: e }))} onFind={() => findCommit(d)} />
+        <DivergencePanel key={d.golden} d={d} has={hasKind} updateLeads={view.steps?.[d.golden]?.key === 'update-golden'} wait={wait} live={bisectLive(view, d)} prices={prices} onNormalize={(e) => guard(() => normalize(d, e))} onUpdate={(e) => guard(() => setOpen({ kind: 'update', paths: [d.golden], estimate: e }))} onFind={() => findCommit(d)} />
       ))}
       {view.failures.map((f) => (
         <FailurePanel key={f.golden} f={f} off={findWait} live={bisectLive(view, f)} button={findCommitButton(f, hasKind)} onBisect={() => findCommit(f)} />

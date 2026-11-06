@@ -79,9 +79,11 @@ function ReportPanel({ name, runId, lines, found, missed, children }: { name: st
 /**
  * A golden whose replay diverged: its report, and what fixes it, as `divergenceButtons` offers it: a
  * normalizer for a value made anew on every run (or a re-run once the rule is in the config), Update
- * golden, and Find breaking commit. `wait` says why one can't start now.
+ * golden, and Find breaking commit, but where Update golden leads (`updateLeads`: a change a patch or
+ * a config change explains). Each reads plain: the verdict's step is the page's lime. `wait` says why
+ * one can't start now.
  */
-export function DivergencePanel({ d, has, wait, live, prices, onNormalize, onUpdate, onFind }: { d: DivergenceView; has: (kind: string) => boolean; wait: (verb: string) => string | null; live: boolean; prices: TestsEstimates | null | undefined; onNormalize: (e: Price) => void; onUpdate: (e: Price) => void; onFind: () => void }) {
+export function DivergencePanel({ d, has, updateLeads, wait, live, prices, onNormalize, onUpdate, onFind }: { d: DivergenceView; has: (kind: string) => boolean; updateLeads: boolean; wait: (verb: string) => string | null; live: boolean; prices: TestsEstimates | null | undefined; onNormalize: (e: Price) => void; onUpdate: (e: Price) => void; onFind: () => void }) {
   const b = divergenceButtons(d, has);
   return (
     <ReportPanel name={d.name} runId={d.runId} lines={reportLines(d.text)} found={d.found} missed={d.missed}>
@@ -96,7 +98,7 @@ export function DivergencePanel({ d, has, wait, live, prices, onNormalize, onUpd
       ) : null}
       <div className="actions">
         {b.normalize ? (
-          <JobButton className={`btn${b.normalize.lead ? ' lime' : ''}`} why={wait(b.normalize.run === 'rerun' ? 'run it again' : 'add the normalizer')} {...testsJob(normalizeCard(d, b.normalize), goldenPrice(prices, d.golden, b.normalize.run === 'rerun' ? 'rerun' : 'normalize'), onNormalize)}>
+          <JobButton className="btn" why={wait(b.normalize.run === 'rerun' ? 'run it again' : 'add the normalizer')} {...testsJob(normalizeCard(d, b.normalize), goldenPrice(prices, d.golden, b.normalize.run === 'rerun' ? 'rerun' : 'normalize'), onNormalize)}>
             {b.normalize.label}
           </JobButton>
         ) : null}
@@ -105,7 +107,7 @@ export function DivergencePanel({ d, has, wait, live, prices, onNormalize, onUpd
             {ACTIONS.updateGolden.label}
           </JobButton>
         ) : null}
-        {b.bisect ? <FindCommitButton f={d} live={live} why={wait('find the breaking commit')} onBisect={onFind} /> : null}
+        {b.bisect && !updateLeads ? <FindCommitButton f={d} live={live} why={wait('find the breaking commit')} onBisect={onFind} /> : null}
       </div>
       <p className="hintx">Normalizers apply at match time, so older goldens keep working. Update a golden only when the change was intended.</p>
     </ReportPanel>
@@ -127,7 +129,7 @@ export function InconclusivePanel({ v, off, canRun, onMore, prices, updateOff, c
     <ReportPanel name={v.name} runId={v.runId} lines={inconclusiveLines(v)} found={null} missed={null}>
       {more && canRun ? (
         <div className="actions">
-          <JobButton className="btn lime" why={off} {...testsJob(moreCard(more), goldenPrice(prices, v.golden, 'more'), (e) => onMore(more.job, moreAttemptsAsk(v.name, more), e))}>
+          <JobButton className="btn" why={off} {...testsJob(moreCard(more), goldenPrice(prices, v.golden, 'more'), (e) => onMore(more.job, moreAttemptsAsk(v.name, more), e))}>
             Run more attempts
           </JobButton>
         </div>

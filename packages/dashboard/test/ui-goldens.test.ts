@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { cellNote, cellShare, historyKey, KEY_WORDS, revisionTip } from '../ui/tests/cells.js';
+import { leadStep } from '../ui/tests/lead.js';
 import { asksUpdate, checkMark, checkReportLine, checkWords, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revisionChoices, revLabel, runningTests, sessionLine, sessionWait, shortDate, sourceText, testsBusy, testsPalette, TESTS_UPDATE_HASH } from '../ui/goldens.js';
 import { updatePlan } from '../ui/update-plan.js';
 import { jobStatus } from '../ui/jobs.js';
@@ -87,7 +88,7 @@ const all = () => true;
 
 describe('the verdict', () => {
   it('names the command, revision, time, the session’s own counts and its upstream requests', () => {
-    expect(sessionLine(view())).toEqual({ command: 'shadowlap test goldens/*', rest: 'rev d2e8a1f · Oct 1, 10:02 · 3 passed, 1 failed · 0 upstream requests', since: null, sinceTip: null });
+    expect(sessionLine(view())).toEqual({ command: 'shadowlap test goldens/*', rest: 'rev d2e8a1f · Oct 1, 10:02 · 3 passed, 1 failed · 0 upstream requests', since: null, sinceTip: null, live: false });
     const v = view();
     // How the goldens stand is the headline's; the line counts what that session ran.
     v.verdict!.untested = 2;
@@ -108,7 +109,7 @@ describe('the verdict', () => {
     v.verdict!.since = [{ golden: 'goldens/refund-in-limit', name: 'refund-in-limit', ok: true, verdict: 'passed', revision: 'd2e8a1f+dirty', at: T + 60_000 }];
     expect(sessionLine(v)).toMatchObject({ since: 'since: refund-in-limit passed', sinceTip: 'refund-in-limit passed at d2e8a1f+dirty, Oct 1, 10:03' });
     v.verdict!.since.push({ golden: 'goldens/refund-flow', name: 'refund-flow', ok: false, verdict: 'failed', revision: null, at: T + 120_000 });
-    expect(sessionLine(v)).toMatchObject({ since: 'since: 2 goldens ran again, 1 failed', sinceTip: 'refund-in-limit passed at d2e8a1f+dirty, Oct 1, 10:03\nrefund-flow failed, Oct 1, 10:04' });
+    expect(sessionLine(v)).toMatchObject({ since: 'since: 2 goldens ran again, 1 failed', sinceTip: 'refund-in-limit passed at d2e8a1f+dirty, Oct 1, 10:03 · refund-flow failed, Oct 1, 10:04' });
     v.verdict!.since[1] = { ...v.verdict!.since[1], ok: true, verdict: 'passed' };
     expect(sessionLine(v)!.since).toBe('since: 2 goldens ran again, all passed');
     // One inconclusive is neither: counted apart, and named so on hover.
@@ -124,12 +125,34 @@ describe('the verdict', () => {
     expect(sessionLine(v)!.rest).toMatch(/ · interrupted$/);
     v.verdict!.session.interrupted = false;
     v.verdict!.session.endedAt = null;
-    expect(sessionLine(v, true)!.rest).toMatch(/Oct 1, 10:01 · 3 passed, 1 failed so far · .* · running$/);
+    // Running: just now, so far, and no upstream requests yet, which the session counts as it ends; the verdict's word says it runs.
+    expect(sessionLine(v, true)).toMatchObject({ rest: 'rev d2e8a1f · just now · 3 passed, 1 failed so far', live: true });
     expect(sessionLine(v, false)!.rest).toMatch(/ · did not finish$/);
     // Running in a terminal or another tab: the server says its process is there.
     v.verdict!.session.live = true;
-    expect(sessionLine(v, false)!.rest).toMatch(/ · running$/);
+    expect(sessionLine(v, false)).toMatchObject({ rest: 'rev d2e8a1f · just now · 3 passed, 1 failed so far', live: true });
     expect(sessionLine(view({ verdict: null }))).toBeNull();
+  });
+});
+
+describe('the verdict\'s step', () => {
+  const GOLDEN = 'goldens/refund-in-limit';
+  const led = (step: NonNullable<TestsView['steps']>[string], over: Partial<TestsView> = {}, has: (kind: string) => boolean = all) => leadStep(view({ steps: { [GOLDEN]: step }, ...over }), has);
+
+  it('presses what the golden\'s report presses, by the key of the step the server says its replay leads with', () => {
+    expect(led({ key: 'normalizer', label: 'Add normalizer and re-run', golden: GOLDEN, test: null })).toMatchObject({ kind: 'normalize', label: 'Add normalizer and re-run', n: { run: 'normalize' } });
+    expect(led({ key: 'update-golden', label: 'Update golden', golden: GOLDEN, test: null })).toMatchObject({ kind: 'update', golden: GOLDEN, judge: null });
+    expect(led({ key: 'bisect', label: 'Find breaking commit…', golden: GOLDEN, starts: false, blame: null })).toMatchObject({ kind: 'bisect', f: { golden: GOLDEN } });
+    const first = { golden: GOLDEN, name: 'refund-in-limit', reason: 'exited with code 1', runId: '01K5CQ4V5K0000000000000000' };
+    expect(led({ key: 'blame', label: 'Run blame', offer: { from: 'golden', failed: [] } }, { verdict: { ...view().verdict!, first } })).toMatchObject({ kind: 'blame', runId: first.runId });
+  });
+
+  it('leads with none while a session runs, for a step Tests has no button for, or for a job the server doesn\'t run', () => {
+    const step = { key: 'update-golden' as const, label: 'Update golden', golden: GOLDEN, test: null };
+    expect(leadStep(view({ steps: { [GOLDEN]: step } }), all, true)).toBeNull();
+    expect(led({ key: 'compare', label: 'Compare with parent', parent: 'R1' })).toBeNull();
+    expect(led(step, {}, (kind) => kind !== 'test-update')).toBeNull();
+    expect(led({ key: 'bisect', label: 'Find breaking commit…', golden: GOLDEN, starts: false, blame: null }, { divergences: [divergence('refund-in-limit', { unreadable: 'no run.json' })] })).toBeNull();
   });
 });
 
