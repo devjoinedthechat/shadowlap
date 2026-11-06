@@ -25,8 +25,10 @@ import { fetchJson, TraceStoreError, type TraceStoreOptions } from './import-fet
  * A Langfuse trace, fetched from its public API with the project's keys: its observations from the
  * Observations API v2 (`GET /api/public/v2/observations?traceId=…`, a page of 1,000 at a time), or,
  * from a self-hosted Langfuse that has no v2 API yet, the trace itself (`GET /api/public/traces/{id}`,
- * and the observations list when the trace leaves them out). A format adapter only:
- * import-trace.ts turns the calls into a recording.
+ * and the observations list when the trace leaves them out). The trace's page in Langfuse is named
+ * on the trace (`htmlPath`): read from the v2 API, the trace is asked for once more, after the
+ * observations, and an import whose trace doesn't answer stands without the page. A format adapter
+ * only: import-trace.ts turns the calls into a recording.
  *
  * Generations are model calls: their input (the messages, with the tool definitions when the
  * OpenAI integration logged them), model, model parameters, output and usage. A span is a tool call
@@ -96,7 +98,10 @@ export async function fetchLangfuseTrace(traceId: string, o: LangfuseOptions): P
     if (!observations.length) throw new TraceStoreError(`Langfuse has no trace ${traceId} on ${new URL(o.host).host}`, 404, { ofTrace: true });
     // The API lists the newest first; the trace reader takes them in the order they started.
     observations.sort((a, b) => (epochMs((a as Record<string, unknown>).startTime) ?? 0) - (epochMs((b as Record<string, unknown>).startTime) ?? 0));
-    return { id: traceId, observations };
+    // The trace's page in Langfuse is named on the trace alone: one more request, which the import never waits on to stand.
+    const trace = await get(`/api/public/traces/${encodeURIComponent(traceId)}`).catch(() => null);
+    const htmlPath = isObject(trace) ? str(trace.htmlPath) : null;
+    return { id: traceId, observations, ...(htmlPath ? { htmlPath } : {}) };
   }
   const trace = await get(`/api/public/traces/${encodeURIComponent(traceId)}`).catch((err: unknown) => {
     throw err instanceof TraceStoreError && err.status === 404 ? new TraceStoreError(err.message, 404, { ofTrace: true }) : err;
@@ -164,8 +169,22 @@ function toolCall(o: Record<string, unknown>): TraceToolCall {
   };
 }
 
-/** Reads a fetched trace into its calls, in the order it lists its observations. */
-export function readLangfuse(trace: Record<string, unknown>): Trace {
+/**
+ * The trace's page in Langfuse: the `htmlPath` its trace gives (`/project/<project>/traces/<id>`) on
+ * the host the API answered from. None for a path that would lead anywhere else.
+ */
+export function langfusePage(host: string, htmlPath: unknown): string | undefined {
+  if (typeof htmlPath !== 'string' || !htmlPath.startsWith('/')) return undefined;
+  try {
+    const url = new URL(`${host}${htmlPath}`);
+    return url.origin === new URL(host).origin && !url.username && !url.password ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Reads a fetched trace into its calls, in the order it lists its observations; with the host it came from, its page there. */
+export function readLangfuse(trace: Record<string, unknown>, host?: string): Trace {
   const observations = (Array.isArray(trace.observations) ? trace.observations : []).filter(isObject);
   const found: Array<{ at: number; call: TraceCall }> = [];
   observations.forEach((o, at) => {
@@ -179,5 +198,6 @@ export function readLangfuse(trace: Record<string, unknown>): Trace {
   });
   const calls = found.sort((a, b) => a.at - b.at).map((f) => f.call);
   const parents = new Map(observations.flatMap((o) => (str(o.id) && str(o.parentObservationId) ? [[String(o.id), String(o.parentObservationId)] as const] : [])));
-  return { id: String(trace.id ?? ''), calls, spans: observations.length, skipped: [], parents };
+  const url = host === undefined ? undefined : langfusePage(host, trace.htmlPath);
+  return { id: String(trace.id ?? ''), calls, spans: observations.length, skipped: [], parents, ...(url ? { url } : {}) };
 }

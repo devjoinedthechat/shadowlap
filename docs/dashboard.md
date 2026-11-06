@@ -381,6 +381,7 @@ How it came out comes first, as Runs' Status says it: *check failed at #6*, its 
 - **A capture** whose file kept no times (nock, VCR) shows no duration. One of the model calls alone says its tool calls were not captured.
 - **A recording unpacked from someone's pack** says *recording · from a pack*.
 - **A teammate's run pulled from the [team store](./team.md)** is a recording like any. It shows the requests it sent and what it spent where it was recorded, by whom (*≈$0.0030 spent · by maya*, and the same in Provenance's Upstream row). Its replay asks first, as a pack's does.
+- **A trace imported from Langfuse** has **Open in Langfuse ↗** after Compare. It opens the trace's page there in a tab of its own, and its hover names the trace and the host. A pack doesn't carry the link.
 
 The meta line says why the run failed, and the agent's exit with its last line. It also says:
 

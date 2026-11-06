@@ -1,5 +1,5 @@
 import { askConsent, type CallRecord, checksOf, cleanLabel, compareRuns, type Conversation, describeGate, displayOrigin, estimateCost, gateOf, loadApiRequest, messageOf, normalizeConversation, type NormalizedResponse, normalizeResponse, ORIGIN_CODE, type Price, type RunAbout, type RunComparison, type RunKind, type RunNote, type RunOutcome, type RunRecord, type RunSummary, saidYes, shortModel, type Store, type StoreOf, summarizeRun, type ToolTrust, verdictLine, withLabels, withNote } from '@shadowlap/engine';
-import { actionContext, actionMissing, buildActions, commandIsImported, forkMenuTitle, importedCommandSource, notRun, quoteArgv, type ActionContext } from '@shadowlap/engine';
+import { actionContext, actionMissing, buildActions, commandIsImported, forkMenuTitle, importedCommandSource, importedTrace, notRun, quoteArgv, type ActionContext, type ImportedTrace } from '@shadowlap/engine';
 import { kindFacts, lookupRun, modelResolver, runLabel } from '@shadowlap/engine';
 import { presetMarks, type PresetMark } from './chaos.js';
 import { fixForRun, type FixForRun } from './fixes.js';
@@ -144,6 +144,8 @@ export interface RunDetail extends RunPageFacts {
   about: RunAbout | null;
   /** Set for a run built from a capture, which has no command: where it came from. */
   source: string | null;
+  /** For a run imported from a trace store: the trace, with its page there (`importedTrace`); absent otherwise. */
+  trace?: ImportedTrace;
   summary: RunSummary;
   calls: CallRow[];
   parent: { runId: string; label: string } | null;
@@ -436,6 +438,7 @@ function firstPageOfLongRun(store: Store, run: RunRecord, shown: RunRecord, stat
     label: runLabel(run, kindFacts(store, run, whole.calls)),
     about: aboutOfRun(store, loadRunIndex(store), runId, { calls: head }),
     source: captureSource(run),
+    ...traceOf(run),
     summary: whole.summary,
     calls: page.map((c) => row(store, c, options, analysis.facts(c.callNo), false)),
     callsTotal: whole.calls,
@@ -482,6 +485,7 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
     label: runLabel(run, kindFacts(store, run, calls.length)),
     about: aboutOfRun(store, loadRunIndex(store), runId, { calls }),
     source: captureSource(run),
+    ...traceOf(run),
     summary,
     calls: page.map((c) => row(store, c, options, analysis.facts(c.callNo), shown.status === 'running')),
     callsTotal: calls.length,
@@ -499,6 +503,12 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
     ...(whole ? {} : { warming: { done, total: calls.length } }),
     ...exitOf(store, shown),
   };
+}
+
+/** The trace an imported run was read from, with its page in the trace store, where the import kept one. */
+function traceOf(run: RunRecord): Pick<RunDetail, 'trace'> {
+  const trace = importedTrace(run);
+  return trace ? { trace } : {};
 }
 
 /** A test replay's agent exit code, where its exit failed it and its test result kept the code. */

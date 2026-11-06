@@ -886,7 +886,7 @@ export function redactRunDetails(run: RunRecord, rules: Normalizer[]): RunRecord
     if (meta.labels !== undefined) m.labels = deep(meta.labels) as string[];
     if (Array.isArray(meta.notes)) m.notes = meta.notes.map((n) => (isObject(n) ? { ...n, text: deep(n.text) as string } : (deep(n) as RunNote)));
     if (Array.isArray(meta.checks)) m.checks = meta.checks.map((c) => (isObject(c) ? { ...c, label: deep(c.label) as string, detail: deep(c.detail) as string | null, ...('reason' in c ? { reason: deep(c.reason) as string } : {}), ...(isObject(c.judge) ? { judge: { ...c.judge, name: deep(c.judge.name) as string } } : {}) } : (deep(c) as RunCheck)));
-    if (isObject(meta.imported) && typeof meta.imported.from === 'string') m.imported = { ...meta.imported, from: text(meta.imported.from) };
+    if (isObject(meta.imported) && typeof meta.imported.from === 'string') m.imported = { ...meta.imported, from: text(meta.imported.from), ...('url' in meta.imported ? { url: deep(meta.imported.url) as string } : {}) };
     if (isObject(meta.test) && typeof meta.test.golden === 'string') m.test = { ...meta.test, golden: text(meta.test.golden) };
     if (typeof meta.author === 'string') m.author = text(meta.author);
     if (isObject(meta.blame)) m.blame = { ...meta.blame, fields: deep(meta.blame.fields) as Record<string, unknown>, oracle: deep(meta.blame.oracle) as string[] };
