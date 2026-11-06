@@ -427,9 +427,41 @@ describe('the run page’s next step', () => {
     expect(page.byText('.rhead .actions button', 'Replay').className).toBe('btn');
     await page.click(page.byText('.rhead .actions button', 'Pack as golden…'));
     expect(page.one('.dialog h3').textContent).toBe(`Pack ${REC.slice(0, 10)} as golden?`);
+    expect(page.one('.dialog').textContent).toContain('Packs the run into goldens/ and tests it, for shadowlap test to replay on every commit.');
+    expect(page.one('.dialog label').textContent).toContain('Golden');
+    // The pack, then its test, a line each.
     expect(page.one('.dialog .cmdline').textContent).toContain(`shadowlap pack ${REC.slice(0, 10)} ${folder}`);
+    expect(page.one('.dialog .cmdline').textContent).toContain(`shadowlap test ${folder}`);
     await page.click(page.one('.dialog .dlg-ok'));
-    expect(started).toEqual([['pack', { runId: REC, dir: folder }]]);
+    expect(started).toEqual([['pack-test', { runId: REC, golden: folder }]]);
+  });
+
+  it('keeps Pack as golden…’s dialog open with the server’s words when it refuses the folder, and asks first of a recording from elsewhere', async () => {
+    const folder = `goldens/${REC.slice(0, 10).toLowerCase()}`;
+    const next: NextStep = { key: 'pack', label: 'Pack as golden…', runId: REC, folder, title: 'Pack as golden', sub: 'A golden that CI replays on every commit', command: `shadowlap pack ${REC.slice(0, 10)} ${folder}` };
+    const sent: Array<Record<string, unknown>> = [];
+    const answers = [
+      new ApiError(409, `${folder} already holds a golden. Give this one another name: Shadowlap never packs over a golden.`),
+      new ApiError(409, `${REC.slice(0, 10)} came from the team store: its test runs the command it was recorded with (node agent.mjs), under shadowlap test goldens/other. Confirm it to run it`, 'c'.repeat(32)),
+    ];
+    const a = app({}, {
+      startJob: (_kind: string, fields: Record<string, unknown>) => {
+        sent.push(fields);
+        const no = answers.shift();
+        return (no ? Promise.reject(no) : Promise.resolve({ id: 'j1' })) as never;
+      },
+    });
+    page = await render(both(detail({ state: passedState, next }), null, a));
+    await page.click(page.byText('.rhead .actions button', 'Pack as golden…'));
+    await page.click(page.one('.dialog .dlg-ok'));
+    // Refused: the dialog stays, with what was typed and why.
+    expect(page.one('.dialog').textContent).toContain('already holds a golden. Give this one another name');
+    await page.type(page.one('.dialog input'), 'goldens/other');
+    await page.click(page.one('.dialog .dlg-ok'));
+    // A recording from elsewhere: the question, then the job again with its yes.
+    expect(page.one('.dialog').textContent).toContain('came from the team store');
+    await page.click(page.one('.dialog .dlg-ok'));
+    expect(sent).toEqual([{ runId: REC, golden: folder }, { runId: REC, golden: 'goldens/other' }, { runId: REC, golden: 'goldens/other', yes: 'c'.repeat(32) }]);
   });
 
   it('packs with an injection gate the recording it tested, naming the entry that gates it', async () => {

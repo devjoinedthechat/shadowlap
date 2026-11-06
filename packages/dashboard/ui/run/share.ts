@@ -49,6 +49,11 @@ export function packRunCommand(runId: string, dir: string): string {
   return draftCommand(['pack', shortId(runId), dir.trim()]);
 }
 
+/** What Pack as golden… runs, a line each: the pack into the golden's folder, then its test. */
+export function packTestCommands(runId: string, dir: string): readonly string[] {
+  return [packRunCommand(runId, dir), draftCommand(['test', dir.trim()])];
+}
+
 /** What a pack holds, its one fact besides that. */
 export const PACK_HOLDS: FactWords = { label: 'Holds', value: '`run.json`, `calls.jsonl` and one file per blob' };
 
