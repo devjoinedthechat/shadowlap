@@ -1,6 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { isObject, shadowlapHome, writeFileAtomic } from '@shadowlap/engine';
+import { FileLockBusyError, isObject, shadowlapHome, withFileLock, writeFileAtomic } from '@shadowlap/engine';
 
 /**
  * When each golden's checks were last seen to change, kept for this machine in Shadowlap's folder
@@ -10,8 +10,12 @@ import { isObject, shadowlapHome, writeFileAtomic } from '@shadowlap/engine';
  * the config's write that changed it, as near as the file's time tells. A golden first seen has no
  * such time: its checks came with it, when it was packed.
  *
- * The file is a cache a dashboard reads once and writes when a key changes, in one step; one that
- * can't be read or written is as none, and only costs the times it held.
+ * The file is a cache every dashboard on this machine reads and writes. So a write changes its
+ * project's entry alone, in the file as read afresh under its lock (the engine's, as Spending's and
+ * the project list's), and replaces the file in one step; and the file is read again once it has
+ * changed. A write never waits: while another process holds the lock it is skipped, and the next
+ * request makes it (outcome-work.ts). One that can't be read or written is as none, and only costs
+ * the times it held.
  */
 
 export const CHECKS_SEEN_FILE = 'checks-seen.json';
@@ -27,10 +31,12 @@ export interface SeenChecks {
 
 type Projects = Map<string, Map<string, SeenChecks>>;
 
-/** The file as read, by its path: read once per process, then kept in step with what is written. */
-const files = new Map<string, Projects>();
+/** The file as last read, by its path, with what stat said of it then: read again once that changes. */
+const files = new Map<string, { stat: string; projects: Projects }>();
+/** What this process couldn't write, by the file's path: kept for as long as it runs. */
+const unwritten = new Map<string, Projects>();
 
-function read(file: string): Projects {
+function parse(file: string): Projects {
   const out: Projects = new Map();
   let data: unknown;
   try {
@@ -50,31 +56,66 @@ function read(file: string): Projects {
   return out;
 }
 
-const fileOf = (env: NodeJS.ProcessEnv) => join(shadowlapHome(env), CHECKS_SEEN_FILE);
-
-function projectsOf(env: NodeJS.ProcessEnv): { file: string; projects: Projects } {
-  const file = fileOf(env);
-  let projects = files.get(file);
-  if (!projects) files.set(file, (projects = read(file)));
-  return { file, projects };
+/** The file as stat sees it, so that a write shows: each one replaces it, so its inode changes with its time and size. Null without one. */
+function statOf(file: string): string | null {
+  try {
+    const s = statSync(file);
+    return `${s.mtimeMs}:${s.size}:${s.ino}`;
+  } catch {
+    return null;
+  }
 }
+
+/** The file as it is now: as last read while stat says it is unchanged, else read again. */
+function current(file: string): Projects {
+  const stat = statOf(file);
+  const was = files.get(file);
+  if (stat !== null && was?.stat === stat) return was.projects;
+  const projects = parse(file);
+  if (stat === null) files.delete(file);
+  else files.set(file, { stat, projects });
+  return projects;
+}
+
+function text(projects: Projects): string {
+  const out: Record<string, Record<string, SeenChecks>> = {};
+  for (const [d, goldens] of projects) out[d] = Object.fromEntries(goldens);
+  return `${JSON.stringify({ format: FORMAT, projects: out }, null, 2)}\n`;
+}
+
+const fileOf = (env: NodeJS.ProcessEnv) => join(shadowlapHome(env), CHECKS_SEEN_FILE);
 
 /** Each golden's checks as last seen in the project, by the golden's folder. */
 export function seenChecks(dir: string, env: NodeJS.ProcessEnv = process.env): ReadonlyMap<string, SeenChecks> {
-  return projectsOf(env).projects.get(dir) ?? new Map();
+  const file = fileOf(env);
+  return unwritten.get(file)?.get(dir) ?? current(file).get(dir) ?? new Map();
 }
 
-/** Keeps each golden's checks as seen now in the project, the goldens no longer there left out, and writes the file. */
-export function keepSeenChecks(dir: string, seen: ReadonlyMap<string, SeenChecks>, env: NodeJS.ProcessEnv = process.env): void {
-  const { file, projects } = projectsOf(env);
-  projects.delete(dir);
-  projects.set(dir, new Map(seen));
-  while (projects.size > PROJECTS) projects.delete(projects.keys().next().value!);
-  const out: Record<string, Record<string, SeenChecks>> = {};
-  for (const [d, goldens] of projects) out[d] = Object.fromEntries(goldens);
+/**
+ * Keeps each golden's checks as seen now in the project, the goldens no longer there left out: the
+ * project's entry alone, written into the file as it is then. False when another process held the
+ * file, so that nothing was written: a later call writes it.
+ */
+export function keepSeenChecks(dir: string, seen: ReadonlyMap<string, SeenChecks>, env: NodeJS.ProcessEnv = process.env): boolean {
+  const file = fileOf(env);
+  const entry = new Map(seen);
   try {
-    writeFileAtomic(file, `${JSON.stringify({ format: FORMAT, projects: out }, null, 2)}\n`);
-  } catch {
-    // a folder that can't be written: the times are kept for as long as this dashboard runs
+    // Tried once: a request never waits for another process's write.
+    withFileLock(file, 0, () => {
+      // Read afresh, never the copy kept for reads: every other project's entry stays as it was written.
+      const projects = parse(file);
+      projects.delete(dir);
+      projects.set(dir, entry);
+      while (projects.size > PROJECTS) projects.delete(projects.keys().next().value!);
+      writeFileAtomic(file, text(projects));
+    });
+  } catch (err) {
+    if (err instanceof FileLockBusyError) return false;
+    // a folder that can't be written: the times are kept for as long as this process runs
+    const mine = unwritten.get(file) ?? new Map<string, Map<string, SeenChecks>>();
+    unwritten.set(file, mine.set(dir, entry));
+    return true;
   }
+  unwritten.get(file)?.delete(dir);
+  return true;
 }

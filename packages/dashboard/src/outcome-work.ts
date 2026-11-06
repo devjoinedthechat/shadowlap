@@ -20,7 +20,9 @@ import type { GoldenSource } from './tests.js';
  * once a file it was read from changes, as stat tells: the config, the goldens folder, the folders
  * its tests entries name, and the run.json of each pack, and of each folder under goldens/ whether it
  * has one yet or not: a pack copied in by hand or by git checkout makes its folder first. A request
- * pays a stat of each; the same work, and so its key, answers until then.
+ * pays a stat of each; the same work, and so its key, answers until then. When what it saw of the
+ * goldens' checks couldn't be kept, as another process was writing that file (checks-seen.ts), the
+ * next request reads it all again, and keeps them.
  */
 
 /** The folder the CLI lists goldens in (its GOLDENS_FOLDER): a pack added there or taken out changes it. */
@@ -30,6 +32,8 @@ interface Kept {
   /** The files the work was read from, and what stat said of each before it was read. */
   watched: string[];
   stats: string;
+  /** Read again by the next request whatever stat says: the goldens' checks as seen weren't kept yet (checks-seen.ts). */
+  again: boolean;
   prices: unknown;
   work: OutcomeWork | null;
   steps: NextStepWork;
@@ -114,7 +118,7 @@ function readWork(ctx: RouteContext, dir: string): Omit<Kept, 'prices'> {
   try {
     file = readConfigFile(dir);
   } catch {
-    return { watched, stats: before.join('|'), work: null, steps: stepsWork(ctx, dir, null) };
+    return { watched, stats: before.join('|'), again: false, work: null, steps: stepsWork(ctx, dir, null) };
   }
   const tests = isObject(file.data) ? file.data.tests : undefined;
   let entries: TestEntry[] = [];
@@ -135,11 +139,14 @@ function readWork(ctx: RouteContext, dir: string): Omit<Kept, 'prices'> {
     now.set(g.path, { key, at });
     return { path: g.path, runId: g.runId, packedAt: g.packedAt, checksAt: at };
   });
-  if (now.size !== seen.size || [...now].some(([path, v]) => seen.get(path)?.key !== v.key)) keepSeenChecks(dir, now);
+  const changed = now.size !== seen.size || [...now].some(([path, v]) => seen.get(path)?.key !== v.key);
+  // Not kept while another process writes the file: the next request reads again, and keeps them.
+  const again = changed && !keepSeenChecks(dir, now);
   const others = [...new Set([...entries.map((e) => dirname(resolve(dir, e.recording))), ...goldens.map((g) => join(resolve(dir, g.path), 'run.json'))])].filter((p) => !packs.includes(p));
   return {
     watched: [...watched, ...others],
     stats: [...before, ...others.map(statOf)].join('|'),
+    again,
     work: { version: file.version, tests, dir, goldens, ...(ctx.read.prices ? { prices: ctx.read.prices } : {}) },
     steps,
   };
@@ -148,7 +155,7 @@ function readWork(ctx: RouteContext, dir: string): Omit<Kept, 'prices'> {
 /** What was read of the project for the current request: what is kept while nothing it was read from changed, else read again. */
 function keptWork(ctx: RouteContext, dir: string): Omit<Kept, 'prices'> {
   const k = kept.get(ctx);
-  if (k && k.prices === ctx.read.prices && statsOf(k.watched) === k.stats) return k;
+  if (k && !k.again && k.prices === ctx.read.prices && statsOf(k.watched) === k.stats) return k;
   const read = readWork(ctx, dir);
   kept.set(ctx, { ...read, prices: ctx.read.prices });
   return read;
