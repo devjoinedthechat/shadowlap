@@ -22,12 +22,21 @@ export type Describe = (event: StoredEvent, data: Record<string, unknown>) => Ev
 
 const count = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const runs = (d: Record<string, unknown>) => `${Number(d.runs) || 0} run${Number(d.runs) === 1 ? '' : 's'}`;
+/** A preview by its name, lower-cased to run on in a sentence (`model switch to claude-haiku-4-5`), else its change in words. */
+const previewName = (d: Record<string, unknown>) => (typeof d.name === 'string' && d.name ? `${d.name.charAt(0).toLowerCase()}${d.name.slice(1)}` : typeof d.change === 'string' ? d.change : 'a change');
 const flagged = (d: Record<string, unknown>) => (Number(d.flagged) ? ` · ${Number(d.flagged)} with a write, stop or judged change` : '');
 
 export const FEATURE_EVENT_TEXT: ReadonlyArray<readonly [string, Describe]> = [
-  // A session of `shadowlap decisions` or `migrate` (the Changes page opens one).
-  ['decisions.done', (_e, d) => ({ kind: 'fork', text: `Previewed ${typeof d.change === 'string' ? d.change : 'a change'} on ${runs(d)}${flagged(d)}` })],
-  ['migrate.done', (_e, d) => ({ kind: 'fork', text: `Migration previewed: ${typeof d.change === 'string' ? d.change : 'another model'} on ${runs(d)}${flagged(d)}` })],
+  // A session of `shadowlap decisions` or `migrate` (the Changes page opens one), by its name; one
+  // kept before events had a name, by its change. One that settled nothing says why, as its page does.
+  ['decisions.done', (_e, d) => ({ kind: 'fork', text: typeof d.why === 'string' && d.why ? `Preview inconclusive · ${previewName(d)} on ${runs(d)} · ${d.why}` : `Previewed ${previewName(d)} on ${runs(d)}${flagged(d)}` })],
+  [
+    'migrate.done',
+    (_e, d) => {
+      const change = typeof d.change === 'string' ? d.change : 'another model';
+      return { kind: 'fork', text: typeof d.why === 'string' && d.why ? `Migration inconclusive · ${change} on ${runs(d)} · ${d.why}` : `Migration previewed: ${change} on ${runs(d)}${flagged(d)}` };
+    },
+  ],
   // A session of presets, by how they came out; on one run, it opens that run. One with an
   // inconclusive preset and no failure reads in amber, as a test session's does.
   [
