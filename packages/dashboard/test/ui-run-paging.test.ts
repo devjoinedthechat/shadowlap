@@ -234,6 +234,23 @@ describe('a long run’s page', () => {
     expect(pending()).toHaveLength(0);
   });
 
+  it('draws a long recording’s strip and key by what each call was before its pages come, from its kinds string', async () => {
+    addressBar(`#/run/${RUN}`);
+    const { client, asked } = server(1200, 200);
+    // What each call was, as the page sends it: a model call, then the read it asked for, but #1,000 a write.
+    const kinds = range(1, 1200).map((n) => (n === 1000 ? 'w' : n % 2 ? 'm' : 'r')).join('');
+    const withKinds = { ...client, run: () => Promise.resolve({ ...answer(1200, 200), kinds }) } as unknown as Client;
+    r = await render(createElement(AppContext.Provider, { value: app(withKinds) }, createElement(RunPage, { id: RUN, call: null, view: null })));
+    await r.until('the calls', () => rows().length > 0);
+    expect(asked).toEqual([]);
+    expect(r.byText('.toolbar[role="status"]', '200 of 1,200 calls read so far; the rest are on their way.')).toBeTruthy();
+    // The key counts every call, the write among them, and the strip notches the range that holds it.
+    expect(r.all('.lfilter button').map((b) => b.textContent)).toEqual(['all 1,200', 'model calls 600', 'reads 599', 'write 1']);
+    const notch = r.all('.cells button .tk');
+    expect(notch.map((t) => t.className)).toEqual(['tk k-write']);
+    expect(notch[0].parentNode!.getAttribute('aria-label')).toMatch(/^Calls #[\d,]+ to #1,[\d,]+: \d+ model calls, \d+ reads, 1 write$/);
+  });
+
   it('reads the page of the call it opens on first, and shows that call once it is read', async () => {
     const bar = addressBar(`#/run/${RUN}/1000`);
     const { client, asked, details } = server(1200, 200);
