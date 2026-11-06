@@ -368,7 +368,7 @@ interface CalibrateResult {
   clean?: unknown;
 }
 
-/** How many normalizers "Add it (--write)" would add: those a finished calibration proposed and didn't write. 0 hides the button. */
+/** How many normalizers "Add normalizer" would add: those a finished calibration proposed and didn't write. 0 hides the button. */
 export function proposedCount(job: { done: boolean; result?: unknown }): number {
   if (!job.done) return 0;
   const r = job.result as CalibrateResult | null | undefined;

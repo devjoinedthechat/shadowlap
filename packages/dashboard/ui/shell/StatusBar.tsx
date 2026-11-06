@@ -4,11 +4,12 @@ import { storePath } from '../projects.js';
 import { isAttempt } from '../runs.js';
 import { useApp } from '../state.js';
 import { useTeamStore } from '../teamstore.js';
+import { JobChip } from './JobChip.js';
 
 /**
  * The status bar: the store, the counts (runs, then the attempts bundled under them), the sync state,
- * the address and the version. Below 640px only the left side stays. A recording in progress shows in
- * the top bar's chip, not here.
+ * the address and the version, and a job off the screen (`JobChip`). Below 640px only the left side
+ * stays. A recording in progress shows in the top bar's chip, not here.
  */
 export function StatusBar() {
   const { meta, runs, conn, syncedAt, exported } = useApp();
@@ -42,6 +43,7 @@ export function StatusBar() {
         {attempts ? ` · ${num(attempts)} ${attempts === 1 ? 'attempt' : 'attempts'}` : ''}
       </span>
       <span className="sp" />
+      <JobChip />
       {exported ? (
         <span>{meta?.redacted ? 'redaction rules applied' : 'as recorded, not redacted'}</span>
       ) : (

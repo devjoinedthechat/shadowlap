@@ -1,9 +1,9 @@
 import { useState, type ReactNode } from 'react';
 import { consentAsked } from '../actions.js';
-import { tipCard } from '../components/HoverCard.js';
 import { ConsentDialog } from '../components/Dialog.js';
 import { useApp } from '../state.js';
 import { useTreeBusy } from './tree.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * A button on a fix's page that starts a job running the agent from the working tree (Run blame again,
@@ -42,7 +42,7 @@ export function FixJobButton({
   const [consent, setConsent] = useState<{ why: string; confirm: string; fields: Record<string, unknown> } | null>(null);
   if (app.exported) return null;
   const missing = app.hasKind(kind) ? null : 'This dashboard doesn’t run it: run the command in a terminal.';
-  const why = app.actionsOff ?? missing ?? busy;
+  const why = missing ?? busy;
   const start = (more: Record<string, unknown>) =>
     app.client.startJob(kind, { ...fields, ...more }).then(
       (job) => app.watchJob(Promise.resolve(job)),
@@ -54,16 +54,9 @@ export function FixJobButton({
     );
   return (
     <>
-      <button
-        className={`${className}${lead ? ' lime' : ''}`}
-        type="button"
-        disabled={!!why}
-        title={why ?? undefined}
-        data-tip={why ? undefined : tipCard(tip, [], `$ ${command}`)}
-        onClick={() => app.guard(() => (ask ? setAsking(true) : void start({})))}
-      >
+      <ActionButton className={`${className}${lead ? ' lime' : ''}`} why={why} tip={tip} command={`$ ${command}`} onClick={() => app.guard(() => (ask ? setAsking(true) : void start({})))}>
         {label}
-      </button>
+      </ActionButton>
       {asking && ask
         ? ask(
             (more) => app.guard(() => void start(more)),

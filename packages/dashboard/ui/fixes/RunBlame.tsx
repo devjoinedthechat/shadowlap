@@ -10,8 +10,9 @@ import type { ShortcutMark } from '../shortcuts.js';
 import { guardedWayOn, useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { parseCheck } from './model.js';
-import { plainButton, useTreeBusy } from './tree.js';
+import { useTreeBusy } from './tree.js';
 import { ACTIONS } from '../labels.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * Run blame, for a failed run never blamed: a job that finds the model call where the run was lost
@@ -54,7 +55,6 @@ export function RunBlameButton({
   const app = useApp();
   const busy = useTreeBusy('reads', 'blame');
   const [asking, setAsking] = useState<null | { kind: 'command' } | { kind: 'check'; command: string | null } | { kind: 'consent'; why: string; confirm: string; fields: Record<string, unknown> }>(null);
-  const why = app.actionsOff ?? busy;
   /**
    * Starts the blame. What the check dialog should show instead comes back: why the server refused
    * the check it was given. Anything else closes the dialog: the job, the consent it needs, or its
@@ -87,18 +87,17 @@ export function RunBlameButton({
   const failedLine = failed.length ? `It failed “${failed[0]!}”${failed.length > 1 ? ` and ${failed.length - 1} more` : ''}, a check shadowlap.config.json doesn’t give` : null;
   return (
     <>
-      <button
-        className={why ? plainButton(className) : className}
-        type="button"
-        disabled={!!why}
-        {...(why ? { title: why } : tip ? { 'data-tip': tip } : { title })}
+      <ActionButton
+        className={className}
+        why={busy}
+        {...(tip ? { 'data-tip': tip } : { title })}
         {...(lead ? { 'data-next': 'blame' } : {})}
         onClick={() => app.guard(() => (capture ? setAsking({ kind: 'command' }) : void start({})))}
         {...mark}
       >
         {icon ? <Icon name="loop" /> : null}
         {ACTIONS.runBlame.label}
-      </button>
+      </ActionButton>
       {asking?.kind === 'command' ? (
         <PromptDialog
           title={namedIn(`${ACTIONS.runBlame.label} on ${shortId(runId)}`, shortId(runId))}

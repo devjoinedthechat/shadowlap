@@ -8,7 +8,7 @@ import { isMac } from '../dom.js';
 import { dropRowScope, rowScopeNow, type RowScope, type RowStep } from '../list-keys.js';
 import { ACTIONS } from '../labels.js';
 import { callName, shortId } from '../format.js';
-import { jobRunning } from '../jobs.js';
+import { jobRunning } from '../job-title.js';
 import { blameAsksOnItsPage, blameEntries, highlight, INDEXING_RETRY_MS, indexingNote, limitRecorded, matchPalette, palettePlaceholder, PAUSED_HINT, pickRefusal, RECORDED_MIN_CHARS, runsById, runsToAskFor, snippetParts, words } from '../palette.js';
 import { addPaletteSource, onPaletteSourcesChanged, paletteSources } from '../palette-sources.js';
 import { href, type Route } from '../route.js';

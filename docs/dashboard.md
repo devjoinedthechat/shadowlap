@@ -70,13 +70,18 @@ The top bar shows:
 - **What this dashboard is**: *dashboard*; *team store* with a [team store](./team.md), naming it on hover; or *read-only* or *exported*, with why on hover.
 - **Where you are.**
 - **A live chip** while a run records. It is kept while the server can't be reached.
-- **The jobs running** (*1 job running*), counted from every tab and every page. A click opens the newest one's drawer again.
 
 When a recording ends, a toast says so on whatever page is open, whether it was recorded from a terminal or anywhere else: *Recording finished · 01M53JE2Q0 · 32 calls*, or *interrupted* when it stopped before its end. A run that a dashboard job made says how it ended in the job's drawer instead.
 
 ### Status bar
 
 The status bar shows the store, the run count (attempts counted apart), whether it is in sync, the address and the version. With a team store, it also shows the store's name and its last sync, or *setting up* while its setup is under way.
+
+A job off the screen leads its right-hand side: what it is doing (*Forking · running*), how many run from every tab (*2 jobs running*), or what a hidden one did (*Replayed · reproduced · exit 0*). A click opens it. Below 1000px it floats at the window's foot as a pill.
+
+### Toasts
+
+A toast says what just happened. It stands centred on the page, over the job's drawer, the bulk bar and the footer of a tall dialog, and goes after 5 seconds, or 8 with a button. The pointer or the focus on its button holds it. A refusal or a failure has a red dot and a ×, and stays 8 seconds.
 
 ### A run's id and its about line
 
@@ -730,7 +735,7 @@ What the two labels mean:
 - **`good`** marks a run a fix must not make worse than its own baseline. Run repair takes a fix's good runs from the runs labelled `good`, as `repair --keeps label:good` does, and keeps a change only if each is kept against its baseline.
 - **`bad`** names a run that went wrong, for `repair --fixes label:bad`.
 
-A run is never both: marking it good takes bad off, and a press of the label it has takes it off. Each press says what it did in a toast with **Undo**, and `u` does the same from anywhere while the toast shows. Either puts the labels back as they were, and hands the focus back to the key. The toast's words are said in a live region that is always on the page, so a screen reader hears them.
+A run is never both: marking it good takes bad off, and a press of the label it has takes it off. Each press says what it did in a toast with **Undo**, and ⌘Z (Ctrl Z), or `u` while single keys are on, does the same from anywhere but a field being typed in while the toast shows. Either puts the labels back as they were, and hands the focus back to the key. The toast's words are said in a live region that is always on the page, so a screen reader hears them.
 
 On Runs, the key's column is headed *good · bad*, each word listing the runs labelled so. The filter takes `label:good` for the runs with that label exactly, as the CLI does (a word matches anywhere). A label's chip on Runs lists its runs too.
 
@@ -1353,7 +1358,7 @@ The only project can't be removed.
 
 Labels, notes and actions run only from a dashboard started with `shadowlap dashboard`; elsewhere their buttons say why they are off. Each action is a [job](#jobs) that runs the CLI.
 
-Each action has one name wherever it is offered: its button, its menu item and its entry in Search or jump to. Its dialog is titled and confirmed with that name, and its drawer heads it in the -ing form (**Run repair**, *Repairing*). A name is verb and object in the CLI's words, with no article, and it ends in an ellipsis when the action asks for something before it runs (**Find breaking commit…**).
+Each action has one name wherever it is offered: its button, its menu item and its entry in Search or jump to. Its dialog is titled and confirmed with that name, and its drawer heads it in the -ing form, then in the past tense once it has done it (**Run repair**, *Repairing*, *Repaired*). A name is verb and object in the CLI's words, with no article, and it ends in an ellipsis when the action asks for something before it runs (**Find breaking commit…**).
 
 ### Actions on a run
 
@@ -1488,7 +1493,7 @@ These jobs run one at a time in a project. While any of the following runs, **Ru
 
 The server refuses another such job with the same words, from any tab, the palette's *Run tests* included. A test replay's page disables its **Add normalizer and re-run** (or **Add normalizer and update**) and **Update golden** the same way. Find breaking commit on a run that is no test replay touches no golden, and doesn't wait.
 
-**Run tests** runs `shadowlap test goldens/*` (plus each pack the config names elsewhere), with no shell: the CLI expands the pattern itself, as it does in CI. The page follows the session as each result lands. Its drawer ends on one primary action, **Tests**, with the replays of the first three goldens that failed linked above it. A run of one golden ends on its replay.
+**Run tests** runs `shadowlap test goldens/*` (plus each pack the config names elsewhere), with no shell: the CLI expands the pattern itself, as it does in CI. The page follows the session as each result lands. Its drawer ends on **Open Tests**, which isn't drawn on Tests itself, with the first three goldens that failed linked by name beside it, each opening its replay. A run of one golden ends on its replay.
 
 **A session that runs live asks first.** Before a session runs a golden live, **Run tests**, **Run more attempts**, **Re-run** and **Add normalizer and re-run** ask, on Tests and on a test replay's page, and so does the palette's *Run tests*. A test replays offline, except for two things that run live:
 
@@ -1517,7 +1522,7 @@ Settings changes `shadowlap.config.json` as `shadowlap normalize add` and `rm`, 
 - **The CLI's words**: a rule the CLI would refuse is refused with the same words.
 - **The activity feed**: every change lands in it.
 
-**Calibrate** is a job that runs `shadowlap calibrate <run>`, with each round in the drawer. When it proposes normalizers, **Add it (--write)** adds exactly those, without replaying again.
+**Calibrate** is a job that runs `shadowlap calibrate <run>`, with each round in the drawer. When it proposes normalizers, **Add normalizer** adds exactly those, without replaying again.
 
 **Clean up old runs** runs `shadowlap gc --older-than 30 --dry-run`. When it finds runs, **Delete N runs** asks first (Cancel has the focus), naming the attempts bundled under them, which go too. It then deletes exactly the runs the dry run listed, or nothing if others match by then.
 
@@ -1525,7 +1530,7 @@ When no run is that old, but runs deleted since (with `rm`, or from Runs) left b
 
 ### Jobs
 
-Each action is a job: the dashboard runs the CLI in the folder of the [project](#projects) it shows, against that project's store. The job's output streams into a drawer titled with what it does (Replaying, Forking, Repeating, Packing). A screen reader hears how the job stands as that changes (running, stopping, how it ended), not each line it prints.
+Each action is a job: the dashboard runs the CLI in the folder of the [project](#projects) it shows, against that project's store. The job's output streams into a drawer docked across the content's foot, titled with what it does (Replaying, Forking, Repeating, Packing). The content makes room for it. A screen reader hears how the job stands as that changes (running, stopping, how it ended), not each line it prints.
 
 The command also tells the job what it made, on a pipe of its own rather than in its output:
 
@@ -1534,19 +1539,21 @@ The command also tells the job what it made, on a pipe of its own rather than in
 - the files and folders it wrote;
 - its result: what `--json` would print.
 
-So the drawer ends on the outcome and the exit code, and links to the run it made (**Open run**) or the attempts without reading the text. It names the folder a pack went to, and offers a file a job wrote for download.
+So the drawer ends on what it did, the outcome and the exit code, in the verdict's colour, and its way on in its header line: the run it made (**Open replay**, **Open fork**, **Open run**) or the attempts, without reading the text. It names the folder a pack went to, and offers a file a job wrote for download. A way on never links to the page on the screen, and reads plain while that page has a lime step of its own.
 
 How a replay or a fork ended:
 
 - **A Replay whose request differed from its recording** says where, *diverged at #3 · went live · exit 0*, in amber (red when the agent then failed). `replay` forks at the first request that differs and runs live from there, writes blocked, so the run it made is no reproduction.
-- **Calibrate**, beside **Open run**, replays the recording offline and proposes a normalizer for each value the agent makes anew on every run (a user id, a temporary path). Its drawer offers **Add it (--write)**, and the next Replay is clean.
+- **Calibrate**, beside **Open replay**, replays the recording offline and proposes a normalizer for each value the agent makes anew on every run (a user id, a temporary path). Its drawer offers **Add normalizer**, and the next Replay is clean.
 - **A fork from the menu** says *forked*: diverging where its flag changed the run is what it was asked for.
 - **A fork that left the recording before the call its flag acts on** says that instead, *diverged at #3, before the inject at #17 · went live · exit 0*, in the same colours and with **Calibrate**. The calls before it did not replay, so what the flag changed is not the only difference.
 
 Closing and stopping:
 
-- **Closing the drawer** leaves the job running. The top bar counts the jobs running (*1 job running*), from every tab and every page, and a click opens the newest one's drawer again.
-- **A job that ends behind a closed drawer** says so in a toast, its title in the past tense with how it came out (*Ran tests · 1 failed · exit 1*). Where the past tense would claim more than happened, it says what ran instead (*Tried repairing · no fix found · exit 1*).
+- **The fold.** Two seconds after its end, the drawer folds to its header line, unless the keyboard is in it. **Show log** opens it again.
+- **Esc or the chevron** hides a running job behind the [status bar](#status-bar)'s chip, which opens it again. A running job's drawer stays across pages.
+- **Esc or Close** closes a drawer that has ended, and so does leaving the page.
+- **A hidden job that ends** says so in a toast, its title in the past tense with how it came out (*Ran tests · failed · 2 of 7 goldens passed · exit 1*), and offers its way on, or **Show**. Where the past tense would claim more than happened, it says what ran instead (*Tried repairing · no fix found · exit 1*).
 - **Stop**, in the drawer while its job runs, stops the command and the agent it started, as Ctrl-C would, even an agent that ignores the signal (it is killed after five seconds); the drawer then says *stopped*. It asks first while the job holds your working tree: a repair verifying candidates made from it, a patch being applied.
 - **A run the stopped job left recording** is marked as interrupted, so it no longer shows as live and can be deleted.
 
@@ -1625,17 +1632,17 @@ From the dashboard:
 
 The dashboard's keys, by where they work. `?` lists them on a sheet, and each control a key presses says its key on its hover card and to a screen reader.
 
-**Single-key shortcuts** can be turned off at the sheet's foot, and the browser remembers it. Off, only ⌘K, Esc, Enter and the arrows work, and nothing advertises a single key.
+**Single-key shortcuts** can be turned off at the sheet's foot, and the browser remembers it. Off, only ⌘K, ⌘Z, Esc, Enter and the arrows work, and nothing advertises a single key.
 
 These keys work on any page:
 
-| Key          | What it does                                                            |
-| ------------ | ----------------------------------------------------------------------- |
-| ⌘K or Ctrl K | Search or jump to anything; with the focus in a list's row, its actions |
-| `/`          | Filter a run's calls, filter Runs, or search anywhere else              |
-| `?`          | Show the shortcuts                                                      |
-| `u`          | Undo, while a toast offers it (a good or bad label)                     |
-| Esc          | Close what is open, then go up a level                                  |
+| Key               | What it does                                                            |
+| ----------------- | ----------------------------------------------------------------------- |
+| ⌘K or Ctrl K      | Search or jump to anything; with the focus in a list's row, its actions |
+| `/`               | Filter a run's calls, filter Runs, or search anywhere else              |
+| `?`               | Show the shortcuts                                                      |
+| ⌘Z or Ctrl Z, `u` | Undo, while a toast offers it (a good or bad label)                     |
+| Esc               | Close what is open, then go up a level                                  |
 
 These keys work in a list: Runs, and the sidebar's runs while one has the focus.
 
@@ -1675,7 +1682,7 @@ These keys work on a run's page:
 
 **`b`** presses Run blame only where the run's page leads with it, not the Run blame beside a crash's Find breaking commit.
 
-**Esc** does one thing a press: it closes a menu, a dialog, the palette or a job's drawer, then the sidebar on a phone, then leaves a field, then hides a hover card. Only then does it go up: a run's open diff closes, a run or a fix goes back the way you came, Runs' selection clears, and the row in focus lets go.
+**Esc** does one thing a press: it closes a menu, a dialog or the palette, hides or closes a job's drawer, then closes the sidebar on a phone, then leaves a field, then hides a hover card. Only then does it go up: a run's open diff closes, a run or a fix goes back the way you came, Runs' selection clears, and the row in focus lets go.
 
 **The way back** lands on the row or the link you left. A page opened cold goes up to its crumbs' parent: a fork or a replay to the run it came from, a run to Runs, a fix to Fixes. `[`, `]` and opening a run's parent add nothing to the way back, and a page it already passed through takes it back to there.
 
@@ -1724,14 +1731,15 @@ One that can't start leaves the dialog open, with what you typed.
 ### Focus and accessibility
 
 - **Skip to content** is Tab's first stop on every page. It takes the focus past the top bar and the sidebar to the page's heading.
-- **Opening a page** takes the focus to its heading, so a screen reader says where you are and Tab goes on from there. A step within a page (a call, a view, a fix's step, a filter) leaves it where it was, and a first load moves nothing. No move scrolls the page.
+- **Opening a page** takes the focus to its heading once the page has drawn what it opened for, so a screen reader says where you are and Tab goes on from there into the page. A step within a page (a call, a view, a fix's step, a filter) leaves it where it was, and a first load moves nothing. No move scrolls the page.
 - **What the page draws anew** hands the focus to its counterpart, found by what it is, so Tab goes on from where you were. Focus you moved away yourself stays away.
-- **A job's end** that takes away the control you started it from hands the focus to the step that took its place, else to the job's drawer.
+- **A job's end** that takes away the control you started it from hands the focus to the step that took its place, else to the job's drawer: its way on, else its log. A job started from a dialog opened from the drawer's way on takes that drawer's place, with the focus on its log.
 - **Tabs** (a run's views, the inspector) are one Tab stop: `←` and `→` move along them round the ends, Home and End go to the first and last, and a count is read apart from its name. Settings and Training switch pages with links.
 - **A row that opens on a click** names what it opens with a real link, which the keyboard reaches, a screen reader reads and a browser opens in a tab of its own.
 - **Search or jump to** keeps the focus in its field while ↑ and ↓ move through what it offers, as a screen reader expects of a combobox.
 - **Closing** a menu, a dialog or the palette hands the focus back to what had it, or to the control drawn in its place when the page has drawn it anew. A click outside a menu that lands on another control leaves the focus there.
-- **Closing a job's drawer** from inside it hands the focus back to where it was, or else to the page. On a phone the sidebar takes the focus to its first item as it opens, and closing it from inside it, or with a click beside it, hands the focus to its button.
+- **Closing a job's drawer** from inside it hands the focus back to where it was, or else to the page. Hiding a running job from inside its drawer hands the focus to the status bar's chip, and pressing the chip hands it back.
+- **The sidebar on a phone** takes the focus to its first item as it opens. Closing it from inside it, or with a click beside it, hands the focus to its button.
 - **A link in a menu or a dialog** hands the focus to the page it opened, and so does Back with one open. A run picked in Compare leaves it on the picker.
 - **A focus ring** is drawn whole in every pane that scrolls. A pane that scrolls with no control in it (the Timeline, Turns and Context, a run's calls on Provenance, a code block, a command to copy, a job's output, a dialog's body) takes the focus itself, so the keyboard can scroll it.
 - **What has a hover card and no action of its own** takes the focus where it stands on its own (a run's outcome, a fact), so what a hover shows is never only a hover's. In a row or a chart it doesn't, and a mark with no words of its own is named by its card.
@@ -2295,15 +2303,17 @@ It also checks the contrast of text and of a field's edge, the focus order, the 
 
 ### The server can't be reached
 
-When the server stops answering (the dashboard was stopped), a bar says what the page last loaded, and actions pause. The page tries again after 5, 10, 20 and then every 30 seconds. A page or a view whose code couldn't be loaded meanwhile says so, and its **Retry** loads the page again once the server is back; see [Each page's code loads when it opens](#each-pages-code-loads-when-it-opens).
+When the server stops answering (the dashboard was stopped), a row under the top bar says what the page last loaded, that actions are paused, and the command that starts it again. On a phone it is one line, with the rest behind **Why**.
+
+What needs the server waits in its place, dimmed, and a press says why: *Paused until the dashboard server is back*. Reading what was loaded goes on. The page tries again after 5, 10, 20 and then every 30 seconds. A page or a view whose code couldn't be loaded meanwhile says so, and its **Retry** loads the page again once the server is back; see [Each page's code loads when it opens](#each-pages-code-loads-when-it-opens).
 
 ### The dashboard refuses the link
 
-A link whose session token the dashboard refuses, one from before a restart or another dashboard's, gets a card that says so, with `Paste the new link`. It opens the link the dashboard printed, read from the clipboard, and the page starts again with its token.
+A link whose session token the dashboard refuses, one from before a restart or another dashboard's, gets a card that says so, with the command that starts the dashboard and `Paste the new link`. That opens the link the dashboard printed, read from the clipboard, and the page starts again with its token.
 
 ### A button is off
 
-A button that is off says why on hover. The usual reasons:
+A button that is off keeps its place, dimmed. It says why on its card, and in a toast when pressed. The usual reasons:
 
 | Why it is off | What to do |
 | --- | --- |

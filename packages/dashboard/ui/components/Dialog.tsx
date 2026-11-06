@@ -12,6 +12,7 @@ import type { PromptChoice } from '../types.js';
 import { CommandRow, type CommandRowProps } from './CommandRow.js';
 import { CostLine, useCostStick, type CostLineProps } from './CostLine.js';
 import { DialogFacts, factId, inCode, shownFacts, type DialogFactRows } from './DialogFacts.js';
+import { ActionButton } from './ActionButton.js';
 
 /**
  * What every modal stands on: a scrim in the layer slot, the app behind it inert, Tab kept inside it,
@@ -132,9 +133,14 @@ export interface DialogProps {
    * which then acts on the project the page shows (`dialogOnSwitch`).
    */
   keepOnSwitch?: boolean;
+  /**
+   * Its action changes nothing on the server (a Copy): it never waits. Every other confirm is a
+   * server action, which waits as an `ActionButton` does, the dialog staying open with what was typed.
+   */
+  local?: boolean;
 }
 
-/** Enter on a dialog's field presses its way on, which may refuse: as the button does. */
+/** Enter on a dialog's field presses its way on, which may refuse or wait (ActionButton): as the button does. */
 export function pressWayOn(from: EventTarget): void {
   const ok = (from as HTMLElement).closest('.dialog')?.querySelector<HTMLButtonElement>('.dlg-ok');
   if (ok && !ok.disabled) ok.click();
@@ -177,7 +183,34 @@ function DialogBody({ id, warn, facts, children, factsUnder, runs, command, cost
   );
 }
 
-export function Dialog({ title, lead, doc, warn, facts, children, factsUnder, runs, command, cost, ok, tone: asked = 'lime', okDisabled = false, onOk, alt, onClose, cancel = 'Cancel', className = '', initialFocus, dirty = false, keepOnSwitch = false }: DialogProps) {
+/**
+ * A dialog's ways on: its confirm, then `alt`, each a server action that waits as an `ActionButton`
+ * does, the dialog staying open with what was typed. A confirm that changes nothing on the server
+ * (`local`) is a plain button, and never waits.
+ */
+function DialogWays({ ok, alt, local, tone, okDisabled, onOk, press, hidden }: { ok: string | undefined; alt: DialogProps['alt']; local: boolean; tone: NonNullable<DialogProps['tone']>; okDisabled: boolean; onOk: WayOn | undefined; press: (way?: WayOn) => void; hidden: boolean }) {
+  const okClass = `btn${alt || tone === 'plain' ? '' : ` ${tone}`} dlg-ok`;
+  return (
+    <>
+      {ok && local ? (
+        <button type="button" className={okClass} hidden={hidden} disabled={okDisabled} onClick={() => press(onOk)}>
+          {ok}
+        </button>
+      ) : ok ? (
+        <ActionButton className={okClass} hidden={hidden} disabled={okDisabled} onClick={() => press(onOk)}>
+          {ok}
+        </ActionButton>
+      ) : null}
+      {alt ? (
+        <ActionButton className="btn lime dlg-alt" hidden={hidden} disabled={alt.disabled} onClick={() => press(alt.onClick)}>
+          {alt.label}
+        </ActionButton>
+      ) : null}
+    </>
+  );
+}
+
+export function Dialog({ title, lead, doc, warn, facts, children, factsUnder, runs, command, cost, ok, tone: asked = 'lime', okDisabled = false, onOk, alt, onClose, cancel = 'Cancel', className = '', initialFocus, dirty = false, keepOnSwitch = false, local = false }: DialogProps) {
   const ref = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   useScrollStop(body);
@@ -313,16 +346,7 @@ export function Dialog({ title, lead, doc, warn, facts, children, factsUnder, ru
           <button type="button" className="btn dlg-cancel" hidden={asking} onClick={onClose}>
             {ok ? cancel : 'Close'}
           </button>
-          {ok ? (
-            <button type="button" className={`btn${alt || tone === 'plain' ? '' : ` ${tone}`} dlg-ok`} hidden={asking} disabled={okDisabled} onClick={() => press(onOk)}>
-              {ok}
-            </button>
-          ) : null}
-          {alt ? (
-            <button type="button" className="btn lime dlg-alt" hidden={asking} disabled={alt.disabled} onClick={() => press(alt.onClick)}>
-              {alt.label}
-            </button>
-          ) : null}
+          <DialogWays {...{ ok, alt, local, tone, okDisabled, onOk, press }} hidden={asking} />
           {asking ? (
             <>
               <span className="dlgask" id={askId}>

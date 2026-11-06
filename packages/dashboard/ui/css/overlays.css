@@ -1,4 +1,4 @@
-/* What opens over a page: dialogs, menus and pickers, the palette, the shortcuts, hover cards, the job drawer and toasts.
+/* What opens over a page: dialogs, menus and pickers, the palette, the shortcuts and hover cards (the job drawer and toasts are dock.css's).
    Every overlay stands on this one surface: the page's own ground (--pop), set apart from what it covers by one edge and its
    shadow (--shadow-pop, whose ring is the edge), never a tone of its own. Its rows tint as the page's rows do. With forced
    colours, which draw no shadow, each takes a 1px outline in the text colour, or a clear border of its own shows as one (the
@@ -146,14 +146,14 @@
 .pop .pk { padding: 8px 10px 4px; font: 500 var(--fs-caps) var(--mono); letter-spacing: var(--caps); text-transform: uppercase; color: var(--faint); }
 .pop .pk code { font: 500 var(--fs-quiet) var(--mono); letter-spacing: 0; text-transform: none; color: var(--ink); }
 .pop button { display: flex; align-items: baseline; gap: 12px; width: 100%; min-height: 34px; text-align: left; border: 0; background: none; border-radius: var(--r-control); padding: 8px 10px; line-height: 20px; cursor: pointer; }
-.pop button:hover:not([disabled]) { background: var(--hover); }
+.pop button:hover:not([disabled], [aria-disabled="true"]) { background: var(--hover); }
 /* the keyboard's place in a menu is the app's focus ring, inset, on the selected ground, a step brighter than the hover's tint */
 .pop button:focus-visible { background: var(--sel); outline: 2px solid var(--accent-line); outline-offset: -2px; }
 .pop button b { flex: 1; min-width: 0; font-weight: 500; font-size: var(--fs-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pop button small { flex: none; max-width: 46%; font: var(--fs-label) var(--mono); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* a project's row says its runs in words, not what it runs */
 .pop.projmenu button small { font: var(--fs-small) var(--body); }
-.pop button[disabled] { opacity: .4; cursor: not-allowed; }
+.pop button[disabled], .pop button[aria-disabled="true"] { opacity: .4; cursor: not-allowed; }
 .pop hr { border: 0; border-top: 1px solid var(--line); margin: 6px 4px; }
 .pop .pnote { padding: 6px 10px 8px; color: var(--faint); font-size: var(--fs-small); }
 /* the one picked now (a project, a run) has a check mark before it, in ink; the others keep its room. A row's second button (.px) is no row. */
@@ -181,32 +181,7 @@
 .pop.picker.sheet { max-height: min(78vh, 640px); max-height: min(78dvh, 640px); }
 .pop.picker.sheet .opt { min-height: 44px; align-items: center; }
 .pop.picker.sheet .pfilter { height: 44px; }
-.drawer { position: fixed; z-index: 35; right: 16px; bottom: 44px; width: min(560px, calc(100vw - 32px)); background: var(--raise); border-radius: 16px; box-shadow: var(--shadow-pop); overflow: hidden; }
-.drawer header { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
-.drawer header b { font: 600 13px var(--body); }
-.drawer .st2 { font: 11.5px var(--mono); color: var(--faint); }
-.drawer .st2.ok { color: var(--ok); }
-.drawer .st2.warn { color: var(--warn); }
-.drawer .st2.err { color: var(--err); }
 
-/* A job's output wraps rather than run past the drawer's edge, every line read whole; it scrolls down, by keyboard too. */
-.drawer pre { margin: 0; padding: 12px 14px; max-height: 260px; overflow: auto; font: 12px/1.7 var(--mono); color: var(--dim); background: var(--code); white-space: pre-wrap; overflow-wrap: anywhere; }
-.drawer pre .p { color: var(--faint); }
-.drawer pre .ok { color: var(--ok); }
-.drawer pre .y { color: var(--warn); }
-.drawer pre .no { color: var(--err); }
-.drawer footer { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); }
-.toast { position: fixed; z-index: 50; left: 50%; bottom: 44px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 12px; background: var(--ink); color: var(--bg); font-size: 13px; box-shadow: 0 18px 40px -16px rgba(0,0,0,.5); }
-.toast i { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
-.toast.err { width: max-content; max-width: min(560px, calc(100vw - 32px)); align-items: flex-start; line-height: 1.45; }
-.toast.err i { flex: none; margin-top: 5px; background: var(--err); }
-.toast .tx { flex: none; width: 24px; height: 24px; margin: -3px -6px -3px 2px; border: 0; border-radius: 7px; background: none; color: inherit; opacity: .55; font-size: 16px; line-height: 1; cursor: pointer; }
-.toast .tx:hover, .toast .tx:focus-visible { opacity: 1; background: color-mix(in srgb, var(--bg) 12%, transparent); outline: none; }
-/* A notice's one action, as Undo: dark text on the light toast, underlined, its ring in the toast's own dark */
-.toast .tact { flex: none; margin: -3px -6px -3px 4px; padding: 3px 8px; border: 0; border-radius: 7px; background: none; color: inherit; font: 600 13px var(--body); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-.toast .tact:hover { background: color-mix(in srgb, var(--bg) 12%, transparent); }
-.toast .tact:focus-visible { outline: 2px solid var(--bg); outline-offset: -2px; }
-.toast .tkey { margin: 0 -4px 0 -6px; padding: 0 5px; border: 1px solid color-mix(in srgb, var(--bg) 35%, transparent); border-radius: 4px; font: 11px/16px var(--mono); }
 .help { width: min(760px, 100%); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; overflow: hidden; border-radius: var(--r-overlay); }
 .help:focus { outline: none; }
 .help > header { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 18px 20px 0; }
@@ -268,10 +243,6 @@
 .dialog .rmnote { margin: 10px 0 0; font-size: 12.5px; color: var(--faint); }
 .dialog .confirm.bad input { border-color: var(--err); box-shadow: 0 0 0 3px color-mix(in srgb, var(--err) 15%, transparent); }
 
-/* While runs are picked, a job's drawer opens above the bulk bar (46px tall, 44px up) instead of over its buttons;
-   below 720px, above its lines (106px tall on a phone, 40px up) */
-body:has(.bulkbar) .drawer { bottom: 100px; }
-@media (max-width: 720px) { body:has(.bulkbar) .drawer { bottom: 156px; } }
 
 .palscrim { align-items: flex-start; padding-top: 12vh; }
 .palette { width: min(620px, 100%); border-radius: var(--r-overlay); overflow: hidden; }
@@ -307,18 +278,10 @@ body:has(.bulkbar) .drawer { bottom: 100px; }
 /* Fork menu: its one note sits close under its head. */
 .pop.fkm .pnote { padding: 2px 10px 6px; }
 
-/* the job drawer names the folders a job wrote (a pack); files download from its footer */
-.drawer .jfiles { display: flex; flex-direction: column; gap: 4px; padding: 10px 14px 0; font-size: 12.5px; color: var(--dim); max-height: 136px; overflow-y: auto; }
-.drawer .jfiles span { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.drawer .jfiles code { min-width: 0; overflow-wrap: anywhere; }
-.drawer .jfiles svg { width: 14px; height: 14px; flex: none; color: var(--faint); }
 
 .dialog pre.fxpatch { margin: 10px 0 0; max-height: 40vh; overflow: auto; padding: 10px 12px; border-radius: 10px; background: var(--code); border: 1px solid var(--line); font: 12px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .dialog .ondisk.first { margin-top: 0; }
-/* a job's buttons wrap in a narrow drawer; links beside its one primary action (each failing golden's run) sit above them */
-.drawer footer { flex-wrap: wrap; }
-.drawer .jlinks { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 10px 14px 0; font-size: 12.5px; }
 
 .dialog.ruledlg { width: min(560px, 100%); }
 .dialog .advtoggle { margin: 12px 0 0 -7px; }
@@ -337,7 +300,6 @@ body:has(.bulkbar) .drawer { bottom: 100px; }
 .dialog .mcphow { margin: 10px 0 0; }
 .dialog .codebox { margin-bottom: 0; }
 
-.drawer .st2.jin { color: var(--dim); }
 
 /* the Remove dialog on a phone: each path on disk under its words, rather than both squeezed onto one line */
 @media (max-width: 520px) {

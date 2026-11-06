@@ -377,7 +377,7 @@ describe('what settles a fix left unsettled', () => {
     await open(fix.fixId, 'verify', null, { started });
     const more = r!.byText('.verdict .actions button', 'Run more attempts');
     expect(more.className).toBe('btn sm lime');
-    expect(JSON.parse(String(more.props['data-tip']))).toMatchObject({ t: 'Verifies the change again from the start, up to 80 attempts a run', s: `$ shadowlap verify --fixes ${run} --expect '${JSON.stringify(EXPECT)}' --set temperature=1` });
+    expect(JSON.parse(String(more.props['data-tip']))).toMatchObject({ t: 'Verifies the change again from the start, up to 80 attempts a run', cmd: `$ shadowlap verify --fixes ${run} --expect '${JSON.stringify(EXPECT)}' --set temperature=1` });
     // The header's Run repair reads plain while the step leads.
     expect(r!.byText('.ph .actions button', 'Run repair').className).toBe('btn');
     expect(text(r!.one('.fxreceipt.vmore'))).toBe(`${run.slice(0, 10)} is inconclusive: the budget of $0.01 is spent. Run more attempts verifies again from the start (verify has no --continue), up to 80 a run, without its --budget 0.012: about 12 attempts, ≈$0.144.`);

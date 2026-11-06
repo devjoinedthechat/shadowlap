@@ -44,7 +44,10 @@ const TABLE = {
   palette: { group: 'Anywhere', chips: '⌘ K', label: 'Search or jump to anything', when: notCopy },
   filter: { group: 'Anywhere', chips: '/', label: (p) => (p.onRun ? 'Filter calls' : p.onRuns ? 'Filter runs' : 'Search or jump to anything'), when: (p) => !p.exported || p.onRun || p.onRuns },
   help: { group: 'Anywhere', chips: '?', aria: '?', label: 'Show these shortcuts' },
-  undo: { group: 'Anywhere', chips: 'u', aria: 'u', label: 'Undo, while a toast offers it' },
+  // ⌘Z, and u while single keys are on: a line each, so the group's keys keep to their width. An
+  // exported copy changes nothing, so no toast there offers an Undo.
+  undo: { group: 'Anywhere', chips: '⌘ Z', label: 'Undo, while a toast offers it', when: notCopy },
+  undoKey: { group: 'Anywhere', chips: 'u', label: 'The same', when: notCopy },
   up: { group: 'Anywhere', chips: 'Esc', label: 'Close menu or dialog, then go up a level' },
 
   rows: { group: 'In a list', chips: 'j k', label: 'Next or previous row' },
@@ -117,9 +120,9 @@ export function sheetLines(group: SheetGroup, place: SheetPlace, mac: boolean): 
   return lines;
 }
 
-/** What the switch's sentence says stays on: an exported copy has no palette. */
-export function switchSentence(exported: boolean, paletteKey: string): string {
-  return `Off, only ${exported ? '' : `${paletteKey}, `}Esc, Enter and the arrows work.`;
+/** What the switch's sentence says stays on: an exported copy has no palette, and nothing to undo. */
+export function switchSentence(exported: boolean, paletteKey: string, undoKey: string): string {
+  return `Off, only ${exported ? '' : `${paletteKey}, ${undoKey}, `}Esc, Enter and the arrows work.`;
 }
 
 export interface ShortcutMark {
@@ -157,12 +160,17 @@ export function goKeyColumn(to: string): string | undefined {
 
 /**
  * A key presses its control, so it does what the button does and waits as it waits: none on the page,
- * nothing; one that is off says why (its `title`, through `say`), or nothing where it gives no reason,
- * since its card says what it does; else a click. True when there was one to press.
+ * nothing; one that waits (an `ActionButton`) is pressed, and says why as a press does; one that is off
+ * says why (its `title`, through `say`), or nothing where it gives no reason, since its card says what
+ * it does; else a click. True when there was one to press.
  */
 export function pressShortcut(id: ShortcutId, say: (words: string) => void): boolean {
   const el = document.querySelector<HTMLElement>(`[data-shortcut="${id}"]`);
   if (!el) return false;
+  if (el.hasAttribute('data-why')) {
+    el.click();
+    return true;
+  }
   if ((el as HTMLButtonElement).disabled || el.getAttribute('aria-disabled') === 'true') {
     const why = el.getAttribute('title');
     if (why) say(why);

@@ -177,8 +177,8 @@ describe('Edit and fork in the inspector', () => {
   it('is off, saying why, where the fork menu’s override is', async () => {
     const page = await open(detail({ disabled: 'A capture has no command: replay it with yours first' }), { uploads: [], jobs: [] });
     const button = page.byText('button', 'Edit and fork…');
-    expect(button.disabled).toBe(true);
-    expect(button.getAttribute('title')).toBe('A capture has no command: replay it with yours first');
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(button.getAttribute('data-why')).toBe('A capture has no command: replay it with yours first');
   });
 
   it('says so first when the run came from someone else’s pack', async () => {

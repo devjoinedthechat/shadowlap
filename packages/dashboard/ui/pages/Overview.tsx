@@ -56,7 +56,8 @@ export function OverviewPage() {
         </Page>
       );
     return (
-      <Page>
+      // Busy while it works the week out; a warming store says how far it has got in a status of its own, read out as it moves.
+      <Page busy={!summary.error && !warming}>
         <PageHeader eyebrow={`${name} · this week`} title="Overview" text="What failed, what got fixed and proven, and what it cost." />
         {summary.error ? (
           <div className="empty tall">The Overview could not be worked out: {summary.error.message}</div>

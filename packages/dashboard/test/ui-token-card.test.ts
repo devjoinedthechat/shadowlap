@@ -43,14 +43,18 @@ describe('the card for a refused session token', () => {
   async function card(clipboard: () => Promise<string>): Promise<Rendered> {
     vi.stubGlobal('location', location);
     vi.stubGlobal('navigator', { clipboard: { readText: clipboard } });
-    return render(createElement(AppContext.Provider, { value: { conn: 'expired' } as unknown as AppState }, createElement(ExpiredCard)));
+    return render(createElement(AppContext.Provider, { value: { conn: 'expired', toast: () => undefined } as unknown as AppState }, createElement(ExpiredCard)));
   }
 
   it('says the token isn’t this dashboard’s, from a restart or another dashboard', async () => {
     r = await card(async () => '');
     expect(r.one('#connT').textContent).toBe('This link’s session token isn’t this dashboard’s');
-    expect(r.all('.cb p')[0].textContent).toContain('It was restarted, or the link is from another one.');
-    expect(r.all('.cb .actions button').map((b) => b.textContent)).toEqual(['Copy command', 'Paste the new link']);
+    expect(r.one('#connD').textContent).toBe('It was restarted, or the link is from another one. Open the link it printed when it started, or start it again:');
+    expect(r.one('.connblock').getAttribute('aria-describedby')).toBe('connD');
+    // One command box, with its own Copy, and the card's one lime way out.
+    expect(r.one('.cb .cmdline').textContent).toContain('shadowlap dashboard');
+    expect(r.all('.cb .actions button').map((b) => b.textContent)).toEqual(['Paste the new link']);
+    expect(r.one('.cb .cbdoc a').getAttribute('href')).toBe('https://github.com/devjoinedthechat/shadowlap/blob/main/docs/dashboard.md#security-and-consent');
   });
 
   it('opens the new link from the clipboard: its fragment here, the whole link on another port', async () => {

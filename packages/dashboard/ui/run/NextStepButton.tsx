@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { consentAsked } from '../actions.js';
 import { JOB_KINDS, type RunDetail, type RunOffers } from '../api.js';
+import { ActionButton } from '../components/ActionButton.js';
 import { ConfirmDialog, ConsentDialog, PromptDialog } from '../components/Dialog.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { Icon, type IconName } from '../components/Icon.js';
@@ -72,23 +73,21 @@ interface StepProps {
 
 /** Replay, as the header keeps it: the lime one where nothing else needs doing, else plain. On a clean or a test replay it replays the recording that replay came from. */
 export function ReplayButton({ run, step, lime, onAction }: { run: RunDetail; step: NextStep | null; lime: boolean; onAction: (p: PendingAction) => void }) {
-  const { actionsOff } = useApp();
   const action = replayAction(step) ?? run.actions.find((a) => a.key === 'r');
-  const off = step?.off ?? actionsOff ?? action?.disabled ?? null;
   const target = step?.key === 'replay' && step.runId !== run.run.runId ? { runId: step.runId } : {};
   return (
-    <button
-      className={lime && (!off || off === step?.off) ? 'btn lime' : 'btn'}
-      type="button"
-      disabled={!!off || !action}
+    <ActionButton
+      className={lime ? 'btn lime' : 'btn'}
+      why={step?.off ?? action?.disabled}
+      disabled={!action}
       {...(lime ? { 'data-next': 'replay' } : {})}
-      {...(off ? { title: off } : step ? { 'data-tip': tipOf(stepCard(step)) } : action ? { 'data-tip': tipText(ACTIONS.replay.label) } : {})}
+      {...(step ? { 'data-tip': tipOf(stepCard(step)) } : action ? { 'data-tip': tipText(ACTIONS.replay.label) } : {})}
       onClick={() => action && onAction({ action, callNo: null, ...target })}
       {...shortcut('replay')}
     >
       <Icon name="replay" />
       {step?.label ?? 'Replay'}
-    </button>
+    </ActionButton>
   );
 }
 
@@ -195,14 +194,12 @@ export function BlameBesideButton({ runId, step }: { runId: string; step: NextSt
 
 /** Add normalizer on a replay: the run's own action, the rule its divergence proposes. */
 function RuleStep({ run, step, onAction }: StepProps) {
-  const { actionsOff } = useApp();
   const action = run.actions.find((a) => a.key === 'n');
   if (!action) return null;
-  const off = actionsOff ?? action.disabled;
   return (
-    <button className={off ? 'btn' : 'btn lime'} type="button" disabled={!!off} data-next={step.key} {...(off ? { title: off } : { 'data-tip': tipOf(stepCard(step)) })} onClick={() => onAction({ action, callNo: null })}>
+    <ActionButton className="btn lime" why={action.disabled} data-next={step.key} data-tip={tipOf(stepCard(step))} onClick={() => onAction({ action, callNo: null })}>
       {step.label}
-    </button>
+    </ActionButton>
   );
 }
 
@@ -221,7 +218,6 @@ function InjectionStep({ step }: { step: Extract<NextStep, { key: 'injection-tes
   const app = useApp();
   const [asking, setAsking] = useState<null | { kind: 'step' } | { kind: 'consent'; why: string; confirm: string }>(null);
   const busy = useTreeBusy('reads', stepJob(step)!.verb);
-  const off = app.actionsOff ?? busy;
   const title = confirmWords(step.label);
   const id = shortId(step.runId);
   const fields = step.key === 'injection-again' ? { runId: step.runId, repeat: step.job.repeat, ...(step.job.templates.length ? { templates: step.job.templates } : {}), baselines: step.job.baselines, liveReads: step.job.liveReads } : { runId: step.runId };
@@ -238,9 +234,9 @@ function InjectionStep({ step }: { step: Extract<NextStep, { key: 'injection-tes
     });
   return (
     <>
-      <button className={off ? 'btn' : 'btn lime'} type="button" disabled={!!off} data-next={step.key} {...(off ? { title: off } : { 'data-tip': tipOf(stepCard(step)) })} onClick={() => app.guard(() => setAsking({ kind: 'step' }))}>
+      <ActionButton className="btn lime" why={busy} data-next={step.key} data-tip={tipOf(stepCard(step))} onClick={() => app.guard(() => setAsking({ kind: 'step' }))}>
         {step.label}
-      </button>
+      </ActionButton>
       {asking?.kind === 'step' ? (
         <ConfirmDialog
           title={namedIn(`${title} on ${id}`, id)}
@@ -263,14 +259,13 @@ function InjectionStep({ step }: { step: Extract<NextStep, { key: 'injection-tes
 function PackStep({ step, offers }: { step: Extract<NextStep, { key: 'pack' | 'pack-gate' }>; offers: RunOffers | null }) {
   const app = useApp();
   const [asking, setAsking] = useState(false);
-  const off = app.actionsOff;
   const id = shortId(step.runId);
   const gate = step.key === 'pack-gate' ? step.gate : null;
   return (
     <>
-      <button className={off ? 'btn' : 'btn lime'} type="button" disabled={!!off} data-next={step.key} {...(off ? { title: off } : { 'data-tip': tipOf(stepCard(step)) })} onClick={() => app.guard(() => setAsking(true))}>
+      <ActionButton className="btn lime" data-next={step.key} data-tip={tipOf(stepCard(step))} onClick={() => app.guard(() => setAsking(true))}>
         {step.label}
-      </button>
+      </ActionButton>
       {asking ? (
         <PromptDialog
           title={namedIn(gate ? `Pack ${id} with injection gate?` : `Pack ${id} as golden?`, id)}

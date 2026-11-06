@@ -66,6 +66,8 @@ export async function axe(page: Page): Promise<AxeViolation[]> {
 
 /** The serious and critical violations, each with where it is: what the tests hold at zero. */
 export async function seriousViolations(page: Page): Promise<string[]> {
+  // What fades in, a toast, is judged once it has: halfway in, its words sit on a ground it never shows.
+  await page.evaluate(() => Promise.all(document.getAnimations().filter((a) => a.effect?.getTiming().iterations !== Infinity).map((a) => a.finished.catch(() => undefined))));
   const found = await axe(page);
   return found.filter((v) => v.impact === 'serious' || v.impact === 'critical').flatMap((v) => v.nodes.map((n) => `${v.id} (${v.impact}): ${n.target.join(' ')}${n.failureSummary ? ` · ${n.failureSummary.replace(/\s+/g, ' ').slice(0, 220)}` : ''}`));
 }

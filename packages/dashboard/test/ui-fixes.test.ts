@@ -560,7 +560,9 @@ describe('the job drawer', () => {
     expect(jobStatus(job('blame', 0, unsettled), [])).toEqual({ text: 'inconclusive · exit 0', tone: 'warn' });
     expect(jobStatus(job('blame', 0, { ...unsettled, failedWrite: { name: 'post_digest', message: 'channel_not_found', callNo: 1 } }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'warn' });
     expect(jobStatus(job('blame', 0, { ...unsettled, probes: [{ callNo: 1, decision: 'fail' }] }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'warn' });
-    expect(jobStatus(job('blame', 1, { outcome: 'stopped' }), [])).toEqual({ text: 'stopped · exit 1', tone: 'err' });
+    expect(jobStatus(job('blame', 1, { outcome: 'stopped' }), [])).toEqual({ text: 'stopped · exit 1', tone: 'warn' });
+    expect(jobStatus(job('repair', 3, { outcome: 'stopped' }), [])).toEqual({ text: 'stopped · exit 3', tone: 'warn' });
+    expect(jobStatus(job('repair', 1, { outcome: 'no-diagnosis' }), [])).toEqual({ text: 'no fix to try · exit 1', tone: 'warn' });
     expect(jobStatus(job('repair', 0, { outcome: 'fixed' }), [])).toEqual({ text: 'fixed · exit 0', tone: 'ok' });
     expect(jobStatus(job('repair', 1, { outcome: 'not-fixed' }), [])).toEqual({ text: 'no fix found · exit 1', tone: 'err' });
     // Claude Code was never asked, and nothing else was tried: no fix was looked for, which is no failure of the agent's.

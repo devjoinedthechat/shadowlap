@@ -2,13 +2,15 @@ import type { ComponentType } from 'react';
 import type { JobView } from './types.js';
 
 /**
- * What a feature adds to the job drawer's footer for its own kind of job: a button that acts on what
- * the job found, such as calibrate's "Add it (--write)" or a clean-up's "Delete N runs". The drawer
- * renders the component registered for the job's kind beside its Close button and links, with the
- * job as it is now; the component decides when it shows (usually once the job is done).
+ * What a feature adds to the job drawer's way on for its own kind of job: a button that acts on what
+ * the job found, such as calibrate's "Add normalizer" or a clean-up's "Delete N runs". The drawer
+ * renders the component registered for the job's kind in its header line, beside its links, with the
+ * job as it is now; the component decides when it shows (usually once the job is done). `plain`: the
+ * page leads with a lime step of its own, so this reads plain. `done`: what it did needed no job of
+ * its own and is over, so the drawer closes.
  */
 
-export type JobFooter = ComponentType<{ job: JobView }>;
+export type JobFooter = ComponentType<{ job: JobView; plain?: boolean; done?: () => void }>;
 
 const footers = new Map<string, JobFooter>();
 

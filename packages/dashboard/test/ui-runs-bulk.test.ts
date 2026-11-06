@@ -135,16 +135,16 @@ function valueAt(width: number, selector: string, property: string): string | un
 }
 
 describe('the bulk bar on a phone', () => {
-  it('wraps onto lines rather than scroll an action out of view, and a job’s drawer opens above them', () => {
+  it('wraps onto lines rather than scroll an action out of view, and rides over a job’s docked drawer', () => {
     for (const width of [390, 668, 720]) {
       expect(valueAt(width, '.bulkbar', 'flex-wrap'), `${width}`).toBe('wrap');
       expect(valueAt(width, '.bulkbar', 'overflow'), `${width}`).toBe('visible');
       expect(valueAt(width, '.bulkbar .sep', 'display'), `${width}`).toBe('none');
       expect(valueAt(width, '.bulkbar b', 'flex-basis'), `${width}`).toBe('100%');
-      expect(valueAt(width, 'body:has(.bulkbar) .drawer', 'bottom'), `${width}`).toBe('156px');
+      expect(valueAt(width, 'body.docked .bulkbar', 'bottom'), `${width}`).toBe('calc(12px + var(--dock-h))');
     }
-    // Wider, the bar keeps to one line, with the drawer just above it.
+    // Wider, the bar keeps to one line, over the drawer and the status bar.
     expect(valueAt(721, '.bulkbar', 'flex-wrap')).toBeUndefined();
-    expect(valueAt(721, 'body:has(.bulkbar) .drawer', 'bottom')).toBe('100px');
+    expect(valueAt(1440, 'body.docked .bulkbar', 'bottom')).toBe('calc(44px + var(--dock-h))');
   });
 });

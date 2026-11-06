@@ -27,6 +27,7 @@ import { RepairStepView } from './RepairStep.js';
 import { useTreeBusy } from './tree.js';
 import { VerifyStepView } from './VerifyStep.js';
 import { ACTIONS, confirmWords } from '../labels.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * A fix (#/fixes/<id>[/<step>[/<sub>]]): its title, check and runs; the stepper (Blame, Repair,
@@ -118,9 +119,9 @@ function FixHeader({ fix, reload, leads }: { fix: FixDetail; reload: () => void;
             </>
           ) : null}
           {app.exported ? null : (
-            <button className="linkbtn fxrename" type="button" disabled={!!app.actionsOff} title={app.actionsOff ?? 'Give this fix a title of your own'} onClick={() => app.guard(() => setRenaming(true))}>
+            <ActionButton className="linkbtn fxrename" title="Give this fix a title of your own" onClick={() => app.guard(() => setRenaming(true))}>
               Rename
-            </button>
+            </ActionButton>
           )}
         </p>
         {/* What failed and what it must do, as the list says it: the title says what failed until someone renames it. */}
@@ -219,9 +220,9 @@ export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boo
     return (
       <>
         {copy}
-        <button className="btn lime" type="button" disabled title={off ?? action.why}>
+        <ActionButton className="btn lime" why={off ?? action.why}>
           {action.label}
-        </button>
+        </ActionButton>
       </>
     );
   if (action.kind === 'applied') {
@@ -253,9 +254,9 @@ export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boo
   return (
     <>
       {copy}
-      <button className={aside || blameNext || leads ? 'btn' : 'btn lime'} type="button" disabled={!!why} title={why ?? aside ?? undefined} onClick={() => app.guard(() => setAsking(action.kind === 'repair' ? 'repair' : 'apply'))}>
+      <ActionButton className={aside || blameNext || leads ? 'btn' : 'btn lime'} why={why} title={aside ?? undefined} onClick={() => app.guard(() => setAsking(action.kind === 'repair' ? 'repair' : 'apply'))}>
         {action.kind === 'repair' ? ACTIONS.runRepair.label : action.label}
-      </button>
+      </ActionButton>
       {blameNext ? (
         <FixJobButton
           kind={JOB_KINDS.blame}
@@ -423,7 +424,7 @@ export function ApplyDialog({ fix, label, onClose, onRun }: { fix: FixDetail; la
  * The apply drawer's last word when the patch made other goldens diverge: Update goldens re-records
  * them (`shadowlap test <goldens> --update`), asking first, as the Tests screen's Update goldens does.
  */
-function ApplyFooter({ job }: { job: JobView }) {
+function ApplyFooter({ job, plain }: { job: JobView; plain?: boolean }) {
   const app = useApp();
   const [asking, setAsking] = useState(false);
   const [started, setStarted] = useState(false);
@@ -432,9 +433,9 @@ function ApplyFooter({ job }: { job: JobView }) {
   const ask = updateOutdatedAsk(outdated);
   return (
     <>
-      <button className="btn lime" type="button" disabled={started || !!app.actionsOff} title={app.actionsOff ?? ask.command} onClick={() => app.guard(() => setAsking(true))}>
+      <ActionButton className={plain ? 'btn' : 'btn lime'} disabled={started} title={ask.command} onClick={() => app.guard(() => setAsking(true))}>
         Update goldens
-      </button>
+      </ActionButton>
       {asking ? (
         <UpdateGoldenDialog
           plan={ask}

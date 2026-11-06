@@ -26,6 +26,7 @@ import { exitWords, presetTag, type PresetAttempt } from './preset.js';
 import { checksOf, forkKindWords, recordingWords, runDuration, runLikeOf } from './model.js';
 import { canPush, pushTitle } from './share.js';
 import { ShareMenu } from './ShareMenu.js';
+import { ActionButton, useWhenFree } from '../components/ActionButton.js';
 
 /**
  * The run's header: what kind of run it is, its id as its heading (decision 10: the id is the run's
@@ -66,7 +67,7 @@ export function RunHeader({
   onMark?: ((m: RunMark, from?: HTMLElement) => void) | null;
 }) {
   const app = useApp();
-  const { exported, actionsOff, toast, client, guard, refresh, hasKind } = app;
+  const { exported, toast, client, guard, refresh, hasKind } = app;
   const r = run.run;
   // The page's labels when it keeps them (the good/bad key changes them too), else the run's, kept here.
   const [own, setOwn] = useState<string[] | null>(null);
@@ -122,7 +123,6 @@ export function RunHeader({
   const ownAbout = !!about?.text && about.text.toLowerCase() !== kind.toLowerCase();
   const head = useRef<HTMLElement>(null);
   useFitAbouts(head);
-  const off = actionsOff ?? undefined;
   // Push: a run only on this machine goes to the team store the config names.
   const pushable = canPush({ exported, live, team: offers?.team, hasPush: hasKind(JOB_KINDS.push) });
   return (
@@ -172,42 +172,27 @@ export function RunHeader({
         {next?.key === 'compare' ? null : <CompareButton run={run} />}
         {exported ? lead : (
           <>
-            <button className="btn" type="button" aria-haspopup="menu" aria-expanded={share.open} onClick={(e) => share.toggle(e.currentTarget)}>
+            <ActionButton className="btn" reads aria-haspopup="menu" aria-expanded={share.open} onClick={(e) => share.toggle(e.currentTarget)}>
               <Icon name="share" />
               Share
               <Icon name="caret" className="caret" />
-            </button>
+            </ActionButton>
             {pushable ? (
-              <button
-                className="btn"
-                type="button"
-                disabled={!!actionsOff}
-                title={off ?? pushTitle(offers!.team!)}
-                onClick={() => guard(() => app.watchJob(client.startJob(JOB_KINDS.push, { runIds: [r.runId] })))}
-              >
+              <ActionButton className="btn" title={pushTitle(offers!.team!)} onClick={() => guard(() => app.watchJob(client.startJob(JOB_KINDS.push, { runIds: [r.runId] })))}>
                 Push
-              </button>
+              </ActionButton>
             ) : null}
             {next?.key === 'replay' ? null : <ReplayButton run={run} step={run.replay ?? null} lime={false} onAction={onAction} />}
             <BlameBesideButton runId={r.runId} step={next} />
-            <button
-              className="btn"
-              type="button"
-              id="forkBtn"
-              aria-haspopup="menu"
-              aria-expanded={forkMenu.open}
-              disabled={live || !!actionsOff || selected === null}
-              {...offOrCard(live ? 'Fork once the recording finishes' : off, selected === null, 'Each change in the menu shows the flag it runs')}
-              onClick={(e) => forkMenu.toggle(e.currentTarget)} {...shortcut('fork')}
-            >
+            <ActionButton className="btn" id="forkBtn" aria-haspopup="menu" aria-expanded={forkMenu.open} disabled={live || selected === null} {...offOrCard(live ? 'Fork once the recording finishes' : undefined, selected === null, 'Each change in the menu shows the flag it runs')} onClick={(e) => forkMenu.toggle(e.currentTarget)} {...shortcut('fork')}>
               <Icon name="fork" />
               Fork at #{selected ?? '–'}
               <Icon name="caret" className="caret" />
-            </button>
+            </ActionButton>
             {lead}
-            <button className="btn quiet dz" type="button" disabled={live || !!actionsOff} title={live ? 'A run that is still recording can’t be deleted' : off} onClick={() => guard(() => setDeleting(true))}>
+            <ActionButton className="btn quiet dz" why={live ? 'A run that is still recording can’t be deleted' : null} onClick={() => guard(() => setDeleting(true))}>
               Delete
-            </button>
+            </ActionButton>
           </>
         )}
       </div>
@@ -248,6 +233,8 @@ function Labels({ run, labels: shown, setLabels, onMark }: { run: RunDetail; lab
   const [adding, setAdding] = useState(false);
   const [value, setValue] = useState('');
   const enabled = !exported && !actionsOff;
+  // Enter while the server is out of reach says why, the field kept open with what was typed.
+  const whenFree = useWhenFree();
   const change = (add: string[], remove: string[]) =>
     guard(() =>
       void client.labels(run.run.runId, add, remove).then(
@@ -267,9 +254,9 @@ function Labels({ run, labels: shown, setLabels, onMark }: { run: RunDetail; lab
         <span className="chip" key={l}>
           {l}
           {enabled ? (
-            <button type="button" aria-label={`Remove label ${l}`} onClick={() => change([], [l])}>
+            <ActionButton aria-label={`Remove label ${l}`} onClick={() => change([], [l])}>
               ×
-            </button>
+            </ActionButton>
           ) : null}
         </span>
       ))}
@@ -285,9 +272,11 @@ function Labels({ run, labels: shown, setLabels, onMark }: { run: RunDetail; lab
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               const v = value.trim();
-              if (v && !shown.includes(v)) change([v], []);
-              setValue('');
-              setAdding(false);
+              whenFree(() => {
+                if (v && !shown.includes(v)) change([v], []);
+                setValue('');
+                setAdding(false);
+              });
             } else if (e.key === 'Escape') {
               e.stopPropagation();
               setValue('');
@@ -296,10 +285,10 @@ function Labels({ run, labels: shown, setLabels, onMark }: { run: RunDetail; lab
           }}
         />
       ) : enabled ? (
-        <button className="linkbtn" type="button" onClick={() => setAdding(true)}>
+        <ActionButton className="linkbtn" onClick={() => setAdding(true)}>
           <Icon name="plus" />
           Label
-        </button>
+        </ActionButton>
       ) : null}
     </span>
   );

@@ -222,8 +222,9 @@ describe('the run page’s next step', () => {
     await page.unmount();
     page = await render(createElement(AppContext.Provider, { value: app() }, createElement(RunHeader, header(detail({ status: 'running', state: { ...passedState, status: 'running' }, next: { ...REPLAY, off: 'Replay once the recording finishes' } })))));
     const waiting = page.byText('.rhead .actions button', 'Replay');
-    expect(waiting.props.disabled).toBe(true);
-    expect(waiting.props.title).toBe('Replay once the recording finishes');
+    expect(waiting.getAttribute('aria-disabled')).toBe('true');
+    expect(waiting.getAttribute('data-why')).toBe('Replay once the recording finishes');
+    expect(waiting.className).toBe('btn');
   });
 
   it('keeps Compare plain beside a next step, in the mock’s words, with the diff it matches on hover', async () => {
@@ -454,8 +455,8 @@ describe('the run page’s next step', () => {
     for (const next of [OFFER, { key: 'pack', label: 'Pack as golden…', runId: REC, folder: 'goldens/x' }, { key: 'injection-test', label: 'Run injection test…', runId: REC }, { key: 'rerun-test', label: 'Re-run test', golden: GOLDEN }] as NextStep[]) {
       page = await render(createElement(AppContext.Provider, { value: app({ actionsOff: off }) }, createElement(RunHeader, header(detail({ state: passedState, next })))));
       const lead = page.byText('.rhead .actions button', next.label);
-      expect(lead.props.disabled, next.key).toBe(true);
-      expect(lead.props.title, next.key).toBe(off);
+      expect(lead.getAttribute('aria-disabled'), next.key).toBe('true');
+      expect(lead.getAttribute('data-why'), next.key).toBe(off);
       await page.unmount();
       page = null;
     }
@@ -473,8 +474,8 @@ describe('the run page’s next step', () => {
       page = await render(createElement(AppContext.Provider, { value: app({ meta, jobs: holding } as never) }, createElement(RunHeader, header(detail({ state: passedState, next })))));
       const lead = page.byText('.rhead .actions button', next.label);
       expect(lead.className, next.key).toBe('btn');
-      expect(lead.props.disabled, next.key).toBe(true);
-      expect(lead.props.title, next.key).toBe(why);
+      expect(lead.getAttribute('aria-disabled'), next.key).toBe('true');
+      expect(lead.getAttribute('data-why'), next.key).toBe(why);
       expect(lime(page), next.key).toEqual([]);
       await page.unmount();
       page = null;

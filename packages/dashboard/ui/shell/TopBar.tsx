@@ -1,5 +1,4 @@
 import { Fragment, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
-import { Spin } from '../components/bits.js';
 import { Brand, Icon } from '../components/Icon.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { settingsTabLabel } from '../pages/settings/tabs.js';
@@ -9,8 +8,6 @@ import { href, type Route } from '../route.js';
 import { useSingleKeys } from '../single-keys.js';
 import { useApp } from '../state.js';
 import { useFixCrumb } from '../fixes/data.js';
-import { useServerJobs } from '../fixes/tree.js';
-import { runningChip } from '../jobs.js';
 import { useTeamStore } from '../teamstore.js';
 import { crumbLineage, liveChip, topPill } from './top.js';
 
@@ -46,7 +43,7 @@ function crumbsFor(route: Route, lineageOf: (id: string) => Array<{ runId: strin
 }
 
 export function TopBar({ route }: { route: Route }) {
-  const { runs, live, sideOpen, setSideOpen, setHelp, conn, exported, meta, actionsOff, loadedAt, jobs, openJob } = useApp();
+  const { runs, live, sideOpen, setSideOpen, setHelp, conn, exported, meta, actionsOff, loadedAt } = useApp();
   const singleKeys = useSingleKeys();
   const listed = (id: string) => runs?.find((r) => r.runId === id || (id.length >= 10 && r.runId.startsWith(id))) ?? null;
   const shown = route.page === 'run' ? listed(route.id) : null;
@@ -85,8 +82,6 @@ export function TopBar({ route }: { route: Route }) {
   const store = useTeamStore();
   const pill = topPill({ exported, readOnly: !!meta && !exported && (meta.readOnly === true || !meta.actions), actionsOff, store: store?.url ?? null });
   const chip = liveChip({ recording: live[0]?.runId ?? runs?.find((r) => r.status === 'running')?.runId ?? null, conn, loadedAt });
-  // The jobs running, from every tab, and the drawer of one whose drawer was closed, to open again.
-  const running = runningChip(useServerJobs(), jobs.find((w) => w.open)?.job.id ?? null);
   return (
     <header className="top">
       <button className="ibtn menu-toggle" type="button" aria-label="Menu" aria-expanded={sideOpen} aria-controls="side" onClick={() => setSideOpen(!sideOpen)}>
@@ -133,15 +128,6 @@ export function TopBar({ route }: { route: Route }) {
         })}
       </nav>
       <div className="sp" />
-      {running && conn !== 'expired' ? (
-        <button className="livechip jobchip" type="button" title={running.title} onClick={() => openJob(running.opens)}>
-          <Spin />
-          <span>
-            {running.count} {running.count === 1 ? 'job' : 'jobs'}
-            <span className="jrun"> running</span>
-          </span>
-        </button>
-      ) : null}
       {chip ? (
         <a className="livechip" href={href.run(chip.runId)} title={chip.title ?? undefined}>
           <span className="dotlive" />

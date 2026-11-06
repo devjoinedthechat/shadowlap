@@ -32,11 +32,11 @@ function hand(over: Partial<AppState> = {}): AppState {
 
 describe('the table of keys', () => {
   it('draws the sheet’s groups by where it opens', () => {
-    expect(words('Anywhere')).toEqual(['Search or jump to anything', 'Search or jump to anything', 'Show these shortcuts', 'Undo, while a toast offers it', 'Close menu or dialog, then go up a level']);
+    expect(words('Anywhere')).toEqual(['Search or jump to anything', 'Search or jump to anything', 'Show these shortcuts', 'Undo, while a toast offers it', 'The same', 'Close menu or dialog, then go up a level']);
     expect(words('Anywhere', { onRun: true })[1]).toBe('Filter calls');
     expect(words('Anywhere', { onRuns: true })[1]).toBe('Filter runs');
     // A copy has no palette, and nothing to search away from its lists.
-    expect(words('Anywhere', { exported: true })).toEqual(['Show these shortcuts', 'Undo, while a toast offers it', 'Close menu or dialog, then go up a level']);
+    expect(words('Anywhere', { exported: true })).toEqual(['Show these shortcuts', 'Close menu or dialog, then go up a level']);
     expect(words('In a list', { exported: true })).toEqual(['Next or previous row', 'The same, on a row in focus', 'Open row', 'Let go of the row']);
     expect(words('In a list')).toEqual(['Next or previous row', 'The same, on a row in focus', 'Open row', 'The row’s actions', 'Select row, on Runs', 'Label it good or bad, on Runs', 'Clear selection, then let go']);
     expect(words('Go to', { exported: true })).toEqual(['Runs']);
@@ -62,9 +62,17 @@ describe('the table of keys', () => {
     expect(line('In a list', 'The same, on a row in focus').single).toBe(false);
     expect(line('In a list', 'Open row').single).toBe(false);
     expect(line('Anywhere', 'Search or jump to anything', false).chips[0].text).toBe('Ctrl');
-    expect(switchSentence(false, '⌘K')).toBe('Off, only ⌘K, Esc, Enter and the arrows work.');
-    expect(switchSentence(false, 'Ctrl K')).toBe('Off, only Ctrl K, Esc, Enter and the arrows work.');
-    expect(switchSentence(true, '⌘K')).toBe('Off, only Esc, Enter and the arrows work.');
+    // ⌘Z stays on with the switch; `u`, on the line after it, goes faint as a single key's line does.
+    const undo = line('Anywhere', 'Undo, while a toast offers it');
+    expect([undo.single, undo.chips.map((c) => c.text)]).toEqual([false, ['⌘', 'Z']]);
+    expect(line('Anywhere', 'Undo, while a toast offers it', false).chips.map((c) => c.text)).toEqual(['Ctrl', 'Z']);
+    const lines = sheetLines('Anywhere', place(), true);
+    const at = lines.findIndex((l) => l.label === 'Undo, while a toast offers it');
+    const next = lines[at + 1];
+    expect([next?.label, next?.single, next?.chips.map((c) => c.text)]).toEqual(['The same', true, ['u']]);
+    expect(switchSentence(false, '⌘K', '⌘Z')).toBe('Off, only ⌘K, ⌘Z, Esc, Enter and the arrows work.');
+    expect(switchSentence(false, 'Ctrl K', 'Ctrl Z')).toBe('Off, only Ctrl K, Ctrl Z, Esc, Enter and the arrows work.');
+    expect(switchSentence(true, '⌘K', '⌘Z')).toBe('Off, only Esc, Enter and the arrows work.');
   });
 
   it('marks a control while the switch is on, and writes a plus sign as ARIA spells it', () => {
@@ -124,6 +132,15 @@ describe('the table of keys', () => {
     expect(pressShortcut('fork', say)).toBe(true);
     expect(pressShortcut('compare', say)).toBe(true);
     expect(said).toEqual(['Fork once the recording finishes', 'Why not']);
+  });
+
+  it('presses a control that waits, which says why itself as a press does', async () => {
+    const pressed = vi.fn();
+    const say = vi.fn();
+    r = await render(createElement('button', { type: 'button', 'aria-disabled': 'true', 'data-why': 'Paused until the dashboard server is back', onClick: pressed, ...shortcut('replay') }, 'Replay'));
+    expect(pressShortcut('replay', say)).toBe(true);
+    expect(pressed).toHaveBeenCalledOnce();
+    expect(say).not.toHaveBeenCalled();
   });
 
   it('says nothing for a button off with no reason, whatever its card says', async () => {

@@ -5,6 +5,7 @@ import { shortcut } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { Icon } from './Icon.js';
+import { ActionButton } from './ActionButton.js';
 
 /**
  * The good/bad key (runkey.ts): two buttons that label a run `good` or `bad` in one press, a press
@@ -17,13 +18,12 @@ export function RunKey({ runId, labels, onMark, off, compact = false }: { runId:
       {MARKS.map((m) => {
         const on = hasMark(labels, m);
         return (
-          <button
+          <ActionButton
             key={m}
-            type="button"
             className={`rk ${m}`}
             aria-pressed={on}
-            disabled={!!off}
-            title={off ?? markTitle(m, on)}
+            why={off}
+            title={markTitle(m, on)}
             // The key answers on a run's header; on Runs' rows only with the focus in that row, so those say nothing of it.
             {...(compact ? {} : shortcut(m === 'good' ? 'markGood' : 'markBad'))}
             onClick={(e) => {
@@ -33,7 +33,7 @@ export function RunKey({ runId, labels, onMark, off, compact = false }: { runId:
           >
             <Icon name={m === 'good' ? 'check' : 'x'} />
             {compact ? <span className="sr">{m}</span> : m}
-          </button>
+          </ActionButton>
         );
       })}
     </span>
@@ -63,6 +63,7 @@ export function useMarkRun(onLabels: (runId: string, labels: string[]) => void):
             const undo = undoChange(before, change);
             toast(markToast(runId, m, change.add.includes(m)), 'notice', {
               label: 'Undo',
+              undo: true,
               returnTo,
               run: () =>
                 guard(() =>

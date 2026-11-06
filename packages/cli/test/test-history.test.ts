@@ -88,8 +88,8 @@ describe('shadowlap test history', () => {
     expect(r.events[0]).toEqual({ type: 'run', runId: replayId, role: 'passing' });
     // One golden: a link to its replay, as Add normalizer and re-run opens it, then Tests beside it.
     expect(r.events.filter((e) => e.type === 'link')).toEqual([
-      { type: 'link', label: 'Open the passing run', href: `#/run/${replayId}` },
-      { type: 'link', label: 'Tests', href: '#/tests', secondary: true },
+      { type: 'link', label: 'Open passing run', href: `#/run/${replayId}` },
+      { type: 'link', label: 'Open Tests', href: '#/tests', secondary: true },
     ]);
     const report = JSON.parse(readFileSync(join(work, 'report.json'), 'utf8')) as Record<string, unknown> & { results: Array<Record<string, unknown>> };
     expect(report).toMatchObject({ session: session.sessionId, revision: session.revision, passed: 1, failed: 0 });
@@ -110,7 +110,7 @@ describe('shadowlap test history', () => {
     expect(failed.data!.divergence).toMatchObject({ entries: 1, volatile: { values: [], explainsAll: false } });
     expect(failed.data!.divergence!.text).toContain('Be brief.');
     expect(r.events.filter((e) => e.type === 'run')).toEqual([{ type: 'run', runId: failed.runId, role: 'failing' }]);
-    expect(r.events.find((e) => e.type === 'link')).toEqual({ type: 'link', label: 'Open the run', href: `#/run/${failed.runId}` });
+    expect(r.events.find((e) => e.type === 'link')).toEqual({ type: 'link', label: 'Open run', href: `#/run/${failed.runId}` });
     s.close();
   });
 
@@ -125,8 +125,8 @@ describe('shadowlap test history', () => {
     const failed = s.listTestResults({ golden: 'goldens/no-email' })[0];
     expect(failed).toMatchObject({ ok: false, failure: 'check' });
     expect(r.events.filter((e) => e.type === 'link')).toEqual([
-      { type: 'link', label: 'Open no-email’s run', href: `#/run/${failed.runId}`, secondary: true },
-      { type: 'link', label: 'Tests', href: '#/tests' },
+      { type: 'link', label: 'no-email', href: `#/run/${failed.runId}`, secondary: true },
+      { type: 'link', label: 'Open Tests', href: '#/tests' },
     ]);
     s.close();
   });

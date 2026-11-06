@@ -5,6 +5,7 @@ import { ONLY_PROJECT, useProjectRemoval } from '../../project-actions.js';
 import { useApp } from '../../state.js';
 import { LoadProblem, Loading, useFolderGone, useSettingsData } from './common.js';
 import { bytesText, sizeNote } from './logic.js';
+import { ActionButton } from '../../components/ActionButton.js';
 
 /**
  * Project: its name, store, runs and attempts, the store's size and the dashboard's address; Clean
@@ -60,13 +61,13 @@ export function ProjectTab() {
         </dd>
       </dl>
       <div className="pbody setfoot">
-        <button className="btn" type="button" disabled={!canClean} title={cleanTitle} onClick={() => app.guard(() => app.watchJob(client.startJob(JOB_KINDS.gc, { olderThanDays: data.cleanup.olderThanDays })))}>
+        <ActionButton className="btn" why={canClean ? null : cleanTitle} title={cleanTitle} onClick={() => app.guard(() => app.watchJob(client.startJob(JOB_KINDS.gc, { olderThanDays: data.cleanup.olderThanDays })))}>
           Clean up old runs
-        </button>
+        </ActionButton>
         {/* A read-only dashboard's reason first: it changes nothing, whichever project it shows. */}
-        <button className="btn quiet dz push" type="button" disabled={!!blocked || !!app.actionsOff} title={app.actionsOff ?? blocked ?? `Forget ${data.name} here; its folder, store and goldens stay on disk`} onClick={() => app.guard(() => setRemoving(true))}>
+        <ActionButton className="btn quiet dz push" why={blocked} title={`Forget ${data.name} here; its folder, store and goldens stay on disk`} onClick={() => app.guard(() => setRemoving(true))}>
           Remove project…
-        </button>
+        </ActionButton>
       </div>
       {removing && removal && current ? <removal.Dialog id={current.id} onClose={() => setRemoving(false)} /> : null}
     </section>

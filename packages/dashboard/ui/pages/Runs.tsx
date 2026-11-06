@@ -33,6 +33,7 @@ import { useTeamStore } from '../teamstore.js';
 import { errorText } from '../toast.js';
 import type { BisectChoices, ChipCounts, RunsPage as RunsPageView, RunsPageRow, RunsQuery } from '../types.js';
 import { ACTIONS } from '../labels.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * Runs: every run in a table, a page at a time from the server, with the 12-week calendar above it,
@@ -444,7 +445,6 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   };
 
   const p = projectOf(meta);
-  const off = actionsOff ?? undefined;
   const runs = [...picked.values()];
   return (
     <Page>
@@ -455,20 +455,20 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
         actions={
           <>
             {store && hasKind(JOB_KINDS.pull) ? (
-              <button className="btn" type="button" disabled={!!actionsOff} title={off ?? `Bring the team’s runs from ${store.name}`} onClick={() => guard(() => watchJob(client.startJob(JOB_KINDS.pull, {})))}>
+              <ActionButton className="btn" title={`Bring the team’s runs from ${store.name}`} onClick={() => guard(() => watchJob(client.startJob(JOB_KINDS.pull, {})))}>
                 Pull
-              </button>
+              </ActionButton>
             ) : null}
             {hasKind(JOB_KINDS.importCapture) ? (
-              <button className="btn" type="button" disabled={!!actionsOff} title={off} onClick={() => guard(() => setDialog('import'))}>
+              <ActionButton className="btn" onClick={() => guard(() => setDialog('import'))}>
                 <Icon name="import" />
                 {ACTIONS.importCapture.label}
-              </button>
+              </ActionButton>
             ) : null}
           </>
         }
       />
-      {cal.data ? <Calendar data={cal.data} chip={chip} range={range} onPick={pickDays} byPerson={!!store} onFindCommit={hasKind(JOB_KINDS.bisect) ? findCommit : null} actionsOff={actionsOff} /> : null}
+      {cal.data ? <Calendar data={cal.data} chip={chip} range={range} onPick={pickDays} byPerson={!!store} onFindCommit={hasKind(JOB_KINDS.bisect) ? findCommit : null} /> : null}
       <div className="tbar">
         <Chips label="Kind of run" items={RUN_CHIPS.filter(([key]) => key !== 'local' || store || chip === 'local').map(([key, label]) => ({ key, label, ...(counts ? { count: counts[key] } : {}) }))} value={chip} onChange={setChip} />
         <label className="tin">

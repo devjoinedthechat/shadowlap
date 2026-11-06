@@ -3,6 +3,7 @@ import { Badge } from '../components/bits.js';
 import { plural, shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { useApp } from '../state.js';
+import { useOfflineLink } from '../components/ActionButton.js';
 
 /**
  * A gate's attempts grouped by what each did, on a fix's Blame and Verify steps: the tool calls each
@@ -22,6 +23,7 @@ const VERDICT: Record<AttemptGroup['verdict'], { tone: 'ok' | 'no' | 'y'; word: 
 
 /** One probe's or one run's attempts, a line per group: how many, what they did, how they came out, why, and one to open. */
 export function AttemptGroups({ groups, attempts, label }: { groups: readonly AttemptGroup[]; attempts: number; label: string }) {
+  const attemptLink = useOfflineLink();
   // One path for all of them says nothing a list of attempts doesn't.
   if (groups.length < 2) return null;
   return (
@@ -38,7 +40,7 @@ export function AttemptGroups({ groups, attempts, label }: { groups: readonly At
                 <span className="aw">{g.why}</span>
               </>
             ) : null}{' '}
-            <a className="ax" href={g.example.href} title={`Open one of them: ${g.example.runId}`}>
+            <a className="ax" href={g.example.href} title={`Open one of them: ${g.example.runId}`} onClick={attemptLink}>
               <code>{shortId(g.example.runId)}</code> →
             </a>
           </li>

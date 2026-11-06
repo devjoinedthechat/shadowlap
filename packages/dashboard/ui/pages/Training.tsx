@@ -16,6 +16,7 @@ import { redactsFact } from '../run/share.js';
 import { useApp } from '../state.js';
 import { ENDPOINT, exportCommand, filterGroups, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickNote, pickReplaces, pipClass, pipTip, scoreCommand, scoreCost, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type PairChip, type TrainingDialog } from '../training.js';
 import { ACTIONS, confirmWords } from '../labels.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * Training (#/training, #/training/tasks): preference pairs read from the attempts blame, verify and
@@ -58,7 +59,7 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
   const busy = useTreeBusy('reads', 'score');
   const action = tab === 'pairs' ? (canExport ? { label: ACTIONS.exportPairs.label, kind: 'export' as const, off: actionsOff } : null) : canScore ? { label: ACTIONS.scoreModel.label, kind: 'score' as const, off: actionsOff ?? busy } : null;
   return (
-    <Page>
+    <Page busy={!view && !loaded.error && !exported}>
       <PageHeader
         eyebrow="pairs · tasks · on this machine"
         title="Training"
@@ -69,9 +70,9 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
         }
         actions={
           action ? (
-            <button className="btn lime" type="button" disabled={!!action.off} title={action.off ?? undefined} onClick={() => guard(() => setDialog(action.kind))}>
+            <ActionButton className="btn lime" why={action.off} onClick={() => guard(() => setDialog(action.kind))}>
               {action.label}
-            </button>
+            </ActionButton>
           ) : null
         }
       />
@@ -271,9 +272,9 @@ function TasksTab({ view }: { view: TrainingView }) {
   const canUpdate = hasKind(JOB_KINDS.taskUpdate);
   const updateOff = actionsOff ?? busy;
   const updateButton = (u: TaskUpdate, name: string, cls: string) => (
-    <button className={cls} type="button" disabled={!!updateOff} title={updateOff ?? `Re-record ${name} as your agent runs now, so its test replays up to the takeover`} onClick={() => guard(() => setUpdating({ update: u, name }))}>
+    <ActionButton className={cls} why={updateOff} title={`Re-record ${name} as your agent runs now, so its test replays up to the takeover`} onClick={() => guard(() => setUpdating({ update: u, name }))}>
       {ACTIONS.updateGolden.label}
-    </button>
+    </ActionButton>
   );
   return (
     <>

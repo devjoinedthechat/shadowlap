@@ -268,7 +268,7 @@ export function register(router: Router, ctx: RouteContext): void {
     }
   });
 
-  // "Add it (--write)" after a calibrate job: exactly the rules it proposed, the ones the person just
+  // "Add normalizer" after a calibrate job: exactly the rules it proposed, the ones the person just
   // read in the drawer, without replaying again. They come from the job's result, never the page.
   router.post('/settings/calibrate/write', async (r) => {
     const body = await r.body();

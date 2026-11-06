@@ -59,7 +59,7 @@ export interface SettingsApi {
   removeRule(list: RuleListName, n: number, expect: string): Promise<{ n: number; version: string }>;
   setClock(mode: 'auto' | 'exact', expect: string): Promise<{ clock: string; changed: boolean; version: string }>;
   setCiPush(on: boolean, expect: string): Promise<{ ciPush: boolean; changed: boolean; version: string }>;
-  /** "Add it (--write)": the normalizers a finished calibrate job proposed, read from its result on the server. */
+  /** "Add normalizer": the normalizers a finished calibrate job proposed, read from its result on the server. */
   writeCalibration(jobId: string): Promise<{ added: number[]; already: number[]; version: string }>;
 }
 

@@ -1,5 +1,6 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { AppContext, type AppState } from '../ui/state.js';
 import { describe, expect, it } from 'vitest';
 import type { CallRow, RunDetail } from '../ui/types.js';
 import { CallsTable } from '../ui/run/CallsView.js';
@@ -83,7 +84,7 @@ describe('a long list drawn a window at a time', () => {
   });
 
   it('draws a screenful of a 50,000-call run’s Calls, with the rest as spacers', () => {
-    const html = renderToStaticMarkup(createElement(CallsTable, { calls: LONG, asked: null, selected: 1, scoped: false, forkAt: null, lostAt: null, ancestors: [], live: false, canFork: true, onSelect: noop, onFork: noop }));
+    const html = renderToStaticMarkup(createElement(AppContext.Provider, { value: { actionsOff: null, conn: 'ok', toast: noop } as unknown as AppState }, createElement(CallsTable, { calls: LONG, asked: null, selected: 1, scoped: false, forkAt: null, lostAt: null, ancestors: [], live: false, canFork: true, onSelect: noop, onFork: noop })));
     expect(count(html, /<tr data-wi=/g)).toBe(FIRST_ROWS);
     expect(count(html, /class="wspace"/g)).toBe(1);
     expect(html).toContain('aria-rowcount="50001"');

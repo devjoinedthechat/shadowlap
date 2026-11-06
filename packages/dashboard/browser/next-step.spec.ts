@@ -96,8 +96,9 @@ test('while a job holds the working tree, a step goes plain and says why, in the
   await openPage(page, `/run/${demoId('digestFailed')}`, 'run');
   await expect(lime(page)).toHaveCount(0);
   const step = page.locator('.rhead [data-next]');
-  await expect(step).toBeDisabled();
-  await expect(step).toHaveAttribute('title', WAITS);
+  // It waits as every action does (ActionButton): its place and its focus kept, why on its card and in a toast on a press.
+  await expect(step).toHaveAttribute('aria-disabled', 'true');
+  await expect(step).toHaveAttribute('data-why', WAITS);
   await palette(page);
   await expect(thisRun(page)).toHaveClass(/waits/);
   await expect(thisRun(page)).toContainText(WAITS);

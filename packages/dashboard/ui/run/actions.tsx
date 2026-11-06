@@ -3,7 +3,6 @@ import { JOB_KINDS, type ActionItem, type BisectOffer, type CallDetail, type Run
 import { consentAsked, forkMenu, forkMenuTitle, forkRowLine, menuLabel } from '../actions.js';
 import { dialogCopy } from './fork-dialog.js';
 import { ConfirmDialog, ConsentDialog, PromptDialog } from '../components/Dialog.js';
-import { tipCard } from '../components/HoverCard.js';
 import { namedIn } from '../components/Id.js';
 import { Popover } from '../components/Popover.js';
 import { callName, shortId } from '../format.js';
@@ -11,6 +10,7 @@ import { confirmWords } from '../labels.js';
 import { useApp } from '../state.js';
 import { bisectBlocked, bisectCardCommand, bisectLabel } from './offers.js';
 import { BisectDialog } from './RunDialogs.js';
+import { ActionButton } from '../components/ActionButton.js';
 
 /**
  * Running a run's actions: the fork menu at a call, and the dialog an action asks its one thing in.
@@ -131,7 +131,7 @@ export function ActionDialog({ runId, capture, forkAt, pending, onRun, onClose }
  * applies to the whole run. A capture has no command, so it says so and offers its replay.
  */
 export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onClose }: { anchor: HTMLElement; run: RunDetail; call: CallDetail | null; offers: RunOffers | null; onPick: (p: PendingAction) => void; onFindCommit: () => void; onClose: () => void }) {
-  const { hasKind, actionsOff } = useApp();
+  const { hasKind } = useApp();
   // Opened from a row that isn't the selected call, the menu waits for the call. Once it arrives the
   // menu opens afresh (its key), so its first item takes the focus as it does on a call already loaded.
   if (!call) {
@@ -156,9 +156,10 @@ export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onCl
   const bisect = bisectLabel(offers?.bisect);
   // A row's one line says what it runs; what it is for is on its card, with the flag on the command it adds it to.
   const item = (m: ReturnType<typeof forkMenu>['call'][number]) => ({
-    disabled: !!m.action.disabled,
-    title: m.action.disabled ?? undefined,
-    'data-tip': m.action.disabled ? undefined : tipCard(confirmWords(m.label), [], forkRowLine(m.action), m.action.flag?.startsWith('--') ? `$ shadowlap replay ${shortId(runId)} ${m.action.flag}` : null),
+    why: m.action.disabled,
+    tip: confirmWords(m.label),
+    sub: forkRowLine(m.action),
+    command: m.action.flag?.startsWith('--') ? `$ shadowlap replay ${shortId(runId)} ${m.action.flag}` : undefined,
   });
   return (
     <Popover key="menu" anchor={anchor} onClose={onClose} className="fkm" label={`Fork at #${c.callNo}`}>
@@ -166,34 +167,34 @@ export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onCl
       {capture && replay ? (
         <>
           <div className="pnote">A capture has no command. Replay it with yours first; every fork works on that replay.</div>
-          <button type="button" role="menuitem" data-tip={tipCard(confirmWords(menuLabel(replay)), [], 'Gives the capture your command; every fork works on that replay', `$ shadowlap replay ${shortId(runId)} -- <your command>`)} onClick={() => pick(replay, null)}>
+          <ActionButton role="menuitem" tip={confirmWords(menuLabel(replay))} sub="Gives the capture your command; every fork works on that replay" command={`$ shadowlap replay ${shortId(runId)} -- <your command>`} onClick={() => pick(replay, null)}>
             <b>{menuLabel(replay)}</b>
             <small>replay</small>
-          </button>
+          </ActionButton>
         </>
       ) : (
         <>
           {menu.call.map((m) => (
-            <button key={m.action.key} type="button" role="menuitem" {...item(m)} onClick={() => pick(m.action, c.callNo)}>
+            <ActionButton key={m.action.key} role="menuitem" {...item(m)} onClick={() => pick(m.action, c.callNo)}>
               <b>{m.label}</b>
               <small>{m.flag}</small>
-            </button>
+            </ActionButton>
           ))}
           {menu.call.length === 0 ? <div className="pnote">Nothing forks at this call.</div> : null}
           <hr />
           <div className="pk">The whole run</div>
           {menu.run.map((m) => (
-            <button key={m.action.key} type="button" role="menuitem" {...item(m)} onClick={() => pick(m.action, null)}>
+            <ActionButton key={m.action.key} role="menuitem" {...item(m)} onClick={() => pick(m.action, null)}>
               <b>{m.label}</b>
               <small>{m.flag}</small>
-            </button>
+            </ActionButton>
           ))}
-          <button
-            type="button"
+          <ActionButton
             role="menuitem"
-            disabled={!!blocked || !!actionsOff}
-            title={actionsOff ?? blocked ?? undefined}
-            data-tip={actionsOff || blocked ? undefined : tipCard(confirmWords(bisect.label), [], bisect.hint, bisectCardCommand(offers?.bisect ?? UNKNOWN_BISECT(runId)))}
+            why={blocked}
+            tip={confirmWords(bisect.label)}
+            sub={bisect.hint}
+            command={bisectCardCommand(offers?.bisect ?? UNKNOWN_BISECT(runId))}
             onClick={() => {
               onClose();
               onFindCommit();
@@ -201,7 +202,7 @@ export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onCl
           >
             <b>{bisect.label}</b>
             <small>bisect</small>
-          </button>
+          </ActionButton>
         </>
       )}
     </Popover>

@@ -1,6 +1,6 @@
 import type { FactWords } from '../actions.js';
 import { num, shortId } from '../format.js';
-import { draftCommand } from '../jobs.js';
+import { draftCommand } from '../job-title.js';
 import { ACTIONS } from '../labels.js';
 import type { RunOffers } from '../types.js';
 
