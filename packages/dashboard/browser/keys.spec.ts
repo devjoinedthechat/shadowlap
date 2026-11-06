@@ -285,7 +285,7 @@ test('⌘K on a run in the sidebar offers its actions, with nothing to select th
   await expect(run).toBeFocused();
 });
 
-test('⌘K on a failed run’s row offers its next step after Open run, with no key, and picking it presses that button on the run’s page', async ({ page }) => {
+test('⌘K on a failed run’s row offers its next step after Open run, with no key, and picking Run blame starts it where you are', async ({ page }) => {
   const run = demoId('digestFailed');
   const job = { id: 'rowjob', kind: 'blame', title: 'Blaming', args: ['blame', run], worktree: { use: 'reads', doing: 'a blame is running your agent from your working tree', folder: '/x' }, runId: run, opensRun: false, startedAt: Date.now(), endedAt: Date.now(), done: true, stopped: false, code: 3, newRunId: null, runs: [], links: [], files: [], total: 0, lines: [], project: { id: 'support-agent', name: 'support-agent' } };
   const asked: unknown[] = [];
@@ -304,9 +304,10 @@ test('⌘K on a failed run’s row offers its next step after Open run, with no 
   const step = page.locator('.palit', { has: page.locator('.pl', { hasText: /^Run blame$/ }) });
   // b presses it on the run's page only, so the row's step shows no key.
   await expect(step.locator('.palk kbd')).toHaveCount(0);
+  const at = await hash(page);
   await step.click();
-  await expect.poll(() => hash(page)).toBe(`#/run/${run}`);
   await expect.poll(() => asked).toEqual([expect.objectContaining({ kind: 'blame', runId: run })]);
+  expect(await hash(page)).toBe(at);
 });
 
 test('the palette says “this row” where a row’s name doesn’t fit its field, measured again as the window changes', async ({ page }) => {

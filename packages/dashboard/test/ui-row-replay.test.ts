@@ -8,7 +8,8 @@ import { addressBar } from './ui-route-helpers.js';
  * ⌘K on a run's row, in its order: Open run, its next step, Replay, Compare, Copy ID, Select run.
  * Replay is the step where it leads, none while the run records; it starts where it is, on the run
  * it replays, unless it asks first, which the run's page does. It carries no key: r presses it on the
- * run's page only.
+ * run's page only. Run blame starts where it is too, unless it asks first: for your command on a
+ * capture, the check, or a yes to someone else's command.
  */
 
 const RUN = '01M5JEQWA2QMJ3NYD1C687WP08';
@@ -17,11 +18,12 @@ const BLAME: NextStepRow = { key: 'blame', label: 'Run blame', command: `shadowl
 const REPLAY: NextStepRow = { key: 'replay', label: 'Replay recording', runId: PARENT, title: `Replays ${PARENT.slice(0, 10)}, the recording this replay came from`, command: `shadowlap replay ${PARENT.slice(0, 10)}` };
 const COMPARE: NextStepRow = { key: 'compare', label: 'Compare with parent', href: `#/compare/${PARENT}/${RUN}`, title: `Against ${PARENT.slice(0, 10)}`, command: `shadowlap diff ${PARENT.slice(0, 10)} ${RUN.slice(0, 10)}` };
 
-/** What starts a job, as the app's: the action asked, and the job it watches. */
+/** What starts a job, as the app's: the action or job asked, and the job it watches. */
 function starts(answer: () => Promise<JobView>) {
   const action = vi.fn((_runId: string, _key: string, _callNo: number | null) => answer());
+  const startJob = vi.fn((_kind: string, _args: object) => answer());
   const watchJob = vi.fn();
-  return { app: { client: { action } as never, guard: (fn: () => void) => fn(), watchJob }, action, watchJob };
+  return { app: { client: { action, startJob } as never, guard: (fn: () => void) => fn(), watchJob }, action, startJob, watchJob };
 }
 
 function items(o: { next?: NextStepRow | null; replay?: NextStepRow | null; status?: string; app?: ReturnType<typeof starts>['app'] }) {
@@ -87,5 +89,40 @@ describe('⌘K on a run’s row', () => {
     expect(asks.action).toHaveBeenCalledTimes(1);
     expect(asks.watchJob).not.toHaveBeenCalled();
     expect(location.hash).toBe(`#/run/${RUN}`);
+  });
+
+  it('starts Run blame where it is, and watches its job', async () => {
+    const s = starts(() => Promise.resolve({ id: 'j1' } as JobView));
+    items({ next: BLAME, replay: REPLAY, app: s.app })[1]?.run();
+    await settle();
+    expect(s.startJob).toHaveBeenCalledWith('blame', { runId: RUN });
+    expect(s.watchJob).toHaveBeenCalledTimes(1);
+    expect(location.hash).toBe('#/runs');
+  });
+
+  it('opens the run for a Run blame that asks first: your command on a capture, the check, or a yes', async () => {
+    const s = starts(() => Promise.resolve({ id: 'j1' } as JobView));
+    items({ next: { ...BLAME, capture: true }, app: s.app })[1]?.run();
+    expect(s.startJob).not.toHaveBeenCalled();
+    expect(location.hash).toBe(`#/run/${RUN}`);
+    for (const err of [{ status: 422 }, { status: 409, confirm: 'node agent.mjs' }]) {
+      addressBar('#/runs');
+      const asks = starts(() => Promise.reject(Object.assign(new Error('asks first'), err)));
+      items({ next: BLAME, app: asks.app })[1]?.run();
+      await settle();
+      expect(asks.startJob).toHaveBeenCalledTimes(1);
+      expect(asks.watchJob).not.toHaveBeenCalled();
+      expect(location.hash).toBe(`#/run/${RUN}`);
+    }
+  });
+
+  it('hands a Run blame that fails another way to the job it watches, where you are', async () => {
+    const fails = starts(() => Promise.reject(Object.assign(new Error('The server stopped'), { status: 500 })));
+    const seen: unknown[] = [];
+    fails.watchJob.mockImplementation((job: Promise<unknown>) => void job.catch((err: unknown) => seen.push(err)));
+    items({ next: BLAME, app: fails.app })[1]?.run();
+    await settle();
+    expect(seen).toEqual([expect.objectContaining({ message: 'The server stopped' })]);
+    expect(location.hash).toBe('#/runs');
   });
 });

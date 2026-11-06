@@ -117,9 +117,9 @@ The about line quotes what the run recorded. So a copy that leaves the store (an
 
 A row with a key of its own shows it at its right, while single-key shortcuts are on.
 
-**On a list's row**, ⌘K offers that row's actions under its name: on a run's, Open run, its next step, Replay, Compare, Copy ID and Select run. The next step says what the run's lime button says, with no key: `b`, `r` and `c` press it on the run's page only, and Select run keeps its `x`. A link goes where it goes; any other step opens the run and presses the button there, so it asks and waits as the button does.
+**On a list's row**, ⌘K offers that row's actions under its name: on a run's, Open run, its next step, Replay, Compare, Copy ID and Select run. The next step says what the run's lime button says, with no key: `b`, `r` and `c` press it on the run's page only, and Select run keeps its `x`. A link goes where it goes, Run blame and Replay start where you are, and any other step opens the run and presses the button there, so it asks and waits as the button does.
 
-Replay starts where you are, as the run's own Replay would, and isn't offered while the run records. One that asks first, for your command or whether to run someone else's, opens the run to ask. ⌫ in the empty field shows everything, and closing it hands the focus back to the row.
+Run blame and Replay start as the run's own buttons would, and Replay isn't offered while the run records. One that asks first, for your command, the check or whether to run someone else's, opens the run to ask. ⌫ in the empty field shows everything, and closing it hands the focus back to the row.
 
 Every typed word must match. Matches in recordings, forks, tests and captures come first, however many attempts match too. An attempt (`--repeat`, a blame probe, a verify attempt) replays its run's text, so it shows only for a run with no match of its own. The attempts of one run count as that run.
 

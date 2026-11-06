@@ -14,8 +14,8 @@ import { render, type Rendered } from './ui-render.js';
 
 /**
  * A run row's next step in ⌘K on the row: after Open run, what the run's lime button says, with no
- * key (b, r and c press it on its page only), a link going where it goes and any other step opening
- * the run to press that button there, as This run's entry presses it.
+ * key (b, r and c press it on its page only), a link going where it goes, Run blame starting where you
+ * are, and any other step opening the run to press that button there, as This run's entry presses it.
  */
 
 const RUN = '01M5JEQWA2QMJ3NYD1C687WP08';
@@ -94,14 +94,15 @@ describe('a run row’s next step in ⌘K', () => {
     expect(location.hash).toBe('#/fixes/F1');
   });
 
-  it('is listed under the row’s name on a row in focus, with no key of its own', async () => {
+  it('is listed under the row’s name on a row in focus, with no key of its own, and Run blame starts where you are', async () => {
     const runs = [{ runId: RUN, parentRunId: null, startedAt: 1, mode: 'record', status: 'completed', next: BLAME }];
+    const startJob = vi.fn(async () => ({ id: 'j1' }));
+    const watchJob = vi.fn();
     function Runs() {
       const [open, setOpen] = useState(false);
-      return createElement(AppContext.Provider, { value: app({ palette: open, setPalette: setOpen }) }, createElement('main', { id: 'view' }, createElement(Rows, { runs })), createElement(Keyboard), createElement(Palette, { route: { page: 'runs' } }));
+      const client = { search: async () => ({ hits: [] }), startJob };
+      return createElement(AppContext.Provider, { value: app({ palette: open, setPalette: setOpen, client: client as never, watchJob }) }, createElement('main', { id: 'view' }, createElement(Rows, { runs })), createElement(Keyboard), createElement(Palette, { route: { page: 'runs' } }));
     }
-    // The test's clock: the press it starts looks for a run's page this test never draws.
-    vi.useFakeTimers();
     r = await render(createElement(Runs));
     await r.press('j');
     await r.press('k', { metaKey: true });
@@ -110,7 +111,9 @@ describe('a run row’s next step in ⌘K', () => {
     const blame = r.all('.palit').find((x) => x.querySelector('.pl')!.textContent === 'Run blame')!;
     expect(blame.querySelector('.palk')).toBeNull();
     await r.click(blame);
-    expect(location.hash).toBe(`#/run/${RUN}`);
+    await r.until('the job watched', () => watchJob.mock.calls.length === 1);
+    expect(startJob).toHaveBeenCalledWith('blame', { runId: RUN });
+    expect(location.hash).toBe('#/runs');
   });
 });
 

@@ -1,8 +1,11 @@
 import { consentAsked } from '../actions.js';
+import { JOB_KINDS } from '../api.js';
 import type { RowStep } from '../list-keys.js';
+import { blameAsksOnItsPage } from '../palette.js';
 import { href } from '../route.js';
 import { currentRoute, navigate } from '../router.js';
 import type { AppState } from '../state.js';
+import type { NextStepRow } from '../types.js';
 import { stepEntry } from './next-step.js';
 
 /**
@@ -43,7 +46,7 @@ export function openAndPress(runId: string, key: string, toast: (text: string) =
   setTimeout(look);
 }
 
-/** What starts a row's Replay where it is: the app's. */
+/** What starts a row's Replay or Run blame where it is: the app's. */
 type Starts = Pick<AppState, 'client' | 'guard' | 'watchJob'>;
 
 /**
@@ -63,16 +66,38 @@ function replayHere(app: Starts, target: string, label: string, onPage: () => vo
 }
 
 /**
+ * Run blame from a row, as the palette's own Run blame starts it: here, unless it asks first, for your
+ * command on a capture, the check, or a yes to someone else's command, which the run's page does.
+ */
+function blameHere(app: Starts, runId: string, capture: boolean, onPage: () => void): void {
+  if (capture) return onPage();
+  app.guard(
+    () =>
+      void app.client.startJob(JOB_KINDS.blame, { runId }).then(
+        (job) => app.watchJob(Promise.resolve(job)),
+        (err: unknown) => (blameAsksOnItsPage(err) ? onPage() : app.watchJob(Promise.reject(err))),
+      ),
+  );
+}
+
+/** Picking a row's step: a link goes there, Replay and Run blame start here with `app`, and any other step opens the run to press it. */
+function pick(app: Starts | undefined, runId: string, next: NextStepRow, onPage: () => void): void {
+  if (next.href) return navigate(next.href);
+  if (app && next.key === 'replay') return replayHere(app, next.runId ?? runId, next.label, onPage);
+  if (app && next.key === 'blame') return blameHere(app, runId, next.capture === true, onPage);
+  onPage();
+}
+
+/**
  * The palette's builder for a run row's next step and its Replay: a link goes where it goes, Replay
- * starts where it is when `app` is given, and any other step opens the run and presses that button
- * there. None while it can't start (`off`), nor a job while actions are paused, as This run leaves it
- * out then.
+ * and Run blame start where they are when `app` is given, and any other step opens the run and
+ * presses that button there. None while it can't start (`off`), nor a job while actions are paused,
+ * as This run leaves it out then.
  */
 export function rowStep(actionsOff: string | null, toast: (text: string) => void, app?: Starts): RowStep {
   return (runId, next) => {
     if (next.off || (!next.href && actionsOff)) return null;
     const { group, key, ...entry } = stepEntry(next);
-    const onPage = () => openAndPress(runId, next.key, toast);
-    return { ...entry, run: () => (next.href ? navigate(next.href) : next.key === 'replay' && app ? replayHere(app, next.runId ?? runId, next.label, onPage) : onPage()) };
+    return { ...entry, run: () => pick(app, runId, next, () => openAndPress(runId, next.key, toast)) };
   };
 }
