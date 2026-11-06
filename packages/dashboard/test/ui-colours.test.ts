@@ -176,6 +176,11 @@ describe('what each colour may mean', () => {
     expect(value('.org.stub', 'color')).toBe('var(--o-stub)');
   });
 
+  it('draws a blocked tool’s result in Calls in the blocked grey, as its origin is, the failure red kept for a call that failed', () => {
+    expect(value('table.calls .res.blk', 'color')).toBe('var(--o-block)');
+    expect(value('table.calls .res.err', 'color')).toBe('var(--err)');
+  });
+
   it('marks the blamed call in ink with a halo, keeping amber for a probe that couldn’t decide', () => {
     expect(value('.callrow .hot .cn', 'background')).toBe('var(--ink)');
     expect(value('.callrow .hot .pl', 'color')).toBe('var(--ink)');

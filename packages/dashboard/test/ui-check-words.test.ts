@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import { bannerFor, beforeFork, failedCheckText, failureText, fencedWords, type BannerInput } from '../ui/run/banner.js';
 import { keyItems } from '../ui/run/call-filter.js';
+import { CallsTable } from '../ui/run/CallsView.js';
 import { StripKey } from '../ui/run/StripKey.js';
 import { ContextView } from '../ui/run/ContextView.js';
 import { Inspector } from '../ui/run/Inspector.js';
@@ -101,6 +102,19 @@ describe('the strip’s key, which filters the calls', () => {
     expect(page.one('.lfilter .lk').textContent).toBe('every call live');
     expect(page.all('.lfilter button').map((b) => b.textContent)).toEqual(['all 21', 'model calls 10', 'reads 10', 'write 1']);
     expect(page.all('.lfilter button[aria-pressed="true"]').map((b) => b.textContent)).toEqual(['write 1']);
+  });
+});
+
+describe('a blocked tool’s result in Calls', () => {
+  it('says blocked in the blocked grey’s class, keeping the failure red for a call that failed', () => {
+    const tool = { kind: 'tool', name: 'issue_refund', effect: 'write', status: null, latencyMs: 2, model: null, stopReason: null, usage: null, cost: null, bytes: null, detail: '{"order":"A-1042"}', attempts: 0, replayedFrom: null, startedAt: 0, endedAt: 2, ttftMs: null, scope: null, resultShort: null, conversation: 1, conversationStart: false, requestedBy: null, toolUseId: null, cacheMiss: null, recordedMs: null, asks: null };
+    const blocked = { ...tool, callNo: 1, origin: 'blocked', outcome: 'error', error: 'blocked by the fence' } as unknown as CallRow;
+    const failed = { ...tool, callNo: 2, origin: 'live', outcome: 'error', error: 'refund API returned 500' } as unknown as CallRow;
+    const app = { actionsOff: null, conn: 'ok', toast: () => undefined } as unknown as AppState;
+    const table = createElement(CallsTable, { calls: [blocked, failed], asked: null, selected: 1, scoped: false, forkAt: null, lostAt: null, ancestors: [], live: false, canFork: false, onSelect: () => undefined, onFork: () => undefined });
+    const html = renderToStaticMarkup(createElement(AppContext.Provider, { value: app }, table));
+    expect(html).toContain('<span class="res blk">→ blocked</span>');
+    expect(html).toContain('<span class="res err">→ refund API returned 500</span>');
   });
 });
 
