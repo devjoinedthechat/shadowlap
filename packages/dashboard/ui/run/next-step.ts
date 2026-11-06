@@ -91,11 +91,15 @@ export function blameBesideCard(blame: BlameBeside, later = false): StepCard {
   return { title: ACTIONS.runBlame.label, sub: blame.sub, ...billsAndRuns({ ...blame, ...(later ? { later } : {}) }, blameAsks(blame)) };
 }
 
-/** What a step's dialog bills, as an ask's cost line says it, the price first: `≈$3.11, as the last test’s 6 attempts · live from each read, writes stubbed`; none for a step that bills nothing. */
-export function stepCostLine(step: NextStep): { price: string; parts: string[] } | null {
+/**
+ * What a step's dialog bills, as an ask's cost line says it, the price first and on its own card where
+ * the estimate has one: `≈$3.11, as the last test’s 6 attempts · live from each read, writes stubbed`;
+ * none for a step that bills nothing.
+ */
+export function stepCostLine(step: NextStep): { price: string; parts: string[]; estimate: NonNullable<NextStep['estimate']> } | null {
   if (!step.estimate) return null;
   const [price = '', ...parts] = costLine(step.estimate);
-  return { price, parts };
+  return { price, parts, estimate: step.estimate };
 }
 
 /** The entry under `tests` that gives a golden its injection gate, for its folder as it stands in the dialog. */

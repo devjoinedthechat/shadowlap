@@ -498,7 +498,7 @@ describe('the run page’s next step', () => {
   it('says what a step bills in the words an ask does', () => {
     const step: NextStep = { ...OFFER, estimate: { kind: 'blame', usd: null, ceiling: false, parts: ['a model has no price'], none: 'a model has no price' } };
     expect(stepCard(step)).toMatchObject({ rows: [], est: { usd: null, ceiling: false } });
-    expect(stepCostLine(step)).toEqual({ price: 'Billed by your provider', parts: ['a model has no price'] });
+    expect(stepCostLine(step)).toEqual({ price: 'Billed by your provider', parts: ['a model has no price'], estimate: step.estimate });
     // Nothing to say of what bills nothing, on its card; its title is its words without what its dialog asks.
     const free: NextStep = { key: 'rerun-test', label: 'Re-run test', golden: GOLDEN, estimate: { kind: 'tests', usd: 0, ceiling: false, parts: ['replays offline'] } };
     expect(stepCard(free).rows).toEqual([]);
