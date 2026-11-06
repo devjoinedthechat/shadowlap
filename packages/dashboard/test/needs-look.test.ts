@@ -1,5 +1,6 @@
-import { Store } from '@shadowlap/engine';
+import { recordBlame, recordRepair, Store } from '@shadowlap/engine';
 import { describe, expect, it } from 'vitest';
+import { blameReport, EXPECT, makeRun, repairReport } from '../../engine/test/fix-fixtures.js';
 import { LOOK_GROUPS } from '../src/needs-look/groups.js';
 import { LOOK_CAP, type LookSource, type LookWork, needsLook, type NeedsLookRow, ordered, SOURCES } from '../src/needs-look/index.js';
 import { overviewSummary } from '../src/overview.js';
@@ -107,6 +108,80 @@ describe('Needs a look: a model the goldens use that retires', () => {
       });
       // Nothing to migrate to: no step.
       expect(rows[2]?.step).toBeNull();
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe('Needs a look: one cause, one row', () => {
+  const GOLDEN = 'goldens/refund-in-limit';
+  // A value made anew on every run: its replay diverged on it, so the golden needs a normalizer, not the fix.
+  const UUID_CHANGE = { path: '$.metadata.user_id', op: 'changed', before: '3f1c9a2e-5b7d-4e21-9c0a-8d6f2b1e7a43', after: 'b84e07d1-2c9f-4a63-8e15-6f0d3a9c2b78' };
+
+  /** The golden's test replay, failed as `failure` says, in a session of its own. */
+  const tested = (store: Store, rec: string, failure: 'exit' | 'diverged', at: number) => {
+    const session = store.startTestSession({ command: ['shadowlap', 'test', GOLDEN], startedAt: at, revision: 'bbbbbbb' }).sessionId;
+    const run = addRun(store, { parent: rec, startedAt: at, status: 'failed', calls: failure === 'exit' ? 'rl' : 'r', meta: { test: { golden: GOLDEN, session } } });
+    if (failure === 'diverged') store.setDivergence(run, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, diff: [UUID_CHANGE] });
+    const reason = failure === 'exit' ? 'the agent exited with code 1' : 'diverged at call 1';
+    store.addTestResult({ sessionId: session, golden: GOLDEN, ok: false, failure, reason, runId: run, goldenRunId: rec, revision: 'bbbbbbb', at: at + 1 });
+    store.finishTestSession(session, { passed: 0, failed: 1, upstreamRequests: 0, endedAt: at + 2 });
+    return run;
+  };
+  const blame = (store: Store, runId: string, at: number) =>
+    recordBlame(store, { runId, report: blameReport(runId), expect: EXPECT, scope: null, command: 'c', title: 'refund-in-limit failed', checkText: 'x', at }).fix.fixId;
+  const look = (store: Store, rec: string) => {
+    const goldens = [golden(GOLDEN, rec)];
+    return overviewSummary(store, { tz: 'UTC', now: NOW, goldens, next: { goldens, tests: undefined, normalize: undefined, dir: '/work/project' } }).needsLook.items;
+  };
+  const stepKey = (x: NeedsLookRow | undefined) => (x?.step?.of === 'run' ? x.step.step.key : (x?.step?.of ?? null));
+
+  it('names a golden an open fix holds on the fix’s row, and a crash’s Find breaking commit leads it', () => {
+    const store = Store.open(':memory:');
+    try {
+      const rec = addRun(store, { startedAt: NOW - DAY, calls: 'lll' });
+      const crash = tested(store, rec, 'exit', NOW - 2 * HOUR);
+      expect(stepKey(look(store, rec).find((x) => x.kind === 'test'))).toBe('bisect');
+      const fixId = blame(store, crash, NOW - HOUR);
+      const items = look(store, rec);
+      expect(items.find((x) => x.kind === 'test')).toBeUndefined();
+      expect(items.find((x) => x.kind === 'open' && x.fixId === fixId)).toMatchObject({
+        detail: expect.stringMatching(/ · refund-in-limit fails on Tests$/),
+        step: { of: 'run', runId: crash, step: { key: 'bisect', label: 'Find breaking commit…' } },
+      });
+    } finally {
+      store.close();
+    }
+  });
+
+  it('keeps the row of a golden whose step isn’t its fix’s: a normalizer fixes the test, not the agent', () => {
+    const store = Store.open(':memory:');
+    try {
+      const rec = addRun(store, { startedAt: NOW - DAY, calls: 'lll' });
+      const drifted = tested(store, rec, 'diverged', NOW - 2 * HOUR);
+      const fixId = blame(store, drifted, NOW - HOUR);
+      const items = look(store, rec);
+      expect(items.find((x) => x.kind === 'test')).toMatchObject({ key: `attn:failed:${GOLDEN}`, runId: drifted, step: { of: 'run', runId: drifted, step: { key: 'normalizer' } } });
+      expect(items.find((x) => x.kind === 'open' && x.fixId === fixId)?.detail).not.toContain('fails on Tests');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('holds no golden on a verified fix’s row: the golden keeps its own until the fix is applied', () => {
+    const store = Store.open(':memory:');
+    try {
+      const rec = addRun(store, { startedAt: NOW - DAY, calls: 'lll' });
+      const crash = tested(store, rec, 'exit', NOW - 3 * HOUR);
+      const fixId = blame(store, crash, NOW - 2 * HOUR);
+      const held = makeRun(store, { labels: ['refund-bug'], startedAt: NOW - 3 * HOUR });
+      const good = makeRun(store, { labels: ['good'], status: 'completed', startedAt: NOW - 3 * HOUR });
+      recordRepair(store, { repairId: 'repair-nl', dir: '.shadowlap/repairs/repair-nl', report: repairReport({ targets: [crash], holdout: [held], good: [good] }), expect: EXPECT, command: 'r', at: NOW - HOUR });
+      const items = look(store, rec);
+      expect(items.find((x) => x.fixId === fixId && x.kind !== 'test')).toMatchObject({ kind: 'ready', group: 'ship' });
+      expect(items.find((x) => x.fixId === fixId && x.kind !== 'test')?.detail).not.toContain('fails on Tests');
+      expect(items.find((x) => x.kind === 'test')).toMatchObject({ key: `attn:failed:${GOLDEN}`, runId: crash });
     } finally {
       store.close();
     }
