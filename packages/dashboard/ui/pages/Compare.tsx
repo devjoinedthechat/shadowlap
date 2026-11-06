@@ -1,12 +1,14 @@
-import { Fragment, useEffect, useMemo } from 'react';
+import { Fragment, useEffect, useMemo, type ReactNode } from 'react';
 import type { CompareHead } from '../../src/compare.js';
 import { ApiError, type CallRow, type CompareView, type RunDetail, type RunListItem } from '../api.js';
+import { ChangesHead } from '../changes/Head.js';
+import { forgetComparePair, noteComparePair } from '../changes-tab.js';
 import { CmdLine, Org, PageHeader, Tag } from '../components/bits.js';
 import { Page } from '../components/Page.js';
 import { answersSub, changedAnswers, changeCards, comparingLive, diffTexts, oneRunPair, pickable, prefixLine, replayCommand, samePlaces } from '../compare/model.js';
 import { RunPicker } from '../compare/RunPicker.js';
 import { callName, clip, num, plural, shortId } from '../format.js';
-import { useLoad } from '../hooks.js';
+import { useLoad, type Loaded } from '../hooks.js';
 import { displayOrigin } from '../origins.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
@@ -15,13 +17,14 @@ import { defaultComparePair, isAttempt, kindTag } from '../runs.js';
 import { useApp } from '../state.js';
 
 /**
- * Compare: what changed between two runs (code, system prompt, tools, model), then call by call: the
+ * Compare, a tab of Changes: what changed between two runs (code, system prompt, tools, model), then call by call: the
  * identical prefix, what made the fork when no request shows it, the first request that differs,
  * where the paths went from there, and calls where the same request got a different answer. With no
  * runs named it opens the newest fork or replay against its parent; with one, that run against its
  * newest fork or replay, else its parent, else it says there is nothing to compare yet. The same run
  * on both sides, or a run not in the store, says so. A run still recording is compared again as its
- * calls arrive.
+ * calls arrive. Every state stands under Changes' head, the pickers on a row under its tabs; an
+ * exported copy's Compare is a page of its own.
  */
 export function ComparePage({ a, b }: { a: string | null; b: string | null }) {
   const { runs, exported, meta } = useApp();
@@ -38,7 +41,7 @@ export function ComparePage({ a, b }: { a: string | null; b: string | null }) {
   if (runs !== null && listed.length < 2)
     return (
       <Page>
-        <PageHeader eyebrow="compare" title="What changed between two runs" />
+        <CompareHead />
         <section className="panel stepempty">
           <h3>Compare needs two runs</h3>
           <p>Replay or fork the run you have, and compare the two call by call.</p>
@@ -46,13 +49,43 @@ export function ComparePage({ a, b }: { a: string | null; b: string | null }) {
         </section>
       </Page>
     );
-  if (!a || !b) return <Page>{null}</Page>;
+  if (!a || !b)
+    return (
+      <Page>
+        <CompareHead />
+      </Page>
+    );
   // Not keyed on the pair: another run picked keeps the pickers, and the focus on the one used,
   // while what the comparison reads starts anew for the new pair (useLoad's keys).
   return <Comparison a={a} b={b} runs={listed} />;
 }
 
-const INTRO = 'What changed first, then call by call: the identical prefix, the first request that differs, and where the paths went from there.';
+/** Compare's head: Changes', with its tabs, or an exported copy's own; then the pickers, when given, on a row under it. */
+function CompareHead({ pickers = null }: { pickers?: ReactNode }) {
+  const { exported } = useApp();
+  return (
+    <>
+      {exported ? <PageHeader eyebrow="exported copy" title="Compare" text="Two runs of this copy, call by call." /> : <ChangesHead tab="compare" />}
+      {pickers}
+    </>
+  );
+}
+
+/**
+ * The pair shown, noted for Changes' Compare tab and the sidebar once both runs are in, and
+ * forgotten once either read says its run is gone, so the next Compare opens on the pickers. An
+ * exported copy has no tabs to note it for.
+ */
+function useNotePair(ra: Loaded<RunDetail>, rb: Loaded<RunDetail>): void {
+  const { exported } = useApp();
+  const [a, b] = [ra.data?.run.runId ?? null, rb.data?.run.runId ?? null];
+  const gone = notHeld(ra.error) || notHeld(rb.error);
+  useEffect(() => {
+    if (exported) return;
+    if (gone) forgetComparePair();
+    else if (a && b && a !== b) noteComparePair(a, b);
+  }, [exported, a, b, gone]);
+}
 
 /** An id that is the start of several runs' ids, which the server won't pick between (409): it says so, as the CLI does. */
 const ambiguous = (err: Error | null | undefined): boolean => !!err && ((err instanceof ApiError && err.status === 409) || /matches several runs/.test(err.message));
@@ -89,7 +122,7 @@ function OneRun({ id }: { id: string }) {
   if (run.error)
     return (
       <Page>
-        <PageHeader eyebrow="compare" title="What changed between two runs" text={INTRO} />
+        <CompareHead />
         <section className="panel stepempty">
           <h3>{ambiguous(run.error) ? 'More than one run' : notHeld(run.error) ? `Not in ${where}` : 'Could not load the run'}</h3>
           <p>
@@ -116,11 +149,17 @@ function OneRun({ id }: { id: string }) {
         </section>
       </Page>
     );
-  if (!run.data || mate) return <Page>{run.data ? null : <div className="empty">Comparing…</div>}</Page>;
+  if (!run.data || mate)
+    return (
+      <Page>
+        <CompareHead />
+        {run.data ? null : <div className="empty">Comparing…</div>}
+      </Page>
+    );
   const r = run.data;
   return (
     <Page>
-      <PageHeader eyebrow="compare" title="What changed between two runs" text={INTRO} />
+      <CompareHead />
       <section className="panel stepempty">
         <h3>Nothing to compare yet</h3>
         <p>
@@ -156,8 +195,9 @@ function Comparison({ a, b, runs }: { a: string; b: string; runs: RunListItem[] 
   const head = useLoad<CompareHead | null>(() => (same || nested ? null : client.compareHead(a, b).catch(() => null)), `${a}:${b}:head`, refresh);
   const ra = useLoad(() => client.run(a), a, refresh);
   const rb = useLoad(() => client.run(b), b, refresh);
+  useNotePair(ra, rb);
   const hub = exported ? (meta?.compareWith ?? null) : null;
-  const header = <PageHeader eyebrow="compare" title="What changed between two runs" text={INTRO} actions={<Pickers a={a} b={b} runs={runs} hub={hub} />} />;
+  const header = <CompareHead pickers={<Pickers a={a} b={b} runs={runs} hub={hub} />} />;
   // The same id twice names the same run, unless it names none: then that is what the page says.
   const unnamed = (err: Error | null | undefined) => notHeld(err) || ambiguous(err);
   if ((same && !unnamed(ra.error)) || (ra.data && rb.data && ra.data.run.runId === rb.data.run.runId))
@@ -242,7 +282,7 @@ function Pickers({ a, b, runs, hub }: { a: string; b: string; runs: RunListItem[
     return <RunPicker label={label} value={value} runs={listed} onPick={onChange} />;
   };
   return (
-    <div className="pickers">
+    <div className="pickers chpick">
       {pick(a, b, (v) => navigate(href.compare(v, b)), 'Run A')}
       <span className="arrow" aria-hidden="true">
         →
