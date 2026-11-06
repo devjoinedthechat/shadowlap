@@ -13,7 +13,7 @@ import { TestsJobButton } from '../fixes/TestsJobButton.js';
 import { useJobWait, useTreeBusy } from '../fixes/tree.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { href } from '../route.js';
-import { compareTarget, isFailed } from '../runs.js';
+import { compareTarget, outcomeOf } from '../runs.js';
 import { shortcut } from '../shortcuts.js';
 import { guardedWayOn, useApp } from '../state.js';
 import { gateAgainAsk, rerunAsk, startTestsJob } from '../tests-ask.js';
@@ -261,12 +261,13 @@ function InjectionStep({ step }: { step: Extract<NextStep, { key: 'injection-tes
  * of the goldens, named for the run, then its test, as one job (`pack-test`), leaving the config as it
  * is. It waits while a Tests job holds the goldens. A start the server refuses keeps the dialog open
  * with its words, as a folder taken or a bad one is; a recording from elsewhere asks first, since its
- * test runs the command it was recorded with.
+ * test runs the command it was recorded with, and a start refused after that yes opens the dialog
+ * again on the folder tried, with the server's words.
  */
 export function PackAsGolden({ runId, folder, offers, lead, tip, fold }: { runId: string; folder: string; offers: RunOffers | null; lead: boolean; tip: string; fold?: string }) {
   const app = useApp();
-  const [asking, setAsking] = useState(false);
-  const [refused, setRefused] = useState<string | null>(null);
+  // The dialog, on the folder last tried, with the server's words where it refused it.
+  const [asking, setAsking] = useState<{ dir: string; refused: string | null } | null>(null);
   const [consent, setConsent] = useState<{ why: string; confirm: string; golden: string } | null>(null);
   const id = shortId(runId);
   const start = (golden: string, yes?: string): Promise<boolean> =>
@@ -278,13 +279,16 @@ export function PackAsGolden({ runId, folder, offers, lead, tip, fold }: { runId
       (err: unknown) => {
         const asked = yes === undefined ? consentAsked(err) : null;
         if (asked) setConsent({ why: asked.why, confirm: asked.confirm, golden });
-        else setRefused(errorText(err));
+        else {
+          setConsent(null);
+          setAsking({ dir: golden, refused: errorText(err) });
+        }
         return Boolean(asked);
       },
     );
   return (
     <>
-      <TestsJobButton verb={PACK_VERB} off={null} className={lead ? 'btn lime' : 'btn'} tip={tip} {...(lead ? { lead: 'pack' } : {})} {...(fold ? { fold } : {})} onClick={() => app.guard(() => setAsking(true))}>
+      <TestsJobButton verb={PACK_VERB} off={null} className={lead ? 'btn lime' : 'btn'} tip={tip} {...(lead ? { lead: 'pack' } : {})} {...(fold ? { fold } : {})} onClick={() => app.guard(() => setAsking({ dir: folder, refused: null }))}>
         {ACTIONS.packAsGolden.label}
       </TestsJobButton>
       {asking ? (
@@ -292,16 +296,13 @@ export function PackAsGolden({ runId, folder, offers, lead, tip, fold }: { runId
           title={namedIn(`Pack ${id} as golden?`, id)}
           lead="Packs the run into goldens/ and tests it, for shadowlap test to replay on every commit."
           doc="makeGolden"
-          {...(refused ? { warn: { text: refused } } : {})}
+          {...(asking.refused ? { warn: { text: asking.refused } } : {})}
           facts={[{ label: 'Changes', value: 'your working tree', quiet: 'the golden’s folder' }, PACK_HOLDS, redactsFact(offers?.copies.formats.find((f) => f.id === 'pack')?.rules ?? null)]}
           label="Golden"
-          initial={folder}
+          initial={asking.dir}
           command={(dir) => ({ command: packTestCommands(runId, dir) })}
           ok={confirmWords(ACTIONS.packAsGolden.label)}
-          onClose={() => {
-            setAsking(false);
-            setRefused(null);
-          }}
+          onClose={() => setAsking(null)}
           onRun={(dir) => guardedWayOn(app.guard, () => start(dir))}
         />
       ) : null}
@@ -317,13 +318,15 @@ export function PackAsGolden({ runId, folder, offers, lead, tip, fold }: { runId
   );
 }
 
-/** Pack with injection gate…: the run packed into a folder of the goldens, named for the run; a gate's entry, which this leaves to you, goes under `tests` in the config, for the folder as you name it. */
 /**
  * The folder a plain Pack as golden… packs into, where the header shows one: a recording a golden can
- * be made from that didn't fail by today's checks, beside a step that isn't packing it already.
+ * be made from whose first fact is no failure by today's checks (`judged`, the page's: undefined while
+ * they judge it, when none shows yet), beside a step that isn't packing it already. A golden made
+ * from a failing run would pass on the failure.
  */
-export function plainPackFolder(run: RunDetail, offers: RunOffers | null, next: NextStep | null): string | null {
-  return offers?.keep && !isFailed(runLikeOf(run)) && next?.key !== 'pack' && next?.key !== 'pack-gate' ? offers.keep.folder : null;
+export function plainPackFolder(run: RunDetail, offers: RunOffers | null, next: NextStep | null, judged: RunDetail['judged']): string | null {
+  if (!offers?.keep || judged === undefined || next?.key === 'pack' || next?.key === 'pack-gate') return null;
+  return outcomeOf({ ...runLikeOf(run), judged }).tone === 'err' ? null : offers.keep.folder;
 }
 
 /** Its card where another step leads, as the lead's says it. */
@@ -335,12 +338,13 @@ export function packTip(runId: string, folder: string): string {
  * Pack as golden… beside another step that leads, an injection test's or a preset's: plain, and the
  * header folds it into … second, after Replay. None where `plainPackFolder` finds no folder.
  */
-export function PlainPackAsGolden({ run, offers, next }: { run: RunDetail; offers: RunOffers | null; next: NextStep | null }) {
-  const folder = plainPackFolder(run, offers, next);
+export function PlainPackAsGolden({ run, offers, next, judged }: { run: RunDetail; offers: RunOffers | null; next: NextStep | null; judged: RunDetail['judged'] }) {
+  const folder = plainPackFolder(run, offers, next, judged);
   const runId = run.run.runId;
   return folder ? <PackAsGolden runId={runId} folder={folder} offers={offers} lead={false} tip={packTip(runId, folder)} fold="pack" /> : null;
 }
 
+/** Pack as golden… where it leads, and Pack with injection gate…: the run packed into a folder of the goldens, named for the run; a gate's entry, which this leaves to you, goes under `tests` in the config, for the folder as you name it. */
 function PackStep({ step, offers }: { step: Extract<NextStep, { key: 'pack' | 'pack-gate' }>; offers: RunOffers | null }) {
   const app = useApp();
   const [asking, setAsking] = useState(false);

@@ -47,18 +47,20 @@ export function useRunCommands(o: {
   labels: readonly string[];
   mark: (m: RunMark) => void;
   offers: RunOffers | null;
+  /** Its verdict by today's checks, the first fact's (useJudgedAt): undefined while they judge it. */
+  judged: RunDetail['judged'];
   actions: { run: (p: { action: RunDetail['actions'][number]; callNo: number | null; runId?: string }) => void; findCommit: () => void };
   forkMenu: { openAt: (el: HTMLElement) => void };
   setView: (v: View) => void;
 }): void {
   const app = useApp();
   const { exported, actionsOff, setRunCommands, hasKind, toast } = app;
-  const { run, selected, canFork, canMark, labels, offers } = o;
+  const { run, selected, canFork, canMark, labels, offers, judged } = o;
   const runId = run.run.runId;
   const live = run.run.status === 'running';
   const next = nextStepOf(run);
   const wait = useStepWait(run, next);
-  const packFolder = exported || actionsOff ? null : plainPackFolder(run, offers, next);
+  const packFolder = exported || actionsOff ? null : plainPackFolder(run, offers, next, judged);
   // Read only where the row shows: the jobs' feed is a read of its own.
   const packWait = useJobWait(packFolder ? { verb: PACK_VERB, tests: true } : null);
   const now = useLatest(o);

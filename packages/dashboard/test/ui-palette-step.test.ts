@@ -40,7 +40,7 @@ function detail(next: NextStep | null, o: { actions?: unknown[]; replay?: NextSt
 async function thisRun(run: RunDetail, app: Partial<AppState> = {}, offers: RunOffers | null = null): Promise<PaletteCommand[]> {
   let items: PaletteCommand[] = [];
   const Page = () => {
-    useRunCommands({ run, selected: 3, canFork: true, canMark: false, labels: [], mark: () => undefined, offers, actions: { run: () => undefined, findCommit: () => undefined }, forkMenu: { openAt: () => undefined }, setView: () => undefined });
+    useRunCommands({ run, selected: 3, canFork: true, canMark: false, labels: [], mark: () => undefined, offers, judged: run.judged ?? null, actions: { run: () => undefined, findCommit: () => undefined }, forkMenu: { openAt: () => undefined }, setView: () => undefined });
     return null;
   };
   const value = { client: { jobs: () => Promise.resolve([]) }, feeds: {}, jobs: [], meta: null, exported: false, actionsOff: null, hasKind: () => true, toast: () => undefined, setRunCommands: (x: PaletteCommand[]) => (x.length ? (items = x) : undefined), ...app } as unknown as AppState;
@@ -67,6 +67,9 @@ describe('This run', () => {
     expect((await thisRun(page(lead), {}, offers)).filter((x) => x.label === 'Pack as golden…')).toHaveLength(1);
     expect((await thisRun(page(blame), { exported: true }, offers)).map((x) => x.label)).not.toContain('Pack as golden…');
     expect((await thisRun(page(blame), { actionsOff: 'Read-only' }, offers)).map((x) => x.label)).not.toContain('Pack as golden…');
+    // A recording today's checks fail has none, as its first fact says: a golden made from it would pass on the failure.
+    const failing = { ...page(blame), judged: { by: 'own', verdict: 'failed', counts: { passed: 0, failed: 1, inconclusive: 0, notApplicable: 0 }, callNo: 4, today: true } } as unknown as RunDetail;
+    expect((await thisRun(failing, {}, offers)).map((x) => x.label)).not.toContain('Pack as golden…');
   });
 
   it('sets the next step’s key by what it presses, never by what it says', () => {

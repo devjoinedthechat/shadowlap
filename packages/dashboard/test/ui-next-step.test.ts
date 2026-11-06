@@ -67,7 +67,7 @@ function detail(o: { next?: NextStep | null; replay?: NextStep | null; parent?: 
   } as unknown as RunDetail;
 }
 
-const header = (run: RunDetail, offers: RunOffers | null = null, more: { onAction?: (p: unknown) => void; onFindCommit?: () => void } = {}) => ({ run, call: null, selected: 5, rescued: false, offers, forkMenu: { open: false, anchor: null, toggle: () => undefined, close: () => undefined } as never, onAction: more.onAction ?? (() => undefined), onFindCommit: more.onFindCommit ?? (() => undefined) });
+const header = (run: RunDetail, offers: RunOffers | null = null, more: { onAction?: (p: unknown) => void; onFindCommit?: () => void } = {}) => ({ run, judged: run.judged ?? null, call: null, selected: 5, rescued: false, offers, forkMenu: { open: false, anchor: null, toggle: () => undefined, close: () => undefined } as never, onAction: more.onAction ?? (() => undefined), onFindCommit: more.onFindCommit ?? (() => undefined) });
 const bannerProps = (run: RunDetail, offers: RunOffers | null = null) => ({ run, blame: (run as unknown as { blame: never }).blame ?? null, rescued: null, checks: [], offers, showDiff: false, onToggleDiff: () => undefined, onSelect: () => undefined, onAction: () => undefined });
 const lime = (p: Rendered) => p.all('.rhead .actions .lime').map((b) => b.textContent);
 const tip = (el: { props: Record<string, unknown> }) => JSON.parse(String(el.props['data-tip'])) as { t: string; s?: string; rows?: string[][]; cmd?: string };
@@ -458,6 +458,14 @@ describe('the run page’s next step', () => {
       expect(page.all('.rhead [data-fold="pack"]')).toHaveLength(0);
       await page.unmount();
     }
+    // Recorded passing, but today's checks fail it, as its first fact says: a golden made from it would
+    // pass on the failure. And none while they judge it.
+    const failing = { ...detail({ state: passedState, next: injection }), judged: { by: 'own', verdict: 'failed', counts: { passed: 0, failed: 1, inconclusive: 0, notApplicable: 0 }, callNo: 4, today: true } } as unknown as RunDetail;
+    for (const props of [header(failing, offers), { ...header(detail({ state: passedState, next: injection }), offers), judged: undefined }]) {
+      page = await render(createElement(AppContext.Provider, { value: app() }, createElement(RunHeader, props)));
+      expect(page.all('.rhead [data-fold="pack"]')).toHaveLength(0);
+      await page.unmount();
+    }
     page = null;
   });
 
@@ -487,6 +495,32 @@ describe('the run page’s next step', () => {
     expect(page.one('.dialog').textContent).toContain('came from the team store');
     await page.click(page.one('.dialog .dlg-ok'));
     expect(sent).toEqual([{ runId: REC, golden: folder }, { runId: REC, golden: 'goldens/other' }, { runId: REC, golden: 'goldens/other', yes: 'c'.repeat(32) }]);
+  });
+
+  it('opens Pack as golden…’s dialog again on the folder tried, with the server’s words, when it refuses the job sent with a yes', async () => {
+    const folder = `goldens/${REC.slice(0, 10).toLowerCase()}`;
+    const next: NextStep = { key: 'pack', label: 'Pack as golden…', runId: REC, folder, title: 'Pack as golden', sub: 'A golden that CI replays on every commit', command: `shadowlap pack ${REC.slice(0, 10)} ${folder}` };
+    const answers = [
+      new ApiError(409, `${REC.slice(0, 10)} came from the team store: its test runs the command it was recorded with (node agent.mjs), under shadowlap test ${folder}. Confirm it to run it`, 'c'.repeat(32)),
+      new ApiError(409, `${folder} already holds a golden. Give this one another name: Shadowlap never packs over a golden.`),
+    ];
+    const sent: Array<Record<string, unknown>> = [];
+    const a = app({}, {
+      startJob: (_kind: string, fields: Record<string, unknown>) => {
+        sent.push(fields);
+        const no = answers.shift();
+        return (no ? Promise.reject(no) : Promise.resolve({ id: 'j1' })) as never;
+      },
+    });
+    page = await render(both(detail({ state: passedState, next }), null, a));
+    await page.click(page.byText('.rhead .actions button', 'Pack as golden…'));
+    await page.click(page.one('.dialog .dlg-ok'));
+    expect(page.one('.dialog').textContent).toContain('came from the team store');
+    await page.click(page.one('.dialog .dlg-ok'));
+    // The folder was taken in the meantime: the Pack dialog again, saying so, the folder still the one tried.
+    expect(page.one('.dialog').textContent).toContain('already holds a golden. Give this one another name');
+    expect(page.one('.dialog input').value).toBe(folder);
+    expect(sent).toEqual([{ runId: REC, golden: folder }, { runId: REC, golden: folder, yes: 'c'.repeat(32) }]);
   });
 
   it('packs with an injection gate the recording it tested, naming the entry that gates it', async () => {

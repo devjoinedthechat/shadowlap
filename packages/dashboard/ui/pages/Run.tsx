@@ -328,7 +328,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   useRunKeys(runKeys, { runId, v, selected, step, setTab: (n) => setTab(TABS[n]!), select, setView, setFilterWanted, forkAt, lostAt, failedAt, parentId: run.run.parentRunId, canMark, mark: (m) => mark(m), tree, folded, listed, fold, showDiff, setShowDiff, runs: app.runs, toast: app.toast });
 
   // This run, in the palette.
-  useRunCommands({ run, selected, canFork, canMark, labels, mark, offers, actions, forkMenu, setView });
+  useRunCommands({ run, selected, canFork, canMark, labels, mark, offers, judged, actions, forkMenu, setView });
 
   const stripCalls = useMemo<StripCall[]>(() => {
     const strip = (c: (typeof calls)[number]): StripCall => ({ n: c.callNo, origin: originOf(c), name: callName(c.kind, c.name), detail: stripDetail(c) });
@@ -353,7 +353,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
 
   return (
     <div className="rv">
-      <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} facts={<RunMetrics run={run} judged={judged} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} preset={preset} rescued={!!rescued} />} />
+      <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} facts={<RunMetrics run={run} judged={judged} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} preset={preset} rescued={!!rescued} />} judged={judged} />
       <FindingsBar run={run} judged={judged} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={() => setShowDiff(!showDiff)} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} />
       {showDiff ? <DiffPanel run={run} test={offers?.test ?? null} /> : null}
       <section className="strip">

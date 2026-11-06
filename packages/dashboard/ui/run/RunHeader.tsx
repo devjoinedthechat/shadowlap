@@ -38,7 +38,7 @@ import { fitHead, moreRows, useMetaCard, type MoreRow } from './fit-head.js';
  * the eyebrow. The next step is the server's (src/next-step.ts); every other action stays, plain. No
  * chip says how the run stands: its first fact does.
  */
-export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAction, onFindCommit, preset = null, labels: given, setLabels: setGiven, onMark = null, facts = null }: {
+export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAction, onFindCommit, preset = null, labels: given, setLabels: setGiven, onMark = null, facts = null, judged }: {
   run: RunDetail;
   call: CallDetail | null;
   selected: number | null;
@@ -56,6 +56,8 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   onMark?: ((m: RunMark, from?: HTMLElement) => void) | null;
   /** The facts, how it came out first: the page's, which holds what they're worked out from. */
   facts?: ReactNode;
+  /** Its verdict by today's checks, the first fact's (useJudgedAt): undefined while they judge it, when no plain Pack as golden… shows. */
+  judged?: RunDetail['judged'];
 }) {
   const app = useApp();
   const { exported, toast, client, guard, hasKind } = app;
@@ -173,7 +175,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
               </ActionButton>
             ) : null}
             {next?.key === 'replay' ? null : <ReplayButton run={run} step={run.replay ?? null} lime={false} onAction={onAction} />}
-            <PlainPackAsGolden run={run} offers={offers} next={next} />
+            <PlainPackAsGolden run={run} offers={offers} next={next} judged={judged} />
             <BlameBesideButton runId={r.runId} step={next} />
             <ActionButton className="btn" id="forkBtn" aria-haspopup="menu" aria-expanded={forkMenu.open} why={live ? 'Fork once the recording finishes' : null} disabled={!live && selected === null} {...cardUnlessIdle(selected === null, 'Each change in the menu shows the flag it runs')} onClick={(e) => forkMenu.toggle(e.currentTarget)} {...shortcut('fork')}>
               <Icon name="fork" />
