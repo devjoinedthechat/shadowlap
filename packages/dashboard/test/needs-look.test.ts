@@ -79,6 +79,18 @@ describe('Needs a look: the failing runs nobody has blamed', () => {
       store.close();
     }
   });
+
+  it('says what the newest failed on as its page does: its first failed check with what it saw', () => {
+    const store = Store.open(':memory:');
+    try {
+      const checks = [{ label: 'send_email called at most 1 time', ok: false, status: 'failed' as const, detail: 'called 2 times' }];
+      addRun(store, { startedAt: NOW - 5 * HOUR, status: 'failed', calls: 'l' });
+      const newest = addRun(store, { startedAt: NOW - 3 * HOUR, status: 'failed', meta: { checks }, calls: 'l' });
+      expect(overviewSummary(store, { tz: 'UTC', now: NOW }).needsLook.items.find((x) => x.kind === 'unblamed')).toMatchObject({ title: '2 failing runs nobody has blamed', detail: `newest ${newest.slice(0, 10)} · send_email called at most 1 time, but called 2 times` });
+    } finally {
+      store.close();
+    }
+  });
 });
 
 describe('Needs a look: a model the goldens use that retires', () => {

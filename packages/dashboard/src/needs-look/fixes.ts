@@ -1,4 +1,4 @@
-import { type FixRecords, fixRecords, lostWords, shownBlame, unrescuedWords, unsettledFirst } from '@shadowlap/engine';
+import { checkStatus, checkWords, type FixRecords, fixRecords, lostWords, outcomeLabel, shownBlame, unrescuedWords, unsettledFirst } from '@shadowlap/engine';
 import { fixLead } from '../fix-lead.js';
 import { changeWords } from '../fix-list.js';
 import { fixHref, noAnswerLost, short } from '../fix-shared.js';
@@ -31,9 +31,20 @@ export const broken: LookSource = {
 };
 
 /**
+ * What a failed run failed on, as its page says it: where it was lost or diverged (`outcomeLabel`),
+ * else its first failed check with what it saw (`send_email called at most 1 time, but called 2
+ * times`, `checkWords`), else that it failed.
+ */
+function failedWords(w: LookWork, runId: string): string {
+  const o = w.index.byId.get(runId)?.outcome;
+  if (o?.kind === 'lost' || o?.kind === 'diverged') return outcomeLabel(o);
+  const check = w.store.getRun(runId)?.meta?.checks?.find((c) => checkStatus(c) === 'failed');
+  return check ? checkWords(check, ', but ') : o?.kind === 'check-failed' && o.check ? o.check : 'failed';
+}
+
+/**
  * This week's failed runs that no blame and no fix holds, as one row: how many, the newest by its id
- * with what failed (its check, else that it failed), and Run blame on the newest where its page leads
- * with it. It opens Runs on Failed for this week's days. Older ones stay on Runs and on Fixes.
+ * with what it failed on (`failedWords`), and Run blame on the newest where its page leads with it. It opens Runs on Failed for this week's days. Older ones stay on Runs and on Fixes.
  */
 export const unblamed: LookSource = {
   id: 'unblamed',
@@ -45,7 +56,6 @@ export const unblamed: LookSource = {
     if (!newest?.runId) return [];
     const runId = newest.runId;
     const run = w.index.byId.get(runId);
-    const what = run?.outcome.kind === 'check-failed' && run.outcome.check ? run.outcome.check : 'failed';
     const about = run ? (w.budget === undefined ? aboutsOf(w.store, w.index, [run]) : aboutsWithin(w.store, w.index, [run], { budget: w.budget })).get(runId) : undefined;
     // Run blame only where its page leads with it: blame can't take a run that made no model call, and a failed injection test's proof comes first.
     const next = listedStep(w.store, runId, w.next, { reads: w.reads });
@@ -59,7 +69,7 @@ export const unblamed: LookSource = {
       kind: 'unblamed',
       icon: 'fail',
       title: `${plural(n, 'failing run')} nobody has blamed`,
-      detail: `${n > 1 ? 'newest ' : ''}${short(runId)} · ${what}`,
+      detail: `${n > 1 ? 'newest ' : ''}${short(runId)} · ${failedWords(w, runId)}`,
       step,
       href: links.runs({ types: 'failed', from: w.week.first, to: w.week.last }),
       runId,
