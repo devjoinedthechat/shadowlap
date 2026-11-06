@@ -556,14 +556,31 @@ export function runCallsPage(store: Store, idOrPrefix: string, at: { from: numbe
  * the runs of its parent that share its `repeat.group`, ordered by the attempt each says it is, then
  * by when it started. The fork blame rescued a run with is one of its probe's attempts, though the
  * lists show it as a fork of its own, so every run of the parent is read, not the run index's
- * bundles alone. Null for a run that names no group.
+ * bundles alone. A golden's test attempt is placed among those its session made of it: the attempts
+ * filed under the one its result shows, and that one, by the attempt each says it is. Null for a run
+ * that names no group, and for a test attempt the run index files under no run.
  */
 export function attemptPlace(store: StoreOf<'readModels'>, run: Pick<RunRecord, 'runId' | 'parentRunId' | 'meta'>): { k: number; n: number } | null {
+  if (typeof run.meta?.test?.of === 'string') return testAttemptPlace(store, run.runId);
   const group: unknown = run.meta?.repeat?.group;
   if (typeof group !== 'string' || !group || !run.parentRunId) return null;
   const same = loadRunIndex(store).runs.filter((r) => r.parentRunId === run.parentRunId && r.meta.repeat?.group === group);
   same.sort((a, b) => a.meta.repeat!.attempt - b.meta.repeat!.attempt || a.startedAt - b.startedAt || (a.runId < b.runId ? -1 : a.runId > b.runId ? 1 : 0));
   const k = same.findIndex((r) => r.runId === run.runId) + 1;
+  return k > 0 ? { k, n: same.length } : null;
+}
+
+/** A golden's test attempt's place among its session's attempts of it, as the run index files them (`filedTestAttempt`). */
+function testAttemptPlace(store: StoreOf<'readModels'>, runId: string): { k: number; n: number } | null {
+  const index = loadRunIndex(store);
+  const me = index.byId.get(runId);
+  const of = me?.attemptKind === 'test' ? me.attemptOf : null;
+  const shown = of ? index.byId.get(of) : undefined;
+  if (!of || !shown) return null;
+  const same = [shown, ...(index.attempts.get(of) ?? []).filter((r) => r.attemptKind === 'test')];
+  const attempt = (r: (typeof same)[number]) => r.meta.test?.attempt ?? 0;
+  same.sort((a, b) => attempt(a) - attempt(b) || a.startedAt - b.startedAt || (a.runId < b.runId ? -1 : a.runId > b.runId ? 1 : 0));
+  const k = same.findIndex((r) => r.runId === runId) + 1;
   return k > 0 ? { k, n: same.length } : null;
 }
 

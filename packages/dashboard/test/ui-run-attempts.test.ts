@@ -238,6 +238,25 @@ describe('an attempt', () => {
     expect(forkKindWords({ run: { meta: {}, divergence: null } }, 'recording', false)).toBeNull();
   });
 
+  it('reads a golden’s test attempt by its golden, its place in the session and the code it tested, and leads to Tests', () => {
+    const meta = { test: { golden: 'goldens/refund-over-limit', session: 'S1', attempt: 2, of: TICKET } };
+    const a = attemptOf({ run: { meta }, attemptPlace: { k: 2, n: 8 } });
+    expect(a).toEqual({ kind: 'test', k: 2, n: 8, golden: 'goldens/refund-over-limit' });
+    // Without the server's count, attempt k alone; the attempt the session's result shows is its test replay, no attempt.
+    expect(attemptOf({ run: { meta } })).toMatchObject({ k: 2, n: null });
+    expect(attemptOf({ run: { meta: { test: { golden: 'goldens/refund-over-limit', session: 'S1', attempt: 1 } } }, attemptPlace: null })).toBeNull();
+    expect(forkKindWords({ run: { meta, divergence: { callNo: 3 } } } as never, 'test', false)).toBe('test attempt');
+    // A golden that may fork went live from its fork, its writes blocked as `shadowlap test` blocks them.
+    const forked = { ...base, type: 'test' as const, divergence: { callNo: 3, type: 'request_changed', name: 'POST /v1/messages', replayedBefore: 2 }, outcome: { kind: 'passed' }, codeVersion: 'd2e8a1f', attempt: a };
+    expect(bannerFor(forked)).toEqual({ kind: 'attempt', of: 'test', callNo: 3, outcome: { tone: 'ok', text: 'passed' }, why: 'refund-over-limit, attempt\u00a02\u00a0of\u00a08 · test at\u00a0d2e8a1f: live from where the golden may fork · writes blocked', flag: null, diff: false });
+    // --writes says otherwise; one that left its recording where it shouldn't have says how; one that forked nowhere replayed every call.
+    expect(bannerFor({ ...forked, interventions: [{ flag: '--writes', value: 'allow', callNo: null }] })).toMatchObject({ why: expect.stringMatching(/ · writes allowed$/) });
+    expect(bannerFor({ ...forked, outcome: { kind: 'diverged' }, codeVersion: null, divergence: { ...forked.divergence, diff: [{ path: '$.system' }] } })).toMatchObject({ why: 'refund-over-limit, attempt\u00a02\u00a0of\u00a08: a request changed (~ $.system) · writes blocked', diff: true });
+    expect(bannerFor({ ...forked, divergence: null })).toMatchObject({ callNo: null, why: 'refund-over-limit, attempt\u00a02\u00a0of\u00a08 · test at\u00a0d2e8a1f: every call replayed from the recording' });
+    // Its way back is Tests, where its session's result is, as the design's is.
+    expect(attemptLinks({ run: { runId: 'T2' }, fix: null }, a!)).toEqual([{ href: '#/tests', label: 'Tests →' }]);
+  });
+
   it('leads back to where it counted, and to its bundle: all its attempts, counted, when they are several', () => {
     const fix = { id: 'fx-1', status: 'verified', title: 'Refunds above the limit' };
     expect(attemptLinks({ run: { runId: 'A1' }, fix, probeOf: { of: REFUND, callNo: 5 } }, { kind: 'probe', k: 2, n: 3, callNo: 5 })).toEqual([

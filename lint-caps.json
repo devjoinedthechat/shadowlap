@@ -245,9 +245,6 @@
     "packages/dashboard/ui/run/RunHeader.tsx": {
       "RunHeader": 65
     },
-    "packages/dashboard/ui/run/banner.ts": {
-      "attemptBanner": 52
-    },
     "packages/dashboard/ui/run/paged-run.ts": {
       "usePagedRun": 31
     },

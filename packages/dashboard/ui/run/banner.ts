@@ -1,4 +1,4 @@
-import { approx, num, plural } from '../format.js';
+import { approx, goldenName, num, plural } from '../format.js';
 import { blameStateWord } from '../../../engine/src/blame-words.js';
 import { fencedLabel, toolCheckLabel, toolCountDetail } from '../../../engine/src/checks/labels.js';
 import { isObject } from '../../../engine/src/is-object.js';
@@ -93,11 +93,12 @@ export interface BannerInput {
 }
 
 /**
- * An attempt, as its run's record says: a blame probe's (`meta.probe`), a verify's (`meta.verify`), or
- * one of `replay --repeat`'s (`meta.repeat` alone), with its place among the attempts made together.
+ * An attempt, as its run's record says: a blame probe's (`meta.probe`), a verify's (`meta.verify`),
+ * one of `replay --repeat`'s (`meta.repeat` alone), or a golden's that one test session replayed more
+ * than once (`meta.test.of`), with its place among the attempts made together.
  */
 export interface AttemptInput {
-  kind: 'probe' | 'verify' | 'repeat';
+  kind: 'probe' | 'verify' | 'repeat' | 'test';
   /**
    * Which attempt it is, and how many were made with it, as the server counts them (`attemptPlace`);
    * `n` is null when it isn't known (an older server), and is never the most that could have been
@@ -111,6 +112,8 @@ export interface AttemptInput {
   callNo?: number | null;
   /** A verify attempt's: the role of the run it replayed under the change. */
   role?: string | null;
+  /** A test attempt's: the golden it tested. */
+  golden?: string | null;
   /** How blame or verify judged it, as the record keeps it; a `--repeat`'s is worked out from its checks and exit. */
   verdict?: 'passed' | 'failed' | 'inconclusive' | null;
 }
@@ -468,37 +471,67 @@ function attemptBanner(i: BannerInput, a: AttemptInput | null, rescuedAt: number
   const rescued = rescuedAt !== null || !a;
   // "attempt 2 of 4" and "code 35034be" are each kept whole where the line wraps, as a tally and an id are everywhere.
   const which = a && a.k !== null ? `attempt\u00a0${num(a.k)}${a.n ? `\u00a0of\u00a0${num(a.n)}` : ''}` : null;
-  const iv = madeBy(i);
-  const how = !d ? 'every call replayed from the recording' : d.type === 'forced' && d.reason ? d.reason : (DIVERGED[d.type] ?? d.type);
-  // Where the request changed, as a fork's banner names it: the first path its diff found.
-  const where = d?.type === 'request_changed' && d.diff?.[0]?.path ? ` (~ ${d.diff[0].path})` : '';
-  let what: string;
-  let callNo = d?.callNo ?? null;
-  let flag: string | null = null;
-  if (!a || a.kind === 'probe') {
-    callNo = rescuedAt ?? a?.callNo ?? callNo;
-    const asked = callNo !== null ? `#${callNo}` : 'the call';
-    what = `${rescued ? 'rescued' : 'resampled'}${callNo !== null ? ` #${callNo}` : ''}${which ? `, ${which}` : ''}: the model was asked ${asked} again, the request as recorded`;
-  } else if (a.kind === 'verify') {
-    // The change it verified: a flag (`--model`, `--set`) names itself; a change in the code is in the
-    // request where the attempt forked, and the code it ran is named.
-    const role = VERIFY_ROLES[a.role ?? ''];
-    const change = iv ? flagWhy(iv, i.flagCall ?? null, d?.name ?? null) : d?.type === 'request_changed' ? `the change it verified is in the request${where}` : how;
-    // One part, held together, as the bundle names it (`verify · target`): a wrapped line never parts it.
-    const head = [`verify${role ? `\u00a0· ${role}` : ''}${which ? `, ${which}` : ''}`, i.codeVersion ? `code\u00a0${i.codeVersion}` : null].filter(Boolean).join(' · ');
-    what = `${head}: ${change}`;
-    flag = iv ? flagText(iv) : null;
-  } else {
-    // A replay made again: the command and where it forked, then the flag that made it, as its fork
-    // banner says it, or what changed.
-    const cmd = `replay --repeat${a.count ? ` ${num(a.count)}` : ''}${d ? ` at #${d.callNo}` : ''}`;
-    what = `${cmd}${which ? `, ${which}` : ''}: ${iv ? flagWhy(iv, i.flagCall ?? null, d?.name ?? null) : `${how}${where}`}`;
-    flag = iv ? flagText(iv) : null;
-  }
-  // The rescued fork passed, which is what made it the one blame names; its writes were stubbed, as every probe's are.
+  const { what, callNo, flag } = !a || a.kind === 'probe' ? probeAsked(i, a, rescuedAt, which) : a.kind === 'verify' ? verifyAsked(i, a, which) : a.kind === 'test' ? testAsked(i, a, which) : repeatAsked(i, a, which);
+  // The rescued fork passed, which is what made it the one blame names; its writes were stubbed, as
+  // every probe's are; a test's were blocked, as `shadowlap test` blocks them.
   const outcome: AttemptOutcome = rescued ? { tone: 'ok', text: 'passed' } : attemptOutcome(i, a);
-  const writes = d ? (writesWord(i.interventions) ?? (rescued ? 'writes stubbed' : null)) : null;
+  const writes = d ? (writesWord(i.interventions) ?? (rescued ? 'writes stubbed' : a.kind === 'test' ? 'writes blocked' : null)) : null;
   return { kind: 'attempt', of: rescued ? 'rescued' : a.kind, callNo, outcome, why: [what, writes, outcome.why].filter(Boolean).join(' · '), flag, diff: !!d?.diff?.length };
+}
+
+/** What an attempt's line says was done, with which attempt it is; the call it forked at; the flag that made it. */
+interface Asked {
+  what: string;
+  callNo: number | null;
+  flag: string | null;
+}
+
+/** Where a request changed, as a fork's banner names it: the first path its diff found. */
+const changedAt = (d: BannerInput['divergence']): string => (d?.type === 'request_changed' && d.diff?.[0]?.path ? ` (~ ${d.diff[0].path})` : '');
+
+/** How an attempt left its recording, when no flag says: the reason a forced one gives, else what diverged, and where. */
+function leftAs(d: BannerInput['divergence']): string {
+  if (!d) return 'every call replayed from the recording';
+  return `${d.type === 'forced' && d.reason ? d.reason : (DIVERGED[d.type] ?? d.type)}${changedAt(d)}`;
+}
+
+/** A blame probe's attempt, or the fork blame rescued a run with: the model call it asked again, as recorded. */
+function probeAsked(i: BannerInput, a: AttemptInput | null, rescuedAt: number | null, which: string | null): Asked {
+  const callNo = rescuedAt ?? a?.callNo ?? i.divergence?.callNo ?? null;
+  const asked = callNo !== null ? `#${callNo}` : 'the call';
+  const what = `${rescuedAt !== null || !a ? 'rescued' : 'resampled'}${callNo !== null ? ` #${callNo}` : ''}${which ? `, ${which}` : ''}: the model was asked ${asked} again, the request as recorded`;
+  return { what, callNo, flag: null };
+}
+
+/**
+ * A verify's attempt: the change it verified, a flag (`--model`, `--set`) naming itself, a change in
+ * the code being in the request where the attempt forked, with the code it ran.
+ */
+function verifyAsked(i: BannerInput, a: AttemptInput, which: string | null): Asked {
+  const d = i.divergence;
+  const iv = madeBy(i);
+  const role = VERIFY_ROLES[a.role ?? ''];
+  const change = iv ? flagWhy(iv, i.flagCall ?? null, d?.name ?? null) : d?.type === 'request_changed' ? `the change it verified is in the request${changedAt(d)}` : leftAs(d);
+  // One part, held together, as the bundle names it (`verify · target`): a wrapped line never parts it.
+  const head = [`verify${role ? `\u00a0· ${role}` : ''}${which ? `, ${which}` : ''}`, i.codeVersion ? `code\u00a0${i.codeVersion}` : null].filter(Boolean).join(' · ');
+  return { what: `${head}: ${change}`, callNo: d?.callNo ?? null, flag: iv ? flagText(iv) : null };
+}
+
+/** A replay made again: the command and where it forked, then the flag that made it, as its fork banner says it, or what changed. */
+function repeatAsked(i: BannerInput, a: AttemptInput, which: string | null): Asked {
+  const d = i.divergence;
+  const iv = madeBy(i);
+  const cmd = `replay --repeat${a.count ? ` ${num(a.count)}` : ''}${d ? ` at #${d.callNo}` : ''}`;
+  return { what: `${cmd}${which ? `, ${which}` : ''}: ${iv ? flagWhy(iv, i.flagCall ?? null, d?.name ?? null) : leftAs(d)}`, callNo: d?.callNo ?? null, flag: iv ? flagText(iv) : null };
+}
+
+/**
+ * A golden's test attempt, as its about line names it: the golden, which attempt of how many, and the
+ * code it tested; then that it went live from where the golden may fork, or how it left its recording.
+ */
+function testAsked(i: BannerInput, a: AttemptInput, which: string | null): Asked {
+  const head = [`${a.golden ? goldenName(a.golden) : 'test'}${which ? `, ${which}` : ''}`, i.codeVersion ? `test at\u00a0${i.codeVersion}` : null].filter(Boolean).join(' · ');
+  return { what: `${head}: ${forkedTest(i) ? 'live from where the golden may fork' : leftAs(i.divergence)}`, callNo: i.divergence?.callNo ?? null, flag: null };
 }
 
 /**
