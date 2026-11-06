@@ -1537,12 +1537,14 @@ The server refuses another such job with the same words, from any tab, the palet
 
 **Run tests** runs `shadowlap test goldens/*` (plus each pack the config names elsewhere), with no shell: the CLI expands the pattern itself, as it does in CI. The page follows the session as each result lands. Its drawer ends on **Open Tests**, which isn't drawn on Tests itself, with the first three goldens that failed linked by name beside it, each opening its replay. A run of one golden ends on its replay.
 
-**A session that runs live goes by [Spending](#spending).** Before a session runs a golden live, the server asks. The page answers by Spending for **Run tests**, **Run more attempts**, **Re-run** and **Add normalizer and re-run**, on Tests, on a test replay's page and from the palette's *Run tests*. At or under it, the session starts with its estimate; otherwise its dialog asks. Setup's **Pack as a golden** asks every time its test would run a golden live, as nothing prices it. A task's **Update golden** asks in its own dialog, with what testing the golden again bills. A test replays offline, except for two things that run live:
+**A session that runs live goes by [Spending](#spending).** Before a session runs a golden live, the server asks. The page answers by Spending for **Run tests**, **Run more attempts**, **Re-run** and **Add normalizer and re-run**, on Tests, on a test replay's page and from the palette's *Run tests*. At or under it, the session starts with its estimate; otherwise its dialog asks. A test replays offline, except for two things that run live:
 
 - **A golden marked `fork`** runs live from where it forks, writes blocked, and asks its judge checks live.
 - **An [injection gate](./injection.md#gate-ci-on-it)** runs live from each payload it plants, writes stubbed.
 
 The dialog says how many goldens go live and why, and shows the commands. Its Cost line says the session's estimate. It opens on its button, the only way to start the session. A session that only replays starts at once.
+
+Setup's **Pack as a golden** asks every time its test would run a golden live, as nothing prices it. A task's **Update golden** asks in its own dialog, with what testing the golden again bills.
 
 **Update golden** (or **Update goldens** for every one that diverged) asks first, in a dialog that says what happens. It says when a normalizer is the lasting fix, or, once the rule is in the config, that a re-run passes without an update, and offers that as its way on, beside **Update anyway**. Then it runs `shadowlap test <golden> --update`, which re-records it live with writes stubbed.
 
