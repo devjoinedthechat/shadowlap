@@ -4,7 +4,7 @@ import { fencedLabel, toolCheckLabel, toolCountDetail } from '../../../engine/sr
 import { isObject } from '../../../engine/src/is-object.js';
 import { attemptVerdict, checkFailed, FAILURE_WORDS, failureReason, lostWords } from '../../../engine/src/run-verdicts.js';
 import { toolFailure } from '../../../engine/src/words.js';
-import type { RunType } from '../runs.js';
+import { fixedByWords, type RunType } from '../runs.js';
 import { presetWhy, type PresetAttempt } from './preset.js';
 
 /**
@@ -74,8 +74,14 @@ export interface BannerInput {
   outcome?: { kind: string; check?: string | null } | null;
   /** Stopped before it ended, failing nothing else (`state.interrupted`). */
   interrupted?: boolean;
-  /** Whether the server counts the run as failed (`state.failed`): when it says not, no failure banner. */
+  /** Whether the run counts as failed, as the lists count it (`runLikeOf`'s `failed`): when it says not, no failure banner. */
   failed?: boolean;
+  /**
+   * A failed test replay its golden's next replay passed: the run that passed (the server's `fixedBy`,
+   * runs-filter.ts's one rule). Its finding says what it failed, muted, then `fixed by <run>`, as Runs'
+   * Status says it, and offers nothing to mend it.
+   */
+  fixedBy?: string | null;
   /**
    * The run's calls: to say a check as the CLI does, with a tool's fenced calls counted exactly
    * (`send_email called 1 time, but called 2 times (2 blocked)`), and what came before a fork
@@ -133,8 +139,11 @@ export type Banner =
   | { kind: 'recording' }
   /** An attempt's banner: where it forked, its verdict word first, then what was done (`presetWhy`), and Tests → for a golden's. */
   | { kind: 'preset'; callNo: number | null; verdict: PresetAttempt['verdict']; why: string; golden: string | null }
-  /** `lead`: what the change looks like, or why it came; `why`: what came before it. The outcome says where it diverged. */
-  | { kind: 'diverged'; callNo: number; name: string; lead: string; why: string; path: string | null; normalizer: boolean; diff: boolean }
+  /**
+   * `lead`: what the change looks like, or why it came; `why`: what came before it. The outcome says where it diverged.
+   * `fixedBy`: the run that passed since, for a test replay its golden's next replay passed.
+   */
+  | { kind: 'diverged'; callNo: number; name: string; lead: string; why: string; path: string | null; normalizer: boolean; diff: boolean; fixedBy?: string }
   /**
    * An attempt, in the design's one grammar: its verdict (`outcome`, drawn first in its colour), then
    * `why`: what was asked again with which attempt it is, how the writes after it went, and for one
@@ -153,9 +162,9 @@ export type Banner =
    * `lead`: what failed, which the outcome's `check failed` or `exited` stands on, said first in ink; `why`: how its blame
    * stands. `label`: how a blame that placed the failure on no call stands, in the engine's word (blameStateWord), said
    * as the label instead, the failure in its `why`: `stopped` and `inconclusive` need a look (amber), `not rescued` is a
-   * failure.
+   * failure. `fixedBy`: the run that passed since, for a test replay its golden's next replay passed, whose `why` says so.
    */
-  | { kind: 'failed'; lead?: string; why: string; fix: { id: string; status: string; title: string } | null; blamed: boolean; label?: BlameState };
+  | { kind: 'failed'; lead?: string; why: string; fix: { id: string; status: string; title: string } | null; blamed: boolean; label?: BlameState; fixedBy?: string };
 
 /** What made a fork diverge, in words. */
 export const DIVERGED: Readonly<Record<string, string>> = {
@@ -554,7 +563,7 @@ function presetBanner(i: BannerInput, p: PresetAttempt): Banner {
 /** A test that left its recording: what the value that changed looks like, or why it came, then what came before it. */
 function divergedBanner(i: BannerInput, d: NonNullable<BannerInput['divergence']>): Banner {
   const lead = i.volatile?.looks ? `this looks like ${i.volatile.looks}` : (d.hints?.[0]?.message ?? DIVERGED[d.type] ?? d.type);
-  return { kind: 'diverged', callNo: d.callNo, name: d.name, lead, why: beforeFork(d, i.calls), path: d.diff?.[0]?.path ?? null, normalizer: true, diff: !!d.diff?.length };
+  return { kind: 'diverged', callNo: d.callNo, name: d.name, lead, why: beforeFork(d, i.calls), path: d.diff?.[0]?.path ?? null, normalizer: true, diff: !!d.diff?.length, ...(i.fixedBy ? { fixedBy: i.fixedBy } : {}) };
 }
 
 /**
@@ -617,6 +626,7 @@ const UNPLACED: Readonly<Record<BlameState, (failure: string) => string>> = {
  * capture its import judged failed says so after the check.
  */
 function failedBanner(i: BannerInput): Banner | null {
+  if (i.fixedBy) return fixedBanner(i, i.fixedBy);
   const failure = i.failed === false ? null : failureText(i);
   // A capture that failed only by its import's judgement leads with the check, as one that failed its own does.
   if (!failure) return i.judged ? { kind: 'failed', lead: i.judged, why: `judged when it was imported · ${fixState(i.fix) ?? 'not blamed yet'}`, fix: i.fix, blamed: !!i.blame } : null;
@@ -631,6 +641,18 @@ function failedBanner(i: BannerInput): Banner | null {
   const crash = i.crash && failure === FAILURE_WORDS.exit ? i.crash : null;
   const stopped = crash && crash.at !== null && crash.of !== null ? `at call ${crash.at}, ${crash.at - 1} of ${crash.of} recorded calls replayed` : null;
   return { kind: 'failed', lead: crash?.line ?? failure.replace(/^check failed: /, ''), why: stopped ?? fixState(i.fix) ?? unblamable ?? 'not blamed yet', fix: i.fix, blamed: !!b };
+}
+
+/**
+ * A failed test replay its golden's next replay passed: what it failed, as a failure's finding leads
+ * (the check, or the last line a crashed agent printed), then `fixed by <run>`, as Runs' Status says
+ * it. Nothing to blame: it no longer fails.
+ */
+function fixedBanner(i: BannerInput, by: string): Banner | null {
+  const failure = failureText(i);
+  if (!failure) return null;
+  const crash = i.crash && failure === FAILURE_WORDS.exit ? i.crash : null;
+  return { kind: 'failed', lead: crash?.line ?? failure.replace(/^check failed: /, ''), why: fixedByWords(by), fix: i.fix, blamed: true, fixedBy: by };
 }
 
 /** How the fix that lists a failed run stands, in the finding's words; null when none does. */

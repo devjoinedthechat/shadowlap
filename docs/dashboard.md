@@ -497,7 +497,7 @@ Under the header, one bar holds what the run's page found: how the run forked or
 
 The bar shows the most telling finding whole. **N findings** at its end opens the rest in place, its hover listing them while closed, and the focus stays on it. A lone finding with more to show, a note's tools or the fork's changes, has **Details** instead. The bar stays open or closed for each run until you reload.
 
-A finding never says what the header's first fact already does. Where that fact gives the verdict, the finding leads, in ink and with no label, with what the verdict stands on, then the rest:
+A finding never says what the header's first fact already does, but for the run that fixed a test replay. Where that fact gives the verdict, the finding leads, in ink and with no label, with what the verdict stands on, then the rest:
 
 | Run | The finding leads with | Then |
 |---|---|---|
@@ -506,6 +506,7 @@ A finding never says what the header's first fact already does. Where that fact 
 | A test replay whose agent crashed | The last line the agent printed | *at call 19, 18 of 30 recorded calls replayed* |
 | A test that diverged | What the value looks like, or why it came | The request's name and the calls replayed before it |
 | A test left inconclusive | The check it couldn't judge, and why, in amber | *18 calls replayed* |
+| A test replay its golden passed since | What it failed, muted, with nothing to mend | *fixed by 01K5CQ7A3M*, as Runs' Status says it |
 
 A blame that placed the failure on no call says how it stands as the finding's label instead: *stopped* or *inconclusive* in amber, *not rescued* in red. A blame that found the call says *lost at #17*, with **Rescued fork →** where the fork that rescued the run is kept. Words the glossary defines, such as *lost*, *stubbed* and *fenced*, are underlined, with their meaning on hover.
 

@@ -385,6 +385,9 @@ export function judgedOutcome(r: RunLike): RunOutcomeWords | null {
   return { tone: 'mu', text: 'not applicable', ...today };
 }
 
+/** A failed test replay its golden's next replay passed, as Status and its page's finding name it: by the run that passed (`fixed by 01K5CQ7A3M`). */
+export const fixedByWords = (runId: string): string => `fixed by ${shortId(runId)}`;
+
 /**
  * How a run came out, and what decided it, in the words the Runs table's Status and a run's first
  * fact say: in progress; a failed test replay its golden's next replay passed, muted, by the run that
@@ -399,7 +402,7 @@ export function outcomeOf(r: RunLike): RunOutcomeWords & { of: OutcomeOf } {
   if (isLive(r)) return { of: 'live', tone: 'live', text: 'in progress' };
   const o = r.outcome;
   if (o?.kind === 'running') return { of: 'live', tone: 'live', text: 'in progress' };
-  if (r.fixedBy) return { of: 'fixed', tone: 'mu', text: `fixed by ${shortId(r.fixedBy)}` };
+  if (r.fixedBy) return { of: 'fixed', tone: 'mu', text: fixedByWords(r.fixedBy) };
   const diverged = o ? (o.kind === 'diverged' && typeof o.callNo === 'number' ? o.callNo : null) : r.test && r.divergence ? r.divergence.callNo : null;
   if (diverged !== null) return { of: 'diverged', ...atCall('err', 'diverged at', diverged) };
   const judged = judgedOutcome(r);

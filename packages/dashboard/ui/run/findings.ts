@@ -28,8 +28,13 @@ export interface Finding {
 /** The colour each weight is listed in, on the card of the others. */
 export const SEVERITY_COLOURS: Readonly<Record<Severity, string>> = { 0: 'var(--cq-muted)', 1: 'var(--cq-amber)', 2: 'var(--cq-red)' };
 
-/** A banner's weight: lost, diverged, failed and not recorded are failures; a check that couldn't be judged, or a blame stopped or inconclusive, needs a look. */
+/**
+ * A banner's weight: lost, diverged, failed and not recorded are failures; a check that couldn't be
+ * judged, or a blame stopped or inconclusive, needs a look. A test replay its golden passed since is
+ * no failure, as Runs' Status reads it muted.
+ */
 export function bannerSeverity(b: Banner): Severity {
+  if ((b.kind === 'diverged' || b.kind === 'failed') && b.fixedBy) return 0;
   switch (b.kind) {
     case 'diverged':
     case 'lost':

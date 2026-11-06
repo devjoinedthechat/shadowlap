@@ -1,17 +1,18 @@
 import type { RunDetail, RunOffers } from '../api.js';
 import { begin, cancel, sendNow, type PendingRun } from '../pending-delete.js';
 import { navigate } from '../router.js';
-import { isFailed, runType } from '../runs.js';
+import { matchesChip, RUN_CHIPS } from '../runs.js';
 import { lastRunsHref } from '../runs-view.js';
 import { bulkToast, named } from '../runspage/bulk.js';
 import { useApp } from '../state.js';
 import { errorText, type ToastAction } from '../toast.js';
 import { runLikeOf } from './model.js';
 
-/** The run as a delete waits to take it: the chips Runs counts it under (its kind, failed, local) and its attempts. */
+/** The run as a delete waits to take it: the chips Runs counts it under (its kind's, Failed, Local), by Runs' own chip ids, and its attempts. */
 export function pendingRunOf(run: RunDetail, offers: RunOffers | null): PendingRun {
   const like = runLikeOf(run);
-  const chips = [runType(like), ...(isFailed(like) ? ['failed'] : []), ...(offers?.team?.state === 'only-here' ? ['local'] : [])];
+  const local = offers?.team?.state === 'only-here';
+  const chips = RUN_CHIPS.flatMap(([k]) => (k !== 'all' && (k === 'local' ? local : matchesChip(like, k)) ? [k] : []));
   return { runId: run.run.runId, chips, attempts: run.attempts ?? 0, startedAt: run.run.startedAt };
 }
 

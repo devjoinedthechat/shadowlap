@@ -13,7 +13,7 @@ import { TestsJobButton } from '../fixes/TestsJobButton.js';
 import { glued, GLUED_SEPARATOR, wholeTallies } from '../format.js';
 import { ACTIONS } from '../labels.js';
 import { href } from '../route.js';
-import { runType } from '../runs.js';
+import { fixedByWords, runType } from '../runs.js';
 import { shortcut } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import type { PendingAction } from './actions.js';
@@ -173,14 +173,18 @@ type Of<K extends BannerView['kind']> = Extract<BannerView, { kind: K }>;
 
 const cls = (c: string, s: Slot) => `banner ${c}${s.fx ? ' fx' : ''}`;
 
-/** The run's record as banner.ts reads it, how it came out as Runs and the Overview have it. */
+/**
+ * The run's record as banner.ts reads it, how it came out as Runs and the Overview have it: failed as
+ * Runs counts it (`runLikeOf`), and a failed test replay its golden passed since fixed by that run.
+ */
 function bannerInput(run: RunDetail, p: Pick<BannerProps, 'blame' | 'rescued' | 'checks' | 'preset' | 'judged' | 'offers'>, test: TestBannerOffer | null): BannerInput {
   const r = run.run;
+  const like = runLikeOf(run);
   const iv = run.intervention ?? null;
   const flagRow = iv?.callNo ? run.calls.find((c) => c.callNo === iv.callNo) : undefined;
   return {
     status: r.status,
-    type: runType(runLikeOf(run)),
+    type: runType(like),
     divergence: r.divergence,
     intervention: iv,
     interventions: run.interventions ?? [],
@@ -196,7 +200,8 @@ function bannerInput(run: RunDetail, p: Pick<BannerProps, 'blame' | 'rescued' | 
     judged: p.judged?.by === 'import' && p.judged.verdict === 'failed' ? firstWords(p.judged) : null,
     volatile: test?.volatile ?? null,
     modelCalls: run.summary.byKind.api,
-    ...(run.state ? { outcome: run.state.outcome, interrupted: run.state.interrupted, failed: run.state.failed } : {}),
+    ...(run.state ? { outcome: run.state.outcome, interrupted: run.state.interrupted, failed: like.failed === true } : {}),
+    fixedBy: run.fixedBy ?? null,
     calls: run.calls,
     callCount: run.calls.length,
     attempt: attemptOf(run),
@@ -378,10 +383,13 @@ function ChecksFinding({ b, s }: { b: Of<'checks'>; s: Slot }) {
   );
 }
 
+/** Its weight's colour: amber to look at, muted for a test replay its golden passed since, else red. */
+const failedTone = (b: Of<'failed'>): string => (bannerSeverity(b) === 1 ? 'inc' : b.fixedBy ? 'n' : 'blame');
+
 function FailedFinding({ b, x, s }: { b: Of<'failed'>; x: Draw; s: Slot }) {
   const end = b.fix ? fixLink(x) : b.blamed ? null : runBlame(x);
   return (
-    <section className={cls(bannerSeverity(b) === 1 ? 'inc' : 'blame', s)}>
+    <section className={cls(failedTone(b), s)}>
       {b.label ? <span className="bk">{b.label}</span> : null}
       <Why lead={b.lead}>{b.why}</Why>
       {end ? <span className="end">{end}</span> : null}
@@ -516,10 +524,11 @@ function DivergedFinding({ b, x, s }: { b: Of<'diverged'>; x: Draw; s: Slot }) {
   const app = useApp();
   const jobs = useDivergedJobs(run, test, x.checks);
   const normalizer = run.actions.find((a) => a.key === 'n');
-  const add = jobs.acts.normalizer;
+  // A test replay its golden passed since says so after what it diverged on, muted, and offers nothing to mend it.
+  const add = b.fixedBy && jobs.acts.normalizer?.kind !== 'added' ? null : jobs.acts.normalizer;
   return (
-    <section className={cls('blame', s)}>
-      <Why lead={b.lead} code={b.name}>{`${b.name} · ${b.why}`}</Why>
+    <section className={cls(b.fixedBy ? 'n' : 'blame', s)}>
+      <Why lead={b.lead} code={b.name}>{[...(b.fixedBy ? [fixedByWords(b.fixedBy)] : []), b.name, b.why].join(' · ')}</Why>
       {b.path ? <span className="path">~ {test?.volatile?.path ?? test?.cause ?? b.path}</span> : null}
       <span className="end">
         {add?.kind === 'added' ? (
@@ -543,7 +552,7 @@ function DivergedFinding({ b, x, s }: { b: Of<'diverged'>; x: Draw; s: Slot }) {
             {ACTIONS.addNormalizer.label}
           </ActionButton>
         ) : null}
-        {jobs.acts.update && !leads('update-golden') ? (
+        {jobs.acts.update && !b.fixedBy && !leads('update-golden') ? (
           <TestsJobButton className="btn sm" verb="update it" off={app.actionsOff} onClick={jobs.update}>
             {ACTIONS.updateGolden.label}
           </TestsJobButton>

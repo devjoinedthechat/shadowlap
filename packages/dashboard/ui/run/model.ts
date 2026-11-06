@@ -14,6 +14,9 @@ import { modelCallOf, originOf } from './calls.js';
  * line in the views. No DOM here.
  */
 
+/** A capture its import judged failed by the rules on calls, the verdict it kept (run-outcome.ts `importJudged`), which Runs' Failed counts. */
+const importFailed = (d: RunDetail): boolean => d.judged?.by === 'import' && d.judged.verdict === 'failed';
+
 /**
  * A run's detail as the lists see a run, so the same words and icons apply: with the server's state
  * (its kind, outcome and whether it failed, worked out as the run list works it out), the page reads
@@ -43,8 +46,9 @@ export function runLikeOf(d: RunDetail): RunLike {
     test: meta?.test ?? null,
     blame: blameOf(d),
     checks,
-    // A failed test replay its golden's next replay passed reads as the lists read it: fixed, not failed.
-    ...(state ? { kind: state.kind, outcome: state.outcome, failed: state.failed && !d.fixedBy } : {}),
+    // Failed as the lists count it (runs-filter.ts `listFailed`): a failed test replay its golden's next
+    // replay passed is fixed, not failed, and a capture its import judged failed has failed.
+    ...(state ? { kind: state.kind, outcome: state.outcome, failed: (state.failed || importFailed(d)) && !d.fixedBy } : {}),
     ...(d.fixedBy ? { fixedBy: d.fixedBy } : {}),
     ...(d.judged !== undefined ? { judged: d.judged } : {}),
     ...(d.exitCode !== undefined ? { exitCode: d.exitCode } : {}),
