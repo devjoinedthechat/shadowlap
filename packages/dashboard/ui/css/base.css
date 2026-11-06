@@ -93,6 +93,9 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .btn .caret { width: 10px; height: 10px; }
 .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .linkbtn { display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; padding: 3px 7px; margin: -3px 0; border-radius: 6px; cursor: pointer; font: 500 12px var(--body); letter-spacing: 0; text-transform: none; color: var(--dim); text-decoration: none; white-space: nowrap; }
+/* a link-like button takes taps 4px above and below what it draws, for a finger's 24px */
+.linkbtn { position: relative; }
+.linkbtn::after { content: ""; position: absolute; inset: -4px 0; }
 .linkbtn:hover { color: var(--ink); background: var(--hover); }
 .linkbtn svg { width: 12px; height: 12px; flex: none; }
 /* a link reads in ink, at 500, underlined on hover */
@@ -471,14 +474,13 @@ code.rnm { white-space: nowrap; }
    size adds. */
 @media (max-width: 640px) {
   :is(#root, body) :is(
-    .eyebrow, .k, .sec-k, .banner .bk, .rnote .bk, .hgroup h4, .pop .pk, .palg, .eff, .tag, .tag-local, .badge,
+    .eyebrow, .k, .sec-k, .hgroup h4, .pop .pk, .palg, .eff, .tag, .tag-local, .badge,
     .tchip em, .bmk, .cells button .flag, .cbar .miss, table.t th:not(.mh), table.calls th, table.calls .n .fk, th.hist span,
-    .fxtable th, .msg .role, .msg .role small, .msg .chg, .think .tlab, .callrow .pl, .diffpanel h4,
-    .paths h4, .fdiff h2, .prov h3, .slackmsg .sh .sapp, .kbd, .palfoot kbd, .palit .palk kbd, .clabels, .tl-axis, .yaxis, .xlabels, .calwd
+    .fxtable th, .msg .role small, .callrow .pl, .diffpanel h4,
+    .paths h4, .prov h3, .slackmsg .sh .sapp, .kbd, .palfoot kbd, .palit .palk kbd, .clabels, .tl-axis, .yaxis, .xlabels, .calwd
   ) { font-size: var(--fs-label); }
   /* a pseudo-element can't sit in :is(): report.md's labels over its values on a narrow panel */
   :is(#root, body) .fxtable td::before { font-size: var(--fs-label); }
-  :is(#root, body) .msg .chg { letter-spacing: .05em; }
   :is(#root, body) :is(table.t th:not(.mh), table.calls th) { letter-spacing: .07em; }
   :is(#root, body) table.calls .n .fk { letter-spacing: 0; }
 }

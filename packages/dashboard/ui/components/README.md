@@ -53,7 +53,7 @@ that draws one has.
 
 | Component | File | Use it for |
 |---|---|---|
-| `onShow` | `OnShow.tsx` | A part of a page heavy enough to wait for a script of its own until it first shows, as a run's views but Calls do. `test/ui-bundle-size.test.ts` holds the structural diff (`JsonDiff.tsx`), the results matrix (`ResultsMatrix.tsx`), the check builder (`ui/checks/`) and each Changes tab (`ui/changes/`, but its `Head.tsx`) to it, failing when one of them is in the first look or loads with a page. Declare a part beside the page that shows it, never in `pages/lazy.tsx`, and `preload()` it on a sign it is about to show (the pointer or the focus on the tabs that switch to it), never as its page opens: what opening a page loads is held to the page's budget. |
+| `onShow` | `OnShow.tsx` | A part of a page heavy enough to wait for a script of its own until it first shows, as a run's views but Calls do. `test/ui-bundle-size.test.ts` holds the structural diff (`JsonDiff.tsx`), the results matrix (`ResultsMatrix.tsx`), the check builder (`ui/checks/`) and each Changes tab (`ui/changes/`, but its `Head.tsx`) to it, failing when one of them is in the first look or loads with a page. Declare a part beside the page that shows it, never in `pages/lazy.tsx`: the one part the page list shows itself, the page that says another project holds what a link names, is declared in `pages/held-elsewhere.tsx`, which the pages showing it import too, and the bundle test pins it. `preload()` a part on a sign it is about to show (the pointer or the focus on the tabs that switch to it), never as its page opens: what opening a page loads is held to the page's budget. |
 | `LoadFailed` | `bits.tsx` | What a part shows where its script didn't come (`onShow`'s `failed`; a page's in `pages/lazy.tsx`, under its title): an `ErrorState` whose Retry loads the page again, since a browser never asks twice for a script that failed. Retry waits while the server can't be reached (`guard`). |
 
 ## Overlays
@@ -152,8 +152,8 @@ page and asks there (`page-ask.ts`; Apply fix asks by the fix's id). A source ru
 with what it has and calls `paletteSourcesChanged()` when more arrives, and an open palette reads
 its sources again. Pages a later version fills in each have their own file under `pages/`.
 
-The Overview's panels are in `overview/` (`panels.tsx`, with what they say in `overview/model.ts`),
-and the Runs page's parts in `runspage/`: the header's actions (`RunsActions.tsx`: Pull, Import
+The Overview's panels are in `overview/` (`panels.tsx`, with what they say in `overview/model.ts`;
+a person's name, which every page says, in `person.ts`), and the Runs page's parts in `runspage/`: the header's actions (`RunsActions.tsx`: Pull, Import
 capture… and Push local runs while runs are only here), the filter field (`FilterField.tsx`: its
 terms on hover, how many runs match, `onCommit` for Enter), the row of days (`DaysRow.tsx`, a bar a
 week on a phone, its days picked by `day-picks.ts`) and the calendar it opens (`Calendar.tsx`, its

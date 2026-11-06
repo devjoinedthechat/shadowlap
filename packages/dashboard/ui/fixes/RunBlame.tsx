@@ -47,6 +47,7 @@ export function RunBlameButton({
   line,
   mark,
   jobs,
+  fold,
   ...priced
 }: {
   runId: string;
@@ -70,6 +71,8 @@ export function RunBlameButton({
   mark?: ShortcutMark;
   /** A list's jobs, read once for its rows, in place of its own read. */
   jobs?: readonly TreeJob[];
+  /** A run header's plain button, which folds into its … menu by this name. */
+  fold?: string;
 }) {
   const app = useApp();
   const busy = useTreeBusy('reads', 'blame', jobs);
@@ -119,6 +122,7 @@ export function RunBlameButton({
         why={busy}
         data-tip={tip ?? tipCard(ACTIONS.runBlame.label, [], title, `$ ${blameLine}`, tipEst(estimate, form))}
         {...(lead ? { 'data-next': 'blame' } : {})}
+        {...(fold ? { 'data-fold': fold } : {})}
         onClick={() => (form ? app.guard(() => setAsking(capture ? { kind: 'command' } : { kind: 'check', command: null })) : press({ estimate, start: () => void start({}), ask: () => setAsking({ kind: 'ask' }) }))}
         {...mark}
       >

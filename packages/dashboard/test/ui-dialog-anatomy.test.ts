@@ -17,7 +17,7 @@ import { ReplaceSkillsDialog } from '../ui/pages/settings/Agents.js';
 import { CleanupDialog } from '../ui/pages/settings/jobs.js';
 import { RuleDialog } from '../ui/pages/settings/RuleTable.js';
 import { AddServerDialog } from '../ui/pages/settings/Tools.js';
-import { ActionDialog } from '../ui/run/actions.js';
+import { ActionDialog } from '../ui/run/ActionDialog.js';
 import { NextStepButton } from '../ui/run/NextStepButton.js';
 import { EditDialog } from '../ui/run/EditAndFork.js';
 import { BisectDialog, DeleteRunDialog } from '../ui/run/RunDialogs.js';

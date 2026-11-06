@@ -42,15 +42,16 @@ export function recordingNow(store: StoreOf<'recording'>, run: Pick<RunRecord, '
   return run.status === 'running' && store.recordingRuns().live.some((r) => r.run.runId === run.runId);
 }
 
-function runOf(store: StoreOf<'recording'>, raw: unknown): { runId: string } | { error: string; status?: number } {
+/** The run a copy names (an id or a prefix), or why it can't be copied: none such, or still recording. */
+export function copyableRun(store: StoreOf<'recording'>, raw: unknown): RunRecord | { error: string; status?: number } {
   const run = typeof raw === 'string' && raw ? lookupRun(store, raw) : null;
   if (!run) return { error: typeof raw === 'string' && raw ? `no run ${raw.slice(0, 40)}` : 'runId is required', status: typeof raw === 'string' && raw ? 404 : 400 };
   if (recordingNow(store, run)) return { error: stillRecording(run), status: 409 };
-  return { runId: run.runId };
+  return run;
 }
 
 /** The project folder resolved through links, or why exports can't be written. */
-function projectRoot(project: ProjectInfo | null): string | { error: string; status: number } {
+export function projectRoot(project: ProjectInfo | null): string | { error: string; status: number } {
   if (!project) return { error: 'this dashboard has no project folder to write exports into: start it with shadowlap dashboard in the project', status: 501 };
   try {
     return realpathSync(project.path);
@@ -172,7 +173,7 @@ function exportTarget(root: string, file: string): string | { error: string; sta
 
 /** `export html <run> .shadowlap/exports/shadowlap-<id>.html --lineage`: the views in one file, with the runs it came from. */
 export function exportHtmlJob(store: StoreOf<'recording'>, project: ProjectInfo | null, req: Record<string, unknown>): Built {
-  const run = runOf(store, req.runId);
+  const run = copyableRun(store, req.runId);
   if ('error' in run) return run;
   const root = projectRoot(project);
   if (typeof root !== 'string') return root;
@@ -183,7 +184,7 @@ export function exportHtmlJob(store: StoreOf<'recording'>, project: ProjectInfo 
 
 /** `export har <run> .shadowlap/exports/<id>.har`: the model calls, with every redaction rule applied. */
 export function exportHarJob(store: StoreOf<'recording'>, project: ProjectInfo | null, req: Record<string, unknown>): Built {
-  const run = runOf(store, req.runId);
+  const run = copyableRun(store, req.runId);
   if ('error' in run) return run;
   const root = projectRoot(project);
   if (typeof root !== 'string') return root;
@@ -229,7 +230,7 @@ function packTarget(root: string, raw: unknown): string | { error: string; statu
  */
 export function packJob(store: StoreOf<'recording'>, project: ProjectInfo | null, req: Record<string, unknown>): Built {
   if (req.runIds !== undefined) return packRunsJob(store, project, req);
-  const run = runOf(store, req.runId);
+  const run = copyableRun(store, req.runId);
   if ('error' in run) return run;
   const root = projectRoot(project);
   if (typeof root !== 'string') return root;
@@ -263,7 +264,7 @@ function packRunsJob(store: StoreOf<'recording'>, project: ProjectInfo | null, r
   const runIds: string[] = [];
   for (const r of raw) {
     if (typeof r !== 'string' || !RUN_ID.test(r)) return { error: 'a run id is not one' };
-    const run = runOf(store, r);
+    const run = copyableRun(store, r);
     if ('error' in run) return run;
     if (!runIds.includes(run.runId)) runIds.push(run.runId);
   }
@@ -354,7 +355,7 @@ export function traceFile(raw: unknown, runId: string): string | null {
  * sends nothing: the CLI sends to `$OTEL_EXPORTER_OTLP_ENDPOINT` only when no file is asked for.
  */
 export function exportOtelJob(store: StoreOf<'recording'>, project: ProjectInfo | null, req: Record<string, unknown>): Built {
-  const run = runOf(store, req.runId);
+  const run = copyableRun(store, req.runId);
   if ('error' in run) return run;
   if (req.endpoint !== undefined && req.endpoint !== null && req.endpoint !== '') {
     const endpoint = collectorUrl(req.endpoint);

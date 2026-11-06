@@ -4135,7 +4135,7 @@ skipped.
 A run still recording is refused, exit status 2: every export waits for a run to end, or the copy would
 show it recording for good. With `--lineage`, so is a run whose ancestor is still recording.
 
-A 30-call run comes to about 1.1 MB, most of it the dashboard's own code, styles and fonts, which every
+A 30-call run comes to about 1.4 MB, most of it the dashboard's own code, styles and fonts, which every
 copy carries.
 
 ## export dataset

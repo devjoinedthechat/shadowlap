@@ -12,6 +12,10 @@ import { shownRuns } from '../ui/list-keys.js';
 import { noteShownRuns } from '../ui/runspage/shown-runs.js';
 import { setSingleKeys } from '../ui/shortcuts.js';
 import { render, type Rendered } from './ui-render.js';
+import { forgetPickedCalls } from '../ui/run/open-at.js';
+
+// A call picked on a run's page is remembered for the session: each test opens its runs afresh.
+afterEach(forgetPickedCalls);
 
 /**
  * The good/bad key: one press labels a run good or bad (what `repair --keeps label:good` keeps

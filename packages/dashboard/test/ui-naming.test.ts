@@ -74,7 +74,8 @@ const header = (run: RunDetail, runs: RunListItem[] = []) => inApp(createElement
 describe('a run’s page names it by its id, with its about line under it', () => {
   it('heads the page with the id in mono, the about line under it and the labels after it', () => {
     const html = header(detail());
-    expect(html).toMatch(/<h1 class="rnm" title="01M5GRX8K406H4KHQ7DEKYWTSZ">01M5GRX8K4<\/h1>/);
+    // The whole id is on Copy ID's card, and the heading's data-run: a title would show over the id's own card.
+    expect(html).toMatch(/<h1 class="rnm" tabindex="0" aria-describedby="rmeta" data-run="01M5GRX8K406H4KHQ7DEKYWTSZ">01M5GRX8K4<\/h1>/);
     const about = html.slice(html.indexOf('class="rabout"'));
     expect(about).toMatch(/^class="rabout"><span class="rab" data-about="override #16" data-from="change" title="override #16">override #16<\/span><span class="labelbar">/);
     expect(about).toContain('what-if');
@@ -82,7 +83,7 @@ describe('a run’s page names it by its id, with its about line under it', () =
 
   it('names only the kind in the eyebrow: the parent is in the crumbs, and a phone reads it after the kind', () => {
     const html = header(detail(), [{ runId: REC, about: { text: 'Ticket T-8812 arrived damaged', from: 'user' } } as RunListItem]);
-    const eyebrow = html.slice(html.indexOf('class="eyebrow'), html.indexOf('class="rtitle"'));
+    const eyebrow = html.slice(html.indexOf('class="eyebrow ek"'), html.indexOf('<h1'));
     expect(eyebrow).toContain('<span class="ebk">fork @17</span>');
     expect(eyebrow).toContain(`<span class="ebp"><span class="ebof">of</span><a href="#/run/${REC}" title="Ticket T-8812 arrived damaged"><code>01M5GRX4VY</code></a></span>`);
   });

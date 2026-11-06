@@ -139,6 +139,27 @@ describe('a run’s page and lineage', () => {
     }
   });
 
+  it('places a golden’s test attempt among those its session made, the one its result shows among them', () => {
+    const local = Store.open(':memory:');
+    try {
+      const rec = addRun(local, { startedAt: NOW - DAY, calls: 'llllll' });
+      const session = local.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], startedAt: NOW - 3 * HOUR }).sessionId;
+      const attempt = (k: number, of?: string) => addRun(local, { parent: rec, startedAt: NOW - 3 * HOUR + k, divergence: 3, calls: 'rrllll', meta: { test: { golden: 'goldens/refund', session, attempt: k, ...(of ? { of } : {}) } } });
+      // The session's result shows its second attempt: the others are filed under it.
+      const shown = attempt(2);
+      const filed = [attempt(3, shown), attempt(1, shown)];
+      expect(filed.map((r) => runDetail(local, r)!.attemptPlace)).toEqual([
+        { k: 3, n: 3 },
+        { k: 1, n: 3 },
+      ]);
+      // That one is the session's test replay, no attempt; one naming a run it can't be filed under (a pack can carry anything) has no place.
+      expect(runDetail(local, shown)!.attemptPlace).toBeNull();
+      expect(runDetail(local, attempt(4, rec))!.attemptPlace).toBeNull();
+    } finally {
+      local.close();
+    }
+  });
+
   it('counts the fork blame rescued a run with among its probe’s attempts, though it lists as a fork of its own', () => {
     expect(runDetail(store, id.rescued)!.attemptPlace).toEqual({ k: 1, n: 2 });
     expect(runDetail(store, id.probe)!.attemptPlace).toEqual({ k: 2, n: 2 });

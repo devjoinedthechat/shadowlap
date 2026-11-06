@@ -1,4 +1,3 @@
-import { resolve } from 'node:path';
 import {
   ACTIONS,
   GOLDEN_JOB_WORDS,
@@ -45,7 +44,7 @@ import { fixForRun, type FixForRun } from './fix-for-run.js';
 import { injectionLine } from './injection.js';
 import { links } from './links.js';
 import { gitAsync } from './patch-in-tree.js';
-import { blameOffer, testOffer, type BlameOffer, type TestOffer } from './run-offers.js';
+import { blameOffer, crashed, goldenFolder, keepable, packableIn, testOffer, type BlameOffer, type TestOffer } from './run-offers.js';
 import { aboutsWithin } from './run-about.js';
 import { runCalls } from './run-calls.js';
 import { loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
@@ -181,8 +180,6 @@ export interface InjectionAgain {
   liveReads: boolean;
 }
 
-/** The folder a run is packed into as a golden: `goldens/` and its short id in lower case, never a label, which groups and filters runs and names none. */
-export const goldenFolder = (runId: string): string => `goldens/${short(runId).toLowerCase()}`;
 
 /** What finding a next step reads once for all the runs it is asked about: each read when it is first needed. */
 export interface StepReads {
@@ -307,18 +304,7 @@ function blameStep(runId: string, offer: BlameOffer, capture = false): Decided {
   return { key: 'blame', label: ACTIONS.runBlame.label, offer, ...(capture ? { capture: true as const } : {}), command: blameCommand(runId, offer, capture), ...blamePrice(runId) };
 }
 
-/**
- * Whether a recording can be packed as a golden yet: there is a project to pack it into, and no golden
- * is made from it, one whose pack holds it or one it was unpacked from. One of a fork or a replay of
- * it says nothing of this one.
- */
-function packable(f: Facts, run: RunRecord): boolean {
-  const dir = f.work?.dir;
-  if (!dir) return false;
-  const from: unknown = run.meta?.imported?.from;
-  const unpacked = typeof from === 'string' && from ? resolve(dir, from) : null;
-  return !f.work!.goldens.some((g) => g.runId === run.runId || resolve(dir, g.path) === unpacked);
-}
+const packable = (f: Facts, run: RunRecord): boolean => packableIn(f.work?.dir, f.work?.goldens ?? [], run);
 
 /** The payloads every template plants, as a test with none picked plants them. */
 const allTemplates = () => injectionTemplates().templates.length;
@@ -356,12 +342,6 @@ function testedGolden(f: Pick<Facts, 'row' | 'work' | 'store'>): TestedGolden | 
   const source = f.work?.goldens.find((g) => g.path === test.golden);
   if (!source || unreadable(source)) return null;
   return { golden: test.golden, source, result: f.store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0] ?? null };
-}
-
-/** Whether a test replay's agent exited with an error, as its golden's result says (a run keeps no exit of its own): a crash. */
-function crashed(row: IndexedRun, result: TestResult | null): boolean {
-  if (result) return result.failure === 'exit';
-  return row.status === 'failed' && row.outcome.kind === 'check-failed' && row.outcome.check === null;
 }
 
 const { remade: REMADE, judgeOnce: JUDGE_ONCE } = GOLDEN_JOB_WORDS;
@@ -695,11 +675,10 @@ function ruleStep(f: Facts): Decided | null {
   return rule ? { key: 'rule', label: ACTIONS.addNormalizer.label, command: commandLine(normalizeAddArgs(rule)), sub: 'Masks the value made anew on every run, at match time' } : null;
 }
 
-/** A recording that didn't fail, no golden made from it yet: a golden from a failed run would pass on the failure and diverge once the fix ships. */
+/** Pack as golden…, where nothing else leads: a recording a golden can be made from (`keepable`), not failed by today's checks either. */
 function packStep(f: Facts): Decided | null {
   const { row } = f;
-  if (row.kind !== 'recording' || row.status !== 'completed' || row.failed || !row.calls) return null;
-  if (f.judged?.verdict === 'failed' || !hasRecordedCommand(f.record) || !packable(f, f.record)) return null;
+  if (f.judged?.verdict === 'failed' || !keepable(row, f.record, f.work?.dir, f.work?.goldens ?? [])) return null;
   const folder = goldenFolder(row.runId);
   return { key: 'pack', label: ACTIONS.packAsGolden.label, runId: row.runId, folder, title: 'Pack as golden', sub: 'A golden that CI replays on every commit', command: commandLine(['pack', short(row.runId), folder]) };
 }
