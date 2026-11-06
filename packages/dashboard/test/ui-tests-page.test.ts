@@ -196,6 +196,26 @@ describe('the Tests page', () => {
     expect(plain.all('.ph .btn.lime').map((b) => b.textContent)).toEqual(['Run tests']);
   });
 
+  it('heads the page with Open CI settings and Run tests, Update goldens joining them only when more than one golden diverged', async () => {
+    const header = (p: Rendered) => p.all('.ph .btn').map((b) => [b.textContent.trim(), b.getAttribute('href'), all(b, 'svg').length]);
+    const one = await open([], GOLDENS, (v) => ({ ...v, diverged: ['goldens/refunds'] }));
+    // Open CI settings opens Settings' CI tab, its gear before its words; the rest are jobs.
+    expect(header(one)).toEqual([['Open CI settings', '#/settings/ci', 1], ['Run tests', null, 0]]);
+    await r!.unmount();
+    const two = await open([], GOLDENS, (v) => ({ ...v, diverged: ['goldens/refunds', 'goldens/judged'] }));
+    expect(header(two)).toEqual([['Open CI settings', '#/settings/ci', 1], ['Update goldens', null, 0], ['Run tests', null, 0]]);
+  });
+
+  it('says older than your working tree, in amber, after the facts of a session that ended, and not while one runs', async () => {
+    const ended = await open([], GOLDENS, (v) => ({ ...v, older: true }));
+    expect(all(ended.one('.verdict.tv'), '.tstale').map((s) => s.textContent)).toEqual(['older than your working tree']);
+    expect(ended.one('.verdict.tv').textContent).toMatch(/ · \d+ upstream requests? · older than your working tree$/);
+    await r!.unmount();
+    const running = await open([], GOLDENS, (v) => ({ ...v, older: true, verdict: { ...v.verdict!, session: { ...v.verdict!.session, endedAt: null, live: true } } }));
+    expect(running.one('.verdict.tv').textContent).toContain('so far');
+    expect(all(running.one('.verdict.tv'), '.tstale')).toEqual([]);
+  });
+
   it('names what a row opens with a real link to the same place, and a row that opens nothing with none', async () => {
     const page = await open([], GOLDENS, (v) => ({ ...v, rows: v.rows.map((row, i) => (i ? row : { ...row, runId: '01M5H2DKE9AAAAAAAAAAAAAAAA' })) }));
     const rows = page.all('table.gt tbody tr');
