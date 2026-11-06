@@ -756,6 +756,8 @@ The inspector shows the selected call, in four tabs:
 
 **Details** lists origin, outcome and HTTP status, provider and the host it went through, model, whether it was an extra read, stop reason, token usage by cache tier, cost, latency and first token, size, retries, fingerprint and occurrence, response headers, and notes.
 
+On a failed model call, the input tokens are what its request held, `in the request; nothing was sent` where Shadowlap answered it or the replay refused it, and then its cost is `$0`. Its latency says who answered: `answered by Shadowlap`, `refused by the replay` or `answered by the provider`.
+
 ### Edit and fork
 
 **Edit and fork…**, under the call's name on every tab, opens a tool's result or what a person answered to edit, as JSON or as text, and forks with it. It is the fork menu's own `--override`, with every call before it replayed.
