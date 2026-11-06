@@ -83,7 +83,8 @@ test('a run’s buttons wrap rather than reach its id, in the narrowest window t
   await page.setViewportSize({ width: 1010, height: 800 });
   await openPage(page, `/run/${demoId('clean')}`, 'run');
   const [id, buttons] = [await page.locator('.rhead h1').boundingBox(), await page.locator('.rhead .actions').boundingBox()];
-  expect(id!.x + id!.width).toBeLessThanOrEqual(buttons!.x);
+  // Beside the id they end short of it; where they no longer fit beside it, the header stacks them under it, as the design does.
+  expect(id!.x + id!.width <= buttons!.x || buttons!.y >= id!.y + id!.height).toBe(true);
 });
 
 test('while a job holds the working tree, a step goes plain and says why, in the palette too, and a press starts nothing', async ({ page }) => {

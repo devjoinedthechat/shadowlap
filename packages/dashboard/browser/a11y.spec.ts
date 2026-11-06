@@ -126,9 +126,11 @@ test('Skip to content is the first stop for Tab, shows when it has the focus, an
   expect(box.height).toBeGreaterThan(10);
   await page.keyboard.press('Enter');
   expect(await page.evaluate(() => document.activeElement?.matches('main#view h1'))).toBe(true);
-  // The run's own actions are a few presses away, not the 53rd stop they were.
+  // The run's own actions are a few presses away, not the 53rd stop they were. In the design's order they
+  // come after what the eye reads beside them: the id, Copy ID, the good/bad key, a label's × and Add label,
+  // then each fact with a card (the outcome, calls, spent, not re-spent, not waited), then Share.
   const presses = await tabUntil(page, () => document.activeElement?.textContent?.trim() === 'Replay', 15);
-  expect(presses).toBeLessThanOrEqual(10);
+  expect(presses).toBeLessThanOrEqual(13);
 });
 
 test('Tab goes through the top bar, then the sidebar, then the page, never back', async ({ page }) => {

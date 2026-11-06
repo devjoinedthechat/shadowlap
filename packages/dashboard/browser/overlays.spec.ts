@@ -102,11 +102,11 @@ test('a menu keeps its keys: ↓ opens it, a letter finds an item, Home and End 
   expect(await item()).toBe('Eval dataset…');
   // Its last item is the way to the rules, in the line under the copies.
   await page.keyboard.press('End');
-  expect(await item()).toBe('Settings');
+  expect(await item()).toBe('Redaction settings →');
   await page.keyboard.press('ArrowDown');
   expect(await item()).toBe(first);
   await page.keyboard.press('ArrowUp');
-  expect(await item()).toBe('Settings');
+  expect(await item()).toBe('Redaction settings →');
   await page.keyboard.press('ArrowUp');
   expect(await item()).toBe('HAR file');
   await page.keyboard.press('Home');
@@ -126,7 +126,7 @@ test('a menu keeps its keys: ↓ opens it, a letter finds an item, Home and End 
   // ↑ opens it on its last item, and ⌘K goes on to the palette from it.
   await share.focus();
   await page.keyboard.press('ArrowUp');
-  expect(await item()).toBe('Settings');
+  expect(await item()).toBe('Redaction settings →');
   await page.keyboard.press('Meta+k');
   await expect(page.locator('.palette')).toBeVisible();
   await expect(page.locator(MENU)).toHaveCount(0);
@@ -525,9 +525,11 @@ test('a hover card keeps clear of what it belongs to: never the menu its button 
   await expect(tip).toBeVisible();
   const [m, t] = [await box(menu), await box(tip)];
   expect(t.x + t.width <= m.x || t.x >= m.x + m.width).toBe(true);
+  const rowCard = await tip.textContent();
   await page.keyboard.press('Escape');
   await expect(menu).toHaveCount(0);
-  await expect(tip).toBeHidden();
+  // The row's card goes with the menu; whatever the pointer is over now may show its own.
+  await expect.poll(async () => ((await tip.isVisible()) ? await tip.textContent() : null)).not.toBe(rowCard);
 });
 
 test('a term’s card keeps each clause whole, with a space between two on a line', async ({ page }) => {
@@ -715,6 +717,8 @@ test.describe('with a finger', () => {
 
   test('a dialog whose way on waits starts on Cancel, never on its field, so the phone’s keyboard stays closed', async ({ page }) => {
     await openPage(page, `/run/${demoId('ticket')}`, 'run');
+    // A model call's menu has Inject instruction; the run opens on a tool call (the call its outcome names, or its first write).
+    await page.locator('main#view tr[data-wi]:has(td.name[title^="POST "])').first().tap();
     await page.locator('#forkBtn').tap();
     await page.locator(`${MENU} button`, { hasText: 'Inject instruction' }).tap();
     await expect(page.locator(DIALOG)).toBeVisible();
