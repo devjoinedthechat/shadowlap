@@ -23,7 +23,7 @@ import { onShow } from '../components/OnShow.js';
 import { Inspector, TABS, type InspectorTab } from '../run/Inspector.js';
 import { flagText } from '../run/banner.js';
 import { blameOf, checksOf, forkAtOf, forkMarkOf, withModelNames } from '../run/model.js';
-import { inspectorInView, InspectorPlace, useFindingPanel } from '../run/InspectorPanel.js';
+import { InspectorPlace, useFindingPanel, usePickInView } from '../run/InspectorPanel.js';
 import { byKind } from '../run/kinds.js';
 import { useStripCalls } from '../run/RunStrip.js';
 import { StripBar } from '../run/StripKey.js';
@@ -306,7 +306,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
 
   const select = useCallback((n: number) => (closePanel(), navigate(href.run(runId, n, v), true)), [runId, v, closePanel]);
   // A row picked below 1160px brings the inspector, under the calls, into view.
-  const pickRow = useCallback((n: number) => (select(n), inspectorInView()), [select]);
+  const pickRow = usePickInView(select, selected, detail);
   const setView = (next: View) => (warmViews(), navigate(href.run(runId, selected, next), true));
   // A pick in the key, or a word typed in Filter calls, shows Calls from another view.
   const toCalls = () => (v === 'calls' ? undefined : setView('calls'));

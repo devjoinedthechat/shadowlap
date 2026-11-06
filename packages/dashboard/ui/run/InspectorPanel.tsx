@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { RunDetail } from '../api.js';
 import { focusQuiet } from '../focus-manager.js';
 import type { TestBannerOffer } from '../types.js';
@@ -31,6 +31,36 @@ export function inspectorInView(): void {
   if (typeof innerWidth !== 'number' || innerWidth > 1159) return;
   const box = document.querySelector<HTMLElement>('#insp');
   if (box && box.getBoundingClientRect().top > innerHeight * 0.6) box.scrollIntoView({ block: 'start' });
+}
+
+/**
+ * A row's click: picks its call and brings the inspector into view, then again once the call has drawn
+ * there and once its details have come. They change the inspector's height, and with it how far the
+ * page scrolls: brought into view before them, a short call's inspector stopped short of where it goes.
+ * Only for the call clicked, until its details come or another call is picked once it has drawn.
+ */
+export function usePickInView(select: (n: number) => void, selected: number | null, detail: { data: { call: { callNo: number } } | null; error: Error | null }): (n: number) => void {
+  const want = useRef<{ n: number; seen: boolean } | null>(null);
+  const settled = detail.data?.call.callNo === selected || !!detail.error;
+  useLayoutEffect(() => {
+    const w = want.current;
+    if (!w) return;
+    if (w.n !== selected) {
+      if (w.seen) want.current = null;
+      return;
+    }
+    w.seen = true;
+    inspectorInView();
+    if (settled) want.current = null;
+  }, [selected, settled]);
+  return useCallback(
+    (n: number) => {
+      select(n);
+      inspectorInView();
+      want.current = n === selected && settled ? null : { n, seen: false };
+    },
+    [select, selected, settled],
+  );
 }
 
 /**

@@ -128,8 +128,19 @@ test('at 1050×800 the inspector sits under a list fitted to show its head, the 
   // The inspector's head shows as the page opens.
   expect((await rect(page, '#insp .ihead')).top).toBeLessThan(800);
   expect(await page.locator('.rv').evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
-  // A row picked brings the inspector into view under the strip.
+  // A row picked brings the inspector into view under the strip: its top within 60% of the window, or,
+  // a short call's inspector, the page scrolled to its end with the inspector whole above it.
   await page.locator('#vbody table.calls tbody tr[data-wi]').nth(2).click();
+  const inView = () =>
+    page.evaluate(() => {
+      const rv = document.querySelector('.rv')!;
+      const insp = document.querySelector('#insp')!.getBoundingClientRect();
+      const end = rv.scrollTop > 0 && rv.scrollTop + rv.clientHeight >= rv.scrollHeight - 1 && insp.bottom <= rv.getBoundingClientRect().bottom + 1;
+      return insp.top >= document.querySelector('.strip')!.getBoundingClientRect().bottom - 1 && (insp.top < innerHeight * 0.6 || end);
+    });
+  await expect.poll(inView).toBe(true);
+  // A model call's taller inspector comes up under the strip.
+  await page.locator('#vbody table.calls tbody tr[data-wi]').first().click();
   await expect.poll(async () => (await rect(page, '#insp')).top).toBeLessThan(800 * 0.6);
   // Scrolled, the strip stays at the top of the run page.
   await page.locator('.rv').evaluate((el) => el.scrollTo(0, el.scrollHeight));
