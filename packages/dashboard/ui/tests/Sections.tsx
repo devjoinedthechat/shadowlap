@@ -20,17 +20,19 @@ function liveWords(view: Pick<TestsView, 'rows'>): string {
  * its box with its own Copy, and under both, quiet, where the recordings other test runners keep run.
  */
 export function CiSections({ view }: { view: TestsView }) {
-  // A gate against history needs the store kept between CI's runs, and warns on a short history.
+  // A gate against history needs the store kept between CI's runs.
   const historyGate = view.rows.some((r) => r.gate?.gate.kind === 'baseline');
   return (
     <>
       <div className="grid2 secs">
         <Section title="In CI">
-          <p className="muted">{liveWords(view)} A divergence, a non-zero exit, no calls, or a check, gate or injection test that fails or can’t decide fails a golden.</p>
+          <p className="muted">
+            {liveWords(view)} A divergence, a non-zero exit, no calls, or a check, gate or injection test that fails or can’t decide fails a golden. A gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop.
+          </p>
           <CodeBox command={view.commands.ci} what="the CI command" />
           {historyGate ? (
             <p className="muted after">
-              A gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop. It needs the store kept between runs: the Action’s <code>keep-history</code> does it, or cache <code>.shadowlap/shadowlap.db</code>.
+              A gate against history needs the store kept between runs: the Action’s <code>keep-history</code> does it, or cache <code>.shadowlap/shadowlap.db</code>.
             </p>
           ) : null}
           <p className="muted after">
