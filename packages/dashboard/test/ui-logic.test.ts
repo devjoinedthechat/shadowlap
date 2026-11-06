@@ -937,7 +937,7 @@ describe('a run’s calls in the views', () => {
   it('says what a call did on its line, and a replayed call’s time as recorded', () => {
     expect(callDetail(call(1, 'api'))).toEqual({ text: 'sonnet-5 · tool_use', err: false });
     expect(callDetail(call(1, 'api', { outcome: 'error', status: 529, attempts: 2 }))).toEqual({ text: 'HTTP 529 · 3 attempts', err: true });
-    expect(resultLine(call(3, 'tool', { origin: 'blocked', outcome: 'error' }))).toEqual({ text: 'blocked', err: true });
+    expect(resultLine(call(3, 'tool', { origin: 'blocked', outcome: 'error' }))).toEqual({ text: 'blocked', err: false, blocked: true });
     // The server's line (the engine's toolResultLine) says it was stubbed; the page doesn't say it twice.
     expect(resultLine(call(3, 'tool', { origin: 'stubbed', resultShort: 'stubbed {"sent":true}' }))).toEqual({ text: 'stubbed {"sent":true}', err: false });
     expect(resultLine(call(3, 'tool', { outcome: 'error', error: 'TimeoutError: 30 s' }))).toEqual({ text: 'TimeoutError: 30 s', err: true });

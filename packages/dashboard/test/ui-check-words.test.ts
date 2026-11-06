@@ -2,7 +2,8 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import { bannerFor, beforeFork, failedCheckText, failureText, fencedWords, type BannerInput } from '../ui/run/banner.js';
-import { CallsToolbar, originFilters } from '../ui/run/CallsView.js';
+import { keyItems } from '../ui/run/call-filter.js';
+import { StripKey } from '../ui/run/StripKey.js';
 import { ContextView } from '../ui/run/ContextView.js';
 import { Inspector } from '../ui/run/Inspector.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -12,7 +13,7 @@ import { render, type Rendered } from './ui-render.js';
 /**
  * The run page in the CLI's words: a failed check as `test` prints it, its arguments kept and a
  * tool's fenced calls counted exactly; what came before a fork, never counting a call an override
- * answered as replayed; and the filter of blocked and stubbed calls named Fenced, as the design does.
+ * answered as replayed; and the strip's key, which names blocked and stubbed calls apart, as the design does.
  */
 
 let page: Rendered | null = null;
@@ -84,12 +85,22 @@ describe('what came before a fork', () => {
   });
 });
 
-describe('the Calls view', () => {
-  it('names the filter of blocked and stubbed calls Fenced, as the design does', async () => {
-    expect(originFilters({ over: 1, inject: 0, fail: 0 }).map(([, label]) => label)).toEqual(['All', 'Live', 'Replayed', 'Overridden', 'Fenced']);
-    const counts = { all: 32, live: 14, rep: 15, over: 1, inject: 0, fail: 0, block: 2 };
-    page = await render(createElement(CallsToolbar, { counts, filter: 'all', onFilter: () => undefined, text: '', onText: () => undefined, inputRef: { current: null } }));
-    expect(page.all('.ofilter button').map((b) => b.textContent)).toEqual(['All32', 'Live14', 'Replayed15', 'Overridden1', 'Fenced2']);
+describe('the strip’s key, which filters the calls', () => {
+  it('names blocked and stubbed calls apart, each with the swatch of its cells, as the design does', async () => {
+    const items = keyItems({ total: 34, counts: { live: 14, rep: 15, over: 1, block: 2, stub: 2 } }, false);
+    expect(items.map((i) => i.word)).toEqual(['all', 'replayed', 'live', 'overridden', 'blocked', 'stubbed']);
+    page = await render(createElement(StripKey, { items, byKind: false, filter: 'all', onFilter: () => undefined }));
+    expect(page.all('.lfilter button').map((b) => b.textContent)).toEqual(['all 34', 'replayed 15', 'live 14', 'overridden 1', 'blocked 2', 'stubbed 2']);
+    expect(page.all('.lfilter button i.lg').map((i) => i.className)).toEqual(['lg rep', 'lg live', 'lg over', 'lg block', 'lg stub']);
+    expect(page.all('.lfilter .lk')).toHaveLength(0);
+  });
+
+  it('says first that every call of a recording is live, then counts each kind', async () => {
+    const items = keyItems({ total: 21, counts: { 'k-model': 10, 'k-read': 10, 'k-write': 1 } }, true);
+    page = await render(createElement(StripKey, { items, byKind: true, filter: 'k-write', onFilter: () => undefined }));
+    expect(page.one('.lfilter .lk').textContent).toBe('every call live');
+    expect(page.all('.lfilter button').map((b) => b.textContent)).toEqual(['all 21', 'model calls 10', 'reads 10', 'write 1']);
+    expect(page.all('.lfilter button[aria-pressed="true"]').map((b) => b.textContent)).toEqual(['write 1']);
   });
 });
 

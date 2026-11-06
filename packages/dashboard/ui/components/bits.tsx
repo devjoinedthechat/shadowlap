@@ -72,12 +72,21 @@ export function Tag({ cls, children }: { cls?: string; children: ReactNode }) {
   return <span className={`tag${cls ? ` ${cls}` : ''}`}>{children}</span>;
 }
 
-/** An origin: its colour and its word. */
+/** An origin: its colour and its word (which a phone's Calls hides but for a screen reader). */
 export function Org({ origin }: { origin: Origin7 }) {
   return (
     <span className={`org ${origin}`}>
       <i />
-      {ORIGIN_NAME[origin]}
+      <span className="orgw">{ORIGIN_NAME[origin]}</span>
+    </span>
+  );
+}
+
+/** A space a screen reader says, so two words drawn apart by a margin (a chip's word and its count) are two words. */
+export function SrSpace() {
+  return (
+    <span className="srsp">
+      <span className="sr"> </span>
     </span>
   );
 }
@@ -135,10 +144,7 @@ export function Chips<K extends string>({ items, value, onChange, hideEmpty = fa
             {c.label}
             {c.count !== undefined ? (
               <>
-                {/* A space a screen reader says, so the word and its count are two words; the count's margin shows it. */}
-                <span className="srsp">
-                  <span className="sr"> </span>
-                </span>
+                <SrSpace />
                 <b>{c.count.toLocaleString('en-US')}</b>
               </>
             ) : null}

@@ -351,8 +351,10 @@ test('a run’s calls sit under the call they belong to, each fold mark announce
   await expect(fold).toHaveAttribute('aria-expanded', 'false');
   expect(await page.locator('main#view table.calls tbody tr[data-wi]').count()).toBeLessThan(rows);
   expect(await seriousViolations(page)).toEqual([]);
-  await page.locator('main#view .toolbar button', { hasText: 'Unfold all' }).click();
+  // Opened again with its own fold mark: there is no Fold all or Unfold all.
+  await fold.click();
   await expect(fold).toHaveAttribute('aria-expanded', 'true');
+  expect(await page.locator('main#view').getByRole('button', { name: /^(Un)?[Ff]old all$/ }).count()).toBe(0);
 });
 
 test('what a run did that Shadowlap did not record is among its findings, with no serious axe violation', async ({ page }) => {

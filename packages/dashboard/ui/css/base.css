@@ -148,7 +148,7 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .legend i { width: 10px; height: 10px; border-radius: 3px; }
 
 .chips { display: flex; gap: 4px; flex-wrap: wrap; }
-/* a filter's chips read as the run page's call filter (.ofilter): plain words, the one picked on a raised ground, never lime */
+/* a filter's chips read as the run page's call filter (the strip's key, .lfilter): plain words, the one picked on a raised ground, never lime */
 .chips button { border: 0; background: none; border-radius: 6px; padding: 4px 9px; cursor: pointer; font: 500 12px var(--body); color: var(--faint); white-space: nowrap; }
 .chips button b { font: 500 11px var(--mono); margin-left: 5px; color: var(--faint); }
 .chips button:hover { color: var(--ink); }
