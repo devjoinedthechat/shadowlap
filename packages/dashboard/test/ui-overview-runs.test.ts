@@ -45,8 +45,12 @@ describe('the Overview’s words', () => {
     // Inconclusive goldens count apart, neither passing nor failed: amber when they are the only problem.
     expect(words(testsKpi({ goldens: 4, passing: 3, inconclusive: 1, untested: 0, lastWeek: null, regressions: 0, lastRunAt: at1002 }, now))).toEqual({ value: '3 / 4', note: '1 inconclusive · last run 10:02', tone: 'warn' });
     // Where nothing runs, every line of Needs a look opens what it names.
-    expect(needsLookAction({ action: 'Run blame' }, null)).toBe('Run blame');
-    expect(needsLookAction({ action: 'Run blame' }, 'This dashboard is read-only: it was started with --read-only.')).toBe('Open');
+    const push = { of: 'push', label: 'Push local runs', command: 'shadowlap push --all' } as const;
+    expect(needsLookAction({ step: push }, null)).toBe('Push local runs');
+    expect(needsLookAction({ step: push }, 'This dashboard is read-only: it was started with --read-only.')).toBe('Open');
+    // A link runs nothing: it leads where it says on a read-only dashboard too.
+    expect(needsLookAction({ step: { of: 'link', label: 'Continue setup', href: '#/setup/store' } }, 'read-only')).toBe('Continue setup');
+    expect(needsLookAction({ step: null }, null)).toBe('Open');
     expect(spentNote({ value: 1.29, lastWeek: 1.69, notRespent: 2.81, notWaitedMs: 28 * 60_000 })).toBe('$2.81 not re-spent · 28m not waited');
   });
 
@@ -90,7 +94,7 @@ describe('the Overview’s words', () => {
   });
 
   it('shows three lines of Needs a look, then the rest on asking', () => {
-    const row = (i: number): NeedsLookRow => ({ kind: 'unblamed', icon: 'fail', title: `t${i}`, detail: '', action: 'Run blame', href: '#/', runId: String(i), fixId: null, at: i });
+    const row = (i: number): NeedsLookRow => ({ kind: 'unblamed', icon: 'fail', title: `t${i}`, detail: '', key: `attn:unblamed:${i}`, group: 'failing', step: { of: 'run', runId: String(i), step: { key: 'blame', label: 'Run blame' } as never }, href: '#/', runId: String(i), fixId: null, at: i });
     const items = [1, 2, 3, 4, 5].map(row);
     expect(needsLookShown(items, false)).toEqual({ rows: items.slice(0, 3), more: 'Show 2 more' });
     expect(needsLookShown(items, true)).toEqual({ rows: items, more: 'Show fewer' });

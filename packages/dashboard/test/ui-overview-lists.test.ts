@@ -34,14 +34,14 @@ describe('the Overview’s tests', () => {
 
 describe('Needs a look’s words', () => {
   const rows: NeedsLookRow[] = [
-    { kind: 'test', icon: 'fail', title: 'A test failed: refund-in-limit', detail: 'diverged at call 3', action: 'Open', href: '#/run/01M5H2EWWY8P621C63CJPVEM4A', runId: '01M5H2EWWY8P621C63CJPVEM4A', fixId: null, at: 3 },
-    { kind: 'unblamed', icon: 'fail', title: 'A run failed: 01M5H2F2QC digest', detail: 'not blamed yet', action: 'Run blame', href: '#/run/01M5H2F2QC9NCJ5PSZ0M4RX7VP', runId: '01M5H2F2QC9NCJ5PSZ0M4RX7VP', fixId: null, at: 2 },
-    { kind: 'local', icon: 'rec', title: '12 runs are only on this machine', detail: 'push them so the team can open them', action: 'Push', href: '#/runs?types=local', runId: null, fixId: null, at: 0 },
+    { kind: 'test', icon: 'fail', title: 'A test failed: refund-in-limit', detail: 'diverged at call 3', key: 'attn:failed:goldens/refund-in-limit', group: 'failing', step: null, href: '#/run/01M5H2EWWY8P621C63CJPVEM4A', runId: '01M5H2EWWY8P621C63CJPVEM4A', fixId: null, at: 3 },
+    { kind: 'unblamed', icon: 'fail', title: 'A run failed: 01M5H2F2QC digest', detail: 'not blamed yet', key: 'attn:unblamed:01M5H2F2QC9NCJ5PSZ0M4RX7VP', group: 'failing', step: { of: 'run', runId: '01M5H2F2QC9NCJ5PSZ0M4RX7VP', step: { key: 'blame', label: 'Run blame' } as never }, href: '#/run/01M5H2F2QC9NCJ5PSZ0M4RX7VP', runId: '01M5H2F2QC9NCJ5PSZ0M4RX7VP', fixId: null, at: 2 },
+    { kind: 'local', icon: 'rec', title: '12 runs are only on this machine', detail: 'push them so the team can open them', key: 'attn:local', group: 'housekeeping', step: { of: 'push', label: 'Push local runs', command: 'shadowlap push --all' }, href: '#/runs?types=local', runId: null, fixId: null, at: 0 },
   ];
 
   it('says where each line leads, and Open for every line where nothing runs', async () => {
     r = await render(inApp(createElement(NeedsLook, { items: rows, total: 3 })));
-    expect(r.all('.needs .go').map(text)).toEqual(['Open →', 'Run blame →', 'Push →']);
+    expect(r.all('.needs .go').map(text)).toEqual(['Open →', 'Run blame →', 'Push local runs →']);
     expect(r.all('.needs .attn a').map((a) => a.getAttribute('href'))).toEqual(['#/run/01M5H2EWWY8P621C63CJPVEM4A', '#/run/01M5H2F2QC9NCJ5PSZ0M4RX7VP', '#/runs?types=local']);
     await r.unmount();
     r = await render(inApp(createElement(NeedsLook, { items: rows, total: 3 }), 'This dashboard is read-only: it was started with --read-only.'));
@@ -51,8 +51,8 @@ describe('Needs a look’s words', () => {
   it('keeps a line for each failing golden when one fix holds them all, through Show more', async () => {
     // One regression failed three goldens on the same check, and blame joined their runs into one fix.
     const fixId = 'fx-01M5H2DV7NHAEH1GM5ARZXX3BG';
-    const held: NeedsLookRow[] = ['refund-in-limit', 'refund-over-limit', 'refund-partial'].map((name, i) => ({ kind: 'test', icon: 'fail', title: `A test failed: ${name}`, detail: 'check failed: issue_refund called 1 time', action: 'Fix', href: `#/fixes/${fixId}`, runId: `01M5H2EWWY8P621C63CJPVEM${i}A`, fixId, at: 3 - i }));
-    const open: NeedsLookRow = { kind: 'open', icon: 'blame', title: 'Refunds above the limit issued without approval', detail: 'lost at model call #5 · no fix yet', action: 'Fix it', href: `#/fixes/${fixId}`, runId: null, fixId, at: 0 };
+    const held: NeedsLookRow[] = ['refund-in-limit', 'refund-over-limit', 'refund-partial'].map((name, i) => ({ kind: 'test', icon: 'fail', title: `A test failed: ${name}`, detail: 'check failed: issue_refund called 1 time', key: `attn:failed:goldens/${name}`, group: 'failing', step: null, href: `#/fixes/${fixId}`, runId: `01M5H2EWWY8P621C63CJPVEM${i}A`, fixId, at: 3 - i }));
+    const open: NeedsLookRow = { kind: 'open', icon: 'blame', title: 'Refunds above the limit issued without approval', detail: 'lost at model call #5 · no fix yet', key: `attn:fix:#/fixes/${fixId}`, group: 'failing', step: null, href: `#/fixes/${fixId}`, runId: null, fixId, at: 0 };
     const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       r = await render(inApp(createElement(NeedsLook, { items: [...held, open], total: 4 })));

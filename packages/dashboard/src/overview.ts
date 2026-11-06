@@ -1,15 +1,13 @@
 import { emptyOriginCounts, importedRecording, sumCacheUse, type OriginCounts, type RunAbout, type RunKind, type Store } from '@shadowlap/engine';
-import { fixesSummary, needsLookFixes, type PatchCheck } from './fixes.js';
-import { upgradeLooks } from './looks.js';
-import { links } from './links.js';
-import { listedStep, stepReads, type NextStepWork } from './next-step.js';
+import { fixesSummary, type PatchCheck } from './fixes.js';
+import { lookWork, needsLook } from './needs-look/index.js';
+import type { NextStepWork } from './next-step.js';
 import { aboutsOf, aboutsWithin } from './run-about.js';
-import { stepWords } from './store-steps.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay, type LocalDay } from './local-days.js';
 import { addSpendNoRunHolds } from './overview-spend.js';
 import { loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
 import { cacheTotalsOf, cacheUseOf, callTotals, callTotalsWithin, priced, totalsKnown, type RunStats, type StatsOptions } from './run-stats.js';
-import { failingTests, overviewTests, type GoldenList } from './tests.js';
+import { overviewTests, type GoldenList } from './tests.js';
 
 /**
  * The Overview, worked out on the server: this week against last week, the last seven days, the
@@ -23,8 +21,9 @@ import { failingTests, overviewTests, type GoldenList } from './tests.js';
  * was not re-spent. Spent live also holds what no run holds (overview-spend.ts): a preview's and a
  * migration's asking and judging, and a repairer's own answer.
  *
- * The numbers other screens own come from their read models: Fixes (`fixesSummary`,
- * `needsLookFixes`) and Tests (`overviewTests`, `failingTests`, over the goldens on disk). The
+ * The numbers other screens own come from their read models: Fixes (`fixesSummary`) and Tests
+ * (`overviewTests`, over the goldens on disk); Needs a look from its registry of sources
+ * (needs-look/index.ts). The
  * prompt cache is the engine's `cacheUse`: each run's part (`runCacheUse`, the run page's Context
  * view's rule) kept with the run's other totals, and the week's summed by `sumCacheUse`.
  */
@@ -146,48 +145,9 @@ export interface FixesFunnel {
   spent: number;
 }
 
-/**
- * One line of Needs a look, most urgent first: a team store's setup left unfinished, an applied fix
- * that doesn't hold, a failing test, a failure with no fix yet (an open fix, then a failed run never
- * blamed), a verified fix waiting to be applied, and runs only on this machine when a team store is
- * set. Past ten of a kind, one line says how many more there are and opens the page that lists them
- * (`more` is that count).
- */
-export interface NeedsLookRow {
-  /** What it is about; `injection`, `presets`, `decisions` and `coverage` are the upgrades' results (looks.ts). */
-  kind: 'store-setup' | 'broken' | 'test' | 'injection' | 'presets' | 'open' | 'unblamed' | 'decisions' | 'ready' | 'coverage' | 'local';
-  /** The icon: a setting, a failure, an inconclusive test, a blame, a fix that holds, or a recording. */
-  icon: 'setting' | 'fail' | 'warn' | 'blame' | 'fixok' | 'rec';
-  title: string;
-  detail: string;
-  /**
-   * The word before the arrow, saying where it leads: Fix (the fix that holds the failure), Fix it,
-   * Run blame, Run more, Run again and Update (an inconclusive test, on Tests), Apply, Mark applied
-   * (a verified fix with no patch), Push (the runs only here, on Runs), Continue, or Open. A read-only dashboard says Open for each, since nothing
-   * runs there.
-   */
-  action: string;
-  href: string;
-  runId: string | null;
-  fixId: string | null;
-  at: number;
-  /** For the line that stands for the rest of its kind: how many it stands for. */
-  more?: number;
-  /** A gate decided it: its rule, for the line's hover (decision 9: the line says the verdict, the tally and the bound). */
-  rule?: string | null;
-  /**
-   * The run's about line (decision 10), for a failed run never blamed: the page fits it to one line
-   * at whole words, followed by `detail` kept whole (`not blamed yet`).
-   */
-  about?: RunAbout | null;
-}
+import type { NeedsLook } from './needs-look/index.js';
 
-export interface NeedsLook {
-  /** Every line, most urgent first: each kind's first ten, then a line for the rest of that kind. */
-  items: NeedsLookRow[];
-  /** Everything that needs a look, the panel's count: a line each, a line for the rest of its kind as many as it stands for. */
-  total: number;
-}
+export type { LookStep, NeedsLook, NeedsLookRow } from './needs-look/index.js';
 
 /**
  * The team store as Needs a look reads it: how many runs are only on this machine, as the store's
@@ -220,6 +180,8 @@ export interface OverviewOptions extends StatsOptions {
   budget?: number;
   /** What a run's next step reads of the project: a line about a run says what its page leads with. */
   next?: NextStepWork | null;
+  /** The configured repairer, which Run repair's card on Needs a look names. */
+  repairer?: string | null;
 }
 
 export interface OverviewSummary {
@@ -237,12 +199,6 @@ export interface OverviewSummary {
   fixes: FixesFunnel;
   needsLook: NeedsLook;
 }
-
-/** Lines of one kind Needs a look lists one by one; past them (and one more), a line stands for the rest. */
-const NEEDS_LOOK_EACH = 10;
-
-/** The word before a failing test's arrow, by where it leads (`FailingTest['next']`). */
-const TEST_ACTIONS = { fix: 'Fix', open: 'Open', 'run-more': 'Run more', 'run-again': 'Run again', update: 'Update' } as const;
 
 function emptyWeek(): WeekSums {
   return { runs: 0, calls: 0, origins: emptyOriginCounts(), spent: 0, notRespent: 0, notWaitedMs: 0, attempts: 0, attemptsSpent: 0 };
@@ -343,7 +299,7 @@ export function overviewSummary(store: Store, options: OverviewOptions = {}): Ov
     },
     cache: weekCache(store, index, week.from, options.budget),
     fixes: { ...fixes.funnel, open: fixes.open, readyToApply: fixes.readyToApply, broken: fixes.broken, attempts: fixes.attempts, spent: fixes.spent },
-    needsLook: needsLook(store, goldens, options.teamStore ?? null, options.patchInTree, options.budget, options.next ?? null),
+    needsLook: needsLook(lookWork(store, { goldens, teamStore: options.teamStore ?? null, patchInTree: options.patchInTree, repairer: options.repairer ?? null, budget: options.budget, next: options.next ?? null, now, week: { ...week, first: weekDays[0]!.key, last: today.key }, index })),
   };
 }
 
@@ -388,100 +344,10 @@ function weekCache(store: Store, index: RunIndex, since: number, budget?: number
   };
 }
 
-const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 
 /** About lines, worked out whole, or within a request's budget (`aboutsWithin`). */
 const aboutsUpTo = (store: Store, index: RunIndex, runs: readonly IndexedRun[], budget: number | undefined): Map<string, RunAbout> =>
   budget === undefined ? aboutsOf(store, index, runs) : aboutsWithin(store, index, runs, { budget });
-
-/**
- * Needs a look, most urgent first, in the design's one order: a team store's setup left unfinished,
- * applied fixes that don't hold, failing tests, injection tests a planted instruction got through
- * then those it influenced or that showed too little to say, error-path presets that failed,
- * inconclusive tests then presets left inconclusive, failures with no fix yet (open fixes, then
- * failed runs never blamed), previews of a change that flag runs, verified fixes not yet applied,
- * behaviours seen in production that no golden covers, then runs only on this machine. A recording in
- * progress shows under Today instead.
- */
-function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | null, patchInTree: PatchCheck | undefined, budget: number | undefined, next: NextStepWork | null): NeedsLook {
-  const fixes = needsLookFixes(store, patchInTree ? { patchInTree } : {});
-  const of = (kind: string) => fixes.filter((f) => f.kind === kind);
-  const fixRow = (f: (typeof fixes)[number]): NeedsLookRow => ({ kind: f.kind, icon: f.icon, title: f.title, detail: f.detail, action: f.action, href: f.href, runId: f.runId, fixId: f.fixId, at: f.at });
-  // A failed run never blamed is named by its id, and says what it was about (decision 10): its
-  // about line in place of its command, which the page fits to one line at whole words before what
-  // is left to do, kept whole; worked out for the lines shown, not for every such run.
-  const unblamed = of('unblamed').map(fixRow);
-  const shownUnblamed = unblamed.slice(0, unblamed.length <= NEEDS_LOOK_EACH + 1 ? unblamed.length : NEEDS_LOOK_EACH);
-  if (shownUnblamed.length) {
-    const index = loadRunIndex(store);
-    const abouts = aboutsUpTo(store, index, shownUnblamed.map((x) => index.byId.get(x.runId!)).filter((r): r is IndexedRun => r !== undefined), budget);
-    const reads = stepReads(store, index);
-    for (const x of shownUnblamed) {
-      // Run blame only where its page leads with it: blame can't take a run that made no model call, and a failed injection test's proof comes first.
-      const step = listedStep(store, x.runId!, next, { reads });
-      if (step !== undefined && step?.key !== 'blame') x.action = 'Open';
-      const about = abouts.get(x.runId!);
-      if (!about?.text) continue;
-      x.about = about;
-      x.detail = 'not blamed yet';
-    }
-  }
-  // Each word says where it leads: Fix only to the fix that holds the failure, Run more, Run again and
-  // Update to what settles an inconclusive golden on Tests, and Open to the run or the golden otherwise.
-  const tests: NeedsLookRow[] = goldens.length
-    ? failingTests(store, { goldens }).map((t) => ({ kind: 'test', icon: t.verdict === 'inconclusive' ? ('warn' as const) : ('fail' as const), title: t.title, detail: t.line, action: TEST_ACTIONS[t.next], href: t.href, runId: t.runId, fixId: t.fixId, at: t.at, ...(t.rule ? { rule: t.rule } : {}) }))
-    : [];
-  // On Runs, as the design has it: the runs only here carry the local tag, and Push in the bulk bar
-  // sends the ones picked (Settings → Store's Push local runs sends them all).
-  const local: NeedsLookRow[] =
-    teamStore && teamStore.onlyLocal > 0
-      ? [
-          {
-            kind: 'local',
-            icon: 'rec',
-            title: `${plural(teamStore.onlyLocal, 'run is', 'runs are')} only on this machine`,
-            detail: `push ${teamStore.onlyLocal === 1 ? 'it' : 'them'} so the team can open ${teamStore.onlyLocal === 1 ? 'it' : 'them'}`,
-            action: 'Push',
-            // Runs, showing only those: each tagged local, and Push in the bulk bar sends the ones picked.
-            href: links.runs({ types: 'local' }),
-            runId: null,
-            fixId: null,
-            at: 0,
-          },
-        ]
-      : [];
-  // A store's setup left half done leads back to its page until it is finished, as the design's setup
-  // holds the Overview until then: first, since the team gets nothing from a store set up halfway.
-  const setup: NeedsLookRow[] = teamStore?.setup
-    ? [{ kind: 'store-setup', icon: 'setting', title: 'The team store’s setup isn’t finished', detail: `step ${teamStore.setup.step} of 4: ${stepWords(teamStore.setup.title)}`, action: 'Continue', href: links.storeSetup(), runId: null, fixId: null, at: 0 }]
-    : [];
-  // Each kind's first lines, then one that says how many more there are and where they are listed:
-  // a long-lived project's failures never blamed must not push its fixes ready to apply out of sight.
-  const capped = (rows: NeedsLookRow[], rest: (n: number) => Pick<NeedsLookRow, 'icon' | 'title' | 'detail' | 'href'>): NeedsLookRow[] => {
-    if (rows.length <= NEEDS_LOOK_EACH + 1) return rows;
-    const n = rows.length - NEEDS_LOOK_EACH;
-    return [...rows.slice(0, NEEDS_LOOK_EACH), { kind: rows[0]!.kind, action: 'Open', runId: null, fixId: null, at: rows[NEEDS_LOOK_EACH]!.at, more: n, ...rest(n) }];
-  };
-  const looks = upgradeLooks(store, { goldens });
-  // An injection test's lines, obeyed first: the rest of them read in red when any of the rest obeyed.
-  const injectionRest = (n: number): Pick<NeedsLookRow, 'icon' | 'title' | 'detail' | 'href'> => ({ icon: looks.injection.slice(NEEDS_LOOK_EACH).some((x) => x.icon === 'fail') ? 'fail' : 'warn', title: `${plural(n, 'more injection test')} to look at`, detail: 'each on its run, under Runs', href: links.runs() });
-  const all = [
-    ...setup,
-    ...capped(of('broken').map(fixRow), (n) => ({ icon: 'fail', title: `${plural(n, 'more applied fix', 'more applied fixes')} ${n === 1 ? "doesn't" : "don't"} hold`, detail: 'each on Fixes', href: links.fixes() })),
-    ...capped(tests.filter((t) => t.icon === 'fail'), (n) => ({ icon: 'fail', title: `${plural(n, 'more test')} failed`, detail: 'each on Tests', href: links.tests() })),
-    ...capped(looks.injection, injectionRest),
-    ...capped(looks.presetsFailed, (n) => ({ icon: 'fail', title: `${plural(n, 'more error-path test')} failed`, detail: 'each on its run, under Runs', href: links.runs() })),
-    ...capped(tests.filter((t) => t.icon !== 'fail'), (n) => ({ icon: 'warn', title: `${plural(n, 'more test')} inconclusive`, detail: 'each on Tests', href: links.tests() })),
-    ...capped(looks.presetsUnsure, (n) => ({ icon: 'warn', title: `${plural(n, 'more error-path test')} inconclusive`, detail: 'each on its run, under Runs', href: links.runs() })),
-    ...capped(of('open').map(fixRow), (n) => ({ icon: 'blame', title: `${plural(n, 'more failure')} with no fix yet`, detail: 'each on Fixes', href: links.fixes() })),
-    ...capped(unblamed, (n) => ({ icon: 'fail', title: `${plural(n, 'more failed run')} not blamed yet`, detail: 'the failed runs on Runs', href: links.runs({ types: 'failed' }) })),
-    ...capped(looks.decisions, (n) => ({ icon: 'warn', title: `${plural(n, 'more preview')} of a change to look at`, detail: 'each on its run, under Runs', href: links.runs() })),
-    ...capped(of('ready').map(fixRow), (n) => ({ icon: 'fixok', title: `${plural(n, 'more verified fix', 'more verified fixes')} ${n === 1 ? 'is' : 'are'} ready`, detail: 'each on Fixes', href: links.fixes() })),
-    ...looks.coverage,
-    ...local,
-  ];
-  return { items: all, total: all.reduce((t, x) => t + (x.more ?? 1), 0) };
-}
 
 /** Options for `overviewSummary` from a request's query string: tz. */
 export function overviewOptions(params: URLSearchParams): Pick<OverviewOptions, 'tz'> | { error: string } {

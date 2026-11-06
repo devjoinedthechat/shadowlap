@@ -121,7 +121,7 @@ function unaskedWords(r: StoredRepair): string | null {
  * every candidate it tried, or that it found none to try; or, for a change accepted under another
  * check than the fix's, that the change is not verified for it yet.
  */
-function repairLeft(r: StoredRepair): string {
+export function repairLeft(r: StoredRepair): string {
   if (acceptedCandidate(r)) return 'the last repair’s change is not verified yet';
   return unaskedWords(r) ?? (r.report.candidates.length ? 'the last repair’s candidates were rejected' : 'the last repair found no change to try');
 }

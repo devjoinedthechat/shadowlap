@@ -4,7 +4,7 @@ import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../
 import { assistant, cachedUsage, RunBuilder, toolResult, toolUse, usage, user } from '../../engine/test/run-fixtures.js';
 import { fixesSummary } from '../src/fixes.js';
 import type { GoldenSource } from '../src/tests.js';
-import { overviewOptions, overviewSummary, type OverviewSummary } from '../src/overview.js';
+import { type NeedsLookRow, overviewOptions, overviewSummary, type OverviewSummary } from '../src/overview.js';
 import { addRun, blameOf, DAY, HOUR } from './read-model-store.js';
 
 // Thursday, Oct 1 2026, 10:15 UTC (12:15 in Berlin). This week is Sep 25–Oct 1 there; last week Sep 18–24.
@@ -62,6 +62,9 @@ const sumOf = (names: string[], f: (s: ReturnType<typeof summarizeRun>) => numbe
 };
 const WEEK = ['rec1', 'clean1', 'fork1', 'rep1', 'live1', 'failed1', 'probeA', 'probeB', 'test1', 'test2', 'big', 'bigfork'];
 const WEEK_ROWS = WEEK.filter((n) => n !== 'rep1' && n !== 'probeB');
+
+/** A row's step as its button says it: Open with none. */
+const stepLabel = (i: NeedsLookRow): string => (!i.step ? 'Open' : i.step.of === 'run' ? i.step.step.label : i.step.of === 'fix' ? i.step.lead.label : i.step.label);
 
 describe('the Overview: this week against last week', () => {
   it('takes the last seven of the viewer’s days as this week, and the seven before as last week', () => {
@@ -138,7 +141,7 @@ describe('the Overview: what a run is about', () => {
       const out = overviewSummary(local, { tz: TZ, now: NOW });
       // Needs a look names a failed run by its id, and says what it was about: its label is no name.
       // The page fits the about line to one line, then what is left to do, kept whole.
-      expect(out.needsLook.items.find((x) => x.runId === failed)).toMatchObject({ kind: 'unblamed', title: `A run failed: ${failed.slice(0, 10)}`, about: { text: "Write this week's refund digest and post it to #refunds", from: 'user' }, detail: 'not blamed yet' });
+      expect(out.needsLook.items.find((x) => x.runId === failed)).toMatchObject({ kind: 'unblamed', title: '1 failing run nobody has blamed', about: { text: "Write this week's refund digest and post it to #refunds", from: 'user' }, detail: `${failed.slice(0, 10)} · failed` });
       // A recording in progress says what it is about from its first request on, for Watch live's hover.
       expect(out.today.recording).toEqual([expect.objectContaining({ runId: live, about: { text: 'My blender arrived broken', from: 'user' } })]);
     } finally {
@@ -176,10 +179,10 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       expect(s.fixes).toEqual({ ...f.funnel, open: f.open, readyToApply: f.readyToApply, broken: f.broken, attempts: f.attempts, spent: f.spent });
       expect(s.fixes).toMatchObject({ failures: 3, blamed: 2, verified: 1, applied: 0, open: 1, readyToApply: 1, broken: 0 });
       // Needs a look: the open fix and the run never blamed are failures with no fix yet; the verified fix waits to be applied.
-      expect(s.needsLook.items.map((i) => [i.kind, i.action, i.fixId ?? i.runId])).toEqual([
-        ['open', 'Fix it', oldFix],
-        ['unblamed', 'Run blame', expect.any(String)],
-        ['ready', 'Apply', fixId],
+      expect(s.needsLook.items.map((i) => [i.group, i.kind, stepLabel(i), i.fixId ?? i.runId])).toEqual([
+        ['failing', 'unblamed', 'Run blame', expect.any(String)],
+        ['failing', 'open', 'Run repair', oldFix],
+        ['ship', 'ready', 'Apply fix', fixId],
       ]);
       expect(s.needsLook.total).toBe(3);
     } finally {
@@ -228,35 +231,22 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
     }
   });
 
-  it('lists ten of a kind, then one line for the rest of that kind, so every kind stays in sight', () => {
+  it('stands for this week’s failed runs nobody has blamed with one row, naming the newest', () => {
     const local = Store.open(':memory:');
     try {
       const { fixId } = story(local);
-      // Twelve more failed runs never blamed: thirteen with the story's own.
+      // Twelve more failed runs never blamed this week, thirteen with the story's own, and one of last week's.
       for (let i = 0; i < 12; i++) makeRun(local, { status: 'failed', startedAt: NOW - 2 * HOUR - i * 60_000 });
+      makeRun(local, { status: 'failed', startedAt: NOW - 8 * 24 * HOUR });
       const s = overviewSummary(local, { tz: 'UTC', now: NOW });
-      const kinds = s.needsLook.items.map((i) => i.kind);
-      expect(kinds).toEqual(['open', ...Array(11).fill('unblamed'), 'ready']);
-      // The panel's count is what needs a look: the line for the rest counts as the three it stands for.
-      expect(s.needsLook.total).toBe(1 + 13 + 1);
-      expect(s.needsLook.items[11]).toEqual({ kind: 'unblamed', icon: 'fail', title: '3 more failed runs not blamed yet', detail: 'the failed runs on Runs', action: 'Open', href: '#/runs?types=failed', runId: null, fixId: null, at: expect.any(Number), more: 3 });
-      // The fix ready to apply is still there, after them.
+      expect(s.needsLook.items.map((i) => i.kind)).toEqual(['unblamed', 'open', 'ready']);
+      const row = s.needsLook.items[0];
+      expect(row).toMatchObject({ key: `attn:unblamed:${row.runId}`, group: 'failing', icon: 'fail', title: '13 failing runs nobody has blamed', href: '#/runs?types=failed&from=2026-09-25&to=2026-10-01' });
+      expect(row.detail).toMatch(/^newest \w{10} · /);
+      expect(s.needsLook.total).toBe(3);
       expect(s.needsLook.items.at(-1)).toMatchObject({ kind: 'ready', fixId });
-      makeRun(local, { status: 'failed', startedAt: NOW - 3 * HOUR });
-      const fourteen = overviewSummary(local, { tz: 'UTC', now: NOW });
-      expect(fourteen.needsLook.items.filter((i) => i.kind === 'unblamed').at(-1)).toMatchObject({ title: '4 more failed runs not blamed yet', more: 4 });
     } finally {
       local.close();
-    }
-    // One past ten is listed as itself: a line for one more would say less.
-    const eleven = Store.open(':memory:');
-    try {
-      for (let i = 0; i < 11; i++) makeRun(eleven, { status: 'failed', startedAt: NOW - HOUR - i * 60_000, calls: ['api'] });
-      const items = overviewSummary(eleven, { tz: 'UTC', now: NOW }).needsLook.items;
-      expect(items).toHaveLength(11);
-      expect(items.every((i) => i.kind === 'unblamed' && i.action === 'Run blame' && i.more === undefined)).toBe(true);
-    } finally {
-      eleven.close();
     }
   });
 
@@ -279,7 +269,7 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       const s = overviewSummary(local, { tz: 'UTC', now: NOW, goldens });
       expect(s.outcomes.testsPassing).toEqual({ goldens: 2, passing: 1, inconclusive: 0, untested: 0, lastWeek: 2, regressions: 1, lastRunAt: NOW - HOUR + 10 });
       // No fix holds the failure yet: the line opens the failing run, and says so.
-      expect(s.needsLook.items[0]).toMatchObject({ kind: 'test', icon: 'fail', title: 'A test failed: refund-in-limit', action: 'Open', runId: failed, href: `#/run/${failed}` });
+      expect(s.needsLook.items[0]).toMatchObject({ kind: 'test', icon: 'fail', title: 'A golden failed: refund-in-limit', action: 'Open', runId: failed, href: `#/run/${failed}` });
       // Blamed, the failure has a fix: Fix leads to it.
       const { fix } = recordBlame(local, { runId: failed, report: blameReport(failed), expect: EXPECT, scope: null, command: 'c', title: 'refund-in-limit diverged', checkText: 'x', at: NOW - HOUR / 2 });
       expect(overviewSummary(local, { tz: 'UTC', now: NOW, goldens }).needsLook.items.find((i) => i.kind === 'test')).toMatchObject({ action: 'Fix', runId: failed, fixId: fix.fixId, href: `#/fixes/${fix.fixId}` });
@@ -300,7 +290,7 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       local.finishTestSession(t.sessionId, { passed: 0, failed: 1, upstreamRequests: 0, endedAt: NOW - HOUR + 2 });
       const row = overviewSummary(local, { tz: 'UTC', now: NOW, goldens }).needsLook.items[0];
       // The verdict word, the tally and the bound, whole: no rule in the line to cut off mid-figure.
-      expect(row).toMatchObject({ kind: 'test', title: 'A test failed: eval-pushy', detail: 'failed · 0 of 3 · rate <= 0.71 (95%)', rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts' });
+      expect(row).toMatchObject({ kind: 'test', title: 'A golden failed: eval-pushy', detail: 'failed · 0 of 3 · rate <= 0.71 (95%)', rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts' });
     } finally {
       local.close();
     }

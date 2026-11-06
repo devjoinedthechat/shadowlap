@@ -103,7 +103,8 @@ function notVerified(rec: FixRecords): string[] {
   return rec.failing.filter((id) => !checked.has(id));
 }
 
-function stepsOf(rec: FixRecords): FixStep[] {
+/** A fix's three steps, as its stepper, its row on Fixes and its row on Needs a look say them. */
+export function stepsOf(rec: FixRecords): FixStep[] {
   const b = shownBlame(rec);
   const p = shownRepair(rec);
   const v = acceptedVerdict(rec);

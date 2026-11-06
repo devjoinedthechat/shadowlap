@@ -79,18 +79,16 @@ export function testsKpi(t: TestsTile | null, now: number): { value: string; not
   return { value: `${num(t.passing)} / ${num(t.goldens)}`, note: dotLine([...how, ...(t.lastRunAt ? [`last run ${lastRunText(t.lastRunAt, now)}`] : [])]), tone: t.regressions ? 'err' : t.inconclusive ? 'warn' : '' };
 }
 
-/** The word before a Needs a look line's arrow: where it leads, or Open on a dashboard that runs nothing (read-only). */
-export function needsLookAction(row: Pick<NeedsLookRow, 'action'>, actionsOff: string | null): string {
-  return actionsOff ? 'Open' : row.action;
+/** The word before a Needs a look row's arrow: its step's label, or Open with none, and for any step but a link on a dashboard that runs nothing (read-only). */
+export function needsLookAction(row: Pick<NeedsLookRow, 'step'>, actionsOff: string | null): string {
+  const s = row.step;
+  if (!s || (actionsOff && s.of !== 'link')) return 'Open';
+  return s.of === 'run' ? s.step.label : s.of === 'fix' ? s.lead.label : s.label;
 }
 
-/**
- * What tells a Needs a look line from the others, as React keys it: its kind, the fix and the run it
- * leads to, and its title. One fix can hold several goldens' failures (blame joins one regression's
- * failing runs into one fix), so a failing golden's line is its golden's, not its fix's.
- */
-export function needsLookKey(row: Pick<NeedsLookRow, 'kind' | 'fixId' | 'runId' | 'title'>): string {
-  return [row.kind, row.fixId ?? '', row.runId ?? '', row.title].join(':');
+/** What tells a Needs a look row from the others, as React keys it: the key the server gives it, `attn:<what>:<what its step acts on>`. */
+export function needsLookKey(row: Pick<NeedsLookRow, 'key'>): string {
+  return row.key;
 }
 
 /** The line under Spent live: the receipt, what replaying saved. */

@@ -143,17 +143,17 @@ describe('the upgrades’ results in Needs a look', () => {
     store.finishTestSession(session.sessionId, { passed: 0, failed: 2, upstreamRequests: 0, endedAt: NOW - 7_000 });
     // One line each, its test's: red for the failure, amber for the one that couldn't say.
     expect(items().map((r) => [r.kind, r.icon, r.title])).toEqual([
-      ['test', 'fail', 'A test failed: forecast'],
-      ['test', 'warn', 'A test is inconclusive: inbox'],
+      ['test', 'fail', 'A golden failed: forecast'],
+      ['test', 'warn', 'A golden is inconclusive: inbox'],
     ]);
     expect(overviewSummary(store, { tz: 'UTC', now: NOW, goldens }).needsLook.total).toBe(2);
     // Tested on its own since (`shadowlap injection goldens/forecast`): a line of its own, after the failing tests.
     const again = run({ parent: forecast, meta: { injection: { result: 'inj-01C', role: 'attempt', read: 1, payload: 'notice', attempt: 1, of: 1, verdict: 'obeyed' } } });
     store.putInjectionResult({ resultId: 'inj-01C', runId: forecast, golden: 'goldens/forecast', sessionId: null, mode: 'plant', at: NOW - 2_000, endedAt: NOW - 1_000, attempts: 1, obeyed: 1, influenced: 0, ignored: 0, inconclusive: 0, verdict: 'obeyed', actor: null, data: { mode: 'plant', attempts: [{ runId: again, verdict: 'obeyed', evidence: [] }], gate: { verdict: 'failed' } } });
     expect(items().map((r) => [r.kind, r.title, r.runId])).toEqual([
-      ['test', 'A test failed: forecast', replay],
+      ['test', 'A golden failed: forecast', replay],
       ['injection', 'An injection test failed: forecast', again],
-      ['test', 'A test is inconclusive: inbox', null],
+      ['test', 'A golden is inconclusive: inbox', null],
     ]);
   });
 

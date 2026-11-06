@@ -68,8 +68,8 @@ describe('the interval’s bar', () => {
 });
 
 describe('Needs a look and Activity', () => {
-  const gated: NeedsLookRow = { kind: 'test', icon: 'fail', title: 'A test failed: eval-pushy', detail: 'failed · 4 of 8 · rate <= 0.78 (95%)', rule: RULE, action: 'Fix', href: '#/tests', runId: null, fixId: null, at: 1 };
-  const plain: NeedsLookRow = { kind: 'unblamed', icon: 'fail', title: 'A run failed: 01M5GRZKRY', detail: 'Write this week’s refund digest · not blamed yet', action: 'Run blame', href: '#/run/01M5GRZKRY', runId: '01M5GRZKRY', fixId: null, at: 2 };
+  const gated: NeedsLookRow = { kind: 'test', icon: 'fail', title: 'A test failed: eval-pushy', detail: 'failed · 4 of 8 · rate <= 0.78 (95%)', rule: RULE, key: 'attn:failed:goldens/eval-pushy', group: 'failing', step: null, href: '#/tests', runId: null, fixId: null, at: 1 };
+  const plain: NeedsLookRow = { kind: 'unblamed', icon: 'fail', title: 'A run failed: 01M5GRZKRY', detail: 'Write this week’s refund digest · not blamed yet', key: 'attn:unblamed:01M5GRZKRY', group: 'failing', step: { of: 'run', runId: '01M5GRZKRY', step: { key: 'blame', label: 'Run blame' } as never }, href: '#/run/01M5GRZKRY', runId: '01M5GRZKRY', fixId: null, at: 2 };
 
   // Needs a look reads whether actions run here (a read-only dashboard's lines say Open): here they do.
   const inApp = (el: ReturnType<typeof createElement>) => createElement(AppContext.Provider, { value: { actionsOff: null } as unknown as AppState }, el);
