@@ -13,6 +13,7 @@ import { ComparePage } from '../ui/pages/Compare.js';
 import { showProject } from '../ui/projects-api.js';
 import { parseRoute, routeHref } from '../ui/route.js';
 import { goTarget } from '../ui/shell/Keyboard.js';
+import { Palette } from '../ui/shell/Palette.js';
 import { changesCrumbs } from '../ui/shell/top.js';
 import { unshownKey, useUnshown } from '../ui/shell/unshown.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -219,6 +220,23 @@ describe('the tab Changes comes back to', () => {
     expect(goTarget({ exported: true, meta: null }, 'r')).toBe('#/runs');
     expect(goTarget({ exported: true, meta: null }, 't')).toBeNull();
     expect(goTarget({ exported: false, meta: META }, 't')).toBe('#/tests');
+  });
+
+  it('is where Go to’s Changes row goes, a row found by verdicts and by compare', async () => {
+    freshProject();
+    noteChangesTab('compare');
+    noteComparePair(REC, FORK);
+    const location = addressBar('#/');
+    const client = { search: () => Promise.resolve({ hits: [] }), runsPage: () => Promise.resolve({ runs: [], total: 0, next: null, chipCounts: {} }) };
+    const shell = { conn: 'ok', runCommands: [], palette: true, setPalette: () => undefined, setSideOpen: () => undefined, setHelp: () => undefined } as const;
+    page = await render(createElement(AppContext.Provider, { value: app(client as unknown as Partial<Client>, shell as unknown as Partial<AppState>) }, createElement(Palette, { route: { page: 'overview' } })));
+    const rows = () => page!.all('.palit').filter((el) => el.querySelector('.pl')?.textContent === 'Changes');
+    for (const typed of ['verdicts', 'compare']) {
+      await page.type(page.one('.palin input'), typed);
+      expect(rows().map((el) => el.querySelector('.ph2')?.textContent), typed).toEqual(['verdicts, compare']);
+    }
+    await page.click(rows()[0]);
+    expect(location.hash).toBe(`#/compare/${REC}/${FORK}`);
   });
 });
 
