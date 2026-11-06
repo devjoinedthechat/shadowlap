@@ -91,12 +91,25 @@ function blamePairs(store: StoreOf<'recording' | 'readModels' | 'fixes'>, runId:
  * A blame as the Blame step shows it. `fallback` is the fix's own blame command, which a pulled
  * blame shows when its fields can't be made into one.
  */
+/** An attempt that could not be judged is counted apart (probeTally), never as one that failed. */
+const unsure = (x: Parameters<typeof probeTally>[0] | undefined): number => x?.attempts.filter((a) => a.verdict === 'inconclusive').length ?? 0;
+
+/** The Blame step's row (`BlameStep['callRow']`): the agent's calls of the blamed run, each probed one with its probe's verdict and tally. */
+function callRowOf(store: StoreOf<'recording'>, b: StoredBlame): BlameStep['callRow'] {
+  const blamedCall = b.report.blamed?.callNo ?? null;
+  const probeOf = new Map(b.report.probes.map((x) => [x.callNo, x]));
+  const calls = agentCallsOf(store.getCalls(b.runId));
+  const probed = new Set(blameSteps(calls, b.scope).map((c) => c.callNo));
+  return calls.map((c) => {
+    const p = probeOf.get(c.callNo);
+    return { callNo: c.callNo, kind: c.kind, inScope: probedInScope(c.meta.scope, b.scope), probed: probed.has(c.callNo), verdict: p ? (p.callNo === blamedCall ? ('blamed' as const) : probeWord(p)) : null, passes: p?.passes ?? 0, attempts: p?.attempts.length ?? 0, inconclusive: unsure(p) };
+  });
+}
+
 export function blameStep(store: StoreOf<'recording' | 'readModels' | 'fixes'>, b: StoredBlame, fallback: string): BlameStep {
   // The gate as it can be read: a malformed one reads as none, the fixed count's words then.
   const r = { ...b.report, gate: sprtGate(b.report.gate) };
   const run = store.getRun(b.runId);
-  // An attempt that could not be judged is counted apart (probeTally), never as one that failed.
-  const unsure = (x: Parameters<typeof probeTally>[0] | undefined) => x?.attempts.filter((a) => a.verdict === 'inconclusive').length ?? 0;
   const blamedCall = r.blamed?.callNo ?? null;
   let boundary: string;
   let title: string;
@@ -133,16 +146,7 @@ export function blameStep(store: StoreOf<'recording' | 'readModels' | 'fixes'>, 
           ? `#${r.lost.callNo} was inconclusive: the run was not reliably lost there`
           : `#${r.lost.callNo} still passed ${probeTally(r.lost)}, below the bar: the run was not reliably lost there`
         : 'rescue stops cleanly at the boundary';
-  const probeOf = new Map(r.probes.map((x) => [x.callNo, x]));
   const verdictOf = (x: Parameters<typeof probeWord>[0] & { callNo: number }) => (x.callNo === blamedCall ? 'rescued · blamed' : probeWord(x));
-  const calls = run ? agentCallsOf(store.getCalls(b.runId)) : [];
-  const probed = new Set(blameSteps(calls, b.scope).map((c) => c.callNo));
-  const callRow = run
-    ? calls.map((c) => {
-        const p = probeOf.get(c.callNo);
-        return { callNo: c.callNo, kind: c.kind, inScope: probedInScope(c.meta.scope, b.scope), probed: probed.has(c.callNo), verdict: p ? (p.callNo === blamedCall ? ('blamed' as const) : probeWord(p)) : null, passes: p?.passes ?? 0, attempts: p?.attempts.length ?? 0, inconclusive: unsure(p) };
-      })
-    : [];
   const contrast = r.contrast;
   const rescuedNote = contrast ? `passed · ${askedAgain(contrast.rescued)}` : 'passed';
   return {
@@ -175,7 +179,7 @@ export function blameStep(store: StoreOf<'recording' | 'readModels' | 'fixes'>, 
       passes: x.passes,
       attempts: x.attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: keptAttemptVerdict(a), note: a.passed ? (a.runId === contrast?.rescuedRunId ? rescuedNote : 'passed') : attemptNote(false, a.failures[0], undefined, keptAttemptVerdict(a)), spent: a.spent, href: runHref(a.runId) })),
     })),
-    callRow,
+    callRow: run ? callRowOf(store, b) : [],
     cost: { attempts: r.attempts, upstreamRequests: r.upstreamRequests, spent: r.spent, unknownModels: r.unknownModels },
     oracle: r.oracle,
     recordedFailures: r.recordedFailures,
