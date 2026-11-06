@@ -3842,7 +3842,8 @@ tool a generation asked for, are tool calls.
 
 The run keeps the trace's page in Langfuse, its `htmlPath` on the host the API answered from, for the
 dashboard's **Open in Langfuse ↗**. Read from the v2 API, the trace is asked for once more, after the
-observations. When it doesn't answer, the import stands without the page.
+observations, for five seconds at most. When it doesn't answer in time, the import stands without the
+page.
 
 **`langsmith`**: `llm` runs are model calls: LangChain's serialized messages, or the request and response
 themselves from LangSmith's wrapped OpenAI and Anthropic clients, which rebuild exactly. `tool` runs are

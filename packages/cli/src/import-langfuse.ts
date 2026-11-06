@@ -43,6 +43,12 @@ export interface LangfuseOptions extends TraceStoreOptions {
   secretKey: string;
 }
 
+/**
+ * The most the trace's page link may take, a request of its own after the observations: the import
+ * stands without it, so a slow answer leaves the run with no link to Langfuse rather than hold it up.
+ */
+export const PAGE_LINK_MS = 5_000;
+
 /** Observations per page of `/api/public/observations`, and the most read for one trace. */
 const PAGE = 100;
 const MAX_OBSERVATIONS = 10_000;
@@ -63,6 +69,16 @@ function stored(v: unknown): unknown {
   }
 }
 
+/**
+ * The trace's page in Langfuse, which is named on the trace alone: one more request after the
+ * observations, PAGE_LINK_MS at most. The import doesn't need it to stand: without it, the run has
+ * no link. It answers with the whole trace again, of which only the page is kept.
+ */
+async function pageOf(get: (path: string, within: Pick<LangfuseOptions, 'timeoutMs'>) => Promise<unknown>, traceId: string, timeoutMs: number | undefined): Promise<string | null> {
+  const trace = await get(`/api/public/traces/${encodeURIComponent(traceId)}`, { timeoutMs: Math.min(timeoutMs ?? PAGE_LINK_MS, PAGE_LINK_MS) }).catch(() => null);
+  return isObject(trace) ? str(trace.htmlPath) : null;
+}
+
 /** Fetches a trace and its observations. Throws with the reason when Langfuse refuses or has no such trace. */
 export async function fetchLangfuseTrace(traceId: string, o: LangfuseOptions): Promise<Record<string, unknown>> {
   const auth = `Basic ${Buffer.from(`${o.publicKey}:${o.secretKey}`, 'utf8').toString('base64')}`;
@@ -70,7 +86,7 @@ export async function fetchLangfuseTrace(traceId: string, o: LangfuseOptions): P
     401: 'Langfuse refused the keys (401): check LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY, and that the host is the region the project lives in',
     403: 'Langfuse refused the keys (403): they have no access to this trace',
   };
-  const get = (path: string) => fetchJson(o, path, { headers: { authorization: auth, accept: 'application/json' } }, { ...refusals, 404: `Langfuse has no trace ${traceId} on ${new URL(o.host).host}` });
+  const get = (path: string, within: Pick<LangfuseOptions, 'timeoutMs'> = {}) => fetchJson({ ...o, ...within }, path, { headers: { authorization: auth, accept: 'application/json' } }, { ...refusals, 404: `Langfuse has no trace ${traceId} on ${new URL(o.host).host}` });
   // The Observations API v2: a Langfuse without it answers 404, and is read through the trace instead.
   const observations: unknown[] = [];
   let cursor: string | null = null;
@@ -98,9 +114,7 @@ export async function fetchLangfuseTrace(traceId: string, o: LangfuseOptions): P
     if (!observations.length) throw new TraceStoreError(`Langfuse has no trace ${traceId} on ${new URL(o.host).host}`, 404, { ofTrace: true });
     // The API lists the newest first; the trace reader takes them in the order they started.
     observations.sort((a, b) => (epochMs((a as Record<string, unknown>).startTime) ?? 0) - (epochMs((b as Record<string, unknown>).startTime) ?? 0));
-    // The trace's page in Langfuse is named on the trace alone: one more request, which the import never waits on to stand.
-    const trace = await get(`/api/public/traces/${encodeURIComponent(traceId)}`).catch(() => null);
-    const htmlPath = isObject(trace) ? str(trace.htmlPath) : null;
+    const htmlPath = await pageOf(get, traceId, o.timeoutMs);
     return { id: traceId, observations, ...(htmlPath ? { htmlPath } : {}) };
   }
   const trace = await get(`/api/public/traces/${encodeURIComponent(traceId)}`).catch((err: unknown) => {

@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadApiRequest, Store } from '@shadowlap/engine';
 import { traceStoreHost } from '../src/import-fetch.js';
-import { fetchLangfuseTrace, langfusePage, readLangfuse } from '../src/import-langfuse.js';
+import { fetchLangfuseTrace, langfusePage, PAGE_LINK_MS, readLangfuse } from '../src/import-langfuse.js';
 import { fetchLangsmithRuns, readLangsmith } from '../src/import-langsmith.js';
 import { parseOtlpFile, readOtel } from '../src/import-otel.js';
 import { dialectOf, importTrace, messagesOf, outputOf, type Trace } from '../src/import-trace.js';
@@ -575,6 +575,42 @@ describe('reading a trace store', () => {
     const read = readLangfuse(trace, host);
     expect(read.calls.filter((c) => c.kind === 'model')).toHaveLength(3);
     expect(read.url).toBeUndefined();
+  });
+
+  it("gives the trace's page a few seconds at most, and imports the trace without it when it takes longer", async () => {
+    const id = '7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07';
+    const full = JSON.parse(fixture('langfuse-trace.json')) as { observations: Array<Record<string, unknown>> };
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    // Each request with the time limit it was given; the page answers only once that is up.
+    const asked: Array<[string, number]> = [];
+    const fake = (async (input: string, init?: RequestInit) => {
+      const url = new URL(input);
+      asked.push([url.pathname, timeout.mock.calls.at(-1)![0]]);
+      if (url.pathname.startsWith('/api/public/v2/')) return Response.json({ data: full.observations, meta: { cursor: null } });
+      return new Promise<Response>((_, reject) => init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason as Error)));
+    }) as unknown as typeof fetch;
+    try {
+      const keys = { host: 'https://cloud.langfuse.com', publicKey: 'pk-lf-1', secretKey: 'sk-lf-2', fetch: fake };
+      const quick = await fetchLangfuseTrace(id, { ...keys, timeoutMs: 50 });
+      expect(quick.htmlPath).toBeUndefined();
+      expect((quick.observations as unknown[]).length).toBe(full.observations.length);
+      // A request's whole time limit for the observations, and for the page no more than a few seconds.
+      expect(asked).toEqual([
+        ['/api/public/v2/observations', 50],
+        [`/api/public/traces/${id}`, 50],
+      ]);
+      expect(PAGE_LINK_MS).toBeLessThanOrEqual(5_000);
+      asked.length = 0;
+      const answered = (async (input: string) => {
+        const url = new URL(input);
+        asked.push([url.pathname, timeout.mock.calls.at(-1)![0]]);
+        return url.pathname.startsWith('/api/public/v2/') ? Response.json({ data: full.observations, meta: { cursor: null } }) : Response.json({ id, htmlPath: `/project/cm1/traces/${id}` });
+      }) as unknown as typeof fetch;
+      expect((await fetchLangfuseTrace(id, { ...keys, fetch: answered })).htmlPath).toBe(`/project/cm1/traces/${id}`);
+      expect(asked.map(([, ms]) => ms)).toEqual([30_000, PAGE_LINK_MS]);
+    } finally {
+      timeout.mockRestore();
+    }
   });
 
   it('fetches a Langfuse trace with the project keys from a Langfuse without the v2 API, and its observations when the trace lists ids only', async () => {
