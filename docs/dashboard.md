@@ -354,6 +354,8 @@ You can also give a Langfuse, LangSmith, Phoenix or Logfire host and trace id. T
 
 Phoenix's project starts as `PHOENIX_PROJECT` or `PHOENIX_PROJECT_NAME`, else `default`. Logfire is searched back 30 days; an older trace takes [`--since`](./cli.md#traces) in a terminal.
 
+A run imported from Langfuse links back to the trace: **Open in Langfuse ↗** in [its header](#the-header).
+
 The job runs [`shadowlap import`](./cli.md#import) under the name of the file you picked. Its drawer links to each run it made, or past three, to Runs filtered to them. Each run it makes is judged by the project's rules on calls as it is imported, and its Status says that verdict ([Judged by checks](#judged-by-checks)).
 
 ## A run's page
@@ -509,6 +511,7 @@ How a run came out by its checks is its page's first fact and Runs' Status, in t
 | *inconclusive* | *inconclusive* | A check could not be decided, such as a judge with no recorded verdict, or a check on what the agent printed |
 | *not applicable* | *not applicable* | No check applied: a capture none of whose rules on calls had a call to read |
 | *diverged at #1* | *diverged at #1* | A test replay left its golden at that call, which the page links |
+| *fixed by 01K5CQ7A3M* | *fixed by 01K5CQ7A3M* | A test replay that failed, once its golden passes when it runs again: the run that passed, muted, and out of Failed |
 | *exited 1* | *exited 1* | The agent exited with an error and no check failed: the code where its test result kept it, else *exited with an error* |
 | *no checks* | A dash, or a fork's writes (*forked · 2 writes blocked*) | No check judges the run, a clean replay among them |
 
@@ -1660,7 +1663,7 @@ These keys work on any page:
 | ⌘K or Ctrl K | Search or jump to anything; with the focus in a list's row, its actions |
 | `/`          | Filter a run's calls, filter Runs, or search anywhere else              |
 | `?`          | Show the shortcuts                                                      |
-| `u`          | Undo, while a toast offers it (a good or bad label)                     |
+| `u`          | Undo, while a toast offers it (a good or bad label, a delete)           |
 | Esc          | Close what is open, then go up a level                                  |
 
 These keys work in a list: Runs, and the sidebar's runs while one has the focus.
@@ -1764,6 +1767,7 @@ The dashboard's limits, in one place:
 | --------------------------------------------- | ----------------------------------------------------------------- |
 | Runs that Search or jump to lists             | The newest 500; any other run by its id                           |
 | Recorded text that Search or jump to finds    | From three characters; up to six matches, two per run             |
+| Recorded text that Runs' filter finds         | Whole words, from three characters                                |
 | A row of This week's runs, on the Overview    | Past 60 calls, a cell stands for a range                          |
 | Lines of one kind in Needs a look             | Ten, then one line says how many more there are                   |
 | A lineage in the sidebar                      | Four steps deep                                                   |

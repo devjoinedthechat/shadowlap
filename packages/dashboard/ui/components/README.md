@@ -63,7 +63,7 @@ Whatever opens over a page stands on one surface (`--pop`, one edge and its shad
 |---|---|---|
 | `Modal` | `Dialog.tsx` | What a modal stands on: a scrim in the layer slot, the app behind it inert, Tab kept in it, the focus back on what opened it. `requestClose` is what Esc and a press that starts and ends on the scrim ask of it, and what tells it its page has gone. The palette and the shortcuts draw on it directly. |
 | `Dialog` | `Dialog.tsx` | Title, one line, a body, Cancel and the action (`tone`: `lime`, `danger`, `solid`). It always fits: its header and footer pinned, its body scrolling, a sheet on a phone. Esc or a press on the scrim cancels, and where its fields changed, or `dirty` says something else did (a file dropped), asks first in the footer ("Discard what you changed?"); Cancel never asks. The focus starts by rule (`dialogFocus` in `focus.ts`, `firstFocus` in `ui/overlays/focus-back.ts`): on Cancel when the action is red or `initialFocus="cancel"` asks for it, so Enter twice never does what can't be undone; else on its first field, not on a touch screen; else on its action, on a touch screen on Cancel while the action waits; a drop zone before them all. |
-| `PromptDialog`, `ConfirmDialog` | `Dialog.tsx` | One field before an action runs (or one of a few `choices`, with "Something else…"; a choice with `text` asks for a few words more, as "error, with a message" does), with the command it runs, which can follow the answer; a yes or no with the command it runs. |
+| `PromptDialog`, `ConfirmDialog` | `Dialog.tsx` | One field before an action runs (or one of a few `choices`, with "Something else…"; a choice with `text` asks for a few words more, as "error, with a message" does; `suggestions`, answers it offers as you type, as the bulk bar's Label offers the labels runs carry), with the command it runs, which can follow the answer; a yes or no with the command it runs. |
 | `DatasetDialog` | `DatasetDialog.tsx` | Runs as an eval dataset: a format and which calls become examples, as the `export-dataset` job. A run's Share menu and the Runs page's bulk bar both open it; pass `rules` when the page knows how many redaction rules the copy applies. |
 | `Popover`, `MenuItem`, `useMenu` | `Popover.tsx` | A menu hanging from its button (`.pop`, `narrow` for the second of its two widths, `curmark` for a check before each row), placed by the room there is (`placeMenu` in `place.ts`) and again as it or the window changes size, its first item focused, a sheet on a phone. Arrows round its ends, Home, End, PageUp, PageDown, a typed letter, → to a row's second button (`.prow`, `.px`), Tab and Esc to close, `onKeys` for keys of its own. A button that opens one says so as it is drawn (`aria-haspopup`), so ↓ and ↑ open it from the first press. A row is one line: `<b>` what it does, `<small>` what it runs; what it is for and its command go on its hover card (`data-tip`). `MenuItem`'s `checked` makes it the picked one of a choice (`menuitemradio`). `useMenu()` holds the open state and the anchor. |
 | `Picker`, `matchPicks`, `pickMove` | `Picker.tsx` | A combobox: a filter over a listbox, the field naming the option the arrows light (`aria-activedescendant`), the one picked checked, "Nothing matches." when the filter leaves none, at its button's width, a sheet on a phone. The lit row moves by a class alone, so a key draws no row of a long list again. `RunPicker` (`ui/compare/`) is one over runs, by id, about line or label: Compare's, the redaction preview's. |
@@ -144,14 +144,24 @@ with what it has and calls `paletteSourcesChanged()` when more arrives, and an o
 its sources again. Pages a later version fills in each have their own file under `pages/`.
 
 The Overview's panels are in `overview/` (`panels.tsx`, with what they say in `overview/model.ts`),
-and the Runs page's parts in `runspage/`: the calendar (`Calendar.tsx`, its logic in
-`calendar-model.ts`), the table, the bulk bar (`bulk.ts`: its toasts, Dataset's limit, ids sent in batches, the Delete command),
-the import dialog (`imports.ts` reads a file's first
+and the Runs page's parts in `runspage/`: the header's actions (`RunsActions.tsx`: Pull, Import
+capture… and Push local runs while runs are only here), the filter field (`FilterField.tsx`: its
+terms on hover, how many runs match, `onCommit` for Enter), the row of days (`DaysRow.tsx`, a bar a
+week on a phone, its days picked by `day-picks.ts`) and the calendar it opens (`Calendar.tsx`, its
+logic in `calendar-model.ts`), the table (`RunsTable.tsx`, `RunsTableEmpty` the line an empty list
+says), the bulk bar (`BulkBar.tsx`, whose `BulkButton` says on hover what it does and why it waits;
+`bulk.ts`: its toasts, Dataset's limit, ids sent in batches, the Delete command, `labelSuggestions`
+for Label), the import dialog (`imports.ts` reads a file's first
 bytes for the engine's `guessImportFormat`, and dates the sample trace in `sample-otel.ts` to end now), Find the commit (`find-commit.ts`, what it asks bisect
-for) and authors; `runspage/query.ts` builds the page's requests and reads the
+for) and authors. The bulk bar's Delete waits out its toast with Undo (`delete-runs.ts`); meanwhile
+`ui/pending-delete.ts` keeps the runs off every list and sends the delete as the page or the
+project goes. `runspage/query.ts` builds the page's requests and reads the
 filter its address holds (`#/runs?q=…&types=failed&sort=spent&from=…&to=…`, written by `links.runs`
-in `src/links.ts`), so any screen can link to a filtered list, and Back and Forward go through the
-views Runs showed. `teamstore.ts` has `useTeamStore()`, the team store as `GET /api/store` reports it, for any
+in `src/links.ts`), so any screen can link to a filtered list. `runspage/history.ts` writes it:
+`commitRuns` as a step Back undoes (a chip, a sort, days, Enter), `replaceRuns` in place (the words
+as they settle). `runspage/scroll.ts` gives each view back where its list was left, and
+`ui/runs-view.ts` keeps the view Runs showed last, which the nav's Runs, the crumbs, `g r` and a
+cold Esc open. `teamstore.ts` has `useTeamStore()`, the team store as `GET /api/store` reports it, for any
 screen that changes with one (the top bar's *team* label among them); it reads again when the change
 feed's `team` counter moves (a push, a pull, a step of the setup). The store's setup is a page of its
 own, `#/setup/store` (`pages/settings/StoreSetup.tsx`, with its palette entry), its steps worked out in
